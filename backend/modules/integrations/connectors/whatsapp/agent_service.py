@@ -62,7 +62,9 @@ Conduza sempre a conversa com gentileza e propósito: entender, qualificar, e le
 
 Ferramentas disponíveis: quando o cliente fornecer ou mencionar um CNPJ, use consultar_cnpj para validar e obter os dados oficiais (razão social, situação cadastral, município/UF, CNAE) — NUNCA invente esses dados, use apenas o que a ferramenta retornar. Em seguida use buscar_cliente para verificar se esse CNPJ já é cliente da Conecta Mais: se for (existe:true), acolha a pessoa como CLIENTE já atendido (tom de relacionamento e cuidado, não de prospecção); se não for, siga qualificando como novo lead. Se uma ferramenta retornar erro, não trave nem mencione detalhes técnicos — siga o atendimento normalmente e, se precisar, peça o dado novamente com gentileza. Todos os guard-rails acima continuam valendo (nunca preços, nunca inventar).
 
-Agendamento de visita: quando o cliente demonstrar real interesse e for o momento de avançar, conduza para AGENDAR uma visita técnica/comercial gratuita. Pergunte o endereço (se já for cliente identificado, confirme o endereço do cadastro) e a preferência de data e horário. Com endereço + data + horário em mãos, use a ferramenta agendar_visita. IMPORTANTE — fraseado: deixe SEMPRE claro que é uma SOLICITAÇÃO de visita e que a equipe confirma o horário depois. NUNCA diga que está "agendada" ou "confirmada". Diga algo como "vou encaminhar sua solicitação de visita para [data] às [horário]; nossa equipe confirma com você em seguida". Se faltar endereço, data ou horário, pergunte com gentileza antes de tentar agendar (nunca registre uma visita incompleta)."""
+Agendamento de visita: quando o cliente demonstrar real interesse e for o momento de avançar, conduza para AGENDAR uma visita técnica/comercial gratuita. Pergunte o endereço (se já for cliente identificado, confirme o endereço do cadastro) e a preferência de data e horário. Com endereço + data + horário em mãos, use a ferramenta agendar_visita. IMPORTANTE — fraseado: deixe SEMPRE claro que é uma SOLICITAÇÃO de visita e que a equipe confirma o horário depois. NUNCA diga que está "agendada" ou "confirmada". Diga algo como "vou encaminhar sua solicitação de visita para [data] às [horário]; nossa equipe confirma com você em seguida". Se faltar endereço, data ou horário, pergunte com gentileza antes de tentar agendar (nunca registre uma visita incompleta).
+
+Transferência para um humano: tente SEMPRE resolver você mesmo primeiro — transferir é o último recurso. Se você NÃO conseguir resolver a demanda OU se o cliente pedir explicitamente para falar com uma pessoa/atendente, use a ferramenta transferir_conversa com o setor adequado: comercial (orçamento, proposta, cotação, contratar serviço, visita comercial); suporte_tecnico (equipamento com problema, manutenção de CFTV/câmera/alarme/controle de acesso); operacional (portaria, escala, ronda, troca de porteiro/vigilante, posto); administrativo (boleto, nota fiscal, financeiro, contrato, RH, cobrança). SEMPRE avise o cliente ANTES, com gentileza: "vou te encaminhar para o nosso time de [setor], um momento". IMPORTANTE: ao decidir encaminhar, você DEVE chamar a ferramenta transferir_conversa de fato — não basta dizer que vai encaminhar; sem a chamada, ninguém recebe a conversa. Se o cliente pedir para falar com uma pessoa/atendente/humano, chame transferir_conversa (use comercial se o setor não estiver claro)."""
 
 
 def agent_enabled() -> bool:
@@ -139,6 +141,34 @@ TOOLS = [
                     },
                 },
                 "required": ["data_visita", "horario_inicio", "endereco"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "transferir_conversa",
+            "description": (
+                "Encaminha a conversa para o time HUMANO do setor certo no Chatwoot. "
+                "Use quando NÃO conseguir resolver a demanda OU o cliente pedir explicitamente falar com uma pessoa. "
+                "Tente resolver primeiro — transferir é o último recurso. SEMPRE avise o cliente antes."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "setor": {
+                        "type": "string",
+                        "enum": ["comercial", "suporte_tecnico", "operacional", "administrativo"],
+                        "description": (
+                            "comercial: orçamento, proposta, visita comercial, cotação, contratar serviço. "
+                            "suporte_tecnico: equipamento com problema, manutenção de CFTV/câmera/alarme/controle de acesso. "
+                            "operacional: portaria, escala, ronda, troca de porteiro/vigilante, posto. "
+                            "administrativo: boleto, nota fiscal, financeiro, contrato, RH, cobrança."
+                        ),
+                    },
+                    "motivo": {"type": "string", "description": "Motivo curto do encaminhamento"},
+                },
+                "required": ["setor"],
             },
         },
     },
@@ -382,6 +412,42 @@ async def _tool_agendar_visita(args: dict, conversation_id: int) -> dict:
         return {"erro": "não foi possível registrar a solicitação de visita agora"}
 
 
+# Mapa setor -> team_id real do Chatwoot (GET /api/v1/accounts/1/teams, confirmado 2026-06-09)
+SETOR_TEAM_ID = {
+    "comercial": 1,
+    "administrativo": 2,
+    "suporte_tecnico": 3,
+    "operacional": 4,
+}
+
+
+async def _tool_transferir_conversa(args: dict, conversation_id: int) -> dict:
+    """Atribui a conversa ao time do setor no Chatwoot. BEST-EFFORT: nunca derruba o webhook."""
+    setor = str(args.get("setor") or "").strip().lower()
+    motivo = str(args.get("motivo") or "").strip()
+    team_id = SETOR_TEAM_ID.get(setor)
+    if not team_id:
+        return {"erro": f"setor desconhecido: {setor}"}
+    try:
+        from modules.integrations.connectors.whatsapp.service import whatsapp_service  # noqa: PLC0415
+
+        res = await whatsapp_service.assign_team(conversation_id, team_id)
+        logger.info(
+            "Tool transferir_conversa conv=%s setor=%s team=%s motivo=%s -> %s",
+            conversation_id,
+            setor,
+            team_id,
+            motivo,
+            res.get("status"),
+        )
+        if res.get("status") == "assigned":
+            return {"ok": True, "setor": setor, "mensagem": "conversa encaminhada ao time"}
+        return {"erro": "não foi possível encaminhar agora"}
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Tool transferir_conversa falhou conv=%s: %s", conversation_id, e)
+        return {"erro": "não foi possível encaminhar agora"}
+
+
 async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
     """Dispatcher das tools. Qualquer falha vira {erro:...} — nunca derruba o webhook."""
     try:
@@ -391,6 +457,8 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
             return await _tool_buscar_cliente(str(args.get("cnpj", "")))
         if name == "agendar_visita":
             return await _tool_agendar_visita(args, conversation_id)
+        if name == "transferir_conversa":
+            return await _tool_transferir_conversa(args, conversation_id)
         return {"erro": f"tool desconhecida: {name}"}
     except Exception as e:  # noqa: BLE001
         logger.error("Tool %s exception: %s", name, e)
