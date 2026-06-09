@@ -53,8 +53,10 @@ async def listar_contatos(
 ):
     """Lista contatos CRM, opcionalmente filtrados por cliente."""
     where = ""
+    params: dict = {}
     if client_id:
-        where = f"WHERE cc.client_id = '{client_id}'"
+        where = "WHERE cc.client_id = :client_id"
+        params = {"client_id": client_id}
 
     result = await db.execute(
         text(f"""
@@ -65,7 +67,8 @@ async def listar_contatos(
         JOIN clients c ON cc.client_id = c.id
         {where}
         ORDER BY cc.is_primary DESC, cc.name
-    """)
+    """),
+        params,
     )
     rows = result.fetchall()
 
@@ -179,8 +182,10 @@ async def listar_atividades(
 ):
     """Lista atividades CRM."""
     where = ""
+    params: dict = {"lim": limit}
     if client_id:
-        where = f"WHERE a.client_id = '{client_id}'"
+        where = "WHERE a.client_id = :client_id"
+        params["client_id"] = client_id
 
     result = await db.execute(
         text(f"""
@@ -193,7 +198,7 @@ async def listar_atividades(
         ORDER BY a.created_at DESC
         LIMIT :lim
     """),
-        {"lim": limit},
+        params,
     )
     rows = result.fetchall()
 
