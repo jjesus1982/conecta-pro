@@ -219,6 +219,85 @@ async def _resolve_lead_id(db, conversation_id: int) -> str | None:
         return None
 
 
+async def _enviar_emails_visita(
+    db,
+    numero,
+    data_visita,
+    horario_inicio,
+    endereco,
+    bairro,
+    cidade,
+    objetivo,
+    nome_contato,
+    telefone_contato,
+    cliente_id,
+    conversation_id,
+) -> None:
+    """F-VISITA.2 — e-mail(s) de SOLICITAÇÃO de visita. BEST-EFFORT: nunca levanta exceção."""
+    try:
+        from core.mailer import send_email  # noqa: PLC0415
+
+        data_fmt = data_visita.strftime("%d/%m/%Y")
+        hora_fmt = horario_inicio.strftime("%H:%M")
+        local = endereco
+        if bairro:
+            local += f", {bairro}"
+        if cidade:
+            local += f" - {cidade}"
+        origem_txt = "cliente cadastrado" if cliente_id else "prospect (novo lead)"
+
+        # (a) E-MAIL INTERNO — SEMPRE
+        corpo_interno = (
+            f"<h3>Nova SOLICITAÇÃO de visita — {numero}</h3>"
+            f"<p><b>Status:</b> aguardando confirmação da equipe (NÃO confirmada).</p>"
+            f"<ul>"
+            f"<li><b>Número:</b> {numero}</li>"
+            f"<li><b>Data/horário:</b> {data_fmt} às {hora_fmt}</li>"
+            f"<li><b>Local:</b> {local}</li>"
+            f"<li><b>Objetivo:</b> {objetivo or '-'}</li>"
+            f"<li><b>Contato:</b> {nome_contato or '-'} / {telefone_contato or '-'}</li>"
+            f"<li><b>Origem:</b> {origem_txt}</li>"
+            f"</ul>"
+            f"<p>Solicitação gerada pelo assistente de WhatsApp (copiloto). "
+            f"A equipe deve <b>confirmar o horário</b> com o solicitante.</p>"
+        )
+        ok_int = await send_email(
+            to_email="jjesus@conectamais.pro",
+            subject=f"[Conecta PRO] Nova solicitação de visita {numero}",
+            html_body=corpo_interno,
+        )
+        logger.info("F-VISITA.2 email interno conv=%s numero=%s enviado=%s", conversation_id, numero, ok_int)
+
+        # (b) E-MAIL AO CLIENTE — só se cliente_id e houver email
+        if cliente_id:
+            row = (await db.execute(text("SELECT email FROM clients WHERE id = :id"), {"id": str(cliente_id)})).first()
+            email_cli = (row[0] if row else None) or None
+            if email_cli:
+                corpo_cli = (
+                    f"<p>Olá! Recebemos sua <b>solicitação de visita</b> para "
+                    f"<b>{data_fmt}</b> às <b>{hora_fmt}</b>, em {local}.</p>"
+                    f"<p>Nossa equipe <b>confirmará o horário</b> com você em breve — esta mensagem é apenas "
+                    f"a confirmação de que recebemos sua solicitação (o horário ainda será confirmado).</p>"
+                    f"<p>Atenciosamente,<br>Equipe Conecta Mais</p>"
+                )
+                ok_cli = await send_email(
+                    to_email=email_cli,
+                    subject="[Conecta Mais] Recebemos sua solicitação de visita",
+                    html_body=corpo_cli,
+                )
+                logger.info("F-VISITA.2 email cliente conv=%s numero=%s enviado=%s", conversation_id, numero, ok_cli)
+            else:
+                logger.info(
+                    "F-VISITA.2 email cliente PULADO conv=%s numero=%s motivo=sem_email", conversation_id, numero
+                )
+        else:
+            logger.info(
+                "F-VISITA.2 email cliente PULADO conv=%s numero=%s motivo=sem_cliente_id", conversation_id, numero
+            )
+    except Exception as e:  # noqa: BLE001 — best-effort: e-mail nunca quebra a visita
+        logger.warning("F-VISITA.2 falha no envio de e-mail (best-effort) conv=%s: %s", conversation_id, e)
+
+
 async def _tool_agendar_visita(args: dict, conversation_id: int) -> dict:
     """Cria uma visita PROPOSTA (status AGENDADA) em modules/campo. Copiloto: humano confirma depois. Nunca estoura."""
     import re  # noqa: PLC0415
@@ -280,6 +359,23 @@ async def _tool_agendar_visita(args: dict, conversation_id: int) -> dict:
                 objetivo=(args.get("objetivo") or None),
             )
             visita = await VisitaService(db).criar_visita(visita_data, created_by=responsavel_id)
+
+            # F-VISITA.2 — e-mail(s) de solicitação (best-effort: nunca quebra a criação da visita)
+            await _enviar_emails_visita(
+                db=db,
+                numero=visita.numero,
+                data_visita=data_visita,
+                horario_inicio=horario_inicio,
+                endereco=endereco,
+                bairro=args.get("bairro"),
+                cidade=args.get("cidade"),
+                objetivo=args.get("objetivo"),
+                nome_contato=args.get("nome_contato"),
+                telefone_contato=args.get("telefone_contato"),
+                cliente_id=cliente_id,
+                conversation_id=conversation_id,
+            )
+
             return {"ok": True, "numero": visita.numero, "status": "AGENDADA"}
     except Exception as e:  # noqa: BLE001
         logger.warning("Tool agendar_visita falhou conv=%s: %s", conversation_id, e)
