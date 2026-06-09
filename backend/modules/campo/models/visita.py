@@ -114,22 +114,24 @@ class Visita(Base):
     # =========================================================================
     # Classificacao
     # =========================================================================
-    tipo = Column(Enum(TipoVisita), nullable=False, default=TipoVisita.COMERCIAL)
-    status = Column(Enum(StatusVisita), nullable=False, default=StatusVisita.AGENDADA, index=True)
-    origem = Column(Enum(OrigemVisita), nullable=False, default=OrigemVisita.LEAD)
+    tipo = Column(Enum(TipoVisita, native_enum=False), nullable=False, default=TipoVisita.COMERCIAL)
+    status = Column(Enum(StatusVisita, native_enum=False), nullable=False, default=StatusVisita.AGENDADA, index=True)
+    origem = Column(Enum(OrigemVisita, native_enum=False), nullable=False, default=OrigemVisita.LEAD)
 
     # =========================================================================
     # Responsavel (Tecnico ou Vendedor)
     # =========================================================================
     responsavel_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    responsavel_tipo = Column(Enum(TipoResponsavel), nullable=False, default=TipoResponsavel.VENDEDOR)
+    responsavel_tipo = Column(
+        Enum(TipoResponsavel, native_enum=False), nullable=False, default=TipoResponsavel.VENDEDOR
+    )
     responsavel_nome = Column(String(200))  # Cache para relatorios
 
     # =========================================================================
     # Cliente Existente (se aplicavel)
     # =========================================================================
-    cliente_id = Column(UUID(as_uuid=True), ForeignKey("clients.clients.id"), nullable=True, index=True)
-    contrato_id = Column(UUID(as_uuid=True), ForeignKey("crm.contracts.id"), nullable=True)
+    cliente_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    contrato_id = Column(UUID(as_uuid=True), nullable=True)
 
     # =========================================================================
     # Prospect (se nao for cliente existente)
@@ -146,8 +148,8 @@ class Visita(Base):
     prospect_cpf = Column(String(15))
 
     # Lead/Oportunidade relacionada
-    lead_id = Column(UUID(as_uuid=True), ForeignKey("crm.leads.id"), nullable=True)
-    oportunidade_id = Column(UUID(as_uuid=True), ForeignKey("crm.opportunities.id"), nullable=True)
+    lead_id = Column(UUID(as_uuid=True), nullable=True)
+    oportunidade_id = Column(UUID(as_uuid=True), nullable=True)
 
     # =========================================================================
     # Localizacao
@@ -173,7 +175,7 @@ class Visita(Base):
     # Confirmacao
     confirmada = Column(Boolean, default=False)
     confirmada_at = Column(DateTime)
-    confirmada_por = Column(String(100))  # Nome/canal de confirmacao
+    confirmada_por = Column(UUID(as_uuid=True), nullable=True)  # quem confirmou (uuid no banco)
     lembrete_enviado = Column(Boolean, default=False)
     lembrete_enviado_at = Column(DateTime)
 
@@ -194,7 +196,7 @@ class Visita(Base):
     # =========================================================================
     # Resultado
     # =========================================================================
-    resultado = Column(Enum(ResultadoVisita), nullable=True)
+    resultado = Column(Enum(ResultadoVisita, native_enum=False), nullable=True)
     data_resultado = Column(DateTime)
 
     # Anotacoes
@@ -207,12 +209,12 @@ class Visita(Base):
     # =========================================================================
     # Conversao Comercial (para visitas comerciais)
     # =========================================================================
-    interesse_nivel = Column(Integer)  # 1-5
+    interesse_nivel = Column(String)  # 1-5 (varchar no banco)
     interesse_servicos = Column(JSONB, default=list)
     # [{servico_id, nome, interesse_nivel}]
 
     proposta_gerada = Column(Boolean, default=False)
-    proposta_id = Column(UUID(as_uuid=True), ForeignKey("crm.proposals.id"), nullable=True)
+    proposta_id = Column(UUID(as_uuid=True), nullable=True)
     proposta_valor = Column(Numeric(12, 2))
 
     contrato_fechado = Column(Boolean, default=False)
@@ -270,7 +272,7 @@ class Visita(Base):
     # Follow-up
     # =========================================================================
     followup_agendado = Column(Boolean, default=False)
-    followup_data = Column(Date)
+    followup_data = Column(DateTime)  # timestamp no banco
     followup_tipo = Column(String(50))  # "ligacao", "email", "visita", "reuniao"
     followup_observacoes = Column(Text)
 
