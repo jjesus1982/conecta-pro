@@ -267,7 +267,9 @@ class ProposalRepository:
         Returns:
             Tupla (proposals, total)
         """
-        query = select(Proposal).where(Proposal.is_active.is_(True))
+        # Eager-load de items: ProposalResponse.item_count lê self.items;
+        # sem isto a serializacao na lista faz lazy-load async -> MissingGreenlet 500.
+        query = select(Proposal).options(selectinload(Proposal.items)).where(Proposal.is_active.is_(True))
 
         if filters:
             query = self._apply_filters(query, filters)
