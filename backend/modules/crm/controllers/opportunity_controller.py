@@ -26,6 +26,7 @@ router = APIRouter(prefix="/opportunities", tags=["CRM - Opportunities"])
 
 
 @router.post("", response_model=OpportunityResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=OpportunityResponse, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 async def create_opportunity(
     data: OpportunityCreate,
     current_user: CurrentActiveUser,
@@ -71,6 +72,7 @@ async def create_opportunity_from_lead(
 
 
 @router.get("", response_model=OpportunityListResponse)
+@router.get("/", response_model=OpportunityListResponse, include_in_schema=False)
 async def list_opportunities(  # pylint: disable=too-many-locals
     current_user: CurrentActiveUser,  # pylint: disable=unused-argument
     db: AsyncSession = Depends(get_db),

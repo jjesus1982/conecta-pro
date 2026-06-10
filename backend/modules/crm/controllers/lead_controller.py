@@ -27,6 +27,7 @@ router = APIRouter(prefix="/leads", tags=["CRM - Leads"])
 
 
 @router.post("", response_model=LeadResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=LeadResponse, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 async def create_lead(
     data: LeadCreate,
     current_user: CurrentActiveUser,  # pylint: disable=unused-argument
@@ -39,13 +40,14 @@ async def create_lead(
     """
     repo = LeadRepository(db)
 
-    # Verificar se email já existe
-    existing = await repo.get_by_email(data.email)
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Já existe um lead com este email",
-        )
+    # Verificar se email já existe (apenas quando informado — leads de WhatsApp não têm email)
+    if data.email:
+        existing = await repo.get_by_email(data.email)
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Já existe um lead com este email",
+            )
 
     lead = await repo.create(data)
     logger.info(f"Lead criado por {current_user.email}: {lead.id}")
@@ -54,6 +56,7 @@ async def create_lead(
 
 
 @router.get("", response_model=LeadListResponse)
+@router.get("/", response_model=LeadListResponse, include_in_schema=False)
 async def list_leads(  # pylint: disable=too-many-locals
     current_user: CurrentActiveUser,  # pylint: disable=unused-argument
     db: AsyncSession = Depends(get_db),
