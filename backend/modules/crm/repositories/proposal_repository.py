@@ -95,20 +95,25 @@ class ProposalRepository:
             created_by_id=created_by_id,
         )
 
-        self.db.add(proposal)
-        await self.db.flush()
+        # Itens em memória — _create_item já calcula item.total (sem IO)
+        items = [self._create_item(proposal.id, item_data, i) for i, item_data in enumerate(data.items)]
 
-        # Adicionar itens
-        for i, item_data in enumerate(data.items):
-            item = self._create_item(proposal.id, item_data, i)
-            self.db.add(item)
-
-        await self.db.commit()
-        await self.db.refresh(proposal)
-
-        # Recalcular totais
+        # Atribui a coleção em memória e calcula os totais SEM lazy-load async
+        # (calculate_totals lê proposal.items da memória, não do banco -> sem MissingGreenlet)
+        proposal.items = items
         proposal.calculate_totals()
-        await self.db.commit()
+
+        # Persiste tudo de uma vez (ATÔMICO): cascade='all, delete-orphan' adiciona os itens.
+        # Commit ÚNICO no fim -> qualquer falha antes do commit não deixa proposta parcial.
+        self.db.add(proposal)
+        try:
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+            raise
+
+        # Eager-load dos itens dentro do greenlet (evita lazy-load na serializacao da resposta)
+        await self.db.refresh(proposal, ["items"])
 
         logger.info(f"Proposal criada: {proposal.id} ({proposal.number})")
         return proposal
