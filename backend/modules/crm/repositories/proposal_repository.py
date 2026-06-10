@@ -19,6 +19,7 @@ from modules.crm.models.proposal import (
     ProposalItem,
     ProposalStatus,
     ProposalTemplate,
+    ProposalTermOption,
 )
 from modules.crm.schemas.proposal import (
     ProposalApprovalRequest,
@@ -98,12 +99,18 @@ class ProposalRepository:
         # Itens em memória — _create_item já calcula item.total (sem IO)
         items = [self._create_item(proposal.id, item_data, i) for i, item_data in enumerate(data.items)]
 
-        # Atribui a coleção em memória e calcula os totais SEM lazy-load async
+        # Opções de prazo em memória (sprint94) — espelha o loop de items, sem IO
+        term_options = [self._create_term_option(proposal.id, t, i) for i, t in enumerate(data.term_options)]
+
+        # Atribui as coleções em memória e calcula os totais SEM lazy-load async
         # (calculate_totals lê proposal.items da memória, não do banco -> sem MissingGreenlet)
         proposal.items = items
+        proposal.term_options = term_options
+        proposal.billing_type = data.billing_type
+        proposal.reference_number = data.reference_number
         proposal.calculate_totals()
 
-        # Persiste tudo de uma vez (ATÔMICO): cascade='all, delete-orphan' adiciona os itens.
+        # Persiste tudo de uma vez (ATÔMICO): cascade='all, delete-orphan' adiciona itens e term_options.
         # Commit ÚNICO no fim -> qualquer falha antes do commit não deixa proposta parcial.
         self.db.add(proposal)
         try:
@@ -112,8 +119,8 @@ class ProposalRepository:
             await self.db.rollback()
             raise
 
-        # Eager-load dos itens dentro do greenlet (evita lazy-load na serializacao da resposta)
-        await self.db.refresh(proposal, ["items"])
+        # Eager-load dos relacionamentos dentro do greenlet (evita lazy-load na serializacao da resposta)
+        await self.db.refresh(proposal, ["items", "term_options"])
 
         logger.info(f"Proposal criada: {proposal.id} ({proposal.number})")
         return proposal
@@ -179,7 +186,7 @@ class ProposalRepository:
             self.db.add(item)
 
         await self.db.commit()
-        await self.db.refresh(proposal)
+        await self.db.refresh(proposal, ["items", "term_options"])
 
         proposal.calculate_totals()
         await self.db.commit()
@@ -205,6 +212,18 @@ class ProposalRepository:
         item.calculate_total()
         return item
 
+    def _create_term_option(self, proposal_id: str, data, sort_order: int) -> ProposalTermOption:
+        """Cria opção de prazo/mensalidade da proposta (multi-prazo) — sprint94."""
+        return ProposalTermOption(
+            id=str(uuid4()),
+            proposal_id=proposal_id,
+            term_months=data.term_months,
+            monthly_value=data.monthly_value,
+            composition=data.composition,
+            is_recommended=data.is_recommended,
+            sort_order=data.sort_order if data.sort_order else sort_order,
+        )
+
     async def get_by_id(self, proposal_id: str) -> Proposal | None:
         """
         Busca proposta por ID.
@@ -217,7 +236,7 @@ class ProposalRepository:
         """
         result = await self.db.execute(
             select(Proposal)
-            .options(selectinload(Proposal.items))
+            .options(selectinload(Proposal.items), selectinload(Proposal.term_options))
             .where(Proposal.id == proposal_id, Proposal.is_active.is_(True))
         )
         return result.scalar_one_or_none()
@@ -355,7 +374,7 @@ class ProposalRepository:
         proposal.calculate_totals()
 
         await self.db.commit()
-        await self.db.refresh(proposal)
+        await self.db.refresh(proposal, ["items", "term_options"])
 
         logger.info(f"Proposal atualizada: {proposal.id}")
         return proposal
@@ -401,7 +420,7 @@ class ProposalRepository:
         await self.db.commit()
 
         # Recalcular totais
-        await self.db.refresh(proposal)
+        await self.db.refresh(proposal, ["items", "term_options"])
         proposal.calculate_totals()
         await self.db.commit()
 
@@ -447,7 +466,7 @@ class ProposalRepository:
         proposal.updated_at = datetime.utcnow()
 
         await self.db.commit()
-        await self.db.refresh(proposal)
+        await self.db.refresh(proposal, ["items", "term_options"])
 
         logger.info(f"Proposal {proposal_id} status: {old_status} -> {status.value}")
         return proposal
@@ -466,7 +485,7 @@ class ProposalRepository:
         proposal.updated_at = datetime.utcnow()
 
         await self.db.commit()
-        await self.db.refresh(proposal)
+        await self.db.refresh(proposal, ["items", "term_options"])
 
         logger.info(f"Proposal {proposal_id} submetida para aprovacao")
         return proposal
@@ -518,7 +537,7 @@ class ProposalRepository:
         proposal.updated_at = datetime.utcnow()
 
         await self.db.commit()
-        await self.db.refresh(proposal)
+        await self.db.refresh(proposal, ["items", "term_options"])
 
         logger.info(f"Proposal {proposal_id} aprovacao: {data.action.value}")
         return proposal
@@ -591,7 +610,7 @@ class ProposalRepository:
             self.db.add(new_item)
 
         await self.db.commit()
-        await self.db.refresh(new_proposal)
+        await self.db.refresh(new_proposal, ["items", "term_options"])
 
         new_proposal.calculate_totals()
         await self.db.commit()

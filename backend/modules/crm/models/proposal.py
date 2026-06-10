@@ -18,7 +18,7 @@ from sqlalchemy import (
     String,
     Text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
 from core.models import Base
@@ -140,10 +140,16 @@ class Proposal(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
+    # Recorrência / multi-prazo (sprint94)
+    billing_type = Column(String(20), default="recurring", nullable=False)  # recurring | one_time
+    selected_term_option_id = Column(UUID(as_uuid=False), nullable=True)  # FK existe no banco (SET NULL)
+    reference_number = Column(String(50), nullable=True)  # nº original do PDF (ex.: 00091)
+
     # Relationships
     items = relationship("ProposalItem", back_populates="proposal", cascade="all, delete-orphan")
     versions = relationship("Proposal", backref="parent", remote_side=[id])  # noqa: A003
     approvals = relationship("ProposalApproval", back_populates="proposal", cascade="all, delete-orphan")
+    term_options = relationship("ProposalTermOption", back_populates="proposal", cascade="all, delete-orphan")
 
     @property
     def is_draft(self) -> bool:
@@ -279,6 +285,30 @@ class ProposalItem(Base):
     def calculate_total(self) -> None:
         """Calcula total do item."""
         self.total = self.subtotal - self.discount_amount
+
+
+class ProposalTermOption(Base):
+    """Opção de prazo/mensalidade da proposta (multi-prazo + recorrência) — sprint94."""
+
+    __tablename__ = "proposal_term_options"
+
+    id = Column(UUID(as_uuid=False), primary_key=True)
+    proposal_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("proposals.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    term_months = Column(Integer, nullable=False)
+    monthly_value = Column(Float, nullable=False)  # double, consistente com proposals.total
+    composition = Column(JSONB, nullable=True)  # [{name, value}] fiel ao PDF
+    is_recommended = Column(Boolean, default=False, nullable=False)
+    sort_order = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    proposal = relationship("Proposal", back_populates="term_options")
 
 
 class ProposalTemplate(Base):  # pylint: disable=too-few-public-methods

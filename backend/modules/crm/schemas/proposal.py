@@ -35,6 +35,29 @@ class ProposalItemCreate(ProposalItemBase):
     sort_order: int = 0
 
 
+class ProposalTermOptionCreate(BaseModel):
+    """Schema para criacao de opção de prazo (multi-prazo + recorrência) — sprint94."""
+
+    term_months: int = Field(..., ge=1, le=120)
+    monthly_value: float = Field(..., ge=0)
+    composition: list[dict] | None = None  # [{name, value}] fiel ao PDF
+    is_recommended: bool = False
+    sort_order: int = 0
+
+
+class ProposalTermOptionResponse(BaseModel):
+    """Schema de resposta para opção de prazo."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    term_months: int
+    monthly_value: float
+    composition: list[dict] | None = None
+    is_recommended: bool = False
+    sort_order: int = 0
+
+
 class ProposalItemUpdate(BaseModel):
     """Schema para atualizacao de item."""
 
@@ -173,6 +196,20 @@ class ProposalCreate(ProposalBase):
 
     # Itens (opcional na criacao)
     items: list[ProposalItemCreate] = []
+
+    # Multi-prazo + recorrência (sprint94)
+    billing_type: str = "recurring"  # recurring | one_time
+    reference_number: str | None = Field(None, max_length=50)  # nº original do PDF (ex.: 00091)
+    term_options: list[ProposalTermOptionCreate] = []
+
+    @field_validator("billing_type", mode="before")
+    @classmethod
+    def _validate_billing_type(cls, v):
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return "recurring"
+        if v not in ("recurring", "one_time"):
+            raise ValueError("billing_type deve ser 'recurring' ou 'one_time'")
+        return v
 
 
 class ProposalCreateFromOpportunity(BaseModel):
@@ -324,11 +361,16 @@ class ProposalResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    # Multi-prazo + recorrência (sprint94) — NULÁVEIS (lição client_email)
+    billing_type: str | None = None
+    reference_number: str | None = None
+
 
 class ProposalDetailResponse(ProposalResponse):
     """Schema de resposta detalhada com itens."""
 
     items: list[ProposalItemResponse] = []
+    term_options: list[ProposalTermOptionResponse] = []
 
 
 class ProposalListResponse(BaseModel):
