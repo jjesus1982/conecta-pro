@@ -54,7 +54,7 @@ export const createProposalApiV1CrmProposalsPost = (
   signal?: AbortSignal,
 ) => {
   return customInstance<ProposalDetailResponse>({
-    url: `/api/v1/crm/proposals/`,
+    url: `/api/v1/crm/proposals`,
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     data: modulesCrmSchemasProposalProposalCreate,
@@ -141,7 +141,7 @@ export const listProposalsApiV1CrmProposalsGet = (
   signal?: AbortSignal,
 ) => {
   return customInstance<ModulesCrmSchemasProposalProposalListResponse>({
-    url: `/api/v1/crm/proposals/`,
+    url: `/api/v1/crm/proposals`,
     method: 'GET',
     params,
     signal,
@@ -151,7 +151,7 @@ export const listProposalsApiV1CrmProposalsGet = (
 export const getListProposalsApiV1CrmProposalsGetQueryKey = (
   params?: ListProposalsApiV1CrmProposalsGetParams,
 ) => {
-  return [`/api/v1/crm/proposals/`, ...(params ? [params] : [])] as const;
+  return [`/api/v1/crm/proposals`, ...(params ? [params] : [])] as const;
 };
 
 export const getListProposalsApiV1CrmProposalsGetQueryOptions = <
