@@ -33,6 +33,7 @@ app = Celery(
         "modules.health_occupational.tasks",
         "modules.gedeon.tasks.kronos_tasks",
         "modules.financial.tasks",
+        "modules.crm.tasks",
     ],
 )
 
@@ -400,6 +401,12 @@ app.conf.beat_schedule = {
         "task": "gedeon.hermes_vincular_docs_mes",
         "schedule": crontab(day_of_month="1", hour="9", minute="0"),
         "args": [None],  # None = mês corrente
+        "options": {"queue": "gov.batch"},
+    },
+    # ── CRM — Follow-up de propostas: gera lista (disparo ao cliente DESLIGADO/gate LGPD) — diário 08:30 ──
+    "crm-followup-proposals-0830": {
+        "task": "crm.followup_proposals",
+        "schedule": crontab(hour=8, minute=30),
         "options": {"queue": "gov.batch"},
     },
 }
