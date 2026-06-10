@@ -85,7 +85,7 @@ class Proposal(Base):
 
     # Dados do cliente
     client_name = Column(String(255), nullable=False)
-    client_email = Column(String(255), nullable=False)
+    client_email = Column(String(255), nullable=True)
     client_phone = Column(String(20), nullable=True)
     client_company = Column(String(255), nullable=True)
     client_document = Column(String(20), nullable=True)  # CPF/CNPJ

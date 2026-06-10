@@ -103,6 +103,7 @@ export default function PropostasPage() {
   const [formData, setFormData] = useState({
     title: '',
     client_name: '',
+    client_email: '',
     total_value: 0,
     status: 'draft',
   });
@@ -119,7 +120,7 @@ export default function PropostasPage() {
   };
 
   const resetForm = () => {
-    setFormData({ title: '', client_name: '', total_value: 0, status: 'draft' });
+    setFormData({ title: '', client_name: '', client_email: '', total_value: 0, status: 'draft' });
   };
 
   const handleCreate = async () => {
@@ -128,7 +129,7 @@ export default function PropostasPage() {
       return;
     }
     try {
-      await createMutation.mutateAsync({ data: formData as any });
+      await createMutation.mutateAsync({ data: { ...formData, client_email: formData.client_email.trim() || null } as any });
       resetForm();
       setFormOpen(false);
       toast.success('Proposta criada com sucesso');
@@ -140,7 +141,7 @@ export default function PropostasPage() {
   const handleUpdate = async () => {
     if (!editItem) return;
     try {
-      await updateMutation.mutateAsync({ proposalId: editItem.id, data: formData as any });
+      await updateMutation.mutateAsync({ proposalId: editItem.id, data: { ...formData, client_email: formData.client_email.trim() || null } as any });
       resetForm();
       setEditItem(null);
       setFormOpen(false);
@@ -160,6 +161,7 @@ export default function PropostasPage() {
     setFormData({
       title: proposta.title || proposta.titulo || '',
       client_name: proposta.client_name || proposta.cliente || '',
+      client_email: proposta.client_email || '',
       total_value: proposta.total_value || proposta.valor || 0,
       status: proposta.status || 'draft',
     });
@@ -330,6 +332,15 @@ export default function PropostasPage() {
                     placeholder="Nome do cliente"
                   />
                 </div>
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">E-mail do cliente (opcional)</label>
+                <Input
+                  type="email"
+                  value={formData.client_email}
+                  onChange={(e) => setFormData({ ...formData, client_email: e.target.value })}
+                  placeholder="email@cliente.com (opcional)"
+                />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="grid gap-2">

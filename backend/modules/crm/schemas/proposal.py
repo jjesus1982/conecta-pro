@@ -4,7 +4,7 @@ Schemas Pydantic para Proposal.
 
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from modules.crm.models.proposal import (
     ApprovalAction,
@@ -128,13 +128,21 @@ class ProposalTemplateResponse(ProposalTemplateBase):
 class ProposalBase(BaseModel):
     """Schema base para proposta."""
 
+    @field_validator("client_email", mode="before")
+    @classmethod
+    def _empty_email_to_none(cls, v):
+        # EmailStr rejeita string vazia; normaliza ""/espacos -> None (campo opcional)
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return v
+
     title: str = Field(..., min_length=1, max_length=255)
     description: str | None = None
     proposal_type: ProposalType = ProposalType.SERVICE
 
     # Cliente
     client_name: str = Field(..., min_length=1, max_length=255)
-    client_email: EmailStr
+    client_email: EmailStr | None = None
     client_phone: str | None = Field(None, max_length=20)
     client_company: str | None = Field(None, max_length=255)
     client_document: str | None = Field(None, max_length=20)
@@ -257,7 +265,7 @@ class ProposalResponse(BaseModel):
 
     # Cliente
     client_name: str
-    client_email: str
+    client_email: str | None = None
     client_phone: str | None
     client_company: str | None
     client_document: str | None
