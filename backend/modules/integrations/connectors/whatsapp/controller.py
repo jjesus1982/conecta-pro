@@ -221,6 +221,94 @@ async def _match_or_create_lead(db: AsyncSession, phone_canonical: str, name: st
     return lead.id
 
 
+# Limite de download de audio (anti-abuso); voice do WhatsApp fica na casa de KB.
+_AUDIO_MAX_BYTES = 16 * 1024 * 1024
+_audio_payload_logged = False  # loga o payload bruto de attachments 1x p/ calibrar formato
+
+
+async def _transcrever_audio_attachments(data: dict) -> str | None:
+    """STT best-effort: acha attachment de audio, baixa do Chatwoot e transcreve (Whisper).
+
+    Retorna "🎤 [áudio transcrito]: <texto>" ou None. NUNCA levanta excecao —
+    qualquer falha loga e retorna None (webhook segue com content vazio, como hoje).
+    """
+    global _audio_payload_logged  # noqa: PLW0603
+    try:
+        attachments = data.get("attachments") or []
+        if not attachments:
+            return None
+
+        if not _audio_payload_logged:
+            _audio_payload_logged = True
+            logger.info(
+                "Webhook Chatwoot: payload attachments (1a ocorrencia, calibracao): %s",
+                json.dumps(attachments, ensure_ascii=False, default=str)[:800],
+            )
+
+        audio = None
+        for att in attachments:
+            ftype = str(att.get("file_type", "")).lower()
+            ctype = str(att.get("content_type", "")).lower()
+            if ftype == "audio" or "audio" in ctype:
+                audio = att
+                break
+        if not audio:
+            return None
+
+        data_url = audio.get("data_url") or audio.get("file_url") or ""
+        if not data_url:
+            logger.warning("Webhook Chatwoot: attachment de audio sem data_url")
+            return None
+        if not data_url.startswith("http"):
+            base = os.getenv("CHATWOOT_BASE_URL", "http://chatwoot-fazerai:3000").rstrip("/")
+            data_url = f"{base}/{data_url.lstrip('/')}"
+
+        # extensao p/ o Whisper reconhecer o formato (voice do WhatsApp = ogg/opus)
+        ext = os.path.splitext(data_url.split("?")[0])[1].lower().lstrip(".") or "ogg"
+        if ext not in ("ogg", "oga", "mp3", "m4a", "wav", "webm", "mp4", "mpga", "mpeg", "flac"):
+            ext = "ogg"
+        if ext == "oga":
+            ext = "ogg"
+
+        import aiohttp  # noqa: PLC0415 — lazy, padrao da casa
+
+        headers = {"api_access_token": os.getenv("CHATWOOT_API_TOKEN", "")}
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(data_url, headers=headers, timeout=aiohttp.ClientTimeout(total=20)) as resp,
+        ):
+            if resp.status != 200:
+                logger.warning("Webhook Chatwoot: download de audio HTTP %s (%s)", resp.status, data_url[:120])
+                return None
+            if resp.content_length and resp.content_length > _AUDIO_MAX_BYTES:
+                logger.warning("Webhook Chatwoot: audio excede %sMB — ignorado", _AUDIO_MAX_BYTES // 1048576)
+                return None
+            audio_bytes = await resp.content.read(_AUDIO_MAX_BYTES + 1)
+        if len(audio_bytes) > _AUDIO_MAX_BYTES:
+            logger.warning("Webhook Chatwoot: audio excede limite apos download — ignorado")
+            return None
+        if not audio_bytes:
+            return None
+
+        from openai import AsyncOpenAI  # noqa: PLC0415 — lazy, mesma chave do agente
+
+        client = AsyncOpenAI()
+        tr = await client.audio.transcriptions.create(
+            model="whisper-1",
+            file=(f"audio.{ext}", audio_bytes),
+            language="pt",
+        )
+        texto = (getattr(tr, "text", "") or "").strip()
+        if not texto:
+            logger.info("Webhook Chatwoot: transcricao vazia para %s", data_url[:120])
+            return None
+        logger.info("Webhook Chatwoot: audio transcrito (%s chars)", len(texto))
+        return f"🎤 [áudio transcrito]: {texto}"
+    except Exception as e:  # noqa: BLE001 — best-effort: STT nunca derruba o webhook
+        logger.error("Webhook Chatwoot: falha no STT de audio (segue sem transcricao): %s", e)
+        return None
+
+
 def _read_webhook_secret() -> str:
     """Segredo esperado: env (futuro rebuild) ou arquivo (docker cp no container atual)."""
     return os.getenv("WHATSAPP_WEBHOOK_SECRET", "") or _read_secret_file("/app/.whatsapp_webhook_secret")
@@ -270,6 +358,14 @@ async def chatwoot_webhook(
     phone = sender.get("phone_number") or meta_sender.get("phone_number")
     name = sender.get("name") or meta_sender.get("name")
     phone_canonical = _normalize_phone(phone)
+
+    # STT best-effort (sprint: copiloto pleno): audio de ENTRADA sem texto -> transcreve
+    # e usa como content (o agente le content do log; fluxo dele fica intocado).
+    # Qualquer falha -> content segue vazio (comportamento anterior). Nao bloqueia o 200.
+    if direction == "in" and not content and data.get("attachments"):
+        transcricao = await _transcrever_audio_attachments(data)
+        if transcricao:
+            content = transcricao
 
     lead_id = None
     if direction == "in" and phone_canonical:
