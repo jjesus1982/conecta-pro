@@ -469,6 +469,234 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
         return {"erro": "falha ao executar a ferramenta"}
 
 
+# ============================================================================
+# APRENDIZADO (3 capacidades, todas BEST-EFFORT — falha = agente segue como antes)
+# 1) Memoria de longo prazo por contato: linhas direction='mem' no cwi_message_log
+#    (zero migration; chave = phone_canonical; sempre INSERT -> historico auditavel).
+# 2) RAG: base de conhecimento em /app/uploads/agent_knowledge/*.md (volume montado
+#    do host ./uploads -> EDITAVEL SEM REBUILD). Embeddings OpenAI com cache por
+#    mtime; fallback por palavras-chave se a API falhar.
+# 3) Feedback few-shot: pares (msg do cliente -> resposta REAL da equipe) extraidos
+#    do proprio cwi_message_log (out humanos; ecos do bot sao excluidos via match
+#    com drafts 'drf' da mesma conversa).
+# ============================================================================
+
+_KNOWLEDGE_DIR = "/app/uploads/agent_knowledge"
+_KNOWLEDGE_CACHE_FILE = os.path.join(_KNOWLEDGE_DIR, ".cache_embeddings.json")
+_EMBED_MODEL = "text-embedding-3-small"
+
+
+async def _get_contact_memory(conversation_id: int) -> str | None:
+    """Ultimo resumo 'mem' do telefone desta conversa (memoria entre conversas)."""
+    try:
+        async with async_session_factory() as db:
+            row = (
+                await db.execute(
+                    text(
+                        "SELECT m.content FROM cwi_message_log m WHERE m.direction='mem' "
+                        "AND m.phone_canonical = (SELECT phone_canonical FROM cwi_message_log "
+                        "  WHERE chatwoot_conversation_id=:c AND phone_canonical IS NOT NULL "
+                        "  ORDER BY created_at DESC LIMIT 1) "
+                        "AND m.content IS NOT NULL AND m.content <> '' "
+                        "ORDER BY m.created_at DESC LIMIT 1"
+                    ),
+                    {"c": conversation_id},
+                )
+            ).first()
+        return row[0] if row else None
+    except Exception as e:  # noqa: BLE001
+        logger.error("Agente memoria: falha ao ler (conv=%s): %s", conversation_id, e)
+        return None
+
+
+async def _update_contact_memory(conversation_id: int, phone: str | None) -> None:
+    """Atualiza o resumo do cliente apos um atendimento (INSERT 'mem'). Best-effort."""
+    if not phone:
+        return
+    try:
+        anterior = await _get_contact_memory(conversation_id) or "(sem memoria anterior)"
+        async with async_session_factory() as db:
+            rows = (
+                await db.execute(
+                    text(
+                        "SELECT direction, content FROM cwi_message_log "
+                        "WHERE chatwoot_conversation_id=:c AND direction IN ('in','out') "
+                        "AND content IS NOT NULL AND content <> '' "
+                        "ORDER BY created_at DESC LIMIT 12"
+                    ),
+                    {"c": conversation_id},
+                )
+            ).fetchall()
+        if not rows:
+            return
+        dialogo = "\n".join(
+            f"{'Cliente' if d == 'in' else 'Atendente'}: {c}" for d, c in reversed(rows)
+        )
+        from openai import AsyncOpenAI  # noqa: PLC0415
+
+        client = AsyncOpenAI()
+        resp = await client.chat.completions.create(
+            model=os.getenv("OPENAI_AGENT_MODEL", "gpt-4o-mini"),
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Voce mantem a MEMORIA de atendimento de um cliente da Conecta Mais. "
+                        "Atualize o resumo abaixo com o novo dialogo. Maximo 6 linhas, fatos uteis "
+                        "para o proximo atendimento: nome, tipo (condominio/empresa/residencia), porte, "
+                        "o que procura, preferencias, visitas solicitadas, status. Sem floreios."
+                    ),
+                },
+                {"role": "user", "content": f"RESUMO ANTERIOR:\n{anterior}\n\nNOVO DIALOGO:\n{dialogo}"},
+            ],
+            max_tokens=220,
+            temperature=0.2,
+        )
+        resumo = (resp.choices[0].message.content or "").strip()
+        if not resumo:
+            return
+        async with async_session_factory() as db:
+            await db.execute(
+                text(
+                    "INSERT INTO cwi_message_log (direction, phone_canonical, "
+                    "chatwoot_conversation_id, content, status) "
+                    "VALUES ('mem', :phone, :conv, :content, 'memory')"
+                ),
+                {"phone": phone, "conv": conversation_id, "content": resumo},
+            )
+            await db.commit()
+        logger.info("Agente memoria: atualizada phone=%s (%s chars)", phone, len(resumo))
+    except Exception as e:  # noqa: BLE001
+        logger.error("Agente memoria: falha ao atualizar (conv=%s): %s", conversation_id, e)
+
+
+def _kb_chunks() -> list[dict]:
+    """Le os .md da base de conhecimento e divide em chunks por secao '##'."""
+    chunks = []
+    try:
+        if not os.path.isdir(_KNOWLEDGE_DIR):
+            return []
+        for fname in sorted(os.listdir(_KNOWLEDGE_DIR)):
+            if not fname.endswith(".md") or fname.startswith("."):
+                continue
+            path = os.path.join(_KNOWLEDGE_DIR, fname)
+            try:
+                with open(path, encoding="utf-8") as f:
+                    raw = f.read()
+            except Exception:  # noqa: BLE001
+                continue
+            mtime = os.path.getmtime(path)
+            partes = raw.split("\n## ")
+            for i, parte in enumerate(p.strip() for p in partes):
+                if len(parte) < 40:
+                    continue
+                texto = parte if i == 0 else f"## {parte}"
+                chunks.append({"id": f"{fname}:{i}", "mtime": mtime, "text": texto[:1600]})
+    except Exception as e:  # noqa: BLE001
+        logger.error("Agente RAG: falha ao ler base: %s", e)
+    return chunks
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    s = sum(x * y for x, y in zip(a, b, strict=False))
+    na = sum(x * x for x in a) ** 0.5
+    nb = sum(x * x for x in b) ** 0.5
+    return s / (na * nb) if na and nb else 0.0
+
+
+async def _search_knowledge(query: str, top_k: int = 3) -> str | None:
+    """Top-k chunks relevantes da base. Embeddings c/ cache; fallback keyword."""
+    try:
+        chunks = _kb_chunks()
+        if not chunks or not (query or "").strip():
+            return None
+        # cache de embeddings por (id, mtime)
+        cache: dict = {}
+        try:
+            with open(_KNOWLEDGE_CACHE_FILE, encoding="utf-8") as f:
+                cache = json.load(f)
+        except Exception:  # noqa: BLE001
+            cache = {}
+        try:
+            from openai import AsyncOpenAI  # noqa: PLC0415
+
+            client = AsyncOpenAI()
+            faltantes = [c for c in chunks if cache.get(c["id"], {}).get("mtime") != c["mtime"]]
+            if faltantes:
+                emb = await client.embeddings.create(
+                    model=_EMBED_MODEL, input=[c["text"] for c in faltantes]
+                )
+                for c, e in zip(faltantes, emb.data, strict=False):
+                    cache[c["id"]] = {"mtime": c["mtime"], "vec": e.embedding}
+                try:
+                    with open(_KNOWLEDGE_CACHE_FILE, "w", encoding="utf-8") as f:
+                        json.dump(cache, f)
+                except Exception:  # noqa: BLE001
+                    pass  # cache em disco e otimizacao, nao requisito
+            qe = await client.embeddings.create(model=_EMBED_MODEL, input=[query[:1000]])
+            qv = qe.data[0].embedding
+            pontuados = [
+                (_cosine(qv, cache[c["id"]]["vec"]), c) for c in chunks if c["id"] in cache
+            ]
+            pontuados.sort(key=lambda t: t[0], reverse=True)
+            top = [c for score, c in pontuados[:top_k] if score >= 0.25]
+        except Exception as e:  # noqa: BLE001
+            # fallback sem API: score por sobreposicao de palavras
+            logger.warning("Agente RAG: embeddings indisponiveis (%s) — fallback keyword", e)
+            q_words = {w for w in query.lower().split() if len(w) > 3}
+            pontuados = [
+                (len(q_words & set(c["text"].lower().split())), c) for c in chunks
+            ]
+            pontuados.sort(key=lambda t: t[0], reverse=True)
+            top = [c for score, c in pontuados[:top_k] if score >= 2]
+        if not top:
+            return None
+        return "\n\n---\n\n".join(c["text"] for c in top)
+    except Exception as e:  # noqa: BLE001
+        logger.error("Agente RAG: falha na busca: %s", e)
+        return None
+
+
+async def _few_shot_examples(conversation_id: int, limit: int = 3) -> str | None:
+    """Pares reais (cliente -> resposta da EQUIPE) de outras conversas.
+
+    Ecos do bot autonomo sao excluidos: um 'out' cujo conteudo coincide com um
+    'drf' da mesma conversa e resposta do proprio agente, nao da equipe.
+    """
+    try:
+        async with async_session_factory() as db:
+            rows = (
+                await db.execute(
+                    text(
+                        "SELECT o.chatwoot_conversation_id, o.content, "
+                        "  (SELECT i.content FROM cwi_message_log i "
+                        "   WHERE i.chatwoot_conversation_id = o.chatwoot_conversation_id "
+                        "   AND i.direction='in' AND i.created_at < o.created_at "
+                        "   AND i.content IS NOT NULL AND i.content <> '' "
+                        "   ORDER BY i.created_at DESC LIMIT 1) AS pergunta "
+                        "FROM cwi_message_log o "
+                        "WHERE o.direction='out' AND length(coalesce(o.content,'')) > 40 "
+                        "AND o.chatwoot_conversation_id <> :c "
+                        "AND NOT EXISTS (SELECT 1 FROM cwi_message_log d "
+                        "  WHERE d.direction='drf' "
+                        "  AND d.chatwoot_conversation_id = o.chatwoot_conversation_id "
+                        "  AND d.content = o.content) "
+                        "ORDER BY o.created_at DESC LIMIT :n"
+                    ),
+                    {"c": conversation_id, "n": limit},
+                )
+            ).fetchall()
+        pares = [(p, r) for _, r, p in rows if p]
+        if not pares:
+            return None
+        return "\n\n".join(
+            f"Cliente: {p[:300]}\nResposta da equipe: {r[:400]}" for p, r in pares
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.error("Agente few-shot: falha (conv=%s): %s", conversation_id, e)
+        return None
+
+
 async def gerar_resposta(conversation_id: int) -> str | None:
     """Le o historico da conversa e gera uma sugestao de resposta (NAO envia)."""
     if not os.getenv("OPENAI_API_KEY"):
@@ -500,6 +728,32 @@ async def gerar_resposta(conversation_id: int) -> str | None:
             return None
 
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+        # APRENDIZADO (best-effort): RAG + memoria do cliente + exemplos da equipe.
+        # Qualquer falha em qualquer um -> simplesmente nao injeta (agente segue normal).
+        ultima_in = next((c for d, c in rows if d == "in"), "") or ""
+        kb = await _search_knowledge(ultima_in)
+        if kb:
+            messages.append({
+                "role": "system",
+                "content": "CONHECIMENTO DA EMPRESA relevante para esta conversa "
+                "(use como fonte de verdade; nao invente alem disso):\n\n" + kb,
+            })
+        memoria = await _get_contact_memory(conversation_id)
+        if memoria:
+            messages.append({
+                "role": "system",
+                "content": "MEMORIA DESTE CLIENTE (conversas anteriores — personalize o "
+                "atendimento e NAO repita perguntas ja respondidas):\n" + memoria,
+            })
+        exemplos = await _few_shot_examples(conversation_id)
+        if exemplos:
+            messages.append({
+                "role": "system",
+                "content": "EXEMPLOS REAIS de respostas da nossa equipe (espelhe o tom e "
+                "o estilo, sem copiar literalmente):\n\n" + exemplos,
+            })
+
         for direction, content in reversed(rows):  # ordem cronologica
             role = "user" if direction == "in" else "assistant"
             messages.append({"role": role, "content": content})
@@ -771,3 +1025,7 @@ async def processar_incoming(conversation_id: int, phone: str | None = None) -> 
         await _post_private_note(conversation_id, texto)
 
     logger.info("Agente: decisao=%s conv=%s mode=%s", decision, conversation_id, agent_mode())
+
+    # Memoria de longo prazo: atualiza o perfil do cliente apos o atendimento.
+    # Best-effort e por ultimo — nunca atrasa/derruba a entrega da resposta.
+    await _update_contact_memory(conversation_id, phone)
