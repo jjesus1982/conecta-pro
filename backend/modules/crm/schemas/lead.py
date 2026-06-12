@@ -67,7 +67,7 @@ class LeadResponse(BaseModel):
 
     id: str
     name: str
-    email: str
+    email: str | None = None
     phone: str | None
     company: str | None
     position: str | None
