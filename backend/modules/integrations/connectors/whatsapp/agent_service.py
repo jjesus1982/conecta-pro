@@ -23,9 +23,9 @@ logger = logging.getLogger(__name__)
 
 BRT_OFFSET = -4  # Manaus (AMT, UTC-4) — usado p/ dar "relogio" ao agente
 
-SYSTEM_PROMPT = """Você é o assistente virtual da Conecta Mais (conectamais.pro), empresa de Manaus/AM especializada em segurança e mão de obra para condomínios, empresas, indústrias e residências. Atende todos esses públicos, mas o foco principal são condomínios — você conversa muito com síndicos e administradoras.
+SYSTEM_PROMPT = """Você é José Luiggi, o assistente virtual da Conecta Mais (conectamais.pro), empresa de Manaus/AM especializada em segurança e mão de obra para condomínios, empresas, indústrias e residências. Atende todos esses públicos, mas o foco principal são condomínios — você conversa muito com síndicos e administradoras.
 
-Transparência: na PRIMEIRA interação de uma conversa, apresente-se brevemente como assistente virtual da Conecta Mais (ex.: "Olá! Sou o assistente virtual da Conecta Mais."). Nas mensagens seguintes da mesma conversa, não repita a apresentação.
+Transparência: na PRIMEIRA interação de uma conversa, apresente-se brevemente pelo nome (ex.: "Olá! Eu sou o José Luiggi, assistente virtual da Conecta Mais. 😊"). Nas mensagens seguintes da mesma conversa, não repita a apresentação. Se perguntarem seu nome, diga com naturalidade que é o José Luiggi.
 
 O que a Conecta Mais oferece (duas grandes frentes, igualmente importantes):
 
@@ -78,6 +78,20 @@ Triagem antes de transferir um pedido VAGO: se o cliente pedir para falar com um
 
 def agent_enabled() -> bool:
     return os.getenv("AGENT_ENABLED", "false").lower() == "true"
+
+
+def _chat_kwargs(model: str, max_tokens: int, temperature: float = 0.7) -> dict:
+    """Kwargs compativeis com a familia do modelo.
+
+    gpt-5.x / o-series: usam max_completion_tokens + reasoning_effort e NAO aceitam
+    temperature custom. gpt-4.x: max_tokens + temperature classicos.
+    """
+    if model.startswith(("gpt-5", "o1", "o3", "o4")):
+        return {
+            "max_completion_tokens": max_tokens,
+            "reasoning_effort": os.getenv("AGENT_REASONING", "none"),
+        }
+    return {"max_tokens": max_tokens, "temperature": temperature}
 
 
 # === TOOLS (function calling — apenas LEITURA) ===
@@ -554,8 +568,7 @@ async def _update_contact_memory(conversation_id: int, phone: str | None) -> Non
                 },
                 {"role": "user", "content": f"RESUMO ANTERIOR:\n{anterior}\n\nNOVO DIALOGO:\n{dialogo}"},
             ],
-            max_tokens=220,
-            temperature=0.2,
+            **_chat_kwargs(os.getenv("OPENAI_AGENT_MODEL", "gpt-4o-mini"), 220, 0.2),
         )
         resumo = (resp.choices[0].message.content or "").strip()
         if not resumo:
@@ -798,8 +811,7 @@ async def gerar_resposta(conversation_id: int) -> str | None:
                 messages=messages,
                 tools=TOOLS,
                 tool_choice="auto",
-                max_tokens=max_tokens,
-                temperature=0.7,
+                **_chat_kwargs(model, max_tokens),
             )
             usage = getattr(resp, "usage", None)
             total_in += getattr(usage, "prompt_tokens", 0) or 0
@@ -853,8 +865,7 @@ async def gerar_resposta(conversation_id: int) -> str | None:
             resp = await client.chat.completions.create(
                 model=model,
                 messages=messages,
-                max_tokens=max_tokens,
-                temperature=0.7,
+                **_chat_kwargs(model, max_tokens),
             )
             usage = getattr(resp, "usage", None)
             total_in += getattr(usage, "prompt_tokens", 0) or 0
