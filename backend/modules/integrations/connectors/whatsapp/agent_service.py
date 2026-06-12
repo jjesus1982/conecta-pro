@@ -20,7 +20,9 @@ from core.database import async_session_factory
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """Você é o assistente de atendimento da Conecta Mais (conectamais.pro), empresa de Manaus/AM especializada em segurança e mão de obra para condomínios, empresas, indústrias e residências. Atende todos esses públicos, mas o foco principal são condomínios — você conversa muito com síndicos e administradoras.
+SYSTEM_PROMPT = """Você é o assistente virtual da Conecta Mais (conectamais.pro), empresa de Manaus/AM especializada em segurança e mão de obra para condomínios, empresas, indústrias e residências. Atende todos esses públicos, mas o foco principal são condomínios — você conversa muito com síndicos e administradoras.
+
+Transparência: na PRIMEIRA interação de uma conversa, apresente-se brevemente como assistente virtual da Conecta Mais (ex.: "Olá! Sou o assistente virtual da Conecta Mais."). Nas mensagens seguintes da mesma conversa, não repita a apresentação.
 
 O que a Conecta Mais oferece (duas grandes frentes, igualmente importantes):
 
@@ -651,14 +653,121 @@ async def _post_private_note(conversation_id: int, content: str) -> bool:
         return False
 
 
-async def processar_incoming(conversation_id: int, phone: str | None = None) -> None:
-    """Entrypoint do BackgroundTask: gera a sugestao e entrega em modo COPILOTO.
+def agent_mode() -> str:
+    """Modo do agente: 'copilot' (default seguro) | 'autonomous'.
 
-    NAO envia ao cliente — apenas nota privada (Chatwoot) + rascunho (cwi_message_log).
+    Kill-switch: setar AGENT_MODE=copilot no .env (ou remover) + recreate do backend.
+    """
+    mode = os.getenv("AGENT_MODE", "copilot").strip().lower()
+    return mode if mode in ("copilot", "autonomous") else "copilot"
+
+
+async def _get_conversation_info(conversation_id: int) -> dict | None:
+    """Consulta a conversa no Chatwoot p/ os GUARDS do modo autonomo. Best-effort.
+
+    Retorna {'is_group': bool, 'assignee': str|None} ou None (falha -> chamador
+    deve ser CONSERVADOR e cair para copiloto).
+    """
+    base = os.getenv("CHATWOOT_BASE_URL", "http://chatwoot-fazerai:3000").rstrip("/")
+    account = os.getenv("CHATWOOT_ACCOUNT_ID", "1")
+    token = os.getenv("CHATWOOT_API_TOKEN", "")
+    if not token:
+        return None
+    url = f"{base}/api/v1/accounts/{account}/conversations/{conversation_id}"
+    try:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(
+                url,
+                headers={"api_access_token": token},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp,
+        ):
+            if resp.status != 200:
+                logger.warning("Agente: GET conversa %s -> HTTP %s", conversation_id, resp.status)
+                return None
+            data = await resp.json()
+        meta = data.get("meta") or {}
+        sender = meta.get("sender") or {}
+        assignee = meta.get("assignee") or None
+        identifier = str(sender.get("identifier") or "")
+        phone = sender.get("phone_number") or ""
+        # GRUPO (criterio CONSERVADOR): @g.us no identifier OU sem telefone individual
+        # -> se nao da pra garantir 1:1, trata como grupo (nao responde publico).
+        is_group = ("@g.us" in identifier) or (not phone)
+        return {"is_group": is_group, "assignee": (assignee or {}).get("name") if assignee else None}
+    except Exception as e:  # noqa: BLE001
+        logger.error("Agente: excecao ao consultar conversa %s: %s", conversation_id, e)
+        return None
+
+
+async def _post_public_reply(conversation_id: int, content: str) -> bool:
+    """Posta resposta PUBLICA (cliente RECEBE no WhatsApp via Chatwoot->baileys).
+
+    Best-effort: em falha, FALLBACK para nota privada (nao perde o trabalho do LLM).
+    O eco desta mensagem volta no webhook como outgoing -> direction 'out' -> NAO
+    redispara o agente (anti-loop garantido pelo gate direction=='in').
+    """
+    base = os.getenv("CHATWOOT_BASE_URL", "http://chatwoot-fazerai:3000").rstrip("/")
+    account = os.getenv("CHATWOOT_ACCOUNT_ID", "1")
+    token = os.getenv("CHATWOOT_API_TOKEN", "")
+    if not token:
+        logger.warning("Agente: CHATWOOT_API_TOKEN ausente — resposta publica nao enviada")
+        return False
+    url = f"{base}/api/v1/accounts/{account}/conversations/{conversation_id}/messages"
+    payload = {"content": content, "message_type": "outgoing", "private": False}
+    headers = {"api_access_token": token, "Content-Type": "application/json"}
+    try:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.post(
+                url,
+                data=json.dumps(payload),
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp,
+        ):
+            if resp.status in (200, 201):
+                return True
+            body = (await resp.text())[:200]
+            logger.error("Agente: resposta publica falhou %s: %s", resp.status, body)
+            return False
+    except Exception as e:  # noqa: BLE001
+        logger.error("Agente: excecao ao postar resposta publica conv=%s: %s", conversation_id, e)
+        return False
+
+
+async def processar_incoming(conversation_id: int, phone: str | None = None) -> None:
+    """Entrypoint do BackgroundTask: gera a resposta e entrega conforme AGENT_MODE.
+
+    copilot (default): nota privada (humano aprova) + rascunho no log.
+    autonomous: responde PUBLICO ao cliente, COM GUARDS — pula grupos e conversas
+    com humano atribuido (nesses casos cai para nota privada). Draft SEMPRE logado.
     """
     texto = await gerar_resposta(conversation_id)
     if not texto:
         return
     model = os.getenv("OPENAI_AGENT_MODEL", "gpt-4o-mini")
     await _log_draft(conversation_id, phone, texto, model)
-    await _post_private_note(conversation_id, texto)
+
+    decision = "copilot_note"
+    if agent_mode() == "autonomous":
+        info = await _get_conversation_info(conversation_id)
+        if info is None:
+            decision = "copilot_note_info_fail"  # conservador: sem certeza -> copiloto
+        elif info["is_group"]:
+            decision = "skipped_group"
+        elif info["assignee"]:
+            decision = "skipped_assigned"
+        else:
+            decision = "autonomous_sent"
+
+    if decision == "autonomous_sent":
+        ok = await _post_public_reply(conversation_id, texto)
+        if not ok:
+            decision = "copilot_note_send_fail"  # fallback: nao perde o trabalho
+            await _post_private_note(conversation_id, texto)
+    else:
+        await _post_private_note(conversation_id, texto)
+
+    logger.info("Agente: decisao=%s conv=%s mode=%s", decision, conversation_id, agent_mode())
