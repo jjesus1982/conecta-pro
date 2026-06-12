@@ -12,6 +12,7 @@ Tudo controlado por env (nada hardcoded). Falhas nunca derrubam o webhook.
 import json
 import logging
 import os
+from datetime import datetime, timedelta, timezone
 
 import aiohttp
 from sqlalchemy import text
@@ -19,6 +20,8 @@ from sqlalchemy import text
 from core.database import async_session_factory
 
 logger = logging.getLogger(__name__)
+
+BRT_OFFSET = -4  # Manaus (AMT, UTC-4) — usado p/ dar "relogio" ao agente
 
 SYSTEM_PROMPT = """Você é o assistente virtual da Conecta Mais (conectamais.pro), empresa de Manaus/AM especializada em segurança e mão de obra para condomínios, empresas, indústrias e residências. Atende todos esses públicos, mas o foco principal são condomínios — você conversa muito com síndicos e administradoras.
 
@@ -51,6 +54,8 @@ Sua missão é QUALIFICAR o lead e conduzir para uma visita técnica/comercial. 
 - Qual a principal preocupação?
 
 Filtre o máximo possível — quanto melhor você qualificar, melhor nossa equipe atende. Sobre contratos de manutenção, orçamentos e agentes de portaria, você pode e deve responder e aprofundar com perguntas, mas sem comprometer valores.
+
+Mensagens de ÁUDIO: mensagens que começam com "🎤 [áudio transcrito]:" vieram de áudio do cliente e a transcrição PODE conter erros (nomes de bairros, datas, números). Ao captar um dado crítico de um áudio — data, horário, endereço, bairro, nome, CNPJ — SEMPRE confirme com o cliente antes de usar (ex.: "Só confirmando: a visita seria dia 12 de junho às 9h, no Parque Dez, certo?"). NUNCA registre uma visita com data/endereço vindos de áudio sem confirmar antes. Não mencione a palavra "transcrição" — apenas confirme com naturalidade.
 
 Regras invioláveis:
 - NUNCA informe preços, prazos ou condições comerciais — dependem de avaliação técnica. Se perguntarem, explique que depende de uma visita e ofereça agendá-la.
@@ -729,6 +734,26 @@ async def gerar_resposta(conversation_id: int) -> str | None:
 
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
+        # RELOGIO: o modelo nao sabe a data — sem isto, "amanha"/"semana que vem"
+        # viram datas erradas (ex.: visita marcada p/ "24 de outubro" em junho).
+        try:
+            agora = datetime.now(timezone.utc) + timedelta(hours=BRT_OFFSET)
+            dias = ("segunda-feira", "terça-feira", "quarta-feira", "quinta-feira",
+                    "sexta-feira", "sábado", "domingo")
+            meses = ("janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho",
+                     "agosto", "setembro", "outubro", "novembro", "dezembro")
+            messages.append({
+                "role": "system",
+                "content": (
+                    f"DATA E HORA ATUAIS (Manaus): {dias[agora.weekday()]}, "
+                    f"{agora.day} de {meses[agora.month - 1]} de {agora.year}, "
+                    f"{agora.strftime('%H:%M')}. Use SEMPRE esta referência para "
+                    f"interpretar 'hoje', 'amanhã', dias da semana e datas de visita."
+                ),
+            })
+        except Exception:  # noqa: BLE001
+            pass
+
         # APRENDIZADO (best-effort): RAG + memoria do cliente + exemplos da equipe.
         # Qualquer falha em qualquer um -> simplesmente nao injeta (agente segue normal).
         ultima_in = next((c for d, c in rows if d == "in"), "") or ""
@@ -991,6 +1016,36 @@ async def _post_public_reply(conversation_id: int, content: str) -> bool:
         return False
 
 
+async def _toggle_typing(conversation_id: int, on: bool) -> None:
+    """Liga/desliga o status 'digitando...' no Chatwoot (baileys propaga ao WhatsApp).
+
+    Best-effort puro — falha e silenciosamente ignorada (e so cosmetico/naturalidade).
+    """
+    base = os.getenv("CHATWOOT_BASE_URL", "http://chatwoot-fazerai:3000").rstrip("/")
+    account = os.getenv("CHATWOOT_ACCOUNT_ID", "1")
+    token = os.getenv("CHATWOOT_API_TOKEN", "")
+    if not token:
+        return
+    url = (
+        f"{base}/api/v1/accounts/{account}/conversations/{conversation_id}"
+        f"/toggle_typing_status"
+    )
+    try:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.post(
+                url,
+                json={"typing_status": "on" if on else "off"},
+                headers={"api_access_token": token, "Content-Type": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=8),
+            ) as resp,
+        ):
+            if resp.status not in (200, 201, 204):
+                logger.debug("Agente typing: HTTP %s conv=%s", resp.status, conversation_id)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("Agente typing: %s", e)
+
+
 async def processar_incoming(conversation_id: int, phone: str | None = None) -> None:
     """Entrypoint do BackgroundTask: gera a resposta e entrega conforme AGENT_MODE.
 
@@ -998,7 +1053,12 @@ async def processar_incoming(conversation_id: int, phone: str | None = None) -> 
     autonomous: responde PUBLICO ao cliente, COM GUARDS — pula grupos e conversas
     com humano atribuido (nesses casos cai para nota privada). Draft SEMPRE logado.
     """
-    texto = await gerar_resposta(conversation_id)
+    # naturalidade: cliente ve "digitando..." enquanto a resposta e gerada
+    await _toggle_typing(conversation_id, True)
+    try:
+        texto = await gerar_resposta(conversation_id)
+    finally:
+        await _toggle_typing(conversation_id, False)
     if not texto:
         return
     model = os.getenv("OPENAI_AGENT_MODEL", "gpt-4o-mini")

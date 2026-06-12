@@ -297,6 +297,18 @@ async def _transcrever_audio_attachments(data: dict) -> str | None:
             model="whisper-1",
             file=(f"audio.{ext}", audio_bytes),
             language="pt",
+            temperature=0,
+            # Vies de vocabulario: portugues de Manaus + termos do negocio + bairros.
+            # Reduz erros como "parque dez" -> "Parque Delhi".
+            prompt=(
+                "Atendimento da Conecta Mais em Manaus, Amazonas. Termos: agente de "
+                "portaria, AGP, portaria remota, condominio, sindico, CFTV, cameras, "
+                "controle de acesso, visita tecnica, orcamento, posto 24 horas. "
+                "Bairros de Manaus: Parque Dez de Novembro, Adrianopolis, Aleixo, "
+                "Cidade Nova, Compensa, Flores, Ponta Negra, Centro, Japiim, Coroado, "
+                "Dom Pedro, Alvorada, Tarumã, Vieiralves, Nossa Senhora das Gracas. "
+                "Datas no formato dia e mes, por exemplo: doze de junho."
+            ),
         )
         texto = (getattr(tr, "text", "") or "").strip()
         if not texto:
