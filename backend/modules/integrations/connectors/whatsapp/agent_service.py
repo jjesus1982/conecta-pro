@@ -13,6 +13,7 @@ import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 import aiohttp
 from sqlalchemy import text
@@ -44,6 +45,12 @@ FLUXO DE ATENDIMENTO (em fases, uma de cada vez — guia, não interrogatório):
 Siga o ritmo da pessoa: pule etapas que ela já respondeu (inclusive o que estiver na MEMÓRIA DESTE CLIENTE) e nunca repita pergunta já respondida.
 
 REGISTRO NO CRM: sempre que a pessoa informar nome, condomínio/empresa, CNPJ, e-mail, cargo (ex.: síndico, administrador) ou o interesse dela, chame a ferramenta registrar_lead com os campos novos — discretamente, sem anunciar que está cadastrando. Isso mantém o cadastro dela completo para a equipe.
+
+CLIENTE DA BASE (suporte de verdade): quando a pessoa disser que JÁ É cliente, atenda como cliente da casa. Para consultar dados da conta (contratos, ordens de serviço, notas fiscais) com consultar_minha_conta, CONFIRME A IDENTIDADE antes: peça o CNPJ ao próprio cliente e, ao receber o retorno, confirme o nome da empresa/condomínio com a pessoa ("só confirmando, é do Condomínio X, certo?") ANTES de detalhar qualquer informação. NUNCA revele dados de conta se a pessoa não souber o CNPJ ou se algo parecer estranho — na dúvida, transfira ao administrativo.
+
+ORDEM DE SERVIÇO (chamado de suporte): se um cliente identificado relatar problema em equipamento ou serviço (câmera sem imagem, portão travado, alarme disparando, problema com a equipe), colete com calma: o que está acontecendo + onde (local) + desde quando. Depois abra o chamado com abrir_ordem_servico (prioridade alta/urgente se afeta a segurança) e INFORME O NÚMERO da OS ao cliente ("registrei seu chamado, é a OS-XXXX; nossa equipe técnica entra em contato"). Se a ferramenta falhar, transfira para suporte_tecnico.
+
+TIPO DE VISITA: ao agendar, escolha o tipo certo — 'comercial' para novo negócio, orçamento ou proposta (vai para a equipe comercial); 'tecnica' para cliente da base com equipamento/serviço, vistoria ou levantamento técnico (vai para a equipe de campo). Em dúvida num interesse novo, use comercial.
 
 MÍDIA RECEBIDA: você recebe e entende tudo — áudios e vídeos (a fala chega transcrita p/ você), fotos (chegam descritas, ex.: "🖼 [imagem recebida]: ...") e arquivos PDF/DOCX (o conteúdo chega extraído). Trate com naturalidade, como quem viu/ouviu de verdade: "Vi a foto que você mandou — essa câmera realmente está com a lente danificada..." / "Li o documento, entendi a situação". NUNCA diga que "não consegue abrir" mídia que chegou processada.
 
@@ -177,6 +184,52 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "consultar_minha_conta",
+            "description": (
+                "Consulta a conta de um CLIENTE DA BASE pelo CNPJ: contratos ativos, "
+                "últimas ordens de serviço e últimas notas fiscais. SÓ use após confirmar "
+                "a identidade (CNPJ informado pelo próprio cliente + confirmar o nome da "
+                "empresa/condomínio com ele). Nunca mostre dados de conta a terceiros."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "cnpj": {"type": "string", "description": "CNPJ do cliente (com ou sem máscara)"},
+                },
+                "required": ["cnpj"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "abrir_ordem_servico",
+            "description": (
+                "Abre uma ORDEM DE SERVIÇO (chamado de suporte) para um cliente da base, "
+                "direto no sistema. Use quando um cliente identificado relatar problema "
+                "(equipamento, câmera, portão, alarme, equipe, serviço). Colete antes: "
+                "um resumo do problema e o local. Retorna o número da OS para informar ao cliente."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "cnpj": {"type": "string", "description": "CNPJ do cliente (identidade já confirmada)"},
+                    "titulo": {"type": "string", "description": "Resumo curto do problema (ex.: 'Câmera da garagem sem imagem')"},
+                    "descricao": {"type": "string", "description": "Descrição do problema com detalhes relatados"},
+                    "prioridade": {
+                        "type": "string",
+                        "enum": ["baixa", "normal", "alta", "urgente"],
+                        "description": "normal por padrão; alta/urgente se afeta segurança ou operação",
+                    },
+                    "local": {"type": "string", "description": "Endereço/local do problema (opcional)"},
+                },
+                "required": ["cnpj", "titulo", "descricao"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "consultar_cnpj",
             "description": (
                 "Consulta dados públicos de um CNPJ na Receita Federal (via BrasilAPI): "
@@ -215,12 +268,19 @@ TOOLS = [
         "function": {
             "name": "agendar_visita",
             "description": (
-                "Registra uma SOLICITAÇÃO de visita técnica/comercial (a equipe confirma o horário depois). "
-                "Use SÓ quando já tiver endereço, data e horário. Não confirme horário ao cliente — é uma solicitação."
+                "Registra uma SOLICITAÇÃO de visita (a equipe confirma o horário depois). "
+                "Use SÓ quando já tiver endereço, data e horário. Não confirme horário ao cliente — é uma solicitação. "
+                "tipo_visita: 'comercial' (novo negócio, orçamento, proposta — vai para a equipe comercial) "
+                "ou 'tecnica' (cliente da base com equipamento/serviço, vistoria, manutenção — vai para a equipe de campo)."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "tipo_visita": {
+                        "type": "string",
+                        "enum": ["comercial", "tecnica"],
+                        "description": "comercial = novo negócio/orçamento; tecnica = suporte/equipamento/vistoria em cliente",
+                    },
                     "data_visita": {"type": "string", "description": "Data desejada no formato YYYY-MM-DD"},
                     "horario_inicio": {"type": "string", "description": "Horário desejado no formato HH:MM (24h)"},
                     "endereco": {
@@ -406,6 +466,148 @@ async def _tool_registrar_lead(args: dict, conversation_id: int) -> dict:
     except Exception as e:  # noqa: BLE001
         logger.error("Agente registrar_lead: falha conv=%s: %s", conversation_id, e)
         return {"ok": False, "motivo": "nao foi possivel registrar agora"}
+
+
+async def _tool_consultar_minha_conta(args: dict) -> dict:
+    """Conta do cliente da base: contratos ativos + ultimas OS + ultimas NFS-e.
+
+    Identidade: o proprio cliente informa o CNPJ e o agente confirma a razao
+    social com ele antes de detalhar (instruido no prompt).
+    """
+    try:
+        cnpj = "".join(c for c in str(args.get("cnpj") or "") if c.isdigit())
+        if len(cnpj) != 14:
+            return {"erro": "CNPJ invalido"}
+        async with async_session_factory() as db:
+            cli = (
+                await db.execute(
+                    text(
+                        "SELECT id, name FROM clients "
+                        "WHERE regexp_replace(coalesce(document_number,''),'\\D','','g') = :c LIMIT 1"
+                    ),
+                    {"c": cnpj},
+                )
+            ).first()
+            if not cli:
+                return {"cliente_da_base": False, "info": "CNPJ nao encontrado na base de clientes"}
+            client_id, client_name = str(cli[0]), cli[1]
+
+            contratos = (
+                await db.execute(
+                    text(
+                        "SELECT contract_number, name, status, monthly_value, "
+                        "to_char(start_date,'DD/MM/YYYY'), to_char(end_date,'DD/MM/YYYY') "
+                        "FROM contracts WHERE client_id = :cid AND is_active = true "
+                        "ORDER BY start_date DESC LIMIT 5"
+                    ),
+                    {"cid": client_id},
+                )
+            ).fetchall()
+            ordens = (
+                await db.execute(
+                    text(
+                        "SELECT order_number, title, status, priority, to_char(created_at,'DD/MM/YYYY') "
+                        "FROM service_orders WHERE client_id = :cid AND ativo = true "
+                        "ORDER BY created_at DESC LIMIT 3"
+                    ),
+                    {"cid": client_id},
+                )
+            ).fetchall()
+            notas = (
+                await db.execute(
+                    text(
+                        "SELECT numero_nfse, to_char(data_emissao,'DD/MM/YYYY'), status, valor_servicos "
+                        "FROM nfses WHERE regexp_replace(coalesce(tomador_cpf_cnpj,''),'\\D','','g') = :c "
+                        "ORDER BY data_emissao DESC NULLS LAST LIMIT 3"
+                    ),
+                    {"c": cnpj},
+                )
+            ).fetchall()
+        return {
+            "cliente_da_base": True,
+            "razao_social": client_name,
+            "contratos": [
+                {"numero": r[0], "servico": r[1], "status": r[2], "valor_mensal": float(r[3] or 0),
+                 "inicio": r[4], "fim": r[5] or "indeterminado"}
+                for r in contratos
+            ],
+            "ordens_servico_recentes": [
+                {"numero": r[0], "titulo": r[1], "status": r[2], "prioridade": r[3], "aberta_em": r[4]}
+                for r in ordens
+            ],
+            "notas_fiscais_recentes": [
+                {"numero": r[0], "emissao": r[1], "status": r[2], "valor": float(r[3] or 0)}
+                for r in notas
+            ],
+        }
+    except Exception as e:  # noqa: BLE001
+        logger.error("Agente consultar_minha_conta: %s", e)
+        return {"erro": "nao foi possivel consultar agora"}
+
+
+async def _tool_abrir_ordem_servico(args: dict, conversation_id: int) -> dict:
+    """Abre uma OS (chamado) p/ cliente da base. Retorna o numero p/ informar."""
+    try:
+        cnpj = "".join(c for c in str(args.get("cnpj") or "") if c.isdigit())
+        titulo = (args.get("titulo") or "").strip()
+        descricao = (args.get("descricao") or "").strip()
+        if len(cnpj) != 14 or not titulo or not descricao:
+            return {"ok": False, "motivo": "faltam dados (cnpj, titulo, descricao)"}
+        prioridade = str(args.get("prioridade") or "normal").lower()
+        if prioridade not in ("baixa", "normal", "alta", "urgente"):
+            prioridade = "normal"
+        agora = datetime.now(timezone.utc) + timedelta(hours=BRT_OFFSET)
+        numero = f"OS-{agora.strftime('%Y%m%d')}-{uuid4().hex[:6].upper()}"
+        async with async_session_factory() as db:
+            cli = (
+                await db.execute(
+                    text(
+                        "SELECT id, name, phone FROM clients "
+                        "WHERE regexp_replace(coalesce(document_number,''),'\\D','','g') = :c LIMIT 1"
+                    ),
+                    {"c": cnpj},
+                )
+            ).first()
+            if not cli:
+                return {"ok": False, "motivo": "CNPJ nao encontrado na base — confirme com o cliente"}
+            # telefone de quem esta falando (da conversa) p/ contato da OS
+            tel = (
+                await db.execute(
+                    text(
+                        "SELECT phone_canonical FROM cwi_message_log "
+                        "WHERE chatwoot_conversation_id=:cv AND phone_canonical IS NOT NULL "
+                        "ORDER BY created_at DESC LIMIT 1"
+                    ),
+                    {"cv": conversation_id},
+                )
+            ).first()
+            await db.execute(
+                text(
+                    "INSERT INTO service_orders (id, order_number, client_id, title, description, "
+                    "status, priority, requester_name, requester_phone, location_address, "
+                    "internal_notes, ativo, created_at, updated_at, created_by) "
+                    "VALUES (gen_random_uuid(), :num, :cid, :tit, :des, 'pendente', :pri, :rnome, "
+                    ":rfone, :loc, :nota, true, now(), now(), 'jose-luis-whatsapp')"
+                ),
+                {
+                    "num": numero,
+                    "cid": str(cli[0]),
+                    "tit": titulo[:255],
+                    "des": descricao[:2000],
+                    "pri": prioridade,
+                    "rnome": (cli[1] or "")[:255],
+                    "rfone": (tel[0] if tel else None),
+                    "loc": (args.get("local") or "")[:500] or None,
+                    "nota": f"Aberta pelo Jose Luis (WhatsApp) — conversa {conversation_id}",
+                },
+            )
+            await db.commit()
+        logger.info("Agente OS criada: %s cliente=%s conv=%s", numero, cli[1], conversation_id)
+        return {"ok": True, "numero_os": numero, "prioridade": prioridade,
+                "info": "OS registrada; a equipe tecnica entra em contato para agendar"}
+    except Exception as e:  # noqa: BLE001
+        logger.error("Agente abrir_ordem_servico: %s", e)
+        return {"ok": False, "motivo": "nao foi possivel abrir a OS agora — encaminhe ao suporte_tecnico"}
 
 
 # Biblioteca de materiais (fotos/apresentacoes/videos) — volume montado do host:
@@ -668,7 +870,11 @@ async def _tool_agendar_visita(args: dict, conversation_id: int) -> dict:
                     cliente_id = crow[0]
 
             visita_data = VisitaCreate(
-                tipo=TipoVisita.COMERCIAL,
+                tipo=(
+                    TipoVisita.TECNICA
+                    if str(args.get("tipo_visita", "")).lower().startswith("tec")
+                    else TipoVisita.COMERCIAL
+                ),
                 origem=OrigemVisita.LEAD,
                 responsavel_id=responsavel_id,
                 endereco=endereco[:500],
@@ -748,6 +954,10 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
     try:
         if name == "registrar_lead":
             return await _tool_registrar_lead(args, conversation_id)
+        if name == "consultar_minha_conta":
+            return await _tool_consultar_minha_conta(args)
+        if name == "abrir_ordem_servico":
+            return await _tool_abrir_ordem_servico(args, conversation_id)
         if name == "listar_materiais":
             return _tool_listar_materiais()
         if name == "enviar_material":

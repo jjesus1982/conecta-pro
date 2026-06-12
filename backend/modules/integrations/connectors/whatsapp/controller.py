@@ -392,6 +392,78 @@ async def _transcrever_audio_attachments(data: dict) -> str | None:
         return None
 
 
+@router.get("/agent/dashboard")
+async def agent_dashboard(
+    current_user: CurrentActiveUser,  # pylint: disable=unused-argument
+    dias: int = 14,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Dashboard do Jose Luis: conversas, mensagens, leads e conversoes por dia."""
+    dias = max(1, min(dias, 90))
+    por_dia = (
+        await db.execute(
+            text(
+                """
+                SELECT d::date AS dia,
+                  (SELECT count(*) FROM cwi_message_log m WHERE m.created_at::date=d::date AND m.direction='in')  AS msgs_recebidas,
+                  (SELECT count(*) FROM cwi_message_log m WHERE m.created_at::date=d::date AND m.direction='drf') AS respostas_geradas,
+                  (SELECT count(DISTINCT m.chatwoot_conversation_id) FROM cwi_message_log m
+                    WHERE m.created_at::date=d::date AND m.direction IN ('in','out'))                              AS conversas_ativas,
+                  (SELECT count(*) FROM leads l WHERE l.created_at::date=d::date AND l.source='whatsapp')          AS leads_novos,
+                  (SELECT count(*) FROM visitas v WHERE v.created_at::date=d::date AND v.lead_id IS NOT NULL)      AS visitas_solicitadas,
+                  (SELECT count(*) FROM service_orders s WHERE s.created_at::date=d::date
+                    AND s.created_by='jose-luis-whatsapp')                                                          AS os_abertas
+                FROM generate_series(current_date - (:dias - 1) * interval '1 day', current_date, interval '1 day') d
+                ORDER BY d DESC
+                """
+            ),
+            {"dias": dias},
+        )
+    ).fetchall()
+    totais = (
+        await db.execute(
+            text(
+                """
+                SELECT
+                  (SELECT count(*) FROM leads WHERE source='whatsapp')                                  AS leads_whatsapp_total,
+                  (SELECT count(*) FROM leads WHERE source='whatsapp' AND status='converted')           AS leads_convertidos,
+                  (SELECT count(DISTINCT chatwoot_conversation_id) FROM cwi_message_log
+                    WHERE chatwoot_conversation_id IS NOT NULL)                                          AS conversas_total,
+                  (SELECT count(*) FROM cwi_message_log WHERE direction='drf')                           AS respostas_geradas_total,
+                  (SELECT count(*) FROM cwi_message_log WHERE direction='mem')                           AS memorias_de_cliente,
+                  (SELECT count(*) FROM visitas WHERE lead_id IS NOT NULL)                               AS visitas_de_leads,
+                  (SELECT count(*) FROM service_orders WHERE created_by='jose-luis-whatsapp')            AS os_abertas_pelo_agente
+                """
+            )
+        )
+    ).first()
+    return {
+        "agente": "José Luis",
+        "periodo_dias": dias,
+        "totais": {
+            "conversas": totais[2],
+            "respostas_geradas": totais[3],
+            "leads_whatsapp": totais[0],
+            "leads_convertidos": totais[1],
+            "memorias_de_cliente": totais[4],
+            "visitas_solicitadas": totais[5],
+            "os_abertas_pelo_agente": totais[6],
+        },
+        "por_dia": [
+            {
+                "dia": str(r[0]),
+                "mensagens_recebidas": r[1],
+                "respostas_geradas": r[2],
+                "conversas_ativas": r[3],
+                "leads_novos": r[4],
+                "visitas_solicitadas": r[5],
+                "os_abertas": r[6],
+            }
+            for r in por_dia
+        ],
+    }
+
+
 def _read_webhook_secret() -> str:
     """Segredo esperado: env (futuro rebuild) ou arquivo (docker cp no container atual)."""
     return os.getenv("WHATSAPP_WEBHOOK_SECRET", "") or _read_secret_file("/app/.whatsapp_webhook_secret")

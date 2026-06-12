@@ -34,6 +34,7 @@ app = Celery(
         "modules.gedeon.tasks.kronos_tasks",
         "modules.financial.tasks",
         "modules.crm.tasks",
+        "modules.integrations.connectors.whatsapp.tasks",
     ],
 )
 
@@ -407,6 +408,12 @@ app.conf.beat_schedule = {
     "crm-followup-proposals-0830": {
         "task": "crm.followup_proposals",
         "schedule": crontab(hour=8, minute=30),
+        "options": {"queue": "gov.batch"},
+    },
+    # ── Jose Luis — conversas que esfriaram: lista + rascunho -> Telegram (aval humano; nada vai ao cliente) — diario 09:00 ──
+    "whatsapp-followup-conversas-0900": {
+        "task": "whatsapp.followup_conversas",
+        "schedule": crontab(hour=9, minute=0),
         "options": {"queue": "gov.batch"},
     },
 }
