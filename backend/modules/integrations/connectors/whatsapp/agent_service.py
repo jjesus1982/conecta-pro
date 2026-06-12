@@ -581,16 +581,28 @@ async def _tool_abrir_ordem_servico(args: dict, conversation_id: int) -> dict:
                     {"cv": conversation_id},
                 )
             ).first()
+            svc = (
+                await db.execute(
+                    text(
+                        "SELECT id FROM service_catalog WHERE ativo = true AND ("
+                        "code = 'SUP-WHATS' OR category::text = 'suporte') "
+                        "ORDER BY (code = 'SUP-WHATS') DESC, created_at LIMIT 1"
+                    )
+                )
+            ).first()
+            if not svc:
+                return {"ok": False, "motivo": "catalogo de servicos indisponivel — encaminhe ao suporte_tecnico"}
             await db.execute(
                 text(
-                    "INSERT INTO service_orders (id, order_number, client_id, title, description, "
-                    "status, priority, requester_name, requester_phone, location_address, "
+                    "INSERT INTO service_orders (id, order_number, service_id, client_id, title, "
+                    "description, status, priority, requester_name, requester_phone, location_address, "
                     "internal_notes, extra_metadata, ativo, created_at, updated_at) "
-                    "VALUES (gen_random_uuid(), :num, :cid, :tit, :des, 'pendente', :pri, :rnome, "
+                    "VALUES (gen_random_uuid(), :num, :svc, :cid, :tit, :des, 'pendente', :pri, :rnome, "
                     ":rfone, :loc, :nota, '{\"origem\": \"jose-luis-whatsapp\"}'::jsonb, true, now(), now())"
                 ),
                 {
                     "num": numero,
+                    "svc": str(svc[0]),
                     "cid": str(cli[0]),
                     "tit": titulo[:255],
                     "des": descricao[:2000],
