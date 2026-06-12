@@ -245,30 +245,42 @@ async def _transcrever_audio_attachments(data: dict) -> str | None:
                 json.dumps(attachments, ensure_ascii=False, default=str)[:800],
             )
 
-        audio = None
-        for att in attachments:
-            ftype = str(att.get("file_type", "")).lower()
-            ctype = str(att.get("content_type", "")).lower()
+        # Seleciona o 1o attachment de tipo conhecido e classifica:
+        # audio | video (Whisper transcreve a fala) | image (visao) | doc (PDF/DOCX/TXT)
+        att, kind = None, None
+        for cand in attachments:
+            ftype = str(cand.get("file_type", "")).lower()
+            ctype = str(cand.get("content_type", "")).lower()
+            url_l = str(cand.get("data_url") or cand.get("file_url") or "").lower()
             if ftype == "audio" or "audio" in ctype:
-                audio = att
+                att, kind = cand, "audio"
+            elif ftype == "video" or "video" in ctype:
+                att, kind = cand, "video"
+            elif ftype == "image" or "image" in ctype:
+                att, kind = cand, "image"
+            elif ftype == "file" or any(url_l.split("?")[0].endswith(e) for e in (".pdf", ".docx", ".txt")):
+                att, kind = cand, "doc"
+            if att:
                 break
-        if not audio:
+        if not att:
             return None
 
-        data_url = audio.get("data_url") or audio.get("file_url") or ""
+        data_url = att.get("data_url") or att.get("file_url") or ""
         if not data_url:
-            logger.warning("Webhook Chatwoot: attachment de audio sem data_url")
+            logger.warning("Webhook Chatwoot: attachment (%s) sem data_url", kind)
             return None
         if not data_url.startswith("http"):
             base = os.getenv("CHATWOOT_BASE_URL", "http://chatwoot-fazerai:3000").rstrip("/")
             data_url = f"{base}/{data_url.lstrip('/')}"
 
-        # extensao p/ o Whisper reconhecer o formato (voice do WhatsApp = ogg/opus)
-        ext = os.path.splitext(data_url.split("?")[0])[1].lower().lstrip(".") or "ogg"
-        if ext not in ("ogg", "oga", "mp3", "m4a", "wav", "webm", "mp4", "mpga", "mpeg", "flac"):
-            ext = "ogg"
-        if ext == "oga":
-            ext = "ogg"
+        nome_arquivo = os.path.basename(data_url.split("?")[0]) or f"anexo.{kind}"
+        ext = os.path.splitext(nome_arquivo)[1].lower().lstrip(".")
+        if kind in ("audio", "video"):
+            # extensao que o Whisper reconhece (voice WhatsApp = ogg/opus; video = mp4/webm)
+            if ext not in ("ogg", "oga", "mp3", "m4a", "wav", "webm", "mp4", "mpga", "mpeg", "flac"):
+                ext = "mp4" if kind == "video" else "ogg"
+            if ext == "oga":
+                ext = "ogg"
 
         import aiohttp  # noqa: PLC0415 — lazy, padrao da casa
 
@@ -293,6 +305,63 @@ async def _transcrever_audio_attachments(data: dict) -> str | None:
         from openai import AsyncOpenAI  # noqa: PLC0415 — lazy, mesma chave do agente
 
         client = AsyncOpenAI()
+
+        # ===== IMAGEM: descreve via visao do modelo =====
+        if kind == "image":
+            import base64  # noqa: PLC0415
+
+            mime = "image/png" if ext == "png" else "image/jpeg"
+            b64 = base64.b64encode(audio_bytes).decode()
+            vis = await client.chat.completions.create(
+                model=os.getenv("OPENAI_AGENT_MODEL", "gpt-5.1"),
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": (
+                            "Descreva esta imagem enviada por um cliente num atendimento de "
+                            "seguranca/portaria (Conecta Mais, Manaus). Foque no que importa p/ "
+                            "o atendimento: equipamento/defeito, local, documento, fachada etc. "
+                            "Maximo 4 frases, em portugues."
+                        )},
+                        {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
+                    ],
+                }],
+                max_completion_tokens=220,
+            )
+            desc = (vis.choices[0].message.content or "").strip()
+            if not desc:
+                return None
+            logger.info("Webhook Chatwoot: imagem descrita (%s chars)", len(desc))
+            return f"🖼 [imagem recebida]: {desc}"
+
+        # ===== DOCUMENTO: extrai texto (PDF/DOCX/TXT) =====
+        if kind == "doc":
+            texto_doc = ""
+            try:
+                if ext == "pdf" or audio_bytes[:4] == b"%PDF":
+                    import fitz  # noqa: PLC0415 — PyMuPDF
+
+                    with fitz.open(stream=audio_bytes, filetype="pdf") as pdf:
+                        texto_doc = "\n".join(p.get_text() for p in pdf[:8])  # ate 8 paginas
+                elif ext == "docx":
+                    import io  # noqa: PLC0415
+
+                    from docx import Document  # noqa: PLC0415
+
+                    d = Document(io.BytesIO(audio_bytes))
+                    texto_doc = "\n".join(p.text for p in d.paragraphs)
+                elif ext == "txt":
+                    texto_doc = audio_bytes.decode("utf-8", errors="replace")
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Webhook Chatwoot: falha ao extrair doc %s: %s", nome_arquivo, e)
+                return None
+            texto_doc = " ".join(texto_doc.split())[:2500]
+            if not texto_doc:
+                return None
+            logger.info("Webhook Chatwoot: doc '%s' extraido (%s chars)", nome_arquivo, len(texto_doc))
+            return f"📎 [arquivo recebido '{nome_arquivo}' — conteúdo]: {texto_doc}"
+
+        # ===== AUDIO/VIDEO: Whisper transcreve a fala =====
         tr = await client.audio.transcriptions.create(
             model="whisper-1",
             file=(f"audio.{ext}", audio_bytes),
@@ -314,10 +383,12 @@ async def _transcrever_audio_attachments(data: dict) -> str | None:
         if not texto:
             logger.info("Webhook Chatwoot: transcricao vazia para %s", data_url[:120])
             return None
-        logger.info("Webhook Chatwoot: audio transcrito (%s chars)", len(texto))
+        logger.info("Webhook Chatwoot: %s transcrito (%s chars)", kind, len(texto))
+        if kind == "video":
+            return f"🎥 [vídeo recebido — fala transcrita]: {texto}"
         return f"🎤 [áudio transcrito]: {texto}"
-    except Exception as e:  # noqa: BLE001 — best-effort: STT nunca derruba o webhook
-        logger.error("Webhook Chatwoot: falha no STT de audio (segue sem transcricao): %s", e)
+    except Exception as e:  # noqa: BLE001 — best-effort: midia nunca derruba o webhook
+        logger.error("Webhook Chatwoot: falha ao processar midia (segue sem conteudo): %s", e)
         return None
 
 
@@ -371,13 +442,13 @@ async def chatwoot_webhook(
     name = sender.get("name") or meta_sender.get("name")
     phone_canonical = _normalize_phone(phone)
 
-    # STT best-effort (sprint: copiloto pleno): audio de ENTRADA sem texto -> transcreve
-    # e usa como content (o agente le content do log; fluxo dele fica intocado).
-    # Qualquer falha -> content segue vazio (comportamento anterior). Nao bloqueia o 200.
-    if direction == "in" and not content and data.get("attachments"):
-        transcricao = await _transcrever_audio_attachments(data)
-        if transcricao:
-            content = transcricao
+    # MULTIMIDIA best-effort: audio/video (Whisper), imagem (visao), documento (PDF/DOCX).
+    # O conteudo extraido vira/integra o content (o agente le content do log; fluxo intocado).
+    # Com legenda + anexo, combina os dois. Falha -> segue como antes. Nao bloqueia o 200.
+    if direction == "in" and data.get("attachments"):
+        midia = await _transcrever_audio_attachments(data)
+        if midia:
+            content = f"{content}\n{midia}" if content else midia
 
     lead_id = None
     if direction == "in" and phone_canonical:

@@ -45,6 +45,12 @@ Siga o ritmo da pessoa: pule etapas que ela já respondeu (inclusive o que estiv
 
 REGISTRO NO CRM: sempre que a pessoa informar nome, condomínio/empresa, CNPJ, e-mail, cargo (ex.: síndico, administrador) ou o interesse dela, chame a ferramenta registrar_lead com os campos novos — discretamente, sem anunciar que está cadastrando. Isso mantém o cadastro dela completo para a equipe.
 
+MÍDIA RECEBIDA: você recebe e entende tudo — áudios e vídeos (a fala chega transcrita p/ você), fotos (chegam descritas, ex.: "🖼 [imagem recebida]: ...") e arquivos PDF/DOCX (o conteúdo chega extraído). Trate com naturalidade, como quem viu/ouviu de verdade: "Vi a foto que você mandou — essa câmera realmente está com a lente danificada..." / "Li o documento, entendi a situação". NUNCA diga que "não consegue abrir" mídia que chegou processada.
+
+RESPOSTA EM VOZ: quando o cliente manda ÁUDIO, sua resposta é entregue automaticamente em VOZ. Nesses casos escreva como quem FALA: frases curtas e naturais, sem listas, sem asteriscos/negrito, sem links, sem emojis — só texto corrido falável.
+
+MATERIAIS DA EMPRESA: você pode enviar fotos, apresentações e vídeos da Conecta Mais durante a conversa. Use listar_materiais para ver o que está disponível e enviar_material para mandar o arquivo certo quando agregar de verdade (ex.: a pessoa pediu uma apresentação, quer conhecer a central de monitoramento, quer ver o serviço). Apresente o material com uma frase ("Vou te mandar nossa apresentação 👍") — nunca envie arquivo solto sem contexto, e no máximo um por vez.
+
 O que a Conecta Mais oferece (duas grandes frentes, igualmente importantes):
 
 1. Mão de obra:
@@ -135,6 +141,36 @@ TOOLS = [
                     "cargo": {"type": "string", "description": "Cargo/papel (ex.: síndico, administrador, gerente)"},
                     "interesse": {"type": "string", "description": "Resumo curto do interesse/necessidade (ex.: portaria 2 postos 24h)"},
                 },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "listar_materiais",
+            "description": (
+                "Lista os materiais da Conecta Mais disponíveis para envio ao cliente "
+                "(fotos, apresentações PDF, vídeos institucionais). Use antes de "
+                "enviar_material para saber o que existe."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "enviar_material",
+            "description": (
+                "Envia ao cliente, na própria conversa, um material da Conecta Mais "
+                "(foto, apresentação, vídeo) da lista de listar_materiais. "
+                "Use quando agregar ao atendimento; apresente o material com uma frase antes."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nome_arquivo": {"type": "string", "description": "Nome EXATO do arquivo retornado por listar_materiais"},
+                },
+                "required": ["nome_arquivo"],
             },
         },
     },
@@ -372,6 +408,142 @@ async def _tool_registrar_lead(args: dict, conversation_id: int) -> dict:
         return {"ok": False, "motivo": "nao foi possivel registrar agora"}
 
 
+# Biblioteca de materiais (fotos/apresentacoes/videos) — volume montado do host:
+# /opt/conecta-pro/uploads/agent_media -> Jordan adiciona arquivos SEM rebuild.
+_MEDIA_DIR = "/app/uploads/agent_media"
+
+
+def _tool_listar_materiais() -> dict:
+    """Lista os arquivos da biblioteca de materiais (nome + tipo + tamanho)."""
+    try:
+        if not os.path.isdir(_MEDIA_DIR):
+            return {"materiais": [], "info": "biblioteca vazia"}
+        itens = []
+        for f in sorted(os.listdir(_MEDIA_DIR)):
+            if f.startswith(".") or f.upper().startswith("README") or f.upper().startswith("COMO_"):
+                continue
+            path = os.path.join(_MEDIA_DIR, f)
+            if os.path.isfile(path):
+                itens.append({"nome_arquivo": f, "tamanho_kb": os.path.getsize(path) // 1024})
+        return {"materiais": itens} if itens else {"materiais": [], "info": "biblioteca vazia"}
+    except Exception as e:  # noqa: BLE001
+        logger.error("Agente listar_materiais: %s", e)
+        return {"erro": "nao foi possivel listar agora"}
+
+
+async def _post_public_attachment(conversation_id: int, file_name: str, file_bytes: bytes) -> bool:
+    """Posta mensagem PUBLICA com anexo (multipart) — Chatwoot entrega via baileys."""
+    base = os.getenv("CHATWOOT_BASE_URL", "http://chatwoot-fazerai:3000").rstrip("/")
+    account = os.getenv("CHATWOOT_ACCOUNT_ID", "1")
+    token = os.getenv("CHATWOOT_API_TOKEN", "")
+    if not token:
+        return False
+    import mimetypes  # noqa: PLC0415
+
+    ctype = mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+    url = f"{base}/api/v1/accounts/{account}/conversations/{conversation_id}/messages"
+    try:
+        form = aiohttp.FormData()
+        form.add_field("message_type", "outgoing")
+        form.add_field("private", "false")
+        form.add_field("attachments[]", file_bytes, filename=file_name, content_type=ctype)
+        async with (
+            aiohttp.ClientSession() as session,
+            session.post(
+                url,
+                data=form,
+                headers={"api_access_token": token},
+                timeout=aiohttp.ClientTimeout(total=60),
+            ) as resp,
+        ):
+            if resp.status in (200, 201):
+                return True
+            logger.error("Agente anexo: HTTP %s (%s)", resp.status, (await resp.text())[:200])
+            return False
+    except Exception as e:  # noqa: BLE001
+        logger.error("Agente anexo: excecao conv=%s: %s", conversation_id, e)
+        return False
+
+
+async def _tool_enviar_material(args: dict, conversation_id: int) -> dict:
+    """Envia um material da biblioteca ao cliente (mensagem publica com anexo)."""
+    try:
+        nome = os.path.basename(str(args.get("nome_arquivo") or "").strip())  # anti path-traversal
+        if not nome:
+            return {"ok": False, "motivo": "nome_arquivo vazio"}
+        path = os.path.join(_MEDIA_DIR, nome)
+        if not os.path.isfile(path):
+            return {"ok": False, "motivo": f"material '{nome}' nao encontrado — use listar_materiais"}
+        if os.path.getsize(path) > 60 * 1024 * 1024:
+            return {"ok": False, "motivo": "arquivo grande demais para WhatsApp"}
+        with open(path, "rb") as f:
+            dados = f.read()
+        ok = await _post_public_attachment(conversation_id, nome, dados)
+        if ok:
+            logger.info("Agente enviar_material: '%s' enviado conv=%s", nome, conversation_id)
+            return {"ok": True, "enviado": nome}
+        return {"ok": False, "motivo": "falha no envio — siga o atendimento normalmente"}
+    except Exception as e:  # noqa: BLE001
+        logger.error("Agente enviar_material: %s", e)
+        return {"ok": False, "motivo": "falha no envio"}
+
+
+async def _post_public_audio(conversation_id: int, texto: str) -> bool:
+    """Converte a resposta em VOZ (TTS) e envia como audio publico. Best-effort.
+
+    Usado quando o cliente mandou audio (voz responde voz). Falha -> chamador
+    cai para resposta em texto (nunca perde a resposta).
+    """
+    try:
+        from openai import AsyncOpenAI  # noqa: PLC0415
+
+        client = AsyncOpenAI()
+        try:
+            resp = await client.audio.speech.create(
+                model="gpt-4o-mini-tts",
+                voice="onyx",
+                input=texto[:900],
+                response_format="mp3",
+                instructions=(
+                    "Voz masculina brasileira, calorosa e profissional, ritmo natural "
+                    "de conversa no WhatsApp. Sotaque brasileiro neutro."
+                ),
+            )
+        except Exception:  # noqa: BLE001 — fallback p/ modelo TTS classico
+            resp = await client.audio.speech.create(
+                model="tts-1", voice="onyx", input=texto[:900], response_format="mp3"
+            )
+        audio_bytes = getattr(resp, "content", None)
+        if audio_bytes is None:
+            audio_bytes = await resp.aread()  # type: ignore[attr-defined]
+        if not audio_bytes:
+            return False
+        return await _post_public_attachment(conversation_id, "resposta.mp3", audio_bytes)
+    except Exception as e:  # noqa: BLE001
+        logger.error("Agente TTS: falha conv=%s: %s", conversation_id, e)
+        return False
+
+
+async def _ultima_entrada_foi_audio(conversation_id: int) -> bool:
+    """True se a ultima mensagem de ENTRADA da conversa veio de audio (voz responde voz)."""
+    try:
+        async with async_session_factory() as db:
+            row = (
+                await db.execute(
+                    text(
+                        "SELECT content FROM cwi_message_log "
+                        "WHERE chatwoot_conversation_id=:c AND direction='in' "
+                        "AND content IS NOT NULL AND content <> '' "
+                        "ORDER BY created_at DESC LIMIT 1"
+                    ),
+                    {"c": conversation_id},
+                )
+            ).first()
+        return bool(row and "🎤" in (row[0] or "")[:30])
+    except Exception:  # noqa: BLE001
+        return False
+
+
 async def _enviar_emails_visita(
     db,
     numero,
@@ -576,6 +748,10 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
     try:
         if name == "registrar_lead":
             return await _tool_registrar_lead(args, conversation_id)
+        if name == "listar_materiais":
+            return _tool_listar_materiais()
+        if name == "enviar_material":
+            return await _tool_enviar_material(args, conversation_id)
         if name == "consultar_cnpj":
             return await _tool_consultar_cnpj(str(args.get("cnpj", "")))
         if name == "buscar_cliente":
@@ -1190,7 +1366,15 @@ async def processar_incoming(conversation_id: int, phone: str | None = None) -> 
             decision = "autonomous_sent"
 
     if decision == "autonomous_sent":
-        ok = await _post_public_reply(conversation_id, texto)
+        ok = False
+        # voz responde voz: se a ultima entrada foi audio e a resposta e "falavel",
+        # entrega em AUDIO (TTS). Falha de TTS/envio -> cai para texto normal.
+        if len(texto) <= 600 and await _ultima_entrada_foi_audio(conversation_id):
+            ok = await _post_public_audio(conversation_id, texto)
+            if ok:
+                decision = "autonomous_sent_voice"
+        if not ok:
+            ok = await _post_public_reply(conversation_id, texto)
         if not ok:
             decision = "copilot_note_send_fail"  # fallback: nao perde o trabalho
             await _post_private_note(conversation_id, texto)
