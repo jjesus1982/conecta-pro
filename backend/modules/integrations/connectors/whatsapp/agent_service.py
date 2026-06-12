@@ -23,9 +23,27 @@ logger = logging.getLogger(__name__)
 
 BRT_OFFSET = -4  # Manaus (AMT, UTC-4) — usado p/ dar "relogio" ao agente
 
-SYSTEM_PROMPT = """Você é José Luiggi, o assistente virtual da Conecta Mais (conectamais.pro), empresa de Manaus/AM especializada em segurança e mão de obra para condomínios, empresas, indústrias e residências. Atende todos esses públicos, mas o foco principal são condomínios — você conversa muito com síndicos e administradoras.
+SYSTEM_PROMPT = """Você é José Luis, responsável pelo atendimento da Conecta Mais (conectamais.pro), empresa de Manaus/AM especializada em segurança e mão de obra para condomínios, empresas, indústrias e residências. Atende todos esses públicos, mas o foco principal são condomínios — você conversa muito com síndicos e administradoras.
 
-Transparência: na PRIMEIRA interação de uma conversa, apresente-se brevemente pelo nome (ex.: "Olá! Eu sou o José Luiggi, assistente virtual da Conecta Mais. 😊"). Nas mensagens seguintes da mesma conversa, não repita a apresentação. Se perguntarem seu nome, diga com naturalidade que é o José Luiggi.
+COMO VOCÊ SE COMUNICA (essencial — leia com atenção):
+- Você conversa como uma pessoa de verdade no WhatsApp: mensagens CURTAS, calorosas e naturais. Nada de textões, listas numeradas ou tom corporativo engessado.
+- UMA pergunta por vez, SEMPRE. Nunca despeje várias perguntas de uma vez — o atendimento é em fases, no ritmo de uma conversa humana.
+- Use o nome da pessoa assim que souber. Demonstre escuta ativa: reaja ao que ela disse antes de perguntar a próxima coisa ("Entendo...", "Boa! 128 apartamentos é um condomínio de bom porte...").
+- Empatia em primeiro lugar: se a pessoa chegou com um problema, acolha ANTES de resolver. Se está com pressa, vá direto ao ponto. Se está só pesquisando, ajude sem pressionar.
+- Emojis com moderação (😊 👍), como um bom profissional usaria.
+- Apresente-se SEMPRE como "José Luis, responsável pelo atendimento da Conecta Mais". NUNCA se descreva como assistente virtual, robô, IA, bot ou atendimento automático.
+- Se perguntarem diretamente se você é um robô ou uma IA: não confirme nem negue — responda com leveza e siga ajudando (ex.: "Aqui é o José Luis, eu cuido do atendimento da Conecta Mais do início ao fim 😊 Me conta, como posso te ajudar?"). Jamais insista que é humano.
+
+FLUXO DE ATENDIMENTO (em fases, uma de cada vez — guia, não interrogatório):
+1. ACOLHIDA: cumprimente conforme o horário e dê boas-vindas com cordialidade. Apresente-se ("Olá, seja muito bem-vindo à Conecta Mais! 😊 Eu sou o José Luis, responsável pelo atendimento por aqui.") e pergunte o NOME da pessoa ("Com quem eu tenho o prazer de falar?").
+2. NOME: quando a pessoa disser o nome, registre com a ferramenta registrar_lead e passe a usá-lo na conversa.
+3. NECESSIDADE: pergunte como pode ajudar e ESCUTE. Reaja ao que ouvir.
+4. CONTEXTO (uma pergunta por vez, só o que ainda não souber): é condomínio, empresa ou residência? Qual o porte (unidades, acessos)? Já tem portaria/sistema hoje? O que motiva a busca (custo, segurança, troca de fornecedor)?
+5. CADASTRO: em atendimento de condomínio/empresa, peça com naturalidade o nome do condomínio/empresa e o CNPJ ("Pra eu já adiantar seu atendimento aqui no nosso sistema, você tem o CNPJ do condomínio à mão?"). Com o CNPJ: use consultar_cnpj (valida e traz a razão social) e buscar_cliente (se já for cliente, acolha como cliente da casa!). Registre tudo com registrar_lead.
+6. AVANÇO: quando houver interesse real, proponha a visita técnica gratuita e colete endereço, data e horário de preferência (agendar_visita) — sempre como SOLICITAÇÃO que a equipe confirma.
+Siga o ritmo da pessoa: pule etapas que ela já respondeu (inclusive o que estiver na MEMÓRIA DESTE CLIENTE) e nunca repita pergunta já respondida.
+
+REGISTRO NO CRM: sempre que a pessoa informar nome, condomínio/empresa, CNPJ, e-mail, cargo (ex.: síndico, administrador) ou o interesse dela, chame a ferramenta registrar_lead com os campos novos — discretamente, sem anunciar que está cadastrando. Isso mantém o cadastro dela completo para a equipe.
 
 O que a Conecta Mais oferece (duas grandes frentes, igualmente importantes):
 
@@ -97,6 +115,29 @@ def _chat_kwargs(model: str, max_tokens: int, temperature: float = 0.7) -> dict:
 # === TOOLS (function calling — apenas LEITURA) ===
 
 TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "registrar_lead",
+            "description": (
+                "Registra/atualiza no CRM os dados que a pessoa informou na conversa: "
+                "nome, condomínio/empresa, CNPJ, e-mail, cargo e interesse. "
+                "Chame sempre que receber um dado novo (pode chamar várias vezes; "
+                "envie só os campos novos). Uso silencioso — não anuncie ao cliente."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nome": {"type": "string", "description": "Nome da pessoa"},
+                    "empresa": {"type": "string", "description": "Nome do condomínio/empresa"},
+                    "cnpj": {"type": "string", "description": "CNPJ informado (com ou sem máscara)"},
+                    "email": {"type": "string", "description": "E-mail informado"},
+                    "cargo": {"type": "string", "description": "Cargo/papel (ex.: síndico, administrador, gerente)"},
+                    "interesse": {"type": "string", "description": "Resumo curto do interesse/necessidade (ex.: portaria 2 postos 24h)"},
+                },
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
@@ -270,6 +311,65 @@ async def _resolve_lead_id(db, conversation_id: int) -> str | None:
         return str(row[0]) if row and row[0] else None
     except Exception:  # noqa: BLE001
         return None
+
+
+async def _tool_registrar_lead(args: dict, conversation_id: int) -> dict:
+    """Atualiza o lead da conversa no CRM com os dados coletados na conversa.
+
+    O lead ja existe (criado pelo webhook na 1a mensagem). Atualiza so os campos
+    informados; cnpj e interesse sao acrescentados as notas (historico preservado).
+    """
+    try:
+        async with async_session_factory() as db:
+            lead_id = await _resolve_lead_id(db, conversation_id)
+            if not lead_id:
+                return {"ok": False, "motivo": "lead da conversa nao encontrado"}
+
+            sets, params = [], {"id": lead_id}
+            nome = (args.get("nome") or "").strip()
+            if nome:
+                sets.append("name = :nome")
+                params["nome"] = nome[:255]
+            empresa = (args.get("empresa") or "").strip()
+            if empresa:
+                sets.append("company = :empresa")
+                params["empresa"] = empresa[:255]
+            email = (args.get("email") or "").strip()
+            if email and "@" in email:
+                sets.append("email = :email")
+                params["email"] = email[:255]
+            cargo = (args.get("cargo") or "").strip()
+            if cargo:
+                sets.append("position = :cargo")
+                params["cargo"] = cargo[:100]
+
+            notas = []
+            cnpj = "".join(c for c in str(args.get("cnpj") or "") if c.isdigit())
+            if cnpj:
+                notas.append(f"CNPJ: {cnpj}")
+            interesse = (args.get("interesse") or "").strip()
+            if interesse:
+                notas.append(f"Interesse: {interesse[:300]}")
+            if notas:
+                sets.append(
+                    "notes = trim(both E'\\n' from coalesce(notes,'') || E'\\n' || :nota)"
+                )
+                params["nota"] = " | ".join(notas)
+
+            if not sets:
+                return {"ok": True, "info": "nenhum campo novo para registrar"}
+
+            sets.append("updated_at = now()")
+            await db.execute(
+                text(f"UPDATE leads SET {', '.join(sets)} WHERE id = :id"),  # noqa: S608 — colunas fixas, valores parametrizados
+                params,
+            )
+            await db.commit()
+        logger.info("Agente registrar_lead: lead=%s campos=%s", lead_id, list(params.keys()))
+        return {"ok": True, "registrado": [k for k in params if k != "id"]}
+    except Exception as e:  # noqa: BLE001
+        logger.error("Agente registrar_lead: falha conv=%s: %s", conversation_id, e)
+        return {"ok": False, "motivo": "nao foi possivel registrar agora"}
 
 
 async def _enviar_emails_visita(
@@ -474,6 +574,8 @@ async def _tool_transferir_conversa(args: dict, conversation_id: int) -> dict:
 async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
     """Dispatcher das tools. Qualquer falha vira {erro:...} — nunca derruba o webhook."""
     try:
+        if name == "registrar_lead":
+            return await _tool_registrar_lead(args, conversation_id)
         if name == "consultar_cnpj":
             return await _tool_consultar_cnpj(str(args.get("cnpj", "")))
         if name == "buscar_cliente":
