@@ -1,23 +1,23 @@
 #!/bin/sh
 # Entrypoint script para AlertManager
-# Alertas vão APENAS para OpenClaw webhook (que notifica Telegram com contexto)
-# Telegram removido do Alertmanager para evitar duplicatas
+# [FASE2-JL 20260612] OpenClaw foi REMOVIDO do sistema — o webhook antigo era um
+# endpoint MORTO (alertas reais nunca chegavam a ninguem). Agora: Telegram NATIVO
+# do Alertmanager (bot das notificacoes reais), só alertas por limiar do Prometheus.
+# Requer env: TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID.
 
 CONFIG_FILE=/etc/alertmanager/alertmanager.yml
 
 cat > "$CONFIG_FILE" << EOF
 # AlertManager Configuration - ERP Conecta Mais
-# Telegram removido — OpenClaw é o único notificador (com diagnóstico + throttle)
+# Telegram nativo — alertas REAIS por limiar (sem IA, sem alucinacao)
 global:
   resolve_timeout: 5m
-  smtp_smarthost: 'localhost:587'
-  smtp_from: 'alerts@conectamais.pro'
 
 templates:
   - '/etc/alertmanager/templates/*.tmpl'
 
 route:
-  receiver: 'default-webhook'
+  receiver: 'telegram-default'
   group_by: ['alertname', 'severity', 'job']
   group_wait: 30s
   group_interval: 5m
@@ -25,28 +25,37 @@ route:
   routes:
     - match:
         severity: critical
-      receiver: 'critical-webhook'
+      receiver: 'telegram-critical'
       repeat_interval: 1h
     - match:
         severity: warning
-      receiver: 'default-webhook'
+      receiver: 'telegram-default'
       group_wait: 1m
       repeat_interval: 8h
     - match:
         severity: info
-      receiver: 'default-webhook'
+      receiver: 'telegram-default'
       group_wait: 5m
       repeat_interval: 24h
 
 receivers:
-  - name: 'default-webhook'
-    webhook_configs:
-      - url: 'http://172.19.0.1:8080/api/v1/ai/openclaw/alert-webhook'
+  - name: 'telegram-default'
+    telegram_configs:
+      - bot_token: '${TELEGRAM_BOT_TOKEN}'
+        chat_id: ${TELEGRAM_CHAT_ID}
         send_resolved: true
-  - name: 'critical-webhook'
-    webhook_configs:
-      - url: 'http://172.19.0.1:8080/api/v1/ai/openclaw/alert-webhook'
+        parse_mode: 'HTML'
+        message: '{{ if eq .Status "firing" }}⚠️{{ else }}✅{{ end }} <b>{{ .GroupLabels.alertname }}</b> ({{ .Status }}){{ range .Alerts }}
+{{ .Annotations.summary }}{{ if .Annotations.description }} — {{ .Annotations.description }}{{ end }}{{ end }}'
+  - name: 'telegram-critical'
+    telegram_configs:
+      - bot_token: '${TELEGRAM_BOT_TOKEN}'
+        chat_id: ${TELEGRAM_CHAT_ID}
         send_resolved: true
+        parse_mode: 'HTML'
+        message: '🚨 <b>CRÍTICO: {{ .GroupLabels.alertname }}</b> ({{ .Status }}){{ range .Alerts }}
+{{ .Annotations.summary }}{{ if .Annotations.description }} — {{ .Annotations.description }}{{ end }}{{ end }}'
+
 inhibit_rules:
   - source_match:
       severity: 'critical'
