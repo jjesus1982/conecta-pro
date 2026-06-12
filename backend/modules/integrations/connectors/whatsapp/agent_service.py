@@ -585,9 +585,9 @@ async def _tool_abrir_ordem_servico(args: dict, conversation_id: int) -> dict:
                 text(
                     "INSERT INTO service_orders (id, order_number, client_id, title, description, "
                     "status, priority, requester_name, requester_phone, location_address, "
-                    "internal_notes, ativo, created_at, updated_at, created_by) "
+                    "internal_notes, extra_metadata, ativo, created_at, updated_at) "
                     "VALUES (gen_random_uuid(), :num, :cid, :tit, :des, 'pendente', :pri, :rnome, "
-                    ":rfone, :loc, :nota, true, now(), now(), 'jose-luis-whatsapp')"
+                    ":rfone, :loc, :nota, '{\"origem\": \"jose-luis-whatsapp\"}'::jsonb, true, now(), now())"
                 ),
                 {
                     "num": numero,

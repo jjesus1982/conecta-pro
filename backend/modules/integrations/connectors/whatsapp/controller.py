@@ -412,7 +412,7 @@ async def agent_dashboard(
                   (SELECT count(*) FROM leads l WHERE l.created_at::date=d::date AND l.source='whatsapp')          AS leads_novos,
                   (SELECT count(*) FROM visitas v WHERE v.created_at::date=d::date AND v.lead_id IS NOT NULL)      AS visitas_solicitadas,
                   (SELECT count(*) FROM service_orders s WHERE s.created_at::date=d::date
-                    AND s.created_by='jose-luis-whatsapp')                                                          AS os_abertas
+                    AND s.extra_metadata->>'origem'='jose-luis-whatsapp')                                           AS os_abertas
                 FROM generate_series(current_date - (:dias - 1) * interval '1 day', current_date, interval '1 day') d
                 ORDER BY d DESC
                 """
@@ -432,7 +432,7 @@ async def agent_dashboard(
                   (SELECT count(*) FROM cwi_message_log WHERE direction='drf')                           AS respostas_geradas_total,
                   (SELECT count(*) FROM cwi_message_log WHERE direction='mem')                           AS memorias_de_cliente,
                   (SELECT count(*) FROM visitas WHERE lead_id IS NOT NULL)                               AS visitas_de_leads,
-                  (SELECT count(*) FROM service_orders WHERE created_by='jose-luis-whatsapp')            AS os_abertas_pelo_agente
+                  (SELECT count(*) FROM service_orders WHERE extra_metadata->>'origem'='jose-luis-whatsapp') AS os_abertas_pelo_agente
                 """
             )
         )
