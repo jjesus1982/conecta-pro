@@ -42,7 +42,7 @@ export default function LeadsPage() {
   const statsAny = stats as Record<string, number> | undefined;
   const totalLeads = statsAny?.total || total;
   const leadsNovos = statsAny?.novos || leads.filter(l => l.status === 'new' || l.status === 'novo').length;
-  const valorTotal = statsAny?.valor_pipeline || leads.reduce((acc, lead) => acc + (lead.valor_estimado || 0), 0);
+  const valorTotal = statsAny?.total_expected_value ?? statsAny?.valor_pipeline ?? leads.reduce((acc, lead) => acc + (lead.expected_value || lead.valor_estimado || 0), 0);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -382,7 +382,7 @@ export default function LeadsPage() {
                         </td>
                         <td className="p-4 text-right">
                           <span className="font-mono text-sm text-[hsl(var(--foreground))]">
-                            {formatCurrency(lead.valor_estimado || 0)}
+                            {formatCurrency(lead.expected_value || lead.valor_estimado || 0)}
                           </span>
                         </td>
                         <td className="p-4">

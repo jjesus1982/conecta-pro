@@ -312,7 +312,7 @@ export default function ComissoesPage() {
                         {formatCurrency(item.sale_value || item.valor_venda || 0)}
                       </TableCell>
                       <TableCell className="text-sm font-medium text-green-600">
-                        {formatCurrency(item.commission_value || item.valor_comissao || item.value || 0)}
+                        {formatCurrency(item.final_commission || item.commission_value || item.valor_comissao || item.value || 0)}
                       </TableCell>
                       <TableCell>{getCommissionStatusBadge(item.status || 'pending')}</TableCell>
                       <TableCell>
