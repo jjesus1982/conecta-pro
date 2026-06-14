@@ -115,6 +115,11 @@ services:
     restart: unless-stopped
     stop_grace_period: 30s
     command: celery -A celery_app worker --hostname=batch@%h --queues=gov.batch --concurrency=2 --loglevel=INFO
+    # env_file injeta o .env (OPENAI_API_KEY, TELEGRAM_*, AGENT_*) — necessário p/ as tasks
+    # whatsapp.auditar_qualidade e whatsapp.followup_conversas (auditor + follow-up do José Luís).
+    # O environment: abaixo sobrescreve as infra-URLs p/ a rede de containers.
+    env_file:
+      - .env
     environment:
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:?Defina REDIS_PASSWORD no .env}@redis:6379/0
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:?Defina REDIS_PASSWORD no .env}@redis:6379/0

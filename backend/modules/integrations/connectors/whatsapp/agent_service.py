@@ -104,7 +104,7 @@ Mensagens de ÁUDIO: mensagens que começam com "🎤 [áudio transcrito]:" vier
 Regras invioláveis:
 - NUNCA informe preços, prazos ou condições comerciais — dependem de avaliação técnica. Se perguntarem, explique que depende de uma visita e ofereça agendá-la.
 - NUNCA invente informação técnica ou comercial. Se não souber um detalhe, diga que a equipe técnica esclarece na visita.
-- Se perguntarem se você é um robô ou IA, assuma com naturalidade que é o assistente virtual da Conecta Mais e ofereça continuar ajudando ou falar com a equipe.
+- Se perguntarem se você é um robô ou IA, siga a regra do início: não confirme nem negue, responda com leveza e continue ajudando; se a pessoa insistir, ofereça falar com a equipe. Não afirme que é um robô/assistente virtual nem insista que é humano.
 - Você trata apenas de assuntos da Conecta Mais e seus serviços. Se perguntarem algo fora disso, recuse educadamente e retome o atendimento.
 
 Quando passar para um atendente humano: se o cliente pedir, demonstrar irritação ou urgência, relatar uma emergência de segurança, ou se a questão fugir do que você pode resolver — ofereça encaminhar para a equipe imediatamente.
@@ -465,20 +465,68 @@ AGENT_VISITA_RESPONSAVEL_ID = os.getenv("AGENT_VISITA_RESPONSAVEL_ID", "ad9abb59
 
 
 async def _resolve_lead_id(db, conversation_id: int) -> str | None:
-    """Resolve o lead_id da conversa pelo cwi_message_log (a entrada já criou/achou o lead)."""
+    """Resolve o lead_id da conversa pelo cwi_message_log, VALIDANDO que o lead existe
+    (JOIN com leads). lead_id órfão (lead apagado) -> None, p/ o chamador recriar."""
     try:
         row = (
             await db.execute(
                 text(
-                    "SELECT lead_id FROM cwi_message_log "
-                    "WHERE chatwoot_conversation_id = :c AND lead_id IS NOT NULL "
-                    "ORDER BY created_at DESC LIMIT 1"
+                    "SELECT m.lead_id FROM cwi_message_log m "
+                    "JOIN leads l ON l.id = m.lead_id "
+                    "WHERE m.chatwoot_conversation_id = :c AND m.lead_id IS NOT NULL "
+                    "ORDER BY m.created_at DESC LIMIT 1"
                 ),
                 {"c": conversation_id},
             )
         ).first()
         return str(row[0]) if row and row[0] else None
     except Exception:  # noqa: BLE001
+        return None
+
+
+async def _criar_lead_para_conversa(db, conversation_id: int, nome: str | None = None) -> str | None:
+    """Auto-cura: cria (ou reusa por telefone) um lead p/ a conversa quando não há lead
+    válido vinculado (ex.: lead foi apagado). Vincula o lead_id no cwi_message_log."""
+    try:
+        phone = (
+            await db.execute(
+                text(
+                    "SELECT phone_canonical FROM cwi_message_log "
+                    "WHERE chatwoot_conversation_id=:c AND phone_canonical IS NOT NULL "
+                    "ORDER BY created_at DESC LIMIT 1"
+                ),
+                {"c": conversation_id},
+            )
+        ).scalar()
+        if not phone:
+            return None
+        existing = (
+            await db.execute(
+                text("SELECT id FROM leads WHERE phone = :p ORDER BY updated_at DESC LIMIT 1"),
+                {"p": phone},
+            )
+        ).scalar()
+        if existing:
+            lid = existing
+        else:
+            nm = (nome or "Contato WhatsApp").strip()[:255] or "Contato WhatsApp"
+            lid = (
+                await db.execute(
+                    text(
+                        "INSERT INTO leads (id,name,phone,source,status,score,probability,"
+                        "expected_value,is_active,created_at,updated_at) VALUES "
+                        "(gen_random_uuid(),:n,:p,'whatsapp','new',0,0,0,true,now(),now()) RETURNING id"
+                    ),
+                    {"n": nm, "p": phone},
+                )
+            ).scalar()
+        await db.execute(
+            text("UPDATE cwi_message_log SET lead_id=:l WHERE chatwoot_conversation_id=:c"),
+            {"l": lid, "c": conversation_id},
+        )
+        return str(lid)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Falha ao auto-criar lead p/ conv=%s: %s", conversation_id, e)
         return None
 
 
@@ -516,7 +564,10 @@ async def _tool_registrar_lead(args: dict, conversation_id: int) -> dict:
         async with async_session_factory() as db:
             lead_id = await _resolve_lead_id(db, conversation_id)
             if not lead_id:
-                return {"ok": False, "motivo": "lead da conversa nao encontrado"}
+                # auto-cura: lead ausente/órfão -> cria (ou reusa por telefone)
+                lead_id = await _criar_lead_para_conversa(db, conversation_id, args.get("nome"))
+                if not lead_id:
+                    return {"ok": False, "motivo": "lead da conversa nao encontrado"}
 
             sets, params = [], {"id": lead_id}
             nome = (args.get("nome") or "").strip()
@@ -581,10 +632,15 @@ async def _tool_registrar_lead(args: dict, conversation_id: int) -> dict:
                 return {"ok": True, "info": "nenhum campo novo para registrar"}
 
             sets.append("updated_at = now()")
-            await db.execute(
+            res = await db.execute(
                 text(f"UPDATE leads SET {', '.join(sets)} WHERE id = :id"),  # noqa: S608 — colunas fixas, valores parametrizados
                 params,
             )
+            if (res.rowcount or 0) == 0:
+                # lead sumiu entre o resolve e o update -> não confirme falso sucesso
+                await db.rollback()
+                logger.warning("Agente registrar_lead: 0 linhas (lead=%s sumiu)", lead_id)
+                return {"ok": False, "motivo": "lead nao encontrado para atualizar"}
             await db.commit()
         logger.info("Agente registrar_lead: lead=%s campos=%s", lead_id, list(params.keys()))
         return {"ok": True, "registrado": [k for k in params if k != "id"]}
@@ -648,11 +704,14 @@ async def _tool_consultar_minha_conta(args: dict) -> dict:
                     {"c": cnpj},
                 )
             ).fetchall()
+        # LGPD/segurança: canal não-autenticado (telefone não vinculado ao cliente na base).
+        # Expomos EXISTÊNCIA/status (útil p/ suporte), mas NUNCA valores financeiros — assim
+        # ninguém extrai faturamento de terceiros só informando um CNPJ (que é dado público).
         return {
             "cliente_da_base": True,
             "razao_social": client_name,
             "contratos": [
-                {"numero": r[0], "servico": r[1], "status": r[2], "valor_mensal": float(r[3] or 0),
+                {"numero": r[0], "servico": r[1], "status": r[2],
                  "inicio": r[4], "fim": r[5] or "indeterminado"}
                 for r in contratos
             ],
@@ -661,9 +720,10 @@ async def _tool_consultar_minha_conta(args: dict) -> dict:
                 for r in ordens
             ],
             "notas_fiscais_recentes": [
-                {"numero": r[0], "emissao": r[1], "status": r[2], "valor": float(r[3] or 0)}
+                {"numero": r[0], "emissao": r[1], "status": r[2]}
                 for r in notas
             ],
+            "obs_valores": "Para valores (mensalidade, notas), a equipe confirma a identidade e informa — não exibir no chat.",
         }
     except Exception as e:  # noqa: BLE001
         logger.error("Agente consultar_minha_conta: %s", e)
@@ -729,10 +789,10 @@ async def _tool_abrir_ordem_servico(args: dict, conversation_id: int) -> dict:
                     "num": numero,
                     "svc": str(svc[0]),
                     "cid": str(cli[0]),
-                    "tit": titulo[:255],
+                    "tit": titulo[:200],  # service_orders.title é varchar(200)
                     "des": descricao[:2000],
                     "pri": prioridade,
-                    "rnome": (cli[1] or "")[:255],
+                    "rnome": (cli[1] or "")[:200],  # requester_name é varchar(200)
                     "rfone": (tel[0] if tel else None),
                     "loc": (args.get("local") or "")[:500] or None,
                     "nota": f"Aberta pelo José Luís (WhatsApp) — conversa {conversation_id}",
@@ -1025,6 +1085,8 @@ async def _enviar_briefing_comercial(db, lead_id, *, numero, data_visita, horari
     if not lead_id:
         return
     try:
+        import asyncio as _asyncio  # noqa: PLC0415
+
         from modules.integrations.connectors.whatsapp.tasks import _telegram_send  # noqa: PLC0415
 
         row = (await db.execute(
@@ -1064,7 +1126,8 @@ async def _enviar_briefing_comercial(db, lead_id, *, numero, data_visita, horari
             partes.append(f"\n🎯 Objetivo da visita: {objetivo}")
         partes.append("\n<i>Equipe: confirmem o horário com o cliente.</i>")
 
-        _telegram_send("\n".join(partes))
+        # to_thread: _telegram_send é requests.post síncrono (timeout 15s) — não bloquear o event loop
+        await _asyncio.to_thread(_telegram_send, "\n".join(partes))
         logger.info("Briefing comercial enviado: lead=%s visita=%s", lead_id, numero)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Falha ao enviar briefing comercial (lead=%s): %s", lead_id, exc)
@@ -1230,11 +1293,42 @@ async def _tool_transferir_conversa(args: dict, conversation_id: int) -> dict:
             res.get("status"),
         )
         if res.get("status") == "assigned":
+            # marca a conversa como TRANSFERIDA p/ o agente PARAR de responder (humano assumiu)
+            try:
+                async with async_session_factory() as db:
+                    await db.execute(
+                        text(
+                            "INSERT INTO cwi_message_log (direction, chatwoot_conversation_id, content, status) "
+                            "VALUES ('trf', :c, :setor, 'transfer')"
+                        ),
+                        {"c": conversation_id, "setor": setor[:200]},
+                    )
+                    await db.commit()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("transferir_conversa: falha ao marcar trf conv=%s: %s", conversation_id, exc)
             return {"ok": True, "setor": setor, "mensagem": "conversa encaminhada ao time"}
         return {"erro": "não foi possível encaminhar agora"}
     except Exception as e:  # noqa: BLE001
         logger.warning("Tool transferir_conversa falhou conv=%s: %s", conversation_id, e)
         return {"erro": "não foi possível encaminhar agora"}
+
+
+async def _foi_transferida(conversation_id: int) -> bool:
+    """True se a conversa já foi transferida a um humano (marcador 'trf') — agente não responde."""
+    try:
+        async with async_session_factory() as db:
+            row = (
+                await db.execute(
+                    text(
+                        "SELECT 1 FROM cwi_message_log WHERE chatwoot_conversation_id=:c "
+                        "AND direction='trf' LIMIT 1"
+                    ),
+                    {"c": conversation_id},
+                )
+            ).first()
+        return row is not None
+    except Exception:  # noqa: BLE001
+        return False
 
 
 async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
@@ -1316,9 +1410,10 @@ async def _perfil_estruturado(conversation_id: int) -> str | None:
                 await db.execute(
                     text(
                         "SELECT name, company, position, notes, qualificacao FROM leads "
-                        "WHERE phone = (SELECT phone_canonical FROM cwi_message_log "
-                        "  WHERE chatwoot_conversation_id=:c AND phone_canonical IS NOT NULL "
-                        "  ORDER BY created_at DESC LIMIT 1) "
+                        "WHERE regexp_replace(coalesce(phone,''),'\\D','','g') = "
+                        "  (SELECT phone_canonical FROM cwi_message_log "
+                        "   WHERE chatwoot_conversation_id=:c AND phone_canonical IS NOT NULL "
+                        "   ORDER BY created_at DESC LIMIT 1) "
                         "ORDER BY updated_at DESC LIMIT 1"
                     ),
                     {"c": conversation_id},
@@ -1405,6 +1500,15 @@ async def _update_contact_memory(conversation_id: int, phone: str | None) -> Non
                 ),
                 {"phone": phone, "conv": conversation_id, "content": resumo},
             )
+            # Poda: mantém só os 3 'mem' mais recentes deste telefone (evita crescer sem limite)
+            await db.execute(
+                text(
+                    "DELETE FROM cwi_message_log WHERE direction='mem' AND phone_canonical=:phone "
+                    "AND id NOT IN (SELECT id FROM cwi_message_log WHERE direction='mem' "
+                    "  AND phone_canonical=:phone ORDER BY created_at DESC LIMIT 3)"
+                ),
+                {"phone": phone},
+            )
             await db.commit()
         logger.info("Agente memoria: atualizada phone=%s (%s chars)", phone, len(resumo))
     except Exception as e:  # noqa: BLE001
@@ -1469,9 +1573,14 @@ async def _search_knowledge(query: str, top_k: int = 3) -> str | None:
                 )
                 for c, e in zip(faltantes, emb.data, strict=False):
                     cache[c["id"]] = {"mtime": c["mtime"], "vec": e.embedding}
+                # poda entradas órfãs (chunks deletados/renomeados) p/ o cache não inchar
+                valid_ids = {c["id"] for c in chunks}
+                cache = {k: v for k, v in cache.items() if k in valid_ids}
                 try:
-                    with open(_KNOWLEDGE_CACHE_FILE, "w", encoding="utf-8") as f:
+                    tmp = _KNOWLEDGE_CACHE_FILE + ".tmp"  # escrita ATÔMICA (evita corrupção em concorrência)
+                    with open(tmp, "w", encoding="utf-8") as f:
                         json.dump(cache, f)
+                    os.replace(tmp, _KNOWLEDGE_CACHE_FILE)
                 except Exception:  # noqa: BLE001
                     pass  # cache em disco e otimizacao, nao requisito
             qe = await client.embeddings.create(model=_EMBED_MODEL, input=[query[:1000]])
@@ -1480,7 +1589,7 @@ async def _search_knowledge(query: str, top_k: int = 3) -> str | None:
                 (_cosine(qv, cache[c["id"]]["vec"]), c) for c in chunks if c["id"] in cache
             ]
             pontuados.sort(key=lambda t: t[0], reverse=True)
-            top = [c for score, c in pontuados[:top_k] if score >= 0.25]
+            top = [c for score, c in pontuados[:top_k] if score >= 0.35]
         except Exception as e:  # noqa: BLE001
             # fallback sem API: score por sobreposicao de palavras
             logger.warning("Agente RAG: embeddings indisponiveis (%s) — fallback keyword", e)
@@ -1779,7 +1888,7 @@ async def _log_draft(conversation_id: int, phone: str | None, content: str, mode
                     "phone": phone,
                     "conv": conversation_id,
                     "content": content,
-                    "status": f"agent:{model}",
+                    "status": f"agent:{model}"[:20],  # coluna status é varchar(20)
                 },
             )
             await db.commit()
@@ -1937,12 +2046,46 @@ async def _toggle_typing(conversation_id: int, on: bool) -> None:
 
 
 async def processar_incoming(conversation_id: int, phone: str | None = None) -> None:
-    """Entrypoint do BackgroundTask: gera a resposta e entrega conforme AGENT_MODE.
+    """Entrypoint do BackgroundTask, com LOCK por conversa (pg advisory).
+
+    Evita respostas concorrentes quando o cliente manda várias mensagens em rajada:
+    a 1a pega o lock e responde lendo todo o histórico; as concorrentes pulam (debounce).
+    """
+    async with async_session_factory() as lock_sess:
+        try:
+            locked = bool(
+                (await lock_sess.execute(
+                    text("SELECT pg_try_advisory_lock(:k)"), {"k": int(conversation_id)}
+                )).scalar()
+            )
+        except Exception:  # noqa: BLE001 — se o lock falhar, processa mesmo assim
+            locked = None
+        if locked is False:
+            logger.info("processar_incoming: conv=%s já em processamento — pulando (debounce)", conversation_id)
+            return
+        try:
+            await _processar_incoming_inner(conversation_id, phone)
+        finally:
+            if locked:
+                try:
+                    await lock_sess.execute(
+                        text("SELECT pg_advisory_unlock(:k)"), {"k": int(conversation_id)}
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+
+
+async def _processar_incoming_inner(conversation_id: int, phone: str | None = None) -> None:
+    """Gera a resposta e entrega conforme AGENT_MODE.
 
     copilot (default): nota privada (humano aprova) + rascunho no log.
     autonomous: responde PUBLICO ao cliente, COM GUARDS — pula grupos e conversas
     com humano atribuido (nesses casos cai para nota privada). Draft SEMPRE logado.
     """
+    # Se já foi transferida a um humano, o agente fica em SILÊNCIO (não compete com a equipe).
+    if await _foi_transferida(conversation_id):
+        logger.info("processar_incoming: conv=%s já transferida — agente em silêncio", conversation_id)
+        return
     # naturalidade: cliente ve "digitando..." enquanto a resposta e gerada
     await _toggle_typing(conversation_id, True)
     try:
@@ -1950,6 +2093,7 @@ async def processar_incoming(conversation_id: int, phone: str | None = None) -> 
     finally:
         await _toggle_typing(conversation_id, False)
     if not texto:
+        logger.warning("processar_incoming: conv=%s gerou resposta VAZIA (nada enviado)", conversation_id)
         return
     model = os.getenv("OPENAI_AGENT_MODEL", "gpt-4o-mini")
     await _log_draft(conversation_id, phone, texto, model)

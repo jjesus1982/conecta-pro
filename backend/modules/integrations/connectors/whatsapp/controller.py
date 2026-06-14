@@ -191,6 +191,12 @@ def _normalize_phone(phone: str | None) -> str | None:
 
 async def _match_or_create_lead(db: AsyncSession, phone_canonical: str, name: str | None) -> str | None:
     """Dedup por telefone normalizado em leads.phone; cria Lead (source=whatsapp) se novo."""
+    # Lock por telefone (advisory transacional): serializa criação concorrente do mesmo
+    # contato (2 webhooks simultâneos) -> evita lead duplicado. Auto-libera no commit/rollback.
+    try:
+        await db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:p)::bigint)"), {"p": phone_canonical})
+    except Exception:  # noqa: BLE001 — sem lock é pior, mas não fatal
+        pass
     row = (
         await db.execute(
             text(
@@ -447,7 +453,9 @@ async def agent_dashboard(
                   count(*) FILTER (WHERE source='whatsapp' AND qualificacao ? 'segmento') AS qualificados,
                   count(*) FILTER (WHERE source='whatsapp' AND coalesce(notes,'') ILIKE '%CNPJ%') AS com_cnpj,
                   count(*) FILTER (WHERE source='whatsapp' AND EXISTS(SELECT 1 FROM visitas v WHERE v.lead_id=leads.id)) AS com_visita,
-                  count(*) FILTER (WHERE source='whatsapp' AND coalesce((qualificacao->>'score_lead')::int,0) >= 60) AS quentes
+                  count(*) FILTER (WHERE source='whatsapp' AND
+                    (CASE WHEN qualificacao->>'score_lead' ~ '^[0-9]+$'
+                          THEN (qualificacao->>'score_lead')::int ELSE 0 END) >= 60) AS quentes
                 FROM leads
                 """
             )
@@ -477,7 +485,7 @@ async def agent_dashboard(
                        count(DISTINCT m.chatwoot_conversation_id) AS conversas,
                        count(DISTINCT vi.id) AS visitas
                 FROM cwi_message_log m
-                LEFT JOIN leads l ON l.phone = m.phone_canonical
+                LEFT JOIN leads l ON regexp_replace(coalesce(l.phone,''),'\\D','','g') = m.phone_canonical
                 LEFT JOIN visitas vi ON vi.lead_id = l.id
                 WHERE m.chatwoot_conversation_id IS NOT NULL AND m.direction IN ('in','out')
                 GROUP BY (m.chatwoot_conversation_id % 2)
@@ -622,9 +630,10 @@ async def chatwoot_webhook(
     )
     await db.commit()
 
-    # Fase A (COPILOTO): em mensagem de ENTRADA, agendar o agente em background
-    # (nao bloqueia o 200). Gera sugestao -> nota privada no Chatwoot + rascunho
-    # em cwi_message_log. NAO envia ao cliente. So roda se AGENT_ENABLED=true.
+    # Em mensagem de ENTRADA, agenda o agente em background (nao bloqueia o 200).
+    # AGENT_MODE=copilot -> nota privada + rascunho (humano aprova). AGENT_MODE=autonomous
+    # -> RESPONDE PUBLICO ao cliente (com guards: grupo/atribuída/transferida -> nao envia).
+    # Draft sempre logado em cwi_message_log. So roda se AGENT_ENABLED=true.
     if direction == "in" and conv_id and agent_service.agent_enabled():
         background_tasks.add_task(agent_service.processar_incoming, conv_id, phone_canonical)
 

@@ -172,6 +172,14 @@ _RUBRICA_AUDITORIA = (
 )
 
 
+def _nota(r: dict) -> float:
+    """Nota do auditor coagida com segurança (LLM pode devolver não-numérico)."""
+    try:
+        return float(r.get("nota") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 async def _auditar_conversas(session, horas: int = 24, limite: int = 15) -> list[dict]:
     """Coleta conversas recentes do agente e audita cada uma via LLM. Best-effort."""
     from sqlalchemy import text  # noqa: PLC0415
@@ -200,6 +208,12 @@ async def _auditar_conversas(session, horas: int = 24, limite: int = 15) -> list
 
     client = AsyncOpenAI()
     model = os.getenv("AGENT_AUDIT_MODEL", "gpt-4o-mini")
+    # kwargs compatíveis com a família do modelo (gpt-5/o-series não aceitam temperature
+    # nem max_tokens — usam max_completion_tokens). Evita quebra silenciosa se trocar o modelo.
+    if model.startswith(("gpt-5", "o1", "o3", "o4")):
+        _akw = {"max_completion_tokens": 300}
+    else:
+        _akw = {"max_tokens": 300, "temperature": 0}
     out = []
     for conv, phone, transcript in rows:
         try:
@@ -210,8 +224,7 @@ async def _auditar_conversas(session, horas: int = 24, limite: int = 15) -> list
                     {"role": "user", "content": f"CONVERSA (conv #{conv}):\n{transcript[:6000]}"},
                 ],
                 response_format={"type": "json_object"},
-                max_tokens=300,
-                temperature=0,
+                **_akw,
             )
             data = _json.loads(resp.choices[0].message.content or "{}")
             data["conv"] = conv
@@ -226,7 +239,9 @@ async def _auditar_conversas(session, horas: int = 24, limite: int = 15) -> list
 
     promovidas = 0
     for r in out:
-        if float(r.get("nota") or 0) >= 8 and not r.get("vazou_preco"):
+        # Gold (rígido): nota alta, SEM vazar preço, E com avanço real (pediu CNPJ ou
+        # conduziu à visita) — evita conversa "simpática mas vazia" virar exemplo.
+        if _nota(r) >= 8 and not r.get("vazou_preco") and (r.get("conduziu_visita") or r.get("pediu_cnpj")):
             try:
                 res = await session.execute(
                     _text(
@@ -259,15 +274,15 @@ def auditar_qualidade(self):  # noqa: ARG001
         return {"ok": True, "n": 0}
 
     n = len(results)
-    notas = [float(r.get("nota") or 0) for r in results]
+    notas = [_nota(r) for r in results]
     media = sum(notas) / n if n else 0
     pediu_cnpj = sum(1 for r in results if r.get("pediu_cnpj"))
     conduziu = sum(1 for r in results if r.get("conduziu_visita"))
     vazou = [r for r in results if r.get("vazou_preco")]
-    problemas = sorted((r for r in results if r.get("problema") or r.get("puxa_saco") or float(r.get("nota") or 0) < 7),
-                       key=lambda r: float(r.get("nota") or 0))
-    destaques = sorted((r for r in results if r.get("destaque") and float(r.get("nota") or 0) >= 8),
-                       key=lambda r: -float(r.get("nota") or 0))
+    problemas = sorted((r for r in results if r.get("problema") or r.get("puxa_saco") or _nota(r) < 7),
+                       key=_nota)
+    destaques = sorted((r for r in results if r.get("destaque") and _nota(r) >= 8),
+                       key=lambda r: -_nota(r))
 
     L = [f"🔎 <b>Auditoria José Luís</b> (24h)",
          f"📊 {n} conversas · nota média <b>{media:.1f}/10</b>",
@@ -278,12 +293,13 @@ def auditar_qualidade(self):  # noqa: ARG001
         L.append("\n⚠️ <b>Pra melhorar:</b>")
         for r in problemas[:5]:
             tag = "puxa-saco" if r.get("puxa_saco") else (r.get("problema") or "abaixo do padrão")
-            L.append(f"• #{r['conv']} (nota {float(r.get('nota') or 0):.0f}): {str(tag)[:90]}")
+            L.append(f"• #{r['conv']} (nota {_nota(r):.0f}): {str(tag)[:90]}")
     if destaques:
         L.append("\n✅ <b>Destaques:</b>")
         for r in destaques[:3]:
-            L.append(f"• #{r['conv']} (nota {float(r.get('nota') or 0):.0f}): {str(r.get('destaque'))[:90]}")
-    gold_n = sum(1 for r in results if float(r.get("nota") or 0) >= 8 and not r.get("vazou_preco"))
+            L.append(f"• #{r['conv']} (nota {_nota(r):.0f}): {str(r.get('destaque'))[:90]}")
+    gold_n = sum(1 for r in results if _nota(r) >= 8 and not r.get("vazou_preco")
+                 and (r.get("conduziu_visita") or r.get("pediu_cnpj")))
     if gold_n:
         L.append(f"\n🏆 {gold_n} conversa(s) viraram exemplo (gold) — o José Luís vai espelhar daqui pra frente.")
     _telegram_send("\n".join(L))
