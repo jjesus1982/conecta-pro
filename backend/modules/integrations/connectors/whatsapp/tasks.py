@@ -219,6 +219,29 @@ async def _auditar_conversas(session, horas: int = 24, limite: int = 15) -> list
             out.append(data)
         except Exception as exc:  # noqa: BLE001
             logger.warning("auditor: falha conv=%s: %s", conv, exc)
+
+    # LOOP DE APRENDIZADO: promove conversas EXCELENTES (nota>=8, sem vazar preço) a 'gold'
+    # -> viram exemplos few-shot que o José Luís passa a espelhar. Idempotente.
+    from sqlalchemy import text as _text  # noqa: PLC0415
+
+    promovidas = 0
+    for r in out:
+        if float(r.get("nota") or 0) >= 8 and not r.get("vazou_preco"):
+            try:
+                res = await session.execute(
+                    _text(
+                        "INSERT INTO cwi_message_log (direction, phone_canonical, chatwoot_conversation_id, content, created_at) "
+                        "SELECT 'gld', :ph, :conv, :nota, now() WHERE NOT EXISTS "
+                        "(SELECT 1 FROM cwi_message_log g WHERE g.direction='gld' AND g.chatwoot_conversation_id=:conv)"
+                    ),
+                    {"ph": r.get("phone"), "conv": r["conv"], "nota": f"gold:{str(r.get('destaque') or '')[:200]}"},
+                )
+                promovidas += res.rowcount or 0
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("auditor: falha ao promover gold conv=%s: %s", r.get("conv"), exc)
+    if promovidas:
+        await session.commit()
+        logger.info("auditor: %s conversas promovidas a gold (few-shot)", promovidas)
     return out
 
 
@@ -260,6 +283,9 @@ def auditar_qualidade(self):  # noqa: ARG001
         L.append("\n✅ <b>Destaques:</b>")
         for r in destaques[:3]:
             L.append(f"• #{r['conv']} (nota {float(r.get('nota') or 0):.0f}): {str(r.get('destaque'))[:90]}")
+    gold_n = sum(1 for r in results if float(r.get("nota") or 0) >= 8 and not r.get("vazou_preco"))
+    if gold_n:
+        L.append(f"\n🏆 {gold_n} conversa(s) viraram exemplo (gold) — o José Luís vai espelhar daqui pra frente.")
     _telegram_send("\n".join(L))
     logger.info("auditar_qualidade: %s conversas auditadas, media %.1f", n, media)
     return {"ok": True, "n": n, "media": round(media, 1)}

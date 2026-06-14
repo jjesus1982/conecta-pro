@@ -437,6 +437,59 @@ async def agent_dashboard(
             )
         )
     ).first()
+    # Métricas de funil/qualificação + conversas frias (onde os leads esfriam)
+    metr = (
+        await db.execute(
+            text(
+                """
+                SELECT
+                  count(*) FILTER (WHERE source='whatsapp') AS leads,
+                  count(*) FILTER (WHERE source='whatsapp' AND qualificacao ? 'segmento') AS qualificados,
+                  count(*) FILTER (WHERE source='whatsapp' AND coalesce(notes,'') ILIKE '%CNPJ%') AS com_cnpj,
+                  count(*) FILTER (WHERE source='whatsapp' AND EXISTS(SELECT 1 FROM visitas v WHERE v.lead_id=leads.id)) AS com_visita,
+                  count(*) FILTER (WHERE source='whatsapp' AND coalesce((qualificacao->>'score_lead')::int,0) >= 60) AS quentes
+                FROM leads
+                """
+            )
+        )
+    ).first()
+    frias = (
+        await db.execute(
+            text(
+                """
+                SELECT count(*) FROM (
+                  SELECT chatwoot_conversation_id FROM cwi_message_log
+                  WHERE direction IN ('in','out') AND chatwoot_conversation_id IS NOT NULL
+                  GROUP BY chatwoot_conversation_id
+                  HAVING max(created_at) < now() - interval '2 days'
+                     AND max(created_at) > now() - interval '30 days'
+                ) t
+                """
+            )
+        )
+    ).scalar()
+    # A/B de abordagens (variante = conversa par(A)/ímpar(B)); conversão = chegou a visita
+    ab = (
+        await db.execute(
+            text(
+                """
+                SELECT (m.chatwoot_conversation_id % 2) AS v,
+                       count(DISTINCT m.chatwoot_conversation_id) AS conversas,
+                       count(DISTINCT vi.id) AS visitas
+                FROM cwi_message_log m
+                LEFT JOIN leads l ON l.phone = m.phone_canonical
+                LEFT JOIN visitas vi ON vi.lead_id = l.id
+                WHERE m.chatwoot_conversation_id IS NOT NULL AND m.direction IN ('in','out')
+                GROUP BY (m.chatwoot_conversation_id % 2)
+                """
+            )
+        )
+    ).fetchall()
+    ab_map = {int(v): {"conversas": c, "visitas": vis} for v, c, vis in ab}
+
+    def _taxa(num, den):
+        return round(num / den * 100, 1) if den else 0.0
+
     return {
         "agente": "José Luís",
         "periodo_dias": dias,
@@ -448,6 +501,27 @@ async def agent_dashboard(
             "memorias_de_cliente": totais[4],
             "visitas_solicitadas": totais[5],
             "os_abertas_pelo_agente": totais[6],
+        },
+        "metricas": {
+            "taxa_qualificacao_pct": _taxa(metr[1], metr[0]),
+            "conversas_frias": frias or 0,
+            "leads_quentes": metr[4],
+            "funil": {
+                "leads": metr[0],
+                "qualificados": metr[1],
+                "com_cnpj": metr[2],
+                "com_visita": metr[3],
+            },
+        },
+        "ab_test": {
+            "A_cnpj_cedo": {
+                **ab_map.get(0, {"conversas": 0, "visitas": 0}),
+                "taxa_visita_pct": _taxa(ab_map.get(0, {}).get("visitas", 0), ab_map.get(0, {}).get("conversas", 0)),
+            },
+            "B_necessidade_primeiro": {
+                **ab_map.get(1, {"conversas": 0, "visitas": 0}),
+                "taxa_visita_pct": _taxa(ab_map.get(1, {}).get("visitas", 0), ab_map.get(1, {}).get("conversas", 0)),
+            },
         },
         "por_dia": [
             {

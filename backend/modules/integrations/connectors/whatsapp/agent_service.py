@@ -57,6 +57,10 @@ NUNCA VIRE INTERROGATÓRIO: 1 pergunta CURTA por vez; reaja em poucas palavras (
 
 REGISTRO NO CRM: chame registrar_lead — discretamente, sem anunciar que está cadastrando — sempre que descobrir QUALQUER dado, enviando só os campos novos. Além de nome, empresa, CNPJ, e-mail, cargo e interesse, preencha a FICHA DE QUALIFICAÇÃO conforme a conversa flui: segmento, tipo_solucao, e (p/ condomínio) tipo_imovel, unidades, blocos, portoes_veiculares, entradas_pedestres, tem_guarita, postos_portaria_hoje, além de seguranca_atual e motivacao. Pode chamar várias vezes — registre cedo e vá completando. Quanto mais completa a ficha, melhor a equipe atende (e a visita já vai dimensionada).
 
+SINAIS DE COMPRA E TEMPERATURA: enquanto conversa, avalie e registre (via registrar_lead) a temperatura do lead e os sinais de compra. QUENTE = decisor (síndico/administrador) com urgência ou pronto pra avançar; MORNO = interesse real, sem pressa; FRIO = só pesquisando. Sinais de compra a captar: "é o síndico/decisor", "tem urgência/prazo", "orçamento aprovado em assembleia", "está comparando fornecedores", "pediu visita/proposta", "insatisfeito com o atual". Quando o lead estiver QUENTE, priorize conduzir à visita rápido.
+
+CROSS-SELL (com naturalidade, sem empurrar): a Conecta Mais tem DUAS frentes (mão de obra + segurança eletrônica) e vários serviços — quando fizer sentido, plante a oferta complementar em UMA frase, sem desviar do foco: quem quer portaria presencial → mencione a opção de CFTV/controle de acesso e o caminho da portaria remota (economia); quem quer câmeras → lembre da portaria/monitoramento 24h; quem quer limpeza (ASG) → pode incluir jardinagem e piscina; quem quer manutenção → pode ter contrato contínuo. Nunca transforme em lista de empurra-empurra: é UM gancho relevante, e só se a conversa permitir.
+
 CLIENTE DA BASE (suporte de verdade): quando a pessoa disser que JÁ É cliente, atenda como cliente da casa. Para consultar dados da conta (contratos, ordens de serviço, notas fiscais) com consultar_minha_conta, CONFIRME A IDENTIDADE antes: peça o CNPJ ao próprio cliente e, ao receber o retorno, confirme o nome da empresa/condomínio com a pessoa ("só confirmando, é do Condomínio X, certo?") ANTES de detalhar qualquer informação. NUNCA revele dados de conta se a pessoa não souber o CNPJ ou se algo parecer estranho — na dúvida, transfira ao administrativo.
 
 ORDEM DE SERVIÇO (chamado de suporte): se um cliente identificado relatar problema em equipamento ou serviço (câmera sem imagem, portão travado, alarme disparando, problema com a equipe), colete com calma: o que está acontecendo + onde (local) + desde quando. Depois abra o chamado com abrir_ordem_servico (prioridade alta/urgente se afeta a segurança) e INFORME O NÚMERO da OS ao cliente ("registrei seu chamado, é a OS-XXXX; nossa equipe técnica entra em contato"). Se a ferramenta falhar, transfira para suporte_tecnico.
@@ -109,7 +113,7 @@ Conduza sempre a conversa com gentileza e propósito: entender, qualificar, e le
 
 Ferramentas disponíveis: quando o cliente fornecer ou mencionar um CNPJ, use consultar_cnpj para validar e obter os dados oficiais (razão social, situação cadastral, município/UF, CNAE) — NUNCA invente esses dados, use apenas o que a ferramenta retornar. Em seguida use buscar_cliente para verificar se esse CNPJ já é cliente da Conecta Mais: se for (existe:true), acolha a pessoa como CLIENTE já atendido (tom de relacionamento e cuidado, não de prospecção); se não for, siga qualificando como novo lead. Se uma ferramenta retornar erro, não trave nem mencione detalhes técnicos — siga o atendimento normalmente e, se precisar, peça o dado novamente com gentileza. Todos os guard-rails acima continuam valendo (nunca preços, nunca inventar).
 
-Agendamento de visita: quando o cliente demonstrar real interesse e for o momento de avançar, conduza para AGENDAR uma visita técnica/comercial gratuita. Pergunte o endereço (se já for cliente identificado, confirme o endereço do cadastro) e a preferência de data e horário. Com endereço + data + horário em mãos, use a ferramenta agendar_visita. IMPORTANTE — fraseado: deixe SEMPRE claro que é uma SOLICITAÇÃO de visita e que a equipe confirma o horário depois. NUNCA diga que está "agendada" ou "confirmada". Diga algo como "vou encaminhar sua solicitação de visita para [data] às [horário]; nossa equipe confirma com você em seguida". Se faltar endereço, data ou horário, pergunte com gentileza antes de tentar agendar (nunca registre uma visita incompleta).
+Agendamento de visita: quando o cliente demonstrar real interesse e for o momento de avançar, conduza para AGENDAR uma visita técnica/comercial gratuita. Pergunte o endereço (se já for cliente identificado, confirme o endereço do cadastro) e a preferência de data e horário. Quando o cliente sugerir uma DATA, use consultar_agenda(data) para ver os horários livres e proponha um horário aberto (ex.: "tenho 9h ou 14h livres nesse dia, qual prefere?") — evita marcar em cima de outra visita. Com endereço + data + horário em mãos, use a ferramenta agendar_visita. IMPORTANTE — fraseado: deixe SEMPRE claro que é uma SOLICITAÇÃO de visita e que a equipe confirma o horário depois. NUNCA diga que está "agendada" ou "confirmada". Diga algo como "vou encaminhar sua solicitação de visita para [data] às [horário]; nossa equipe confirma com você em seguida". Se faltar endereço, data ou horário, pergunte com gentileza antes de tentar agendar (nunca registre uma visita incompleta).
 
 Transferência para um humano: tente SEMPRE resolver você mesmo primeiro — transferir é o último recurso. Se você NÃO conseguir resolver a demanda OU se o cliente pedir explicitamente para falar com uma pessoa/atendente, use a ferramenta transferir_conversa com o setor adequado: comercial (orçamento, proposta, cotação, contratar serviço, visita comercial); suporte_tecnico (equipamento com problema, manutenção de CFTV/câmera/alarme/controle de acesso); operacional (portaria, escala, ronda, troca de porteiro/vigilante, posto); administrativo (boleto, nota fiscal, financeiro, contrato, RH, cobrança). SEMPRE avise o cliente ANTES, com gentileza: "vou te encaminhar para o nosso time de [setor], um momento". IMPORTANTE: ao decidir encaminhar, você DEVE chamar a ferramenta transferir_conversa de fato — não basta dizer que vai encaminhar; sem a chamada, ninguém recebe a conversa. Se o cliente pedir para falar com uma pessoa/atendente/humano, chame transferir_conversa (use comercial se o setor não estiver claro).
 
@@ -187,6 +191,17 @@ TOOLS = [
                     "entradas_pedestres": {"type": "integer", "description": "Quantas entradas de pedestres"},
                     "tem_guarita": {"type": "boolean", "description": "Possui guarita/portaria física hoje"},
                     "postos_portaria_hoje": {"type": "string", "description": "Postos de portaria atuais + turnos (ex.: '1 posto 24h', 'nenhum')"},
+                    # --- Lead scoring / sinais de compra (avalie a temperatura conforme a conversa) ---
+                    "temperatura": {
+                        "type": "string",
+                        "enum": ["frio", "morno", "quente"],
+                        "description": "Temperatura do lead: quente = decisor com urgência/pronto p/ avançar; morno = interesse real mas sem pressa; frio = só pesquisando",
+                    },
+                    "sinais_compra": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Sinais de compra detectados (ex.: 'é o síndico/decisor', 'tem urgência', 'orçamento aprovado em assembleia', 'comparando fornecedores', 'pediu visita', 'insatisfeito com atual')",
+                    },
                 },
             },
         },
@@ -347,6 +362,24 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "consultar_agenda",
+            "description": (
+                "Consulta a agenda de visitas da equipe em uma DATA para ver quais horários já "
+                "estão ocupados e sugerir horários livres ao cliente ANTES de chamar agendar_visita. "
+                "Use quando for combinar data/horário da visita."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "data_visita": {"type": "string", "description": "Data a consultar (YYYY-MM-DD)"},
+                },
+                "required": ["data_visita"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "transferir_conversa",
             "description": (
                 "Encaminha a conversa para o time HUMANO do setor certo no Chatwoot. "
@@ -449,6 +482,30 @@ async def _resolve_lead_id(db, conversation_id: int) -> str | None:
         return None
 
 
+def _score_lead(q: dict, *, cnpj: str = "", cargo: str = "") -> int:
+    """Score determinístico 0-100 do lead a partir da ficha + sinais de compra."""
+    score = 0
+    temp = str(q.get("temperatura") or "").lower()
+    score += {"quente": 35, "morno": 20, "frio": 5}.get(temp, 0)
+    if cnpj or q.get("cnpj"):
+        score += 15
+    cargo_l = str(cargo or "").lower()
+    if any(k in cargo_l for k in ("síndic", "sindic", "administrad", "gestor", "propriet", "gerente", "diretor")):
+        score += 15
+    if q.get("urgencia"):
+        score += 10
+    if q.get("segmento"):
+        score += 5
+    if q.get("unidades") or q.get("postos_portaria_hoje"):
+        score += 5
+    if q.get("seguranca_atual") or q.get("motivacao"):
+        score += 5
+    sinais = q.get("sinais_compra")
+    if isinstance(sinais, list):
+        score += min(15, len(sinais) * 4)
+    return max(0, min(100, score))
+
+
 async def _tool_registrar_lead(args: dict, conversation_id: int) -> dict:
     """Atualiza o lead da conversa no CRM com os dados coletados na conversa.
 
@@ -497,6 +554,7 @@ async def _tool_registrar_lead(args: dict, conversation_id: int) -> dict:
                 "segmento", "tipo_solucao", "seguranca_atual", "motivacao", "urgencia",
                 "tipo_imovel", "unidades", "blocos", "portoes_veiculares",
                 "fluxo_veicular", "entradas_pedestres", "tem_guarita", "postos_portaria_hoje",
+                "temperatura", "sinais_compra",
             )
             qual = {}
             for k in QUAL_KEYS:
@@ -508,6 +566,14 @@ async def _tool_registrar_lead(args: dict, conversation_id: int) -> dict:
             if isinstance(pv, int) and "fluxo_veicular" not in qual:
                 qual["fluxo_veicular"] = "entrada_saida_unica" if pv <= 1 else "entrada_e_saida_separadas"
             if qual:
+                # Score determinístico (0-100) sobre a ficha COMPLETA (atual + nova)
+                cur = (await db.execute(
+                    text("SELECT qualificacao, position FROM leads WHERE id = :id"),
+                    {"id": lead_id},
+                )).first()
+                merged = dict(cur[0]) if cur and isinstance(cur[0], dict) else {}
+                merged.update(qual)
+                qual["score_lead"] = _score_lead(merged, cnpj=cnpj, cargo=(cargo or (cur[1] if cur else "")))
                 sets.append("qualificacao = coalesce(qualificacao, '{}'::jsonb) || cast(:qual as jsonb)")
                 params["qual"] = json.dumps(qual, ensure_ascii=False)
 
@@ -939,6 +1005,16 @@ def _fmt_qualificacao(q: dict) -> list[str]:
         linhas.append(f"• Motivação: {q['motivacao']}")
     if q.get("urgencia"):
         linhas.append(f"• Urgência: {q['urgencia']}")
+    temp = q.get("temperatura")
+    score = q.get("score_lead")
+    if temp or score is not None:
+        emoji = {"quente": "🔥", "morno": "🌤️", "frio": "❄️"}.get(str(temp or "").lower(), "")
+        partes = [x for x in [f"{emoji} {temp}".strip() if temp else "", f"score {score}/100" if score is not None else ""] if x]
+        if partes:
+            linhas.append("• Temperatura: " + " · ".join(partes))
+    sinais = q.get("sinais_compra")
+    if isinstance(sinais, list) and sinais:
+        linhas.append("• Sinais de compra: " + ", ".join(str(s) for s in sinais[:6]))
     return linhas
 
 
@@ -992,6 +1068,37 @@ async def _enviar_briefing_comercial(db, lead_id, *, numero, data_visita, horari
         logger.info("Briefing comercial enviado: lead=%s visita=%s", lead_id, numero)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Falha ao enviar briefing comercial (lead=%s): %s", lead_id, exc)
+
+
+async def _tool_consultar_agenda(args: dict, conversation_id: int) -> dict:  # noqa: ARG001
+    """Horarios ocupados/livres da equipe numa data, p/ propor visita. Best-effort."""
+    from datetime import datetime  # noqa: PLC0415
+
+    data_str = (args.get("data_visita") or "").strip()
+    try:
+        data = datetime.strptime(data_str, "%Y-%m-%d").date()
+    except Exception:  # noqa: BLE001
+        return {"erro": "data inválida (use YYYY-MM-DD)"}
+    try:
+        async with async_session_factory() as db:
+            rows = (
+                await db.execute(
+                    text(
+                        "SELECT to_char(horario_inicio,'HH24:MI') FROM visitas "
+                        "WHERE data_visita = :d "
+                        "AND lower(coalesce(status::text,'')) NOT IN ('cancelada','cancelado') "
+                        "AND horario_inicio IS NOT NULL ORDER BY horario_inicio"
+                    ),
+                    {"d": data},
+                )
+            ).fetchall()
+        ocupados = [r[0] for r in rows if r[0]]
+        horas_ocup = {h[:2] for h in ocupados}
+        livres = [f"{h:02d}:00" for h in range(8, 18) if f"{h:02d}" not in horas_ocup]
+        return {"data": data_str, "ocupados": ocupados, "horarios_livres": livres[:8]}
+    except Exception as e:  # noqa: BLE001
+        logger.warning("consultar_agenda falhou: %s", e)
+        return {"erro": "não consegui consultar a agenda agora"}
 
 
 async def _tool_agendar_visita(args: dict, conversation_id: int) -> dict:
@@ -1147,6 +1254,8 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
             return await _tool_consultar_cnpj(str(args.get("cnpj", "")))
         if name == "buscar_cliente":
             return await _tool_buscar_cliente(str(args.get("cnpj", "")))
+        if name == "consultar_agenda":
+            return await _tool_consultar_agenda(args, conversation_id)
         if name == "agendar_visita":
             return await _tool_agendar_visita(args, conversation_id)
         if name == "transferir_conversa":
@@ -1194,6 +1303,51 @@ async def _get_contact_memory(conversation_id: int) -> str | None:
         return row[0] if row else None
     except Exception as e:  # noqa: BLE001
         logger.error("Agente memoria: falha ao ler (conv=%s): %s", conversation_id, e)
+        return None
+
+
+async def _perfil_estruturado(conversation_id: int) -> str | None:
+    """Perfil ESTRUTURADO do contato (do CRM, pelo telefone): nome, cargo, empresa, CNPJ,
+    ficha de qualificação e score — memoria de longo prazo que persiste entre conversas.
+    Best-effort."""
+    try:
+        async with async_session_factory() as db:
+            lead = (
+                await db.execute(
+                    text(
+                        "SELECT name, company, position, notes, qualificacao FROM leads "
+                        "WHERE phone = (SELECT phone_canonical FROM cwi_message_log "
+                        "  WHERE chatwoot_conversation_id=:c AND phone_canonical IS NOT NULL "
+                        "  ORDER BY created_at DESC LIMIT 1) "
+                        "ORDER BY updated_at DESC LIMIT 1"
+                    ),
+                    {"c": conversation_id},
+                )
+            ).first()
+        if not lead:
+            return None
+        name, company, position, notes, qual = lead
+        q = qual if isinstance(qual, dict) else {}
+        cab = []
+        if name:
+            cab.append(f"Nome: {name}")
+        if position:
+            cab.append(f"Cargo: {position}")
+        if company:
+            cab.append(f"Empresa/condomínio: {company}")
+        for ln in str(notes or "").split("\n"):
+            if ln.strip().lower().startswith("cnpj"):
+                cab.append(ln.strip())
+                break
+        fic = [x.lstrip("• ").strip() for x in _fmt_qualificacao(q)]
+        if not cab and not fic:
+            return None
+        out = "; ".join(cab)
+        if fic:
+            out = (out + "\nFicha: " + " | ".join(fic)).strip()
+        return out
+    except Exception as e:  # noqa: BLE001
+        logger.error("Agente perfil estruturado: falha (conv=%s): %s", conversation_id, e)
         return None
 
 
@@ -1345,40 +1499,62 @@ async def _search_knowledge(query: str, top_k: int = 3) -> str | None:
 
 
 async def _few_shot_examples(conversation_id: int, limit: int = 3) -> str | None:
-    """Pares reais (cliente -> resposta da EQUIPE) de outras conversas.
+    """Pares exemplares (cliente -> resposta) p/ o agente espelhar.
 
-    Ecos do bot autonomo sao excluidos: um 'out' cujo conteudo coincide com um
-    'drf' da mesma conversa e resposta do proprio agente, nao da equipe.
+    Prioriza conversas marcadas 'gold' pelo auditor de qualidade (excelentes, nota>=8 —
+    inclui as próprias respostas do José Luís, já que foram auditadas como ótimas). Se
+    faltar, completa com respostas REAIS da equipe humana (ecos do bot excluídos).
     """
     try:
         async with async_session_factory() as db:
-            rows = (
+            # 1) GOLD — pares de conversas marcadas excelentes pelo auditor
+            gold = (
                 await db.execute(
                     text(
-                        "SELECT o.chatwoot_conversation_id, o.content, "
-                        "  (SELECT i.content FROM cwi_message_log i "
-                        "   WHERE i.chatwoot_conversation_id = o.chatwoot_conversation_id "
-                        "   AND i.direction='in' AND i.created_at < o.created_at "
-                        "   AND i.content IS NOT NULL AND i.content <> '' "
-                        "   ORDER BY i.created_at DESC LIMIT 1) AS pergunta "
+                        "SELECT o.content, (SELECT i.content FROM cwi_message_log i "
+                        " WHERE i.chatwoot_conversation_id=o.chatwoot_conversation_id AND i.direction='in' "
+                        " AND i.created_at < o.created_at AND i.content IS NOT NULL AND i.content<>'' "
+                        " ORDER BY i.created_at DESC LIMIT 1) AS pergunta "
                         "FROM cwi_message_log o "
-                        "WHERE o.direction='out' AND length(coalesce(o.content,'')) > 40 "
+                        "WHERE o.direction='out' AND length(coalesce(o.content,''))>40 "
                         "AND o.chatwoot_conversation_id <> :c "
-                        "AND NOT EXISTS (SELECT 1 FROM cwi_message_log d "
-                        "  WHERE d.direction='drf' "
-                        "  AND d.chatwoot_conversation_id = o.chatwoot_conversation_id "
-                        "  AND d.content = o.content) "
+                        "AND EXISTS (SELECT 1 FROM cwi_message_log g WHERE g.direction='gld' "
+                        "  AND g.chatwoot_conversation_id=o.chatwoot_conversation_id) "
                         "ORDER BY o.created_at DESC LIMIT :n"
                     ),
                     {"c": conversation_id, "n": limit},
                 )
             ).fetchall()
-        pares = [(p, r) for _, r, p in rows if p]
+            pares = [(p, r) for r, p in gold if p]
+            # 2) Fallback — respostas reais da equipe humana SÓ quando ainda não há gold
+            # (gold é curado/excelente; não diluir com exemplos aleatórios)
+            if not pares:
+                rows = (
+                    await db.execute(
+                        text(
+                            "SELECT o.content, (SELECT i.content FROM cwi_message_log i "
+                            " WHERE i.chatwoot_conversation_id=o.chatwoot_conversation_id AND i.direction='in' "
+                            " AND i.created_at < o.created_at AND i.content IS NOT NULL AND i.content<>'' "
+                            " ORDER BY i.created_at DESC LIMIT 1) AS pergunta "
+                            "FROM cwi_message_log o "
+                            "WHERE o.direction='out' AND length(coalesce(o.content,''))>40 "
+                            "AND o.chatwoot_conversation_id <> :c "
+                            "AND NOT EXISTS (SELECT 1 FROM cwi_message_log d WHERE d.direction='drf' "
+                            "  AND d.chatwoot_conversation_id=o.chatwoot_conversation_id AND d.content=o.content) "
+                            "ORDER BY o.created_at DESC LIMIT :n"
+                        ),
+                        {"c": conversation_id, "n": limit},
+                    )
+                ).fetchall()
+                for r, p in rows:
+                    if p and (p, r) not in pares:
+                        pares.append((p, r))
+                    if len(pares) >= limit:
+                        break
+        pares = pares[:limit]
         if not pares:
             return None
-        return "\n\n".join(
-            f"Cliente: {p[:300]}\nResposta da equipe: {r[:400]}" for p, r in pares
-        )
+        return "\n\n".join(f"Cliente: {p[:300]}\nResposta exemplar: {r[:400]}" for p, r in pares)
     except Exception as e:  # noqa: BLE001
         logger.error("Agente few-shot: falha (conv=%s): %s", conversation_id, e)
         return None
@@ -1446,6 +1622,13 @@ async def gerar_resposta(conversation_id: int) -> str | None:
                 "content": "CONHECIMENTO DA EMPRESA relevante para esta conversa "
                 "(use como fonte de verdade; nao invente alem disso):\n\n" + kb,
             })
+        perfil = await _perfil_estruturado(conversation_id)
+        if perfil:
+            messages.append({
+                "role": "system",
+                "content": "PERFIL DESTE CONTATO (do CRM — já sabemos isto dele, NÃO pergunte "
+                "de novo; trate como cliente conhecido):\n" + perfil,
+            })
         memoria = await _get_contact_memory(conversation_id)
         if memoria:
             messages.append({
@@ -1476,6 +1659,17 @@ async def gerar_resposta(conversation_id: int) -> str | None:
                 "apresente-se UMA única vez (ex.: 'Eu sou o José Luís...')."
             ),
         })
+
+        # A/B de abordagens (determinístico por conversa; medido depois por taxa de visita)
+        variante = "A" if (conversation_id % 2 == 0) else "B"
+        if variante == "A":
+            messages.append({"role": "system", "content": (
+                "[ABORDAGEM A] Assim que confirmar que é condomínio/empresa e a necessidade básica, "
+                "peça o CNPJ JÁ (cedo), antes de aprofundar nos detalhes.")})
+        else:
+            messages.append({"role": "system", "content": (
+                "[ABORDAGEM B] Entenda primeiro a necessidade e o porte (o que precisa, quantos "
+                "postos/unidades); peça o CNPJ depois desse entendimento inicial.")})
 
         for direction, content in reversed(rows):  # ordem cronologica
             role = "user" if direction == "in" else "assistant"
