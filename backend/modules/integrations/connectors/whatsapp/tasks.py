@@ -180,6 +180,14 @@ def _nota(r: dict) -> float:
         return 0.0
 
 
+def _flag(r: dict, key: str) -> bool:
+    """Coage flag do auditor p/ bool (LLM pode devolver 'true'/'false'/'sim'/1)."""
+    v = r.get(key)
+    if isinstance(v, str):
+        return v.strip().lower() in ("true", "sim", "yes", "1", "verdadeiro")
+    return bool(v)
+
+
 async def _auditar_conversas(session, horas: int = 24, limite: int = 15) -> list[dict]:
     """Coleta conversas recentes do agente e audita cada uma via LLM. Best-effort."""
     from sqlalchemy import text  # noqa: PLC0415
@@ -241,7 +249,7 @@ async def _auditar_conversas(session, horas: int = 24, limite: int = 15) -> list
     for r in out:
         # Gold (rígido): nota alta, SEM vazar preço, E com avanço real (pediu CNPJ ou
         # conduziu à visita) — evita conversa "simpática mas vazia" virar exemplo.
-        if _nota(r) >= 8 and not r.get("vazou_preco") and (r.get("conduziu_visita") or r.get("pediu_cnpj")):
+        if _nota(r) >= 8 and not _flag(r, "vazou_preco") and (_flag(r, "conduziu_visita") or _flag(r, "pediu_cnpj")):
             try:
                 res = await session.execute(
                     _text(
@@ -276,10 +284,10 @@ def auditar_qualidade(self):  # noqa: ARG001
     n = len(results)
     notas = [_nota(r) for r in results]
     media = sum(notas) / n if n else 0
-    pediu_cnpj = sum(1 for r in results if r.get("pediu_cnpj"))
-    conduziu = sum(1 for r in results if r.get("conduziu_visita"))
-    vazou = [r for r in results if r.get("vazou_preco")]
-    problemas = sorted((r for r in results if r.get("problema") or r.get("puxa_saco") or _nota(r) < 7),
+    pediu_cnpj = sum(1 for r in results if _flag(r, "pediu_cnpj"))
+    conduziu = sum(1 for r in results if _flag(r, "conduziu_visita"))
+    vazou = [r for r in results if _flag(r, "vazou_preco")]
+    problemas = sorted((r for r in results if r.get("problema") or _flag(r, "puxa_saco") or _nota(r) < 7),
                        key=_nota)
     destaques = sorted((r for r in results if r.get("destaque") and _nota(r) >= 8),
                        key=lambda r: -_nota(r))
@@ -292,14 +300,14 @@ def auditar_qualidade(self):  # noqa: ARG001
     if problemas:
         L.append("\n⚠️ <b>Pra melhorar:</b>")
         for r in problemas[:5]:
-            tag = "puxa-saco" if r.get("puxa_saco") else (r.get("problema") or "abaixo do padrão")
+            tag = "puxa-saco" if _flag(r, "puxa_saco") else (r.get("problema") or "abaixo do padrão")
             L.append(f"• #{r['conv']} (nota {_nota(r):.0f}): {str(tag)[:90]}")
     if destaques:
         L.append("\n✅ <b>Destaques:</b>")
         for r in destaques[:3]:
             L.append(f"• #{r['conv']} (nota {_nota(r):.0f}): {str(r.get('destaque'))[:90]}")
-    gold_n = sum(1 for r in results if _nota(r) >= 8 and not r.get("vazou_preco")
-                 and (r.get("conduziu_visita") or r.get("pediu_cnpj")))
+    gold_n = sum(1 for r in results if _nota(r) >= 8 and not _flag(r, "vazou_preco")
+                 and (_flag(r, "conduziu_visita") or _flag(r, "pediu_cnpj")))
     if gold_n:
         L.append(f"\n🏆 {gold_n} conversa(s) viraram exemplo (gold) — o José Luís vai espelhar daqui pra frente.")
     _telegram_send("\n".join(L))

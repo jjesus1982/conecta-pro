@@ -49,6 +49,8 @@ class WhatsAppService:
         self.inbox_id = int(os.getenv("CHATWOOT_INBOX_ID", "1"))
         self.api_token = os.getenv("CHATWOOT_API_TOKEN", "") or _read_secret_file("/app/.chatwoot_token")
         self.enabled = os.getenv("WHATSAPP_API_ENABLED", "false").lower() == "true"
+        # identificador da instância (compat: o endpoint /whatsapp/status lê isto)
+        self.instance = os.getenv("WHATSAPP_INSTANCE_ID", "conecta-pro")
 
     def _clean_phone(self, phone: str) -> str:
         """Normaliza para E.164 com DDI 55 (ex.: +5592...)."""

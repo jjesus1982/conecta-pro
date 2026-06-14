@@ -180,13 +180,22 @@ async def send_custom_message(
 
 
 def _normalize_phone(phone: str | None) -> str | None:
-    """Normaliza para os digitos DDD+numero (remove '+' e DDI 55)."""
+    """Normaliza para os digitos DDD+numero (remove '+' e DDI 55). Limita a 20 chars
+    (cwi_message_log.phone_canonical / leads.phone sao varchar(20)) — phone hostil nao quebra."""
     if not phone:
         return None
     digits = "".join(c for c in str(phone) if c.isdigit())
     if digits.startswith("55") and len(digits) > 11:
         digits = digits[2:]
-    return digits or None
+    return digits[:20] or None
+
+
+def _safe_int(v) -> int | None:
+    """Coage para int de forma tolerante (id do Chatwoot hostil/ausente -> None, sem 500)."""
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
 
 
 async def _match_or_create_lead(db: AsyncSession, phone_canonical: str, name: str | None) -> str | None:
@@ -584,12 +593,12 @@ async def chatwoot_webhook(
     if data.get("private"):
         return {"status": "ignored_private"}
 
-    msg_id = data.get("id")
+    msg_id = _safe_int(data.get("id"))
     content = data.get("content")
     mtype = str(data.get("message_type", ""))
     direction = "in" if mtype in ("incoming", "0") else "out"
     conv = data.get("conversation") or {}
-    conv_id = conv.get("id") or data.get("conversation_id")
+    conv_id = _safe_int(conv.get("id") or data.get("conversation_id"))
     sender = data.get("sender") or {}
     meta_sender = (conv.get("meta") or {}).get("sender") or {}
     phone = sender.get("phone_number") or meta_sender.get("phone_number")
@@ -611,24 +620,33 @@ async def chatwoot_webhook(
         except Exception as e:  # noqa: BLE001 — log nunca deve falhar por causa do lead
             logger.error("Webhook Chatwoot: falha ao criar/achar lead: %s", e)
 
-    await db.execute(
-        text(
-            "INSERT INTO cwi_message_log "
-            "(direction, phone_canonical, chatwoot_conversation_id, chatwoot_message_id, content, lead_id, status) "
-            "VALUES (:direction, :phone, :conv, :msg, :content, :lead, :status) "
-            "ON CONFLICT (chatwoot_message_id) DO NOTHING"
-        ),
-        {
-            "direction": direction,
-            "phone": phone_canonical,
-            "conv": conv_id,
-            "msg": msg_id,
-            "content": content,
-            "lead": lead_id,
-            "status": data.get("status"),
-        },
-    )
-    await db.commit()
+    # INSERT do log protegido: payload hostil (tipo inesperado, tamanho) NUNCA pode dar 500
+    # (senão o Chatwoot reenvia o mesmo payload venenoso em loop). Best-effort, como o resto.
+    try:
+        await db.execute(
+            text(
+                "INSERT INTO cwi_message_log "
+                "(direction, phone_canonical, chatwoot_conversation_id, chatwoot_message_id, content, lead_id, status) "
+                "VALUES (:direction, :phone, :conv, :msg, :content, :lead, :status) "
+                "ON CONFLICT (chatwoot_message_id) DO NOTHING"
+            ),
+            {
+                "direction": direction,
+                "phone": phone_canonical,
+                "conv": conv_id,
+                "msg": msg_id,
+                "content": (content[:30000] if isinstance(content, str) else content),
+                "lead": lead_id,
+                "status": (str(data.get("status"))[:20] if data.get("status") is not None else None),
+            },
+        )
+        await db.commit()
+    except Exception as e:  # noqa: BLE001 — log nunca derruba o webhook (evita loop de reentrega)
+        logger.error("Webhook Chatwoot: falha ao gravar log (ignorada): %s", e)
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
 
     # Em mensagem de ENTRADA, agenda o agente em background (nao bloqueia o 200).
     # AGENT_MODE=copilot -> nota privada + rascunho (humano aprova). AGENT_MODE=autonomous
