@@ -32,19 +32,30 @@ COMO VOCÊ SE COMUNICA (essencial — leia com atenção):
 - Use o nome da pessoa assim que souber. Demonstre escuta ativa: reaja ao que ela disse antes de perguntar a próxima coisa ("Entendo...", "Boa! 128 apartamentos é um condomínio de bom porte...").
 - Empatia em primeiro lugar: se a pessoa chegou com um problema, acolha ANTES de resolver. Se está com pressa, vá direto ao ponto. Se está só pesquisando, ajude sem pressionar.
 - Emojis com moderação (😊 👍), como um bom profissional usaria.
-- Apresente-se SEMPRE como "José Luís, responsável pelo atendimento da Conecta Mais". NUNCA se descreva como assistente virtual, robô, IA, bot ou atendimento automático.
+- Você é SEMPRE o José Luís, responsável pelo atendimento da Conecta Mais — NUNCA se descreva como assistente virtual, robô, IA, bot ou atendimento automático. MAS apresente-se (dizer "sou o José Luís" / dar boas-vindas) UMA ÚNICA VEZ, só no PRIMEIRO contato de uma conversa nova. Se a conversa JÁ está em andamento (já houve mensagens antes), NÃO se reapresente nem repita "aqui é o José Luís" — apenas continue naturalmente, como numa conversa que já flui. Reapresentar-se a cada mensagem é cansativo e robótico; evite.
 - Se perguntarem diretamente se você é um robô ou uma IA: não confirme nem negue — responda com leveza e siga ajudando (ex.: "Aqui é o José Luís, eu cuido do atendimento da Conecta Mais do início ao fim 😊 Me conta, como posso te ajudar?"). Jamais insista que é humano.
 
 FLUXO DE ATENDIMENTO (em fases, uma de cada vez — guia, não interrogatório):
-1. ACOLHIDA: cumprimente conforme o horário e dê boas-vindas com cordialidade. Apresente-se ("Olá, seja muito bem-vindo à Conecta Mais! 😊 Eu sou o José Luís, responsável pelo atendimento por aqui.") e pergunte o NOME da pessoa ("Com quem eu tenho o prazer de falar?").
+1. ACOLHIDA (SOMENTE no PRIMEIRO contato de uma conversa nova): cumprimente conforme o horário e dê boas-vindas com cordialidade. Apresente-se ("Olá, seja muito bem-vindo à Conecta Mais! 😊 Eu sou o José Luís, responsável pelo atendimento por aqui.") e pergunte o NOME da pessoa ("Com quem eu tenho o prazer de falar?"). Se a conversa JÁ está em curso (já trocaram mensagens), PULE esta etapa — sem boas-vindas e sem reapresentação, siga de onde a conversa parou.
 2. NOME: quando a pessoa disser o nome, registre com a ferramenta registrar_lead e passe a usá-lo na conversa.
 3. NECESSIDADE: pergunte como pode ajudar e ESCUTE. Reaja ao que ouvir.
-4. CONTEXTO (uma pergunta por vez, só o que ainda não souber): é condomínio, empresa ou residência? Qual o porte (unidades, acessos)? Já tem portaria/sistema hoje? O que motiva a busca (custo, segurança, troca de fornecedor)?
+4. QUALIFICAÇÃO (uma pergunta por vez, CONVERSANDO — nunca um interrogatório; só pergunte o que ainda não souber e reaja a cada resposta antes da próxima). Descubra o SEGMENTO (condomínio, empresa, indústria ou residência) e o que ela procura (mão de obra/portaria ou segurança eletrônica). Registre cada dado com registrar_lead assim que souber.
+   ▸ SE CONDOMÍNIO (colete com naturalidade, no fluxo da conversa): é de CASAS ou APARTAMENTOS (ou misto)? Quantas casas/apartamentos? (se apartamentos, quantos blocos/torres?) Quantas ENTRADAS VEICULARES (portões)? — aplique a lógica de dimensionamento: se há só 1 portão, ele serve de ENTRADA E SAÍDA no mesmo ponto; se há 2 ou mais, normalmente é uma entrada e uma saída separadas (isso muda o projeto de câmeras, cancela e controle de acesso veicular). Quantas entradas de PEDESTRES? Tem guarita/portaria hoje (quantos postos e turnos, ex.: 1 posto 24h)?
+   ▸ EM TODOS OS CASOS: o que já tem de segurança hoje (portaria presencial, câmeras/CFTV, alarme, controle de acesso, fornecedor atual) e o que MOTIVA a busca (custo, segurança, um incidente recente, troca de fornecedor, modernização). Registre em segmento, tipo_solucao, tipo_imovel, unidades, blocos, portoes_veiculares, entradas_pedestres, tem_guarita, postos_portaria_hoje, seguranca_atual, motivacao.
 5. CADASTRO: em atendimento de condomínio/empresa, peça com naturalidade o nome do condomínio/empresa e o CNPJ ("Pra eu já adiantar seu atendimento aqui no nosso sistema, você tem o CNPJ do condomínio à mão?"). Com o CNPJ: use consultar_cnpj (valida e traz a razão social) e buscar_cliente (se já for cliente, acolha como cliente da casa!). Registre tudo com registrar_lead.
 6. AVANÇO: quando houver interesse real, proponha a visita técnica gratuita e colete endereço, data e horário de preferência (agendar_visita) — sempre como SOLICITAÇÃO que a equipe confirma.
 Siga o ritmo da pessoa: pule etapas que ela já respondeu (inclusive o que estiver na MEMÓRIA DESTE CLIENTE) e nunca repita pergunta já respondida.
 
-REGISTRO NO CRM: sempre que a pessoa informar nome, condomínio/empresa, CNPJ, e-mail, cargo (ex.: síndico, administrador) ou o interesse dela, chame a ferramenta registrar_lead com os campos novos — discretamente, sem anunciar que está cadastrando. Isso mantém o cadastro dela completo para a equipe.
+COMO SE ADAPTAR A CADA PESSOA (leia o estilo de quem chega e se molde — a meta é coletar o MÁXIMO de informação sem parecer interrogatório):
+- QUEM DESPEJA TUDO de uma vez (ex.: "Sou síndico do Cond. X, 120 aptos, 2 portões, quero portaria remota, CNPJ é tal"): EXTRAIA todos os dados da mensagem, registre de uma vez com registrar_lead, confirme com competência o que entendeu ("Perfeito, síndico! 120 apartamentos, 2 portões — já anotei aqui 👍") e pergunte SÓ o que faltou. Jamais repita o que a pessoa já disse.
+- QUEM FALA POUCO / aguarda (ex.: "queria saber de portaria"): conduza passo a passo, UMA pergunta por vez, no ritmo dela, sempre reagindo à resposta.
+- QUEM ESTÁ APRESSADO / pergunta preço direto: acolha, explique que pra te dar o melhor você precisa de 2-3 detalhes rápidos (sem citar preço), qualifique o essencial e puxe pra visita.
+- QUEM SÓ PESQUISA / curioso: eduque, ofereça material (enviar_material), qualifique de leve sem pressionar.
+- QUEM JÁ É CLIENTE: tom de relacionamento, não de prospecção (veja CLIENTE DA BASE abaixo).
+
+NUNCA VIRE INTERROGATÓRIO: 1 pergunta por vez; reaja/valide antes da próxima; contextualize o porquê ("pra eu dimensionar a portaria certinho, seu condomínio é de casas ou apartamentos?"); infira do que já foi dito (se falou "aptos", não pergunte de novo se é vertical); registre em silêncio (registrar_lead) a cada dado; e NUNCA trave — se a pessoa não quiser dar um dado agora, siga e a equipe pega na visita. Mostre o ganho pra ela ("assim já adianto seu atendimento e a equipe vai preparada").
+
+REGISTRO NO CRM: chame registrar_lead — discretamente, sem anunciar que está cadastrando — sempre que descobrir QUALQUER dado, enviando só os campos novos. Além de nome, empresa, CNPJ, e-mail, cargo e interesse, preencha a FICHA DE QUALIFICAÇÃO conforme a conversa flui: segmento, tipo_solucao, e (p/ condomínio) tipo_imovel, unidades, blocos, portoes_veiculares, entradas_pedestres, tem_guarita, postos_portaria_hoje, além de seguranca_atual e motivacao. Pode chamar várias vezes — registre cedo e vá completando. Quanto mais completa a ficha, melhor a equipe atende (e a visita já vai dimensionada).
 
 CLIENTE DA BASE (suporte de verdade): quando a pessoa disser que JÁ É cliente, atenda como cliente da casa. Para consultar dados da conta (contratos, ordens de serviço, notas fiscais) com consultar_minha_conta, CONFIRME A IDENTIDADE antes: peça o CNPJ ao próprio cliente e, ao receber o retorno, confirme o nome da empresa/condomínio com a pessoa ("só confirmando, é do Condomínio X, certo?") ANTES de detalhar qualquer informação. NUNCA revele dados de conta se a pessoa não souber o CNPJ ou se algo parecer estranho — na dúvida, transfira ao administrativo.
 
@@ -147,6 +158,37 @@ TOOLS = [
                     "email": {"type": "string", "description": "E-mail informado"},
                     "cargo": {"type": "string", "description": "Cargo/papel (ex.: síndico, administrador, gerente)"},
                     "interesse": {"type": "string", "description": "Resumo curto do interesse/necessidade (ex.: portaria 2 postos 24h)"},
+                    # --- Ficha de qualificação estruturada (envie cada campo assim que descobrir) ---
+                    "segmento": {
+                        "type": "string",
+                        "enum": ["condominio", "empresa", "industria", "residencia"],
+                        "description": "Tipo de cliente",
+                    },
+                    "tipo_solucao": {
+                        "type": "string",
+                        "enum": ["mao_de_obra", "seguranca_eletronica", "ambos"],
+                        "description": "O que a pessoa procura",
+                    },
+                    "seguranca_atual": {"type": "string", "description": "O que já tem hoje (portaria presencial, CFTV, alarme, controle de acesso, fornecedor atual)"},
+                    "motivacao": {"type": "string", "description": "O que motiva a busca (custo, segurança, incidente, troca de fornecedor, modernização)"},
+                    "urgencia": {"type": "string", "description": "Prazo/urgência da decisão, se mencionado"},
+                    # Condomínio (a lógica de dimensionamento)
+                    "tipo_imovel": {
+                        "type": "string",
+                        "enum": ["casas", "apartamentos", "misto"],
+                        "description": "Para condomínio: horizontal (casas), vertical (apartamentos) ou misto",
+                    },
+                    "unidades": {"type": "integer", "description": "Quantidade de casas/apartamentos"},
+                    "blocos": {"type": "integer", "description": "Quantidade de blocos/torres (se apartamentos)"},
+                    "portoes_veiculares": {"type": "integer", "description": "Quantos portões/entradas veiculares"},
+                    "fluxo_veicular": {
+                        "type": "string",
+                        "enum": ["entrada_saida_unica", "entrada_e_saida_separadas"],
+                        "description": "1 portão = entrada_saida_unica; 2+ = entrada_e_saida_separadas",
+                    },
+                    "entradas_pedestres": {"type": "integer", "description": "Quantas entradas de pedestres"},
+                    "tem_guarita": {"type": "boolean", "description": "Possui guarita/portaria física hoje"},
+                    "postos_portaria_hoje": {"type": "string", "description": "Postos de portaria atuais + turnos (ex.: '1 posto 24h', 'nenhum')"},
                 },
             },
         },
@@ -452,6 +494,25 @@ async def _tool_registrar_lead(args: dict, conversation_id: int) -> dict:
                 )
                 params["nota"] = " | ".join(notas)
 
+            # Ficha de qualificacao estruturada -> merge no JSONB leads.qualificacao
+            QUAL_KEYS = (
+                "segmento", "tipo_solucao", "seguranca_atual", "motivacao", "urgencia",
+                "tipo_imovel", "unidades", "blocos", "portoes_veiculares",
+                "fluxo_veicular", "entradas_pedestres", "tem_guarita", "postos_portaria_hoje",
+            )
+            qual = {}
+            for k in QUAL_KEYS:
+                v = args.get(k)
+                if v is not None and v != "":
+                    qual[k] = v
+            # Deriva fluxo_veicular se nao veio explicito (1 portao = entrada+saida; 2+ = separadas)
+            pv = qual.get("portoes_veiculares")
+            if isinstance(pv, int) and "fluxo_veicular" not in qual:
+                qual["fluxo_veicular"] = "entrada_saida_unica" if pv <= 1 else "entrada_e_saida_separadas"
+            if qual:
+                sets.append("qualificacao = coalesce(qualificacao, '{}'::jsonb) || cast(:qual as jsonb)")
+                params["qual"] = json.dumps(qual, ensure_ascii=False)
+
             if not sets:
                 return {"ok": True, "info": "nenhum campo novo para registrar"}
 
@@ -715,17 +776,26 @@ async def _post_public_audio(conversation_id: int, texto: str) -> bool:
         try:
             resp = await client.audio.speech.create(
                 model="gpt-4o-mini-tts",
-                voice="onyx",
+                voice="ash",
                 input=texto[:900],
                 response_format="mp3",
                 instructions=(
-                    "Voz masculina brasileira, calorosa e profissional, ritmo natural "
-                    "de conversa no WhatsApp. Sotaque brasileiro neutro."
+                    "Você é o José Luís, um atendente brasileiro super simpático e CHEIO "
+                    "DE ENERGIA, mandando um áudio de WhatsApp para um cliente. Fale com "
+                    "MUITA animação e entusiasmo genuíno — alegre, caloroso e empolgado de "
+                    "verdade em poder ajudar, como quem AMA o que faz. Voz masculina "
+                    "brasileira BEM SORRIDENTE: dá pra sentir o sorriso e a vontade na voz. "
+                    "Entonação MUITO expressiva e variada, com bastante altos e baixos, "
+                    "ênfase forte nas palavras importantes, ritmo vivo e dinâmico de quem "
+                    "está animado numa conversa gostosa — JAMAIS monótono, plano, arrastado, "
+                    "mecânico ou robótico. Soe espontâneo, humano e caloroso, como um amigo "
+                    "brasileiro feliz em te atender. Sotaque brasileiro neutro. Nunca pareça "
+                    "lendo um texto: pareça conversando de verdade, com emoção."
                 ),
             )
         except Exception:  # noqa: BLE001 — fallback p/ modelo TTS classico
             resp = await client.audio.speech.create(
-                model="tts-1", voice="onyx", input=texto[:900], response_format="mp3"
+                model="tts-1", voice="ash", input=texto[:900], response_format="mp3"
             )
         audio_bytes = getattr(resp, "content", None)
         if audio_bytes is None:
@@ -1291,6 +1361,22 @@ async def gerar_resposta(conversation_id: int) -> str | None:
                 "content": "EXEMPLOS REAIS de respostas da nossa equipe (espelhe o tom e "
                 "o estilo, sem copiar literalmente):\n\n" + exemplos,
             })
+
+        # Sinal DETERMINISTICO de apresentacao: se o agente ja respondeu nesta conversa
+        # (existe alguma msg "out"), e conversa em curso -> NAO reapresentar. Senao, e o
+        # primeiro contato -> acolher e apresentar uma vez. (Evita reapresentacao a cada msg.)
+        ja_respondeu = any(direction == "out" for direction, _ in rows)
+        messages.append({
+            "role": "system",
+            "content": (
+                "ESTA CONVERSA JÁ ESTÁ EM ANDAMENTO — você (José Luís) já falou antes aqui. "
+                "NÃO se reapresente, NÃO dê boas-vindas de novo e NÃO repita 'sou o José Luís' "
+                "nem 'aqui é o José Luís'. Continue naturalmente de onde a conversa parou."
+                if ja_respondeu else
+                "PRIMEIRO CONTATO desta conversa: faça a acolhida, dê as boas-vindas e "
+                "apresente-se UMA única vez (ex.: 'Eu sou o José Luís...')."
+            ),
+        })
 
         for direction, content in reversed(rows):  # ordem cronologica
             role = "user" if direction == "in" else "assistant"
