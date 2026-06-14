@@ -33,6 +33,37 @@
   --font-mono: 'JetBrains Mono', monospace;
 }
 
+/*
+ * Tailwind v4: mapeia os tokens semânticos do design system (definidos como HSL
+ * em :root/.dark/.light) para --color-*, gerando as utilities .bg-popover,
+ * .bg-card, .text-popover-foreground etc. Sem isso, componentes shadcn (Select,
+ * DropdownMenu) usam bg-popover sem regra gerada -> fundo transparente.
+ * `inline` mantém o var() em runtime, preservando a troca light/dark automática.
+ */
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-success: hsl(var(--success));
+  --color-warning: hsl(var(--warning));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+}
+
 :root {
   /* Sistema de Design */
   --background: 224 71% 4%;
@@ -155,6 +186,18 @@
 
 * {
   border-color: hsl(var(--border));
+}
+
+/*
+ * Rede de segurança: garante fundo opaco em QUALQUER painel flutuante (inclusive
+ * datepickers/tooltips de libs externas que não usem o token do design system).
+ * O @theme inline acima já cobre os componentes shadcn; isto é defensivo.
+ */
+[role="listbox"],
+[role="menu"],
+[data-radix-popper-content-wrapper] > * {
+  background-color: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
 }
 
 body {

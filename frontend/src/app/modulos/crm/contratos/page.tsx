@@ -76,6 +76,12 @@ export default function ContratosPage() {
   const [page, setPage] = useState(0);
   const pageSize = 20;
 
+  // Form Novo Contrato
+  const emptyContrato = { name: '', client_id: '', contract_type: 'recurring', monthly_value: '', start_date: '', end_date: '' };
+  const [showNovoContrato, setShowNovoContrato] = useState(false);
+  const [savingContrato, setSavingContrato] = useState(false);
+  const [novoContrato, setNovoContrato] = useState(emptyContrato);
+
   const { data: clientsData } = useCRMClients();
 
   const {
@@ -144,6 +150,44 @@ export default function ContratosPage() {
     return Object.fromEntries(items.map((c: any) => [c.id, c]));
   }, [clientsData]);
 
+  const clientsList = useMemo(() => {
+    return (clientsData as any)?.items ?? (Array.isArray(clientsData) ? clientsData : []);
+  }, [clientsData]);
+
+  const handleCreateContrato = async () => {
+    // Validação alinhada ao schema do backend (start_date obrigatório; end_date
+    // obrigatório p/ recorrente, senão total_value nasce 0).
+    if (!novoContrato.name.trim() || !novoContrato.client_id || !novoContrato.monthly_value || !novoContrato.start_date) {
+      toast.error('Preencha nome, cliente, valor mensal e data de início.');
+      return;
+    }
+    if (novoContrato.contract_type === 'recurring' && !novoContrato.end_date) {
+      toast.error('Para contrato recorrente, informe a data de término (para calcular o valor total).');
+      return;
+    }
+    setSavingContrato(true);
+    try {
+      const payload: Record<string, any> = {
+        name: novoContrato.name.trim(),
+        client_id: novoContrato.client_id,
+        contract_type: novoContrato.contract_type,
+        monthly_value: Number(novoContrato.monthly_value),
+        start_date: novoContrato.start_date,
+      };
+      if (novoContrato.end_date) payload.end_date = novoContrato.end_date;
+      await customInstance({ url: '/api/v1/crm/contracts', method: 'POST', data: payload });
+      toast.success('Contrato criado com sucesso');
+      setShowNovoContrato(false);
+      setNovoContrato(emptyContrato);
+      refetch();
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      toast.error(typeof detail === 'string' ? detail : 'Não foi possível criar o contrato. Verifique os campos.');
+    } finally {
+      setSavingContrato(false);
+    }
+  };
+
   const handleDelete = async (id: string) => {
     try {
       await customInstance({
@@ -188,12 +232,90 @@ export default function ContratosPage() {
             <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
             Atualizar
           </Button>
-          <Button onClick={() => toast.info('Formulario de novo contrato em desenvolvimento')}>
+          <Button onClick={() => setShowNovoContrato(true)}>
             <Plus className="h-4 w-4 mr-2" />
             Novo Contrato
           </Button>
         </div>
       </div>
+
+      {/* Modal Novo Contrato */}
+      {showNovoContrato && (
+        <Card className="border-primary/40">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <CardTitle>Novo Contrato</CardTitle>
+            <Button variant="ghost" size="sm" onClick={() => { setShowNovoContrato(false); setNovoContrato(emptyContrato); }}>✕</Button>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="sm:col-span-2">
+                <label className="text-sm font-medium mb-1 block">Nome do contrato *</label>
+                <Input
+                  placeholder="Ex.: Portaria Remota — Condomínio X"
+                  value={novoContrato.name}
+                  onChange={e => setNovoContrato(p => ({ ...p, name: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Cliente *</label>
+                <Select value={novoContrato.client_id} onValueChange={v => setNovoContrato(p => ({ ...p, client_id: v }))}>
+                  <SelectTrigger><SelectValue placeholder="Selecione o cliente" /></SelectTrigger>
+                  <SelectContent>
+                    {clientsList.map((c: any) => (
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Tipo *</label>
+                <Select value={novoContrato.contract_type} onValueChange={v => setNovoContrato(p => ({ ...p, contract_type: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="recurring">Recorrente</SelectItem>
+                    <SelectItem value="one_time">Avulso</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Valor mensal (R$) *</label>
+                <Input
+                  type="number" min="0" step="0.01" placeholder="0,00"
+                  value={novoContrato.monthly_value}
+                  onChange={e => setNovoContrato(p => ({ ...p, monthly_value: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Início *</label>
+                <Input
+                  type="date"
+                  value={novoContrato.start_date}
+                  onChange={e => setNovoContrato(p => ({ ...p, start_date: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">
+                  Término {novoContrato.contract_type === 'recurring' && '*'}
+                </label>
+                <Input
+                  type="date"
+                  value={novoContrato.end_date}
+                  onChange={e => setNovoContrato(p => ({ ...p, end_date: e.target.value }))}
+                />
+                {novoContrato.contract_type === 'recurring' && (
+                  <p className="text-xs text-muted-foreground mt-1">Obrigatório p/ recorrente — define o valor total do período.</p>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <Button disabled={savingContrato} onClick={handleCreateContrato}>
+                {savingContrato ? 'Salvando...' : 'Criar Contrato'}
+              </Button>
+              <Button variant="outline" onClick={() => { setShowNovoContrato(false); setNovoContrato(emptyContrato); }}>Cancelar</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-4">
@@ -289,7 +411,7 @@ export default function ContratosPage() {
               <p className="mt-2">Tente ajustar os filtros ou crie um novo contrato</p>
               <Button
                 className="mt-4"
-                onClick={() => toast.info('Formulario de novo contrato em desenvolvimento')}
+                onClick={() => setShowNovoContrato(true)}
               >
                 <Plus className="h-4 w-4 mr-2" />
                 Novo Contrato
