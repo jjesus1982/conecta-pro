@@ -6,6 +6,7 @@ import hmac
 import json
 import logging
 import os
+import re
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
@@ -276,6 +277,23 @@ async def _transcrever_audio_attachments(data: dict) -> str | None:
                 "Webhook Chatwoot: payload attachments (1a ocorrencia, calibracao): %s",
                 json.dumps(attachments, ensure_ascii=False, default=str)[:800],
             )
+
+        # LOCALIZACAO (pin do WhatsApp): Chatwoot entrega file_type=location com
+        # coordinates_lat/long. Nao precisa baixar nada — vira endereco da visita.
+        for cand in attachments:
+            ftype = str(cand.get("file_type", "")).lower()
+            lat = cand.get("coordinates_lat")
+            lng = cand.get("coordinates_long")
+            if ftype == "location" or (lat is not None and lng is not None):
+                if lat is None or lng is None:
+                    continue
+                titulo = str(cand.get("fallback_title") or "").strip()
+                extra = f" — {titulo}" if titulo else ""
+                return (
+                    f"📍 [localização recebida — use como endereço da visita, não peça "
+                    f"rua/número de novo]: https://www.google.com/maps?q={lat},{lng} "
+                    f"(coordenadas {lat},{lng}){extra}"
+                )
 
         # Seleciona o 1o attachment de tipo conhecido e classifica:
         # audio | video (Whisper transcreve a fala) | image (visao) | doc (PDF/DOCX/TXT)
@@ -629,6 +647,19 @@ async def chatwoot_webhook(
         midia = await _transcrever_audio_attachments(data)
         if midia:
             content = f"{content}\n{midia}" if content else midia
+
+    # Cliente colou um link de mapa / coordenadas no TEXTO (não como pin): marca claro
+    # p/ o agente tratar como endereço da visita e não ficar pedindo rua/número em loop.
+    if direction == "in" and content and "📍" not in content and re.search(
+        r"(maps\.google|google\.[a-z.]+/maps|maps\.app\.goo\.gl|goo\.gl/maps|geo:-?\d|"
+        r"[-+]?\d{1,2}\.\d{3,}[,\s]+[-+]?\d{1,3}\.\d{3,})",
+        content,
+        re.I,
+    ):
+        content = (
+            f"{content}\n📍 [localização recebida pelo cliente — use como endereço da "
+            f"visita, não peça rua/número de novo]"
+        )
 
     lead_id = None
     if direction == "in" and phone_canonical:

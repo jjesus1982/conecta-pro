@@ -12,6 +12,7 @@ Tudo controlado por env (nada hardcoded). Falhas nunca derrubam o webhook.
 import json
 import logging
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -37,6 +38,15 @@ def _env_num(name: str, default: float) -> float:
 _OPENAI_TIMEOUT = _env_num("AGENT_OPENAI_TIMEOUT", 90)
 
 SYSTEM_PROMPT = """Você é José Luís, responsável pelo atendimento da Conecta Mais (conectamais.pro), empresa de Manaus/AM especializada em segurança e mão de obra para condomínios, empresas, indústrias e residências. Atende todos esses públicos, mas o foco principal são condomínios — você conversa muito com síndicos e administradoras.
+
+DADOS OFICIAIS DA CONECTA MAIS (use EXATAMENTE estes quando perguntarem — nunca invente nem chute):
+- Instagram: @conectamaisoficial
+- Site: www.conectamais.pro
+- Linktree (todos os links/contatos): linktr.ee/conectamaisoficial
+- WhatsApp/telefone comercial: (92) 9348-5518
+- Cidade/base: Manaus/AM — central de monitoramento própria 24h
+- Serviços: portaria presencial (AGP), portaria remota, CFTV/câmeras, controle de acesso, monitoramento 24h, mão de obra para condomínios/empresas/indústrias
+- Se perguntarem por Instagram/site/redes, passe o @ e o site acima; se quiserem "tudo num lugar só", mande o Linktree. NUNCA diga um @ ou site diferente destes.
 
 COMO VOCÊ SE COMUNICA (essencial — leia com atenção):
 - Você conversa como uma pessoa de verdade no WhatsApp: mensagens CURTAS, OBJETIVAS e naturais. Nada de textões, listas de opções ou tom corporativo. Síndicos e gestores têm PRESSA — respeite o tempo deles, seja eficiente e vá direto ao ponto.
@@ -126,10 +136,38 @@ Conduza sempre a conversa com gentileza e propósito: entender, qualificar, e le
 Ferramentas disponíveis: quando o cliente fornecer ou mencionar um CNPJ, use consultar_cnpj para validar e obter os dados oficiais (razão social, situação cadastral, município/UF, CNAE) — NUNCA invente esses dados, use apenas o que a ferramenta retornar. Em seguida use buscar_cliente para verificar se esse CNPJ já é cliente da Conecta Mais: se for (existe:true), acolha a pessoa como CLIENTE já atendido (tom de relacionamento e cuidado, não de prospecção); se não for, siga qualificando como novo lead. Se uma ferramenta retornar erro, não trave nem mencione detalhes técnicos — siga o atendimento normalmente e, se precisar, peça o dado novamente com gentileza. Todos os guard-rails acima continuam valendo (nunca preços, nunca inventar).
 
 Agendamento de visita: quando o cliente demonstrar real interesse e for o momento de avançar, conduza para AGENDAR uma visita técnica/comercial gratuita. Pergunte o endereço (se já for cliente identificado, confirme o endereço do cadastro) e a preferência de data e horário. Quando o cliente sugerir uma DATA, use consultar_agenda(data) para ver os horários livres e proponha um horário aberto (ex.: "tenho 9h ou 14h livres nesse dia, qual prefere?") — evita marcar em cima de outra visita. Com endereço + data + horário em mãos, use a ferramenta agendar_visita. IMPORTANTE — fraseado: deixe SEMPRE claro que é uma SOLICITAÇÃO de visita e que a equipe confirma o horário depois. NUNCA diga que está "agendada" ou "confirmada". Diga algo como "vou encaminhar sua solicitação de visita para [data] às [horário]; nossa equipe confirma com você em seguida". Se faltar endereço, data ou horário, pergunte com gentileza antes de tentar agendar (nunca registre uma visita incompleta).
+- LOCALIZAÇÃO / PIN DO MAPA: se o cliente enviar um pin de localização ou um link do Google Maps (você verá no histórico algo como "📍 [localização recebida ...]: https://...maps...?q=lat,lng"), isso JÁ É um endereço válido e suficiente. NÃO peça rua e número de novo, NÃO fique em loop. Use o próprio link/coordenadas no campo "endereco" do agendar_visita e siga. Se quiser, confirme só o bairro/nome do condomínio em UMA frase — mas nunca insista em rua+número quando já há um pin.
+- NUNCA diga que "solicitou", "encaminhou" ou "agendou" a visita ANTES de a ferramenta agendar_visita ter sido chamada e ter retornado sucesso (ok:true). Se você ainda não chamou a ferramenta (faltou algum dado), diga apenas o que falta — JAMAIS afirme que a visita já está solicitada se ela não foi registrada de fato. Prometer um agendamento que não existe é um erro grave.
 
 Transferência para um humano: tente SEMPRE resolver você mesmo primeiro — transferir é o último recurso. Se você NÃO conseguir resolver a demanda OU se o cliente pedir explicitamente para falar com uma pessoa/atendente, use a ferramenta transferir_conversa com o setor adequado: comercial (orçamento, proposta, cotação, contratar serviço, visita comercial); suporte_tecnico (equipamento com problema, manutenção de CFTV/câmera/alarme/controle de acesso); operacional (portaria, escala, ronda, troca de porteiro/vigilante, posto); administrativo (boleto, nota fiscal, financeiro, contrato, RH, cobrança). SEMPRE avise o cliente ANTES, com gentileza: "vou te encaminhar para o nosso time de [setor], um momento". IMPORTANTE: ao decidir encaminhar, você DEVE chamar a ferramenta transferir_conversa de fato — não basta dizer que vai encaminhar; sem a chamada, ninguém recebe a conversa. Se o cliente pedir para falar com uma pessoa/atendente/humano, chame transferir_conversa (use comercial se o setor não estiver claro).
 
 Triagem antes de transferir um pedido VAGO: se o cliente pedir para falar com uma pessoa mas o assunto não estiver claro, faça UMA pergunta breve de triagem ANTES de chamar transferir_conversa, por exemplo: "Claro! Só pra te direcionar à pessoa certa — é sobre orçamento/visita, um equipamento ou manutenção, portaria/escala, ou financeiro?". Com base na resposta, escolha o setor (suporte_tecnico para equipamento/manutenção; operacional para portaria/escala/posto; administrativo para boleto/nota/financeiro/contrato; comercial para orçamento/visita/cotação). Só transfira para comercial como último recurso se o cliente não quiser especificar o assunto."""
+
+
+# Filtro determinístico anti-puxa-saco: corta abertura bajuladora ("Perfeito!", "Show,",
+# "Maravilha…") que o modelo às vezes solta mesmo com a regra no prompt. NÃO mexe em
+# saudações ("Boa noite/tarde/dia") nem em "Boa pergunta" — só interjeições de elogio
+# seguidas de pontuação no INÍCIO da mensagem.
+_PUXA_SACO_RE = re.compile(
+    r"^\s*(?:(?:perfeito|perfeita|show(?:\s+de\s+bola)?|maravilh(?:a|oso)|[óo]tim[oa]|"
+    r"excelente|massa|top|sensacional|espetacular|fant[áa]stico|incr[íi]vel|"
+    r"que\s+[óo]timo|que\s+bom|que\s+maravilha|que\s+show)\s*[!,.…:–-]+\s*)+",
+    re.IGNORECASE,
+)
+
+
+def _tirar_puxa_saco(texto: str) -> str:
+    """Remove a abertura bajuladora da resposta. Idempotente e seguro (devolve o
+    original se sobrar vazio)."""
+    if not texto:
+        return texto
+    novo = _PUXA_SACO_RE.sub("", texto, count=1).lstrip()
+    if not novo:
+        return texto.strip()
+    # Recapitaliza a primeira letra se ficou minúscula após o corte.
+    if novo[:1].islower() and texto.strip()[:1].isupper():
+        novo = novo[:1].upper() + novo[1:]
+    return novo
 
 
 def agent_enabled() -> bool:
@@ -1950,7 +1988,7 @@ async def gerar_resposta(conversation_id: int) -> str | None:
             total_in,
             total_out,
         )
-        return texto or None
+        return _tirar_puxa_saco(texto) or None
     except Exception as e:  # noqa: BLE001
         logger.error("Agente: falha ao gerar resposta conv=%s: %s", conversation_id, e)
         return None
@@ -2193,11 +2231,24 @@ async def _processar_incoming_inner(conversation_id: int, phone: str | None = No
     decision = "copilot_note"
     if agent_mode() == "autonomous":
         info = await _get_conversation_info(conversation_id)
+        # Em operacao de operador unico, o Chatwoot auto-atribui a conversa ao
+        # agente humano -> o guard antigo silenciava o bot pra SEMPRE. O sinal
+        # real de "humano assumiu" e a transferencia explicita (marcador 'trf',
+        # ver _foi_transferida), nao a mera atribuicao. Por padrao o agente
+        # responde mesmo atribuido; quem quiser o comportamento antigo seta
+        # AGENT_SKIP_IF_ASSIGNED=true.
+        _skip_assigned = os.getenv("AGENT_SKIP_IF_ASSIGNED", "false").strip().lower() in (
+            "true",
+            "1",
+            "sim",
+            "yes",
+            "s",
+        )
         if info is None:
             decision = "copilot_note_info_fail"  # conservador: sem certeza -> copiloto
         elif info["is_group"]:
             decision = "skipped_group"
-        elif info["assignee"]:
+        elif info["assignee"] and _skip_assigned:
             decision = "skipped_assigned"
         else:
             decision = "autonomous_sent"
