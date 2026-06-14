@@ -398,7 +398,7 @@ async def agent_dashboard(
     dias: int = 14,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Dashboard do Jose Luis: conversas, mensagens, leads e conversoes por dia."""
+    """Dashboard do José Luís: conversas, mensagens, leads e conversoes por dia."""
     dias = max(1, min(dias, 90))
     por_dia = (
         await db.execute(
@@ -438,7 +438,7 @@ async def agent_dashboard(
         )
     ).first()
     return {
-        "agente": "José Luis",
+        "agente": "José Luís",
         "periodo_dias": dias,
         "totais": {
             "conversas": totais[2],

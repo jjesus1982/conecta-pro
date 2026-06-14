@@ -410,7 +410,7 @@ app.conf.beat_schedule = {
         "schedule": crontab(hour=8, minute=30),
         "options": {"queue": "gov.batch"},
     },
-    # ── Jose Luis — conversas que esfriaram: lista + rascunho -> Telegram (aval humano; nada vai ao cliente) — diario 09:00 ──
+    # ── José Luís — conversas que esfriaram: lista + rascunho -> Telegram (aval humano; nada vai ao cliente) — diario 09:00 ──
     "whatsapp-followup-conversas-0900": {
         "task": "whatsapp.followup_conversas",
         "schedule": crontab(hour=9, minute=0),

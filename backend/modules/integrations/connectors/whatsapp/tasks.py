@@ -1,5 +1,5 @@
 """
-Tasks Celery do agente Jose Luis (WhatsApp).
+Tasks Celery do agente José Luís (WhatsApp).
 
 whatsapp.followup_conversas — encontra conversas que ESFRIARAM (cliente sumiu
 apos a ultima resposta) e envia ao Jordan, via Telegram, a lista com um rascunho
@@ -114,17 +114,17 @@ def followup_conversas(self):  # noqa: ARG001
         return {"ok": False}
 
     if not rows:
-        _telegram_send("🤖 <b>José Luis — follow-up diário</b>\n\nNenhuma conversa esfriada nas últimas 24h–7d. 👌")
+        _telegram_send("🤖 <b>José Luís — follow-up diário</b>\n\nNenhuma conversa esfriada nas últimas 24h–7d. 👌")
         return {"ok": True, "frias": 0}
 
-    linhas = ["🤖 <b>José Luis — conversas que esfriaram</b> (aguardando SEU aval; nada foi enviado)\n"]
+    linhas = ["🤖 <b>José Luís — conversas que esfriaram</b> (aguardando SEU aval; nada foi enviado)\n"]
     for conv, phone, quando, nome, empresa, _status, assunto in rows:
         dias = max(1, (__import__("datetime").datetime.now(quando.tzinfo) - quando).days)
         quem = f"{nome}" + (f" ({empresa})" if empresa else "")
         tema = (assunto or "—").replace("\n", " ")[:90]
         rascunho = (
             f"Olá{', ' + nome.split()[0] if nome and not nome.startswith('Contato') else ''}! "
-            f"Aqui é o José Luis, da Conecta Mais 😊 Ficou alguma dúvida sobre o que conversamos? "
+            f"Aqui é o José Luís, da Conecta Mais 😊 Ficou alguma dúvida sobre o que conversamos? "
             f"Sigo à disposição para ajudar."
         )
         linhas.append(
