@@ -136,3 +136,113 @@ def followup_conversas(self):  # noqa: ARG001
     _telegram_send("\n".join(linhas))
     logger.info("followup_conversas: %s conversas frias notificadas", len(rows))
     return {"ok": True, "frias": len(rows)}
+
+
+# ======================= QUALITY MONITORING / LOOP DE APRENDIZADO =======================
+
+_RUBRICA_AUDITORIA = (
+    "Você audita a QUALIDADE do atendente José Luís (WhatsApp de uma empresa de portaria/"
+    "segurança em Manaus). Na conversa, 'in:' = cliente e 'out:' = José Luís. Avalie SÓ as "
+    "respostas do José Luís. Devolva APENAS um JSON válido (sem texto fora dele) com as chaves:\n"
+    '{"nota": 0-10, "puxa_saco": true/false, "objetivo": true/false, "pediu_cnpj": true/false, '
+    '"conduziu_visita": true/false, "vazou_preco": true/false, '
+    '"problema": "frase curta do principal problema (ou vazio)", '
+    '"destaque": "frase curta do que fez bem (ou vazio)"}\n'
+    "Bom atendimento: OBJETIVO e curto, sem bajulação (não abrir com 'Perfeito!/Show!/Boa!/"
+    "Maravilha!' a cada mensagem nem agradecer toda hora), pede o CNPJ cedo, conduz à visita, "
+    "tom natural e humano, e NUNCA cita preço/valor. Penalize: verbosidade e re-resumo, "
+    "puxa-saquismo, interrogatório/excesso de perguntas, e vazamento de preço (gravíssimo)."
+)
+
+
+async def _auditar_conversas(session, horas: int = 24, limite: int = 15) -> list[dict]:
+    """Coleta conversas recentes do agente e audita cada uma via LLM. Best-effort."""
+    from sqlalchemy import text  # noqa: PLC0415
+
+    rows = (
+        await session.execute(
+            text(
+                "SELECT chatwoot_conversation_id AS conv, max(phone_canonical) AS phone, "
+                "  string_agg(direction || ': ' || left(content, 350), E'\\n' ORDER BY created_at) AS transcript "
+                "FROM cwi_message_log "
+                "WHERE direction IN ('in','out') AND content IS NOT NULL AND content <> '' "
+                "  AND created_at > now() - make_interval(hours => :h) "
+                "GROUP BY chatwoot_conversation_id "
+                "HAVING count(*) FILTER (WHERE direction='out') >= 2 "
+                "ORDER BY max(created_at) DESC LIMIT :n"
+            ),
+            {"h": horas, "n": limite},
+        )
+    ).fetchall()
+    if not rows:
+        return []
+
+    import json as _json  # noqa: PLC0415
+
+    from openai import AsyncOpenAI  # noqa: PLC0415
+
+    client = AsyncOpenAI()
+    model = os.getenv("AGENT_AUDIT_MODEL", "gpt-4o-mini")
+    out = []
+    for conv, phone, transcript in rows:
+        try:
+            resp = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": _RUBRICA_AUDITORIA},
+                    {"role": "user", "content": f"CONVERSA (conv #{conv}):\n{transcript[:6000]}"},
+                ],
+                response_format={"type": "json_object"},
+                max_tokens=300,
+                temperature=0,
+            )
+            data = _json.loads(resp.choices[0].message.content or "{}")
+            data["conv"] = conv
+            data["phone"] = phone
+            out.append(data)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("auditor: falha conv=%s: %s", conv, exc)
+    return out
+
+
+@app.task(name="whatsapp.auditar_qualidade", bind=True, max_retries=1)
+def auditar_qualidade(self):  # noqa: ARG001
+    """Diario: audita a qualidade das conversas do José Luís e manda digest no Telegram."""
+    try:
+        results = _run_async(_auditar_conversas)
+    except Exception as e:  # noqa: BLE001
+        logger.error("auditar_qualidade: falha: %s", e)
+        return {"ok": False}
+
+    if not results:
+        _telegram_send("🔎 <b>Auditoria José Luís</b>\n\nNenhuma conversa com atendimento nas últimas 24h.")
+        return {"ok": True, "n": 0}
+
+    n = len(results)
+    notas = [float(r.get("nota") or 0) for r in results]
+    media = sum(notas) / n if n else 0
+    pediu_cnpj = sum(1 for r in results if r.get("pediu_cnpj"))
+    conduziu = sum(1 for r in results if r.get("conduziu_visita"))
+    vazou = [r for r in results if r.get("vazou_preco")]
+    problemas = sorted((r for r in results if r.get("problema") or r.get("puxa_saco") or float(r.get("nota") or 0) < 7),
+                       key=lambda r: float(r.get("nota") or 0))
+    destaques = sorted((r for r in results if r.get("destaque") and float(r.get("nota") or 0) >= 8),
+                       key=lambda r: -float(r.get("nota") or 0))
+
+    L = [f"🔎 <b>Auditoria José Luís</b> (24h)",
+         f"📊 {n} conversas · nota média <b>{media:.1f}/10</b>",
+         f"📈 Pediu CNPJ: {pediu_cnpj}/{n} · Conduziu à visita: {conduziu}/{n} · Vazou preço: {len(vazou)}/{n}"]
+    if vazou:
+        L.append("\n🚨 <b>VAZAMENTO DE PREÇO</b> (grave): " + ", ".join(f"#{r['conv']}" for r in vazou))
+    if problemas:
+        L.append("\n⚠️ <b>Pra melhorar:</b>")
+        for r in problemas[:5]:
+            tag = "puxa-saco" if r.get("puxa_saco") else (r.get("problema") or "abaixo do padrão")
+            L.append(f"• #{r['conv']} (nota {float(r.get('nota') or 0):.0f}): {str(tag)[:90]}")
+    if destaques:
+        L.append("\n✅ <b>Destaques:</b>")
+        for r in destaques[:3]:
+            L.append(f"• #{r['conv']} (nota {float(r.get('nota') or 0):.0f}): {str(r.get('destaque'))[:90]}")
+    _telegram_send("\n".join(L))
+    logger.info("auditar_qualidade: %s conversas auditadas, media %.1f", n, media)
+    return {"ok": True, "n": n, "media": round(media, 1)}

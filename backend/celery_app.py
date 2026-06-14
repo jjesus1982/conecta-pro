@@ -416,6 +416,12 @@ app.conf.beat_schedule = {
         "schedule": crontab(hour=9, minute=0),
         "options": {"queue": "gov.batch"},
     },
+    # ── José Luís — auditoria de qualidade das conversas -> digest no Telegram — diario 20:00 ──
+    "whatsapp-auditar-qualidade-2000": {
+        "task": "whatsapp.auditar_qualidade",
+        "schedule": crontab(hour=20, minute=0),
+        "options": {"queue": "gov.batch"},
+    },
 }
 
 
