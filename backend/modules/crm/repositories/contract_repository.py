@@ -96,9 +96,9 @@ class ContractRepository:
             clauses=data.clauses,
             signature_required=data.signature_required,
             signature_provider=data.signature_provider,
-            commercial_manager_id=(uuid.UUID(data.commercial_manager_id) if data.commercial_manager_id else None),
-            account_manager_id=(uuid.UUID(data.account_manager_id) if data.account_manager_id else None),
-            created_by=uuid.UUID(created_by_id),
+            commercial_manager_id=data.commercial_manager_id,
+            account_manager_id=data.account_manager_id,
+            created_by=created_by_id,
         )
 
         # Calcular próxima data de reajuste
@@ -107,7 +107,9 @@ class ContractRepository:
 
         self.db.add(contract)
         await self.db.commit()
-        await self.db.refresh(contract)
+        # Eager-load das relacoes serializadas (items/addendums) dentro do greenlet,
+        # senao ContractDetailResponse.model_validate faz lazy-load async -> MissingGreenlet 500.
+        await self.db.refresh(contract, ["items", "addendums"])
 
         return contract
 
@@ -241,7 +243,8 @@ class ContractRepository:
             contract.next_adjustment_date = contract.calculate_next_adjustment_date()
 
         await self.db.commit()
-        await self.db.refresh(contract)
+        # PUT retorna ContractDetailResponse (serializa items) -> eager-load no greenlet.
+        await self.db.refresh(contract, ["items", "addendums"])
 
         return contract
 

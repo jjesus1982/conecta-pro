@@ -48,6 +48,7 @@ class LeadSource(StrEnum):
     EMAIL_CAMPAIGN = "email_campaign"
     EVENT = "event"
     PARTNER = "partner"
+    WHATSAPP = "whatsapp"  # leads do agente WhatsApp (Jose Luis) — sem email
     OTHER = "other"
 
 
@@ -84,7 +85,7 @@ class Lead(Base):
 
     # Dados do contato
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # Dados da empresa

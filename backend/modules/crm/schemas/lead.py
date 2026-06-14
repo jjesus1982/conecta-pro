@@ -13,7 +13,7 @@ class LeadBase(BaseModel):
     """Schema base para Lead."""
 
     name: str = Field(..., min_length=2, max_length=255, description="Nome do contato")
-    email: EmailStr = Field(..., description="Email do contato")
+    email: EmailStr | None = Field(None, description="Email do contato (opcional — leads de WhatsApp não têm)")
     phone: str | None = Field(None, max_length=20, description="Telefone")
     company: str | None = Field(None, max_length=255, description="Empresa")
     position: str | None = Field(None, max_length=100, description="Cargo")

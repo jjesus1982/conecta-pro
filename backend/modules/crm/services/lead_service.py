@@ -159,7 +159,10 @@ class LeadScoringEngine:  # pylint: disable=too-few-public-methods
     ) -> float:
         """Pontua baseado no tempo desde último contato."""
         if not lead.last_contact_at:
-            # Novo lead, sem contato ainda
+            # Novo lead, sem contato ainda. created_at pode ser None na CRIACAO
+            # (default now() do banco so aplica no commit -> scoring roda antes).
+            if not lead.created_at:
+                return 100  # lead recem-criado
             days_since_creation = (datetime.now() - lead.created_at).days
             if days_since_creation < 1:
                 return 100  # Lead muito recente

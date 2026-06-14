@@ -187,7 +187,7 @@ class Contract(Base):
     # Auditoria
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    created_by = Column(UUID(as_uuid=True), nullable=True)
+    created_by = Column(UUID(as_uuid=False), nullable=True)  # retorna str (serializa em *Response)
     is_active = Column(Boolean, default=True, nullable=False)
 
     # Relacionamentos
@@ -341,7 +341,7 @@ class ContractTemplate(Base):  # pylint: disable=too-few-public-methods
     # Auditoria
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    created_by = Column(UUID(as_uuid=True), nullable=True)
+    created_by = Column(UUID(as_uuid=False), nullable=True)  # retorna str (serializa em *Response)
     is_active = Column(Boolean, default=True, nullable=False)
 
     # Relacionamentos
@@ -448,7 +448,7 @@ class ContractAddendum(Base):
     # Auditoria
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    created_by = Column(UUID(as_uuid=True), nullable=True)
+    created_by = Column(UUID(as_uuid=False), nullable=True)  # retorna str (serializa em *Response)
     is_active = Column(Boolean, default=True, nullable=False)
 
     # Relacionamentos
