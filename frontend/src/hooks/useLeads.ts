@@ -6,38 +6,50 @@ import { customInstance } from '@/lib/api-client';
 // Tipos baseados no backend real (suporte a nomes em PT e EN)
 export interface Lead {
   id: string;
-  nome?: string;
   name?: string;
-  contato?: string;
-  contact_name?: string;
   company?: string;
-  telefone?: string;
+  contact_name?: string;
   phone?: string;
   email?: string;
-  origem?: string;
   source?: string;
   status: string;
+  score?: number;
+  probability?: number;
+  expected_value?: number;
+  weighted_value?: number;
+  position?: string;
+  industry?: string;
+  notes?: string;
+  is_active?: boolean;
+  created_at: string;
+  updated_at?: string;
+  // Fallbacks PT (leads legados / payloads antigos)
+  nome?: string;
+  contato?: string;
+  telefone?: string;
+  origem?: string;
   valor_estimado?: number;
   value?: number;
   observacoes?: string;
   description?: string;
-  created_at: string;
-  updated_at?: string;
   ativo?: boolean;
 }
 
+// Schema EN real do backend (POST /api/v1/crm/leads — LeadCreate)
 export interface LeadCreate {
-  nome: string;
-  contato: string;
-  telefone?: string;
+  name: string;
+  company?: string;
+  phone?: string;
   email?: string;
-  origem?: string;
+  source?: string;
   status?: string;
-  valor_estimado?: number;
-  observacoes?: string;
+  expected_value?: number;
+  notes?: string;
 }
 
-export interface LeadUpdate extends Partial<LeadCreate> {}
+export interface LeadUpdate extends Partial<LeadCreate> {
+  status?: string;
+}
 
 export interface LeadsResponse {
   items: Lead[];
@@ -122,7 +134,7 @@ export function useUpdateLead() {
     mutationFn: async ({ id, data }: { id: string; data: LeadUpdate }): Promise<Lead> => {
       return customInstance<Lead>({
         url: `${BASE_URL}/${id}`,
-        method: 'PATCH',
+        method: 'PUT', // backend expõe PUT /{id} (aceita status); não há PATCH /{id}
         data,
       });
     },

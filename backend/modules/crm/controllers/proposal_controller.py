@@ -360,14 +360,60 @@ async def send_proposal(
     return ProposalResponse.model_validate(proposal)
 
 
+async def _try_generate_commission(db: AsyncSession, proposal, created_by_id: str | None) -> None:
+    """
+    Gera comissão automaticamente quando uma proposta é aceita.
+
+    Defensivo por design: qualquer falha (sem regra, sem vendedor, sem valor)
+    apenas registra warning e NUNCA quebra o fluxo de aceite da proposta.
+    """
+    try:
+        from modules.crm.repositories.commission_repository import CommissionRepository
+        from modules.crm.schemas.commission import CommissionCreate
+
+        seller_id = getattr(proposal, "created_by_id", None) or created_by_id
+        sale_value = float(getattr(proposal, "total", 0) or 0)
+        if not seller_id or sale_value <= 0:
+            logger.info(
+                f"Comissão não gerada p/ proposta {proposal.number}: "
+                f"sem vendedor ou valor (seller={seller_id}, total={sale_value})"
+            )
+            return
+
+        crepo = CommissionRepository(db)
+        rules = await crepo.get_valid_rules(seller_id=str(seller_id))
+        if not rules:
+            logger.info(
+                f"Comissão não gerada p/ proposta {proposal.number}: "
+                "nenhuma regra de comissão válida cadastrada"
+            )
+            return
+
+        rule = crepo.service.find_applicable_rule(rules, sale_value) if getattr(crepo, "service", None) else rules[0]
+        commission = await crepo.create(
+            CommissionCreate(
+                seller_id=str(seller_id),
+                proposal_id=str(proposal.id),
+                sale_value=sale_value,
+                rule_id=str(rule.id) if rule else None,
+                description=f"Comissão auto — proposta {proposal.number}",
+            ),
+            created_by_id=created_by_id,
+        )
+        logger.info(f"Comissão gerada automaticamente: {commission.reference_number} (proposta {proposal.number})")
+    except Exception as exc:  # noqa: BLE001 — comissão nunca pode quebrar o aceite
+        logger.warning(f"Falha ao gerar comissão p/ proposta {getattr(proposal, 'number', '?')}: {exc}")
+
+
 @router.post("/{proposal_id}/accept", response_model=ProposalResponse, status_code=201)
 async def accept_proposal(
     proposal_id: str,
-    current_user: CurrentActiveUser,  # pylint: disable=unused-argument
+    current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> ProposalResponse:
     """
-    Marca proposta como aceita pelo cliente.
+    Marca proposta como aceita pelo cliente e gera comissão automaticamente
+    (se houver vendedor, valor e regra de comissão válida).
     """
     repo = ProposalRepository(db)
     proposal = await repo.update_status(proposal_id, ProposalStatus.ACCEPTED)
@@ -377,6 +423,8 @@ async def accept_proposal(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Proposta nao encontrada",
         )
+
+    await _try_generate_commission(db, proposal, str(current_user.id))
 
     logger.info(f"Proposal aceita: {proposal.number}")
     return ProposalResponse.model_validate(proposal)

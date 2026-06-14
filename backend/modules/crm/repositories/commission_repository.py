@@ -317,7 +317,9 @@ class CommissionRepository:
 
         self.db.add(commission)
         await self.db.commit()
-        await self.db.refresh(commission)
+        # refresh com ["payments"]: a serializacao (CommissionResponse) le paid_amount/
+        # pending_amount, que acessam self.payments -> evita MissingGreenlet.
+        await self.db.refresh(commission, ["payments"])
 
         logger.info(f"Commission criada: {commission.id} ({commission.reference_number})")
         return commission
@@ -351,7 +353,13 @@ class CommissionRepository:
         limit: int = 100,
     ) -> tuple[list[Commission], int]:
         """Lista comissões com filtros."""
-        query = select(Commission).where(Commission.is_active.is_(True))
+        # selectinload(payments): paid_amount/pending_amount sao @property que acessam
+        # self.payments; sem eager-load -> MissingGreenlet na serializacao (CommissionResponse).
+        query = (
+            select(Commission)
+            .where(Commission.is_active.is_(True))
+            .options(selectinload(Commission.payments))
+        )
         count_query = select(func.count(Commission.id)).where(Commission.is_active.is_(True))
 
         if filters:
@@ -424,7 +432,7 @@ class CommissionRepository:
 
         commission.updated_at = datetime.utcnow()
         await self.db.commit()
-        await self.db.refresh(commission)
+        await self.db.refresh(commission, ["payments"])
 
         logger.info(f"Commission atualizada: {commission.id}")
         return commission
@@ -455,7 +463,7 @@ class CommissionRepository:
 
         commission.updated_at = datetime.utcnow()
         await self.db.commit()
-        await self.db.refresh(commission)
+        await self.db.refresh(commission, ["payments"])
 
         logger.info(f"Commission {commission.id} status: {old_status} -> {status.value}")
         return commission
@@ -638,7 +646,13 @@ class CommissionRepository:
         self, date_from: date | None = None, date_to: date | None = None
     ) -> builtins.list[Commission]:
         """Busca todas as comissões para cálculo de estatísticas."""
-        query = select(Commission).where(Commission.is_active.is_(True))
+        # selectinload(payments): calculate_stats acessa paid_amount/pending_amount (que
+        # leem self.payments) -> evita MissingGreenlet quando ha comissoes com dados.
+        query = (
+            select(Commission)
+            .where(Commission.is_active.is_(True))
+            .options(selectinload(Commission.payments))
+        )
 
         if date_from:
             dt_from = datetime.combine(date_from, datetime.min.time())
