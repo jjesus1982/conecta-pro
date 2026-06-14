@@ -104,9 +104,29 @@ async def _coletar_conversas_frias(session):
     return rows
 
 
+def _rascunho_followup(nome: str | None, dias: int, tema: str | None) -> str:
+    """Rascunho de retomada CONTEXTUAL por tempo parado (multi-toque). Tom objetivo, sem puxa-saco."""
+    primeiro = ""
+    if nome and not nome.startswith("Contato"):
+        primeiro = ", " + nome.split()[0]
+    assunto = f" sobre {tema}" if tema and tema not in ("—", "") else ""
+    if dias <= 2:
+        # Toque 1 — lembrete leve, retomar de onde parou
+        return (f"Oi{primeiro}! Aqui é o José Luís, da Conecta Mais. "
+                f"Ficamos no meio da nossa conversa{assunto} — quer que eu siga te ajudando por aqui?")
+    if dias <= 6:
+        # Toque 2 — oferecer a visita gratuita (avanço)
+        return (f"Oi{primeiro}, tudo bem? Aqui é o José Luís, da Conecta Mais. "
+                f"Pra te ajudar a decidir{assunto}, posso encaminhar uma visita técnica gratuita e sem "
+                f"compromisso da nossa equipe. Quer que eu agende?")
+    # Toque 3+ — último toque, deixa a porta aberta sem insistir
+    return (f"Oi{primeiro}! Aqui é o José Luís, da Conecta Mais. Vou deixar seu contato registrado "
+            f"por aqui — quando quiser retomar{assunto}, é só me chamar que sigo à disposição. 👍")
+
+
 @app.task(name="whatsapp.followup_conversas", bind=True, max_retries=1)
 def followup_conversas(self):  # noqa: ARG001
-    """Diario: lista conversas frias + rascunho de retomada -> Telegram do Jordan."""
+    """Diario: lista conversas frias + rascunho CONTEXTUAL de retomada -> Telegram do Jordan."""
     try:
         rows = _run_async(_coletar_conversas_frias)
     except Exception as e:  # noqa: BLE001
@@ -122,13 +142,10 @@ def followup_conversas(self):  # noqa: ARG001
         dias = max(1, (__import__("datetime").datetime.now(quando.tzinfo) - quando).days)
         quem = f"{nome}" + (f" ({empresa})" if empresa else "")
         tema = (assunto or "—").replace("\n", " ")[:90]
-        rascunho = (
-            f"Olá{', ' + nome.split()[0] if nome and not nome.startswith('Contato') else ''}! "
-            f"Aqui é o José Luís, da Conecta Mais 😊 Ficou alguma dúvida sobre o que conversamos? "
-            f"Sigo à disposição para ajudar."
-        )
+        toque = "1 (lembrete)" if dias <= 2 else ("2 (oferta de visita)" if dias <= 6 else "3 (último toque)")
+        rascunho = _rascunho_followup(nome, dias, tema)
         linhas.append(
-            f"• <b>{quem}</b> — conv #{conv}, parado há {dias}d\n"
+            f"• <b>{quem}</b> — conv #{conv}, parado há {dias}d · toque {toque}\n"
             f"  Último assunto: {tema}\n"
             f"  📋 Sugestão p/ retomar: <i>{rascunho}</i>\n"
         )
