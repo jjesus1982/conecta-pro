@@ -214,7 +214,7 @@ async def _auditar_conversas(session, horas: int = 24, limite: int = 15) -> list
 
     from openai import AsyncOpenAI  # noqa: PLC0415
 
-    client = AsyncOpenAI()
+    client = AsyncOpenAI(timeout=float(os.getenv("AGENT_OPENAI_TIMEOUT", "90")))
     model = os.getenv("AGENT_AUDIT_MODEL", "gpt-4o-mini")
     # kwargs compatíveis com a família do modelo (gpt-5/o-series não aceitam temperature
     # nem max_tokens — usam max_completion_tokens). Evita quebra silenciosa se trocar o modelo.

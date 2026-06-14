@@ -225,15 +225,32 @@ async def _match_or_create_lead(db: AsyncSession, phone_canonical: str, name: st
 
     lead_name = (name or "").strip() or f"WhatsApp {phone_canonical}"
     repo = LeadRepository(db)
-    lead = await repo.create(
-        LeadCreate(
-            name=lead_name[:255],
-            email=None,
-            phone=phone_canonical,
-            source=LeadSource.WHATSAPP,
+    try:
+        lead = await repo.create(
+            LeadCreate(
+                name=lead_name[:255],
+                email=None,
+                phone=phone_canonical,
+                source=LeadSource.WHATSAPP,
+            )
         )
-    )
-    return lead.id
+        return lead.id
+    except Exception as e:  # noqa: BLE001
+        # O validator do LeadCreate exige 10-15 dígitos; um phone hostil/atípico (8 ou >15)
+        # faria o lead NUNCA ser criado (silencioso). Fallback: INSERT cru (lenient) p/ a
+        # entrada sempre ter um lead vinculado — consistente com a auto-cura.
+        logger.warning("Webhook: LeadCreate rejeitou phone=%s (%s) — INSERT cru de fallback", phone_canonical, e)
+        lid = (
+            await db.execute(
+                text(
+                    "INSERT INTO leads (id,name,phone,source,status,score,probability,"
+                    "expected_value,is_active,created_at,updated_at) VALUES "
+                    "(gen_random_uuid(),:n,:p,'whatsapp','new',0,0,0,true,now(),now()) RETURNING id"
+                ),
+                {"n": lead_name[:255], "p": phone_canonical},
+            )
+        ).scalar()
+        return str(lid) if lid else None
 
 
 # Limite de download de audio (anti-abuso); voice do WhatsApp fica na casa de KB.

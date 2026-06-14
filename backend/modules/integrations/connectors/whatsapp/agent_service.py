@@ -24,6 +24,18 @@ logger = logging.getLogger(__name__)
 
 BRT_OFFSET = -4  # Manaus (AMT, UTC-4) — usado p/ dar "relogio" ao agente
 
+
+def _env_num(name: str, default: float) -> float:
+    """Lê env numérica com fallback seguro (env inválida NÃO levanta — evita silenciar o agente)."""
+    try:
+        return float(os.getenv(name, "") or default)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+# Timeout explícito p/ OpenAI (default do SDK é 600s; deixaria o lock Redis expirar -> resposta dupla)
+_OPENAI_TIMEOUT = _env_num("AGENT_OPENAI_TIMEOUT", 90)
+
 SYSTEM_PROMPT = """Você é José Luís, responsável pelo atendimento da Conecta Mais (conectamais.pro), empresa de Manaus/AM especializada em segurança e mão de obra para condomínios, empresas, indústrias e residências. Atende todos esses públicos, mas o foco principal são condomínios — você conversa muito com síndicos e administradoras.
 
 COMO VOCÊ SE COMUNICA (essencial — leia com atenção):
@@ -595,16 +607,22 @@ async def _tool_registrar_lead(args: dict, conversation_id: int) -> dict:
 
             notas = []
             cnpj = "".join(c for c in str(args.get("cnpj") or "") if c.isdigit())
-            if cnpj:
+            if len(cnpj) == 14:  # só grava CNPJ VÁLIDO (14 díg) — '123' não polui notas/métrica
                 notas.append(f"CNPJ: {cnpj}")
+            elif cnpj:
+                cnpj = ""  # inválido: não usa nem no score
             interesse = (args.get("interesse") or "").strip()
             if interesse:
                 notas.append(f"Interesse: {interesse[:300]}")
             if notas:
+                # dedup: só acrescenta a linha se ela ainda NÃO estiver nas notas (evita inchar)
+                nova = " | ".join(notas)
                 sets.append(
-                    "notes = trim(both E'\\n' from coalesce(notes,'') || E'\\n' || :nota)"
+                    "notes = CASE WHEN coalesce(notes,'') LIKE :nota_like THEN notes "
+                    "ELSE trim(both E'\\n' from coalesce(notes,'') || E'\\n' || :nota) END"
                 )
-                params["nota"] = " | ".join(notas)
+                params["nota"] = nova
+                params["nota_like"] = f"%{nova}%"
 
             # Ficha de qualificacao estruturada -> merge no JSONB leads.qualificacao
             QUAL_KEYS = (
@@ -618,6 +636,18 @@ async def _tool_registrar_lead(args: dict, conversation_id: int) -> dict:
                 v = args.get(k)
                 if v is not None and v != "":
                     qual[k] = v
+            # COERÇÃO DE TIPOS: o LLM às vezes manda número como string ('2') ou float (2.0).
+            # Sem isto, a derivação de fluxo_veicular falha e o JSONB guarda tipo errado.
+            for _k in ("unidades", "blocos", "portoes_veiculares", "entradas_pedestres"):
+                if _k in qual and not isinstance(qual[_k], bool):
+                    try:
+                        qual[_k] = int(float(str(qual[_k]).strip()))
+                    except (TypeError, ValueError):
+                        del qual[_k]  # valor não-numérico inválido -> não grava
+            if "tem_guarita" in qual and not isinstance(qual["tem_guarita"], bool):
+                qual["tem_guarita"] = str(qual["tem_guarita"]).strip().lower() in ("true", "sim", "yes", "1", "s")
+            if "sinais_compra" in qual and not isinstance(qual["sinais_compra"], list):
+                qual["sinais_compra"] = [str(qual["sinais_compra"])]
             # Deriva fluxo_veicular se nao veio explicito (1 portao = entrada+saida; 2+ = separadas)
             pv = qual.get("portoes_veiculares")
             if isinstance(pv, int) and "fluxo_veicular" not in qual:
@@ -902,7 +932,7 @@ async def _post_public_audio(conversation_id: int, texto: str) -> bool:
     try:
         from openai import AsyncOpenAI  # noqa: PLC0415
 
-        client = AsyncOpenAI()
+        client = AsyncOpenAI(timeout=_OPENAI_TIMEOUT)
         try:
             resp = await client.audio.speech.create(
                 model="gpt-4o-mini-tts",
@@ -1243,7 +1273,22 @@ async def _tool_agendar_visita(args: dict, conversation_id: int) -> dict:
                 prospect_telefone=((args.get("telefone_contato") or None) and str(args["telefone_contato"])[:20]),
                 objetivo=(args.get("objetivo") or None),
             )
-            visita = await VisitaService(db).criar_visita(visita_data, created_by=responsavel_id)
+            # RETRY na colisão do número (VIS-2026-NNNNN gerado por max+1 sem lock): se 2 visitas
+            # concorrentes pegam o mesmo número, uma dá IntegrityError -> regenera e tenta de novo,
+            # em vez de perder a visita em silêncio (o cliente já ouviu "encaminhei").
+            from sqlalchemy.exc import IntegrityError  # noqa: PLC0415
+
+            visita = None
+            for _tentativa in range(4):
+                try:
+                    visita = await VisitaService(db).criar_visita(visita_data, created_by=responsavel_id)
+                    break
+                except IntegrityError:
+                    await db.rollback()
+                    if _tentativa == 3:
+                        raise
+            if visita is None:
+                return {"erro": "não foi possível registrar a solicitação de visita agora"}
 
             # F-VISITA.2 — e-mail(s) de solicitação (best-effort: nunca quebra a criação da visita)
             await _enviar_emails_visita(
@@ -1333,7 +1378,7 @@ async def _foi_transferida(conversation_id: int) -> bool:
     janela) — agente fica em silêncio enquanto a equipe assume. Após a janela, o agente
     reengaja (cliente que volta dias depois não fica órfão); o guard de assignee continua
     cobrindo o humano que já estiver com a conversa. Janela: AGENT_TRANSFER_SILENCE_HORAS (12h)."""
-    horas = int(os.getenv("AGENT_TRANSFER_SILENCE_HORAS", "12"))
+    horas = int(_env_num("AGENT_TRANSFER_SILENCE_HORAS", 12))
     try:
         async with async_session_factory() as db:
             row = (
@@ -1393,6 +1438,7 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
 
 _KNOWLEDGE_DIR = "/app/uploads/agent_knowledge"
 _KNOWLEDGE_CACHE_FILE = os.path.join(_KNOWLEDGE_DIR, ".cache_embeddings.json")
+_EMB_CACHE_MEM: dict = {"mtime": None, "data": None}  # cache de embeddings em memória (invalida por mtime)
 _EMBED_MODEL = "text-embedding-3-small"
 
 
@@ -1490,7 +1536,7 @@ async def _update_contact_memory(conversation_id: int, phone: str | None) -> Non
         )
         from openai import AsyncOpenAI  # noqa: PLC0415
 
-        client = AsyncOpenAI()
+        client = AsyncOpenAI(timeout=_OPENAI_TIMEOUT)
         resp = await client.chat.completions.create(
             model=os.getenv("OPENAI_AGENT_MODEL", "gpt-4o-mini"),
             messages=[
@@ -1574,17 +1620,24 @@ async def _search_knowledge(query: str, top_k: int = 3) -> str | None:
         chunks = _kb_chunks()
         if not chunks or not (query or "").strip():
             return None
-        # cache de embeddings por (id, mtime)
+        # cache de embeddings: em MEMÓRIA do processo, relendo o arquivo (4MB) do disco SÓ
+        # quando o mtime muda — evita json.load de 4MB a cada mensagem (I/O/CPU recorrente).
+        global _EMB_CACHE_MEM  # noqa: PLW0603
         cache: dict = {}
         try:
-            with open(_KNOWLEDGE_CACHE_FILE, encoding="utf-8") as f:
-                cache = json.load(f)
+            mtime = os.path.getmtime(_KNOWLEDGE_CACHE_FILE)
+            if _EMB_CACHE_MEM.get("mtime") == mtime and _EMB_CACHE_MEM.get("data") is not None:
+                cache = _EMB_CACHE_MEM["data"]
+            else:
+                with open(_KNOWLEDGE_CACHE_FILE, encoding="utf-8") as f:
+                    cache = json.load(f)
+                _EMB_CACHE_MEM = {"mtime": mtime, "data": cache}
         except Exception:  # noqa: BLE001
             cache = {}
         try:
             from openai import AsyncOpenAI  # noqa: PLC0415
 
-            client = AsyncOpenAI()
+            client = AsyncOpenAI(timeout=_OPENAI_TIMEOUT)
             faltantes = [c for c in chunks if cache.get(c["id"], {}).get("mtime") != c["mtime"]]
             if faltantes:
                 emb = await client.embeddings.create(
@@ -1697,8 +1750,8 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         return None
 
     model = os.getenv("OPENAI_AGENT_MODEL", "gpt-4o-mini")
-    max_history = int(os.getenv("AGENT_MAX_HISTORY", "20"))
-    max_tokens = int(os.getenv("AGENT_MAX_TOKENS", "500"))
+    max_history = int(_env_num("AGENT_MAX_HISTORY", 20))
+    max_tokens = int(_env_num("AGENT_MAX_TOKENS", 500))
 
     try:
         # 1) Historico (apenas in/out reais; ignora drafts e vazios)
@@ -1816,8 +1869,8 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         # 2) Chamada OpenAI com LOOP de tool-calling (lazy import; chave vem do env)
         from openai import AsyncOpenAI  # noqa: PLC0415
 
-        client = AsyncOpenAI()
-        max_rounds = int(os.getenv("AGENT_MAX_TOOL_ROUNDS", "3"))
+        client = AsyncOpenAI(timeout=_OPENAI_TIMEOUT)
+        max_rounds = int(_env_num("AGENT_MAX_TOOL_ROUNDS", 3))
         total_in = total_out = 0
         texto = ""
         rounds = 0
@@ -2081,14 +2134,20 @@ async def processar_incoming(conversation_id: int, phone: str | None = None) -> 
     todo o histórico; as concorrentes pulam (debounce). Lock no Redis (não fixa conexão do
     pool DB durante as chamadas lentas da OpenAI) + TTL de segurança caso o processo trave.
     """
+    import uuid as _uuid  # noqa: PLC0415
+
     lock_key = f"jl:lock:conv:{conversation_id}"
+    token = _uuid.uuid4().hex  # valor ÚNICO: o release só apaga SE for o dono (não rouba lock alheio)
+    # TTL generoso (>= pior caso da geração: até 4 chamadas OpenAI × timeout) p/ o lock não
+    # expirar no meio do processamento (o que abriria 2ª geração concorrente -> resposta dupla).
+    ttl = int(_OPENAI_TIMEOUT * 4 + 60)
     redis = None
     got_lock = False
     try:
         from core.cache.redis import get_redis  # noqa: PLC0415
 
         redis = await get_redis()
-        got_lock = bool(await redis.set(lock_key, "1", nx=True, ex=120))
+        got_lock = bool(await redis.set(lock_key, token, nx=True, ex=ttl))
     except Exception:  # noqa: BLE001 — Redis indisponível -> processa sem lock (não pior que antes)
         redis = None
     if redis is not None and not got_lock:
@@ -2099,7 +2158,11 @@ async def processar_incoming(conversation_id: int, phone: str | None = None) -> 
     finally:
         if redis is not None and got_lock:
             try:
-                await redis.delete(lock_key)
+                # compare-and-delete atômico: só libera se o lock ainda for ESTE token
+                await redis.eval(
+                    "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+                    1, lock_key, token,
+                )
             except Exception:  # noqa: BLE001
                 pass
 
