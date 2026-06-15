@@ -237,7 +237,7 @@ class OrdemServicoRead(BaseModel):
     ticket_origem_id: str | None = None
 
     # Localizacao
-    endereco_servico: str
+    endereco_servico: str | None = None
     endereco_complemento: str | None = None
     bairro: str | None = None
     cidade: str | None = None
@@ -327,7 +327,7 @@ class OrdemServicoListItem(BaseModel):
     prioridade: PrioridadeOS
 
     cliente_id: UUID
-    endereco_servico: str
+    endereco_servico: str | None = None
     cidade: str | None = None
 
     data_agendada: date | None = None

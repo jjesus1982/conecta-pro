@@ -929,13 +929,13 @@ async def _tool_abrir_ordem_servico(args: dict, conversation_id: int) -> dict:
                     await db.execute(
                         text(
                             "INSERT INTO ordens_servico (id, numero, tipo, status, prioridade, origem, "
-                            "cliente_id, cliente_nome, cliente_telefone, contato_telefone, titulo, descricao, "
-                            "problema_relatado, endereco_servico, observacoes_internas, ticket_sistema, "
-                            "ticket_origem_id, sla_horas, data_abertura, extra_metadata, ativo, is_active, "
-                            "created_at, updated_at) "
+                            "cliente_id, cliente_nome, cliente_telefone, contato_nome, contato_telefone, "
+                            "titulo, descricao, problema_relatado, endereco_servico, observacoes_internas, "
+                            "ticket_sistema, ticket_origem_id, sla_horas, data_abertura, extra_metadata, "
+                            "ativo, is_active, created_at, updated_at) "
                             "VALUES (gen_random_uuid(), :num, :tipo, 'ABERTA', :pri, 'CLIENTE', "
-                            ":cid, :cnome, :fone, :fone, :tit, :des, :des, :loc, :nota, 'whatsapp', "
-                            ":conv, :sla, now(), cast(:meta as jsonb), true, true, now(), now())"
+                            ":cid, :cnome, :fone, :cnome, :fone, :tit, :des, :des, :loc, :nota, "
+                            "'whatsapp', :conv, :sla, now(), cast(:meta as jsonb), true, true, now(), now())"
                         ),
                         {
                             "num": numero, "tipo": tipo_db, "pri": prio_db, "cid": str(cli[0]),
