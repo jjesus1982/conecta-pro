@@ -101,10 +101,10 @@ export default function OrdensServicoCampoPage() {
     const { os, type } = action;
     try {
       if (type === 'agendar') {
-        if (!form.data) { toast.error('Informe a data do agendamento'); return; }
+        if (!form.data || !form.hora) { toast.error('Informe a data e o horário do agendamento'); return; }
         await agendar.mutateAsync({
           ordemId: os.id,
-          data: { data_agendada: form.data, horario_inicio_previsto: form.hora || undefined },
+          data: { data_agendada: form.data, horario_inicio_previsto: form.hora },
         });
         toast.success(`OS ${os.numero} agendada — o cliente é avisado no WhatsApp`);
       } else if (type === 'concluir') {
@@ -114,7 +114,9 @@ export default function OrdensServicoCampoPage() {
         });
         toast.success(`OS ${os.numero} concluída — o cliente é avisado no WhatsApp`);
       } else if (type === 'cancelar') {
-        if (!form.texto?.trim()) { toast.error('Informe o motivo do cancelamento'); return; }
+        if (!form.texto || form.texto.trim().length < 5) {
+          toast.error('Informe o motivo do cancelamento (mín. 5 caracteres)'); return;
+        }
         await cancelar.mutateAsync({ ordemId: os.id, data: { motivo: form.texto.trim() } });
         toast.success(`OS ${os.numero} cancelada`);
       }
@@ -124,8 +126,11 @@ export default function OrdensServicoCampoPage() {
     }
   };
 
-  const podeAgendar = (s: string) => ['aberta', 'rascunho', 'reagendada', 'pausada'].includes(s);
-  const podeConcluir = (s: string) => ['agendada', 'em_deslocamento', 'em_andamento', 'aguardando_peca', 'aguardando_cliente', 'pausada'].includes(s);
+  // Alinhado às transições válidas do backend (ordem_servico_service): agendar só de
+  // aberta/rascunho/reagendada; concluir só de em_andamento/pausada (em_andamento vem do
+  // check-in do técnico em campo). Evita botões que dariam 400.
+  const podeAgendar = (s: string) => ['aberta', 'rascunho', 'reagendada'].includes(s);
+  const podeConcluir = (s: string) => ['em_andamento', 'pausada'].includes(s);
   const podeCancelar = (s: string) => !['concluida', 'cancelada'].includes(s);
 
   return (

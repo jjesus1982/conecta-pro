@@ -355,34 +355,55 @@ async def _notificar_status_os(session):
 
     from modules.integrations.connectors.whatsapp.agent_service import _post_public_reply  # noqa: PLC0415
 
+    # ordens_servico grava o status como NOME do enum (MAIÚSCULO, ex.: 'AGENDADA'); o
+    # marcador last_notified_status segue o mesmo formato. O mapa de mensagens é por
+    # valor minúsculo, então normalizamos no lookup.
     rows = (
         await session.execute(
             text(
                 "SELECT id, numero, status, data_agendada, "
                 "extra_metadata->>'conversation_id' AS conv, "
-                "coalesce(extra_metadata->>'last_notified_status','aberta') AS last "
+                "coalesce(extra_metadata->>'last_notified_status','ABERTA') AS last "
                 "FROM ordens_servico "
                 "WHERE ticket_sistema='whatsapp' AND ticket_origem_id IS NOT NULL "
                 "AND coalesce(is_active, true) = true "
-                "AND status <> coalesce(extra_metadata->>'last_notified_status','aberta')"
+                "AND status <> coalesce(extra_metadata->>'last_notified_status','ABERTA')"
             )
         )
     ).fetchall()
 
     async def _marcar(os_id, status):
+        # avança o marcador e ZERA o contador de falhas
         await session.execute(
             text(
-                "UPDATE ordens_servico SET extra_metadata = "
-                "jsonb_set(coalesce(extra_metadata,'{}'::jsonb), '{last_notified_status}', to_jsonb(:s::text)) "
-                "WHERE id = :id"
+                "UPDATE ordens_servico SET extra_metadata = jsonb_set(jsonb_set("
+                "coalesce(extra_metadata,'{}'::jsonb), '{last_notified_status}', to_jsonb(:s::text)), "
+                "'{notify_fail_count}', '0'::jsonb) WHERE id = :id"
             ),
             {"s": status, "id": str(os_id)},
         )
 
+    async def _inc_fail(os_id):
+        row = (
+            await session.execute(
+                text(
+                    "UPDATE ordens_servico SET extra_metadata = jsonb_set("
+                    "coalesce(extra_metadata,'{}'::jsonb), '{notify_fail_count}', "
+                    "to_jsonb(coalesce((extra_metadata->>'notify_fail_count')::int,0) + 1)) "
+                    "WHERE id = :id RETURNING (extra_metadata->>'notify_fail_count')::int"
+                ),
+                {"id": str(os_id)},
+            )
+        ).first()
+        return (row[0] if row and row[0] is not None else 1)
+
+    # Após MAX_FAILS tentativas sem sucesso, desiste da transição (avança o marcador) —
+    # evita reenvio infinito a cada 5min e mensagem indevida se a conversa for reaproveitada.
+    MAX_FAILS = 6
     enviados = 0
     for r in rows:
         os_id, numero, status, data_ag, conv, _last = r
-        msg_tpl = _OS_STATUS_MSG.get(str(status))
+        msg_tpl = _OS_STATUS_MSG.get(str(status).lower())
         if not msg_tpl or not conv:
             # status interno (rascunho/aberta) ou sem conversa -> só avança o marcador
             await _marcar(os_id, status)
@@ -397,5 +418,10 @@ async def _notificar_status_os(session):
             await _marcar(os_id, status)
             enviados += 1
             logger.info("notificar_status_os: OS %s -> %s avisado conv=%s", numero, status, conv)
+        else:
+            fails = await _inc_fail(os_id)
+            if fails >= MAX_FAILS:
+                await _marcar(os_id, status)  # desiste desta transição
+                logger.warning("notificar_status_os: OS %s -> %s DESISTIU após %s falhas de envio", numero, status, fails)
     await session.commit()
     return {"status": "ok", "notificados": enviados, "candidatos": len(rows)}

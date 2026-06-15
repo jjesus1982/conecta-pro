@@ -225,10 +225,16 @@ class OrdemServicoRead(BaseModel):
 
     # Cliente
     cliente_id: UUID
+    cliente_nome: str | None = None
+    cliente_telefone: str | None = None
+    cliente_email: str | None = None
     contrato_id: UUID | None = None
     contato_nome: str | None = None
     contato_telefone: str | None = None
     contato_email: str | None = None
+    # Origem / integração (ex.: ticket aberto pelo José Luís via WhatsApp)
+    ticket_sistema: str | None = None
+    ticket_origem_id: str | None = None
 
     # Localizacao
     endereco_servico: str
@@ -249,6 +255,7 @@ class OrdemServicoRead(BaseModel):
 
     # Execucao
     tecnico_id: UUID | None = None
+    tecnico_nome: str | None = None
     tecnico_auxiliar_id: UUID | None = None
     checkin_at: datetime | None = None
     checkout_at: datetime | None = None

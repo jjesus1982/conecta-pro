@@ -805,8 +805,8 @@ async def _tool_consultar_minha_conta(args: dict) -> dict:
             ordens = (
                 await db.execute(
                     text(
-                        "SELECT numero, titulo, status, prioridade, to_char(created_at,'DD/MM/YYYY') "
-                        "FROM ordens_servico WHERE client_id = :cid AND is_active = true "
+                        "SELECT numero, titulo, lower(status), lower(prioridade), to_char(created_at,'DD/MM/YYYY') "
+                        "FROM ordens_servico WHERE cliente_id = :cid AND is_active = true "
                         "ORDER BY created_at DESC LIMIT 3"
                     ),
                     {"cid": client_id},
@@ -867,6 +867,12 @@ async def _tool_abrir_ordem_servico(args: dict, conversation_id: int) -> dict:
         if tipo not in ("manutencao_corretiva", "manutencao_preventiva", "suporte",
                         "visita_tecnica", "instalacao", "vistoria"):
             tipo = "manutencao_corretiva"
+        # ordens_servico mapeia tipo/status/prioridade/origem como SQLAlchemy Enum(PyEnum),
+        # que PERSISTE O NOME do membro (MAIÚSCULO). Gravar o valor minúsculo quebra o ORM
+        # do módulo Campo (LookupError ao ler -> a tela estoura). Converte para o NOME.
+        from modules.campo.models.ordem_servico import PrioridadeOS, TipoOS  # noqa: PLC0415
+        tipo_db = TipoOS(tipo).name
+        prio_db = PrioridadeOS(prioridade).name
         # SLA Conecta Mais: 4h dias úteis / 24h fim de semana; portaria remota sempre 4h.
         # Aproximação para o registro: urgente/alta/emergência -> 4h, demais -> 24h
         # (a equipe ajusta no Campo; o agente comunica o SLA exato pelo conhecimento).
@@ -899,7 +905,7 @@ async def _tool_abrir_ordem_servico(args: dict, conversation_id: int) -> dict:
             meta = json.dumps({
                 "origem_detalhe": "jose-luis-whatsapp",
                 "conversation_id": conversation_id,
-                "last_notified_status": "aberta",
+                "last_notified_status": "ABERTA",  # NOME do enum (igual ao gravado em status)
             })
             numero = None
             for _tent in range(5):
@@ -927,12 +933,12 @@ async def _tool_abrir_ordem_servico(args: dict, conversation_id: int) -> dict:
                             "problema_relatado, endereco_servico, observacoes_internas, ticket_sistema, "
                             "ticket_origem_id, sla_horas, data_abertura, extra_metadata, ativo, is_active, "
                             "created_at, updated_at) "
-                            "VALUES (gen_random_uuid(), :num, :tipo, 'aberta', :pri, 'cliente', "
+                            "VALUES (gen_random_uuid(), :num, :tipo, 'ABERTA', :pri, 'CLIENTE', "
                             ":cid, :cnome, :fone, :fone, :tit, :des, :des, :loc, :nota, 'whatsapp', "
                             ":conv, :sla, now(), cast(:meta as jsonb), true, true, now(), now())"
                         ),
                         {
-                            "num": numero, "tipo": tipo, "pri": prioridade, "cid": str(cli[0]),
+                            "num": numero, "tipo": tipo_db, "pri": prio_db, "cid": str(cli[0]),
                             "cnome": (cli[1] or "")[:200], "fone": fone, "tit": titulo[:200],
                             "des": descricao[:4000], "loc": local,
                             "nota": f"Aberta pelo José Luís (WhatsApp) — conversa {conversation_id}",
