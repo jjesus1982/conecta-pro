@@ -224,7 +224,7 @@ class OrdemServicoRead(BaseModel):
     origem: OrigemOS
 
     # Cliente
-    cliente_id: UUID
+    cliente_id: UUID | None = None
     cliente_nome: str | None = None
     cliente_telefone: str | None = None
     cliente_email: str | None = None
@@ -247,7 +247,7 @@ class OrdemServicoRead(BaseModel):
     longitude: Decimal | None = None
 
     # Agendamento
-    data_abertura: datetime
+    data_abertura: datetime | None = None
     data_agendada: date | None = None
     horario_inicio_previsto: time | None = None
     horario_fim_previsto: time | None = None
@@ -274,7 +274,7 @@ class OrdemServicoRead(BaseModel):
 
     # Checklist
     checklist_template_id: UUID | None = None
-    checklist_concluido: bool = False
+    checklist_concluido: bool | None = False
 
     # Materiais
     materiais_previstos: list[Any] | None = None
@@ -306,13 +306,13 @@ class OrdemServicoRead(BaseModel):
     sla_cumprido: bool | None = None
 
     # Reagendamento
-    reagendamentos: int = 0
+    reagendamentos: int | None = 0
 
     # Metadata
     tags: list[str] | None = None
-    created_at: datetime
-    updated_at: datetime
-    is_active: bool
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    is_active: bool | None = True
 
 
 class OrdemServicoListItem(BaseModel):
@@ -326,7 +326,7 @@ class OrdemServicoListItem(BaseModel):
     status: StatusOS
     prioridade: PrioridadeOS
 
-    cliente_id: UUID
+    cliente_id: UUID | None = None
     endereco_servico: str | None = None
     cidade: str | None = None
 
@@ -342,7 +342,7 @@ class OrdemServicoListItem(BaseModel):
 
     sla_vencimento: datetime | None = None
 
-    created_at: datetime
+    created_at: datetime | None = None
 
 
 # =============================================================================

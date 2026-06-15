@@ -111,16 +111,22 @@ class OrdemServico(Base):
     # =========================================================================
     # Classificacao
     # =========================================================================
-    tipo = Column(Enum(TipoOS), nullable=False, default=TipoOS.MANUTENCAO_CORRETIVA)
-    status = Column(Enum(StatusOS), nullable=False, default=StatusOS.ABERTA, index=True)
-    prioridade = Column(Enum(PrioridadeOS), nullable=False, default=PrioridadeOS.NORMAL)
-    origem = Column(Enum(OrigemOS), nullable=False, default=OrigemOS.CLIENTE)
+    # native_enum=False: as colunas são varchar(50) no banco (não existe tipo PG statusos/
+    # tipoos/etc). Sem isto o SQLAlchemy emite cast ::statusos e qualquer filtro/dashboard
+    # dá 500. Continua persistindo/lendo pelo NOME do membro (ex.: 'ABERTA').
+    tipo = Column(Enum(TipoOS, native_enum=False, length=50), nullable=False, default=TipoOS.MANUTENCAO_CORRETIVA)
+    status = Column(Enum(StatusOS, native_enum=False, length=50), nullable=False, default=StatusOS.ABERTA, index=True)
+    prioridade = Column(Enum(PrioridadeOS, native_enum=False, length=50), nullable=False, default=PrioridadeOS.NORMAL)
+    origem = Column(Enum(OrigemOS, native_enum=False, length=50), nullable=False, default=OrigemOS.CLIENTE)
 
     # =========================================================================
     # Cliente e Contrato
     # =========================================================================
-    cliente_id = Column(UUID(as_uuid=True), ForeignKey("clients.clients.id"), nullable=False, index=True)
-    contrato_id = Column(UUID(as_uuid=True), ForeignKey("crm.contracts.id"), nullable=True, index=True)
+    # FK a nível de ORM removida (a tabela referenciada vive em outro módulo/schema e nem
+    # sempre está no metadata na hora do flush -> NoReferencedTableError quebrava agendar/
+    # concluir/cancelar). Colunas + índices mantidos; integridade fica no constraint do banco.
+    cliente_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    contrato_id = Column(UUID(as_uuid=True), nullable=True, index=True)
 
     # Contato no local
     contato_nome = Column(String(200))
@@ -187,7 +193,7 @@ class OrdemServico(Base):
     # =========================================================================
     # Equipamentos (se aplicavel)
     # =========================================================================
-    equipamento_id = Column(UUID(as_uuid=True), ForeignKey("equipment_management.equipments.id"), nullable=True)
+    equipamento_id = Column(UUID(as_uuid=True), nullable=True)  # FK ORM removida (ver cliente_id)
     equipamento_tipo = Column(String(100))
     equipamento_modelo = Column(String(100))
     equipamento_serie = Column(String(100))

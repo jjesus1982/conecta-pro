@@ -412,8 +412,15 @@ async def _notificar_status_os(session):
             quando = f" para {data_ag.strftime('%d/%m')}" if data_ag else ""
         except Exception:  # noqa: BLE001
             quando = ""
+        try:
+            conv_int = int(conv)
+        except (ValueError, TypeError):
+            # conversation_id corrompido -> não dá pra avisar; avança o marcador e segue
+            # (nunca deixa um dado ruim abortar o lote inteiro / re-notificar os já enviados).
+            await _marcar(os_id, status)
+            continue
         msg = msg_tpl.format(num=numero, quando=quando)
-        ok = await _post_public_reply(int(conv), msg)
+        ok = await _post_public_reply(conv_int, msg)
         if ok:
             await _marcar(os_id, status)
             enviados += 1

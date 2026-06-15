@@ -208,7 +208,9 @@ class OrdemServicoService:
         if not os:
             return None
 
-        if os.status not in [StatusOS.EM_ANDAMENTO, StatusOS.PAUSADA]:
+        # Permite a conclusão a partir de qualquer status ativo (operador de mesa pode
+        # fechar uma OS resolvida sem depender do app de campo p/ passar por em_andamento).
+        if os.status in [StatusOS.CONCLUIDA, StatusOS.CANCELADA, StatusOS.RASCUNHO]:
             raise ValueError(f"OS em status {os.status.value} nao pode ser concluida")
 
         os.concluir(solucao)
