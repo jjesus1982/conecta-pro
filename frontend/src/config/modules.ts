@@ -228,6 +228,7 @@ export const modules: Module[] = [
       { id: 'disciplinar', title: 'Processos Disciplinares', href: '/modulos/operacional/disciplinar', icon: 'FileText', permissions: ['operacional:disciplinar'] },
       { id: 'medidas-administrativas', title: 'Medidas Administrativas', href: '/modulos/operacional/medidas-administrativas', icon: 'AlertTriangle', permissions: ['operacional:disciplinar'] },
       // --- Campo e Rondas ---
+      { id: 'ordens-servico-campo', title: 'Ordens de Servico', href: '/modulos/campo/ordens-servico', icon: 'ClipboardList', permissions: ['campo:checkin'] },
       { id: 'rondas', title: 'Rondas', href: '/modulos/operacional/rondas', icon: 'Route', permissions: ['operacional:rondas'] },
       { id: 'checkin', title: 'Check-in/out', href: '/modulos/campo/checkin', icon: 'LogIn', permissions: ['campo:checkin'] },
       { id: 'monitoramento', title: 'Monitoramento Campo', href: '/modulos/campo/monitoramento', icon: 'Monitor', permissions: ['campo:monitoramento'] },
