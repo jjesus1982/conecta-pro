@@ -313,3 +313,89 @@ def auditar_qualidade(self):  # noqa: ARG001
     _telegram_send("\n".join(L))
     logger.info("auditar_qualidade: %s conversas auditadas, media %.1f", n, media)
     return {"ok": True, "n": n, "media": round(media, 1)}
+
+
+# ============================================================================
+# whatsapp.notificar_status_os — ATUALIZAÇÕES PROATIVAS DE OS (Campo -> WhatsApp)
+# Quando a equipe muda o status da OS no módulo Campo do Conecta PRO, o cliente
+# recebe a atualização automaticamente no WhatsApp (reduz ansiedade — as 5 respostas).
+# Lê ordens_servico (tabela do Campo) das OS abertas pelo José Luís (ticket_sistema=
+# 'whatsapp'); compara status atual x last_notified_status (no extra_metadata) e avisa.
+# ============================================================================
+
+# StatusOS -> mensagem amigável ao cliente. Statuses internos (rascunho/aberta) não
+# notificam (só avançam o marcador). {num} = número da OS; {quando} = data se houver.
+_OS_STATUS_MSG = {
+    "agendada": "✅ Boa notícia! Sua OS {num} foi agendada{quando}. Nossa equipe técnica vai até você. Qualquer coisa, é só me chamar.",
+    "reagendada": "📅 Sua OS {num} foi reagendada{quando}. Te confirmo o novo horário por aqui.",
+    "em_deslocamento": "🚗 Sua OS {num}: nosso técnico já está a caminho! Em breve chega aí.",
+    "em_andamento": "🔧 Sua OS {num} está em atendimento agora — a equipe está trabalhando nisso.",
+    "aguardando_peca": "⏳ Sua OS {num} está aguardando uma peça pra concluir o reparo. Assim que chegar, retomamos e te aviso.",
+    "aguardando_cliente": "⏳ Sua OS {num} está aguardando um retorno seu pra seguir. Me avisa quando puder, por favor.",
+    "pausada": "⏸️ Sua OS {num} foi pausada temporariamente. Te aviso assim que for retomada.",
+    "concluida": "✅ Sua OS {num} foi concluída! Espero que esteja tudo certo agora. Qualquer coisa, conte comigo. 😊",
+    "cancelada": "Sua OS {num} foi cancelada. Se precisar, é só me chamar por aqui que eu reabro.",
+}
+
+
+@app.task(name="whatsapp.notificar_status_os", bind=True, max_retries=1)
+def notificar_status_os(self):  # noqa: ARG001
+    """Varre as OS de origem WhatsApp e avisa o cliente quando o status mudou no Campo."""
+    if os.getenv("AGENT_OS_UPDATES_ENABLED", "true").strip().lower() not in ("true", "1", "sim", "yes", "s"):
+        return {"status": "disabled"}
+    try:
+        return _run_async(_notificar_status_os)
+    except Exception as e:  # noqa: BLE001
+        logger.error("notificar_status_os: %s", e)
+        return {"status": "error", "error": str(e)}
+
+
+async def _notificar_status_os(session):
+    from sqlalchemy import text  # noqa: PLC0415
+
+    from modules.integrations.connectors.whatsapp.agent_service import _post_public_reply  # noqa: PLC0415
+
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id, numero, status, data_agendada, "
+                "extra_metadata->>'conversation_id' AS conv, "
+                "coalesce(extra_metadata->>'last_notified_status','aberta') AS last "
+                "FROM ordens_servico "
+                "WHERE ticket_sistema='whatsapp' AND ticket_origem_id IS NOT NULL "
+                "AND coalesce(is_active, true) = true "
+                "AND status <> coalesce(extra_metadata->>'last_notified_status','aberta')"
+            )
+        )
+    ).fetchall()
+
+    async def _marcar(os_id, status):
+        await session.execute(
+            text(
+                "UPDATE ordens_servico SET extra_metadata = "
+                "jsonb_set(coalesce(extra_metadata,'{}'::jsonb), '{last_notified_status}', to_jsonb(:s::text)) "
+                "WHERE id = :id"
+            ),
+            {"s": status, "id": str(os_id)},
+        )
+
+    enviados = 0
+    for r in rows:
+        os_id, numero, status, data_ag, conv, _last = r
+        msg_tpl = _OS_STATUS_MSG.get(str(status))
+        if not msg_tpl or not conv:
+            # status interno (rascunho/aberta) ou sem conversa -> só avança o marcador
+            await _marcar(os_id, status)
+            continue
+        try:
+            quando = f" para {data_ag.strftime('%d/%m')}" if data_ag else ""
+        except Exception:  # noqa: BLE001
+            quando = ""
+        msg = msg_tpl.format(num=numero, quando=quando)
+        ok = await _post_public_reply(int(conv), msg)
+        if ok:
+            await _marcar(os_id, status)
+            enviados += 1
+            logger.info("notificar_status_os: OS %s -> %s avisado conv=%s", numero, status, conv)
+    await session.commit()
+    return {"status": "ok", "notificados": enviados, "candidatos": len(rows)}

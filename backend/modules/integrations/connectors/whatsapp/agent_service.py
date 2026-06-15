@@ -346,6 +346,11 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "cnpj": {"type": "string", "description": "CNPJ do cliente (identidade já confirmada)"},
+                    "tipo": {
+                        "type": "string",
+                        "enum": ["manutencao_corretiva", "suporte", "visita_tecnica", "vistoria", "instalacao"],
+                        "description": "manutencao_corretiva = defeito de equipamento (padrão); suporte = ajuste/config/dúvida; visita_tecnica/vistoria = avaliação no local; instalacao = novo serviço",
+                    },
                     "titulo": {"type": "string", "description": "Resumo curto e específico (ex.: 'CAM-12 garagem subsolo offline desde 14h')"},
                     "descricao": {"type": "string", "description": (
                         "TICKET CAMPEÃO — descrição COMPLETA e acionável (NUNCA vazia/genérica como 'câmera não "
@@ -800,8 +805,8 @@ async def _tool_consultar_minha_conta(args: dict) -> dict:
             ordens = (
                 await db.execute(
                     text(
-                        "SELECT order_number, title, status, priority, to_char(created_at,'DD/MM/YYYY') "
-                        "FROM service_orders WHERE client_id = :cid AND ativo = true "
+                        "SELECT numero, titulo, status, prioridade, to_char(created_at,'DD/MM/YYYY') "
+                        "FROM ordens_servico WHERE client_id = :cid AND is_active = true "
                         "ORDER BY created_at DESC LIMIT 3"
                     ),
                     {"cid": client_id},
@@ -844,7 +849,11 @@ async def _tool_consultar_minha_conta(args: dict) -> dict:
 
 
 async def _tool_abrir_ordem_servico(args: dict, conversation_id: int) -> dict:
-    """Abre uma OS (chamado) p/ cliente da base. Retorna o numero p/ informar."""
+    """Abre uma OS no módulo CAMPO do Conecta PRO (tabela ordens_servico) — mesma que a
+    equipe de campo trata. Grava conversation_id no extra_metadata para as atualizações
+    de status voltarem ao WhatsApp do cliente. Retorna o número p/ informar."""
+    from sqlalchemy.exc import IntegrityError  # noqa: PLC0415
+
     try:
         cnpj = "".join(c for c in str(args.get("cnpj") or "") if c.isdigit())
         titulo = (args.get("titulo") or "").strip()
@@ -852,10 +861,18 @@ async def _tool_abrir_ordem_servico(args: dict, conversation_id: int) -> dict:
         if len(cnpj) != 14 or not titulo or not descricao:
             return {"ok": False, "motivo": "faltam dados (cnpj, titulo, descricao)"}
         prioridade = str(args.get("prioridade") or "normal").lower()
-        if prioridade not in ("baixa", "normal", "alta", "urgente"):
+        if prioridade not in ("baixa", "normal", "alta", "urgente", "emergencia"):
             prioridade = "normal"
-        agora = datetime.now(timezone.utc) + timedelta(hours=BRT_OFFSET)
-        numero = f"OS-{agora.strftime('%Y%m%d')}-{uuid4().hex[:6].upper()}"
+        tipo = str(args.get("tipo") or "manutencao_corretiva").lower()
+        if tipo not in ("manutencao_corretiva", "manutencao_preventiva", "suporte",
+                        "visita_tecnica", "instalacao", "vistoria"):
+            tipo = "manutencao_corretiva"
+        # SLA Conecta Mais: 4h dias úteis / 24h fim de semana; portaria remota sempre 4h.
+        # Aproximação para o registro: urgente/alta/emergência -> 4h, demais -> 24h
+        # (a equipe ajusta no Campo; o agente comunica o SLA exato pelo conhecimento).
+        sla_horas = 4 if prioridade in ("urgente", "emergencia", "alta") else 24
+        local = (args.get("local") or "").strip()[:500] or None
+        ano = (datetime.now(timezone.utc) + timedelta(hours=BRT_OFFSET)).year
         async with async_session_factory() as db:
             cli = (
                 await db.execute(
@@ -868,7 +885,6 @@ async def _tool_abrir_ordem_servico(args: dict, conversation_id: int) -> dict:
             ).first()
             if not cli:
                 return {"ok": False, "motivo": "CNPJ nao encontrado na base — confirme com o cliente"}
-            # telefone de quem esta falando (da conversa) p/ contato da OS
             tel = (
                 await db.execute(
                     text(
@@ -879,42 +895,61 @@ async def _tool_abrir_ordem_servico(args: dict, conversation_id: int) -> dict:
                     {"cv": conversation_id},
                 )
             ).first()
-            svc = (
-                await db.execute(
-                    text(
-                        "SELECT id FROM service_catalog WHERE ativo = true AND ("
-                        "code = 'SUP-WHATS' OR category::text = 'suporte') "
-                        "ORDER BY (code = 'SUP-WHATS') DESC, created_at LIMIT 1"
+            fone = (tel[0] if tel else None) or (cli[2] or None)
+            meta = json.dumps({
+                "origem_detalhe": "jose-luis-whatsapp",
+                "conversation_id": conversation_id,
+                "last_notified_status": "aberta",
+            })
+            numero = None
+            for _tent in range(5):
+                ult = (
+                    await db.execute(
+                        text(
+                            "SELECT numero FROM ordens_servico WHERE numero LIKE :p "
+                            "ORDER BY numero DESC LIMIT 1"
+                        ),
+                        {"p": f"OS-{ano}-%"},
                     )
-                )
-            ).first()
-            if not svc:
-                return {"ok": False, "motivo": "catalogo de servicos indisponivel — encaminhe ao suporte_tecnico"}
-            await db.execute(
-                text(
-                    "INSERT INTO service_orders (id, order_number, service_id, client_id, title, "
-                    "description, status, priority, requester_name, requester_phone, location_address, "
-                    "internal_notes, extra_metadata, ativo, created_at, updated_at) "
-                    "VALUES (gen_random_uuid(), :num, :svc, :cid, :tit, :des, 'pendente', :pri, :rnome, "
-                    ":rfone, :loc, :nota, '{\"origem\": \"jose-luis-whatsapp\"}'::jsonb, true, now(), now())"
-                ),
-                {
-                    "num": numero,
-                    "svc": str(svc[0]),
-                    "cid": str(cli[0]),
-                    "tit": titulo[:200],  # service_orders.title é varchar(200)
-                    "des": descricao[:2000],
-                    "pri": prioridade,
-                    "rnome": (cli[1] or "")[:200],  # requester_name é varchar(200)
-                    "rfone": (tel[0] if tel else None),
-                    "loc": (args.get("local") or "")[:500] or None,
-                    "nota": f"Aberta pelo José Luís (WhatsApp) — conversa {conversation_id}",
-                },
-            )
-            await db.commit()
-        logger.info("Agente OS criada: %s cliente=%s conv=%s", numero, cli[1], conversation_id)
+                ).first()
+                seq = 1
+                if ult and ult[0]:
+                    try:
+                        seq = int(str(ult[0]).split("-")[-1]) + 1
+                    except (ValueError, IndexError):
+                        seq = 1
+                numero = f"OS-{ano}-{seq:05d}"
+                try:
+                    await db.execute(
+                        text(
+                            "INSERT INTO ordens_servico (id, numero, tipo, status, prioridade, origem, "
+                            "cliente_id, cliente_nome, cliente_telefone, contato_telefone, titulo, descricao, "
+                            "problema_relatado, endereco_servico, observacoes_internas, ticket_sistema, "
+                            "ticket_origem_id, sla_horas, data_abertura, extra_metadata, ativo, is_active, "
+                            "created_at, updated_at) "
+                            "VALUES (gen_random_uuid(), :num, :tipo, 'aberta', :pri, 'cliente', "
+                            ":cid, :cnome, :fone, :fone, :tit, :des, :des, :loc, :nota, 'whatsapp', "
+                            ":conv, :sla, now(), cast(:meta as jsonb), true, true, now(), now())"
+                        ),
+                        {
+                            "num": numero, "tipo": tipo, "pri": prioridade, "cid": str(cli[0]),
+                            "cnome": (cli[1] or "")[:200], "fone": fone, "tit": titulo[:200],
+                            "des": descricao[:4000], "loc": local,
+                            "nota": f"Aberta pelo José Luís (WhatsApp) — conversa {conversation_id}",
+                            "conv": str(conversation_id), "sla": sla_horas, "meta": meta,
+                        },
+                    )
+                    await db.commit()
+                    break
+                except IntegrityError:
+                    await db.rollback()
+                    if _tent == 4:
+                        raise
+                    numero = None
+        logger.info("Agente OS criada (campo): %s cliente=%s conv=%s", numero, cli[1], conversation_id)
         return {"ok": True, "numero_os": numero, "prioridade": prioridade,
-                "info": "OS registrada; a equipe tecnica entra em contato para agendar"}
+                "info": "OS registrada no Campo do Conecta PRO; a equipe técnica vai tratar e o cliente "
+                        "é avisado das atualizações de status por aqui mesmo no WhatsApp"}
     except Exception as e:  # noqa: BLE001
         logger.error("Agente abrir_ordem_servico: %s", e)
         return {"ok": False, "motivo": "nao foi possivel abrir a OS agora — encaminhe ao suporte_tecnico"}

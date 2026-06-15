@@ -12,10 +12,10 @@ Primeiro confirme: é UMA câmera ou TODAS? Se for só uma, peça uma foto da te
 Isso costuma ser energia, internet ou o gravador. Gravidade tende a CRÍTICA. Passos: 1) o gravador (DVR/NVR) está ligado (luz acesa)? 2) faltou energia/caiu disjuntor/no-break? 3) reinicie o gravador (tomada 30s). 4) o monitor/TV está na entrada certa? Se nada voltar, ou se o local ficou sem cobertura de imagem, abra OS URGENTE (segurança comprometida) e informe o número. Tranquilize: a equipe técnica prioriza.
 
 ## "Não consigo ver as câmeras pelo celular" / "o app não conecta" / "app fora do ar"
-Acesso remoto: 1) o celular está no Wi-Fi ou dados? teste trocar de rede. 2) feche e reabra o app [APP DE VISUALIZAÇÃO — confirmar nome com a Conecta Mais]. 3) confira login/senha; se esqueceu, ajudamos a recuperar. 4) reinicie o app/celular. 5) as câmeras aparecem na TV/monitor local? se na TV aparece e no app não, é internet/app; se não aparece em lugar nenhum, é o gravador (veja tópico acima). Se for só configurar o app, guie o cliente; se persistir, abra OS (alta) para acesso remoto.
+Acesso remoto: 1) o celular está no Wi-Fi ou dados? teste trocar de rede. 2) feche e reabra o app (a Conecta Mais usa principalmente o Conecta Plus ou o Simples Acesso; em alguns casos o Hik-Connect da Hikvision ou o iSIC da Intelbras). 3) confira login/senha; se esqueceu, ajudamos a recuperar. 4) reinicie o app/celular. 5) as câmeras aparecem na TV/monitor local? se na TV aparece e no app não, é internet/app; se não aparece em lugar nenhum, é o gravador (veja tópico acima). Se for só configurar o app, guie o cliente; se persistir, abra OS (alta) para acesso remoto.
 
 ## "Gravação não aparece" / "sumiu a gravação" / "quero um vídeo de um horário"
-1) confirme data e hora aproximada e qual câmera. 2) no app/gravador, oriente ir em reprodução/playback e escolher a câmera + período. 3) se precisar do trecho exportado (ex.: ocorrência), normalmente é a equipe que extrai com segurança — registre OS com data/hora/câmera e o motivo. Importante: o tempo de retenção é limitado (regrava por cima depois de X dias [CONFIRMAR retenção padrão]); se o fato for antigo, pode já ter sido sobrescrito. Para incidente/ocorrência, trate como prioridade alta.
+1) confirme data e hora aproximada e qual câmera. 2) no app/gravador, oriente ir em reprodução/playback e escolher a câmera + período. 3) o próprio cliente consegue exportar o trecho pelo app/gravador (reprodução -> selecionar período -> exportar/baixar); oriente o passo a passo. Se ele preferir, a equipe também extrai — registre OS com data/hora/câmera e o motivo. Importante: o tempo de retenção é limitado (regrava por cima depois de alguns dias — a Conecta Mais trabalha com no mínimo 15 dias de gravação, podendo ser mais conforme o tamanho do HD e o fluxo de movimento); se o fato for antigo, pode já ter sido sobrescrito. Para incidente/ocorrência, trate como prioridade alta.
 
 ## "Alarme disparando sozinho" / "alarme não para" / "sirene tocando"
 1) identifique a zona/sensor que disparou (o painel/app costuma indicar). 2) causas comuns de disparo falso: sensor sujo, inseto, vento/cortina, pet, porta/janela mal fechada, bateria fraca. 3) oriente como silenciar/desarmar (senha no teclado/app). Se o alarme NÃO arma, NÃO dispara quando deveria, ou dispara sem parar de madrugada incomodando, é CRÍTICO → OS urgente. Disparo falso recorrente numa zona → OS (alta) pra ajuste do sensor.
@@ -64,3 +64,20 @@ Nunca gere ticket vazio ("câmera não funciona"). O ticket deve conter: EQUIPAM
 
 ## Atualizações proativas (reduzir ansiedade ao longo do chamado)
 O melhor suporte não espera o cliente cobrar. Mesmo no chat, sinalize os estágios e crie expectativa: "chamado recebido e registrado (OS-XXXX)", "encaminhado pra equipe técnica", "a equipe vai te atualizar quando o técnico for designado". Sempre feche cada interação com o próximo passo e quando haverá retorno, pra ansiedade despencar.
+
+## Marcas e equipamentos que a Conecta Mais instala (fale a língua certa)
+A Conecta Mais trabalha principalmente com estas marcas (a maioria dos equipamentos é de uma delas):
+- Intelbras: CFTV (câmeras, DVR/NVR), alarmes, interfonia, controle de acesso e redes. App de visualização iSIC/Intelbras.
+- Hikvision: CFTV (quando usado), app Hik-Connect.
+- Control iD: controle de acesso, leitores faciais e biometria, catracas (linha iDFace/iDAccess).
+- JFL: centrais de alarme (monitorado), sensores e cerca elétrica.
+- Nice: automatizadores/motores de portão e automação.
+- PPA: automatizadores de portão, centrais e controle de acesso.
+- Garen: automatizadores de portão, motores e controle de acesso (incl. antena/TAG veicular).
+- Furukawa: infraestrutura de rede, cabeamento estruturado e fibra óptica.
+Apps de câmera que os clientes usam: Conecta Plus e Simples Acesso (próprios), às vezes Hik-Connect (Hikvision) ou iSIC (Intelbras). Gravação: no mínimo 15 dias (varia com HD e movimento). O cliente consegue exportar as gravações sozinho pelo app/gravador.
+
+## SLA de atendimento da Conecta Mais
+- Suporte geral (segurança eletrônica): até 4 horas em dias úteis e até 24 horas em finais de semana/feriados.
+- Portaria remota: SLA de 4 horas SEMPRE, independente do dia e do horário (é serviço crítico de segurança 24h).
+Comunique o SLA ao cliente com naturalidade quando ele perguntar "quando alguém vem/resolve?" — ajuda a reduzir a ansiedade (uma das 5 respostas). Para portaria remota, deixe claro que o prazo é de 4h a qualquer hora.

@@ -422,6 +422,12 @@ app.conf.beat_schedule = {
         "schedule": crontab(hour=20, minute=0),
         "options": {"queue": "gov.batch"},
     },
+    # ── José Luís — atualizações proativas de OS (status do Campo -> WhatsApp do cliente) — a cada 5 min ──
+    "whatsapp-notificar-status-os-5min": {
+        "task": "whatsapp.notificar_status_os",
+        "schedule": 300.0,
+        "options": {"queue": "gov.batch"},
+    },
 }
 
 
