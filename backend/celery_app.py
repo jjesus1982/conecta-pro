@@ -211,6 +211,13 @@ app.conf.beat_schedule = {
         "schedule": 900.0,  # 15 minutos
         "options": {"queue": "integrations"},
     },
+    # Pull de batidas de ponto do Tangerino -> gp_clock_punches (de hora em hora)
+    "solides-sync-punches": {
+        "task": "solides.sync_punches",
+        "schedule": 3600.0,  # 1 hora
+        "kwargs": {"days_back": 2},
+        "options": {"queue": "integrations"},
+    },
     # Health check a cada 5 minutos
     "solides-health-check-all": {
         "task": "solides.health_check_all",
@@ -408,6 +415,12 @@ app.conf.beat_schedule = {
     "crm-followup-proposals-0830": {
         "task": "crm.followup_proposals",
         "schedule": crontab(hour=8, minute=30),
+        "options": {"queue": "gov.batch"},
+    },
+    # ── CRM Growth — processa passos vencidos das sequências/cadências — de hora em hora ──
+    "crm-process-sequences-hourly": {
+        "task": "crm.process_sequences",
+        "schedule": crontab(minute=15),
         "options": {"queue": "gov.batch"},
     },
     # ── José Luís — conversas que esfriaram: lista + rascunho -> Telegram (aval humano; nada vai ao cliente) — diario 09:00 ──

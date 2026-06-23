@@ -851,3 +851,140 @@ def schedule_entity_sync(condominio_id: str, entity_type: str, solides_id: str):
     Agenda sync de uma entidade específica.
     """
     return sync_single_entity.apply_async(args=[condominio_id, entity_type, solides_id], queue="integrations")
+
+
+# ==================== PULL DE BATIDAS DO TANGERINO ====================
+# Tangerino (Sólides DP) é o sistema-de-registro do ponto desde 2026-03-30.
+# Este pull traz as batidas (resumo diário: entrada=start, saída=end) para
+# gp_clock_punches. Endpoint: GET /external/api/v1/payssego/punches/{employeeId}
+# (auth Basic, datas dd/MM/yyyy). Idempotente por punch_id determinístico.
+# 100% síncrono (httpx.Client + create_engine) — sem event loop, sem leak.
+
+TANGERINO_BASE_URL = "https://employer.tangerino.com.br"
+
+
+def _sync_punches_from_tangerino(condominio_id: str | None = None, days_back: int = 7) -> dict:
+    """Puxa batidas do Tangerino para gp_clock_punches (entrada+saída por dia)."""
+    from datetime import datetime, timedelta
+
+    import httpx
+    from sqlalchemy import create_engine
+    from sqlalchemy import text as sa_text
+
+    db_url = os.environ.get("DATABASE_URL", "").replace("+asyncpg", "")
+    api_token = os.getenv("SOLIDES_API_TOKEN", "")
+    if not db_url or not api_token:
+        return {"success": False, "error": "DATABASE_URL ou SOLIDES_API_TOKEN ausente"}
+
+    headers = {"Authorization": f"Basic {api_token}", "Accept": "application/json"}
+    end = datetime.now()
+    start = end - timedelta(days=days_back)
+    sd, ed = start.strftime("%d/%m/%Y"), end.strftime("%d/%m/%Y")
+
+    engine = create_engine(db_url)
+    created = updated = emps_com_batida = sem_batida = erros = 0
+    try:
+        with engine.connect() as conn:
+            emps = conn.execute(
+                sa_text("SELECT id::text, solides_id FROM employees WHERE solides_id IS NOT NULL AND status = 'ativo'")
+            ).fetchall()
+            with httpx.Client(timeout=25) as client:
+                for emp_id, sid in emps:
+                    try:
+                        r = client.get(
+                            f"{TANGERINO_BASE_URL}/external/api/v1/payssego/punches/{sid}",
+                            params={"startDate": sd, "endDate": ed, "pageSize": 500, "pageNumber": 0},
+                            headers=headers,
+                        )
+                        if r.status_code == 404:
+                            sem_batida += 1
+                            continue
+                        if r.status_code != 200:
+                            erros += 1
+                            logger.warning("[Tangerino punches] sid=%s HTTP %s", sid, r.status_code)
+                            continue
+                        content = r.json().get("content", []) or []
+                        if content:
+                            emps_com_batida += 1
+                        for rec in content:
+                            stt = (rec.get("status") or "normal").lower()
+                            for ptype, ts_field in (("entrada", "startDateTimestamp"), ("saida", "endDateTimestamp")):
+                                ts = rec.get(ts_field)
+                                if not ts:
+                                    continue
+                                punch_dt = datetime.fromtimestamp(ts / 1000)
+                                punch_id = f"tang-{sid}-{ts}-{ptype}"
+                                up = conn.execute(
+                                    sa_text(
+                                        "UPDATE gp_clock_punches SET punch_timestamp = :t, status = :st, "
+                                        "synced_at = NOW() WHERE punch_id = :pid"
+                                    ),
+                                    {"t": punch_dt, "st": stt, "pid": punch_id},
+                                )
+                                if up.rowcount == 0:
+                                    conn.execute(
+                                        sa_text(
+                                            "INSERT INTO gp_clock_punches "
+                                            "  (punch_id, employee_id, punch_type, punch_timestamp, status, "
+                                            "   device_type, synced_at, created_at) "
+                                            "VALUES (:pid, CAST(:eid AS uuid), :pt, :t, :st, 'tangerino', NOW(), NOW())"
+                                        ),
+                                        {"pid": punch_id, "eid": emp_id, "pt": ptype, "t": punch_dt, "st": stt},
+                                    )
+                                    created += 1
+                                else:
+                                    updated += 1
+                    except Exception as exc:  # noqa: BLE001
+                        erros += 1
+                        logger.warning("[Tangerino punches] erro sid=%s: %s", sid, exc)
+            conn.commit()
+    finally:
+        engine.dispose()
+
+    logger.info(
+        "[Tangerino punches] %d criadas, %d atualizadas, %d emp c/ batida, %d sem batida, %d erros (%s a %s)",
+        created,
+        updated,
+        emps_com_batida,
+        sem_batida,
+        erros,
+        sd,
+        ed,
+    )
+    return {
+        "success": True,
+        "created": created,
+        "updated": updated,
+        "employees_with_punches": emps_com_batida,
+        "employees_without": sem_batida,
+        "errors": erros,
+        "range": f"{sd}..{ed}",
+    }
+
+
+@shared_task(name="solides.sync_punches", queue="integrations")
+def sync_punches_from_tangerino(condominio_id: str | None = None, days_back: int = 7):
+    """Task agendada: puxa batidas do Tangerino para gp_clock_punches."""
+    db_url = os.environ.get("DATABASE_URL", "").replace("+asyncpg", "")
+    log_id = _log_sync_start(db_url, condominio_id, "punches", "scheduler")
+    from datetime import datetime as _dt
+
+    started = _dt.utcnow()
+    try:
+        ret = _sync_punches_from_tangerino(condominio_id, days_back)
+        dur = int((_dt.utcnow() - started).total_seconds() * 1000)
+        _log_sync_end(
+            db_url,
+            log_id,
+            ret.get("success", False),
+            dur,
+            ret.get("created", 0) + ret.get("updated", 0),
+            ret.get("created", 0),
+            ret.get("updated", 0),
+        )
+        return ret
+    except Exception as e:  # noqa: BLE001
+        dur = int((_dt.utcnow() - started).total_seconds() * 1000)
+        _log_sync_end(db_url, log_id, False, dur, 0, 0, 0)
+        logger.error("[Tangerino punches] falha: %s", e)
+        raise
