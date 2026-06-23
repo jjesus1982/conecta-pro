@@ -181,7 +181,6 @@ class EmployeePayrollConfig(Base):
     )
     employee_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("funcionarios.id"),
         nullable=False,
         index=True,
     )
