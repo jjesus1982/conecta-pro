@@ -10,6 +10,8 @@ from datetime import datetime
 
 from celery import shared_task
 
+from core.database import engine
+
 from ..core.contingency import (
     MATRIZ_CONTINGENCIA_NFE,
     ComutadorEndpoints,
@@ -35,7 +37,12 @@ def run_async(coro):
     try:
         return loop.run_until_complete(coro)
     finally:
-        loop.close()
+        # Dispõe o pool async NO MESMO loop antes de fechá-lo — senão as conexões
+        # asyncpg ficam órfãs e acumulam como idle no Postgres (leak do celery-batch).
+        try:
+            loop.run_until_complete(engine.dispose())
+        finally:
+            loop.close()
 
 
 @shared_task(
