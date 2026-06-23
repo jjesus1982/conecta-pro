@@ -210,6 +210,7 @@ def _propagate_employees_to_db(solides_employees: list[dict]) -> dict:
 
     engine = create_engine(db_url)
     updated = 0
+    created = 0
     not_found = 0
     inactivated = 0
     cpfs_solides = set()
@@ -335,6 +336,8 @@ def _propagate_employees_to_db(solides_employees: list[dict]) -> dict:
                 params["escala"] = escala
 
             if sets:
+                # Fix B: sempre bumpar updated_at para auditabilidade do sync
+                sets.append("updated_at = NOW()")
                 # Se há demissão, atualizar mesmo que já esteja inativo (para garantir data_demissao)
                 status_filter = "AND status IN ('ativo', 'inativo')" if termination else "AND status = 'ativo'"
                 sql = f"UPDATE employees SET {', '.join(sets)} WHERE cpf = :cpf {status_filter}"
@@ -342,7 +345,35 @@ def _propagate_employees_to_db(solides_employees: list[dict]) -> dict:
                 if r.rowcount > 0:
                     updated += 1
                 else:
-                    not_found += 1
+                    # Fix A: CPF não casou com employee ativo.
+                    #  - Se o CPF NÃO existe em employees → INSERT (novo contratado no Sólides).
+                    #  - Se existe mas está inativo → NÃO inserir (evita CPF duplicado); reativação é manual.
+                    exists = conn.execute(
+                        text("SELECT 1 FROM employees WHERE cpf = :cpf LIMIT 1"), {"cpf": cpf}
+                    ).first()
+                    if exists or not name:
+                        not_found += 1
+                    else:
+                        ins_cols = ["id", "nome", "cpf", "status", "created_at", "updated_at"]
+                        ins_vals = ["gen_random_uuid()", ":nome", ":cpf", "'ativo'", "NOW()", "NOW()"]
+                        ins_params = {"nome": name, "cpf": cpf}
+                        for col, key, val in [
+                            ("data_nascimento", "b", birth),
+                            ("sexo", "s", sexo),
+                            ("pis", "p", pis),
+                            ("data_admissao", "a", adm),
+                            ("solides_id", "sid", sid),
+                            ("matricula", "mat", matricula),
+                            ("cargo", "cargo", (cargo_nome[:100].upper() if cargo_nome else None)),
+                            ("escala_padrao", "escala", escala),
+                        ]:
+                            if val:
+                                ins_cols.append(col)
+                                ins_vals.append(f":{key}")
+                                ins_params[key] = val
+                        ins_sql = f"INSERT INTO employees ({', '.join(ins_cols)}) VALUES ({', '.join(ins_vals)})"
+                        conn.execute(text(ins_sql), ins_params)
+                        created += 1
 
         # Inativar quem tem solides_id mas nao esta mais no Solides
         if cpfs_solides:
@@ -358,13 +389,15 @@ def _propagate_employees_to_db(solides_employees: list[dict]) -> dict:
         conn.commit()
 
     logger.info(
-        "[Solides] Propagacao: %d atualizados, %d sem match, %d inativados",
+        "[Solides] Propagacao: %d atualizados, %d criados, %d sem match, %d inativados",
         updated,
+        created,
         not_found,
         inactivated,
     )
     return {
         "propagated": updated,
+        "created": created,
         "not_found": not_found,
         "inactivated": inactivated,
         "total_solides": len(solides_employees),
