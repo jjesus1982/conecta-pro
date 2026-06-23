@@ -59,7 +59,9 @@ def _log_sync_start(db_url: str, condominio_id: str | None, sync_type: str, trig
         return None
 
 
-def _log_sync_end(db_url: str, log_id: str | None, success: bool, duration_ms: int, items: int, created: int) -> None:
+def _log_sync_end(
+    db_url: str, log_id: str | None, success: bool, duration_ms: int, items: int, created: int, updated: int = 0
+) -> None:
     """Atualiza linha na solides_sync_log com resultado final."""
     if not db_url or not log_id:
         return
@@ -74,7 +76,7 @@ def _log_sync_end(db_url: str, log_id: str | None, success: bool, duration_ms: i
                 sa_text(
                     "UPDATE solides_sync_log SET "
                     "  status = :st, completed_at = :ts, duration_ms = :dur, "
-                    "  items_processed = :proc, items_created = :creat "
+                    "  items_processed = :proc, items_created = :creat, items_updated = :upd "
                     "WHERE id = :id"
                 ),
                 {
@@ -83,6 +85,7 @@ def _log_sync_end(db_url: str, log_id: str | None, success: bool, duration_ms: i
                     "dur": duration_ms,
                     "proc": items,
                     "creat": created,
+                    "upd": updated,
                     "id": log_id,
                 },
             )
@@ -492,9 +495,15 @@ def sync_solides_full(
         ret = run_async(_sync())
         duration_ms = int((datetime.utcnow() - started_at).total_seconds() * 1000)
         total = ret.get("total", 0) if isinstance(ret, dict) else 0
-        created = ret.get("propagation", {}).get("propagated", 0) if isinstance(ret, dict) else 0
+        prop = ret.get("propagation", {}) if isinstance(ret, dict) else {}
         _log_sync_end(
-            db_url, log_id, ret.get("success", False) if isinstance(ret, dict) else False, duration_ms, total, created
+            db_url,
+            log_id,
+            ret.get("success", False) if isinstance(ret, dict) else False,
+            duration_ms,
+            total,
+            prop.get("created", 0),
+            prop.get("propagated", 0),
         )
         return ret
     except Exception as e:
@@ -561,14 +570,15 @@ def sync_solides_incremental(self, condominio_id: str = None, entity_types: list
         ret = run_async(_sync())
         duration_ms = int((datetime.utcnow() - started_at).total_seconds() * 1000)
         processed = ret.get("processed", 0) if isinstance(ret, dict) else 0
-        created = ret.get("propagation", {}).get("propagated", 0) if isinstance(ret, dict) else 0
+        prop = ret.get("propagation", {}) if isinstance(ret, dict) else {}
         _log_sync_end(
             db_url,
             log_id,
             ret.get("success", False) if isinstance(ret, dict) else False,
             duration_ms,
             processed,
-            created,
+            prop.get("created", 0),
+            prop.get("propagated", 0),
         )
         return ret
     except Exception as e:
