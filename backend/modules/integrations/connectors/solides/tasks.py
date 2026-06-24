@@ -266,6 +266,7 @@ def _propagate_employees_to_db(solides_employees: list[dict]) -> dict:
             pis = (emp.get("pis", "") or "")[:20]
             sid = str(emp.get("id", ""))
             name = emp.get("name", "")
+            email = (emp.get("email") or "").strip()[:120]
 
             # Matricula via externalId (API retorna "000206" → armazenar "206")
             external_id = (emp.get("externalId") or "").strip()
@@ -320,6 +321,10 @@ def _propagate_employees_to_db(solides_employees: list[dict]) -> dict:
             if name:
                 sets.append("nome = :nome")
                 params["nome"] = name
+            if email:
+                # preenche só se vazio (não sobrescreve e-mail editado manualmente)
+                sets.append("email = COALESCE(NULLIF(email, ''), :email)")
+                params["email"] = email
             if matricula:
                 sets.append("matricula = :mat")
                 params["mat"] = matricula
@@ -369,6 +374,7 @@ def _propagate_employees_to_db(solides_employees: list[dict]) -> dict:
                             ("matricula", "mat", matricula),
                             ("cargo", "cargo", (cargo_nome[:100].upper() if cargo_nome else None)),
                             ("escala_padrao", "escala", escala),
+                            ("email", "email", email),
                         ]:
                             if val:
                                 ins_cols.append(col)
