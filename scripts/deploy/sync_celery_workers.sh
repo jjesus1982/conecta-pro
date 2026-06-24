@@ -5,8 +5,12 @@ MODULO=${1:?'Informe o módulo: ./sync_celery_workers.sh gedeon'}
 for CONTAINER in conecta-pro-backend conecta-pro-celery-beat conecta-pro-celery-batch \
   conecta-pro-celery-operacional conecta-pro-celery-integrations conecta-pro-celery-priority \
   conecta-pro-celery-nfse conecta-pro-celery-sefaz; do
-  docker exec $CONTAINER find /app/modules/$MODULO/__pycache__ -name "*.pyc" -delete 2>/dev/null || true
-  docker cp backend/modules/$MODULO/ $CONTAINER:/app/modules/$MODULO/ && echo "OK: $CONTAINER"
+  # Limpa pyc recursivo (não só o __pycache__ raiz) — evita bytecode stale em submódulos
+  docker exec $CONTAINER find /app/modules/$MODULO -name "*.pyc" -delete 2>/dev/null || true
+  # Remove aninhamento acidental de execuções antigas (bug do docker cp sem /.)
+  docker exec $CONTAINER rm -rf "/app/modules/$MODULO/$MODULO" 2>/dev/null || true
+  # Copia o CONTEÚDO do módulo (sufixo /.) PARA DENTRO do destino — nunca aninha
+  docker cp "backend/modules/$MODULO/." "$CONTAINER:/app/modules/$MODULO/" && echo "OK: $CONTAINER"
 done
 docker exec conecta-pro-backend kill -HUP 1
 
