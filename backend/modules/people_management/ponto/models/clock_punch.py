@@ -14,6 +14,7 @@ from sqlalchemy import (
     String,
     Text,
 )
+from sqlalchemy.dialects.postgresql import UUID
 
 try:
     from core.database import Base
@@ -47,7 +48,9 @@ class ClockPunchModel(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     punch_id = Column(String(36), unique=True, nullable=False, index=True)
-    employee_id = Column(String(36), nullable=False, index=True)
+    # Coluna no banco é uuid; as_uuid=False mantém o valor como str no Python
+    # (corrige 500 "operator does not exist: uuid = character varying" no espelho/batidas)
+    employee_id = Column(UUID(as_uuid=False), nullable=False, index=True)
 
     # Tipo e timestamp (varchar no banco, nao enum PG)
     punch_type = Column(String(20), nullable=False)
