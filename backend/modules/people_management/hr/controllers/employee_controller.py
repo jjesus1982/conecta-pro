@@ -8,7 +8,7 @@ import asyncio
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,11 +21,33 @@ from modules.people_management.hr.schemas.employee import (
     DPEmployeeRead,
     DPEmployeeUpdate,
 )
+from modules.people_management.hr.services.cadastro_import_service import CadastroImportService
 from modules.people_management.hr.services.employee_service import EmployeeService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/employees", tags=["DP - Funcionários"])
+
+
+@router.post("/import-cadastro", summary="Importar cadastro (CSV do contador/Onvio)")
+async def importar_cadastro(
+    file: UploadFile = File(...),
+    sobrescrever: bool = Query(
+        False, description="True força os valores da planilha; False (padrão) só preenche campos vazios"
+    ),
+    current_user: CurrentActiveUser = None,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Sobe uma planilha CSV (casa por CPF) e completa o cadastro dos funcionários
+    (RG, CTPS, endereço, filiação, estado civil, etc.). Idempotente."""
+    conteudo = await file.read()
+    if not conteudo:
+        raise HTTPException(status_code=400, detail="Arquivo vazio.")
+    service = CadastroImportService(db)
+    resultado = await service.import_csv(conteudo, sobrescrever=sobrescrever)
+    if not resultado.get("sucesso"):
+        raise HTTPException(status_code=422, detail=resultado.get("erro", "Falha ao importar."))
+    return resultado
 
 
 @router.get(
