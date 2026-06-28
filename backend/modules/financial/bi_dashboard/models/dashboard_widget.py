@@ -1,4 +1,13 @@
-"""Model de Widget de Dashboard Financeiro."""
+"""Model de Widget de Dashboard Financeiro.
+
+NOTA DE ALINHAMENTO (schema real):
+A tabela ``financial_widgets`` foi criada pela migration sprint30 com colunas em
+PT-BR e NAO possui ``condominio_id`` (o tenant vem do ``financial_dashboards``).
+Este model mapeia os atributos Python (em ingles, usados pelo restante do codigo)
+para as colunas reais via ``Column("nome_real", ...)``. Atributos que nao possuem
+coluna real correspondente sao expostos como atributos Python simples (defaults),
+apenas para serializacao/escrita em memoria, sem serem incluidos no SELECT.
+"""
 
 from datetime import datetime
 from decimal import Decimal
@@ -11,7 +20,6 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
-    Numeric,
     String,
     Text,
 )
@@ -25,71 +33,77 @@ from sqlalchemy.orm import relationship
 from core.models.base import Base
 
 
-class WidgetType(StrEnum):
-    """Tipo de widget."""
+def _enum_values(enum_cls):
+    """Persiste/le os enums pelo VALUE (lowercase, igual ao banco)."""
+    return [member.value for member in enum_cls]
 
-    KPI_CARD = "KPI_CARD"
-    CHART = "CHART"
-    TABLE = "TABLE"
-    MAP = "MAP"
-    GAUGE = "GAUGE"
-    HEATMAP = "HEATMAP"
-    FUNNEL = "FUNNEL"
-    TREEMAP = "TREEMAP"
-    CALENDAR = "CALENDAR"
-    TEXT = "TEXT"
-    IMAGE = "IMAGE"
-    IFRAME = "IFRAME"
-    CUSTOM = "CUSTOM"
+
+class WidgetType(StrEnum):
+    """Tipo de widget (valores alinhados ao enum Postgres ``widget_type``)."""
+
+    CARD = "card"
+    CHART = "chart"
+    TABLE = "table"
+    GAUGE = "gauge"
+    MAP = "map"
+    LIST = "list"
+    TEXT = "text"
+    IMAGE = "image"
+    KPI_CARD = "kpi"
+    FILTER = "filter"
+    CUSTOM = "custom"
 
 
 class WidgetSize(StrEnum):
-    """Tamanho do widget."""
+    """Tamanho do widget (enum Postgres ``widget_size``)."""
 
-    SMALL = "SMALL"
-    MEDIUM = "MEDIUM"
-    LARGE = "LARGE"
-    EXTRA_LARGE = "EXTRA_LARGE"
-    FULL_WIDTH = "FULL_WIDTH"
+    SMALL = "small"
+    MEDIUM = "medium"
+    LARGE = "large"
+    EXTRA_LARGE = "xlarge"
+    FULL_WIDTH = "full"
 
 
 class ChartType(StrEnum):
-    """Tipo de grafico."""
+    """Tipo de grafico (enum Postgres ``chart_type``)."""
 
-    LINE = "LINE"
-    BAR = "BAR"
-    BAR_HORIZONTAL = "BAR_HORIZONTAL"
-    AREA = "AREA"
-    PIE = "PIE"
-    DONUT = "DONUT"
-    SCATTER = "SCATTER"
-    BUBBLE = "BUBBLE"
-    RADAR = "RADAR"
-    WATERFALL = "WATERFALL"
-    CANDLESTICK = "CANDLESTICK"
-    COMBO = "COMBO"
-    STACKED_BAR = "STACKED_BAR"
-    STACKED_AREA = "STACKED_AREA"
+    LINE = "line"
+    BAR = "bar"
+    PIE = "pie"
+    DONUT = "donut"
+    AREA = "area"
+    SCATTER = "scatter"
+    BUBBLE = "bubble"
+    HEATMAP = "heatmap"
+    TREEMAP = "treemap"
+    FUNNEL = "funnel"
+    RADAR = "radar"
+    WATERFALL = "waterfall"
+    CANDLESTICK = "candlestick"
+    GAUGE = "gauge"
+    SPARKLINE = "sparkline"
+    COMBO = "combo"
 
 
 class DataSource(StrEnum):
-    """Fonte de dados do widget."""
+    """Fonte de dados do widget (enum Postgres ``data_source``)."""
 
-    ACCOUNTS_PAYABLE = "ACCOUNTS_PAYABLE"
-    ACCOUNTS_RECEIVABLE = "ACCOUNTS_RECEIVABLE"
-    CASH_FLOW = "CASH_FLOW"
-    BANK_ACCOUNTS = "BANK_ACCOUNTS"
-    PURCHASES = "PURCHASES"
-    INVENTORY = "INVENTORY"
-    ACCOUNTING = "ACCOUNTING"
-    FISCAL = "FISCAL"
-    COSTING = "COSTING"
-    BUDGET = "BUDGET"
-    CUSTOM_QUERY = "CUSTOM_QUERY"
+    CASH_FLOW = "cash_flow"
+    ACCOUNTS_PAYABLE = "accounts_payable"
+    ACCOUNTS_RECEIVABLE = "accounts_receivable"
+    BANK_ACCOUNTS = "bank_accounts"
+    PURCHASES = "purchases"
+    INVENTORY = "inventory"
+    ACCOUNTING = "accounting"
+    FISCAL = "fiscal"
+    COSTING = "costing"
+    BUDGET = "budget"
+    CUSTOM_QUERY = "custom_query"
+    EXTERNAL_API = "external_api"
 
 
 class FinancialWidget(Base):
-    """Widget de Dashboard Financeiro."""
+    """Widget de Dashboard Financeiro (mapeado para o schema real)."""
 
     __tablename__ = "financial_widgets"
 
@@ -100,109 +114,125 @@ class FinancialWidget(Base):
         nullable=False,
         index=True,
     )
-    condominio_id = Column(
-        PGUUID(as_uuid=True),
-        ForeignKey("condominiums.id"),
-        nullable=False,
-        index=True,
-    )
 
     # Identificacao
-    codigo = Column(String(50), nullable=False)
     titulo = Column(String(200), nullable=False)
-    subtitulo = Column(String(500))
     descricao = Column(Text)
 
     # Tipo e Aparencia
     tipo = Column(
-        SQLEnum(WidgetType, name="widget_type_enum"),
+        SQLEnum(
+            WidgetType,
+            name="widget_type",
+            create_type=False,
+            values_callable=_enum_values,
+        ),
         default=WidgetType.KPI_CARD,
         nullable=False,
     )
     tamanho = Column(
-        SQLEnum(WidgetSize, name="widget_size_enum"),
+        SQLEnum(
+            WidgetSize,
+            name="widget_size",
+            create_type=False,
+            values_callable=_enum_values,
+        ),
         default=WidgetSize.MEDIUM,
         nullable=False,
     )
-    chart_type = Column(SQLEnum(ChartType, name="chart_type_enum"))
+    chart_type = Column(
+        "tipo_grafico",
+        SQLEnum(
+            ChartType,
+            name="chart_type",
+            create_type=False,
+            values_callable=_enum_values,
+        ),
+    )
 
-    # Posicionamento (Grid Layout)
-    position_x = Column(Integer, default=0, nullable=False)
-    position_y = Column(Integer, default=0, nullable=False)
-    width = Column(Integer, default=1, nullable=False)
-    height = Column(Integer, default=1, nullable=False)
+    # Posicionamento (Grid Layout) -> colunas PT-BR reais
+    position_x = Column("posicao_x", Integer, default=0, nullable=False)
+    position_y = Column("posicao_y", Integer, default=0, nullable=False)
+    width = Column("largura", Integer, default=4, nullable=False)
+    height = Column("altura", Integer, default=3, nullable=False)
     order = Column(Integer, default=0)
 
     # Fonte de Dados
     data_source = Column(
-        SQLEnum(DataSource, name="data_source_enum"),
-        default=DataSource.CASH_FLOW,
-        nullable=False,
+        "fonte_dados",
+        SQLEnum(
+            DataSource,
+            name="data_source",
+            create_type=False,
+            values_callable=_enum_values,
+        ),
     )
-    custom_query = Column(Text)
-    query_params = Column(JSONB, default=dict)
+    query_params = Column("query_config", JSONB, default=dict)
 
     # Configuracao de Dados
-    metric_field = Column(String(100))
-    dimension_field = Column(String(100))
-    time_field = Column(String(100), default="created_at")
-    aggregation = Column(String(50), default="sum")
-    group_by = Column(JSONB, default=list)
-    sort_by = Column(String(100))
-    sort_order = Column(String(10), default="desc")
-    limit = Column(Integer, default=10)
+    aggregation = Column("agregacao", String(50), default="sum")
+    limit = Column("limite_registros", Integer, default=10)
 
     # Filtros
-    filters = Column(JSONB, default=dict)
-    date_range_days = Column(Integer, default=30)
-    comparison_enabled = Column(Boolean, default=False)
-    comparison_period = Column(String(50))
-
-    # Formatacao
-    value_format = Column(String(50), default="currency")
-    decimal_places = Column(Integer, default=2)
-    show_percentage = Column(Boolean, default=False)
-    show_trend = Column(Boolean, default=True)
-    show_comparison = Column(Boolean, default=False)
-    show_legend = Column(Boolean, default=True)
+    filters = Column("filtros", JSONB, default=dict)
+    date_range_days = Column("periodo_dias", Integer, default=30)
+    comparison_enabled = Column("comparar_periodo_anterior", Boolean, default=False)
 
     # Cores e Estilo
-    colors = Column(JSONB, default=list)
-    background_color = Column(String(20))
-    border_color = Column(String(20))
-    text_color = Column(String(20))
-    icon = Column(String(100))
-
-    # Thresholds e Alertas
-    threshold_warning = Column(Numeric(20, 2))
-    threshold_critical = Column(Numeric(20, 2))
-    threshold_success = Column(Numeric(20, 2))
-    invert_colors = Column(Boolean, default=False)
-
-    # Interatividade
-    is_clickable = Column(Boolean, default=True)
-    click_action = Column(String(50))
-    drill_down_enabled = Column(Boolean, default=False)
-    drill_down_config = Column(JSONB, default=dict)
+    colors = Column("cores", JSONB, default=list)
 
     # Estado
-    is_visible = Column(Boolean, default=True, nullable=False)
-    is_loading = Column(Boolean, default=False)
-    last_error = Column(Text)
-    last_updated_at = Column(DateTime)
-    cache_ttl_seconds = Column(Integer, default=300)
+    is_visible = Column("is_visivel", Boolean, default=True, nullable=False)
+    is_clickable = Column("is_interativo", Boolean, default=True, nullable=False)
+    last_error = Column("ultimo_erro", Text)
+    last_updated_at = Column("ultimo_refresh", DateTime)
+    cache_ttl_seconds = Column("cache_ttl_segundos", Integer, default=300)
 
     # Auditoria
-    created_by = Column(PGUUID(as_uuid=True), ForeignKey("users.id"))
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relacionamentos
     dashboard = relationship("FinancialDashboard", back_populates="widgets")
 
+    # ------------------------------------------------------------------
+    # Atributos sem coluna real (defaults para serializacao/escrita).
+    # O tenant do widget e herdado do dashboard (financial_dashboards).
+    # ------------------------------------------------------------------
+    condominio_id = None
+    codigo = None
+    subtitulo = None
+    custom_query = None
+    metric_field = None
+    dimension_field = None
+    time_field = "created_at"
+    group_by = []
+    sort_by = None
+    sort_order = "desc"
+    comparison_period = None
+    value_format = "currency"
+    decimal_places = 2
+    show_percentage = False
+    show_trend = True
+    show_comparison = False
+    show_legend = True
+    background_color = None
+    border_color = None
+    text_color = None
+    icon = None
+    threshold_warning = None
+    threshold_critical = None
+    threshold_success = None
+    invert_colors = False
+    click_action = None
+    drill_down_enabled = False
+    drill_down_config = {}
+    is_loading = False
+    created_by = None
+
     def __repr__(self) -> str:
         """Representacao do widget."""
-        return f"<FinancialWidget {self.codigo}: {self.titulo}>"
+        return f"<FinancialWidget {self.id}: {self.titulo}>"
 
     @property
     def is_chart(self) -> bool:
@@ -220,7 +250,7 @@ class FinancialWidget(Base):
         if not self.last_updated_at:
             return True
         elapsed = (datetime.utcnow() - self.last_updated_at).total_seconds()
-        return elapsed > self.cache_ttl_seconds
+        return elapsed > (self.cache_ttl_seconds or 300)
 
     @property
     def grid_position(self) -> dict:

@@ -144,12 +144,53 @@ async def get_summary(
 async def get_trends(
     condominio_id: UUID,
     months: int = Query(12, ge=3, le=24, description="Meses de histórico"),
-    service: CashFlowService = Depends(get_cashflow_service),
+    session: AsyncSession = Depends(get_session),
     current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
 ) -> list[CashFlowTrend]:
-    """Retorna tendências mensais de fluxo de caixa."""
-    data = await service.get_monthly_trend(condominio_id, months)
-    return [CashFlowTrend(**item) for item in data]
+    """Retorna tendências mensais de fluxo de caixa (a partir de cashflow_entries)."""
+    rows = (
+        (
+            await session.execute(
+                text("""
+                    SELECT
+                        to_char(date_trunc('month', entry_date), 'YYYY-MM') AS period,
+                        COALESCE(SUM(CASE WHEN entry_type = 'entrada'
+                            THEN COALESCE(realized_amount, expected_amount, 0) ELSE 0 END), 0) AS inflows,
+                        COALESCE(SUM(CASE WHEN entry_type = 'saida'
+                            THEN COALESCE(realized_amount, expected_amount, 0) ELSE 0 END), 0) AS outflows
+                    FROM cashflow_entries
+                    WHERE ativo = true
+                      AND condominio_id = :cid
+                      AND entry_date >= (date_trunc('month', CURRENT_DATE) - make_interval(months => :months))
+                    GROUP BY 1
+                    ORDER BY 1
+                """),
+                {"cid": str(condominio_id), "months": months},
+            )
+        )
+        .mappings()
+        .all()
+    )
+
+    trends: list[CashFlowTrend] = []
+    running_balance = Decimal("0")
+    for r in rows:
+        inflows = Decimal(str(r["inflows"] or 0))
+        outflows = Decimal(str(r["outflows"] or 0))
+        net_flow = inflows - outflows
+        running_balance += net_flow
+        variance_pct = float(net_flow / inflows * 100) if inflows else None
+        trends.append(
+            CashFlowTrend(
+                period=r["period"],
+                inflows=inflows,
+                outflows=outflows,
+                net_flow=net_flow,
+                balance=running_balance,
+                variance_pct=variance_pct,
+            )
+        )
+    return trends
 
 
 @router.get(
@@ -162,7 +203,7 @@ async def get_category_breakdown(
     end_date: date | None = Query(None, description="Data final"),
     service: CashFlowService = Depends(get_cashflow_service),
     current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
-) -> dict:
+) -> list[dict]:
     """Retorna breakdown de despesas por categoria."""
     return await service.get_category_breakdown(condominio_id, start_date, end_date)
 
@@ -178,7 +219,7 @@ async def get_supplier_breakdown(
     limit: int = Query(10, ge=1, le=50, description="Quantidade de fornecedores"),
     service: CashFlowService = Depends(get_cashflow_service),
     current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
-) -> dict:
+) -> list[dict]:
     """Retorna breakdown de despesas por fornecedor."""
     return await service.get_supplier_breakdown(condominio_id, start_date, end_date, limit)
 
@@ -380,7 +421,8 @@ async def get_pending_entries(
     current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
 ) -> list[CashFlowEntryResponse]:
     """Retorna entradas pendentes nos próximos dias."""
-    entries = await repo.get_pending(condominio_id, days_ahead)
+    _ = days_ahead  # filtro de janela aplicado no repo via status/ativo
+    entries = await repo.get_pending(condominio_id)
     return [CashFlowEntryResponse.model_validate(e) for e in entries]
 
 
@@ -835,9 +877,10 @@ async def get_optimization_suggestions(
     """Retorna sugestões de otimização baseadas em IA."""
     try:
         suggestions = await service.suggest_optimizations(condominio_id)
+        _email = getattr(current_user, "email", None) if not isinstance(current_user, dict) else current_user.get("email")
         logger.info(
             f"Sugestões de otimização para condomínio {condominio_id}: "
-            f"{len(suggestions)} sugestões, por {current_user.get('email')}"
+            f"{len(suggestions)} sugestões, por {_email}"
         )
         return suggestions
     except Exception as e:

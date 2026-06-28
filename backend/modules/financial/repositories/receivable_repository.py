@@ -90,20 +90,75 @@ class CustomerRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_by_document(self, document: str) -> Customer | None:
+        """Busca cliente por CPF/CNPJ (sem filtro de condominio)."""
+        result = await self.session.execute(
+            select(Customer).where(
+                and_(
+                    Customer.cpf_cnpj == document,
+                    Customer.ativo.is_(True),
+                )
+            )
+        )
+        return result.scalars().first()
+
+    async def get_by_morador(self, morador_id: UUID) -> Customer | None:
+        """Busca cliente pelo ID do morador."""
+        result = await self.session.execute(
+            select(Customer).where(
+                and_(
+                    Customer.morador_id == morador_id,
+                    Customer.ativo.is_(True),
+                )
+            )
+        )
+        return result.scalars().first()
+
     async def get_by_unidade(
         self,
         unidade_id: UUID,
-    ) -> Customer | None:
-        """Busca cliente por unidade."""
+    ) -> builtins.list[Customer]:
+        """Busca clientes por unidade."""
         result = await self.session.execute(
-            select(Customer).where(
+            select(Customer)
+            .where(
                 and_(
                     Customer.unidade_id == unidade_id,
                     Customer.ativo.is_(True),
                 )
             )
+            .order_by(Customer.name)
         )
-        return result.scalar_one_or_none()
+        return list(result.scalars().all())
+
+    async def get_debtors(
+        self,
+        condominio_id: UUID,
+        only_overdue: bool = False,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> builtins.list[Customer]:
+        """Lista clientes com divida ativa."""
+        debt_condition = (
+            Customer.overdue_debt > 0
+            if only_overdue
+            else or_(Customer.overdue_debt > 0, Customer.total_debt > 0)
+        )
+        query = (
+            select(Customer)
+            .where(
+                and_(
+                    Customer.condominio_id == condominio_id,
+                    Customer.ativo.is_(True),
+                    debt_condition,
+                )
+            )
+            .order_by(Customer.overdue_debt.desc(), Customer.total_debt.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
 
     async def list(
         self,
@@ -111,7 +166,7 @@ class CustomerRepository:
         filters: CustomerFilter | None = None,
         skip: int = 0,
         limit: int = 100,
-    ) -> list[Customer]:
+    ) -> builtins.list[Customer]:
         """Lista clientes com filtros."""
         query = select(Customer).where(
             and_(
@@ -227,11 +282,16 @@ class ReceivableCategoryRepository:
     async def get_by_id(self, category_id: UUID) -> ReceivableCategory | None:
         """Busca categoria por ID."""
         result = await self.session.execute(
-            select(ReceivableCategory).where(
+            select(ReceivableCategory)
+            .where(
                 and_(
                     ReceivableCategory.id == category_id,
                     ReceivableCategory.ativo.is_(True),  # noqa: E712
                 )
+            )
+            .options(
+                selectinload(ReceivableCategory.parent),
+                selectinload(ReceivableCategory.children),
             )
         )
         return result.scalar_one_or_none()
@@ -239,21 +299,77 @@ class ReceivableCategoryRepository:
     async def list(
         self,
         condominio_id: UUID,
+        search: str | None = None,
+        category_type=None,
+        is_active: bool | None = None,
         skip: int = 0,
         limit: int = 100,
-    ) -> list[ReceivableCategory]:
-        """Lista categorias."""
+    ) -> builtins.list[ReceivableCategory]:
+        """Lista categorias com filtros opcionais."""
+        conditions = [ReceivableCategory.condominio_id == condominio_id]
+        if is_active is None:
+            conditions.append(ReceivableCategory.ativo.is_(True))  # noqa: E712
+        else:
+            conditions.append(ReceivableCategory.ativo.is_(is_active))  # noqa: E712
+        if search:
+            conditions.append(ReceivableCategory.name.ilike(f"%{search}%"))
+        if category_type is not None:
+            type_value = getattr(category_type, "value", category_type)
+            conditions.append(ReceivableCategory.category_type == type_value)
+
+        result = await self.session.execute(
+            select(ReceivableCategory)
+            .where(and_(*conditions))
+            .options(
+                selectinload(ReceivableCategory.parent),
+                selectinload(ReceivableCategory.children),
+            )
+            .order_by(ReceivableCategory.display_order, ReceivableCategory.name)
+            .offset(skip)
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def get_root_categories(
+        self,
+        condominio_id: UUID,
+    ) -> builtins.list[ReceivableCategory]:
+        """Lista categorias raiz (parent_id NULL) do condominio para a arvore."""
         result = await self.session.execute(
             select(ReceivableCategory)
             .where(
                 and_(
                     ReceivableCategory.condominio_id == condominio_id,
+                    ReceivableCategory.parent_id.is_(None),
                     ReceivableCategory.ativo.is_(True),  # noqa: E712
                 )
             )
+            .options(
+                selectinload(ReceivableCategory.parent),
+                selectinload(ReceivableCategory.children),
+            )
             .order_by(ReceivableCategory.display_order, ReceivableCategory.name)
-            .offset(skip)
-            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def get_children(
+        self,
+        category_id: UUID,
+    ) -> builtins.list[ReceivableCategory]:
+        """Lista subcategorias de uma categoria."""
+        result = await self.session.execute(
+            select(ReceivableCategory)
+            .where(
+                and_(
+                    ReceivableCategory.parent_id == category_id,
+                    ReceivableCategory.ativo.is_(True),  # noqa: E712
+                )
+            )
+            .options(
+                selectinload(ReceivableCategory.parent),
+                selectinload(ReceivableCategory.children),
+            )
+            .order_by(ReceivableCategory.display_order, ReceivableCategory.name)
         )
         return list(result.scalars().all())
 
@@ -401,7 +517,7 @@ class ReceivableAccountRepository:
         filters: ReceivableAccountFilter | None = None,
         skip: int = 0,
         limit: int = 100,
-    ) -> list[ReceivableAccount]:
+    ) -> builtins.list[ReceivableAccount]:
         """Lista contas a receber com filtros."""
         base_conditions = [ReceivableAccount.ativo.is_(True)]  # noqa: E712
         if condominio_id is not None:
@@ -792,7 +908,7 @@ class ReceivableInstallmentRepository:
     async def list_by_account(
         self,
         receivable_account_id: UUID,
-    ) -> list[ReceivableInstallment]:
+    ) -> builtins.list[ReceivableInstallment]:
         """Lista parcelas de uma conta."""
         result = await self.session.execute(
             select(ReceivableInstallment)
@@ -812,7 +928,7 @@ class ReceivableInstallmentRepository:
         due_date_start: date | None = None,
         due_date_end: date | None = None,
         limit: int = 100,
-    ) -> list[ReceivableInstallment]:
+    ) -> builtins.list[ReceivableInstallment]:
         """Busca parcelas pendentes."""
         query = select(ReceivableInstallment).where(
             and_(
@@ -842,7 +958,7 @@ class ReceivableInstallmentRepository:
         self,
         condominio_id: UUID,
         days_before: int = 5,
-    ) -> list[ReceivableInstallment]:
+    ) -> builtins.list[ReceivableInstallment]:
         """Busca parcelas para geracao de boleto."""
         today = date.today()
         target_date = today + timedelta(days=days_before)
@@ -964,7 +1080,7 @@ class ReceivablePaymentRepository:
     async def list_by_installment(
         self,
         installment_id: UUID,
-    ) -> list[ReceivablePayment]:
+    ) -> builtins.list[ReceivablePayment]:
         """Lista recebimentos de uma parcela."""
         result = await self.session.execute(
             select(ReceivablePayment)
@@ -984,7 +1100,7 @@ class ReceivablePaymentRepository:
         start_date: date,
         end_date: date,
         limit: int = 500,
-    ) -> list[ReceivablePayment]:
+    ) -> builtins.list[ReceivablePayment]:
         """Busca recebimentos por periodo."""
         result = await self.session.execute(
             select(ReceivablePayment)
@@ -1005,7 +1121,7 @@ class ReceivablePaymentRepository:
         self,
         condominio_id: UUID,
         limit: int = 100,
-    ) -> list[ReceivablePayment]:
+    ) -> builtins.list[ReceivablePayment]:
         """Busca recebimentos pendentes de conciliacao."""
         result = await self.session.execute(
             select(ReceivablePayment)
@@ -1063,7 +1179,7 @@ class BillingRuleRepository:
         filters: BillingRuleFilter | None = None,
         skip: int = 0,
         limit: int = 100,
-    ) -> list[BillingRule]:
+    ) -> builtins.list[BillingRule]:
         """Lista regras de cobranca com filtros."""
         query = select(BillingRule).where(BillingRule.ativo.is_(True))  # noqa: E712
         if condominio_id is not None:
@@ -1144,6 +1260,35 @@ class BillingRuleRepository:
                 )
             )
         )
+        return list(result.scalars().all())
+
+    async def get_due_for_generation(
+        self,
+        condominio_id: UUID | None,
+    ) -> builtins.list[BillingRule]:
+        """Busca regras ativas com geracao pendente (next_run_at <= hoje)."""
+        today = date.today()
+
+        query = select(BillingRule).where(
+            and_(
+                BillingRule.ativo.is_(True),  # noqa: E712
+                BillingRule.status == BillingRuleStatus.ATIVA.value,
+                or_(
+                    BillingRule.next_run_at.is_(None),
+                    BillingRule.next_run_at <= today,
+                ),
+                BillingRule.start_date <= today,
+                or_(
+                    BillingRule.end_date.is_(None),
+                    BillingRule.end_date >= today,
+                ),
+            )
+        )
+        if condominio_id is not None:
+            query = query.where(BillingRule.condominio_id == condominio_id)
+
+        query = query.order_by(BillingRule.next_run_at)
+        result = await self.session.execute(query)
         return list(result.scalars().all())
 
     async def update(

@@ -6,10 +6,25 @@ from uuid import UUID
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from modules.financial.bi_dashboard.models.dashboard_config import FinancialDashboard
 from modules.financial.bi_dashboard.models.dashboard_widget import (
     DataSource,
     FinancialWidget,
 )
+
+
+def _scope_by_condominio(query, condominio_id):
+    """Escopa widgets pelo tenant via join com financial_dashboards.
+
+    A tabela financial_widgets nao possui condominio_id; o tenant e herdado
+    do dashboard ao qual o widget pertence.
+    """
+    if condominio_id is None:
+        return query
+    return query.join(
+        FinancialDashboard,
+        FinancialWidget.dashboard_id == FinancialDashboard.id,
+    ).filter(FinancialDashboard.condominio_id == condominio_id)
 from modules.financial.bi_dashboard.schemas.widget_schemas import (
     WidgetCreate,
     WidgetFilters,
@@ -94,8 +109,7 @@ class WidgetRepository:
     ) -> FinancialWidget | None:
         """Busca widget por ID."""
         query = self.db.query(FinancialWidget).filter(FinancialWidget.id == widget_id)
-        if condominio_id:
-            query = query.filter(FinancialWidget.condominio_id == condominio_id)
+        query = _scope_by_condominio(query, condominio_id)
         return query.first()
 
     def get_by_dashboard(
@@ -105,8 +119,7 @@ class WidgetRepository:
     ) -> list[FinancialWidget]:
         """Lista widgets de um dashboard."""
         query = self.db.query(FinancialWidget).filter(FinancialWidget.dashboard_id == dashboard_id)
-        if condominio_id:
-            query = query.filter(FinancialWidget.condominio_id == condominio_id)
+        query = _scope_by_condominio(query, condominio_id)
         return query.order_by(
             FinancialWidget.position_y,
             FinancialWidget.position_x,
@@ -120,7 +133,7 @@ class WidgetRepository:
         limit: int = 100,
     ) -> tuple[list[FinancialWidget], int]:
         """Lista widgets com filtros."""
-        query = self.db.query(FinancialWidget).filter(FinancialWidget.condominio_id == condominio_id)
+        query = _scope_by_condominio(self.db.query(FinancialWidget), condominio_id)
 
         if filters:
             if filters.dashboard_id:
@@ -317,14 +330,8 @@ class WidgetRepository:
         data_source: DataSource,
     ) -> list[FinancialWidget]:
         """Lista widgets por fonte de dados."""
-        return (
-            self.db.query(FinancialWidget)
-            .filter(
-                FinancialWidget.condominio_id == condominio_id,
-                FinancialWidget.data_source == data_source,
-            )
-            .all()
-        )
+        query = _scope_by_condominio(self.db.query(FinancialWidget), condominio_id)
+        return query.filter(FinancialWidget.data_source == data_source).all()
 
     def get_needing_refresh(
         self,
@@ -332,13 +339,9 @@ class WidgetRepository:
     ) -> list[FinancialWidget]:
         """Lista widgets que precisam refresh."""
         datetime.utcnow()
-        return (
-            self.db.query(FinancialWidget)
-            .filter(
-                FinancialWidget.condominio_id == condominio_id,
-                FinancialWidget.is_visible,
-                FinancialWidget.last_updated_at
-                < func.now() - func.cast(FinancialWidget.cache_ttl_seconds, type_=func.Integer),
-            )
-            .all()
-        )
+        query = _scope_by_condominio(self.db.query(FinancialWidget), condominio_id)
+        return query.filter(
+            FinancialWidget.is_visible,
+            FinancialWidget.last_updated_at
+            < func.now() - func.cast(FinancialWidget.cache_ttl_seconds, type_=func.Integer),
+        ).all()

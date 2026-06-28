@@ -57,7 +57,7 @@ class CustomerBase(BaseModel):
 
     # Cobranca
     billing_email: str | None = Field(None, max_length=200)
-    billing_day: str | None = Field(None, max_length=2)
+    billing_day: int | None = Field(None)
     auto_billing: bool = True
 
     # Notificacoes
@@ -101,7 +101,7 @@ class CustomerUpdate(BaseModel):
 
     credit_limit: Decimal | None = Field(None, ge=0)
     billing_email: str | None = Field(None, max_length=200)
-    billing_day: str | None = Field(None, max_length=2)
+    billing_day: int | None = Field(None)
     auto_billing: bool | None = None
 
     notify_email: bool | None = None

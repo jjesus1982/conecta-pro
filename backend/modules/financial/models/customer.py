@@ -1,6 +1,7 @@
 """Model para clientes/devedores de contas a receber."""
 
 import uuid
+from sqlalchemy import Integer
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -91,7 +92,7 @@ class Customer(Base):
 
     # Cobranca
     billing_email = Column(String(200), nullable=True)  # Email para cobranca
-    billing_day = Column(String(2), nullable=True)  # Dia preferencial cobranca
+    billing_day = Column(Integer, nullable=True)  # Dia preferencial cobranca
     auto_billing = Column(Boolean, default=True)  # Gerar cobranca automatica
 
     # Notificacoes

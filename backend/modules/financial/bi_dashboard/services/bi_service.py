@@ -233,7 +233,7 @@ class BIService:
         except (SyntaxError, NameError, TypeError):
             return 0.0
 
-    def get_financial_summary(self, period_days: int = 30) -> dict:
+    def get_financial_summary(self, condominio_id=None, period_days: int = 30) -> dict:
         """Retorna resumo financeiro consolidado."""
         end_date = datetime.utcnow()
         start_date = end_date - timedelta(days=period_days)

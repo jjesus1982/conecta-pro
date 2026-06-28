@@ -6,7 +6,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import String, and_, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -40,6 +40,8 @@ class BankAccountRepository:
 
     async def create(self, account: BankAccount) -> BankAccount:
         """Cria conta bancaria."""
+        if isinstance(account, dict):
+            account = BankAccount(**account)
         self.session.add(account)
         await self.session.flush()
         await self.session.refresh(account)
@@ -184,6 +186,8 @@ class BankTransactionRepository:
 
     async def create(self, transaction: BankTransaction) -> BankTransaction:
         """Cria movimentacao."""
+        if isinstance(transaction, dict):
+            transaction = BankTransaction(**transaction)
         self.session.add(transaction)
         await self.session.flush()
         await self.session.refresh(transaction)
@@ -447,6 +451,8 @@ class CashFlowEntryRepository:
 
     async def create(self, entry: CashFlowEntry) -> CashFlowEntry:
         """Cria lancamento."""
+        if isinstance(entry, dict):
+            entry = CashFlowEntry(**entry)
         self.session.add(entry)
         await self.session.flush()
         await self.session.refresh(entry)
@@ -480,11 +486,12 @@ class CashFlowEntryRepository:
 
         if filters:
             if filters.entry_type:
-                query = query.where(CashFlowEntry.entry_type == filters.entry_type)
+                # colunas enum nativas: cast p/ texto evita "operator does not exist"
+                query = query.where(cast(CashFlowEntry.entry_type, String) == str(filters.entry_type))
             if filters.source_type:
-                query = query.where(CashFlowEntry.source_type == filters.source_type)
+                query = query.where(cast(CashFlowEntry.source_type, String) == str(filters.source_type))
             if filters.status:
-                query = query.where(CashFlowEntry.status == filters.status)
+                query = query.where(cast(CashFlowEntry.status, String) == str(filters.status))
             if filters.bank_account_id:
                 query = query.where(CashFlowEntry.bank_account_id == filters.bank_account_id)
             if filters.start_date:
@@ -502,7 +509,7 @@ class CashFlowEntryRepository:
                 query = query.where(
                     and_(
                         CashFlowEntry.due_date < today,
-                        CashFlowEntry.status.in_(
+                        cast(CashFlowEntry.status, String).in_(
                             [
                                 CashFlowEntryStatus.PREVISTO.value,
                                 CashFlowEntryStatus.CONFIRMADO.value,
@@ -601,7 +608,7 @@ class CashFlowEntryRepository:
         query = select(CashFlowEntry).where(
             and_(
                 CashFlowEntry.condominio_id == condominio_id,
-                CashFlowEntry.status.in_(
+                cast(CashFlowEntry.status, String).in_(
                     [
                         CashFlowEntryStatus.PREVISTO.value,
                         CashFlowEntryStatus.CONFIRMADO.value,
@@ -612,7 +619,7 @@ class CashFlowEntryRepository:
         )
 
         if entry_type:
-            query = query.where(CashFlowEntry.entry_type == entry_type)
+            query = query.where(cast(CashFlowEntry.entry_type, String) == str(entry_type))
 
         query = query.order_by(CashFlowEntry.due_date)
         result = await self.session.execute(query)
@@ -654,6 +661,8 @@ class CashFlowForecastRepository:
 
     async def create(self, forecast: CashFlowForecast) -> CashFlowForecast:
         """Cria previsao."""
+        if isinstance(forecast, dict):
+            forecast = CashFlowForecast(**forecast)
         self.session.add(forecast)
         await self.session.flush()
         await self.session.refresh(forecast)
@@ -687,25 +696,17 @@ class CashFlowForecastRepository:
 
         if filters:
             if filters.status:
-                query = query.where(CashFlowForecast.status == filters.status)
+                query = query.where(cast(CashFlowForecast.status, String) == str(filters.status))
             if filters.period_type:
-                query = query.where(CashFlowForecast.period_type == filters.period_type)
+                query = query.where(cast(CashFlowForecast.period_type, String) == str(filters.period_type))
             if filters.start_date:
                 query = query.where(CashFlowForecast.period_start >= filters.start_date)
             if filters.end_date:
                 query = query.where(CashFlowForecast.period_end <= filters.end_date)
             if filters.ai_generated is not None:
-                query = query.where(CashFlowForecast.ai_generated == filters.ai_generated)
-            if filters.has_alerts:
-                query = query.where(
-                    or_(
-                        CashFlowForecast.has_negative_balance_alert.is_(True),  # noqa: E712
-                        CashFlowForecast.has_high_outflow_alert.is_(True),  # noqa: E712
-                        CashFlowForecast.has_low_inflow_alert.is_(True),  # noqa: E712
-                    )
-                )
+                query = query.where(CashFlowForecast.is_ai_generated == filters.ai_generated)
 
-        query = query.order_by(CashFlowForecast.forecast_date.desc())
+        query = query.order_by(CashFlowForecast.created_at.desc())
         query = query.offset(skip).limit(limit)
 
         result = await self.session.execute(query)
@@ -725,7 +726,7 @@ class CashFlowForecastRepository:
         )
 
         if filters and filters.status:
-            query = query.where(CashFlowForecast.status == filters.status)
+            query = query.where(cast(CashFlowForecast.status, String) == str(filters.status))
 
         result = await self.session.execute(query)
         return result.scalar_one()
@@ -759,20 +760,21 @@ class CashFlowForecastRepository:
             return True
         return False
 
-    async def get_active(self, condominio_id: UUID) -> CashFlowForecast | None:
-        """Busca previsao ativa atual."""
-        today = date.today()
-        query = select(CashFlowForecast).where(
-            and_(
-                CashFlowForecast.condominio_id == condominio_id,
-                CashFlowForecast.status == ForecastStatus.ATIVA.value,
-                CashFlowForecast.period_start <= today,
-                CashFlowForecast.period_end >= today,
-                CashFlowForecast.ativo.is_(True),  # noqa: E712
-            )
+    async def get_active(self, condominio_id: UUID | None = None) -> builtins.list[CashFlowForecast]:
+        """Lista previsoes ativas (status 'ativo') do condominio."""
+        conditions = [
+            cast(CashFlowForecast.status, String) == ForecastStatus.ATIVA.value,
+            CashFlowForecast.ativo.is_(True),  # noqa: E712
+        ]
+        if condominio_id is not None:
+            conditions.append(CashFlowForecast.condominio_id == condominio_id)
+        query = (
+            select(CashFlowForecast)
+            .where(and_(*conditions))
+            .order_by(CashFlowForecast.period_start.desc())
         )
         result = await self.session.execute(query)
-        return result.scalar_one_or_none()
+        return list(result.scalars().all())
 
     async def get_by_period(
         self,

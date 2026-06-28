@@ -23,6 +23,60 @@ from modules.financial.models.stock_reservation import ReservationStatus, StockR
 from modules.financial.models.warehouse import Warehouse, WarehouseStatus
 
 # =============================================================================
+# Mapeamento enum Python (PT) -> label real do enum nativo no Postgres (EN).
+#
+# As colunas status/movement_type/inventory_type/reservation_type estao
+# declaradas como String(...) nos models, porem no banco sao tipos ENUM nativos
+# com labels em ingles maiusculo (ex.: 'CONFIRMED', 'DRAFT', 'IN_PROGRESS').
+# Comparar a coluna com o .value em portugues ('confirmada', 'rascunho', ...)
+# gera InvalidTextRepresentation (500). _db_label traduz para o label real.
+# =============================================================================
+_ENUM_DB_LABELS: dict = {
+    # MovementStatus -> movementstatus
+    MovementStatus.RASCUNHO: "DRAFT",
+    MovementStatus.PENDENTE: "PENDING",
+    MovementStatus.APROVADA: "PENDING",
+    MovementStatus.CONFIRMADA: "CONFIRMED",
+    MovementStatus.CANCELADA: "CANCELLED",
+    MovementStatus.ESTORNADA: "REVERSED",
+    # MovementType -> movementtype
+    MovementType.ENTRADA: "ENTRY",
+    MovementType.SAIDA: "EXIT",
+    MovementType.TRANSFERENCIA: "TRANSFER_OUT",
+    MovementType.AJUSTE_POSITIVO: "ADJUSTMENT_PLUS",
+    MovementType.AJUSTE_NEGATIVO: "ADJUSTMENT_MINUS",
+    MovementType.DEVOLUCAO_CLIENTE: "RETURN_CUSTOMER",
+    MovementType.DEVOLUCAO_FORNECEDOR: "RETURN_SUPPLIER",
+    MovementType.PRODUCAO: "PRODUCTION_IN",
+    MovementType.CONSUMO: "PRODUCTION_OUT",
+    MovementType.PERDA: "SCRAP",
+    MovementType.BONIFICACAO: "EXIT",
+    # InventoryStatus -> inventorystatus
+    InventoryStatus.PLANEJADO: "SCHEDULED",
+    InventoryStatus.EM_ANDAMENTO: "IN_PROGRESS",
+    InventoryStatus.CONTAGEM: "COUNTING",
+    InventoryStatus.RECONFERENCIA: "REVIEW",
+    InventoryStatus.AGUARDANDO_APROVACAO: "REVIEW",
+    InventoryStatus.APROVADO: "ADJUSTMENT",
+    InventoryStatus.AJUSTADO: "ADJUSTMENT",
+    InventoryStatus.FINALIZADO: "COMPLETED",
+    InventoryStatus.CANCELADO: "CANCELLED",
+    # ReservationStatus -> reservationstatus
+    ReservationStatus.ATIVA: "CONFIRMED",
+    ReservationStatus.PARCIALMENTE_ATENDIDA: "PARTIAL",
+    ReservationStatus.ATENDIDA: "CONSUMED",
+    ReservationStatus.EXPIRADA: "EXPIRED",
+    ReservationStatus.CANCELADA: "RELEASED",
+    ReservationStatus.LIBERADA: "RELEASED",
+}
+
+
+def _db_label(member):
+    """Traduz um membro de enum (PT) para o label real do enum nativo no Postgres."""
+    return _ENUM_DB_LABELS.get(member, getattr(member, "value", member))
+
+
+# =============================================================================
 # Warehouse Repository
 # =============================================================================
 
@@ -466,9 +520,9 @@ class StockMovementRepository:
         if product_id:
             query = query.filter(StockMovement.product_id == product_id)
         if movement_type:
-            query = query.filter(StockMovement.movement_type == movement_type.value)
+            query = query.filter(StockMovement.movement_type == _db_label(movement_type))
         if status:
-            query = query.filter(StockMovement.status == status.value)
+            query = query.filter(StockMovement.status == _db_label(status))
         if date_from:
             query = query.filter(StockMovement.movement_date >= date_from)
         if date_to:
@@ -491,8 +545,8 @@ class StockMovementRepository:
                     StockMovement.ativo.is_(True),
                     StockMovement.status.in_(
                         [
-                            MovementStatus.RASCUNHO.value,
-                            MovementStatus.PENDENTE.value,
+                            _db_label(MovementStatus.RASCUNHO),
+                            _db_label(MovementStatus.PENDENTE),
                         ]
                     ),
                 )
@@ -535,9 +589,9 @@ class StockMovementRepository:
         )
 
         if status:
-            query = query.filter(StockMovement.status == status.value)
+            query = query.filter(StockMovement.status == _db_label(status))
         if movement_type:
-            query = query.filter(StockMovement.movement_type == movement_type.value)
+            query = query.filter(StockMovement.movement_type == _db_label(movement_type))
 
         return query.scalar() or 0
 
@@ -564,7 +618,7 @@ class StockMovementRepository:
             and_(
                 StockMovement.condominio_id == condominio_id,
                 StockMovement.ativo.is_(True),
-                StockMovement.status == MovementStatus.CONFIRMADA.value,
+                StockMovement.status == _db_label(MovementStatus.CONFIRMADA),
             )
         )
 
@@ -577,9 +631,9 @@ class StockMovementRepository:
         entries = query.filter(
             StockMovement.movement_type.in_(
                 [
-                    MovementType.ENTRADA.value,
-                    MovementType.AJUSTE_POSITIVO.value,
-                    MovementType.DEVOLUCAO_CLIENTE.value,
+                    _db_label(MovementType.ENTRADA),
+                    _db_label(MovementType.AJUSTE_POSITIVO),
+                    _db_label(MovementType.DEVOLUCAO_CLIENTE),
                 ]
             )
         ).count()
@@ -587,21 +641,23 @@ class StockMovementRepository:
         exits = query.filter(
             StockMovement.movement_type.in_(
                 [
-                    MovementType.SAIDA.value,
-                    MovementType.AJUSTE_NEGATIVO.value,
-                    MovementType.DEVOLUCAO_FORNECEDOR.value,
-                    MovementType.PERDA.value,
+                    _db_label(MovementType.SAIDA),
+                    _db_label(MovementType.AJUSTE_NEGATIVO),
+                    _db_label(MovementType.DEVOLUCAO_FORNECEDOR),
+                    _db_label(MovementType.PERDA),
                 ]
             )
         ).count()
 
-        transfers = query.filter(StockMovement.movement_type == MovementType.TRANSFERENCIA.value).count()
+        transfers = query.filter(
+            StockMovement.movement_type == _db_label(MovementType.TRANSFERENCIA)
+        ).count()
 
         adjustments = query.filter(
             StockMovement.movement_type.in_(
                 [
-                    MovementType.AJUSTE_POSITIVO.value,
-                    MovementType.AJUSTE_NEGATIVO.value,
+                    _db_label(MovementType.AJUSTE_POSITIVO),
+                    _db_label(MovementType.AJUSTE_NEGATIVO),
                 ]
             )
         ).count()
@@ -613,11 +669,11 @@ class StockMovementRepository:
                 and_(
                     StockMovement.condominio_id == condominio_id,
                     StockMovement.ativo.is_(True),
-                    StockMovement.status == MovementStatus.CONFIRMADA.value,
+                    StockMovement.status == _db_label(MovementStatus.CONFIRMADA),
                     StockMovement.movement_type.in_(
                         [
-                            MovementType.ENTRADA.value,
-                            MovementType.AJUSTE_POSITIVO.value,
+                            _db_label(MovementType.ENTRADA),
+                            _db_label(MovementType.AJUSTE_POSITIVO),
                         ]
                     ),
                 )
@@ -631,11 +687,11 @@ class StockMovementRepository:
                 and_(
                     StockMovement.condominio_id == condominio_id,
                     StockMovement.ativo.is_(True),
-                    StockMovement.status == MovementStatus.CONFIRMADA.value,
+                    StockMovement.status == _db_label(MovementStatus.CONFIRMADA),
                     StockMovement.movement_type.in_(
                         [
-                            MovementType.SAIDA.value,
-                            MovementType.AJUSTE_NEGATIVO.value,
+                            _db_label(MovementType.SAIDA),
+                            _db_label(MovementType.AJUSTE_NEGATIVO),
                         ]
                     ),
                 )
@@ -737,7 +793,7 @@ class StockInventoryRepository:
         if warehouse_id:
             query = query.filter(StockInventory.warehouse_id == warehouse_id)
         if status:
-            query = query.filter(StockInventory.status == status.value)
+            query = query.filter(StockInventory.status == _db_label(status))
 
         return query.order_by(StockInventory.planned_date.desc()).offset(skip).limit(limit).all()
 
@@ -751,9 +807,9 @@ class StockInventoryRepository:
                     StockInventory.ativo.is_(True),
                     StockInventory.status.in_(
                         [
-                            InventoryStatus.EM_ANDAMENTO.value,
-                            InventoryStatus.CONTAGEM.value,
-                            InventoryStatus.RECONFERENCIA.value,
+                            _db_label(InventoryStatus.EM_ANDAMENTO),
+                            _db_label(InventoryStatus.CONTAGEM),
+                            _db_label(InventoryStatus.RECONFERENCIA),
                         ]
                     ),
                 )
@@ -775,7 +831,7 @@ class StockInventoryRepository:
         )
 
         if status:
-            query = query.filter(StockInventory.status == status.value)
+            query = query.filter(StockInventory.status == _db_label(status))
 
         return query.scalar() or 0
 
@@ -805,7 +861,7 @@ class StockInventoryRepository:
             .filter(
                 and_(
                     StockInventory.condominio_id == condominio_id,
-                    StockInventory.status == InventoryStatus.FINALIZADO.value,
+                    StockInventory.status == _db_label(InventoryStatus.FINALIZADO),
                     StockInventory.accuracy_rate.isnot(None),
                 )
             )
@@ -992,7 +1048,7 @@ class StockReservationRepository:
         if warehouse_id:
             query = query.filter(StockReservation.warehouse_id == warehouse_id)
         if status:
-            query = query.filter(StockReservation.status == status.value)
+            query = query.filter(StockReservation.status == _db_label(status))
 
         return query.order_by(StockReservation.required_date.asc()).offset(skip).limit(limit).all()
 
@@ -1004,7 +1060,7 @@ class StockReservationRepository:
                 and_(
                     StockReservation.product_id == product_id,
                     StockReservation.warehouse_id == warehouse_id,
-                    StockReservation.status == ReservationStatus.ATIVA.value,
+                    StockReservation.status == _db_label(ReservationStatus.ATIVA),
                     StockReservation.ativo.is_(True),
                 )
             )
@@ -1020,7 +1076,7 @@ class StockReservationRepository:
             .filter(
                 and_(
                     StockReservation.condominio_id == condominio_id,
-                    StockReservation.status == ReservationStatus.ATIVA.value,
+                    StockReservation.status == _db_label(ReservationStatus.ATIVA),
                     StockReservation.expiry_date.isnot(None),
                     StockReservation.expiry_date <= expiry_limit,
                     StockReservation.ativo.is_(True),
@@ -1037,7 +1093,7 @@ class StockReservationRepository:
             .filter(
                 and_(
                     StockReservation.condominio_id == condominio_id,
-                    StockReservation.status == ReservationStatus.ATIVA.value,
+                    StockReservation.status == _db_label(ReservationStatus.ATIVA),
                     StockReservation.required_date.isnot(None),
                     StockReservation.required_date < datetime.utcnow(),
                     StockReservation.ativo.is_(True),
@@ -1073,7 +1129,7 @@ class StockReservationRepository:
                 and_(
                     StockReservation.product_id == product_id,
                     StockReservation.warehouse_id == warehouse_id,
-                    StockReservation.status == ReservationStatus.ATIVA.value,
+                    StockReservation.status == _db_label(ReservationStatus.ATIVA),
                     StockReservation.ativo.is_(True),
                 )
             )
@@ -1095,7 +1151,7 @@ class StockReservationRepository:
         )
 
         if status:
-            query = query.filter(StockReservation.status == status.value)
+            query = query.filter(StockReservation.status == _db_label(status))
 
         return query.scalar() or 0
 
@@ -1130,7 +1186,7 @@ class StockReservationRepository:
             .filter(
                 and_(
                     StockReservation.condominio_id == condominio_id,
-                    StockReservation.status == ReservationStatus.ATIVA.value,
+                    StockReservation.status == _db_label(ReservationStatus.ATIVA),
                     StockReservation.ativo.is_(True),
                 )
             )

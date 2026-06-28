@@ -60,9 +60,9 @@ class SupplierBase(BaseModel):
 
     # Condições comerciais
     payment_terms: PaymentTerms = PaymentTerms.DIAS_30
-    payment_terms_days: str | None = None
-    credit_limit: str | None = None
-    discount_percentage: str | None = None
+    payment_terms_days: int | None = None
+    credit_limit: float | None = None
+    discount_percentage: float | None = None
 
     # Retenções fiscais
     withhold_iss: bool = False
@@ -125,8 +125,8 @@ class SupplierUpdate(BaseModel):
 
     # Condições comerciais
     payment_terms: PaymentTerms | None = None
-    credit_limit: str | None = None
-    discount_percentage: str | None = None
+    credit_limit: float | None = None
+    discount_percentage: float | None = None
 
     # Retenções fiscais
     withhold_iss: bool | None = None
@@ -154,7 +154,7 @@ class SupplierResponse(SupplierBase):
     blocked_reason: str | None = None
     blocked_at: datetime | None = None
     rating: str | None = None
-    rating_count: str = "0"
+    rating_count: int = 0
     full_address: str | None = None
     bank_info: str | None = None
     is_active: bool

@@ -535,7 +535,7 @@ async def get_account_balance(
 # =============================================================================
 
 
-@router.get("/cost-centers", response_model=list[CostCenterListResponse])
+@router.get("/cost-centers", response_model=list[CostCenterResponse])
 async def list_cost_centers(
     center_type: CostCenterType | None = None,
     center_status: CostCenterStatus | None = None,
@@ -544,7 +544,7 @@ async def list_cost_centers(
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_sync_db_dependency),
     _current_user: dict = Depends(get_current_user),
-) -> list[CostCenterListResponse]:
+) -> list[CostCenterResponse]:
     """Lista centros de custo."""
     try:
         repo = CostCenterRepository(db)
@@ -556,7 +556,7 @@ async def list_cost_centers(
             skip=skip,
             limit=limit,
         )
-        return [CostCenterListResponse.model_validate(c) for c in centers]
+        return [CostCenterResponse.model_validate(c) for c in centers]
     except Exception as e:
         logger.error(f"Erro ao listar centros de custo: {e}")
         raise HTTPException(
@@ -601,16 +601,19 @@ async def create_cost_center(
                 detail=f"Centro de custo com codigo {data.code} ja existe",
             )
 
+        # Filtra o payload às colunas REAIS do model (robusto contra drift schema↔model)
+        _cols = {c.name for c in CostCenter.__table__.columns}
+        _payload = {k: v for k, v in data.model_dump(exclude={"cost_center_type", "center_type", "allocation_method"}).items() if k in _cols}
         center = CostCenter(
             condominio_id=getattr(_current_user, "condominio_id", None),
             status=CostCenterStatus.ACTIVE,
             created_by=_current_user.id,
-            **data.model_dump(exclude={"center_type", "allocation_method"}),
+            **_payload,
         )
 
-        if data.center_type:
-            center.center_type = data.center_type
-        if data.allocation_method:
+        if getattr(data, "cost_center_type", None) and hasattr(center, "center_type"):
+            center.center_type = data.cost_center_type
+        if data.allocation_method and hasattr(center, "allocation_method"):
             center.allocation_method = data.allocation_method
 
         center = repo.create(center)
@@ -691,7 +694,7 @@ async def update_cost_center(
 # =============================================================================
 
 
-@router.get("/periods", response_model=list[AccountingPeriodListResponse])
+@router.get("/periods", response_model=list[AccountingPeriodResponse])
 async def list_periods(
     year: int | None = None,
     period_type: PeriodType | None = None,
@@ -700,7 +703,7 @@ async def list_periods(
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_sync_db_dependency),
     _current_user: dict = Depends(get_current_user),
-) -> list[AccountingPeriodListResponse]:
+) -> list[AccountingPeriodResponse]:
     """Lista periodos contabeis."""
     try:
         repo = AccountingPeriodRepository(db)
@@ -712,7 +715,7 @@ async def list_periods(
             skip=skip,
             limit=limit,
         )
-        return [AccountingPeriodListResponse.model_validate(p) for p in periods]
+        return [AccountingPeriodResponse.model_validate(p) for p in periods]
     except Exception as e:
         logger.error(f"Erro ao listar periodos: {e}")
         raise HTTPException(
@@ -954,7 +957,7 @@ async def reopen_period(
 # =============================================================================
 
 
-@router.get("/journal-entries", response_model=list[JournalEntryListResponse])
+@router.get("/journal-entries", response_model=JournalEntryListResponse)
 async def list_journal_entries(
     period_id: uuid.UUID | None = None,
     entry_type: EntryType | None = None,
@@ -966,7 +969,7 @@ async def list_journal_entries(
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_sync_db_dependency),
     _current_user: dict = Depends(get_current_user),
-) -> list[JournalEntryListResponse]:
+) -> JournalEntryListResponse:
     """Lista lancamentos contabeis."""
     try:
         repo = JournalEntryRepository(db)
@@ -981,7 +984,15 @@ async def list_journal_entries(
             skip=skip,
             limit=limit,
         )
-        return [JournalEntryListResponse.model_validate(e) for e in entries]
+        # Cada item é JournalEntryResponse; a resposta é o wrapper paginado (a tela lê .items)
+        items = [JournalEntryResponse.model_validate(e) for e in entries]
+        return JournalEntryListResponse(
+            items=items,
+            total=len(items),
+            page=(skip // limit) + 1 if limit else 1,
+            per_page=limit,
+            pages=max(1, (len(items) + limit - 1) // limit) if limit else 1,
+        )
     except Exception as e:
         logger.error(f"Erro ao listar lancamentos: {e}")
         raise HTTPException(

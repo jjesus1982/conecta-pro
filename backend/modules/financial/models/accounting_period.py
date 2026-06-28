@@ -39,6 +39,7 @@ class PeriodType(StrEnum):
 class PeriodStatus(StrEnum):
     """Status do período contábil."""
 
+    PENDING = "PENDING"  # Pendente (drift do banco)
     FUTURE = "FUTURE"  # Futuro (não iniciado)
     OPEN = "OPEN"  # Aberto (aceita lançamentos)
     CLOSING = "CLOSING"  # Em fechamento

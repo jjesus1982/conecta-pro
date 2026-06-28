@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from statistics import mean, stdev
 from uuid import UUID
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, literal_column, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.financial.models.payable_account import PayableAccount, PayableStatus
@@ -289,9 +289,14 @@ class PayableAIService:
         # Busca dados históricos dos últimos 12 meses
         history_start = today - timedelta(days=365)
 
+        # Unidade inline (literal_column) para que date_trunc renderize de forma
+        # idêntica em SELECT/GROUP BY/ORDER BY. Se "month" virar bind param, o
+        # Postgres trata cada ocorrência como expressão distinta e exige due_date
+        # no GROUP BY (asyncpg GroupingError).
+        month_expr = func.date_trunc(literal_column("'month'"), PayableAccount.due_date)
         query = (
             select(
-                func.date_trunc("month", PayableAccount.due_date).label("month"),
+                month_expr.label("month"),
                 func.sum(PayableAccount.net_value).label("total"),
             )
             .where(
@@ -302,8 +307,8 @@ class PayableAIService:
                     PayableAccount.due_date <= today,
                 )
             )
-            .group_by(func.date_trunc("month", PayableAccount.due_date))
-            .order_by(func.date_trunc("month", PayableAccount.due_date))
+            .group_by(month_expr)
+            .order_by(month_expr)
         )
 
         result = await self.session.execute(query)

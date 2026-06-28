@@ -1,6 +1,7 @@
 """Model para regras de cobranca automatica."""
 
 import uuid
+from sqlalchemy import Integer
 from datetime import date, datetime, time
 from enum import StrEnum
 
@@ -18,7 +19,7 @@ from sqlalchemy import (
     Text,
     Time,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 
 from core.models import Base
 
@@ -129,9 +130,9 @@ class BillingRule(Base):
 
     # Notificacoes
     notifications_enabled = Column(Boolean, default=True)
-    notification_channels = Column(JSONB, default=["email", "push"])
+    notification_channels = Column(ARRAY(String), default=["email", "push"])
     # Dias antes do vencimento para notificar
-    notify_before_days = Column(JSONB, default=[7, 3, 1])
+    notify_before_days = Column(ARRAY(Integer), default=[7, 3, 1])
     # Dias apos vencimento para notificar
     notify_after_days = Column(JSONB, default=[1, 3, 7, 15, 30])
 

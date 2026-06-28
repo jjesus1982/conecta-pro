@@ -838,7 +838,10 @@ async def get_customer_risk(
     current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
 ) -> dict[str, Any]:
     """Retorna analise de risco do cliente usando IA."""
-    risk = await ai_service.calculate_customer_risk(customer_id)
+    try:
+        risk = await ai_service.calculate_customer_risk(customer_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     return {
         "customer_id": str(risk.customer_id),
         "risk_score": risk.risk_score,

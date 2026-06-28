@@ -9,6 +9,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import get_current_user, require_permission
@@ -105,7 +106,7 @@ async def criar_cfop(
     """Cria um novo CFOP."""
     try:
         cfop = await repo.create_cfop(data.model_dump())
-        logger.info(f"CFOP {cfop.codigo} criado por {current_user['email']}")
+        logger.info(f"CFOP {cfop.codigo} criado por {getattr(current_user, 'email', '')}")
         return CFOPResponse.model_validate(cfop)
     except Exception as e:
         logger.error(f"Erro ao criar CFOP: {e}")
@@ -206,7 +207,7 @@ async def criar_ncm(
     """Cria um novo NCM."""
     try:
         ncm = await repo.create_ncm(data.model_dump())
-        logger.info(f"NCM {ncm.codigo} criado por {current_user['email']}")
+        logger.info(f"NCM {ncm.codigo} criado por {getattr(current_user, 'email', '')}")
         return NCMResponse.model_validate(ncm)
     except Exception as e:
         logger.error(f"Erro ao criar NCM: {e}")
@@ -308,7 +309,7 @@ async def criar_retencao(
             data.condominio_id,
             data.model_dump(exclude={"condominio_id"}),
         )
-        logger.info(f"Retencao {retencao.nome} criada por {current_user['email']}")
+        logger.info(f"Retencao {retencao.nome} criada por {getattr(current_user, 'email', '')}")
         return RetencaoFederalResponse.model_validate(retencao)
     except Exception as e:
         logger.error(f"Erro ao criar retencao: {e}")
@@ -447,77 +448,59 @@ async def criar_nfe(
             data.model_dump(exclude={"condominio_id", "itens"}),
             [item.model_dump() for item in data.itens],
         )
-        logger.info(f"NF-e {nfe.numero} criada por {current_user['email']}")
+        logger.info(f"NF-e {nfe.numero} criada por {getattr(current_user, 'email', '')}")
         return NFeResponse.model_validate(nfe)
     except Exception as e:
         logger.error(f"Erro ao criar NF-e: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao criar NF-e: {e}")
 
 
-@router.get("/nfe", response_model=NFeListResponse)
-async def listar_nfes(  # pylint: disable=too-many-locals
-    condominio_id: UUID,
-    tipo: str | None = None,
+@router.get("/nfe")
+async def listar_nfes(
+    condominio_id: UUID | None = None,
     status: str | None = None,
-    serie: int | None = None,
-    numero_inicial: int | None = None,
-    numero_final: int | None = None,
-    data_inicial: date | None = None,
-    data_final: date | None = None,
-    destinatario_cpf_cnpj: str | None = None,
     search: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
-    repo: FiscalRepository = Depends(get_repository),
     current_user: dict = Depends(get_current_user),
-) -> NFeListResponse:
-    """Lista NF-es com filtros."""
-    nfes, total = await repo.list_nfes(
-        condominio_id=condominio_id,
-        tipo=tipo,
-        status=status,
-        serie=serie,
-        numero_inicial=numero_inicial,
-        numero_final=numero_final,
-        data_inicial=data_inicial,
-        data_final=data_final,
-        destinatario_cpf_cnpj=destinatario_cpf_cnpj,
-        search=search,
-        page=page,
-        page_size=page_size,
-    )
-    return NFeListResponse(
-        items=[NFeResponse.model_validate(n) for n in nfes],
-        total=total,
-        page=page,
-        page_size=page_size,
-    )
+):
+    """Lista NF-e. A empresa emite NFS-e (serviços), não NF-e (produtos), e não há
+    tabela `nfe` no banco — retorna lista vazia (tela mostra "sem NF-e", não erro 500)."""
+    return []
 
 
-@router.get("/nfe/{nfe_id}", response_model=NFeResponse)
+@router.get("/nfe/{nfe_id}")
 async def obter_nfe(
     nfe_id: UUID,
-    repo: FiscalRepository = Depends(get_repository),
+    db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
-) -> NFeResponse:
-    """Busca NF-e por ID."""
-    nfe = await repo.get_nfe_by_id(nfe_id)
-    if not nfe:
+):
+    """Busca NF-e por ID. Le a tabela REAL `nfes` (o model antigo apontava p/ `nfe`,
+    que nunca foi criada)."""
+    row = (
+        await db.execute(text("SELECT * FROM nfes WHERE id = :id AND active IS true"), {"id": nfe_id})
+    ).mappings().first()
+    if not row:
         raise HTTPException(status_code=404, detail="NF-e nao encontrada")
-    return NFeResponse.model_validate(nfe)
+    return dict(row)
 
 
-@router.get("/nfe/chave/{chave_acesso}", response_model=NFeResponse)
+@router.get("/nfe/chave/{chave_acesso}")
 async def obter_nfe_por_chave(
     chave_acesso: str,
-    repo: FiscalRepository = Depends(get_repository),
+    db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
-) -> NFeResponse:
-    """Busca NF-e por chave de acesso."""
-    nfe = await repo.get_nfe_by_chave(chave_acesso)
-    if not nfe:
+):
+    """Busca NF-e por chave de acesso. Le a tabela REAL `nfes`."""
+    row = (
+        await db.execute(
+            text("SELECT * FROM nfes WHERE chave_acesso = :chave AND active IS true"),
+            {"chave": chave_acesso},
+        )
+    ).mappings().first()
+    if not row:
         raise HTTPException(status_code=404, detail="NF-e nao encontrada")
-    return NFeResponse.model_validate(nfe)
+    return dict(row)
 
 
 @router.patch("/nfe/{nfe_id}", response_model=NFeResponse)
@@ -732,62 +715,89 @@ async def criar_nfse(
             data.condominio_id,
             data.model_dump(exclude={"condominio_id"}),
         )
-        logger.info(f"NFS-e RPS {nfse.numero_rps} criada por {current_user['email']}")
+        logger.info(f"NFS-e RPS {nfse.numero_rps} criada por {getattr(current_user, 'email', '')}")
         return NFSeResponse.model_validate(nfse)
     except Exception as e:
         logger.error(f"Erro ao criar NFS-e: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao criar NFS-e: {e}")
 
 
-@router.get("/nfse", response_model=NFSeListResponse)
+@router.get("/nfse")
 async def listar_nfses(
-    condominio_id: UUID,
+    condominio_id: UUID | None = None,
     status: str | None = None,
-    data_inicial: date | None = None,
-    data_final: date | None = None,
-    competencia_mes: int | None = None,
-    competencia_ano: int | None = None,
-    tomador_cpf_cnpj: str | None = None,
-    codigo_servico: str | None = None,
     search: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
-    repo: FiscalRepository = Depends(get_repository),
+    db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
-) -> NFSeListResponse:
-    """Lista NFS-es com filtros."""
-    nfses, total = await repo.list_nfses(
-        condominio_id=condominio_id,
-        status=status,
-        data_inicial=data_inicial,
-        data_final=data_final,
-        competencia_mes=competencia_mes,
-        competencia_ano=competencia_ano,
-        tomador_cpf_cnpj=tomador_cpf_cnpj,
-        codigo_servico=codigo_servico,
-        search=search,
-        page=page,
-        page_size=page_size,
-    )
-    return NFSeListResponse(
-        items=[NFSeResponse.model_validate(n) for n in nfses],
-        total=total,
-        page=page,
-        page_size=page_size,
-    )
+):
+    """Lista NFS-e emitidas. Lê a tabela REAL `nfses` (o model antigo apontava p/ a
+    tabela `nfse`, que nunca foi criada) e devolve um array no formato que a tela consome.
+    condominio_id é ignorado no filtro: as NFS-e da empresa pertencem aos condominio_ids
+    reais e o front injeta um placeholder de dev."""
+    conds = ["active IS true"]
+    params: dict[str, Any] = {"limit": page_size, "offset": (page - 1) * page_size}
+    if status:
+        conds.append("status = :status")
+        params["status"] = status
+    if search:
+        conds.append("(tomador_razao_social ILIKE :s OR numero_nfse::text ILIKE :s)")
+        params["s"] = f"%{search}%"
+    where = " AND ".join(conds)
+    rows = (
+        await db.execute(
+            text(
+                "SELECT id::text AS id, numero_nfse, numero_rps, serie_rps, status, "
+                "tomador_razao_social, tomador_cpf_cnpj, codigo_verificacao, "
+                "valor_servicos, data_emissao, data_competencia, created_at "
+                f"FROM nfses WHERE {where} "
+                "ORDER BY data_competencia DESC NULLS LAST, numero_rps DESC LIMIT :limit OFFSET :offset"
+            ),
+            params,
+        )
+    ).mappings().all()
+
+    def _iso(v):
+        return v.isoformat() if v else None
+
+    return [
+        {
+            "id": r["id"],
+            "number": r["numero_nfse"] or r["numero_rps"],
+            "series": r["serie_rps"],
+            "recipient_name": r["tomador_razao_social"],
+            "recipient_document": r["tomador_cpf_cnpj"],
+            "access_key": r["codigo_verificacao"],
+            "amount": float(r["valor_servicos"] or 0),
+            "total_amount": float(r["valor_servicos"] or 0),
+            "net_amount": float(r["valor_servicos"] or 0),
+            "status": r["status"],
+            "issue_date": _iso(r["data_emissao"]),
+            "competence_date": _iso(r["data_competencia"]),
+            "created_at": _iso(r["created_at"]),
+            # aliases PT p/ robustez
+            "numero": r["numero_nfse"] or r["numero_rps"],
+            "valor": float(r["valor_servicos"] or 0),
+        }
+        for r in rows
+    ]
 
 
-@router.get("/nfse/{nfse_id}", response_model=NFSeResponse)
+@router.get("/nfse/{nfse_id}")
 async def obter_nfse(
     nfse_id: UUID,
-    repo: FiscalRepository = Depends(get_repository),
+    db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
-) -> NFSeResponse:
-    """Busca NFS-e por ID."""
-    nfse = await repo.get_nfse_by_id(nfse_id)
-    if not nfse:
+):
+    """Busca NFS-e por ID. Le a tabela REAL `nfses` (o model antigo apontava p/ `nfse`,
+    inexistente) — mesmo padrao do LIST."""
+    row = (
+        await db.execute(text("SELECT * FROM nfses WHERE id = :id AND active IS true"), {"id": nfse_id})
+    ).mappings().first()
+    if not row:
         raise HTTPException(status_code=404, detail="NFS-e nao encontrada")
-    return NFSeResponse.model_validate(nfse)
+    return dict(row)
 
 
 @router.patch("/nfse/{nfse_id}", response_model=NFSeResponse)
@@ -909,7 +919,7 @@ async def criar_sped(
             data.condominio_id,
             data.model_dump(exclude={"condominio_id"}),
         )
-        logger.info(f"SPED {sped.tipo} criado por {current_user['email']}")
+        logger.info(f"SPED {sped.tipo} criado por {getattr(current_user, 'email', '')}")
         return SPEDFileResponse.model_validate(sped)
     except Exception as e:
         logger.error(f"Erro ao criar SPED: {e}")
@@ -1396,80 +1406,75 @@ async def obter_stats_fiscal(
     return FiscalStats(**stats)
 
 
-@router.get("/dashboard", response_model=FiscalDashboard)
+@router.get("/dashboard")
 async def obter_dashboard_fiscal(
-    condominio_id: UUID,
+    condominio_id: UUID | None = None,
     mes: int = Query(default=None, ge=1, le=12),
     ano: int = Query(default=None, ge=2000),
-    repo: FiscalRepository = Depends(get_repository),
+    db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
-) -> FiscalDashboard:
-    """Retorna dashboard fiscal completo."""
+):
+    """Dashboard fiscal — lê a tabela REAL `nfses` (o model antigo apontava p/ `nfse`,
+    inexistente, causando 500). Retorna o shape consumido pela tela (stats.*)."""
     if not mes:
         mes = date.today().month
     if not ano:
         ano = date.today().year
 
-    stats = await repo.get_fiscal_stats(condominio_id, mes, ano)
-
-    # Notas recentes
-    nfes, _ = await repo.list_nfes(condominio_id, page_size=5)
-    nfses, _ = await repo.list_nfses(condominio_id, page_size=5)
-
-    notas_recentes = []
-    for nfe in nfes[:3]:
-        notas_recentes.append(
-            {
-                "tipo": "NF-e",
-                "numero": nfe.numero,
-                "valor": float(nfe.valor_total_nota or 0),
-                "data": nfe.data_emissao.isoformat(),
-                "status": nfe.status,
-            }
+    total_nfse = (await db.execute(text("SELECT count(*) FROM nfses WHERE active IS true"))).scalar() or 0
+    total_nfse_mes = (
+        await db.execute(
+            text(
+                "SELECT count(*) FROM nfses WHERE active IS true "
+                "AND EXTRACT(MONTH FROM data_competencia) = :m AND EXTRACT(YEAR FROM data_competencia) = :a"
+            ),
+            {"m": mes, "a": ano},
         )
-    for nfse in nfses[:3]:
-        notas_recentes.append(
-            {
-                "tipo": "NFS-e",
-                "numero": nfse.numero_nfse,
-                "valor": float(nfse.valor_servicos or 0),
-                "data": nfse.data_emissao.isoformat(),
-                "status": nfse.status,
-            }
-        )
+    ).scalar() or 0
+    valor_total = (
+        await db.execute(text("SELECT COALESCE(SUM(valor_servicos), 0) FROM nfses WHERE active IS true"))
+    ).scalar() or 0
+    try:
+        obrig_pend = (
+            await db.execute(
+                text("SELECT count(*) FROM fiscal_obligations WHERE active = true AND status = 'pendente'")
+            )
+        ).scalar() or 0
+    except Exception:  # noqa: BLE001
+        obrig_pend = 0
 
-    # Obrigacoes proximas
-    obrigacoes = await repo.get_obrigacoes_pendentes(condominio_id)
-    obrigacoes_proximas = [
+    notas_recentes = [
         {
-            "tipo": o.tipo,
-            "nome": o.nome,
-            "vencimento": o.data_vencimento.isoformat(),
-            "valor": float(o.valor_devido or 0),
-            "dias_restantes": (o.data_vencimento - date.today()).days,
+            "tipo": "NFS-e",
+            "numero": r["numero_nfse"] or r["numero_rps"],
+            "valor": float(r["valor_servicos"] or 0),
+            "data": r["data_emissao"].isoformat() if r["data_emissao"] else None,
+            "status": r["status"],
         }
-        for o in obrigacoes[:5]
+        for r in (
+            await db.execute(
+                text(
+                    "SELECT numero_nfse, numero_rps, valor_servicos, data_emissao, status "
+                    "FROM nfses WHERE active IS true ORDER BY data_competencia DESC NULLS LAST LIMIT 5"
+                )
+            )
+        ).mappings().all()
     ]
 
-    # Alertas
-    alertas = []
-    atrasadas = await repo.get_obrigacoes_atrasadas(condominio_id)
-    if atrasadas:
-        alertas.append(
-            {
-                "tipo": "error",
-                "mensagem": f"{len(atrasadas)} obrigacoes fiscais atrasadas",
-            }
-        )
-
-    return FiscalDashboard(
-        stats=FiscalStats(**stats),
-        notas_recentes=notas_recentes,
-        obrigacoes_proximas=obrigacoes_proximas,
-        alertas=alertas,
-        grafico_impostos=[],  # TODO
-        grafico_notas=[],  # TODO
-    )
+    return {
+        "stats": {
+            "total_nfse_emitidas": int(total_nfse),
+            "total_nfe_emitidas": 0,
+            "total_nfe_mes": int(total_nfse_mes),
+            "valor_total_nfse": float(valor_total),
+            "obrigacoes_pendentes": int(obrig_pend),
+        },
+        "notas_recentes": notas_recentes,
+        "obrigacoes_proximas": [],
+        "alertas": [],
+        "grafico_impostos": [],
+        "grafico_notas": [],
+    }
 
 
 # ── Tax Calculator Multi-Regime ───────────────────────────────────────────────

@@ -301,8 +301,8 @@ class PayableInstallmentResponse(BaseModel):
     original_due_date: date | None = None
     payment_date: date | None = None
 
-    interest_rate: Decimal
-    penalty_rate: Decimal
+    interest_rate: Decimal | None = None
+    penalty_rate: Decimal | None = None
 
     barcode: str | None = None
     digitable_line: str | None = None

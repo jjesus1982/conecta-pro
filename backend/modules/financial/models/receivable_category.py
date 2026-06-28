@@ -111,7 +111,10 @@ class ReceivableCategory(Base):
     @property
     def has_children(self) -> bool:
         """Verifica se tem subcategorias."""
-        return len(self.children) > 0 if self.children else False
+        try:
+            return len(self.children) > 0 if self.children else False
+        except Exception:
+            return False
 
     def to_dict(self) -> dict:
         """Converte para dicionario."""

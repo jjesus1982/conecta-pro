@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from modules.financial.bi_dashboard.models.dashboard_widget import (
     ChartType,
@@ -127,8 +127,10 @@ class WidgetResponse(WidgetBase):
 
     id: UUID
     dashboard_id: UUID
-    condominio_id: UUID
-    codigo: str
+    # condominio_id/codigo nao existem na tabela financial_widgets (schema real);
+    # o tenant e herdado do dashboard. Mantidos como opcionais p/ compatibilidade.
+    condominio_id: UUID | None = None
+    codigo: str | None = None
     position_x: int
     position_y: int
     width: int
@@ -170,6 +172,25 @@ class WidgetResponse(WidgetBase):
     updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator(
+        "query_params",
+        "filters",
+        "colors",
+        "aggregation",
+        "date_range_days",
+        "cache_ttl_seconds",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_nullable_defaults(cls, value, info):
+        """Colunas reais nullable (query_config, agregacao, filtros, periodo_dias,
+        cores, cache_ttl_segundos) podem estar NULL no banco; o ``default=`` do
+        model so vale no INSERT. Aplica o default declarado quando vier None."""
+        if value is None:
+            field = cls.model_fields[info.field_name]
+            return field.get_default(call_default_factory=True)
+        return value
 
 
 class WidgetData(BaseModel):

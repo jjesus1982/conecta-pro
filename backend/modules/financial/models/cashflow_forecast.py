@@ -1,4 +1,11 @@
-"""Model para previsoes de fluxo de caixa."""
+"""Model para previsoes de fluxo de caixa.
+
+ALINHADO AO SCHEMA REAL da tabela ``cashflow_forecasts`` (2026-06).
+Apenas as colunas que EXISTEM no banco sao mapeadas como ``Column``. Os campos
+que o schema de resposta (``CashFlowForecastResponse``) ainda exige, mas que NAO
+existem no banco, sao expostos como atributos de compatibilidade derivados das
+colunas reais (preenchidos no ``@orm.reconstructor`` apos o load).
+"""
 
 import uuid
 from datetime import date, datetime
@@ -12,47 +19,60 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
-    Integer,
     Numeric,
     String,
     Text,
+    orm,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm.attributes import set_committed_value
 
 from core.models import Base
 
 
 class ForecastPeriodType(StrEnum):
-    """Tipo de periodo da previsao."""
+    """Tipo de periodo da previsao (labels reais do enum forecastperiodtype)."""
 
     DIARIO = "diario"
     SEMANAL = "semanal"
+    QUINZENAL = "quinzenal"
     MENSAL = "mensal"
     TRIMESTRAL = "trimestral"
+    SEMESTRAL = "semestral"
+    ANUAL = "anual"
 
 
 class ForecastStatus(StrEnum):
-    """Status da previsao."""
+    """Status da previsao (labels reais do enum forecaststatus)."""
 
     RASCUNHO = "rascunho"
-    ATIVA = "ativa"
-    REVISADA = "revisada"
-    CONCLUIDA = "concluida"
-    ARQUIVADA = "arquivada"
+    ATIVA = "ativo"
+    REVISADA = "revisado"
+    CONCLUIDA = "encerrado"
+    ARQUIVADA = "arquivado"
 
 
 class ForecastConfidence(StrEnum):
-    """Nivel de confianca da previsao."""
+    """Nivel de confianca da previsao (labels reais do enum forecastconfidence)."""
 
-    MUITO_BAIXA = "muito_baixa"  # < 40%
-    BAIXA = "baixa"  # 40-60%
-    MEDIA = "media"  # 60-75%
-    ALTA = "alta"  # 75-90%
-    MUITO_ALTA = "muito_alta"  # > 90%
+    MUITO_BAIXA = "muito_baixa"
+    BAIXA = "baixa"
+    MEDIA = "media"
+    ALTA = "alta"
+    MUITO_ALTA = "muito_alta"
+
+
+_CONFIDENCE_LEVEL = {
+    ForecastConfidence.MUITO_BAIXA.value: 20,
+    ForecastConfidence.BAIXA.value: 50,
+    ForecastConfidence.MEDIA.value: 65,
+    ForecastConfidence.ALTA.value: 80,
+    ForecastConfidence.MUITO_ALTA.value: 95,
+}
 
 
 class CashFlowForecast(Base):
-    """Previsao de fluxo de caixa."""
+    """Previsao de fluxo de caixa (mapeada 1:1 com o schema real)."""
 
     __tablename__ = "cashflow_forecasts"
 
@@ -66,178 +86,150 @@ class CashFlowForecast(Base):
 
     # Identificacao
     name = Column(String(100), nullable=False)
-    description = Column(Text, nullable=True)
-    reference = Column(String(50), nullable=True)  # Ex: "2025/Q1"
 
-    # Periodo
+    # Periodo (status/period_type/confidence sao enums nativos no banco; mapeados
+    # como String e comparados via cast(...) no repository para evitar
+    # "operator does not exist: <enum> = character varying")
     period_type = Column(String(20), nullable=False, default=ForecastPeriodType.MENSAL.value)
     period_start = Column(Date, nullable=False)
     period_end = Column(Date, nullable=False)
-    forecast_date = Column(Date, nullable=False)  # Data para a qual a previsao foi feita
 
-    # Status
     status = Column(String(20), nullable=False, default=ForecastStatus.RASCUNHO.value)
+    confidence = Column(String(20), nullable=True)
 
-    # === PREVISOES (valores esperados) ===
-    # Entradas previstas
+    # Valores previstos / realizados / variacoes (colunas reais)
     expected_inflows = Column(Numeric(15, 2), default=Decimal("0"))
-    expected_receivables = Column(Numeric(15, 2), default=Decimal("0"))  # De contas a receber
-    expected_other_income = Column(Numeric(15, 2), default=Decimal("0"))  # Outros
-
-    # Saidas previstas
     expected_outflows = Column(Numeric(15, 2), default=Decimal("0"))
-    expected_payables = Column(Numeric(15, 2), default=Decimal("0"))  # De contas a pagar
-    expected_other_expenses = Column(Numeric(15, 2), default=Decimal("0"))  # Outros
+    expected_balance = Column(Numeric(15, 2), default=Decimal("0"))
 
-    # Saldos previstos
-    expected_opening_balance = Column(Numeric(15, 2), default=Decimal("0"))
-    expected_closing_balance = Column(Numeric(15, 2), default=Decimal("0"))
-    expected_net_flow = Column(Numeric(15, 2), default=Decimal("0"))  # Fluxo liquido
-
-    # === REALIZADOS (valores efetivos) ===
     actual_inflows = Column(Numeric(15, 2), nullable=True)
     actual_outflows = Column(Numeric(15, 2), nullable=True)
-    actual_opening_balance = Column(Numeric(15, 2), nullable=True)
-    actual_closing_balance = Column(Numeric(15, 2), nullable=True)
-    actual_net_flow = Column(Numeric(15, 2), nullable=True)
+    actual_balance = Column(Numeric(15, 2), nullable=True)
 
-    # === VARIACOES ===
-    inflows_variance = Column(Numeric(15, 2), nullable=True)
-    outflows_variance = Column(Numeric(15, 2), nullable=True)
-    balance_variance = Column(Numeric(15, 2), nullable=True)
-    inflows_variance_pct = Column(Numeric(8, 2), nullable=True)  # Percentual
-    outflows_variance_pct = Column(Numeric(8, 2), nullable=True)
-    balance_variance_pct = Column(Numeric(8, 2), nullable=True)
+    variance_inflows = Column(Numeric(15, 2), nullable=True)
+    variance_outflows = Column(Numeric(15, 2), nullable=True)
+    variance_balance = Column(Numeric(15, 2), nullable=True)
+    variance_percentage = Column(Numeric(8, 2), nullable=True)
 
-    # === IA E CONFIANCA ===
-    # Nivel de confianca da previsao
-    confidence_level = Column(Integer, default=50)  # 0-100
-    confidence_category = Column(
-        String(20),
-        default=ForecastConfidence.MEDIA.value,
-    )
+    pessimistic_balance = Column(Numeric(15, 2), nullable=True)
+    optimistic_balance = Column(Numeric(15, 2), nullable=True)
 
-    # Gerado por IA
-    ai_generated = Column(Boolean, default=False)
+    # IA
+    is_ai_generated = Column(Boolean, default=False)
     ai_model_version = Column(String(50), nullable=True)
-    ai_generated_at = Column(DateTime, nullable=True)
+    ai_accuracy_score = Column(Numeric(8, 2), nullable=True)
 
-    # Fatores considerados pela IA
-    ai_factors = Column(JSONB, default=dict)
-    # {"historico_pagamento": 0.85, "sazonalidade": 0.72, "inadimplencia": 0.15, ...}
-
-    # Riscos identificados
+    # JSONB
     risks = Column(JSONB, default=list)
-    # [{"type": "inadimplencia", "probability": 0.3, "impact": 5000, "mitigation": "..."}]
-
-    # Oportunidades identificadas
     opportunities = Column(JSONB, default=list)
-    # [{"type": "economia", "probability": 0.6, "value": 2000, "action": "..."}]
-
-    # === DETALHAMENTO ===
-    # Breakdown por categoria
-    inflows_breakdown = Column(JSONB, default=dict)
-    # {"taxa_condominial": 50000, "reservas": 5000, "multas": 1000, ...}
-
-    outflows_breakdown = Column(JSONB, default=dict)
-    # {"folha": 30000, "manutencao": 10000, "energia": 5000, ...}
-
-    # Previsao diaria/semanal dentro do periodo
-    daily_forecast = Column(JSONB, default=list)
-    # [{"date": "2025-01-01", "inflows": 1000, "outflows": 500, "balance": 500}, ...]
-
-    # Cenarios
-    scenarios = Column(JSONB, default=dict)
-    # {
-    #   "pessimista": {"inflows": 45000, "outflows": 55000, "balance": -10000},
-    #   "realista": {"inflows": 50000, "outflows": 50000, "balance": 0},
-    #   "otimista": {"inflows": 55000, "outflows": 45000, "balance": 10000}
-    # }
-
-    # === PREMISSAS ===
-    assumptions = Column(JSONB, default=list)
-    # ["Inadimplencia de 5%", "Aumento de 3% na energia", ...]
-
-    # === ALERTAS ===
     alerts = Column(JSONB, default=list)
-    # [{"type": "saldo_negativo", "date": "2025-01-15", "amount": -5000, "severity": "high"}]
-
-    has_negative_balance_alert = Column(Boolean, default=False)
-    has_high_outflow_alert = Column(Boolean, default=False)
-    has_low_inflow_alert = Column(Boolean, default=False)
-
-    # === METAS ===
-    target_balance = Column(Numeric(15, 2), nullable=True)
-    target_achieved = Column(Boolean, nullable=True)
+    assumptions = Column(JSONB, default=list)
 
     # Observacoes
     notes = Column(Text, nullable=True)
-    review_notes = Column(Text, nullable=True)
-
-    # Revisao
-    reviewed_at = Column(DateTime, nullable=True)
-    reviewed_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
     # Controle
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     ativo = Column(Boolean, default=True, nullable=False)
 
     __table_args__ = (
         Index("ix_cashflow_forecasts_condominio", "condominio_id"),
         Index("ix_cashflow_forecasts_period", "period_start", "period_end"),
-        Index("ix_cashflow_forecasts_date", "forecast_date"),
         Index("ix_cashflow_forecasts_status", "status"),
-        Index(
-            "ix_cashflow_forecasts_condominio_date",
-            "condominio_id",
-            "forecast_date",
-        ),
     )
 
+    # ── Atributos de compatibilidade (NAO mapeados) ───────────────────────────
+    # Valores default a nivel de classe; sobrescritos por instancia no
+    # reconstructor (load) ou via kwargs do construtor (ex.: CashFlowAIService).
+    description: str | None = None
+    reference: str | None = None
+    forecast_date: date | None = None
+    expected_opening_balance: Decimal = Decimal("0")
+    expected_closing_balance: Decimal = Decimal("0")
+    expected_net_flow: Decimal = Decimal("0")
+    expected_receivables: Decimal = Decimal("0")
+    expected_other_income: Decimal = Decimal("0")
+    expected_payables: Decimal = Decimal("0")
+    expected_other_expenses: Decimal = Decimal("0")
+    actual_closing_balance: Decimal | None = None
+    balance_variance: Decimal | None = None
+    confidence_level: int = 50
+    confidence_category: str = ForecastConfidence.MEDIA.value
+    ai_generated: bool = False
+    has_negative_balance_alert: bool = False
+    target_balance: Decimal | None = None
+    inflows_breakdown: dict | None = None
+    outflows_breakdown: dict | None = None
+    scenarios: dict | None = None
+    ai_factors: dict | None = None
+
+    @orm.reconstructor
+    def _init_compat_on_load(self) -> None:
+        """Deriva atributos de compatibilidade a partir das colunas reais."""
+        self.description = self.notes
+        self.reference = None
+        self.forecast_date = self.period_start
+        self.expected_opening_balance = Decimal("0")
+        self.expected_closing_balance = self.expected_balance or Decimal("0")
+        self.expected_net_flow = (self.expected_inflows or Decimal("0")) - (self.expected_outflows or Decimal("0"))
+        self.actual_closing_balance = self.actual_balance
+        self.balance_variance = self.variance_balance
+        self.confidence_level = _CONFIDENCE_LEVEL.get(self.confidence, 50)
+        self.confidence_category = self.confidence or ForecastConfidence.MEDIA.value
+        self.ai_generated = bool(self.is_ai_generated)
+        self.has_negative_balance_alert = bool(self.expected_balance is not None and self.expected_balance < 0)
+        # Coalesce de JSONB nullable -> lista (response exige list[dict]).
+        # set_committed_value evita marcar a coluna como "dirty" num simples GET.
+        if self.risks is None:
+            set_committed_value(self, "risks", [])
+        if self.opportunities is None:
+            set_committed_value(self, "opportunities", [])
+        if self.alerts is None:
+            set_committed_value(self, "alerts", [])
+
     def __repr__(self) -> str:
-        return f"<CashFlowForecast {self.name} - {self.forecast_date}>"
+        return f"<CashFlowForecast {self.name} - {self.period_start}>"
 
     @property
     def is_active(self) -> bool:
         """Verifica se esta ativa."""
         return self.status == ForecastStatus.ATIVA.value
 
-    @property
-    def is_past(self) -> bool:
-        """Verifica se o periodo ja passou."""
-        return self.period_end < date.today()
+    # ── Calculos / mutadores ───────────────────────────────────────────────────
+    def update_actuals(
+        self,
+        inflows: Decimal | None = None,
+        outflows: Decimal | None = None,
+        balance: Decimal | None = None,
+    ) -> None:
+        """Atualiza valores realizados e recalcula variacoes (colunas reais)."""
+        if inflows is not None:
+            self.actual_inflows = inflows
+        if outflows is not None:
+            self.actual_outflows = outflows
+        if balance is not None:
+            self.actual_balance = balance
 
-    @property
-    def is_current(self) -> bool:
-        """Verifica se e o periodo atual."""
-        today = date.today()
-        return self.period_start <= today <= self.period_end
+        if self.actual_inflows is not None:
+            self.variance_inflows = self.actual_inflows - (self.expected_inflows or Decimal("0"))
+        if self.actual_outflows is not None:
+            self.variance_outflows = self.actual_outflows - (self.expected_outflows or Decimal("0"))
+        if self.actual_balance is not None:
+            self.variance_balance = self.actual_balance - (self.expected_balance or Decimal("0"))
+            if self.expected_balance and self.expected_balance != 0:
+                self.variance_percentage = Decimal(
+                    str(float(self.variance_balance / self.expected_balance * 100))
+                )
+            else:
+                self.variance_percentage = Decimal("0")
 
-    @property
-    def is_future(self) -> bool:
-        """Verifica se e periodo futuro."""
-        return self.period_start > date.today()
-
-    @property
-    def has_actuals(self) -> bool:
-        """Verifica se tem valores realizados."""
-        return self.actual_closing_balance is not None
-
-    @property
-    def accuracy(self) -> float | None:
-        """Calcula precisao da previsao (para periodos passados)."""
-        if not self.has_actuals or self.expected_closing_balance == 0:
-            return None
-        variance = abs(self.balance_variance or Decimal("0"))
-        expected = abs(self.expected_closing_balance)
-        if expected == 0:
-            return 100.0 if variance == 0 else 0.0
-        return max(0, 100 - float(variance / expected * 100))
+        # Mantem atributos de compatibilidade coerentes
+        self.actual_closing_balance = self.actual_balance
+        self.balance_variance = self.variance_balance
 
     def calculate_expected_values(self) -> None:
-        """Calcula valores esperados."""
+        """Calcula valores esperados a partir dos atributos de compatibilidade."""
         self.expected_inflows = (self.expected_receivables or Decimal("0")) + (
             self.expected_other_income or Decimal("0")
         )
@@ -246,45 +238,30 @@ class CashFlowForecast(Base):
         )
         self.expected_net_flow = self.expected_inflows - self.expected_outflows
         self.expected_closing_balance = (self.expected_opening_balance or Decimal("0")) + self.expected_net_flow
-
-    def calculate_variances(self) -> None:
-        """Calcula variacoes entre previsto e realizado."""
-        if self.actual_inflows is not None:
-            self.inflows_variance = self.actual_inflows - self.expected_inflows
-            if self.expected_inflows != 0:
-                self.inflows_variance_pct = Decimal(str(float(self.inflows_variance / self.expected_inflows * 100)))
-
-        if self.actual_outflows is not None:
-            self.outflows_variance = self.actual_outflows - self.expected_outflows
-            if self.expected_outflows != 0:
-                self.outflows_variance_pct = Decimal(str(float(self.outflows_variance / self.expected_outflows * 100)))
-
-        if self.actual_closing_balance is not None:
-            self.balance_variance = self.actual_closing_balance - self.expected_closing_balance
-            if self.expected_closing_balance != 0:
-                self.balance_variance_pct = Decimal(
-                    str(float(self.balance_variance / self.expected_closing_balance * 100))
-                )
-
-        # Calcula fluxo liquido realizado
-        if self.actual_inflows is not None and self.actual_outflows is not None:
-            self.actual_net_flow = self.actual_inflows - self.actual_outflows
+        self.expected_balance = self.expected_closing_balance
 
     def update_confidence(self, level: int) -> None:
-        """Atualiza nivel de confianca."""
-        self.confidence_level = max(0, min(100, level))
-
-        # Define categoria
+        """Atualiza nivel/categoria de confianca."""
+        level = max(0, min(100, int(level)))
+        self.confidence_level = level
         if level < 40:
-            self.confidence_category = ForecastConfidence.MUITO_BAIXA.value
+            category = ForecastConfidence.MUITO_BAIXA.value
         elif level < 60:
-            self.confidence_category = ForecastConfidence.BAIXA.value
+            category = ForecastConfidence.BAIXA.value
         elif level < 75:
-            self.confidence_category = ForecastConfidence.MEDIA.value
+            category = ForecastConfidence.MEDIA.value
         elif level < 90:
-            self.confidence_category = ForecastConfidence.ALTA.value
+            category = ForecastConfidence.ALTA.value
         else:
-            self.confidence_category = ForecastConfidence.MUITO_ALTA.value
+            category = ForecastConfidence.MUITO_ALTA.value
+        self.confidence_category = category
+        self.confidence = category
+
+    def mark_as_ai_generated(self, model_version: str) -> None:
+        """Marca como gerada por IA."""
+        self.is_ai_generated = True
+        self.ai_generated = True
+        self.ai_model_version = model_version
 
     def add_risk(
         self,
@@ -294,10 +271,8 @@ class CashFlowForecast(Base):
         mitigation: str,
     ) -> None:
         """Adiciona risco identificado."""
-        if self.risks is None:
-            self.risks = []
-
-        self.risks.append(
+        data = list(self.risks or [])
+        data.append(
             {
                 "id": str(uuid.uuid4()),
                 "type": risk_type,
@@ -307,6 +282,7 @@ class CashFlowForecast(Base):
                 "created_at": datetime.utcnow().isoformat(),
             }
         )
+        self.risks = data
 
     def add_opportunity(
         self,
@@ -316,10 +292,8 @@ class CashFlowForecast(Base):
         action: str,
     ) -> None:
         """Adiciona oportunidade identificada."""
-        if self.opportunities is None:
-            self.opportunities = []
-
-        self.opportunities.append(
+        data = list(self.opportunities or [])
+        data.append(
             {
                 "id": str(uuid.uuid4()),
                 "type": opportunity_type,
@@ -329,6 +303,7 @@ class CashFlowForecast(Base):
                 "created_at": datetime.utcnow().isoformat(),
             }
         )
+        self.opportunities = data
 
     def add_alert(
         self,
@@ -339,10 +314,8 @@ class CashFlowForecast(Base):
         message: str,
     ) -> None:
         """Adiciona alerta."""
-        if self.alerts is None:
-            self.alerts = []
-
-        self.alerts.append(
+        data = list(self.alerts or [])
+        data.append(
             {
                 "id": str(uuid.uuid4()),
                 "type": alert_type,
@@ -352,71 +325,6 @@ class CashFlowForecast(Base):
                 "message": message,
             }
         )
-
-        # Atualiza flags
+        self.alerts = data
         if alert_type == "saldo_negativo":
             self.has_negative_balance_alert = True
-        elif alert_type == "saida_alta":
-            self.has_high_outflow_alert = True
-        elif alert_type == "entrada_baixa":
-            self.has_low_inflow_alert = True
-
-    def activate(self) -> None:
-        """Ativa a previsao."""
-        self.status = ForecastStatus.ATIVA.value
-
-    def complete(self) -> None:
-        """Conclui a previsao (apos periodo passar)."""
-        self.status = ForecastStatus.CONCLUIDA.value
-
-    def archive(self) -> None:
-        """Arquiva a previsao."""
-        self.status = ForecastStatus.ARQUIVADA.value
-
-    def review(self, user_id: uuid.UUID, notes: str | None = None) -> None:
-        """Marca como revisada."""
-        self.status = ForecastStatus.REVISADA.value
-        self.reviewed_at = datetime.utcnow()
-        self.reviewed_by = user_id
-        self.review_notes = notes
-
-    def mark_as_ai_generated(self, model_version: str) -> None:
-        """Marca como gerada por IA."""
-        self.ai_generated = True
-        self.ai_model_version = model_version
-        self.ai_generated_at = datetime.utcnow()
-
-    def to_dict(self) -> dict:
-        """Converte para dicionario."""
-        return {
-            "id": str(self.id),
-            "condominio_id": str(self.condominio_id),
-            "name": self.name,
-            "description": self.description,
-            "reference": self.reference,
-            "period_type": self.period_type,
-            "period_start": self.period_start.isoformat(),
-            "period_end": self.period_end.isoformat(),
-            "forecast_date": self.forecast_date.isoformat(),
-            "status": self.status,
-            "expected_inflows": float(self.expected_inflows or 0),
-            "expected_outflows": float(self.expected_outflows or 0),
-            "expected_opening_balance": float(self.expected_opening_balance or 0),
-            "expected_closing_balance": float(self.expected_closing_balance or 0),
-            "expected_net_flow": float(self.expected_net_flow or 0),
-            "actual_inflows": float(self.actual_inflows) if self.actual_inflows else None,
-            "actual_outflows": float(self.actual_outflows) if self.actual_outflows else None,
-            "actual_closing_balance": (float(self.actual_closing_balance) if self.actual_closing_balance else None),
-            "balance_variance": float(self.balance_variance) if self.balance_variance else None,
-            "confidence_level": self.confidence_level,
-            "confidence_category": self.confidence_category,
-            "ai_generated": self.ai_generated,
-            "has_actuals": self.has_actuals,
-            "accuracy": self.accuracy,
-            "is_current": self.is_current,
-            "has_negative_balance_alert": self.has_negative_balance_alert,
-            "risks_count": len(self.risks or []),
-            "opportunities_count": len(self.opportunities or []),
-            "alerts_count": len(self.alerts or []),
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-        }

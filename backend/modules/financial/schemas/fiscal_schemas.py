@@ -1037,7 +1037,12 @@ class ObrigacaoFiscalResponse(ObrigacaoFiscalBase):
 
     id: UUID
     condominio_id: UUID
-    status: ObrigacaoStatusEnum
+    # Response de dado persistido: sem constraint de input. competencia_mes=0
+    # representa obrigacao ANUAL (sem mes); o ge=1 da base estourava 500.
+    competencia_mes: int | None = None
+    # Aceita qualquer status real do banco (ex.: "cumprida"); o enum estava
+    # defasado em relacao aos valores persistidos e causava 500 na listagem.
+    status: str
     valor_pago: Decimal | None
     data_pagamento: date | None
     numero_recibo: str | None

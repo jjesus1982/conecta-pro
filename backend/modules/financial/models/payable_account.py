@@ -1,6 +1,7 @@
 """Model para contas a pagar."""
 
 import uuid
+from sqlalchemy.dialects.postgresql import ARRAY
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -191,7 +192,7 @@ class PayableAccount(Base):
     internal_notes = Column(Text, nullable=True)  # Notas internas
 
     # Tags
-    tags = Column(JSONB, default=list)
+    tags = Column(ARRAY(String), default=list)
 
     # Controle
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

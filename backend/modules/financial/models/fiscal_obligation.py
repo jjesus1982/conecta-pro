@@ -103,87 +103,69 @@ class FiscalObligation(Base):
     tipo = Column(String(30), nullable=False, index=True)
     nome = Column(String(100), nullable=False)
     descricao = Column(Text, nullable=True)
-    frequencia = Column(String(20), nullable=False)
-    orgao_responsavel = Column(String(50), nullable=True)  # RFB, SEFAZ, Prefeitura
 
-    # Periodo de referencia
-    ano = Column(Integer, nullable=False)
-    mes = Column(Integer, nullable=True)  # Null para obrigacoes anuais
-    periodo_inicio = Column(Date, nullable=True)
-    periodo_fim = Column(Date, nullable=True)
+    # Periodo de referencia (competencia) — colunas reais do banco
+    competencia_mes = Column(Integer, nullable=True)  # Null para obrigacoes anuais
+    competencia_ano = Column(Integer, nullable=False)
 
     # Status e prazos
     status = Column(String(20), nullable=False, default=ObrigacaoStatus.PENDENTE.value, index=True)
     data_vencimento = Column(Date, nullable=False)
-    data_entrega = Column(DateTime, nullable=True)
-    dias_para_vencimento = Column(Integer, nullable=True)
 
-    # Multa por atraso
-    valor_multa_base = Column(Numeric(15, 2), nullable=True)
-    percentual_multa = Column(Numeric(8, 4), nullable=True)
-    valor_multa_calculada = Column(Numeric(15, 2), nullable=True)
-
-    # Arquivo/Protocolo
-    arquivo_id = Column(PGUUID(as_uuid=True), nullable=True)  # Referencia ao SPED file
-    protocolo = Column(String(50), nullable=True)
-    recibo = Column(String(50), nullable=True)
-    numero_declaracao = Column(String(50), nullable=True)
-
-    # Retorno
-    codigo_retorno = Column(String(10), nullable=True)
-    mensagem_retorno = Column(Text, nullable=True)
-
-    # Retificacao
-    obrigacao_original_id = Column(PGUUID(as_uuid=True), nullable=True)
-    retificacao_numero = Column(Integer, nullable=True, default=0)
-
-    # Responsavel
-    responsavel_id = Column(PGUUID(as_uuid=True), nullable=True)
-    responsavel_nome = Column(String(100), nullable=True)
+    # Valores
+    valor_devido = Column(Numeric(15, 2), nullable=True)
+    valor_pago = Column(Numeric(15, 2), nullable=True)
+    data_pagamento = Column(Date, nullable=True)
+    numero_recibo = Column(String(50), nullable=True)
 
     # Observacoes
     observacoes = Column(Text, nullable=True)
-    pendencias = Column(JSONB, nullable=True)  # Lista de pendencias
 
     # Auditoria
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    created_by = Column(PGUUID(as_uuid=True), nullable=True)
     active = Column(Boolean, default=True, nullable=False)
+
+    # Status considerados "cumpridos" (nao geram atraso)
+    _STATUS_CUMPRIDOS = (
+        ObrigacaoStatus.ENVIADA.value,
+        ObrigacaoStatus.ACEITA.value,
+        ObrigacaoStatus.ISENTA.value,
+        ObrigacaoStatus.NAO_APLICAVEL.value,
+        ObrigacaoStatus.RETIFICADA.value,
+    )
 
     def __repr__(self) -> str:
         """Representacao string."""
-        periodo = f"{self.ano:04d}-{self.mes:02d}" if self.mes else str(self.ano)
+        if self.competencia_mes:
+            periodo = f"{self.competencia_ano:04d}-{self.competencia_mes:02d}"
+        else:
+            periodo = str(self.competencia_ano)
         return f"<FiscalObligation {self.tipo} {periodo} - {self.status}>"
+
+    @property
+    def is_entregue(self) -> bool:
+        """Verifica se foi entregue/cumprida."""
+        return self.status in self._STATUS_CUMPRIDOS
 
     @property
     def is_vencida(self) -> bool:
         """Verifica se obrigacao esta vencida."""
-        if self.status in [ObrigacaoStatus.ENVIADA.value, ObrigacaoStatus.ACEITA.value]:
+        if self.is_entregue:
             return False
         return date.today() > self.data_vencimento
 
     @property
-    def is_entregue(self) -> bool:
-        """Verifica se foi entregue."""
-        return self.status in [ObrigacaoStatus.ENVIADA.value, ObrigacaoStatus.ACEITA.value]
+    def is_atrasada(self) -> bool:
+        """Verifica se obrigacao esta atrasada (vencida e nao cumprida)."""
+        return self.is_vencida
 
-    def calcular_multa_atraso(self) -> Decimal:
-        """Calcula multa por atraso."""
-        if not self.is_vencida or self.is_entregue:
-            return Decimal("0")
-
-        dias_atraso = (date.today() - self.data_vencimento).days
-
-        # Multa padrao: 2% ao mes, limitada a 20%
-        percentual_base = self.percentual_multa or Decimal("2")
-        meses_atraso = (dias_atraso // 30) + 1
-        percentual_total = min(percentual_base * meses_atraso, Decimal("20"))
-
-        valor_base = self.valor_multa_base or Decimal("500")  # Valor minimo referencia
-        self.valor_multa_calculada = valor_base * percentual_total / 100
-
-        return self.valor_multa_calculada
+    @property
+    def dias_para_vencimento(self) -> int:
+        """Dias restantes ate o vencimento (negativo se ja vencida)."""
+        if not self.data_vencimento:
+            return 0
+        return (self.data_vencimento - date.today()).days
 
 
 class SUFRAMAConfig(Base):
@@ -300,11 +282,12 @@ class SUFRAMAOperacao(Base):
 
     id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     condominio_id = Column(PGUUID(as_uuid=True), nullable=False, index=True)
-    suframa_config_id = Column(PGUUID(as_uuid=True), ForeignKey("suframa_configs.id"), nullable=False)
+    suframa_config_id = Column(PGUUID(as_uuid=True), ForeignKey("suframa_configs.id"), nullable=True)
+    nfe_id = Column(PGUUID(as_uuid=True), nullable=True)
 
     # Documento fiscal
-    documento_tipo = Column(String(10), nullable=False)  # nfe, nfse
-    documento_id = Column(PGUUID(as_uuid=True), nullable=False)
+    documento_tipo = Column(String(10), nullable=True)  # nfe, nfse
+    documento_id = Column(PGUUID(as_uuid=True), nullable=True)
     chave_acesso = Column(String(44), nullable=True)
     numero_documento = Column(String(20), nullable=True)
 
@@ -335,7 +318,17 @@ class SUFRAMAOperacao(Base):
 
     total_economia = Column(Numeric(15, 2), nullable=True)  # Total de impostos economizados
 
-    # PIN (Protocolo de Ingresso de Mercadorias)
+    # Valores desonerados/suspensos (colunas reais usadas por repo/respostas)
+    valor_ipi_desonerado = Column(Numeric(15, 2), nullable=True)
+    valor_icms_desonerado = Column(Numeric(15, 2), nullable=True)
+    valor_pis_suspenso = Column(Numeric(15, 2), nullable=True)
+    valor_cofins_suspenso = Column(Numeric(15, 2), nullable=True)
+
+    # PIN (Protocolo de Ingresso de Mercadorias) — colunas reais
+    numero_pin = Column(String(20), nullable=True)
+    data_pin = Column(Date, nullable=True)
+    status_pin = Column(String(20), nullable=True)
+    # Aliases historicos (mantidos para compatibilidade)
     pin_numero = Column(String(50), nullable=True)
     pin_data = Column(Date, nullable=True)
     pin_status = Column(String(20), nullable=True)  # pendente, validado, rejeitado
@@ -347,6 +340,7 @@ class SUFRAMAOperacao(Base):
     # Auditoria
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    active = Column(Boolean, default=True, nullable=False)
 
     def __repr__(self) -> str:
         """Representacao string."""
@@ -440,6 +434,24 @@ class SimplesNacionalDAS(Base):
     # ISS Retido (Anexo IV - nao inclui ISS no DAS)
     iss_retido = Column(Boolean, default=False)
     valor_iss_retido = Column(Numeric(15, 2), nullable=True)
+
+    # Competencia (colunas reais usadas por repositorios/respostas)
+    competencia_mes = Column(Integer, nullable=True)
+    competencia_ano = Column(Integer, nullable=True)
+
+    # Valores (colunas reais)
+    valor_devido = Column(Numeric(15, 2), nullable=True)
+    valor_pago = Column(Numeric(15, 2), nullable=True)
+    numero_documento = Column(String(50), nullable=True)
+    numero_recibo = Column(String(50), nullable=True)
+
+    # Reparticao de tributos (colunas reais)
+    reparticao_irpj = Column(Numeric(15, 2), nullable=True)
+    reparticao_csll = Column(Numeric(15, 2), nullable=True)
+    reparticao_cofins = Column(Numeric(15, 2), nullable=True)
+    reparticao_pis = Column(Numeric(15, 2), nullable=True)
+    reparticao_cpp = Column(Numeric(15, 2), nullable=True)
+    reparticao_iss = Column(Numeric(15, 2), nullable=True)
 
     # Auditoria
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

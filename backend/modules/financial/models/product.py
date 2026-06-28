@@ -1,6 +1,7 @@
 """Model para produtos/serviços."""
 
 import uuid
+from sqlalchemy import Integer
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -100,10 +101,11 @@ class Product(Base):
     max_price = Column(Numeric(15, 2), nullable=True)  # Maior preço histórico
 
     # Estoque mínimo (para alertas de reposição)
+    current_stock = Column(Numeric(10, 2), default=0)  # Estoque atual
     min_stock = Column(Numeric(10, 2), default=0)
     max_stock = Column(Numeric(10, 2), nullable=True)
     reorder_point = Column(Numeric(10, 2), nullable=True)  # Ponto de pedido
-    lead_time_days = Column(String(10), nullable=True)  # Prazo médio de entrega
+    lead_time_days = Column(Integer, nullable=True)  # Prazo médio de entrega
 
     # Fiscal
     ncm = Column(String(10), nullable=True)  # NCM (Nomenclatura Comum do Mercosul)

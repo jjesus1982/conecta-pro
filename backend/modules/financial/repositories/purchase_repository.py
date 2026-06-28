@@ -413,8 +413,8 @@ class ProductRepository:
             and_(
                 Product.condominio_id == condominio_id,
                 Product.ativo.is_(True),
-                Product.current_stock <= Product.minimum_stock,
-                Product.minimum_stock > 0,
+                Product.current_stock <= Product.min_stock,
+                Product.min_stock > 0,
             )
         )
         low_stock_result = await self.session.execute(low_stock_query)
@@ -442,7 +442,7 @@ class PurchaseRequisitionRepository:
     ) -> PurchaseRequisition:
         """Cria uma nova requisição."""
         items_data = data.items
-        req_data = data.model_dump(exclude={"items"})
+        req_data = data.model_dump(exclude={"items", "requester_id"})
         requisition = PurchaseRequisition(
             **req_data,
             requester_id=user_id,

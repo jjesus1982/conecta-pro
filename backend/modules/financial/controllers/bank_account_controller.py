@@ -128,10 +128,14 @@ async def get_stats(  # pylint: disable=unused-argument
         limit=1000,
     )
 
-    active_count = len([a for a in accounts if a.status == BankAccountStatus.ATIVA])
+    def _ev(v):
+        # status/account_type podem vir como str (Enum nativo no banco) ou Enum
+        return v.value if hasattr(v, "value") else v
+
+    active_count = len([a for a in accounts if _ev(a.status) == _ev(BankAccountStatus.ATIVA)])
     by_type = {}
     for account in accounts:
-        type_name = account.account_type.value
+        type_name = _ev(account.account_type)
         if type_name not in by_type:
             by_type[type_name] = {"count": 0, "balance": Decimal("0")}
         by_type[type_name]["count"] += 1

@@ -1,6 +1,7 @@
 """Model para armazéns/depósitos de estoque."""
 
 import uuid
+from sqlalchemy import Integer
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -98,7 +99,7 @@ class Warehouse(Base):
     # Estrutura de endereçamento
     has_addressing = Column(Boolean, default=False)  # Usa endereçamento?
     addressing_format = Column(String(50), nullable=True)  # Ex: "CORREDOR-PRATELEIRA-POSIÇÃO"
-    addressing_levels = Column(JSONB, default=list)
+    addressing_levels = Column(Integer, default=1)
     # Ex: [{"name": "corredor", "max": 10}, {"name": "prateleira", "max": 5}, ...]
 
     # Configurações de temperatura (para armazéns climatizados)

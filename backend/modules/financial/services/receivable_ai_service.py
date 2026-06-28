@@ -33,6 +33,10 @@ class CustomerRiskScore:
     overdue_days_avg: float
     payment_history_score: float
     recommendations: list[str]
+    # Campos expostos pelo controller
+    average_delay_days: float = 0.0
+    on_time_payment_rate: float = 1.0
+    factors: list[str] = None  # type: ignore[assignment]
 
 
 @dataclass
@@ -46,6 +50,12 @@ class CollectionPriority:
     priority_score: float
     recommended_action: str
     contact_info: dict[str, str]
+    # Campos expostos pelo controller
+    customer_id: UUID | None = None
+    priority_level: str = "media"
+    total_due: Decimal = Decimal("0")
+    risk_score: float = 0.0
+    reason: str = ""
 
 
 @dataclass
@@ -58,6 +68,13 @@ class CashFlowForecast:
     probable_receipts: Decimal  # Considerando inadimplencia
     historical_collection_rate: float
     by_day: list[dict]
+    # Campos expostos pelo controller
+    condominio_id: UUID | None = None
+    expected_income: Decimal = Decimal("0")
+    probable_income: Decimal = Decimal("0")
+    at_risk_income: Decimal = Decimal("0")
+    monthly_breakdown: list[dict] = None  # type: ignore[assignment]
+    confidence_level: str = "media"
 
 
 @dataclass
@@ -71,6 +88,12 @@ class DelinquencyAnalysis:
     aging_buckets: dict[str, dict]
     trend: str  # melhorando, estavel, piorando
     projected_losses: Decimal
+    # Campos expostos pelo controller
+    condominio_id: UUID | None = None
+    average_days_overdue: float = 0.0
+    aging_breakdown: dict[str, dict] = None  # type: ignore[assignment]
+    risk_distribution: dict[str, int] = None  # type: ignore[assignment]
+    recommendations: list[str] = None  # type: ignore[assignment]
 
 
 class ReceivableAIService:
@@ -175,6 +198,17 @@ class ReceivableAIService:
         # Gera recomendacoes
         recommendations = self._generate_risk_recommendations(risk_level, avg_overdue_days, customer.overdue_debt)
 
+        # Fatores descritivos expostos na resposta
+        factors: list[str] = []
+        if customer.overdue_debt > 0:
+            factors.append(f"Divida vencida de R$ {float(customer.overdue_debt):.2f}")
+        if avg_overdue_days > 0:
+            factors.append(f"Atraso medio de {round(avg_overdue_days, 1)} dias")
+        if payment_score < 100:
+            factors.append(f"Historico de pagamento em {round(payment_score, 1)}%")
+        if not factors:
+            factors.append("Sem indicadores de risco relevantes")
+
         return CustomerRiskScore(
             customer_id=customer_id,
             customer_name=customer.name,
@@ -185,6 +219,9 @@ class ReceivableAIService:
             overdue_days_avg=round(avg_overdue_days, 1),
             payment_history_score=round(payment_score, 2),
             recommendations=recommendations,
+            average_delay_days=round(avg_overdue_days, 1),
+            on_time_payment_rate=round(payment_score / 100, 4),
+            factors=factors,
         )
 
     def _generate_risk_recommendations(
@@ -268,6 +305,15 @@ class ReceivableAIService:
                 if customer.email:
                     contact_info["email"] = customer.email
 
+            if priority_score >= 75:
+                priority_level = "critica"
+            elif priority_score >= 50:
+                priority_level = "alta"
+            elif priority_score >= 25:
+                priority_level = "media"
+            else:
+                priority_level = "baixa"
+
             priorities.append(
                 CollectionPriority(
                     account_id=account.id,
@@ -277,6 +323,11 @@ class ReceivableAIService:
                     priority_score=round(priority_score, 2),
                     recommended_action=action,
                     contact_info=contact_info,
+                    customer_id=account.customer_id,
+                    priority_level=priority_level,
+                    total_due=remaining_value,
+                    risk_score=round(priority_score, 2),
+                    reason=f"{days_overdue} dias em atraso, saldo de R$ {float(remaining_value):.2f}",
                 )
             )
 
@@ -326,11 +377,12 @@ class ReceivableAIService:
     async def forecast_cash_flow(
         self,
         condominio_id: UUID,
-        days_ahead: int = 30,
+        months: int = 6,
     ) -> CashFlowForecast:
-        """Preve fluxo de caixa de recebiveis."""
+        """Preve fluxo de caixa de recebiveis para os proximos N meses."""
         today = date.today()
-        end_date = today + timedelta(days=days_ahead)
+        # Horizonte aproximado de N meses (31 dias por mes)
+        end_date = today + timedelta(days=months * 31)
 
         # Busca parcelas a vencer no periodo
         result = await self.session.execute(
@@ -353,26 +405,50 @@ class ReceivableAIService:
 
         # Calcula taxa historica de recebimento
         collection_rate = await self._calculate_historical_collection_rate(condominio_id)
+        rate_dec = Decimal(str(collection_rate))
 
-        # Totaliza por dia
+        # Totaliza por dia (mantido para compatibilidade)
         by_day = []
         total_expected = Decimal("0")
         current_date = today
-
         while current_date <= end_date:
-            day_total = sum(inst.current_value for inst in installments if inst.due_date == current_date)
+            day_total = sum(
+                (inst.current_value for inst in installments if inst.due_date == current_date),
+                Decimal("0"),
+            )
             total_expected += day_total
-
             by_day.append(
                 {
                     "date": current_date.isoformat(),
                     "expected": float(day_total),
-                    "probable": float(day_total * Decimal(str(collection_rate))),
+                    "probable": float(day_total * rate_dec),
                 }
             )
             current_date += timedelta(days=1)
 
-        probable_total = total_expected * Decimal(str(collection_rate))
+        # Totaliza por mes (YYYY-MM) para o breakdown exposto no controller
+        monthly_totals: dict[str, Decimal] = {}
+        for inst in installments:
+            key = inst.due_date.strftime("%Y-%m")
+            monthly_totals[key] = monthly_totals.get(key, Decimal("0")) + (inst.current_value or Decimal("0"))
+
+        monthly_breakdown = [
+            {
+                "month": key,
+                "expected": float(value),
+                "probable": float(value * rate_dec),
+            }
+            for key, value in sorted(monthly_totals.items())
+        ]
+
+        probable_total = total_expected * rate_dec
+
+        if collection_rate >= 0.9:
+            confidence_level = "alta"
+        elif collection_rate >= 0.7:
+            confidence_level = "media"
+        else:
+            confidence_level = "baixa"
 
         return CashFlowForecast(
             period_start=today,
@@ -381,6 +457,12 @@ class ReceivableAIService:
             probable_receipts=probable_total,
             historical_collection_rate=round(collection_rate, 4),
             by_day=by_day,
+            condominio_id=condominio_id,
+            expected_income=total_expected,
+            probable_income=probable_total,
+            at_risk_income=total_expected - probable_total,
+            monthly_breakdown=monthly_breakdown,
+            confidence_level=confidence_level,
         )
 
     async def _calculate_historical_collection_rate(
@@ -481,6 +563,33 @@ class ReceivableAIService:
         over_90_value = Decimal(str(aging_buckets.get(">90", {}).get("value", 0)))
         projected_losses = over_90_value * Decimal("0.3")
 
+        # Media de dias em atraso (ponderada pelos buckets de aging)
+        bucket_midpoints = {"1-7": 4, "8-15": 11, "16-30": 23, "31-60": 45, "61-90": 75, ">90": 120}
+        weighted_days = sum(bucket_midpoints[k] * v.get("count", 0) for k, v in aging_buckets.items())
+        total_overdue_count = sum(v.get("count", 0) for v in aging_buckets.values())
+        average_days_overdue = round(weighted_days / total_overdue_count, 1) if total_overdue_count else 0.0
+
+        # Distribuicao de risco (clientes vencidos agrupados por severidade)
+        risk_distribution = {
+            "baixo": aging_buckets.get("1-7", {}).get("count", 0) + aging_buckets.get("8-15", {}).get("count", 0),
+            "medio": aging_buckets.get("16-30", {}).get("count", 0),
+            "alto": aging_buckets.get("31-60", {}).get("count", 0),
+            "critico": aging_buckets.get("61-90", {}).get("count", 0) + aging_buckets.get(">90", {}).get("count", 0),
+        }
+
+        # Recomendacoes baseadas na taxa de inadimplencia e tendencia
+        recommendations: list[str] = []
+        if delinquency_rate >= 0.3:
+            recommendations.append("Inadimplencia elevada: priorizar acoes de cobranca ativa")
+        elif delinquency_rate >= 0.1:
+            recommendations.append("Inadimplencia moderada: reforcar lembretes preventivos")
+        else:
+            recommendations.append("Inadimplencia sob controle: manter monitoramento regular")
+        if trend == "piorando":
+            recommendations.append("Tendencia de piora: revisar politica de credito e cobranca")
+        if risk_distribution["critico"] > 0:
+            recommendations.append("Avaliar protesto/cobranca judicial para casos criticos (>60 dias)")
+
         return DelinquencyAnalysis(
             total_customers=total_customers,
             delinquent_customers=delinquent_customers,
@@ -489,6 +598,11 @@ class ReceivableAIService:
             aging_buckets=aging_buckets,
             trend=trend,
             projected_losses=projected_losses,
+            condominio_id=condominio_id,
+            average_days_overdue=average_days_overdue,
+            aging_breakdown=aging_buckets,
+            risk_distribution=risk_distribution,
+            recommendations=recommendations,
         )
 
     async def _calculate_aging_buckets(

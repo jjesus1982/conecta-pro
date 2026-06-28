@@ -188,6 +188,7 @@ class RequisitionFilter(BaseModel):
     priority: list[RequisitionPriority] | None = None
     requisition_type: list[RequisitionType] | None = None
     requester_id: UUID | None = None
+    department: str | None = None
     date_from: date | None = None
     date_to: date | None = None
     needed_by_from: date | None = None

@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import and_, desc, extract, func, or_, select
+from sqlalchemy import and_, desc, extract, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -373,24 +373,29 @@ class FiscalRepository:
         data_inicial: date,
         data_final: date,
         status: str | None = "autorizada",
-    ) -> list[NFe]:
-        """Busca NF-es de um periodo para relatorios."""
-        query = select(NFe).where(
-            and_(
-                NFe.condominio_id == condominio_id,
-                func.date(NFe.data_emissao) >= data_inicial,
-                func.date(NFe.data_emissao) <= data_final,
-                NFe.active.is_(True),
-            )
-        )
+    ) -> list[Any]:
+        """Busca NF-es de um periodo para relatorios.
+
+        Le a tabela REAL `nfes` (o model NFe aponta para `nfe`, que nunca foi criada).
+        Retorna Rows com acesso por atributo (.valor_total_nota, .data_emissao, etc.).
+        """
+        conds = [
+            "condominio_id = :cid",
+            "active IS true",
+            "date(data_emissao) >= :di",
+            "date(data_emissao) <= :df",
+        ]
+        params: dict[str, Any] = {"cid": condominio_id, "di": data_inicial, "df": data_final}
         if status:
-            query = query.where(NFe.status == status)
-
-        query = query.options(selectinload(NFe.itens))
-        query = query.order_by(NFe.data_emissao)
-
-        result = await self.session.execute(query)
-        return list(result.scalars().all())
+            conds.append("status = :status")
+            params["status"] = status
+        sql = text(
+            "SELECT id, numero, serie, chave_acesso, status, data_emissao, "
+            "valor_total_nota, valor_total_produtos "
+            "FROM nfes WHERE " + " AND ".join(conds) + " ORDER BY data_emissao"
+        )
+        result = await self.session.execute(sql, params)
+        return list(result.all())
 
     # ============================================================
     # NFS-e
@@ -506,22 +511,30 @@ class FiscalRepository:
         mes: int,
         ano: int,
         status: str | None = "autorizada",
-    ) -> list[NFSe]:
-        """Busca NFS-es de uma competencia."""
-        query = select(NFSe).where(
-            and_(
-                NFSe.condominio_id == condominio_id,
-                extract("month", NFSe.data_competencia) == mes,
-                extract("year", NFSe.data_competencia) == ano,
-                NFSe.active.is_(True),
-            )
-        )
-        if status:
-            query = query.where(NFSe.status == status)
+    ) -> list[Any]:
+        """Busca NFS-es de uma competencia.
 
-        query = query.order_by(NFSe.data_emissao)
-        result = await self.session.execute(query)
-        return list(result.scalars().all())
+        Le a tabela REAL `nfses` (o model NFSe aponta para `nfse`, inexistente).
+        Retorna Rows com acesso por atributo (.valor_servicos, .inss_valor, etc.).
+        """
+        conds = [
+            "condominio_id = :cid",
+            "active IS true",
+            "extract(month from data_competencia) = :mes",
+            "extract(year from data_competencia) = :ano",
+        ]
+        params: dict[str, Any] = {"cid": condominio_id, "mes": mes, "ano": ano}
+        if status:
+            conds.append("status = :status")
+            params["status"] = status
+        sql = text(
+            "SELECT id, numero_nfse, numero_rps, status, data_emissao, data_competencia, "
+            "valor_servicos, iss_aliquota, iss_valor, iss_retido, pis_valor, cofins_valor, "
+            "inss_valor, ir_valor, csll_valor, inss_liminar_aplicada "
+            "FROM nfses WHERE " + " AND ".join(conds) + " ORDER BY data_emissao"
+        )
+        result = await self.session.execute(sql, params)
+        return list(result.all())
 
     async def calcular_total_retencoes_competencia(self, condominio_id: UUID, mes: int, ano: int) -> dict[str, Decimal]:
         """Calcula total de retencoes de uma competencia."""
@@ -656,7 +669,9 @@ class FiscalRepository:
 
     async def create_obrigacao(self, condominio_id: UUID, data: dict[str, Any]) -> FiscalObligation:
         """Cria obrigacao fiscal."""
-        obrigacao = FiscalObligation(condominio_id=condominio_id, **data)
+        # As colunas reais do banco sao competencia_mes/competencia_ano/valor_devido —
+        # repassadas diretamente (sem remapeamento) para casar com o model alinhado.
+        obrigacao = FiscalObligation(condominio_id=condominio_id, **dict(data))
         self.session.add(obrigacao)
         await self.session.flush()
         await self.session.refresh(obrigacao)

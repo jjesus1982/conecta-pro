@@ -2,6 +2,7 @@
 
 import logging
 from datetime import date, datetime
+from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -1582,7 +1583,7 @@ async def get_my_approvals(
     # Buscar aprovações recentes (últimas 10 respondidas)
     recent_filter = ApprovalFilter(
         approver_id=_current_user.id,
-        status=[ApprovalStatus.APROVADA, ApprovalStatus.REJEITADA],
+        status=[ApprovalStatus.APROVADO, ApprovalStatus.REJEITADO],
     )
     recent = await repo.list(condominio_id, recent_filter, 0, 10)
 
@@ -1852,12 +1853,31 @@ async def suggest_suppliers(
 )
 async def analyze_supplier(
     supplier_id: UUID,
+    condominio_id: UUID,
     session: AsyncSession = Depends(get_session),
     _current_user: dict = Depends(get_current_user),
 ):
     """Analisa performance de um fornecedor usando IA."""
-    ai_service = PurchaseAIService(session)  # pylint: disable=too-many-function-args
-    analysis = await ai_service.analyze_supplier_performance(supplier_id)  # pylint: disable=no-value-for-parameter
+    order_repo = PurchaseOrderRepository(session)
+    orders = await order_repo.list(
+        condominio_id,
+        OrderFilter(supplier_id=supplier_id),
+        skip=0,
+        limit=200,
+    )
+    orders_data = [
+        {
+            "expected_delivery_date": o.expected_delivery_date,
+            "actual_delivery_date": o.actual_delivery_date,
+            "items": [
+                {"unit_price": item.unit_price, "product_id": item.product_id}
+                for item in (o.items or [])
+            ],
+        }
+        for o in orders
+    ]
+    ai_service = PurchaseAIService()
+    analysis = ai_service.analyze_supplier_performance(supplier_id, orders_data, [])
     return analysis
 
 
@@ -1884,6 +1904,17 @@ async def calculate_reorder_point(
     _current_user: dict = Depends(get_current_user),
 ):
     """Calcula ponto de reposição de um produto usando IA."""
-    ai_service = PurchaseAIService(session)  # pylint: disable=too-many-function-args
-    reorder = await ai_service.calculate_reorder_point(product_id)  # pylint: disable=no-value-for-parameter
+    product = await ProductRepository(session).get_by_id(product_id)
+    if not product:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Produto não encontrado",
+        )
+    lead_time_days = product.lead_time_days or 7
+    # Estima consumo médio diário a partir do estoque mínimo (cobertura ~30 dias)
+    min_stock = Decimal(str(product.min_stock or 0))
+    average_daily_consumption = (min_stock / Decimal("30")) if min_stock > 0 else Decimal("1")
+    ai_service = PurchaseAIService()
+    reorder = ai_service.calculate_reorder_point(average_daily_consumption, lead_time_days)
+    reorder["product_id"] = str(product_id)
     return reorder

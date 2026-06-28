@@ -1,12 +1,14 @@
 """Model para fornecedores."""
 
 import uuid
+from sqlalchemy import Numeric
+from sqlalchemy import Integer
 from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import relationship
 
 from core.models import Base
@@ -135,9 +137,9 @@ class Supplier(Base):
 
     # Condições comerciais
     payment_terms = Column(String(20), default=PaymentTerms.DIAS_30.value)
-    payment_terms_days = Column(String(10), nullable=True)  # Para customizado
-    credit_limit = Column(String(20), nullable=True)  # Limite de crédito
-    discount_percentage = Column(String(10), nullable=True)  # % desconto padrão
+    payment_terms_days = Column(Integer, nullable=True)  # Para customizado
+    credit_limit = Column(Numeric(15, 2), nullable=True)  # Limite de crédito
+    discount_percentage = Column(Numeric(5, 2), nullable=True)  # % desconto padrão
     default_payment_method_id = Column(UUID(as_uuid=True), ForeignKey("payment_methods.id"), nullable=True)
 
     # Retenções fiscais
@@ -149,8 +151,8 @@ class Supplier(Base):
     withhold_inss = Column(Boolean, default=False)  # Reter INSS
 
     # Classificação e avaliação
-    rating = Column(String(5), nullable=True)  # 1-5 estrelas
-    rating_count = Column(String(10), default="0")
+    rating = Column(Integer, nullable=True)  # 1-5 estrelas
+    rating_count = Column(Integer, default=0)
     is_qualified = Column(Boolean, default=False)  # Fornecedor qualificado
     qualified_at = Column(DateTime, nullable=True)
     qualified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -160,7 +162,7 @@ class Supplier(Base):
     # [{"type": "contrato_social", "url": "...", "expires_at": "..."}]
 
     # Tags e observações
-    tags = Column(JSONB, default=list)  # ["prioritário", "certificado"]
+    tags = Column(ARRAY(String), default=list)  # ["prioritário", "certificado"]
     notes = Column(Text, nullable=True)
 
     # Bloqueio
