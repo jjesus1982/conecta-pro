@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
+from core.rate_limit import limiter
 from modules.client_portal.schemas.auth import (
     PortalLoginRequest,
     PortalLoginResponse,
@@ -24,6 +25,7 @@ router = APIRouter(prefix="/auth", tags=["Portal - Autenticacao"])
 
 
 @router.post("/login", response_model=PortalLoginResponse)
+@limiter.limit("10/minute")  # anti brute-force: o router do portal não herda o rate-limit do ERP
 async def portal_login(
     data: PortalLoginRequest,
     request: Request,

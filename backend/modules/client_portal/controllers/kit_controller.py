@@ -154,6 +154,13 @@ async def download_document(
             detail="Arquivo nao encontrado no servidor",
         )
 
+    # Segurança: confina o arquivo servido sob /app/uploads (anti path-traversal).
+    # Mesmo que um file_path malicioso entre no banco, não serve nada fora da raiz.
+    raiz = Path("/app/uploads").resolve()
+    if raiz not in file_path.resolve().parents:
+        logger.error("Tentativa de servir arquivo fora de /app/uploads: %s", file_path)
+        raise HTTPException(status_code=403, detail="Caminho de arquivo não permitido")
+
     return FileResponse(
         path=str(file_path),
         filename=doc_info["file_name"],
