@@ -18,6 +18,13 @@ export async function conferirKit(condominio: string, competencia?: string, refr
   return data;
 }
 
+export interface SeloLote { selo: 'conferido' | 'reprovado' | 'indisponivel'; resumo?: { ok: number; alertas: number; erros: number } }
+export interface ConferirLote { competencia: string; selos: Record<string, SeloLote> }
+export async function conferirLote(competencia?: string, refresh = false): Promise<ConferirLote> {
+  const { data } = await api.get(`${BASE}/conferir-lote`, { params: { competencia, refresh } });
+  return data;
+}
+
 // ── Pendências de assinatura ─────────────────────────────────────────────────
 export interface PendenciaCond {
   condominio: string; funcionarios_folha: number; assinados: number;

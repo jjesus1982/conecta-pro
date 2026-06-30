@@ -311,6 +311,39 @@ def conferir_kit_endpoint(
         raise HTTPException(status_code=503, detail=str(exc))
 
 
+_ATLAS_LOTE_CACHE: dict = {}  # comp -> (ts, resultado)
+
+
+@router.get("/conferir-lote", summary="ATLAS — selo de conferência de TODOS os condomínios (dashboard)")
+def conferir_lote_endpoint(
+    competencia: str | None = Query(None, regex=COMP_RE),
+    refresh: bool = Query(False),
+    current_user=Depends(get_current_user),
+) -> dict:
+    """Confere todos os condomínios de uma vez e devolve só o selo+resumo de cada um —
+    p/ o dashboard pintar o selo nos cards sem disparar N chamadas. Cacheado ~90s
+    (reusa o kit_cache já aquecido pela completude)."""
+    import time
+
+    from modules.gedeon.services.kit_atlas_service import conferir_kit
+    from modules.gedeon.services.kit_orchestrator import CONDOMINIOS_PADRAO
+
+    comp = competencia or _competencia_anterior()
+    cached = _ATLAS_LOTE_CACHE.get(comp)
+    if cached and not refresh and (time.time() - cached[0]) < _ATLAS_TTL:
+        return {**cached[1], "_cache": True}
+    selos: dict = {}
+    for cond in CONDOMINIOS_PADRAO:
+        try:
+            r = conferir_kit(comp, cond)
+            selos[cond] = {"selo": r["selo"], "resumo": r["resumo"]}
+        except Exception as exc:  # um condomínio com erro não derruba o lote
+            selos[cond] = {"selo": "indisponivel", "erro": str(exc)}
+    out = {"competencia": comp, "selos": selos}
+    _ATLAS_LOTE_CACHE[comp] = (time.time(), out)
+    return out
+
+
 class FaturarKitRequest(BaseModel):
     condominio: str
     competencia: str | None = None

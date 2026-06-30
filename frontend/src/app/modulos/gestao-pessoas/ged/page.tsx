@@ -4,10 +4,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   FolderOpen, CheckCircle2, Clock, BarChart3, Loader2, Wand2,
-  ChevronDown, ChevronRight, ExternalLink, XCircle, RefreshCw, ShieldCheck,
+  ChevronDown, ChevronRight, ExternalLink, XCircle, RefreshCw, ShieldCheck, ShieldAlert,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { api } from '@/lib/api';
+import { conferirLote, type SeloLote } from '@/services/gedeon/kitGestaoService';
 
 interface ChecklistItem {
   key: string; label: string; subpasta: string;
@@ -42,17 +43,49 @@ function barColor(pct: number) {
   return 'bg-red-500';
 }
 
+// Selo ATLAS por condomínio (conferido / revisar) na tabela do dashboard
+function SeloAtlas({ selo, carregando }: { selo?: SeloLote; carregando: boolean }) {
+  if (!selo) {
+    return carregando
+      ? <span className="inline-flex items-center gap-1 text-xs text-gray-400"><Loader2 className="h-3 w-3 animate-spin" /> conferindo…</span>
+      : <span className="text-xs text-gray-300">—</span>;
+  }
+  if (selo.selo === 'conferido') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-emerald-100 text-emerald-700" title={selo.resumo ? `${selo.resumo.ok} ok · ${selo.resumo.alertas} alertas` : 'Kit conferido'}>
+        <ShieldCheck className="h-3.5 w-3.5" /> Conferido
+      </span>
+    );
+  }
+  if (selo.selo === 'reprovado') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-700" title={selo.resumo ? `${selo.resumo.erros} erro(s) · ${selo.resumo.alertas} alertas` : 'Revisar'}>
+        <ShieldAlert className="h-3.5 w-3.5" /> Revisar{selo.resumo?.erros ? ` (${selo.resumo.erros})` : ''}
+      </span>
+    );
+  }
+  return <span className="inline-flex items-center px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-500" title="Não foi possível conferir">indisp.</span>;
+}
+
 export default function GEDDashboardPage() {
   const router = useRouter();
   const [data, setData] = useState<Completude | null>(null);
   const [loading, setLoading] = useState(true);
   const [aberto, setAberto] = useState<string | null>(null);
+  const [selos, setSelos] = useState<Record<string, SeloLote>>({});
+  const [conferindo, setConferindo] = useState(false);
 
   const fetchData = useCallback(async (force = false) => {
     setLoading(true);
     try {
       const { data } = await api.get('/api/v1/gedeon/kits/completude', { params: force ? { refresh: true } : {} });
       setData(data);
+      // selo ATLAS de todos os condomínios (batch, cacheado) — não bloqueia a tabela
+      setConferindo(true);
+      conferirLote(data?.competencia, force)
+        .then((r) => setSelos(r.selos || {}))
+        .catch(() => setSelos({}))
+        .finally(() => setConferindo(false));
     } catch (e) {
       console.error('completude:', e);
     } finally {
@@ -126,6 +159,7 @@ export default function GEDDashboardPage() {
                       <th className="py-3 px-4 font-medium w-8"></th>
                       <th className="py-3 px-4 font-medium">Condomínio</th>
                       <th className="py-3 px-4 font-medium">Status</th>
+                      <th className="py-3 px-4 font-medium">Conferência</th>
                       <th className="py-3 px-4 font-medium">Conclusão</th>
                       <th className="py-3 px-4 font-medium">Docs</th>
                       <th className="py-3 px-4 font-medium">Drive</th>
@@ -157,6 +191,9 @@ export default function GEDDashboardPage() {
                               </span>
                             </td>
                             <td className="py-3 px-4">
+                              <SeloAtlas selo={selos[kit.condominio]} carregando={conferindo} />
+                            </td>
+                            <td className="py-3 px-4">
                               <div className="flex items-center gap-2">
                                 <div className="w-28 bg-gray-200 rounded-full h-2">
                                   <div className={`${barColor(kit.completion_percentage)} h-2 rounded-full`} style={{ width: `${kit.completion_percentage}%` }} />
@@ -184,7 +221,7 @@ export default function GEDDashboardPage() {
                           </tr>
                           {open && (
                             <tr key={`${kit.condominio}-det`} className="bg-gray-50/60">
-                              <td colSpan={7} className="px-4 pb-5 pt-1">
+                              <td colSpan={8} className="px-4 pb-5 pt-1">
                                 <div className="grid md:grid-cols-2 gap-6">
                                   {/* Checklist */}
                                   <div>
