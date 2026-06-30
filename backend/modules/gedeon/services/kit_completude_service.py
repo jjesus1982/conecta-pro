@@ -180,12 +180,44 @@ def _ler_kit(svc, cond: str, competencia: str) -> dict:
     }
 
 
+def condominios_do_workspace(svc=None) -> list[str]:
+    """Lista os condomínios REAIS direto das pastas do workspace do GEDEON (escala automática:
+    inclui os que não estão nos 7 padrão). Exclui pastas meta (_AUDITORIA, _VA_VT, Folhas de Ponto).
+    Fallback p/ CONDOMINIOS_PADRAO se o Drive falhar."""
+    from modules.gedeon.services.kit_layout import ROOT_WORKSPACE_ID
+    from modules.gedeon.services.kit_orchestrator import CONDOMINIOS_PADRAO
+
+    if svc is None:
+        from modules.gdrive.services.gdrive_service import gdrive_service
+
+        if not gdrive_service._service:
+            gdrive_service.check_status()
+        svc = gdrive_service._service
+    if not svc:
+        return list(CONDOMINIOS_PADRAO)
+    try:
+        folders = (
+            svc.files()
+            .list(
+                q=f"'{ROOT_WORKSPACE_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false",
+                fields="files(name)",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            )
+            .execute()
+            .get("files", [])
+        )
+    except Exception:
+        return list(CONDOMINIOS_PADRAO)
+    nomes = sorted({f["name"] for f in folders if not f["name"].startswith("_") and f["name"].strip() != "Folhas de Ponto"})
+    return nomes or list(CONDOMINIOS_PADRAO)
+
+
 def completude_kits(competencia: str) -> dict:
-    """Painel de completude REAL dos 7 condomínios (lê o Drive)."""
+    """Painel de completude REAL de TODOS os condomínios do workspace (lê o Drive)."""
     from modules.gdrive.services.gdrive_service import gdrive_service
     from modules.gedeon.services import kit_cache
     from modules.gedeon.services.kit_layout import mes_kit_de_competencia
-    from modules.gedeon.services.kit_orchestrator import CONDOMINIOS_PADRAO
 
     if not gdrive_service._service:
         gdrive_service.check_status()
@@ -193,7 +225,8 @@ def completude_kits(competencia: str) -> dict:
     if not svc:
         raise RuntimeError("Google Drive não conectado")
 
-    kits = [kit_cache.ler_kit(svc, cond, competencia) for cond in CONDOMINIOS_PADRAO]
+    conds = condominios_do_workspace(svc)  # escala: todos os condomínios reais do workspace
+    kits = [kit_cache.ler_kit(svc, cond, competencia) for cond in conds]
     completos = sum(1 for k in kits if k["status"] == "completo")
     media = round(sum(k["completion_percentage"] for k in kits) / len(kits)) if kits else 0
     return {

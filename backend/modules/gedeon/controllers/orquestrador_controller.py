@@ -326,14 +326,14 @@ def conferir_lote_endpoint(
     import time
 
     from modules.gedeon.services.kit_atlas_service import conferir_kit
-    from modules.gedeon.services.kit_orchestrator import CONDOMINIOS_PADRAO
+    from modules.gedeon.services.kit_completude_service import condominios_do_workspace
 
     comp = competencia or _competencia_anterior()
     cached = _ATLAS_LOTE_CACHE.get(comp)
     if cached and not refresh and (time.time() - cached[0]) < _ATLAS_TTL:
         return {**cached[1], "_cache": True}
     selos: dict = {}
-    for cond in CONDOMINIOS_PADRAO:
+    for cond in condominios_do_workspace():
         try:
             r = conferir_kit(comp, cond)
             selos[cond] = {"selo": r["selo"], "resumo": r["resumo"]}
