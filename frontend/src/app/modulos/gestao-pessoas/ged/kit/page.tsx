@@ -12,7 +12,8 @@ import {
   getFicha, addEvento, delEvento, uploadKit, delArquivo, TIPO_LABEL, SUBPASTAS,
   type FichaKit, type EventoKit, type ArquivoKit,
 } from '@/services/gedeon/kitFichaService';
-import { dispararMontagem, statusMontagem } from '@/services/gedeon/kitMontagemService';
+import { dispararMontagem, statusMontagem, ETAPA_LABEL } from '@/services/gedeon/kitMontagemService';
+import KitGestaoSecoes from './KitGestaoSecoes';
 
 // Tipos de documento que o robô coleta (na ordem da montagem do kit), por condomínio
 const BLOCOS_COLETA = [
@@ -59,6 +60,7 @@ function KitFichaInner() {
   const [novoFunc, setNovoFunc] = useState('');
   const [coleta, setColeta] = useState<Record<string, string>>({}); // bloco -> 'coletando'|'ok'|'erro'
   const [coletando, setColetando] = useState<string | null>(null);
+  const [progresso, setProgresso] = useState<Record<string, string>>({}); // etapa -> running|ok|erro (ao vivo)
   const fileRef = useRef<HTMLInputElement | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -97,6 +99,7 @@ function KitFichaInner() {
         polls++;
         try {
           const st = await statusMontagem(task_id);
+          if (st.progresso?.etapas) setProgresso(st.progresso.etapas); // feedback ao vivo
           const orqOk = st.state === 'SUCCESS';
           const orqFail = st.state === 'FAILURE';
           const pontoFim = ['done', 'error'].includes(st.ponto?.state || '');
@@ -106,6 +109,7 @@ function KitFichaInner() {
             if (pollRef.current) clearInterval(pollRef.current);
             setColeta((s) => ({ ...s, [bloco]: orqFail ? 'erro' : 'ok' }));
             setColetando(null);
+            setProgresso({});
             await carregar(); // atualiza o checklist/arquivos com o que foi coletado
           }
         } catch { /* mantém polling */ }
@@ -265,8 +269,30 @@ function KitFichaInner() {
               );
             })}
           </div>
+          {/* Progresso ao vivo do orquestrador (etapas em running/ok/erro) */}
+          {coletando && Object.keys(progresso).length > 0 && (
+            <div className="mt-4 pt-3 border-t border-gray-100">
+              <p className="text-xs font-medium text-gray-500 mb-2">Andamento do robô:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(progresso).filter(([k]) => k !== '_concluido').map(([etapa, st]) => (
+                  <span key={etapa} className={`text-[11px] px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                    st === 'ok' ? 'bg-emerald-100 text-emerald-700'
+                    : st === 'erro' ? 'bg-red-100 text-red-600'
+                    : 'bg-violet-100 text-violet-700'}`}>
+                    {st === 'running' && <Loader2 className="w-3 h-3 animate-spin" />}
+                    {st === 'ok' && <CheckCircle2 className="w-3 h-3" />}
+                    {st === 'erro' && <XCircle className="w-3 h-3" />}
+                    {ETAPA_LABEL[etapa] || etapa}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
+
+      {/* Gestão do kit: ATLAS, entrega, faturamento, assinaturas, visão funcionário, DP */}
+      <KitGestaoSecoes cond={cond} comp={f.competencia} onChange={carregar} />
 
       {/* Upload de anexos */}
       <Card className="border border-gray-200">

@@ -386,7 +386,13 @@ class ConectaEventBus:
     async def publish(self, event: ConectaEvent) -> bool:
         """Publica evento no Redis Stream correspondente."""
         if self._redis is None:
-            logger.warning("EventBus não conectado — descartando: %s", event.event_type)
+            # Sem conexão, cada publish floodava o log com um WARNING. Avisa UMA vez
+            # (warning) e depois rebaixa p/ debug — não polui o log com 1 linha por evento.
+            if not getattr(self, "_warned_desconectado", False):
+                logger.warning("EventBus não conectado — eventos serão descartados (avisado 1x)")
+                self._warned_desconectado = True
+            else:
+                logger.debug("EventBus não conectado — descartando: %s", event.event_type)
             return False
         try:
             stream = self._stream_for(event.event_type)

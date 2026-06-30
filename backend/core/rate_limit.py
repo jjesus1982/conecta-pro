@@ -36,8 +36,16 @@ def get_user_identifier(request: Request) -> str:
     if user_id:
         return f"user:{user_id}"
 
-    # Fallback para IP
-    return f"ip:{get_remote_address(request)}"
+    # Fallback para IP — atrás do nginx, request.client.host é o gateway Docker (todos
+    # compartilhariam o mesmo balde). Preferir o 1º hop do X-Forwarded-For (IP real).
+    return f"ip:{_real_ip(request)}"
+
+
+def _real_ip(request: Request) -> str:
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return get_remote_address(request)
 
 
 def get_api_key_identifier(request: Request) -> str:

@@ -69,6 +69,8 @@ ETAPAS_ESPERADAS = [
     "inter",
     "inss_tributario",
     "va_vt",
+    "rescisao",
+    "cnds",
     "nfse_danfse",
 ]
 
@@ -90,8 +92,28 @@ def status_montagem(task_id: str, current_user=Depends(get_current_user)) -> dic
         out["etapas"] = {k: {"ok": bool(v.get("ok")), "erro": v.get("erro")} for k, v in etapas.items()}
     elif res.failed():
         out["erro"] = str(res.result)
+    else:
+        # ainda rodando: lê o progresso ao vivo gravado pelo orquestrador no Redis
+        out["progresso"] = _montagem_progresso(task_id)
     out["ponto"] = _ponto_status()  # robô de ponto assinado (host) — status via Redis
     return out
+
+
+def _montagem_progresso(task_id: str) -> dict:
+    """Progresso ao vivo da montagem (etapas em running/ok/erro), escrito pelo orquestrador."""
+    try:
+        import json
+        import os
+
+        import redis
+
+        r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/1"))
+        raw = r.get(f"gedeon:montagem:progresso:{task_id}")
+        if raw:
+            return json.loads(raw)
+    except Exception:
+        pass
+    return {"etapas": {}}
 
 
 def _ponto_status() -> dict:
@@ -214,15 +236,183 @@ def excluir_arquivo_kit(
     return {"ok": True, "arquivo": meta.get("name"), "condominio": condominio}
 
 
+_FICHA_CACHE: dict = {}  # (comp,cond) -> (ts, resultado)
+_FICHA_TTL = 60
+
+
 @router.get("/ficha", summary="Ficha individualizada do kit de um condomínio (montagem ponto-a-ponto)")
 def ficha_kit(
     condominio: str = Query(...),
     competencia: str | None = Query(None, regex=COMP_RE),
+    refresh: bool = Query(False, description="força reler o Drive (ignora o cache)"),
     current_user=Depends(get_current_user),
 ) -> dict:
+    """Ficha do kit (lê o Drive — pesado). CACHEADO ~60s p/ não sobrecarregar durante montagem."""
+    import time
+
     from modules.gedeon.services.kit_ficha_service import ficha
 
-    return ficha(competencia or _competencia_anterior(), condominio)
+    comp = competencia or _competencia_anterior()
+    chave = (comp, condominio)
+    cached = _FICHA_CACHE.get(chave)
+    if cached and not refresh and (time.time() - cached[0]) < _FICHA_TTL:
+        return {**cached[1], "_cache": True}
+    out = ficha(comp, condominio)
+    _FICHA_CACHE[chave] = (time.time(), out)
+    return out
+
+
+_ATLAS_CACHE: dict = {}  # (comp,cond) -> (ts, resultado)
+_ATLAS_TTL = 90
+
+
+@router.get("/conferir", summary="ATLAS — conferência automática do kit (selo conferido)")
+def conferir_kit_endpoint(
+    condominio: str = Query(...),
+    competencia: str | None = Query(None, regex=COMP_RE),
+    refresh: bool = Query(False, description="força reconferir (ignora o cache)"),
+    current_user=Depends(get_current_user),
+) -> dict:
+    """Confere a COERÊNCIA do kit (nº salários x funcionários, VT/VR por ativo, CNDs
+    válidas, ponto/NFS-e/boleto) e devolve o selo 'conferido' ou 'reprovado'. Cacheado ~90s."""
+    import time
+
+    from modules.gedeon.services.kit_atlas_service import conferir_kit
+
+    comp = competencia or _competencia_anterior()
+    chave = (comp, condominio)
+    cached = _ATLAS_CACHE.get(chave)
+    if cached and not refresh and (time.time() - cached[0]) < _ATLAS_TTL:
+        return {**cached[1], "_cache": True}
+    try:
+        out = conferir_kit(comp, condominio)
+        _ATLAS_CACHE[chave] = (time.time(), out)
+        return out
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+class FaturarKitRequest(BaseModel):
+    condominio: str
+    competencia: str | None = None
+    tipo: str = "ambos"  # nfse | boleto | ambos
+    confirmar: bool = False  # SEGURANÇA: False = só preview (não emite nada)
+    optante_simples: bool = False
+
+
+@router.post("/faturar", summary="Emitir NFS-e e/ou boleto do kit (confirmar=false → preview)")
+async def faturar_kit(req: FaturarKitRequest, current_user=Depends(get_current_user)) -> dict:
+    """Fatura o condomínio do kit (NFS-e nativa + boleto Inter). Por SEGURANÇA, sem
+    confirmar=true devolve apenas o PREVIEW do que seria emitido — não cria nota/cobrança real."""
+    from modules.gedeon.services.kit_faturamento_service import emitir_faturamento
+
+    if req.tipo not in ("nfse", "boleto", "ambos"):
+        raise HTTPException(status_code=400, detail="tipo deve ser nfse | boleto | ambos")
+    comp = req.competencia or _competencia_anterior()
+    try:
+        return await emitir_faturamento(
+            comp, req.condominio, tipo=req.tipo, confirmar=req.confirmar, optante_simples=req.optante_simples
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/dp/alinhamento", summary="Alinhamento DP — folha do kit x espelho Sólides + afastamentos")
+def alinhamento_dp_endpoint(
+    condominio: str = Query(...),
+    competencia: str | None = Query(None, regex=COMP_RE),
+    current_user=Depends(get_current_user),
+) -> dict:
+    from modules.gedeon.services.kit_dp_service import alinhamento_dp
+
+    return alinhamento_dp(competencia or _competencia_anterior(), condominio)
+
+
+@router.get("/condominios", summary="Condomínios elegíveis (escala — clients com contrato ativo)")
+def condominios_elegiveis_endpoint(current_user=Depends(get_current_user)) -> dict:
+    from modules.gedeon.services.kit_dp_service import condominios_elegiveis
+
+    return condominios_elegiveis()
+
+
+@router.get("/funcionarios", summary="Funcionários da folha do condomínio (p/ a visão por funcionário)")
+def listar_funcionarios_endpoint(
+    condominio: str = Query(...),
+    competencia: str | None = Query(None, regex=COMP_RE),
+    current_user=Depends(get_current_user),
+) -> dict:
+    from modules.gedeon.services.kit_funcionario_service import listar_funcionarios
+
+    return listar_funcionarios(competencia or _competencia_anterior(), condominio)
+
+
+@router.get("/funcionario", summary="Visão por funcionário (todos os docs de uma pessoa)")
+def visao_funcionario_endpoint(
+    funcionario: str = Query(...),
+    condominio: str | None = Query(None),
+    competencia: str | None = Query(None, regex=COMP_RE),
+    current_user=Depends(get_current_user),
+) -> dict:
+    from modules.gedeon.services.kit_funcionario_service import visao_funcionario
+
+    return visao_funcionario(competencia or _competencia_anterior(), funcionario, condominio)
+
+
+@router.post("/entrega/preparar", summary="Prepara a entrega do kit (gera capa/índice + selo). NÃO envia.")
+def preparar_entrega_endpoint(
+    condominio: str = Query(...),
+    competencia: str | None = Query(None, regex=COMP_RE),
+    current_user=Depends(get_current_user),
+) -> dict:
+    """Gera a capa/índice do kit (com selo ATLAS) e sobe no Drive. O envio ao cliente
+    é MANUAL (segurança) — aqui só preparamos e registramos o estado."""
+    from modules.gedeon.services.kit_entrega_service import preparar_entrega
+
+    try:
+        return preparar_entrega(competencia or _competencia_anterior(), condominio)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+class MarcarEntregueRequest(BaseModel):
+    condominio: str
+    competencia: str | None = None
+    canal: str = "manual"  # whatsapp | email | impresso | manual
+    obs: str = ""
+
+
+@router.post("/entrega/marcar", summary="Marca o kit como entregue ao cliente (entrega manual)")
+def marcar_entregue_endpoint(req: MarcarEntregueRequest, current_user=Depends(get_current_user)) -> dict:
+    from modules.gedeon.services.kit_entrega_service import marcar_entregue
+
+    autor = getattr(current_user, "email", None) or getattr(current_user, "username", None)
+    return marcar_entregue(
+        req.competencia or _competencia_anterior(), req.condominio, canal=req.canal, obs=req.obs, autor=autor
+    )
+
+
+@router.get("/entrega/status", summary="Status de entrega do kit (não_preparado/preparado/entregue)")
+def status_entrega_endpoint(
+    condominio: str = Query(...),
+    competencia: str | None = Query(None, regex=COMP_RE),
+    current_user=Depends(get_current_user),
+) -> dict:
+    from modules.gedeon.services.kit_entrega_service import status_entrega
+
+    return status_entrega(competencia or _competencia_anterior(), condominio)
+
+
+@router.get("/assinaturas", summary="Pendências de assinatura (quem não assinou VT/VR no Sólides)")
+def pendencias_assinatura_endpoint(
+    condominio: str | None = Query(None),
+    competencia: str | None = Query(None, regex=COMP_RE),
+    current_user=Depends(get_current_user),
+) -> dict:
+    """Lista, por condomínio, quem está na folha mas ainda não tem o recibo de VT/VR
+    assinado no Sólides — p/ a Pyetra cobrar antes de fechar o kit."""
+    from modules.gedeon.services.kit_assinatura_service import pendencias_assinatura
+
+    return pendencias_assinatura(competencia or _competencia_anterior(), condominio)
 
 
 class EventoChecklist(BaseModel):

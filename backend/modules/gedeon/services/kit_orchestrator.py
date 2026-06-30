@@ -58,11 +58,41 @@ def _range_boletos(competencia: str) -> tuple[str, str]:
     return ini, f"{a2}-{m2:02d}-15"
 
 
+def _prog_writer(task_id: str | None, competencia: str):
+    """Devolve um callback que grava o progresso da montagem no Redis (lido pela UI ao vivo).
+    Sem task_id (ex.: beat agendado) vira no-op. Nunca levanta — feedback é best-effort."""
+    if not task_id:
+        return lambda *_a, **_k: None
+    import json
+    import os
+    import time
+
+    import redis
+
+    try:
+        r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/1"))
+    except Exception:
+        return lambda *_a, **_k: None
+    estado = {"task_id": task_id, "competencia": competencia, "atual": None, "etapas": {}}
+
+    def _prog(nome: str, st: str):
+        try:
+            estado["etapas"][nome] = st
+            estado["atual"] = nome if st == "running" else estado["atual"]
+            estado["ts"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            r.set(f"gedeon:montagem:progresso:{task_id}", json.dumps(estado), ex=1800)
+        except Exception:
+            pass
+
+    return _prog
+
+
 async def montar_kits_mensais(
     competencia: str,
     condominios: list[str] | None = None,
     dry_run: bool = False,
     blocos: list[str] | None = None,
+    task_id: str | None = None,
 ) -> dict:
     """Monta o kit de cada condomínio para a competência. Devolve relatório agregado.
 
@@ -111,15 +141,20 @@ async def montar_kits_mensais(
         ],
     }
 
+    prog = _prog_writer(task_id, competencia)
+
     def etapa(nome, fn):
-        """Roda uma etapa isolada, grava resultado/erro no relatório."""
+        """Roda uma etapa isolada, grava resultado/erro no relatório + progresso ao vivo."""
+        prog(nome, "running")
         try:
             r = fn()
             rel["etapas"][nome] = {"ok": True, "resultado": r}
+            prog(nome, "ok")
             logger.info("GEDEON orquestrador [%s] OK: %s", nome, r)
             return r
         except Exception as exc:
             rel["etapas"][nome] = {"ok": False, "erro": str(exc)}
+            prog(nome, "erro")
             logger.warning("GEDEON orquestrador [%s] FALHOU: %s", nome, exc)
             return None
 
@@ -128,7 +163,9 @@ async def montar_kits_mensais(
     # segue com a sessão atual do Redis (pode ainda estar válida).
     onvio_client = None
     if precisa_onvio:
+        prog("onvio_sessao", "running")
         rel["etapas"]["onvio_sessao"] = {"ok": True, "resultado": garantir_sessao_onvio()}
+        prog("onvio_sessao", "ok")
         # ── Onvio: SYNC do mês (baixa docs → /app/uploads/onvio + popula onvio_documents) ──
         # Roda ANTES de arquivar (folha/guias/salário leem de onvio_documents). Não-fatal.
         etapa("onvio_sync", lambda: _onvio_sync(get_sync_db, competencia))
@@ -157,6 +194,7 @@ async def montar_kits_mensais(
     # (o adapter httpx fica preso ao loop onde nasce; reusar entre asyncio.run quebraria)
     txs: list[dict] = []
     if precisa_inter:
+        prog("inter", "running")
         folha_por_cond = _folhas_por_condominio(get_sync_db, _condominio_do_nome, onvio_client, competencia)
         try:
             txs, inter_rel = await _inter_tudo(
@@ -172,8 +210,10 @@ async def montar_kits_mensais(
                 baixar_extrato_oficial,
             )
             rel["etapas"]["inter"] = {"ok": True, "resultado": inter_rel}
+            prog("inter", "ok")
         except Exception as exc:
             rel["etapas"]["inter"] = {"ok": False, "erro": str(exc)}
+            prog("inter", "erro")
             logger.warning("GEDEON orquestrador [inter] FALHOU: %s", exc)
 
     # INSS (replicado em cada kit) e VA/VT (a atribuir) — SYNC, usam os txs já buscados
@@ -218,6 +258,7 @@ async def montar_kits_mensais(
         "etapas_ok": sum(1 for e in rel["etapas"].values() if e.get("ok")),
         "etapas_falha": sum(1 for e in rel["etapas"].values() if not e.get("ok")),
     }
+    prog("_concluido", "ok")
     return rel
 
 

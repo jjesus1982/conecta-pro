@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { emitirCnd, statusCnd, type PortalManual } from '@/services/gedeon/cndService';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -50,6 +51,28 @@ const TIPOS_PRINCIPAIS = [
   { syncKey: 'cnd_estadual',    documentType: 'certidao_negativa_estadual',     label: 'CND Estadual',     orgao: 'SEFAZ AM',          icon: '🗺️' },
   { syncKey: 'cnd_municipal',   documentType: 'certidao_negativa_municipal',    label: 'CND Municipal',    orgao: 'Prefeitura Manaus', icon: '🏙️' },
 ];
+
+// ─── Modelo GEDEON: o mesmo robô de CND usado no GED ──────────────────────────
+// syncKey (UI do Fiscal) → portal do robô GEDEON. Os 3 automáticos rodam pelo
+// robô (ponte Redis → Playwright host + 2captcha); Federal/FGTS são
+// manual-assistidos (emite no portal oficial + sobe o PDF), exatamente como no GED.
+const SYNCKEY_PORTAL: Record<string, string> = {
+  cnd_federal: 'federal',
+  cndt_trabalhista: 'cndt',
+  crf_fgts: 'caixa',
+  cnd_estadual: 'sefaz_am',
+  cnd_municipal: 'prefeitura',
+};
+const PORTAIS_AUTO = ['sefaz_am', 'cndt', 'prefeitura'];
+const PORTAIS_MANUAIS = ['federal', 'caixa'];
+const DOCTYPE_PORTAL: Record<string, string> = {
+  federal: 'certidao_negativa_federal',
+  caixa: 'certidao_negativa_fgts',
+};
+// estados que o robô grava em gedeon:cnd:status: enfileirado → running → done
+const ESTADOS_OCUPADO = new Set(['enfileirado', 'running', 'iniciando', 'processando']);
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; Icon: LucideIcon }> = {
   valida:         { label: 'Válida',     color: 'text-green-700',  bg: 'bg-green-100',  Icon: CheckCircle },
@@ -174,6 +197,8 @@ export default function CertidoesPage() {
   const [sincronizandoTipo, setSincronizandoTipo] = useState<string>('');
   const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
   const [detalhe, setDetalhe] = useState<Certidao | null>(null);
+  const [manuais, setManuais] = useState<Record<string, PortalManual>>({});
+  const [progresso, setProgresso] = useState<string>('');
 
   // ── Toast helper ──
   const showToast = useCallback((type: 'success' | 'error', msg: string) => {
@@ -203,44 +228,70 @@ export default function CertidoesPage() {
 
   useEffect(() => { fetchCertidoes(); }, [fetchCertidoes]);
 
-  // ── Sincronizar todas ──
+  // carrega as URLs dos portais oficiais (Federal/FGTS = manual-assistido) uma vez
+  useEffect(() => {
+    statusCnd().then((s) => setManuais(s.manuais ?? {})).catch(() => {});
+  }, []);
+
+  // ── Acompanha o robô GEDEON até concluir (enfileirado → running → done) ──
+  const aguardarRobo = useCallback(async (rotulo: string): Promise<void> => {
+    for (let i = 0; i < 50; i++) {       // ~3,5 min de teto (50 × 4s)
+      await sleep(4000);
+      let st;
+      try { st = await statusCnd(); } catch { continue; }
+      const state = st.emissao?.state ?? 'idle';
+      if (ESTADOS_OCUPADO.has(state)) {
+        const atual = st.emissao?.atual ? ` (${st.emissao.atual})` : '';
+        setProgresso(`${rotulo}: robô trabalhando${atual}…`);
+        continue;
+      }
+      return;                            // 'done' / 'idle' → terminou
+    }
+  }, []);
+
+  // ── Sincronizar todas (robô GEDEON: SEFAZ/CNDT/Prefeitura automáticos) ──
   const sincronizarTodas = useCallback(async () => {
     setSincronizandoTodas(true);
+    setProgresso('Disparando o robô de CND (SEFAZ-AM, CNDT, Prefeitura)…');
     try {
-      const token = getToken();
-      const res = await fetch('/api/v1/ged/certidoes/sync', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      showToast('success', 'Sincronização concluída com sucesso!');
+      await emitirCnd(PORTAIS_AUTO);
+      await aguardarRobo('Certidões');
       await fetchCertidoes();
+      showToast('success', 'Robô concluído. Federal e FGTS são manual-assistidos — use "Buscar" no card.');
     } catch (e: unknown) {
-      showToast('error', `Erro ao sincronizar: ${e instanceof Error ? e.message : String(e)}`);
+      showToast('error', `Erro ao acionar o robô: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setSincronizandoTodas(false);
+      setProgresso('');
     }
-  }, [fetchCertidoes, showToast]);
+  }, [aguardarRobo, fetchCertidoes, showToast]);
 
-  // ── Sincronizar por tipo ──
+  // ── Buscar por tipo (mesmo modelo do GED) ──
   const sincronizarTipo = useCallback(async (tipoKey: string) => {
+    const portal = SYNCKEY_PORTAL[tipoKey];
+    // Federal / FGTS: manual-assistido — abre o portal oficial e leva ao upload
+    if (PORTAIS_MANUAIS.includes(portal)) {
+      const m = manuais[DOCTYPE_PORTAL[portal]];
+      if (m?.url) window.open(m.url, '_blank', 'noopener');
+      showToast('success', `${m?.nome ?? portal}: emita no portal oficial e suba o PDF em "Emitir CNDs".`);
+      window.location.href = '/modulos/fiscal/certidoes/emitir';
+      return;
+    }
+    // SEFAZ-AM / CNDT / Prefeitura: robô automático
     setSincronizandoTipo(tipoKey);
+    setProgresso(`Disparando o robô para ${tipoKey}…`);
     try {
-      const token = getToken();
-      const res = await fetch(`/api/v1/ged/certidoes/sync/${tipoKey}`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      showToast('success', `${tipoKey}: ${data.status ?? 'OK'}`);
+      await emitirCnd([portal]);
+      await aguardarRobo(tipoKey);
       await fetchCertidoes();
+      showToast('success', `${tipoKey}: robô concluído.`);
     } catch (e: unknown) {
       showToast('error', `Erro ao buscar ${tipoKey}: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setSincronizandoTipo('');
+      setProgresso('');
     }
-  }, [fetchCertidoes, showToast]);
+  }, [aguardarRobo, fetchCertidoes, manuais, showToast]);
 
   // ── Lista filtrada ──
   const enriched = certidoes.map((c) => ({ ...c, _status: calcularStatus(c) }));
@@ -309,6 +360,14 @@ export default function CertidoesPage() {
           </Button>
         </div>
       </div>
+
+      {/* Progresso do robô GEDEON */}
+      {progresso && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-700">
+          <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
+          {progresso}
+        </div>
+      )}
 
       {/* Cards de resumo */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">

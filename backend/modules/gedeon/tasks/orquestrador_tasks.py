@@ -47,7 +47,10 @@ def montar_kits_mensais_task(
         rel = {"competencia": comp, "etapas": {}, "resumo": {"etapas_ok": 0, "etapas_falha": 0}}
         # só roda o orquestrador se houver algum bloco que não seja apenas "ponto"
         if pedido is None or blocos_orq:
-            rel = asyncio.run(montar_kits_mensais(comp, condominios=condominios, dry_run=False, blocos=blocos_orq))
+            tid = getattr(getattr(self, "request", None), "id", None)  # p/ progresso ao vivo (Redis)
+            rel = asyncio.run(
+                montar_kits_mensais(comp, condominios=condominios, dry_run=False, blocos=blocos_orq, task_id=tid)
+            )
 
         resumo = rel.get("resumo", {})
         logger.info(

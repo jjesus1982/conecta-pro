@@ -213,8 +213,19 @@ def baixar(dias: int = 150, competencia: str | None = None) -> list[dict]:
 
     # candidatos por DONO: recibo "NOME.pdf" na janela OU doc com palavra-chave de vale/férias/13º
     cand: dict = {}
+    pendentes: list = []  # docs aguardando assinatura (status != COMPLETED) → pendentes.json
     for d in todos:
-        if (d.get("status") or {}).get("value") != "COMPLETED":
+        st = (d.get("status") or {}).get("value")
+        if st != "COMPLETED":
+            # ainda não assinado: registra como pendência (só os que parecem recibo de pessoa)
+            dono_p = dono_do_doc(d)
+            nome_p = d.get("name", "")
+            kw_p = VALE_KW.search(nome_p) or FERIAS_KW.search(nome_p) or DECIMO_KW.search(nome_p)
+            if dono_p and (eh_nome_pessoa(re.sub(r"\.pdf$", "", nome_p, flags=re.I)) or kw_p):
+                pendentes.append(
+                    {"funcionario": dono_p, "documento": nome_p, "status": st or "PENDENTE",
+                     "created": (d.get("createdAt") or "")[:10]}
+                )
             continue
         dono = dono_do_doc(d)
         if not dono:
@@ -273,6 +284,16 @@ def baixar(dias: int = 150, competencia: str | None = None) -> list[dict]:
         open(f"{DEST}/{m['arquivo']}", "wb").write(baixados_bytes[m["arquivo"]])
         manifesto.append({**m, "bytes": len(baixados_bytes[m["arquivo"]])})
     json.dump(manifesto, open(f"{DEST}/manifesto.json", "w"), ensure_ascii=False, indent=2)
+    # dedup pendentes por (funcionário, documento) e grava p/ o painel de assinaturas
+    _seen = set()
+    pend_uniq = []
+    for p in pendentes:
+        k = (_u(p["funcionario"]), p["documento"])
+        if k not in _seen:
+            _seen.add(k)
+            pend_uniq.append(p)
+    json.dump(pend_uniq, open(f"{DEST}/pendentes.json", "w"), ensure_ascii=False, indent=2)
+    print(f"{len(pend_uniq)} docs aguardando assinatura → pendentes.json", file=sys.stderr)
     return manifesto
 
 

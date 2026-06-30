@@ -12,6 +12,8 @@ export interface MontagemStatus {
   resumo?: { etapas_ok: number; etapas_falha: number };
   etapas?: Record<string, { ok: boolean; erro?: string | null }>;
   ponto?: { state: string; competencia?: string; arquivados?: string };
+  // progresso ao vivo enquanto a task ainda roda (gravado pelo orquestrador no Redis)
+  progresso?: { atual?: string | null; etapas?: Record<string, string>; ts?: string };
   erro?: string;
 }
 
