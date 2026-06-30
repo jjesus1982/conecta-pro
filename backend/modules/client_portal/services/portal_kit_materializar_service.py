@@ -221,15 +221,19 @@ def materializar(competencia_default: str = "2026-06") -> dict:
                             stats["ja_indexado"] += 1
                             continue
                         base = re.sub(r"\.(pdf|html?|xml)$", "", fn, flags=re.I)
-                        base = re.sub(r"\d{2}\.\d{4}", " ", base).replace("_", " ")
-                        if "geral" in _norm(base) or "conecta mais" in _norm(base):
-                            stats["sem_cliente"] += 1  # docs gerais (escritório) não vão pro kit do cliente
+                        base = re.sub(r"\d{2}[.\-/]\d{2,4}([.\-/]\d{2,4})?", " ", base).replace("_", " ")
+                        nb = _norm(base)
+                        # docs gerais (escritório) ou digitalizações sem nome → fora do kit do cliente
+                        if any(x in nb for x in ("geral", "conecta mais", "camscanner", "scan", "digitalizado", "img ", "doc ")):
+                            stats["sem_cliente"] += 1
                             continue
-                        # tenta condomínio primeiro (folha/guias), depois funcionário (contracheque)
+                        # nome do funcionário = parte após o último ' - ' (ex.: 'Contrato ... - Jonilson de Souza')
+                        nome_func = base.rsplit(" - ", 1)[-1].strip() if " - " in base else base
+                        # condomínio primeiro (folha/guias), senão funcionário
                         gid = _ged_por_condominio(base, mapa)
                         emp_id = None
                         if not gid:
-                            emp_id, gid = _ged_por_nome(base, mapa)
+                            emp_id, gid = _ged_por_nome(nome_func, mapa)
                         if not gid:
                             stats["sem_cliente"] += 1
                             continue

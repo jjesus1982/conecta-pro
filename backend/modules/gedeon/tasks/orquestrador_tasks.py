@@ -63,6 +63,17 @@ def montar_kits_mensais_task(
         # ponte do ponto (host): em montagem completa OU quando "ponto" foi pedido
         if pedido is None or "ponto" in pedido:
             _solicitar_ponto(comp)
+        # MONTAGEM LOCAL: indexa os arquivos locais (ponto/solides/onvio) nos kits do PORTAL
+        # com file_path real, e dispara o aviso "kit disponível". Não-fatal (não quebra a montagem).
+        try:
+            from modules.client_portal.services.portal_kit_materializar_service import materializar
+
+            mes_n, ano_n = int(comp.split(".")[0]), int(comp.split(".")[1])  # comp = MM.YYYY
+            ky, kmth = (ano_n, mes_n + 1) if mes_n < 12 else (ano_n + 1, 1)  # mês do KIT = competência+1
+            stats_mat = materializar(f"{ky}-{kmth:02d}")
+            logger.info("GEDEON materializou no portal: %s", stats_mat)
+        except Exception as exc:
+            logger.warning("materialização no portal falhou (não-fatal): %s", exc)
         # notifica o Jordan só na montagem COMPLETA (não pinga a cada bloco incremental)
         if pedido is None:
             _notificar_jordan(comp, rel)

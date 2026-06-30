@@ -33,6 +33,7 @@ app = Celery(
         "modules.health_occupational.tasks",
         "modules.gedeon.tasks.kronos_tasks",
         "modules.gedeon.tasks.orquestrador_tasks",
+        "modules.client_portal.tasks",
         "modules.financial.tasks",
         "modules.crm.tasks",
         "modules.integrations.connectors.whatsapp.tasks",
@@ -156,6 +157,12 @@ app.conf.beat_schedule = {
     "gedeon-fiscal-verificar-certidoes": {
         "task": "gedeon.fiscal.verificar_certidoes",
         "schedule": crontab(hour=7, minute=0),
+        "options": {"queue": "gov.batch"},
+    },
+    # Portal do Cliente — materializa os docs locais nos kits (catch-all diário 07:30)
+    "portal-materializar-kits": {
+        "task": "portal.materializar_kits",
+        "schedule": crontab(hour=7, minute=30),
         "options": {"queue": "gov.batch"},
     },
     # Verificação de disponibilidade a cada 5 minutos
