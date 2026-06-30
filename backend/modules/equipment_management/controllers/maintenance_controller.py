@@ -58,6 +58,7 @@ async def create_maintenance(
 
 
 @router.get("", response_model=MaintenanceListResponse)
+@router.get("/", response_model=MaintenanceListResponse, include_in_schema=False)  # espelho barra-final
 async def list_maintenances(  # pylint: disable=too-many-locals
     current_user: CurrentActiveUser,
     search: str | None = Query(None),

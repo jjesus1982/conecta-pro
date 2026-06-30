@@ -107,7 +107,9 @@ class RiskMapping(Base):
     descricao_setor = Column(Text, nullable=True)
     localizacao = Column(String(200), nullable=True)
 
-    # Funcoes do setor
+    # Funcoes do setor — funcao (singular) é NOT NULL na tabela; antes não estava mapeada no
+    # model, então o INSERT a deixava NULL e violava a constraint.
+    funcao = Column(String(100), nullable=False, default="geral")
     funcoes = Column(JSONB, default=list)
     numero_trabalhadores = Column(Integer, nullable=True)
 
@@ -171,15 +173,16 @@ class OccupationalRisk(Base):
     numero_expostos = Column(Integer, nullable=True)
     tempo_exposicao = Column(String(50), nullable=True)  # "8h/dia", "intermitente", etc
 
-    # Avaliacao de risco
-    probabilidade = Column(Integer, nullable=True)  # 1-5
-    severidade = Column(Integer, nullable=True)  # 1-5
+    # Avaliacao de risco — tipos alinhados à tabela real (varchar/text), não Integer/Float
+    # (a tabela guarda como texto; o mismatch causava "Unknown PG numeric type: 25").
+    probabilidade = Column(String(20), nullable=True)  # 1-5
+    severidade = Column(String(20), nullable=True)  # 1-5
     nivel_risco = Column(String(20), nullable=True)  # trivial a intoleravel
 
     # Valores medidos (quando aplicavel)
     valor_medido = Column(Float, nullable=True)
     unidade_medida = Column(String(20), nullable=True)
-    limite_tolerancia = Column(Float, nullable=True)
+    limite_tolerancia = Column(String(50), nullable=True)
 
     # Medidas existentes
     medidas_existentes = Column(JSONB, default=list)

@@ -46,11 +46,12 @@ class ClientService:
 
     def create_client(self, data: ClientCreate, created_by: UUID | None = None) -> Client:
         """Create a new client with validation."""
-        # Validate document
-        if data.document_type.value == "cnpj":
+        # Validate document — document_type pode vir como Enum ou str (Pydantic use_enum_values)
+        _dtype = getattr(data.document_type, "value", data.document_type)
+        if _dtype == "cnpj":
             if not Client.validate_cnpj(data.document_number):
                 raise ValueError("CNPJ inválido")
-        elif data.document_type.value == "cpf":
+        elif _dtype == "cpf":
             if not Client.validate_cpf(data.document_number):
                 raise ValueError("CPF inválido")
 

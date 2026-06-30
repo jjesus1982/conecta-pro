@@ -238,7 +238,7 @@ class RecruitmentAIService:
         position: JobPosition,
     ) -> dict[str, Any]:
         """Calcula match de experiência."""
-        required_years = position.experience_min or 0
+        required_years = getattr(position, "min_experience_years", None) or 0
         candidate_years = candidate.years_experience or 0
 
         if required_years == 0:

@@ -50,6 +50,9 @@ class ClientRepository:
         code = Client.generate_code(sequence)
 
         client = Client(code=code, created_by=created_by, **data.model_dump(exclude_none=True))
+        # status é NOT NULL (enum) e o ClientCreate não o define -> default 'active' ao cadastrar.
+        if not getattr(client, "status", None):
+            client.status = "active"
         self.db.add(client)
         self.db.commit()
         self.db.refresh(client)

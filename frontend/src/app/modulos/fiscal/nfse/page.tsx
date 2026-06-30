@@ -77,7 +77,34 @@ export default function NfsePage() {
   };
 
   const handleEmitir = (data: any) => {
-    emitirMutation.mutate(data, {
+    // Mapeia o form (campos planos) para a estrutura do endpoint NFS-e Nacional
+    const payload: any = {
+      tomador: {
+        cpf_cnpj: (data.tomador_cnpj || '').replace(/\D/g, ''),
+        razao_social: data.tomador_nome,
+        logradouro: data.tomador_logradouro || 'NAO INFORMADO',
+        numero: data.tomador_numero || 'S/N',
+        bairro: data.tomador_bairro || 'CENTRO',
+        codigo_municipio: '1302603',
+        uf: 'AM',
+        cep: (data.tomador_cep || '69000000').replace(/\D/g, ''),
+      },
+      servico: {
+        codigo_tributacao_nacional: data.codigo_servico || '110201',
+        descricao: data.descricao_servico,
+        valor_servico: String(data.valor_servico),
+        aliquota_iss: String(data.aliquota_iss || 0.05),
+      },
+      prestador: {
+        cnpj: '35710481000103',
+        inscricao_municipal: '45177801',
+        codigo_municipio: '1302603',
+        razao_social: 'JORDAN SANTOS DE JESUS LTDA',
+        optante_simples: false,
+      },
+      numero: data.numero_rps || undefined,
+    };
+    emitirMutation.mutate(payload, {
       onSuccess: () => {
         setShowFormModal(false);
         refetch();

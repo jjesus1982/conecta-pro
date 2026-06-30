@@ -114,10 +114,27 @@ class OrdemServico(Base):
     # native_enum=False: as colunas são varchar(50) no banco (não existe tipo PG statusos/
     # tipoos/etc). Sem isto o SQLAlchemy emite cast ::statusos e qualquer filtro/dashboard
     # dá 500. Continua persistindo/lendo pelo NOME do membro (ex.: 'ABERTA').
-    tipo = Column(Enum(TipoOS, native_enum=False, length=50), nullable=False, default=TipoOS.MANUTENCAO_CORRETIVA)
-    status = Column(Enum(StatusOS, native_enum=False, length=50), nullable=False, default=StatusOS.ABERTA, index=True)
-    prioridade = Column(Enum(PrioridadeOS, native_enum=False, length=50), nullable=False, default=PrioridadeOS.NORMAL)
-    origem = Column(Enum(OrigemOS, native_enum=False, length=50), nullable=False, default=OrigemOS.CLIENTE)
+    tipo = Column(
+        Enum(TipoOS, values_callable=lambda x: [e.value for e in x], native_enum=False, length=50),
+        nullable=False,
+        default=TipoOS.MANUTENCAO_CORRETIVA,
+    )
+    status = Column(
+        Enum(StatusOS, values_callable=lambda x: [e.value for e in x], native_enum=False, length=50),
+        nullable=False,
+        default=StatusOS.ABERTA,
+        index=True,
+    )
+    prioridade = Column(
+        Enum(PrioridadeOS, values_callable=lambda x: [e.value for e in x], native_enum=False, length=50),
+        nullable=False,
+        default=PrioridadeOS.NORMAL,
+    )
+    origem = Column(
+        Enum(OrigemOS, values_callable=lambda x: [e.value for e in x], native_enum=False, length=50),
+        nullable=False,
+        default=OrigemOS.CLIENTE,
+    )
 
     # =========================================================================
     # Cliente e Contrato

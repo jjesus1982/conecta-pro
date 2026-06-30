@@ -103,15 +103,27 @@ class SyncQueue(Base):
     batch_id = Column(UUID(as_uuid=True), nullable=True)  # Agrupamento
 
     # Sistema
-    external_system = Column(Enum(ExternalSystem), nullable=False, default=ExternalSystem.CUSTOM)
+    external_system = Column(
+        Enum(ExternalSystem, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=ExternalSystem.CUSTOM,
+    )
     external_system_config_id = Column(UUID(as_uuid=True), nullable=True)
-    direction = Column(Enum(SyncDirection), nullable=False, default=SyncDirection.OUTBOUND)
+    direction = Column(
+        Enum(SyncDirection, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=SyncDirection.OUTBOUND,
+    )
 
     # Entidade
-    entity_type = Column(Enum(SyncEntityType), nullable=False)
+    entity_type = Column(Enum(SyncEntityType, values_callable=lambda x: [e.value for e in x]), nullable=False)
     entity_id = Column(UUID(as_uuid=True), nullable=True)
     external_id = Column(String(200), nullable=True)
-    operation = Column(Enum(SyncOperationType), nullable=False, default=SyncOperationType.UPSERT)
+    operation = Column(
+        Enum(SyncOperationType, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=SyncOperationType.UPSERT,
+    )
 
     # Dados
     payload = Column(JSONB, nullable=True)
@@ -120,8 +132,14 @@ class SyncQueue(Base):
     transformed_payload = Column(JSONB, nullable=True)  # Após transformação
 
     # Status
-    status = Column(Enum(SyncStatus), nullable=False, default=SyncStatus.PENDING)
-    priority = Column(Enum(SyncPriority), nullable=False, default=SyncPriority.NORMAL)
+    status = Column(
+        Enum(SyncStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=SyncStatus.PENDING,
+    )
+    priority = Column(
+        Enum(SyncPriority, values_callable=lambda x: [e.value for e in x]), nullable=False, default=SyncPriority.NORMAL
+    )
 
     # Agendamento
     scheduled_at = Column(DateTime, nullable=True)

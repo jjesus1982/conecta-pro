@@ -343,9 +343,12 @@ class ReimbursementRepository:
         )
 
     async def _get_next_sequence(self, condominio_id: UUID, year: int) -> int:
-        """Obtém próximo número de sequência para o ano."""
+        """Obtém próximo número de sequência para o ano.
+
+        Conta GLOBALMENTE (o code tem UNIQUE global, não por condomínio) — contar por
+        condominio_id gerava REI-AAAA-00001 colidindo entre condomínios → UniqueViolation.
+        """
         query = select(func.count()).where(
-            ReimbursementRequest.condominio_id == condominio_id,
             ReimbursementRequest.code.like(f"REI-{year}-%"),
         )
         result = await self.session.execute(query)

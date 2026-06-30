@@ -78,14 +78,24 @@ class Task(Base):
     description = Column(Text)
 
     # Tipo e status
-    task_type = Column(Enum(TaskTypeEnum), nullable=False, default=TaskTypeEnum.TASK)
-    status = Column(Enum(TaskStatusEnum), nullable=False, default=TaskStatusEnum.TODO)
-    priority = Column(Enum(TaskPriorityEnum), nullable=False, default=TaskPriorityEnum.MEDIUM)
+    task_type = Column(
+        Enum(TaskTypeEnum, values_callable=lambda x: [e.value for e in x]), nullable=False, default=TaskTypeEnum.TASK
+    )
+    status = Column(
+        Enum(TaskStatusEnum, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=TaskStatusEnum.TODO,
+    )
+    priority = Column(
+        Enum(TaskPriorityEnum, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=TaskPriorityEnum.MEDIUM,
+    )
 
     # Priorização IA
     ai_priority_score = Column(Float)  # 0-100
     ai_priority_factors = Column(JSONB, default={})
-    ai_suggested_priority = Column(Enum(TaskPriorityEnum))
+    ai_suggested_priority = Column(Enum(TaskPriorityEnum, values_callable=lambda x: [e.value for e in x]))
     priority_last_calculated = Column(DateTime)
 
     # Atribuição
@@ -341,7 +351,11 @@ class TaskDependency(Base):
     task_id = Column(UUID(as_uuid=True), ForeignKey("ai_tasks.id"), nullable=False)
     related_task_id = Column(UUID(as_uuid=True), ForeignKey("ai_tasks.id"), nullable=False)
 
-    dependency_type = Column(Enum(DependencyTypeEnum), nullable=False, default=DependencyTypeEnum.RELATES_TO)
+    dependency_type = Column(
+        Enum(DependencyTypeEnum, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=DependencyTypeEnum.RELATES_TO,
+    )
 
     # Metadados
     description = Column(Text)

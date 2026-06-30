@@ -100,12 +100,18 @@ async def create_occurrence(
         post_id=str(data.post_id) if data.post_id else None,
         inspector_id=str(current_user.id),
         inspector_email=current_user.email,
-        severity=data.severity.value if data.severity else None,
+        severity=(data.severity.value if hasattr(data.severity, "value") else data.severity) if data.severity else None,
     )
     asyncio.create_task(
         publish_ocorrencia_registrada(
             ocorrencia_id=str(occurrence.id),
-            tipo=occurrence.occurrence_type.value if occurrence.occurrence_type else "outros",
+            tipo=(
+                occurrence.occurrence_type.value
+                if hasattr(occurrence.occurrence_type, "value")
+                else occurrence.occurrence_type
+            )
+            if occurrence.occurrence_type
+            else "outros",
             descricao=data.description or "",
             employee_id=str(data.employee_id) if data.employee_id else None,
             cliente_id=None,

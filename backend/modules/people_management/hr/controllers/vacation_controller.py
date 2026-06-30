@@ -13,6 +13,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
+from sqlalchemy import text as _sqltext
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
@@ -59,7 +60,21 @@ async def list_vacations(
         result = await db.execute(query)
         items = result.scalars().all()
         return {
-            "items": [{"id": str(v.id), "employee_id": str(v.employee_id), "status": v.status} for v in items],
+            "items": [
+                {
+                    "id": str(v.id),
+                    "employee_id": str(v.employee_id) if v.employee_id else None,
+                    "employee_name": getattr(v, "employee_name", None),
+                    "type": getattr(v, "type", None),
+                    "status": v.status,
+                    "start_date": str(v.start_date) if getattr(v, "start_date", None) else None,
+                    "end_date": str(v.end_date) if getattr(v, "end_date", None) else None,
+                    "days": getattr(v, "days", None),
+                    "reason": getattr(v, "reason", None),
+                    "created_at": v.created_at.isoformat() if getattr(v, "created_at", None) else None,
+                }
+                for v in items
+            ],
             "total": total,
             "page": page,
             "page_size": page_size,
@@ -384,3 +399,57 @@ async def gerar_aviso_previo_ferias(
     except Exception as exc:
         logger.error("Erro ao gerar aviso prévio férias %s: %s", vacation_id, exc)
         raise HTTPException(status_code=500, detail=f"Erro ao gerar PDF: {exc}")
+
+
+@router.post("", status_code=201, summary="Criar solicitação de férias")
+@router.post("/", include_in_schema=False, status_code=201)
+async def criar_vacation(data: dict, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)) -> Any:
+    """Cria solicitação de férias (tela dp/ferias)."""
+    import uuid as _uuid
+    from datetime import date as _date
+
+    emp = str(data.get("employee_id") or "").strip()
+    if not emp:
+        raise HTTPException(status_code=422, detail="employee_id é obrigatório")
+
+    def _d(v):
+        try:
+            return _date.fromisoformat(str(v)[:10]) if v else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    sd, ed = _d(data.get("start_date")), _d(data.get("end_date"))
+    days = data.get("days")
+    if days is None and sd and ed:
+        days = (ed - sd).days + 1
+    vid = str(_uuid.uuid4())
+    await db.execute(
+        _sqltext(
+            "INSERT INTO vacation_requests (id, employee_id, employee_name, type, status, start_date, end_date, "
+            "days, reason, notes, is_active, created_at, updated_at) VALUES "
+            "(:id, :emp, :nome, :type, 'pendente', :sd, :ed, :days, :reason, :notes, true, NOW(), NOW())"
+        ),
+        {
+            "id": vid,
+            "emp": emp,
+            "nome": data.get("employee_name"),
+            "type": data.get("type") or "ferias",
+            "sd": sd,
+            "ed": ed,
+            "days": str(days) if days is not None else None,
+            "reason": data.get("reason"),
+            "notes": data.get("notes"),
+        },
+    )
+    await db.commit()
+    return {"id": vid, "message": "Solicitação de férias criada", "status": "pendente"}
+
+
+@router.delete("/{vacation_id}", summary="Excluir solicitação de férias")
+@router.delete("/{vacation_id}/", include_in_schema=False)
+async def deletar_vacation(
+    vacation_id: str, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)
+) -> Any:
+    r = await db.execute(_sqltext("DELETE FROM vacation_requests WHERE id::text = :id"), {"id": str(vacation_id)})
+    await db.commit()
+    return {"message": "Solicitação removida", "deleted": int(r.rowcount or 0)}

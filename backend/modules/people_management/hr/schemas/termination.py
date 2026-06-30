@@ -3,6 +3,7 @@ Schemas Pydantic para TerminationProcess (Processo de Rescisão).
 """
 
 from datetime import date, datetime
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -75,8 +76,8 @@ class TerminationResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    employee_id: str
+    id: UUID
+    employee_id: UUID
     type: str
     reason: str | None = None
     notice_period_days: int | None = None
@@ -92,6 +93,6 @@ class TerminationResponse(BaseModel):
     exit_interview_notes: str | None = None
     esocial_event_sent: bool = False
     documents_generated: dict | None = None
-    created_by_id: str | None = None
+    created_by_id: UUID | None = None
     created_at: datetime
     updated_at: datetime

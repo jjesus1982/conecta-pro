@@ -66,8 +66,14 @@ class TenantSettings(Base):
     descricao = Column(Text, nullable=True)
 
     # Categoria e tipo
-    category = Column(Enum(SettingCategory), nullable=False, default=SettingCategory.GERAL)
-    setting_type = Column(Enum(SettingType), nullable=False, default=SettingType.STRING)
+    category = Column(
+        Enum(SettingCategory, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=SettingCategory.GERAL,
+    )
+    setting_type = Column(
+        Enum(SettingType, values_callable=lambda x: [e.value for e in x]), nullable=False, default=SettingType.STRING
+    )
 
     # Valor
     valor = Column(Text, nullable=True)  # Valor atual

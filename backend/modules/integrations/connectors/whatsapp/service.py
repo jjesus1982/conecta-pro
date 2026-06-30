@@ -121,6 +121,42 @@ class WhatsAppService:
                     return cid, it.get("source_id")
         return cid, None
 
+    async def _resolve_jid(self, phone_e164: str) -> str | None:
+        """Resolve o número discável para o JID REAL do WhatsApp via Baileys (on-whatsapp).
+        Corrige o 9º dígito: no Brasil o número discável tem o 9 (ex.: +5592 9 8646-5328), mas
+        contas antigas (ex.: DDD 92/Manaus) têm o JID SEM o 9 (5592 8646-5328). Sem isso, a
+        mensagem vai para um JID inexistente e o Chatwoot fica preso em 'sent' sem entregar.
+        Retorna os dígitos do JID real (ex.: '559286465328') ou None (mantém o original)."""
+        import os  # noqa: PLC0415
+
+        base = os.getenv("BAILEYS_API_URL", "http://baileys-api:3025").rstrip("/")
+        key = os.getenv("BAILEYS_API_KEY", "4d7a746ea5e34217cd0f8608261da0ced68de602847022ba")
+        sender = os.getenv("BAILEYS_COMPANY_PHONE") or os.getenv("WHATSAPP_SENDER") or "+558008804414"
+        digits = "".join(c for c in phone_e164 if c.isdigit())
+        if not (key and digits):
+            return None
+        url = f"{base}/connections/{sender}/on-whatsapp"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    url,
+                    json={"jids": [f"{digits}@s.whatsapp.net"]},
+                    headers={"x-api-key": key, "Content-Type": "application/json"},
+                    timeout=aiohttp.ClientTimeout(total=12),
+                ) as resp:
+                    if resp.status != 200:
+                        return None
+                    data = await resp.json()
+            # resposta: [{"jid":"559286465328@s.whatsapp.net","exists":true}]
+            if isinstance(data, list) and data:
+                item = data[0] or {}
+                if item.get("exists") and item.get("jid"):
+                    return "".join(c for c in str(item["jid"]).split("@")[0] if c.isdigit()) or None
+            return None
+        except Exception as e:  # noqa: BLE001 — nunca bloqueia o envio
+            logger.warning("on-whatsapp resolve falhou para %s (segue com o original): %s", digits, e)
+            return None
+
     async def _send_message(self, phone: str, message: str) -> dict:
         """Envia mensagem via Chatwoot (contato -> conversa -> mensagem)."""
         if not self.enabled:
@@ -132,6 +168,11 @@ class WhatsAppService:
             return {"status": "error", "message": "Token Chatwoot nao configurado"}
 
         phone = self._clean_phone(phone)
+        # Corrige o 9º dígito: usa o JID real que o WhatsApp reconhece (best-effort).
+        resolved = await self._resolve_jid(phone)
+        if resolved and resolved != "".join(c for c in phone if c.isdigit()):
+            logger.info("WhatsApp: número %s resolvido para o JID real +%s", phone, resolved)
+            phone = f"+{resolved}"
         try:
             async with aiohttp.ClientSession() as session:
                 contact_id, source_id = await self._resolve_contact(session, phone)
@@ -273,6 +314,45 @@ class WhatsAppService:
         """Envia mensagem customizada."""
         return await self._send_message(phone, message)
 
+    async def _post_attachment(self, conversation_id: int, file_name: str, file_bytes: bytes) -> bool:
+        """Posta anexo (PDF) numa conversa existente — multipart. Best-effort (não levanta)."""
+        if not (self.api_token and conversation_id and file_bytes):
+            return False
+        import mimetypes  # noqa: PLC0415
+
+        ctype = mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+        url = f"{self.base_url}/api/v1/accounts/{self.account_id}/conversations/{conversation_id}/messages"
+        try:
+            form = aiohttp.FormData()
+            form.add_field("message_type", "outgoing")
+            form.add_field("private", "false")
+            form.add_field("attachments[]", file_bytes, filename=file_name, content_type=ctype)
+            async with (
+                aiohttp.ClientSession() as session,
+                session.post(
+                    url,
+                    data=form,
+                    headers={"api_access_token": self.api_token},
+                    timeout=aiohttp.ClientTimeout(total=60),
+                ) as resp,
+            ):
+                if resp.status in (200, 201):
+                    return True
+                logger.error("WhatsApp anexo: HTTP %s (%s)", resp.status, (await resp.text())[:200])
+                return False
+        except Exception as e:  # noqa: BLE001
+            logger.error("WhatsApp anexo conv=%s: %s", conversation_id, e)
+            return False
+
+    async def send_with_attachment(self, phone: str, message: str, file_bytes: bytes, file_name: str) -> dict:
+        """Envia uma mensagem de texto e, na MESMA conversa, anexa um arquivo (ex.: PDF da proposta)."""
+        res = await self._send_message(phone, message)
+        if res.get("status") == "sent" and res.get("conversation_id"):
+            res["attachment_sent"] = await self._post_attachment(int(res["conversation_id"]), file_name, file_bytes)
+        else:
+            res["attachment_sent"] = False
+        return res
+
     async def check_status(self) -> dict:
         """Verifica conectividade/credencial na API do Chatwoot."""
         if not self.enabled:
@@ -290,3 +370,15 @@ class WhatsAppService:
 
 
 whatsapp_service = WhatsAppService()
+
+
+# ── Funções de módulo (usadas pela cadência de sequências: growth_services._action_send_whatsapp) ──
+async def send_text_message(phone: str, message: str) -> dict:
+    """Envia uma mensagem de texto pelo WhatsApp (Chatwoot/Baileys). Wrapper do singleton.
+    Antes esta função NÃO existia e o motor de cadência (channel=whatsapp) falhava no import — agora funciona."""
+    return await whatsapp_service.send_custom(phone, message)
+
+
+async def send_text_with_pdf(phone: str, message: str, pdf_bytes: bytes, file_name: str) -> dict:
+    """Envia texto + anexo PDF na mesma conversa (ex.: proposta por WhatsApp)."""
+    return await whatsapp_service.send_with_attachment(phone, message, pdf_bytes, file_name)

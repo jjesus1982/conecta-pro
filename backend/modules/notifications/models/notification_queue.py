@@ -74,7 +74,9 @@ class NotificationQueue(Base):
     attachments = Column(JSONB, default=[])
 
     # Status
-    status = Column(Enum(QueueStatus), default=QueueStatus.PENDING, index=True)
+    status = Column(
+        Enum(QueueStatus, values_callable=lambda x: [e.value for e in x]), default=QueueStatus.PENDING, index=True
+    )
     priority = Column(Enum(QueuePriority), default=QueuePriority.NORMAL, index=True)
 
     # Agendamento

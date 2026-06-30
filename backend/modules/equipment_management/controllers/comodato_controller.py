@@ -47,6 +47,7 @@ async def create_comodato(
 
 
 @router.get("", response_model=ComodatoListResponse)
+@router.get("/", response_model=ComodatoListResponse, include_in_schema=False)  # espelho barra-final
 async def list_comodatos(
     current_user: CurrentActiveUser,
     search: str | None = Query(None),

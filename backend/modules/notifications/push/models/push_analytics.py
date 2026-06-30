@@ -31,7 +31,7 @@ class PushMetric(Base):
     tenant_id = Column(UUID(as_uuid=True), nullable=False, index=True)
 
     # Periodo
-    period = Column(Enum(MetricPeriod), nullable=False, index=True)
+    period = Column(Enum(MetricPeriod, values_callable=lambda x: [e.value for e in x]), nullable=False, index=True)
     period_start = Column(DateTime, nullable=False, index=True)
     period_end = Column(DateTime, nullable=False)
 

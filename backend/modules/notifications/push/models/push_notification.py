@@ -83,14 +83,20 @@ class PushNotification(Base):
     data_payload = Column(JSONB, default={})
 
     # Configuracoes de entrega
-    priority = Column(Enum(NotificationPriority), default=NotificationPriority.HIGH)
+    priority = Column(
+        Enum(NotificationPriority, values_callable=lambda x: [e.value for e in x]), default=NotificationPriority.HIGH
+    )
     ttl_seconds = Column(Integer, default=86400)
     collapse_key = Column(String(100))  # Para substituicao
     mutable_content = Column(Boolean, default=False)  # iOS rich notifications
     content_available = Column(Boolean, default=False)  # Silent push
 
     # Status
-    status = Column(Enum(NotificationStatus), default=NotificationStatus.PENDING, index=True)
+    status = Column(
+        Enum(NotificationStatus, values_callable=lambda x: [e.value for e in x]),
+        default=NotificationStatus.PENDING,
+        index=True,
+    )
     status_history = Column(JSONB, default=[])  # [{status, timestamp, details}]
 
     # Timestamps de ciclo de vida

@@ -109,7 +109,7 @@ class ExtractedField(Base):
     # Definicao do campo
     field_name = Column(String(100), nullable=False, index=True)
     field_label = Column(String(200))  # Label amigavel
-    field_type = Column(Enum(FieldType), nullable=False)
+    field_type = Column(Enum(FieldType, values_callable=lambda x: [e.value for e in x]), nullable=False)
     field_group = Column(String(100))  # Grupo do campo (ex: "emissor", "valores")
 
     # Valor extraido

@@ -221,3 +221,389 @@ def followup_proposals(self):
     except Exception as e:  # noqa: BLE001
         logger.error("crm.followup_proposals falhou: %s", e)
         raise
+
+
+@app.task(name="crm.process_sequences", bind=True, max_retries=1)
+def process_sequences(self):
+    """Processa os passos vencidos das sequências/cadências (envio e-mail/WhatsApp + avança o passo).
+    Roda de hora em hora pelo Celery beat. Best-effort (nunca derruba o worker)."""
+    from modules.crm.services.followups import within_business_hours
+    from modules.crm.services.growth_services import process_due_enrollments
+
+    # A cadência só TOCA o cliente em horário comercial (seg-sex 8-18h Manaus). Fora disso,
+    # pula — o beat horário reprocessa na próxima janela. Respostas a inbound não passam por aqui.
+    if not within_business_hours():
+        return {"skip": "fora do horário comercial"}
+
+    async def _inner(session):
+        return await process_due_enrollments(session, limit=200)
+
+    try:
+        result = _run_async(_inner)
+        logger.info("crm.process_sequences: %s", result)
+        return result
+    except Exception as e:  # noqa: BLE001
+        logger.warning("crm.process_sequences falhou: %s", e)
+        return {"error": str(e)}
+
+
+# ============================================================================
+# ORQUESTRAÇÃO José Luís ↔ Jordan (lembretes de pendência, resumo diário, agenda)
+# ============================================================================
+@app.task(name="crm.owner_pendentes", bind=True, max_retries=1)
+def owner_pendentes(self):
+    """Lembra o Jordan, 1x/dia, das propostas SEM resposta há >=N dias (default 3). Best-effort."""
+
+    async def _inner(session):
+        from modules.crm.services import orchestration as O
+
+        # pendentes sem resposta — lê as PROPOSTAS reais (enviadas há >=3d sem resposta).
+        # cadência "1x/dia" garantida pelo agendamento diário do beat.
+        rows = await O.pendentes_sem_resposta(session)
+        if not rows:
+            return {"pendentes": 0}
+        # temperatura por tempo sem resposta: <12 dias = pendente; >=12 (passou do D+10) = esfriando.
+        mornos = [r for r in rows if (r["dias"] or 0) < 12]
+        frios = [r for r in rows if (r["dias"] or 0) >= 12]
+        partes = ["⏰ *Acompanhamento de propostas*"]
+        if mornos:
+            partes.append(
+                "\n🟡 *Sem resposta ainda:*\n"
+                + "\n".join(f"• {r['cliente_nome']} — {r['proposta'] or 'proposta'} ({r['dias']}d)" for r in mornos)
+            )
+        if frios:
+            partes.append(
+                "\n🔵 *Esfriando (passou do D+10):*\n"
+                + "\n".join(f"• {r['cliente_nome']} — {r['proposta'] or 'proposta'} ({r['dias']}d)" for r in frios)
+                + "\n\nDesses, quer que eu faça uma *última tentativa* ou prefere *encerrar*? Me diz quais."
+            )
+        if mornos and not frios:
+            partes.append("\nQuer que eu dê um toque neles ou você assume algum?")
+        await O.notify_owner("\n".join(partes))
+        return {"pendentes": len(rows)}
+
+    try:
+        return _run_async(_inner)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("crm.owner_pendentes falhou: %s", e)
+        return {"error": str(e)}
+
+
+@app.task(name="crm.owner_digest", bind=True, max_retries=1)
+def owner_digest(self):
+    """Resumo diário pro Jordan (fim do dia): respostas de hoje, pendentes, quem está com ele."""
+    from sqlalchemy import text as _t
+
+    async def _inner(session):
+        from modules.crm.services import orchestration as O
+
+        # conta sobre as PROPOSTAS reais do CRM + estado do acompanhamento
+        d = (
+            (
+                await session.execute(
+                    _t("""
+            SELECT
+              count(*) FILTER (WHERE p.status='draft') AS montadas,
+              count(*) FILTER (WHERE p.status='sent') AS enviadas,
+              count(*) FILTER (WHERE n.responsavel='jordan') AS com_jordan,
+              count(*) FILTER (WHERE n.last_client_reply_at::date = (now() AT TIME ZONE 'America/Manaus')::date) AS responderam_hoje
+            FROM proposals p LEFT JOIN crm_negociacao_state n ON n.proposal_id=p.id
+            WHERE p.is_active=true AND p.status IN ('draft','sent')
+        """),
+                    {},
+                )
+            )
+            .mappings()
+            .first()
+        )
+        pendentes = len(await O.pendentes_sem_resposta(session))
+        if not d or (d["montadas"] == 0 and d["enviadas"] == 0):
+            return {"skip": "sem propostas abertas"}
+        await O.notify_owner(
+            f"🌙 *Resumo do dia*\n"
+            f"• Propostas montadas (rascunho): {d['montadas']}\n"
+            f"• Enviadas em acompanhamento: {d['enviadas']}\n"
+            f"• Com você: {d['com_jordan']}\n"
+            f"• Responderam hoje: {d['responderam_hoje']}\n"
+            f"• Sem resposta (>= {O.REMINDER_AFTER_DAYS}d): {pendentes}\n\n"
+            f"Bom descanso! Amanhã sigo em cima dos follow-ups. 💪"
+        )
+        return {"montadas": d["montadas"], "enviadas": d["enviadas"], "pendentes": pendentes}
+
+    try:
+        return _run_async(_inner)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("crm.owner_digest falhou: %s", e)
+        return {"error": str(e)}
+
+
+@app.task(name="crm.owner_reminders_due", bind=True, max_retries=1)
+def owner_reminders_due(self):
+    """Dispara os lembretes agendados ('me lembra amanhã de X') que venceram."""
+    from sqlalchemy import text as _t
+
+    async def _inner(session):
+        from modules.crm.services import orchestration as O
+
+        rows = (
+            (
+                await session.execute(
+                    _t(
+                        "SELECT id, texto FROM crm_owner_reminder WHERE enviado=false AND quando <= now() "
+                        "ORDER BY quando ASC LIMIT 20"
+                    )
+                )
+            )
+            .mappings()
+            .all()
+        )
+        for r in rows:
+            await O.notify_owner(f"🔔 *Lembrete:* {r['texto']}")
+            await session.execute(_t("UPDATE crm_owner_reminder SET enviado=true WHERE id=:id"), {"id": r["id"]})
+        await session.commit()
+        return {"disparados": len(rows)}
+
+    try:
+        return _run_async(_inner)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("crm.owner_reminders_due falhou: %s", e)
+        return {"error": str(e)}
+
+
+@app.task(name="crm.lembrete_reuniao", bind=True, max_retries=1)
+def lembrete_reuniao(self):
+    """Lembra o Jordan das reuniões confirmadas nas próximas ~24h (1x cada). Best-effort."""
+    from sqlalchemy import text as _t
+
+    async def _inner(session):
+        from modules.crm.services import orchestration as O
+
+        rows = (
+            (
+                await session.execute(
+                    _t("""
+            SELECT id, titulo, cliente_nome, to_char(quando AT TIME ZONE 'America/Manaus','DD/MM HH24:MI') AS quando,
+                   COALESCE(local,'') AS local
+            FROM crm_meetings
+            WHERE status='confirmado' AND lembrete_enviado=false
+              AND quando BETWEEN now() AND now() + interval '24 hours'
+            ORDER BY quando ASC
+        """)
+                )
+            )
+            .mappings()
+            .all()
+        )
+        for r in rows:
+            loc = f" — {r['local']}" if r["local"] else ""
+            cli = f" ({r['cliente_nome']})" if r["cliente_nome"] else ""
+            await O.notify_owner(f"📅 *Lembrete de reunião*\n{r['titulo']}{cli}\n🕐 {r['quando']}{loc}")
+            await session.execute(_t("UPDATE crm_meetings SET lembrete_enviado=true WHERE id=:id"), {"id": r["id"]})
+        await session.commit()
+        return {"lembrados": len(rows)}
+
+    try:
+        return _run_async(_inner)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("crm.lembrete_reuniao falhou: %s", e)
+        return {"error": str(e)}
+
+
+@app.task(name="crm.score_leads", bind=True, max_retries=1)
+def score_leads(self):
+    """Recalcula o score dos leads ativos automaticamente (LeadScoringEngine). Best-effort."""
+    from sqlalchemy import select
+
+    async def _inner(session):
+        from modules.crm.models.lead import Lead
+        from modules.crm.services.lead_service import LeadScoringEngine
+
+        eng = LeadScoringEngine()
+        leads = (await session.execute(select(Lead).where(Lead.is_active.is_(True)).limit(500))).scalars().all()
+        n = 0
+        for ld in leads:
+            try:
+                score, prob = eng.calculate_score(ld)
+                if ld.score != score or float(ld.probability or 0) != float(prob):
+                    ld.score = score
+                    ld.probability = prob
+                    n += 1
+            except Exception:  # noqa: BLE001
+                continue
+        await session.commit()
+        return {"leads": len(leads), "atualizados": n}
+
+    try:
+        return _run_async(_inner)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("crm.score_leads falhou: %s", e)
+        return {"error": str(e)}
+
+
+@app.task(name="crm.radar_frios", bind=True, max_retries=1)
+def radar_frios(self):
+    """Avisa o Jordan dos leads que esfriaram (sem auto-enviar ao cliente). 1x/dia. Best-effort."""
+
+    async def _inner(session):
+        from modules.crm.services import orchestration as O
+
+        frios = await O.leads_frios(session)
+        if not frios:
+            return {"frios": 0}
+        top = frios[:8]
+        linhas = "\n".join(
+            f"• {f['cliente_nome'] if 'cliente_nome' in f else f['name']} ({f['dias_parado']}d, origem {f['origem']})"
+            for f in top
+        )
+        extra = f"\n…e mais {len(frios) - len(top)}." if len(frios) > len(top) else ""
+        await O.notify_owner(
+            f"🧊 *Leads esfriando* ({len(frios)})\n{linhas}{extra}\n\n"
+            f"Quer que eu reative algum? Me diz 'reativa o [nome]' que eu mando um toque."
+        )
+        return {"frios": len(frios)}
+
+    try:
+        return _run_async(_inner)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("crm.radar_frios falhou: %s", e)
+        return {"error": str(e)}
+
+
+@app.task(name="crm.heartbeat_ciclo", bind=True, max_retries=1)
+def heartbeat_ciclo(self):
+    """Checa a saúde do ciclo (WhatsApp/agente/webhook). Avisa o Jordan SÓ na transição ok→caiu
+    e quando volta ao normal (sem spam horário). Best-effort."""
+
+    async def _inner(session):
+        from modules.crm.services import orchestration as O
+
+        diag = await O.diagnostico_ciclo(session)
+        agora_ok = bool(diag["saudavel"])
+        last = await O.get_state(session, "heartbeat_status")
+        novo = "ok" if agora_ok else "down"
+        # Só ALERTA em transição REAL. Na 1ª execução (last=None) apenas registra — não manda
+        # "normalizado" do nada. Avisa quando CAI (ok->down) e quando VOLTA (down->ok).
+        alertou = False
+        if last is not None and last != novo:
+            if novo == "down":
+                quebrados = [k for k, v in diag["itens"].items() if not v.get("ok")]
+                await O.notify_owner(
+                    f"🔴 *Alerta do ciclo* — algo caiu: {', '.join(quebrados)}.\n"
+                    f"Os follow-ups e o atendimento do José Luís podem estar parados. Detalhe: "
+                    f"{diag['itens']}"
+                )
+            else:
+                await O.notify_owner("🟢 *Ciclo normalizado* — WhatsApp e agente de volta ao ar. ✅")
+            alertou = True
+        if last != novo:
+            await O.set_state(session, "heartbeat_status", novo)
+        return {"saudavel": agora_ok, "alertou": alertou}
+
+    try:
+        return _run_async(_inner)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("crm.heartbeat_ciclo falhou: %s", e)
+        return {"error": str(e)}
+
+
+@app.task(name="crm.auto_acompanhar", bind=True, max_retries=1)
+def auto_acompanhar(self):
+    """Toda proposta ENVIADA (status='sent') sem estado de negociação ganha acompanhamento
+    automático (entra no painel/pendentes do José Luís). Nada escapa do radar. Best-effort."""
+    from sqlalchemy import text as _t
+
+    async def _inner(session):
+        from modules.crm.services import orchestration as O
+        from modules.crm.services.phone import canonical_br
+
+        rows = (
+            (
+                await session.execute(
+                    _t("""
+            SELECT p.id, p.client_name, p.client_phone, p.opportunity_id, p.sent_at, p.created_at
+            FROM proposals p
+            LEFT JOIN crm_negociacao_state n ON n.proposal_id = p.id
+            WHERE p.is_active AND p.status='sent' AND n.id IS NULL
+            LIMIT 200""")
+                )
+            )
+            .mappings()
+            .all()
+        )
+        n = 0
+        for p in rows:
+            await O.upsert_negociacao(
+                session,
+                proposal_id=str(p["id"]),
+                deal_id=str(p["opportunity_id"]) if p["opportunity_id"] else None,
+                phone_canonical=canonical_br(p["client_phone"]),
+                cliente_nome=p["client_name"],
+                proposta_enviada_em=(p["sent_at"] or p["created_at"]),
+                responsavel="jose_luis",
+            )
+            n += 1
+        return {"acompanhamentos_criados": n}
+
+    try:
+        return _run_async(_inner)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("crm.auto_acompanhar falhou: %s", e)
+        return {"error": str(e)}
+
+
+@app.task(name="crm.enviar_followups_agendados", bind=True, max_retries=1)
+def enviar_followups_agendados(self):
+    """Envia os follow-ups que ficaram AGENDADOS (pedidos fora do horário). Só age em horário
+    comercial (seg-sex 8-18h Manaus). Respeita opt-out. Best-effort."""
+    from sqlalchemy import text as _t
+
+    async def _inner(session):
+        from modules.crm.services import followups as F
+
+        if not F.within_business_hours():
+            return {"skip": "fora do horário comercial"}
+        rows = (
+            (
+                await session.execute(
+                    _t("""
+            SELECT id, phone_e164, phone_canonical, mensagem, proposal_id, deal_id
+            FROM crm_followups WHERE status='agendado' AND canal='whatsapp' AND phone_e164 IS NOT NULL
+            ORDER BY created_at ASC LIMIT 50""")
+                )
+            )
+            .mappings()
+            .all()
+        )
+        from modules.integrations.connectors.whatsapp.service import whatsapp_service
+
+        enviados = 0
+        for r in rows:
+            if await F.is_opted_out(session, r["phone_canonical"] or ""):
+                await session.execute(
+                    _t("UPDATE crm_followups SET status='cancelado', detalhe='opt-out', updated_at=now() WHERE id=:id"),
+                    {"id": r["id"]},
+                )
+                continue
+            res = await whatsapp_service.send_custom(r["phone_e164"], r["mensagem"] or "")
+            ok = res.get("status") == "sent"
+            await session.execute(
+                _t(
+                    "UPDATE crm_followups SET status=:s, enviado_em=CASE WHEN :ok THEN now() ELSE enviado_em END, "
+                    "chatwoot_conversation_id=:c, updated_at=now() WHERE id=:id"
+                ),
+                {"s": ("enviado" if ok else "erro"), "ok": ok, "c": res.get("conversation_id"), "id": r["id"]},
+            )
+            if ok:
+                enviados += 1
+        await session.commit()
+        if enviados:
+            from modules.crm.services import orchestration as O
+
+            await O.notify_owner(f"📨 {enviados} follow-up(s) agendado(s) foram enviados agora (janela comercial).")
+        return {"enviados": enviados, "candidatos": len(rows)}
+
+    try:
+        return _run_async(_inner)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("crm.enviar_followups_agendados falhou: %s", e)
+        return {"error": str(e)}

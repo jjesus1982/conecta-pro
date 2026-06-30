@@ -59,10 +59,14 @@ class Consent(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     titular_id = Column(UUID(as_uuid=True), nullable=False, index=True)
     titular_email = Column(String(255), nullable=False)
-    purpose = Column(Enum(ConsentPurpose), nullable=False)
-    legal_basis = Column(Enum(LegalBasis), nullable=False)
+    purpose = Column(Enum(ConsentPurpose, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    legal_basis = Column(Enum(LegalBasis, values_callable=lambda x: [e.value for e in x]), nullable=False)
     description = Column(Text, nullable=False)
-    status = Column(Enum(ConsentStatus), default=ConsentStatus.ACTIVE, nullable=False)
+    status = Column(
+        Enum(ConsentStatus, values_callable=lambda x: [e.value for e in x]),
+        default=ConsentStatus.ACTIVE,
+        nullable=False,
+    )
 
     # Datas
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

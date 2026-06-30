@@ -24,23 +24,39 @@ export const customInstance = async <T>(
 
   try {
     if (config.url) {
-      // Remove duplicações de path simples APENAS para recursos folha (sem sub-paths)
-      // Ex: /suppliers/suppliers -> /suppliers, /payables/payables?x=1 -> /payables?x=1
-      // NÃO remove /cashflow/cashflow/ (sub-router intencional)
-      // Usa lookahead (?=...) para não consumir o separador pós-match
-      if (!config.url.includes('/cashflow/cashflow/')) {
-        config.url = config.url.replace(/\/([^\/]+)\/\1(?=\/|$|\?)/, '/$1');
-      }
+      if (config.url.includes('/api/v1/financial/')) {
+        // O client orval do financeiro gera prefixo DOBRADO (/financial/X/X/...),
+        // mas o backend serve SINGLE e sem barra final (redirect_slashes=False).
+        // Mapeamento confirmado empiricamente endpoint-a-endpoint:
+        let u = config.url;
+        // 1) casos plural (não são duplicação exata)
+        u = u.replace('/financial/purchase/purchases', '/financial/purchases');
+        u = u.replace('/financial/bank-reconciliation/bank-reconciliations', '/financial/bank-reconciliations');
+        // 2) colapsa segmento imediatamente duplicado: /financial/X/X -> /financial/X (inclui cashflow)
+        u = u.replace(/\/financial\/([^/]+)\/\1(?=\/|$|\?)/, '/financial/$1');
+        // 3) remove barra final (rota de listagem) — backend não aceita trailing slash
+        u = u.replace(/\/(?=\?|$)/, '');
+        config.url = u;
 
-      // Adiciona condominio_id automaticamente para endpoints do módulo Financial
-      if (config.url.includes('/financial/')) {
-        // Adiciona condominio_id como query parameter se não existir
+        // condominio_id default p/ endpoints multi-tenant do Financial
         if (!config.params) {
           config.params = {};
         }
         if (!config.params.condominio_id) {
           config.params.condominio_id = DEFAULT_CONDOMINIO_ID;
         }
+      } else if (config.url.includes('/lgpd/') && !config.url.includes('/security/lgpd/')) {
+        // Client LGPD gera /lgpd/...; backend monta sob /security (real: /security/lgpd/...)
+        config.url = config.url.replace('/lgpd/', '/security/lgpd/');
+      } else if (config.url.includes('/campo/guardian/')) {
+        // Resíduo do módulo Guardian (removido na reorg): /campo/guardian/campo/campo/* -> /campo/*
+        config.url = config.url
+          .replace('/campo/guardian/campo/campo', '/campo')
+          .replace('/campo/guardian/cyber', '/campo/cyber')
+          .replace('/campo/guardian/', '/campo/');
+      } else {
+        // Demais módulos (inclui integrações: colapsa /integrations/integrations/connectors -> single)
+        config.url = config.url.replace(/\/([^\/]+)\/\1(?=\/|$|\?)/, '/$1');
       }
     }
 

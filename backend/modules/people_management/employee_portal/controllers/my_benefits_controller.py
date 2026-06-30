@@ -11,7 +11,6 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
 from modules.people_management.employee_portal.auth import CurrentEmployeeId
 from modules.people_management.employee_portal.utils.portal_cache import (
@@ -28,7 +27,6 @@ router = APIRouter(tags=["Portal - Beneficios"])
 @router.get("/my-benefits")
 async def get_my_benefits(
     employee_id: CurrentEmployeeId,
-    current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Retorna beneficios do funcionario com valores da CCT 2026."""

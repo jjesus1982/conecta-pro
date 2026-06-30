@@ -69,6 +69,9 @@ class PPRAService:
             setor=request.setor,
             descricao_setor=request.descricao_setor,
             localizacao=request.localizacao,
+            # funcao (singular, NOT NULL na tabela) precisa ser populada — antes ficava NULL e o
+            # INSERT violava a constraint. Usa a 1ª função da lista (ou 'geral' se vazia).
+            funcao=(request.funcoes[0] if request.funcoes else "geral"),
             funcoes=request.funcoes,
             numero_trabalhadores=request.numero_trabalhadores,
             avaliador=request.avaliador,

@@ -99,7 +99,9 @@ class ChecklistTemplate(Base):
     # =========================================================================
     # Classificacao
     # =========================================================================
-    tipo_servico = Column(Enum(TipoServico), nullable=False, default=TipoServico.GERAL)
+    tipo_servico = Column(
+        Enum(TipoServico, values_callable=lambda x: [e.value for e in x]), nullable=False, default=TipoServico.GERAL
+    )
     categoria_equipamento = Column(String(100))  # "cameras", "alarmes", "portaria", etc.
     versao = Column(String(20), default="1.0")
 
@@ -234,12 +236,16 @@ class ChecklistItem(Base):
     # =========================================================================
     pergunta = Column(String(500), nullable=False)
     descricao = Column(Text)  # Instrucoes adicionais
-    categoria = Column(Enum(CategoriaItem), default=CategoriaItem.VERIFICACAO)
+    categoria = Column(
+        Enum(CategoriaItem, values_callable=lambda x: [e.value for e in x]), default=CategoriaItem.VERIFICACAO
+    )
 
     # =========================================================================
     # Tipo de Resposta
     # =========================================================================
-    tipo_resposta = Column(Enum(TipoResposta), nullable=False, default=TipoResposta.SIM_NAO)
+    tipo_resposta = Column(
+        Enum(TipoResposta, values_callable=lambda x: [e.value for e in x]), nullable=False, default=TipoResposta.SIM_NAO
+    )
 
     # Opcoes para multipla escolha/selecao unica
     opcoes = Column(JSONB, default=list)

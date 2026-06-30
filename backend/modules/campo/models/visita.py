@@ -114,9 +114,22 @@ class Visita(Base):
     # =========================================================================
     # Classificacao
     # =========================================================================
-    tipo = Column(Enum(TipoVisita, native_enum=False), nullable=False, default=TipoVisita.COMERCIAL)
-    status = Column(Enum(StatusVisita, native_enum=False), nullable=False, default=StatusVisita.AGENDADA, index=True)
-    origem = Column(Enum(OrigemVisita, native_enum=False), nullable=False, default=OrigemVisita.LEAD)
+    tipo = Column(
+        Enum(TipoVisita, values_callable=lambda x: [e.value for e in x], native_enum=False),
+        nullable=False,
+        default=TipoVisita.COMERCIAL,
+    )
+    status = Column(
+        Enum(StatusVisita, values_callable=lambda x: [e.value for e in x], native_enum=False),
+        nullable=False,
+        default=StatusVisita.AGENDADA,
+        index=True,
+    )
+    origem = Column(
+        Enum(OrigemVisita, values_callable=lambda x: [e.value for e in x], native_enum=False),
+        nullable=False,
+        default=OrigemVisita.LEAD,
+    )
 
     # =========================================================================
     # Responsavel (Tecnico ou Vendedor)
@@ -196,7 +209,9 @@ class Visita(Base):
     # =========================================================================
     # Resultado
     # =========================================================================
-    resultado = Column(Enum(ResultadoVisita, native_enum=False), nullable=True)
+    resultado = Column(
+        Enum(ResultadoVisita, values_callable=lambda x: [e.value for e in x], native_enum=False), nullable=True
+    )
     data_resultado = Column(DateTime)
 
     # Anotacoes

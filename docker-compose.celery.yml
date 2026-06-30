@@ -36,6 +36,8 @@ services:
       - conecta-pro-network
     volumes:
       - ./logs/celery:/app/logs
+      - ./credentials:/app/credentials
+      - ./uploads:/app/uploads
       - ./credentials:/opt/conecta-pro/credentials:ro
 
   # ==========================================================================
@@ -70,6 +72,8 @@ services:
       - conecta-pro-network
     volumes:
       - ./logs/celery:/app/logs
+      - ./credentials:/app/credentials
+      - ./uploads:/app/uploads
       - ./credentials:/opt/conecta-pro/credentials:ro
 
   # ==========================================================================
@@ -104,6 +108,8 @@ services:
       - conecta-pro-network
     volumes:
       - ./logs/celery:/app/logs
+      - ./credentials:/app/credentials
+      - ./uploads:/app/uploads
       - ./credentials:/opt/conecta-pro/credentials:ro
 
   # ==========================================================================
@@ -143,6 +149,8 @@ services:
       - conecta-pro-network
     volumes:
       - ./logs/celery:/app/logs
+      - ./credentials:/app/credentials
+      - ./uploads:/app/uploads
       - ./credentials:/opt/conecta-pro/credentials:ro
 
   # ==========================================================================
@@ -179,6 +187,8 @@ services:
       - conecta-pro-network
     volumes:
       - ./logs/celery:/app/logs
+      - ./credentials:/app/credentials
+      - ./uploads:/app/uploads
       - ./credentials:/opt/conecta-pro/credentials:ro
 
   # ==========================================================================
@@ -213,6 +223,8 @@ services:
       - conecta-pro-network
     volumes:
       - ./logs/celery:/app/logs
+      - ./credentials:/app/credentials
+      - ./uploads:/app/uploads
 
   # ==========================================================================
   # Celery Beat - Scheduler
@@ -248,6 +260,8 @@ services:
       - conecta-pro-network
     volumes:
       - ./logs/celery:/app/logs
+      - ./credentials:/app/credentials
+      - ./uploads:/app/uploads
       - celerybeat-data:/var/run/celery
 
   # ==========================================================================

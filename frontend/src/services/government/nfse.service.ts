@@ -52,6 +52,8 @@ export async function emitirNFSeNacional(
     {
       tomador: params.tomador,
       servico: params.servico,
+      prestador: (params as any).prestador,
+      numero: (params as any).numero,
       rps: params.rps,
     }
   );
@@ -204,3 +206,8 @@ const nfseService = {
 };
 
 export default nfseService;
+
+export async function listarTomadoresNFSe(): Promise<any[]> {
+  const { data } = await api.get<any>('/api/v1/government/nfse-nacional/tomadores');
+  return data?.data?.tomadores || [];
+}

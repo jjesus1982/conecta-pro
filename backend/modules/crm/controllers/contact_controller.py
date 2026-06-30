@@ -3,7 +3,7 @@ CRM Contacts + Activities + 360° Controller
 """
 
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -120,6 +120,33 @@ async def criar_contato(
     await db.commit()
     row = result.fetchone()
     return {"id": str(row[0]), "message": "Contato criado"}
+
+
+@router.put("/contacts/{contact_id}")
+@router.patch("/contacts/{contact_id}")
+async def atualizar_contato(
+    contact_id: UUID,
+    data: dict,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Atualiza contato (aceita PT ou EN; só altera campos enviados)."""
+    m = {
+        "name": data.get("name") or data.get("nome"),
+        "role": data.get("role") or data.get("cargo"),
+        "email": data.get("email"),
+        "phone": data.get("phone") or data.get("telefone"),
+        "whatsapp": data.get("whatsapp"),
+        "is_primary": data.get("is_primary"),
+        "notes": data.get("notes") or data.get("observacoes"),
+    }
+    sets = ", ".join(f"{k} = COALESCE(:{k}, {k})" for k in m)
+    await db.execute(
+        text(f"UPDATE crm_contacts SET {sets}, updated_at = NOW() WHERE id = :id"),
+        {**m, "id": str(contact_id)},
+    )
+    await db.commit()
+    return {"id": str(contact_id), "message": "Contato atualizado"}
 
 
 @router.delete("/contacts/{contact_id}")
@@ -446,3 +473,229 @@ async def visao_360_cliente(
         ],
         "gerado_em": datetime.now().isoformat(),
     }
+
+
+# ============================================================================
+# TIMELINE CROSS-ENTIDADE (lead/deal/proposta/cliente) + TAREFAS
+# ============================================================================
+
+
+@router.get("/activities/timeline")
+async def timeline_atividades(
+    current_user: CurrentActiveUser,
+    lead_id: str | None = Query(None),
+    opportunity_id: str | None = Query(None),
+    client_id: str | None = Query(None),
+    proposal_id: str | None = Query(None),
+    limit: int = Query(50, le=200),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Timeline de atividades ligadas a lead/deal/proposta/cliente (qualquer um dos filtros)."""
+    conds, params = [], {"lim": limit}
+    for col, val in (
+        ("lead_id", lead_id),
+        ("opportunity_id", opportunity_id),
+        ("client_id", client_id),
+        ("proposal_id", proposal_id),
+    ):
+        if val:
+            conds.append(f"a.{col} = :{col}")
+            params[col] = val
+    where = ("WHERE " + " OR ".join(conds)) if conds else ""
+    result = await db.execute(
+        text(f"""
+        SELECT a.id, a.type, a.subject, a.description, a.created_at, a.user_id,
+               a.lead_id, a.opportunity_id, a.client_id, a.proposal_id, c.name AS client_name
+        FROM crm_activities a
+        LEFT JOIN clients c ON a.client_id = c.id
+        {where}
+        ORDER BY a.created_at DESC
+        LIMIT :lim
+    """),
+        params,
+    )
+    return {
+        "items": [
+            {
+                "id": str(r[0]),
+                "type": r[1],
+                "subject": r[2],
+                "description": r[3],
+                "created_at": r[4].isoformat() if r[4] else None,
+                "user_id": str(r[5]) if r[5] else None,
+                "lead_id": str(r[6]) if r[6] else None,
+                "opportunity_id": str(r[7]) if r[7] else None,
+                "client_id": str(r[8]) if r[8] else None,
+                "proposal_id": str(r[9]) if r[9] else None,
+                "client_name": r[10],
+            }
+            for r in result.fetchall()
+        ]
+    }
+
+
+class TimelineNoteCreate(BaseModel):
+    subject: str = Field(..., min_length=1, max_length=255)
+    description: str | None = None
+    type: str = "note"
+    lead_id: str | None = None
+    opportunity_id: str | None = None
+    client_id: str | None = None
+    proposal_id: str | None = None
+
+
+@router.post("/activities/timeline", status_code=201)
+async def criar_nota_timeline(
+    data: TimelineNoteCreate,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Adiciona uma nota/atividade manual na timeline de um lead/deal/proposta/cliente."""
+    from modules.crm.services.timeline import log_activity
+
+    await log_activity(
+        db,
+        data.type,
+        data.subject,
+        description=data.description,
+        lead_id=data.lead_id,
+        opportunity_id=data.opportunity_id,
+        client_id=data.client_id,
+        proposal_id=data.proposal_id,
+        user_id=str(current_user.id),
+    )
+    return {"ok": True, "message": "Nota registrada"}
+
+
+# === TAREFAS / LEMBRETES ===
+
+
+class TaskCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+    description: str | None = None
+    due_date: date | None = None
+    priority: str = "medium"
+    assigned_to_id: str | None = None
+    lead_id: str | None = None
+    opportunity_id: str | None = None
+    client_id: str | None = None
+    proposal_id: str | None = None
+
+
+class TaskUpdate(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    due_date: date | None = None
+    priority: str | None = None
+    status: str | None = None
+    assigned_to_id: str | None = None
+
+
+def _task_dict(t) -> dict:
+    return {
+        "id": str(t.id),
+        "title": t.title,
+        "description": t.description,
+        "status": t.status,
+        "priority": t.priority,
+        "due_date": t.due_date.isoformat() if t.due_date else None,
+        "assigned_to_id": t.assigned_to_id,
+        "lead_id": t.lead_id,
+        "opportunity_id": t.opportunity_id,
+        "client_id": t.client_id,
+        "proposal_id": t.proposal_id,
+        "completed_at": t.completed_at.isoformat() if t.completed_at else None,
+        "created_at": t.created_at.isoformat() if t.created_at else None,
+    }
+
+
+@router.post("/tasks/", status_code=201)
+async def criar_tarefa(
+    data: TaskCreate, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_async_session)
+):
+    """Cria uma tarefa/lembrete de follow-up."""
+    from modules.crm.models.activity_task import CrmTask
+
+    t = CrmTask(
+        title=data.title,
+        description=data.description,
+        due_date=data.due_date,
+        priority=data.priority,
+        assigned_to_id=data.assigned_to_id or str(current_user.id),
+        created_by_id=str(current_user.id),
+        lead_id=data.lead_id,
+        opportunity_id=data.opportunity_id,
+        client_id=data.client_id,
+        proposal_id=data.proposal_id,
+    )
+    db.add(t)
+    await db.commit()
+    await db.refresh(t)
+    return _task_dict(t)
+
+
+@router.get("/tasks/")
+async def listar_tarefas(
+    current_user: CurrentActiveUser,
+    status: str | None = Query(None),
+    assigned_to_id: str | None = Query(None),
+    lead_id: str | None = Query(None),
+    opportunity_id: str | None = Query(None),
+    client_id: str | None = Query(None),
+    overdue: bool | None = Query(None),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Lista tarefas, com filtros (status/responsável/vínculo/atrasadas)."""
+    from sqlalchemy import select
+
+    from modules.crm.models.activity_task import CrmTask
+
+    stmt = select(CrmTask)
+    if status:
+        stmt = stmt.where(CrmTask.status == status)
+    if assigned_to_id:
+        stmt = stmt.where(CrmTask.assigned_to_id == assigned_to_id)
+    if lead_id:
+        stmt = stmt.where(CrmTask.lead_id == lead_id)
+    if opportunity_id:
+        stmt = stmt.where(CrmTask.opportunity_id == opportunity_id)
+    if client_id:
+        stmt = stmt.where(CrmTask.client_id == client_id)
+    if overdue:
+        stmt = stmt.where(CrmTask.due_date < date.today(), CrmTask.status == "pending")
+    stmt = stmt.order_by(CrmTask.due_date.asc().nulls_last(), CrmTask.created_at.desc())
+    rows = (await db.execute(stmt)).scalars().all()
+    return {"items": [_task_dict(t) for t in rows], "total": len(rows)}
+
+
+@router.patch("/tasks/{task_id}")
+async def atualizar_tarefa(
+    task_id: str, data: TaskUpdate, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_async_session)
+):
+    """Atualiza/conclui uma tarefa."""
+    from modules.crm.models.activity_task import CrmTask
+
+    t = await db.get(CrmTask, task_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="Tarefa não encontrada")
+    for field in ("title", "description", "due_date", "priority", "status", "assigned_to_id"):
+        val = getattr(data, field)
+        if val is not None:
+            setattr(t, field, val)
+    if data.status == "done" and not t.completed_at:
+        t.completed_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(t)
+    return _task_dict(t)
+
+
+@router.delete("/tasks/{task_id}", status_code=204)
+async def deletar_tarefa(task_id: str, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_async_session)):
+    """Exclui uma tarefa."""
+    from modules.crm.models.activity_task import CrmTask
+
+    t = await db.get(CrmTask, task_id)
+    if t:
+        await db.delete(t)
+        await db.commit()
+    return None

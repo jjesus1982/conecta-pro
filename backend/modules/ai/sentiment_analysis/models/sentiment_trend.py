@@ -63,13 +63,15 @@ class SentimentTrend(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
 
     # Periodo
-    period_type = Column(Enum(TrendPeriod), nullable=False)
+    period_type = Column(Enum(TrendPeriod, values_callable=lambda x: [e.value for e in x]), nullable=False)
     period_start = Column(DateTime, nullable=False)
     period_end = Column(DateTime, nullable=False)
     period_label = Column(String(50))  # "2025-W01", "2025-01", etc
 
     # Categoria
-    category = Column(Enum(TrendCategory), default=TrendCategory.OVERALL)
+    category = Column(
+        Enum(TrendCategory, values_callable=lambda x: [e.value for e in x]), default=TrendCategory.OVERALL
+    )
     category_value = Column(String(255))  # Valor especifico (ex: "email", "vip")
 
     # Entidade (opcional)
@@ -138,7 +140,9 @@ class SentimentTrend(Base):
     volume_change_pct = Column(Float, default=0)
 
     # Tendencia
-    trend_direction = Column(Enum(TrendDirection), default=TrendDirection.STABLE)
+    trend_direction = Column(
+        Enum(TrendDirection, values_callable=lambda x: [e.value for e in x]), default=TrendDirection.STABLE
+    )
     trend_strength = Column(Float, default=0)  # 0-100
     trend_confidence = Column(Float, default=0)  # 0-100
 

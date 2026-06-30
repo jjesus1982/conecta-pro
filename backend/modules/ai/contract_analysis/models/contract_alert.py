@@ -84,9 +84,19 @@ class ContractAlert(Base):
     contract_number = Column(String(50))
 
     # Tipo e status
-    alert_type = Column(Enum(AlertType), nullable=False, index=True)
-    status = Column(Enum(AlertStatus), default=AlertStatus.PENDING, nullable=False, index=True)
-    priority = Column(Enum(AlertPriority), default=AlertPriority.MEDIUM, nullable=False, index=True)
+    alert_type = Column(Enum(AlertType, values_callable=lambda x: [e.value for e in x]), nullable=False, index=True)
+    status = Column(
+        Enum(AlertStatus, values_callable=lambda x: [e.value for e in x]),
+        default=AlertStatus.PENDING,
+        nullable=False,
+        index=True,
+    )
+    priority = Column(
+        Enum(AlertPriority, values_callable=lambda x: [e.value for e in x]),
+        default=AlertPriority.MEDIUM,
+        nullable=False,
+        index=True,
+    )
 
     # Descricao
     title = Column(String(300), nullable=False)

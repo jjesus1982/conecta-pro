@@ -46,7 +46,11 @@ class TaskWorker(Base):
     process_name = Column(String(100))
 
     # Status
-    status = Column(Enum(WorkerStatus), nullable=False, default=WorkerStatus.STARTING)
+    status = Column(
+        Enum(WorkerStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=WorkerStatus.STARTING,
+    )
 
     # Configuração
     queues = Column(ARRAY(String), default=["default"])  # Filas que processa

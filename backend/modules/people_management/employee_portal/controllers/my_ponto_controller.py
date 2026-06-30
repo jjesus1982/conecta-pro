@@ -13,7 +13,6 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
 from modules.people_management.employee_portal.auth import CurrentEmployeeId
 
@@ -25,7 +24,6 @@ router = APIRouter(tags=["Portal - Ponto e Banco de Horas"])
 @router.get("/ponto/historico")
 async def get_ponto_historico(
     employee_id: CurrentEmployeeId,
-    current_user: CurrentActiveUser,
     mes: int = Query(default=None, ge=1, le=12, description="Mes (1-12)"),
     ano: int = Query(default=None, ge=2020, le=2030, description="Ano"),
     db: AsyncSession = Depends(get_db),
@@ -105,7 +103,6 @@ async def get_ponto_historico(
 @router.get("/banco-horas")
 async def get_banco_horas(
     employee_id: CurrentEmployeeId,
-    current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Retorna saldo atual do banco de horas do funcionario."""

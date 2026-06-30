@@ -248,7 +248,7 @@ export default function FeriasPage() {
   const fetchLeaves = async () => {
     setIsFetching(true);
     try {
-      const resp = await api.get('/api/v1/operacional/vacations/');
+      const resp = await api.get('/api/v1/operacional/vacations');
       const data = resp.data;
       const mapped = (data.items || []).map((item: any) => ({
         id: item.id,

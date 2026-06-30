@@ -94,9 +94,11 @@ class NotificationChannel(Base):
     name = Column(String(100), nullable=False)
     slug = Column(String(100), nullable=False)
     description = Column(Text)
-    channel_type = Column(Enum(ChannelType), nullable=False, index=True)
-    provider = Column(Enum(ChannelProvider), nullable=False)
-    status = Column(Enum(ChannelStatus), default=ChannelStatus.ACTIVE, index=True)
+    channel_type = Column(Enum(ChannelType, values_callable=lambda x: [e.value for e in x]), nullable=False, index=True)
+    provider = Column(Enum(ChannelProvider, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    status = Column(
+        Enum(ChannelStatus, values_callable=lambda x: [e.value for e in x]), default=ChannelStatus.ACTIVE, index=True
+    )
 
     # Configuração do provedor
     provider_config = Column(JSONB, default=dict)  # API keys, endpoints, etc.

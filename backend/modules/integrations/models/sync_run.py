@@ -71,8 +71,16 @@ class SyncRun(Base):
 
     # Tipo e Modo
     connector_type = Column(String(50), nullable=False)
-    mode = Column(Enum(SyncRunMode), nullable=False, default=SyncRunMode.INCREMENTAL)
-    trigger = Column(Enum(SyncRunTrigger), nullable=False, default=SyncRunTrigger.SCHEDULED)
+    mode = Column(
+        Enum(SyncRunMode, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=SyncRunMode.INCREMENTAL,
+    )
+    trigger = Column(
+        Enum(SyncRunTrigger, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=SyncRunTrigger.SCHEDULED,
+    )
     triggered_by = Column(UUID(as_uuid=True), nullable=True)  # User ID se manual
 
     # Entidades
@@ -80,7 +88,11 @@ class SyncRun(Base):
     entity_filters = Column(JSONB, nullable=True)  # Filtros aplicados
 
     # Status
-    status = Column(Enum(SyncRunStatus), nullable=False, default=SyncRunStatus.PENDING)
+    status = Column(
+        Enum(SyncRunStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=SyncRunStatus.PENDING,
+    )
     status_message = Column(Text, nullable=True)
 
     # Timing

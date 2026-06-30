@@ -268,15 +268,15 @@ class XMLSigner:
         """Canonicaliza elemento XML."""
         exclusive = config.canonicalization == CanonicalizationMethod.C14N_EXCLUSIVE
 
-        # Fazer cópia para não modificar original
-        element_copy = etree.fromstring(etree.tostring(element))  # noqa: S320 - Cópia para canonicalização
-
-        # Remover Signature existente se houver
-        for sig in element_copy.findall(".//ds:Signature", NAMESPACES):
-            sig.getparent().remove(sig)
-
-        # Canonicalizar
-        return etree.tostring(element_copy, method="c14n", exclusive=exclusive, with_comments=False)
+        # Se o elemento tem Signature embutida (transform enveloped), remove numa cópia.
+        # Caso contrário, canonicaliza IN-PLACE — preserva o contexto de namespace dos
+        # ancestrais (essencial p/ o digest bater com o que o SEFIN recalcula).
+        if element.find(".//ds:Signature", NAMESPACES) is not None:
+            element_copy = etree.fromstring(etree.tostring(element))  # noqa: S320
+            for sig in element_copy.findall(".//ds:Signature", NAMESPACES):
+                sig.getparent().remove(sig)
+            return etree.tostring(element_copy, method="c14n", exclusive=exclusive, with_comments=False)
+        return etree.tostring(element, method="c14n", exclusive=exclusive, with_comments=False)
 
     def _create_signature_element(self, digest_value: str, config: SignatureConfig) -> etree._Element:
         """Cria elemento Signature."""
@@ -503,8 +503,38 @@ class NFSeNacionalXMLSigner(XMLSigner):
         return signature
 
     def sign_nfse(self, xml_content: str) -> str:
-        """Assina XML para NFS-e Nacional (URI vazia, C14N normal, sem prefixo ds:)."""
-        return self.sign(xml_content, signature_type=SignatureType.ESOCIAL, reference_uri="")
+        """Assina o DPS da NFS-e Nacional com signxml, Signature SEM prefixo ds: (padrão SEFIN).
+        C14N robusta (signxml) + namespaces={None: ds} → assinatura válida e sem prefixo."""
+        import re as _re
+
+        from cryptography.hazmat.primitives.serialization import (
+            Encoding as _Enc,
+        )
+        from cryptography.hazmat.primitives.serialization import (
+            NoEncryption as _NE,
+        )
+        from cryptography.hazmat.primitives.serialization import (
+            PrivateFormat as _PF,
+        )
+        from lxml import etree as _etree
+        from signxml import XMLSigner as _SX
+        from signxml import methods as _methods
+        from signxml import namespaces as _ns
+
+        m = _re.search(r'<infDPS Id="([^"]+)"', xml_content)
+        ref = m.group(1) if m else None
+        root = _etree.fromstring(xml_content.encode("utf-8"))
+        key_pem = self.cert_manager.private_key.private_bytes(_Enc.PEM, _PF.TraditionalOpenSSL, _NE())
+        cert_pem = self.cert_manager.get_certificate_pem()
+        signer = _SX(
+            method=_methods.enveloped,
+            signature_algorithm="rsa-sha256",
+            digest_algorithm="sha256",
+            c14n_algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315",
+        )
+        signer.namespaces = {None: _ns.ds}  # Signature sem prefixo ds:
+        signed = signer.sign(root, key=key_pem, cert=cert_pem, reference_uri=ref, id_attribute="Id")
+        return '<?xml version="1.0" encoding="UTF-8"?>' + _etree.tostring(signed, encoding="unicode")
 
 
 class NFEXMLSigner(XMLSigner):

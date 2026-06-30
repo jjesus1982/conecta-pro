@@ -6,20 +6,17 @@ Sprint 34: Relatórios Gerenciais
 
 import enum
 from datetime import datetime
-from typing import Optional, List
 from uuid import uuid4
 
-from sqlalchemy import (
-    Column, String, Text, Boolean, DateTime,
-    Integer, Float, Enum, Index
-)
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import Boolean, Column, DateTime, Enum, Float, Index, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from core.database import Base
 
 
 class KPICategory(str, enum.Enum):
     """Categorias de KPI."""
+
     FINANCIAL = "financial"
     OPERATIONAL = "operational"
     COMMERCIAL = "commercial"
@@ -32,6 +29,7 @@ class KPICategory(str, enum.Enum):
 
 class KPIType(str, enum.Enum):
     """Tipos de KPI."""
+
     ABSOLUTE = "absolute"
     PERCENTAGE = "percentage"
     RATIO = "ratio"
@@ -44,6 +42,7 @@ class KPIType(str, enum.Enum):
 
 class KPIDirection(str, enum.Enum):
     """Direção desejada do KPI."""
+
     INCREASE = "increase"
     DECREASE = "decrease"
     MAINTAIN = "maintain"
@@ -52,6 +51,7 @@ class KPIDirection(str, enum.Enum):
 
 class KPIStatus(str, enum.Enum):
     """Status do KPI."""
+
     ACTIVE = "active"
     INACTIVE = "inactive"
     DRAFT = "draft"
@@ -60,6 +60,7 @@ class KPIStatus(str, enum.Enum):
 
 class KPIAlertLevel(str, enum.Enum):
     """Nível de alerta do KPI."""
+
     NORMAL = "normal"
     WARNING = "warning"
     CRITICAL = "critical"
@@ -68,6 +69,7 @@ class KPIAlertLevel(str, enum.Enum):
 
 class AggregationPeriod(str, enum.Enum):
     """Período de agregação."""
+
     DAILY = "daily"
     WEEKLY = "weekly"
     MONTHLY = "monthly"
@@ -89,10 +91,16 @@ class ExecutiveKPI(Base):
     description = Column(Text, nullable=True)
 
     # Classificação
-    category = Column(Enum(KPICategory), nullable=False)
-    kpi_type = Column(Enum(KPIType), nullable=False)
-    direction = Column(Enum(KPIDirection), nullable=False, default=KPIDirection.INCREASE)
-    status = Column(Enum(KPIStatus), nullable=False, default=KPIStatus.ACTIVE)
+    category = Column(Enum(KPICategory, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    kpi_type = Column(Enum(KPIType, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    direction = Column(
+        Enum(KPIDirection, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=KPIDirection.INCREASE,
+    )
+    status = Column(
+        Enum(KPIStatus, values_callable=lambda x: [e.value for e in x]), nullable=False, default=KPIStatus.ACTIVE
+    )
 
     # Unidade e formato
     unit = Column(String(20), nullable=True)
@@ -116,9 +124,7 @@ class ExecutiveKPI(Base):
     critical_threshold_high = Column(Float, nullable=True)
 
     # Período
-    aggregation_period = Column(
-        Enum(AggregationPeriod), nullable=False, default=AggregationPeriod.MONTHLY
-    )
+    aggregation_period = Column(Enum(AggregationPeriod), nullable=False, default=AggregationPeriod.MONTHLY)
     period_start = Column(DateTime, nullable=True)
     period_end = Column(DateTime, nullable=True)
 
@@ -129,9 +135,7 @@ class ExecutiveKPI(Base):
     calculation_config = Column(JSONB, nullable=True)
 
     # Status atual
-    alert_level = Column(
-        Enum(KPIAlertLevel), nullable=False, default=KPIAlertLevel.NORMAL
-    )
+    alert_level = Column(Enum(KPIAlertLevel), nullable=False, default=KPIAlertLevel.NORMAL)
     trend = Column(String(20), nullable=True)
     variance = Column(Float, nullable=True)
     variance_percentage = Column(Float, nullable=True)
@@ -183,10 +187,7 @@ class ExecutiveKPI(Base):
     )
 
     def update_value(
-        self,
-        new_value: float,
-        period_start: Optional[datetime] = None,
-        period_end: Optional[datetime] = None
+        self, new_value: float, period_start: datetime | None = None, period_end: datetime | None = None
     ) -> None:
         """Atualiza o valor do KPI."""
         self.previous_value = self.current_value
@@ -272,7 +273,7 @@ class ExecutiveKPI(Base):
             "value": self.current_value,
             "date": datetime.utcnow().isoformat(),
             "target": self.target_value,
-            "alert_level": self.alert_level.value
+            "alert_level": self.alert_level.value,
         }
         self.historical_values.append(entry)
 
@@ -283,9 +284,9 @@ class ExecutiveKPI(Base):
     def set_target(
         self,
         target: float,
-        yearly: Optional[float] = None,
-        quarterly: Optional[List[float]] = None,
-        monthly: Optional[List[float]] = None
+        yearly: float | None = None,
+        quarterly: list[float] | None = None,
+        monthly: list[float] | None = None,
     ) -> None:
         """Define metas."""
         self.target_value = target
@@ -299,10 +300,10 @@ class ExecutiveKPI(Base):
 
     def set_thresholds(
         self,
-        warning_low: Optional[float] = None,
-        warning_high: Optional[float] = None,
-        critical_low: Optional[float] = None,
-        critical_high: Optional[float] = None
+        warning_low: float | None = None,
+        warning_high: float | None = None,
+        critical_low: float | None = None,
+        critical_high: float | None = None,
     ) -> None:
         """Define thresholds de alerta."""
         self.warning_threshold_low = warning_low
@@ -349,7 +350,7 @@ class ExecutiveKPI(Base):
         return False
 
     @property
-    def target_achievement(self) -> Optional[float]:
+    def target_achievement(self) -> float | None:
         """Percentual de atingimento da meta."""
         if not self.target_value or self.current_value is None:
             return None

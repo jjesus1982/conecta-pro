@@ -119,6 +119,7 @@ class TimeRecordService:
 
         # Emparelhar batidas por employee + dia
         records = self._pair_punches(rows)
+        records = await self._fill_employee_names(records)
 
         # Filter by status if requested
         if status:
@@ -728,6 +729,7 @@ class TimeRecordService:
         rows = result.mappings().all()
 
         records = self._pair_punches(rows)
+        records = await self._fill_employee_names(records)
 
         return {
             "date": str(record_date),
@@ -892,3 +894,20 @@ class TimeRecordService:
             return str(row[0]) if row else None
         except Exception:
             return None
+
+    async def _fill_employee_names(self, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Preenche employee_name em lote (1 query) — gp_clock_punches não guarda o nome."""
+        ids = {str(r["employee_id"]) for r in records if r.get("employee_id")}
+        if not ids:
+            return records
+        try:
+            result = await self.db.execute(
+                text("SELECT id::text AS id, nome FROM employees WHERE id::text = ANY(:ids)"),
+                {"ids": list(ids)},
+            )
+            nomes = {row["id"]: row["nome"] for row in result.mappings().all()}
+        except Exception:
+            return records
+        for r in records:
+            r["employee_name"] = nomes.get(str(r.get("employee_id")), r.get("employee_name"))
+        return records

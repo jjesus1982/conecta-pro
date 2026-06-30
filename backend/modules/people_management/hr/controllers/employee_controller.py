@@ -6,6 +6,7 @@ Endpoints CRUD para gestão de funcionários na visão DP.
 
 import asyncio
 import logging
+from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -306,8 +307,8 @@ async def create_deduction(
             "pct": data.percentual,
             "base": data.base_calculo,
             "parcelas": data.total_parcelas,
-            "inicio": data.data_inicio,
-            "fim": data.data_fim,
+            "inicio": (date.fromisoformat(str(data.data_inicio)[:10]) if data.data_inicio else None),
+            "fim": (date.fromisoformat(str(data.data_fim)[:10]) if data.data_fim else None),
         },
     )
     new_id = result.scalar_one()

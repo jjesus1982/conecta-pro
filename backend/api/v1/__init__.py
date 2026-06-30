@@ -263,7 +263,7 @@ router.include_router(notification_compliance_router, prefix="/notifications", t
 router.include_router(push_notification_router, prefix="/notifications", tags=["Notifications - Push"])
 router.include_router(mobile_router, prefix="/mobile", tags=["Mobile API"])
 router.include_router(workflow_router, prefix="/workflows", tags=["Automation - Workflows"])
-router.include_router(integration_router, prefix="/integrations", tags=["Integrations - API Gateway"])
+router.include_router(integration_router, tags=["Integrations - API Gateway"])
 
 # =============================================================================
 # DEV-ONLY: Módulos não cobertos pelos 9 agregadores

@@ -69,7 +69,7 @@ class SentimentRule(Base):
     description = Column(Text)
 
     # Categoria
-    category = Column(Enum(RuleCategory), nullable=False)
+    category = Column(Enum(RuleCategory, values_callable=lambda x: [e.value for e in x]), nullable=False)
     subcategory = Column(String(100))
 
     # Prioridade
@@ -109,7 +109,7 @@ class SentimentRule(Base):
     customer_tiers = Column(JSONB, default=[])  # VIP, regular, etc
 
     # Acoes
-    primary_action = Column(Enum(RuleAction), default=RuleAction.ALERT)
+    primary_action = Column(Enum(RuleAction, values_callable=lambda x: [e.value for e in x]), default=RuleAction.ALERT)
     secondary_actions = Column(JSONB, default=[])
     action_config = Column(JSONB, default={})
     # Exemplo: {

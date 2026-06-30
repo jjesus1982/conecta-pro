@@ -82,8 +82,8 @@ class NotificationLog(Base):
     recipient_address = Column(String(200))
 
     # Evento
-    event_type = Column(Enum(LogEventType), nullable=False, index=True)
-    level = Column(Enum(LogLevel), default=LogLevel.INFO, index=True)
+    event_type = Column(Enum(LogEventType, values_callable=lambda x: [e.value for e in x]), nullable=False, index=True)
+    level = Column(Enum(LogLevel, values_callable=lambda x: [e.value for e in x]), default=LogLevel.INFO, index=True)
     message = Column(Text)
     details = Column(JSONB, default=dict)
 

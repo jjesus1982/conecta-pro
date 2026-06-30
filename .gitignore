@@ -107,3 +107,22 @@ agents/cto/knowledge/
 !agents/cto/knowledge/.ultimo_commit
 frontend/src/app/modulos/financeiro/cobrancas/*.bak.*
 config/smtp_config.json
+
+# ── Lixo/backups/segredos (não commitar) — adicionado 2026-06-30 ──
+*.bak
+*.bak-*
+*.bak.*
+*.backup
+*.backup-*
+*.dump
+.webhook_secret*
+*_TOKEN_*.md
+*token*.txt
+.svc_pw.txt
+.mcp_token*.txt
+agents/cto/memory/snapshots/
+*.pyc
+__pycache__/
+*.log
+tsbuildinfo
+*.tsbuildinfo

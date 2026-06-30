@@ -171,6 +171,7 @@ class ContractRepository:
         limite = date.today() + timedelta(days=days)
         result = await self.db.execute(
             select(PublicContract)
+            .options(selectinload(PublicContract.medicoes))  # evita MissingGreenlet no _to_response
             .where(
                 PublicContract.ativo,
                 PublicContract.status == ContractStatus.ACTIVE.value,
@@ -186,6 +187,7 @@ class ContractRepository:
         hoje = date.today()
         result = await self.db.execute(
             select(PublicContract)
+            .options(selectinload(PublicContract.medicoes))  # evita MissingGreenlet no _to_response
             .where(
                 PublicContract.ativo,
                 PublicContract.status == ContractStatus.ACTIVE.value,

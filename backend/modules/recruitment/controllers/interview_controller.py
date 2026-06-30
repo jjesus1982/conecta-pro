@@ -57,6 +57,7 @@ async def create_interview(
         )
 
 
+@router.get("", include_in_schema=False)  # espelho sem barra final (front chama sem barra)
 @router.get(
     "/",
     response_model=InterviewListResponse,

@@ -52,7 +52,11 @@ class ServiceExecution(Base):
     sequence = Column(Integer, nullable=False, default=1)
 
     # Status
-    status = Column(Enum(ExecutionStatus), nullable=False, default=ExecutionStatus.AGENDADA)
+    status = Column(
+        Enum(ExecutionStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=ExecutionStatus.AGENDADA,
+    )
 
     # Técnico/Equipe
     technician_id = Column(UUID(as_uuid=True), nullable=True)

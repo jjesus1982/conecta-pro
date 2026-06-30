@@ -208,8 +208,8 @@ class Contract(Base):
         cascade="all, delete-orphan",
     )
 
-    # Formato do número
-    NUMBER_FORMAT = "CONT-{year}-{sequence:05d}"
+    # Formato do número (padrão oficial UNIFICADO Conecta Mais)
+    NUMBER_FORMAT = "CTR-{year}-{sequence:05d}"
 
     @classmethod
     def generate_number(cls, sequence: int) -> str:

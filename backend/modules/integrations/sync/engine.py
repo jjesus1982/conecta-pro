@@ -49,6 +49,11 @@ class ConnectorRegistry:
         return list(cls._connectors.keys())
 
     @classmethod
+    def list_connectors(cls) -> dict:
+        """Dict {nome: classe} dos conectores registrados (usado por service/controller)."""
+        return dict(cls._connectors)
+
+    @classmethod
     def get_info(cls) -> builtins.list[dict[str, Any]]:
         """Retorna informações de todos os conectores."""
         result = []

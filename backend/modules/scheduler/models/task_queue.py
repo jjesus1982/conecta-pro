@@ -62,7 +62,12 @@ class TaskQueue(Base):
     execution_id = Column(UUID(as_uuid=True), ForeignKey("scheduler_executions.id"))
 
     # Status e prioridade
-    status = Column(Enum(QueueStatus), nullable=False, default=QueueStatus.PENDING, index=True)
+    status = Column(
+        Enum(QueueStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=QueueStatus.PENDING,
+        index=True,
+    )
     priority = Column(Enum(QueuePriority), nullable=False, default=QueuePriority.NORMAL)
     priority_value = Column(Integer, default=5, index=True)  # Para ordenação
 

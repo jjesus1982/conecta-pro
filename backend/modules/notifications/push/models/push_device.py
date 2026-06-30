@@ -54,7 +54,7 @@ class PushDevice(Base):
     device_token_hash = Column(String(64), index=True)  # Hash para busca rapida
 
     # Plataforma
-    platform = Column(Enum(DevicePlatform), nullable=False, index=True)
+    platform = Column(Enum(DevicePlatform, values_callable=lambda x: [e.value for e in x]), nullable=False, index=True)
     platform_version = Column(String(50))  # Ex: "iOS 17.2", "Android 14"
 
     # App
@@ -67,7 +67,9 @@ class PushDevice(Base):
     provider_player_id = Column(String(200))  # OneSignal player ID
 
     # Status
-    status = Column(Enum(DeviceStatus), default=DeviceStatus.ACTIVE, index=True)
+    status = Column(
+        Enum(DeviceStatus, values_callable=lambda x: [e.value for e in x]), default=DeviceStatus.ACTIVE, index=True
+    )
     status_reason = Column(String(200))
     status_changed_at = Column(DateTime)
 

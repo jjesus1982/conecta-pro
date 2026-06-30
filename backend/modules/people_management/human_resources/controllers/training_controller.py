@@ -12,6 +12,7 @@ import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import get_current_user
@@ -277,6 +278,34 @@ async def list_enrollments(
         page=result["page"],
         page_size=result["page_size"],
     )
+
+
+# IMPORTANTE: rota literal /certificates DEVE vir antes de /{training_id},
+# senão "certificates" é interpretado como UUID e dá 422 (a tela rh/certificados ficava vazia).
+@router.get("/certificates", summary="Listar certificados de treinamento")
+@router.get("/certificates/", include_in_schema=False)
+async def list_certificates(
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+) -> dict:
+    """Lista certificados emitidos (com nome do colaborador e do curso)."""
+    total = (await db.execute(text("SELECT count(*) FROM training_certificates"))).scalar() or 0
+    rows = await db.execute(
+        text(
+            "SELECT tc.id::text AS id, tc.certificate_number, tc.employee_id::text AS employee_id, "
+            "tc.course_id::text AS course_id, e.nome AS employee_name, c.name AS course_name, "
+            "tc.issued_at, tc.expires_at, tc.status "
+            "FROM training_certificates tc "
+            "LEFT JOIN employees e ON tc.employee_id = e.id "
+            "LEFT JOIN training_courses c ON tc.course_id = c.id "
+            "ORDER BY tc.issued_at DESC NULLS LAST LIMIT :limit OFFSET :offset"
+        ),
+        {"limit": page_size, "offset": (page - 1) * page_size},
+    )
+    items = [dict(r) for r in rows.mappings().all()]
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 @router.get(

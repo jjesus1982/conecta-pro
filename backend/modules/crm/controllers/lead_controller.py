@@ -22,6 +22,8 @@ from modules.crm.schemas.lead import (
     LeadUpdate,
 )
 from modules.crm.services.lead_service import lead_service
+from modules.crm.services.pipeline_sync import ensure_opportunity_for_lead
+from modules.crm.services.timeline import log_activity
 
 router = APIRouter(prefix="/leads", tags=["CRM - Leads"])
 
@@ -50,7 +52,25 @@ async def create_lead(
             )
 
     lead = await repo.create(data)
+    await log_activity(db, "lead_created", "Lead criado", lead_id=str(lead.id), user_id=str(current_user.id))
     logger.info(f"Lead criado por {current_user.email}: {lead.id}")
+
+    # Growth: dispara workflows do evento lead_created + recalcula scoring configurável.
+    # SESSÃO ISOLADA (async_session_factory): nunca toca a sessão/objeto do request -> sem MissingGreenlet
+    # no LeadResponse.model_validate(lead). Best-effort.
+    try:
+        from sqlalchemy import text as _text
+
+        from core.database import async_session_factory
+        from modules.crm.services import growth_services as _G
+
+        _lid = str(lead.id)
+        async with async_session_factory() as _s:
+            _ld = (await _s.execute(_text("SELECT * FROM leads WHERE id=:id"), {"id": _lid})).mappings().first()
+            await _G.run_workflows_for_event(_s, "lead_created", dict(_ld) if _ld else {"id": _lid}, "lead")
+            await _G.recompute_lead_score(_s, _lid)
+    except Exception as _exc:  # noqa: BLE001
+        logger.debug(f"growth hook lead_created ignorado: {_exc}")
 
     return LeadResponse.model_validate(lead)
 
@@ -160,6 +180,8 @@ async def update_lead(
             detail="Lead não encontrado",
         )
 
+    # Pipeline: se a edição qualificou o lead, garante o deal no Kanban.
+    await ensure_opportunity_for_lead(db, lead)
     logger.info(f"Lead atualizado por {current_user.email}: {lead.id}")
     return LeadResponse.model_validate(lead)
 
@@ -186,6 +208,12 @@ async def update_lead_status(
         )
 
     logger.info(f"Lead {lead.id} status alterado para {data.status.value} por {current_user.email}")
+
+    # Pipeline: lead qualificado (qualified/proposal/negotiation/won) vira deal no Kanban.
+    await ensure_opportunity_for_lead(db, lead)
+    await log_activity(
+        db, "lead_status", f"Status do lead → {data.status.value}", lead_id=str(lead.id), user_id=str(current_user.id)
+    )
 
     if data.status == LeadStatus.WON:
         import asyncio

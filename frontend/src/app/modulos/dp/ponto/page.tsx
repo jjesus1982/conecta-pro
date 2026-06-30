@@ -54,7 +54,9 @@ function formatDate(val: string | null | undefined): string {
 
 export default function PontoPage() {
   const router = useRouter();
-  const today = new Date().toISOString().split('T')[0] || '2026-03-29';
+  // Data LOCAL (não toISOString, que converte p/ UTC e à noite "vira o dia" antes de Manaus → tela vazia)
+  const _now = new Date();
+  const today = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`;
   const [viewMode, setViewMode] = useState<'daily' | 'monthly'>('daily');
   const [selectedDate, setSelectedDate] = useState(today);
   const [periodo, setPeriodo] = useState(() => {

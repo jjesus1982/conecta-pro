@@ -11,7 +11,6 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
 from modules.people_management.employee_portal.auth import CurrentEmployeeId
 
@@ -23,7 +22,6 @@ router = APIRouter(tags=["Portal - Comunicados"])
 @router.get("/comunicados")
 async def get_meus_comunicados(
     employee_id: CurrentEmployeeId,
-    current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Retorna comunicados e avisos do DP para o funcionario."""

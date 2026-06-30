@@ -66,10 +66,16 @@ class IntegrationAccount(Base):
     # Identificação
     name = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
-    connector_type = Column(Enum(ConnectorType), nullable=False, default=ConnectorType.CUSTOM)
+    connector_type = Column(
+        Enum(ConnectorType, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=ConnectorType.CUSTOM,
+    )
 
     # Autenticação
-    auth_type = Column(Enum(AuthType), nullable=False, default=AuthType.API_KEY)
+    auth_type = Column(
+        Enum(AuthType, values_callable=lambda x: [e.value for e in x]), nullable=False, default=AuthType.API_KEY
+    )
 
     # Credenciais (CRIPTOGRAFADAS - usar security_lgpd)
     # Nunca armazenar em texto plano
@@ -104,7 +110,11 @@ class IntegrationAccount(Base):
     rate_limit_per_hour = Column(Integer, nullable=True)
 
     # Status
-    status = Column(Enum(AccountStatus), nullable=False, default=AccountStatus.PENDING_AUTH)
+    status = Column(
+        Enum(AccountStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=AccountStatus.PENDING_AUTH,
+    )
     status_message = Column(Text, nullable=True)
     last_error = Column(Text, nullable=True)
     last_error_at = Column(DateTime, nullable=True)

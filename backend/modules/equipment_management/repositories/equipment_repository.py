@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +31,7 @@ class EquipmentRepository:
     async def create(self, data: EquipmentCreate) -> Equipment:
         """Cria um novo equipamento."""
         equipment = Equipment(
+            equipment_code=(getattr(data, "equipment_code", None) or f"EQ-{uuid4().hex[:10].upper()}"),
             equipment_type=data.equipment_type,
             category=data.category,
             brand=data.brand,

@@ -64,7 +64,7 @@ class ApplicationService:
         position = await self.position_repo.get_by_id(data.job_position_id)
         if not position:
             raise ValueError("Vaga não encontrada")
-        if position.status.value != "aberta":
+        if str(position.status) != "aberta":
             raise ValueError("Vaga não está aberta para candidaturas")
 
         # Verifica se candidato existe e está ativo

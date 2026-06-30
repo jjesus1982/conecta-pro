@@ -5,20 +5,17 @@ Sprint 34: Relatórios Gerenciais
 
 import enum
 from datetime import datetime
-from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import (
-    Column, String, Text, Boolean, DateTime,
-    Integer, Float, Enum, Index
-)
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import Boolean, Column, DateTime, Enum, Float, Index, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from core.database import Base
 
 
 class BenchmarkCategory(str, enum.Enum):
     """Categorias de benchmark."""
+
     FINANCIAL = "financial"
     OPERATIONAL = "operational"
     COMMERCIAL = "commercial"
@@ -31,6 +28,7 @@ class BenchmarkCategory(str, enum.Enum):
 
 class BenchmarkType(str, enum.Enum):
     """Tipos de benchmark."""
+
     INTERNAL = "internal"
     EXTERNAL = "external"
     INDUSTRY = "industry"
@@ -41,6 +39,7 @@ class BenchmarkType(str, enum.Enum):
 
 class BenchmarkSource(str, enum.Enum):
     """Fonte do benchmark."""
+
     INTERNAL_DATA = "internal_data"
     INDUSTRY_REPORT = "industry_report"
     MARKET_RESEARCH = "market_research"
@@ -53,6 +52,7 @@ class BenchmarkSource(str, enum.Enum):
 
 class BenchmarkStatus(str, enum.Enum):
     """Status do benchmark."""
+
     ACTIVE = "active"
     INACTIVE = "inactive"
     DRAFT = "draft"
@@ -62,6 +62,7 @@ class BenchmarkStatus(str, enum.Enum):
 
 class ComparisonResult(str, enum.Enum):
     """Resultado da comparação."""
+
     ABOVE = "above"
     BELOW = "below"
     AT_PAR = "at_par"
@@ -82,10 +83,14 @@ class Benchmark(Base):
     description = Column(Text, nullable=True)
 
     # Classificação
-    category = Column(Enum(BenchmarkCategory), nullable=False)
-    benchmark_type = Column(Enum(BenchmarkType), nullable=False)
-    source = Column(Enum(BenchmarkSource), nullable=False)
-    status = Column(Enum(BenchmarkStatus), nullable=False, default=BenchmarkStatus.ACTIVE)
+    category = Column(Enum(BenchmarkCategory, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    benchmark_type = Column(Enum(BenchmarkType, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    source = Column(Enum(BenchmarkSource, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    status = Column(
+        Enum(BenchmarkStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=BenchmarkStatus.ACTIVE,
+    )
 
     # Setor/Indústria
     industry = Column(String(100), nullable=True)
@@ -121,7 +126,7 @@ class Benchmark(Base):
 
     # Comparação atual
     current_company_value = Column(Float, nullable=True)
-    comparison_result = Column(Enum(ComparisonResult), nullable=True)
+    comparison_result = Column(Enum(ComparisonResult, values_callable=lambda x: [e.value for e in x]), nullable=True)
     deviation = Column(Float, nullable=True)
     deviation_percentage = Column(Float, nullable=True)
     percentile_rank = Column(Float, nullable=True)
@@ -179,11 +184,7 @@ class Benchmark(Base):
         Index("ix_benchmarks_status", "status"),
     )
 
-    def update_reference_value(
-        self,
-        new_value: float,
-        source_date: Optional[datetime] = None
-    ) -> None:
+    def update_reference_value(self, new_value: float, source_date: datetime | None = None) -> None:
         """Atualiza o valor de referência."""
         # Guarda no histórico
         self._add_to_history(self.reference_value)
@@ -271,7 +272,7 @@ class Benchmark(Base):
             "value": value,
             "date": datetime.utcnow().isoformat(),
             "year": self.reference_year,
-            "quarter": self.reference_quarter
+            "quarter": self.reference_quarter,
         }
         self.historical_values.append(entry)
 
@@ -290,13 +291,13 @@ class Benchmark(Base):
 
     def set_distribution(
         self,
-        minimum: Optional[float] = None,
-        percentile_25: Optional[float] = None,
-        median: Optional[float] = None,
-        percentile_75: Optional[float] = None,
-        percentile_90: Optional[float] = None,
-        maximum: Optional[float] = None,
-        average: Optional[float] = None
+        minimum: float | None = None,
+        percentile_25: float | None = None,
+        median: float | None = None,
+        percentile_75: float | None = None,
+        percentile_90: float | None = None,
+        maximum: float | None = None,
+        average: float | None = None,
     ) -> None:
         """Define a distribuição do benchmark."""
         self.min_value = minimum
@@ -309,11 +310,7 @@ class Benchmark(Base):
         self._recalculate_comparison()
         self.updated_at = datetime.utcnow()
 
-    def set_target_from_benchmark(
-        self,
-        percentile: int = 75,
-        deadline: Optional[datetime] = None
-    ) -> None:
+    def set_target_from_benchmark(self, percentile: int = 75, deadline: datetime | None = None) -> None:
         """Define meta baseada em percentil do benchmark."""
         if percentile == 25 and self.percentile_25:
             self.target_value = self.percentile_25
@@ -372,18 +369,12 @@ class Benchmark(Base):
     @property
     def is_above_benchmark(self) -> bool:
         """Verifica se está acima do benchmark."""
-        return self.comparison_result in [
-            ComparisonResult.ABOVE,
-            ComparisonResult.EXCELLENT
-        ]
+        return self.comparison_result in [ComparisonResult.ABOVE, ComparisonResult.EXCELLENT]
 
     @property
     def is_below_benchmark(self) -> bool:
         """Verifica se está abaixo do benchmark."""
-        return self.comparison_result in [
-            ComparisonResult.BELOW,
-            ComparisonResult.POOR
-        ]
+        return self.comparison_result in [ComparisonResult.BELOW, ComparisonResult.POOR]
 
     @property
     def needs_improvement(self) -> bool:
@@ -405,14 +396,14 @@ class Benchmark(Base):
         return f"{value:,.{self.decimal_places}f}"
 
     @property
-    def gap_to_target(self) -> Optional[float]:
+    def gap_to_target(self) -> float | None:
         """Gap para a meta."""
         if self.target_value and self.current_company_value:
             return self.target_value - self.current_company_value
         return None
 
     @property
-    def gap_percentage(self) -> Optional[float]:
+    def gap_percentage(self) -> float | None:
         """Gap percentual para a meta."""
         if self.target_value and self.current_company_value and self.target_value != 0:
             return ((self.target_value - self.current_company_value) / self.target_value) * 100

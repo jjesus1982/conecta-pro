@@ -2,7 +2,9 @@
 Controller (endpoints) para Proposal.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from pydantic import BaseModel
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
@@ -26,8 +28,55 @@ from modules.crm.schemas.proposal import (
     ProposalTemplateUpdate,
     ProposalUpdate,
 )
+from modules.crm.services.pipeline_sync import ensure_contract_for_proposal, sync_opportunity_for_proposal
+from modules.crm.services.timeline import log_activity
 
 router = APIRouter(prefix="/proposals", tags=["CRM - Proposals"])
+
+
+@router.get("/{proposal_id}/pdf")
+async def gerar_pdf_proposta(
+    proposal_id: str,
+    current_user: CurrentActiveUser,  # pylint: disable=unused-argument
+    db: AsyncSession = Depends(get_db),
+    salvar: bool = False,
+    teste: bool = False,
+):
+    """Gera o PDF do orçamento (download) a partir da proposta e seus itens.
+    salvar=true: registra no Conecta PRO e devolve link público de download."""
+    repo = ProposalRepository(db)
+    proposal = await repo.get_by_id(proposal_id)
+    if not proposal:
+        raise HTTPException(status_code=404, detail="Proposta não encontrada")
+
+    from modules.crm.services.proposal_pdf import build_proposal_pdf
+
+    try:
+        pdf_bytes = build_proposal_pdf(proposal)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Erro ao gerar PDF da proposta %s", proposal_id)
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar PDF: {e}") from e
+
+    if salvar:
+        from modules.crm.services.docs_registry import salvar_pdf
+
+        return await salvar_pdf(
+            db,
+            "proposta",
+            f"Proposta {getattr(proposal, 'number', '')} - {getattr(proposal, 'client_name', '')}",
+            pdf_bytes,
+            ref_tipo="proposal",
+            ref_id=proposal_id,
+            teste=teste,
+        )
+
+    number = (getattr(proposal, "number", None) or proposal_id).replace("/", "-")
+    filename = f"orcamento_{number}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 # ============== Proposal Endpoints ==============
@@ -47,6 +96,16 @@ async def create_proposal(
     """
     repo = ProposalRepository(db)
     proposal = await repo.create(data, created_by_id=str(current_user.id))
+    # Pipeline: toda proposta nasce com um deal ligado (estágio "Proposta").
+    await sync_opportunity_for_proposal(db, proposal)
+    await log_activity(
+        db,
+        "proposal_created",
+        f"Proposta {proposal.number} criada",
+        proposal_id=str(proposal.id),
+        opportunity_id=getattr(proposal, "opportunity_id", None),
+        user_id=str(current_user.id),
+    )
     logger.info(f"Proposal criada por {current_user.email}: {proposal.number}")
     return ProposalDetailResponse.model_validate(proposal)
 
@@ -356,8 +415,311 @@ async def send_proposal(
             detail="Proposta nao encontrada",
         )
 
+    # Pipeline: proposta enviada -> deal avança para "Negociação".
+    await sync_opportunity_for_proposal(db, proposal)
+    # E-mail: envia a proposta ao cliente com link de assinatura + pixel de rastreio (best-effort).
+    from modules.crm.services.proposal_delivery import send_proposal_email
+
+    await send_proposal_email(proposal)
     logger.info(f"Proposal enviada por {current_user.email}: {proposal.number}")
     return ProposalResponse.model_validate(proposal)
+
+
+@router.post("/{proposal_id}/marcar-enviada", status_code=201)
+async def marcar_proposta_enviada(
+    proposal_id: str,
+    current_user: CurrentActiveUser,
+    data_envio: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Marca uma proposta como ENVIADA sem reenviar ao cliente (quando o envio foi feito por fora
+    do ciclo — WhatsApp/e-mail manual). Entra no painel + acompanhamento do José Luís. NÃO dispara
+    nada ao cliente."""
+    repo = ProposalRepository(db)
+    proposal = await repo.get_by_id(proposal_id)
+    if not proposal:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposta nao encontrada")
+    # status -> sent, sent_at = data informada OU a já existente OU a data de criação (reflete o real).
+    await db.execute(
+        text("""
+        UPDATE proposals SET status='sent',
+               sent_at = COALESCE(CAST(:dt AS timestamptz), sent_at, created_at), updated_at=now()
+        WHERE id=:id"""),
+        {"dt": data_envio, "id": proposal_id},
+    )
+    await db.commit()
+    sent = await repo.get_by_id(proposal_id)
+    # pipeline + acompanhamento (entra no radar do José Luís)
+    try:
+        await sync_opportunity_for_proposal(db, sent)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("marcar-enviada: sync opportunity falhou: %s", e)
+    from modules.crm.services import orchestration as O
+    from modules.crm.services.phone import canonical_br
+
+    await O.upsert_negociacao(
+        db,
+        proposal_id=str(sent.id),
+        deal_id=str(sent.opportunity_id) if getattr(sent, "opportunity_id", None) else None,
+        phone_canonical=canonical_br(sent.client_phone),
+        cliente_nome=sent.client_name,
+        proposta_enviada_em=sent.sent_at,
+        responsavel="jose_luis",
+    )
+    logger.info("Proposta %s marcada como enviada (sem reenvio) por %s", sent.number, current_user.email)
+    return {
+        "ok": True,
+        "proposta": sent.number,
+        "cliente": sent.client_name,
+        "status": "sent",
+        "enviada_em": str(sent.sent_at)[:10],
+        "obs": "marcada como enviada sem reenviar ao cliente",
+    }
+
+
+@router.post("/{proposal_id}/send-whatsapp", status_code=201)
+async def send_proposal_whatsapp(
+    proposal_id: str,
+    current_user: CurrentActiveUser,
+    confirmar: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Envia a proposta pelo WhatsApp do José Luís: PDF + link de assinatura, com rastreio em
+    crm_followups. confirmar=false mostra o preview; confirmar=true envia de verdade."""
+    repo = ProposalRepository(db)
+    proposal = await repo.get_by_id(proposal_id)
+    if not proposal:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposta nao encontrada")
+
+    from modules.crm.services import followups as F
+    from modules.crm.services.phone import to_e164_br
+    from modules.crm.services.proposal_delivery import sign_url
+
+    e164 = to_e164_br(proposal.client_phone)
+    cliente_id = None
+    if not e164 and getattr(proposal, "client_document", None):
+        tgt = await F.resolve_target(db, cliente=str(proposal.client_document))
+        e164 = tgt.get("phone_e164")
+        cliente_id = tgt.get("cliente_id")
+    link = sign_url(str(proposal.id))
+    nome = (proposal.client_name or "").split()[0] if proposal.client_name else "tudo bem"
+    msg = (
+        f"Olá, {nome}! 😊 Aqui é o José Luís, da Conecta Mais. "
+        f"Segue a nossa proposta {proposal.number}. "
+        f"Para visualizar e assinar online, é só acessar: {link}\n\n"
+        f"Fico à disposição para qualquer dúvida. — José Luís · Conecta Mais"
+    )
+
+    if not confirmar:
+        return {
+            "preview": True,
+            "proposta": proposal.number,
+            "cliente": proposal.client_name,
+            "telefone": e164,
+            "link_assinatura": link,
+            "mensagem": msg,
+            "sem_telefone": not e164,
+            "aviso": "Reenvie com confirmar=true para o José Luís enviar o PDF + link pelo WhatsApp.",
+        }
+
+    if not e164:
+        raise HTTPException(422, "Cliente sem WhatsApp. Use cadastrar_whatsapp_cliente antes.")
+
+    # Compliance: opt-out / horário comercial
+    canon = F.canonical_br(e164)
+    if await F.is_opted_out(db, canon):
+        return {"enviada": False, "motivo": "opt_out", "detalhe": "Cliente pediu para não receber."}
+
+    # PDF da proposta
+    pdf_bytes = b""
+    try:
+        from modules.crm.services.proposal_pdf import build_proposal_pdf
+
+        pdf_bytes = build_proposal_pdf(proposal)
+    except Exception as e:  # noqa: BLE001 — sem PDF ainda manda o texto+link
+        logger.error("send-whatsapp: falha ao gerar PDF da proposta %s: %s", proposal.number, e)
+
+    from modules.integrations.connectors.whatsapp.service import whatsapp_service
+
+    res = (
+        await whatsapp_service.send_with_attachment(e164, msg, pdf_bytes, f"proposta_{proposal.number}.pdf")
+        if pdf_bytes
+        else await whatsapp_service.send_custom(e164, msg)
+    )
+    ok = res.get("status") == "sent"
+
+    if ok:
+        # marca proposta como enviada + move o deal (mesma semântica do envio por e-mail)
+        sent = await repo.update_status(proposal_id, ProposalStatus.SENT, user_id=str(current_user.id))
+        if sent:
+            await sync_opportunity_for_proposal(db, sent)
+
+    await F.register_followup(
+        db,
+        canal="whatsapp",
+        mensagem=msg,
+        status=("enviado" if ok else "erro"),
+        phone_e164=e164,
+        phone_canonical=canon,
+        proposal_id=str(proposal.id),
+        deal_id=str(proposal.opportunity_id) if getattr(proposal, "opportunity_id", None) else None,
+        cliente_id=cliente_id,
+        template="proposta_whatsapp",
+        enviado_em=(F.now_manaus() if ok else None),
+        conversation_id=res.get("conversation_id"),
+        message_id=res.get("message_id"),
+        criado_por=getattr(current_user, "email", None),
+        detalhe=(None if ok else str(res.get("status") or res)[:300]),
+    )
+
+    if ok:
+        await F.notify_jordan(
+            f"📤 Proposta {proposal.number} enviada por WhatsApp para {proposal.client_name} ({e164})."
+        )
+    return {
+        "enviada": ok,
+        "proposta": proposal.number,
+        "para": e164,
+        "pdf_anexado": bool(res.get("attachment_sent")),
+        "status_envio": res.get("status"),
+        "link_assinatura": link,
+    }
+
+
+@router.post("/{proposal_id}/send-completo", status_code=201)
+async def send_proposal_completo(
+    proposal_id: str,
+    current_user: CurrentActiveUser,
+    confirmar: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Envia a proposta por E-MAIL **e** por WhatsApp (José Luís), o WhatsApp citando o e-mail.
+    Cria o estado da negociação, inscreve na cadência de follow-up e avisa o Jordan que vai acompanhar.
+    confirmar=false = preview; confirmar=true = envia de verdade (e-mail + WhatsApp)."""
+    repo = ProposalRepository(db)
+    proposal = await repo.get_by_id(proposal_id)
+    if not proposal:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposta nao encontrada")
+
+    from modules.crm.services import followups as F
+    from modules.crm.services import orchestration as O
+    from modules.crm.services.phone import to_e164_br
+    from modules.crm.services.proposal_delivery import sign_url
+
+    email = (proposal.client_email or "").strip() or None
+    e164 = to_e164_br(proposal.client_phone)
+    cliente_id = None
+    if not e164 and getattr(proposal, "client_document", None):
+        tgt = await F.resolve_target(db, cliente=str(proposal.client_document))
+        e164 = tgt.get("phone_e164")
+        cliente_id = tgt.get("cliente_id")
+    link = sign_url(str(proposal.id))
+    nome = (proposal.client_name or "").split()[0] if proposal.client_name else "tudo bem"
+    canais = [c for c, ok in (("e-mail", bool(email)), ("WhatsApp", bool(e164))) if ok]
+    msg = (
+        f"Olá, {nome}! 😊 Aqui é o José Luís, da Conecta Mais. "
+        f"Acabei de enviar a nossa proposta {proposal.number} "
+        + (f"para o seu e-mail cadastrado ({email}). " if email else "")
+        + f"Segue também por aqui o link pra visualizar e assinar online: {link}\n\n"
+        f"Qualquer dúvida, estou à disposição. — José Luís · Conecta Mais"
+    )
+
+    if not confirmar:
+        return {
+            "preview": True,
+            "proposta": proposal.number,
+            "cliente": proposal.client_name,
+            "email": email,
+            "whatsapp": e164,
+            "canais": canais,
+            "mensagem_whatsapp": msg,
+            "sem_canais": not canais,
+            "aviso": "Reenvie com confirmar=true para enviar por e-mail + WhatsApp e iniciar o acompanhamento.",
+        }
+
+    if not canais:
+        raise HTTPException(422, "Cliente sem e-mail e sem WhatsApp. Cadastre ao menos um canal.")
+
+    resultado: dict = {"proposta": proposal.number, "cliente": proposal.client_name}
+
+    # marca a proposta como enviada + move o deal (uma vez)
+    sent = await repo.update_status(proposal_id, ProposalStatus.SENT, user_id=str(current_user.id))
+    if sent:
+        await sync_opportunity_for_proposal(db, sent)
+
+    # E-MAIL
+    if email:
+        try:
+            from modules.crm.services.proposal_delivery import send_proposal_email
+
+            resultado["email_enviado"] = await send_proposal_email(sent or proposal)
+        except Exception as e:  # noqa: BLE001
+            logger.error("send-completo e-mail falhou: %s", e)
+            resultado["email_enviado"] = False
+
+    # WHATSAPP (PDF + link, citando o e-mail)
+    wa_ok = False
+    if e164:
+        canon = F.canonical_br(e164)
+        if await F.is_opted_out(db, canon):
+            resultado["whatsapp_enviado"] = False
+            resultado["whatsapp_motivo"] = "opt_out"
+        else:
+            pdf_bytes = b""
+            try:
+                from modules.crm.services.proposal_pdf import build_proposal_pdf
+
+                pdf_bytes = build_proposal_pdf(sent or proposal)
+            except Exception as e:  # noqa: BLE001
+                logger.error("send-completo PDF falhou: %s", e)
+            from modules.integrations.connectors.whatsapp.service import whatsapp_service
+
+            res = (
+                await whatsapp_service.send_with_attachment(e164, msg, pdf_bytes, f"proposta_{proposal.number}.pdf")
+                if pdf_bytes
+                else await whatsapp_service.send_custom(e164, msg)
+            )
+            wa_ok = res.get("status") == "sent"
+            resultado["whatsapp_enviado"] = wa_ok
+            await F.register_followup(
+                db,
+                canal="whatsapp",
+                mensagem=msg,
+                status=("enviado" if wa_ok else "erro"),
+                phone_e164=e164,
+                phone_canonical=canon,
+                proposal_id=str(proposal.id),
+                deal_id=str(proposal.opportunity_id) if getattr(proposal, "opportunity_id", None) else None,
+                cliente_id=cliente_id,
+                template="proposta_completa",
+                enviado_em=(F.now_manaus() if wa_ok else None),
+                conversation_id=res.get("conversation_id"),
+                message_id=res.get("message_id"),
+                criado_por=getattr(current_user, "email", None),
+            )
+
+    # estado da negociação (José Luís passa a acompanhar)
+    await O.upsert_negociacao(
+        db,
+        proposal_id=str(proposal.id),
+        deal_id=str(proposal.opportunity_id) if getattr(proposal, "opportunity_id", None) else None,
+        cliente_id=cliente_id,
+        phone_canonical=(F.canonical_br(e164) if e164 else None),
+        cliente_nome=proposal.client_name,
+        proposta_enviada_em=F.now_manaus(),
+        responsavel="jose_luis",
+    )
+
+    # avisa o Jordan que assumiu o acompanhamento
+    await O.notify_owner(
+        f"📤 Proposta *{proposal.number}* enviada para *{proposal.client_name}* "
+        f"({' + '.join(canais)}).\nVou acompanhar o follow-up (D+2/D+5/D+10) e te aviso quando "
+        f"ele responder. Se quiser assumir, é só falar."
+    )
+
+    resultado["link_assinatura"] = link
+    resultado["canais"] = canais
+    return resultado
 
 
 async def _try_generate_commission(db: AsyncSession, proposal, created_by_id: str | None) -> None:
@@ -384,8 +746,7 @@ async def _try_generate_commission(db: AsyncSession, proposal, created_by_id: st
         rules = await crepo.get_valid_rules(seller_id=str(seller_id))
         if not rules:
             logger.info(
-                f"Comissão não gerada p/ proposta {proposal.number}: "
-                "nenhuma regra de comissão válida cadastrada"
+                f"Comissão não gerada p/ proposta {proposal.number}: nenhuma regra de comissão válida cadastrada"
             )
             return
 
@@ -425,6 +786,17 @@ async def accept_proposal(
         )
 
     await _try_generate_commission(db, proposal, str(current_user.id))
+    # Pipeline: proposta aceita -> deal "Ganho" (closed_won) + contrato automático (DRAFT).
+    await sync_opportunity_for_proposal(db, proposal)
+    await ensure_contract_for_proposal(db, proposal)
+    await log_activity(
+        db,
+        "proposal_accepted",
+        f"Proposta {proposal.number} ACEITA pelo cliente",
+        proposal_id=str(proposal.id),
+        opportunity_id=getattr(proposal, "opportunity_id", None),
+        user_id=str(current_user.id),
+    )
 
     logger.info(f"Proposal aceita: {proposal.number}")
     return ProposalResponse.model_validate(proposal)
@@ -449,6 +821,8 @@ async def reject_proposal(
             detail="Proposta nao encontrada",
         )
 
+    # Pipeline: proposta rejeitada -> deal "Perdido" (closed_lost).
+    await sync_opportunity_for_proposal(db, proposal)
     logger.info(f"Proposal rejeitada: {proposal.number}")
     return ProposalResponse.model_validate(proposal)
 
@@ -501,6 +875,29 @@ async def delete_proposal(
 # ============== Item Endpoints ==============
 
 
+@router.put("/{proposal_id}/items", response_model=ProposalDetailResponse)
+async def replace_proposal_items(
+    proposal_id: str,
+    items: list[ProposalItemCreate],
+    current_user: CurrentActiveUser,  # pylint: disable=unused-argument
+    db: AsyncSession = Depends(get_db),
+) -> ProposalDetailResponse:
+    """
+    Substitui TODOS os itens da proposta de uma vez (a tela manda a lista completa).
+    Recalcula o total e sincroniza o valor do deal no pipeline.
+    """
+    repo = ProposalRepository(db)
+    proposal = await repo.replace_items(proposal_id, items)
+    if not proposal:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Proposta nao encontrada ou ja fechada (nao editavel)",
+        )
+    await sync_opportunity_for_proposal(db, proposal)
+    logger.info(f"Itens da proposta {proposal_id} substituidos por {current_user.email}")
+    return ProposalDetailResponse.model_validate(proposal)
+
+
 @router.post("/{proposal_id}/items", response_model=ProposalItemResponse, status_code=201)
 async def add_proposal_item(
     proposal_id: str,
@@ -547,3 +944,129 @@ async def remove_proposal_item(
         )
 
     logger.info(f"Item {item_id} removido de proposta {proposal_id}")
+
+
+# ============================================================================
+# ENDPOINTS PÚBLICOS (sem auth) — rastreio de e-mail + assinatura interna
+# ============================================================================
+
+
+@router.get("/{proposal_id}/track.gif")
+async def track_proposal_open(proposal_id: str, db: AsyncSession = Depends(get_db)):
+    """Pixel de rastreio: marca a proposta como visualizada quando o cliente abre o e-mail. PÚBLICO."""
+    from modules.crm.services.proposal_delivery import PIXEL_GIF, mark_proposal_viewed
+
+    await mark_proposal_viewed(db, proposal_id)
+    return Response(
+        content=PIXEL_GIF, media_type="image/gif", headers={"Cache-Control": "no-store, no-cache, must-revalidate"}
+    )
+
+
+@router.get("/{proposal_id}/public")
+async def get_proposal_public(proposal_id: str, db: AsyncSession = Depends(get_db)):
+    """Dados da proposta para a página pública de assinatura. PÚBLICO (sem auth)."""
+    row = (
+        await db.execute(
+            text("""
+        SELECT id, number, title, client_name, client_document, total, status,
+               signature_status, signed_at, payment_terms, notes
+        FROM proposals WHERE id = :id AND is_active = true
+        """),
+            {"id": proposal_id},
+        )
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Proposta não encontrada")
+    items = (
+        await db.execute(
+            text(
+                "SELECT name, description, quantity, unit, unit_price, total FROM proposal_items WHERE proposal_id=:id ORDER BY sort_order"
+            ),
+            {"id": proposal_id},
+        )
+    ).fetchall()
+    return {
+        "id": str(row[0]),
+        "number": row[1],
+        "title": row[2],
+        "client_name": row[3],
+        "client_document": row[4],
+        "total": float(row[5] or 0),
+        "status": row[6],
+        "signature_status": row[7],
+        "signed_at": row[8].isoformat() if row[8] else None,
+        "payment_terms": row[9],
+        "notes": row[10],
+        "items": [
+            {
+                "name": i[0],
+                "description": i[1],
+                "quantity": float(i[2] or 0),
+                "unit": i[3],
+                "unit_price": float(i[4] or 0),
+                "total": float(i[5] or 0),
+            }
+            for i in items
+        ],
+    }
+
+
+class SignRequest(BaseModel):
+    signer_name: str
+    signer_cpf: str | None = None
+
+
+@router.post("/{proposal_id}/sign")
+async def sign_proposal_public(
+    proposal_id: str,
+    data: SignRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Assinatura INTERNA pelo cliente (PÚBLICO). Registra a assinatura, aceita a proposta e dispara
+    o fluxo de Ganho (deal -> contrato -> cliente automático)."""
+    repo = ProposalRepository(db)
+    proposal = await repo.get_by_id(proposal_id)
+    if not proposal or not getattr(proposal, "is_active", True):
+        raise HTTPException(status_code=404, detail="Proposta não encontrada")
+    if (getattr(proposal, "status", "") or "") == "accepted":
+        return {"ok": True, "already_signed": True, "number": proposal.number}
+
+    from modules.crm.services.proposal_delivery import register_signature
+
+    # IP real do cliente: atrás do proxy (nginx->frontend->backend), request.client.host é o salto
+    # interno. X-Forwarded-For traz a cadeia "cliente, proxy1, proxy2..." -> o 1o é o cliente real.
+    xff = request.headers.get("x-forwarded-for")
+    ip = (
+        xff.split(",")[0].strip()
+        if xff
+        else request.headers.get("x-real-ip") or (request.client.host if request.client else None)
+    )
+    ua = request.headers.get("user-agent")
+    sig = await register_signature(db, proposal, data.signer_name.strip(), data.signer_cpf, ip, ua)
+    if not sig:
+        raise HTTPException(status_code=500, detail="Falha ao registrar a assinatura")
+
+    # Fluxo de Ganho: deal -> Ganho, contrato (com cliente automático).
+    await db.refresh(proposal)
+    await sync_opportunity_for_proposal(db, proposal)
+    await ensure_contract_for_proposal(db, proposal)
+    await log_activity(
+        db,
+        "proposal_signed",
+        f"Proposta {proposal.number} ASSINADA por {data.signer_name}",
+        proposal_id=str(proposal.id),
+        opportunity_id=getattr(proposal, "opportunity_id", None),
+    )
+    # 🎉 fecha o ciclo: avisa o Jordan na hora que o negócio entrou (best-effort, nunca derruba o /sign).
+    try:
+        from modules.crm.services import orchestration as _O  # noqa: PLC0415
+
+        await _O.notify_owner(
+            f"🎉🎉 *PROPOSTA ASSINADA!* — {getattr(proposal, 'client_name', '') or data.signer_name}\n"
+            f"Proposta {proposal.number} foi assinada por {data.signer_name} agora.\n"
+            f"✅ Deal em GANHO, contrato e cliente já criados automaticamente. Parabéns! 🚀"
+        )
+    except Exception as _e:  # noqa: BLE001
+        logger.error("notify_owner pós-assinatura falhou (ignorada): %s", _e)
+    return {"ok": True, "signed": True, "hash": sig, "number": proposal.number}

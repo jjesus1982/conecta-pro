@@ -217,7 +217,9 @@ async def abrir_cat(
         cat_id=str(uuid4()),
         employee_id=data.employee_id,
         tipo_acidente=data.tipo_acidente,
-        data_acidente=data.data_acidente,
+        data_acidente=__import__("datetime").datetime.strptime(str(data.data_acidente)[:10], "%Y-%m-%d").date()
+        if data.data_acidente
+        else None,
         local=data.local,
         descricao=data.descricao,
         gravidade=data.gravidade,

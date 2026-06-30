@@ -46,8 +46,14 @@ class SystemConfig(Base):
     descricao = Column(Text, nullable=True)
 
     # Escopo e prioridade
-    scope = Column(Enum(ConfigScope), nullable=False, default=ConfigScope.GLOBAL)
-    priority = Column(Enum(ConfigPriority), nullable=False, default=ConfigPriority.NORMAL)
+    scope = Column(
+        Enum(ConfigScope, values_callable=lambda x: [e.value for e in x]), nullable=False, default=ConfigScope.GLOBAL
+    )
+    priority = Column(
+        Enum(ConfigPriority, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=ConfigPriority.NORMAL,
+    )
 
     # Valor
     valor = Column(Text, nullable=True)

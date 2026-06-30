@@ -99,9 +99,11 @@ class FeedbackInsight(Base):
     description = Column(Text)
 
     # Tipo e prioridade
-    insight_type = Column(Enum(InsightType), nullable=False)
-    priority = Column(Enum(InsightPriority), default=InsightPriority.MEDIUM)
-    status = Column(Enum(InsightStatus), default=InsightStatus.NEW)
+    insight_type = Column(Enum(InsightType, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    priority = Column(
+        Enum(InsightPriority, values_callable=lambda x: [e.value for e in x]), default=InsightPriority.MEDIUM
+    )
+    status = Column(Enum(InsightStatus, values_callable=lambda x: [e.value for e in x]), default=InsightStatus.NEW)
 
     # Categoria
     category = Column(String(100))

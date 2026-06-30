@@ -43,8 +43,12 @@ class PIAAssessment(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_name = Column(String(200), nullable=False)
     description = Column(Text, nullable=False)
-    status = Column(Enum(AssessmentStatus), default=AssessmentStatus.DRAFT, nullable=False)
-    risk_level = Column(Enum(RiskLevel), nullable=True)
+    status = Column(
+        Enum(AssessmentStatus, values_callable=lambda x: [e.value for e in x]),
+        default=AssessmentStatus.DRAFT,
+        nullable=False,
+    )
+    risk_level = Column(Enum(RiskLevel, values_callable=lambda x: [e.value for e in x]), nullable=True)
     requires_dpia = Column(Boolean, default=False)
 
     # Categorias e finalidades

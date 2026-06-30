@@ -84,13 +84,17 @@ class ComplianceRule(Base):
     version = Column(String(20), nullable=False, default="1.0")
 
     # Framework
-    framework = Column(Enum(ComplianceFramework), nullable=False)
+    framework = Column(Enum(ComplianceFramework, values_callable=lambda x: [e.value for e in x]), nullable=False)
     framework_reference = Column(String(100), nullable=True)
-    category = Column(Enum(RuleCategory), nullable=False)
+    category = Column(Enum(RuleCategory, values_callable=lambda x: [e.value for e in x]), nullable=False)
 
     # Status e Severidade
-    status = Column(Enum(RuleStatus), nullable=False, default=RuleStatus.DRAFT)
-    severity = Column(Enum(RuleSeverity), nullable=False, default=RuleSeverity.MEDIUM)
+    status = Column(
+        Enum(RuleStatus, values_callable=lambda x: [e.value for e in x]), nullable=False, default=RuleStatus.DRAFT
+    )
+    severity = Column(
+        Enum(RuleSeverity, values_callable=lambda x: [e.value for e in x]), nullable=False, default=RuleSeverity.MEDIUM
+    )
 
     # Requisitos
     requirement_text = Column(Text, nullable=False)

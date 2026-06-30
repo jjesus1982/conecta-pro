@@ -93,10 +93,14 @@ class AuditLog(Base):
     parent_event_id = Column(String(50), nullable=True)
 
     # Ação
-    action = Column(Enum(AuditAction), nullable=False)
-    category = Column(Enum(AuditCategory), nullable=False)
-    severity = Column(Enum(AuditSeverity), nullable=False, default=AuditSeverity.INFO)
-    result = Column(Enum(AuditResult), nullable=False, default=AuditResult.SUCCESS)
+    action = Column(Enum(AuditAction, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    category = Column(Enum(AuditCategory, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    severity = Column(
+        Enum(AuditSeverity, values_callable=lambda x: [e.value for e in x]), nullable=False, default=AuditSeverity.INFO
+    )
+    result = Column(
+        Enum(AuditResult, values_callable=lambda x: [e.value for e in x]), nullable=False, default=AuditResult.SUCCESS
+    )
 
     # Descrição
     description = Column(Text, nullable=False)

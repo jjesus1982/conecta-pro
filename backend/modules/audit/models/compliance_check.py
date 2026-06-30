@@ -67,9 +67,13 @@ class ComplianceCheck(Base):
     batch_id = Column(UUID(as_uuid=True), nullable=True)
 
     # Tipo e Status
-    check_type = Column(Enum(CheckType), nullable=False, default=CheckType.AUTOMATED)
-    status = Column(Enum(CheckStatus), nullable=False, default=CheckStatus.PENDING)
-    result = Column(Enum(CheckResult), nullable=True)
+    check_type = Column(
+        Enum(CheckType, values_callable=lambda x: [e.value for e in x]), nullable=False, default=CheckType.AUTOMATED
+    )
+    status = Column(
+        Enum(CheckStatus, values_callable=lambda x: [e.value for e in x]), nullable=False, default=CheckStatus.PENDING
+    )
+    result = Column(Enum(CheckResult, values_callable=lambda x: [e.value for e in x]), nullable=True)
 
     # Escopo da verificação
     scope_description = Column(Text, nullable=True)

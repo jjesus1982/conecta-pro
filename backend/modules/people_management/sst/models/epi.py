@@ -33,7 +33,7 @@ class EPIDeliveryModel(Base):
     motivo_devolucao = Column(Text, nullable=True)
     assinatura_funcionario = Column(String(500), nullable=True)
 
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC))
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None))
 
     def to_dict(self) -> dict[str, Any]:
         return {

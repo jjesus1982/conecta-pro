@@ -127,10 +127,11 @@ export default function OrdensServicoCampoPage() {
   };
 
   // Alinhado às transições válidas do backend (ordem_servico_service): agendar só de
-  // aberta/rascunho/reagendada; concluir só de em_andamento/pausada (em_andamento vem do
-  // check-in do técnico em campo). Evita botões que dariam 400.
+  // aberta/rascunho/reagendada; concluir/cancelar de qualquer status ativo (a mesa pode
+  // fechar uma OS resolvida sem depender do app de campo). Evita botões que dariam 400.
+  const FINALIZADOS = ['concluida', 'cancelada', 'rascunho', 'rejeitada'];
   const podeAgendar = (s: string) => ['aberta', 'rascunho', 'reagendada'].includes(s);
-  const podeConcluir = (s: string) => ['em_andamento', 'pausada'].includes(s);
+  const podeConcluir = (s: string) => !FINALIZADOS.includes(s);
   const podeCancelar = (s: string) => !['concluida', 'cancelada'].includes(s);
 
   return (

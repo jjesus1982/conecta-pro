@@ -181,6 +181,7 @@ class NFSeManausManager:
         "ConsultarSituacaoLoteRps": "/aconsultarsituacaoloterps",
         "ConsultarNfsePorRps": "/aconsultarnfseporrps",
         "ConsultarLoteRps": "/aconsultarloterps",
+        "ConsultarNfse": "/aconsultarnfse",
         "CancelarNfse": "/acancelarnfse",
         "SubstituirNfse": "/asubstituirnfse",
         "ConsultarNfseServicoPrestado": "/aconsultarnfseservicoprestado",
@@ -509,12 +510,16 @@ class NFSeManausManager:
         Returns:
             Envelope SOAP completo
         """
+        from xml.sax.saxutils import escape as _esc
+
+        cab = _esc(xml_cabecalho)
+        dad = _esc(xml_dados)
         return f'''<?xml version="1.0" encoding="UTF-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:enf="{self.NS_WS}">
   <soap:Body>
     <enf:{operacao}.Execute>
-      <enf:Nfsecabecmsg><![CDATA[{xml_cabecalho}]]></enf:Nfsecabecmsg>
-      <enf:Nfsedadosmsg><![CDATA[{xml_dados}]]></enf:Nfsedadosmsg>
+      <enf:Nfsecabecmsg>{cab}</enf:Nfsecabecmsg>
+      <enf:Nfsedadosmsg>{dad}</enf:Nfsedadosmsg>
     </enf:{operacao}.Execute>
   </soap:Body>
 </soap:Envelope>'''

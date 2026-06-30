@@ -44,8 +44,14 @@ class ErasureRequest(Base):
     titular_id = Column(UUID(as_uuid=True), nullable=False, index=True)
     titular_email = Column(String(255), nullable=False)
     reason = Column(Text, nullable=False)
-    scope = Column(Enum(ErasureScope), default=ErasureScope.ALL, nullable=False)
-    status = Column(Enum(ErasureStatus), default=ErasureStatus.PENDING, nullable=False)
+    scope = Column(
+        Enum(ErasureScope, values_callable=lambda x: [e.value for e in x]), default=ErasureScope.ALL, nullable=False
+    )
+    status = Column(
+        Enum(ErasureStatus, values_callable=lambda x: [e.value for e in x]),
+        default=ErasureStatus.PENDING,
+        nullable=False,
+    )
 
     # Datas
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

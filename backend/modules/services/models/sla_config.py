@@ -54,7 +54,11 @@ class SLAConfig(Base):
     code = Column(String(30), nullable=True)
 
     # Tipo de métrica
-    metric_type = Column(Enum(SLAMetricType), nullable=False, default=SLAMetricType.TEMPO_RESOLUCAO)
+    metric_type = Column(
+        Enum(SLAMetricType, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=SLAMetricType.TEMPO_RESOLUCAO,
+    )
 
     # Tempos (em minutos para maior precisão)
     response_time_minutes = Column(Integer, nullable=True)

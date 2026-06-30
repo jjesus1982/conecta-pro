@@ -82,11 +82,19 @@ class APIEndpoint(Base):
 
     # Endpoint
     path = Column(String(500), nullable=False)
-    method = Column(Enum(HTTPMethod), nullable=False)
-    category = Column(Enum(EndpointCategory), nullable=False, default=EndpointCategory.SERVICES)
+    method = Column(Enum(HTTPMethod, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    category = Column(
+        Enum(EndpointCategory, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=EndpointCategory.SERVICES,
+    )
 
     # Status
-    status = Column(Enum(EndpointStatus), nullable=False, default=EndpointStatus.ACTIVE)
+    status = Column(
+        Enum(EndpointStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=EndpointStatus.ACTIVE,
+    )
     deprecated_at = Column(DateTime, nullable=True)
     sunset_date = Column(DateTime, nullable=True)
     replacement_endpoint_id = Column(UUID(as_uuid=True), nullable=True)
@@ -99,7 +107,11 @@ class APIEndpoint(Base):
 
     # Rate Limiting
     rate_limit_enabled = Column(Boolean, nullable=False, default=True)
-    rate_limit_type = Column(Enum(RateLimitType), nullable=True, default=RateLimitType.PER_MINUTE)
+    rate_limit_type = Column(
+        Enum(RateLimitType, values_callable=lambda x: [e.value for e in x]),
+        nullable=True,
+        default=RateLimitType.PER_MINUTE,
+    )
     rate_limit_value = Column(Integer, nullable=True, default=60)
     rate_limit_by_key = Column(Boolean, nullable=False, default=True)
 

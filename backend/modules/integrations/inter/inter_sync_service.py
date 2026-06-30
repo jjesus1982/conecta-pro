@@ -20,8 +20,8 @@ def _build_adapter():
         BankCredentials(
             client_id=os.getenv("INTER_CLIENT_ID", ""),
             client_secret=os.getenv("INTER_CLIENT_SECRET", ""),
-            certificate_path=os.getenv("INTER_CERT_PATH"),
-            private_key_path=os.getenv("INTER_KEY_PATH"),
+            certificate_path=os.getenv("INTER_CERT_PATH", "/app/credentials/inter/Inter_API_Certificado.crt"),
+            private_key_path=os.getenv("INTER_KEY_PATH", "/app/credentials/inter/Inter_API_Chave.key"),
             agency=os.getenv("INTER_AGENCY"),
             account=os.getenv("INTER_ACCOUNT"),
             environment=os.getenv("INTER_ENVIRONMENT", "production"),

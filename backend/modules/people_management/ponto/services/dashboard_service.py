@@ -5,12 +5,23 @@ import os
 from datetime import date, datetime, timedelta
 from typing import Any
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
+
+# A empresa opera em Manaus (UTC-4) e as batidas são gravadas em horário local.
+# date.today() usa o fuso do servidor (UTC) e, à noite, "vira o dia" antes de Manaus,
+# zerando presença/registros de hoje. Por isso o "hoje" do ponto é sempre Manaus.
+TZ_MANAUS = ZoneInfo("America/Manaus")
+
+
+def _hoje_manaus() -> date:
+    return datetime.now(TZ_MANAUS).date()
+
 
 # Constantes CCT 2026 SINDECOMPRESTS
 HORA_NOTURNA_MINUTOS = 52.5
@@ -24,7 +35,7 @@ BANCO_HORAS_PRAZO_MESES = 6
 
 def get_dashboard(db: Session) -> dict[str, Any]:
     """Retorna dados do dashboard de ponto com dados reais do banco."""
-    hoje = date.today().isoformat()
+    hoje = _hoje_manaus().isoformat()
 
     # Total colaboradores ativos
     total = db.execute(text("SELECT COUNT(*) FROM employees WHERE status='ativo'")).scalar() or 0
@@ -81,8 +92,17 @@ def get_dashboard(db: Session) -> dict[str, Any]:
     ).fetchall()
     por_escala = {row[0]: row[1] for row in escalas_raw}
 
-    # Ultima sync solides
-    ultima_sync = db.execute(text("SELECT MAX(last_synced_at) FROM solides_employees")).scalar()
+    # Ultima sync solides — a sync 24/7 (funcionários incremental + batidas) grava em
+    # solides_sync_log; a tabela solides_employees.last_synced_at ficou congelada (jan/18).
+    # Usa o log real de sync e cai pro valor antigo só se o log estiver vazio.
+    ultima_sync = db.execute(
+        text(
+            "SELECT GREATEST("
+            "  (SELECT MAX(started_at) FROM solides_sync_log WHERE status='completed'),"
+            "  (SELECT MAX(last_synced_at) FROM solides_employees)"
+            ")"
+        )
+    ).scalar()
 
     return {
         "total_colaboradores": total,

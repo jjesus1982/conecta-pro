@@ -777,15 +777,18 @@ class ContractRepository:
     # ============== Helpers ==============
 
     async def _get_next_contract_sequence(self) -> int:
-        """Obtém próximo número de sequência para contrato."""
+        """Próxima sequência do contrato (CTR-{ano}-{NNNNN}) — baseada no MAIOR sufixo do ano (não count,
+        evita colisão com números legados de tamanhos diferentes)."""
         year = date.today().year
-        pattern = f"CONT-{year}-%"
+        pattern = f"CTR-{year}-%"
 
-        result = await self.db.execute(
-            select(func.count()).select_from(Contract).where(Contract.contract_number.like(pattern))
-        )
-        count = result.scalar() or 0
-        return count + 1
+        result = await self.db.execute(select(Contract.contract_number).where(Contract.contract_number.like(pattern)))
+        nums = []
+        for n in result.scalars().all():
+            suf = (n or "").rsplit("-", 1)[-1]
+            if suf.isdigit():
+                nums.append(int(suf))
+        return (max(nums) + 1) if nums else 1
 
     async def _get_next_addendum_sequence(self, contract_id: str) -> int:
         """Obtém próximo número de sequência para aditivo."""

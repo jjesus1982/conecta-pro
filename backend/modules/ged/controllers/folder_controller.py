@@ -134,6 +134,9 @@ async def delete_folder(
 
 
 @router.get("", response_model=FolderListResponse)
+@router.get(
+    "/", response_model=FolderListResponse, include_in_schema=False
+)  # espelho barra-final (redirect_slashes=False)
 async def list_folders(
     condominium_id: str | None = Query(None),
     folder_type: FolderType | None = Query(None),

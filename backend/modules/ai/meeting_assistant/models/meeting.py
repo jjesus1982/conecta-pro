@@ -93,8 +93,16 @@ class Meeting(Base):
     description = Column(Text)
 
     # Tipo e status
-    meeting_type = Column(Enum(MeetingTypeEnum), nullable=False, default=MeetingTypeEnum.INTERNAL)
-    status = Column(Enum(MeetingStatusEnum), nullable=False, default=MeetingStatusEnum.SCHEDULED)
+    meeting_type = Column(
+        Enum(MeetingTypeEnum, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=MeetingTypeEnum.INTERNAL,
+    )
+    status = Column(
+        Enum(MeetingStatusEnum, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=MeetingStatusEnum.SCHEDULED,
+    )
 
     # Agendamento
     scheduled_start = Column(DateTime, nullable=False)
@@ -113,7 +121,9 @@ class Meeting(Base):
 
     # Recorrência
     is_recurring = Column(Boolean, default=False)
-    recurrence_type = Column(Enum(RecurrenceTypeEnum), default=RecurrenceTypeEnum.NONE)
+    recurrence_type = Column(
+        Enum(RecurrenceTypeEnum, values_callable=lambda x: [e.value for e in x]), default=RecurrenceTypeEnum.NONE
+    )
     recurrence_pattern = Column(JSONB, default={})
     recurrence_end_date = Column(DateTime)
     parent_meeting_id = Column(UUID(as_uuid=True), ForeignKey("ai_meetings.id"))
@@ -253,8 +263,16 @@ class MeetingParticipant(Base):
     company = Column(String(200))  # Para participantes externos
 
     # Papel e status
-    role = Column(Enum(ParticipantRoleEnum), nullable=False, default=ParticipantRoleEnum.REQUIRED)
-    status = Column(Enum(ParticipantStatusEnum), nullable=False, default=ParticipantStatusEnum.PENDING)
+    role = Column(
+        Enum(ParticipantRoleEnum, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=ParticipantRoleEnum.REQUIRED,
+    )
+    status = Column(
+        Enum(ParticipantStatusEnum, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=ParticipantStatusEnum.PENDING,
+    )
 
     # Resposta
     response_date = Column(DateTime)

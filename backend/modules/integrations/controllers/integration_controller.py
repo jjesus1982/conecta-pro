@@ -111,7 +111,7 @@ async def create_endpoint(
 ) -> APIEndpointResponse:
     """Registra um novo endpoint de API."""
     try:
-        endpoint = await service.create_endpoint(data=data, user_id=current_user.get("id"))
+        endpoint = await service.create_endpoint(data=data, user_id=getattr(current_user, "id", None))
         return APIEndpointResponse.model_validate(endpoint)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -163,7 +163,9 @@ async def update_endpoint(
 ) -> APIEndpointResponse:
     """Atualiza um endpoint existente."""
     try:
-        endpoint = await service.update_endpoint(endpoint_id=endpoint_id, data=data, user_id=current_user.get("id"))
+        endpoint = await service.update_endpoint(
+            endpoint_id=endpoint_id, data=data, user_id=getattr(current_user, "id", None)
+        )
         return APIEndpointResponse.model_validate(endpoint)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
@@ -211,7 +213,7 @@ async def create_api_key(
     Cria uma nova chave de API.
     IMPORTANTE: A chave completa só é exibida uma vez nesta resposta.
     """
-    api_key, raw_key = await service.create_api_key(data=data, user_id=current_user.get("id"))
+    api_key, raw_key = await service.create_api_key(data=data, user_id=getattr(current_user, "id", None))
 
     return APIKeyCreateResponse(
         id=api_key.id,
@@ -269,7 +271,7 @@ async def update_api_key(
 ) -> APIKeyResponse:
     """Atualiza uma chave de API."""
     try:
-        api_key = await service.update_api_key(key_id=key_id, data=data, user_id=current_user.get("id"))
+        api_key = await service.update_api_key(key_id=key_id, data=data, user_id=getattr(current_user, "id", None))
         return APIKeyResponse.model_validate(api_key)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
@@ -285,7 +287,7 @@ async def revoke_api_key(
     """Revoga uma chave de API."""
     try:
         api_key = await service.revoke_api_key(
-            key_id=key_id, reason=data.reason if data else None, user_id=current_user.get("id")
+            key_id=key_id, reason=data.reason if data else None, user_id=getattr(current_user, "id", None)
         )
         return APIKeyResponse.model_validate(api_key)
     except ValueError as e:
@@ -324,7 +326,7 @@ async def create_webhook(
     current_user: dict = Depends(get_current_user),
 ) -> WebhookConfigResponse:
     """Cria um novo webhook."""
-    webhook = await service.create_webhook(data=data, user_id=current_user.get("id"))
+    webhook = await service.create_webhook(data=data, user_id=getattr(current_user, "id", None))
     return WebhookConfigResponse.model_validate(webhook)
 
 
@@ -373,7 +375,9 @@ async def update_webhook(
 ) -> WebhookConfigResponse:
     """Atualiza um webhook."""
     try:
-        webhook = await service.update_webhook(webhook_id=webhook_id, data=data, user_id=current_user.get("id"))
+        webhook = await service.update_webhook(
+            webhook_id=webhook_id, data=data, user_id=getattr(current_user, "id", None)
+        )
         return WebhookConfigResponse.model_validate(webhook)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
@@ -441,7 +445,7 @@ async def regenerate_webhook_secret(
 ) -> dict:
     """Regenera o secret key do webhook."""
     try:
-        new_secret = await service.regenerate_secret(webhook_id=webhook_id, user_id=current_user.get("id"))
+        new_secret = await service.regenerate_secret(webhook_id=webhook_id, user_id=getattr(current_user, "id", None))
         return {"secret_key": new_secret}
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
@@ -568,7 +572,7 @@ async def queue_sync(
     current_user: dict = Depends(get_current_user),
 ) -> SyncQueueResponse:
     """Adiciona um item à fila de sincronização."""
-    item = await service.queue_sync(data=data, user_id=current_user.get("id"))
+    item = await service.queue_sync(data=data, user_id=getattr(current_user, "id", None))
     return SyncQueueResponse.model_validate(item)
 
 
@@ -585,7 +589,7 @@ async def queue_sync_batch(
 ) -> list[SyncQueueResponse]:
     """Adiciona múltiplos itens à fila de sincronização."""
     items = await service.queue_sync_batch(
-        items_data=data.items, batch_id=data.batch_id, user_id=current_user.get("id")
+        items_data=data.items, batch_id=data.batch_id, user_id=getattr(current_user, "id", None)
     )
     return [SyncQueueResponse.model_validate(item) for item in items]
 

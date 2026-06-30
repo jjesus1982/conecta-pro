@@ -99,7 +99,7 @@ class SentimentAnalysis(Base):
     char_count = Column(Integer)
 
     # Fonte
-    source_type = Column(Enum(SourceType), nullable=False)
+    source_type = Column(Enum(SourceType, values_callable=lambda x: [e.value for e in x]), nullable=False)
     source_id = Column(UUID(as_uuid=True))
     source_reference = Column(String(255))
 
@@ -114,7 +114,9 @@ class SentimentAnalysis(Base):
     customer_segment = Column(String(100))
 
     # Resultado do sentimento
-    sentiment_type = Column(Enum(SentimentType), default=SentimentType.NEUTRAL)
+    sentiment_type = Column(
+        Enum(SentimentType, values_callable=lambda x: [e.value for e in x]), default=SentimentType.NEUTRAL
+    )
     sentiment_score = Column(Float, default=0)  # -100 a +100
     confidence_score = Column(Float, default=0)  # 0 a 100
 
@@ -124,8 +126,10 @@ class SentimentAnalysis(Base):
     neutral_score = Column(Float, default=0)  # 0 a 100
 
     # Emocoes detectadas
-    primary_emotion = Column(Enum(EmotionType), default=EmotionType.NEUTRAL)
-    secondary_emotion = Column(Enum(EmotionType))
+    primary_emotion = Column(
+        Enum(EmotionType, values_callable=lambda x: [e.value for e in x]), default=EmotionType.NEUTRAL
+    )
+    secondary_emotion = Column(Enum(EmotionType, values_callable=lambda x: [e.value for e in x]))
     emotion_scores = Column(JSONB, default={})  # {emotion: score}
 
     # Aspectos identificados
@@ -162,7 +166,9 @@ class SentimentAnalysis(Base):
     is_sentiment_improving = Column(Boolean)
 
     # Status e processamento
-    status = Column(Enum(AnalysisStatus), default=AnalysisStatus.PENDING)
+    status = Column(
+        Enum(AnalysisStatus, values_callable=lambda x: [e.value for e in x]), default=AnalysisStatus.PENDING
+    )
     processing_time_ms = Column(Integer)
     model_version = Column(String(50))
     error_message = Column(Text)
@@ -172,7 +178,7 @@ class SentimentAnalysis(Base):
     reviewed_by = Column(UUID(as_uuid=True))
     reviewed_at = Column(DateTime)
     review_notes = Column(Text)
-    corrected_sentiment = Column(Enum(SentimentType))
+    corrected_sentiment = Column(Enum(SentimentType, values_callable=lambda x: [e.value for e in x]))
 
     # Regras acionadas
     triggered_rules = Column(JSONB, default=[])

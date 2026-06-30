@@ -144,7 +144,7 @@ export default function RescisaoPage() {
       try {
         // Load terminations
         const statusParam = filtroStatus !== 'todos' ? `&status=${filtroStatus}` : '';
-        const res = await fetch(`${API_BASE}/terminations?page=1&page_size=200${statusParam}`, { headers: getAuthHeaders() });
+        const res = await fetch(`${API_BASE}/terminations?page=1&page_size=100${statusParam}`, { headers: getAuthHeaders() });
         if (res.ok) {
           const data = await res.json();
           setRescisoes(data.items || []);
@@ -153,7 +153,7 @@ export default function RescisaoPage() {
         }
 
         // Load employees for the form
-        const empRes = await fetch(`${API_BASE}/employees?page_size=200`, { headers: getAuthHeaders() });
+        const empRes = await fetch(`${API_BASE}/employees?page_size=100`, { headers: getAuthHeaders() });
         if (empRes.ok) {
           const empData = await empRes.json();
           setEmployees(empData.items || []);

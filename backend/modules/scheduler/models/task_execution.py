@@ -49,7 +49,11 @@ class TaskExecution(Base):
     run_id = Column(String(50), unique=True, index=True)  # ID único da execução
 
     # Status
-    status = Column(Enum(ExecutionStatus), nullable=False, default=ExecutionStatus.PENDING)
+    status = Column(
+        Enum(ExecutionStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=ExecutionStatus.PENDING,
+    )
 
     # Worker
     worker_id = Column(UUID(as_uuid=True), ForeignKey("scheduler_workers.id"))

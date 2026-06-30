@@ -49,7 +49,9 @@ class ServiceReport(Base):
 
     # Identificação
     report_number = Column(String(30), nullable=False, unique=True)
-    report_type = Column(Enum(ReportType), nullable=False, default=ReportType.EXECUCAO)
+    report_type = Column(
+        Enum(ReportType, values_callable=lambda x: [e.value for e in x]), nullable=False, default=ReportType.EXECUCAO
+    )
     title = Column(String(200), nullable=False)
 
     # Conteúdo

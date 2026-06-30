@@ -209,6 +209,32 @@ async def list_attachment_types():
     return [{"value": e.value, "label": e.value.replace("_", " ").title()} for e in AttachmentType]
 
 
+@router.get("/ready-for-payment", response_model=PaginatedReimbursementResponse)
+async def list_ready_for_payment(
+    user: CurrentActiveUser,
+    condominio_id: CondominioId,
+    db: AsyncSession = Depends(get_db),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    """Lista solicitações aprovadas prontas para pagamento.
+
+    DECLARADA ANTES de /{request_id}: senão o FastAPI tenta casar "ready-for-payment" como UUID
+    e retorna 422 (a rota ficava inalcançável).
+    """
+    service = ApprovalService(db)
+    skip = (page - 1) * page_size
+    requests, total = await service.list_ready_for_payment(condominio_id, skip, page_size)
+    total_pages = (total + page_size - 1) // page_size
+    return PaginatedReimbursementResponse(
+        items=requests,
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+    )
+
+
 @router.get("/{request_id}", response_model=ReimbursementRequestResponse)
 async def get_reimbursement(
     request_id: UUID,
@@ -225,7 +251,8 @@ async def get_reimbursement(
             detail="Solicitação não encontrada",
         )
 
-    return request
+    # re-fetch com relacionamentos (o commit expira a sessão → serializar o objeto direto dava 500)
+    return await service.get_request(request_id)
 
 
 @router.put("/{request_id}", response_model=ReimbursementRequestResponse)
@@ -249,7 +276,8 @@ async def update_reimbursement(
             detail="Solicitação não encontrada",
         )
 
-    return request
+    # re-fetch com relacionamentos (o commit expira a sessão → serializar o objeto direto dava 500)
+    return await service.get_request(request_id)
 
 
 @router.delete("/{request_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -295,7 +323,8 @@ async def submit_reimbursement(
             detail="Solicitação não encontrada",
         )
 
-    return request
+    # re-fetch com relacionamentos (o commit expira a sessão → serializar o objeto direto dava 500)
+    return await service.get_request(request_id)
 
 
 @router.post("/{request_id}/cancel", response_model=ReimbursementRequestResponse)
@@ -319,7 +348,8 @@ async def cancel_reimbursement(
             detail="Solicitação não encontrada",
         )
 
-    return request
+    # re-fetch com relacionamentos (o commit expira a sessão → serializar o objeto direto dava 500)
+    return await service.get_request(request_id)
 
 
 # ==================== ITENS ====================
@@ -560,7 +590,8 @@ async def start_analysis(
             detail="Solicitação não encontrada",
         )
 
-    return request
+    # re-fetch com relacionamentos (o commit expira a sessão → serializar o objeto direto dava 500)
+    return await service.get_request(request_id)
 
 
 @router.post("/{request_id}/approve", response_model=ReimbursementRequestResponse)
@@ -590,7 +621,8 @@ async def approve_reimbursement(
             detail="Solicitação não encontrada",
         )
 
-    return request
+    # re-fetch com relacionamentos (o commit expira a sessão → serializar o objeto direto dava 500)
+    return await service.get_request(request_id)
 
 
 @router.post("/{request_id}/reject", response_model=ReimbursementRequestResponse)
@@ -614,7 +646,8 @@ async def reject_reimbursement(
             detail="Solicitação não encontrada",
         )
 
-    return request
+    # re-fetch com relacionamentos (o commit expira a sessão → serializar o objeto direto dava 500)
+    return await service.get_request(request_id)
 
 
 @router.post("/{request_id}/return", response_model=ReimbursementRequestResponse)
@@ -638,35 +671,12 @@ async def return_reimbursement(
             detail="Solicitação não encontrada",
         )
 
-    return request
+    # re-fetch com relacionamentos (o commit expira a sessão → serializar o objeto direto dava 500)
+    return await service.get_request(request_id)
 
 
 # ==================== PROCESSAMENTO FINANCEIRO ====================
-
-
-@router.get("/ready-for-payment", response_model=PaginatedReimbursementResponse)
-async def list_ready_for_payment(
-    user: CurrentActiveUser,
-    condominio_id: CondominioId,
-    db: AsyncSession = Depends(get_db),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-):
-    """Lista solicitações aprovadas prontas para pagamento."""
-    service = ApprovalService(db)
-    skip = (page - 1) * page_size
-
-    requests, total = await service.list_ready_for_payment(condominio_id, skip, page_size)
-
-    total_pages = (total + page_size - 1) // page_size
-
-    return PaginatedReimbursementResponse(
-        items=requests,
-        total=total,
-        page=page,
-        page_size=page_size,
-        total_pages=total_pages,
-    )
+# (list_ready_for_payment foi movida para antes de /{request_id} — ver acima)
 
 
 @router.post("/{request_id}/process", response_model=ReimbursementRequestResponse)
@@ -699,4 +709,5 @@ async def process_reimbursement(
             detail="Solicitação não encontrada",
         )
 
-    return request
+    # re-fetch com relacionamentos (o commit expira a sessão → serializar o objeto direto dava 500)
+    return await service.get_request(request_id)

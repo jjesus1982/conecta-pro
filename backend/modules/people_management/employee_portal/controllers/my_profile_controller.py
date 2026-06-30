@@ -12,7 +12,6 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
 from modules.people_management.employee_portal.auth import CurrentEmployeeId
 from modules.people_management.employee_portal.utils.portal_cache import (
@@ -29,7 +28,6 @@ router = APIRouter(tags=["Portal - Perfil"])
 @router.get("/perfil")
 async def get_meu_perfil(
     employee_id: CurrentEmployeeId,
-    current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Retorna perfil completo do funcionario autenticado."""
@@ -75,7 +73,6 @@ async def get_meu_perfil(
 @router.get("/contrato")
 async def get_meu_contrato(
     employee_id: CurrentEmployeeId,
-    current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Retorna dados contratuais do funcionario."""

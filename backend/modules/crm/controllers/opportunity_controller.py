@@ -21,6 +21,8 @@ from modules.crm.schemas.opportunity import (
     OpportunityUpdate,
     PipelineStats,
 )
+from modules.crm.services.pipeline_sync import ensure_contract_for_won_opportunity
+from modules.crm.services.timeline import log_activity
 
 router = APIRouter(prefix="/opportunities", tags=["CRM - Opportunities"])
 
@@ -200,6 +202,16 @@ async def update_opportunity_stage(
             detail="Opportunity nao encontrada",
         )
 
+    # Ganho pelo Kanban -> cria contrato a partir da proposta vinculada (best-effort).
+    await ensure_contract_for_won_opportunity(db, opportunity)
+    await log_activity(
+        db,
+        "deal_stage",
+        f"Deal movido para {data.stage.value}",
+        opportunity_id=str(opportunity.id),
+        lead_id=getattr(opportunity, "lead_id", None),
+        user_id=str(current_user.id),
+    )
     logger.info(f"Opportunity {opportunity.id} stage alterado para {data.stage.value} por {current_user.email}")
     return OpportunityResponse.model_validate(opportunity)
 
@@ -225,6 +237,8 @@ async def close_opportunity(
             detail="Opportunity nao encontrada",
         )
 
+    # Fechar como Ganho -> cria contrato a partir da proposta vinculada (best-effort).
+    await ensure_contract_for_won_opportunity(db, opportunity)
     status_str = "WON" if data.won else "LOST"
     logger.info(f"Opportunity {opportunity.id} fechada como {status_str} por {current_user.email}")
     return OpportunityResponse.model_validate(opportunity)

@@ -40,10 +40,25 @@ class ProposalRepository:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    def _generate_proposal_number(self) -> str:
-        """Gera numero unico para proposta."""
-        now = datetime.utcnow()
-        return f"PROP-{now.strftime('%Y%m%d')}-{uuid4().hex[:6].upper()}"
+    async def _generate_proposal_number(self) -> str:
+        """Gera numero SEQUENCIAL anual da proposta: PROP-{ano}-{NNNNN} (padrao oficial Conecta Mais).
+        Substitui o antigo PROP-AAAAMMDD-HASH. A sequencia reinicia por ano."""
+        from sqlalchemy import text as _text
+
+        year = datetime.utcnow().year
+        row = (
+            await self.db.execute(
+                _text("SELECT number FROM proposals WHERE number LIKE :p ORDER BY number DESC LIMIT 1"),
+                {"p": f"PROP-{year}-%"},
+            )
+        ).first()
+        try:
+            ultimo = int(row[0].rsplit("-", 1)[-1]) if row else 0
+        except (ValueError, AttributeError):
+            ultimo = 0
+        # Piso oficial: a numeração sequencial continua a do padrão Conecta Mais (próximo = 00093).
+        seq = max(ultimo + 1, 93)
+        return f"PROP-{year}-{seq:05d}"
 
     async def create(self, data: ProposalCreate, created_by_id: str | None = None) -> Proposal:
         """
@@ -65,11 +80,11 @@ class ProposalRepository:
                 if template:
                     valid_until = date.today() + timedelta(days=template.validity_days)
             if not valid_until:
-                valid_until = date.today() + timedelta(days=30)
+                valid_until = date.today() + timedelta(days=15)
 
         proposal = Proposal(
             id=str(uuid4()),
-            number=self._generate_proposal_number(),
+            number=await self._generate_proposal_number(),
             version=1,
             opportunity_id=data.opportunity_id,
             template_id=data.template_id,
@@ -158,11 +173,11 @@ class ProposalRepository:
                 if template:
                     valid_until = date.today() + timedelta(days=template.validity_days)
             if not valid_until:
-                valid_until = date.today() + timedelta(days=30)
+                valid_until = date.today() + timedelta(days=15)
 
         proposal = Proposal(
             id=str(uuid4()),
-            number=self._generate_proposal_number(),
+            number=await self._generate_proposal_number(),
             version=1,
             opportunity_id=opportunity.id,
             template_id=data.template_id,
@@ -429,6 +444,28 @@ class ProposalRepository:
         logger.info(f"Item removido da proposta {proposal_id}: {item_id}")
         return True
 
+    async def replace_items(self, proposal_id: str, items: builtins.list[ProposalItemCreate]) -> Proposal | None:
+        """Substitui TODOS os itens da proposta de uma vez (apaga os atuais, cria os novos,
+        recalcula totais). Bloqueado em proposta fechada (is_closed)."""
+        proposal = await self.get_by_id(proposal_id)
+        if not proposal or proposal.is_closed:
+            return None
+
+        for it in list(proposal.items or []):
+            await self.db.delete(it)
+        await self.db.commit()
+        await self.db.refresh(proposal, ["items"])
+
+        for i, data in enumerate(items):
+            self.db.add(self._create_item(proposal_id, data, i))
+        await self.db.commit()
+        await self.db.refresh(proposal, ["items", "term_options"])
+
+        proposal.calculate_totals()
+        await self.db.commit()
+        logger.info(f"Itens substituidos na proposta {proposal_id}: {len(items)} itens")
+        return proposal
+
     async def update_status(
         self,
         proposal_id: str,
@@ -585,7 +622,7 @@ class ProposalRepository:
             discount_value=original.discount_value,
             discount_reason=original.discount_reason,
             taxes=original.taxes,
-            valid_until=date.today() + timedelta(days=30),
+            valid_until=date.today() + timedelta(days=15),
             status=ProposalStatus.DRAFT.value,
             created_by_id=created_by_id,
         )

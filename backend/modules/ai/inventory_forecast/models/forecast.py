@@ -62,8 +62,15 @@ class Forecast(Base):
     product_name = Column(String(200), nullable=False)
 
     # Configuracao da previsao
-    forecast_type = Column(Enum(ForecastType), default=ForecastType.DEMAND, nullable=False)
-    status = Column(Enum(ForecastStatus), default=ForecastStatus.PENDING, nullable=False, index=True)
+    forecast_type = Column(
+        Enum(ForecastType, values_callable=lambda x: [e.value for e in x]), default=ForecastType.DEMAND, nullable=False
+    )
+    status = Column(
+        Enum(ForecastStatus, values_callable=lambda x: [e.value for e in x]),
+        default=ForecastStatus.PENDING,
+        nullable=False,
+        index=True,
+    )
 
     # Periodo da previsao
     start_date = Column(Date, nullable=False)

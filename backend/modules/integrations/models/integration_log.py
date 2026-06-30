@@ -72,9 +72,22 @@ class IntegrationLog(Base):
     sync_queue_id = Column(UUID(as_uuid=True), nullable=True)
 
     # Tipo e Nível
-    log_type = Column(Enum(LogType), nullable=False, default=LogType.API_CALL)
-    level = Column(Enum(LogLevel), nullable=False, default=LogLevel.INFO)
-    status = Column(Enum(LogStatus), nullable=False, default=LogStatus.SUCCESS)
+    # values_callable: o DB guarda o .value (ex: 'webhook_delivery'), não o nome do membro.
+    log_type = Column(
+        Enum(LogType, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=LogType.API_CALL,
+    )
+    level = Column(
+        Enum(LogLevel, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=LogLevel.INFO,
+    )
+    status = Column(
+        Enum(LogStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=LogStatus.SUCCESS,
+    )
 
     # Identificação
     correlation_id = Column(String(50), nullable=True)  # Para rastrear fluxos

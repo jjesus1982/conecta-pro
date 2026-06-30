@@ -43,6 +43,7 @@ class KPITrendsResponse(BaseModel):
 
 
 @router.get("", response_model=KPITrendsResponse)
+@router.get("/", response_model=KPITrendsResponse, include_in_schema=False)
 async def get_kpi_trends(  # pylint: disable=too-many-locals
     _user: CurrentActiveUser,
     period: Literal["7d", "30d", "90d"] = Query("7d", description="Período de análise"),
@@ -261,3 +262,25 @@ async def get_performance_scores(
             "total_evaluated": 0,
             "error": str(e),
         }
+
+
+@router.get("/coverage-prediction")
+@router.get("/coverage-prediction/", include_in_schema=False)
+async def get_coverage_prediction(_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)):
+    """Previsao de cobertura de postos (deriva de posts + alocacoes ativas)."""
+    from sqlalchemy import text
+
+    total = (await db.execute(text("SELECT count(*) FROM posts"))).scalar() or 0
+    cobertos = (
+        await db.execute(text("SELECT count(DISTINCT post_id) FROM allocations WHERE status='active'"))
+    ).scalar() or 0
+    cobertura = round((cobertos / total * 100) if total else 0.0, 1)
+    nivel = "baixo" if cobertura >= 90 else "medio" if cobertura >= 70 else "alto"
+    return {
+        "total_postos": int(total),
+        "postos_cobertos": int(cobertos),
+        "cobertura_atual": cobertura,
+        "nivel_risco": nivel,
+        "riskLevel": nivel,
+        "predicoes": [],
+    }

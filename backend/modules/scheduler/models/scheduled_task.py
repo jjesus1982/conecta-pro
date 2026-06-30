@@ -67,9 +67,15 @@ class ScheduledTask(Base):
     description = Column(Text)
 
     # Classificação
-    task_type = Column(Enum(TaskType), nullable=False, default=TaskType.CRON)
-    category = Column(Enum(TaskCategory), nullable=False, default=TaskCategory.CUSTOM)
-    status = Column(Enum(TaskStatus), nullable=False, default=TaskStatus.DRAFT)
+    task_type = Column(
+        Enum(TaskType, values_callable=lambda x: [e.value for e in x]), nullable=False, default=TaskType.CRON
+    )
+    category = Column(
+        Enum(TaskCategory, values_callable=lambda x: [e.value for e in x]), nullable=False, default=TaskCategory.CUSTOM
+    )
+    status = Column(
+        Enum(TaskStatus, values_callable=lambda x: [e.value for e in x]), nullable=False, default=TaskStatus.DRAFT
+    )
 
     # Agendamento - Cron
     cron_expression = Column(String(100))  # Ex: "0 0 * * *" (meia-noite todo dia)

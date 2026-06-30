@@ -299,6 +299,14 @@ export default function CertidoesPage() {
               <><RefreshCw className="w-4 h-4 mr-2" />Sincronizar Todas</>
             )}
           </Button>
+          <Button
+            size="sm"
+            onClick={() => { window.location.href = '/modulos/fiscal/certidoes/emitir'; }}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            title="Emitir e baixar as CNDs automaticamente pelo Conecta PRO"
+          >
+            <Shield className="w-4 h-4 mr-2" />Emitir CNDs
+          </Button>
         </div>
       </div>
 

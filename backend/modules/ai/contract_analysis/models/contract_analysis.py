@@ -83,8 +83,15 @@ class ContractAnalysis(Base):
     document_hash = Column(String(64))  # SHA-256 do documento
 
     # Status e tipo
-    status = Column(Enum(AnalysisStatus), default=AnalysisStatus.PENDING, nullable=False, index=True)
-    contract_type = Column(Enum(ContractType), default=ContractType.OTHER, nullable=False)
+    status = Column(
+        Enum(AnalysisStatus, values_callable=lambda x: [e.value for e in x]),
+        default=AnalysisStatus.PENDING,
+        nullable=False,
+        index=True,
+    )
+    contract_type = Column(
+        Enum(ContractType, values_callable=lambda x: [e.value for e in x]), default=ContractType.OTHER, nullable=False
+    )
     contract_type_confidence = Column(Float, default=0)  # 0-100
 
     # Partes identificadas
@@ -109,7 +116,9 @@ class ContractAnalysis(Base):
     adjustment_date = Column(Date)
 
     # Analise de risco
-    risk_level = Column(Enum(RiskLevel), default=RiskLevel.MEDIUM, nullable=False)
+    risk_level = Column(
+        Enum(RiskLevel, values_callable=lambda x: [e.value for e in x]), default=RiskLevel.MEDIUM, nullable=False
+    )
     risk_score = Column(Float, default=50)  # 0-100
     risk_factors = Column(JSONB, default=list)
 

@@ -17,6 +17,7 @@ import {
   DollarSign,
   AlertTriangle,
   CheckCircle2,
+  Send,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -198,6 +199,26 @@ export default function ContratosPage() {
       refetch();
     } catch {
       toast.error('Erro ao remover contrato');
+    }
+  };
+
+  const enviarAssinatura = async (id: string) => {
+    try {
+      await customInstance({ url: `/api/v1/crm/contracts/${id}/submit`, method: 'POST' });
+      toast.success('Contrato enviado para assinatura');
+      refetch();
+    } catch {
+      toast.error('Erro ao enviar para assinatura');
+    }
+  };
+
+  const ativarContrato = async (id: string) => {
+    try {
+      await customInstance({ url: `/api/v1/crm/contracts/${id}/activate`, method: 'POST' });
+      toast.success('Contrato ATIVADO — lançado no MRR 🎉');
+      refetch();
+    } catch {
+      toast.error('Erro ao ativar contrato');
     }
   };
 
@@ -471,6 +492,18 @@ export default function ContratosPage() {
                             <Edit className="h-4 w-4 mr-2" />
                             Editar
                           </DropdownMenuItem>
+                          {item.status === 'draft' && (
+                            <DropdownMenuItem className="text-blue-600" onClick={() => enviarAssinatura(item.id)}>
+                              <Send className="h-4 w-4 mr-2" />
+                              Enviar p/ assinatura
+                            </DropdownMenuItem>
+                          )}
+                          {item.status === 'pending_signature' && (
+                            <DropdownMenuItem className="text-green-600" onClick={() => ativarContrato(item.id)}>
+                              <CheckCircle2 className="h-4 w-4 mr-2" />
+                              Ativar (lança no MRR)
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
                             className="text-destructive"

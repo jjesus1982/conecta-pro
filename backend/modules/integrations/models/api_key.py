@@ -81,8 +81,12 @@ class APIKey(Base):
     key_hint = Column(String(10), nullable=True)  # Últimos caracteres para referência
 
     # Tipo e Status
-    key_type = Column(Enum(APIKeyType), nullable=False, default=APIKeyType.PRODUCTION)
-    status = Column(Enum(APIKeyStatus), nullable=False, default=APIKeyStatus.ACTIVE)
+    key_type = Column(
+        Enum(APIKeyType, values_callable=lambda x: [e.value for e in x]), nullable=False, default=APIKeyType.PRODUCTION
+    )
+    status = Column(
+        Enum(APIKeyStatus, values_callable=lambda x: [e.value for e in x]), nullable=False, default=APIKeyStatus.ACTIVE
+    )
 
     # Permissões
     scopes = Column(JSONB, nullable=True)  # Lista de escopos

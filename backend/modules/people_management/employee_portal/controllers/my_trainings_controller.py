@@ -13,7 +13,6 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
 from modules.people_management.employee_portal.auth import CurrentEmployeeId
 
@@ -55,7 +54,6 @@ class TrainingCertificateResponse(BaseModel):
 )
 async def get_my_enrollments(
     employee_id: CurrentEmployeeId,
-    current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Retorna matriculas em treinamentos do funcionario autenticado."""
@@ -108,7 +106,6 @@ async def get_my_enrollments(
 )
 async def get_my_certificates(
     employee_id: CurrentEmployeeId,
-    current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Retorna certificados de treinamento do funcionario autenticado."""

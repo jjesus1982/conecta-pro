@@ -85,7 +85,8 @@ class JobPositionRepository:
         if not position:
             return False
 
-        position.soft_delete()
+        position.is_deleted = True
+        position.is_active = False
         await self.session.flush()
         return True
 

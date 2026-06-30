@@ -114,7 +114,7 @@ export default function FeriasPage() {
         const params = new URLSearchParams();
         if (filtroStatus !== 'todos') params.set('status', filtroStatus);
 
-        const url = `${API_BASE}/vacations/vacations${params.toString() ? '?' + params.toString() : ''}`;
+        const url = `${API_BASE}/vacations${params.toString() ? '?' + params.toString() : ''}`;
         const res = await fetch(url, { headers: getAuthHeaders() });
         if (res.ok) {
           const data = await res.json();
@@ -221,7 +221,7 @@ export default function FeriasPage() {
         reason: formData.reason || null,
         notes: formData.notes || null,
       };
-      const res = await fetch(`${API_BASE}/vacations/vacations`, {
+      const res = await fetch(`${API_BASE}/vacations`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify(payload),
@@ -252,7 +252,7 @@ export default function FeriasPage() {
     setVacationBalance(null);
     // Fetch fresh detail
     try {
-      const res = await fetch(`${API_BASE}/vacations/vacations/${item.id}`, { headers: getAuthHeaders() });
+      const res = await fetch(`${API_BASE}/vacations/${item.id}`, { headers: getAuthHeaders() });
       if (res.ok) {
         const detail = await res.json();
         setSelectedVacation(detail);
@@ -277,7 +277,7 @@ export default function FeriasPage() {
     if (!selectedVacation) return;
     setActionLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/vacations/vacations/${selectedVacation.id}/approve`, {
+      const res = await fetch(`${API_BASE}/vacations/${selectedVacation.id}/approve`, {
         method: 'POST',
         headers: getAuthHeaders(),
       });
@@ -303,7 +303,7 @@ export default function FeriasPage() {
     setActionLoading(true);
     try {
       const params = rejectReason ? `?reason=${encodeURIComponent(rejectReason)}` : '';
-      const res = await fetch(`${API_BASE}/vacations/vacations/${selectedVacation.id}/reject${params}`, {
+      const res = await fetch(`${API_BASE}/vacations/${selectedVacation.id}/reject${params}`, {
         method: 'POST',
         headers: getAuthHeaders(),
       });
@@ -330,7 +330,7 @@ export default function FeriasPage() {
     if (!selectedVacation) return;
     setActionLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/vacations/vacations/${selectedVacation.id}`, {
+      const res = await fetch(`${API_BASE}/vacations/${selectedVacation.id}`, {
         method: 'DELETE',
         headers: getAuthHeaders(),
       });

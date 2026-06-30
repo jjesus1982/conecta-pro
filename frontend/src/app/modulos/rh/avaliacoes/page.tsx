@@ -50,16 +50,22 @@ export default function AvaliacoesPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const pageSize = 10;
-  const [formData, setFormData] = useState({ employee_name: '', reviewer_name: '', review_type: 'quarterly', period_start: '', period_end: '' });
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [formData, setFormData] = useState({ employee_id: '', reviewer_id: '', type: 'quarterly', review_period_start: '', review_period_end: '' });
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const headers = getAuthHeaders();
-      const [reviewsRes, ciclosRes] = await Promise.all([
+      const [reviewsRes, ciclosRes, empRes] = await Promise.all([
         fetch(`${API_BASE}/performance/reviews?limit=100`, { headers }),
         fetch(`${API_BASE}/evaluation-360/ciclos`, { headers }).catch(() => null),
+        fetch(`/api/v1/people-management/hr/employees?page=1&page_size=200`, { headers }).catch(() => null),
       ]);
+      if (empRes?.ok) {
+        const data = await empRes.json();
+        setEmployees(data.items || data || []);
+      }
       if (reviewsRes.ok) {
         const data = await reviewsRes.json();
         setAvaliacoes(data.items || data || []);
@@ -117,15 +123,21 @@ export default function AvaliacoesPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="text-sm font-medium mb-1 block">Colaborador *</label>
-                <input type="text" value={formData.employee_name} onChange={e => setFormData(p => ({ ...p, employee_name: e.target.value }))} className="w-full px-3 py-2 border rounded-md text-sm bg-background" placeholder="Nome do colaborador" />
+                <select value={formData.employee_id} onChange={e => setFormData(p => ({ ...p, employee_id: e.target.value }))} className="w-full px-3 py-2 border rounded-md text-sm bg-background">
+                  <option value="">Selecione o colaborador...</option>
+                  {employees.map((emp: any) => <option key={emp.id} value={emp.id}>{emp.nome || emp.name || emp.full_name || emp.id}</option>)}
+                </select>
               </div>
               <div>
                 <label className="text-sm font-medium mb-1 block">Avaliador *</label>
-                <input type="text" value={formData.reviewer_name} onChange={e => setFormData(p => ({ ...p, reviewer_name: e.target.value }))} className="w-full px-3 py-2 border rounded-md text-sm bg-background" placeholder="Nome do avaliador" />
+                <select value={formData.reviewer_id} onChange={e => setFormData(p => ({ ...p, reviewer_id: e.target.value }))} className="w-full px-3 py-2 border rounded-md text-sm bg-background">
+                  <option value="">Selecione o avaliador...</option>
+                  {employees.map((emp: any) => <option key={emp.id} value={emp.id}>{emp.nome || emp.name || emp.full_name || emp.id}</option>)}
+                </select>
               </div>
               <div>
                 <label className="text-sm font-medium mb-1 block">Tipo</label>
-                <select value={formData.review_type} onChange={e => setFormData(p => ({ ...p, review_type: e.target.value }))} className="w-full px-3 py-2 border rounded-md text-sm bg-background">
+                <select value={formData.type} onChange={e => setFormData(p => ({ ...p, type: e.target.value }))} className="w-full px-3 py-2 border rounded-md text-sm bg-background">
                   <option value="quarterly">Trimestral</option>
                   <option value="semi_annual">Semestral</option>
                   <option value="annual">Anual</option>
@@ -134,15 +146,15 @@ export default function AvaliacoesPage() {
               </div>
               <div>
                 <label className="text-sm font-medium mb-1 block">Periodo Inicio</label>
-                <input type="date" value={formData.period_start} onChange={e => setFormData(p => ({ ...p, period_start: e.target.value }))} className="w-full px-3 py-2 border rounded-md text-sm bg-background" />
+                <input type="date" value={formData.review_period_start} onChange={e => setFormData(p => ({ ...p, review_period_start: e.target.value }))} className="w-full px-3 py-2 border rounded-md text-sm bg-background" />
               </div>
               <div>
                 <label className="text-sm font-medium mb-1 block">Periodo Fim</label>
-                <input type="date" value={formData.period_end} onChange={e => setFormData(p => ({ ...p, period_end: e.target.value }))} className="w-full px-3 py-2 border rounded-md text-sm bg-background" />
+                <input type="date" value={formData.review_period_end} onChange={e => setFormData(p => ({ ...p, review_period_end: e.target.value }))} className="w-full px-3 py-2 border rounded-md text-sm bg-background" />
               </div>
             </div>
             <div className="flex gap-2 mt-4">
-              <Button size="sm" disabled={saving || !formData.employee_name || !formData.reviewer_name} onClick={async () => {
+              <Button size="sm" disabled={saving || !formData.employee_id || !formData.reviewer_id || !formData.review_period_start || !formData.review_period_end} onClick={async () => {
                 setSaving(true);
                 try {
                   const res = await fetch(`${API_BASE}/performance/reviews`, { method: 'POST', headers: getAuthHeaders(), body: JSON.stringify(formData) });
@@ -150,7 +162,7 @@ export default function AvaliacoesPage() {
                     const newReview = await res.json();
                     setAvaliacoes(prev => [newReview, ...prev]);
                     setShowForm(false);
-                    setFormData({ employee_name: '', reviewer_name: '', review_type: 'quarterly', period_start: '', period_end: '' });
+                    setFormData({ employee_id: '', reviewer_id: '', type: 'quarterly', review_period_start: '', review_period_end: '' });
                     toast.success('Avaliacao criada com sucesso', { duration: 4000 });
                   } else {
                     const err = await res.json().catch(() => null);

@@ -6,14 +6,10 @@ Sprint 34: Relatórios Gerenciais
 
 import enum
 from datetime import datetime, timedelta
-from typing import Optional, List
 from uuid import uuid4
 
-from sqlalchemy import (
-    Column, String, Text, Boolean, DateTime,
-    Integer, Enum, Index, ForeignKey
-)
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Index, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
 from core.database import Base
@@ -21,6 +17,7 @@ from core.database import Base
 
 class ScheduleFrequency(str, enum.Enum):
     """Frequência do agendamento."""
+
     ONCE = "once"
     HOURLY = "hourly"
     DAILY = "daily"
@@ -34,6 +31,7 @@ class ScheduleFrequency(str, enum.Enum):
 
 class ScheduleStatus(str, enum.Enum):
     """Status do agendamento."""
+
     ACTIVE = "active"
     PAUSED = "paused"
     COMPLETED = "completed"
@@ -44,6 +42,7 @@ class ScheduleStatus(str, enum.Enum):
 
 class DeliveryMethod(str, enum.Enum):
     """Método de entrega."""
+
     EMAIL = "email"
     WEBHOOK = "webhook"
     FTP = "ftp"
@@ -61,19 +60,19 @@ class ReportSchedule(Base):
     # Identificação
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     tenant_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    template_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("report_templates.id"),
-        nullable=False
-    )
+    template_id = Column(UUID(as_uuid=True), ForeignKey("report_templates.id"), nullable=False)
     name = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
 
     # Status
-    status = Column(Enum(ScheduleStatus), nullable=False, default=ScheduleStatus.ACTIVE)
+    status = Column(
+        Enum(ScheduleStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=ScheduleStatus.ACTIVE,
+    )
 
     # Frequência
-    frequency = Column(Enum(ScheduleFrequency), nullable=False)
+    frequency = Column(Enum(ScheduleFrequency, values_callable=lambda x: [e.value for e in x]), nullable=False)
     cron_expression = Column(String(100), nullable=True)
     timezone = Column(String(50), nullable=False, default="America/Sao_Paulo")
 
@@ -100,7 +99,11 @@ class ReportSchedule(Base):
     report_filename_pattern = Column(String(200), nullable=True)
 
     # Entrega
-    delivery_method = Column(Enum(DeliveryMethod), nullable=False, default=DeliveryMethod.EMAIL)
+    delivery_method = Column(
+        Enum(DeliveryMethod, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=DeliveryMethod.EMAIL,
+    )
     delivery_config = Column(JSONB, nullable=True)
     recipients = Column(JSONB, nullable=True)
     cc_recipients = Column(JSONB, nullable=True)
@@ -220,11 +223,7 @@ class ReportSchedule(Base):
             self.next_execution_at = None
             self.complete()
 
-    def record_execution(
-        self,
-        success: bool,
-        execution_time: Optional[int] = None
-    ) -> None:
+    def record_execution(self, success: bool, execution_time: int | None = None) -> None:
         """Registra execução."""
         self.execution_count += 1
         self.last_execution_at = datetime.utcnow()
@@ -240,9 +239,8 @@ class ReportSchedule(Base):
         if execution_time:
             if self.avg_execution_time:
                 self.avg_execution_time = (
-                    (self.avg_execution_time * (self.execution_count - 1) + execution_time)
-                    // self.execution_count
-                )
+                    self.avg_execution_time * (self.execution_count - 1) + execution_time
+                ) // self.execution_count
             else:
                 self.avg_execution_time = execution_time
 
@@ -259,9 +257,7 @@ class ReportSchedule(Base):
             return False
 
         # Agenda próxima tentativa
-        self.next_execution_at = (
-            datetime.utcnow() + timedelta(minutes=self.retry_delay_minutes)
-        )
+        self.next_execution_at = datetime.utcnow() + timedelta(minutes=self.retry_delay_minutes)
         return True
 
     def add_recipient(self, email: str, recipient_type: str = "to") -> None:
@@ -313,7 +309,7 @@ class ReportSchedule(Base):
         return (self.success_count / self.execution_count) * 100
 
     @property
-    def all_recipients(self) -> List[str]:
+    def all_recipients(self) -> list[str]:
         """Retorna todos os destinatários."""
         all_emails = []
         if self.recipients:

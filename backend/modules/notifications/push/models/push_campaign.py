@@ -64,8 +64,12 @@ class PushCampaign(Base):
     description = Column(Text)
 
     # Tipo e status
-    campaign_type = Column(Enum(CampaignType), default=CampaignType.ONE_TIME, index=True)
-    status = Column(Enum(CampaignStatus), default=CampaignStatus.DRAFT, index=True)
+    campaign_type = Column(
+        Enum(CampaignType, values_callable=lambda x: [e.value for e in x]), default=CampaignType.ONE_TIME, index=True
+    )
+    status = Column(
+        Enum(CampaignStatus, values_callable=lambda x: [e.value for e in x]), default=CampaignStatus.DRAFT, index=True
+    )
 
     # Conteudo - Padrao
     title = Column(String(100), nullable=False)
@@ -108,7 +112,7 @@ class PushCampaign(Base):
     data_payload = Column(JSONB, default={})  # Dados extras para o app
 
     # Targeting
-    target_type = Column(Enum(TargetType), default=TargetType.ALL)
+    target_type = Column(Enum(TargetType, values_callable=lambda x: [e.value for e in x]), default=TargetType.ALL)
     target_segment_id = Column(UUID(as_uuid=True))
     target_users = Column(ARRAY(UUID(as_uuid=True)), default=[])
     target_devices = Column(ARRAY(UUID(as_uuid=True)), default=[])

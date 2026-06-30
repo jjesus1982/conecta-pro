@@ -47,6 +47,7 @@ async def create_equipment(
 
 
 @router.get("", response_model=EquipmentListResponse)
+@router.get("/", response_model=EquipmentListResponse, include_in_schema=False)  # espelho barra-final
 async def list_equipment(
     current_user: CurrentActiveUser,
     search: str | None = Query(None),

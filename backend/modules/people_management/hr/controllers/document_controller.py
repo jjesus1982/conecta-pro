@@ -32,24 +32,39 @@ async def list_documents(
 ) -> Any:
     """Lista documentos de funcionários."""
     try:
-        from sqlalchemy import func, select
+        from sqlalchemy import text
 
-        from modules.people_management.ged.models.document import Document
-
-        count_q = select(func.count()).select_from(Document)
-        total = (await db.execute(count_q)).scalar() or 0
-        query = select(Document).offset((page - 1) * page_size).limit(page_size)
-        result = await db.execute(query)
-        items = result.scalars().all()
+        # Tabela real: hr_employee_documents (o import antigo apontava p/ ged.models.Document inexistente)
+        total = (await db.execute(text("SELECT count(*) FROM hr_employee_documents"))).scalar() or 0
+        rows = (
+            (
+                await db.execute(
+                    text(
+                        "SELECT d.id::text AS id, d.title, d.document_type, d.category, d.status, "
+                        "d.file_name, d.file_size, d.created_at, e.nome AS employee_name "
+                        "FROM hr_employee_documents d LEFT JOIN employees e ON d.employee_id = e.id "
+                        "ORDER BY d.created_at DESC NULLS LAST LIMIT :limit OFFSET :offset"
+                    ),
+                    {"limit": page_size, "offset": (page - 1) * page_size},
+                )
+            )
+            .mappings()
+            .all()
+        )
         return {
             "items": [
                 {
-                    "id": str(getattr(d, "id", "")),
-                    "title": getattr(d, "title", getattr(d, "nome", "")),
-                    "type": getattr(d, "document_type", getattr(d, "tipo", "")),
-                    "status": getattr(d, "status", "active"),
+                    "id": r["id"],
+                    "title": r["title"],
+                    "type": r["document_type"],
+                    "category": r["category"],
+                    "status": r["status"],
+                    "file_name": r["file_name"],
+                    "file_size": r["file_size"],
+                    "employee_name": r["employee_name"],
+                    "created_at": r["created_at"].isoformat() if r["created_at"] else None,
                 }
-                for d in items
+                for r in rows
             ],
             "total": total,
             "page": page,

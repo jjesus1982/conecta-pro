@@ -5,14 +5,10 @@ Sprint 34: Relatórios Gerenciais
 
 import enum
 from datetime import datetime
-from typing import Optional, List
 from uuid import uuid4
 
-from sqlalchemy import (
-    Column, String, Text, Boolean, DateTime,
-    Integer, Enum, Index
-)
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import Boolean, Column, DateTime, Enum, Index, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
 from core.database import Base
@@ -20,6 +16,7 @@ from core.database import Base
 
 class ReportCategory(str, enum.Enum):
     """Categorias de relatório."""
+
     FINANCIAL = "financial"
     OPERATIONAL = "operational"
     COMMERCIAL = "commercial"
@@ -32,6 +29,7 @@ class ReportCategory(str, enum.Enum):
 
 class ReportFormat(str, enum.Enum):
     """Formatos de saída do relatório."""
+
     PDF = "pdf"
     EXCEL = "excel"
     CSV = "csv"
@@ -43,6 +41,7 @@ class ReportFormat(str, enum.Enum):
 
 class ReportType(str, enum.Enum):
     """Tipos de relatório."""
+
     SUMMARY = "summary"
     DETAILED = "detailed"
     ANALYTICAL = "analytical"
@@ -55,6 +54,7 @@ class ReportType(str, enum.Enum):
 
 class TemplateStatus(str, enum.Enum):
     """Status do template."""
+
     DRAFT = "draft"
     ACTIVE = "active"
     INACTIVE = "inactive"
@@ -64,6 +64,7 @@ class TemplateStatus(str, enum.Enum):
 
 class ChartType(str, enum.Enum):
     """Tipos de gráfico."""
+
     BAR = "bar"
     LINE = "line"
     PIE = "pie"
@@ -89,12 +90,20 @@ class ReportTemplate(Base):
     description = Column(Text, nullable=True)
 
     # Classificação
-    category = Column(Enum(ReportCategory), nullable=False)
-    report_type = Column(Enum(ReportType), nullable=False, default=ReportType.SUMMARY)
-    status = Column(Enum(TemplateStatus), nullable=False, default=TemplateStatus.DRAFT)
+    category = Column(Enum(ReportCategory, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    report_type = Column(
+        Enum(ReportType, values_callable=lambda x: [e.value for e in x]), nullable=False, default=ReportType.SUMMARY
+    )
+    status = Column(
+        Enum(TemplateStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=TemplateStatus.DRAFT,
+    )
 
     # Formatos suportados
-    default_format = Column(Enum(ReportFormat), nullable=False, default=ReportFormat.PDF)
+    default_format = Column(
+        Enum(ReportFormat, values_callable=lambda x: [e.value for e in x]), nullable=False, default=ReportFormat.PDF
+    )
     supported_formats = Column(JSONB, nullable=True)
 
     # Layout e estrutura
@@ -166,7 +175,7 @@ class ReportTemplate(Base):
         self.status = TemplateStatus.INACTIVE
         self.updated_at = datetime.utcnow()
 
-    def deprecate(self, notes: Optional[str] = None) -> None:
+    def deprecate(self, notes: str | None = None) -> None:
         """Marca como depreciado."""
         self.status = TemplateStatus.DEPRECATED
         if notes:
@@ -179,23 +188,22 @@ class ReportTemplate(Base):
         self.ativo = False
         self.updated_at = datetime.utcnow()
 
-    def increment_version(self, notes: Optional[str] = None) -> None:
+    def increment_version(self, notes: str | None = None) -> None:
         """Incrementa a versão."""
         self.previous_version_id = self.id
         self.version += 1
         self.version_notes = notes
         self.updated_at = datetime.utcnow()
 
-    def record_usage(self, generation_time: Optional[int] = None) -> None:
+    def record_usage(self, generation_time: int | None = None) -> None:
         """Registra uso do template."""
         self.usage_count += 1
         self.last_used_at = datetime.utcnow()
         if generation_time:
             if self.avg_generation_time:
                 self.avg_generation_time = (
-                    (self.avg_generation_time * (self.usage_count - 1) + generation_time)
-                    // self.usage_count
-                )
+                    self.avg_generation_time * (self.usage_count - 1) + generation_time
+                ) // self.usage_count
             else:
                 self.avg_generation_time = generation_time
 
@@ -220,12 +228,7 @@ class ReportTemplate(Base):
         self.parameters[name] = {"type": param_type, **config}
         self.updated_at = datetime.utcnow()
 
-    def set_visibility(
-        self,
-        visibility: str,
-        roles: Optional[List[str]] = None,
-        users: Optional[List[str]] = None
-    ) -> None:
+    def set_visibility(self, visibility: str, roles: list[str] | None = None, users: list[str] | None = None) -> None:
         """Define visibilidade do template."""
         self.visibility = visibility
         self.allowed_roles = roles
@@ -253,7 +256,7 @@ class ReportTemplate(Base):
         return bool(self.parameters)
 
     @property
-    def supported_format_list(self) -> List[str]:
+    def supported_format_list(self) -> list[str]:
         """Retorna lista de formatos suportados."""
         if self.supported_formats:
             return self.supported_formats

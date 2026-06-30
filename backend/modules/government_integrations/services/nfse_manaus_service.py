@@ -240,7 +240,7 @@ class NFSeManausService:
         resultado = manager.consultar_nfse_por_numero(numero_nfse)
 
         if self.ambiente == "producao" and self._cert_manager:
-            resposta = manager.enviar_requisicao("ConsultarNfseServicoPrestado", resultado["xml_consulta"])
+            resposta = manager.enviar_requisicao("ConsultarNfse", resultado["xml_consulta"])
             resultado["resposta_ws"] = resposta
             resultado["status"] = "consultado" if resposta.get("sucesso") else "erro"
         else:

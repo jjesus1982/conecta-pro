@@ -155,7 +155,7 @@ async def criar_empresa(
 
     empresa = await repo.criar_empresa(payload, condominio_id)
     await db.commit()
-    await db.refresh(empresa)
+    await db.refresh(empresa, attribute_names=["liminares"])
     return EmpresaResponse.model_validate(empresa)
 
 
@@ -211,7 +211,7 @@ async def atualizar_empresa(
             detail="Empresa não encontrada",
         )
     await db.commit()
-    await db.refresh(empresa)
+    await db.refresh(empresa, attribute_names=["liminares"])
     return EmpresaResponse.model_validate(empresa)
 
 

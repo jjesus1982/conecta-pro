@@ -76,9 +76,21 @@ class ServiceCatalog(Base):
     short_description = Column(String(500), nullable=True)
 
     # Classificação
-    category = Column(Enum(ServiceCategory), nullable=False, default=ServiceCategory.OUTROS)
-    service_type = Column(Enum(ServiceType), nullable=False, default=ServiceType.RECORRENTE)
-    status = Column(Enum(ServiceStatus), nullable=False, default=ServiceStatus.RASCUNHO)
+    category = Column(
+        Enum(ServiceCategory, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=ServiceCategory.OUTROS,
+    )
+    service_type = Column(
+        Enum(ServiceType, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=ServiceType.RECORRENTE,
+    )
+    status = Column(
+        Enum(ServiceStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=ServiceStatus.RASCUNHO,
+    )
 
     # Precificação
     base_price = Column(Numeric(15, 2), nullable=True)

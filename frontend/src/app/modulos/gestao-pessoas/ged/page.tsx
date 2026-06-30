@@ -1,332 +1,254 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { createPortal } from 'react-dom';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-
-function formatRefMonth(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  const d = new Date(iso + (iso.length === 10 ? 'T12:00:00' : ''));
-  return new Intl.DateTimeFormat('pt-BR', { month: '2-digit', year: 'numeric' }).format(d);
-}
 import {
-  FolderOpen,
-  Clock,
-  Send,
-  BarChart3,
-  Loader2,
-  Plus,
-  Wand2,
-  Eye,
-  ChevronRight,
-  Upload,
-  PenTool,
-  MessageCircle,
+  FolderOpen, CheckCircle2, Clock, BarChart3, Loader2, Wand2,
+  ChevronDown, ChevronRight, ExternalLink, XCircle, RefreshCw, ShieldCheck,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
+import { api } from '@/lib/api';
 
-const API_BASE = '/api/v1/ged';
-
-function showToast(msg: string, type: 'success' | 'error' = 'success') {
-  const el = document.createElement('div');
-  el.className = `fixed top-4 right-4 z-[9999] px-4 py-3 rounded-lg shadow-lg text-sm font-medium text-white transition-opacity ${type === 'error' ? 'bg-red-500' : 'bg-emerald-500'}`;
-  el.textContent = msg;
-  document.body.appendChild(el);
-  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 3000);
+interface ChecklistItem {
+  key: string; label: string; subpasta: string;
+  presente: boolean; encontrados: number; esperado: number; arquivos: string[];
 }
-
-function getAuthHeaders() {
-  let token: string | null = null;
-  try {
-    token = localStorage.getItem('access_token') || localStorage.getItem('token');
-  } catch {
-    token = null;
-  }
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-}
-
-interface Summary {
-  total_kits: number;
-  kits_pendentes: number;
-  kits_enviados: number;
-  taxa_conclusao: number;
-}
-
+interface SubpastaArquivo { name: string; link: string | null }
+interface Subpasta { nome: string; docs: number; arquivos: SubpastaArquivo[] }
 interface Kit {
-  id: string;
-  client_name: string;
-  reference_month: string;
-  status: string;
-  completion_percentage: number;
+  condominio: string; total: number; drive_link: string | null;
+  completion_percentage: number; status: string;
+  checklist: ChecklistItem[]; subpastas: Subpasta[];
+}
+interface Completude {
+  competencia: string; mes_kit: string; total_kits: number;
+  kits_completos: number; kits_pendentes: number; media_completude: number;
+  blocos_por_kit: number; kits: Kit[];
 }
 
 const statusColors: Record<string, string> = {
+  pendente: 'bg-gray-100 text-gray-700',
   em_montagem: 'bg-yellow-100 text-yellow-800',
-  completo: 'bg-blue-100 text-blue-800',
-  enviado: 'bg-green-100 text-green-800',
-  conferido: 'bg-purple-100 text-purple-800',
-  aprovado: 'bg-emerald-100 text-emerald-800',
+  completo: 'bg-emerald-100 text-emerald-800',
+};
+const statusLabels: Record<string, string> = {
+  pendente: 'Pendente', em_montagem: 'Em montagem', completo: 'Completo',
 };
 
-const statusLabels: Record<string, string> = {
-  em_montagem: 'Em Montagem',
-  completo: 'Completo',
-  enviado: 'Enviado',
-  conferido: 'Conferido',
-  aprovado: 'Aprovado',
-};
+function barColor(pct: number) {
+  if (pct >= 100) return 'bg-emerald-600';
+  if (pct >= 70) return 'bg-blue-600';
+  if (pct >= 40) return 'bg-yellow-500';
+  return 'bg-red-500';
+}
 
 export default function GEDDashboardPage() {
   const router = useRouter();
-  const [summary, setSummary] = useState<Summary>({
-    total_kits: 0,
-    kits_pendentes: 0,
-    kits_enviados: 0,
-    taxa_conclusao: 0,
-  });
-  const [recentKits, setRecentKits] = useState<Kit[]>([]);
-  const [totalKitsGeral, setTotalKitsGeral] = useState(0);
+  const [data, setData] = useState<Completude | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showMontarConfirm, setShowMontarConfirm] = useState(false);
+  const [aberto, setAberto] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  async function fetchData() {
+  const fetchData = useCallback(async (force = false) => {
     setLoading(true);
     try {
-      const [sumRes, kitsRes] = await Promise.all([
-        fetch(`${API_BASE}/kits/summary`, { headers: getAuthHeaders() }),
-        fetch(`${API_BASE}/kits?page_size=10`, { headers: getAuthHeaders() }),
-      ]);
-      if (sumRes.ok) {
-        const data = await sumRes.json();
-        setSummary({
-          total_kits: data.total_kits ?? 0,
-          kits_pendentes: data.kits_pending_send ?? data.kits_pendentes ?? 0,
-          kits_enviados: data.kits_pending_approval ?? data.kits_enviados ?? 0,
-          taxa_conclusao: Math.round(parseFloat(data.average_completion ?? data.taxa_conclusao ?? '0')),
-        });
-      }
-      if (kitsRes.ok) {
-        const data = await kitsRes.json();
-        setRecentKits(Array.isArray(data) ? data : data.items || []);
-        setTotalKitsGeral(Array.isArray(data) ? data.length : data.total ?? 0);
-      }
-    } catch (err) {
-      console.error('fetchData:', err);
-      showToast('Erro ao carregar dados', 'error');
+      const { data } = await api.get('/api/v1/gedeon/kits/completude', { params: force ? { refresh: true } : {} });
+      setData(data);
+    } catch (e) {
+      console.error('completude:', e);
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
-  async function handleAutoAssemble() {
-    try {
-      showToast('Montando kits...');
-      const res = await fetch(`${API_BASE}/auto-assemble`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-      });
-      if (res.ok) {
-        const data = await res.json().catch(() => null);
-        showToast(`Kits montados: ${data?.kits_created ?? data?.total ?? 'OK'}`);
-        fetchData();
-      } else {
-        showToast(`Erro ao montar kits: ${res.status}`, 'error');
-      }
-    } catch (error) {
-      showToast('Erro de conexão ao montar kits', 'error');
-      console.error('handleAutoAssemble:', error);
-    }
-  }
+  useEffect(() => { fetchData(); }, [fetchData]);
 
-  const statCards = [
-    { label: 'Total Kits', value: totalKitsGeral || summary.total_kits, icon: FolderOpen, color: 'text-blue-600', bg: 'bg-blue-50', href: '/modulos/gestao-pessoas/ged/kits' },
-    { label: 'Kits Pendentes', value: summary.kits_pendentes, icon: Clock, color: 'text-yellow-600', bg: 'bg-yellow-50', href: '/modulos/gestao-pessoas/ged/kits?status=em_montagem' },
-    { label: 'Kits Enviados', value: summary.kits_enviados, icon: Send, color: 'text-green-600', bg: 'bg-green-50', href: '/modulos/gestao-pessoas/ged/kits?status=enviado' },
-    { label: 'Taxa de Conclusão', value: `${summary.taxa_conclusao}%`, icon: BarChart3, color: 'text-purple-600', bg: 'bg-purple-50', href: '/modulos/gestao-pessoas/ged/kits' },
-  ];
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-        <span className="ml-2 text-gray-500">Carregando...</span>
-      </div>
-    );
-  }
+  const stats = data ? [
+    { label: 'Total de Kits', value: data.total_kits, icon: FolderOpen, color: 'text-blue-600', bg: 'bg-blue-50' },
+    { label: 'Kits Completos', value: data.kits_completos, icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+    { label: 'Kits Pendentes', value: data.kits_pendentes, icon: Clock, color: 'text-yellow-600', bg: 'bg-yellow-50' },
+    { label: 'Média de Conclusão', value: `${data.media_completude}%`, icon: BarChart3, color: 'text-purple-600', bg: 'bg-purple-50' },
+  ] : [];
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">GED — Gestão Eletrônica de Documentos</h1>
-          <p className="text-gray-500 mt-1">Kits documentais, certidões e envios</p>
+          <h1 className="text-2xl font-bold text-gray-900">Kits por Condomínio</h1>
+          <p className="text-gray-500 mt-1">
+            Completude real (Google Drive){data ? ` — kit de ${data.mes_kit} (competência ${data.competencia})` : ''}.
+            Clique no condomínio para abrir a <strong>ficha individualizada</strong> (checklist + anexos).
+          </p>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => router.push('/modulos/gestao-pessoas/ged/whatsapp')}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
-          >
-            <MessageCircle className="h-4 w-4" />
-            WhatsApp
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={() => fetchData(true)} title="Relê o Drive agora (ignora o cache de 90s)" className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50">
+            <RefreshCw className="h-4 w-4" /> Atualizar
           </button>
-          <button
-            onClick={() => router.push('/modulos/gestao-pessoas/ged/assinaturas')}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
-          >
-            <PenTool className="h-4 w-4" />
-            Assinaturas
-          </button>
-          <button
-            onClick={() => router.push('/modulos/gestao-pessoas/ged/upload')}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
-          >
-            <Upload className="h-4 w-4" />
-            Upload com IA
-          </button>
-          <button
-            onClick={() => setShowMontarConfirm(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
-          >
-            <Wand2 className="h-4 w-4" />
-            Montar Kits
-          </button>
-          <button
-            onClick={() => router.push('/modulos/gestao-pessoas/ged/kits/?new=true')}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-            Novo Kit
+          <button onClick={() => router.push('/modulos/gestao-pessoas/ged/montar-kit')} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+            <Wand2 className="h-4 w-4" /> Montar / Cronograma
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {statCards.map((stat) => {
-          const Icon = stat.icon;
-          return (
-            <Card
-              key={stat.label}
-              className="border border-gray-200 cursor-pointer hover:shadow-md transition-shadow"
-              onClick={() => router.push(stat.href)}
-            >
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-500">{stat.label}</p>
-                    <p className="text-2xl font-bold mt-1">{stat.value}</p>
-                  </div>
-                  <div className={`p-3 rounded-lg ${stat.bg}`}>
-                    <Icon className={`h-5 w-5 ${stat.color}`} />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
+      {loading ? (
+        <div className="flex items-center justify-center h-96">
+          <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+          <span className="ml-2 text-gray-500">Lendo os kits no Drive…</span>
+        </div>
+      ) : !data ? (
+        <div className="text-center text-gray-400 py-20">Não foi possível carregar os kits.</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {stats.map((s) => {
+              const Icon = s.icon;
+              return (
+                <Card key={s.label} className="border border-gray-200">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-500">{s.label}</p>
+                        <p className="text-2xl font-bold mt-1">{s.value}</p>
+                      </div>
+                      <div className={`p-3 rounded-lg ${s.bg}`}><Icon className={`h-5 w-5 ${s.color}`} /></div>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
 
-      <Card className="border border-gray-200">
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="text-lg font-semibold">Kits Recentes</CardTitle>
-          <button
-            onClick={() => router.push('/modulos/gestao-pessoas/ged/kits')}
-            className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
-          >
-            Ver todos <ChevronRight className="h-4 w-4" />
-          </button>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left py-3 px-4 font-medium text-gray-500">Cliente</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-500">Mês Ref.</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-500">Status</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-500">Conclusão</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-500">Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentKits.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="py-8 text-center text-gray-400">
-                      Nenhum kit encontrado
-                    </td>
-                  </tr>
-                ) : (
-                  recentKits.map((kit) => (
-                    <tr key={kit.id} className="border-b border-gray-100 hover:bg-gray-50">
-                      <td className="py-3 px-4 font-medium">{kit.client_name}</td>
-                      <td className="py-3 px-4 text-gray-600">{formatRefMonth(kit.reference_month)}</td>
-                      <td className="py-3 px-4">
-                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${statusColors[kit.status] || 'bg-gray-100 text-gray-800'}`}>
-                          {statusLabels[kit.status] || kit.status}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-2">
-                          <div className="w-24 bg-gray-200 rounded-full h-2">
-                            <div
-                              className="bg-blue-600 h-2 rounded-full"
-                              style={{ width: `${kit.completion_percentage}%` }}
-                            />
-                          </div>
-                          <span className="text-xs text-gray-500">{kit.completion_percentage}%</span>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <button
-                          onClick={() => router.push(`/modulos/gestao-pessoas/ged/kits/${kit.id}`)}
-                          className="p-1 rounded hover:bg-gray-100"
-                          title="Visualizar"
-                        >
-                          <Eye className="h-4 w-4 text-gray-500" />
-                        </button>
-                      </td>
+          <Card className="border border-gray-200">
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 text-left text-gray-500">
+                      <th className="py-3 px-4 font-medium w-8"></th>
+                      <th className="py-3 px-4 font-medium">Condomínio</th>
+                      <th className="py-3 px-4 font-medium">Status</th>
+                      <th className="py-3 px-4 font-medium">Conclusão</th>
+                      <th className="py-3 px-4 font-medium">Docs</th>
+                      <th className="py-3 px-4 font-medium">Drive</th>
+                      <th className="py-3 px-4 font-medium">Montar</th>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-      {showMontarConfirm && createPortal(
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-2xl border border-gray-200 p-6 max-w-md w-full">
-            <h3 className="text-lg font-bold text-[#1E3A5F] mb-2">Confirmar Montagem de Kits</h3>
-            <p className="text-gray-600 mb-4 text-sm">
-              Esta ação irá criar kits documentais para o mês de referência de todos os clientes
-              ativos. Deseja continuar?
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setShowMontarConfirm(false)}
-                className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm hover:bg-gray-50"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={() => {
-                  setShowMontarConfirm(false);
-                  handleAutoAssemble();
-                }}
-                className="px-4 py-2 bg-[#F97316] text-white rounded-lg text-sm font-medium hover:bg-orange-600"
-              >
-                Sim, Montar Kits
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
+                  </thead>
+                  <tbody>
+                    {data.kits.map((kit) => {
+                      const open = aberto === kit.condominio;
+                      return (
+                        <>
+                          <tr key={kit.condominio} className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
+                            onClick={() => setAberto(open ? null : kit.condominio)}>
+                            <td className="py-3 px-4">
+                              {open ? <ChevronDown className="h-4 w-4 text-gray-400" /> : <ChevronRight className="h-4 w-4 text-gray-400" />}
+                            </td>
+                            <td className="py-3 px-4 font-medium">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); router.push(`/modulos/gestao-pessoas/ged/kit?cond=${encodeURIComponent(kit.condominio)}&comp=${encodeURIComponent(data.competencia)}`); }}
+                                className="text-blue-700 hover:underline text-left"
+                                title="Abrir a ficha individualizada deste condomínio"
+                              >
+                                {kit.condominio}
+                              </button>
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${statusColors[kit.status]}`}>
+                                {statusLabels[kit.status] || kit.status}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="flex items-center gap-2">
+                                <div className="w-28 bg-gray-200 rounded-full h-2">
+                                  <div className={`${barColor(kit.completion_percentage)} h-2 rounded-full`} style={{ width: `${kit.completion_percentage}%` }} />
+                                </div>
+                                <span className="text-xs text-gray-600 w-9">{kit.completion_percentage}%</span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 text-gray-600">{kit.total}</td>
+                            <td className="py-3 px-4">
+                              {kit.drive_link && (
+                                <a href={kit.drive_link} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+                                  className="inline-flex items-center gap-1 text-blue-600 hover:underline text-xs">
+                                  <ExternalLink className="h-3.5 w-3.5" /> Abrir
+                                </a>
+                              )}
+                            </td>
+                            <td className="py-3 px-4">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); router.push(`/modulos/gestao-pessoas/ged/kit?cond=${encodeURIComponent(kit.condominio)}&comp=${encodeURIComponent(data.competencia)}`); }}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 shadow-sm"
+                              >
+                                Abrir ficha →
+                              </button>
+                            </td>
+                          </tr>
+                          {open && (
+                            <tr key={`${kit.condominio}-det`} className="bg-gray-50/60">
+                              <td colSpan={7} className="px-4 pb-5 pt-1">
+                                <div className="grid md:grid-cols-2 gap-6">
+                                  {/* Checklist */}
+                                  <div>
+                                    <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Checklist do kit ({data.blocos_por_kit} blocos)</p>
+                                    <ul className="space-y-1.5">
+                                      {kit.checklist.map((it) => (
+                                        <li key={it.key} className="flex items-center gap-2 text-sm">
+                                          {it.presente
+                                            ? <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                                            : <XCircle className="h-4 w-4 text-red-400 shrink-0" />}
+                                          <span className={it.presente ? '' : 'text-gray-500'}>{it.label}</span>
+                                          <span className="text-xs text-gray-400 ml-auto">
+                                            {it.esperado > 1 ? `${it.encontrados}/${it.esperado}` : (it.encontrados > 1 ? `${it.encontrados}` : '')}
+                                          </span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                  {/* Arquivos por subpasta */}
+                                  <div>
+                                    <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Arquivos no Drive</p>
+                                    <div className="space-y-3">
+                                      {kit.subpastas.map((sp) => (
+                                        <div key={sp.nome}>
+                                          <p className="text-xs font-medium text-gray-700 flex items-center gap-1">
+                                            <FolderOpen className="h-3.5 w-3.5 text-gray-400" /> {sp.nome}
+                                            <span className="text-gray-400">({sp.docs})</span>
+                                          </p>
+                                          {sp.arquivos.length > 0 ? (
+                                            <ul className="ml-5 mt-1 space-y-0.5">
+                                              {sp.arquivos.map((a, i) => (
+                                                <li key={i} className="text-xs text-gray-600 truncate">
+                                                  {a.link
+                                                    ? <a href={a.link} target="_blank" rel="noopener noreferrer" className="hover:text-blue-600 hover:underline">• {a.name}</a>
+                                                    : <span>• {a.name}</span>}
+                                                </li>
+                                              ))}
+                                            </ul>
+                                          ) : (
+                                            <p className="ml-5 text-xs text-gray-400 italic">vazio</p>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+
+          <p className="text-xs text-gray-400 flex items-center gap-1">
+            <ShieldCheck className="h-3.5 w-3.5" />
+            Percentuais calculados da estrutura real do Google Drive (montagem GEDEON). O bloco
+            "Vale Transporte / Alimentação" entra quando o VA/VT do Sólides for atribuído por condomínio.
+          </p>
+        </>
       )}
     </div>
   );

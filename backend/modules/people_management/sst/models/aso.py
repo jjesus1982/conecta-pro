@@ -37,8 +37,12 @@ class ASOModel(Base):
     aso_id = Column(String(36), unique=True, nullable=False, index=True)
     employee_id = Column(String(36), nullable=False, index=True)
 
-    tipo = Column(Enum(ASOType, name="aso_type_enum"), nullable=False)
-    status = Column(Enum(ASOStatus, name="aso_status_enum"), nullable=False, default=ASOStatus.AGENDADO)
+    tipo = Column(Enum(ASOType, values_callable=lambda x: [e.value for e in x], name="aso_type_enum"), nullable=False)
+    status = Column(
+        Enum(ASOStatus, values_callable=lambda x: [e.value for e in x], name="aso_status_enum"),
+        nullable=False,
+        default=ASOStatus.AGENDADO,
+    )
 
     data_agendamento = Column(Date, nullable=True)
     data_realizacao = Column(Date, nullable=True)
@@ -54,8 +58,8 @@ class ASOModel(Base):
 
     documento_url = Column(String(500), nullable=True)
 
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC))
-    updated_at = Column(DateTime, nullable=True, onupdate=lambda: datetime.now(UTC))
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None))
+    updated_at = Column(DateTime, nullable=True, onupdate=lambda: datetime.now(UTC).replace(tzinfo=None))
 
     def to_dict(self) -> dict[str, Any]:
         return {

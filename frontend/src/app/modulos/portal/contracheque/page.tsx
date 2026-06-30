@@ -46,7 +46,7 @@ export default function ContrachequePortalPage() {
   useEffect(() => {
     async function loadEmployees() {
       try {
-        const res = await fetch(`${API_HR}/employees/?page_size=100`, { headers: getAuthHeaders() });
+        const res = await fetch(`${API_HR}/employees?page_size=100`, { headers: getAuthHeaders() });
         if (res.ok) {
           const data = await res.json();
           const items = data.items || [];

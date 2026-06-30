@@ -54,8 +54,14 @@ class NotificationTemplate(Base):
     name = Column(String(200), nullable=False)
     slug = Column(String(200), nullable=False, index=True)
     description = Column(Text)
-    category = Column(Enum(TemplateCategory), default=TemplateCategory.NOTIFICATION, index=True)
-    status = Column(Enum(TemplateStatus), default=TemplateStatus.DRAFT, index=True)
+    category = Column(
+        Enum(TemplateCategory, values_callable=lambda x: [e.value for e in x]),
+        default=TemplateCategory.NOTIFICATION,
+        index=True,
+    )
+    status = Column(
+        Enum(TemplateStatus, values_callable=lambda x: [e.value for e in x]), default=TemplateStatus.DRAFT, index=True
+    )
 
     # Canal
     channel_id = Column(UUID(as_uuid=True), ForeignKey("notification_channels.id"), index=True)

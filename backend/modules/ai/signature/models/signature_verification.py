@@ -103,8 +103,8 @@ class SignatureVerification(Base):
         nullable=False,
         default=VerificationStatus.PENDING,
     )
-    result = Column(Enum(VerificationResult), nullable=True)
-    risk_level = Column(Enum(RiskLevel), nullable=True)
+    result = Column(Enum(VerificationResult, values_callable=lambda x: [e.value for e in x]), nullable=True)
+    risk_level = Column(Enum(RiskLevel, values_callable=lambda x: [e.value for e in x]), nullable=True)
 
     # Verification method
     method = Column(

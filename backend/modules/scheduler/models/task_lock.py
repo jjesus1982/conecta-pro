@@ -39,7 +39,9 @@ class TaskLock(Base):
     lock_name = Column(String(200))  # Nome amigável
 
     # Status
-    status = Column(Enum(LockStatus), nullable=False, default=LockStatus.ACQUIRED)
+    status = Column(
+        Enum(LockStatus, values_callable=lambda x: [e.value for e in x]), nullable=False, default=LockStatus.ACQUIRED
+    )
 
     # Owner
     owner_id = Column(String(200), nullable=False)  # Worker ID ou processo que possui o lock

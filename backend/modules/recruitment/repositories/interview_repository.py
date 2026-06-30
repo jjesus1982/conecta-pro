@@ -53,8 +53,9 @@ class InterviewRepository:
                 "created_by",
             ):
                 create_data.pop(field, None)
-        # Map meeting_link -> meeting_url if present in original data
-        if data.meeting_link:
+        # Map meeting_link -> meeting_url if present (schema usa meeting_url; getattr defensivo —
+        # data.meeting_link não existe e crashava todo CREATE de entrevista)
+        if getattr(data, "meeting_link", None):
             create_data["meeting_url"] = data.meeting_link
 
         interview = Interview(**create_data)

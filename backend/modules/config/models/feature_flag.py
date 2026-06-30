@@ -59,11 +59,19 @@ class FeatureFlag(Base):
     descricao = Column(Text, nullable=True)
 
     # Status e tipo
-    status = Column(Enum(FlagStatus), nullable=False, default=FlagStatus.INATIVO)
-    flag_type = Column(Enum(FlagType), nullable=False, default=FlagType.RELEASE)
+    status = Column(
+        Enum(FlagStatus, values_callable=lambda x: [e.value for e in x]), nullable=False, default=FlagStatus.INATIVO
+    )
+    flag_type = Column(
+        Enum(FlagType, values_callable=lambda x: [e.value for e in x]), nullable=False, default=FlagType.RELEASE
+    )
 
     # Rollout
-    rollout_strategy = Column(Enum(RolloutStrategy), nullable=False, default=RolloutStrategy.NONE)
+    rollout_strategy = Column(
+        Enum(RolloutStrategy, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=RolloutStrategy.NONE,
+    )
     rollout_percentage = Column(Float, default=0, nullable=False)  # 0-100
 
     # Listas de inclusão/exclusão

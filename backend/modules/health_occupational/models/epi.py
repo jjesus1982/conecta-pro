@@ -74,7 +74,7 @@ class EPI(Base):
     categoria = Column(String(30), nullable=False, index=True)
 
     # Certificacao
-    ca_number = Column(String(20), nullable=False, index=True)  # Certificado de Aprovacao
+    ca_number = Column("ca_numero", String(20), nullable=False, index=True)  # DB col = ca_numero
     ca_validade = Column(Date, nullable=True)
 
     # Fabricante
@@ -113,7 +113,7 @@ class EPI(Base):
     # Indices
     __table_args__ = (
         Index("idx_epi_categoria_ativo", "categoria", "ativo"),
-        Index("idx_epi_ca", "ca_number"),
+        Index("idx_epi_ca", "ca_numero"),
     )
 
     def __repr__(self) -> str:
@@ -147,7 +147,7 @@ class EPIDelivery(Base):
     motivo = Column(String(30), nullable=False)  # admissao, substituicao, etc
 
     # CA no momento da entrega
-    ca_number = Column(String(20), nullable=False)
+    ca_number = Column("ca_numero", String(20), nullable=False)
 
     # Datas
     data_entrega = Column(DateTime, nullable=False, default=datetime.utcnow)

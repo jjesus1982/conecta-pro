@@ -66,8 +66,14 @@ class ServiceOrder(Base):
     contract_id = Column(UUID(as_uuid=True), nullable=True)
 
     # Status e prioridade
-    status = Column(Enum(OrderStatus), nullable=False, default=OrderStatus.RASCUNHO)
-    priority = Column(Enum(OrderPriority), nullable=False, default=OrderPriority.NORMAL)
+    status = Column(
+        Enum(OrderStatus, values_callable=lambda x: [e.value for e in x]), nullable=False, default=OrderStatus.RASCUNHO
+    )
+    priority = Column(
+        Enum(OrderPriority, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=OrderPriority.NORMAL,
+    )
 
     # Descrição
     title = Column(String(200), nullable=False)

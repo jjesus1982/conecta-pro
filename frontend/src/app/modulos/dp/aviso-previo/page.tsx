@@ -189,7 +189,7 @@ export default function AvisoPrevioPage() {
   const fetchFuncionarios = useCallback(async () => {
     try {
       const res = await fetch(
-        `/api/v1/people-management/employees?status=ativo&limit=200`,
+        `/api/v1/people-management/hr/employees?page_size=100`,
         { headers: getAuthHeaders() },
       );
       if (!res.ok) return;

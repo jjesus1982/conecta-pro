@@ -60,11 +60,15 @@ class AuditLog(Base):
     __tablename__ = "lgpd_audit_logs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    action = Column(Enum(AuditAction), nullable=False, index=True)
-    resource_type = Column(Enum(ResourceType), nullable=False, index=True)
+    action = Column(Enum(AuditAction, values_callable=lambda x: [e.value for e in x]), nullable=False, index=True)
+    resource_type = Column(
+        Enum(ResourceType, values_callable=lambda x: [e.value for e in x]), nullable=False, index=True
+    )
     resource_id = Column(String(255), nullable=False, index=True)
     user_id = Column(String(255), nullable=False, index=True)
-    severity = Column(Enum(AuditSeverity), default=AuditSeverity.INFO, nullable=False)
+    severity = Column(
+        Enum(AuditSeverity, values_callable=lambda x: [e.value for e in x]), default=AuditSeverity.INFO, nullable=False
+    )
 
     # Detalhes
     details = Column(JSONB, default=dict)

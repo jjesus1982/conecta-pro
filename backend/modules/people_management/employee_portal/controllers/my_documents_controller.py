@@ -45,7 +45,6 @@ router = APIRouter(tags=["Portal - Documentos"])
 )
 async def get_my_documents(
     employee_id: CurrentEmployeeId,
-    current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Retorna documentos do funcionario autenticado."""
@@ -64,7 +63,6 @@ async def get_my_documents(
 async def sign_document(
     request: Request,
     employee_id: CurrentEmployeeId,
-    current_user: CurrentActiveUser,
     document_id: int = Path(..., gt=0, description="ID do documento", alias="id"),
     sign_data: SignDocumentRequest = None,  # type: ignore[assignment]
     db: AsyncSession = Depends(get_db),

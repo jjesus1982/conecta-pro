@@ -72,11 +72,12 @@ export async function listarEventos(params?: {
   data_final?: string;
   status?: string;
 }): Promise<EventoResponse[]> {
-  const { data } = await api.get<EventoResponse[]>(
+  const { data } = await api.get<any>(
     '/api/v1/government/esocial/eventos',
     { params }
   );
-  return data;
+  // Backend devolve envelope {success,message,data:{items,total}}; desempacota p/ {items,total}
+  return (data as any)?.data ?? data;
 }
 
 /**

@@ -58,19 +58,27 @@ class NotificationPreference(Base):
     # Preferências por Canal
     email_enabled = Column(Boolean, default=True)
     email_address = Column(String(200))
-    email_frequency = Column(Enum(FrequencyType), default=FrequencyType.INSTANT)
-    email_digest = Column(Enum(DigestType), default=DigestType.NONE)
+    email_frequency = Column(
+        Enum(FrequencyType, values_callable=lambda x: [e.value for e in x]), default=FrequencyType.INSTANT
+    )
+    email_digest = Column(Enum(DigestType, values_callable=lambda x: [e.value for e in x]), default=DigestType.NONE)
 
     whatsapp_enabled = Column(Boolean, default=True)
     whatsapp_number = Column(String(20))
-    whatsapp_frequency = Column(Enum(FrequencyType), default=FrequencyType.INSTANT)
+    whatsapp_frequency = Column(
+        Enum(FrequencyType, values_callable=lambda x: [e.value for e in x]), default=FrequencyType.INSTANT
+    )
 
     sms_enabled = Column(Boolean, default=True)
     sms_number = Column(String(20))
-    sms_frequency = Column(Enum(FrequencyType), default=FrequencyType.INSTANT)
+    sms_frequency = Column(
+        Enum(FrequencyType, values_callable=lambda x: [e.value for e in x]), default=FrequencyType.INSTANT
+    )
 
     push_enabled = Column(Boolean, default=True)
-    push_frequency = Column(Enum(FrequencyType), default=FrequencyType.INSTANT)
+    push_frequency = Column(
+        Enum(FrequencyType, values_callable=lambda x: [e.value for e in x]), default=FrequencyType.INSTANT
+    )
     push_sound_enabled = Column(Boolean, default=True)
     push_vibration_enabled = Column(Boolean, default=True)
     push_badge_enabled = Column(Boolean, default=True)
@@ -205,7 +213,9 @@ class NotificationSubscription(Base):
 
     # Configuração
     channels = Column(ARRAY(String), default=[])  # Canais para este tópico
-    frequency = Column(Enum(FrequencyType), default=FrequencyType.INSTANT)
+    frequency = Column(
+        Enum(FrequencyType, values_callable=lambda x: [e.value for e in x]), default=FrequencyType.INSTANT
+    )
     priority_only = Column(Boolean, default=False)  # Só alta prioridade
 
     # Status

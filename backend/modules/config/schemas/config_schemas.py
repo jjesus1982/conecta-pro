@@ -20,7 +20,7 @@ class TenantBase(BaseModel):
     nome: str = Field(..., min_length=1, max_length=200)
     nome_fantasia: str | None = Field(None, max_length=200)
     descricao: str | None = None
-    tenant_type: str = Field(default="empresa")
+    tenant_type: str | None = Field(default="empresa")
     cnpj: str | None = Field(None, max_length=18)
     email: EmailStr
     telefone: str | None = Field(None, max_length=20)
@@ -76,8 +76,8 @@ class TenantResponse(TenantBase):
     """Schema de resposta para Tenant."""
 
     id: UUID
-    status: str
-    plan: str
+    status: str | None = None
+    plan: str | None = None
     max_usuarios: int
     max_storage_gb: int
     max_api_calls_month: int

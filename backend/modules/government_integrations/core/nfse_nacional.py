@@ -226,7 +226,12 @@ class NFSeNacionalManager:
         self.certificado_path = certificado_path
         self.certificado_senha = certificado_senha
 
-        self.url_base = self.URL_API
+        # Homologação nacional = "produção restrita" (URL distinta da produção)
+        self.url_base = (
+            "https://sefin.producaorestrita.nfse.gov.br/sefinnacional"
+            if ambiente == AmbienteNacional.HOMOLOGACAO
+            else self.URL_API
+        )
 
         logger.info(f"NFSe Nacional Manager inicializado - Ambiente: {ambiente.value}, URL: {self.url_base}")
 
@@ -252,9 +257,22 @@ class NFSeNacionalManager:
         )
 
         # Id do infDPS: cMun(7) + tpInsc(1) + nrInsc(14) + serie(5) + nDPS(15) = 42 chars
+        # tpInsc: 1=CPF, 2=CNPJ (prestador é CNPJ → 2)
         serie_pad = "00900"  # série 900 com 5 dígitos
         ndps_pad = f"{int(dps.numero or '1'):015d}"  # nDPS com 15 dígitos
-        dps_id = f"DPS13026031{cnpj_clean}{serie_pad}{ndps_pad}"
+        dps_id = f"DPS13026032{cnpj_clean}{serie_pad}{ndps_pad}"
+
+        # opSimpNac: 1=Não optante (Lucro Real/Presumido), 2=MEI, 3=ME/EPP Simples
+        _optante = bool(dps.prestador and dps.prestador.optante_simples)
+        op_simp = "3" if _optante else "1"
+        # totTrib: optante usa pTotTribSN (% Simples); não optante usa vTotTrib (valores R$,
+        # Lei 12.741 transparência fiscal) — indTotTrib/pTotTribSN proibidos p/ não optante (E0713)
+        tot_trib = (
+            "<pTotTribSN>0.00</pTotTribSN>"
+            if _optante
+            else "<vTotTrib><vTotTribFed>0.00</vTotTribFed>"
+            "<vTotTribEst>0.00</vTotTribEst><vTotTribMun>0.00</vTotTribMun></vTotTrib>"
+        )
 
         # Ordem EXATA do XSD TCInfDPS (tiposComplexos_v1.00.xsd):
         # tpAmb → dhEmi → verAplic → serie → nDPS → dCompet → tpEmit → cLocEmi →
@@ -274,7 +292,7 @@ class NFSeNacionalManager:
       <CNPJ>{cnpj_clean}</CNPJ>
       <IM>{im}</IM>
       <regTrib>
-        <opSimpNac>2</opSimpNac>
+        <opSimpNac>{op_simp}</opSimpNac>
         <regEspTrib>0</regEspTrib>
       </regTrib>
     </prest>
@@ -303,7 +321,7 @@ class NFSeNacionalManager:
           <tpRetISSQN>1</tpRetISSQN>
         </tribMun>
         <totTrib>
-          <pTotTribSN>0.00</pTotTribSN>
+          {tot_trib}
         </totTrib>
       </trib>
     </valores>

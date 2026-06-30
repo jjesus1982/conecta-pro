@@ -109,15 +109,25 @@ class WebhookConfig(Base):
     event_filters = Column(JSONB, nullable=True)  # Filtros adicionais
 
     # Status
-    status = Column(Enum(WebhookStatus), nullable=False, default=WebhookStatus.ACTIVE)
+    status = Column(
+        Enum(WebhookStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=WebhookStatus.ACTIVE,
+    )
 
     # Formato
     content_type = Column(String(100), nullable=False, default="application/json")
-    payload_format = Column(Enum(WebhookFormat), nullable=False, default=WebhookFormat.JSON)
+    payload_format = Column(
+        Enum(WebhookFormat, values_callable=lambda x: [e.value for e in x]), nullable=False, default=WebhookFormat.JSON
+    )
     payload_template = Column(Text, nullable=True)  # Template customizado
 
     # Autenticação
-    auth_type = Column(Enum(WebhookAuthType), nullable=False, default=WebhookAuthType.HMAC)
+    auth_type = Column(
+        Enum(WebhookAuthType, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=WebhookAuthType.HMAC,
+    )
     auth_credentials = Column(JSONB, nullable=True)  # Credenciais criptografadas
 
     # Segurança

@@ -80,8 +80,8 @@ class AccessHistory(Base):
     request_id = Column(String(50), nullable=True)
 
     # Tipo e Resultado
-    access_type = Column(Enum(AccessType), nullable=False)
-    result = Column(Enum(AccessResult), nullable=False)
+    access_type = Column(Enum(AccessType, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    result = Column(Enum(AccessResult, values_callable=lambda x: [e.value for e in x]), nullable=False)
 
     # Usuário
     user_id = Column(UUID(as_uuid=True), nullable=True)
@@ -122,7 +122,9 @@ class AccessHistory(Base):
     geo_isp = Column(String(200), nullable=True)
 
     # Dispositivo
-    device_type = Column(Enum(DeviceType), nullable=True, default=DeviceType.UNKNOWN)
+    device_type = Column(
+        Enum(DeviceType, values_callable=lambda x: [e.value for e in x]), nullable=True, default=DeviceType.UNKNOWN
+    )
     device_fingerprint = Column(String(64), nullable=True)
     device_id = Column(String(100), nullable=True)
     device_name = Column(String(200), nullable=True)
@@ -136,7 +138,9 @@ class AccessHistory(Base):
     os_version = Column(String(50), nullable=True)
 
     # Risco
-    risk_level = Column(Enum(RiskLevel), nullable=True, default=RiskLevel.LOW)
+    risk_level = Column(
+        Enum(RiskLevel, values_callable=lambda x: [e.value for e in x]), nullable=True, default=RiskLevel.LOW
+    )
     risk_score = Column(Integer, nullable=True)
     risk_factors = Column(JSONB, nullable=True)
     anomaly_detected = Column(Boolean, nullable=False, default=False)

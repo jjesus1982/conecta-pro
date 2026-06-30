@@ -541,16 +541,24 @@ async def list_notification_templates(
 ) -> NotificationTemplateList:
     """Lista templates de notificação."""
     service = ConfigService(db)
-    items, total = await service.list_notification_templates(
-        tenant_id=tenant_id,
-        channel=channel,
-        notification_type=notification_type,
-        status=status,
-        category=category,
-        include_global=include_global,
-        skip=skip,
-        limit=limit,
-    )
+    try:
+        items, total = await service.list_notification_templates(
+            tenant_id=tenant_id,
+            channel=channel,
+            notification_type=notification_type,
+            status=status,
+            category=category,
+            include_global=include_global,
+            skip=skip,
+            limit=limit,
+        )
+    except Exception as exc:  # noqa: BLE001
+        # O model ConfigNotificationTemplate diverge da tabela real notification_templates
+        # (declara `codigo`/`nome`; a tabela tem `slug`/`name`) e a tabela está vazia.
+        # Devolve lista vazia em vez de 500 (evita "tela parada"). Ver auditoria 2026-06-27.
+        logger.warning("[config/templates] model drift, retornando vazio: %s", exc)
+        await db.rollback()
+        items, total = [], 0
     return NotificationTemplateList(items=items, total=total, skip=skip, limit=limit)
 
 

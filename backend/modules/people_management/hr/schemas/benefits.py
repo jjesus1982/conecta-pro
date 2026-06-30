@@ -1,3 +1,5 @@
+from uuid import UUID
+
 """
 Schemas Pydantic para EmployeeBenefit (Benefícios).
 """
@@ -12,7 +14,7 @@ from modules.people_management.hr.models.benefits import BenefitStatus, BenefitT
 class BenefitCreate(BaseModel):
     """Schema para criação de benefício."""
 
-    employee_id: str
+    employee_id: UUID
     type: BenefitType
     provider: str | None = None
     plan_name: str | None = None
@@ -43,8 +45,8 @@ class BenefitResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    employee_id: str
+    id: UUID
+    employee_id: UUID
     type: str
     provider: str | None = None
     plan_name: str | None = None

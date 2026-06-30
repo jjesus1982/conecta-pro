@@ -17,7 +17,7 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.models.base import Base
@@ -106,6 +106,18 @@ class Lead(Base):
         nullable=False,
         index=True,
     )
+
+    # Atribuição de marketing (F0+F1 Conecta Marketing AI) — fecha o funil
+    # marketing -> lead -> contrato -> receita (CAC/ROAS/ROI por campanha).
+    utm_source: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    utm_medium: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    utm_campaign: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    utm_content: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    utm_term: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_platform: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    mkt_campaign_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # Payload de Click-to-WhatsApp (CTWA) vindo do anúncio Meta.
+    ad_referral: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Scoring e probabilidade
     score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

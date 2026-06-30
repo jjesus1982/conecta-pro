@@ -14,7 +14,6 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
 from modules.people_management.employee_portal.auth import CurrentEmployeeId
 
@@ -26,7 +25,6 @@ router = APIRouter(prefix="/cct", tags=["Portal - CCT Direitos"])
 @router.get("/direitos")
 async def get_meus_direitos(
     employee_id: CurrentEmployeeId,
-    current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Retorna direitos do trabalhador conforme CCT 2026 e seu cargo."""
@@ -117,7 +115,6 @@ async def get_meus_direitos(
 @router.post("/calculadora", status_code=201)
 async def calculadora_rescisoria(
     employee_id: CurrentEmployeeId,
-    current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
     motivo: str = Query(
         default="sem_justa_causa",
@@ -192,7 +189,6 @@ async def calculadora_rescisoria(
 @router.get("/feriados")
 async def get_feriados_2026(
     employee_id: CurrentEmployeeId,
-    current_user: CurrentActiveUser,
     mes: int | None = Query(None, ge=1, le=12, description="Filtrar por mes"),
 ) -> Any:
     """Retorna calendario de feriados Manaus/AM 2026."""
@@ -222,7 +218,6 @@ async def get_feriados_2026(
 @router.get("/adicional-noturno")
 async def get_adicional_noturno(
     employee_id: CurrentEmployeeId,
-    current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
     horas_noturnas: float = Query(default=7, ge=0, description="Horas noturnas trabalhadas"),
 ) -> Any:

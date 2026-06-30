@@ -131,7 +131,19 @@ async def list_epis(
             success=True,
             message=f"Encontrados {result['total']} EPIs",
             data={
-                "epis": [EPIResponse.model_validate(e).model_dump() for e in result["items"]],
+                # A tabela real (health_epi_catalog) usa ca_numero/validade_meses e não tem
+                # especificacoes/riscos_protegidos. EPIResponse.model_validate quebrava (4 campos).
+                # Devolvemos os dados reais + aliases p/ o schema, sem validação estrita.
+                "epis": [
+                    {
+                        **e,
+                        "ca_number": e.get("ca_numero"),
+                        "validade_dias": e.get("validade_meses"),
+                        "especificacoes": e.get("especificacoes") or {},
+                        "riscos_protegidos": e.get("riscos_protegidos") or [],
+                    }
+                    for e in result["items"]
+                ],
                 "total": result["total"],
                 "page": result["page"],
                 "size": result["size"],

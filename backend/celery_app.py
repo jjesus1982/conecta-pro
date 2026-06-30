@@ -32,6 +32,7 @@ app = Celery(
         "modules.people_management.ged.tasks",
         "modules.health_occupational.tasks",
         "modules.gedeon.tasks.kronos_tasks",
+        "modules.gedeon.tasks.orquestrador_tasks",
         "modules.financial.tasks",
         "modules.crm.tasks",
         "modules.integrations.connectors.whatsapp.tasks",
@@ -411,6 +412,14 @@ app.conf.beat_schedule = {
         "args": [None],  # None = mês corrente
         "options": {"queue": "gov.batch"},
     },
+    # ORQUESTRADOR: monta o kit documental mensal de TODOS os condomínios —
+    # dia 28 às 07:00 SP (06:00 Manaus). Competência = mês anterior (salário em arrears).
+    # Idempotente (rodar de novo só completa o que faltava). Notifica o Jordan no fim.
+    "gedeon-montar-kits-mensais-dia28": {
+        "task": "gedeon.montar_kits_mensais",
+        "schedule": crontab(day_of_month="28", hour="7", minute="0"),
+        "options": {"queue": "gov.batch"},
+    },
     # ── CRM — Follow-up de propostas: gera lista (disparo ao cliente DESLIGADO/gate LGPD) — diário 08:30 ──
     "crm-followup-proposals-0830": {
         "task": "crm.followup_proposals",
@@ -421,6 +430,60 @@ app.conf.beat_schedule = {
     "crm-process-sequences-hourly": {
         "task": "crm.process_sequences",
         "schedule": crontab(minute=15),
+        "options": {"queue": "gov.batch"},
+    },
+    # ── José Luís ↔ Jordan — lembra pendências sem resposta (1x/dia ~09h Manaus = 13h UTC) ──
+    "crm-owner-pendentes-diario": {
+        "task": "crm.owner_pendentes",
+        "schedule": crontab(hour=13, minute=0),
+        "options": {"queue": "gov.batch"},
+    },
+    # ── José Luís ↔ Jordan — resumo do dia (~18h Manaus = 22h UTC) ──
+    "crm-owner-digest-diario": {
+        "task": "crm.owner_digest",
+        "schedule": crontab(hour=22, minute=0),
+        "options": {"queue": "gov.batch"},
+    },
+    # ── José Luís ↔ Jordan — dispara lembretes agendados ("me lembra amanhã") — a cada 15 min ──
+    "crm-owner-reminders-due-15min": {
+        "task": "crm.owner_reminders_due",
+        "schedule": crontab(minute="*/15"),
+        "options": {"queue": "gov.batch"},
+    },
+    # ── Lembrete pré-reunião (reuniões confirmadas nas próximas 24h) — de hora em hora ──
+    "crm-lembrete-reuniao-hourly": {
+        "task": "crm.lembrete_reuniao",
+        "schedule": crontab(minute=20),
+        "options": {"queue": "gov.batch"},
+    },
+    # ── Heartbeat do ciclo (WhatsApp/agente/webhook) — de hora em hora ──
+    "crm-heartbeat-ciclo-hourly": {
+        "task": "crm.heartbeat_ciclo",
+        "schedule": crontab(minute=50),
+        "options": {"queue": "gov.batch"},
+    },
+    # ── Envia follow-ups agendados (pedidos fora do horário) — só age seg-sex 8-18h ──
+    "crm-enviar-followups-agendados": {
+        "task": "crm.enviar_followups_agendados",
+        "schedule": crontab(minute=5),
+        "options": {"queue": "gov.batch"},
+    },
+    # ── Auto-acompanhamento de proposta enviada — de hora em hora ──
+    "crm-auto-acompanhar-hourly": {
+        "task": "crm.auto_acompanhar",
+        "schedule": crontab(minute=10),
+        "options": {"queue": "gov.batch"},
+    },
+    # ── Scoring automático dos leads — de hora em hora ──
+    "crm-score-leads-hourly": {
+        "task": "crm.score_leads",
+        "schedule": crontab(minute=40),
+        "options": {"queue": "gov.batch"},
+    },
+    # ── Radar de leads frios → avisa o Jordan (sem auto-enviar ao cliente) — diário 12h UTC ──
+    "crm-radar-frios-diario": {
+        "task": "crm.radar_frios",
+        "schedule": crontab(hour=12, minute=0),
         "options": {"queue": "gov.batch"},
     },
     # ── José Luís — conversas que esfriaram: lista + rascunho -> Telegram (aval humano; nada vai ao cliente) — diario 09:00 ──

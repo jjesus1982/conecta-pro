@@ -36,8 +36,8 @@ class CATModel(Base):
     numero_cat_inss = Column(String(20), nullable=True)
 
     status = Column(String(20), nullable=False, default="aberta")
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC))
-    updated_at = Column(DateTime, nullable=True, onupdate=lambda: datetime.now(UTC))
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None))
+    updated_at = Column(DateTime, nullable=True, onupdate=lambda: datetime.now(UTC).replace(tzinfo=None))
 
     def to_dict(self) -> dict[str, Any]:
         return {

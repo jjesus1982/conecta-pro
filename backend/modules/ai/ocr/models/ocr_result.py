@@ -48,7 +48,7 @@ class OCRResult(Base):
     page_number = Column(Integer, default=1)
 
     # Provider
-    provider = Column(Enum(OCRProvider), nullable=False)
+    provider = Column(Enum(OCRProvider, values_callable=lambda x: [e.value for e in x]), nullable=False)
     provider_version = Column(String(50))
     provider_model = Column(String(100))  # Modelo especifico do provider
 

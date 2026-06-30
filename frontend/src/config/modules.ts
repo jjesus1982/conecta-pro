@@ -24,8 +24,10 @@ export const modules: Module[] = [
       { id: 'propostas', title: 'Propostas', href: '/modulos/crm/propostas', icon: 'FileText', permissions: ['crm:propostas'] },
       { id: 'contratos', title: 'Contratos', href: '/modulos/crm/contratos', icon: 'FileSignature', permissions: ['crm:read'] },
       { id: 'contatos', title: 'Contatos', href: '/modulos/crm/contatos', icon: 'Contact', permissions: ['crm:contatos'] },
+      { id: 'crm-atividades', title: 'Atividades & Tarefas', href: '/modulos/crm/atividades', icon: 'Activity', permissions: ['crm:read'] },
       { id: 'comissoes', title: 'Comissões', href: '/modulos/crm/comissoes', icon: 'Coins', permissions: ['crm:read'] },
       { id: 'crm-precificacao', title: 'Precificação', href: '/modulos/crm/precificacao', icon: 'Tag', permissions: ['crm:read'] },
+      { id: 'crm-growth', title: 'Growth (Automação)', href: '/modulos/crm/growth', icon: 'Zap', permissions: ['crm:read'] },
     ],
   },
 
@@ -43,9 +45,12 @@ export const modules: Module[] = [
     enabled: true,
     subModules: [
       { id: 'mkt-funil', title: 'Funil', href: '/modulos/marketing/funil', icon: 'Filter', permissions: ['crm:read'] },
+      { id: 'mkt-estrategista', title: 'Estrategista IA', href: '/modulos/marketing/estrategista', icon: 'Target', permissions: ['crm:read'] },
       { id: 'mkt-campanhas', title: 'Campanhas', href: '/modulos/marketing/campanhas', icon: 'Megaphone', permissions: ['crm:read'] },
       { id: 'mkt-lead-magnet', title: 'Lead Magnet', href: '/modulos/marketing/lead-magnet', icon: 'Magnet', permissions: ['crm:read'] },
       { id: 'mkt-brand-voice', title: 'Brand Voice', href: '/modulos/marketing/brand-voice', icon: 'Volume2', permissions: ['crm:read'] },
+      { id: 'mkt-copywriter', title: 'Copywriter IA', href: '/modulos/marketing/copywriter', icon: 'PenLine', permissions: ['crm:read'] },
+      { id: 'mkt-biblioteca', title: 'Biblioteca', href: '/modulos/marketing/biblioteca', icon: 'Library', permissions: ['crm:read'] },
     ],
   },
 
@@ -182,22 +187,21 @@ export const modules: Module[] = [
   // =================================================================
   {
     id: 'ged',
-    title: 'GED - Kits Documentais',
-    description: 'Gestao eletronica de documentos e kits para clientes',
+    title: 'GED — Documentos & Kits',
+    description: 'Central de gestão de documentos e montagem dos kits mensais por condomínio',
     icon: 'FolderOpen',
     href: '/modulos/gestao-pessoas/ged',
     color: 'green',
     permissions: ['ged:read'],
     enabled: true,
     subModules: [
-      { id: 'ged-dashboard', title: 'Dashboard GED', href: '/modulos/gestao-pessoas/ged', icon: 'LayoutDashboard', permissions: ['ged:read'] },
-      { id: 'ged-clientes', title: 'Clientes / Condominios', href: '/modulos/gestao-pessoas/ged/clientes', icon: 'Building2', permissions: ['ged:read'] },
-      { id: 'ged-kits', title: 'Kits Documentais', href: '/modulos/gestao-pessoas/ged/kits', icon: 'Package', permissions: ['ged:kits'] },
+      // Fluxo enxuto, focado na montagem dos kits + gestão documental
+      { id: 'ged-dashboard', title: 'Kits por Condomínio', href: '/modulos/gestao-pessoas/ged', icon: 'LayoutDashboard', permissions: ['ged:read'] },
+      { id: 'ged-montar', title: 'Montar / Cronograma', href: '/modulos/gestao-pessoas/ged/montar-kit', icon: 'Wand2', permissions: ['ged:read'] },
+      { id: 'ged-certidoes', title: 'Certidões (CND)', href: '/modulos/gestao-pessoas/ged/certidoes', icon: 'Award', permissions: ['ged:read'] },
       { id: 'ged-documentos', title: 'Documentos', href: '/modulos/gestao-pessoas/ged/documentos', icon: 'FileText', permissions: ['ged:read'] },
-      { id: 'ged-certidoes', title: 'Certidoes da Empresa', href: '/modulos/gestao-pessoas/ged/certidoes', icon: 'Award', permissions: ['ged:read'] },
-      { id: 'ged-envios', title: 'Envios', href: '/modulos/gestao-pessoas/ged/envios', icon: 'Send', permissions: ['ged:read'] },
-      { id: 'ged-relatorios', title: 'Relatorios', href: '/modulos/gestao-pessoas/ged/relatorios', icon: 'BarChart3', permissions: ['ged:read'] },
-      { id: 'ged-configuracoes', title: 'Configuracoes GED', href: '/modulos/gestao-pessoas/ged/configuracoes', icon: 'Settings', permissions: ['ged:admin'] },
+      { id: 'ged-envios', title: 'Envios ao Cliente', href: '/modulos/gestao-pessoas/ged/envios', icon: 'Send', permissions: ['ged:read'] },
+      { id: 'ged-configuracoes', title: 'Configurações', href: '/modulos/gestao-pessoas/ged/configuracoes', icon: 'Settings', permissions: ['ged:admin'] },
     ],
   },
 

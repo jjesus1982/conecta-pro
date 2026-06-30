@@ -57,6 +57,11 @@ services:
     container_name: conecta-pro-backend
     restart: unless-stopped
     stop_grace_period: 30s
+    # env_file injeta o .env inteiro (inclui AGENT_ENABLED/CHATWOOT_*/WHATSAPP_WEBHOOK_SECRET
+    # que faltavam). Lido ANTES de environment: -> environment: VENCE em colisao (blindagem
+    # das criticas: DATABASE_URL/OPENAI_API_KEY/REDIS_URL/SMTP_*/PORT permanecem do environment:).
+    env_file:
+      - .env
     environment:
       # App
       APP_NAME: ${APP_NAME:-Conecta PRO}
@@ -161,6 +166,10 @@ services:
       start_period: 300s  # 5 minutos para startup com VPS lento
     networks:
       - conecta-pro-network
+      # rede do Chatwoot/baileys (external): permite backend -> chatwoot-fazerai:3000
+      # (nota privada do copiloto + download de anexos). Antes era docker network
+      # connect manual -> morria em recreate. Agora DURAVEL via compose.
+      - chatwoot-fazerai-net
     volumes:
       - ./logs:/app/logs
       # Uploads GED
@@ -382,3 +391,6 @@ volumes:
 networks:
   conecta-pro-network:
     driver: bridge
+  # rede pre-existente do stack Chatwoot fazer.ai (criada fora deste compose)
+  chatwoot-fazerai-net:
+    external: true

@@ -67,6 +67,7 @@ hvac>=2.1.0
 
 # XML Processing (Government Integrations - eSocial, SEFAZ)
 lxml>=5.0.0
+beautifulsoup4>=4.12.0
 defusedxml>=0.7.1
 
 # Fiscal Integration - NF-e/NFS-e
@@ -87,3 +88,5 @@ google-api-python-client==2.149.0
 google-auth==2.36.0
 google-auth-oauthlib==1.2.1
 google-auth-httplib2==0.2.0
+openpyxl>=3.1
+python-pptx>=0.6.23

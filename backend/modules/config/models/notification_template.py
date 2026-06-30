@@ -76,8 +76,16 @@ class ConfigNotificationTemplate(Base):
     # NOTA: coluna 'channel' removida deste model para evitar conflito de mapper
     # com o relationship 'channel' do notifications module (mesma tabela, extend_existing=True).
     # O canal é acessado via channel_id / relationship do notifications module.
-    notification_type = Column(Enum(NotificationType), nullable=False, default=NotificationType.TRANSACIONAL)
-    status = Column(Enum(TemplateStatus), nullable=False, default=TemplateStatus.RASCUNHO)
+    notification_type = Column(
+        Enum(NotificationType, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=NotificationType.TRANSACIONAL,
+    )
+    status = Column(
+        Enum(TemplateStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=TemplateStatus.RASCUNHO,
+    )
 
     # Conteúdo - Email
     email_subject = Column(String(500), nullable=True)

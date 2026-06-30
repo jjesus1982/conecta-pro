@@ -839,7 +839,7 @@ async def bi_dashboard(
     """Dashboard Business Intelligence com KPIs executivos e indicadores."""
     kpis_result = await db.execute(
         text("""
-        SELECT codigo, nome, category, unit, current_value, previous_value,
+        SELECT code AS codigo, name AS nome, category, unit, current_value, previous_value,
                target_value, variance_percentage, trend, history
         FROM executive_kpis
         WHERE ativo = true

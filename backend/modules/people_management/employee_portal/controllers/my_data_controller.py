@@ -14,7 +14,6 @@ from fastapi import status as http_status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
 from modules.people_management.employee_portal.auth import CurrentEmployeeId
 
@@ -57,7 +56,6 @@ class UpdateMyDataRequest(BaseModel):
 )
 async def get_my_data(
     employee_id: CurrentEmployeeId,
-    current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Retorna dados pessoais do funcionario autenticado."""
@@ -102,7 +100,6 @@ async def get_my_data(
 async def update_my_data(
     update_data: UpdateMyDataRequest,
     employee_id: CurrentEmployeeId,
-    current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Atualiza dados pessoais do funcionario autenticado."""

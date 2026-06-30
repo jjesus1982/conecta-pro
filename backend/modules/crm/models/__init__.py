@@ -1,5 +1,6 @@
 """Modelos do módulo CRM."""
 
+from .activity_task import CrmActivity, CrmTask
 from .commission import (
     Commission,
     CommissionPayment,
@@ -23,7 +24,23 @@ from .contract import (
     ContractType,
     ServiceType,
 )
+from .growth import (
+    CrmBooking,
+    CrmBookingLink,
+    CrmCustomProperty,
+    CrmForm,
+    CrmFormSubmission,
+    CrmProduct,
+    CrmQuota,
+    CrmScoringRule,
+    CrmSegment,
+    CrmSequence,
+    CrmSequenceEnrollment,
+    CrmWorkflow,
+    CrmWorkflowRun,
+)
 from .lead import Lead, LeadSource, LeadStatus
+from .marketing_content import ContentStatus, MarketingContentDraft
 from .opportunity import (
     LossReason,
     Opportunity,
@@ -46,6 +63,12 @@ __all__ = [
     "Lead",
     "LeadStatus",
     "LeadSource",
+    # Marketing content
+    "MarketingContentDraft",
+    "ContentStatus",
+    # Timeline + Tarefas
+    "CrmActivity",
+    "CrmTask",
     # Opportunity
     "Opportunity",
     "OpportunityStage",

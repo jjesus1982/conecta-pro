@@ -189,6 +189,10 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
 )
 app.add_middleware(SecurityHeadersMiddleware)
+# Auditoria: registra toda escrita (POST/PUT/PATCH/DELETE) em crm_audit_log (best-effort, não bloqueia).
+from core.middleware_audit import AuditMiddleware  # noqa: E402
+
+app.add_middleware(AuditMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=500)
 # ProxyHeaders: confia nos headers X-Forwarded-Proto/X-Forwarded-For do nginx
 # para que redirects 307 usem https:// em vez de http://
@@ -385,6 +389,11 @@ try:
     from modules.crm.controllers.contact_controller import router as crm_contact_router
 
     api_router.include_router(crm_contact_router, prefix="/crm", tags=["CRM - Contatos & 360"])
+    # CRM Growth (9 features HubSpot-like: catálogo, sequências, workflows, forms, agendamento,
+    # segmentos, propriedades custom, scoring configurável, forecast)
+    from modules.crm.controllers.growth_controller import router as crm_growth_router
+
+    api_router.include_router(crm_growth_router, prefix="/crm", tags=["CRM - Growth"])
     # Marketing
     from modules.crm.controllers.marketing_controller import router as mkt_router
 
@@ -479,6 +488,15 @@ try:
     api_router.include_router(ordem_servico_router, prefix="/campo/os", tags=["Campo - Ordens de Servico"])
     api_router.include_router(visita_router, prefix="/campo/visitas", tags=["Campo - Visitas"])
     api_router.include_router(checklist_router, prefix="/campo/checklists", tags=["Campo - Checklists"])
+    # Campo — service (dashboard/technicians/tickets) + monitoring; estavam só no api/v1 fallback (telas davam 404)
+    try:
+        from modules.campo import campo_service_router as _campo_svc
+        from modules.campo import monitoring_router as _campo_mon
+
+        api_router.include_router(_campo_svc, tags=["Campo - Serviços"])  # router já tem prefix /campo
+        api_router.include_router(_campo_mon, prefix="/campo", tags=["Campo - Monitoramento"])
+    except Exception as _ce:
+        logger.warning("campo_service/monitoring nao montado: %s", _ce)
     # --- Dashboard operacional ---
     api_router.include_router(operacional_dashboard_router, prefix="/operacional", tags=["Operacional - Dashboard"])
     # --- Aliases PT-BR (frontend compatibility — redirects) ---
@@ -555,6 +573,13 @@ try:
 
     # Recruitment
     api_router.include_router(recruitment_router, tags=["Recruitment - Recrutamento e Selecao"])
+    # Recrutamento (módulo candidatos/vagas/entrevistas/candidaturas) — estava só no api/v1 fallback (telas davam 404)
+    try:
+        from modules.recruitment import router as _recrutamento_router
+
+        api_router.include_router(_recrutamento_router, tags=["Recrutamento - Candidatos/Vagas/Entrevistas"])
+    except Exception as _re:
+        logger.warning("recrutamento aggregator nao montado: %s", _re)
     # Retention
     api_router.include_router(onboarding_router, tags=["Retention - Onboarding"])
     api_router.include_router(profile_router, tags=["Retention - Operational Profile"])
@@ -927,7 +952,7 @@ try:
     # Workflows
     api_router.include_router(workflow_router, prefix="/workflows", tags=["Workflows"])
     # Integrations
-    api_router.include_router(integration_router, prefix="/integrations", tags=["Integrations - API Gateway"])
+    api_router.include_router(integration_router, tags=["Integrations - API Gateway"])
     api_router.include_router(connector_router, tags=["Integrations - Conectores"])
     api_router.include_router(solides_router, prefix="/integrations", tags=["Integrations - Sólides RH/DP"])
     api_router.include_router(banking_router, prefix="/integrations", tags=["Integrations - Banking"])
@@ -1053,6 +1078,22 @@ except Exception as e:
     logger.warning(f"GEDEON Kits router: {e}")
 
 try:
+    from modules.gedeon.controllers.orquestrador_controller import router as gedeon_orq_router
+
+    api_router.include_router(gedeon_orq_router)
+    logger.info("GEDEON Montagem: router registrado (/gedeon/kits/montagem|painel)")
+except Exception as e:
+    logger.warning(f"GEDEON Montagem router: {e}")
+
+try:
+    from modules.gedeon.controllers.cnd_controller import router as gedeon_cnd_router
+
+    api_router.include_router(gedeon_cnd_router)
+    logger.info("GEDEON CND: router registrado (/gedeon/cnd/emitir|status|pdf)")
+except Exception as e:
+    logger.warning(f"GEDEON CND router: {e}")
+
+try:
     from modules.gedeon.onvio.controllers.onvio_controller import router as onvio_router
 
     api_router.include_router(onvio_router)
@@ -1095,6 +1136,13 @@ except Exception as _e:
     logger.warning(f"Jurídico Skills: {_e}")
 
 # Incluir router principal
+try:
+    from modules.scheduler.controllers import router as _scheduler_router
+
+    api_router.include_router(_scheduler_router, tags=["Scheduler - Agendamento"])  # router já tem prefix /scheduler
+except Exception as _e:
+    logger.warning("scheduler_router nao montado: %s", _e)
+
 app.include_router(api_router)
 
 logger.info("=== API CONECTA PRO INICIADA (14 módulos) ===")

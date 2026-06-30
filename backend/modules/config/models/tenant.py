@@ -57,9 +57,23 @@ class Tenant(Base):
     descricao = Column(Text, nullable=True)
 
     # Tipo e status
-    tenant_type = Column(Enum(TenantType), nullable=False, default=TenantType.EMPRESA)
-    status = Column(Enum(TenantStatus), nullable=False, default=TenantStatus.TRIAL)
-    plan = Column(Enum(TenantPlan), nullable=False, default=TenantPlan.FREE)
+    # values_callable: o DB guarda o .value (ex: 'active'), não o nome do membro (ATIVO).
+    # Sem isso o SQLAlchemy mapeia pelo NOME e dá LookupError ao ler 'active'.
+    tenant_type = Column(
+        Enum(TenantType, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=TenantType.EMPRESA,
+    )
+    status = Column(
+        Enum(TenantStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=TenantStatus.TRIAL,
+    )
+    plan = Column(
+        Enum(TenantPlan, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=TenantPlan.FREE,
+    )
 
     # Documentos
     cnpj = Column(String(18), nullable=True, unique=True)

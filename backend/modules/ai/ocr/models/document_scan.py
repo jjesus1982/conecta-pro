@@ -103,8 +103,10 @@ class DocumentScan(Base):
     current_page = Column(Integer, default=1)
 
     # Tipo e classificacao
-    document_type = Column(Enum(DocumentScanType), index=True)
-    detected_type = Column(Enum(DocumentScanType))  # Tipo detectado por IA
+    document_type = Column(Enum(DocumentScanType, values_callable=lambda x: [e.value for e in x]), index=True)
+    detected_type = Column(
+        Enum(DocumentScanType, values_callable=lambda x: [e.value for e in x])
+    )  # Tipo detectado por IA
     type_confidence = Column(Float)  # Confianca na deteccao
     template_id = Column(UUID(as_uuid=True), index=True)  # Template usado
 

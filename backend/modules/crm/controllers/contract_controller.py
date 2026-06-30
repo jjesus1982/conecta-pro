@@ -6,6 +6,7 @@ from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
@@ -49,6 +50,67 @@ from modules.crm.services.contract_service import (
 )
 
 router = APIRouter(prefix="/contracts", tags=["CRM - Contracts"])
+
+
+@router.get("/{contract_id}/pdf")
+async def gerar_pdf_contrato(
+    contract_id: str,
+    current_user: CurrentActiveUser,  # noqa: ARG001
+    db: AsyncSession = Depends(get_db),
+    salvar: bool = False,
+    teste: bool = False,
+):
+    """Gera o PDF do contrato no padrão visual Conecta Mais (com selo).
+    salvar=true: registra no Conecta PRO e devolve link público de download."""
+    from types import SimpleNamespace
+
+    from fastapi import Response
+
+    row = (
+        (
+            await db.execute(
+                text("""
+        SELECT c.contract_number, c.name, c.description, c.contract_type, c.monthly_value, c.total_value,
+               c.start_date, c.end_date, c.auto_renewal, c.renewal_period_months, c.content, c.clauses,
+               c.retencao_iss, c.retencao_inss, c.retencao_csll,
+               cl.name AS client_name, cl.document_number AS client_document
+        FROM contracts c LEFT JOIN clients cl ON cl.id = c.client_id
+        WHERE c.contract_number = :k OR c.id::text = :k
+    """),
+                {"k": contract_id},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Contrato não encontrado")
+
+    from modules.crm.services.contract_pdf import build_contract_pdf
+
+    try:
+        pdf_bytes = build_contract_pdf(SimpleNamespace(**dict(row)))
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Erro ao gerar PDF do contrato %s", contract_id)
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar PDF: {e}") from e
+
+    if salvar:
+        from modules.crm.services.docs_registry import salvar_pdf
+
+        return await salvar_pdf(
+            db,
+            "contrato",
+            f"Contrato {row['contract_number']} - {row.get('client_name', '')}",
+            pdf_bytes,
+            ref_tipo="contract",
+            ref_id=contract_id,
+            teste=teste,
+        )
+
+    fname = f"contrato_{(row['contract_number'] or contract_id).replace('/', '-')}.pdf"
+    return Response(
+        content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{fname}"'}
+    )
 
 
 # ============== Contract Endpoints ==============
@@ -298,6 +360,16 @@ async def activate_contract(
 
     logger.info(f"Contract ativado por {current_user.email}: {contract.contract_number}")
 
+    # Captura valores planos p/ lançar o MRR em sessão isolada (depois dos publishers).
+    _mrr_args = (
+        contract.contract_number,
+        str(getattr(contract.contract_type, "value", contract.contract_type)),
+        float(contract.monthly_value or 0),
+        contract.name,
+        str(contract.client_id) if contract.client_id else None,
+        contract.start_date,
+    )
+
     import asyncio
 
     from modules.crm.publishers import publish_cliente_ativo, publish_contrato_assinado
@@ -322,6 +394,9 @@ async def activate_contract(
             valor_contrato=float(getattr(contract, "monthly_value", 0) or 0),
         )
     )
+
+    # MRR: contrato ativo recorrente -> lança a linha de faturamento (client_contracts).
+    await _bridge_contract_to_billing(*_mrr_args)
 
     return ContractResponse.model_validate(contract)
 
@@ -785,3 +860,58 @@ async def calculate_sla(
         )
 
     return service.calculate_sla(contract, indicator_results)
+
+
+# ============================================================================
+# ATIVAR CONTRATO -> alimenta o MRR (cria a linha de billing em client_contracts)
+# ============================================================================
+
+
+async def _bridge_contract_to_billing(num, ctype_val, monthly, name, client_id, start_date) -> bool:
+    """Cria a linha de faturamento (client_contracts) p/ entrar no MRR, em SESSÃO ISOLADA com
+    valores planos (evita MissingGreenlet). Idempotente (dedup por contract_number). Best-effort."""
+    try:
+        monthly = float(monthly or 0)
+        if str(ctype_val or "").lower() != "recurring" or monthly <= 0 or not client_id:
+            return False
+        nome = (name or "").lower()
+        if "cerca" in nome:
+            st = "cerca_eletrica"
+        elif "cftv" in nome or "câmera" in nome or "camera" in nome:
+            st = "cftv"
+        elif "monitor" in nome:
+            st = "monitoramento_24h"
+        elif "alarme" in nome:
+            st = "alarme"
+        else:
+            st = "portaria_remota"
+
+        from core.database import async_session_factory
+
+        async with async_session_factory() as s:
+            existing = (
+                await s.execute(text("SELECT id FROM client_contracts WHERE contract_number = :n LIMIT 1"), {"n": num})
+            ).first()
+            if existing:
+                return False
+            await s.execute(
+                text("""
+                INSERT INTO client_contracts
+                    (id, client_id, contract_number, service_type, status, monthly_value, start_date,
+                     auto_renewal, ativo, created_at, updated_at)
+                VALUES
+                    (gen_random_uuid(), :cid, :num, CAST(:st AS contract_service_type_enum),
+                     CAST('active' AS service_status_enum), :mv, :sd, true, true, now(), now())
+                """),
+                {"cid": client_id, "num": num, "st": st, "mv": monthly, "sd": start_date or date.today()},
+            )
+            await s.execute(
+                text("UPDATE clients SET mrr = COALESCE(mrr, 0) + :mv WHERE id = :cid"),
+                {"mv": monthly, "cid": client_id},
+            )
+            await s.commit()
+        logger.info(f"MRR: contrato {num} -> billing client_contracts (R$ {monthly}/mês)")
+        return True
+    except Exception as exc:  # noqa: BLE001 — bridge nunca quebra a ativação
+        logger.warning(f"Bridge contrato->MRR falhou ({num}): {exc}")
+        return False

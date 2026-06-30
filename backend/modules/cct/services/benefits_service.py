@@ -122,5 +122,12 @@ class BenefitsService:
         if empresa_id:
             query = query.where(CCTBenefitConfig.empresa_id == empresa_id)
 
-        result = await self.db.execute(query)
-        return list(result.scalars().all())
+        from sqlalchemy.exc import SQLAlchemyError  # noqa: PLC0415
+
+        try:
+            result = await self.db.execute(query)
+            return list(result.scalars().all())
+        except SQLAlchemyError as exc:
+            await self.db.rollback()
+            logger.warning("listar_configs_beneficios: tabela ausente/erro — retornando vazio (%s)", exc)
+            return []

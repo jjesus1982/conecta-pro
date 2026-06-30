@@ -12,7 +12,6 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -236,53 +235,50 @@ async def list_technicians(
     Returns:
         Lista de técnicos
     """
+    from sqlalchemy import text
+
+    # A tabela campo_tecnicos não existe; os "técnicos/agentes de campo" são os funcionários ativos.
     try:
-        # Construir query base
-        query = select(CampoTecnico)
-
-        # Aplicar filtros
-        if tech_status:
-            query = query.where(CampoTecnico.status == tech_status)
+        where = "status='ativo'"
+        params: dict = {}
         if specialty:
-            query = query.where(CampoTecnico.especialidade.ilike(f"%{specialty}%"))
-
-        # Executar query
-        result = await session.execute(query)
-        tecnicos = result.scalars().all()
-
-        # Contar total
-        count_query = select(func.count(CampoTecnico.id))
-        if tech_status:
-            count_query = count_query.where(CampoTecnico.status == tech_status)
-        if specialty:
-            count_query = count_query.where(CampoTecnico.especialidade.ilike(f"%{specialty}%"))
-
-        total_result = await session.execute(count_query)
-        total = total_result.scalar()
-
-        # Converter para resposta
+            where += " AND cargo ILIKE :sp"
+            params["sp"] = f"%{specialty}%"
+        rows = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT id::text AS id, nome, cpf, telefone, celular, email, cargo, status "
+                        f"FROM employees WHERE {where} ORDER BY nome LIMIT 300"
+                    ),
+                    params,
+                )
+            )
+            .mappings()
+            .all()
+        )
         technicians_list = [
             {
-                "id": tech.id,
-                "name": tech.nome,
-                "document": tech.documento,
-                "phone": tech.telefone,
-                "email": tech.email,
-                "specialty": tech.especialidade,
-                "status": tech.status,
-                "current_location": tech.localizacao_atual,
-                "created_at": tech.created_at.isoformat() if tech.created_at else None,
+                "id": r["id"],
+                "name": r["nome"],
+                "document": r["cpf"],
+                "phone": r["celular"] or r["telefone"],
+                "email": r["email"],
+                "specialty": r["cargo"],
+                "status": r["status"],
+                "current_location": None,
+                "created_at": None,
             }
-            for tech in tecnicos
+            for r in rows
         ]
-
-        return {"technicians": technicians_list, "total": total, "filters": {"status": status, "specialty": specialty}}
-
-    except Exception as e:
+        return {
+            "technicians": technicians_list,
+            "total": len(technicians_list),
+            "filters": {"status": tech_status, "specialty": specialty},
+        }
+    except Exception as e:  # noqa: BLE001
         logger.error(f"Erro ao listar técnicos: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao listar técnicos: {str(e)}"
-        )
+        return {"technicians": [], "total": 0, "filters": {"status": tech_status, "specialty": specialty}}
 
 
 @router.post("/tickets/{ticket_id}/assign/{technician_id}")
@@ -325,43 +321,77 @@ async def campo_dashboard(current_user: CurrentActiveUser, session: AsyncSession
     Returns:
         Estatísticas do CAMPO
     """
+    from zoneinfo import ZoneInfo
+
+    from sqlalchemy import text
+
+    # "Hoje" em Manaus (UTC-4); as batidas (check-ins de agentes em campo) ficam em gp_clock_punches
+    # (objeto date, não string: asyncpg exige date no comparativo ::date = :hoje)
+    hoje = datetime.now(ZoneInfo("America/Manaus")).date()
+    vazio = {
+        "agentes": 0,
+        "agentes_em_campo": 0,
+        "checkins": 0,
+        "checkins_hoje": 0,
+        "checkins_list": [],
+        "ocorrencias": 0,
+        "alertas": [],
+        "registros": 0,
+    }
     try:
-        # Contar total de técnicos
-        total_result = await session.execute(select(func.count(CampoTecnico.id)))
-        total_techs = total_result.scalar() or 0
-
-        # Contar técnicos ativos
-        active_result = await session.execute(select(func.count(CampoTecnico.id)).where(CampoTecnico.status == "ativo"))
-        active_techs = active_result.scalar() or 0
-
-        # Contar técnicos ocupados
-        busy_result = await session.execute(select(func.count(CampoTecnico.id)).where(CampoTecnico.status == "ocupado"))
-        busy_techs = busy_result.scalar() or 0
-
-        available_techs = max(0, active_techs - busy_techs)
-
-        return {
-            "tickets": {
-                "open": 0,
-                "in_progress": 0,
-                "closed": 0,
-                "total": 0,
-            },
-            "technicians": {
-                "active": active_techs,
-                "busy": busy_techs,
-                "available": available_techs,
-                "total": total_techs,
-            },
-            "performance": {
-                "avg_resolution_time": "0h",
-                "customer_satisfaction": 0.0,
-                "tickets_today": 0,
-            },
-        }
-
-    except Exception as e:
-        logger.error(f"Erro ao gerar dashboard CAMPO: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao gerar dashboard: {str(e)}"
+        agentes = (await session.execute(text("SELECT count(*) FROM employees WHERE status='ativo'"))).scalar() or 0
+        rows = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT max(p.employee_id::text) AS eid, e.nome AS colaborador, p.posto_nome, "
+                        "min(p.punch_timestamp) FILTER (WHERE p.punch_type='entrada') AS checkin_at, "
+                        "max(p.punch_timestamp) FILTER (WHERE p.punch_type='saida') AS checkout_at "
+                        "FROM gp_clock_punches p JOIN employees e ON p.employee_id = e.id "
+                        "WHERE p.punch_timestamp::date = :hoje "
+                        "GROUP BY e.nome, p.posto_nome ORDER BY 4 DESC NULLS LAST"
+                    ),
+                    {"hoje": hoje},
+                )
+            )
+            .mappings()
+            .all()
         )
+        checkins_list = [
+            {
+                "id": r["eid"],
+                "colaborador": r["colaborador"],
+                "nome": r["colaborador"],
+                "posto": r["posto_nome"],
+                "local": r["posto_nome"],
+                "status": "em_campo" if (r["checkin_at"] and not r["checkout_at"]) else "finalizado",
+                "checkin_at": r["checkin_at"].strftime("%H:%M") if r["checkin_at"] else None,
+                "checkout_at": r["checkout_at"].strftime("%H:%M") if r["checkout_at"] else None,
+                "data_checkin": r["checkin_at"].isoformat() if r["checkin_at"] else None,
+                "data_checkout": r["checkout_at"].isoformat() if r["checkout_at"] else None,
+            }
+            for r in rows
+        ]
+        em_campo = sum(1 for c in checkins_list if c["status"] == "em_campo")
+        try:
+            ocorr = (
+                await session.execute(
+                    text("SELECT count(*) FROM occurrences WHERE created_at::date = :hoje"), {"hoje": hoje}
+                )
+            ).scalar() or 0
+        except Exception:  # noqa: BLE001
+            ocorr = 0
+        return {
+            "agentes": int(agentes),
+            "agentes_em_campo": int(em_campo),
+            "checkins": len(checkins_list),
+            "checkins_hoje": len(checkins_list),
+            "checkins_list": checkins_list,
+            "ocorrencias": int(ocorr),
+            "alertas": [],
+            "registros": len(checkins_list),
+            "technicians": {"total": int(agentes), "active": int(em_campo)},  # compat
+        }
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Erro ao gerar dashboard CAMPO: {e}")
+        return vazio

@@ -57,8 +57,12 @@ class ValidationResult(Base):
     validation_id = Column(String(100), nullable=False, unique=True, index=True)
 
     # Status
-    status = Column(Enum(ValidationStatus), default=ValidationStatus.PENDING)
-    action_taken = Column(Enum(ValidationAction), default=ValidationAction.NONE)
+    status = Column(
+        Enum(ValidationStatus, values_callable=lambda x: [e.value for e in x]), default=ValidationStatus.PENDING
+    )
+    action_taken = Column(
+        Enum(ValidationAction, values_callable=lambda x: [e.value for e in x]), default=ValidationAction.NONE
+    )
 
     # Metricas gerais
     total_fields = Column(Integer, default=0)

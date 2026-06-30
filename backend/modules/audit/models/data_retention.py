@@ -82,17 +82,25 @@ class DataRetention(Base):
     version = Column(String(20), nullable=False, default="1.0")
 
     # Categoria e Status
-    data_category = Column(Enum(DataCategory), nullable=False)
-    status = Column(Enum(RetentionStatus), nullable=False, default=RetentionStatus.DRAFT)
+    data_category = Column(Enum(DataCategory, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    status = Column(
+        Enum(RetentionStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=RetentionStatus.DRAFT,
+    )
 
     # Período
-    retention_period = Column(Enum(RetentionPeriod), nullable=False)
+    retention_period = Column(Enum(RetentionPeriod, values_callable=lambda x: [e.value for e in x]), nullable=False)
     retention_days = Column(Integer, nullable=True)
     grace_period_days = Column(Integer, nullable=True, default=30)
 
     # Ação ao expirar
-    expiration_action = Column(Enum(RetentionAction), nullable=False, default=RetentionAction.DELETE)
-    secondary_action = Column(Enum(RetentionAction), nullable=True)
+    expiration_action = Column(
+        Enum(RetentionAction, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=RetentionAction.DELETE,
+    )
+    secondary_action = Column(Enum(RetentionAction, values_callable=lambda x: [e.value for e in x]), nullable=True)
     action_delay_days = Column(Integer, nullable=True, default=0)
 
     # Escopo

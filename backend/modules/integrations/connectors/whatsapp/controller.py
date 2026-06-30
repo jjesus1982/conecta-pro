@@ -226,6 +226,7 @@ async def _match_or_create_lead(db: AsyncSession, phone_canonical: str, name: st
 
     lead_name = (name or "").strip() or f"WhatsApp {phone_canonical}"
     repo = LeadRepository(db)
+    new_id: str | None = None
     try:
         lead = await repo.create(
             LeadCreate(
@@ -235,7 +236,7 @@ async def _match_or_create_lead(db: AsyncSession, phone_canonical: str, name: st
                 source=LeadSource.WHATSAPP,
             )
         )
-        return lead.id
+        new_id = lead.id
     except Exception as e:  # noqa: BLE001
         # O validator do LeadCreate exige 10-15 dígitos; um phone hostil/atípico (8 ou >15)
         # faria o lead NUNCA ser criado (silencioso). Fallback: INSERT cru (lenient) p/ a
@@ -251,7 +252,17 @@ async def _match_or_create_lead(db: AsyncSession, phone_canonical: str, name: st
                 {"n": lead_name[:255], "p": phone_canonical},
             )
         ).scalar()
-        return str(lid) if lid else None
+        new_id = str(lid) if lid else None
+
+    # Conversions API (Meta): avisa a Meta do lead NOVO. Best-effort, dorme sem token.
+    if new_id:
+        try:
+            from modules.integrations.connectors.meta.capi import send_lead_event
+
+            await send_lead_event(phone=phone_canonical, lead_id=new_id)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Meta CAPI: ignorado (%s)", e)
+    return new_id
 
 
 # Limite de download de audio (anti-abuso); voice do WhatsApp fica na casa de KB.
@@ -308,7 +319,10 @@ async def _transcrever_audio_attachments(data: dict) -> str | None:
                 att, kind = cand, "video"
             elif ftype == "image" or "image" in ctype:
                 att, kind = cand, "image"
-            elif ftype == "file" or any(url_l.split("?")[0].endswith(e) for e in (".pdf", ".docx", ".txt")):
+            elif ftype == "file" or any(
+                url_l.split("?")[0].endswith(e)
+                for e in (".pdf", ".docx", ".txt", ".xlsx", ".xlsm", ".xls", ".pptx", ".csv")
+            ):
                 att, kind = cand, "doc"
             if att:
                 break
@@ -345,16 +359,24 @@ async def _transcrever_audio_attachments(data: dict) -> str | None:
             if resp.content_length and resp.content_length > _AUDIO_MAX_BYTES:
                 logger.warning("Webhook Chatwoot: audio excede %sMB — ignorado", _AUDIO_MAX_BYTES // 1048576)
                 return None
-            audio_bytes = await resp.content.read(_AUDIO_MAX_BYTES + 1)
-        if len(audio_bytes) > _AUDIO_MAX_BYTES:
-            logger.warning("Webhook Chatwoot: audio excede limite apos download — ignorado")
-            return None
+            # Lê o CORPO COMPLETO em chunks. (resp.content.read(N) faz leitura PARCIAL em arquivos
+            # multi-chunk -> documento TRUNCADO: DOCX vira "not a zip", PDF/PPTX/XLSX vêm vazios.
+            # Áudio/imagem menores passavam por sorte. Cap de tamanho mantido.)
+            audio_bytes = b""
+            async for _chunk in resp.content.iter_chunked(65536):
+                audio_bytes += _chunk
+                if len(audio_bytes) > _AUDIO_MAX_BYTES:
+                    logger.warning("Webhook Chatwoot: anexo excede %sMB — ignorado", _AUDIO_MAX_BYTES // 1048576)
+                    return None
         if not audio_bytes:
             return None
 
         from openai import AsyncOpenAI  # noqa: PLC0415 — lazy, mesma chave do agente
 
-        client = AsyncOpenAI()
+        # timeout explícito: STT/visão roda no caminho síncrono do webhook; sem teto, um
+        # anexo problemático seguraria o handler (default SDK 600s) e o Chatwoot reentregaria.
+        _stt_to = float(os.getenv("AGENT_OPENAI_TIMEOUT", "90") or 90)
+        client = AsyncOpenAI(timeout=_stt_to)
 
         # ===== IMAGEM: descreve via visao do modelo =====
         if kind == "image":
@@ -364,18 +386,23 @@ async def _transcrever_audio_attachments(data: dict) -> str | None:
             b64 = base64.b64encode(audio_bytes).decode()
             vis = await client.chat.completions.create(
                 model=os.getenv("OPENAI_AGENT_MODEL", "gpt-5.1"),
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": (
-                            "Descreva esta imagem enviada por um cliente num atendimento de "
-                            "seguranca/portaria (Conecta Mais, Manaus). Foque no que importa p/ "
-                            "o atendimento: equipamento/defeito, local, documento, fachada etc. "
-                            "Maximo 4 frases, em portugues."
-                        )},
-                        {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
-                    ],
-                }],
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": (
+                                    "Descreva esta imagem enviada por um cliente num atendimento de "
+                                    "seguranca/portaria (Conecta Mais, Manaus). Foque no que importa p/ "
+                                    "o atendimento: equipamento/defeito, local, documento, fachada etc. "
+                                    "Maximo 4 frases, em portugues."
+                                ),
+                            },
+                            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
+                        ],
+                    }
+                ],
                 max_completion_tokens=220,
             )
             desc = (vis.choices[0].message.content or "").strip()
@@ -400,12 +427,42 @@ async def _transcrever_audio_attachments(data: dict) -> str | None:
 
                     d = Document(io.BytesIO(audio_bytes))
                     texto_doc = "\n".join(p.text for p in d.paragraphs)
-                elif ext == "txt":
+                elif ext in ("txt", "csv"):
                     texto_doc = audio_bytes.decode("utf-8", errors="replace")
+                elif ext in ("xlsx", "xlsm", "xls") or audio_bytes[:2] == b"PK" and "spreadsheet" in ctype:
+                    import io  # noqa: PLC0415
+
+                    from openpyxl import load_workbook  # noqa: PLC0415
+
+                    wb = load_workbook(io.BytesIO(audio_bytes), read_only=True, data_only=True)
+                    partes = []
+                    for ws in wb.worksheets[:5]:
+                        partes.append(f"[planilha: {ws.title}]")
+                        for i, row in enumerate(ws.iter_rows(values_only=True)):
+                            if i >= 300:
+                                break
+                            cells = [str(c) for c in row if c is not None]
+                            if cells:
+                                partes.append(" | ".join(cells))
+                    texto_doc = "\n".join(partes)
+                elif ext == "pptx" or (audio_bytes[:2] == b"PK" and "presentation" in ctype):
+                    import io  # noqa: PLC0415
+
+                    from pptx import Presentation  # noqa: PLC0415
+
+                    prs = Presentation(io.BytesIO(audio_bytes))
+                    partes = []
+                    for si, slide in enumerate(prs.slides):
+                        if si >= 40:
+                            break
+                        for shape in slide.shapes:
+                            if getattr(shape, "has_text_frame", False) and shape.text_frame.text.strip():
+                                partes.append(shape.text_frame.text.strip())
+                    texto_doc = "\n".join(partes)
             except Exception as e:  # noqa: BLE001
                 logger.warning("Webhook Chatwoot: falha ao extrair doc %s: %s", nome_arquivo, e)
                 return None
-            texto_doc = " ".join(texto_doc.split())[:2500]
+            texto_doc = " ".join(texto_doc.split())[:9000]
             if not texto_doc:
                 return None
             logger.info("Webhook Chatwoot: doc '%s' extraido (%s chars)", nome_arquivo, len(texto_doc))
@@ -595,6 +652,96 @@ def _read_webhook_secret() -> str:
     return os.getenv("WHATSAPP_WEBHOOK_SECRET", "") or _read_secret_file("/app/.whatsapp_webhook_secret")
 
 
+# Extração de coordenadas de links/textos de mapa (Google Maps, Apple, geo:, lat,lng cru).
+_MAPS_URL_RE = re.compile(
+    r"https?://[^\s]*(?:google\.[^/\s]+/maps|maps\.google|maps\.app\.goo\.gl|goo\.gl/maps|"
+    r"maps\.apple\.com|waze\.com)[^\s]*",
+    re.I,
+)
+_LATLNG_PATTERNS = [
+    re.compile(r"@(-?\d{1,3}\.\d{3,}),(-?\d{1,3}\.\d{3,})"),
+    re.compile(r"!3d(-?\d{1,3}\.\d{3,})!4d(-?\d{1,3}\.\d{3,})"),
+    re.compile(r"[?&](?:q|ll|center|destination|sll|daddr)=(-?\d{1,3}\.\d{3,}),(-?\d{1,3}\.\d{3,})", re.I),
+    re.compile(r"[?&]ll=(-?\d{1,3}\.\d{3,}),(-?\d{1,3}\.\d{3,})", re.I),
+    re.compile(r"geo:(-?\d{1,3}\.\d{3,}),(-?\d{1,3}\.\d{3,})", re.I),
+]
+_RAW_LATLNG_RE = re.compile(r"(?<![\d.])(-?\d{1,2}\.\d{4,})\s*,\s*(-?\d{1,3}\.\d{4,})(?![\d.])")
+
+
+def _extrair_coords(texto: str) -> tuple[str, str] | None:
+    for pat in _LATLNG_PATTERNS:
+        m = pat.search(texto)
+        if m:
+            return m.group(1), m.group(2)
+    m = _RAW_LATLNG_RE.search(texto)
+    if m:
+        return m.group(1), m.group(2)
+    return None
+
+
+async def _resolver_localizacao(content: str) -> str | None:
+    """Resolve link de mapa / coordenadas no texto -> endereço real (geocodificação reversa).
+    Segue redirect de link curto (maps.app.goo.gl) e consulta o Nominatim (OpenStreetMap, grátis).
+    Retorna a linha "📍 [...]" para anexar ao content, ou None se não houver localização."""
+    import aiohttp  # noqa: PLC0415
+
+    coords = _extrair_coords(content)
+    url_m = _MAPS_URL_RE.search(content)
+    # link curto sem coords visíveis -> segue o redirect p/ a URL completa
+    if not coords and url_m:
+        url = url_m.group(0)
+        try:
+            async with (
+                aiohttp.ClientSession() as s,
+                s.get(
+                    url,
+                    allow_redirects=True,
+                    timeout=aiohttp.ClientTimeout(total=12),
+                    headers={"User-Agent": "Mozilla/5.0 ConectaMais/1.0"},
+                ) as r,
+            ):
+                final = str(r.url)
+                coords = _extrair_coords(final)
+                if not coords:
+                    body = (await r.text())[:6000]
+                    coords = _extrair_coords(body)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("resolver_localizacao: redirect falhou: %s", e)
+    if not coords and not url_m:
+        return None
+    if not coords:
+        # tem link mas não deu p/ extrair coords -> ao menos marca como localização
+        return "📍 [localização recebida pelo cliente — use como endereço da visita, não peça rua/número de novo]"
+
+    lat, lng = coords
+    endereco = None
+    try:
+        nomi = os.getenv("NOMINATIM_URL", "https://nominatim.openstreetmap.org/reverse")
+        async with (
+            aiohttp.ClientSession() as s,
+            s.get(
+                nomi,
+                params={"lat": lat, "lon": lng, "format": "json", "zoom": "18", "accept-language": "pt-BR"},
+                headers={"User-Agent": "ConectaMais-JoseLuis/1.0 (contato@conectamais.pro)"},
+                timeout=aiohttp.ClientTimeout(total=12),
+            ) as r,
+        ):
+            if r.status == 200:
+                d = await r.json()
+                endereco = d.get("display_name")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("resolver_localizacao: nominatim falhou: %s", e)
+
+    link = f"https://www.google.com/maps?q={lat},{lng}"
+    if endereco:
+        logger.info("Webhook Chatwoot: localização resolvida -> %s", endereco[:80])
+        return (
+            f"📍 [localização resolvida — use como endereço da visita, NÃO peça rua/número de "
+            f"novo]: {endereco} · coords {lat},{lng} · {link}"
+        )
+    return f"📍 [localização — coords {lat},{lng} · {link}] (use como endereço da visita)"
+
+
 @router.post("/webhook")
 async def chatwoot_webhook(
     request: Request,
@@ -648,18 +795,16 @@ async def chatwoot_webhook(
         if midia:
             content = f"{content}\n{midia}" if content else midia
 
-    # Cliente colou um link de mapa / coordenadas no TEXTO (não como pin): marca claro
-    # p/ o agente tratar como endereço da visita e não ficar pedindo rua/número em loop.
-    if direction == "in" and content and "📍" not in content and re.search(
-        r"(maps\.google|google\.[a-z.]+/maps|maps\.app\.goo\.gl|goo\.gl/maps|geo:-?\d|"
-        r"[-+]?\d{1,2}\.\d{3,}[,\s]+[-+]?\d{1,3}\.\d{3,})",
-        content,
-        re.I,
-    ):
-        content = (
-            f"{content}\n📍 [localização recebida pelo cliente — use como endereço da "
-            f"visita, não peça rua/número de novo]"
-        )
+    # Cliente/Jordan colou um link de mapa / coordenadas no TEXTO (não como pin):
+    # RESOLVE de verdade — segue o redirect do link curto, extrai as coordenadas e
+    # geocodifica reverso (endereço real). Best-effort; falha -> só marca como localização.
+    if direction == "in" and content and "📍" not in content:
+        try:
+            loc = await _resolver_localizacao(content)
+            if loc:
+                content = f"{content}\n{loc}"
+        except Exception as e:  # noqa: BLE001 — nunca derruba o webhook
+            logger.error("Webhook Chatwoot: resolver localização falhou: %s", e)
 
     lead_id = None
     if direction == "in" and phone_canonical:
@@ -695,6 +840,16 @@ async def chatwoot_webhook(
             await db.rollback()
         except Exception:  # noqa: BLE001
             pass
+
+    # Resposta a um follow-up do José Luís: liga ao deal, classifica e notifica o Jordan.
+    # Best-effort (não derruba o webhook). Opt-out é tratado dentro de link_inbound.
+    if direction == "in" and phone_canonical:
+        try:
+            from modules.crm.services.followups import link_inbound
+
+            await link_inbound(db, phone_canonical, content if isinstance(content, str) else None)
+        except Exception as e:  # noqa: BLE001 — follow-up nunca derruba o webhook
+            logger.error("Webhook: link_inbound follow-up falhou (ignorada): %s", e)
 
     # Em mensagem de ENTRADA, agenda o agente em background (nao bloqueia o 200).
     # AGENT_MODE=copilot -> nota privada + rascunho (humano aprova). AGENT_MODE=autonomous

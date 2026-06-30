@@ -77,17 +77,27 @@ class DemandPattern(Base):
     total_data_points = Column(Integer, default=0)
 
     # Classificacao do padrao
-    pattern_type = Column(Enum(PatternType), default=PatternType.CONSTANT, nullable=False)
+    pattern_type = Column(
+        Enum(PatternType, values_callable=lambda x: [e.value for e in x]), default=PatternType.CONSTANT, nullable=False
+    )
     pattern_confidence = Column(Float, default=0)  # 0-100
 
     # Sazonalidade
-    seasonality_type = Column(Enum(SeasonalityType), default=SeasonalityType.NONE, nullable=False)
+    seasonality_type = Column(
+        Enum(SeasonalityType, values_callable=lambda x: [e.value for e in x]),
+        default=SeasonalityType.NONE,
+        nullable=False,
+    )
     seasonality_strength = Column(Float, default=0)  # 0-1
     seasonal_periods = Column(ARRAY(Integer))  # Ex: [7, 30, 365]
     peak_periods = Column(JSONB, default=list)  # Periodos de pico
 
     # Tendencia
-    trend_direction = Column(Enum(TrendDirection), default=TrendDirection.STABLE, nullable=False)
+    trend_direction = Column(
+        Enum(TrendDirection, values_callable=lambda x: [e.value for e in x]),
+        default=TrendDirection.STABLE,
+        nullable=False,
+    )
     trend_slope = Column(Float, default=0)  # Taxa de variacao
     trend_strength = Column(Float, default=0)  # 0-1
 

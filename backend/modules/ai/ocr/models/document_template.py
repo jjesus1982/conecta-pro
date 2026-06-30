@@ -54,7 +54,7 @@ class DocumentTemplate(Base):
     version = Column(String(20), default="1.0.0")
 
     # Tipo de documento
-    document_type = Column(Enum(DocumentScanType), nullable=False)
+    document_type = Column(Enum(DocumentScanType, values_callable=lambda x: [e.value for e in x]), nullable=False)
     document_subtype = Column(String(100))  # Subtipo especifico
 
     # Deteccao automatica
@@ -173,7 +173,7 @@ class TemplateField(Base):
     description = Column(Text)
 
     # Tipo
-    field_type = Column(Enum(FieldType), nullable=False)
+    field_type = Column(Enum(FieldType, values_callable=lambda x: [e.value for e in x]), nullable=False)
     field_group = Column(String(100))  # Agrupamento logico
 
     # Extracao
@@ -262,7 +262,7 @@ class ExtractionRule(Base):
     description = Column(Text)
 
     # Tipo e definicao
-    rule_type = Column(Enum(RuleType), nullable=False)
+    rule_type = Column(Enum(RuleType, values_callable=lambda x: [e.value for e in x]), nullable=False)
     rule_definition = Column(JSONB, nullable=False)
     # Estrutura varia por tipo:
     # - regex: {"pattern": "...", "group": 1, "flags": "i"}

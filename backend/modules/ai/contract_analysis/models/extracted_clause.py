@@ -82,7 +82,12 @@ class ExtractedClause(Base):
     # Identificacao da clausula
     clause_number = Column(String(20))  # Ex: "5.1", "CLAUSULA QUINTA"
     clause_title = Column(String(300))
-    clause_type = Column(Enum(ClauseType), default=ClauseType.OTHER, nullable=False, index=True)
+    clause_type = Column(
+        Enum(ClauseType, values_callable=lambda x: [e.value for e in x]),
+        default=ClauseType.OTHER,
+        nullable=False,
+        index=True,
+    )
     clause_type_confidence = Column(Float, default=0)  # 0-100
 
     # Conteudo
@@ -96,7 +101,11 @@ class ExtractedClause(Base):
     end_position = Column(Integer)  # Posicao final
 
     # Classificacao
-    importance = Column(Enum(ClauseImportance), default=ClauseImportance.MEDIUM, nullable=False)
+    importance = Column(
+        Enum(ClauseImportance, values_callable=lambda x: [e.value for e in x]),
+        default=ClauseImportance.MEDIUM,
+        nullable=False,
+    )
     is_standard = Column(Boolean, default=True)  # Clausula padrao
     is_custom = Column(Boolean, default=False)  # Customizada
     is_risky = Column(Boolean, default=False)  # Apresenta risco

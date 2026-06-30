@@ -177,6 +177,9 @@ async def create_diarist(
 
 
 @router.get("", response_model=DiaristListResponse)
+@router.get(
+    "/", response_model=DiaristListResponse, include_in_schema=False
+)  # espelho barra-final (redirect_slashes=False)
 async def list_diarists(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),

@@ -145,8 +145,10 @@ class PortalService:
 
         if data_nascimento:
             dt_nasc = getattr(employee, "data_nascimento", None)
-            if dt_nasc and str(dt_nasc) != data_nascimento:
-                logger.warning("Data nascimento incorreta para employee_id=%s", employee.id)
+            # SEGURANÇA: sem data de nascimento cadastrada → NÃO autentica. Antes, dt_nasc=None
+            # caía no `return True`, deixando qualquer um entrar só com o CPF + qualquer data.
+            if not dt_nasc or str(dt_nasc)[:10] != str(data_nascimento)[:10]:
+                logger.warning("Data nascimento ausente/incorreta para employee_id=%s", employee.id)
                 return False
             return True
 

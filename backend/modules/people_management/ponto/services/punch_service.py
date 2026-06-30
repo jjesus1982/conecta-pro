@@ -211,13 +211,70 @@ class PunchService:
             )
             .order_by(ClockPunchModel.punch_timestamp)
         )
-        batidas = [p.to_dict() for p in result.scalars().all()]
+        punches = list(result.scalars().all())
+        batidas = [p.to_dict() for p in punches]
+
+        # Agrupa as batidas por dia para montar o espelho (formato que o front consome:
+        # dias[] com entrada1/saida1/entrada2/saida2/total). Cada par entrada->saida
+        # soma minutos trabalhados; lidamos com até 2 pares (manhã/tarde) por dia.
+        _SEMANA = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sab", "Dom"]
+        por_dia: dict[Any, list[ClockPunchModel]] = {}
+        for p in punches:
+            if not p.punch_timestamp:
+                continue
+            por_dia.setdefault(p.punch_timestamp.date(), []).append(p)
+
+        def _hhmm(dt: datetime | None) -> str:
+            return dt.strftime("%H:%M") if dt else ""
+
+        dias: list[dict[str, Any]] = []
+        total_min = 0
+        for data_dia in sorted(por_dia):
+            ps = sorted(por_dia[data_dia], key=lambda x: x.punch_timestamp)
+            entradas = [
+                x.punch_timestamp
+                for x in ps
+                if "entrada" in (x.punch_type or "").lower() or "retorno" in (x.punch_type or "").lower()
+            ]
+            saidas = [x.punch_timestamp for x in ps if "saida" in (x.punch_type or "").lower()]
+            # se não houver tipagem confiável, intercala pela ordem (par/ímpar)
+            if not entradas and not saidas:
+                entradas = [x.punch_timestamp for i, x in enumerate(ps) if i % 2 == 0]
+                saidas = [x.punch_timestamp for i, x in enumerate(ps) if i % 2 == 1]
+            e1 = entradas[0] if len(entradas) > 0 else None
+            s1 = saidas[0] if len(saidas) > 0 else None
+            e2 = entradas[1] if len(entradas) > 1 else None
+            s2 = saidas[1] if len(saidas) > 1 else None
+            dia_min = 0
+            for ent, sai in ((e1, s1), (e2, s2)):
+                if ent and sai and sai > ent:
+                    dia_min += int((sai - ent).total_seconds() // 60)
+            total_min += dia_min
+            dias.append(
+                {
+                    "dia": data_dia.strftime("%d/%m"),
+                    "data": data_dia.isoformat(),
+                    "dia_semana": _SEMANA[data_dia.weekday()],
+                    "entrada1": _hhmm(e1),
+                    "saida1": _hhmm(s1),
+                    "entrada2": _hhmm(e2),
+                    "saida2": _hhmm(s2),
+                    "total": f"{dia_min // 60:02d}:{dia_min % 60:02d}",
+                    "obs": "",
+                }
+            )
+
+        total_trabalhado = f"{total_min // 60:02d}:{total_min % 60:02d}"
 
         return {
             "employee_id": employee_id,
             "month": month,
             "year": year,
+            "competencia": f"{month:02d}/{year}",
             "total_batidas": len(batidas),
+            "total_dias": len(dias),
+            "total_trabalhado": total_trabalhado,
+            "dias": dias,
             "batidas": batidas,
         }
 
@@ -243,8 +300,17 @@ class PunchService:
         self.db.add(justification)
         await self.db.flush()
 
-        # Push bidirecional para Sólides (não bloqueia se falhar)
-        await self._push_justification_to_solides(data.employee_id, data.justification_type, data.reason, data.category)
+        # Push best-effort p/ Sólides em SAVEPOINT: se a query/conector falhar, faz rollback SÓ do
+        # savepoint — a justificativa acima é preservada. Antes, a falha (coluna inexistente em
+        # solides_employees) abortava a transação toda e o commit do get_db virava rollback
+        # silencioso → justificativa perdida com 201 falso (data loss).
+        try:
+            async with self.db.begin_nested():
+                await self._push_justification_to_solides(
+                    data.employee_id, data.justification_type, data.reason, data.category
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Push Sólides falhou (justificativa preservada): %s", e)
 
         logger.info("Justificativa criada: %s", justification.justification_id)
         return justification.to_dict()
@@ -455,8 +521,11 @@ class PunchService:
                 category=category,
                 start_date=start_date,
             )
-        except Exception as e:
-            logger.warning("Push Sólides (justificativa) falhou — não crítico: %s", e)
+        except Exception:
+            # propaga p/ o SAVEPOINT do chamador (criar_justificativa) fazer rollback isolado;
+            # a justificativa já persistida é preservada. NÃO engolir aqui (engolir deixava a
+            # transação async abortada e o commit virava rollback silencioso).
+            raise
 
     async def _push_justification_review_to_solides(
         self,

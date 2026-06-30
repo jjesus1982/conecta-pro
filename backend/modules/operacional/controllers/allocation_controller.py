@@ -7,6 +7,7 @@ from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
@@ -226,6 +227,27 @@ async def get_allocations_by_employee(
     allocations, _ = await repo.list(filters=filters, page=1, page_size=500)
 
     return [AllocationResponse.model_validate(a) for a in allocations]
+
+
+# IMPORTANTE: /stats DEVE vir antes de /{allocation_id}, senão "stats" é parseado
+# como UUID e dá 500 (DataError). Era o que derrubava o card de alocações no analytics.
+@router.get(
+    "/stats",
+    dependencies=[require_operacional_permission(Permission.ALLOCATIONS_VIEW)],
+)
+async def allocation_stats(
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Estatísticas de alocações (contagem por status)."""
+    rows = (await db.execute(text("SELECT status, COUNT(*) AS qtd FROM allocations GROUP BY status"))).mappings().all()
+    by_status = {str(r["status"]): r["qtd"] for r in rows}
+    return {
+        "total": sum(by_status.values()),
+        "active": by_status.get("active", 0),
+        "on_hold": by_status.get("on_hold", 0),
+        "terminated": by_status.get("terminated", 0),
+        "by_status": by_status,
+    }
 
 
 @router.get(

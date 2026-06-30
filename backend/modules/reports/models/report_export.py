@@ -7,14 +7,10 @@ Sprint 34: Relatórios Gerenciais
 import enum
 import secrets
 from datetime import datetime, timedelta
-from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import (
-    Column, String, Text, Boolean, DateTime,
-    Integer, BigInteger, Enum, Index, ForeignKey
-)
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, Enum, ForeignKey, Index, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
 from core.database import Base
@@ -22,6 +18,7 @@ from core.database import Base
 
 class ExportStatus(str, enum.Enum):
     """Status da exportação."""
+
     PENDING = "pending"
     PROCESSING = "processing"
     COMPLETED = "completed"
@@ -32,6 +29,7 @@ class ExportStatus(str, enum.Enum):
 
 class ExportTrigger(str, enum.Enum):
     """O que disparou a exportação."""
+
     MANUAL = "manual"
     SCHEDULED = "scheduled"
     API = "api"
@@ -41,6 +39,7 @@ class ExportTrigger(str, enum.Enum):
 
 class ExportFormat(str, enum.Enum):
     """Formato da exportação."""
+
     PDF = "pdf"
     EXCEL = "excel"
     CSV = "csv"
@@ -59,24 +58,22 @@ class ReportExport(Base):
     # Identificação
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     tenant_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    template_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("report_templates.id"),
-        nullable=False
-    )
-    schedule_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("report_schedules.id"),
-        nullable=True
-    )
+    template_id = Column(UUID(as_uuid=True), ForeignKey("report_templates.id"), nullable=False)
+    schedule_id = Column(UUID(as_uuid=True), ForeignKey("report_schedules.id"), nullable=True)
     export_number = Column(String(50), nullable=False, unique=True)
 
     # Status
-    status = Column(Enum(ExportStatus), nullable=False, default=ExportStatus.PENDING)
-    trigger = Column(Enum(ExportTrigger), nullable=False, default=ExportTrigger.MANUAL)
+    status = Column(
+        Enum(ExportStatus, values_callable=lambda x: [e.value for e in x]), nullable=False, default=ExportStatus.PENDING
+    )
+    trigger = Column(
+        Enum(ExportTrigger, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=ExportTrigger.MANUAL,
+    )
 
     # Formato
-    format = Column(Enum(ExportFormat), nullable=False)
+    format = Column(Enum(ExportFormat, values_callable=lambda x: [e.value for e in x]), nullable=False)
     filename = Column(String(500), nullable=True)
     content_type = Column(String(100), nullable=True)
 
@@ -148,11 +145,11 @@ class ReportExport(Base):
         template_id: str,
         export_format: ExportFormat,
         trigger: ExportTrigger = ExportTrigger.MANUAL,
-        schedule_id: Optional[str] = None,
-        requested_by: Optional[str] = None
+        schedule_id: str | None = None,
+        requested_by: str | None = None,
     ) -> "ReportExport":
         """Cria uma nova exportação."""
-        timestamp = datetime.utcnow().strftime('%Y%m%d%H%M%S')
+        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
         token = secrets.token_hex(4).upper()
         export_number = f"EXP-{timestamp}-{token}"
 
@@ -163,7 +160,7 @@ class ReportExport(Base):
             format=export_format,
             trigger=trigger,
             requested_by=requested_by,
-            download_token=secrets.token_urlsafe(32)
+            download_token=secrets.token_urlsafe(32),
         )
 
     def start_processing(self) -> None:
@@ -176,9 +173,9 @@ class ReportExport(Base):
         self,
         file_path: str,
         file_size: int,
-        file_checksum: Optional[str] = None,
-        records: Optional[int] = None,
-        pages: Optional[int] = None
+        file_checksum: str | None = None,
+        records: int | None = None,
+        pages: int | None = None,
     ) -> None:
         """Marca como completo."""
         self.status = ExportStatus.COMPLETED
@@ -197,12 +194,7 @@ class ReportExport(Base):
         self.download_expires_at = datetime.utcnow() + timedelta(days=7)
         self.updated_at = datetime.utcnow()
 
-    def fail(
-        self,
-        error_message: str,
-        error_code: Optional[str] = None,
-        error_details: Optional[dict] = None
-    ) -> None:
+    def fail(self, error_message: str, error_code: str | None = None, error_details: dict | None = None) -> None:
         """Marca como falho."""
         self.status = ExportStatus.FAILED
         self.completed_at = datetime.utcnow()
@@ -227,7 +219,7 @@ class ReportExport(Base):
         self.ativo = False
         self.updated_at = datetime.utcnow()
 
-    def record_download(self, user_id: Optional[str] = None) -> bool:
+    def record_download(self, user_id: str | None = None) -> bool:
         """Registra download. Retorna False se não pode baixar."""
         if self.status != ExportStatus.COMPLETED:
             return False
@@ -244,12 +236,7 @@ class ReportExport(Base):
         self.updated_at = datetime.utcnow()
         return True
 
-    def record_delivery(
-        self,
-        method: str,
-        recipient: str,
-        status: str = "sent"
-    ) -> None:
+    def record_delivery(self, method: str, recipient: str, status: str = "sent") -> None:
         """Registra entrega."""
         self.delivered = True
         self.delivered_at = datetime.utcnow()

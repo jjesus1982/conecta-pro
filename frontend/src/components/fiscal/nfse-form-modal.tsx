@@ -5,16 +5,31 @@ import { useState, useEffect, useCallback } from 'react';
 import { Modal, ModalFooter } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { listarTomadoresNFSe } from '@/services/government/nfse.service';
 
 interface NfseFormData {
   numero_rps: string;
   serie_rps: string;
   tomador_cnpj: string;
   tomador_nome: string;
+  tomador_logradouro: string;
+  tomador_numero: string;
+  tomador_bairro: string;
+  tomador_cep: string;
   descricao_servico: string;
   valor_servico: number;
   aliquota_iss: number;
   codigo_servico: string;
+}
+
+interface Tomador {
+  cnpj: string;
+  razao_social: string;
+  logradouro: string;
+  numero: string;
+  bairro: string;
+  cep: string;
+  codigo_municipio: string;
 }
 
 interface NfseFormModalProps {
@@ -29,6 +44,10 @@ const defaultFormData: NfseFormData = {
   serie_rps: '',
   tomador_cnpj: '',
   tomador_nome: '',
+  tomador_logradouro: '',
+  tomador_numero: '',
+  tomador_bairro: '',
+  tomador_cep: '',
   descricao_servico: '',
   valor_servico: 0,
   aliquota_iss: 0,
@@ -38,10 +57,14 @@ const defaultFormData: NfseFormData = {
 export function NfseFormModal({ isOpen, onClose, onSubmit, isLoading = false }: NfseFormModalProps) {
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState<NfseFormData>(defaultFormData);
+  const [tomadores, setTomadores] = useState<Tomador[]>([]);
+  const [tomadorSel, setTomadorSel] = useState<string>('');
+  const [loadingTomadores, setLoadingTomadores] = useState(false);
 
   // Reset form when modal opens
   const resetForm = useCallback(() => {
     setFormData(defaultFormData);
+    setTomadorSel('');
     setError(null);
   }, []);
 
@@ -49,8 +72,30 @@ export function NfseFormModal({ isOpen, onClose, onSubmit, isLoading = false }: 
     if (isOpen) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- Form sync
       resetForm();
+      // Carrega condominios (tomadores) das notas ja emitidas
+      setLoadingTomadores(true);
+      listarTomadoresNFSe()
+        .then((lista) => setTomadores(lista))
+        .catch(() => setTomadores([]))
+        .finally(() => setLoadingTomadores(false));
     }
   }, [isOpen, resetForm]);
+
+  const handleSelectTomador = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const cnpj = e.target.value;
+    setTomadorSel(cnpj);
+    const t = tomadores.find((x) => x.cnpj === cnpj);
+    if (!t) return;
+    setFormData((prev) => ({
+      ...prev,
+      tomador_cnpj: t.cnpj,
+      tomador_nome: t.razao_social,
+      tomador_logradouro: t.logradouro,
+      tomador_numero: t.numero,
+      tomador_bairro: t.bairro,
+      tomador_cep: t.cep,
+    }));
+  };
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
@@ -103,6 +148,32 @@ export function NfseFormModal({ isOpen, onClose, onSubmit, isLoading = false }: 
           </div>
         )}
 
+        <div>
+          <label className="block text-sm text-[hsl(var(--muted-foreground))] mb-1">
+            Condominio (preenche o tomador automaticamente)
+          </label>
+          <select
+            value={tomadorSel}
+            onChange={handleSelectTomador}
+            disabled={loadingTomadores}
+            aria-label="Selecionar condominio"
+            className="w-full px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--background))] text-[hsl(var(--foreground))]"
+          >
+            <option value="">
+              {loadingTomadores
+                ? 'Carregando condominios...'
+                : tomadores.length
+                  ? '— Selecione um condominio —'
+                  : 'Nenhum condominio encontrado (preencha manualmente)'}
+            </option>
+            {tomadores.map((t) => (
+              <option key={t.cnpj} value={t.cnpj}>
+                {t.razao_social}
+              </option>
+            ))}
+          </select>
+        </div>
+
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm text-[hsl(var(--muted-foreground))] mb-1">
@@ -154,6 +225,54 @@ export function NfseFormModal({ isOpen, onClose, onSubmit, isLoading = false }: 
               required
              aria-label="Razao Social" />
           </div>
+        </div>
+
+        <div className="grid grid-cols-4 gap-4">
+          <div className="col-span-2">
+            <label className="block text-sm text-[hsl(var(--muted-foreground))] mb-1">
+              Logradouro
+            </label>
+            <Input
+              name="tomador_logradouro"
+              value={formData.tomador_logradouro}
+              onChange={handleChange}
+              placeholder="Rua / Av."
+             aria-label="Logradouro" />
+          </div>
+          <div>
+            <label className="block text-sm text-[hsl(var(--muted-foreground))] mb-1">
+              Numero
+            </label>
+            <Input
+              name="tomador_numero"
+              value={formData.tomador_numero}
+              onChange={handleChange}
+              placeholder="S/N"
+             aria-label="Numero" />
+          </div>
+          <div>
+            <label className="block text-sm text-[hsl(var(--muted-foreground))] mb-1">
+              CEP
+            </label>
+            <Input
+              name="tomador_cep"
+              value={formData.tomador_cep}
+              onChange={handleChange}
+              placeholder="69000-000"
+             aria-label="CEP" />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm text-[hsl(var(--muted-foreground))] mb-1">
+            Bairro
+          </label>
+          <Input
+            name="tomador_bairro"
+            value={formData.tomador_bairro}
+            onChange={handleChange}
+            placeholder="Bairro"
+           aria-label="Bairro" />
         </div>
 
         <div>
