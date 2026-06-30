@@ -133,6 +133,16 @@ def _ponto_status() -> dict:
     return {"state": "idle"}
 
 
+def _invalidar_kit(comp: str, cond: str) -> None:
+    """Limpa todos os caches do kit após uma mutação (upload/delete) — dado fresco na hora."""
+    from modules.gedeon.services import kit_cache
+
+    kit_cache.invalidar(cond, comp)
+    _FICHA_CACHE.pop((comp, cond), None)
+    _ATLAS_CACHE.pop((comp, cond), None)
+    _COMPLETUDE_CACHE.pop(comp, None)
+
+
 @router.post("/upload", summary="Anexa um arquivo ao kit de um condomínio (upload manual)")
 async def upload_kit(
     competencia: str = Form(..., regex=COMP_RE),
@@ -185,6 +195,7 @@ async def upload_kit(
             pass
     if not ok:
         raise HTTPException(status_code=502, detail="falha no upload ao Drive")
+    _invalidar_kit(competencia, condominio)  # ficha/ATLAS/completude refletem o novo anexo
     return {"ok": True, "condominio": condominio, "competencia": competencia, "arquivo": nome, "bytes": len(content)}
 
 
@@ -232,7 +243,7 @@ def excluir_arquivo_kit(
     if nome and meta.get("name") != nome:
         raise HTTPException(status_code=400, detail="nome do arquivo não confere")
     svc.files().update(fileId=file_id, body={"trashed": True}, supportsAllDrives=True).execute()
-    _COMPLETUDE_CACHE.pop(comp, None)  # dashboard reflete a remoção
+    _invalidar_kit(comp, condominio)  # ficha/ATLAS/completude refletem a remoção
     return {"ok": True, "arquivo": meta.get("name"), "condominio": condominio}
 
 
@@ -257,6 +268,10 @@ def ficha_kit(
     cached = _FICHA_CACHE.get(chave)
     if cached and not refresh and (time.time() - cached[0]) < _FICHA_TTL:
         return {**cached[1], "_cache": True}
+    if refresh:  # fura também o cache dos hotspots do Drive (pós-coleta/montagem)
+        from modules.gedeon.services import kit_cache
+
+        kit_cache.invalidar(condominio, comp)
     out = ficha(comp, condominio)
     _FICHA_CACHE[chave] = (time.time(), out)
     return out
@@ -284,6 +299,10 @@ def conferir_kit_endpoint(
     cached = _ATLAS_CACHE.get(chave)
     if cached and not refresh and (time.time() - cached[0]) < _ATLAS_TTL:
         return {**cached[1], "_cache": True}
+    if refresh:
+        from modules.gedeon.services import kit_cache
+
+        kit_cache.invalidar(condominio, comp)
     try:
         out = conferir_kit(comp, condominio)
         _ATLAS_CACHE[chave] = (time.time(), out)
@@ -472,6 +491,10 @@ def completude_kits_endpoint(
     cached = _COMPLETUDE_CACHE.get(comp)
     if cached and not refresh and (time.time() - cached[0]) < _COMPLETUDE_TTL:
         return {**cached[1], "_cache": True}
+    if refresh:
+        from modules.gedeon.services import kit_cache
+
+        kit_cache.invalidar(competencia=comp)
     try:
         out = completude_kits(comp)
         _COMPLETUDE_CACHE[comp] = (time.time(), out)

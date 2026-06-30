@@ -17,12 +17,13 @@ def alinhamento_dp(competencia: str, condominio: str) -> dict:
     """Cruza a folha do kit com o espelho do DP (solides_employees + ausências do mês)."""
     from core.database.session import get_sync_db
     from modules.gdrive.services.gdrive_service import gdrive_service
-    from modules.gedeon.services.kit_ficha_service import _client_id_do_condominio, _nomes_da_folha, _norm, _pertence
+    from modules.gedeon.services import kit_cache
+    from modules.gedeon.services.kit_ficha_service import _client_id_do_condominio, _norm, _pertence
 
     if not gdrive_service._service:
         gdrive_service.check_status()
     svc = gdrive_service._service
-    folha = [n for n in (_nomes_da_folha(svc, condominio, competencia) if svc else []) if n.strip()]
+    folha = [n for n in (kit_cache.nomes_folha(svc, condominio, competencia) if svc else []) if n.strip()]
 
     m, a = int(competencia.split(".")[0]), int(competencia.split(".")[1])
     ini, fim = f"{a}-{m:02d}-01", (f"{a}-{m+1:02d}-01" if m < 12 else f"{a+1}-01-01")

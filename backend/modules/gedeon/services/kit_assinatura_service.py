@@ -42,11 +42,8 @@ def pendencias_assinatura(competencia: str, condominio: str | None = None) -> di
     """Quem (folha do condomínio) ainda não tem o recibo de VT/VR assinado no Sólides."""
     from core.database.session import get_sync_db
     from modules.gdrive.services.gdrive_service import gdrive_service
-    from modules.gedeon.services.kit_ficha_service import (
-        _nomes_da_folha,
-        _norm,
-        _pertence,
-    )
+    from modules.gedeon.services import kit_cache
+    from modules.gedeon.services.kit_ficha_service import _norm, _pertence
     from modules.gedeon.services.kit_orchestrator import CONDOMINIOS_PADRAO
 
     if not gdrive_service._service:
@@ -64,7 +61,7 @@ def pendencias_assinatura(competencia: str, condominio: str | None = None) -> di
     resultado = []
     total_pend = 0
     for cond in conds:
-        folha = _nomes_da_folha(svc, cond, competencia) if svc else []
+        folha = kit_cache.nomes_folha(svc, cond, competencia) if svc else []
         folha = [n for n in folha if n.strip()]
         pendentes, assinados = [], []
         for nome in folha:

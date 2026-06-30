@@ -183,6 +183,7 @@ def _ler_kit(svc, cond: str, competencia: str) -> dict:
 def completude_kits(competencia: str) -> dict:
     """Painel de completude REAL dos 7 condomínios (lê o Drive)."""
     from modules.gdrive.services.gdrive_service import gdrive_service
+    from modules.gedeon.services import kit_cache
     from modules.gedeon.services.kit_layout import mes_kit_de_competencia
     from modules.gedeon.services.kit_orchestrator import CONDOMINIOS_PADRAO
 
@@ -192,7 +193,7 @@ def completude_kits(competencia: str) -> dict:
     if not svc:
         raise RuntimeError("Google Drive não conectado")
 
-    kits = [_ler_kit(svc, cond, competencia) for cond in CONDOMINIOS_PADRAO]
+    kits = [kit_cache.ler_kit(svc, cond, competencia) for cond in CONDOMINIOS_PADRAO]
     completos = sum(1 for k in kits if k["status"] == "completo")
     media = round(sum(k["completion_percentage"] for k in kits) / len(kits)) if kits else 0
     return {

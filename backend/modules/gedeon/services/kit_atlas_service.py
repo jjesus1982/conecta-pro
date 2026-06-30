@@ -38,16 +38,15 @@ def conferir_kit(competencia: str, condominio: str) -> dict:
     """Confere a coerência do kit de um condomínio. Devolve checks + selo."""
     from core.database.session import get_sync_db
     from modules.gdrive.services.gdrive_service import gdrive_service
+    from modules.gedeon.services import kit_cache
     from modules.gedeon.services.kit_completude_service import (
         SUB_FATURAMENTO,
         SUB_IMPOSTOS,
         SUB_PESSOAL,
         SUB_VALE,
-        _ler_kit,
     )
     from modules.gedeon.services.kit_ficha_service import (
         _client_id_do_condominio,
-        _nomes_da_folha,
         funcionarios_do_condominio,
     )
 
@@ -57,7 +56,7 @@ def conferir_kit(competencia: str, condominio: str) -> dict:
     if not svc:
         raise RuntimeError("Google Drive não conectado")
 
-    kit = _ler_kit(svc, condominio, competencia)
+    kit = kit_cache.ler_kit(svc, condominio, competencia)
     # arquivos por subpasta (reconstrói do checklist do _ler_kit)
     por_sub: dict[str, list[dict]] = {}
     for sp in kit.get("subpastas", []):
@@ -67,7 +66,7 @@ def conferir_kit(competencia: str, condominio: str) -> dict:
     impostos = por_sub.get(SUB_IMPOSTOS, [])
     faturamento = por_sub.get(SUB_FATURAMENTO, [])
 
-    folha_nomes = _nomes_da_folha(svc, condominio, competencia)
+    folha_nomes = kit_cache.nomes_folha(svc, condominio, competencia)
     checks: list[dict] = []
 
     with get_sync_db() as db:

@@ -64,10 +64,10 @@ function KitFichaInner() {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const carregar = useCallback(async () => {
+  const carregar = useCallback(async (refresh = false) => {
     if (!cond) return;
     setLoading(true);
-    try { setF(await getFicha(cond, comp || undefined)); } catch { setF(null); }
+    try { setF(await getFicha(cond, comp || undefined, refresh)); } catch { setF(null); }
     finally { setLoading(false); }
   }, [cond, comp]);
 
@@ -110,7 +110,7 @@ function KitFichaInner() {
             setColeta((s) => ({ ...s, [bloco]: orqFail ? 'erro' : 'ok' }));
             setColetando(null);
             setProgresso({});
-            await carregar(); // atualiza o checklist/arquivos com o que foi coletado
+            await carregar(true); // refresh real: fura o cache p/ refletir o que o robô coletou
           }
         } catch { /* mantém polling */ }
       }, 3000);
@@ -167,7 +167,7 @@ function KitFichaInner() {
               <FolderOpen className="w-4 h-4" /> Abrir no Drive <ExternalLink className="w-3 h-3" />
             </a>
           )}
-          <button onClick={carregar} className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50"><RefreshCw className="w-4 h-4" /></button>
+          <button onClick={() => carregar(true)} className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50"><RefreshCw className="w-4 h-4" /></button>
           <div className="text-right">
             <div className="text-2xl font-bold">{f.completude}%</div>
             <div className="w-32 bg-gray-200 rounded-full h-2"><div className={`${barColor(f.completude)} h-2 rounded-full`} style={{ width: `${f.completude}%` }} /></div>

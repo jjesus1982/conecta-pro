@@ -244,15 +244,15 @@ def ficha(competencia: str, condominio: str) -> dict:
     """Ficha completa do kit de um condomínio: completude + arquivos + checklist (auto+manual)."""
     from core.database.session import get_sync_db
     from modules.gdrive.services.gdrive_service import gdrive_service
-    from modules.gedeon.services.kit_completude_service import _ler_kit
+    from modules.gedeon.services import kit_cache
 
     if not gdrive_service._service:
         gdrive_service.check_status()
     svc = gdrive_service._service
-    kit = _ler_kit(svc, condominio, competencia) if svc else {}
+    kit = kit_cache.ler_kit(svc, condominio, competencia) if svc else {}
 
     # nomes da FOLHA do condomínio (fonte confiável) + alocações → pertinência dos eventos
-    folha_nomes = _nomes_da_folha(svc, condominio, competencia) if svc else []
+    folha_nomes = kit_cache.nomes_folha(svc, condominio, competencia) if svc else []
     with get_sync_db() as db:
         nomes_cond = funcionarios_do_condominio(db, competencia, condominio, folha_nomes)
         auto = eventos_auto(db, competencia, condominio, nomes_cond)

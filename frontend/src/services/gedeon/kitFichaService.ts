@@ -21,9 +21,9 @@ export interface FichaKit {
   tipos_evento: string[];
 }
 
-export async function getFicha(condominio: string, competencia?: string): Promise<FichaKit> {
+export async function getFicha(condominio: string, competencia?: string, refresh = false): Promise<FichaKit> {
   const { data } = await api.get('/api/v1/gedeon/kits/ficha', {
-    params: { condominio, ...(competencia ? { competencia } : {}) },
+    params: { condominio, ...(competencia ? { competencia } : {}), ...(refresh ? { refresh: true } : {}) },
   });
   return data;
 }

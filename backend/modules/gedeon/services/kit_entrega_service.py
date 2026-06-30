@@ -96,7 +96,7 @@ def preparar_entrega(competencia: str, condominio: str, conferir: bool = True) -
     """Gera a capa/índice do kit e sobe no Drive; registra o estado como 'preparado'.
     Não envia nada ao cliente (entrega é manual)."""
     from modules.gdrive.services.gdrive_service import gdrive_service
-    from modules.gedeon.services.kit_completude_service import _ler_kit
+    from modules.gedeon.services import kit_cache
     from modules.gedeon.services.kit_layout import garantir_pasta_kit
 
     if not gdrive_service._service:
@@ -105,7 +105,7 @@ def preparar_entrega(competencia: str, condominio: str, conferir: bool = True) -
     if not svc:
         raise RuntimeError("Google Drive não conectado")
 
-    kit = _ler_kit(svc, condominio, competencia)
+    kit = kit_cache.ler_kit(svc, condominio, competencia)
     atlas = None
     if conferir:
         try:

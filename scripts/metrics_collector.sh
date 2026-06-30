@@ -29,7 +29,7 @@ fi
 # --- PM2 Restarts ---
 pm2_restarts=0
 if command -v pm2 &>/dev/null; then
-  pm2_restarts=$(pm2 jlist 2>/dev/null | python3 -c "
+  pm2_restarts=$(timeout 10 pm2 jlist 2>/dev/null | python3 -c "
 import sys,json
 try:
     data=json.load(sys.stdin)

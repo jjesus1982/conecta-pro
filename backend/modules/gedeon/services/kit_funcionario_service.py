@@ -16,12 +16,12 @@ SOLIDES_SRC = "/app/uploads/solides_ged"
 def listar_funcionarios(competencia: str, condominio: str) -> dict:
     """Nomes da folha do condomínio (p/ a UI montar o seletor de funcionário)."""
     from modules.gdrive.services.gdrive_service import gdrive_service
-    from modules.gedeon.services.kit_ficha_service import _nomes_da_folha
+    from modules.gedeon.services import kit_cache
 
     if not gdrive_service._service:
         gdrive_service.check_status()
     svc = gdrive_service._service
-    nomes = sorted({n for n in (_nomes_da_folha(svc, condominio, competencia) if svc else []) if n.strip()})
+    nomes = sorted({n for n in (kit_cache.nomes_folha(svc, condominio, competencia) if svc else []) if n.strip()})
     return {"competencia": competencia, "condominio": condominio, "funcionarios": nomes}
 
 
@@ -29,7 +29,7 @@ def visao_funcionario(competencia: str, funcionario: str, condominio: str | None
     """Agrega todos os docs de um funcionário no kit + Sólides + Onvio."""
     from core.database.session import get_sync_db
     from modules.gdrive.services.gdrive_service import gdrive_service
-    from modules.gedeon.services.kit_completude_service import _ler_kit
+    from modules.gedeon.services import kit_cache
     from modules.gedeon.services.kit_ficha_service import _norm, _pertence
     from modules.gedeon.services.kit_orchestrator import CONDOMINIOS_PADRAO
 
@@ -43,7 +43,7 @@ def visao_funcionario(competencia: str, funcionario: str, condominio: str | None
     cond_achado = None
     if svc:
         for cond in conds:
-            kit = _ler_kit(svc, cond, competencia)
+            kit = kit_cache.ler_kit(svc, cond, competencia)
             achou_aqui = False
             for sp in kit.get("subpastas", []):
                 for a in sp.get("arquivos", []):
