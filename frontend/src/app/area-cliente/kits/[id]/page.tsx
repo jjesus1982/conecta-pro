@@ -311,7 +311,7 @@ export default function KitDetailPage() {
 
       {/* Aprovação digital com assinatura (substitui o confirm simples) */}
       <div className="mt-6">
-        <KitApprovalSection kitId={kitId} kitStatus={kit.status} onApproved={fetchData} />
+        <KitApprovalSection kitId={kitId} kitStatus={kit.status} onApproved={fetchKit} />
       </div>
     </div>
   );

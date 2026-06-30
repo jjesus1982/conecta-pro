@@ -128,9 +128,12 @@ class PortalKitAccessService:
         """
         kit = await self._get_kit_or_raise(client_id, kit_id)
 
+        # Só lista documentos com arquivo LOCAL real (materializados em /app/uploads).
+        # Filtra os registros antigos placeholder/quebrados sem deletá-los.
         result = await self.db.execute(
             select(KitDocument)
             .where(KitDocument.kit_id == str(kit.id))
+            .where(KitDocument.file_path.like("/app/uploads/%"))
             .order_by(KitDocument.document_type, KitDocument.document_name)
         )
         documents = result.scalars().all()
