@@ -103,3 +103,11 @@ try:
     logger.info("Portal: settings_controller registrado")
 except ImportError as e:
     logger.warning("Portal: falha ao importar settings_controller: %s", e)
+
+try:
+    from .controllers.operacao_controller import router as operacao_router
+
+    router.include_router(operacao_router)
+    logger.info("Portal: operacao_controller (Raio-X) registrado")
+except ImportError as e:
+    logger.warning("Portal: falha ao importar operacao_controller: %s", e)
