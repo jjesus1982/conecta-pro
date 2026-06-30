@@ -12,7 +12,6 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
 from modules.client_portal.middleware.portal_auth import get_current_portal_client
 from modules.client_portal.services.portal_assistant_service import PortalAssistantService
@@ -71,7 +70,6 @@ class FeedbackResponse(BaseModel):
 @router.post("/send", response_model=SendMessageResponse)
 async def send_message(
     body: SendMessageRequest,
-    current_user: CurrentActiveUser,
     client_id: str = Depends(get_current_portal_client),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
@@ -91,7 +89,6 @@ async def send_message(
 
 @router.get("/greeting", response_model=GreetingResponse)
 async def get_greeting(
-    current_user: CurrentActiveUser,
     client_id: str = Depends(get_current_portal_client),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
@@ -107,7 +104,6 @@ async def get_greeting(
 @router.post("/feedback", response_model=FeedbackResponse)
 async def submit_feedback(
     body: FeedbackRequest,
-    current_user: CurrentActiveUser,
     client_id: str = Depends(get_current_portal_client),
     db: AsyncSession = Depends(get_db),
 ) -> Any:

@@ -95,3 +95,11 @@ try:
     logger.info("Portal: mcp_controller registrado")
 except ImportError as e:
     logger.warning("Portal: falha ao importar mcp_controller: %s", e)
+
+try:
+    from .controllers.settings_controller import router as settings_router
+
+    router.include_router(settings_router)
+    logger.info("Portal: settings_controller registrado")
+except ImportError as e:
+    logger.warning("Portal: falha ao importar settings_controller: %s", e)

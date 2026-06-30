@@ -14,7 +14,6 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
 from modules.client_portal.middleware.portal_auth import get_current_portal_client
 
@@ -108,7 +107,6 @@ def _map_platform(platform: str):
 @router.post("/register-device", status_code=201)
 async def register_device(
     data: DeviceRegisterRequest,
-    current_user: CurrentActiveUser,
     client_id: str = Depends(get_current_portal_client),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
@@ -168,7 +166,6 @@ async def register_device(
 @router.delete("/register-device", status_code=200)
 async def unregister_device(
     data: DeviceUnregisterRequest,
-    current_user: CurrentActiveUser,
     client_id: str = Depends(get_current_portal_client),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
@@ -199,7 +196,6 @@ async def unregister_device(
 @router.put("/preferences", response_model=NotificationPreferencesResponse)
 async def update_preferences(
     data: NotificationPreferencesRequest,
-    current_user: CurrentActiveUser,
     client_id: str = Depends(get_current_portal_client),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
@@ -257,7 +253,6 @@ async def update_preferences(
 
 @router.get("/preferences", response_model=NotificationPreferencesResponse)
 async def get_preferences(
-    current_user: CurrentActiveUser,
     client_id: str = Depends(get_current_portal_client),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
@@ -287,7 +282,6 @@ async def get_preferences(
 
 @router.get("/unread-count", response_model=UnreadCountResponse)
 async def get_unread_count(
-    current_user: CurrentActiveUser,
     client_id: str = Depends(get_current_portal_client),
     db: AsyncSession = Depends(get_db),
 ) -> Any:

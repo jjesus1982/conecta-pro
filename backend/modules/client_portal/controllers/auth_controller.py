@@ -7,7 +7,7 @@ Endpoints publicos (sem autenticacao) para login, refresh e logout.
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
@@ -29,6 +29,7 @@ router = APIRouter(prefix="/auth", tags=["Portal - Autenticacao"])
 async def portal_login(
     data: PortalLoginRequest,
     request: Request,
+    response: Response,  # exigido pelo slowapi p/ injetar os headers de rate-limit
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Autentica um cliente no portal.

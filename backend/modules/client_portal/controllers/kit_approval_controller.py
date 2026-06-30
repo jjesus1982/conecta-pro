@@ -16,7 +16,6 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
 from modules.client_portal.middleware.portal_auth import get_current_portal_client
 
@@ -108,7 +107,6 @@ async def approve_kit(
     kit_id: str,
     body: KitApproveRequest,
     request: Request,
-    current_user: CurrentActiveUser,
     client_id: str = Depends(get_current_portal_client),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
@@ -193,7 +191,6 @@ async def approve_kit(
 @router.get("/{kit_id}/approval-status", response_model=KitApprovalStatusResponse)
 async def get_approval_status(
     kit_id: str,
-    current_user: CurrentActiveUser,
     client_id: str = Depends(get_current_portal_client),
     db: AsyncSession = Depends(get_db),
 ) -> Any:

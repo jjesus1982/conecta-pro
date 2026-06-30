@@ -11,7 +11,6 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
 from modules.client_portal.middleware.portal_auth import get_current_portal_client
 from modules.client_portal.schemas.ticket import (
@@ -30,7 +29,6 @@ router = APIRouter(prefix="/tickets", tags=["Portal - Tickets"])
 @router.post("", response_model=TicketResponse, status_code=201)
 async def create_ticket(
     data: TicketCreate,
-    current_user: CurrentActiveUser,
     client_id: str = Depends(get_current_portal_client),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
@@ -51,7 +49,6 @@ async def create_ticket(
 
 @router.get("", response_model=TicketListResponse)
 async def list_tickets(
-    current_user: CurrentActiveUser,
     client_id: str = Depends(get_current_portal_client),
     db: AsyncSession = Depends(get_db),
     skip: int = Query(0, ge=0, description="Offset para paginacao"),
@@ -75,7 +72,6 @@ async def list_tickets(
 @router.get("/{ticket_id}", response_model=TicketResponse)
 async def get_ticket(
     ticket_id: str,
-    current_user: CurrentActiveUser,
     client_id: str = Depends(get_current_portal_client),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
@@ -91,7 +87,6 @@ async def get_ticket(
 async def add_message(
     ticket_id: str,
     data: TicketUpdate,
-    current_user: CurrentActiveUser,
     client_id: str = Depends(get_current_portal_client),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
@@ -117,7 +112,6 @@ async def add_message(
 @router.patch("/{ticket_id}/close", response_model=TicketResponse)
 async def close_ticket(
     ticket_id: str,
-    current_user: CurrentActiveUser,
     client_id: str = Depends(get_current_portal_client),
     db: AsyncSession = Depends(get_db),
 ) -> Any:

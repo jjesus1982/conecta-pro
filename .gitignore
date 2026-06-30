@@ -126,3 +126,5 @@ __pycache__/
 *.log
 tsbuildinfo
 *.tsbuildinfo
+uploads/portal/
+PORTAL_CREDENCIAIS.txt
