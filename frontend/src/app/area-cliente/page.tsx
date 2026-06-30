@@ -137,6 +137,7 @@ export default function DashboardPage() {
   const [kits, setKits] = useState<PortalKit[]>([]);
   const [tickets, setTickets] = useState<PortalTicket[]>([]);
   const [overview, setOverview] = useState<AnalyticsOverview | null>(null);
+  const [opResumo, setOpResumo] = useState<{ equipe_total: number; assiduidade_local_pct: number; condominio: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -144,11 +145,13 @@ export default function DashboardPage() {
     setLoading(true);
     setError('');
     try {
-      const [kitsRes, ticketsRes, overviewRes] = await Promise.all([
+      const [kitsRes, ticketsRes, overviewRes, opRes] = await Promise.all([
         fetch(`${API_BASE}/kits?limit=6`, { headers: getPortalHeaders() }),
         fetch(`${API_BASE}/tickets?limit=5`, { headers: getPortalHeaders() }),
         fetch(`${API_BASE}/analytics/overview`, { headers: getPortalHeaders() }),
+        fetch(`${API_BASE}/operacao/resumo`, { headers: getPortalHeaders() }),
       ]);
+      if (opRes.ok) setOpResumo(await opRes.json());
 
       if (kitsRes.status === 401) {
         toast.error('Sessão expirada. Faça login novamente.', { duration: 5000 });
@@ -495,10 +498,10 @@ export default function DashboardPage() {
             <span className="text-sm font-semibold text-gray-700">Status do Serviço</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-xs text-gray-600 font-medium">Operacional</span>
+            <span className={`w-2 h-2 rounded-full ${(opResumo?.equipe_total ?? 0) > 0 ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`} />
+            <span className="text-xs text-gray-600 font-medium">{(opResumo?.equipe_total ?? 0) > 0 ? 'Operacional' : 'Sem equipe alocada'}</span>
           </div>
-          <p className="text-xs text-gray-400 mt-1">Todos os postos ativos</p>
+          <p className="text-xs text-gray-400 mt-1">{opResumo?.condominio ? `Equipe ativa no ${opResumo.condominio}` : 'Equipe da Conecta Mais'}</p>
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
@@ -508,26 +511,24 @@ export default function DashboardPage() {
             </div>
             <span className="text-sm font-semibold text-gray-700">Equipe Alocada</span>
           </div>
-          <p className="text-2xl font-bold text-gray-900">
-            {latestKit?.total_employees || 10}
-          </p>
+          <p className="text-2xl font-bold text-gray-900">{opResumo?.equipe_total ?? '—'}</p>
           <p className="text-xs text-gray-400 mt-0.5">funcionários em serviço</p>
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
           <div className="flex items-center gap-3 mb-3">
-            <div className="p-2 bg-purple-50 rounded-lg">
-              <Activity className="h-4 w-4 text-purple-600" />
+            <div className="p-2 bg-emerald-50 rounded-lg">
+              <Activity className="h-4 w-4 text-emerald-600" />
             </div>
-            <span className="text-sm font-semibold text-gray-700">Conformidade</span>
+            <span className="text-sm font-semibold text-gray-700">Presença no local</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="flex-1 bg-gray-100 rounded-full h-2">
-              <div className="bg-purple-500 h-2 rounded-full" style={{ width: `${overview?.health_score ?? 85}%` }} />
+              <div className="bg-emerald-500 h-2 rounded-full" style={{ width: `${opResumo?.assiduidade_local_pct ?? 0}%` }} />
             </div>
-            <span className="text-xs font-semibold text-purple-600">{overview?.health_score ?? 85}%</span>
+            <span className="text-xs font-semibold text-emerald-600">{opResumo?.assiduidade_local_pct ?? 0}%</span>
           </div>
-          <p className="text-xs text-gray-400 mt-1">Índice documental</p>
+          <p className="text-xs text-gray-400 mt-1">Ponto batido dentro do condomínio</p>
         </div>
       </div>
 
