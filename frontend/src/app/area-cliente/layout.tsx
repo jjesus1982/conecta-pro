@@ -3,12 +3,14 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Shield, Home, FolderOpen, MessageSquare, Settings, LogOut, ShieldCheck } from 'lucide-react';
+import { Shield, Home, FolderOpen, MessageSquare, Settings, LogOut, ShieldCheck, BadgeDollarSign, Bell } from 'lucide-react';
 
 const navLinks = [
   { href: '/area-cliente', label: 'Início', icon: Home },
   { href: '/area-cliente/operacao', label: 'Minha Operação', icon: ShieldCheck },
   { href: '/area-cliente/kits', label: 'Meus Kits', icon: FolderOpen },
+  { href: '/area-cliente/financeiro', label: 'Financeiro', icon: BadgeDollarSign },
+  { href: '/area-cliente/notificacoes', label: 'Notificações', icon: Bell },
   { href: '/area-cliente/chamados', label: 'Chamados', icon: MessageSquare },
   { href: '/area-cliente/configuracoes', label: 'Configurações', icon: Settings },
 ];

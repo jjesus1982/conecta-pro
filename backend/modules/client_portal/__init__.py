@@ -111,3 +111,19 @@ try:
     logger.info("Portal: operacao_controller (Raio-X) registrado")
 except ImportError as e:
     logger.warning("Portal: falha ao importar operacao_controller: %s", e)
+
+try:
+    from .controllers.financeiro_controller import router as financeiro_router
+
+    router.include_router(financeiro_router)
+    logger.info("Portal: financeiro_controller registrado")
+except ImportError as e:
+    logger.warning("Portal: falha ao importar financeiro_controller: %s", e)
+
+try:
+    from .controllers.avisos_controller import router as avisos_router
+
+    router.include_router(avisos_router)
+    logger.info("Portal: avisos_controller registrado")
+except ImportError as e:
+    logger.warning("Portal: falha ao importar avisos_controller: %s", e)

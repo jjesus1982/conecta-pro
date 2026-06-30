@@ -50,6 +50,27 @@ export interface RankingItem { posicao: number; nome: string; score: number; dia
 export interface Aso { funcionario: string; tipo: string; status: string; realizado: string | null; validade: string | null; apto: boolean; vencido: boolean }
 export interface Movimentacao { nome: string; cargo: string; admissao: string | null; demissao: string | null; status: string }
 
+// ── Avisos (notificações proativas) ──────────────────────────────────────────
+export interface Aviso { id: string; tipo: string; titulo: string; mensagem: string; link: string | null; lida: boolean; criado_em: string | null }
+
+export const avisos = {
+  listar: (apenasNaoLidas = false) => portalFetch<{ avisos: Aviso[] }>(`/avisos${apenasNaoLidas ? '?apenas_nao_lidas=true' : ''}`),
+  naoLidas: () => portalFetch<{ nao_lidas: number }>('/avisos/nao-lidas'),
+  marcarLida: (id: string) => portalFetch(`/avisos/${id}/lida`, { method: 'POST' }),
+};
+
+// ── Financeiro ────────────────────────────────────────────────────────────────
+export interface NotaFiscal { numero: string; emissao: string | null; competencia: string | null; valor: number; status: string; link: string | null; descricao: string }
+export interface Contrato { numero: string; status: string; valor_mensal: number; valor_total: number | null; assinado: boolean; renovacao_meses: number | null }
+export interface Boleto { numero: string; valor: number; vencimento: string | null; status: string }
+
+export const financeiro = {
+  resumo: () => portalFetch<{ notas_total: number; faturado_total: number; contrato_mensal: number; contrato_ativo: boolean }>('/financeiro/resumo'),
+  notas: () => portalFetch<{ notas: NotaFiscal[]; total: number; valor_total: number }>('/financeiro/notas'),
+  contrato: () => portalFetch<{ contrato: Contrato | null }>('/financeiro/contrato'),
+  boletos: () => portalFetch<{ boletos: Boleto[]; total: number }>('/financeiro/boletos'),
+};
+
 export const operacao = {
   resumo: () => portalFetch<OperacaoResumo>('/operacao/resumo'),
   equipe: () => portalFetch<{ condominio: string; total: number; equipe: Funcionario[] }>('/operacao/equipe'),
