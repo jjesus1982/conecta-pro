@@ -7,6 +7,7 @@ import {
   ArrowLeft, Download, FileText, User, Building2, Loader2, ShieldCheck, PenLine, AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import KitApprovalSection from '../components/KitApprovalSection';
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || '') + '/api/v1/portal';
 
@@ -83,7 +84,6 @@ export default function KitDetailPage() {
   const [documents, setDocuments] = useState<KitDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [approving, setApproving] = useState(false);
   const [downloadingDoc, setDownloadingDoc] = useState<string | null>(null);
 
   const fetchKit = useCallback(async () => {
@@ -125,27 +125,6 @@ export default function KitDetailPage() {
     fetchKit();
   }, [fetchKit]);
 
-  async function handleApprove() {
-    if (!confirm('Deseja aprovar este kit? Esta acao nao pode ser desfeita.')) return;
-    setApproving(true);
-    try {
-      const res = await fetch(`${API_BASE}/kits/${kitId}/approve`, {
-        method: 'POST',
-        headers: getPortalHeaders(),
-      });
-      if (res.ok) {
-        setKit((prev) => (prev ? { ...prev, status: 'aprovado' } : prev));
-        toast.success('Kit aprovado com sucesso!', { duration: 4000 });
-      } else {
-        const data = await res.json().catch(() => null);
-        toast.error(data?.detail || 'Erro ao aprovar kit.', { duration: 5000 });
-      }
-    } catch {
-      toast.error('Erro ao aprovar kit. Tente novamente.', { duration: 5000 });
-    } finally {
-      setApproving(false);
-    }
-  }
 
   async function handleDownloadDoc(doc: KitDocument) {
     setDownloadingDoc(doc.id);
@@ -208,7 +187,6 @@ export default function KitDetailPage() {
     );
   }
 
-  const canApprove = ['enviado', 'conferido'].includes(kit.status);
   const completionPct = Number(kit.completion_percentage) || 0;
 
   return (
@@ -329,20 +307,11 @@ export default function KitDetailPage() {
             Abrir no Google Drive
           </a>
         )}
-        {canApprove && (
-          <button
-            onClick={handleApprove}
-            disabled={approving}
-            className="flex items-center gap-2 bg-emerald-600 text-white px-5 py-2.5 rounded-lg font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {approving ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <ShieldCheck className="h-4 w-4" />
-            )}
-            Aprovar Kit
-          </button>
-        )}
+      </div>
+
+      {/* Aprovação digital com assinatura (substitui o confirm simples) */}
+      <div className="mt-6">
+        <KitApprovalSection kitId={kitId} kitStatus={kit.status} onApproved={fetchData} />
       </div>
     </div>
   );
