@@ -250,6 +250,46 @@ def materializar(competencia_default: str = "2026-06") -> dict:
                 ),
                 {"kid": kit_id},
             )
+
+        # 5) GATILHO PROATIVO (seguro, inbox-only): avisa o cliente que o kit ficou disponível.
+        #    Idempotente (1 aviso por client+mês). Só se a tabela existir e houver docs reais.
+        avisos = 0
+        try:
+            import uuid as _uuid
+
+            # todos os kits (client, mês) com docs reais — não só os tocados nesta run
+            kits_reais = db.execute(
+                text(
+                    """SELECT k.id, k.client_id, to_char(k.reference_month,'YYYY-MM') AS ym, COUNT(*) AS n
+                       FROM ged_document_kits k JOIN ged_kit_documents d ON d.kit_id=k.id
+                       WHERE d.file_path LIKE '/app/uploads/%'
+                       GROUP BY k.id, k.client_id, k.reference_month"""
+                )
+            ).mappings().all()
+            for row in kits_reais:
+                client_id, ref_iso, n = str(row["client_id"]), row["ym"], row["n"]
+                mes = ".".join(reversed(ref_iso.split("-")))  # YYYY-MM -> MM.YYYY
+                ja = db.execute(
+                    text("SELECT 1 FROM client_portal_notifications WHERE client_id=:c AND tipo='kit' AND titulo LIKE :t LIMIT 1"),
+                    {"c": client_id, "t": f"%{ref_iso}%"},
+                ).scalar()
+                if ja:
+                    continue
+                db.execute(
+                    text(
+                        """INSERT INTO client_portal_notifications
+                             (id, client_id, tipo, titulo, mensagem, link, lida, canal_email, canal_whatsapp, created_at)
+                           VALUES (:id,:c,'kit',:tit,:msg,'/area-cliente/kits',false,false,false,NOW())"""
+                    ),
+                    {"id": str(_uuid.uuid4()), "c": client_id,
+                     "tit": f"Kit documental {ref_iso[:7]} disponível",
+                     "msg": f"Seu kit de documentos referente a {mes} já está disponível no portal, "
+                            f"com {n} documento(s). Acesse Meus Kits para conferir e baixar."},
+                )
+                avisos += 1
+        except Exception:
+            pass
+        stats["avisos_kit"] = avisos
         db.commit()
     stats["kits_tocados"] = len(cache_kit)
     return stats
