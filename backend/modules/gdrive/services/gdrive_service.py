@@ -223,8 +223,32 @@ class GDriveService:
                 q += f" and '{parent_id}' in parents"
             result = self._service.files().list(q=q, fields="files(id)").execute()
             files = result.get("files", [])
-            if files:
+            if len(files) == 1:
                 return files[0]["id"]
+            if len(files) > 1:
+                # DUPLICADOS (ex.: criados por erro SSL transitório numa montagem): escolhe o
+                # de MAIS conteúdo — nunca resolve pra uma pasta vazia. Conta a subárvore.
+                def _conteudo(fid: str, prof: int = 0) -> int:
+                    if prof > 3:
+                        return 0
+                    try:
+                        ch = (
+                            self._service.files()
+                            .list(q=f"'{fid}' in parents and trashed=false", fields="files(id,mimeType)")
+                            .execute()
+                            .get("files", [])
+                        )
+                    except Exception:
+                        return 0
+                    total = 0
+                    for c in ch:
+                        if c.get("mimeType") == "application/vnd.google-apps.folder":
+                            total += _conteudo(c["id"], prof + 1)
+                        else:
+                            total += 1
+                    return total
+
+                return max(files, key=lambda f: _conteudo(f["id"]))["id"]
             folder = self._service.files().create(body=meta, fields="id").execute()
             return folder.get("id")
         except Exception as exc:
