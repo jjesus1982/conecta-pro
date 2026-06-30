@@ -214,22 +214,43 @@ async def generate_preview_token(
     if not client:
         raise HTTPException(status_code=404, detail="Cliente não encontrado")
 
-    preview_token = secrets.token_urlsafe(32)
+    # JWT REAL do portal (igual ao login) p/ o admin visualizar como o cliente — 30 min.
+    from datetime import UTC, datetime, timedelta
+    from urllib.parse import quote
+    from uuid import uuid4
 
-    # Salvar token com expiração de 15min
+    import jwt as pyjwt
+
+    from modules.client_portal.services.auth_service import ALGORITHM, SECRET_KEY
+
+    now = datetime.now(UTC)
+    exp = now + timedelta(minutes=30)
+    payload = {
+        "sub": str(client_id),
+        "username": client["cnpj"] or "preview",
+        "type": "portal",
+        "preview": True,
+        "iat": now.timestamp(),
+        "exp": exp.timestamp(),
+        "jti": str(uuid4()),
+    }
+    preview_token = pyjwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+    # sessão ativa (validate_token exige sessão ativa casando o token)
     await db.execute(
         text(
-            "INSERT INTO client_portal_sessions (id, client_id, token, expires_at, created_at) "
-            "VALUES (gen_random_uuid(), :cid, :token, NOW() + interval '15 minutes', NOW())"
+            "INSERT INTO client_portal_sessions (id, client_id, token, expires_at, is_active, created_at) "
+            "VALUES (gen_random_uuid(), :cid, :token, :exp, true, NOW())"
         ),
-        {"cid": client_id, "token": preview_token},
+        {"cid": client_id, "token": preview_token, "exp": exp},
     )
     await db.commit()
 
+    nome = client["name"]
     return {
         "client_id": client_id,
-        "nome": client["name"],
-        "preview_url": f"https://erp.conectamais.pro/area-cliente/dashboard?preview={preview_token}",
-        "expira_em": "15 minutos",
+        "nome": nome,
+        "preview_url": f"https://erp.conectamais.pro/area-cliente/preview?t={preview_token}&n={quote(nome)}",
+        "expira_em": "30 minutos",
         "aviso": "MODO PREVIEW — Você está visualizando como cliente",
     }

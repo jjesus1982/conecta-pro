@@ -237,7 +237,11 @@ export default function GerenciamentoAcessosPage() {
 
   const previewMutation = useMutation({
     mutationFn: generatePreviewToken,
-    onSuccess: (data) => setPreviewModal(data),
+    onSuccess: (data) => {
+      setPreviewModal(data);
+      // abre o portal direto em nova aba, logado como o condomínio (modo admin)
+      if (typeof window !== 'undefined' && data.preview_url) window.open(data.preview_url, '_blank');
+    },
     onError: () => showToast('Erro ao gerar preview', 'error'),
   });
 

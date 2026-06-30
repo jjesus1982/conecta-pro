@@ -26,7 +26,7 @@ export default function AreaClienteLayout({ children }: { children: React.ReactN
     const token = localStorage.getItem('portal_token');
     const name = localStorage.getItem('portal_client_name');
 
-    if (!token && !pathname.startsWith('/area-cliente/login')) {
+    if (!token && !pathname.startsWith('/area-cliente/login') && !pathname.startsWith('/area-cliente/preview')) {
       router.push('/area-cliente/login');
       return;
     }
@@ -37,7 +37,7 @@ export default function AreaClienteLayout({ children }: { children: React.ReactN
     setIsChecking(false);
   }, [pathname, router]);
 
-  if (pathname.startsWith('/area-cliente/login')) {
+  if (pathname.startsWith('/area-cliente/login') || pathname.startsWith('/area-cliente/preview')) {
     return <>{children}</>;
   }
 
@@ -61,8 +61,15 @@ export default function AreaClienteLayout({ children }: { children: React.ReactN
     return pathname.startsWith(href);
   }
 
+  const isPreview = typeof window !== 'undefined' && localStorage.getItem('portal_preview') === '1';
+
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
+      {isPreview && (
+        <div className="bg-amber-500 text-white text-center text-xs font-medium py-1.5 px-4">
+          👁️ MODO ADMINISTRADOR — visualizando o portal como este condomínio (sessão de preview, 30 min)
+        </div>
+      )}
       {/* Top Navigation */}
       <header className="bg-indigo-700 text-white shadow-lg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
