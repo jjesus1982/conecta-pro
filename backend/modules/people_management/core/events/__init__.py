@@ -19,7 +19,8 @@ from infrastructure.event_bus import (
     get_event_bus,
 )
 
-from .event_types import GPEventTypes
+# QUARENTENA Item −1 (2026-07-01): GPEventTypes (gp.*) movido p/ _quarentena_item1/ —
+# registro órfão usado só pelos agents (também quarentenados). Use EventTypes (dp.*) de infra/event_bus.
 from .handlers import EventHandler
 
 __all__ = [
@@ -29,7 +30,6 @@ __all__ = [
     "EventActor",
     "EventContext",
     "EventTypes",
-    "GPEventTypes",
     "EventHandler",
     "event_bus",
     "get_event_bus",

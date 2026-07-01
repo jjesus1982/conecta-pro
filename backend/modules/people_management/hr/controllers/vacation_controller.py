@@ -213,6 +213,13 @@ async def approve_vacation(
     try:
         result = await service.approve_vacation(vacation_id, approved_by_id=current_user.id)
         await db.commit()
+        # [Item −1/A1] resolve cliente_id do funcionário (backfill) → GEDEON monta o kit certo
+        _vac_emp = str(result.get("employee_id", "")) if isinstance(result, dict) else ""
+        _vac_cli = (
+            (await db.execute(_sqltext("SELECT cliente_id FROM employees WHERE CAST(id AS TEXT)=:i"), {"i": _vac_emp})).scalar()
+            if _vac_emp
+            else None
+        )
         asyncio.create_task(
             publish_ferias_aprovadas(
                 funcionario_id=str(result.get("employee_id", vacation_id)) if isinstance(result, dict) else vacation_id,
@@ -220,6 +227,7 @@ async def approve_vacation(
                 inicio=str(result.get("start_date", "")) if isinstance(result, dict) else "",
                 fim=str(result.get("end_date", "")) if isinstance(result, dict) else "",
                 aprovado_por=str(current_user.id),
+                cliente_id=str(_vac_cli) if _vac_cli else None,
             )
         )
         return result

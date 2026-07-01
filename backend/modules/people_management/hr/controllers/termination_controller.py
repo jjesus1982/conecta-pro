@@ -205,12 +205,22 @@ async def complete_termination(
     if not termination:
         raise HTTPException(status_code=404, detail="Rescisão não encontrada")
     await db.commit()
+    # [Item −1/A1] resolve cliente_id do funcionário (backfill) → GEDEON monta o kit certo
+    from sqlalchemy import text as _sqltext
+
+    _term_cli = (
+        await db.execute(
+            _sqltext("SELECT cliente_id FROM employees WHERE CAST(id AS TEXT)=:i"),
+            {"i": str(termination.employee_id)},
+        )
+    ).scalar()
     asyncio.create_task(
         publish_funcionario_demitido(
             funcionario_id=str(termination.employee_id),
             funcionario_nome=str(getattr(termination, "employee_name", "")),
             motivo=str(termination.type),
             data_desligamento=str(getattr(termination, "last_working_day", "") or ""),
+            cliente_id=str(_term_cli) if _term_cli else None,
         )
     )
     return termination

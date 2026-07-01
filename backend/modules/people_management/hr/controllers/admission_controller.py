@@ -179,6 +179,8 @@ async def complete_admission(
                 ),
                 cargo=str(getattr(result["employee"], "cargo", "")),
                 data_admissao=str(getattr(result["employee"], "data_admissao", "") or ""),
+                # [Item −1/A1] cliente_id (backfill via employee_alocacoes) → GEDEON monta o kit do condomínio certo
+                cliente_id=str(getattr(result["employee"], "cliente_id", "") or "") or None,
             )
         )
         return {

@@ -109,7 +109,7 @@ class Gedeon:
         competencia = datetime.utcnow().strftime("%Y-%m")
         cliente_id = event.cliente_id
 
-        logger.info("GEDEON: admissão detectada — %s", p.get("name", ""))
+        logger.info("GEDEON: admissão detectada — %s", p.get("funcionario_nome") or p.get("name", ""))
 
         if cliente_id:
             await gedeon_context.append_evento(
@@ -119,7 +119,7 @@ class Gedeon:
                 {
                     "event_id": event.event_id,
                     "tipo": "admissao",
-                    "funcionario": p.get("name", ""),
+                    "funcionario": p.get("funcionario_nome") or p.get("name", ""),
                     "cargo": p.get("cargo", ""),
                     "data": p.get("data_admissao", ""),
                     "requer_doc": True,
@@ -138,7 +138,7 @@ class Gedeon:
                 event_type=EventTypes.GED_KIT_INICIADO,
                 payload={
                     "motivo": "admissao",
-                    "funcionario": p.get("name", ""),
+                    "funcionario": p.get("funcionario_nome") or p.get("name", ""),
                     "cargo": p.get("cargo", ""),
                 },
                 source_module="gedeon",
@@ -159,8 +159,8 @@ class Gedeon:
                 {
                     "event_id": event.event_id,
                     "tipo": "demissao",
-                    "funcionario": p.get("name", ""),
-                    "tipo_demissao": p.get("tipo", ""),
+                    "funcionario": p.get("funcionario_nome") or p.get("name", ""),
+                    "tipo_demissao": p.get("motivo") or p.get("tipo", ""),
                     "data": p.get("data_desligamento", ""),
                     "requer_doc": True,
                     "docs_necessarios": [
@@ -171,7 +171,7 @@ class Gedeon:
                     ],
                 },
             )
-        logger.info("GEDEON: demissão processada — %s", p.get("name", ""))
+        logger.info("GEDEON: demissão processada — %s", p.get("funcionario_nome") or p.get("name", ""))
 
     async def _on_atestado_registrado(self, event: ConectaEvent) -> None:
         p = event.payload
@@ -195,7 +195,8 @@ class Gedeon:
 
     async def _on_ferias_aprovadas(self, event: ConectaEvent) -> None:
         p = event.payload
-        competencia = p.get("start_date", "")[:7] if p.get("start_date") else datetime.utcnow().strftime("%Y-%m")
+        _ini = p.get("inicio") or p.get("start_date", "")
+        competencia = _ini[:7] if _ini else datetime.utcnow().strftime("%Y-%m")
         if event.cliente_id:
             await gedeon_context.append_evento(
                 event.cliente_id,
@@ -204,9 +205,9 @@ class Gedeon:
                 {
                     "event_id": event.event_id,
                     "tipo": "ferias",
-                    "funcionario": p.get("nome", ""),
-                    "inicio": p.get("start_date", ""),
-                    "fim": p.get("end_date", ""),
+                    "funcionario": p.get("funcionario_nome") or p.get("nome", ""),
+                    "inicio": p.get("inicio") or p.get("start_date", ""),
+                    "fim": p.get("fim") or p.get("end_date", ""),
                     "requer_doc": True,
                 },
             )
