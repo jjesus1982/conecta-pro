@@ -565,12 +565,12 @@ class TestPricerAgent:
     @pytest.mark.asyncio
     async def test_pricer_three_scenarios(self, agent_config):
         """Verifies PRICER generates exactly 3 pricing scenarios."""
-        from modules.bidding.agents.pricer_agent import PostoVigilancia, PricerAgent, PricingInput
+        from modules.bidding.agents.pricer_agent import PostoServico, PricerAgent, PricingInput
 
         agent = PricerAgent(agent_config)
 
         pricing_input = PricingInput(
-            postos=[PostoVigilancia(tipo="12x36", quantidade=2, armado=False)],
+            postos=[PostoServico(tipo="12x36", quantidade=2, armado=False)],
             prazo_contrato_meses=12,
         )
 
@@ -593,7 +593,7 @@ class TestPricerAgent:
     async def test_pricer_tax_calculation_simples(self, agent_config):
         """Verifies PRICER applies correct Simples Nacional tax structure."""
         from modules.bidding.agents.pricer_agent import (
-            PostoVigilancia,
+            PostoServico,
             PricerAgent,
             PricingInput,
             RegimeTributario,
@@ -601,7 +601,7 @@ class TestPricerAgent:
 
         agent = PricerAgent(agent_config)
         pricing_input = PricingInput(
-            postos=[PostoVigilancia(tipo="12x36", quantidade=1)],
+            postos=[PostoServico(tipo="12x36", quantidade=1)],
             regime_tributario=RegimeTributario.SIMPLES_NACIONAL,
             prazo_contrato_meses=12,
         )
@@ -619,7 +619,7 @@ class TestPricerAgent:
     async def test_pricer_tax_calculation_lucro_real(self, agent_config):
         """Verifies PRICER applies correct Lucro Real tax structure."""
         from modules.bidding.agents.pricer_agent import (
-            PostoVigilancia,
+            PostoServico,
             PricerAgent,
             PricingInput,
             RegimeTributario,
@@ -627,7 +627,7 @@ class TestPricerAgent:
 
         agent = PricerAgent(agent_config)
         pricing_input = PricingInput(
-            postos=[PostoVigilancia(tipo="12x36", quantidade=1)],
+            postos=[PostoServico(tipo="12x36", quantidade=1)],
             regime_tributario=RegimeTributario.LUCRO_REAL,
             prazo_contrato_meses=12,
         )

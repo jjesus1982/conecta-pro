@@ -50,7 +50,7 @@ class TestPostModel:
                 col_defaults[col.key] = col.default.arg
 
         assert col_defaults.get("is_active") is True
-        assert col_defaults.get("post_type") == PostType.VIGILANTE.value
+        assert col_defaults.get("post_type") == PostType.PORTEIRO.value
         assert col_defaults.get("status") == PostStatus.ACTIVE.value
         assert col_defaults.get("shift_type") == ShiftType.DIURNO.value
         assert col_defaults.get("required_headcount") == 1
@@ -76,7 +76,7 @@ class TestPostModel:
 
     def test_post_enums(self):
         """Testa enums do Post."""
-        assert PostType.VIGILANTE == "vigilante"
+        assert PostType.PORTEIRO == "porteiro"
         assert PostType.PORTEIRO == "porteiro"
         assert PostType.SUPERVISOR == "supervisor"
         assert PostStatus.ACTIVE == "active"

@@ -135,7 +135,7 @@ class TestPostAPIValidation:
 
         with pytest.raises(ValidationError):
             PostCreate(
-                post_type=PostType.VIGILANTE,
+                post_type=PostType.PORTEIRO,
                 shift_type=ShiftType.DIURNO,
             )
 
@@ -163,7 +163,7 @@ class TestPostAPIValidation:
         with pytest.raises(ValidationError):
             PostCreate(
                 name="Posto Teste",
-                post_type=PostType.VIGILANTE,
+                post_type=PostType.PORTEIRO,
                 shift_type=ShiftType.DIURNO,
                 state="São Paulo",  # Deveria ser apenas 2 caracteres (SP)
             )
@@ -178,7 +178,7 @@ class TestPostAPIValidation:
         with pytest.raises(ValidationError):
             PostCreate(
                 name="Posto Teste",
-                post_type=PostType.VIGILANTE,
+                post_type=PostType.PORTEIRO,
                 shift_type=ShiftType.DIURNO,
                 required_headcount=-1,
             )
@@ -190,7 +190,7 @@ class TestPostAPIValidation:
 
         post = PostCreate(
             name="Posto Teste",
-            post_type=PostType.VIGILANTE,
+            post_type=PostType.PORTEIRO,
             shift_type=ShiftType.DIURNO,
             city="São Paulo",
             state="SP",
@@ -199,7 +199,7 @@ class TestPostAPIValidation:
         )
 
         assert post.name == "Posto Teste"
-        assert post.post_type == PostType.VIGILANTE
+        assert post.post_type == PostType.PORTEIRO
         assert post.requires_armed is True
 
 

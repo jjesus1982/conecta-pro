@@ -556,7 +556,7 @@ class TestKitEnums:
         """Testa valores do enum KitType."""
         assert KitType.ADMISSAO.value == "ADMISSAO"
         assert KitType.DEMISSAO.value == "DEMISSAO"
-        assert KitType.VIGILANTE.value == "VIGILANTE"
+        assert KitType.PORTARIA.value == "PORTARIA"
         assert KitType.CONTRATO_CLIENTE.value == "CONTRATO_CLIENTE"
 
     def test_kit_status_values(self):

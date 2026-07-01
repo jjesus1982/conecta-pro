@@ -23,7 +23,7 @@ def sample_post_data():
         "code": "POST-001",
         "name": "Posto Matriz",
         "description": "Posto de vigilância da matriz",
-        "post_type": PostType.VIGILANTE.value,
+        "post_type": PostType.PORTEIRO.value,
         "status": PostStatus.ACTIVE.value,
         "shift_type": ShiftType.DIURNO.value,
         "address": "Rua das Flores, 123",

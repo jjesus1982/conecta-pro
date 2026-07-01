@@ -15,7 +15,7 @@ class TestPostEnums:
 
     def test_post_type_values(self):
         """Verifica valores do enum PostType."""
-        assert PostType.VIGILANTE.value == "vigilante"
+        assert PostType.PORTEIRO.value == "porteiro"
         assert PostType.PORTEIRO.value == "porteiro"
         assert PostType.MONITORAMENTO.value == "monitoramento"
         assert PostType.RONDANTE.value == "rondante"
