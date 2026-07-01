@@ -3,8 +3,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth.dependencies import CurrentActiveUser
+from core.auth.dependencies import CurrentActiveUser, require_roles
 from core.database import get_db
+
+# Perfil DP/Contabil: quem PODE certificar/rejeitar (a assinatura legal).
+# manager = "Gerente de departamento" (DP/Contabil) e acima. Listar/ver fica aberto.
+CERTIFIER_ROLES = ("super_admin", "admin", "manager")
 
 from ..schemas.certification import (
     CertificationCertifyRequest,
@@ -63,7 +67,11 @@ async def obter_certificacao(
     return _to_response(cert)
 
 
-@router.patch("/{cert_id}/certify", response_model=CertificationResponse)
+@router.patch(
+    "/{cert_id}/certify",
+    response_model=CertificationResponse,
+    dependencies=[Depends(require_roles(*CERTIFIER_ROLES))],
+)
 async def certificar(
     cert_id: str,
     data: CertificationCertifyRequest,
@@ -78,7 +86,11 @@ async def certificar(
     return _to_response(cert)
 
 
-@router.patch("/{cert_id}/reject", response_model=CertificationResponse)
+@router.patch(
+    "/{cert_id}/reject",
+    response_model=CertificationResponse,
+    dependencies=[Depends(require_roles(*CERTIFIER_ROLES))],
+)
 async def rejeitar(
     cert_id: str,
     data: CertificationRejectRequest,
