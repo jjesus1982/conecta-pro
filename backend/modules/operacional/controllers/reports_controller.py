@@ -216,7 +216,9 @@ async def operacional_dashboard(
         await db.execute(select(func.coalesce(func.sum(Post.required_headcount), 0)).where(Post.status == "active"))
     ).scalar() or 0
 
-    cobertura = round(alocacoes_ativas / required_headcount * 100, 1) if required_headcount > 0 else 0.0
+    # [Veracidade] cobertura nao pode passar de 100% — alocacoes_ativas (linhas multi-turno) / required_headcount
+    # davam 409%. Cap em 100. (required_headcount do seed parece baixo p/ 24/7 — revisar o dado depois.)
+    cobertura = min(100.0, round(alocacoes_ativas / required_headcount * 100, 1)) if required_headcount > 0 else 0.0
 
     return {
         "total_postos": total_postos,

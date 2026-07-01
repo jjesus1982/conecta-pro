@@ -112,7 +112,7 @@ def get_dashboard(db: Session) -> dict[str, Any]:
         "inconsistencias_periodo": _contar_inconsistencias_mes(db),
         "sem_escala": sem_escala,
         "pontos_em_aberto": em_aberto,
-        "banco_horas": {"total_credito": 0.0, "total_debito": 0.0, "saldo_medio": 0.0},
+        "banco_horas": {"total_credito": None, "total_debito": None, "saldo_medio": None, "status": "nao_calculado"},
         "por_escala": por_escala,
         "ultima_sync_solides": ultima_sync.isoformat() if ultima_sync else None,
     }
@@ -129,6 +129,9 @@ def get_inconsistencias(
     fim = periodo_fim or hoje.isoformat()
 
     items: list[dict[str, Any]] = []
+
+    # [Veracidade] mapa id->nome (era "Emp#<uuid>" placeholder nas inconsistencias)
+    _nomes = {str(r[0]): r[1] for r in db.execute(text("SELECT id, nome FROM employees")).fetchall()}
 
     # 1. Colaboradores sem escala
     sem_escala = db.execute(
@@ -168,7 +171,7 @@ def get_inconsistencias(
         items.append(
             {
                 "employee_id": str(row[0]),
-                "employee_nome": f"Emp#{row[0]}",
+                "employee_nome": _nomes.get(str(row[0]), f"Emp#{row[0]}"),
                 "data": str(row[1]),
                 "tipo": "ponto_em_aberto",
                 "descricao": f"Entrada registrada sem saida em {row[1]}",
@@ -197,7 +200,7 @@ def get_inconsistencias(
         items.append(
             {
                 "employee_id": str(row[0]),
-                "employee_nome": f"Emp#{row[0]}",
+                "employee_nome": _nomes.get(str(row[0]), f"Emp#{row[0]}"),
                 "data": str(row[1]),
                 "tipo": "jornada_excedida",
                 "descricao": f"Jornada de {row[2]:.1f}h excede limite 12h CCT (12x36)",
@@ -226,7 +229,7 @@ def get_inconsistencias(
         items.append(
             {
                 "employee_id": str(row[0]),
-                "employee_nome": f"Emp#{row[0]}",
+                "employee_nome": _nomes.get(str(row[0]), f"Emp#{row[0]}"),
                 "data": str(row[1]),
                 "tipo": "intrajornada_nao_concedida",
                 "descricao": f"Intervalo de {row[2]:.0f}min abaixo do minimo 60min CCT",
