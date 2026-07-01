@@ -140,7 +140,7 @@ TERMOS_MODULOS: dict[str, list[str]] = {
         "ocorrencia",
         "ronda",
         "escala",
-        "vigilante",
+        "porteiro",
         "segurança",
         "guarda",
         "turno",

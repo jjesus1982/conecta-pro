@@ -46,7 +46,7 @@ class PostoServico(BaseModel):
     armado: bool = False
     escala_descricao: str | None = None
     adicional_noturno: bool = False
-    # Periculosidade 30% só p/ cargos com direito na CCT (Vigia, Eletricista
+    # Periculosidade 30% só p/ cargos com direito na CCT (Eletricista
     # AT/BT, Téc. Manut. Máquinas) — NÃO default p/ todos.
     adicional_periculosidade: bool = False
     insalubridade: bool = False  # 10% só p/ Piscineiro, Aux. Controle Pragas
