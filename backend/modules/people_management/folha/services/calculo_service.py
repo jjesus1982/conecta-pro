@@ -157,6 +157,15 @@ def calcular_folha_colaborador(
     dias_trab = DIAS_TRAB_ESCALA.get(escala, 22)
     hora_normal = _d(salario_base / divisor)
 
+    # Horas REAIS do ponto (batidas) — alimenta noturno/intrajornada/HE. Fallback = estimativa por escala.
+    from modules.people_management.ponto.services.horas_service import horas_reais_ponto
+
+    _hp = horas_reais_ponto(db, employee_id, mes, ano)
+    tem_ponto = _hp.get("tem_ponto", False)
+    fonte_horas = "ponto_real" if tem_ponto else "estimativa"
+    dias_reais = _hp.get("dias_trabalhados", 0) if tem_ponto else dias_trab
+    horas_trab_reais = _d(str(_hp.get("horas_trabalhadas", 0)))
+
     proventos: list[dict[str, Any]] = []
     descontos: list[dict[str, Any]] = []
 
@@ -173,19 +182,36 @@ def calcular_folha_colaborador(
         }
     )
 
-    # 0030 — Intrajornada nao concedida (CCT: 1h a 50% por jornada 12x36)
+    # 0030 — Intrajornada nao concedida (CCT: 1h a 50% por jornada 12x36; dias REAIS do ponto)
     intrajornada_valor = Decimal("0")
-    if escala == "12x36":
-        intrajornada_valor = _d(hora_normal * Decimal("1.5") * dias_trab)
+    if escala == "12x36" and dias_reais > 0:
+        intrajornada_valor = _d(hora_normal * Decimal("1.5") * Decimal(str(dias_reais)))
         proventos.append(
             {
                 "codigo": "0030",
                 "descricao": "Intrajornada Nao Concedida",
                 "tipo": "provento",
-                "referencia": f"{dias_trab} dias",
+                "referencia": f"{dias_reais} dias ({fonte_horas})",
                 "valor": float(intrajornada_valor),
             }
         )
+
+    # 0040 — Horas Extras 50% (horas trabalhadas REAIS acima da jornada contratada mensal)
+    horas_extras_valor = Decimal("0")
+    if tem_ponto:
+        jornada_mensal = Decimal(str(divisor))
+        excedente = horas_trab_reais - jornada_mensal
+        if excedente > 0:
+            horas_extras_valor = _d(excedente * hora_normal * Decimal("1.5"))
+            proventos.append(
+                {
+                    "codigo": "0040",
+                    "descricao": "Horas Extras 50%",
+                    "tipo": "provento",
+                    "referencia": f"{excedente}h acima de {divisor}h (ponto_real)",
+                    "valor": float(horas_extras_valor),
+                }
+            )
 
     # 0015 — Adicional de Periculosidade (por funcionário; 30% sobre o salário quando devido)
     adic_peric = Decimal("0")
@@ -230,13 +256,9 @@ def calcular_folha_colaborador(
         )
 
     # 0020 — Adicional noturno: horas noturnas REAIS do ponto (22h-05h); fallback = estimativa por escala
-    from modules.people_management.ponto.services.horas_service import horas_reais_ponto
-
-    _hp = horas_reais_ponto(db, employee_id, mes, ano)
-    fonte_horas = "ponto_real" if _hp.get("tem_ponto") else "estimativa"
     horas_not = (
         _d(str(_hp.get("horas_noturnas", 0)))
-        if _hp.get("tem_ponto")
+        if tem_ponto
         else (Decimal(str(dias_trab * 7)) if turno == "noturno" else Decimal("0"))
     )
     adic_noturno = Decimal("0")
@@ -271,7 +293,9 @@ def calcular_folha_colaborador(
     # ===== DESCONTOS =====
 
     # 1001 — INSS (base inclui adicionais salariais: peric/insal/ronda/intrajornada/noturno)
-    base_inss = salario_base + adic_peric + adic_insal + adic_ronda + intrajornada_valor + adic_noturno
+    base_inss = (
+        salario_base + adic_peric + adic_insal + adic_ronda + intrajornada_valor + horas_extras_valor + adic_noturno
+    )
     inss = calcular_inss(base_inss)
     descontos.append(
         {

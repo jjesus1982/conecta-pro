@@ -46,6 +46,7 @@ def horas_reais_ponto(db, employee_id: str, mes: int, ano: int) -> dict:
     total_min = 0.0
     noturno_min = 0.0
     pares = 0
+    dias_distintos: set = set()
     entrada: datetime | None = None
     for tipo, ts in rows:
         t = (tipo or "").lower()
@@ -57,12 +58,14 @@ def horas_reais_ponto(db, employee_id: str, mes: int, ano: int) -> dict:
                 total_min += dur
                 noturno_min += _minutos_noturnos(entrada, ts)
                 pares += 1
+                dias_distintos.add(entrada.date())
             entrada = None
 
     return {
         "horas_trabalhadas": round(total_min / 60.0, 2),
         "horas_noturnas": round(noturno_min / 60.0, 2),
         "dias_com_par": pares,
+        "dias_trabalhados": len(dias_distintos),  # dias DISTINTOS (para intrajornada 1h/dia)
         "tem_ponto": len(rows) > 0,
         "total_batidas": len(rows),
     }
