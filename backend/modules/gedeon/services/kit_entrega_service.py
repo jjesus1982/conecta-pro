@@ -49,14 +49,25 @@ def _gerar_indice_pdf(competencia: str, condominio: str, kit: dict, atlas: dict 
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.lib.units import cm
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.lib.units import cm, mm
+    from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    from modules.crm.services import pdf_branding as B
 
     os.makedirs("/app/uploads/kit_indices", exist_ok=True)
     out = f"/app/uploads/kit_indices/indice_{competencia}_{_slug(condominio)}.pdf"
     styles = getSampleStyleSheet()
-    doc = SimpleDocTemplate(out, pagesize=A4, topMargin=2 * cm, bottomMargin=2 * cm)
+    # topMargin ~35mm p/ não sobrepor o header (logo horizontal) da marca Conecta Mais
+    doc = SimpleDocTemplate(out, pagesize=A4, topMargin=35 * mm, bottomMargin=2 * cm)
     el = []
+    # capa (pág.1 não recebe header automático) — logo da marca no topo
+    _cover = B.logo_path("cover") or B.logo_path("header")
+    if _cover:
+        try:
+            el.append(Image(_cover, width=60 * mm, height=22 * mm, kind="proportional"))
+            el.append(Spacer(1, 0.3 * cm))
+        except Exception:
+            pass
     el.append(Paragraph("<b>Conecta Mais — Kit Documental Mensal</b>", styles["Title"]))
     el.append(Spacer(1, 0.3 * cm))
     el.append(Paragraph(f"<b>Condomínio:</b> {condominio}", styles["Normal"]))
@@ -88,7 +99,11 @@ def _gerar_indice_pdf(competencia: str, condominio: str, kit: dict, atlas: dict 
             el.append(t)
         else:
             el.append(Paragraph("<i>— vazio —</i>", styles["Normal"]))
-    doc.build(el)
+    doc.build(
+        el,
+        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True),
+        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True),
+    )
     return out
 
 

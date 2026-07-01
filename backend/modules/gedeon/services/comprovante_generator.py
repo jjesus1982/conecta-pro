@@ -19,12 +19,16 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 
+from modules.crm.services import pdf_branding as B
+
 # Empresa pagadora (CNPJ 1 — matriz)
 EMPRESA_NOME = "CONECTAMAIS ELETRONICA LTDA"
 EMPRESA_CNPJ = "35.710.481/0001-03"
 BANCO_ORIGEM = "Banco Inter S.A. (077)"
 
-_AZUL = colors.HexColor("#0a3d62")
+# Marca Conecta Mais — este comprovante vai para o CLIENTE/favorecido
+_AZUL = B.AZUL_ESCURO
+_LARANJA = B.LARANJA
 _CINZA = colors.HexColor("#6b7280")
 _CINZA_CLARO = colors.HexColor("#f1f3f5")
 
@@ -77,16 +81,29 @@ def gerar_comprovante_pdf(
     W, H = A4
     x0, x1 = 20 * mm, W - 20 * mm
 
-    # ── Cabeçalho ──
+    # ── Cabeçalho (marca Conecta Mais) ──
     c.setFillColor(_AZUL)
     c.rect(0, H - 32 * mm, W, 32 * mm, fill=1, stroke=0)
+    # faixa laranja da marca no topo
+    c.setFillColor(_LARANJA)
+    c.rect(0, H - 3 * mm, W, 3 * mm, fill=1, stroke=0)
+    # logo Conecta Mais (canto direito do banner); ignora se ausente
+    _lg = B.logo_path("header")
+    if _lg:
+        try:
+            c.drawImage(
+                _lg, x1 - 52 * mm, H - 14 * mm, width=52 * mm, height=11 * mm,
+                preserveAspectRatio=True, anchor="ne", mask="auto",
+            )
+        except Exception:
+            pass
     c.setFillColor(colors.white)
     c.setFont("Helvetica-Bold", 18)
     c.drawString(x0, H - 18 * mm, "COMPROVANTE DE PAGAMENTO")
     c.setFont("Helvetica", 10)
     c.drawString(x0, H - 25 * mm, f"{EMPRESA_NOME}  •  CNPJ {EMPRESA_CNPJ}")
     c.setFont("Helvetica", 9)
-    c.drawRightString(x1, H - 25 * mm, BANCO_ORIGEM)
+    c.drawRightString(x1, H - 29 * mm, BANCO_ORIGEM)
 
     # ── Valor em destaque ──
     y = H - 50 * mm
@@ -126,9 +143,9 @@ def gerar_comprovante_pdf(
         c.setFont("Helvetica", 10)
         yy -= 9 * mm
 
-    # ── Rodapé ──
-    c.setStrokeColor(_CINZA)
-    c.setLineWidth(0.5)
+    # ── Rodapé (dados oficiais Conecta Mais) ──
+    c.setStrokeColor(_LARANJA)
+    c.setLineWidth(0.8)
     c.line(x0, 32 * mm, x1, 32 * mm)
     c.setFillColor(_CINZA)
     c.setFont("Helvetica", 8)
@@ -138,8 +155,15 @@ def gerar_comprovante_pdf(
     )
     if emitido_em:
         c.drawRightString(x1, 26 * mm, f"Emitido em {emitido_em}")
+    c.setFillColor(_AZUL)
+    c.setFont("Helvetica-Bold", 7.5)
+    c.drawString(
+        x0, 16 * mm,
+        f"{B.EMPRESA['nome']} | CNPJ: {B.EMPRESA['cnpj']} | {B.EMPRESA['fone']} | {B.EMPRESA['site']}",
+    )
+    c.setFillColor(_CINZA)
     c.setFont("Helvetica-Oblique", 7)
-    c.drawString(x0, 16 * mm, "GEDEON • Conecta PRO — Gestão Documental")
+    c.drawString(x0, 12 * mm, "GEDEON • Conecta Mais — Gestão Documental")
 
     c.showPage()
     c.save()

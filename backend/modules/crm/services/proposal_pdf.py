@@ -15,7 +15,6 @@ Header/footer oficiais em todas as páginas internas (a capa não tem).
 from __future__ import annotations
 
 import io
-import os
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_RIGHT
@@ -32,14 +31,17 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-# ---- Design tokens oficiais ----
-AZUL_ESCURO = colors.HexColor("#1E3A5F")
-AZUL_MEDIO = colors.HexColor("#2D5F8B")
-LARANJA = colors.HexColor("#F97316")
-TEXTO = colors.HexColor("#1F2937")
-FUNDO_CLARO = colors.HexColor("#F8FAFC")
-FONTE = "Helvetica"
-FONTE_B = "Helvetica-Bold"
+# Marca Conecta Mais centralizada (fonte única de verdade p/ logos, cores, header/footer).
+from modules.crm.services import pdf_branding as B
+
+# ---- Design tokens oficiais (delegados ao módulo de marca) ----
+AZUL_ESCURO = B.AZUL_ESCURO
+AZUL_MEDIO = B.AZUL_MEDIO
+LARANJA = B.LARANJA
+TEXTO = B.TEXTO
+FUNDO_CLARO = B.FUNDO_CLARO
+FONTE = B.FONTE
+FONTE_B = B.FONTE_B
 
 EMPRESA = {
     "nome": "CONECTA MAIS - SEGURANÇA E TECNOLOGIA",
@@ -50,65 +52,20 @@ EMPRESA = {
     "ceo_cargo": "Diretor Executivo (CEO)",
     "ceo_contato": "jjesus@conectamais.pro | (92) 98646-5328",
 }
-_MESES = [
-    "",
-    "janeiro",
-    "fevereiro",
-    "março",
-    "abril",
-    "maio",
-    "junho",
-    "julho",
-    "agosto",
-    "setembro",
-    "outubro",
-    "novembro",
-    "dezembro",
-]
-
-
-_ASSETS = "/app/uploads/assets"
-_CM = f"{_ASSETS}/conecta-mais"
+_MESES = B.MESES
 
 
 def _logo_path(kind: str = "cover") -> str | None:
-    """Resolve o logo por uso (cover = empilhada / header = horizontal). Volume PERSISTENTE primeiro
-    (troca sem rebuild). Ignora arquivo ILEGÍVEL (os.access) p/ um upload com permissão errada NUNCA
-    quebrar a geração — cai no próximo candidato / logo do ERP."""
-    if kind == "header":
-        cands = (
-            os.getenv("PDF_LOGO_HEADER", ""),
-            f"{_ASSETS}/pdf/header.png",
-            f"{_CM}/sublogo-sem-fundo.2.png",
-            f"{_CM}/conecta-mais.png",
-            f"{_ASSETS}/logo-conecta-mais.png",
-            "/app/assets/logo.png",
-        )
-    else:  # cover
-        cands = (
-            os.getenv("PDF_EMPRESA_LOGO", ""),
-            f"{_ASSETS}/pdf/cover.png",
-            f"{_ASSETS}/logo-conecta-mais.png",
-            f"{_CM}/conecta-mais.png",
-            "/app/assets/logo.png",
-            os.path.join(os.path.dirname(__file__), "..", "..", "..", "assets", "logo.png"),
-        )
-    for c in cands:
-        if c and os.path.exists(c) and os.access(c, os.R_OK):
-            return c
-    return None
+    """Resolve o logo por uso — delega ao módulo de marca Conecta Mais."""
+    return B.logo_path(kind)
 
 
 def _brl(v) -> str:
-    s = f"{float(v or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    return f"R$ {s}"
+    return B.brl(v)
 
 
 def _data_extenso(d) -> str:
-    try:
-        return f"Manaus/AM, {d.day} de {_MESES[d.month]} de {d.year}"
-    except Exception:  # noqa: BLE001
-        return "Manaus/AM"
+    return B.data_extenso(d)
 
 
 def _mes_ano(d) -> str:
@@ -120,45 +77,8 @@ def _mes_ano(d) -> str:
 
 # ---------------------------------------------------------------- header/footer
 def _header_footer(canvas, doc):
-    """Desenha header + footer oficiais nas páginas internas (não na capa)."""
-    if doc.page == 1:
-        return
-    canvas.saveState()
-    w, h = A4
-    # Header: logo HORIZONTAL (já contém o nome) + borda inferior azul
-    lp = _logo_path("header")
-    drew = False
-    if lp:
-        try:
-            canvas.drawImage(
-                lp,
-                16 * mm,
-                h - 20.5 * mm,
-                width=52 * mm,
-                height=11 * mm,
-                preserveAspectRatio=True,
-                anchor="sw",
-                mask="auto",
-            )
-            drew = True
-        except Exception:  # noqa: BLE001
-            pass
-    if not drew:  # fallback: sem logo legível -> escreve o nome (nunca header vazio)
-        canvas.setFont(FONTE_B, 7)
-        canvas.setFillColor(AZUL_ESCURO)
-        canvas.drawString(16 * mm, h - 16 * mm, EMPRESA["nome"])
-    canvas.setStrokeColor(AZUL_ESCURO)
-    canvas.setLineWidth(0.8)
-    canvas.line(16 * mm, h - 22 * mm, w - 16 * mm, h - 22 * mm)
-    # Footer: dados oficiais + página, borda superior azul
-    canvas.line(16 * mm, 16 * mm, w - 16 * mm, 16 * mm)
-    canvas.setFont(FONTE, 6.5)
-    canvas.setFillColor(AZUL_MEDIO)
-    canvas.drawString(
-        16 * mm, 12 * mm, f"{EMPRESA['nome']} | CNPJ: {EMPRESA['cnpj']} | {EMPRESA['fone']} | {EMPRESA['site']}"
-    )
-    canvas.drawRightString(w - 16 * mm, 12 * mm, f"Página {doc.page}")
-    canvas.restoreState()
+    """Header + footer oficiais Conecta Mais nas páginas internas (delega à marca)."""
+    B.header_footer(canvas, doc, seal_watermark=False)
 
 
 # ---------------------------------------------------------------- estilos
@@ -234,7 +154,7 @@ def build_proposal_pdf(p) -> bytes:
         pagesize=A4,
         leftMargin=16 * mm,
         rightMargin=16 * mm,
-        topMargin=26 * mm,
+        topMargin=30 * mm,
         bottomMargin=20 * mm,
         title=f"Proposta {getattr(p, 'number', '')}",
     )

@@ -32,8 +32,10 @@ def gerar_folha_pagamento(employees: list[dict], competencia: date, cliente_nome
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.lib.units import cm
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.lib.units import cm, mm
+    from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    from modules.crm.services import pdf_branding as B
 
     AZ = colors.HexColor("#0A2540")
     LJ = colors.HexColor("#FF6B35")
@@ -41,11 +43,19 @@ def gerar_folha_pagamento(employees: list[dict], competencia: date, cliente_nome
     mes = competencia.strftime("%m/%Y")
 
     buf = io.BytesIO()
+    # topMargin ~35mm p/ não sobrepor o header (marca Conecta Mais)
     doc = SimpleDocTemplate(
-        buf, pagesize=A4, topMargin=1.5 * cm, bottomMargin=1.5 * cm, leftMargin=1.5 * cm, rightMargin=1.5 * cm
+        buf, pagesize=A4, topMargin=35 * mm, bottomMargin=1.5 * cm, leftMargin=1.5 * cm, rightMargin=1.5 * cm
     )
     st = getSampleStyleSheet()
     story: list[Any] = []
+    _cover = B.logo_path("cover") or B.logo_path("header")
+    if _cover:
+        try:
+            story.append(Image(_cover, width=55 * mm, height=20 * mm, kind="proportional"))
+            story.append(Spacer(1, 0.2 * cm))
+        except Exception:
+            pass
     story.append(Paragraph(f'<b><font color="#0A2540" size="13">FOLHA DE PAGAMENTO — {mes}</font></b>', st["Title"]))
     story.append(
         Paragraph(
@@ -95,7 +105,11 @@ def gerar_folha_pagamento(employees: list[dict], competencia: date, cliente_nome
         )
     )
     story.append(t)
-    doc.build(story)
+    doc.build(
+        story,
+        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True),
+        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True),
+    )
     return _save(buf.getvalue(), f"folha_pag_{competencia.strftime('%Y%m')}")
 
 
@@ -107,18 +121,31 @@ def gerar_contracheques_consolidado(employees: list[dict], competencia: date) ->
     from reportlab.lib.enums import TA_CENTER
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
-    from reportlab.lib.units import cm
-    from reportlab.platypus import HRFlowable, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.lib.units import cm, mm
+    from reportlab.platypus import (
+        HRFlowable,
+        Image,
+        PageBreak,
+        Paragraph,
+        SimpleDocTemplate,
+        Spacer,
+        Table,
+        TableStyle,
+    )
+
+    from modules.crm.services import pdf_branding as B
 
     AZ = colors.HexColor("#0A2540")
     AZ2 = colors.HexColor("#1E3A5F")
     LJ = colors.HexColor("#FF6B35")
     CZ = colors.HexColor("#F8FAFC")
     mes = competencia.strftime("%m/%Y")
+    _hdr_logo = B.logo_path("header")
 
     buf = io.BytesIO()
+    # topMargin ~35mm p/ não sobrepor o header (marca Conecta Mais)
     doc = SimpleDocTemplate(
-        buf, pagesize=A4, topMargin=1.5 * cm, bottomMargin=1.5 * cm, leftMargin=2 * cm, rightMargin=2 * cm
+        buf, pagesize=A4, topMargin=35 * mm, bottomMargin=1.5 * cm, leftMargin=2 * cm, rightMargin=2 * cm
     )
     story: list[Any] = []
 
@@ -130,14 +157,24 @@ def gerar_contracheques_consolidado(employees: list[dict], competencia: date) ->
         liq = round(sal - ins - vt, 2)
         nome = e.get("nome", "-")
 
-        # Header
+        # Header (logo real da marca Conecta Mais quando disponível)
+        if _hdr_logo:
+            try:
+                _left = Image(_hdr_logo, width=45 * mm, height=10 * mm, kind="proportional")
+            except Exception:
+                _left = Paragraph(
+                    '<b><font color="#FFF" size="12">CONECTA MAIS</font></b><br/><font color="#FF6B35" size="8">Seguranca e Tecnologia</font>',
+                    ParagraphStyle("n"),
+                )
+        else:
+            _left = Paragraph(
+                '<b><font color="#FFF" size="12">CONECTA MAIS</font></b><br/><font color="#FF6B35" size="8">Seguranca e Tecnologia</font>',
+                ParagraphStyle("n"),
+            )
         hdr = Table(
             [
                 [
-                    Paragraph(
-                        '<b><font color="#FFF" size="12">CONECTA MAIS</font></b><br/><font color="#FF6B35" size="8">Seguranca e Tecnologia</font>',
-                        ParagraphStyle("n"),
-                    ),
+                    _left,
                     Paragraph(
                         f'<b><font color="#FFF" size="11">CONTRACHEQUE</font></b><br/><font color="#CCC" size="8">Comp: {mes}</font>',
                         ParagraphStyle("n"),
@@ -254,7 +291,11 @@ def gerar_contracheques_consolidado(employees: list[dict], competencia: date) ->
         if idx < len(employees) - 1:
             story.append(PageBreak())
 
-    doc.build(story)
+    doc.build(
+        story,
+        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True),
+        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True),
+    )
     return _save(buf.getvalue(), f"contracheques_consol_{competencia.strftime('%Y%m')}")
 
 
@@ -267,23 +308,50 @@ def gerar_folhas_ponto(employees: list[dict], competencia: date, cliente_nome: s
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.lib.units import cm
-    from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.lib.units import cm, mm
+    from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    from modules.crm.services import pdf_branding as B
 
     AZ = colors.HexColor("#0A2540")
     CZ = colors.HexColor("#F8FAFC")
+    LJ = B.LARANJA
     mes = competencia.strftime("%m/%Y")
     _, dias_no_mes = calendar.monthrange(competencia.year, competencia.month)
+    _hdr_logo = B.logo_path("header")
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
-        buf, pagesize=landscape(A4), topMargin=1 * cm, bottomMargin=1 * cm, leftMargin=1.5 * cm, rightMargin=1.5 * cm
+        buf, pagesize=landscape(A4), topMargin=1 * cm, bottomMargin=1.2 * cm, leftMargin=1.5 * cm, rightMargin=1.5 * cm
     )
     st = getSampleStyleSheet()
     story: list[Any] = []
 
+    def _rodape(cv, dc):
+        # rodapé com dados oficiais Conecta Mais (landscape — não usa header_footer p/ não misturar dimensões)
+        cv.saveState()
+        w, h = landscape(A4)
+        cv.setStrokeColor(LJ)
+        cv.setLineWidth(0.8)
+        cv.line(15 * mm, 10 * mm, w - 15 * mm, 10 * mm)
+        cv.setFillColor(B.AZUL_ESCURO)
+        cv.setFont("Helvetica-Bold", 6.5)
+        cv.drawString(
+            15 * mm, 6 * mm,
+            f"{B.EMPRESA['nome']} | CNPJ: {B.EMPRESA['cnpj']} | {B.EMPRESA['fone']} | {B.EMPRESA['site']}",
+        )
+        cv.drawRightString(w - 15 * mm, 6 * mm, f"Pagina {dc.page}")
+        cv.restoreState()
+
     for idx, e in enumerate(employees):
         nome = e.get("nome", "-")
+        # logo da marca no topo de cada folha (landscape)
+        if _hdr_logo:
+            try:
+                story.append(Image(_hdr_logo, width=45 * mm, height=9 * mm, kind="proportional"))
+                story.append(Spacer(1, 0.1 * cm))
+            except Exception:
+                pass
         story.append(
             Paragraph(f'<b><font color="#0A2540" size="10">FOLHA DE PONTO — {nome} — {mes}</font></b>', st["Normal"])
         )
@@ -331,7 +399,7 @@ def gerar_folhas_ponto(employees: list[dict], competencia: date, cliente_nome: s
         if idx < len(employees) - 1:
             story.append(PageBreak())
 
-    doc.build(story)
+    doc.build(story, onFirstPage=_rodape, onLaterPages=_rodape)
     return _save(buf.getvalue(), f"folhas_ponto_{competencia.strftime('%Y%m')}")
 
 
@@ -342,8 +410,10 @@ def gerar_recibo_vt_va(employees: list[dict], competencia: date, cliente_nome: s
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.lib.units import cm
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.lib.units import cm, mm
+    from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    from modules.crm.services import pdf_branding as B
 
     AZ = colors.HexColor("#0A2540")
     LJ = colors.HexColor("#FF6B35")
@@ -351,12 +421,20 @@ def gerar_recibo_vt_va(employees: list[dict], competencia: date, cliente_nome: s
     mes = competencia.strftime("%m/%Y")
 
     buf = io.BytesIO()
+    # topMargin ~35mm p/ não sobrepor o header (marca Conecta Mais)
     doc = SimpleDocTemplate(
-        buf, pagesize=A4, topMargin=1.5 * cm, bottomMargin=1.5 * cm, leftMargin=2 * cm, rightMargin=2 * cm
+        buf, pagesize=A4, topMargin=35 * mm, bottomMargin=1.5 * cm, leftMargin=2 * cm, rightMargin=2 * cm
     )
     st = getSampleStyleSheet()
     story: list[Any] = []
 
+    _cover = B.logo_path("cover") or B.logo_path("header")
+    if _cover:
+        try:
+            story.append(Image(_cover, width=55 * mm, height=20 * mm, kind="proportional"))
+            story.append(Spacer(1, 0.2 * cm))
+        except Exception:
+            pass
     story.append(Paragraph(f'<b><font color="#0A2540" size="12">RECIBO VT + VA — {mes}</font></b>', st["Title"]))
     story.append(
         Paragraph(
@@ -394,5 +472,9 @@ def gerar_recibo_vt_va(employees: list[dict], competencia: date, cliente_nome: s
         )
     )
     story.append(t)
-    doc.build(story)
+    doc.build(
+        story,
+        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True),
+        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True),
+    )
     return _save(buf.getvalue(), f"recibo_vt_va_{competencia.strftime('%Y%m')}")

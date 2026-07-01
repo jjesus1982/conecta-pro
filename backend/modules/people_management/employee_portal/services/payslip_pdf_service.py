@@ -92,17 +92,59 @@ async def _get_employee_data(db: AsyncSession, employee_id: UUID) -> dict:
     }
 
 
+def _brand_page(canvas, doc):
+    """Desenha a marca Conecta Mais (logo + linha no topo, rodapé oficial) em TODAS as páginas."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+
+    from modules.crm.services import pdf_branding as B
+
+    canvas.saveState()
+    w, h = A4
+    lp = B.logo_path("header")
+    drew = False
+    if lp:
+        try:
+            canvas.drawImage(
+                lp,
+                15 * mm,
+                h - 20 * mm,
+                width=50 * mm,
+                height=12 * mm,
+                preserveAspectRatio=True,
+                anchor="sw",
+                mask="auto",
+            )
+            drew = True
+        except Exception:  # noqa: BLE001
+            pass
+    if not drew:
+        canvas.setFont("Helvetica-Bold", 8)
+        canvas.setFillColor(B.AZUL_ESCURO)
+        canvas.drawString(15 * mm, h - 15 * mm, B.EMPRESA["nome"])
+    canvas.setStrokeColor(B.LARANJA)
+    canvas.setLineWidth(1.2)
+    canvas.line(15 * mm, h - 22 * mm, w - 15 * mm, h - 22 * mm)
+    canvas.setStrokeColor(B.AZUL_ESCURO)
+    canvas.setLineWidth(0.6)
+    canvas.line(15 * mm, 14 * mm, w - 15 * mm, 14 * mm)
+    canvas.setFont("Helvetica", 6.5)
+    canvas.setFillColor(B.AZUL_MEDIO)
+    canvas.drawString(
+        15 * mm, 10 * mm, f"{B.EMPRESA['nome']} | CNPJ: {B.EMPRESA['cnpj']} | {B.EMPRESA['fone']} | {B.EMPRESA['site']}"
+    )
+    canvas.drawRightString(w - 15 * mm, 10 * mm, f"Página {doc.page}")
+    canvas.restoreState()
+
+
 def _render_pdf(payslip: object, emp: dict) -> bytes:
     """Renderiza o PDF usando reportlab."""
-    import os
-
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
     from reportlab.platypus import (
         HRFlowable,
-        Image,
         Paragraph,
         SimpleDocTemplate,
         Spacer,
@@ -116,8 +158,8 @@ def _render_pdf(payslip: object, emp: dict) -> bytes:
         pagesize=A4,
         leftMargin=15 * mm,
         rightMargin=15 * mm,
-        topMargin=15 * mm,
-        bottomMargin=15 * mm,
+        topMargin=27 * mm,
+        bottomMargin=18 * mm,
     )
 
     styles = getSampleStyleSheet()
@@ -183,37 +225,25 @@ def _render_pdf(payslip: object, emp: dict) -> bytes:
     ano = payslip.reference_year or datetime.now().year
     periodo = f"{mes_nome}/{ano}"
 
-    # Logo Conecta Mais (best-effort — texto fallback se arquivo não existir)
-    LOGO_PATH = "/app/static/logo.png"
-    logo_cell: object
-    if os.path.exists(LOGO_PATH):
-        logo_cell = Image(LOGO_PATH, width=14 * mm, height=14 * mm)
-    else:
-        logo_cell = Paragraph("", style_title)
-
+    # Faixa de título do documento (a marca/logo é desenhada no topo da página por _brand_page)
     header_data = [
         [
-            logo_cell,
-            Paragraph(EMPRESA["nome"], style_title),
             Paragraph(f"HOLERITE — {periodo}", style_title),
         ],
         [
-            "",
-            Paragraph(f"CNPJ: {EMPRESA['cnpj']} | {EMPRESA['endereco']}", style_subtitle),
             Paragraph("CONTRACHEQUE DE PAGAMENTO", style_subtitle),
         ],
     ]
-    header_table = Table(header_data, colWidths=[18 * mm, 92 * mm, 65 * mm])
+    header_table = Table(header_data, colWidths=[175 * mm])
     header_table.setStyle(
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (-1, -1), AZUL_CLARO),
                 ("LINEBELOW", (0, -1), (-1, -1), 1.5, AZUL_ESCURO),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
                 ("TOPPADDING", (0, 0), (-1, -1), 6),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-                ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                ("SPAN", (0, 0), (0, 1)),  # logo ocupa as 2 linhas
             ]
         )
     )
@@ -497,7 +527,7 @@ def _render_pdf(payslip: object, emp: dict) -> bytes:
         )
     )
 
-    doc.build(story)
+    doc.build(story, onFirstPage=_brand_page, onLaterPages=_brand_page)
     return buf.getvalue()
 
 

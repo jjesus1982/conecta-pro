@@ -17,6 +17,45 @@ from modules.hr.employee_portal.schemas import (
 logger = logging.getLogger(__name__)
 
 
+def _payslip_brand_page(canvas, doc):
+    """Marca Conecta Mais (logo + linha no topo, rodapé oficial) em todas as páginas do holerite."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+
+    from modules.crm.services import pdf_branding as B
+
+    canvas.saveState()
+    w, h = A4
+    lp = B.logo_path("header")
+    drew = False
+    if lp:
+        try:
+            canvas.drawImage(
+                lp, 15 * mm, h - 20 * mm, width=50 * mm, height=12 * mm,
+                preserveAspectRatio=True, anchor="sw", mask="auto",
+            )
+            drew = True
+        except Exception:  # noqa: BLE001
+            pass
+    if not drew:
+        canvas.setFont("Helvetica-Bold", 8)
+        canvas.setFillColor(B.AZUL_ESCURO)
+        canvas.drawString(15 * mm, h - 15 * mm, B.EMPRESA["nome"])
+    canvas.setStrokeColor(B.LARANJA)
+    canvas.setLineWidth(1.2)
+    canvas.line(15 * mm, h - 22 * mm, w - 15 * mm, h - 22 * mm)
+    canvas.setStrokeColor(B.AZUL_ESCURO)
+    canvas.setLineWidth(0.6)
+    canvas.line(15 * mm, 14 * mm, w - 15 * mm, 14 * mm)
+    canvas.setFont("Helvetica", 6.5)
+    canvas.setFillColor(B.AZUL_MEDIO)
+    canvas.drawString(
+        15 * mm, 10 * mm, f"{B.EMPRESA['nome']} | CNPJ: {B.EMPRESA['cnpj']} | {B.EMPRESA['fone']} | {B.EMPRESA['site']}"
+    )
+    canvas.drawRightString(w - 15 * mm, 10 * mm, f"Página {doc.page}")
+    canvas.restoreState()
+
+
 class PaySlipService:
     """Service para operações de contracheques."""
 
@@ -185,15 +224,13 @@ class PaySlipService:
             pagesize=A4,
             leftMargin=1.5 * cm,
             rightMargin=1.5 * cm,
-            topMargin=1.5 * cm,
-            bottomMargin=1.5 * cm,
+            topMargin=2.7 * cm,
+            bottomMargin=1.8 * cm,
         )
         story = []
 
-        # Cabeçalho empresa
-        story.append(Paragraph("<b>CONECTA MAIS SERVIÇOS LTDA</b>", title_s))
-        story.append(Paragraph("CONECTAMAIS ELETRONICA LTDA | CNPJ: 35.710.481/0001-03", normal_s))
-        story.append(Paragraph(f"CONTRACHEQUE — {payslip.payslip_code}", bold_s))
+        # Faixa de título (a marca Conecta Mais é desenhada no topo por _payslip_brand_page)
+        story.append(Paragraph(f"CONTRACHEQUE — {payslip.payslip_code}", title_s))
         story.append(Spacer(1, 5 * mm))
 
         # Dados do funcionário
@@ -347,7 +384,7 @@ class PaySlipService:
             )
         )
 
-        doc.build(story)
+        doc.build(story, onFirstPage=_payslip_brand_page, onLaterPages=_payslip_brand_page)
 
         pdf_path = str(pdf_file)
         payslip.pdf_path = pdf_path

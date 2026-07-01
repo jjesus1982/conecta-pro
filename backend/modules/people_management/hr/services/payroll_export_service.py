@@ -19,6 +19,42 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 logger = logging.getLogger(__name__)
 
 
+def _contracheque_brand_page(canvas, doc):
+    """Marca Conecta Mais (logo + linha no topo, rodapé oficial) em todas as páginas do contracheque."""
+    from modules.crm.services import pdf_branding as B
+
+    canvas.saveState()
+    w, h = A4
+    lp = B.logo_path("header")
+    drew = False
+    if lp:
+        try:
+            canvas.drawImage(
+                lp, 15 * mm, h - 20 * mm, width=50 * mm, height=12 * mm,
+                preserveAspectRatio=True, anchor="sw", mask="auto",
+            )
+            drew = True
+        except Exception:  # noqa: BLE001
+            pass
+    if not drew:
+        canvas.setFont("Helvetica-Bold", 8)
+        canvas.setFillColor(B.AZUL_ESCURO)
+        canvas.drawString(15 * mm, h - 15 * mm, B.EMPRESA["nome"])
+    canvas.setStrokeColor(B.LARANJA)
+    canvas.setLineWidth(1.2)
+    canvas.line(15 * mm, h - 22 * mm, w - 15 * mm, h - 22 * mm)
+    canvas.setStrokeColor(B.AZUL_ESCURO)
+    canvas.setLineWidth(0.6)
+    canvas.line(15 * mm, 14 * mm, w - 15 * mm, 14 * mm)
+    canvas.setFont("Helvetica", 6.5)
+    canvas.setFillColor(B.AZUL_MEDIO)
+    canvas.drawString(
+        15 * mm, 10 * mm, f"{B.EMPRESA['nome']} | CNPJ: {B.EMPRESA['cnpj']} | {B.EMPRESA['fone']} | {B.EMPRESA['site']}"
+    )
+    canvas.drawRightString(w - 15 * mm, 10 * mm, f"Página {doc.page}")
+    canvas.restoreState()
+
+
 class PayrollExportService:
     """Exporta folha para Domínio Sistemas (TOTVS) e gera PDF contracheque."""
 
@@ -122,8 +158,8 @@ class PayrollExportService:
             pagesize=A4,
             leftMargin=15 * mm,
             rightMargin=15 * mm,
-            topMargin=15 * mm,
-            bottomMargin=15 * mm,
+            topMargin=27 * mm,
+            bottomMargin=18 * mm,
         )
 
         styles = getSampleStyleSheet()
@@ -154,10 +190,7 @@ class PayrollExportService:
 
         elements = []
 
-        # === CABEÇALHO EMPRESA ===
-        elements.append(Paragraph(empresa_nome, styles["Header"]))
-        elements.append(Paragraph(f"CNPJ: {empresa_cnpj}", styles["SubHeader"]))
-        elements.append(Spacer(1, 6 * mm))
+        # (a marca Conecta Mais é desenhada no topo da página por _contracheque_brand_page)
 
         # === DADOS FUNCIONÁRIO ===
         ref = folha_emp.get("reference", "")
@@ -284,7 +317,7 @@ class PayrollExportService:
             )
         )
 
-        doc.build(elements)
+        doc.build(elements, onFirstPage=_contracheque_brand_page, onLaterPages=_contracheque_brand_page)
         pdf_bytes = buffer.getvalue()
         buffer.close()
 

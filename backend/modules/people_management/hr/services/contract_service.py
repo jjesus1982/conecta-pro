@@ -19,6 +19,45 @@ from modules.people_management.hr.models.contract import (
 logger = logging.getLogger(__name__)
 
 
+def _contrato_brand_page(canvas, doc):
+    """Marca Conecta Mais (logo + linha no topo, rodapé oficial) no contrato de trabalho."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+
+    from modules.crm.services import pdf_branding as B
+
+    canvas.saveState()
+    w, h = A4
+    lp = B.logo_path("header")
+    drew = False
+    if lp:
+        try:
+            canvas.drawImage(
+                lp, 30 * mm, h - 20 * mm, width=50 * mm, height=12 * mm,
+                preserveAspectRatio=True, anchor="sw", mask="auto",
+            )
+            drew = True
+        except Exception:  # noqa: BLE001
+            pass
+    if not drew:
+        canvas.setFont("Helvetica-Bold", 8)
+        canvas.setFillColor(B.AZUL_ESCURO)
+        canvas.drawString(30 * mm, h - 15 * mm, B.EMPRESA["nome"])
+    canvas.setStrokeColor(B.LARANJA)
+    canvas.setLineWidth(1.2)
+    canvas.line(30 * mm, h - 22 * mm, w - 20 * mm, h - 22 * mm)
+    canvas.setStrokeColor(B.AZUL_ESCURO)
+    canvas.setLineWidth(0.6)
+    canvas.line(30 * mm, 14 * mm, w - 20 * mm, 14 * mm)
+    canvas.setFont("Helvetica", 6.5)
+    canvas.setFillColor(B.AZUL_MEDIO)
+    canvas.drawString(
+        30 * mm, 10 * mm, f"{B.EMPRESA['nome']} | CNPJ: {B.EMPRESA['cnpj']} | {B.EMPRESA['fone']} | {B.EMPRESA['site']}"
+    )
+    canvas.drawRightString(w - 20 * mm, 10 * mm, f"Página {doc.page}")
+    canvas.restoreState()
+
+
 class ContractService:
     """Serviço de Contratos de Trabalho — visão DP."""
 
@@ -383,8 +422,8 @@ async def gerar_pdf_contrato(db: AsyncSession, contract_id: str) -> bytes:
         pagesize=A4,
         leftMargin=3 * cm,
         rightMargin=2 * cm,
-        topMargin=2 * cm,
-        bottomMargin=2 * cm,
+        topMargin=3.2 * cm,
+        bottomMargin=2.2 * cm,
         title=f"Contrato de Trabalho — {employee_name}",
         author="Conecta Mais Segurança e Tecnologia Ltda",
     )
@@ -543,5 +582,5 @@ async def gerar_pdf_contrato(db: AsyncSession, contract_id: str) -> bytes:
     )
     story.append(sign_table)
 
-    doc.build(story)
+    doc.build(story, onFirstPage=_contrato_brand_page, onLaterPages=_contrato_brand_page)
     return buffer.getvalue()

@@ -24,6 +24,46 @@ from modules.people_management.hr.services.vacation_service import VacationServi
 
 logger = logging.getLogger(__name__)
 
+
+def _vacation_brand_page(canvas, doc):
+    """Marca Conecta Mais (logo + linha no topo, rodapé oficial) no Aviso Prévio de Férias."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+
+    from modules.crm.services import pdf_branding as B
+
+    canvas.saveState()
+    w, h = A4
+    lp = B.logo_path("header")
+    drew = False
+    if lp:
+        try:
+            canvas.drawImage(
+                lp, 25 * mm, h - 20 * mm, width=50 * mm, height=12 * mm,
+                preserveAspectRatio=True, anchor="sw", mask="auto",
+            )
+            drew = True
+        except Exception:  # noqa: BLE001
+            pass
+    if not drew:
+        canvas.setFont("Helvetica-Bold", 8)
+        canvas.setFillColor(B.AZUL_ESCURO)
+        canvas.drawString(25 * mm, h - 15 * mm, B.EMPRESA["nome"])
+    canvas.setStrokeColor(B.LARANJA)
+    canvas.setLineWidth(1.2)
+    canvas.line(25 * mm, h - 22 * mm, w - 25 * mm, h - 22 * mm)
+    canvas.setStrokeColor(B.AZUL_ESCURO)
+    canvas.setLineWidth(0.6)
+    canvas.line(25 * mm, 14 * mm, w - 25 * mm, 14 * mm)
+    canvas.setFont("Helvetica", 6.5)
+    canvas.setFillColor(B.AZUL_MEDIO)
+    canvas.drawString(
+        25 * mm, 10 * mm, f"{B.EMPRESA['nome']} | CNPJ: {B.EMPRESA['cnpj']} | {B.EMPRESA['fone']} | {B.EMPRESA['site']}"
+    )
+    canvas.drawRightString(w - 25 * mm, 10 * mm, f"Página {doc.page}")
+    canvas.restoreState()
+
+
 router = APIRouter(prefix="/vacations", tags=["DP - Férias"])
 
 # FIX 2026-04-16: include_router(_vacation_ops_router) REMOVIDO.
@@ -305,8 +345,8 @@ async def gerar_aviso_previo_ferias(
             pagesize=A4,
             rightMargin=2.5 * cm,
             leftMargin=2.5 * cm,
-            topMargin=2.5 * cm,
-            bottomMargin=2.5 * cm,
+            topMargin=3.2 * cm,
+            bottomMargin=2.2 * cm,
         )
         styles = getSampleStyleSheet()
         title_style = ParagraphStyle("Title", parent=styles["Heading1"], fontSize=14, spaceAfter=20, alignment=1)
@@ -387,7 +427,7 @@ async def gerar_aviso_previo_ferias(
         )
         story.append(sig_table)
 
-        doc.build(story)
+        doc.build(story, onFirstPage=_vacation_brand_page, onLaterPages=_vacation_brand_page)
         pdf_bytes = buffer.getvalue()
         buffer.close()
 

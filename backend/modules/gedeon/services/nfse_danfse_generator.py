@@ -15,7 +15,11 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 
-_AZUL = colors.HexColor("#0a3d62")
+from modules.crm.services import pdf_branding as B
+
+# Marca Conecta Mais — DANFSe entregue ao TOMADOR (cliente)
+_AZUL = B.AZUL_ESCURO
+_LARANJA = B.LARANJA
 _CINZA = colors.HexColor("#6b7280")
 _CLARO = colors.HexColor("#eef1f4")
 
@@ -84,11 +88,26 @@ def gerar_danfse_pdf(xml: str) -> bytes:
 
     c.setFillColor(_AZUL)
     c.rect(0, H - 30 * mm, W, 30 * mm, fill=1, stroke=0)
+    # faixa laranja da marca no topo
+    c.setFillColor(_LARANJA)
+    c.rect(0, H - 3 * mm, W, 3 * mm, fill=1, stroke=0)
+    # logo Conecta Mais no banner (canto direito, acima do número); ignora se ausente
+    _lg = B.logo_path("header")
+    if _lg:
+        try:
+            c.drawImage(
+                _lg, x1 - 46 * mm, H - 27 * mm, width=46 * mm, height=9 * mm,
+                preserveAspectRatio=True, anchor="nw", mask="auto",
+            )
+        except Exception:
+            pass
     c.setFillColor(colors.white)
     c.setFont("Helvetica-Bold", 15)
     c.drawString(x0, H - 13 * mm, "NFS-e — Nota Fiscal de Serviço Eletrônica")
     c.setFont("Helvetica", 9)
     c.drawString(x0, H - 19 * mm, "DANFSe — Padrão Nacional · Prefeitura de Manaus / SEMEF")
+    c.setFont("Helvetica", 8)
+    c.drawString(x0, H - 24 * mm, f"{B.EMPRESA['nome']} · CNPJ {B.EMPRESA['cnpj']}")
     c.setFont("Helvetica-Bold", 11)
     c.drawRightString(x1, H - 13 * mm, f"Nº {d['numero']}")
     c.setFont("Helvetica", 8)
@@ -162,7 +181,8 @@ def gerar_danfse_pdf(xml: str) -> bytes:
         27 * mm,
     )
 
-    c.setStrokeColor(_CINZA)
+    c.setStrokeColor(_LARANJA)
+    c.setLineWidth(0.8)
     c.line(x0, 26 * mm, x1, 26 * mm)
     c.setFillColor(_CINZA)
     c.setFont("Helvetica", 7)
@@ -175,8 +195,12 @@ def gerar_danfse_pdf(xml: str) -> bytes:
     c.drawString(
         x0, 12 * mm, "Verifique a autenticidade pela chave de acesso no portal nacional da NFS-e (www.nfse.gov.br)."
     )
-    c.setFont("Helvetica-Oblique", 7)
-    c.drawString(x0, 8 * mm, "GEDEON · Conecta PRO — DANFSe gerado a partir do XML oficial (ADN).")
+    c.setFillColor(_AZUL)
+    c.setFont("Helvetica-Bold", 7)
+    c.drawString(
+        x0, 8 * mm,
+        f"{B.EMPRESA['nome']} | CNPJ: {B.EMPRESA['cnpj']} | {B.EMPRESA['fone']} | {B.EMPRESA['site']}",
+    )
     c.showPage()
     c.save()
     buf.seek(0)

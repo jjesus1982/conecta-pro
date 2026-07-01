@@ -294,13 +294,122 @@ class ReportGeneratorService:
         return content.encode("utf-8"), len(content)
 
     def _generate_pdf(self, data: dict[str, Any], report: ScheduledReport) -> tuple:
-        """Gera arquivo PDF."""
-        # Simulação - em produção usaria reportlab ou weasyprint
-        content = f"PDF Report: {report.name}\n"
-        content += f"Type: {report.report_type}\n"
-        content += f"Generated: {datetime.utcnow().isoformat()}\n"
-        content += f"Data Summary: {data.get('summary', {})}\n"
-        return content.encode("utf-8"), len(content)
+        """Gera arquivo PDF no padrão visual oficial Conecta Mais (header/footer + selo)."""
+        try:
+            content = self._render_pdf_branded(data, report)
+        except Exception:  # noqa: BLE001 - nunca quebrar a geração de relatório
+            logger.exception("Falha ao gerar PDF branded; usando fallback texto")
+            fallback = f"PDF Report: {report.name}\n"
+            fallback += f"Type: {report.report_type}\n"
+            fallback += f"Generated: {datetime.utcnow().isoformat()}\n"
+            fallback += f"Data Summary: {data.get('summary', {})}\n"
+            content = fallback.encode("utf-8")
+        return content, len(content)
+
+    def _render_pdf_branded(self, data: dict[str, Any], report: ScheduledReport) -> bytes:
+        """Monta o PDF com a marca Conecta Mais (capa institucional + resumo dos dados)."""
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.units import mm
+        from reportlab.platypus import (
+            Image,
+            PageBreak,
+            Paragraph,
+            SimpleDocTemplate,
+            Spacer,
+            Table,
+            TableStyle,
+        )
+
+        from modules.crm.services import pdf_branding as B
+
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buf,
+            pagesize=A4,
+            leftMargin=16 * mm,
+            rightMargin=16 * mm,
+            topMargin=35 * mm,
+            bottomMargin=20 * mm,
+            title=f"Relatório {getattr(report, 'name', '')}",
+        )
+        st = B.styles()
+        el: list = []
+
+        gerado = datetime.utcnow()
+        tipo = getattr(getattr(report, "report_type", None), "value", None) or str(
+            getattr(report, "report_type", "") or ""
+        )
+
+        # ---------------- CAPA ----------------
+        cover = B.logo_path("cover")
+        el.append(Spacer(1, 26 * mm))
+        if cover:
+            try:
+                img = Image(cover, width=58 * mm, height=40 * mm, kind="proportional")
+                img.hAlign = "CENTER"
+                el.append(img)
+            except Exception:  # noqa: BLE001
+                pass
+        el.append(Spacer(1, 8 * mm))
+        el.append(
+            Table(
+                [[""]],
+                colWidths=[60 * mm],
+                hAlign="CENTER",
+                style=TableStyle([("LINEBELOW", (0, 0), (-1, -1), 2.5, B.LARANJA)]),
+            )
+        )
+        el.append(Spacer(1, 10 * mm))
+        el.append(Paragraph("RELATÓRIO", st["capa_titulo"]))
+        el.append(Spacer(1, 3 * mm))
+        el.append(Paragraph(getattr(report, "name", "") or "Relatório", st["capa_sub"]))
+        el.append(Spacer(1, 12 * mm))
+        el.append(Paragraph(B.data_extenso(gerado), st["capa_meta"]))
+        if tipo:
+            el.append(Paragraph(f"Tipo: {tipo}", st["capa_meta"]))
+        el.append(Spacer(1, 14 * mm))
+        el.append(Paragraph("— CONFIDENCIAL —", st["destaque"]))
+        el.append(PageBreak())
+
+        # ---------------- CONTEÚDO ----------------
+        el += B.secao("Resumo do Relatório", st)
+        if getattr(report, "description", None):
+            el.append(Paragraph(str(report.description), st["corpo"]))
+            el.append(Spacer(1, 3 * mm))
+
+        summary = data.get("summary") if isinstance(data, dict) else None
+        if isinstance(summary, dict) and summary:
+            rows = [[Paragraph("Indicador", st["cellh"]), Paragraph("Valor", st["cellh"])]]
+            for k, v in summary.items():
+                rows.append([Paragraph(str(k), st["cell"]), Paragraph(str(v), st["cellr"])])
+            tbl = Table(rows, colWidths=[120 * mm, 58 * mm], repeatRows=1)
+            tbl.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), B.AZUL_ESCURO),
+                        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [B.colors.white, B.FUNDO_CLARO]),
+                        ("GRID", (0, 0), (-1, -1), 0.4, B.AZUL_MEDIO),
+                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                        ("TOPPADDING", (0, 0), (-1, -1), 4),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                    ]
+                )
+            )
+            el.append(tbl)
+        else:
+            el.append(Paragraph("Sem dados de resumo disponíveis para este período.", st["corpo"]))
+
+        el.append(Spacer(1, 8 * mm))
+        el.append(Paragraph(f"Gerado em {gerado.strftime('%d/%m/%Y %H:%M')} (UTC).", st["small"]))
+
+        doc.build(
+            el,
+            onFirstPage=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True),
+            onLaterPages=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True),
+        )
+        return buf.getvalue()
 
     async def _save_file(
         self,
