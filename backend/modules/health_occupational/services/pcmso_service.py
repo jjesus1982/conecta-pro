@@ -333,14 +333,15 @@ class PCMSOService:
 
         try:
             rows = self.db.execute(
+                # [Veracidade] repontado p/ gp_asos (o JOIN health_asos->health_medical_exams tinha
+                # exame_id orfao -> 0 sempre). gp_asos tem data_validade real. Aliases p/ casar o return.
                 text(
-                    "SELECT a.id as aso_id, e.funcionario_id, a.resultado, "
-                    "a.data_vencimento, a.medico_responsavel, a.crm, e.tipo_exame "
-                    "FROM health_asos a "
-                    "JOIN health_medical_exams e ON a.exame_id = e.id "
-                    "WHERE a.ativo = true AND a.cancelado = false "
-                    "AND a.data_vencimento BETWEEN current_date AND current_date + :days * interval '1 day' "
-                    "ORDER BY a.data_vencimento"
+                    "SELECT id as aso_id, employee_id as funcionario_id, "
+                    "CASE WHEN apto THEN 'apto' ELSE 'inapto' END as resultado, "
+                    "data_validade as data_vencimento, medico as medico_responsavel, crm, tipo as tipo_exame "
+                    "FROM gp_asos "
+                    "WHERE data_validade BETWEEN current_date AND current_date + :days * interval '1 day' "
+                    "ORDER BY data_validade"
                 ),
                 {"days": days},
             ).fetchall()

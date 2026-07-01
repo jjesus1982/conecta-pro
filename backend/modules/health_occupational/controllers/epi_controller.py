@@ -284,7 +284,9 @@ async def get_epi_record(
             message="Ficha de EPI do funcionario",
             data={
                 "funcionario_id": str(funcionario_id),
-                "entregas": [EPIDeliveryResponse.model_validate(d).model_dump() for d in record["entregas"]],
+                # [Veracidade] entregas ja vem display-ready de gp_epi_deliveries (schema EPIDeliveryResponse
+                # era do health_ e nao casa: gp_ usa id int, epi_nome/epi_ca, sem epi_id UUID).
+                "entregas": record["entregas"],
                 "total_entregas": record["total_entregas"],
                 "epis_ativos": len(record["epis_ativos"]),
                 "epis_vencidos": len(record["epis_vencidos"]),

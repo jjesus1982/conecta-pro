@@ -400,20 +400,13 @@ class PPRAService:
         from sqlalchemy import text
 
         try:
-            total_mappings = (
-                self.db.execute(text("SELECT count(*) FROM health_risk_mappings WHERE status = 'ativo'")).scalar() or 0
-            )
+            # [Veracidade] repontado p/ gp_risks (health_risk_mappings=3 c/ status='identificado';
+            # filtro status='ativo' dava 0). gp_risks: 15 reais, nivel alto/medio/baixo.
+            total_mappings = self.db.execute(text("SELECT count(*) FROM gp_risks")).scalar() or 0
 
-            total_risks = self.db.execute(text("SELECT count(*) FROM health_risk_mappings")).scalar() or 0
+            total_risks = self.db.execute(text("SELECT count(*) FROM gp_risks")).scalar() or 0
 
-            high_risks = (
-                self.db.execute(
-                    text(
-                        "SELECT count(*) FROM health_risk_mappings WHERE intensidade IN ('alta', 'critica', 'muito_alta')"
-                    )
-                ).scalar()
-                or 0
-            )
+            high_risks = self.db.execute(text("SELECT count(*) FROM gp_risks WHERE nivel = 'alto'")).scalar() or 0
 
             return {
                 "total_mapeamentos_ativos": total_mappings,

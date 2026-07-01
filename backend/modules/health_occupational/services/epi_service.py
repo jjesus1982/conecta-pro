@@ -338,16 +338,33 @@ class EPIService:
         Returns:
             Dict com historico de EPIs.
         """
-        deliveries = (
-            self.db.query(EPIDelivery)
-            .filter(EPIDelivery.funcionario_id == funcionario_id)
-            .order_by(EPIDelivery.data_entrega.desc())
-            .all()
-        )
+        # [Veracidade] repontado p/ gp_epi_deliveries (EPIDelivery lia health_epi_deliveries=0 -> ficha vazia/500).
+        from datetime import date as _date
 
-        active_epis = [d for d in deliveries if not d.devolvido and not d.esta_vencido]
-        expired_epis = [d for d in deliveries if not d.devolvido and d.esta_vencido]
-        returned_epis = [d for d in deliveries if d.devolvido]
+        from sqlalchemy import text as _text
+
+        rows = self.db.execute(
+            _text(
+                "SELECT id::text, epi_nome, epi_ca, quantidade, nr, data_entrega, data_validade, "
+                "data_devolucao, assinatura_funcionario FROM gp_epi_deliveries "
+                "WHERE CAST(employee_id AS TEXT) = :fid ORDER BY data_entrega DESC"
+            ),
+            {"fid": str(funcionario_id)},
+        ).mappings().all()
+        _hoje = _date.today()
+        deliveries = []
+        for r in rows:
+            d = dict(r)
+            d["devolvido"] = d.get("data_devolucao") is not None
+            d["esta_vencido"] = bool(d.get("data_validade") and d["data_validade"] < _hoje and not d["devolvido"])
+            for k in ("data_entrega", "data_validade", "data_devolucao"):
+                if d.get(k) is not None:
+                    d[k] = d[k].isoformat()
+            deliveries.append(d)
+
+        active_epis = [d for d in deliveries if not d["devolvido"] and not d["esta_vencido"]]
+        expired_epis = [d for d in deliveries if not d["devolvido"] and d["esta_vencido"]]
+        returned_epis = [d for d in deliveries if d["devolvido"]]
 
         return {
             "funcionario_id": str(funcionario_id),
