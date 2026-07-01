@@ -62,7 +62,7 @@ class PostRepository:
 
         Puxa a periculosidade dos funcionarios alocados via
         employees.cct_cargo_id -> cct_cargos. Se houver periculosidade na CCT,
-        o hazard_pay do posto passa a refleti-la (ex.: Vigia -> 30%), em vez de 0.
+        o hazard_pay do posto passa a refleti-la (ex.: Porteiro -> 30%), em vez de 0.
         """
         post = await self.get_by_id(post_id)
         if not post:

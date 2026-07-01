@@ -268,8 +268,8 @@ class CCTComplianceService:
             TipoCargo.PORTEIRO,
             TipoCargo.PORTEIRO_LIDER,
             TipoCargo.CONTROLADOR_ACESSO,
-            TipoCargo.VIGIA,
-            TipoCargo.VIGILANTE,
+            TipoCargo.AGENTE_PORTARIA,
+            TipoCargo.AGENTE_PORTARIA_LIDER,
             TipoCargo.FOLGUISTA,
         ]
 

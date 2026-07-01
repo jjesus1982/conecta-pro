@@ -24,7 +24,7 @@ class DominioExporterAgent:
         "3.1.2.02": "Deduções de Receita - PIS",
         "3.1.2.03": "Deduções de Receita - COFINS",
         # CUSTOS
-        "4.1.1.01": "Salários e Ordenados - Vigilantes",
+        "4.1.1.01": "Salários e Ordenados - Agentes de Portaria",
         "4.1.1.02": "Salários e Ordenados - Supervisores",
         "4.1.1.03": "Salários e Ordenados - Administrativo",
         "4.1.2.01": "INSS Patronal",

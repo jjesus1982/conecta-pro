@@ -15,7 +15,7 @@ class PostBase(BaseModel):
 
     name: str = Field(..., min_length=2, max_length=255, description="Nome do posto")
     description: str | None = Field(None, description="Descrição")
-    post_type: PostType = Field(default=PostType.VIGILANTE, description="Tipo de posto")
+    post_type: PostType = Field(default=PostType.PORTEIRO, description="Tipo de posto")
     shift_type: ShiftType = Field(default=ShiftType.DIURNO, description="Tipo de turno")
 
     # Localização
@@ -107,7 +107,7 @@ class PostCreate(PostBase):
     Schema para criação de Post.
 
     Um posto de trabalho representa uma posição operacional onde funcionários
-    são alocados para realizar atividades de segurança, vigilância ou serviços.
+    são alocados para realizar atividades de portaria, controle de acesso ou serviços.
     """
 
     model_config = ConfigDict(
@@ -115,7 +115,7 @@ class PostCreate(PostBase):
             "example": {
                 "name": "Portaria Principal Shopping Center",
                 "description": "Controle de acesso principal do shopping",
-                "post_type": "VIGILANTE",
+                "post_type": "PORTEIRO",
                 "shift_type": "DIURNO",
                 "address": "Av. Paulista, 1000",
                 "city": "São Paulo",

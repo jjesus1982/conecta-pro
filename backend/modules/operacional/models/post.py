@@ -23,7 +23,6 @@ if TYPE_CHECKING:
 class PostType(StrEnum):
     """Tipo de posto de trabalho."""
 
-    VIGILANTE = "vigilante"
     PORTEIRO = "porteiro"
     RECEPCIONISTA = "recepcionista"
     CONTROLADOR_ACESSO = "controlador_acesso"
@@ -70,7 +69,7 @@ class Post(Base):
         code: Código do posto (POST-001)
         name: Nome do posto
         description: Descrição detalhada
-        post_type: Tipo de posto (vigilante, porteiro, etc)
+        post_type: Tipo de posto (porteiro, controlador de acesso, etc)
         status: Status do posto
         shift_type: Tipo de turno
         contract_id: Contrato associado
@@ -105,7 +104,7 @@ class Post(Base):
     # Tipo e Status
     post_type: Mapped[str] = mapped_column(
         String(50),
-        default=PostType.VIGILANTE.value,
+        default=PostType.PORTEIRO.value,
         nullable=False,
         index=True,
     )

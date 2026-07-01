@@ -19,7 +19,6 @@ router = APIRouter(prefix="/financial/precificacao", tags=["Precificação"])
 # ── CCT SINDECOMPRESTS 2026 (agentes de portaria/serviços, NÃO vigilância) ──
 # Fonte única do piso: tabela cct_cargos (piso da categoria R$1.670).
 PISO_CATEGORIA = 1670.00  # menor piso de cct_cargos (fallback)
-PISO_VIGILANTE = PISO_CATEGORIA  # alias retrocompatível
 ENCARGOS_PCT = 0.6124  # INSS 20 + FGTS 8 + RAT 3 + terceiros 5,8 + férias 11,11 + 13º 8,33 + rescisão 5
 REPASSE_PCT = 0.075  # repasse contratual obrigatório CCT Cláusula 2ª §3º
 VR_DIA = 22.00

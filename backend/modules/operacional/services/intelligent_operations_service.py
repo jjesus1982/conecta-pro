@@ -160,7 +160,6 @@ class OperationalInsight:
 _CARGO_SKILL_MAP: dict[str, SkillLevel] = {
     "estagiario": SkillLevel.TRAINEE,
     "auxiliar": SkillLevel.JUNIOR,
-    "vigilante": SkillLevel.PLENO,
     "porteiro": SkillLevel.PLENO,
     "recepcionista": SkillLevel.PLENO,
     "controlador": SkillLevel.PLENO,
@@ -236,8 +235,8 @@ def _extract_skills(employee: EmployeeModel) -> list[str]:
         skills.append(employee.cargo.lower())
 
     # Certificados específicos
-    if employee.curso_vigilante:
-        skills.append("vigilancia")
+    if employee.curso_formacao:
+        skills.append("portaria")
     if employee.porte_arma:
         skills.append("porte_arma")
     if employee.cnh_numero:

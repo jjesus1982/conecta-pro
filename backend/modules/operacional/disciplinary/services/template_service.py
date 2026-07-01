@@ -260,7 +260,7 @@ class TemplateService:
             sample_context = {
                 "employee_name": "JOAO DA SILVA",
                 "employee_cpf": "123.456.789-00",
-                "employee_position": "Vigilante",
+                "employee_position": "Porteiro",
                 "employee_admission_date": "01/01/2020",
                 "incident_date": "15/01/2026",
                 "application_date": "18/01/2026",

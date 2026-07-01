@@ -74,9 +74,9 @@ class DocumentKitAIService:
             and entity_type == EntityType.CONTRATO
         ):
             score += 30.0
-        elif kit.tipo == KitType.VIGILANTE and entity_type == EntityType.FUNCIONARIO:
+        elif kit.tipo == KitType.PORTARIA and entity_type == EntityType.FUNCIONARIO:
             cargo = entity_data.get("cargo", "").lower()
-            if "vigilante" in cargo or "seguranca" in cargo:
+            if "porteiro" in cargo or "portaria" in cargo or "controlador" in cargo:
                 score += 35.0
         elif kit.tipo == KitType.TREINAMENTO and entity_type == EntityType.TREINAMENTO:
             score += 30.0
@@ -104,7 +104,7 @@ class DocumentKitAIService:
             (KitType.ADMISSAO, EntityType.FUNCIONARIO): ("Kit obrigatorio para admissao de funcionarios"),
             (KitType.DEMISSAO, EntityType.FUNCIONARIO): ("Kit necessario para processo de desligamento"),
             (KitType.CONTRATO_CLIENTE, EntityType.CONTRATO): ("Documentacao essencial para formalizacao do contrato"),
-            (KitType.VIGILANTE, EntityType.FUNCIONARIO): ("Documentos especificos para funcao de vigilante"),
+            (KitType.PORTARIA, EntityType.FUNCIONARIO): ("Documentos especificos para funcao de agente de portaria"),
             (KitType.TREINAMENTO, EntityType.TREINAMENTO): ("Comprovantes necessarios para registro de treinamento"),
             (KitType.EQUIPAMENTO, EntityType.EQUIPAMENTO): ("Termos e registros para controle de equipamentos"),
         }

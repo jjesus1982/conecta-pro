@@ -5,7 +5,7 @@ Skills injetadas (T3 Fase 2):
 - break-even-ponto-equilibrio (Skill 02)
 - analise-margem-por-servico (Skill 03)
 CCT SINDECOMPRESTS 2026: piso R$1.847,93 + encargos 42% + VR + VT = R$3.354,86/posto
-Benchmarks Manaus 2026: vigilante diurno R$2.800-3.800 | noturno R$3.200-4.500/posto/mes
+Benchmarks Manaus 2026: portaria diurna R$2.800-3.800 | noturna R$3.200-4.500/posto/mes
 """
 
 from sqlalchemy import and_, func, select
@@ -20,7 +20,7 @@ from modules.financial.models.receivable_account import ReceivableAccount, Recei
 # encargos_pct: percentual de encargos sociais sobre o custo base
 _BENCHMARKS: dict[str, dict] = {
     "portaria": {
-        "descricao": "Portaria 24h com 2 vigilantes por posto",
+        "descricao": "Portaria 24h com 2 agentes de portaria por posto",
         "unidade": "posto",
         "custo_por_unidade": 8500.0,  # R$/posto/mes
         "encargos_pct": 0.72,  # CLT + beneficios (~72%)
@@ -112,15 +112,15 @@ class PricingOptimizerAgent(BaseAgent):
         return (
             "Você é o PricingOptimizerAgent da Conecta Mais.\n\n"
             "CCT SINDECOMPRESTS 2026 (vigência 01/01/2026 a 31/12/2026):\n"
-            "- Piso vigilante: R$1.847,93/mês\n"
+            "- Piso da categoria: R$1.847,93/mês\n"
             "- Encargos (INSS + FGTS + férias + 13º): ~42%\n"
-            "- Custo CLT total por vigilante: ~R$2.624,06/mês\n"
+            "- Custo CLT total por posto: ~R$2.624,06/mês\n"
             "- VR: R$26,40/dia útil (22 dias = R$580,80/mês)\n"
             "- VT: ~R$150/mês (média)\n"
             "- Custo all-in por posto: ~R$3.354,86/mês\n\n"
             "BENCHMARKS MANAUS 2026:\n"
-            "- Vigilante diurno: R$2.800 – R$3.800/posto/mês\n"
-            "- Vigilante noturno: R$3.200 – R$4.500/posto/mês\n"
+            "- Portaria diurna: R$2.800 – R$3.800/posto/mês\n"
+            "- Portaria noturna: R$3.200 – R$4.500/posto/mês\n"
             "- Portaria remota: R$1.200 – R$2.500/mês\n"
             "- Manutenção CFTV: R$600 – R$1.200/mês\n\n"
             "MARGEM TARGET: 35% | MARGEM MÍNIMA: 20%\n"
@@ -244,7 +244,7 @@ class PricingOptimizerAgent(BaseAgent):
         try:
             # Busca recebiveis com descricao similar ao tipo de servico
             palavras_chave = {
-                "portaria": ["portaria", "vigilante", "seguranca"],
+                "portaria": ["portaria", "controlador de acesso", "seguranca"],
                 "limpeza": ["limpeza", "conservacao", "higiene"],
                 "jardinagem": ["jardim", "jardinagem", "areas verdes"],
                 "seguranca_eletronica": ["cftv", "monitoramento", "camera"],

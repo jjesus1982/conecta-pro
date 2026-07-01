@@ -191,7 +191,7 @@ class DocumentAIService:
                 "acesso",
                 "cftv",
                 "alarme",
-                "vigilância",
+                "portaria",
                 "ocorrência",
                 "incidente",
                 "risco",

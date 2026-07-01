@@ -119,11 +119,6 @@ TABELA_SALARIAL_CCT_2026: tuple[SalaryEntry, ...] = (
     ),
     SalaryEntry("TECNICO EM SEGURANCA DO TRABALHO", Decimal("1947.12")),
     SalaryEntry("TRATORISTA MARINA", Decimal("1776.68")),
-    SalaryEntry(
-        "VIGIA",
-        Decimal("1670.00"),
-        CargoAdditional.PERICULOSIDADE_30,
-    ),
     SalaryEntry("ZELADOR RESIDENTE CONDOMINIOS", Decimal("2777.46")),
 )
 

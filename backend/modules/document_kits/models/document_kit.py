@@ -37,7 +37,7 @@ class KitType(StrEnum):
     MENSAL = "MENSAL"  # Kit de documentos mensais (holerite, vale transporte, etc.)
     TREINAMENTO = "TREINAMENTO"
     CERTIFICACAO = "CERTIFICACAO"
-    VIGILANTE = "VIGILANTE"
+    PORTARIA = "PORTARIA"
     EQUIPAMENTO = "EQUIPAMENTO"
     AUDITORIA = "AUDITORIA"
     LICITACAO = "LICITACAO"

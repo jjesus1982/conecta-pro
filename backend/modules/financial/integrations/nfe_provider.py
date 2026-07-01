@@ -203,7 +203,7 @@ def _montar_nota_fiscal(
         items = [
             {
                 "codigo": "001",
-                "descricao": "SERVICOS DE VIGILANCIA E SEGURANCA PATRIMONIAL",
+                "descricao": "SERVICOS DE PORTARIA E CONTROLE DE ACESSO PARA CONDOMINIOS",
                 "ncm": "85311000",
                 "cfop": "5933",
                 "unidade": "MES",

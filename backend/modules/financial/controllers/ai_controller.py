@@ -855,7 +855,7 @@ async def get_billing_contracts(
 
 class MedicaoRequest(BaseModel):
     tipo: str = "portaria"
-    descricao: str = "Contrato de vigilância"
+    descricao: str = "Contrato de portaria/serviços para condomínios"
     periodo_dias: int = 30
 
 

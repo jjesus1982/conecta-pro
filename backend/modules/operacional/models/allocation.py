@@ -96,7 +96,7 @@ class Allocation(Base):
     """
     Exemplo de qualifications:
     {
-        "curso_vigilante": true,
+        "curso_formacao": true,
         "porte_arma": false,
         "cnh": "B",
         "experiencia_anos": 3

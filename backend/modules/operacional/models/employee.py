@@ -101,8 +101,9 @@ class Employee(Base):
     cnh_numero = Column(String(20), nullable=True)
     cnh_categoria = Column(String(5), nullable=True)
     cnh_validade = Column(Date, nullable=True)
-    curso_vigilante = Column(Boolean, nullable=True)
-    curso_vigilante_validade = Column(Date, nullable=True)
+    # Curso de formação (nome da coluna no banco mantido por compatibilidade)
+    curso_formacao = Column("curso_vigilante", Boolean, nullable=True)
+    curso_formacao_validade = Column("curso_vigilante_validade", Date, nullable=True)
     cnv = Column(String(30), nullable=True)
     cnv_validade = Column(Date, nullable=True)
     porte_arma = Column(Boolean, nullable=True)
@@ -211,11 +212,11 @@ class Employee(Base):
         return self.cnh_validade >= date.today()
 
     @property
-    def curso_vigilante_valido(self) -> bool:
-        """Verifica se curso de vigilante esta valido."""
-        if not self.curso_vigilante or not self.curso_vigilante_validade:
+    def curso_formacao_valido(self) -> bool:
+        """Verifica se curso de formacao esta valido."""
+        if not self.curso_formacao or not self.curso_formacao_validade:
             return False
-        return self.curso_vigilante_validade >= date.today()
+        return self.curso_formacao_validade >= date.today()
 
     @property
     def cnv_valido(self) -> bool:

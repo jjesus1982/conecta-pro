@@ -112,7 +112,7 @@ class BillingAutomatorAgent(BaseAgent):
         periodo_dias: int,
     ) -> dict:
         """
-        Calcula medição mensal estimada por tipo de serviço de vigilância.
+        Calcula medição mensal estimada por tipo de serviço de portaria/serviços para condomínios.
         Retorna detalhamento de custos e valor total.
         """
         tipo_norm = tipo.lower().strip()
@@ -124,7 +124,7 @@ class BillingAutomatorAgent(BaseAgent):
                 "custo_diario_posto": 350.0,
                 "he_percentual": 0.08,
                 "noturno_percentual": 0.12,
-                "label": "Portaria / Vigilância",
+                "label": "Portaria / Serviços para Condomínios",
             },
             "limpeza": {
                 "custo_diario_posto": 180.0,

@@ -38,8 +38,8 @@ class CenarioTipo(StrEnum):
     AGRESSIVO = "agressivo"
 
 
-class PostoVigilancia(BaseModel):
-    """Posto de vigilancia para calculo."""
+class PostoServico(BaseModel):
+    """Posto de servico (portaria/servicos para condominios) para calculo."""
 
     tipo: str = "12x36"  # 12x36, 44h, 24h, diurno, noturno
     quantidade: int = 1
@@ -82,7 +82,7 @@ class CustoMaoDeObra(BaseModel):
     # Repasse contratual obrigatorio 7,5% (CCT SINDECOMPRESTS 2026 Clausula 2a §3º)
     repasse_contratual: Decimal = Decimal("0")
 
-    # Total por vigilante/mes
+    # Total por posto/mes
     custo_mensal_unitario: Decimal = Decimal("0")
 
     # Quantidade e total
@@ -123,16 +123,16 @@ class PricingInput(BaseModel):
     """Dados de entrada para precificacao."""
 
     # Postos
-    postos: list[PostoVigilancia] = Field(default_factory=list)
+    postos: list[PostoServico] = Field(default_factory=list)
 
     # Valores de referencia — piso da CCT SINDECOMPRESTS 2026 (agentes de
     # portaria/servicos p/ condominios, NAO vigilancia armada). Fonte unica:
     # tabela cct_cargos (piso da categoria R$1.670). Idealmente sobrescrito
     # via cct_pricing_source.piso_cargo(); default = piso da categoria.
-    salario_base_vigilante: Decimal = Decimal("1670.00")
-    salario_base_vigilante_armado: Decimal = Decimal("1670.00")
+    salario_base_categoria: Decimal = Decimal("1670.00")
+    salario_base_categoria_armado: Decimal = Decimal("1670.00")
 
-    # Beneficios (valores mensais por vigilante) — VR R$22/dia (CCT 2026)
+    # Beneficios (valores mensais por posto) — VR R$22/dia (CCT 2026)
     vale_transporte_dia: Decimal = Decimal("11.00")
     vale_alimentacao_dia: Decimal = Decimal("22.00")
     assistencia_medica: Decimal = Decimal("250.00")
@@ -287,7 +287,7 @@ class PricerAgent(BaseAgent):
 
         # Se nao tem postos definidos, criar um default
         if not pricing_input.postos:
-            pricing_input.postos = [PostoVigilancia(tipo="12x36", quantidade=1)]
+            pricing_input.postos = [PostoServico(tipo="12x36", quantidade=1)]
 
         # Gerar 3 cenarios
         cenarios = [
@@ -450,7 +450,7 @@ class PricerAgent(BaseAgent):
             total_profissionais += profissionais_posto
 
             # Salario base
-            salario = inp.salario_base_vigilante_armado if posto.armado else inp.salario_base_vigilante
+            salario = inp.salario_base_categoria_armado if posto.armado else inp.salario_base_categoria
 
             # Adicionais CCT — periculosidade 30% e insalubridade 10% sobre o
             # PISO da categoria (nao sobre salario minimo velho).
@@ -533,7 +533,7 @@ class PricerAgent(BaseAgent):
             for tipo in tipos_posto:
                 tipo_normalizado = self._normalizar_tipo_posto(tipo)
                 postos.append(
-                    PostoVigilancia(
+                    PostoServico(
                         tipo=tipo_normalizado,
                         quantidade=por_tipo,
                         armado=armado,
@@ -542,7 +542,7 @@ class PricerAgent(BaseAgent):
                 )
         else:
             postos.append(
-                PostoVigilancia(
+                PostoServico(
                     tipo="12x36",
                     quantidade=qtd_postos,
                     armado=armado,

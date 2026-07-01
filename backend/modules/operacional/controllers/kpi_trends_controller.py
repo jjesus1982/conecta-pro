@@ -229,7 +229,7 @@ async def get_performance_scores(
             {
                 "id": str(row.id),
                 "name": row.name,
-                "role": row.role or "Vigilante",
+                "role": row.role or "Porteiro",
                 "score": float(row.score),
                 "time_bank_balance": float(row.time_bank_balance),
                 "recent_occurrences": int(row.recent_occurrences),

@@ -171,8 +171,8 @@ TABELA_PISOS_SINDCOND_2026: dict[TipoCargo, Decimal] = {
     TipoCargo.PORTEIRO: Decimal("1847.12"),
     TipoCargo.PORTEIRO_LIDER: Decimal("2124.19"),
     TipoCargo.CONTROLADOR_ACESSO: Decimal("1847.12"),
-    TipoCargo.VIGIA: Decimal("1724.51"),
-    TipoCargo.VIGILANTE: Decimal("2456.78"),
+    TipoCargo.AGENTE_PORTARIA: Decimal("1724.51"),
+    TipoCargo.AGENTE_PORTARIA_LIDER: Decimal("2456.78"),
     # Limpeza
     TipoCargo.ZELADOR: Decimal("1970.23"),
     TipoCargo.FAXINEIRO: Decimal("1601.90"),

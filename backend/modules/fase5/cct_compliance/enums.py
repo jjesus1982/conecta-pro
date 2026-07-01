@@ -14,8 +14,8 @@ class TipoCargo(StrEnum):
     PORTEIRO = "porteiro"
     PORTEIRO_LIDER = "porteiro_lider"
     CONTROLADOR_ACESSO = "controlador_acesso"
-    VIGIA = "vigia"
-    VIGILANTE = "vigilante"
+    AGENTE_PORTARIA = "agente_portaria"
+    AGENTE_PORTARIA_LIDER = "agente_portaria_lider"
 
     # Limpeza
     ZELADOR = "zelador"
