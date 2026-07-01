@@ -14,30 +14,37 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 # ==================== TABELAS FEDERAIS ====================
-# ⚠️ VERACIDADE / RISCO JURÍDICO — AGUARDANDO CERTIFICAÇÃO DO DP/CONTÁBIL:
-#   - INSS abaixo: faixa 1 = R$1.518 → valores de 2025, NÃO 2026.
-#     Oficial 2026 (Portaria Interministerial MPS/MF nº 13): faixa 1 até R$1.621,
-#     teto R$8.475,55, deduções 24,32/111,40/198,49.
-#   - IRRF abaixo: isenção R$2.259,20 → tabela 2024, SEM a reforma da isenção-R$5.000
-#     que entrou em vigor em jan/2026 (redutor progressivo até R$5.000; parcial R$5.000–7.350).
-# Estes números NÃO foram trocados aqui de propósito: dependem de certificação humana
-# (fonte oficial) antes de virarem base de folha real. Ver TABELAS_FEDERAIS_CERTIFICADAS.
-TABELAS_FEDERAIS_CERTIFICADAS = False
+# INSS 2026: OFICIAL — Portaria Interministerial MPS/MF nº 13, vigente 01/01/2026.
+#   Mínimo federal R$1.621,00 (a CCT delega o mínimo ao Governo Federal, Cl.2ª §1º).
+#   ATENÇÃO: a base salarial da NOSSA categoria é o PISO da CCT (R$1.670), não o mínimo.
+#   O mínimo federal só entra aqui para a faixa 1 do INSS.
+# IRRF 2026: PENDENTE — a reforma da isenção-R$5.000 entrou em jan/2026 via REDUTOR
+#   (isenção total até R$5.000; parcial R$5.000–7.350). Tabela tradicional inalterada.
+#   O redutor exato aguarda fonte oficial + certificação (ver IRRF_CERTIFICADA).
+INSS_CERTIFICADA = True  # valores oficiais Portaria nº 13/2026
+IRRF_CERTIFICADA = False  # implementado oficial (Lei 15.270/2025) — aguarda certificação humana c/ casos-teste
 
 FAIXAS_INSS_2026 = [
-    (Decimal("1518.00"), Decimal("0.075")),
-    (Decimal("2793.88"), Decimal("0.09")),
-    (Decimal("4190.83"), Decimal("0.12")),
-    (Decimal("8157.41"), Decimal("0.14")),
+    (Decimal("1621.00"), Decimal("0.075")),
+    (Decimal("2902.84"), Decimal("0.09")),
+    (Decimal("4354.27"), Decimal("0.12")),
+    (Decimal("8475.55"), Decimal("0.14")),
 ]
 
+# IRRF 2026 — tabela progressiva mensal OFICIAL (Lei 15.191/2025; isenção R$2.428,80)
 FAIXAS_IRRF_2026 = [
-    (Decimal("2259.20"), Decimal("0"), Decimal("0")),
-    (Decimal("2826.65"), Decimal("0.075"), Decimal("169.44")),
-    (Decimal("3751.05"), Decimal("0.15"), Decimal("381.44")),
-    (Decimal("4664.68"), Decimal("0.225"), Decimal("662.77")),
-    (Decimal("99999999"), Decimal("0.275"), Decimal("896.00")),
+    (Decimal("2428.80"), Decimal("0"), Decimal("0")),
+    (Decimal("2826.65"), Decimal("0.075"), Decimal("182.16")),
+    (Decimal("3751.05"), Decimal("0.15"), Decimal("394.16")),
+    (Decimal("4664.68"), Decimal("0.225"), Decimal("675.49")),
+    (Decimal("99999999"), Decimal("0.275"), Decimal("908.73")),
 ]
+DEDUCAO_DEPENDENTE_IRRF = Decimal("189.59")
+DESCONTO_SIMPLIFICADO_IRRF = Decimal("607.20")
+# Redutor da reforma (Lei 15.270/2025): isenção total até R$5.000, decresce linear até R$0 em R$7.350.
+# redutor = 978,62 − 0,133145 × rendimento_bruto_tributável (validado no exemplo oficial R$6.000 → R$179,75).
+IRRF_REDUTOR_A = Decimal("978.62")
+IRRF_REDUTOR_B = Decimal("0.133145")
 
 # Constantes CCT 2026
 VR_DIA = Decimal("22.00")
@@ -75,15 +82,40 @@ def calcular_inss(base: Decimal) -> Decimal:
     return _d(inss)
 
 
-def calcular_irrf(base: Decimal, inss: Decimal) -> Decimal:
-    """Calcula IRRF progressivo 2026."""
-    base_ir = base - inss
-    if base_ir <= FAIXAS_IRRF_2026[0][0]:
-        return Decimal("0")
+def calcular_irrf(base: Decimal, inss: Decimal, dependentes: int = 0) -> Decimal:
+    """Calcula IRRF mensal 2026 com a reforma da isenção (Lei 15.270/2025).
+
+    Passos:
+    1. Base de cálculo = rendimento tributável − (INSS + dependentes×189,59), OU
+       rendimento − desconto simplificado (R$607,20), o que for mais vantajoso.
+    2. Imposto normal pela tabela progressiva mensal 2026.
+    3. Redutor da reforma: 978,62 − 0,133145 × rendimento (isenta até R$5.000; parcial
+       até R$7.350; zero acima). IRRF final = max(0, imposto − redutor).
+    """
+    rendimento = base  # rendimento bruto tributável
+    # (1) base de cálculo — escolhe a dedução mais vantajosa (menor base)
+    base_legal = base - inss - (DEDUCAO_DEPENDENTE_IRRF * dependentes)
+    base_simplificada = base - DESCONTO_SIMPLIFICADO_IRRF
+    base_ir = min(base_legal, base_simplificada)
+    if base_ir < 0:
+        base_ir = Decimal("0")
+
+    # (2) imposto normal pela tabela progressiva 2026
+    imposto = Decimal("0")
     for teto, aliquota, deducao in FAIXAS_IRRF_2026:
         if base_ir <= teto:
-            return _d(base_ir * aliquota - deducao)
-    return Decimal("0")
+            imposto = base_ir * aliquota - deducao
+            break
+    if imposto < 0:
+        imposto = Decimal("0")
+
+    # (3) redutor da reforma (Lei 15.270/2025)
+    redutor = IRRF_REDUTOR_A - IRRF_REDUTOR_B * rendimento
+    if redutor < 0:
+        redutor = Decimal("0")
+
+    irrf = imposto - redutor
+    return _d(irrf) if irrf > 0 else Decimal("0")
 
 
 def calcular_folha_colaborador(

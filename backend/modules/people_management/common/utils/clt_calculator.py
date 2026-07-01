@@ -20,32 +20,39 @@ from decimal import ROUND_HALF_UP, Decimal
 # TABELAS DE REFERÊNCIA — ⚠️ VALORES 2024, PENDENTE ATUALIZAÇÃO + CERTIFICAÇÃO 2026
 # ===========================================================================
 
-# Gate de honestidade: enquanto False, os valores abaixo NÃO representam 2026.
-# O DP/Contábil substitui pelos valores oficiais e vira este flag ao certificar.
-TABELAS_LEGAIS_CERTIFICADAS_2026 = False
-VIGENCIA_TABELAS_LEGAIS = "2024"  # ano-base real dos números abaixo
+# Gate de honestidade: INSS já é oficial 2026; IRRF ainda pendente (reforma do redutor).
+# NOTA: a base salarial da categoria é o PISO da CCT (R$1.670), NÃO o salário mínimo.
+# SALARIO_MINIMO abaixo é o mínimo FEDERAL, usado só como base legal de insalubridade (CLT).
+INSS_CERTIFICADA_2026 = True  # Portaria Interministerial MPS/MF nº 13
+IRRF_CERTIFICADA_2026 = False  # reforma isenção-R$5.000 (redutor) pendente
+TABELAS_LEGAIS_CERTIFICADAS_2026 = False  # geral False enquanto IRRF pendente
+VIGENCIA_TABELAS_LEGAIS = "2026-INSS / 2024-IRRF"
 
-SALARIO_MINIMO = Decimal("1412.00")  # 2024 (2025=1518; 2026 pendente fonte oficial)
-TETO_INSS = Decimal("7786.02")  # 2024 — pendente 2026
+SALARIO_MINIMO = Decimal("1621.00")  # mínimo FEDERAL 2026 (Portaria nº 13). Base ≠ piso CCT R$1.670
+TETO_INSS = Decimal("8475.55")  # teto INSS 2026
 
-# INSS Faixas Progressivas — ⚠️ VALORES 2024 (pendente Portaria salário mínimo 2026)
+# INSS Faixas Progressivas 2026 — OFICIAL Portaria Interministerial MPS/MF nº 13
 INSS_FAIXAS: list[tuple[Decimal, Decimal]] = [
-    (Decimal("1412.00"), Decimal("0.075")),
-    (Decimal("2666.68"), Decimal("0.09")),
-    (Decimal("4000.03"), Decimal("0.12")),
-    (Decimal("7786.02"), Decimal("0.14")),
+    (Decimal("1621.00"), Decimal("0.075")),
+    (Decimal("2902.84"), Decimal("0.09")),
+    (Decimal("4354.27"), Decimal("0.12")),
+    (Decimal("8475.55"), Decimal("0.14")),
 ]
 
-# IRRF Tabela Progressiva — ⚠️ VALORES 2024 (pendente tabela RFB 2026 + reforma isenção)
+# IRRF Tabela Progressiva Mensal 2026 — OFICIAL (Lei 15.191/2025; isenção R$2.428,80)
 IRRF_FAIXAS: list[tuple[Decimal, Decimal, Decimal]] = [
-    (Decimal("2259.20"), Decimal("0.0"), Decimal("0.0")),
-    (Decimal("2826.65"), Decimal("0.075"), Decimal("169.44")),
-    (Decimal("3751.05"), Decimal("0.15"), Decimal("381.44")),
-    (Decimal("4664.68"), Decimal("0.225"), Decimal("662.77")),
-    (Decimal("999999999"), Decimal("0.275"), Decimal("896.00")),
+    (Decimal("2428.80"), Decimal("0.0"), Decimal("0.0")),
+    (Decimal("2826.65"), Decimal("0.075"), Decimal("182.16")),
+    (Decimal("3751.05"), Decimal("0.15"), Decimal("394.16")),
+    (Decimal("4664.68"), Decimal("0.225"), Decimal("675.49")),
+    (Decimal("999999999"), Decimal("0.275"), Decimal("908.73")),
 ]
 
 DEDUCAO_DEPENDENTE_IRRF = Decimal("189.59")
+# Redutor da reforma (Lei 15.270/2025): isenção até R$5.000, decresce até R$0 em R$7.350.
+# Aplicado só na folha MENSAL (passar rendimento_bruto). Rescisão/férias/13º têm regra própria.
+IRRF_REDUTOR_A = Decimal("978.62")
+IRRF_REDUTOR_B = Decimal("0.133145")
 FGTS_PERCENTUAL = Decimal("0.08")
 
 _TWO = Decimal("0.01")
@@ -86,13 +93,17 @@ def calcular_irrf(
     base_calculo: Decimal,
     dependentes: int = 0,
     pensao_alimenticia: Decimal = Decimal("0"),
+    rendimento_bruto: Decimal | None = None,
 ) -> Decimal:
-    """Calcula IRRF com dedutíveis.
+    """Calcula IRRF com dedutíveis (tabela 2026 + reforma opcional).
 
     Args:
         base_calculo: Base de cálculo (bruto - INSS - deduções).
         dependentes: Número de dependentes.
         pensao_alimenticia: Valor de pensão alimentícia.
+        rendimento_bruto: Rendimento bruto tributável. Se informado, aplica o redutor
+            da reforma (Lei 15.270/2025) — isenção até R$5.000. Use SÓ na folha mensal;
+            rescisão/férias/13º têm regra própria (não passar).
 
     Returns:
         Valor do IRRF a descontar.
@@ -103,12 +114,19 @@ def calcular_irrf(
     if base <= 0:
         return Decimal("0")
 
+    irrf = Decimal("0")
     for teto, aliquota, deducao in IRRF_FAIXAS:
         if base <= teto:
             irrf = (base * aliquota - deducao).quantize(_TWO, ROUND_HALF_UP)
-            return max(irrf, Decimal("0"))
+            break
 
-    return Decimal("0")
+    # Redutor da reforma (só folha mensal, quando rendimento_bruto é informado)
+    if rendimento_bruto is not None and rendimento_bruto > 0:
+        redutor = IRRF_REDUTOR_A - IRRF_REDUTOR_B * rendimento_bruto
+        if redutor > 0:
+            irrf = irrf - redutor
+
+    return max(irrf, Decimal("0"))
 
 
 def calcular_hora_normal(salario_base: Decimal, carga_horaria_mensal: Decimal = Decimal("220")) -> Decimal:

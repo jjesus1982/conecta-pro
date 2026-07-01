@@ -36,6 +36,7 @@ from modules.campo.models.visita import Visita  # noqa: F401
 # Import all models for autogenerate
 from modules.crm.models import (  # noqa: F401
     Lead,
+    MarketingContentDraft,
     Opportunity,
     Proposal,
     ProposalApproval,
