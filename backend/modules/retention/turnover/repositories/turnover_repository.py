@@ -11,7 +11,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Integer, and_, delete, func, or_, select, update
+from sqlalchemy import Integer, and_, delete, func, literal_column, or_, select, update
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -341,14 +341,11 @@ class TurnoverRepository:
                 func.avg(RiskFactor.contribuicao_score).label("contribuicao_media"),
                 func.max(RiskFactor.contribuicao_score).label("contribuicao_maxima"),
                 func.avg(func.cast(RiskFactor.threshold_violado, Integer)).label("percentual_threshold"),
-                func.count(
-                    func.distinct(
-                        select(TurnoverPrediction.funcionario_id)
-                        .where(TurnoverPrediction.id == RiskFactor.prediction_id)
-                        .scalar_subquery()
-                    )
-                ).label("funcionarios_afetados"),
+                # [Turnover rewrite] JOIN + count(distinct funcionario_id) — antes usava um
+                # scalar_subquery correlacionado dentro de count(distinct), invalido em GROUP BY.
+                func.count(func.distinct(TurnoverPrediction.funcionario_id)).label("funcionarios_afetados"),
             )
+            .join(TurnoverPrediction, TurnoverPrediction.id == RiskFactor.prediction_id)
             .where(RiskFactor.prediction_id.in_(pred_subquery))
             .group_by(
                 RiskFactor.nome,
@@ -567,9 +564,12 @@ class TurnoverRepository:
         """Retorna dados de tendencia dos ultimos N dias."""
         data_inicio = datetime.utcnow() - timedelta(days=dias)
 
+        # [Turnover rewrite] date_trunc com unidade LITERAL (nao bound param), senao SELECT e
+        # GROUP BY viram $1/$4 distintos e o Postgres exige data_calculo no GROUP BY.
+        _dia = func.date_trunc(literal_column("'day'"), TurnoverPrediction.data_calculo)
         result = await self.session.execute(
             select(
-                func.date_trunc("day", TurnoverPrediction.data_calculo).label("data"),
+                _dia.label("data"),
                 func.avg(TurnoverPrediction.score_risco).label("score_medio"),
                 func.sum(
                     func.cast(
@@ -591,8 +591,8 @@ class TurnoverRepository:
                     TurnoverPrediction.deleted_at.is_(None),
                 )
             )
-            .group_by(func.date_trunc("day", TurnoverPrediction.data_calculo))
-            .order_by(func.date_trunc("day", TurnoverPrediction.data_calculo))
+            .group_by(_dia)
+            .order_by(_dia)
         )
 
         return [
