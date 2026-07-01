@@ -36,16 +36,17 @@ async def get_ponto_historico(
     try:
         from sqlalchemy import extract, select
 
-        from modules.people_management.ponto.models.clock_punch import ClockPunch
+        # [Ponto loop] modelo real e ClockPunchModel (tabela gp_clock_punches); coluna e punch_timestamp
+        from modules.people_management.ponto.models.clock_punch import ClockPunchModel as ClockPunch
 
         query = (
             select(ClockPunch)
             .where(
                 ClockPunch.employee_id == employee_id,
-                extract("month", ClockPunch.punch_time) == target_mes,
-                extract("year", ClockPunch.punch_time) == target_ano,
+                extract("month", ClockPunch.punch_timestamp) == target_mes,
+                extract("year", ClockPunch.punch_timestamp) == target_ano,
             )
-            .order_by(ClockPunch.punch_time.desc())
+            .order_by(ClockPunch.punch_timestamp.desc())
         )
         result = await db.execute(query)
         for punch in result.scalars().all():
@@ -53,7 +54,7 @@ async def get_ponto_historico(
                 {
                     "id": str(punch.id),
                     "tipo": getattr(punch, "punch_type", "entrada"),
-                    "data_hora": str(punch.punch_time),
+                    "data_hora": str(punch.punch_timestamp),
                     "localizacao": getattr(punch, "location", None),
                     "observacao": getattr(punch, "observation", None),
                 }
