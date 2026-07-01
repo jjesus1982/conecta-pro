@@ -328,7 +328,9 @@ def calcular_multa_fgts(saldo_fgts: Decimal, tipo_rescisao: str) -> Decimal:
 
 
 def calcular_vale_transporte_desconto(salario_base: Decimal) -> Decimal:
-    """Desconto de Vale Transporte: 6% do salário base.
+    """Desconto de Vale Transporte: 4% do salário base (CCT SINDECOMPRESTS Cl.14ª).
+
+    A CCT fixa 4% (não os 6% máximos da CLT genérica).
 
     Args:
         salario_base: Salário base mensal.
@@ -336,7 +338,7 @@ def calcular_vale_transporte_desconto(salario_base: Decimal) -> Decimal:
     Returns:
         Valor do desconto de VT.
     """
-    return (salario_base * Decimal("0.06")).quantize(_TWO, ROUND_HALF_UP)
+    return (salario_base * Decimal("0.04")).quantize(_TWO, ROUND_HALF_UP)
 
 
 def calcular_saldo_salario(salario_base: Decimal, dias_trabalhados: int) -> Decimal:
