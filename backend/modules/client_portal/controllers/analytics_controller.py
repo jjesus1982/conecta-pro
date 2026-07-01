@@ -6,11 +6,11 @@ de metricas historicas, conformidade e saude do relacionamento.
 """
 
 import logging
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import case, extract, func, select
+from sqlalchemy import case, extract, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
@@ -318,18 +318,39 @@ async def get_conformidade(
 
             docs_por_tipo: dict[str, Any] = {doc.document_type: doc for doc in docs}
 
+            # [Veracidade] validade REAL das certidoes vem de ged_certidoes.expiry_date — NAO simular.
+            _map_ged = {
+                DocumentType.CND_FEDERAL: "certidao_negativa_federal",
+                DocumentType.CND_ESTADUAL: "certidao_negativa_estadual",
+                DocumentType.CND_MUNICIPAL: "certidao_negativa_municipal",
+                DocumentType.CRF_FGTS: "certidao_negativa_fgts",
+                DocumentType.CNDT_TRABALHISTA: "certidao_negativa_trabalhista",
+            }
+            _cert_rows = (await db.execute(text("SELECT document_type, expiry_date FROM ged_certidoes"))).all()
+            _validade_real = {r[0]: r[1] for r in _cert_rows}
+            _hoje = date.today()
+
             for doc_type, display_name in CERTIDOES_TYPES:
                 doc = docs_por_tipo.get(doc_type.value)
-                if doc:
-                    # Documento presente: verificar se esta assinado/em dia
-                    status = "ok" if doc.is_signed else "vencendo"
-                    # Simular data de expiracao como 30 dias apos criacao
-                    expires_at = date(
-                        doc.created_at.year,
-                        doc.created_at.month,
-                        min(28, doc.created_at.day + 30),
-                    )
+                expiry = _validade_real.get(_map_ged.get(doc_type))
+                if expiry:
+                    # validade REAL cadastrada
+                    if expiry < _hoje:
+                        status = "vencida"
+                    elif expiry <= _hoje + timedelta(days=30):
+                        status = "vencendo"
+                    else:
+                        status = "ok"
+                    expires_at = expiry
                     if status == "ok":
+                        docs_em_dia += 1
+                    else:
+                        docs_pendentes += 1
+                elif doc:
+                    # presente no kit, mas sem validade cadastrada — honesto, sem data inventada
+                    status = "presente" if doc.is_signed else "pendente"
+                    expires_at = None
+                    if doc.is_signed:
                         docs_em_dia += 1
                     else:
                         docs_pendentes += 1
