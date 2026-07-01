@@ -5,6 +5,7 @@ Endpoints REST para gestao de perfis operacionais e matches.
 """
 
 import logging
+from uuid import UUID  # [Retention] tipar profile_id -> /tipos-posto 500 (uuid cast) vira 422
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -201,7 +202,7 @@ async def get_funcionario_history(
     description="Retorna um perfil operacional especifico pelo ID.",
 )
 async def get_profile_by_id(
-    profile_id: str,
+    profile_id: UUID,
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
 ) -> OperationalProfileDetail:

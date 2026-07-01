@@ -11,7 +11,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy import Integer, and_, delete, func, or_, select, update
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -340,7 +340,7 @@ class TurnoverRepository:
                 func.count(RiskFactor.id).label("total_ocorrencias"),
                 func.avg(RiskFactor.contribuicao_score).label("contribuicao_media"),
                 func.max(RiskFactor.contribuicao_score).label("contribuicao_maxima"),
-                func.avg(func.cast(RiskFactor.threshold_violado, Decimal)).label("percentual_threshold"),
+                func.avg(func.cast(RiskFactor.threshold_violado, Integer)).label("percentual_threshold"),
                 func.count(
                     func.distinct(
                         select(TurnoverPrediction.funcionario_id)
@@ -574,13 +574,13 @@ class TurnoverRepository:
                 func.sum(
                     func.cast(
                         TurnoverPrediction.nivel == NivelRisco.CRITICO,
-                        Decimal,
+                        Integer,
                     )
                 ).label("total_criticos"),
                 func.sum(
                     func.cast(
                         TurnoverPrediction.nivel == NivelRisco.ALTO,
-                        Decimal,
+                        Integer,
                     )
                 ).label("total_altos"),
             )
