@@ -442,7 +442,7 @@ class PCMSOService:
             total_exams = (
                 self.db.execute(
                     text(
-                        "SELECT count(*) FROM health_medical_exams WHERE extract(year from data_agendamento) = extract(year from current_date)"
+                        "SELECT count(*) FROM gp_asos WHERE extract(year from data_agendamento) = extract(year from current_date)"
                     )
                 ).scalar()
                 or 0
@@ -450,7 +450,7 @@ class PCMSOService:
 
             pending_exams = (
                 self.db.execute(
-                    text("SELECT count(*) FROM health_medical_exams WHERE status IN ('agendado', 'confirmado')")
+                    text("SELECT count(*) FROM gp_asos WHERE status IN ('agendado', 'confirmado')")
                 ).scalar()
                 or 0
             )
@@ -458,7 +458,7 @@ class PCMSOService:
             completed_exams = (
                 self.db.execute(
                     text(
-                        "SELECT count(*) FROM health_medical_exams WHERE status = 'realizado' AND extract(year from data_realizacao) = extract(year from current_date)"
+                        "SELECT count(*) FROM gp_asos WHERE status = 'realizado' AND extract(year from data_realizacao) = extract(year from current_date)"
                     )
                 ).scalar()
                 or 0
@@ -467,7 +467,7 @@ class PCMSOService:
             expiring_asos = (
                 self.db.execute(
                     text(
-                        "SELECT count(*) FROM health_asos WHERE ativo = true AND cancelado = false AND data_vencimento BETWEEN current_date AND current_date + interval '30 days'"
+                        "SELECT count(*) FROM gp_asos WHERE data_validade BETWEEN current_date AND current_date + interval '30 days'"
                     )
                 ).scalar()
                 or 0

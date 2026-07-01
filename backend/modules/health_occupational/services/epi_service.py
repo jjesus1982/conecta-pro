@@ -538,7 +538,7 @@ class EPIService:
             total_deliveries = (
                 self.db.execute(
                     text(
-                        "SELECT count(*) FROM health_epi_deliveries WHERE extract(year from data_entrega) = extract(year from current_date)"
+                        "SELECT count(*) FROM gp_epi_deliveries WHERE extract(year from data_entrega) = extract(year from current_date)"
                     )
                 ).scalar()
                 or 0
@@ -553,7 +553,7 @@ class EPIService:
 
             pending_signatures = (
                 self.db.execute(
-                    text("SELECT count(*) FROM health_epi_deliveries WHERE assinatura_url IS NULL")
+                    text("SELECT count(*) FROM gp_epi_deliveries WHERE assinatura_funcionario IS NULL")
                 ).scalar()
                 or 0
             )
