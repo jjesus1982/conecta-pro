@@ -111,10 +111,10 @@ async def ged_dashboard(
         text("""
         SELECT
             count(*) as total,
-            count(*) FILTER (WHERE status = 'ativo' OR status = 'rascunho') as ativos,
-            count(*) FILTER (WHERE status = 'assinado') as assinados,
-            count(*) FILTER (WHERE status = 'expirado') as expirados
-        FROM ged_documents
+            count(*) FILTER (WHERE NOT is_signed) as ativos,
+            count(*) FILTER (WHERE is_signed) as assinados,
+            0 as expirados
+        FROM ged_kit_documents
     """)
     )
     docs = docs_result.mappings().first()
