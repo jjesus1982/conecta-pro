@@ -39,6 +39,7 @@ import {
 import { Label } from '@/components/ui/label';
 import { ExportButton } from '@/components/ui/export-button';
 import { useEmployees, useUpdateEmployee, useEmployeesFromSolides } from '@/hooks/operacional/useEmployees';
+import { useCctCargos, cargoLabel } from '@/hooks/hr/useCctCargos';
 import { customInstance } from '@/lib/api-client';
 
 // Tipo normalizado para exibição
@@ -49,9 +50,13 @@ interface Employee {
   matricula?: string | null;
   status?: string | null;
   cargo?: string | null;
+  cct_cargo_id?: string | null;
   departamento?: string | null;
   telefone?: string | null;
   data_admissao?: string | null;
+  insalubridade_percentual?: number | null;
+  periculosidade_percentual?: number | null;
+  adicional_ronda_percentual?: number | null;
   fonte: 'local' | 'solides';
 }
 
@@ -70,9 +75,10 @@ export default function ColaboradoresPage() {
   const [saving, setSaving] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
-  const [editForm, setEditForm] = useState({ nome: '', email: '', cargo: '', departamento: '', telefone: '', status: '' });
+  const [editForm, setEditForm] = useState({ nome: '', email: '', cargo: '', cct_cargo_id: '', departamento: '', telefone: '', status: '', insalubridade_percentual: '', periculosidade_percentual: '', adicional_ronda_percentual: '' });
   const [newDialogOpen, setNewDialogOpen] = useState(false);
-  const [newForm, setNewForm] = useState({ nome: '', email: '', matricula: '', cargo: '', departamento: '', telefone: '' });
+  const [newForm, setNewForm] = useState({ nome: '', email: '', matricula: '', cargo: '', cct_cargo_id: '', departamento: '', telefone: '', insalubridade_percentual: '', periculosidade_percentual: '', adicional_ronda_percentual: '' });
+  const { cargos: cctCargos, loading: cargosLoading } = useCctCargos();
   const [newSaving, setNewSaving] = useState(false);
   const [newError, setNewError] = useState<string | null>(null);
   const searchParams = useSearchParams();
@@ -104,9 +110,13 @@ export default function ColaboradoresPage() {
         matricula: raw.matricula || raw.registration || solidesMatch?.matricula,
         status: raw.status || solidesMatch?.status,
         cargo: raw.cargo || solidesMatch?.cargo,
+        cct_cargo_id: raw.cct_cargo_id ?? null,
         departamento: raw.departamento || solidesMatch?.departamento,
         telefone: raw.telefone || solidesMatch?.telefone,
         data_admissao: raw.data_admissao || solidesMatch?.data_admissao,
+        insalubridade_percentual: raw.insalubridade_percentual ?? null,
+        periculosidade_percentual: raw.periculosidade_percentual ?? null,
+        adicional_ronda_percentual: raw.adicional_ronda_percentual ?? null,
         fonte: solidesMatch ? 'solides' : 'local',
       };
     });
@@ -123,9 +133,13 @@ export default function ColaboradoresPage() {
       nome: employee.nome || '',
       email: employee.email || '',
       cargo: employee.cargo || '',
+      cct_cargo_id: employee.cct_cargo_id || '',
       departamento: employee.departamento || '',
       telefone: employee.telefone || '',
       status: employee.status || 'ativo',
+      insalubridade_percentual: employee.insalubridade_percentual != null ? String(employee.insalubridade_percentual) : '',
+      periculosidade_percentual: employee.periculosidade_percentual != null ? String(employee.periculosidade_percentual) : '',
+      adicional_ronda_percentual: employee.adicional_ronda_percentual != null ? String(employee.adicional_ronda_percentual) : '',
     });
     setEditDialogOpen(true);
   };
@@ -134,7 +148,15 @@ export default function ColaboradoresPage() {
     if (!selectedEmployee) return;
     setSaving(true);
     try {
-      await updateEmployeeMutation({ employeeId: selectedEmployee.id, data: editForm });
+      // Adicionais são float (0-40 / 0-30) — converter de string para número; '' vira null (limpa o campo)
+      const { insalubridade_percentual, periculosidade_percentual, adicional_ronda_percentual, ...rest } = editForm;
+      const payload: Record<string, unknown> = {
+        ...rest,
+        insalubridade_percentual: insalubridade_percentual === '' ? null : parseFloat(insalubridade_percentual),
+        periculosidade_percentual: periculosidade_percentual === '' ? null : parseFloat(periculosidade_percentual),
+        adicional_ronda_percentual: adicional_ronda_percentual === '' ? null : parseFloat(adicional_ronda_percentual),
+      };
+      await updateEmployeeMutation({ employeeId: selectedEmployee.id, data: payload });
       setEditDialogOpen(false);
       refetchLocal();
       refetchSolides();
@@ -161,9 +183,14 @@ export default function ColaboradoresPage() {
     setNewSaving(true);
     setNewError(null);
     try {
-      await customInstance({ url: '/api/v1/operacional/employees/', method: 'POST', data: { ...newForm, status: 'ativo' } });
+      const { insalubridade_percentual, periculosidade_percentual, adicional_ronda_percentual, ...rest } = newForm;
+      const payload: Record<string, unknown> = { ...rest, status: 'ativo' };
+      if (insalubridade_percentual !== '') payload.insalubridade_percentual = parseFloat(insalubridade_percentual);
+      if (periculosidade_percentual !== '') payload.periculosidade_percentual = parseFloat(periculosidade_percentual);
+      if (adicional_ronda_percentual !== '') payload.adicional_ronda_percentual = parseFloat(adicional_ronda_percentual);
+      await customInstance({ url: '/api/v1/operacional/employees/', method: 'POST', data: payload });
       setNewDialogOpen(false);
-      setNewForm({ nome: '', email: '', matricula: '', cargo: '', departamento: '', telefone: '' });
+      setNewForm({ nome: '', email: '', matricula: '', cargo: '', cct_cargo_id: '', departamento: '', telefone: '', insalubridade_percentual: '', periculosidade_percentual: '', adicional_ronda_percentual: '' });
       refetchLocal();
     } catch (err: unknown) {
       setNewError(err instanceof Error ? err.message : 'Erro ao criar colaborador');
@@ -477,10 +504,31 @@ export default function ColaboradoresPage() {
                 placeholder="email@exemplo.com" />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="cargo">Cargo</Label>
-              <Input id="cargo" value={editForm.cargo}
-                onChange={(e) => setEditForm({ ...editForm, cargo: e.target.value })}
-                placeholder="Ex: Vigilante, Porteiro..." />
+              <Label htmlFor="cargo">Cargo (CCT SINDECOMPRESTS)</Label>
+              <select
+                id="cargo"
+                value={editForm.cct_cargo_id}
+                disabled={cargosLoading}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  const cargo = cctCargos.find((c) => String(c.id) === id);
+                  setEditForm({ ...editForm, cct_cargo_id: id, cargo: cargo ? cargoLabel(cargo) : '' });
+                }}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+              >
+                <option value="">{cargosLoading ? 'Carregando cargos...' : (editForm.cargo || 'Selecione o cargo')}</option>
+                {cctCargos.map((c) => (
+                  <option key={String(c.id)} value={String(c.id)}>{cargoLabel(c)}</option>
+                ))}
+              </select>
+              {(() => {
+                const sel = cctCargos.find((c) => String(c.id) === editForm.cct_cargo_id);
+                return sel?.piso_salarial != null ? (
+                  <p className="text-xs text-muted-foreground">
+                    Piso CCT: {sel.piso_salarial.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  </p>
+                ) : null;
+              })()}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="departamento">Departamento</Label>
@@ -505,6 +553,35 @@ export default function ColaboradoresPage() {
                   <SelectItem value="ferias">Férias</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Adicionais por Funcionário (%)</Label>
+              <p className="text-xs text-muted-foreground -mt-1">
+                Individuais — dependem do posto/atividade real (não do cargo). Deixe 0 quando não houver.
+              </p>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="grid gap-1">
+                  <Label htmlFor="edit-insalubridade" className="text-xs font-normal">Insalubridade (%)</Label>
+                  <Input id="edit-insalubridade" type="number" step="0.01" min="0" max="40"
+                    value={editForm.insalubridade_percentual}
+                    onChange={(e) => setEditForm({ ...editForm, insalubridade_percentual: e.target.value })}
+                    placeholder="0" />
+                </div>
+                <div className="grid gap-1">
+                  <Label htmlFor="edit-periculosidade" className="text-xs font-normal">Periculosidade (%)</Label>
+                  <Input id="edit-periculosidade" type="number" step="0.01" min="0" max="30"
+                    value={editForm.periculosidade_percentual}
+                    onChange={(e) => setEditForm({ ...editForm, periculosidade_percentual: e.target.value })}
+                    placeholder="0" />
+                </div>
+                <div className="grid gap-1">
+                  <Label htmlFor="edit-ronda" className="text-xs font-normal">Ad. Ronda (%)</Label>
+                  <Input id="edit-ronda" type="number" step="0.01" min="0" max="30"
+                    value={editForm.adicional_ronda_percentual}
+                    onChange={(e) => setEditForm({ ...editForm, adicional_ronda_percentual: e.target.value })}
+                    placeholder="0" />
+                </div>
+              </div>
             </div>
           </div>
           <DialogFooter>
@@ -551,16 +628,66 @@ export default function ColaboradoresPage() {
               </div>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="new-cargo">Cargo</Label>
-              <Input id="new-cargo" value={newForm.cargo}
-                onChange={(e) => setNewForm({ ...newForm, cargo: e.target.value })}
-                placeholder="Ex: Vigilante, Porteiro..." />
+              <Label htmlFor="new-cargo">Cargo (CCT SINDECOMPRESTS)</Label>
+              <select
+                id="new-cargo"
+                value={newForm.cct_cargo_id}
+                disabled={cargosLoading}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  const cargo = cctCargos.find((c) => String(c.id) === id);
+                  setNewForm({ ...newForm, cct_cargo_id: id, cargo: cargo ? cargoLabel(cargo) : '' });
+                }}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+              >
+                <option value="">{cargosLoading ? 'Carregando cargos...' : 'Selecione o cargo'}</option>
+                {cctCargos.map((c) => (
+                  <option key={String(c.id)} value={String(c.id)}>{cargoLabel(c)}</option>
+                ))}
+              </select>
+              {(() => {
+                const sel = cctCargos.find((c) => String(c.id) === newForm.cct_cargo_id);
+                return sel?.piso_salarial != null ? (
+                  <p className="text-xs text-muted-foreground">
+                    Piso CCT: {sel.piso_salarial.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  </p>
+                ) : null;
+              })()}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="new-departamento">Departamento</Label>
               <Input id="new-departamento" value={newForm.departamento}
                 onChange={(e) => setNewForm({ ...newForm, departamento: e.target.value })}
                 placeholder="Ex: Operações, Segurança..." />
+            </div>
+            <div className="grid gap-2">
+              <Label>Adicionais por Funcionário (%)</Label>
+              <p className="text-xs text-muted-foreground -mt-1">
+                Individuais — dependem do posto/atividade real (não do cargo). Deixe 0 quando não houver.
+              </p>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="grid gap-1">
+                  <Label htmlFor="new-insalubridade" className="text-xs font-normal">Insalubridade (%)</Label>
+                  <Input id="new-insalubridade" type="number" step="0.01" min="0" max="40"
+                    value={newForm.insalubridade_percentual}
+                    onChange={(e) => setNewForm({ ...newForm, insalubridade_percentual: e.target.value })}
+                    placeholder="0" />
+                </div>
+                <div className="grid gap-1">
+                  <Label htmlFor="new-periculosidade" className="text-xs font-normal">Periculosidade (%)</Label>
+                  <Input id="new-periculosidade" type="number" step="0.01" min="0" max="30"
+                    value={newForm.periculosidade_percentual}
+                    onChange={(e) => setNewForm({ ...newForm, periculosidade_percentual: e.target.value })}
+                    placeholder="0" />
+                </div>
+                <div className="grid gap-1">
+                  <Label htmlFor="new-ronda" className="text-xs font-normal">Ad. Ronda (%)</Label>
+                  <Input id="new-ronda" type="number" step="0.01" min="0" max="30"
+                    value={newForm.adicional_ronda_percentual}
+                    onChange={(e) => setNewForm({ ...newForm, adicional_ronda_percentual: e.target.value })}
+                    placeholder="0" />
+                </div>
+              </div>
             </div>
             {newError && (
               <div className="text-sm text-destructive flex items-center gap-2">

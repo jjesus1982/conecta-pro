@@ -463,6 +463,27 @@ export default function ColaboradorPerfilPage() {
             </div>
             <DataField icon={<Calendar className="h-4 w-4" />} label="Data Admissão" value={formatDate(employee.data_admissao)} />
           </div>
+          {(Number(employee.insalubridade_percentual) > 0 ||
+            Number(employee.periculosidade_percentual) > 0 ||
+            Number(employee.adicional_ronda_percentual) > 0) && (
+            <div className="mt-6 pt-4 border-t border-[hsl(var(--border))]">
+              <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                <Shield className="h-4 w-4" />
+                Adicionais por Funcionário
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {Number(employee.insalubridade_percentual) > 0 && (
+                  <DataField icon={<Shield className="h-4 w-4" />} label="Insalubridade" value={`${employee.insalubridade_percentual}%`} />
+                )}
+                {Number(employee.periculosidade_percentual) > 0 && (
+                  <DataField icon={<Shield className="h-4 w-4" />} label="Periculosidade" value={`${employee.periculosidade_percentual}%`} />
+                )}
+                {Number(employee.adicional_ronda_percentual) > 0 && (
+                  <DataField icon={<Shield className="h-4 w-4" />} label="Adicional de Ronda" value={`${employee.adicional_ronda_percentual}%`} />
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

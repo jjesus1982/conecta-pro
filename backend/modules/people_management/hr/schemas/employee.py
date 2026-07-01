@@ -128,8 +128,13 @@ class DPEmployeeUpdate(BaseModel):
     uf: str | None = Field(None, max_length=2)
     # Profissional
     cargo: str | None = Field(None, max_length=100)
+    cct_cargo_id: str | None = Field(None, description="UUID do cargo na CCT")
     departamento: str | None = Field(None, max_length=100)
     salario_base: float | None = None
+    # Adicionais por funcionário (individuais, por posto/atividade)
+    insalubridade_percentual: float | None = Field(None, ge=0, le=40)
+    periculosidade_percentual: float | None = Field(None, ge=0, le=30)
+    adicional_ronda_percentual: float | None = Field(None, ge=0, le=30)
     status: str | None = Field(None, max_length=50)
     tipo_contrato: str | None = Field(None, max_length=30)
     regime_trabalho: str | None = Field(None, max_length=30)

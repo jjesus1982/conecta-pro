@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { BotaoGerarContrato } from '@/app/modulos/gestao-pessoas/dp/components/BotaoGerarContrato';
 import { BotaoAvisoPrevioFerias } from '@/app/modulos/gestao-pessoas/dp/components/BotaoAvisoPrevioFerias';
+import { useCctCargos, cargoLabel } from '@/hooks/hr/useCctCargos';
 
 const API_BASE = '/api/v1/people-management/hr';
 
@@ -50,6 +51,7 @@ const FIELD_LABELS: Record<string, string> = {
   cep: 'CEP', logradouro: 'Logradouro', numero: 'Número', complemento: 'Complemento',
   bairro: 'Bairro', cidade: 'Cidade', uf: 'UF',
   cargo: 'Cargo', departamento: 'Departamento', salario_base: 'Salário Base',
+  insalubridade_percentual: 'Insalubridade (%)', periculosidade_percentual: 'Periculosidade (%)', adicional_ronda_percentual: 'Adicional de Ronda (%)',
   tipo_contrato: 'Tipo Contrato', regime_trabalho: 'Regime', data_admissao: 'Data Admissão',
   banco: 'Banco', agencia: 'Agência', conta: 'Conta', tipo_conta: 'Tipo Conta', pix: 'Chave PIX',
   titulo_eleitor: 'Título Eleitor', certificado_reservista: 'Cert. Reservista',
@@ -88,6 +90,8 @@ export default function FuncionariosPage() {
   const [deductionForm, setDeductionForm] = useState({ tipo: 'consignado', descricao: '', valor: '', percentual: '', base_calculo: 'fixo', total_parcelas: '', data_inicio: '', data_fim: '' });
   // Gap 6: Full profile
   const [profileData, setProfileData] = useState<Record<string, any> | null>(null);
+  // Cargos da CCT (fonte única de cargos — SINDECOMPRESTS)
+  const { cargos: cctCargos, loading: cargosLoading } = useCctCargos();
 
   const loadDeductions = async (empId: string) => {
     setDeductionsLoading(true);
@@ -331,6 +335,7 @@ export default function FuncionariosPage() {
           </select>
         ) : (
           <input type={type} value={editData[key] || ''}
+            {...(type === 'number' ? { step: '0.01', min: '0' } : {})}
             onChange={e => { setEditData(p => ({ ...p, [key]: e.target.value })); setValidationErrors(p => ({ ...p, [key]: '' })); }}
             onBlur={key === 'cep' ? handleCepBlur : key === 'cpf' ? () => { if (editData.cpf && !validateCPF(editData.cpf)) setValidationErrors(p => ({ ...p, cpf: 'CPF inválido' })); } : undefined}
             className={`w-full px-3 py-2 border rounded-md text-sm ${hasError ? 'border-red-500 bg-red-50' : isEmpty ? 'border-yellow-400 bg-yellow-50' : ''}`} />
@@ -339,6 +344,43 @@ export default function FuncionariosPage() {
         {hasError && <p className="text-red-500 text-xs mt-1">{validationErrors[key]}</p>}
         {isEmpty && !hasError && <p className="text-yellow-600 text-xs mt-1">Obrigatório para eSocial</p>}
         {key === 'cep' && cepLoading && <p className="text-blue-500 text-xs mt-1">Buscando endereço...</p>}
+      </div>
+    );
+  };
+
+  // Cargo vinculado à CCT (fonte única). Ao selecionar, guarda cct_cargo_id + nome do cargo.
+  const renderCargoCct = () => {
+    const currentName = editData.cargo || '';
+    // Casa por id, ou por nome caso o registro ainda não tenha cct_cargo_id.
+    const selById = cctCargos.find(c => String(c.id) === editData.cct_cargo_id);
+    const selByName = cctCargos.find(c => cargoLabel(c).toLowerCase() === currentName.toLowerCase());
+    const sel = selById ?? selByName;
+    return (
+      <div key="cargo">
+        <label className="text-sm font-medium mb-1 block">Cargo (CCT SINDECOMPRESTS)</label>
+        <select
+          value={sel ? String(sel.id) : ''}
+          disabled={cargosLoading}
+          onChange={e => {
+            const id = e.target.value;
+            const cargo = cctCargos.find(c => String(c.id) === id);
+            setEditData(p => ({ ...p, cct_cargo_id: id, cargo: cargo ? cargoLabel(cargo) : '' }));
+            setValidationErrors(p => ({ ...p, cargo: '' }));
+          }}
+          className="w-full px-3 py-2 border rounded-md text-sm"
+        >
+          <option value="">
+            {cargosLoading ? 'Carregando cargos...' : (currentName && !sel ? currentName : 'Selecione o cargo')}
+          </option>
+          {cctCargos.map(c => (
+            <option key={String(c.id)} value={String(c.id)}>{cargoLabel(c)}</option>
+          ))}
+        </select>
+        {sel?.piso_salarial != null && (
+          <p className="text-xs text-gray-500 mt-1">
+            Piso CCT: {sel.piso_salarial.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+          </p>
+        )}
       </div>
     );
   };
@@ -470,9 +512,12 @@ export default function FuncionariosPage() {
                 {renderField('uf', 'text', UFS)}
               </>)}
               {activeTab === 'profissional' && (<>
-                {renderField('cargo')}
+                {renderCargoCct()}
                 {renderField('departamento', 'text', ['Operações', 'Administrativo', 'Comercial', 'Financeiro'])}
                 {renderField('salario_base', 'number')}
+                {renderField('insalubridade_percentual', 'number')}
+                {renderField('periculosidade_percentual', 'number')}
+                {renderField('adicional_ronda_percentual', 'number')}
                 {renderField('tipo_contrato', 'text', ['CLT', 'Temporário', 'Experiência'])}
                 {renderField('regime_trabalho', 'text', ['CLT', 'Estatutário', 'Temporário'])}
                 {renderField('data_admissao', 'date')}
