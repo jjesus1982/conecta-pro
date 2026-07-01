@@ -13,7 +13,16 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-# ==================== TABELAS LEGAIS 2026 ====================
+# ==================== TABELAS FEDERAIS ====================
+# ⚠️ VERACIDADE / RISCO JURÍDICO — AGUARDANDO CERTIFICAÇÃO DO DP/CONTÁBIL:
+#   - INSS abaixo: faixa 1 = R$1.518 → valores de 2025, NÃO 2026.
+#     Oficial 2026 (Portaria Interministerial MPS/MF nº 13): faixa 1 até R$1.621,
+#     teto R$8.475,55, deduções 24,32/111,40/198,49.
+#   - IRRF abaixo: isenção R$2.259,20 → tabela 2024, SEM a reforma da isenção-R$5.000
+#     que entrou em vigor em jan/2026 (redutor progressivo até R$5.000; parcial R$5.000–7.350).
+# Estes números NÃO foram trocados aqui de propósito: dependem de certificação humana
+# (fonte oficial) antes de virarem base de folha real. Ver TABELAS_FEDERAIS_CERTIFICADAS.
+TABELAS_FEDERAIS_CERTIFICADAS = False
 
 FAIXAS_INSS_2026 = [
     (Decimal("1518.00"), Decimal("0.075")),
