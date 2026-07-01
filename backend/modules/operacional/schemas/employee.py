@@ -63,6 +63,9 @@ class EmployeeUpdate(BaseModel):
 
     cargo: str | None = Field(None, max_length=100)
     cct_cargo_id: str | None = Field(None, description="UUID do cargo na CCT")
+    insalubridade_percentual: float | None = Field(None, ge=0, le=40, description="Insalubridade % (por atividade/posto)")
+    periculosidade_percentual: float | None = Field(None, ge=0, le=30, description="Periculosidade %")
+    adicional_ronda_percentual: float | None = Field(None, ge=0, le=30, description="Adicional de ronda % (CCT)")
     departamento: str | None = Field(None, max_length=100)
     telefone: str | None = Field(None, max_length=20)
     status: str | None = Field(None, max_length=50)

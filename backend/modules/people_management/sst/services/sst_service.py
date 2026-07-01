@@ -430,11 +430,14 @@ class SSTService:
         Fallback: cargos sem cct_cargo_id vinculado ficam com grau baixo (1).
         """
         try:
+            # Insalubridade/periculosidade sao POR FUNCIONARIO (dependem do posto/atividade real,
+            # NAO do cargo). Ex.: um ASG que limpa lixeira e insalubre; outro ASG no mesmo cargo nao.
+            # Fonte: employees.insalubridade_percentual/periculosidade_percentual (folha real Dominio).
             result = await self.db.execute(
                 text(
                     "SELECT COALESCE(cc.cargo_nome, e.cargo) AS cargo, "
-                    "COALESCE(cc.adicional_periculosidade_percentual, 0) AS peric, "
-                    "COALESCE(cc.adicional_insalubridade_percentual, 0) AS insal, "
+                    "COALESCE(e.periculosidade_percentual, 0) AS peric, "
+                    "COALESCE(e.insalubridade_percentual, 0) AS insal, "
                     "count(*) AS qtd "
                     "FROM employees e "
                     "LEFT JOIN cct_cargos cc ON cc.id = e.cct_cargo_id "

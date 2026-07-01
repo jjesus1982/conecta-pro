@@ -56,8 +56,13 @@ class Employee(Base):
     # Dados profissionais
     cargo = Column(String(100), nullable=True, index=True)
     cargo_id = Column(UUID(as_uuid=True), nullable=True)
-    # Vínculo com o cargo da CCT (fonte única do piso/adicionais). FK real p/ cct_cargos.
+    # Vínculo com o cargo da CCT (fonte única do piso). FK real p/ cct_cargos.
     cct_cargo_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    # Adicionais POR FUNCIONÁRIO (individuais, dependem do posto/atividade — NÃO do cargo).
+    # Ex.: 2 ASG mesmo cargo, só quem limpa a lixeira tem insalubridade. Fonte: folha real (Domínio).
+    insalubridade_percentual = Column(Numeric(5, 2), nullable=True, default=0)
+    periculosidade_percentual = Column(Numeric(5, 2), nullable=True, default=0)
+    adicional_ronda_percentual = Column(Numeric(5, 2), nullable=True, default=0)
     departamento = Column(String(100), nullable=True)
     departamento_id = Column(UUID(as_uuid=True), nullable=True)
     setor = Column(String(100), nullable=True)

@@ -286,6 +286,14 @@ async def update_employee(
             employee.cargo = cct["cargo_nome"]
             employee.salario_base = cct["piso_salarial"]
 
+    # Adicionais POR FUNCIONÁRIO (DP mantém conforme posto/atividade real).
+    if getattr(data, "insalubridade_percentual", None) is not None:
+        employee.insalubridade_percentual = data.insalubridade_percentual
+    if getattr(data, "periculosidade_percentual", None) is not None:
+        employee.periculosidade_percentual = data.periculosidade_percentual
+    if getattr(data, "adicional_ronda_percentual", None) is not None:
+        employee.adicional_ronda_percentual = data.adicional_ronda_percentual
+
     await db.commit()
     await db.refresh(employee)
 
