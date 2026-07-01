@@ -60,17 +60,18 @@ async def get_payroll_summary(
     try:
         result = await db.execute(
             _text(
+                # [Veracidade] colunas reais de hr_payslips (eram total_proventos/salario_liquido/inss/
+                # competencia inexistentes -> caia no except -> fallback com 0s escondendo os 51 holerites reais)
                 "SELECT "
                 "COUNT(DISTINCT employee_id) as funcionarios, "
-                "COALESCE(SUM(total_proventos), 0) as total_proventos, "
-                "COALESCE(SUM(total_descontos), 0) as total_descontos, "
-                "COALESCE(SUM(salario_liquido), 0) as total_liquido, "
-                "COALESCE(SUM(inss), 0) as total_inss, "
-                "COALESCE(SUM(irrf), 0) as total_irrf, "
-                "COALESCE(SUM(fgts), 0) as total_fgts "
+                "COALESCE(SUM(total_earnings), 0) as total_proventos, "
+                "COALESCE(SUM(total_deductions), 0) as total_descontos, "
+                "COALESCE(SUM(net_salary), 0) as total_liquido, "
+                "COALESCE(SUM(inss_value), 0) as total_inss, "
+                "COALESCE(SUM(irrf_value), 0) as total_irrf, "
+                "COALESCE(SUM(fgts_value), 0) as total_fgts "
                 "FROM hr_payslips "
-                "WHERE EXTRACT(MONTH FROM competencia) = :mes "
-                "AND EXTRACT(YEAR FROM competencia) = :ano"
+                "WHERE reference_month = :mes AND reference_year = :ano"
             ),
             {"mes": mes, "ano": ano},
         )
