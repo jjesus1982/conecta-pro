@@ -46,8 +46,10 @@ class PostoVigilancia(BaseModel):
     armado: bool = False
     escala_descricao: str | None = None
     adicional_noturno: bool = False
-    adicional_periculosidade: bool = True  # Vigilantes sempre tem periculosidade
-    insalubridade: bool = False
+    # Periculosidade 30% só p/ cargos com direito na CCT (Vigia, Eletricista
+    # AT/BT, Téc. Manut. Máquinas) — NÃO default p/ todos.
+    adicional_periculosidade: bool = False
+    insalubridade: bool = False  # 10% só p/ Piscineiro, Aux. Controle Pragas
 
 
 class CustoMaoDeObra(BaseModel):
@@ -76,6 +78,9 @@ class CustoMaoDeObra(BaseModel):
     seguro_vida: Decimal = Decimal("0")
     uniforme_epi: Decimal = Decimal("0")
     total_beneficios: Decimal = Decimal("0")
+
+    # Repasse contratual obrigatorio 7,5% (CCT SINDECOMPRESTS 2026 Clausula 2a §3º)
+    repasse_contratual: Decimal = Decimal("0")
 
     # Total por vigilante/mes
     custo_mensal_unitario: Decimal = Decimal("0")
@@ -120,13 +125,16 @@ class PricingInput(BaseModel):
     # Postos
     postos: list[PostoVigilancia] = Field(default_factory=list)
 
-    # Valores de referencia (da convencao coletiva)
-    salario_base_vigilante: Decimal = Decimal("2150.00")
-    salario_base_vigilante_armado: Decimal = Decimal("2450.00")
+    # Valores de referencia — piso da CCT SINDECOMPRESTS 2026 (agentes de
+    # portaria/servicos p/ condominios, NAO vigilancia armada). Fonte unica:
+    # tabela cct_cargos (piso da categoria R$1.670). Idealmente sobrescrito
+    # via cct_pricing_source.piso_cargo(); default = piso da categoria.
+    salario_base_vigilante: Decimal = Decimal("1670.00")
+    salario_base_vigilante_armado: Decimal = Decimal("1670.00")
 
-    # Beneficios (valores mensais por vigilante)
+    # Beneficios (valores mensais por vigilante) — VR R$22/dia (CCT 2026)
     vale_transporte_dia: Decimal = Decimal("11.00")
-    vale_alimentacao_dia: Decimal = Decimal("28.00")
+    vale_alimentacao_dia: Decimal = Decimal("22.00")
     assistencia_medica: Decimal = Decimal("250.00")
     seguro_vida: Decimal = Decimal("15.00")
     uniforme_epi_mensal: Decimal = Decimal("120.00")
@@ -433,6 +441,7 @@ class PricerAgent(BaseAgent):
         total_insalubridade = d("0")
         total_encargos = d("0")
         total_beneficios = d("0")
+        total_repasse = d("0")
 
         for posto in inp.postos:
             # Fator de escala (quantos profissionais por posto)
@@ -443,10 +452,11 @@ class PricerAgent(BaseAgent):
             # Salario base
             salario = inp.salario_base_vigilante_armado if posto.armado else inp.salario_base_vigilante
 
-            # Adicionais
+            # Adicionais CCT — periculosidade 30% e insalubridade 10% sobre o
+            # PISO da categoria (nao sobre salario minimo velho).
             periculosidade = salario * d("0.30") if posto.adicional_periculosidade else d("0")
             noturno = salario * d("0.20") if posto.adicional_noturno else d("0")
-            insalubridade = d("1412.00") * d("0.20") if posto.insalubridade else d("0")  # Base salario minimo
+            insalubridade = salario * d("0.10") if posto.insalubridade else d("0")
 
             remuneracao = salario + periculosidade + noturno + insalubridade
 
@@ -467,7 +477,11 @@ class PricerAgent(BaseAgent):
             va = inp.vale_alimentacao_dia * dias_uteis
             beneficios_total = vt + va + inp.assistencia_medica + inp.seguro_vida + inp.uniforme_epi_mensal
 
-            custo_unitario = remuneracao + encargos_total + beneficios_total
+            # Repasse contratual obrigatorio 7,5% (CCT Clausula 2a §3º) sobre o
+            # custo (remuneracao + encargos + beneficios).
+            custo_sem_repasse = remuneracao + encargos_total + beneficios_total
+            repasse = custo_sem_repasse * d("0.075")
+            custo_unitario = custo_sem_repasse + repasse
 
             # Acumular para o total (proporcional aos profissionais)
             fator_qtd = d(str(profissionais_posto))
@@ -477,6 +491,7 @@ class PricerAgent(BaseAgent):
             total_insalubridade += insalubridade * fator_qtd
             total_encargos += encargos_total * fator_qtd
             total_beneficios += beneficios_total * fator_qtd
+            total_repasse += repasse * fator_qtd
             custo_total += custo_unitario * fator_qtd
 
         # Montar resposta
@@ -498,6 +513,7 @@ class PricerAgent(BaseAgent):
             seguro_vida=(inp.seguro_vida * d(str(total_profissionais))).quantize(d("0.01")),
             uniforme_epi=(inp.uniforme_epi_mensal * d(str(total_profissionais))).quantize(d("0.01")),
             total_beneficios=total_beneficios.quantize(d("0.01")),
+            repasse_contratual=total_repasse.quantize(d("0.01")),
             custo_mensal_unitario=custo_unitario_medio,
             quantidade_profissionais=total_profissionais,
             custo_mensal_total=custo_total.quantize(d("0.01")),

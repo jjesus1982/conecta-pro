@@ -29,13 +29,25 @@ TIPOS_COM_ESTABILIDADE = (
 # Prefixos CID que indicam causa externa (acidente)
 CID_ACIDENTE_PREFIXOS = ("W", "V", "X", "Y")
 
-# Graus de risco por cargo (Conecta Mais — vigilancia patrimonial Manaus)
-GRAU_RISCO_CARGO = {
-    "Agente de Portaria": 2,
-    "Agente de Servicos Gerais": 1,
-    "Artifice": 3,
-    "Lider de Portaria": 2,
-}
+# Graus de risco NR-1 (1=baixo, 2=medio, 3=alto)
+# Derivados da CCT (cct_cargos) via employees.cct_cargo_id — NAO ha lista fantasma.
+GRAU_RISCO_BAIXO = 1
+GRAU_RISCO_MEDIO = 2
+GRAU_RISCO_ALTO = 3
+
+
+def _grau_risco_cct(peric: float, insal: float) -> int:
+    """Deriva o grau de risco NR-1 a partir dos adicionais da CCT.
+
+    Cargos com periculosidade (>0) sao expostos a risco grave/iminente (grau alto).
+    Cargos com insalubridade (>0) tem grau medio. Demais, grau baixo.
+    Fonte unica: cct_cargos (adicional_periculosidade/insalubridade_percentual).
+    """
+    if peric > 0:
+        return GRAU_RISCO_ALTO
+    if insal > 0:
+        return GRAU_RISCO_MEDIO
+    return GRAU_RISCO_BAIXO
 
 
 class SSTService:
@@ -176,11 +188,11 @@ class SSTService:
         afastados = await self._count_afastados_ativos()
         riscos = await self._get_risk_stats()
 
-        # Classificar colaboradores por nivel de risco baseado em cargo
-        risco_por_cargo = await self._count_by_cargo()
-        alto = sum(v for c, v in risco_por_cargo.items() if GRAU_RISCO_CARGO.get(c, 1) >= 3)
-        medio = sum(v for c, v in risco_por_cargo.items() if GRAU_RISCO_CARGO.get(c, 1) == 2)
-        baixo = sum(v for c, v in risco_por_cargo.items() if GRAU_RISCO_CARGO.get(c, 1) <= 1)
+        # Classificar colaboradores por nivel de risco derivado da CCT (cct_cargos)
+        grupos = await self._grau_risco_por_cargo()
+        alto = sum(g["qtd"] for g in grupos if g["grau"] >= GRAU_RISCO_ALTO)
+        medio = sum(g["qtd"] for g in grupos if g["grau"] == GRAU_RISCO_MEDIO)
+        baixo = sum(g["qtd"] for g in grupos if g["grau"] <= GRAU_RISCO_BAIXO)
 
         # Acoes pendentes = riscos sem medida implementada
         acoes_pendentes = riscos.get("sem_medida", 0)
@@ -410,6 +422,44 @@ class SSTService:
         except Exception:
             return {}
 
+    async def _grau_risco_por_cargo(self) -> list[dict[str, Any]]:
+        """Colaboradores ativos agrupados por cargo com grau de risco REAL da CCT.
+
+        Junta employees.cct_cargo_id -> cct_cargos e deriva o grau de risco NR-1
+        dos adicionais de periculosidade/insalubridade (fonte unica da CCT).
+        Fallback: cargos sem cct_cargo_id vinculado ficam com grau baixo (1).
+        """
+        try:
+            result = await self.db.execute(
+                text(
+                    "SELECT COALESCE(cc.cargo_nome, e.cargo) AS cargo, "
+                    "COALESCE(cc.adicional_periculosidade_percentual, 0) AS peric, "
+                    "COALESCE(cc.adicional_insalubridade_percentual, 0) AS insal, "
+                    "count(*) AS qtd "
+                    "FROM employees e "
+                    "LEFT JOIN cct_cargos cc ON cc.id = e.cct_cargo_id "
+                    "WHERE e.status = 'ativo' "
+                    "GROUP BY 1, 2, 3"
+                )
+            )
+            grupos = []
+            for row in result.fetchall():
+                peric = float(row[1] or 0)
+                insal = float(row[2] or 0)
+                grupos.append(
+                    {
+                        "cargo": row[0],
+                        "peric": peric,
+                        "insal": insal,
+                        "qtd": int(row[3]),
+                        "grau": _grau_risco_cct(peric, insal),
+                    }
+                )
+            return grupos
+        except Exception as exc:
+            logger.debug("grau risco por cargo (CCT): %s", exc)
+            return []
+
     async def _get_pcmso_stats(self) -> dict[str, int]:
         """Estatisticas PCMSO baseadas em dados reais de gp_asos."""
         total = await self._count_employees()
@@ -493,15 +543,16 @@ class SSTService:
 
         afastados = await self._count_afastados_ativos()
         riscos = await self._get_risk_stats()
-        cargos = await self._count_by_cargo()
+        grupos = await self._grau_risco_por_cargo()
 
         # Fator 1: taxa de afastamento (peso 30%)
         taxa_af = (afastados / total * 100) if total > 0 else 0
 
-        # Fator 2: grau medio de risco por cargo (peso 30%)
-        grau_total = sum(GRAU_RISCO_CARGO.get(c, 1) * qtd for c, qtd in cargos.items())
-        grau_medio = (grau_total / total) if total > 0 else 1
-        fator_cargo = (grau_medio / 3) * 100  # normalizado 0-100
+        # Fator 2: grau medio de risco por cargo, derivado da CCT (peso 30%)
+        grau_total = sum(g["grau"] * g["qtd"] for g in grupos)
+        cobertos = sum(g["qtd"] for g in grupos)
+        grau_medio = (grau_total / cobertos) if cobertos > 0 else 1
+        fator_cargo = (grau_medio / GRAU_RISCO_ALTO) * 100  # normalizado 0-100
 
         # Fator 3: cobertura de medidas de controle (peso 20%)
         fator_medidas = 100 - riscos["percentual"] if riscos["total"] > 0 else 50

@@ -39,8 +39,10 @@ async def get_meus_direitos(
     salario_base = 0.0
     data_admissao = ""
     jornada = ""
+    piso_cct = 0.0
+    cargo_cct_encontrado = False
     try:
-        from sqlalchemy import select
+        from sqlalchemy import select, text
 
         from modules.operacional.models.employee import Employee
 
@@ -52,11 +54,32 @@ async def get_meus_direitos(
             salario_base = float(getattr(emp, "salario_base", 0) or 0)
             data_admissao = str(getattr(emp, "data_admissao", ""))
             jornada = getattr(emp, "jornada_trabalho", "") or getattr(emp, "escala_padrao", "") or "12x36"
+            # Fonte única: piso vem do cargo CCT vinculado (cct_cargo_id), não de match de string.
+            cct_cargo_id = getattr(emp, "cct_cargo_id", None)
+            if cct_cargo_id:
+                row = (
+                    await db.execute(
+                        text("SELECT cargo_nome, piso_salarial FROM cct_cargos WHERE id = :cid"),
+                        {"cid": str(cct_cargo_id)},
+                    )
+                ).mappings().first()
+                if row:
+                    piso_cct = float(row["piso_salarial"])
+                    cargo = row["cargo_nome"] or cargo
+                    cargo_cct_encontrado = True
     except ImportError:
         pass
 
-    # Validar salario contra piso
-    validacao_salario = SalaryValidator.validar_salario(cargo, salario_base) if cargo else {}
+    # Validar salario contra piso — via cargo CCT vinculado (fonte única); fallback ao validator antigo.
+    if cargo_cct_encontrado:
+        validacao_salario = {
+            "conforme": salario_base >= piso_cct if salario_base else False,
+            "piso_cct": piso_cct,
+            "salario_atual": salario_base,
+            "diferenca": round(salario_base - piso_cct, 2) if salario_base else None,
+        }
+    else:
+        validacao_salario = SalaryValidator.validar_salario(cargo, salario_base) if cargo else {}
 
     # Beneficios obrigatorios
     beneficios_resumo = []

@@ -11,7 +11,7 @@ from uuid import UUID
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status as http_status
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
@@ -30,6 +30,45 @@ from modules.operacional.schemas.employee import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/employees", tags=["Operations - Employees"])
+
+
+async def _resolver_cargo_cct(db: AsyncSession, cct_cargo_id: str) -> dict | None:
+    """Resolve o cargo da CCT (fonte única) por id → nome canônico + piso + adicionais."""
+    try:
+        row = (
+            await db.execute(
+                text(
+                    "SELECT cargo_nome, piso_salarial, adicional_periculosidade_percentual, "
+                    "adicional_insalubridade_percentual FROM cct_cargos WHERE id = :cid"
+                ),
+                {"cid": str(cct_cargo_id)},
+            )
+        ).mappings().first()
+        return dict(row) if row else None
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Falha ao resolver cargo CCT %s: %s", cct_cargo_id, e)
+        return None
+
+
+async def _publicar_cargo_alterado(employee: Any, cargo_anterior: str | None, current_user: Any) -> None:
+    """Comunicação bidirecional: publica DP_CARGO_ALTERADO no event bus (folha/SST/GEDEON reagem)."""
+    try:
+        from infrastructure.event_bus import EventTypes, event_bus
+
+        await event_bus.emit(
+            EventTypes.DP_CARGO_ALTERADO,
+            {
+                "funcionario_id": str(employee.id),
+                "funcionario_nome": employee.nome,
+                "cargo_anterior": cargo_anterior,
+                "cargo": employee.cargo,
+                "cct_cargo_id": str(employee.cct_cargo_id) if employee.cct_cargo_id else None,
+                "salario_base": float(employee.salario_base) if employee.salario_base is not None else None,
+            },
+            source_module="operacional",
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Falha ao publicar cargo alterado (%s): %s", employee.id, e)
 
 
 @router.get(
@@ -171,6 +210,15 @@ async def create_employee(
     if data.pis:
         employee.pis = data.pis
 
+    # CCT como fonte única: se veio cct_cargo_id, vincula e deriva cargo + piso da CCT.
+    if getattr(data, "cct_cargo_id", None):
+        cct = await _resolver_cargo_cct(db, data.cct_cargo_id)
+        if cct:
+            employee.cct_cargo_id = data.cct_cargo_id
+            employee.cargo = cct["cargo_nome"]
+            if employee.salario_base is None:
+                employee.salario_base = cct["piso_salarial"]
+
     db.add(employee)
     await db.commit()
     await db.refresh(employee)
@@ -220,6 +268,7 @@ async def update_employee(
         raise HTTPException(status_code=404, detail="Funcionário não encontrado")
 
     # Atualiza campos
+    cargo_anterior = employee.cargo
     if data.cargo is not None:
         employee.cargo = data.cargo
     if data.departamento is not None:
@@ -229,8 +278,20 @@ async def update_employee(
     if data.status is not None:
         employee.status = data.status
 
+    # CCT fonte única: cct_cargo_id define cargo + piso canônicos.
+    if getattr(data, "cct_cargo_id", None):
+        cct = await _resolver_cargo_cct(db, data.cct_cargo_id)
+        if cct:
+            employee.cct_cargo_id = data.cct_cargo_id
+            employee.cargo = cct["cargo_nome"]
+            employee.salario_base = cct["piso_salarial"]
+
     await db.commit()
     await db.refresh(employee)
+
+    # Comunicação bidirecional: cargo mudou → avisa os módulos (folha/SST/GEDEON).
+    if employee.cargo != cargo_anterior:
+        await _publicar_cargo_alterado(employee, cargo_anterior, current_user)
 
     logger.info(f"Funcionário {employee_id} atualizado por {current_user.email}")
 

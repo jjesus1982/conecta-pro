@@ -129,6 +129,21 @@ async def atualizar_cargo(
     updated = await repo.update_cargo(cargo_id, body.model_dump(exclude_none=True))
     if not updated:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cargo não encontrado.")
+
+    # Comunicação bidirecional: piso/adicional do cargo mudou → folha/SST/precificação reagem.
+    try:
+        from infrastructure.event_bus import EventTypes, event_bus
+
+        await event_bus.emit(
+            EventTypes.CCT_CARGO_ATUALIZADO,
+            {
+                "cct_cargo_id": str(cargo_id),
+                "campos_alterados": list(body.model_dump(exclude_none=True).keys()),
+            },
+            source_module="cct",
+        )
+    except Exception:  # noqa: BLE001,S110
+        pass
     return updated
 
 

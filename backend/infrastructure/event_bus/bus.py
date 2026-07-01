@@ -215,6 +215,13 @@ class EventTypes:
     DP_AFASTAMENTO_INSS = "dp.afastamento.inss"
     DP_BENEFICIO_ADICIONADO = "dp.beneficio.adicionado"
     DP_CONTRATO_CRIADO = "dp.contrato.criado"
+    DP_CARGO_ALTERADO = "dp.funcionario.cargo_alterado"
+    DP_SALARIO_RECALCULADO = "dp.folha.salario_recalculado"
+
+    # ── CCT (fonte única de cargos/pisos/adicionais) ──────────────────────
+    CCT_CARGO_ATUALIZADO = "cct.cargo.atualizado"
+    CCT_CONVENCAO_VIGENTE = "cct.convencao.vigente"
+    CCT_REAJUSTE_APLICADO = "cct.reajuste.aplicado"
 
     # ── OPERACIONAL ───────────────────────────────────────────────────────
     OPS_OCORRENCIA_REGISTRADA = "operacional.ocorrencia.registrada"

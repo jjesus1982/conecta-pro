@@ -56,6 +56,8 @@ class Employee(Base):
     # Dados profissionais
     cargo = Column(String(100), nullable=True, index=True)
     cargo_id = Column(UUID(as_uuid=True), nullable=True)
+    # Vínculo com o cargo da CCT (fonte única do piso/adicionais). FK real p/ cct_cargos.
+    cct_cargo_id = Column(UUID(as_uuid=True), nullable=True, index=True)
     departamento = Column(String(100), nullable=True)
     departamento_id = Column(UUID(as_uuid=True), nullable=True)
     setor = Column(String(100), nullable=True)

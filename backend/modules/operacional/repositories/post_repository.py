@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.logging import logger
@@ -26,6 +26,54 @@ class PostRepository:
         result = await self.db.execute(select(func.count(Post.id)))
         count = result.scalar() or 0
         return f"POST-{count + 1:04d}"
+
+    async def _peric_cct_por_alocacao(self, post_id: str) -> float | None:
+        """Deriva o adicional de periculosidade do posto a partir da CCT.
+
+        O posto nao guarda cargo diretamente; o vinculo e:
+            posts -> allocations (post_id) -> employees (employee_id)
+            -> cct_cargos (employees.cct_cargo_id).
+
+        Retorna o maior adicional_periculosidade_percentual entre os funcionarios
+        ativos alocados no posto (fonte unica: cct_cargos). Retorna None se nao
+        houver alocacao ativa com cargo CCT vinculado — nesse caso o chamador
+        preserva o valor informado.
+        """
+        try:
+            result = await self.db.execute(
+                text(
+                    "SELECT MAX(cc.adicional_periculosidade_percentual) "
+                    "FROM allocations a "
+                    "JOIN employees e ON e.id = a.employee_id "
+                    "JOIN cct_cargos cc ON cc.id = e.cct_cargo_id "
+                    "WHERE a.post_id = :pid AND a.status = 'active' "
+                    "AND a.is_active = true"
+                ),
+                {"pid": post_id},
+            )
+            value = result.scalar()
+            return float(value) if value is not None else None
+        except Exception as exc:
+            logger.debug(f"peric CCT por alocacao ({post_id}): {exc}")
+            return None
+
+    async def sincronizar_hazard_pay_cct(self, post_id: str) -> Post | None:
+        """Recalcula hazard_pay_percent do posto a partir da CCT (cct_cargos).
+
+        Puxa a periculosidade dos funcionarios alocados via
+        employees.cct_cargo_id -> cct_cargos. Se houver periculosidade na CCT,
+        o hazard_pay do posto passa a refleti-la (ex.: Vigia -> 30%), em vez de 0.
+        """
+        post = await self.get_by_id(post_id)
+        if not post:
+            return None
+        peric = await self._peric_cct_por_alocacao(post_id)
+        if peric is not None:
+            post.hazard_pay_percent = peric
+            await self.db.commit()
+            await self.db.refresh(post)
+            logger.info(f"Post {post.code}: hazard_pay sincronizado com CCT = {peric}%")
+        return post
 
     async def create(self, data: PostCreate, created_by: str | None = None) -> Post:
         """
@@ -79,6 +127,17 @@ class PostRepository:
         self.db.add(post)
         await self.db.commit()
         await self.db.refresh(post)
+
+        # Deriva periculosidade da CCT quando nao foi informada explicitamente.
+        # (posto recem-criado normalmente ainda nao tem alocacao; nesse caso
+        #  fica no valor informado e sera atualizado por sincronizar_hazard_pay_cct
+        #  quando um funcionario for alocado).
+        if not post.hazard_pay_percent:
+            peric = await self._peric_cct_por_alocacao(post.id)
+            if peric is not None and peric > 0:
+                post.hazard_pay_percent = peric
+                await self.db.commit()
+                await self.db.refresh(post)
 
         logger.info(f"Post criado: {post.id} ({post.code})")
         return post

@@ -30,6 +30,7 @@ _DEFAULTS = {  # fallback se faltar algum parâmetro no banco
     "ferias_terco": 0.1111,
     "decimo_terceiro": 0.0833,
     "rescisao": 0.05,
+    "repasse": 0.075,  # repasse contratual obrigatorio CCT Clausula 2a §3º
     "pis": 0.0165,
     "cofins": 0.076,
     "iss": 0.05,
@@ -65,7 +66,9 @@ def calcular(salario_base, jornada_dias: int, flags: dict, params: dict) -> dict
     vt = max(0.0, p["vt_dia"] * jornada_dias - bruto * p["vt_desconto"])
     vr = p["vr_dia"] * jornada_dias
     beneficios = vt + vr + p["cesta"] + p["uniforme_epi"] + p["seguro"]
-    custo = bruto + encargos + beneficios
+    # Repasse contratual obrigatorio 7,5% (CCT Clausula 2a §3º) sobre o custo
+    repasse = (bruto + encargos + beneficios) * p["repasse"]
+    custo = bruto + encargos + beneficios + repasse
     margem = float(flags["margem"]) if flags.get("margem") is not None else p["margem"]
     tributos = p["pis"] + p["cofins"] + p["iss"]
     divisor = 1 - tributos - margem
@@ -82,6 +85,8 @@ def calcular(salario_base, jornada_dias: int, flags: dict, params: dict) -> dict
         "vt": round(vt, 2),
         "vr": round(vr, 2),
         "beneficios": round(beneficios, 2),
+        "repasse": round(repasse, 2),
+        "repasse_pct": round(p["repasse"], 4),
         "custo_total": round(custo, 2),
         "tributos_pct": round(tributos, 4),
         "margem": round(margem, 4),

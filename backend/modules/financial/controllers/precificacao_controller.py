@@ -16,13 +16,19 @@ from core.database import get_session as get_db
 
 router = APIRouter(prefix="/financial/precificacao", tags=["Precificação"])
 
-# ── CCT SINDECOMPRESTS 2026 ──────────────────────────────────────────────────
-PISO_VIGILANTE = 1847.93
-ENCARGOS_PCT = 0.42  # INSS + FGTS + férias + 13º
-VR_DIA = 26.40
+# ── CCT SINDECOMPRESTS 2026 (agentes de portaria/serviços, NÃO vigilância) ──
+# Fonte única do piso: tabela cct_cargos (piso da categoria R$1.670).
+PISO_CATEGORIA = 1670.00  # menor piso de cct_cargos (fallback)
+PISO_VIGILANTE = PISO_CATEGORIA  # alias retrocompatível
+ENCARGOS_PCT = 0.6124  # INSS 20 + FGTS 8 + RAT 3 + terceiros 5,8 + férias 11,11 + 13º 8,33 + rescisão 5
+REPASSE_PCT = 0.075  # repasse contratual obrigatório CCT Cláusula 2ª §3º
+VR_DIA = 22.00
 DIAS_UTEIS = 22
 VT_MEDIO = 150.0
-CUSTO_CLT_POSTO = PISO_VIGILANTE * (1 + ENCARGOS_PCT) + VR_DIA * DIAS_UTEIS + VT_MEDIO  # ~3.354,86
+# Custo all-in por posto = (salário + encargos + benefícios) × (1 + repasse 7,5%)
+CUSTO_CLT_POSTO = (
+    PISO_CATEGORIA * (1 + ENCARGOS_PCT) + VR_DIA * DIAS_UTEIS + VT_MEDIO
+) * (1 + REPASSE_PCT)
 
 # ── Benchmarks Manaus 2026 (por posto/mês) ───────────────────────────────────
 BENCH = {
@@ -87,10 +93,20 @@ async def get_simulador(
         TIPO_ALIAS = {"kit_mensal": "portaria_presencial", "portaria": "portaria_presencial"}
         tipo_servico = TIPO_ALIAS.get(tipo_servico, tipo_servico)
 
-        sal_base = PISO_VIGILANTE * (1.20 if turno_noturno else 1.0)
+        # Piso lido da fonte única (cct_cargos); fallback = PISO_CATEGORIA
+        piso_row = await db.execute(
+            text("SELECT MIN(piso_salarial) FROM cct_cargos WHERE is_active")
+        )
+        piso_db = piso_row.scalar()
+        piso = float(piso_db) if piso_db else PISO_CATEGORIA
+
+        sal_base = piso * (1.20 if turno_noturno else 1.0)
         encargos = sal_base * ENCARGOS_PCT
         vr_mensal = VR_DIA * DIAS_UTEIS
-        custo_posto = sal_base + encargos + vr_mensal + VT_MEDIO
+        # Repasse contratual obrigatório 7,5% (CCT Cláusula 2ª §3º) sobre o custo
+        custo_sem_repasse = sal_base + encargos + vr_mensal + VT_MEDIO
+        repasse = custo_sem_repasse * REPASSE_PCT
+        custo_posto = custo_sem_repasse + repasse
 
         # Custo direto total
         if tipo_servico in ("portaria_presencial", "portaria", "limpeza", "facilities"):
@@ -141,9 +157,10 @@ async def get_simulador(
             },
             "custo_clt_cct2026": {
                 "salario_base": round(sal_base, 2),
-                "encargos_42pct": round(encargos, 2),
+                "encargos_61pct": round(encargos, 2),
                 "vr_mensal": round(vr_mensal, 2),
                 "vt_medio": VT_MEDIO,
+                "repasse_75pct": round(repasse, 2),
                 "custo_total_por_posto": round(custo_posto, 2),
             },
             "custo_direto_total": round(custo_direto, 2),

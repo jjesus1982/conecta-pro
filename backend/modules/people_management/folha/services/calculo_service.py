@@ -128,8 +128,11 @@ def calcular_folha_colaborador(
     # Buscar dados do colaborador
     emp = db.execute(
         text(
-            "SELECT id, nome, cargo, escala_padrao, salario_base, turno_padrao "
-            "FROM employees WHERE CAST(id AS TEXT)=:eid AND status='ativo'"
+            "SELECT e.id, e.nome, e.cargo, e.escala_padrao, e.salario_base, e.turno_padrao, "
+            "COALESCE(c.adicional_periculosidade_percentual, 0), "
+            "COALESCE(c.adicional_insalubridade_percentual, 0) "
+            "FROM employees e LEFT JOIN cct_cargos c ON e.cct_cargo_id = c.id "
+            "WHERE CAST(e.id AS TEXT)=:eid AND e.status='ativo'"
         ),
         {"eid": employee_id},
     ).first()
@@ -142,6 +145,9 @@ def calcular_folha_colaborador(
     escala = emp[3] or "12x36"
     salario_base = _d(emp[4])
     turno = emp[5] or "diurno"
+    # Adicionais do CARGO na CCT (fonte única): só os cargos com direito têm % > 0.
+    peric_pct = _d(emp[6]) / Decimal("100")
+    insal_pct = _d(emp[7]) / Decimal("100")
 
     divisor = DIVISOR_ESCALA.get(escala, 220)
     dias_trab = DIAS_TRAB_ESCALA.get(escala, 22)
@@ -174,6 +180,34 @@ def calcular_folha_colaborador(
                 "tipo": "provento",
                 "referencia": f"{dias_trab} dias",
                 "valor": float(intrajornada_valor),
+            }
+        )
+
+    # 0015 — Adicional de Periculosidade (CCT: 30% sobre o salário, só cargos com direito)
+    adic_peric = Decimal("0")
+    if peric_pct > 0:
+        adic_peric = _d(salario_base * peric_pct)
+        proventos.append(
+            {
+                "codigo": "0015",
+                "descricao": "Adicional de Periculosidade",
+                "tipo": "provento",
+                "referencia": f"{int(peric_pct * 100)}% CCT",
+                "valor": float(adic_peric),
+            }
+        )
+
+    # 0016 — Adicional de Insalubridade (CCT: 10% sobre o piso, só cargos com direito)
+    adic_insal = Decimal("0")
+    if insal_pct > 0:
+        adic_insal = _d(salario_base * insal_pct)
+        proventos.append(
+            {
+                "codigo": "0016",
+                "descricao": "Adicional de Insalubridade",
+                "tipo": "provento",
+                "referencia": f"{int(insal_pct * 100)}% CCT",
+                "valor": float(adic_insal),
             }
         )
 
@@ -210,8 +244,8 @@ def calcular_folha_colaborador(
 
     # ===== DESCONTOS =====
 
-    # 1001 — INSS
-    base_inss = salario_base + intrajornada_valor + adic_noturno
+    # 1001 — INSS (base inclui adicionais salariais: peric/insal/intrajornada/noturno)
+    base_inss = salario_base + adic_peric + adic_insal + intrajornada_valor + adic_noturno
     inss = calcular_inss(base_inss)
     descontos.append(
         {

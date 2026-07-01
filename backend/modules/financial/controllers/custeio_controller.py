@@ -1,7 +1,8 @@
 """
 Custeio Controller — Conecta PRO
 Custeio ABC por tipo de serviço usando dados reais de billing_rules + bank_transactions.
-CCT SINDECOMPRESTS 2026: piso R$1.847,93 + encargos 42% + VR + VT = R$3.354,86/posto
+CCT SINDECOMPRESTS 2026 (agentes de portaria/serviços, NÃO vigilância):
+piso R$1.670 + encargos ≈61,24% + VR R$22/dia + VT + repasse 7,5% = custo all-in/posto.
 """
 
 import uuid
@@ -16,8 +17,17 @@ from core.database import get_session as get_db
 
 router = APIRouter(prefix="/financial/custeio", tags=["Custeio ABC"])
 
-# CCT SINDECOMPRESTS 2026
-CUSTO_CLT_POSTO = 3354.86  # piso R$1.847,93 + enc 42% + VR R$580,80 + VT R$150
+# CCT SINDECOMPRESTS 2026 (agentes de portaria/serviços, NÃO vigilância)
+PISO_CATEGORIA = 1670.00  # menor piso de cct_cargos
+ENCARGOS_PCT = 0.6124  # INSS 20 + FGTS 8 + RAT 3 + terceiros 5,8 + férias 11,11 + 13º 8,33 + rescisão 5
+VR_DIA = 22.00
+DIAS_UTEIS = 22
+VT_MEDIO = 150.0
+REPASSE_PCT = 0.075  # repasse contratual obrigatório CCT Cláusula 2ª §3º
+# Custo all-in/posto = (salário + encargos + VR + VT) × (1 + repasse 7,5%)
+CUSTO_CLT_POSTO = (
+    PISO_CATEGORIA * (1 + ENCARGOS_PCT) + VR_DIA * DIAS_UTEIS + VT_MEDIO
+) * (1 + REPASSE_PCT)
 MARGEM_TARGET = 35.0
 MARGEM_MINIMA = 20.0
 
@@ -179,9 +189,10 @@ async def get_custeio_abc(
             "resultado_estimado": round(mrr_total - custo_total_global, 2),
             "margem_global_pct": round((mrr_total - custo_total_global) / mrr_total * 100, 1) if mrr_total > 0 else 0,
             "cct_2026": {
-                "piso_base_cct": 1847.93,
-                "custo_all_in_posto": CUSTO_CLT_POSTO,
-                "encargos_pct": 42.0,
+                "piso_base_cct": PISO_CATEGORIA,
+                "custo_all_in_posto": round(CUSTO_CLT_POSTO, 2),
+                "encargos_pct": round(ENCARGOS_PCT * 100, 2),
+                "repasse_pct": round(REPASSE_PCT * 100, 2),
             },
             "custo_por_categoria": [
                 {"categoria": c.category, "total": float(c.total), "qtd": int(c.qtd)} for c in custos
