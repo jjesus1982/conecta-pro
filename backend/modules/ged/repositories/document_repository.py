@@ -325,68 +325,38 @@ class DocumentRepository:
 
     async def get_stats(self, condominium_id: str = None) -> dict:
         """Retorna estatísticas de documentos."""
-        query = select(Document).where(Document.status != DocumentStatus.EXCLUIDO)
-        if condominium_id:
-            query = query.where(Document.condominium_id == condominium_id)
+        # [Veracidade] ged_documents estava VAZIO (0); os documentos reais vivem em ged_kit_documents (2046).
+        # Raw SQL na tabela real (sem tocar o model Document, que segue no CRUD). ged_kit_documents nao tem
+        # status/category/confidentiality -> usamos is_signed; category/confidentiality vazios honestos.
+        from sqlalchemy import text as _text
 
-        result = await self.session.execute(query)
-        documents = result.scalars().all()
-
-        stats = {
-            "total_documents": len(documents),
-            "by_status": {},
-            "by_type": {},
+        total = int((await self.session.execute(_text("SELECT count(*) FROM ged_kit_documents"))).scalar() or 0)
+        signed = int(
+            (await self.session.execute(_text("SELECT count(*) FROM ged_kit_documents WHERE is_signed"))).scalar() or 0
+        )
+        size = int(
+            (
+                await self.session.execute(_text("SELECT COALESCE(SUM(file_size_bytes), 0) FROM ged_kit_documents"))
+            ).scalar()
+            or 0
+        )
+        by_type_rows = (
+            await self.session.execute(
+                _text("SELECT document_type, count(*) FROM ged_kit_documents GROUP BY document_type")
+            )
+        ).all()
+        return {
+            "total_documents": total,
+            "by_status": {"assinado": signed, "pendente": total - signed},
+            "by_type": {r[0]: r[1] for r in by_type_rows},
             "by_category": {},
             "by_confidentiality": {},
-            "total_size_bytes": 0,
-            "total_size_mb": 0,
+            "total_size_bytes": size,
+            "total_size_mb": round(size / (1024 * 1024), 2),
             "pending_approval": 0,
-            "pending_signature": 0,
+            "pending_signature": total - signed,
             "expired": 0,
             "expiring_soon": 0,
             "avg_views": 0,
             "avg_downloads": 0,
         }
-
-        total_views = 0
-        total_downloads = 0
-
-        for doc in documents:
-            # Por status
-            status_val = doc.status.value
-            stats["by_status"][status_val] = stats["by_status"].get(status_val, 0) + 1
-
-            # Por tipo
-            type_val = doc.document_type.value
-            stats["by_type"][type_val] = stats["by_type"].get(type_val, 0) + 1
-
-            # Por categoria
-            cat_val = doc.category.value
-            stats["by_category"][cat_val] = stats["by_category"].get(cat_val, 0) + 1
-
-            # Por confidencialidade
-            conf_val = doc.confidentiality.value
-            stats["by_confidentiality"][conf_val] = stats["by_confidentiality"].get(conf_val, 0) + 1
-
-            # Tamanho
-            stats["total_size_bytes"] += doc.file_size_bytes
-
-            # Contadores especiais
-            if doc.is_pending_approval:
-                stats["pending_approval"] += 1
-            if doc.is_pending_signature:
-                stats["pending_signature"] += 1
-            if doc.is_expired:
-                stats["expired"] += 1
-            if doc.days_until_expiry and 0 < doc.days_until_expiry <= 30:
-                stats["expiring_soon"] += 1
-
-            total_views += doc.view_count
-            total_downloads += doc.download_count
-
-        if documents:
-            stats["avg_views"] = round(total_views / len(documents), 2)
-            stats["avg_downloads"] = round(total_downloads / len(documents), 2)
-
-        stats["total_size_mb"] = round(stats["total_size_bytes"] / (1024 * 1024), 2)
-        return stats
