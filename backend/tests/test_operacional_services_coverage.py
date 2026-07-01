@@ -106,7 +106,7 @@ class TestPostRepository:
 
         data = PostCreate(
             name="Portaria Norte",
-            post_type=PostType.VIGILANTE,
+            post_type=PostType.PORTEIRO,
             shift_type=ShiftType.DIURNO,
             required_headcount=2,
             hourly_rate=25.0,
@@ -2349,7 +2349,7 @@ class TestPostSchemaValidators:
 
         post = PostCreate(
             name="Portaria Principal",
-            post_type=PostType.VIGILANTE,
+            post_type=PostType.PORTEIRO,
             shift_type=ShiftType.DIURNO,
             required_headcount=2,
             hourly_rate=25.50,
