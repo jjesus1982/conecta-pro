@@ -102,7 +102,7 @@ class JustificationReview(BaseModel):
 class DailyPunchesResponse(BaseModel):
     """Batidas de um dia."""
 
-    employee_id: int
+    employee_id: str  # [Ponto loop] era int — employee_id e UUID
     date: str
     punches: list[dict[str, Any]]
     total_horas: float
@@ -112,7 +112,7 @@ class DailyPunchesResponse(BaseModel):
 class MonthlyClosingResponse(BaseModel):
     """Resposta de fechamento mensal."""
 
-    employee_id: int
+    employee_id: str  # [Ponto loop] era int — employee_id e UUID
     month: int
     year: int
     total_horas_trabalhadas: float = 0.0

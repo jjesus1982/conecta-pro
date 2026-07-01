@@ -379,7 +379,7 @@ class PunchService:
 
     async def fechar_mes(
         self,
-        employee_id: int,
+        employee_id: str,  # [Ponto loop] era int — employee_id e UUID
         month: int,
         year: int,
         fechado_por: str,

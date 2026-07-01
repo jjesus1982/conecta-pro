@@ -27,7 +27,8 @@ class MonthlyClosingModel(Base):
     __tablename__ = "gp_monthly_closings"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    employee_id = Column(Integer, nullable=False, index=True)
+    # [Ponto loop] era Integer — employees têm UUID (String 36), como clock_punch/justification
+    employee_id = Column(String(36), nullable=False, index=True)
     month = Column(Integer, nullable=False)
     year = Column(Integer, nullable=False)
 

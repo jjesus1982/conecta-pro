@@ -271,7 +271,7 @@ async def get_justificativas_pendentes(
 
 @router.post("/fechamento", response_model=MonthlyClosingResponse, status_code=201)
 async def fechar_mes(
-    employee_id: int,
+    employee_id: str,  # [Ponto loop] era int — employees têm UUID; gp_monthly_closings.employee_id migrado p/ String
     month: int = Query(..., ge=1, le=12),
     year: int = Query(..., ge=2020),
     fechado_por: str = Query(...),
