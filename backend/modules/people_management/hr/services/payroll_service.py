@@ -14,6 +14,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.operacional.models.employee import Employee
+from modules.people_management.common.utils import clt_calculator as clt_calc
 from modules.people_management.common.utils.clt_calculator import (
     calcular_adicional_noturno,
     calcular_dsr_sobre_extras,
@@ -217,6 +218,23 @@ class PayrollService:
             "fgts_8_pct": _f(fgts),
             "base_inss": _f(total_proventos),
             "base_irrf": _f(base_irrf),
+            # [Veracidade] O holerite diz a verdade sobre a base legal usada. Enquanto as
+            # tabelas INSS/IRRF 2026 não forem certificadas pelo DP/Contábil, este cálculo
+            # é ESTIMATIVA (tabelas 2024), não valor legal. O frontend/PDF deve exibir o aviso.
+            "certificacao_tabela_legal": {
+                "certificada": clt_calc.TABELAS_LEGAIS_CERTIFICADAS_2026,
+                "vigencia_valores": clt_calc.VIGENCIA_TABELAS_LEGAIS,
+                "status": "certificada"
+                if clt_calc.TABELAS_LEGAIS_CERTIFICADAS_2026
+                else "estimativa_aguardando_tabelas_2026",
+                "aviso": None
+                if clt_calc.TABELAS_LEGAIS_CERTIFICADAS_2026
+                else (
+                    f"ESTIMATIVA — cálculo usa tabelas INSS/IRRF de "
+                    f"{clt_calc.VIGENCIA_TABELAS_LEGAIS}, ainda não atualizadas/certificadas para 2026. "
+                    "Não usar como valor legal até certificação do DP/Contábil."
+                ),
+            },
         }
 
     async def close_payroll(

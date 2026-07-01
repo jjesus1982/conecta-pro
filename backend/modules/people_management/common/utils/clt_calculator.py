@@ -1,22 +1,34 @@
-"""Calculadora CLT - Legislação Trabalhista Brasileira 2026.
+"""Calculadora CLT - Legislação Trabalhista Brasileira.
 
 Implementa todos os cálculos trabalhistas conforme legislação vigente:
 INSS faixa progressiva, IRRF, férias, 13o, rescisão, hora extra, etc.
 
 Todos os valores monetários usam Decimal para precisão.
+
+⚠️ VERACIDADE / RISCO JURÍDICO: as constantes abaixo (INSS/IRRF/salário mínimo)
+carregam VALORES DE 2024, NÃO os de 2026, e NÃO estão certificadas. A fonte oficial
+(Portaria Interministerial MTE/MF do salário mínimo + tabela RFB do IRRF 2026, que
+inclui a reforma da isenção) deve ser fornecida pelo DP/Contábil e certificada antes
+de uso em folha real. Enquanto TABELAS_LEGAIS_CERTIFICADAS_2026 == False, qualquer
+holerite gerado por este módulo é ESTIMATIVA, não valor legal.
 """
 
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
 # ===========================================================================
-# TABELAS 2026
+# TABELAS DE REFERÊNCIA — ⚠️ VALORES 2024, PENDENTE ATUALIZAÇÃO + CERTIFICAÇÃO 2026
 # ===========================================================================
 
-SALARIO_MINIMO = Decimal("1412.00")
-TETO_INSS = Decimal("7786.02")
+# Gate de honestidade: enquanto False, os valores abaixo NÃO representam 2026.
+# O DP/Contábil substitui pelos valores oficiais e vira este flag ao certificar.
+TABELAS_LEGAIS_CERTIFICADAS_2026 = False
+VIGENCIA_TABELAS_LEGAIS = "2024"  # ano-base real dos números abaixo
 
-# INSS Faixas Progressivas 2026 — Portaria MPS n.º 1.419/2026
+SALARIO_MINIMO = Decimal("1412.00")  # 2024 (2025=1518; 2026 pendente fonte oficial)
+TETO_INSS = Decimal("7786.02")  # 2024 — pendente 2026
+
+# INSS Faixas Progressivas — ⚠️ VALORES 2024 (pendente Portaria salário mínimo 2026)
 INSS_FAIXAS: list[tuple[Decimal, Decimal]] = [
     (Decimal("1412.00"), Decimal("0.075")),
     (Decimal("2666.68"), Decimal("0.09")),
@@ -24,7 +36,7 @@ INSS_FAIXAS: list[tuple[Decimal, Decimal]] = [
     (Decimal("7786.02"), Decimal("0.14")),
 ]
 
-# IRRF Tabela Progressiva 2026
+# IRRF Tabela Progressiva — ⚠️ VALORES 2024 (pendente tabela RFB 2026 + reforma isenção)
 IRRF_FAIXAS: list[tuple[Decimal, Decimal, Decimal]] = [
     (Decimal("2259.20"), Decimal("0.0"), Decimal("0.0")),
     (Decimal("2826.65"), Decimal("0.075"), Decimal("169.44")),
