@@ -115,6 +115,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     except Exception as e:
         logger.warning(f"GEDEON: falha na inicialização ({e})")
 
+    # Propagação bidirecional CCT/cargo → postos/folha/pricing (comunicação entre módulos)
+    try:
+        from modules.people_management.cct.subscribers import cct_propagation
+
+        cct_propagation.registrar_subscribers()
+        logger.info("CCT propagação: subscribers de cargo/CCT ativos (bidirecional)")
+    except Exception as e:
+        logger.warning(f"CCT propagação: falha ao registrar subscribers ({e})")
+
     # GDrive: carregar tokens e conectar no startup
     try:
         from modules.gdrive.services.gdrive_service import gdrive_service as _gdrive_service
