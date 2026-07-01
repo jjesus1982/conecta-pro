@@ -229,19 +229,27 @@ def calcular_folha_colaborador(
             }
         )
 
-    # 0020 — Adicional noturno (se turno noturno)
+    # 0020 — Adicional noturno: horas noturnas REAIS do ponto (22h-05h); fallback = estimativa por escala
+    from modules.people_management.ponto.services.horas_service import horas_reais_ponto
+
+    _hp = horas_reais_ponto(db, employee_id, mes, ano)
+    fonte_horas = "ponto_real" if _hp.get("tem_ponto") else "estimativa"
+    horas_not = (
+        _d(str(_hp.get("horas_noturnas", 0)))
+        if _hp.get("tem_ponto")
+        else (Decimal(str(dias_trab * 7)) if turno == "noturno" else Decimal("0"))
+    )
     adic_noturno = Decimal("0")
-    if turno == "noturno":
-        horas_noturnas = Decimal(str(dias_trab * 7))
-        fator_reducao = Decimal("60") / Decimal("52.5")
-        horas_reduzidas = _d(horas_noturnas * fator_reducao)
+    if horas_not > 0:
+        fator_reducao = Decimal("60") / Decimal("52.5")  # hora noturna reduzida 52min30s
+        horas_reduzidas = _d(horas_not * fator_reducao)
         adic_noturno = _d(horas_reduzidas * hora_normal * Decimal("0.20"))
         proventos.append(
             {
                 "codigo": "0020",
                 "descricao": "Adicional Noturno",
                 "tipo": "provento",
-                "referencia": f"{horas_reduzidas}h red.",
+                "referencia": f"{horas_not}h noturnas ({fonte_horas})",
                 "valor": float(adic_noturno),
             }
         )
@@ -358,6 +366,10 @@ def calcular_folha_colaborador(
         "mes": mes,
         "ano": ano,
         "salario_base": float(salario_base),
+        # Fonte das horas noturnas: ponto real (batidas) ou estimativa por escala
+        "fonte_horas_noturnas": fonte_horas,
+        "horas_noturnas": float(horas_not),
+        "horas_trabalhadas_ponto": _hp.get("horas_trabalhadas", 0),
         "proventos": proventos,
         "descontos": descontos,
         "total_proventos": float(_d(total_proventos)),
