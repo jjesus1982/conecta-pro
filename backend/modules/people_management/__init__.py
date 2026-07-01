@@ -86,6 +86,16 @@ def register_routers() -> None:
     except Exception:
         pass
 
+    # Certificacao Humana (gate C dos calculos de risco juridico)
+    try:
+        from .certification.controllers import router as certification_router
+
+        router.include_router(certification_router)
+    except Exception as e:
+        import logging
+
+        logging.getLogger(__name__).warning(f"Certification router not loaded: {e}")
+
     # WebSocket GP
     try:
         from .core.websocket import gp_ws_router
