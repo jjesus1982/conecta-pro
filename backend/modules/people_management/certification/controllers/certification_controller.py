@@ -53,6 +53,23 @@ async def listar_certificacoes(
     return [_to_response(c) for c in await svc.list(status=status, limit=limit)]
 
 
+@router.post(
+    "/gerar-folha/{competencia}",
+    dependencies=[Depends(require_roles(*CERTIFIER_ROLES))],
+)
+async def gerar_certificacoes_folha(
+    competencia: str,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Gera a fila de certificacoes da folha de uma competencia (YYYY-MM) do golden set Dominio.
+
+    Idempotente. Modo 1 do loop DP/Folha: DP/Contabil revisa e assina cada holerite.
+    """
+    svc = CertificationService(db)
+    return await svc.gerar_da_folha(competencia)
+
+
 @router.get("/{cert_id}", response_model=CertificationResponse)
 async def obter_certificacao(
     cert_id: str,

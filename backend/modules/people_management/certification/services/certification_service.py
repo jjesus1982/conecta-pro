@@ -5,7 +5,7 @@ import json
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.certification import CertificationStatus, HRCertification
@@ -110,6 +110,79 @@ class CertificationService:
         await self.db.commit()
         await self.db.refresh(cert)
         return cert
+
+    async def gerar_da_folha(self, competencia: str) -> dict:
+        """Gera certificacoes PENDENTES da folha de uma competencia, a partir do golden set Dominio.
+
+        Modo 1 do loop DP/Folha: para cada holerite importado (hr_payslips) da competencia,
+        cria 1 certificacao pra DP/Contabil revisar e assinar. Idempotente (nao duplica se ja
+        existe pra aquele holerite). calculado=esperado=valor Dominio (M1 le Dominio); quando o
+        item -0.5 (tabelas 2026) entrar, calculado vira recalculo independente e divergencia
+        passa a ser real.
+        `competencia`: 'YYYY-MM'.
+        """
+        ano, mes = competencia.split("-")
+        rows = (
+            await self.db.execute(
+                text(
+                    """
+                    SELECT p.id, p.employee_id, p.net_salary, p.inss_value, p.irrf_value,
+                           p.fgts_value, p.base_salary, p.total_earnings, p.total_deductions,
+                           e.cliente_id, e.nome
+                    FROM hr_payslips p
+                    LEFT JOIN employees e ON e.id = p.employee_id
+                    WHERE p.reference_year = :ano AND p.reference_month = :mes
+                      AND p.net_salary IS NOT NULL
+                    """
+                ),
+                {"ano": int(ano), "mes": int(mes)},
+            )
+        ).fetchall()
+
+        criadas, ja_existiam = 0, 0
+        for r in rows:
+            ref_id = str(r[0])
+            existe = (
+                await self.db.execute(
+                    text(
+                        "SELECT 1 FROM hr_certifications WHERE referencia_id = :r AND tipo_calculo = 'folha_mensal' LIMIT 1"
+                    ),
+                    {"r": ref_id},
+                )
+            ).fetchone()
+            if existe:
+                ja_existiam += 1
+                continue
+            net = float(r[2]) if r[2] is not None else None
+            payload = {
+                "inss": float(r[3]) if r[3] is not None else None,
+                "irrf": float(r[4]) if r[4] is not None else None,
+                "fgts": float(r[5]) if r[5] is not None else None,
+                "base_salary": float(r[6]) if r[6] is not None else None,
+                "total_earnings": float(r[7]) if r[7] is not None else None,
+                "total_deductions": float(r[8]) if r[8] is not None else None,
+                "fonte": "dominio_sistemas",
+                "funcionario": r[10],
+            }
+            cert = HRCertification(
+                id=str(uuid4()),
+                tipo_calculo="folha_mensal",
+                referencia_id=ref_id,
+                referencia_tipo="hr_payslip",
+                competencia=competencia,
+                employee_id=str(r[1]) if r[1] else None,
+                cliente_id=str(r[9]) if r[9] else None,
+                calculado_valor=net,  # M1 le Dominio -> calculado = valor Dominio
+                esperado_valor=net,  # golden set Dominio
+                divergencia=False,  # sem recalculo independente ainda (item -0.5)
+                payload=payload,
+                hash_conteudo=compute_content_hash("folha_mensal", ref_id, competencia, net, payload),
+                status=CertificationStatus.PENDENTE.value,
+            )
+            self.db.add(cert)
+            criadas += 1
+        await self.db.commit()
+        return {"competencia": competencia, "criadas": criadas, "ja_existiam": ja_existiam, "total_holerites": len(rows)}
 
     @staticmethod
     def is_valid(cert: HRCertification) -> bool:

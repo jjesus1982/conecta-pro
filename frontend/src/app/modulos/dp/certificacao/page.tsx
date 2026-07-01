@@ -49,6 +49,20 @@ export default function CertificacaoPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('pendente');
   const [acting, setActing] = useState<string | null>(null);
+  const now = new Date();
+  const [competencia, setCompetencia] = useState(`${now.getFullYear()}-${String(now.getMonth()).padStart(2, '0')}`);
+  const [gerando, setGerando] = useState(false);
+
+  const gerarFolha = async () => {
+    setGerando(true);
+    try {
+      const res = await fetch(`${API_BASE}/certifications/gerar-folha/${competencia}`, { method: 'POST', headers: getAuthHeaders() });
+      if (!res.ok) throw new Error();
+      const r = await res.json();
+      toast.success(`Folha ${competencia}: ${r.criadas} certificações geradas (${r.ja_existiam} já existiam)`);
+      fetchCerts();
+    } catch { toast.error('Falha ao gerar (perfil DP/Contábil?)'); } finally { setGerando(false); }
+  };
 
   const fetchCerts = useCallback(async () => {
     setLoading(true);
@@ -104,12 +118,24 @@ export default function CertificacaoPage() {
         <Button variant="outline" size="sm" className="ml-auto" onClick={fetchCerts}><RefreshCw className="h-4 w-4 mr-1" />Atualizar</Button>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {['pendente', 'certificado', 'rejeitado', ''].map((s) => (
           <Button key={s || 'todos'} size="sm" variant={filter === s ? 'default' : 'outline'} onClick={() => setFilter(s)}>
             {s ? statusBadge[s]?.label : 'Todos'}
           </Button>
         ))}
+        <div className="ml-auto flex items-center gap-2">
+          <input
+            type="month"
+            value={competencia}
+            onChange={(e) => setCompetencia(e.target.value)}
+            className="h-9 rounded-md border px-2 text-sm"
+          />
+          <Button size="sm" variant="secondary" disabled={gerando} onClick={gerarFolha}>
+            {gerando ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <ShieldCheck className="h-4 w-4 mr-1" />}
+            Gerar fila da folha
+          </Button>
+        </div>
       </div>
 
       <Card>
