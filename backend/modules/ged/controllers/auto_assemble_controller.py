@@ -8,6 +8,7 @@ Registrado diretamente no main_production.py.
 import logging
 from datetime import UTC, date
 from typing import Any
+from uuid import UUID  # [GED] tipar kit_id -> /kits/dashboard 500 (uuid cast) vira 422
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -173,7 +174,7 @@ async def kits_summary(
 
 @router.get("/kits/{kit_id}")
 async def get_kit_detail(
-    kit_id: str,
+    kit_id: UUID,
     current_user: CurrentActiveUser = None,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
