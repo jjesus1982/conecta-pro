@@ -186,6 +186,11 @@ class PortalService:
             if employee:
                 dashboard["name"] = employee.nome
                 dashboard["position"] = getattr(employee, "cargo", None)
+                # [Veracidade] workplace/next_shift eram null hardcoded — ler do employee (real)
+                dashboard["workplace"] = getattr(employee, "cliente_nome", None) or getattr(
+                    employee, "posto_atual_nome", None
+                )
+                dashboard["next_shift"] = getattr(employee, "escala_padrao", None)
 
         except ImportError:
             logger.warning("Modelo Employee nao disponivel para dashboard.")
@@ -206,23 +211,22 @@ class PortalService:
         except ImportError:
             pass
 
-        # Contar documentos pendentes de assinatura
+        # [Veracidade] documentos pendentes = docs do funcionario ainda NAO assinados em ged_kit_documents.
+        # Era max(0, 0 - signed) -> sempre 0 (formula quebrada/placeholder).
         try:
-            from modules.people_management.employee_portal.models.digital_signature import (
-                PortalDigitalSignature,
-            )
+            from sqlalchemy import text as _sqltext
 
-            # Documentos pendentes = sem assinatura do funcionario
-            # Simplificado: contar assinaturas validas
-            sig_query = select(func.count(PortalDigitalSignature.id)).where(
-                PortalDigitalSignature.employee_id == employee_id,
-                PortalDigitalSignature.is_valid.is_(True),
-            )
-            sig_result = await self.db.execute(sig_query)
-            signed_count = sig_result.scalar() or 0
-            dashboard["pending_documents"] = max(0, 0 - signed_count)
-
-        except ImportError:
+            pend = (
+                await self.db.execute(
+                    _sqltext(
+                        "SELECT count(*) FROM ged_kit_documents "
+                        "WHERE CAST(employee_id AS TEXT) = :e AND is_signed = false"
+                    ),
+                    {"e": str(employee_id)},
+                )
+            ).scalar() or 0
+            dashboard["pending_documents"] = pend
+        except Exception:
             pass
 
         return dashboard
