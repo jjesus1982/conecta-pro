@@ -36,8 +36,8 @@ TIPO_POSTO_DESCRICOES = {
     "ronda": "Patrulhamento de areas - exige observacao aguada e resistencia fisica",
     "evento": "Seguranca de eventos - exige resiliencia sob pressao e adaptabilidade",
     "supervisor": "Gestao de equipe - exige lideranca e capacidade de tomada de decisao",
-    "seguranca_armada": "Seguranca armada - exige resiliencia, observacao e preparo emocional",
-    "vigilante": "Vigilancia patrimonial - exige observacao e presenca constante",
+    "controle_acesso": "Controle de acesso - exige triagem cuidadosa, observacao e postura preventiva",
+    "porteiro": "Portaria e controle de acesso - exige comunicacao, observacao e presenca constante",
 }
 
 # Requisitos principais por tipo
@@ -72,12 +72,12 @@ REQUISITOS_PRINCIPAIS = {
         "Tomada de decisao",
         "Comunicacao efetiva",
     ],
-    "seguranca_armada": [
+    "controle_acesso": [
         "Controle emocional",
-        "Preparo tecnico",
+        "Triagem criteriosa",
         "Discernimento",
     ],
-    "vigilante": [
+    "porteiro": [
         "Observacao constante",
         "Postura preventiva",
         "Cumprimento de procedimentos",

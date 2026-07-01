@@ -29,8 +29,8 @@ class PostTypeEnum(StrEnum):
     RONDA = "ronda"
     EVENTO = "evento"
     SUPERVISOR = "supervisor"
-    SEGURANCA_ARMADA = "seguranca_armada"
-    VIGILANTE = "vigilante"
+    CONTROLE_ACESSO = "controle_acesso"
+    PORTEIRO = "porteiro"
 
 
 class MatchNivelEnum(StrEnum):

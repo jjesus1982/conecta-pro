@@ -53,9 +53,9 @@ NIVEL_DESCRICOES = {
 
 # Tipos de posto recomendados por dimensao forte
 TIPOS_POSTO_POR_DIMENSAO = {
-    "vigilancia": ["cftv", "ronda", "seguranca_armada", "vigilante"],
+    "vigilancia": ["cftv", "ronda", "controle_acesso", "porteiro"],
     "comunicacao": ["portaria", "recepcao"],
-    "resiliencia": ["evento", "seguranca_armada", "supervisor"],
+    "resiliencia": ["evento", "controle_acesso", "supervisor"],
     "lideranca": ["supervisor", "evento"],
 }
 

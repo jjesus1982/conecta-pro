@@ -45,8 +45,8 @@ class PostTypeProfile(StrEnum):
     RONDA = "ronda"
     EVENTO = "evento"
     SUPERVISOR = "supervisor"
-    SEGURANCA_ARMADA = "seguranca_armada"
-    VIGILANTE = "vigilante"
+    CONTROLE_ACESSO = "controle_acesso"
+    PORTEIRO = "porteiro"
 
 
 # Questionario padrao - 20 perguntas, 5 por dimensao
@@ -216,13 +216,13 @@ PERFIL_IDEAL_POR_TIPO: dict[str, dict[str, int]] = {
         "resiliencia": 85,
         "lideranca": 90,
     },
-    "seguranca_armada": {
+    "controle_acesso": {
         "vigilancia": 85,
         "comunicacao": 60,
         "resiliencia": 90,
         "lideranca": 60,
     },
-    "vigilante": {
+    "porteiro": {
         "vigilancia": 80,
         "comunicacao": 55,
         "resiliencia": 75,

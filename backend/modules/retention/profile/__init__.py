@@ -29,8 +29,8 @@ Tipos de Posto Suportados:
     - Ronda: Patrulhamento
     - Evento: Seguranca de eventos
     - Supervisor: Gestao de equipe
-    - Seguranca Armada: Seguranca armada
-    - Vigilante: Vigilancia patrimonial
+    - Controle de Acesso: Controle de acesso e triagem
+    - Porteiro: portaria e controle de acesso
 """
 
 from .controllers import router
