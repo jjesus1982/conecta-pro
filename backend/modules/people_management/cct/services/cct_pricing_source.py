@@ -9,7 +9,7 @@ armada nem encargos de 42%.
 Categoria: agentes de portaria/serviços para condomínios (NÃO vigilância).
 Referências:
 - Piso da categoria: R$1.670 (menor piso da tabela cct_cargos, 52 cargos).
-- Periculosidade 30%: SÓ Vigia, Eletricista Alta/Baixa Tensão, Téc. Manut. Máquinas.
+- Periculosidade 30%: SÓ Eletricista Alta/Baixa Tensão, Téc. Manut. Máquinas.
 - Insalubridade 10%: SÓ Piscineiro, Aux. Controle Pragas.
 - Repasse contratual OBRIGATÓRIO 7,5% (CCT Cláusula 2ª §3º) sobre o custo.
 - Encargos reais ≈ 61% (INSS 20 + FGTS 8 + RAT 3 + terceiros 5,8 +
@@ -42,7 +42,7 @@ ENCARGOS_PCT = sum(ENCARGOS.values())  # ≈ 0.6124
 REPASSE_PCT = Decimal("0.075")  # 7,5% sobre o custo
 
 # Adicionais (só para cargos com direito, conforme cct_cargos.adicional_tipo)
-PERICULOSIDADE_PCT = Decimal("0.30")  # Vigia, Eletricista AT/BT, Téc. Manut. Máquinas
+PERICULOSIDADE_PCT = Decimal("0.30")  # Eletricista AT/BT, Téc. Manut. Máquinas
 INSALUBRIDADE_PCT = Decimal("0.10")  # Piscineiro, Aux. Controle Pragas
 ADICIONAL_NOTURNO_PCT = Decimal("0.20")
 

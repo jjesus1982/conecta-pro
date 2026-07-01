@@ -130,7 +130,7 @@ class ERPIntegrationService:
                 code=f"POST-{code_base:04d}",
                 config={
                     "name": f"Posto - {contract.objeto_resumido or contract.objeto[:80]}",
-                    "post_type": PostType.VIGILANTE.value,
+                    "post_type": PostType.PORTEIRO.value,
                     "shift_type": ShiftType.DIURNO.value,
                     "headcount": 1,
                     "address": None,
@@ -1094,7 +1094,7 @@ class ERPIntegrationService:
                 f"{contract.numero_contrato}/{contract.ano_contrato} - "
                 f"{contract.orgao_nome}"
             ),
-            post_type=config.get("post_type", PostType.VIGILANTE.value),
+            post_type=config.get("post_type", PostType.PORTEIRO.value),
             status=PostStatus.ACTIVE.value,
             shift_type=config.get("shift_type", ShiftType.DIURNO.value),
             contract_id=str(contract.id),

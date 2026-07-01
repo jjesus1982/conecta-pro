@@ -1,7 +1,7 @@
 """
 Serviço de Otimização de Escalas — Algoritmo Húngaro + Greedy Fallback.
 
-Otimiza alocação de vigilantes em postos usando:
+Otimiza alocação de colaboradores em postos usando:
 1. Algoritmo Húngaro (scipy) para alocação ótima
 2. Fallback greedy quando scipy não disponível ou problema muito grande
 
@@ -36,7 +36,7 @@ DSR_DAYS_PER_WEEK = 1  # 1 dia de descanso por semana
 
 @dataclass
 class Employee:
-    """Dados do vigilante para alocação."""
+    """Dados do colaborador para alocação."""
 
     id: str
     name: str
@@ -104,7 +104,7 @@ class ScaleOptimizerService:
         employees: list[Employee] | None = None,
         posts: list[Post] | None = None,
     ) -> dict[str, Any]:
-        """Otimiza alocação de vigilantes para uma data.
+        """Otimiza alocação de colaboradores para uma data.
 
         Pipeline:
         1. Filtra funcionários disponíveis
@@ -398,7 +398,7 @@ def _calculate_cost(emp: Employee, post: Post, target_date: date) -> float:
         missing = set(post.required_qualifications) - set(emp.qualifications)
         if missing:
             if post.requires_armed and "armed" in missing:
-                return 1e9  # Impossível: vigilante não armado em posto armado
+                return 1e9  # Impossível: colaborador não armado em posto armado
             base_cost += len(missing) * 100
 
     # Bonus por preferência de turno

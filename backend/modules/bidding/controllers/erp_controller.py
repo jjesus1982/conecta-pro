@@ -31,7 +31,7 @@ class PostoConfig(BaseModel):
     """Configuracao de posto para conversao."""
 
     name: str = Field(..., description="Nome do posto")
-    post_type: str = Field(default="vigilante", description="Tipo: vigilante, porteiro, etc.")
+    post_type: str = Field(default="porteiro", description="Tipo: porteiro, controlador de acesso, etc.")
     shift_type: str = Field(default="diurno", description="Turno: diurno, noturno, 12x36, etc.")
     headcount: int = Field(default=1, ge=1, description="Quantidade de funcionarios necessarios")
     address: str | None = Field(default=None, description="Endereco do posto")

@@ -1,7 +1,7 @@
 """
 Controller de Otimização de Escalas — Húngaro + Greedy.
 
-Endpoints para otimizar alocação de vigilantes em postos
+Endpoints para otimizar alocação de colaboradores em postos
 usando algoritmo Húngaro (scipy) com fallback greedy.
 """
 
@@ -30,7 +30,7 @@ router = APIRouter(prefix="/scale-optimizer", tags=["Operations - Otimização d
 
 
 class EmployeeInput(BaseModel):
-    """Dados do vigilante para alocação."""
+    """Dados do colaborador para alocação."""
 
     id: str
     name: str
@@ -57,7 +57,7 @@ class OtimizarRequest(BaseModel):
     """Request para otimização de escala."""
 
     target_date: date = Field(..., description="Data para otimizar")
-    employees: list[EmployeeInput] = Field(..., description="Vigilantes disponíveis")
+    employees: list[EmployeeInput] = Field(..., description="Colaboradores disponíveis")
     posts: list[PostInput] = Field(..., description="Postos que precisam de cobertura")
 
 
@@ -66,7 +66,7 @@ class OtimizarMesRequest(BaseModel):
 
     year: int = Field(..., ge=2020, le=2030)
     month: int = Field(..., ge=1, le=12)
-    employees: list[EmployeeInput] = Field(..., description="Vigilantes disponíveis")
+    employees: list[EmployeeInput] = Field(..., description="Colaboradores disponíveis")
     posts: list[PostInput] = Field(..., description="Postos")
 
 
@@ -75,7 +75,7 @@ async def otimizar_escala(
     request: OtimizarRequest,
     current_user: CurrentActiveUser,
 ) -> Any:
-    """Otimiza alocação de vigilantes para uma data específica.
+    """Otimiza alocação de colaboradores para uma data específica.
 
     Usa algoritmo Húngaro (scipy) se disponível, senão greedy.
     Respeita regras CLT: interjornada 11h, qualificações, custos.

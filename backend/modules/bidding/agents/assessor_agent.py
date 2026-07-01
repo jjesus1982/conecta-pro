@@ -67,7 +67,7 @@ class CompanyProfile(BaseModel):
             "monitoramento_cftv",
         ]
     )
-    quantidade_vigilantes: int = 44
+    quantidade_colaboradores: int = 44
     possui_base_operacional: bool = True
     cobertura_ufs: list[str] = Field(default_factory=lambda: ["AM"])
 
@@ -336,12 +336,12 @@ class AssessorAgent(BaseAgent):
         # Verificar quantidade de postos vs capacidade
         qtd_postos = analysis.get("quantidade_postos")
         if qtd_postos and qtd_postos > 0:
-            # Estimar necessidade de vigilantes (2.5 por posto em media para cobertura)
-            vigilantes_necessarios = int(qtd_postos * 2.5)
-            if vigilantes_necessarios > company.quantidade_vigilantes:
+            # Estimar necessidade de colaboradores (2.5 por posto em media para cobertura)
+            colaboradores_necessarios = int(qtd_postos * 2.5)
+            if colaboradores_necessarios > company.quantidade_colaboradores:
                 nota -= 30
                 observacoes.append(
-                    f"Capacidade: {company.quantidade_vigilantes} vigilantes, necessario ~{vigilantes_necessarios}"
+                    f"Capacidade: {company.quantidade_colaboradores} postos, necessario ~{colaboradores_necessarios}"
                 )
 
         # Armamento

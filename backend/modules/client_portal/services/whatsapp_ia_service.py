@@ -45,7 +45,7 @@ REGRAS OBRIGATÓRIAS:
 7. Se não souber responder → diga que vai encaminhar para a equipe responsável
 
 SERVIÇOS OFERECIDOS:
-- Portaria presencial (vigilante no local)
+- Portaria presencial (agente de portaria no local)
 - Portaria remota (monitoramento digital)
 - CFTV (câmeras e monitoramento)
 - Controle de acesso (cancelas, portões, biometria)
