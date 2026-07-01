@@ -229,6 +229,39 @@ class AdmissionService:
         if admission.status == AdmissionStatus.COMPLETED:
             raise ValueError("Admissão já concluída")
 
+        # CCT fonte única: resolver cargo/piso da CCT (prefere cct_cargo_id do form; senão mapeia nome)
+        from sqlalchemy import text as _sqltext
+
+        _cct_id = employee_data.get("cct_cargo_id") or getattr(admission, "cct_cargo_id", None)
+        _cargo_nome = employee_data.get("cargo") or getattr(admission, "position", None)
+        _piso = None
+        try:
+            if _cct_id:
+                _row = (
+                    await self.db.execute(
+                        _sqltext("SELECT cargo_nome, piso_salarial FROM cct_cargos WHERE id = :c"),
+                        {"c": str(_cct_id)},
+                    )
+                ).mappings().first()
+            else:
+                # Fallback: casa o nome livre com o cargo CCT (acento/caixa-insensível)
+                _row = (
+                    await self.db.execute(
+                        _sqltext(
+                            "SELECT id, cargo_nome, piso_salarial FROM cct_cargos "
+                            "WHERE unaccent(upper(cargo_nome)) = unaccent(upper(:n)) LIMIT 1"
+                        ),
+                        {"n": _cargo_nome or ""},
+                    )
+                ).mappings().first()
+                if _row:
+                    _cct_id = _row["id"]
+            if _row:
+                _cargo_nome = _row["cargo_nome"]
+                _piso = _row["piso_salarial"]
+        except Exception as _e:  # noqa: BLE001
+            logger.warning("Admissão: falha ao resolver cargo CCT: %s", _e)
+
         # Criar Employee
         employee = Employee(
             id=uuid4(),
@@ -236,11 +269,12 @@ class AdmissionService:
             email=employee_data.get("email"),
             cpf=employee_data.get("cpf"),
             matricula=employee_data.get("matricula"),
-            cargo=employee_data.get("cargo"),
+            cargo=_cargo_nome or employee_data.get("cargo"),
+            cct_cargo_id=_cct_id,
             departamento=employee_data.get("departamento"),
             telefone=employee_data.get("telefone"),
             data_admissao=admission.actual_start_date or admission.expected_start_date,
-            salario_base=admission.salary_proposed,
+            salario_base=admission.salary_proposed or _piso,
             status="Ativo",
         )
         self.db.add(employee)

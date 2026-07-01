@@ -22,6 +22,7 @@ class AdmissionProcessCreate(BaseModel):
     contract_type: str | None = Field("CLT", max_length=20)
     candidate_id: str | None = None
     job_position_id: str | None = None
+    cct_cargo_id: str | None = Field(None, description="UUID do cargo na CCT (fonte única do piso)")
     workplace_id: str | None = None
     checklist: dict | None = None
     notes: str | None = None
@@ -40,6 +41,7 @@ class AdmissionProcessUpdate(BaseModel):
     salary_proposed: float | None = Field(None, ge=0)
     contract_type: str | None = None
     workplace_id: str | None = None
+    cct_cargo_id: str | None = Field(None, description="UUID do cargo na CCT")
     checklist: dict | None = None
     documents_received: dict | None = None
     medical_exam_date: date | None = None
