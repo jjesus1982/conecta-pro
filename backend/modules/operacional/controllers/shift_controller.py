@@ -5,6 +5,7 @@ Controller (endpoints) para Shift.
 import asyncio
 from datetime import date
 from typing import Any
+from uuid import UUID  # [Operacoes] tipar path id -> 500 (uuid cast) vira 422
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -175,7 +176,7 @@ async def get_shifts_by_scale(
     dependencies=[require_operacional_permission(Permission.SHIFTS_VIEW_ALL, Permission.SHIFTS_VIEW_OWN)],
 )
 async def get_shift(
-    shift_id: str,
+    shift_id: UUID,
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> ShiftResponse:

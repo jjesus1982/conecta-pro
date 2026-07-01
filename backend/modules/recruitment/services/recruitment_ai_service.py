@@ -239,7 +239,7 @@ class RecruitmentAIService:
     ) -> dict[str, Any]:
         """Calcula match de experiência."""
         required_years = getattr(position, "min_experience_years", None) or 0
-        candidate_years = candidate.years_experience or 0
+        candidate_years = getattr(candidate, "years_experience", 0) or 0  # [Recrutamento] Candidate nao tem essa coluna -> AttributeError 500
 
         if required_years == 0:
             return {"score": 0.8, "required": 0, "candidate": candidate_years}

@@ -15,6 +15,7 @@ Quality Score Target: 99+/100
 
 import asyncio
 from datetime import date
+from uuid import UUID  # [Operacoes] tipar path id -> 500 (uuid cast) vira 422
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -470,7 +471,7 @@ async def check_proportionality(
     description="Busca uma medida disciplinar pelo ID",
 )
 async def get_disciplinary_action(
-    action_id: str,
+    action_id: UUID,
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> DisciplinaryActionDetailResponse:

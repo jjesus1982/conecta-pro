@@ -90,7 +90,7 @@ async def turnover_motivos(
                         "SELECT motivo_desligamento, COUNT(*) as total "
                         "FROM employees "
                         "WHERE motivo_desligamento IS NOT NULL "
-                        "AND data_desligamento >= CURRENT_DATE - INTERVAL '12 months' "
+                        "AND data_demissao >= CURRENT_DATE - INTERVAL '12 months' "
                         "GROUP BY motivo_desligamento ORDER BY total DESC"
                     )
                 )

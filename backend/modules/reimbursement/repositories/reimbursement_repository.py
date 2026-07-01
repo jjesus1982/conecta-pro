@@ -185,8 +185,7 @@ class ReimbursementRepository:
         limit: int = 100,
     ) -> tuple[list[ReimbursementRequest], int]:
         """Lista solicitações pendentes de aprovação."""
-        query = select(ReimbursementRequest).where(
-            ReimbursementRequest.condominio_id == condominio_id,
+        _conds = [
             ReimbursementRequest.is_active == True,  # noqa: E712
             ReimbursementRequest.status.in_(
                 [
@@ -194,7 +193,10 @@ class ReimbursementRepository:
                     ReimbursementStatus.EM_ANALISE.value,
                 ]
             ),
-        )
+        ]
+        if condominio_id is not None:  # [Reembolso] admin (None) ve todas; nao filtrar IS NULL
+            _conds.append(ReimbursementRequest.condominio_id == condominio_id)
+        query = select(ReimbursementRequest).where(*_conds)
 
         if approval_level:
             query = query.where(ReimbursementRequest.approval_level == approval_level)

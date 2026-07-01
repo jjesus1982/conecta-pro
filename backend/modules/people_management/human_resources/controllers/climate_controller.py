@@ -42,15 +42,20 @@ async def climate_dashboard(
             .all()
         )
 
+        # [RH] eram literais 0 — ler o real (climate_surveys / sst_afastamentos ativos)
+        pesquisas = (await db.execute(text("SELECT COUNT(*) FROM climate_surveys"))).scalar() or 0
+        alertas_abs = (
+            await db.execute(text("SELECT COUNT(*) FROM sst_afastamentos WHERE data_retorno IS NULL"))
+        ).scalar() or 0
         return {
             "total_colaboradores": total,
-            "pesquisas_realizadas": 0,
+            "pesquisas_realizadas": pesquisas,
             "nps_colaborador": None,
             "indice_satisfacao": None,
-            "alertas_absenteismo": 0,
+            "alertas_absenteismo": alertas_abs,
             "distribuicao_escala": [dict(r) for r in por_escala],
-            "status": "aguardando_pesquisa",
-            "message": "Realize a primeira pesquisa de clima para gerar indicadores.",
+            "status": "ativo" if pesquisas else "aguardando_pesquisa",
+            "message": "Indicadores de clima." if pesquisas else "Realize a primeira pesquisa de clima para gerar indicadores.",
         }
     except Exception as exc:
         logger.warning("Erro no dashboard clima: %s", exc)

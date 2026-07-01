@@ -4,6 +4,7 @@ Controller (endpoints) para Substitution (Substituição de Funcionário).
 
 import asyncio
 from datetime import date
+from uuid import UUID  # [Operacoes] tipar path id -> 500 (uuid cast) vira 422
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -205,7 +206,7 @@ async def get_substitutions_by_date(
     dependencies=[require_operacional_permission(Permission.SUBSTITUTIONS_CREATE, Permission.SUBSTITUTIONS_APPROVE)],
 )
 async def get_substitution(
-    substitution_id: str,
+    substitution_id: UUID,
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> SubstitutionResponse:

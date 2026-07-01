@@ -84,7 +84,7 @@ class ApplicationService:
         try:
             matching = await self.ai_service.calculate_matching_score(candidate, position)
             application.ai_match_score = matching["final_score"]
-        except (ValueError, KeyError, TypeError) as e:
+        except (ValueError, KeyError, TypeError, AttributeError) as e:
             logger.warning("Erro ao calcular matching: %s", e)
 
         await self.session.commit()
@@ -458,7 +458,7 @@ class ApplicationService:
                     success += 1
                 else:
                     failed += 1
-            except (ValueError, KeyError, TypeError) as e:
+            except (ValueError, KeyError, TypeError, AttributeError) as e:
                 logger.error("Erro em ação bulk para %s: %s", app_id, e)
                 failed += 1
 
