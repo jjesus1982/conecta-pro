@@ -430,6 +430,7 @@ export const modules: Module[] = [
     enabled: true,
     subModules: [
       { id: 'juridico-hub', title: 'Visao Geral', href: '/modulos/juridico', icon: 'LayoutDashboard', permissions: ['operacional:read'], group: 'Escritorio' },
+      { id: 'juridico-processos', title: 'Processos & Defesa', href: '/modulos/juridico/processos', icon: 'Gavel', permissions: ['operacional:read'], group: 'Escritorio' },
       { id: 'juridico-consultor', title: 'Consultor Juridico IA', href: '/modulos/juridico/consultor', icon: 'Bot', permissions: ['operacional:read'], group: 'Escritorio' },
       { id: 'juridico-pareceres', title: 'Pareceres (IA)', href: '/modulos/juridico/pareceres', icon: 'FileSignature', permissions: ['operacional:read'], group: 'Escritorio' },
       { id: 'juridico-riscos', title: 'Riscos (Trabalhista/Tributario)', href: '/modulos/juridico/riscos', icon: 'AlertTriangle', permissions: ['operacional:read'], group: 'Escritorio' },
