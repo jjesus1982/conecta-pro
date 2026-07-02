@@ -77,6 +77,27 @@ export default function ProcessosPage() {
     } finally { setAnalisando(false); }
   };
 
+  const [enviando, setEnviando] = useState(false);
+  const [envioMsg, setEnvioMsg] = useState<string | null>(null);
+  const [destinoCQB, setDestinoCQB] = useState('contato@cqbadvogados.com.br');
+
+  const encaminharCQB = async () => {
+    if (!res?.id) return;
+    if (!window.confirm(`Encaminhar este processo (dossiê + defesa) para:\n\n${destinoCQB}\n\nConfirmar envio?`)) return;
+    setEnviando(true); setEnvioMsg(null);
+    try {
+      const r = await fetch(`${API_BASE}/processos/${res.id}/enviar-cqb`, {
+        method: 'POST', headers: authHeaders(),
+        body: JSON.stringify({ confirmar: true, destinatario: destinoCQB }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d.enviado) throw new Error(d?.detail || d?.mensagem || 'Falha no envio');
+      setEnvioMsg(`✅ Encaminhado para ${d.destinatario}`);
+    } catch (e: any) {
+      setEnvioMsg(`❌ ${e?.message || 'Falha no envio'}`);
+    } finally { setEnviando(false); }
+  };
+
   const analise = res?.analise || {};
 
   return (
@@ -199,6 +220,23 @@ export default function ProcessosPage() {
               </CardContent>
             </Card>
           )}
+
+          {/* Encaminhar ao CQB */}
+          <Card className="border-blue-200">
+            <CardContent className="pt-4 flex flex-wrap items-center gap-3">
+              <div className="text-sm">
+                <div className="font-medium">Encaminhar ao escritório (CQB Advogados)</div>
+                <div className="text-gray-500">Envia o dossiê + defesa por e-mail (remetente noreply@conectamais.pro).</div>
+              </div>
+              <div className="flex-1" />
+              <input value={destinoCQB} onChange={e => setDestinoCQB(e.target.value)}
+                className="border rounded px-2 py-2 text-sm w-64" placeholder="destinatário" />
+              <Button onClick={encaminharCQB} disabled={enviando} className="bg-blue-600 hover:bg-blue-700 text-white">
+                {enviando ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Enviando…</> : <><FileText className="w-4 h-4 mr-2" /> Encaminhar</>}
+              </Button>
+              {envioMsg && <div className="w-full text-sm mt-1">{envioMsg}</div>}
+            </CardContent>
+          </Card>
 
           {res.disclaimer && <p className="text-xs text-gray-400 border-t pt-2">{res.disclaimer}</p>}
         </div>

@@ -84,3 +84,26 @@ async def obter(
     if not p:
         raise HTTPException(status_code=404, detail="Processo não encontrado")
     return p
+
+
+class EnvioCQBIn(BaseModel):
+    confirmar: bool = False
+    destinatario: str | None = None  # default: contato@cqbadvogados.com.br
+
+
+@router.post("/{id}/enviar-cqb")
+async def enviar_cqb(
+    id: str,
+    payload: EnvioCQBIn,
+    current_user=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Encaminha o processo (dossiê + defesa) ao CQB Advogados por e-mail.
+
+    confirmar=false → prévia (não envia). confirmar=true → envia de fato
+    (remetente noreply@conectamais.pro, destino contato@cqbadvogados.com.br).
+    """
+    res = await PS.preparar_ou_enviar_cqb(db, id, confirmar=payload.confirmar, destinatario=payload.destinatario)
+    if not res.get("ok"):
+        raise HTTPException(status_code=422, detail=res.get("mensagem", "Falha no encaminhamento"))
+    return res

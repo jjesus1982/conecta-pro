@@ -311,6 +311,95 @@ async def analisar_processo(
     }
 
 
+CQB_EMAIL = "contato@cqbadvogados.com.br"
+CQB_NOME = "CQB Advogados e Associados"
+
+
+def _html_email_cqb(p: dict[str, Any]) -> str:
+    """Monta o corpo HTML do encaminhamento ao escritório CQB a partir do processo persistido."""
+    ent = p.get("entidades") or {}
+    an = p.get("analise") or {}
+    if isinstance(ent, str):
+        ent = json.loads(ent or "{}")
+    if isinstance(an, str):
+        an = json.loads(an or "{}")
+
+    def esc(t: Any) -> str:
+        return (str(t or "")).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    linhas = []
+    for pp in (an.get("por_pedido") or []):
+        fav = "".join(f"<li>{esc(x)}</li>" for x in (pp.get("provas_favoraveis") or [])) or "<li><i>—</i></li>"
+        falt = "".join(f"<li>{esc(x)}</li>" for x in (pp.get("provas_faltantes") or [])) or "<li><i>—</i></li>"
+        obt = "".join(f"<li>{esc(x)}</li>" for x in (pp.get("como_obter") or [])) or "<li><i>—</i></li>"
+        linhas.append(
+            f"<div style='margin:14px 0;padding:12px;border:1px solid #E2E8F0;border-radius:8px'>"
+            f"<div style='font-weight:600'>{esc(pp.get('pedido'))} "
+            f"<span style='color:#B45309;font-size:12px'>[risco: {esc(pp.get('risco'))}]</span></div>"
+            f"<div style='color:#166534;margin-top:6px'><b>Provas favoráveis</b><ul>{fav}</ul></div>"
+            f"<div style='color:#B91C1C'><b>Lacunas / a produzir</b><ul>{falt}</ul></div>"
+            f"<div style='color:#1D4ED8'><b>Como obter</b><ul>{obt}</ul></div>"
+            f"<div style='background:#EFF6FF;padding:8px;border-radius:6px'><b>Recomendação:</b> "
+            f"{esc(pp.get('recomendacao'))}</div></div>"
+        )
+    docs = "".join(f"<li>{esc(x)}</li>" for x in (an.get("documentos_a_juntar") or []))
+    return (
+        f"<div style='font-family:Arial,sans-serif;color:#1F2937;max-width:720px'>"
+        f"<h2 style='color:#1E3A8A'>Encaminhamento de Processo — Conecta Mais</h2>"
+        f"<p>Prezados <b>{esc(CQB_NOME)}</b>,</p>"
+        f"<p>Encaminhamos o processo abaixo com o <b>dossiê e a análise de defesa preliminar</b> "
+        f"produzidos internamente pelo nosso Jurídico, para vossa apreciação e condução.</p>"
+        f"<table style='font-size:14px;margin:10px 0'>"
+        f"<tr><td style='padding:2px 8px'><b>Processo</b></td><td>{esc(p.get('numero') or '—')}</td></tr>"
+        f"<tr><td style='padding:2px 8px'><b>Área</b></td><td>{esc(p.get('tipo'))}</td></tr>"
+        f"<tr><td style='padding:2px 8px'><b>Reclamante</b></td><td>{esc(ent.get('reclamante') or p.get('reclamante'))}</td></tr>"
+        f"<tr><td style='padding:2px 8px'><b>Prazo crítico</b></td><td>{esc(an.get('prazo_critico') or '—')}</td></tr>"
+        f"</table>"
+        f"<h3 style='color:#1E3A8A'>Estratégia de defesa (tese central)</h3>"
+        f"<p style='white-space:pre-line'>{esc(an.get('estrategia_geral'))}</p>"
+        f"<h3 style='color:#1E3A8A'>Análise por pedido</h3>{''.join(linhas)}"
+        + (f"<h3 style='color:#1E3A8A'>Documentos a juntar</h3><ul>{docs}</ul>" if docs else "")
+        + f"<h3 style='color:#1E3A8A'>Síntese</h3><p style='white-space:pre-line'>{esc(an.get('sintese'))}</p>"
+        f"<hr style='border:none;border-top:1px solid #E5E7EB;margin:16px 0'>"
+        f"<p style='font-size:12px;color:#6B7280'>{esc(_DISCLAIMER)} Documento gerado pelo "
+        f"Escritório Jurídico IA do Conecta PRO. O dossiê completo está disponível no sistema.</p>"
+        f"</div>"
+    )
+
+
+async def preparar_ou_enviar_cqb(
+    db: AsyncSession, id: str, confirmar: bool, destinatario: str | None = None
+) -> dict[str, Any]:
+    """Prévia (confirmar=False) ou ENVIO real (confirmar=True) do processo ao CQB por e-mail."""
+    p = await obter_processo(db, id)
+    if not p:
+        return {"ok": False, "mensagem": "Processo não encontrado"}
+    destino = (destinatario or CQB_EMAIL).strip()
+    assunto = f"[Conecta Mais] Encaminhamento de processo {p.get('numero') or ('#' + str(p['id']))} — defesa preliminar"
+    html = _html_email_cqb(p)
+
+    if not confirmar:
+        return {"ok": True, "preview": True, "destinatario": destino, "assunto": assunto,
+                "html": html, "aviso": "Prévia — nada foi enviado. Envie com confirmar=true."}
+
+    # envio real (validado: core/mailer, remetente noreply@conectamais.pro)
+    try:
+        from core.mailer import send_email
+        enviado = await send_email(destino, assunto, html)
+    except Exception as e:  # noqa: BLE001
+        logger.error("Falha ao enviar processo ao CQB: %s", e)
+        return {"ok": False, "mensagem": f"Falha no envio: {e}"}
+    if enviado:
+        try:
+            await db.execute(text(
+                "UPDATE juridico_processos SET status='encaminhado_cqb' WHERE CAST(id AS TEXT)=:id"),
+                {"id": str(id)})
+        except Exception:  # noqa: BLE001
+            pass
+    return {"ok": bool(enviado), "enviado": bool(enviado), "destinatario": destino,
+            "assunto": assunto, "mensagem": "Encaminhado ao CQB." if enviado else "SMTP não confirmou o envio."}
+
+
 async def listar_processos(db: AsyncSession, limit: int = 50) -> list[dict[str, Any]]:
     await _ensure_table(db)
     rows = await db.execute(text(
