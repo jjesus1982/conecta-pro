@@ -44,11 +44,31 @@ async def list_contracts(
     """Lista todos os contratos com paginação."""
     service = ContractService(db)
     result = await service.list_all(page=page, page_size=page_size)
+
+    # Popula o NOME real do colaborador (JOIN por employee_id em employees.nome).
+    from sqlalchemy import select as _select
+
+    from modules.operacional.models.employee import Employee
+
+    async def _names_for(contracts: list) -> dict[str, str]:
+        emp_ids = [str(c.employee_id) for c in contracts if getattr(c, "employee_id", None)]
+        if not emp_ids:
+            return {}
+        rows = await db.execute(_select(Employee.id, Employee.nome).where(Employee.id.in_(emp_ids)))
+        return {str(r[0]): r[1] for r in rows.all()}
+
+    def _serialize(c, name_by_id: dict) -> dict:
+        d = ContractResponse.model_validate(c).model_dump(mode="json")
+        d["employee_name"] = name_by_id.get(str(c.employee_id))
+        return d
+
     # Serialize manually to avoid Pydantic errors with raw ORM objects
     if isinstance(result, dict) and "items" in result:
-        result["items"] = [ContractResponse.model_validate(c).model_dump(mode="json") for c in result["items"]]
+        name_by_id = await _names_for(result["items"])
+        result["items"] = [_serialize(c, name_by_id) for c in result["items"]]
     elif isinstance(result, list):
-        result = [ContractResponse.model_validate(c).model_dump(mode="json") for c in result]
+        name_by_id = await _names_for(result)
+        result = [_serialize(c, name_by_id) for c in result]
     return result
 
 

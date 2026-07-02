@@ -47,6 +47,7 @@ class BenefitResponse(BaseModel):
 
     id: UUID
     employee_id: UUID
+    employee_name: str | None = None
     type: str
     provider: str | None = None
     plan_name: str | None = None

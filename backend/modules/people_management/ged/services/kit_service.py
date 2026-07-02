@@ -465,6 +465,20 @@ class KitService:
         if include_documents_summary:
             documents_summary = await self._get_documents_summary(str(kit.id))
 
+        # Contadores computados AO VIVO do COUNT real em ged_kit_documents
+        # (fonte de verdade); as colunas stored do kit ficam desatualizadas.
+        total_documents = (
+            await self.db.scalar(select(func.count()).select_from(KitDocument).where(KitDocument.kit_id == str(kit.id)))
+        ) or 0
+        documents_signed = (
+            await self.db.scalar(
+                select(func.count())
+                .select_from(KitDocument)
+                .where(KitDocument.kit_id == str(kit.id), KitDocument.is_signed.is_(True))
+            )
+        ) or 0
+        completion_percentage = round(documents_signed / total_documents * 100, 2) if total_documents else 0
+
         return KitResponse(
             id=str(kit.id),
             client_id=str(kit.client_id),
@@ -472,9 +486,9 @@ class KitService:
             reference_month=kit.reference_month,
             status=kit.status,
             total_employees=kit.total_employees,
-            total_documents=kit.total_documents,
-            documents_signed=kit.documents_signed,
-            completion_percentage=kit.completion_percentage,
+            total_documents=total_documents,
+            documents_signed=documents_signed,
+            completion_percentage=completion_percentage,
             sent_at=kit.sent_at,
             sent_method=kit.sent_method,
             sent_to=kit.sent_to,

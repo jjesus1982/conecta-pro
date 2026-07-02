@@ -196,21 +196,22 @@ class PPRAService:
         from sqlalchemy import text
 
         try:
+            # [Veracidade] repontado p/ gp_risks (mesma fonte real de get_statistics; 15 riscos).
+            # health_risk_mappings tinha 3 linhas c/ status='identificado' e o filtro status='ativo'
+            # zerava a tabela. gp_risks colunas: posto_id, categoria, descricao, nivel,
+            # fonte_geradora, medidas_controle, epi_recomendado, status. Filtro status='ativo' removido.
             where = "WHERE 1=1"
             params: dict = {"limit": size, "offset": (page - 1) * size}
 
             if setor:
-                where += " AND setor ILIKE :setor"
+                where += " AND posto_id::text ILIKE :setor"
                 params["setor"] = f"%{setor}%"
-            if ativo is not None:
-                where += " AND status = :status"
-                params["status"] = "ativo" if ativo else "inativo"
 
-            total = self.db.execute(text(f"SELECT count(*) FROM health_risk_mappings {where}"), params).scalar() or 0
+            total = self.db.execute(text(f"SELECT count(*) FROM gp_risks {where}"), params).scalar() or 0
 
             rows = self.db.execute(
                 text(
-                    f"SELECT id, setor, funcao, agente_risco, tipo_risco, intensidade, fonte_geradora, medidas_controle, epi_recomendado, status, created_at FROM health_risk_mappings {where} ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
+                    f"SELECT id, posto_id, categoria, descricao, nivel, fonte_geradora, medidas_controle, epi_recomendado, status, created_at FROM gp_risks {where} ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
                 ),
                 params,
             ).fetchall()
@@ -218,15 +219,20 @@ class PPRAService:
             items = [
                 {
                     "id": str(r.id),
-                    "setor": r.setor,
-                    "funcao": r.funcao,
-                    "agente_risco": r.agente_risco,
-                    "tipo_risco": r.tipo_risco,
-                    "intensidade": r.intensidade,
+                    "setor": str(r.posto_id) if r.posto_id else (r.categoria or "—"),
+                    "descricao_setor": r.descricao,
+                    "funcoes": [r.categoria] if r.categoria else [],
+                    "agente_risco": r.descricao,
+                    "tipo_risco": r.categoria,
+                    "intensidade": r.nivel,
+                    "nivel_risco_geral": r.nivel,
                     "fonte_geradora": r.fonte_geradora,
                     "medidas_controle": r.medidas_controle,
                     "epi_recomendado": r.epi_recomendado,
                     "status": r.status,
+                    "ativo": True,
+                    "versao": 1,
+                    "data_avaliacao": r.created_at.date().isoformat() if r.created_at else None,
                     "created_at": r.created_at.isoformat() if r.created_at else None,
                 }
                 for r in rows

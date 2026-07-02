@@ -179,34 +179,42 @@ class DocumentViewService:
         """
         documents: list[dict[str, Any]] = []
 
-        # Buscar assinaturas existentes
+        # [Veracidade] Documentos reais do funcionario vivem em ged_kit_documents
+        # (mesma fonte usada pelo card pending_documents do dashboard). Antes lia so
+        # PortalDigitalSignature (0 linhas) -> tela vazia contradizendo o dashboard.
         try:
-            from modules.people_management.employee_portal.models.digital_signature import (
-                PortalDigitalSignature,
+            from sqlalchemy import text as _sqltext
+
+            result = await self.db.execute(
+                _sqltext(
+                    "SELECT CAST(id AS TEXT) AS id, document_type, document_name, "
+                    "is_signed, signed_at, file_path "
+                    "FROM ged_kit_documents "
+                    "WHERE CAST(employee_id AS TEXT) = :e "
+                    "ORDER BY created_at DESC"
+                ),
+                {"e": str(employee_id)},
             )
+            rows = result.mappings().all()
 
-            query = (
-                select(PortalDigitalSignature)
-                .where(PortalDigitalSignature.employee_id == employee_id)
-                .order_by(PortalDigitalSignature.signed_at.desc())
-            )
-
-            result = await self.db.execute(query)
-            signatures = result.scalars().all()
-
-            for sig in signatures:
+            for row in rows:
+                signed_at = row["signed_at"]
                 documents.append(
                     {
-                        "document_id": sig.document_id,
-                        "document_type": sig.document_type.value if sig.document_type else "other",
-                        "signed": True,
-                        "signed_at": sig.signed_at.isoformat() if sig.signed_at else None,
-                        "signature_valid": sig.is_valid,
+                        "document_id": row["id"],
+                        "document_type": row["document_type"] or "other",
+                        "document_name": row["document_name"],
+                        "signed": bool(row["is_signed"]),
+                        "signed_at": signed_at.isoformat()
+                        if hasattr(signed_at, "isoformat")
+                        else (str(signed_at) if signed_at else None),
+                        "signature_valid": bool(row["is_signed"]),
+                        "file_path": row["file_path"],
                     }
                 )
 
-        except ImportError:
-            logger.warning("Modelo PortalDigitalSignature nao disponivel.")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Erro ao buscar documentos (ged_kit_documents): %s", exc)
 
         return documents
 

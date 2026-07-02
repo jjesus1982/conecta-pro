@@ -8,7 +8,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
@@ -108,24 +108,28 @@ async def get_kpi_trends(  # pylint: disable=too-many-locals
             occ_count = result.scalar() or 0
             ocorrencias_mes.append(int(occ_count))
 
-            # Cobertura percentual: alocações ativas / headcount necessário
-            required_result = await db.execute(
-                select(func.coalesce(func.sum(Post.required_headcount), 0))
-                .where(Post.status == "active")
-                .where(Post.created_at <= current_date)
-            )
-            required_headcount = required_result.scalar() or 0
+            # Cobertura percentual: postos cobertos / total de postos (metrica por POSTO,
+            # igual a /coverage-prediction). Snapshot historico: postos existentes ate o dia
+            # e alocacoes vigentes naquele dia (start<=dia AND (end IS NULL OR end>=dia)).
+            total_posts_result = await db.execute(select(func.count(Post.id)).where(Post.created_at <= current_date))
+            total_posts = total_posts_result.scalar() or 0
 
-            active_alloc_result = await db.execute(
-                select(func.count(Allocation.id))
+            covered_result = await db.execute(
+                select(func.count(func.distinct(Allocation.post_id)))
                 .where(Allocation.status == AllocationStatus.ACTIVE.value)
                 .where(Allocation.is_active.is_(True))
                 .where(Allocation.start_date <= current_date.date())
+                .where(
+                    or_(
+                        Allocation.end_date.is_(None),
+                        Allocation.end_date >= current_date.date(),
+                    )
+                )
             )
-            active_allocations = active_alloc_result.scalar() or 0
+            posts_covered = covered_result.scalar() or 0
 
-            if required_headcount > 0:
-                cobertura = (active_allocations / required_headcount) * 100
+            if total_posts > 0:
+                cobertura = min(100.0, (posts_covered / total_posts) * 100)
                 cobertura_percentual.append(round(float(cobertura), 2))
             else:
                 cobertura_percentual.append(0.0)
@@ -233,7 +237,7 @@ async def get_performance_scores(
                 "score": float(row.score),
                 "time_bank_balance": float(row.time_bank_balance),
                 "recent_occurrences": int(row.recent_occurrences),
-                "trend": "estavel",
+                # trend omitido: sem base de periodo anterior para derivar tendencia real
             }
             for row in rows
         ]
@@ -282,5 +286,5 @@ async def get_coverage_prediction(_user: CurrentActiveUser, db: AsyncSession = D
         "cobertura_atual": cobertura,
         "nivel_risco": nivel,
         "riskLevel": nivel,
-        "predicoes": [],
+        # campo "predicoes" removido: nao ha modelo preditivo real ainda (era [] fixo)
     }

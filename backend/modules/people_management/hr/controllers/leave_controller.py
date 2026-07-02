@@ -39,9 +39,12 @@ async def list_leaves(
             (
                 await db.execute(
                     _sqltext(
-                        "SELECT id, employee_id, employee_nome, tipo, data_inicio, data_fim_prevista, "
-                        "cid, motivo, status FROM sst_afastamentos "
-                        "ORDER BY created_at DESC NULLS LAST OFFSET :off LIMIT :lim"
+                        "SELECT a.id, a.employee_id, "
+                        "COALESCE(NULLIF(a.employee_nome, ''), e.nome) AS employee_nome, "
+                        "a.tipo, a.data_inicio, a.data_fim_prevista, "
+                        "a.cid, a.motivo, a.status FROM sst_afastamentos a "
+                        "LEFT JOIN employees e ON e.id = a.employee_id "
+                        "ORDER BY a.created_at DESC NULLS LAST OFFSET :off LIMIT :lim"
                     ),
                     {"off": (page - 1) * page_size, "lim": page_size},
                 )

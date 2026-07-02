@@ -9,6 +9,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
@@ -49,12 +50,21 @@ async def list_terminations(
     service = TerminationService(db)
     result = await service.list_terminations(status=status, page=page, page_size=page_size)
     if isinstance(result, dict) and "items" in result:
+        # Popula o NOME real do colaborador (JOIN por employee_id em employees.nome).
+        from modules.operacional.models.employee import Employee
+
+        emp_ids = [str(t.employee_id) for t in result["items"] if t.employee_id]
+        name_by_id: dict[str, str] = {}
+        if emp_ids:
+            rows = await db.execute(select(Employee.id, Employee.nome).where(Employee.id.in_(emp_ids)))
+            name_by_id = {str(r[0]): r[1] for r in rows.all()}
         serialized = []
         for t in result["items"]:
             serialized.append(
                 {
                     "id": str(t.id),
                     "employee_id": str(t.employee_id),
+                    "employee_name": name_by_id.get(str(t.employee_id)),
                     "type": t.type,
                     "reason": t.reason,
                     # Extrair notice_type do campo reason (formato "notice_type:<valor>")

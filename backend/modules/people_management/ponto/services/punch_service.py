@@ -398,27 +398,56 @@ class PunchService:
         Returns:
             Dicionario com o fechamento.
         """
-        # Contar batidas do mes
-        count_result = await self.db.execute(
-            select(func.count(ClockPunchModel.id)).where(
-                ClockPunchModel.employee_id == employee_id,
-                extract("month", ClockPunchModel.punch_timestamp) == month,
-                extract("year", ClockPunchModel.punch_timestamp) == year,
-            )
-        )
-        total_batidas = count_result.scalar() or 0
+        # [Ponto loop] Horas REAIS das batidas (nao estimativa por escala).
+        # Pareia entrada->saida em ordem cronologica, mesma logica de
+        # horas_service.horas_reais_ponto (que e sync); aqui rodamos a query
+        # via sessao async e reusamos o calculo de janela noturna 22:00-05:00.
+        from .horas_service import _minutos_noturnos
 
-        # Estimar dias trabalhados (4 batidas = 1 dia)
-        dias_trabalhados = total_batidas // 4 if total_batidas >= 4 else 0
+        rows = (
+            await self.db.execute(
+                text(
+                    "SELECT punch_type, punch_timestamp FROM gp_clock_punches "
+                    "WHERE CAST(employee_id AS TEXT) = :e "
+                    "AND EXTRACT(MONTH FROM punch_timestamp) = :m "
+                    "AND EXTRACT(YEAR FROM punch_timestamp) = :y "
+                    "ORDER BY punch_timestamp"
+                ),
+                {"e": str(employee_id), "m": month, "y": year},
+            )
+        ).fetchall()
+
+        total_batidas = len(rows)
+        total_min = 0.0
+        noturno_min = 0.0
+        dias_distintos: set = set()
+        entrada: datetime | None = None
+        for tipo, ts in rows:
+            t = (tipo or "").lower()
+            if t == "entrada":
+                entrada = ts
+            elif t == "saida" and entrada is not None:
+                dur = (ts - entrada).total_seconds() / 60.0
+                if 0 < dur < 24 * 60:
+                    total_min += dur
+                    noturno_min += _minutos_noturnos(entrada, ts)
+                    dias_distintos.add(entrada.date())
+                entrada = None
+
+        horas_trabalhadas = round(total_min / 60.0, 2)
+        horas_noturnas = round(noturno_min / 60.0, 2)
+        dias_trabalhados = len(dias_distintos)
 
         closing = MonthlyClosingModel(
             employee_id=employee_id,
             month=month,
             year=year,
-            total_horas_trabalhadas=dias_trabalhados * 8.0,
+            total_horas_trabalhadas=horas_trabalhadas,  # REAL: soma dos pares entrada/saida
+            # Extras 50/100 e faltas: sem base confiavel de escala/jornada esperada
+            # ainda; deixados em 0.0 ate haver calculo honesto (nao inventar).
             total_horas_extras_50=0.0,
             total_horas_extras_100=0.0,
-            total_horas_noturnas=0.0,
+            total_horas_noturnas=horas_noturnas,  # REAL: janela noturna 22:00-05:00
             total_faltas=0,
             total_atrasos_minutos=0.0,
             total_dias_trabalhados=dias_trabalhados,
@@ -430,12 +459,14 @@ class PunchService:
         await self.db.flush()
 
         logger.info(
-            "Ponto fechado: employee=%s %02d/%d (%d batidas, %d dias)",
+            "Ponto fechado: employee=%s %02d/%d (%d batidas, %d dias, %.2fh reais, %.2fh not.)",
             employee_id,
             month,
             year,
             total_batidas,
             dias_trabalhados,
+            horas_trabalhadas,
+            horas_noturnas,
         )
         return closing.to_dict()
 

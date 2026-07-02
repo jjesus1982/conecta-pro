@@ -83,9 +83,11 @@ async def get_employees_stats(
         text("SELECT status, is_active, COUNT(*) as qtd FROM employees GROUP BY status, is_active")
     )
     rows = result.mappings().all()
-    ativos = sum(r["qtd"] for r in rows if r.get("status") == "ativo" or r.get("is_active"))
-    inativos = sum(r["qtd"] for r in rows if r.get("status") != "ativo" and not r.get("is_active"))
+    # Verdade única: "ativo" é status == 'ativo' (alinha com a lista /employees, que filtra por status).
+    # is_active fica sujo em demitidos/afastados e inflava o contador — não usar mais aqui.
+    ativos = sum(r["qtd"] for r in rows if str(r.get("status") or "").lower() == "ativo")
     total = sum(r["qtd"] for r in rows)
+    inativos = total - ativos
     return {"total": total, "ativos": ativos, "inativos": inativos, "por_status": [dict(r) for r in rows]}
 
 

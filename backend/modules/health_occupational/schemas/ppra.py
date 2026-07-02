@@ -128,19 +128,19 @@ class RiskMappingResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: UUID
+    id: str
     setor: str
     descricao_setor: str | None = None
     localizacao: str | None = None
-    funcoes: list[str]
+    funcoes: list[str] = []
     numero_trabalhadores: int | None = None
-    data_avaliacao: date
-    avaliador: str
+    data_avaliacao: date | None = None
+    avaliador: str | None = None
     cargo_avaliador: str | None = None
     nivel_risco_geral: str | None = None
     data_proxima_revisao: date | None = None
-    ativo: bool
-    versao: int
+    ativo: bool = True
+    versao: int = 1
     riscos: list[OccupationalRiskResponse] = []
     created_at: datetime
     updated_at: datetime | None = None

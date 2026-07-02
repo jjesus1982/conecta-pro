@@ -58,11 +58,21 @@ async def list_all_benefits(
     result = await db.execute(query)
     items = result.scalars().all()
 
+    # Popula o NOME real do colaborador (JOIN por employee_id em employees.nome).
+    from modules.operacional.models.employee import Employee
+
+    emp_ids = [str(i.employee_id) for i in items if i.employee_id]
+    name_by_id: dict[str, str] = {}
+    if emp_ids:
+        name_rows = await db.execute(select(Employee.id, Employee.nome).where(Employee.id.in_(emp_ids)))
+        name_by_id = {str(r[0]): r[1] for r in name_rows.all()}
+
     return {
         "items": [
             BenefitResponse(
                 id=str(i.id),
                 employee_id=str(i.employee_id),
+                employee_name=name_by_id.get(str(i.employee_id)),
                 type=str(i.type),
                 provider=i.provider,
                 plan_name=i.plan_name,

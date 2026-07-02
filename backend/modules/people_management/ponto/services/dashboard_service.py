@@ -767,8 +767,8 @@ def registrar_ajuste(db: Session, ajuste: dict[str, Any]) -> dict[str, Any]:
     punch_id = str(uuid4())
     now = datetime.utcnow()
 
-    # employee_id na gp_clock_punches eh integer — usar hash do UUID
-    emp_int = abs(hash(ajuste["employee_id"])) % 2147483647
+    # employee_id na gp_clock_punches eh UUID — usar o UUID direto (nao hash)
+    emp_uuid = ajuste["employee_id"]
 
     db.execute(
         text(
@@ -780,7 +780,7 @@ def registrar_ajuste(db: Session, ajuste: dict[str, Any]) -> dict[str, Any]:
         ),
         {
             "pid": punch_id,
-            "eid": emp_int,
+            "eid": emp_uuid,
             "pt": ajuste["punch_type"],
             "ts": ajuste["timestamp"],
             "now": now,

@@ -91,25 +91,62 @@ async def get_vacation_balance(
                     periodo_inicio = str(data_admissao)
                     periodo_fim = str(data_admissao.replace(year=data_admissao.year + 1))
 
-            # Tentar buscar dias gozados de VacationRequest
-            try:
-                from modules.operacional.vacations.models import VacationRequest
-
-                vac_result = await db.execute(
-                    select(VacationRequest).where(
-                        VacationRequest.employee_id == str(employee_id),
-                        VacationRequest.status == "approved",
-                    )
-                )
-                vacations = vac_result.scalars().all()
-                for v in vacations:
-                    dias = getattr(v, "dias", None) or getattr(v, "days", 0)
-                    if dias:
-                        dias_gozados += dias
-            except (ImportError, Exception) as e:
-                logger.warning(f"VacationRequest nao disponivel: {e}")
-
+            # [Veracidade] Tabela-verdade: employee_vacation_periods (periodo vigente).
+            # Prioriza o periodo nao-expirado (start_date mais recente); fallback = ultimo registro.
             dias_saldo = dias_direito - dias_gozados
+            try:
+                from sqlalchemy import text as _sqltext
+
+                period_row = (
+                    (
+                        await db.execute(
+                            _sqltext(
+                                "SELECT total_days_entitled, days_used, days_remaining, "
+                                "days_sold, absences_count, start_date, expires_at "
+                                "FROM employee_vacation_periods "
+                                "WHERE CAST(employee_id AS TEXT) = :e "
+                                "ORDER BY is_expired ASC, start_date DESC "
+                                "LIMIT 1"
+                            ),
+                            {"e": str(employee_id)},
+                        )
+                    )
+                    .mappings()
+                    .first()
+                )
+
+                if period_row:
+                    if period_row["total_days_entitled"] is not None:
+                        dias_direito = int(period_row["total_days_entitled"])
+                    if period_row["days_used"] is not None:
+                        dias_gozados = int(period_row["days_used"])
+                    if period_row["days_remaining"] is not None:
+                        dias_saldo = int(period_row["days_remaining"])
+                    else:
+                        dias_saldo = dias_direito - dias_gozados
+                    if period_row["start_date"]:
+                        periodo_inicio = str(period_row["start_date"])
+                    if period_row["expires_at"]:
+                        periodo_fim = str(period_row["expires_at"])
+                else:
+                    # Fallback: dias gozados a partir de VacationRequest aprovadas
+                    from modules.operacional.vacations.models import VacationRequest
+
+                    vac_result = await db.execute(
+                        select(VacationRequest).where(
+                            VacationRequest.employee_id == str(employee_id),
+                            VacationRequest.status == "approved",
+                        )
+                    )
+                    vacations = vac_result.scalars().all()
+                    for v in vacations:
+                        dias = getattr(v, "dias", None) or getattr(v, "days", 0)
+                        if dias:
+                            dias_gozados += dias
+                    dias_saldo = dias_direito - dias_gozados
+            except (ImportError, Exception) as e:
+                logger.warning(f"employee_vacation_periods indisponivel: {e}")
+                dias_saldo = dias_direito - dias_gozados
 
             # Calcular valor bruto das ferias via clt_calculator
             if salario_base:

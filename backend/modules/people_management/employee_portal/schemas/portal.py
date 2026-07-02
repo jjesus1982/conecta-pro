@@ -2,8 +2,6 @@
 Schemas do portal principal — login, dashboard.
 """
 
-from datetime import datetime
-
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -45,7 +43,7 @@ class PortalDashboard(BaseModel):
     name: str
     position: str | None = None
     workplace: str | None = None
-    next_shift: datetime | None = None
+    next_shift: str | None = None
     pending_documents: int = 0
     unread_notifications: int = 0
 

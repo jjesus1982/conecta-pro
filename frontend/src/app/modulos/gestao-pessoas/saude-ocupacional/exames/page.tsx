@@ -219,7 +219,7 @@ export default function ExamesPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold">{(stats as any)?.total_exames ?? 0}</div>
+              <div className="text-2xl font-bold">{(stats as any)?.total_exames_ano ?? 0}</div>
             )}
           </CardContent>
         </Card>
@@ -233,7 +233,7 @@ export default function ExamesPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-blue-600">{(stats as any)?.agendados ?? 0}</div>
+              <div className="text-2xl font-bold text-blue-600">{(stats as any)?.exames_pendentes ?? 0}</div>
             )}
           </CardContent>
         </Card>
@@ -247,7 +247,7 @@ export default function ExamesPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-green-600">{(stats as any)?.asos_validos ?? 0}</div>
+              <div className="text-2xl font-bold text-green-600">{(stats as any)?.exames_realizados ?? 0}</div>
             )}
           </CardContent>
         </Card>
@@ -261,7 +261,7 @@ export default function ExamesPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-yellow-600">{(stats as any)?.asos_vencendo ?? 0}</div>
+              <div className="text-2xl font-bold text-yellow-600">{(stats as any)?.asos_vencendo_30_dias ?? 0}</div>
             )}
           </CardContent>
         </Card>

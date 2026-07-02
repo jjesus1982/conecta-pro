@@ -88,18 +88,14 @@ async def list_kits(
         params["year"] = year
 
     where = " AND ".join(conditions) if conditions else "1=1"
-    # Subqueries contam documentos reais de ged_kit_documents (fonte de verdade)
-    # Fallback para coluna stored quando ged_kit_documents estiver vazio mas stored > 0
+    # Subqueries contam documentos reais de ged_kit_documents (fonte de verdade).
+    # Sem fallback para coluna stored: senao exclusoes de documentos ficam mascaradas.
     query = text(
         "SELECT gk.*, gc.name as client_name, "
-        "  GREATEST("
-        "    (SELECT COUNT(*) FROM ged_kit_documents gkd WHERE gkd.kit_id = gk.id),"
-        "    COALESCE(gk.total_documents, 0)"
-        "  ) as real_total_documents, "
-        "  GREATEST("
-        "    (SELECT COUNT(*) FROM ged_kit_documents gkd WHERE gkd.kit_id = gk.id AND gkd.is_signed = true),"
-        "    COALESCE(gk.documents_signed, 0)"
-        "  ) as real_documents_signed "
+        "  (SELECT COUNT(*) FROM ged_kit_documents gkd WHERE gkd.kit_id = gk.id)"
+        "    as real_total_documents, "
+        "  (SELECT COUNT(*) FROM ged_kit_documents gkd WHERE gkd.kit_id = gk.id AND gkd.is_signed = true)"
+        "    as real_documents_signed "
         "FROM ged_document_kits gk "
         "LEFT JOIN ged_clients gc ON gk.client_id = gc.id "
         "WHERE " + where + " ORDER BY gk.reference_month DESC, gk.created_at DESC LIMIT 50"
@@ -119,10 +115,8 @@ async def list_kits(
                 "total_documents": int(r["real_total_documents"] or 0),
                 "documents_signed": int(r["real_documents_signed"] or 0),
                 "completion_percentage": (
-                    round(int(r["real_documents_signed"] or 0) / int(r["real_total_documents"]) * 100)
+                    round(int(r["real_documents_signed"] or 0) / int(r["real_total_documents"]) * 100, 2)
                     if int(r["real_total_documents"] or 0) > 0
-                    else float(r["completion_percentage"])
-                    if r["completion_percentage"]
                     else 0
                 ),
                 "sent_at": r["sent_at"].isoformat() if r["sent_at"] else None,
@@ -151,15 +145,29 @@ async def kits_summary(
             "kits_pending_approval": 0,
             "average_completion": 0,
         }
+    # average_completion computado AO VIVO do COUNT real em ged_kit_documents
+    # por kit (a coluna stored completion_percentage fica desatualizada).
     result = await db.execute(
         text("""
         SELECT
             COUNT(*) as total_kits,
-            COUNT(*) FILTER (WHERE status = 'em_montagem') as kits_pending_send,
-            COUNT(*) FILTER (WHERE status IN ('enviado','aprovado')) as kits_pending_approval,
-            COALESCE(AVG(completion_percentage), 0) as average_completion
-        FROM ged_document_kits
-        WHERE DATE_TRUNC('month', reference_month) = DATE_TRUNC('month', CAST(:latest_month AS date))
+            COUNT(*) FILTER (WHERE gk.status = 'em_montagem') as kits_pending_send,
+            COUNT(*) FILTER (WHERE gk.status IN ('enviado','aprovado')) as kits_pending_approval,
+            COALESCE(AVG(
+                CASE WHEN doc.total > 0
+                    THEN doc.signed::numeric / doc.total * 100
+                    ELSE 0
+                END
+            ), 0) as average_completion
+        FROM ged_document_kits gk
+        LEFT JOIN LATERAL (
+            SELECT
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE gkd.is_signed = true) as signed
+            FROM ged_kit_documents gkd
+            WHERE gkd.kit_id = gk.id
+        ) doc ON true
+        WHERE DATE_TRUNC('month', gk.reference_month) = DATE_TRUNC('month', CAST(:latest_month AS date))
         """),
         {"latest_month": latest_month},
     )
@@ -216,9 +224,9 @@ async def get_kit_detail(
         "reference_month": r["reference_month"].isoformat() if r["reference_month"] else None,
         "status": r["status"],
         "total_employees": r["total_employees"],
-        "total_documents": r["total_documents"],
-        "documents_signed": r["documents_signed"],
-        "completion_percentage": float(r["completion_percentage"]) if r["completion_percentage"] else 0,
+        "total_documents": len(docs),
+        "documents_signed": sum(1 for d in docs if d["is_signed"]),
+        "completion_percentage": (round(sum(1 for d in docs if d["is_signed"]) / len(docs) * 100, 2) if docs else 0),
         "sent_at": r["sent_at"].isoformat() if r["sent_at"] else None,
         "created_at": r["created_at"].isoformat() if r["created_at"] else None,
         "documents": [

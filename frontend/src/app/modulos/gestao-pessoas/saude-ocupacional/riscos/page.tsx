@@ -228,35 +228,35 @@ export default function RiscosPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold">{(stats as any)?.total_riscos ?? 0}</div>
+              <div className="text-2xl font-bold">{(stats as any)?.total_riscos_identificados ?? 0}</div>
             )}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Setores Mapeados</CardTitle>
+            <CardTitle className="text-sm font-medium">Mapeamentos Ativos</CardTitle>
             <MapPin className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-blue-600">{(stats as any)?.setores_mapeados ?? 0}</div>
+              <div className="text-2xl font-bold text-blue-600">{(stats as any)?.total_mapeamentos_ativos ?? 0}</div>
             )}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Medidas Implementadas</CardTitle>
+            <CardTitle className="text-sm font-medium">Riscos Alto Nível</CardTitle>
             <CheckCircle className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-green-600">{(stats as any)?.medidas_implementadas ?? 0}</div>
+              <div className="text-2xl font-bold text-green-600">{(stats as any)?.riscos_alto_nivel ?? 0}</div>
             )}
           </CardContent>
         </Card>

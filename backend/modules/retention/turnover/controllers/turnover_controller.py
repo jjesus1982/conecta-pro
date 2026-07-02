@@ -285,19 +285,31 @@ async def recalcular_funcionario(
     predictor = TurnoverPredictor(db)
     analyzer = RiskAnalyzer(db)
 
-    # Por enquanto, usar dados mockados para demonstracao
+    # [Veracidade] Features REAIS do funcionário (sem demonstração fabricada): tempo de
+    # empresa via employees.data_admissao; o que o sistema ainda não rastreia (faltas mensais,
+    # clima individual, distância, extras) fica 0/neutro — honesto, aguardando dado.
+    from datetime import date as _date
+
+    from sqlalchemy import text as _text
+
+    _adm = (
+        await db.execute(
+            _text("SELECT data_admissao FROM employees WHERE CAST(id AS TEXT) = :e"),
+            {"e": str(funcionario_id)},
+        )
+    ).scalar()
     dados_funcionario = {
         "funcionario_id": str(funcionario_id),
-        "faltas_ultimo_mes": 1,
-        "atrasos_ultimo_mes": 3,
+        "faltas_ultimo_mes": 0,
+        "atrasos_ultimo_mes": 0,
         "ocorrencias_trimestre": 0,
         "advertencias_total": 0,
-        "score_clima_atual": 3.5,
-        "tendencia_clima": 0.1,
-        "distancia_casa_posto_km": 15,
-        "horas_extras_media": 20,
-        "tempo_empresa_meses": 12,
-        "dias_sem_aumento": 180,
+        "score_clima_atual": 3.0,
+        "tendencia_clima": 0.0,
+        "distancia_casa_posto_km": 0,
+        "horas_extras_media": 0,
+        "tempo_empresa_meses": int((_date.today() - _adm).days // 30) if _adm else 0,
+        "dias_sem_aumento": 0,
     }
 
     try:
@@ -350,24 +362,37 @@ async def recalcular_todos(
     predictor = TurnoverPredictor(db)
     analyzer = RiskAnalyzer(db)
 
-    # Por enquanto, usar dados mockados para demonstracao
-    funcionarios_dados = [
-        {
-            "funcionario_id": dados.funcionario_ids[0]
-            if dados and dados.funcionario_ids
-            else "550e8400-e29b-41d4-a716-446655440001",
-            "faltas_ultimo_mes": 2,
-            "atrasos_ultimo_mes": 5,
-            "ocorrencias_trimestre": 1,
-            "advertencias_total": 1,
-            "score_clima_atual": 2.8,
-            "tendencia_clima": -0.2,
-            "distancia_casa_posto_km": 25,
-            "horas_extras_media": 35,
-            "tempo_empresa_meses": 6,
-            "dias_sem_aumento": 400,
-        },
-    ]
+    # [Veracidade] Recalcula sobre funcionários REAIS (ids informados ou todos os ativos),
+    # com tempo de empresa real; features ainda não rastreadas ficam 0/neutro (sem fabricar).
+    from datetime import date as _date
+
+    from sqlalchemy import text as _text
+
+    _ids = (
+        list(dados.funcionario_ids)
+        if dados and dados.funcionario_ids
+        else [str(r[0]) for r in (await db.execute(_text("SELECT id FROM employees WHERE status='ativo'"))).fetchall()]
+    )
+    funcionarios_dados = []
+    for _fid in _ids:
+        _adm = (
+            await db.execute(_text("SELECT data_admissao FROM employees WHERE CAST(id AS TEXT) = :e"), {"e": str(_fid)})
+        ).scalar()
+        funcionarios_dados.append(
+            {
+                "funcionario_id": str(_fid),
+                "faltas_ultimo_mes": 0,
+                "atrasos_ultimo_mes": 0,
+                "ocorrencias_trimestre": 0,
+                "advertencias_total": 0,
+                "score_clima_atual": 3.0,
+                "tendencia_clima": 0.0,
+                "distancia_casa_posto_km": 0,
+                "horas_extras_media": 0,
+                "tempo_empresa_meses": int((_date.today() - _adm).days // 30) if _adm else 0,
+                "dias_sem_aumento": 0,
+            }
+        )
 
     try:
         result = await predictor.calcular_risco_batch(

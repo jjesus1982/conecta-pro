@@ -48,6 +48,6 @@ class MyScheduleResponse(BaseModel):
     carga_horaria_semanal: int = 0
     jornada_trabalho: str = ""
     cargo: str = ""
-    posto_atual_nome: str = ""
+    posto_atual_nome: str | None = None
 
     model_config = ConfigDict(from_attributes=True, extra="allow")
