@@ -360,29 +360,16 @@ async def gerar_lote(request: GerarLoteRequest) -> StandardResponse:
                 detail="Lista de eventos não pode ser vazia",
             )
 
-        protocolo_lote = f"LOT{datetime.now().strftime('%Y%m%d%H%M%S')}{len(request.eventos):03d}"
-        eventos_processados = []
-        for i, evento in enumerate(request.eventos):
-            eventos_processados.append(
-                {
-                    "sequencia": i + 1,
-                    "tipo_evento": evento.get("tipo_evento", ""),
-                    "protocolo": f"{protocolo_lote}-{i + 1:03d}",
-                    "status": "enviado",
-                }
-            )
-
-        return StandardResponse(
-            success=True,
-            message=f"Lote com {len(request.eventos)} evento(s) enviado para processamento",
-            data={
-                "protocolo_lote": protocolo_lote,
-                "total_eventos": len(request.eventos),
-                "status": "processando",
-                "data_envio": datetime.utcnow().isoformat(),
-                "eventos": eventos_processados,
-                "previsao_retorno": "2-5 minutos",
-            },
+        # A transmissao real de lote ao webservice do eSocial ainda nao esta
+        # implementada. NUNCA fabricar protocolo_lote/status "enviado": sem
+        # transmissao real (SOAP+mTLS+certificado, como em /transmitir-s1000)
+        # os eventos NAO foram enviados ao governo.
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail=(
+                "eSocial: transmissao de lote nao implementada. "
+                "Use /esocial/transmitir-s1000 para transmissao real por evento."
+            ),
         )
     except HTTPException:
         raise

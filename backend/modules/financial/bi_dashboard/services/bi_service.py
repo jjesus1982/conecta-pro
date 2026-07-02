@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from modules.financial.bi_dashboard.models.dashboard_widget import DataSource
@@ -76,16 +77,19 @@ class BIService:
         end_date: datetime,
         condominio_id: UUID = None,
     ) -> list[dict]:
-        """Busca dados da fonte especificada."""
-        # Placeholder - implementacao real buscaria do banco
-        # Parametros serao usados em queries reais
-        _ = (start_date, end_date, condominio_id)
+        """Busca dados reais da fonte especificada.
 
+        Fontes com dados reais no banco: CASH_FLOW (cashflow_entries),
+        ACCOUNTS_RECEIVABLE (receivable_accounts), ACCOUNTS_PAYABLE
+        (payable_accounts), BANK_ACCOUNTS (bank_accounts). As demais fontes
+        ainda não têm tabela populada e retornam [] honestamente (o front
+        sinaliza vazio — não fabricamos números).
+        """
         source_handlers = {
-            DataSource.CASH_FLOW: self._get_empty_data,
-            DataSource.ACCOUNTS_PAYABLE: self._get_empty_data,
-            DataSource.ACCOUNTS_RECEIVABLE: self._get_empty_data,
-            DataSource.BANK_ACCOUNTS: self._get_empty_data,
+            DataSource.CASH_FLOW: self._fetch_cash_flow,
+            DataSource.ACCOUNTS_PAYABLE: self._fetch_accounts_payable,
+            DataSource.ACCOUNTS_RECEIVABLE: self._fetch_accounts_receivable,
+            DataSource.BANK_ACCOUNTS: self._fetch_bank_accounts,
             DataSource.PURCHASES: self._get_empty_data,
             DataSource.INVENTORY: self._get_empty_data,
             DataSource.ACCOUNTING: self._get_empty_data,
@@ -94,12 +98,103 @@ class BIService:
             DataSource.BUDGET: self._get_empty_data,
         }
 
-        handler = source_handlers.get(data_source, self._get_empty_data)
-        return handler()
+        handler = source_handlers.get(data_source)
+        if handler is None or handler is self._get_empty_data:
+            return self._get_empty_data()
+        return handler(start_date, end_date, condominio_id)
 
-    def _get_empty_data(self) -> list[dict]:
-        """Retorna dados vazios (placeholder)."""
+    def _get_empty_data(self, *_args, **_kwargs) -> list[dict]:
+        """Retorna dados vazios (fonte sem tabela populada)."""
         return []
+
+    def _fetch_cash_flow(
+        self, start_date: datetime, end_date: datetime, condominio_id: UUID = None
+    ) -> list[dict]:
+        """Lê cashflow_entries no período (realized_amount, fallback expected_amount)."""
+        sql = """
+            SELECT
+                entry_type,
+                COALESCE(category, 'outros')                       AS category,
+                entry_date,
+                COALESCE(realized_amount, expected_amount, 0)      AS value,
+                COALESCE(realized_amount, expected_amount, 0)      AS amount,
+                COALESCE(realized_amount, expected_amount, 0)      AS realized_amount,
+                COALESCE(expected_amount, 0)                       AS expected_amount
+            FROM cashflow_entries
+            WHERE ativo = true
+              AND entry_date BETWEEN :start AND :end
+        """
+        params = {"start": start_date.date(), "end": end_date.date()}
+        if condominio_id is not None:
+            sql += " AND condominio_id = :cid"
+            params["cid"] = str(condominio_id)
+        rows = self.db.execute(text(sql), params).mappings().all()
+        return [dict(r) for r in rows]
+
+    def _fetch_accounts_receivable(
+        self, start_date: datetime, end_date: datetime, condominio_id: UUID = None
+    ) -> list[dict]:
+        """Lê receivable_accounts (por competência/emissão no período)."""
+        sql = """
+            SELECT
+                status,
+                COALESCE(net_value, 0)       AS value,
+                COALESCE(net_value, 0)       AS net_value,
+                COALESCE(remaining_value, 0) AS remaining_value,
+                due_date,
+                issue_date
+            FROM receivable_accounts
+            WHERE COALESCE(issue_date, due_date, created_at::date) BETWEEN :start AND :end
+        """
+        params = {"start": start_date.date(), "end": end_date.date()}
+        if condominio_id is not None:
+            sql += " AND condominio_id = :cid"
+            params["cid"] = str(condominio_id)
+        rows = self.db.execute(text(sql), params).mappings().all()
+        return [dict(r) for r in rows]
+
+    def _fetch_accounts_payable(
+        self, start_date: datetime, end_date: datetime, condominio_id: UUID = None
+    ) -> list[dict]:
+        """Lê payable_accounts (por emissão/vencimento no período)."""
+        sql = """
+            SELECT
+                status,
+                COALESCE(net_value, 0)       AS value,
+                COALESCE(net_value, 0)       AS net_value,
+                COALESCE(remaining_value, 0) AS remaining_value,
+                due_date,
+                issue_date
+            FROM payable_accounts
+            WHERE COALESCE(issue_date, due_date, created_at::date) BETWEEN :start AND :end
+        """
+        params = {"start": start_date.date(), "end": end_date.date()}
+        if condominio_id is not None:
+            sql += " AND condominio_id = :cid"
+            params["cid"] = str(condominio_id)
+        rows = self.db.execute(text(sql), params).mappings().all()
+        return [dict(r) for r in rows]
+
+    def _fetch_bank_accounts(
+        self, start_date: datetime, end_date: datetime, condominio_id: UUID = None
+    ) -> list[dict]:
+        """Lê saldos reais de bank_accounts (independe do período)."""
+        _ = (start_date, end_date)
+        sql = """
+            SELECT
+                name,
+                COALESCE(current_balance, 0)   AS value,
+                COALESCE(current_balance, 0)   AS current_balance,
+                COALESCE(available_balance, 0) AS available_balance
+            FROM bank_accounts
+            WHERE ativo = true
+        """
+        params: dict = {}
+        if condominio_id is not None:
+            sql += " AND condominio_id = :cid"
+            params["cid"] = str(condominio_id)
+        rows = self.db.execute(text(sql), params).mappings().all()
+        return [dict(r) for r in rows]
 
     def _aggregate_data(
         self,
@@ -234,9 +329,101 @@ class BIService:
             return 0.0
 
     def get_financial_summary(self, condominio_id=None, period_days: int = 30) -> dict:
-        """Retorna resumo financeiro consolidado."""
+        """Retorna resumo financeiro consolidado com dados reais do banco."""
         end_date = datetime.utcnow()
         start_date = end_date - timedelta(days=period_days)
+
+        cid_clause = ""
+        params: dict = {"start": start_date.date(), "end": end_date.date()}
+        if condominio_id is not None:
+            cid_clause = " AND condominio_id = :cid"
+            params["cid"] = str(condominio_id)
+
+        def _d(v) -> Decimal:
+            return Decimal(str(v if v is not None else 0))
+
+        # ── Fluxo de caixa (cashflow_entries) ──────────────────────────────
+        cf = self.db.execute(
+            text(f"""
+                SELECT
+                    COALESCE(SUM(CASE WHEN entry_type = 'entrada'
+                        THEN COALESCE(realized_amount, expected_amount, 0) ELSE 0 END), 0) AS inflows,
+                    COALESCE(SUM(CASE WHEN entry_type = 'saida'
+                        THEN COALESCE(realized_amount, expected_amount, 0) ELSE 0 END), 0) AS outflows
+                FROM cashflow_entries
+                WHERE ativo = true
+                  AND entry_date BETWEEN :start AND :end
+                  {cid_clause}
+            """),
+            params,
+        ).one()
+        inflows = _d(cf.inflows)
+        outflows = _d(cf.outflows)
+
+        # ── Saldo bancário atual (bank_accounts) ──────────────────────────
+        bank_params: dict = {}
+        bank_cid = ""
+        if condominio_id is not None:
+            bank_cid = " AND condominio_id = :cid"
+            bank_params["cid"] = str(condominio_id)
+        balance = _d(
+            self.db.execute(
+                text(f"""
+                    SELECT COALESCE(SUM(current_balance), 0) AS bal
+                    FROM bank_accounts
+                    WHERE ativo = true {bank_cid}
+                """),
+                bank_params,
+            ).scalar_one()
+        )
+
+        # ── Contas a receber (receivable_accounts) ────────────────────────
+        rec_cid = ""
+        rec_params: dict = {}
+        if condominio_id is not None:
+            rec_cid = " AND condominio_id = :cid"
+            rec_params["cid"] = str(condominio_id)
+        rec = self.db.execute(
+            text(f"""
+                SELECT
+                    COALESCE(SUM(net_value) FILTER (
+                        WHERE status NOT IN ('pago','cancelado','cancelled','paga')), 0) AS total,
+                    COALESCE(SUM(net_value) FILTER (
+                        WHERE due_date < CURRENT_DATE
+                        AND status NOT IN ('pago','cancelado','cancelled','paga')), 0) AS overdue
+                FROM receivable_accounts
+                WHERE 1=1 {rec_cid}
+            """),
+            rec_params,
+        ).one()
+        rec_total = _d(rec.total)
+        rec_overdue = _d(rec.overdue)
+
+        # ── Contas a pagar (payable_accounts) ──────────────────────────────
+        pay = self.db.execute(
+            text(f"""
+                SELECT
+                    COALESCE(SUM(net_value) FILTER (
+                        WHERE status NOT IN ('pago','cancelado','cancelled')), 0) AS total,
+                    COALESCE(SUM(net_value) FILTER (
+                        WHERE due_date < CURRENT_DATE
+                        AND status NOT IN ('pago','cancelado','cancelled')), 0) AS overdue,
+                    COALESCE(SUM(net_value) FILTER (
+                        WHERE due_date >= CURRENT_DATE
+                        AND due_date <= CURRENT_DATE + INTERVAL '7 days'
+                        AND status NOT IN ('pago','cancelado','cancelled')), 0) AS due_soon
+                FROM payable_accounts
+                WHERE 1=1 {rec_cid}
+            """),
+            rec_params,
+        ).one()
+        pay_total = _d(pay.total)
+        pay_overdue = _d(pay.overdue)
+        pay_due_soon = _d(pay.due_soon)
+
+        # ── Indicadores derivados ──────────────────────────────────────────
+        liquidity_ratio = round(rec_total / pay_total, 4) if pay_total else Decimal("0")
+        default_rate = round(rec_overdue / rec_total * 100, 2) if rec_total else Decimal("0")
 
         return {
             "period": {
@@ -245,24 +432,24 @@ class BIService:
                 "days": period_days,
             },
             "cash_flow": {
-                "inflows": Decimal("0"),
-                "outflows": Decimal("0"),
-                "net": Decimal("0"),
-                "balance": Decimal("0"),
+                "inflows": inflows,
+                "outflows": outflows,
+                "net": inflows - outflows,
+                "balance": balance,
             },
             "receivables": {
-                "total": Decimal("0"),
-                "overdue": Decimal("0"),
-                "on_time": Decimal("0"),
+                "total": rec_total,
+                "overdue": rec_overdue,
+                "on_time": rec_total - rec_overdue,
             },
             "payables": {
-                "total": Decimal("0"),
-                "overdue": Decimal("0"),
-                "due_soon": Decimal("0"),
+                "total": pay_total,
+                "overdue": pay_overdue,
+                "due_soon": pay_due_soon,
             },
             "indicators": {
-                "liquidity_ratio": Decimal("0"),
-                "default_rate": Decimal("0"),
+                "liquidity_ratio": liquidity_ratio,
+                "default_rate": default_rate,
                 "collection_efficiency": Decimal("0"),
             },
             "generated_at": datetime.utcnow().isoformat(),

@@ -8,7 +8,6 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-import numpy as np
 import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -221,6 +220,28 @@ class FeatureStore:
         self.cache_ttl = cache_ttl
         self._cache: dict[str, tuple[Any, datetime]] = {}
         self._feature_sets: dict[str, FeatureSet] = {}
+        # Features solicitadas cuja fonte real não existe neste ERP; usado
+        # para o endpoint de scoring sinalizar "features reais indisponíveis"
+        # em vez de pontuar sobre valores fabricados.
+        self._unsourced_features: set[str] = set()
+
+    @property
+    def unsourced_features(self) -> set[str]:
+        """Nomes de features solicitadas sem fonte real disponível."""
+        return set(self._unsourced_features)
+
+    def features_are_sourced(self, computed: dict[str, Any]) -> bool:
+        """Retorna True se ao menos uma feature real (não-default) foi obtida.
+
+        Um scorer deve checar isto antes de pontuar: se a maioria das features
+        veio de default por falta de fonte, o score não é confiável.
+        """
+        real = [
+            k
+            for k, v in computed.items()
+            if not k.endswith("_id") and v is not None and k not in self._unsourced_features
+        ]
+        return len(real) > 0
 
     async def get_user_features(
         self,
@@ -428,27 +449,38 @@ class FeatureStore:
         start_date: datetime,
         end_date: datetime,
     ) -> Any:
-        """Computa valor de uma feature."""
+        """Computa valor real de uma feature a partir da fonte no banco.
 
-        # Simulação de valores para desenvolvimento
-        simulated_values = {
-            "tenure_days": lambda: np.random.randint(30, 730),
-            "total_spent": lambda: np.random.uniform(100, 10000),
-            "avg_order_value": lambda: np.random.uniform(50, 500),
-            "order_frequency": lambda: np.random.randint(1, 50),
-            "last_activity_days": lambda: np.random.randint(0, 30),
-            "login_frequency": lambda: np.random.randint(1, 30),
-            "session_duration_avg": lambda: np.random.uniform(60, 1800),
-            "pages_per_session": lambda: np.random.uniform(1, 20),
-            "notification_response_rate": lambda: np.random.uniform(0.1, 0.9),
-            "transaction_count_30d": lambda: np.random.randint(0, 20),
-            "transaction_value_30d": lambda: np.random.uniform(0, 5000),
-            "refund_rate": lambda: np.random.uniform(0, 0.2),
-        }
+        Honestidade > invenção: NÃO usa np.random. Onde existe fonte real,
+        computa; onde a fonte não existe neste ERP, retorna o default honesto
+        (tipicamente None) e marca a feature como sem fonte via
+        ``self._unsourced_features``.
+        """
+        from sqlalchemy import text
 
-        if feature_def.name in simulated_values:
-            return simulated_values[feature_def.name]()
+        name = feature_def.name
 
+        # tenure_days: fonte real = clients.created_at (idade do cadastro).
+        if name == "tenure_days" and entity_type in ("client", "user"):
+            try:
+                query = text(
+                    "SELECT EXTRACT(DAY FROM (now() - created_at))::int "
+                    "FROM clients WHERE id = :eid"
+                )
+                res = await db.execute(query, {"eid": str(entity_id)})
+                row = res.first()
+                if row is not None and row[0] is not None:
+                    return int(row[0])
+                return feature_def.default_value
+            except Exception:  # noqa: BLE001 - fonte indisponível => honesto
+                logger.warning("tenure_days: fonte clients indisponível para %s", entity_id)
+                return feature_def.default_value
+
+        # Demais features dependem de tabelas inexistentes neste ERP
+        # (users/transactions/user_sessions/page_views/notifications) e
+        # inter_transactions não possui vínculo confiável por entidade/cliente.
+        # Sem fonte real -> default honesto (não fabricamos ruído).
+        self._unsourced_features.add(name)
         return feature_def.default_value
 
     def _get_feature_definition(self, name: str) -> FeatureDefinition | None:

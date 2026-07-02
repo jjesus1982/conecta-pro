@@ -266,25 +266,108 @@ class DashboardService:
     async def _obter_status_servicos(
         self, tenant_id: UUID | None, inicio: datetime, fim: datetime
     ) -> list[ResumoServico]:
-        """Obtém status de cada serviço."""
-        servicos = []
+        """
+        Obtém status de cada serviço a partir dos SyncLog reais (gov_sync_logs).
 
+        NAO afirma "online/100%" sem checagem: serviços sem registro de
+        sincronização são marcados "nao_configurado". O status/taxa refletem
+        o último SyncLog observado por serviço.
+        """
+        # Agregar SyncLog real por serviço
+        stats = await self._agregar_sync_logs()
+
+        servicos = []
         for codigo, nome in self.SERVICOS.items():
-            # Em produção, agregar dados do banco
+            info = stats.get(codigo)
+            if info is None:
+                # Sem sincronização registrada: não há base para afirmar "online"
+                servicos.append(
+                    ResumoServico(
+                        servico=codigo,
+                        nome_exibicao=nome,
+                        status="nao_configurado",
+                        documentos_processados=0,
+                        documentos_erro=0,
+                        ultima_sincronizacao=None,
+                        tempo_medio_resposta_ms=None,
+                        taxa_sucesso=0.0,
+                    )
+                )
+                continue
+
             servicos.append(
                 ResumoServico(
                     servico=codigo,
                     nome_exibicao=nome,
-                    status="online",
-                    documentos_processados=0,
-                    documentos_erro=0,
-                    ultima_sincronizacao=None,
+                    status=info["status"],
+                    documentos_processados=info["processados"],
+                    documentos_erro=info["erros"],
+                    ultima_sincronizacao=info["ultima_sincronizacao"],
                     tempo_medio_resposta_ms=None,
-                    taxa_sucesso=100.0,
+                    taxa_sucesso=info["taxa_sucesso"],
                 )
             )
 
         return servicos
+
+    async def _agregar_sync_logs(self) -> dict[str, dict[str, Any]]:
+        """
+        Lê gov_sync_logs e devolve, por serviço, o status derivado do último
+        log e agregados de processados/erros. Se a tabela/consulta falhar,
+        devolve {} (nenhum serviço marcado online sem base real).
+        """
+        resultado: dict[str, dict[str, Any]] = {}
+        try:
+            from sqlalchemy import func, select
+
+            from core.database.session import async_session_factory
+
+            from ..models.sync_models import SyncLog
+
+            async with async_session_factory() as db:
+                # Agregados por serviço
+                agg_stmt = select(
+                    SyncLog.servico,
+                    func.sum(SyncLog.registros_processados),
+                    func.sum(SyncLog.registros_erro),
+                    func.max(SyncLog.inicio_execucao),
+                ).group_by(SyncLog.servico)
+                agg_rows = (await db.execute(agg_stmt)).all()
+
+                for servico, processados, erros, ultima in agg_rows:
+                    resultado[servico] = {
+                        "processados": int(processados or 0),
+                        "erros": int(erros or 0),
+                        "ultima_sincronizacao": ultima,
+                        "status": "desconhecido",
+                        "taxa_sucesso": 0.0,
+                    }
+
+                # Status derivado do ULTIMO log de cada serviço
+                for servico in list(resultado.keys()):
+                    last_stmt = (
+                        select(SyncLog.status)
+                        .where(SyncLog.servico == servico)
+                        .order_by(SyncLog.inicio_execucao.desc())
+                        .limit(1)
+                    )
+                    last_status = (await db.execute(last_stmt)).scalar_one_or_none()
+                    status_map = {
+                        "sucesso": ("online", 100.0),
+                        "parcial": ("degraded", 50.0),
+                        "erro": ("offline", 0.0),
+                        "pendente": ("desconhecido", 0.0),
+                        "executando": ("desconhecido", 0.0),
+                    }
+                    val = getattr(last_status, "value", last_status)
+                    st, taxa = status_map.get(str(val), ("desconhecido", 0.0))
+                    resultado[servico]["status"] = st
+                    resultado[servico]["taxa_sucesso"] = taxa
+        except Exception as e:
+            logger.warning(f"Falha ao agregar gov_sync_logs (status marcado como desconhecido): {e}")
+            return {}
+
+        return resultado
 
     async def _obter_endpoints_indisponiveis(self) -> list[StatusEndpoint]:
         """Lista endpoints atualmente indisponíveis."""
@@ -387,27 +470,41 @@ class DashboardService:
     # ============================================================================
 
     async def obter_status_integracoes(self) -> IntegrationStatusResponse:
-        """Obtém status de todas as integrações."""
+        """
+        Obtém status de todas as integrações.
+
+        Só afirma "online" com base em checagem real: SEFAZ NF-e via
+        VerificadorDisponibilidade; demais serviços gov via SyncLog real
+        (gov_sync_logs). Integrações sem verificação/log são marcadas
+        "nao_configurado" — NUNCA "online" sem base.
+        """
         integrations = []
         now = datetime.utcnow()
 
+        # Status derivado dos SyncLog reais (por serviço)
+        stats = await self._agregar_sync_logs()
+
         for intg in self.ALL_INTEGRATIONS:
-            # Verificar status real quando possível
-            status = "online"
+            # Sem base de verificação = nao_configurado (não afirmar online)
+            status = "nao_configurado"
             response_time = None
             error_msg = None
             last_check = now
+            last_sync = None
 
             try:
                 if intg["id"] == "sefaz_nfe":
                     resultado = await self.verificador.verificar_endpoint("AM", "nfe")
+                    status = "online" if resultado.disponivel else "degraded"
                     if not resultado.disponivel:
-                        status = "degraded"
                         error_msg = resultado.erro
                     response_time = resultado.tempo_resposta_ms
                 elif intg["id"] in self.SERVICOS:
-                    # Para demais serviços gov, marcar como online (verificação individual futura)
-                    status = "online"
+                    info = stats.get(intg["id"])
+                    if info is not None:
+                        status = info["status"]
+                        last_sync = info["ultima_sincronizacao"]
+                    # sem SyncLog -> permanece "nao_configurado"
             except Exception as e:
                 status = "degraded"
                 error_msg = str(e)
@@ -420,7 +517,7 @@ class DashboardService:
                     status=status,
                     description=intg["description"],
                     last_check=last_check,
-                    last_sync=None,
+                    last_sync=last_sync,
                     response_time_ms=response_time,
                     error_message=error_msg,
                 )

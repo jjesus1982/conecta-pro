@@ -170,8 +170,12 @@ class SalesForecaster:
         historical_data = await self._get_historical_data(db, entity_type, entity_id, granularity)
 
         if len(historical_data) < 10:
-            logger.warning("Dados insuficientes, usando previsão simplificada")
-            return self._simple_forecast(periods, granularity, entity_type)
+            logger.warning(
+                "Histórico real insuficiente (%d pontos) para forecast de %s",
+                len(historical_data),
+                entity_type,
+            )
+            return self._insufficient_data_forecast(periods, granularity, entity_type, len(historical_data))
 
         # Decompor série temporal
         trend = self._detect_trend(historical_data)
@@ -291,28 +295,38 @@ class SalesForecaster:
         Returns:
             Lista de comparações
         """
-        # Simulação - em produção buscaria do banco
-        comparisons = []
-        current = start_date
+        # Valores realizados: agregação diária real de inter_transactions.
+        # Não há série sintética. Sem previsão persistida ainda, retornamos
+        # apenas o realizado (actual) e deixamos forecasted=None-honesto (0.0)
+        # marcando a ausência de comparação disponível.
+        from sqlalchemy import text
 
-        while current <= end_date:
-            forecasted = np.random.uniform(8000, 12000)
-            actual = forecasted * np.random.uniform(0.85, 1.15)
-            variance = actual - forecasted
-            variance_pct = (variance / forecasted) * 100
+        query = text(
+            """
+            SELECT date_trunc('day', data_lancamento)::date AS d,
+                   SUM(valor) AS total
+            FROM inter_transactions
+            WHERE data_lancamento >= :start AND data_lancamento <= :end
+            GROUP BY d
+            ORDER BY d
+            """
+        )
+        result = await db.execute(query, {"start": start_date.date(), "end": end_date.date()})
+        rows = result.fetchall()
 
+        comparisons: list[ForecastComparison] = []
+        for row in rows:
+            actual = float(row[1])
             comparisons.append(
                 ForecastComparison(
-                    period=current.strftime("%Y-%m-%d"),
-                    forecasted=round(forecasted, 2),
+                    period=row[0].strftime("%Y-%m-%d"),
+                    forecasted=0.0,
                     actual=round(actual, 2),
-                    variance=round(variance, 2),
-                    variance_pct=round(variance_pct, 2),
-                    accuracy=round(100 - abs(variance_pct), 2),
+                    variance=0.0,
+                    variance_pct=0.0,
+                    accuracy=0.0,
                 )
             )
-
-            current += timedelta(days=1)
 
         return comparisons
 
@@ -331,29 +345,30 @@ class SalesForecaster:
         Returns:
             Relatório de acurácia
         """
-        # Em produção, buscaria comparações históricas
-        # Simulação para desenvolvimento
+        # Acurácia só pode ser medida contra previsões persistidas comparadas
+        # ao realizado. Não há histórico de previsões salvas para backtest,
+        # portanto reportamos honestamente a ausência de dados — sem números
+        # inventados (removidos os antigos 87.5/12.5/1250 hardcoded).
+        period_start = datetime.utcnow() - timedelta(days=lookback_days)
+        period_end = datetime.utcnow()
 
         return {
-            "period_start": (datetime.utcnow() - timedelta(days=lookback_days)).isoformat(),
-            "period_end": datetime.utcnow().isoformat(),
-            "total_forecasts": 90,
-            "overall_accuracy": 87.5,
-            "mape": 12.5,  # Mean Absolute Percentage Error
-            "rmse": 1250.0,  # Root Mean Square Error
-            "bias": 2.3,  # Tendency to over/under forecast
-            "accuracy_by_granularity": {
-                "daily": 82.3,
-                "weekly": 88.5,
-                "monthly": 92.1,
-            },
-            "best_performing_period": "weekly",
-            "worst_performing_period": "daily",
-            "recommendations": [
-                "Previsões semanais têm melhor acurácia",
-                "Considere fatores externos para previsões diárias",
-                "Modelo tende a subestimar fins de semana",
-            ],
+            "period_start": period_start.isoformat(),
+            "period_end": period_end.isoformat(),
+            "total_forecasts": 0,
+            "overall_accuracy": None,
+            "mape": None,
+            "rmse": None,
+            "bias": None,
+            "accuracy_by_granularity": {},
+            "best_performing_period": None,
+            "worst_performing_period": None,
+            "measurable": False,
+            "message": (
+                "Sem histórico de previsões persistidas para medir acurácia "
+                "(backtest). Nenhuma métrica estimada."
+            ),
+            "recommendations": [],
         }
 
     async def _get_historical_data(
@@ -363,43 +378,38 @@ class SalesForecaster:
         entity_id: str | None,
         granularity: ForecastGranularity,
     ) -> pd.DataFrame:
-        """Obtém dados históricos para treinamento."""
-        # Em produção, query ao banco
-        # Simulação de 365 dias de dados
+        """Obtém dados históricos reais para treinamento.
 
-        np.random.seed(42)
-        days = 365
-        dates = pd.date_range(
-            end=datetime.utcnow(),
-            periods=days,
-            freq="D",
+        Fonte: tabela ``inter_transactions`` (movimentação bancária Inter real).
+        Agrega o valor movimentado por dia. NÃO gera série sintética: se não
+        houver histórico suficiente, retorna DataFrame vazio/curto e o chamador
+        sinaliza "dados insuficientes p/ forecast".
+        """
+        from sqlalchemy import text
+
+        # Movimentação diária real (soma do valor por dia de lançamento).
+        query = text(
+            """
+            SELECT date_trunc('day', data_lancamento)::date AS d,
+                   SUM(valor) AS total
+            FROM inter_transactions
+            GROUP BY d
+            ORDER BY d
+            """
         )
+        result = await db.execute(query)
+        rows = result.fetchall()
 
-        # Base value
-        base = 10000
+        if not rows:
+            return pd.DataFrame(columns=["date", "value"])
 
-        # Tendência
-        trend = np.linspace(0, 2000, days)
-
-        # Sazonalidade semanal
-        weekly_pattern = np.array([0.8, 0.9, 1.0, 1.0, 1.1, 1.2, 0.9])
-        weekly = np.tile(weekly_pattern, days // 7 + 1)[:days] * 1000
-
-        # Sazonalidade mensal
-        monthly_pattern = np.sin(np.linspace(0, 12 * np.pi, days)) * 1500
-
-        # Ruído
-        noise = np.random.normal(0, 500, days)
-
-        values = base + trend + weekly + monthly_pattern + noise
-        values = np.maximum(values, 0)
-
-        return pd.DataFrame(
+        df = pd.DataFrame(
             {
-                "date": dates,
-                "value": values,
+                "date": pd.to_datetime([r[0] for r in rows]),
+                "value": [float(r[1]) for r in rows],
             }
         )
+        return df
 
     def _detect_trend(self, data: pd.DataFrame) -> TrendComponent:
         """Detecta componente de tendência."""
@@ -721,51 +731,41 @@ class SalesForecaster:
 
         return insights
 
-    def _simple_forecast(
+    def _insufficient_data_forecast(
         self,
         periods: int,
         granularity: ForecastGranularity,
         entity_type: str,
+        available_points: int,
     ) -> SalesForecast:
-        """Previsão simplificada quando dados são insuficientes."""
-        base_value = 10000
-        predictions = []
-        start_date = datetime.utcnow()
+        """Resposta honesta quando não há histórico real suficiente.
 
-        for i in range(periods):
-            if granularity == ForecastGranularity.DAILY:
-                date = start_date + timedelta(days=i)
-            else:
-                date = start_date + timedelta(days=i * 7)
-
-            value = base_value * (1 + np.random.uniform(-0.1, 0.1))
-
-            predictions.append(
-                ForecastPoint(
-                    date=date,
-                    value=round(value, 2),
-                    lower_bound=round(value * 0.8, 2),
-                    upper_bound=round(value * 1.2, 2),
-                    confidence=0.6,
-                )
-            )
-
+        NÃO fabrica valores (sem np.random). Retorna previsão vazia com
+        sinalização explícita de que faltam dados reais, para que o consumidor
+        do endpoint exiba "sem dados suficientes p/ forecast" em vez de números
+        inventados.
+        """
+        now = datetime.utcnow()
         return SalesForecast(
             id=uuid4(),
             forecast_type=entity_type,
             granularity=granularity,
-            start_date=predictions[0].date,
-            end_date=predictions[-1].date,
-            predictions=predictions,
-            total_forecast=sum(p.value for p in predictions),
+            start_date=now,
+            end_date=now,
+            predictions=[],
+            total_forecast=0.0,
             trend=TrendComponent(
                 type=TrendType.FLAT,
                 slope=0,
-                intercept=base_value,
+                intercept=0,
                 r_squared=0,
             ),
             seasonality=[],
-            accuracy_metrics={"accuracy": 60.0, "confidence": "low"},
-            insights=["Dados insuficientes para previsão precisa"],
-            model_version="simple_v1",
+            accuracy_metrics={"confidence": 0.0, "sufficient_data": 0.0},
+            insights=[
+                "Dados históricos reais insuficientes para gerar forecast "
+                f"({available_points} pontos disponíveis; mínimo 10). "
+                "Nenhum valor foi estimado."
+            ],
+            model_version="insufficient_data",
         )

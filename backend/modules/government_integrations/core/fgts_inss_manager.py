@@ -1452,23 +1452,16 @@ class FGTSINSSManager:
         try:
             self.logger.info(f"Emitindo CRF para CNPJ: {cnpj}")
 
-            # Simulacao - em producao consultaria CAIXA
-            certidao = Certidao(
-                id=str(uuid.uuid4()),
-                tipo=TipoCertidao.CRF,
-                status=StatusCertidao.NEGATIVA,
-                documento=cnpj,
-                data_emissao=datetime.now(),
-                data_validade=datetime.now() + timedelta(days=30),
-                codigo_controle=hashlib.sha256(f"CRF{cnpj}{datetime.now()}".encode()).hexdigest()[:20].upper(),
-                observacoes="Empresa regular perante o FGTS",
+            # NAO fabricar certidao "regular": a consulta real a CAIXA ainda
+            # nao esta implementada. Emitir CRF sem consulta produziria uma
+            # certidao de regularidade FALSA. Ser honesto.
+            raise NotImplementedError(
+                "Emissao de CRF (FGTS) via CAIXA nao implementada. "
+                "NAO ha base para afirmar regularidade."
             )
 
-            if self.db:
-                await self._salvar_certidao(certidao)
-
-            return certidao
-
+        except NotImplementedError:
+            raise
         except Exception as e:
             self.logger.error(f"Erro ao emitir CRF: {e}")
             raise ConsultaError(f"Erro na emissao do CRF: {e}")
@@ -1486,23 +1479,16 @@ class FGTSINSSManager:
         try:
             self.logger.info(f"Emitindo CND INSS para CNPJ: {cnpj}")
 
-            # Simulacao - em producao consultaria Receita Federal
-            certidao = Certidao(
-                id=str(uuid.uuid4()),
-                tipo=TipoCertidao.CND_INSS,
-                status=StatusCertidao.NEGATIVA,
-                documento=cnpj,
-                data_emissao=datetime.now(),
-                data_validade=datetime.now() + timedelta(days=180),
-                codigo_controle=hashlib.sha256(f"CND{cnpj}{datetime.now()}".encode()).hexdigest()[:20].upper(),
-                observacoes="Nao constam debitos relativos a contribuicoes previdenciarias",
+            # NAO fabricar certidao "negativa": a consulta real a Receita
+            # Federal ainda nao esta implementada. Emitir CND sem consulta
+            # produziria uma certidao de regularidade FALSA. Ser honesto.
+            raise NotImplementedError(
+                "Emissao de CND-INSS via Receita Federal nao implementada. "
+                "NAO ha base para afirmar regularidade."
             )
 
-            if self.db:
-                await self._salvar_certidao(certidao)
-
-            return certidao
-
+        except NotImplementedError:
+            raise
         except Exception as e:
             self.logger.error(f"Erro ao emitir CND INSS: {e}")
             raise ConsultaError(f"Erro na emissao da CND: {e}")

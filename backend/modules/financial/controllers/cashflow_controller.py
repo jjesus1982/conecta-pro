@@ -299,6 +299,53 @@ async def get_dashboard(
         else:
             outflows_by_category[cat] = str(val)
 
+    # ── Contas a receber (pendente / vencido) — dados reais ─────────────────
+    rec_result = await session.execute(
+        text("""
+            SELECT
+                COALESCE(SUM(net_value) FILTER (
+                    WHERE status NOT IN ('pago','cancelado','cancelled','paga')), 0) AS pending,
+                COALESCE(SUM(net_value) FILTER (
+                    WHERE due_date < CURRENT_DATE
+                    AND status NOT IN ('pago','cancelado','cancelled','paga')), 0) AS overdue,
+                COUNT(*) FILTER (
+                    WHERE due_date < CURRENT_DATE
+                    AND status NOT IN ('pago','cancelado','cancelled','paga')) AS qtd_overdue,
+                COUNT(*) FILTER (
+                    WHERE status NOT IN ('pago','cancelado','cancelled','paga')) AS qtd_pending
+            FROM receivable_accounts
+            WHERE condominio_id = :cid
+        """),
+        {"cid": cid},
+    )
+    rec = rec_result.one()
+
+    # ── Contas a pagar (pendente / vencido) — dados reais ───────────────────
+    pay_result = await session.execute(
+        text("""
+            SELECT
+                COALESCE(SUM(net_value) FILTER (
+                    WHERE status NOT IN ('pago','cancelado','cancelled')), 0) AS pending,
+                COALESCE(SUM(net_value) FILTER (
+                    WHERE due_date < CURRENT_DATE
+                    AND status NOT IN ('pago','cancelado','cancelled')), 0) AS overdue,
+                COUNT(*) FILTER (
+                    WHERE due_date < CURRENT_DATE
+                    AND status NOT IN ('pago','cancelado','cancelled')) AS qtd_overdue,
+                COUNT(*) FILTER (
+                    WHERE status NOT IN ('pago','cancelado','cancelled')) AS qtd_pending
+            FROM payable_accounts
+            WHERE condominio_id = :cid
+        """),
+        {"cid": cid},
+    )
+    pay = pay_result.one()
+
+    pending_receivables = Decimal(str(rec.pending or 0))
+    overdue_receivables = Decimal(str(rec.overdue or 0))
+    pending_payables = Decimal(str(pay.pending or 0))
+    overdue_payables = Decimal(str(pay.overdue or 0))
+
     summary = CashFlowSummary(
         period_start=period_start,
         period_end=today,
@@ -309,10 +356,10 @@ async def get_dashboard(
         net_flow=net_flow,
         inflows_by_category=inflows_by_category,
         outflows_by_category=outflows_by_category,
-        pending_receivables=Decimal("0"),
-        pending_payables=Decimal("0"),
-        overdue_receivables=Decimal("0"),
-        overdue_payables=Decimal("0"),
+        pending_receivables=pending_receivables,
+        pending_payables=pending_payables,
+        overdue_receivables=overdue_receivables,
+        overdue_payables=overdue_payables,
     )
 
     return CashFlowDashboard(
@@ -321,10 +368,10 @@ async def get_dashboard(
         projections=[],
         accounts=[],
         alerts=[],
-        upcoming_payables=0,
-        upcoming_receivables=0,
-        overdue_payables=0,
-        overdue_receivables=0,
+        upcoming_payables=int(pay.qtd_pending or 0),
+        upcoming_receivables=int(rec.qtd_pending or 0),
+        overdue_payables=int(pay.qtd_overdue or 0),
+        overdue_receivables=int(rec.qtd_overdue or 0),
     )
 
 

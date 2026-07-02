@@ -77,21 +77,22 @@ class ReportExporter:
         include_charts: bool,
         password: str | None,
     ) -> dict[str, Any]:
-        """Exporta para PDF."""
-        # Simulação - em produção usaria biblioteca como ReportLab ou WeasyPrint
-        self._generate_pdf_content(report, include_charts)
+        """Exporta para PDF real (ReportLab) e grava em disco."""
+        pdf_bytes = self._generate_pdf_content(report, include_charts)
 
         filename = f"{report.code}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.pdf"
-        file_path = os.path.join(tempfile.gettempdir(), "reports", filename)
+        reports_dir = os.path.join(tempfile.gettempdir(), "reports")
+        os.makedirs(reports_dir, exist_ok=True)
+        file_path = os.path.join(reports_dir, filename)
 
-        # Simulação de tamanho
-        file_size = len(json.dumps(report.data or {})) * 2
+        with open(file_path, "wb") as f:
+            f.write(pdf_bytes)
 
         return {
             "format": "pdf",
             "filename": filename,
             "file_path": file_path,
-            "file_size_bytes": file_size,
+            "file_size_bytes": len(pdf_bytes),
             "page_size": page_size,
             "orientation": orientation,
             "pages": self._estimate_pages(report),
@@ -99,10 +100,11 @@ class ReportExporter:
         }
 
     def _export_excel(self, report: Report, include_data: bool) -> dict[str, Any]:
-        """Exporta para Excel."""
-        # Simulação - em produção usaria openpyxl ou xlsxwriter
+        """Exporta para Excel real (xlsxwriter) e grava em disco."""
         filename = f"{report.code}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx"
-        file_path = os.path.join(tempfile.gettempdir(), "reports", filename)
+        reports_dir = os.path.join(tempfile.gettempdir(), "reports")
+        os.makedirs(reports_dir, exist_ok=True)
+        file_path = os.path.join(reports_dir, filename)
 
         # Prepara dados para Excel
         sheets = []
@@ -144,10 +146,23 @@ class ReportExporter:
         # Sheet de dados brutos
         if include_data and report.data:
             for source, data in report.data.items():
-                if isinstance(data, dict) and "records" in data:
-                    sheets.append({"name": f"Dados_{source}", "data": data["records"]})
+                if isinstance(data, dict) and "records" in data and data["records"]:
+                    sheets.append({"name": f"Dados_{source}"[:31], "data": data["records"]})
 
-        file_size = len(json.dumps(sheets)) * 3
+        # Grava o .xlsx real
+        import xlsxwriter
+
+        workbook = xlsxwriter.Workbook(file_path)
+        for sheet in sheets:
+            ws = workbook.add_worksheet(sheet["name"][:31])
+            for r, row in enumerate(sheet["data"]):
+                if isinstance(row, dict):
+                    row = list(row.values())
+                for c, cell in enumerate(row):
+                    ws.write(r, c, cell if isinstance(cell, (int, float, str)) or cell is None else str(cell))
+        workbook.close()
+
+        file_size = os.path.getsize(file_path)
 
         return {
             "format": "excel",
@@ -234,10 +249,78 @@ class ReportExporter:
         }
 
     def _generate_pdf_content(self, report: Report, include_charts: bool) -> bytes:
-        """Gera conteúdo do PDF."""
-        # Simulação - retorna bytes vazios
-        # Em produção, usaria ReportLab ou WeasyPrint
-        return b""
+        """Gera o conteúdo real do PDF via ReportLab.
+
+        Renderiza cabeçalho, métricas e insights reais do relatório. Não
+        retorna bytes vazios/fabricados: produz um PDF válido.
+        """
+        import io
+
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.platypus import (
+            Paragraph,
+            SimpleDocTemplate,
+            Spacer,
+            Table,
+            TableStyle,
+        )
+
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4, title=report.name or "Relatório")
+        styles = getSampleStyleSheet()
+        elements: list[Any] = []
+
+        elements.append(Paragraph(report.name or "Relatório", styles["Title"]))
+        elements.append(Paragraph(f"Código: {report.code}", styles["Normal"]))
+        if getattr(report, "period_description", None):
+            elements.append(Paragraph(f"Período: {report.period_description}", styles["Normal"]))
+        gerado = report.generated_at.strftime("%d/%m/%Y %H:%M") if report.generated_at else "N/A"
+        elements.append(Paragraph(f"Gerado em: {gerado}", styles["Normal"]))
+        elements.append(Spacer(1, 16))
+
+        # Métricas reais
+        if report.metrics:
+            elements.append(Paragraph("Métricas", styles["Heading2"]))
+            metric_rows = [["Métrica", "Valor"]]
+            for key, value in report.metrics.items():
+                metric_rows.append([self._format_metric_label(key), self._format_metric_value(key, value)])
+            table = Table(metric_rows, hAlign="LEFT")
+            table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f5f5f5")),
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                        ("FONTSIZE", (0, 0), (-1, -1), 9),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                        ("TOPPADDING", (0, 0), (-1, -1), 6),
+                    ]
+                )
+            )
+            elements.append(table)
+            elements.append(Spacer(1, 16))
+
+        # Insights reais
+        if report.insights:
+            elements.append(Paragraph("Insights", styles["Heading2"]))
+            for insight in report.insights:
+                title = insight.get("title", "")
+                desc = insight.get("description", "")
+                elements.append(Paragraph(f"<b>{title}</b>", styles["Normal"]))
+                if desc:
+                    elements.append(Paragraph(desc, styles["Normal"]))
+                elements.append(Spacer(1, 6))
+
+        if not report.metrics and not report.insights:
+            elements.append(Paragraph("Sem dados disponíveis para este período.", styles["Normal"]))
+
+        doc.build(elements)
+        return buffer.getvalue()
+
+    def _format_metric_label(self, key: str) -> str:
+        """Rótulo legível para uma métrica."""
+        return key.replace("_", " ").title()
 
     def _generate_html_content(self, report: Report, include_charts: bool) -> str:
         """Gera conteúdo HTML."""

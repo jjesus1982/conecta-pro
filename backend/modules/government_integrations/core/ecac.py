@@ -269,12 +269,14 @@ class EcacManager:
         """
         logger.info(f"Validando certidão: {numero}")
 
+        # NAO afirmar "valida=True" sem consultar o e-CAC: sem verificacao
+        # real nao ha como atestar autenticidade. Retornar status honesto.
         return {
             "numero": numero,
             "codigo_controle": codigo_controle,
-            "valida": True,
+            "valida": False,
             "data_validacao": datetime.now().isoformat(),
-            "mensagem": "Implementar validação via e-CAC",
+            "mensagem": "Validação via e-CAC não implementada — autenticidade não verificada",
         }
 
     def consultar_declaracoes(

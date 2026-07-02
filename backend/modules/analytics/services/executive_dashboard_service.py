@@ -10,10 +10,27 @@ Sprint: FASE 3 - Otimização Total
 """
 
 import asyncio
+import logging
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from enum import StrEnum
 from typing import Any
+
+from sqlalchemy import text
+
+from core.database.session import async_session_factory
+
+logger = logging.getLogger(__name__)
+
+
+# Mapeamento categoria (executive_kpis) -> DashboardMetricType
+_CATEGORY_MAP: dict[str, str] = {
+    "FINANCIAL": "financial",
+    "OPERATIONAL": "operational",
+    "HR": "hr",
+    "COMMERCIAL": "client",
+    "COMPLIANCE": "operational",
+}
 
 
 class DashboardMetricType(StrEnum):
@@ -141,252 +158,184 @@ class ExecutiveDashboardService:
 
         return dashboard
 
+    async def _load_kpi_rows(self) -> list[dict[str, Any]]:
+        """Lê os KPIs reais da tabela executive_kpis (fonte da verdade).
+
+        Retorna as linhas ativas (status ACTIVE) ordenadas por display_order.
+        NÃO fabrica dados: se a tabela estiver vazia, retorna lista vazia.
+        """
+        try:
+            async with async_session_factory() as session:
+                result = await session.execute(
+                    text(
+                        """
+                        SELECT code, name, category, kpi_type, unit,
+                               current_value, previous_value, target_value,
+                               trend, alert_level, last_calculated_at
+                        FROM executive_kpis
+                        WHERE status = 'ACTIVE'
+                        ORDER BY display_order
+                        """
+                    )
+                )
+                return [dict(row) for row in result.mappings().all()]
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Falha ao ler executive_kpis: {e}")
+            return []
+
     async def _collect_kpis(self) -> list[KPIMetric]:
-        """Coleta todos os KPIs principais."""
-        kpis = []
+        """Coleta todos os KPIs reais a partir de executive_kpis."""
+        rows = await self._load_kpi_rows()
+        kpis: list[KPIMetric] = []
 
-        # KPIs Financeiros
-        kpis.extend(await self._get_financial_kpis())
+        for row in rows:
+            current = float(row["current_value"]) if row["current_value"] is not None else None
+            previous = float(row["previous_value"]) if row["previous_value"] is not None else None
+            target = float(row["target_value"]) if row["target_value"] is not None else None
 
-        # KPIs Operacionais
-        kpis.extend(await self._get_operational_kpis())
+            # Trend: usa a coluna trend da tabela; deriva do delta se ausente.
+            db_trend = (row.get("trend") or "").lower()
+            if db_trend in ("up", "down", "stable"):
+                trend = TrendDirection(db_trend)
+            elif current is not None and previous is not None:
+                if current > previous:
+                    trend = TrendDirection.UP
+                elif current < previous:
+                    trend = TrendDirection.DOWN
+                else:
+                    trend = TrendDirection.STABLE
+            else:
+                trend = TrendDirection.STABLE
 
-        # KPIs de RH
-        kpis.extend(await self._get_hr_kpis())
+            # change_percent: derivado real (previous -> current). None se sem base.
+            if current is not None and previous not in (None, 0):
+                change_percent = round(((current - previous) / previous) * 100, 2)
+            else:
+                change_percent = 0.0
 
-        # KPIs de Segurança
-        kpis.extend(await self._get_safety_kpis())
+            category = DashboardMetricType(_CATEGORY_MAP.get(row["category"], "performance"))
+            updated_at = row.get("last_calculated_at") or datetime.now()
 
-        # KPIs de Clientes
-        kpis.extend(await self._get_client_kpis())
+            kpis.append(
+                KPIMetric(
+                    name=row["name"],
+                    value=current if current is not None else 0.0,
+                    previous_value=previous if previous is not None else 0.0,
+                    target=target if target is not None else 0.0,
+                    unit=row["unit"],
+                    trend=trend,
+                    change_percent=change_percent,
+                    category=category,
+                    updated_at=updated_at,
+                )
+            )
 
         return kpis
 
-    async def _get_financial_kpis(self) -> list[KPIMetric]:
-        """KPIs financeiros principais."""
-        # Simulação de dados - integração real com CFO Virtual
-        return [
-            KPIMetric(
-                name="Receita Mensal",
-                value=2850000.0,
-                previous_value=2650000.0,
-                target=3000000.0,
-                unit="BRL",
-                trend=TrendDirection.UP,
-                change_percent=7.5,
-                category=DashboardMetricType.FINANCIAL,
-                updated_at=datetime.now(),
-            ),
-            KPIMetric(
-                name="Margem EBITDA",
-                value=22.5,
-                previous_value=20.1,
-                target=25.0,
-                unit="%",
-                trend=TrendDirection.UP,
-                change_percent=11.9,
-                category=DashboardMetricType.FINANCIAL,
-                updated_at=datetime.now(),
-            ),
-            KPIMetric(
-                name="Inadimplência",
-                value=3.2,
-                previous_value=4.1,
-                target=2.5,
-                unit="%",
-                trend=TrendDirection.DOWN,
-                change_percent=-22.0,
-                category=DashboardMetricType.FINANCIAL,
-                updated_at=datetime.now(),
-            ),
-        ]
-
-    async def _get_operational_kpis(self) -> list[KPIMetric]:
-        """KPIs operacionais."""
-        return [
-            KPIMetric(
-                name="Eficiência Operacional",
-                value=87.3,
-                previous_value=82.1,
-                target=90.0,
-                unit="%",
-                trend=TrendDirection.UP,
-                change_percent=6.3,
-                category=DashboardMetricType.OPERATIONAL,
-                updated_at=datetime.now(),
-            ),
-            KPIMetric(
-                name="SLA Atendimento",
-                value=95.2,
-                previous_value=93.8,
-                target=98.0,
-                unit="%",
-                trend=TrendDirection.UP,
-                change_percent=1.5,
-                category=DashboardMetricType.OPERATIONAL,
-                updated_at=datetime.now(),
-            ),
-        ]
-
-    async def _get_hr_kpis(self) -> list[KPIMetric]:
-        """KPIs de recursos humanos."""
-        return [
-            KPIMetric(
-                name="Taxa de Retenção",
-                value=92.8,
-                previous_value=89.2,
-                target=95.0,
-                unit="%",
-                trend=TrendDirection.UP,
-                change_percent=4.0,
-                category=DashboardMetricType.HR,
-                updated_at=datetime.now(),
-            ),
-            KPIMetric(
-                name="Satisfação Funcionários",
-                value=8.4,
-                previous_value=7.9,
-                target=9.0,
-                unit="/10",
-                trend=TrendDirection.UP,
-                change_percent=6.3,
-                category=DashboardMetricType.HR,
-                updated_at=datetime.now(),
-            ),
-        ]
-
-    async def _get_safety_kpis(self) -> list[KPIMetric]:
-        """KPIs de segurança ocupacional."""
-        return [
-            KPIMetric(
-                name="Índice de Segurança",
-                value=96.5,
-                previous_value=94.2,
-                target=98.0,
-                unit="%",
-                trend=TrendDirection.UP,
-                change_percent=2.4,
-                category=DashboardMetricType.SAFETY,
-                updated_at=datetime.now(),
-            ),
-            KPIMetric(
-                name="Dias sem Acidentes",
-                value=127,
-                previous_value=98,
-                target=180,
-                unit="dias",
-                trend=TrendDirection.UP,
-                change_percent=29.6,
-                category=DashboardMetricType.SAFETY,
-                updated_at=datetime.now(),
-            ),
-        ]
-
-    async def _get_client_kpis(self) -> list[KPIMetric]:
-        """KPIs de clientes."""
-        return [
-            KPIMetric(
-                name="NPS Score",
-                value=72,
-                previous_value=68,
-                target=80,
-                unit="pontos",
-                trend=TrendDirection.UP,
-                change_percent=5.9,
-                category=DashboardMetricType.CLIENT,
-                updated_at=datetime.now(),
-            ),
-            KPIMetric(
-                name="Retenção de Clientes",
-                value=96.8,
-                previous_value=95.1,
-                target=98.0,
-                unit="%",
-                trend=TrendDirection.UP,
-                change_percent=1.8,
-                category=DashboardMetricType.CLIENT,
-                updated_at=datetime.now(),
-            ),
-        ]
+    async def _load_expiring_certidoes(self, days_ahead: int = 30) -> list[dict[str, Any]]:
+        """Lê certidões (ged_certidoes) que vencem nos próximos N dias."""
+        try:
+            async with async_session_factory() as session:
+                result = await session.execute(
+                    text(
+                        """
+                        SELECT name, document_type, expiry_date
+                        FROM ged_certidoes
+                        WHERE expiry_date IS NOT NULL
+                          AND expiry_date <= (CURRENT_DATE + make_interval(days => :days))
+                        ORDER BY expiry_date ASC
+                        """
+                    ),
+                    {"days": days_ahead},
+                )
+                return [dict(row) for row in result.mappings().all()]
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Falha ao ler ged_certidoes: {e}")
+            return []
 
     async def _detect_alerts(self) -> list[DashboardAlert]:
-        """Detecta alertas automáticos."""
-        alerts = []
+        """Detecta alertas a partir de fatos reais.
 
-        # Algoritmo de detecção de alertas baseado em thresholds
+        Fontes: alert_level/status dos KPIs (executive_kpis) e certidões
+        vencendo (ged_certidoes). Nenhum alerta é fabricado.
+        """
+        alerts: list[DashboardAlert] = []
         now = datetime.now()
 
-        # Alerta crítico - exemplo
-        alerts.append(
-            DashboardAlert(
-                title="Meta de Receita em Risco",
-                message="Receita atual 95% da meta mensal. Ação requerida.",
-                level=AlertLevel.WARNING,
-                metric="Receita Mensal",
-                value=2850000.0,
-                threshold=3000000.0,
-                created_at=now,
-                action_required=True,
+        # Alertas derivados dos KPIs reais (WARNING/CRITICAL na tabela)
+        for row in await self._load_kpi_rows():
+            level_raw = (row.get("alert_level") or "NORMAL").upper()
+            if level_raw not in ("WARNING", "CRITICAL"):
+                continue
+            level = AlertLevel.CRITICAL if level_raw == "CRITICAL" else AlertLevel.WARNING
+            current = float(row["current_value"]) if row["current_value"] is not None else 0.0
+            target = float(row["target_value"]) if row["target_value"] is not None else 0.0
+            alerts.append(
+                DashboardAlert(
+                    title=f"KPI em atenção: {row['name']}",
+                    message=(
+                        f"{row['name']} está em nível {level_raw} "
+                        f"(atual {current:g} {row['unit']}, meta {target:g} {row['unit']})."
+                    ),
+                    level=level,
+                    metric=row["name"],
+                    value=current,
+                    threshold=target,
+                    created_at=now,
+                    action_required=level == AlertLevel.CRITICAL,
+                )
             )
-        )
 
-        # Alerta positivo
-        alerts.append(
-            DashboardAlert(
-                title="Recorde de Segurança",
-                message="127 dias sem acidentes - novo recorde da empresa!",
-                level=AlertLevel.SUCCESS,
-                metric="Dias sem Acidentes",
-                value=127,
-                threshold=120,
-                created_at=now,
-                action_required=False,
+        # Alertas de certidões vencendo (fato real de ged_certidoes)
+        today = date.today()
+        for cert in await self._load_expiring_certidoes(30):
+            expiry = cert["expiry_date"]
+            days_left = (expiry - today).days if isinstance(expiry, date) else None
+            expired = days_left is not None and days_left < 0
+            msg = (
+                f"Certidão '{cert['name']}' venceu em {expiry:%d/%m/%Y}."
+                if expired
+                else f"Certidão '{cert['name']}' vence em {expiry:%d/%m/%Y}"
+                + (f" ({days_left} dias)." if days_left is not None else ".")
             )
-        )
+            alerts.append(
+                DashboardAlert(
+                    title="Certidão vencida" if expired else "Certidão a vencer",
+                    message=msg,
+                    level=AlertLevel.CRITICAL if expired else AlertLevel.WARNING,
+                    metric=cert.get("document_type") or "certidao",
+                    value=float(days_left) if days_left is not None else 0.0,
+                    threshold=0.0,
+                    created_at=now,
+                    action_required=True,
+                )
+            )
 
         return alerts
 
     async def _generate_insights(self) -> list[PredictiveInsight]:
-        """Gera insights preditivos com IA."""
-        insights = []
+        """Insights preditivos.
 
-        # Insight financeiro
-        insights.append(
-            PredictiveInsight(
-                title="Oportunidade de Crescimento Detectada",
-                description="Análise preditiva indica potencial aumento de 15% na receita com otimização de operações.",
-                confidence=0.87,
-                impact="Alto",
-                recommendation="Implementar automação adicional em 3 processos críticos",
-                timeline="30 dias",
-                category=DashboardMetricType.PREDICTION,
-            )
-        )
-
-        # Insight operacional
-        insights.append(
-            PredictiveInsight(
-                title="Risco de Sobrecarga Operacional",
-                description="Tendência indica possível gargalo operacional em 45 dias.",
-                confidence=0.73,
-                impact="Médio",
-                recommendation="Antecipar contratação de 2 técnicos especializados",
-                timeline="45 dias",
-                category=DashboardMetricType.OPERATIONAL,
-            )
-        )
-
-        return insights
+        Não há motor preditivo com fonte de dados histórica confiável, então
+        não fabricamos insights. Retorna lista vazia (honesto: "aguardando dado").
+        """
+        return []
 
     async def _calculate_trends(self) -> dict[str, list[float]]:
-        """Calcula tendências históricas."""
-        # Simulação de dados históricos
-        return {
-            "receita": [2200000, 2350000, 2480000, 2650000, 2850000],
-            "margem": [18.2, 19.1, 19.8, 20.1, 22.5],
-            "satisfacao": [7.1, 7.4, 7.6, 7.9, 8.4],
-            "seguranca": [91.2, 92.8, 93.5, 94.2, 96.5],
-        }
+        """Séries de tendência derivadas de dados reais.
+
+        Só há dois pontos por KPI em executive_kpis (previous_value ->
+        current_value); não existe série histórica. Emitimos apenas esses dois
+        pontos reais por KPI que os possua. NÃO inventamos séries longas.
+        """
+        trends: dict[str, list[float]] = {}
+        for row in await self._load_kpi_rows():
+            current = row["current_value"]
+            previous = row["previous_value"]
+            if current is None or previous is None:
+                continue
+            trends[row["code"].lower()] = [float(previous), float(current)]
+        return trends
 
     async def _generate_summary(
         self, kpis: list[KPIMetric], alerts: list[DashboardAlert], insights: list[PredictiveInsight]
@@ -398,19 +347,35 @@ class ExecutiveDashboardService:
         critical_alerts = sum(1 for alert in alerts if alert.level == AlertLevel.CRITICAL)
 
         performance_score = (positive_trends / total_kpis) * 100 if total_kpis > 0 else 0
+        warning_alerts = sum(1 for alert in alerts if alert.level == AlertLevel.WARNING)
+
+        # Destaque/concern derivados de fatos reais dos KPIs, não fabricados.
+        highlight_kpi = max(
+            (k for k in kpis if k.trend == TrendDirection.UP),
+            key=lambda k: k.change_percent,
+            default=None,
+        )
+        concern_kpi = max(
+            (a for a in alerts if a.level in (AlertLevel.CRITICAL, AlertLevel.WARNING)),
+            key=lambda a: 1 if a.level == AlertLevel.CRITICAL else 0,
+            default=None,
+        )
 
         return {
             "performance_score": round(performance_score, 1),
             "total_kpis": total_kpis,
             "positive_trends": positive_trends,
             "critical_alerts": critical_alerts,
+            "warning_alerts": warning_alerts,
             "total_alerts": len(alerts),
             "total_insights": len(insights),
             "status": "excellent" if performance_score >= 80 else "good" if performance_score >= 60 else "attention",
-            "main_highlight": "Crescimento consistente em todas as áreas principais",
-            "key_concern": "Meta de receita requer atenção"
-            if critical_alerts == 0
-            else "Alertas críticos requerem ação imediata",
+            "main_highlight": (
+                f"{highlight_kpi.name}: {highlight_kpi.change_percent:+.1f}% vs período anterior"
+                if highlight_kpi
+                else None
+            ),
+            "key_concern": (concern_kpi.title if concern_kpi else None),
         }
 
     def _is_cache_valid(self) -> bool:

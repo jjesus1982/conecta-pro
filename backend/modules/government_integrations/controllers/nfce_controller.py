@@ -19,7 +19,6 @@ Date: 2026-01-17
 
 import logging
 from datetime import datetime
-from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Path, Query, status
 from fastapi.responses import Response
@@ -156,40 +155,21 @@ async def emitir_nfce(current_user: CurrentActiveUser, request: NFCeEmissaoReque
             pagamentos=pagamentos,
         )
 
-        # Gerar XML
+        # Gerar XML (montagem local; NAO representa autorizacao)
         xml_builder = NFCEXMLBuilder(csc_id, csc_token)
         xml_builder.build_nfce(nf, ambiente)
 
-        # Em producao, assinar e transmitir
-        # Por enquanto, retornar dados simulados
-        resultado = {
-            "chave_acesso": nf.chave_acesso,
-            "numero": nf.numero,
-            "serie": nf.serie,
-            "protocolo": f"313260000{datetime.now().strftime('%H%M%S')}",
-            "codigo": "100",
-            "mensagem": "Autorizado o uso da NFC-e",
-            "data_autorizacao": datetime.now().isoformat(),
-            "valor_total": float(nf.valor_total),
-            "qrcode_url": transmitter.generate_qrcode(
-                nf.chave_acesso,
-                datetime.now().isoformat(),
-                nf.valor_total,
-                Decimal("0"),
-                "DIGEST_VALUE_PLACEHOLDER",
-                request.consumidor.cpf if request.consumidor else None,
-            ),
-            "url_consulta": transmitter.qrcode_generator.get_url_chave(),
-        }
-
-        logger.info(f"NFC-e emitida: {nf.chave_acesso}")
-
-        return StandardResponse(
-            success=True,
-            message="NFC-e autorizada com sucesso",
-            data=resultado,
+        # A assinatura e transmissao real a SEFAZ ainda nao esta implementada.
+        # NUNCA fabricar protocolo/autorizacao local: sem transmissao real o
+        # documento NAO esta autorizado. Ser honesto (HTTP 501).
+        logger.info(f"NFC-e montada (nao transmitida): {nf.chave_acesso}")
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="NFC-e: transmissao SEFAZ nao implementada. Documento nao autorizado.",
         )
 
+    except HTTPException:
+        raise
     except ValueError as e:
         logger.warning(f"Dados invalidos na emissao NFC-e: {e}")
         raise HTTPException(
@@ -239,23 +219,16 @@ async def consultar_nfce(
         if modelo != "65":
             raise ValueError(f"Chave nao e de NFC-e (modelo {modelo})")
 
-        # TODO: Consultar na SEFAZ
-        # Por enquanto, retornar dados simulados
-        resultado = {
-            "chave_acesso": chave_acesso,
-            "situacao": "autorizada",
-            "codigo": "100",
-            "mensagem": "Autorizado o uso da NFC-e",
-            "protocolo": "313260000123456",
-            "data_autorizacao": "2026-01-17T10:30:00-04:00",
-        }
-
-        return StandardResponse(
-            success=True,
-            message="NFC-e encontrada",
-            data=resultado,
+        # Consulta real a SEFAZ ainda nao implementada.
+        # NAO fabricar situacao/protocolo: sem consulta real nao ha como
+        # afirmar que a NFC-e esta autorizada.
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="NFC-e: consulta SEFAZ nao implementada.",
         )
 
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -292,23 +265,16 @@ async def cancelar_nfce(current_user: CurrentActiveUser, request: NFCeCancelamen
         if len(request.justificativa) < 15:
             raise ValueError("Justificativa deve ter no minimo 15 caracteres")
 
-        # TODO: Enviar evento de cancelamento para SEFAZ
-        resultado = {
-            "chave_acesso": request.chave_acesso,
-            "protocolo_cancelamento": f"313260000{datetime.now().strftime('%H%M%S')}",
-            "data_cancelamento": datetime.now().isoformat(),
-            "codigo": "135",
-            "mensagem": "Evento registrado e vinculado a NFC-e",
-        }
-
-        logger.info(f"NFC-e cancelada: {request.chave_acesso}")
-
-        return StandardResponse(
-            success=True,
-            message="NFC-e cancelada com sucesso",
-            data=resultado,
+        # Transmissao do evento de cancelamento a SEFAZ ainda nao implementada.
+        # NAO fabricar protocolo de cancelamento: sem transmissao real o
+        # cancelamento NAO foi registrado na SEFAZ.
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="NFC-e: cancelamento SEFAZ nao implementado. Evento nao transmitido.",
         )
 
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -345,25 +311,16 @@ async def inutilizar_nfce(current_user: CurrentActiveUser, request: NFCeInutiliz
         if request.numero_final < request.numero_inicial:
             raise ValueError("Numero final deve ser >= numero inicial")
 
-        # TODO: Enviar para SEFAZ
-        resultado = {
-            "serie": request.serie,
-            "numero_inicial": request.numero_inicial,
-            "numero_final": request.numero_final,
-            "protocolo": f"313260000{datetime.now().strftime('%H%M%S')}",
-            "data_inutilizacao": datetime.now().isoformat(),
-            "codigo": "102",
-            "mensagem": "Inutilizacao de numero homologado",
-        }
-
-        logger.info(f"Numeracao inutilizada: serie {request.serie}, {request.numero_inicial}-{request.numero_final}")
-
-        return StandardResponse(
-            success=True,
-            message="Numeracao inutilizada com sucesso",
-            data=resultado,
+        # Transmissao da inutilizacao a SEFAZ ainda nao implementada.
+        # NAO fabricar protocolo: sem transmissao real a numeracao NAO foi
+        # inutilizada na SEFAZ.
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="NFC-e: inutilizacao SEFAZ nao implementada. Numeracao nao inutilizada.",
         )
 
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -446,23 +403,16 @@ async def transmitir_contingencia(
         StandardResponse: Resultado da transmissao.
     """
     try:
-        # TODO: Transmitir XML para SEFAZ
-        resultado = {
-            "protocolo": f"313260000{datetime.now().strftime('%H%M%S')}",
-            "codigo": "100",
-            "mensagem": "Autorizado o uso da NFC-e",
-            "data_autorizacao": datetime.now().isoformat(),
-            "contingencia_regularizada": True,
-        }
-
-        logger.info("NFC-e contingencia transmitida")
-
-        return StandardResponse(
-            success=True,
-            message="NFC-e em contingencia autorizada",
-            data=resultado,
+        # Transmissao do XML de contingencia a SEFAZ ainda nao implementada.
+        # NAO fabricar protocolo/autorizacao: sem transmissao real a NFC-e em
+        # contingencia NAO foi regularizada na SEFAZ.
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="NFC-e: transmissao de contingencia SEFAZ nao implementada. Nao regularizada.",
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Erro ao transmitir contingencia: {e}")
         raise HTTPException(

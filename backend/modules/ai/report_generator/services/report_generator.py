@@ -6,10 +6,11 @@ Serviço principal para orquestrar a geração de relatórios com IA.
 
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from modules.ai.report_generator.models import (
@@ -290,15 +291,13 @@ class ReportGeneratorService:
         """Coleta dados das fontes configuradas."""
         data = {}
 
-        # Se tem template, usa as fontes configuradas
+        # Se tem template, usa as fontes configuradas (dados reais).
         if template and template.data_sources:
             for source in template.data_sources:
                 source_data = await self._fetch_data_source(source, filters, parameters, period_start, period_end)
                 data[source] = source_data
-        else:
-            # Dados padrão simulados para demonstração
-            data = self._generate_sample_data(period_start, period_end)
-
+        # Sem template/fontes: não há o que coletar. Retorna dict vazio honesto
+        # (nada de dados aleatórios de demonstração).
         return data
 
     async def _fetch_data_source(
@@ -309,97 +308,125 @@ class ReportGeneratorService:
         period_start: datetime | None,
         period_end: datetime | None,
     ) -> dict[str, Any]:
-        """Busca dados de uma fonte específica."""
-        DATA_SOURCE_CONFIG.get(source, {})
+        """Busca dados REAIS de uma fonte específica no banco.
 
-        # Aqui seria a integração real com os outros módulos
-        # Por enquanto, retorna dados simulados
-        return self._generate_source_sample_data(source, period_start, period_end)
+        Consulta as tabelas reais do ERP conforme a `source` do template.
+        Fontes sem query real definida retornam vazio honesto (records=[],
+        summary={}), NUNCA dados aleatórios.
+        """
+        base_data: dict[str, Any] = {"records": [], "summary": {}, "aggregations": {}}
 
-    def _generate_sample_data(
-        self,
-        period_start: datetime | None,
-        period_end: datetime | None,
-    ) -> dict[str, Any]:
-        """Gera dados de exemplo para demonstração."""
-        import random  # noqa: S311
-
-        days = 30
-        if period_start and period_end:
-            days = (period_end - period_start).days or 30
-
-        return {
-            "sales": {
-                "total": random.randint(100000, 500000),  # noqa: S311
-                "count": random.randint(50, 200),  # noqa: S311
-                "avg_ticket": random.randint(500, 5000),  # noqa: S311
-                "growth": round(random.uniform(-10, 30), 2),  # noqa: S311
-                "by_day": [
-                    {
-                        "date": (datetime.utcnow() - timedelta(days=i)).strftime("%Y-%m-%d"),
-                        "value": random.randint(3000, 15000),  # noqa: S311
-                        "count": random.randint(2, 10),  # noqa: S311
-                    }
-                    for i in range(min(days, 30))
-                ],
-            },
-            "customers": {
-                "total": random.randint(500, 2000),  # noqa: S311
-                "new": random.randint(20, 100),  # noqa: S311
-                "churn": random.randint(5, 30),  # noqa: S311
-                "retention_rate": round(random.uniform(85, 98), 2),  # noqa: S311
-            },
-            "products": {
-                "total_sku": random.randint(100, 500),  # noqa: S311
-                "in_stock": random.randint(80, 450),  # noqa: S311
-                "low_stock": random.randint(10, 50),  # noqa: S311
-                "out_of_stock": random.randint(5, 20),  # noqa: S311
-            },
-            "financial": {
-                "revenue": random.randint(200000, 1000000),  # noqa: S311
-                "expenses": random.randint(100000, 500000),  # noqa: S311
-                "profit": random.randint(50000, 300000),  # noqa: S311
-                "margin": round(random.uniform(15, 40), 2),  # noqa: S311
-            },
-        }
-
-    def _generate_source_sample_data(
-        self,
-        source: str,
-        period_start: datetime | None,
-        period_end: datetime | None,
-    ) -> dict[str, Any]:
-        """Gera dados de exemplo para uma fonte específica."""
-        import random  # noqa: S311
-
-        base_data = {
-            "records": [],
-            "summary": {},
-            "aggregations": {},
-        }
-
-        if source == "leads":
-            base_data["summary"] = {
-                "total": random.randint(100, 500),  # noqa: S311
-                "qualified": random.randint(30, 150),  # noqa: S311
-                "converted": random.randint(10, 50),  # noqa: S311
-                "avg_score": round(random.uniform(40, 80), 2),  # noqa: S311
-            }
-        elif source == "opportunities":
-            base_data["summary"] = {
-                "total": random.randint(50, 200),  # noqa: S311
-                "total_value": random.randint(500000, 2000000),  # noqa: S311
-                "won": random.randint(10, 50),  # noqa: S311
-                "lost": random.randint(5, 30),  # noqa: S311
-                "win_rate": round(random.uniform(20, 50), 2),  # noqa: S311
-            }
-        elif source == "invoices":
-            base_data["summary"] = {
-                "total": random.randint(100, 500),  # noqa: S311
-                "total_value": random.randint(200000, 1000000),  # noqa: S311
-                "paid": random.randint(80, 400),  # noqa: S311
-                "overdue": random.randint(5, 50),  # noqa: S311
-            }
+        try:
+            if source == "contracts":
+                row = self.db.execute(
+                    text(
+                        """
+                        SELECT COUNT(*) AS total,
+                               COALESCE(SUM(total_value), 0) AS total_value,
+                               COALESCE(SUM(monthly_value), 0) AS monthly_value,
+                               COALESCE(AVG(total_value), 0) AS avg_value,
+                               COUNT(*) FILTER (WHERE status = 'active') AS active
+                        FROM contracts
+                        """
+                    )
+                ).mappings().first()
+                base_data["summary"] = {
+                    "total": int(row["total"]),
+                    "active": int(row["active"]),
+                    "total_value": float(row["total_value"]),
+                    "monthly_value": float(row["monthly_value"]),
+                    "avg_value": float(row["avg_value"]),
+                }
+            elif source in ("customers", "clients"):
+                row = self.db.execute(
+                    text(
+                        """
+                        SELECT COUNT(*) AS total,
+                               COUNT(*) FILTER (WHERE status = 'active') AS active
+                        FROM clients
+                        """
+                    )
+                ).mappings().first()
+                base_data["summary"] = {
+                    "total": int(row["total"]),
+                    "active": int(row["active"]),
+                }
+            elif source in ("invoices", "inter_transactions"):
+                row = self.db.execute(
+                    text(
+                        """
+                        SELECT COUNT(*) AS total,
+                               COALESCE(SUM(valor), 0) AS total_value
+                        FROM inter_transactions
+                        """
+                        + (
+                            " WHERE data_lancamento BETWEEN :start AND :end"
+                            if period_start and period_end
+                            else ""
+                        )
+                    ),
+                    (
+                        {"start": period_start, "end": period_end}
+                        if period_start and period_end
+                        else {}
+                    ),
+                ).mappings().first()
+                base_data["summary"] = {
+                    "total": int(row["total"]),
+                    "total_value": float(row["total_value"]),
+                }
+            elif source == "commissions":
+                row = self.db.execute(
+                    text(
+                        """
+                        SELECT COUNT(*) AS total,
+                               COALESCE(SUM(final_commission), 0) AS total_value,
+                               COUNT(*) FILTER (WHERE status = 'paid') AS paid,
+                               COUNT(*) FILTER (WHERE status = 'pending') AS pending
+                        FROM commissions
+                        """
+                    )
+                ).mappings().first()
+                base_data["summary"] = {
+                    "total": int(row["total"]),
+                    "total_value": float(row["total_value"]),
+                    "paid": int(row["paid"]),
+                    "pending": int(row["pending"]),
+                }
+            elif source in ("employees", "hr_payslips", "payroll"):
+                row = self.db.execute(
+                    text(
+                        """
+                        SELECT COUNT(*) AS total,
+                               COALESCE(SUM(net_salary), 0) AS net_total,
+                               COALESCE(SUM(total_earnings), 0) AS earnings_total
+                        FROM hr_payslips
+                        """
+                        + (
+                            " WHERE make_date(reference_year, reference_month, 1) "
+                            "BETWEEN date_trunc('month', :start::date) AND :end::date"
+                            if period_start and period_end
+                            else ""
+                        )
+                    ),
+                    (
+                        {"start": period_start, "end": period_end}
+                        if period_start and period_end
+                        else {}
+                    ),
+                ).mappings().first()
+                base_data["summary"] = {
+                    "total": int(row["total"]),
+                    "net_total": float(row["net_total"]),
+                    "earnings_total": float(row["earnings_total"]),
+                }
+            else:
+                # Fonte sem query real definida: vazio honesto, sem fabricar.
+                logger.warning(
+                    "Fonte de dados '%s' sem query real definida; retornando vazio.", source
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.error("Erro ao buscar fonte de dados real '%s': %s", source, e)
 
         return base_data
 

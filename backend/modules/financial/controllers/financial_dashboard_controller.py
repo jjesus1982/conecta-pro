@@ -228,13 +228,14 @@ async def get_cashflow_forecast(
         """)
         )
         saldo_row = saldo_result.fetchone()
-        saldo_base = float(saldo_row.saldo if saldo_row else 36476.27)
+        saldo_base = float(saldo_row.saldo) if (saldo_row and saldo_row.saldo is not None) else 0.0
 
         # MRR
         mrr_result = await db.execute(
             text("SELECT COALESCE(SUM(base_value), 0) AS mrr FROM billing_rules WHERE ativo = true")
         )
-        mrr = float((mrr_result.fetchone() or [0]).mrr or 272086.96)
+        mrr_row = mrr_result.fetchone()
+        mrr = float(mrr_row.mrr) if (mrr_row and mrr_row.mrr is not None) else 0.0
 
         # Médias mensais dos últimos 90 dias por mês completo
         stats_result = await db.execute(
@@ -405,7 +406,8 @@ async def get_bi_overview(
         mrr_result = await db.execute(
             text("SELECT COALESCE(SUM(base_value), 0) AS mrr FROM billing_rules WHERE ativo = true")
         )
-        mrr = float((mrr_result.fetchone() or [0]).mrr or 272086.96)
+        mrr_row = mrr_result.fetchone()
+        mrr = float(mrr_row.mrr) if (mrr_row and mrr_row.mrr is not None) else 0.0
 
         # Margem por billing_type (tipo de cobrança)
         margem_result = await db.execute(
@@ -423,10 +425,11 @@ async def get_bi_overview(
         )
         margens = margem_result.fetchall()
 
-        # Montar DRE
+        # Montar DRE — SEM fabricar receita a partir do MRR.
+        # Se não há lançamentos no mês, receita E custos são 0 (base coerente);
+        # sinalizamos honestamente em vez de forjar 100% de lucro.
         rec_bruta = float(dre.receita_bruta or 0)
-        if rec_bruta == 0:
-            rec_bruta = mrr  # fallback para MRR quando sem receita no mês
+        dre_sem_lancamentos = rec_bruta == 0
 
         folha = float(dre.folha or 0)
         fornec = float(dre.fornecedores or 0)
@@ -462,6 +465,12 @@ async def get_bi_overview(
             ],
             "dre_mes_atual": {
                 "periodo": date.today().strftime("%m/%Y"),
+                "sem_lancamentos": dre_sem_lancamentos,
+                "aviso": (
+                    "Sem lançamentos financeiros no mês corrente — DRE zerada (não estimada por MRR)."
+                    if dre_sem_lancamentos
+                    else None
+                ),
                 "receita_bruta": round(rec_bruta, 2),
                 "cpv": {
                     "folha": folha,
@@ -704,8 +713,10 @@ async def get_bi_profitability(
         result = await db.execute(
             text("""
             SELECT
-                COALESCE(SUM(CASE WHEN entry_type = 'entrada' THEN amount ELSE 0 END), 0) AS revenue,
-                COALESCE(SUM(CASE WHEN entry_type = 'saida' THEN amount ELSE 0 END), 0) AS costs
+                COALESCE(SUM(CASE WHEN entry_type = 'entrada'
+                                  THEN COALESCE(realized_amount, expected_amount, 0) ELSE 0 END), 0) AS revenue,
+                COALESCE(SUM(CASE WHEN entry_type = 'saida'
+                                  THEN COALESCE(realized_amount, expected_amount, 0) ELSE 0 END), 0) AS costs
             FROM cashflow_entries
             WHERE entry_date >= (CURRENT_DATE - :days * INTERVAL '1 day')
             """),

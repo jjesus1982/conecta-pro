@@ -1117,7 +1117,7 @@ async def forecast(db: AsyncSession = Depends(get_db)):
         await db.execute(
             text("""
         SELECT stage, count(*) deals, COALESCE(SUM(value),0) total_value
-        FROM opportunities WHERE stage NOT IN ('closed_won','closed_lost') GROUP BY stage
+        FROM opportunities WHERE stage NOT IN ('closed_won','closed_lost') AND is_active = true GROUP BY stage
     """)
         )
     )
@@ -1172,7 +1172,7 @@ async def forecast_by_seller(db: AsyncSession = Depends(get_db)):
         await db.execute(
             text("""
         SELECT owner_id seller_id, count(*) open_deals, COALESCE(SUM(value),0) open_value
-        FROM opportunities WHERE stage NOT IN ('closed_won','closed_lost')
+        FROM opportunities WHERE stage NOT IN ('closed_won','closed_lost') AND is_active = true
         GROUP BY owner_id
     """)
         )
@@ -1204,7 +1204,7 @@ async def relatorio_comercial_pdf(
         await db.execute(
             text("""
         SELECT stage, count(*) deals, COALESCE(SUM(value),0) valor FROM opportunities
-        WHERE stage NOT IN ('closed_won','closed_lost') GROUP BY stage ORDER BY 3 DESC""")
+        WHERE stage NOT IN ('closed_won','closed_lost') AND is_active = true GROUP BY stage ORDER BY 3 DESC""")
         )
     )
     por_estagio, aberto = [], 0.0
@@ -1223,7 +1223,7 @@ async def relatorio_comercial_pdf(
         await db.execute(
             text("""
         SELECT COALESCE(company_name, title) cliente, stage, value FROM opportunities
-        WHERE stage NOT IN ('closed_won','closed_lost') ORDER BY value DESC LIMIT 8""")
+        WHERE stage NOT IN ('closed_won','closed_lost') AND is_active = true ORDER BY value DESC LIMIT 8""")
         )
     )
     top_deals = [
