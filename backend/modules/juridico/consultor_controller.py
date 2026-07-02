@@ -6,7 +6,7 @@ A IA assiste; o escritório certifica. Toda resposta traz disclaimer e sinal de 
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import Depends
@@ -71,6 +71,57 @@ async def perguntar(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     return ConsultaOut(**resultado)
+
+
+def _extrair_texto_arquivo(nome: str, data: bytes) -> str:
+    """Extrai texto de PDF (PyMuPDF), DOCX (python-docx) ou TXT."""
+    n = (nome or "").lower()
+    try:
+        if n.endswith(".pdf"):
+            import fitz
+            doc = fitz.open(stream=data, filetype="pdf")
+            txt = "\n".join(p.get_text() for p in doc)
+            doc.close()
+            return txt.strip()
+        if n.endswith(".docx"):
+            import io
+            from docx import Document
+            d = Document(io.BytesIO(data))
+            return "\n".join(p.text for p in d.paragraphs).strip()
+        return data.decode("utf-8", "ignore").strip()
+    except Exception:  # noqa: BLE001
+        return data.decode("utf-8", "ignore").strip()
+
+
+@router.post(
+    "/perguntar-arquivo",
+    summary="Consulta jurídica analisando um arquivo anexado (PDF/DOCX/TXT)",
+)
+async def perguntar_arquivo(
+    arquivo: UploadFile = File(...),
+    area: str = Form("trabalhista"),
+    pergunta: str = Form(""),
+    current_user=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Analisa o documento anexado à luz da pergunta (área trabalhista/cível/tributária)."""
+    area_n = (area or "").strip().lower()
+    if area_n not in svc.AREAS_VALIDAS:
+        raise HTTPException(status_code=422, detail=f"Área inválida '{area}'.")
+    data = await arquivo.read()
+    texto = _extrair_texto_arquivo(arquivo.filename or "", data)
+    if len(texto.strip()) < 20:
+        raise HTTPException(status_code=422, detail="Não foi possível extrair texto do arquivo (PDF escaneado sem OCR?).")
+    pergunta_final = (pergunta or "").strip() or "Analise juridicamente este documento e aponte pontos de atenção, riscos e recomendações."
+    try:
+        resultado = await svc.consultar(
+            db=db, area=area_n, pergunta=pergunta_final,
+            user_id=str(getattr(current_user, "id", None)),
+            anexo_texto=texto, anexo_nome=arquivo.filename,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    return resultado
 
 
 @router.get(

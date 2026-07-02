@@ -81,6 +81,20 @@ REGRAS INEGOCIÁVEIS:
    valores elevados, autuação fiscal, ou qualquer decisão com efeito irreversível.
 5. Ao final da resposta, liste as FONTES efetivamente citadas.
 
+FORMATO DA RESPOSTA (use Markdown, seja organizado e escaneável):
+## Resposta direta
+Uma resposta objetiva em 1–3 frases (o "sim/não/depende" e o essencial).
+## Fundamentação
+O porquê, citando a fonte legal específica (artigo/cláusula) em **negrito**.
+## Na prática
+Passo a passo do que fazer, em lista numerada ou com marcadores (-).
+## Atenção
+Riscos, prazos, exceções e ressalvas relevantes (se houver).
+## Fontes
+Lista das fontes legais efetivamente citadas.
+Regras de formatação: use `##` para os títulos das seções, **negrito** para artigos/valores/prazos,
+listas com `-` ou numeradas. Seja conciso — evite parágrafos longos. Omita uma seção se não se aplicar.
+
 {_CONTEXTO_EMPRESA}
 """
 
@@ -238,9 +252,12 @@ async def consultar(
     area: str,
     pergunta: str,
     user_id: str | None,
+    anexo_texto: str | None = None,
+    anexo_nome: str | None = None,
 ) -> dict[str, Any]:
     """Responde uma dúvida jurídica fundamentada na área indicada e persiste a consulta.
 
+    anexo_texto: texto extraído de um arquivo anexado (PDF/DOCX/TXT) para a IA analisar.
     Retorna: {resposta, fontes, escalonar, disclaimer, id}
     """
     area_norm = (area or "").strip().lower()
@@ -248,7 +265,7 @@ async def consultar(
         raise ValueError(
             f"Área inválida '{area}'. Áreas válidas: {', '.join(AREAS_VALIDAS)}."
         )
-    if not (pergunta or "").strip():
+    if not (pergunta or "").strip() and not (anexo_texto or "").strip():
         raise ValueError("A pergunta não pode ser vazia.")
 
     await _garantir_tabela(db)
@@ -273,10 +290,18 @@ async def consultar(
         if not provider.api_key:
             raise RuntimeError("ANTHROPIC_API_KEY ausente")
 
+        user_content = pergunta.strip()
+        if (anexo_texto or "").strip():
+            user_content = (
+                f"{user_content}\n\n=== DOCUMENTO ANEXADO PELO USUÁRIO"
+                f"{f' ({anexo_nome})' if anexo_nome else ''} ===\n"
+                f"{anexo_texto.strip()[:14000]}\n=== FIM DO DOCUMENTO ===\n\n"
+                "Analise o documento acima à luz da pergunta e responda de forma fundamentada."
+            )
         llm_resp = await provider.generate(
-            messages=[{"role": "user", "content": pergunta.strip()}],
+            messages=[{"role": "user", "content": user_content}],
             system_prompt=system_prompt,
-            max_tokens=2000,
+            max_tokens=2500,
             temperature=0.2,
         )
         resposta_texto = (llm_resp.content or "").strip()
