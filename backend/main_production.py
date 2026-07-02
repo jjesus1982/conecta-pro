@@ -1144,6 +1144,14 @@ try:
 except Exception as _e:
     logger.warning(f"Jurídico Skills: {_e}")
 
+try:
+    from modules.juridico.contracts_controller import router as juridico_contratos_router
+
+    api_router.include_router(juridico_contratos_router)
+    logger.info("Jurídico — Central de Contratos: OK")
+except Exception as _e:
+    logger.warning(f"Jurídico — Central de Contratos: {_e}")
+
 # Incluir router principal
 try:
     from modules.scheduler.controllers import router as _scheduler_router

@@ -417,6 +417,24 @@ export const modules: Module[] = [
   },
 
   // =================================================================
+  // JURIDICO (Central de Contratos + Compliance + LGPD)
+  // =================================================================
+  {
+    id: 'juridico',
+    title: 'Juridico',
+    description: 'Central de Contratos com alertas, compliance e LGPD',
+    icon: 'Scale',
+    href: '/modulos/juridico/contratos',
+    color: 'blue',
+    permissions: ['operacional:read'],
+    enabled: true,
+    subModules: [
+      { id: 'juridico-contratos', title: 'Central de Contratos', href: '/modulos/juridico/contratos', icon: 'FileText', permissions: ['operacional:read'], group: 'Contratos' },
+      { id: 'juridico-certidoes', title: 'Certidoes (CND/FGTS)', href: '/modulos/fiscal/certidoes', icon: 'Award', permissions: ['government:certidoes'], group: 'Compliance' },
+    ],
+  },
+
+  // =================================================================
   // 9. INTELIGENCIA (Relatorios + Analytics)
   // =================================================================
   {
