@@ -37,6 +37,7 @@ app = Celery(
         "modules.financial.tasks",
         "modules.crm.tasks",
         "modules.integrations.connectors.whatsapp.tasks",
+        "modules.analytics.tasks",
     ],
 )
 
@@ -114,6 +115,8 @@ app.conf.task_routes = {
     "ged.sync_cnds": {"queue": "operacional"},
     # People Management - Escalas Sólides
     "integrations.sync_work_schedules_from_solides": {"queue": "integrations"},
+    # Analytics - Recálculo de KPIs
+    "analytics.recalcular_kpis": {"queue": "gov.batch"},
 }
 
 # Configurações gerais
@@ -509,6 +512,19 @@ app.conf.beat_schedule = {
     "whatsapp-notificar-status-os-5min": {
         "task": "whatsapp.notificar_status_os",
         "schedule": 300.0,
+        "options": {"queue": "gov.batch"},
+    },
+    # ── ANALYTICS — Recálculo de KPIs a partir do dado real ──────────────────
+    # De hora em hora (minuto 25) para "descongelar" executive_kpis/financial_kpis.
+    "analytics-recalcular-kpis-hourly": {
+        "task": "analytics.recalcular_kpis",
+        "schedule": crontab(minute=25),
+        "options": {"queue": "gov.batch"},
+    },
+    # Recálculo diário garantido às 06:15 (SP).
+    "analytics-recalcular-kpis-daily": {
+        "task": "analytics.recalcular_kpis",
+        "schedule": crontab(hour=6, minute=15),
         "options": {"queue": "gov.batch"},
     },
 }

@@ -10,11 +10,14 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
+from core.database.session import get_db
 
 from ..services.executive_dashboard_service import executive_dashboard_service
+from ..services.kpi_recalc_service import recalcular_kpis
 
 logger = logging.getLogger(__name__)
 
@@ -249,6 +252,35 @@ async def export_dashboard(
     except Exception as e:
         logger.error(f"Erro ao exportar dashboard em formato {format_type}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
+
+
+@router.post(
+    "/kpis/recalcular",
+    summary="Recalcular KPIs a partir do dado real",
+    description=(
+        "Recalcula os KPIs das tabelas executive_kpis e financial_kpis a partir "
+        "das fontes reais (contratos, folha, clientes, funcionários, saldo, NFS-e). "
+        "Move current -> previous e grava last_calculated_at = now(). "
+        "KPIs sem fonte real definida permanecem intactos."
+    ),
+)
+async def recalcular_kpis_endpoint(
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Dispara o recálculo dos KPIs sob demanda (admin)."""
+    try:
+        resultado = await recalcular_kpis(db)
+        logger.info(
+            "Recálculo de KPIs disparado por %s: executive=%s financial=%s",
+            getattr(current_user, "email", "?"),
+            resultado["executive_updated"],
+            resultado["financial_updated"],
+        )
+        return {"status": "ok", **resultado}
+    except Exception as e:
+        logger.error(f"Erro ao recalcular KPIs: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro ao recalcular KPIs: {str(e)}")
 
 
 @router.get("/health", summary="Health Check Dashboard", description="Verifica saúde do sistema de dashboard")

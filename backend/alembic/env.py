@@ -112,6 +112,12 @@ from modules.people_management.human_resources.models import (  # noqa: F401
     TrainingEnrollment,
 )
 
+# Security LGPD models
+from modules.security_lgpd.models.audit_log import AuditLog  # noqa: F401
+from modules.security_lgpd.models.consent import Consent  # noqa: F401
+from modules.security_lgpd.models.erasure_request import ErasureRequest  # noqa: F401
+from modules.security_lgpd.models.pia_assessment import PIAAssessment  # noqa: F401
+
 # Alembic Config object
 config = context.config
 

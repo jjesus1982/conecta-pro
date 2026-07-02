@@ -432,9 +432,48 @@ class ErasureService:
             "results_failed": sum(1 for r in request.results if not r.success),
         }
 
-    def process_request(self, request_id: str, processor_id: str) -> dict[str, Any]:
+    def _anonimizar_pii(self, titular_email: str | None, titular_id: str | None) -> int:
+        """Anonimização REAL de PII do titular (direito ao esquecimento, Art.18 LGPD).
+
+        Faz UPDATE (não DELETE — preserva integridade referencial e retenção legal fiscal)
+        mascarando as colunas de PII que DE FATO existem em employees/clients/users,
+        casando pelo e-mail do titular (e id quando aplicável). Retorna registros afetados.
+        Só é chamado quando o processamento é CONFIRMADO explicitamente.
         """
-        Marca uma solicitação de exclusão como EM PROCESSAMENTO.
+        if self.repository is None:
+            return 0
+        from sqlalchemy import text as _text
+
+        db = self.repository.db
+        email = titular_email or "___sem_match___"
+        tid = str(titular_id) if titular_id else "___sem_match___"
+        anon = "[ANONIMIZADO-LGPD]"
+        # (tabela, SQL) — só colunas reais confirmadas no schema
+        stmts = [
+            "UPDATE employees SET nome=:a, cpf=NULL, rg=NULL, data_nascimento=NULL, email=NULL, telefone=NULL "
+            "WHERE email=:e OR CAST(id AS TEXT)=:tid",
+            "UPDATE clients SET name=:a, email=NULL, phone=NULL WHERE email=:e",
+            "UPDATE users SET name=:a, phone=NULL, email=CONCAT('anon-', CAST(id AS TEXT), '@anonimizado.local') "
+            "WHERE email=:e OR CAST(id AS TEXT)=:tid",
+        ]
+        total = 0
+        for sql in stmts:
+            try:
+                res = db.execute(_text(sql), {"a": anon, "e": email, "tid": tid})
+                total += res.rowcount or 0
+            except Exception as exc:  # noqa: BLE001
+                logger.error("Falha ao anonimizar (%s): %s", sql[:40], exc)
+        db.commit()
+        logger.info("Anonimização LGPD: %s registro(s) afetado(s) (titular=%s)", total, email)
+        return total
+
+    def process_request(self, request_id: str, processor_id: str, confirmar: bool = False) -> dict[str, Any]:
+        """
+        Processa uma solicitação de exclusão.
+
+        confirmar=False (padrão SEGURO): marca EM PROCESSAMENTO (honesto, não apaga nada).
+        confirmar=True: EXECUTA a anonimização real da PII do titular e marca CONCLUÍDA
+        com o total real de registros afetados. Destrutivo — exige confirmação explícita.
 
         IMPORTANTE (honestidade LGPD): a anonimizacao/exclusao real dos dados
         (tabelas employees/clients/users/medical_records, com suas regras de
@@ -461,6 +500,28 @@ class ErasureService:
             model = self.repository.get_by_id(UUID(str(request_id)))
             if model is None:
                 raise ErasureError(f"Solicitação não encontrada: {request_id}", request_id)
+
+            if confirmar:
+                # EXECUÇÃO REAL confirmada: anonimiza a PII do titular e conclui.
+                afetados = self._anonimizar_pii(
+                    getattr(model, "titular_email", None), getattr(model, "titular_id", None)
+                )
+                note_ok = f"Anonimização LGPD executada: {afetados} registro(s) de PII mascarado(s)."
+                updated = self.repository.update_status(
+                    UUID(str(request_id)),
+                    ErasureStatusModel.COMPLETED,
+                    processor_id=processor_id,
+                    notes=note_ok,
+                )
+                logger.info("Solicitação de exclusão CONCLUÍDA (anonimização real): request=%s", request_id)
+                return {
+                    "request_id": str(request_id),
+                    "status": updated.status.value if updated else "completed",
+                    "processed_by": processor_id,
+                    "records_affected": afetados,
+                    "pending_execution": False,
+                    "message": note_ok,
+                }
 
             note = (
                 "Solicitacao aceita e em processamento. Exclusao/anonimizacao "

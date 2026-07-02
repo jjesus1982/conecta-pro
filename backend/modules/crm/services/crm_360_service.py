@@ -3,24 +3,27 @@
 CONECTA PRO - CRM 360° + Customer Journey Service
 ==============================================
 FASE 3 ONDA 3: Transformação Digital
-Target ROI: R$ 140K
 
-Recursos implementados:
+NOTA (2026-07): Este serviço NÃO é servido por nenhum controller/router.
+Ele existe apenas como estrutura de domínio (dataclasses/enums) e é exercitado
+por testes. Toda a fabricação de dados via `random` foi REMOVIDA. O serviço
+inicializa com um conjunto FIXO e determinístico de clientes-semente (sem
+aleatoriedade e sem métricas inventadas por RNG). Interações e insights
+preditivos iniciam VAZIOS — só existem quando alimentados de fato via
+`track_customer_interaction`, refletindo honestamente "sem dado ainda".
+
+Recursos (estrutura):
 - Visão 360° completa do cliente
 - Mapeamento da jornada do cliente
 - Rastreamento de interações multi-canal
-- Analytics comportamental avançado
-- Insights preditivos com IA
-- Segmentação automática de clientes
+- Segmentação de clientes
 - Gestão de lifecycle do cliente
-- Integração com todos os módulos ERP
 """
 
 import asyncio
 import logging
-import random  # noqa: S311
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
 from typing import Any
 
@@ -213,8 +216,70 @@ class CRMAnalytics:
     conversion_rates: dict[str, float]
 
 
+# ---------------------------------------------------------------------------
+# Semente FIXA e determinística (sem random, sem métricas fabricadas por RNG).
+# Cada valor é uma constante conhecida — nada é inventado a cada execução.
+# Interações e insights preditivos NÃO são pré-populados: começam vazios e só
+# passam a existir quando registrados de fato.
+# ---------------------------------------------------------------------------
+_SEED_CUSTOMERS: list[dict[str, Any]] = [
+    {
+        "id": "CUST_0001",
+        "name": "Condomínio Jardim Europa",
+        "location": "São Paulo - Zona Sul",
+        "segment": CustomerSegment.VIP,
+        "stage": CustomerStage.LOYAL,
+        "monthly_revenue": 12000.0,
+        "lifetime_value": 350000.0,
+        "overall_satisfaction": 9.2,
+        "feature_adoption_rate": 0.9,
+        "churn_risk_score": 0.1,
+    },
+    {
+        "id": "CUST_0002",
+        "name": "Condomínio Vila Madalena",
+        "location": "São Paulo - Zona Oeste",
+        "segment": CustomerSegment.VIP,
+        "stage": CustomerStage.ADVOCATE,
+        "monthly_revenue": 13500.0,
+        "lifetime_value": 420000.0,
+        "overall_satisfaction": 9.5,
+        "feature_adoption_rate": 0.92,
+        "churn_risk_score": 0.08,
+    },
+    {
+        "id": "CUST_0003",
+        "name": "Residencial Parque das Flores",
+        "location": "São Paulo - Zona Norte",
+        "segment": CustomerSegment.PREMIUM,
+        "stage": CustomerStage.CUSTOMER,
+        "monthly_revenue": 6000.0,
+        "lifetime_value": 180000.0,
+        "overall_satisfaction": 8.7,
+        "feature_adoption_rate": 0.75,
+        "churn_risk_score": 0.15,
+    },
+    {
+        "id": "CUST_0004",
+        "name": "Edifício Corporate Center",
+        "location": "São Paulo - Central",
+        "segment": CustomerSegment.STANDARD,
+        "stage": CustomerStage.CUSTOMER,
+        "monthly_revenue": 3000.0,
+        "lifetime_value": 85000.0,
+        "overall_satisfaction": 8.1,
+        "feature_adoption_rate": 0.6,
+        "churn_risk_score": 0.25,
+    },
+]
+
+
 class CRM360Service:
-    """Serviço CRM 360° + Customer Journey completo."""
+    """Serviço CRM 360° + Customer Journey.
+
+    Sem `random`: a semente é FIXA. Interações e insights preditivos iniciam
+    vazios (honestos) e só existem quando alimentados de fato.
+    """
 
     def __init__(self):
         self.customers: dict[str, Customer360] = {}
@@ -223,167 +288,63 @@ class CRM360Service:
         self.segments: dict[CustomerSegment, CustomerSegmentProfile] = {}
         self.predictive_insights: dict[str, list[PredictiveInsight]] = {}
 
-        # Inicializar com dados de demonstração
-        self._initialize_demo_data()
+        # Inicializar com semente FIXA (determinística, sem RNG)
+        self._initialize_seed_data()
 
-    def _initialize_demo_data(self):
-        """Inicializar com dados de demonstração."""
+    def _initialize_seed_data(self):
+        """Inicializar com semente FIXA determinística (sem random)."""
+        now = datetime.now()
 
-        # Criar touchpoints da jornada
-        touchpoints_data = [
-            {
-                "name": "Website Landing Page",
-                "category": TouchpointCategory.MARKETING,
-                "channel": "website",
-                "stage": JourneyStage.AWARENESS,
-                "digital": True,
-            },
-            {
-                "name": "WhatsApp First Contact",
-                "category": TouchpointCategory.SALES,
-                "channel": "whatsapp",
-                "stage": JourneyStage.CONSIDERATION,
-                "digital": True,
-            },
-            {
-                "name": "Proposta Comercial",
-                "category": TouchpointCategory.SALES,
-                "channel": "email",
-                "stage": JourneyStage.DECISION,
-                "digital": True,
-            },
-            {
-                "name": "Onboarding Call",
-                "category": TouchpointCategory.SUPPORT,
-                "channel": "phone",
-                "stage": JourneyStage.ONBOARDING,
-                "digital": False,
-            },
-            {
-                "name": "Portal de Cliente",
-                "category": TouchpointCategory.PRODUCT,
-                "channel": "portal",
-                "stage": JourneyStage.ACTIVE_USE,
-                "digital": True,
-            },
-            {
-                "name": "App Mobile",
-                "category": TouchpointCategory.PRODUCT,
-                "channel": "mobile_app",
-                "stage": JourneyStage.ACTIVE_USE,
-                "digital": True,
-            },
-            {
-                "name": "Suporte Técnico",
-                "category": TouchpointCategory.TECHNICAL,
-                "channel": "phone",
-                "stage": JourneyStage.ACTIVE_USE,
-                "digital": False,
-            },
-            {
-                "name": "Renovação de Contrato",
-                "category": TouchpointCategory.SALES,
-                "channel": "face_to_face",
-                "stage": JourneyStage.RENEWAL,
-                "digital": False,
-            },
-            {
-                "name": "Programa de Indicação",
-                "category": TouchpointCategory.MARKETING,
-                "channel": "email",
-                "stage": JourneyStage.ADVOCACY,
-                "digital": True,
-            },
-        ]
-
-        for i, tp_data in enumerate(touchpoints_data, 1):
-            touchpoint = CustomerTouchpoint(
-                id=f"TP_{i:03d}",
-                name=tp_data["name"],
-                category=tp_data["category"],
-                channel=tp_data["channel"],
-                stage=tp_data["stage"],
-                is_digital=tp_data["digital"],
-                importance_score=random.uniform(6.0, 9.5),  # noqa: S311
-                satisfaction_avg=random.uniform(7.0, 9.0),  # noqa: S311
-                conversion_rate=random.uniform(0.15, 0.85),  # noqa: S311
-                description=f"Touchpoint {tp_data['name']} na jornada do cliente",
-            )
-            self.touchpoints[touchpoint.id] = touchpoint
-
-        # Criar clientes de demonstração
-        demo_customers = [
-            {"name": "Condomínio Jardim Europa", "segment": CustomerSegment.VIP, "stage": CustomerStage.LOYAL},
-            {
-                "name": "Residencial Parque das Flores",
-                "segment": CustomerSegment.PREMIUM,
-                "stage": CustomerStage.CUSTOMER,
-            },
-            {"name": "Edifício Corporate Center", "segment": CustomerSegment.STANDARD, "stage": CustomerStage.CUSTOMER},
-            {"name": "Condomínio Vila Madalena", "segment": CustomerSegment.VIP, "stage": CustomerStage.ADVOCATE},
-            {"name": "Residencial Green Park", "segment": CustomerSegment.PREMIUM, "stage": CustomerStage.LOYAL},
-            {"name": "Edifício Manhattan", "segment": CustomerSegment.STANDARD, "stage": CustomerStage.PROSPECT},
-            {"name": "Condomínio Sunset", "segment": CustomerSegment.BRONZE, "stage": CustomerStage.CUSTOMER},
-        ]
-
-        for i, cust_data in enumerate(demo_customers, 1):
-            customer_id = f"CUST_{i:04d}"
-
-            # Criar jornada do cliente
-            journey_start = datetime.now() - timedelta(days=random.randint(30, 730))  # noqa: S311
-            current_stage = self._get_journey_stage_from_customer_stage(cust_data["stage"])
+        for seed in _SEED_CUSTOMERS:
+            current_stage = self._get_journey_stage_from_customer_stage(seed["stage"])
 
             journey = CustomerJourney(
-                customer_id=customer_id,
+                customer_id=seed["id"],
                 current_stage=current_stage,
-                journey_start_date=journey_start,
-                touchpoints_visited=[tp.id for tp in list(self.touchpoints.values())[: random.randint(3, 7)]],  # noqa: S311
-                interactions_count=random.randint(15, 80),  # noqa: S311
-                satisfaction_avg=random.uniform(7.2, 9.1),  # noqa: S311
-                time_in_stage_days=(datetime.now() - journey_start).days,
+                journey_start_date=now,
+                touchpoints_visited=[],
+                interactions_count=0,
+                satisfaction_avg=seed["overall_satisfaction"],
+                time_in_stage_days=0,
                 next_predicted_stage=self._predict_next_journey_stage(current_stage),
-                stage_progression_probability=random.uniform(0.6, 0.9),  # noqa: S311
-                churn_risk_score=random.uniform(0.1, 0.4),  # noqa: S311
-                lifetime_value_predicted=random.uniform(50000, 300000),  # noqa: S311
-                journey_health_score=random.uniform(75, 95),  # noqa: S311
+                stage_progression_probability=0.0,
+                churn_risk_score=seed["churn_risk_score"],
+                lifetime_value_predicted=seed["lifetime_value"],
+                journey_health_score=0.0,
             )
 
-            # Criar customer 360
             customer = Customer360(
-                id=customer_id,
+                id=seed["id"],
                 basic_info={
-                    "name": cust_data["name"],
+                    "name": seed["name"],
                     "type": "condomínio",
-                    "created_date": journey_start.isoformat(),
-                    "units": random.randint(20, 200),  # noqa: S311
-                    "location": f"São Paulo - Zona {random.choice(['Sul', 'Norte', 'Oeste', 'Central'])}",  # noqa: S311
+                    "created_date": now.isoformat(),
+                    "location": seed["location"],
                 },
-                segment=cust_data["segment"],
-                stage=cust_data["stage"],
+                segment=seed["segment"],
+                stage=seed["stage"],
                 journey=journey,
                 interactions=[],
-                behavioral_insights=self._generate_behavioral_insights(cust_data["segment"]),
-                preferences=self._generate_customer_preferences(),
-                satisfaction_metrics=self._generate_satisfaction_metrics(),
-                financial_metrics=self._generate_financial_metrics(cust_data["segment"]),
-                engagement_metrics=self._generate_engagement_metrics(),
-                risk_indicators=self._generate_risk_indicators(),
-                opportunities=self._generate_opportunities(cust_data["segment"]),
-                next_best_actions=self._generate_next_best_actions(cust_data["stage"]),
-                created_at=journey_start,
-                last_updated=datetime.now(),
+                behavioral_insights={},
+                preferences={"language": "pt-br", "timezone": "America/Sao_Paulo"},
+                satisfaction_metrics={"overall_satisfaction": seed["overall_satisfaction"]},
+                financial_metrics={
+                    "monthly_revenue": seed["monthly_revenue"],
+                    "lifetime_value": seed["lifetime_value"],
+                },
+                engagement_metrics={"feature_adoption_rate": seed["feature_adoption_rate"]},
+                risk_indicators={"churn_probability": seed["churn_risk_score"]},
+                opportunities=[],
+                next_best_actions=self._generate_next_best_actions(seed["stage"]),
+                created_at=now,
+                last_updated=now,
             )
 
-            self.customers[customer_id] = customer
+            self.customers[seed["id"]] = customer
+            # Insights preditivos iniciam VAZIOS (sem dado real ainda)
+            self.predictive_insights[seed["id"]] = []
 
-            # Criar algumas interações para cada cliente
-            self._generate_customer_interactions(customer_id, random.randint(8, 15))  # noqa: S311
-
-        # Gerar perfis de segmentos
         self._generate_segment_profiles()
-
-        # Gerar insights preditivos
-        self._generate_predictive_insights()
 
     def _get_journey_stage_from_customer_stage(self, customer_stage: CustomerStage) -> JourneyStage:
         """Mapear customer stage para journey stage."""
@@ -398,7 +359,7 @@ class CRM360Service:
         return mapping.get(customer_stage, JourneyStage.ACTIVE_USE)
 
     def _predict_next_journey_stage(self, current_stage: JourneyStage) -> JourneyStage | None:
-        """Predizer próximo estágio da jornada."""
+        """Predizer próximo estágio da jornada (determinístico)."""
         progression_map = {
             JourneyStage.AWARENESS: JourneyStage.CONSIDERATION,
             JourneyStage.CONSIDERATION: JourneyStage.DECISION,
@@ -412,137 +373,8 @@ class CRM360Service:
         }
         return progression_map.get(current_stage)
 
-    def _generate_behavioral_insights(self, segment: CustomerSegment) -> dict[str, Any]:
-        """Gerar insights comportamentais baseados no segmento."""
-        base_insights = {
-            "preferred_contact_time": f"{random.randint(9, 17)}:00-{random.randint(18, 20)}:00",  # noqa: S311
-            "response_time_preference": "immediate"
-            if segment in [CustomerSegment.VIP, CustomerSegment.PREMIUM]
-            else "within_24h",
-            "communication_style": "formal" if segment == CustomerSegment.VIP else "friendly",
-            "decision_making_speed": "fast"
-            if segment in [CustomerSegment.VIP, CustomerSegment.PREMIUM]
-            else "moderate",
-            "price_sensitivity": "low"
-            if segment == CustomerSegment.VIP
-            else "high"
-            if segment == CustomerSegment.BRONZE
-            else "medium",
-            "digital_adoption": random.uniform(0.6, 0.95),  # noqa: S311
-            "feature_usage_patterns": {
-                "financial_module": random.uniform(0.7, 0.95),  # noqa: S311
-                "maintenance_module": random.uniform(0.5, 0.9),  # noqa: S311
-                "communication_module": random.uniform(0.8, 0.98),  # noqa: S311
-                "reporting_module": random.uniform(0.3, 0.8),  # noqa: S311
-            },
-        }
-        return base_insights
-
-    def _generate_customer_preferences(self) -> dict[str, Any]:
-        """Gerar preferências do cliente."""
-        return {
-            "preferred_channels": random.sample(["email", "whatsapp", "phone", "portal"], k=random.randint(2, 4)),  # noqa: S311
-            "notification_frequency": random.choice(["immediate", "daily", "weekly"]),  # noqa: S311
-            "report_format": random.choice(["pdf", "excel", "dashboard"]),  # noqa: S311
-            "language": "pt-br",
-            "timezone": "America/Sao_Paulo",
-            "privacy_level": random.choice(["standard", "high", "maximum"]),  # noqa: S311
-            "marketing_consent": random.choice([True, False]),  # noqa: S311
-        }
-
-    def _generate_satisfaction_metrics(self) -> dict[str, float]:
-        """Gerar métricas de satisfação."""
-        return {
-            "overall_satisfaction": random.uniform(7.0, 9.5),  # noqa: S311
-            "product_satisfaction": random.uniform(7.5, 9.2),  # noqa: S311
-            "support_satisfaction": random.uniform(6.8, 9.1),  # noqa: S311
-            "onboarding_satisfaction": random.uniform(7.2, 8.9),  # noqa: S311
-            "nps_score": random.uniform(7.0, 9.0),  # noqa: S311
-        }
-
-    def _generate_financial_metrics(self, segment: CustomerSegment) -> dict[str, float]:
-        """Gerar métricas financeiras baseadas no segmento."""
-        base_values = {
-            CustomerSegment.VIP: {"monthly_revenue": (8000, 15000), "lifetime_value": (200000, 400000)},
-            CustomerSegment.PREMIUM: {"monthly_revenue": (4000, 8000), "lifetime_value": (100000, 200000)},
-            CustomerSegment.STANDARD: {"monthly_revenue": (2000, 4000), "lifetime_value": (50000, 100000)},
-            CustomerSegment.BRONZE: {"monthly_revenue": (800, 2000), "lifetime_value": (20000, 50000)},
-        }
-
-        values = base_values.get(segment, base_values[CustomerSegment.STANDARD])
-
-        return {
-            "monthly_revenue": random.uniform(*values["monthly_revenue"]),  # noqa: S311
-            "lifetime_value": random.uniform(*values["lifetime_value"]),  # noqa: S311
-            "acquisition_cost": random.uniform(500, 2000),  # noqa: S311
-            "payment_score": random.uniform(0.8, 1.0),  # noqa: S311
-            "credit_limit": random.uniform(10000, 50000),  # noqa: S311
-            "outstanding_balance": random.uniform(0, 5000),  # noqa: S311
-        }
-
-    def _generate_engagement_metrics(self) -> dict[str, float]:
-        """Gerar métricas de engajamento."""
-        return {
-            "login_frequency_weekly": random.uniform(3, 15),  # noqa: S311
-            "feature_adoption_rate": random.uniform(0.4, 0.9),  # noqa: S311
-            "support_ticket_frequency": random.uniform(0.2, 2.0),  # noqa: S311
-            "portal_usage_hours_monthly": random.uniform(5, 25),  # noqa: S311
-            "mobile_app_usage_rate": random.uniform(0.3, 0.8),  # noqa: S311
-            "email_open_rate": random.uniform(0.4, 0.85),  # noqa: S311
-            "social_engagement_score": random.uniform(0.1, 0.7),  # noqa: S311
-        }
-
-    def _generate_risk_indicators(self) -> dict[str, float]:
-        """Gerar indicadores de risco."""
-        return {
-            "churn_probability": random.uniform(0.05, 0.35),  # noqa: S311
-            "payment_risk": random.uniform(0.1, 0.4),  # noqa: S311
-            "support_escalation_risk": random.uniform(0.1, 0.3),  # noqa: S311
-            "contract_renewal_risk": random.uniform(0.2, 0.5),  # noqa: S311
-            "satisfaction_decline_risk": random.uniform(0.1, 0.4),  # noqa: S311
-        }
-
-    def _generate_opportunities(self, segment: CustomerSegment) -> list[dict[str, Any]]:
-        """Gerar oportunidades de negócio."""
-        opportunities = []
-
-        # Oportunidades baseadas no segmento
-        if segment in [CustomerSegment.VIP, CustomerSegment.PREMIUM]:
-            opportunities.append(
-                {
-                    "type": "upsell",
-                    "title": "Módulo Avançado de Analytics",
-                    "value": random.uniform(2000, 5000),  # noqa: S311
-                    "probability": random.uniform(0.6, 0.8),  # noqa: S311
-                    "description": "Cliente com perfil para módulos avançados",
-                }
-            )
-
-        if segment in [CustomerSegment.STANDARD, CustomerSegment.BRONZE]:
-            opportunities.append(
-                {
-                    "type": "upgrade",
-                    "title": "Upgrade para Plano Premium",
-                    "value": random.uniform(1000, 3000),  # noqa: S311
-                    "probability": random.uniform(0.4, 0.6),  # noqa: S311
-                    "description": "Potencial para upgrade baseado no uso",
-                }
-            )
-
-        opportunities.append(
-            {
-                "type": "referral",
-                "title": "Programa de Indicação",
-                "value": random.uniform(5000, 15000),  # noqa: S311
-                "probability": random.uniform(0.3, 0.7),  # noqa: S311
-                "description": "Cliente satisfeito com potencial de indicação",
-            }
-        )
-
-        return opportunities
-
     def _generate_next_best_actions(self, stage: CustomerStage) -> list[dict[str, Any]]:
-        """Gerar próximas melhores ações."""
+        """Próximas melhores ações (playbook fixo por estágio, sem RNG)."""
         actions_map = {
             CustomerStage.LEAD: [
                 {
@@ -583,155 +415,51 @@ class CRM360Service:
         }
         return actions_map.get(stage, [])
 
-    def _generate_customer_interactions(self, customer_id: str, count: int):
-        """Gerar interações para um cliente."""
-        interaction_types = [
-            {
-                "type": InteractionType.EMAIL,
-                "direction": InteractionDirection.OUTBOUND,
-                "category": TouchpointCategory.MARKETING,
-            },
-            {
-                "type": InteractionType.PHONE,
-                "direction": InteractionDirection.INBOUND,
-                "category": TouchpointCategory.SUPPORT,
-            },
-            {
-                "type": InteractionType.WHATSAPP,
-                "direction": InteractionDirection.INBOUND,
-                "category": TouchpointCategory.SALES,
-            },
-            {
-                "type": InteractionType.PORTAL,
-                "direction": InteractionDirection.INTERNAL,
-                "category": TouchpointCategory.PRODUCT,
-            },
-            {
-                "type": InteractionType.MOBILE_APP,
-                "direction": InteractionDirection.INTERNAL,
-                "category": TouchpointCategory.PRODUCT,
-            },
-        ]
-
-        for i in range(count):
-            interaction_data = random.choice(interaction_types)  # noqa: S311
-
-            interaction = CustomerInteraction(
-                id=f"INT_{customer_id}_{i + 1:03d}",
-                customer_id=customer_id,
-                timestamp=datetime.now() - timedelta(days=random.randint(1, 90)),  # noqa: S311
-                type=interaction_data["type"],
-                direction=interaction_data["direction"],
-                channel=interaction_data["type"].value,
-                touchpoint_category=interaction_data["category"],
-                subject=f"Interação {interaction_data['type'].value} - {interaction_data['category'].value}",
-                description=f"Interação via {interaction_data['type'].value} sobre {interaction_data['category'].value}",
-                sentiment_score=random.uniform(-0.2, 0.8),  # noqa: S311
-                satisfaction_score=random.uniform(6.0, 9.5) if random.random() > 0.3 else None,  # noqa: S311
-                outcome=random.choice(["resolved", "pending", "escalated", "completed"]),  # noqa: S311
-                agent_id=f"AGENT_{random.randint(1, 10):02d}",  # noqa: S311
-                duration_seconds=random.randint(300, 3600),  # noqa: S311
-                metadata={"source": "demo_data", "auto_generated": True},
-            )
-
-            self.interactions[interaction.id] = interaction
-
-            # Adicionar à lista de interações do cliente
-            if customer_id in self.customers:
-                self.customers[customer_id].interactions.append(interaction)
-
     def _generate_segment_profiles(self):
-        """Gerar perfis de segmentos."""
-        segments_data = {
-            CustomerSegment.VIP: {"criteria": {"monthly_revenue_min": 8000}, "avg_ltv": 300000, "churn_rate": 0.05},
-            CustomerSegment.PREMIUM: {"criteria": {"monthly_revenue_min": 4000}, "avg_ltv": 150000, "churn_rate": 0.08},
-            CustomerSegment.STANDARD: {"criteria": {"monthly_revenue_min": 2000}, "avg_ltv": 75000, "churn_rate": 0.12},
-            CustomerSegment.BRONZE: {"criteria": {"monthly_revenue_min": 800}, "avg_ltv": 35000, "churn_rate": 0.18},
+        """Gerar perfis de segmentos a partir dos clientes reais em memória (sem RNG)."""
+        # Critérios fixos por segmento (regras de negócio, não valores fabricados)
+        segments_criteria = {
+            CustomerSegment.VIP: {"monthly_revenue_min": 8000},
+            CustomerSegment.PREMIUM: {"monthly_revenue_min": 4000},
+            CustomerSegment.STANDARD: {"monthly_revenue_min": 2000},
+            CustomerSegment.BRONZE: {"monthly_revenue_min": 800},
         }
 
-        for segment, data in segments_data.items():
+        for segment, criteria in segments_criteria.items():
             segment_customers = [c for c in self.customers.values() if c.segment == segment]
+
+            avg_ltv = (
+                sum(c.financial_metrics.get("lifetime_value", 0.0) for c in segment_customers) / len(segment_customers)
+                if segment_customers
+                else 0.0
+            )
+            avg_satisfaction = (
+                sum(c.satisfaction_metrics.get("overall_satisfaction", 0.0) for c in segment_customers)
+                / len(segment_customers)
+                if segment_customers
+                else 0.0
+            )
+            avg_churn = (
+                sum(c.risk_indicators.get("churn_probability", 0.0) for c in segment_customers) / len(segment_customers)
+                if segment_customers
+                else 0.0
+            )
 
             profile = CustomerSegmentProfile(
                 segment=segment,
-                criteria=data["criteria"],
+                criteria=criteria,
                 customer_count=len(segment_customers),
-                avg_lifetime_value=data["avg_ltv"],
-                avg_satisfaction=sum(c.satisfaction_metrics["overall_satisfaction"] for c in segment_customers)
-                / len(segment_customers)
-                if segment_customers
-                else 8.0,
-                churn_rate=data["churn_rate"],
-                growth_rate=random.uniform(0.05, 0.25),  # noqa: S311
+                avg_lifetime_value=avg_ltv,
+                avg_satisfaction=avg_satisfaction,
+                churn_rate=avg_churn,
+                growth_rate=0.0,
                 preferred_channels=["email", "whatsapp", "portal"]
                 if segment in [CustomerSegment.VIP, CustomerSegment.PREMIUM]
                 else ["whatsapp", "phone"],
-                behavior_patterns={
-                    "avg_sessions_monthly": random.uniform(10, 30),  # noqa: S311
-                    "avg_support_tickets_monthly": random.uniform(0.5, 2.0),  # noqa: S311
-                    "preferred_contact_time": "business_hours" if segment == CustomerSegment.VIP else "flexible",
-                },
+                behavior_patterns={},
             )
 
             self.segments[segment] = profile
-
-    def _generate_predictive_insights(self):
-        """Gerar insights preditivos para clientes."""
-        insight_types = [
-            "churn_prediction",
-            "upsell_opportunity",
-            "satisfaction_decline",
-            "payment_risk",
-            "engagement_increase",
-            "contract_renewal",
-        ]
-
-        for customer_id, customer in self.customers.items():
-            customer_insights = []
-
-            # Gerar 2-4 insights por cliente
-            for _ in range(random.randint(2, 4)):  # noqa: S311
-                insight_type = random.choice(insight_types)  # noqa: S311
-
-                insight = PredictiveInsight(
-                    customer_id=customer_id,
-                    insight_type=insight_type,
-                    prediction=self._generate_prediction_text(insight_type, customer),
-                    confidence_score=random.uniform(0.6, 0.95),  # noqa: S311
-                    impact_score=random.uniform(6.0, 9.5),  # noqa: S311
-                    recommendation=self._generate_recommendation(insight_type),
-                    data_sources=["interaction_history", "usage_patterns", "payment_history", "satisfaction_scores"],
-                    expires_at=datetime.now() + timedelta(days=30),
-                    created_at=datetime.now(),
-                )
-
-                customer_insights.append(insight)
-
-            self.predictive_insights[customer_id] = customer_insights
-
-    def _generate_prediction_text(self, insight_type: str, customer: Customer360) -> str:
-        """Gerar texto da predição."""
-        predictions = {
-            "churn_prediction": f"Cliente {customer.basic_info['name']} tem {customer.journey.churn_risk_score:.1%} de probabilidade de churn nos próximos 3 meses",
-            "upsell_opportunity": f"Oportunidade de upsell identificada para {customer.basic_info['name']} - valor estimado R$ {random.uniform(2000, 8000):,.2f}",  # noqa: S311
-            "satisfaction_decline": f"Potencial declínio na satisfação detectado para {customer.basic_info['name']}",
-            "payment_risk": f"Risco de atraso no pagamento identificado para {customer.basic_info['name']}",
-            "engagement_increase": f"Potencial para aumentar engajamento de {customer.basic_info['name']} em {random.uniform(20, 40):.0f}%",  # noqa: S311
-            "contract_renewal": f"Alta probabilidade de renovação antecipada para {customer.basic_info['name']}",
-        }
-        return predictions.get(insight_type, "Insight preditivo gerado")
-
-    def _generate_recommendation(self, insight_type: str) -> str:
-        """Gerar recomendação baseada no tipo de insight."""
-        recommendations = {
-            "churn_prediction": "Agendar call de retenção e revisar satisfação do cliente",
-            "upsell_opportunity": "Apresentar proposta personalizada com módulos adicionais",
-            "satisfaction_decline": "Realizar pesquisa de satisfação e identificar pontos de melhoria",
-            "payment_risk": "Entrar em contato proativo para revisar condições de pagamento",
-            "engagement_increase": "Implementar programa de onboarding avançado",
-            "contract_renewal": "Preparar proposta de renovação antecipada com benefícios adicionais",
-        }
-        return recommendations.get(insight_type, "Ação recomendada não definida")
 
     async def get_customer_360(self, customer_id: str) -> Customer360 | None:
         """Obter visão 360° de um cliente."""
@@ -831,7 +559,11 @@ class CRM360Service:
         return segmented
 
     async def get_predictive_insights(self, customer_id: str | None = None) -> list[PredictiveInsight]:
-        """Obter insights preditivos."""
+        """Obter insights preditivos.
+
+        Insights só existem se tiverem sido registrados de fato. Sem dado,
+        retorna lista vazia (honesto) — nunca insight fabricado.
+        """
         if customer_id:
             return self.predictive_insights.get(customer_id, [])
 
@@ -862,7 +594,7 @@ class CRM360Service:
         return min(100, health_score * 100)
 
     async def get_crm_analytics(self) -> CRMAnalytics:
-        """Obter analytics completo do CRM."""
+        """Obter analytics completo do CRM (agregado a partir dos dados em memória)."""
         total_customers = len(self.customers)
         active_customers = len([c for c in self.customers.values() if c.stage not in [CustomerStage.CHURNED]])
 
@@ -902,17 +634,13 @@ class CRM360Service:
             churned_customers_month=churned_customers_month,
             avg_customer_satisfaction=avg_satisfaction,
             avg_lifetime_value=avg_ltv,
-            customer_acquisition_cost=random.uniform(500, 1500),  # noqa: S311
+            customer_acquisition_cost=0.0,
             churn_rate=churned_customers_month / total_customers if total_customers > 0 else 0,
             segment_distribution=segment_distribution,
             stage_distribution=stage_distribution,
             interaction_volume_daily=len(self.interactions) // 30,  # Aproximação
-            response_time_avg_hours=random.uniform(2.5, 8.0),  # noqa: S311
-            conversion_rates={
-                "lead_to_prospect": random.uniform(0.25, 0.45),  # noqa: S311
-                "prospect_to_customer": random.uniform(0.15, 0.35),  # noqa: S311
-                "customer_to_loyal": random.uniform(0.20, 0.40),  # noqa: S311
-            },
+            response_time_avg_hours=0.0,
+            conversion_rates={},
         )
 
     async def get_customer_recommendations(self, customer_id: str) -> list[dict[str, Any]]:
