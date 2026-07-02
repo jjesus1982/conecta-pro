@@ -31,6 +31,19 @@ CERT_PATH = os.environ.get("NFE_CERT_PATH_A1", "/app/credentials/certificates/ce
 CNPJ_EMPRESA = "35710481000103"
 DET_URL = "https://det.sit.trabalho.gov.br"
 
+# ── Fluxo gov.br do DET — descoberto por engenharia reversa (2026-07-02) ──────
+# O A1 é aceito no TLS do login por certificado do gov.br, e o OAuth do DET é:
+GOVBR_AUTHORIZE = "https://sso.acesso.gov.br/authorize"
+GOVBR_CLIENT_ID = "det.sit.trabalho.gov.br"          # gov.br usa o domínio como client_id
+GOVBR_REDIRECT_URI = "https://det.sit.trabalho.gov.br/acessogov"
+GOVBR_SCOPE = "openid email profile govbr_confiabilidades govbr_empresa"
+GOVBR_CERT_LOGIN = "https://certificado.sso.acesso.gov.br/login"  # form: accountId,_csrf,operation,token
+# BLOQUEADOR: gov.br está atrás de WAF F5 ASM (cookies TS0185eea4/TS0197b850) que
+# devolve HTTP 400 a clientes não-navegador (desafio JS anti-bot). Por isso a coleta
+# 100% automática exige um NAVEGADOR REAL (Playwright c/ client-certificate) que resolva
+# o desafio do WAF, faça o login gov.br por certificado e complete o OAuth → sessão DET.
+# A ingestão assistida (abaixo) não depende disso e funciona 100%.
+
 
 # ── status da conexão (certificado real) ─────────────────────────────────────
 def status_conexao() -> dict[str, Any]:
@@ -198,8 +211,10 @@ async def coletar_automatico(db: AsyncSession) -> dict[str, Any]:
         "modo": st.get("modo_atual"),
         "coleta_automatica_disponivel": st.get("coleta_automatica", False),
         "mensagem": (
-            "Coleta automática ainda não habilitada — requer credenciamento gov.br (OAuth) ou "
-            "robô de navegador para o login gov.br. Use a ingestão assistida por enquanto."
+            "Coleta automática ainda não habilitada. O fluxo OAuth do gov.br já foi mapeado "
+            "(client_id=det.sit.trabalho.gov.br), mas o gov.br está atrás de um WAF anti-bot (F5 "
+            "ASM) que bloqueia clientes sem navegador. Requer robô Playwright (navegador real + "
+            "certificado) para passar o WAF e completar o login gov.br. Use a ingestão assistida."
         ),
         "certificado": {"cnpj": st.get("cnpj"), "valido_ate": st.get("valido_ate")},
     }
