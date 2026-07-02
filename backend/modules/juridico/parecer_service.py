@@ -136,20 +136,25 @@ async def _ensure_table(db: AsyncSession) -> None:
             """
             CREATE TABLE IF NOT EXISTS juridico_pareceres (
                 id           SERIAL PRIMARY KEY,
-                area         VARCHAR(40)  NOT NULL,
-                titulo       TEXT         NOT NULL,
-                contexto     TEXT,
-                parecer      TEXT,
-                conclusao    TEXT,
-                escalonar    BOOLEAN      NOT NULL DEFAULT FALSE,
-                status       VARCHAR(20)  NOT NULL DEFAULT 'rascunho',
-                pdf_path     TEXT,
-                created_by   VARCHAR(64),
-                created_at   TIMESTAMPTZ  NOT NULL DEFAULT now()
+                area          VARCHAR(40)  NOT NULL,
+                titulo        TEXT         NOT NULL,
+                contexto      TEXT,
+                relatorio     TEXT,
+                fundamentacao TEXT,
+                parecer       TEXT,
+                conclusao     TEXT,
+                escalonar     BOOLEAN      NOT NULL DEFAULT FALSE,
+                status        VARCHAR(20)  NOT NULL DEFAULT 'rascunho',
+                pdf_path      TEXT,
+                created_by    VARCHAR(64),
+                created_at    TIMESTAMPTZ  NOT NULL DEFAULT now()
             )
             """
         )
     )
+    # colunas adicionadas depois — idempotente para tabelas já existentes
+    await db.execute(text("ALTER TABLE juridico_pareceres ADD COLUMN IF NOT EXISTS relatorio TEXT"))
+    await db.execute(text("ALTER TABLE juridico_pareceres ADD COLUMN IF NOT EXISTS fundamentacao TEXT"))
 
 
 async def gerar_parecer(
@@ -247,9 +252,9 @@ async def gerar_parecer(
         text(
             """
             INSERT INTO juridico_pareceres
-                (area, titulo, contexto, parecer, conclusao, escalonar, status, created_by)
+                (area, titulo, contexto, relatorio, fundamentacao, parecer, conclusao, escalonar, status, created_by)
             VALUES
-                (:area, :titulo, :contexto, :parecer, :conclusao, :escalonar, :status, :created_by)
+                (:area, :titulo, :contexto, :relatorio, :fundamentacao, :parecer, :conclusao, :escalonar, :status, :created_by)
             RETURNING id, created_at
             """
         ),
@@ -257,6 +262,8 @@ async def gerar_parecer(
             "area": area,
             "titulo": titulo,
             "contexto": contexto,
+            "relatorio": relatorio or None,
+            "fundamentacao": fundamentacao or None,
             "parecer": parecer_texto,
             "conclusao": conclusao,
             "escalonar": escalonar,
@@ -317,14 +324,45 @@ async def listar_pareceres(db: AsyncSession, limit: int = 50) -> list[dict[str, 
     return out
 
 
+def _split_parecer(corpo: str | None) -> dict[str, str]:
+    """Fatia o texto completo 'I. RELATÓRIO / II. FUNDAMENTAÇÃO / III. CONCLUSÃO'.
+
+    Fallback para pareceres antigos que só têm o corpo consolidado na coluna `parecer`,
+    sem as colunas dedicadas. Retorna {} se não reconhecer a estrutura.
+    """
+    if not corpo:
+        return {}
+    import re
+
+    marcadores = [
+        ("relatorio", r"I\.\s*RELAT[ÓO]RIO"),
+        ("fundamentacao", r"II\.\s*FUNDAMENTA[ÇC][ÃA]O"),
+        ("conclusao", r"III\.\s*CONCLUS[ÃA]O"),
+    ]
+    # encontra a posição de cada marcador
+    posicoes = []
+    for chave, padrao in marcadores:
+        m = re.search(padrao, corpo, flags=re.IGNORECASE)
+        if m:
+            posicoes.append((chave, m.start(), m.end()))
+    if not posicoes:
+        return {}
+    posicoes.sort(key=lambda p: p[1])
+    out: dict[str, str] = {}
+    for i, (chave, _ini, fim) in enumerate(posicoes):
+        prox = posicoes[i + 1][1] if i + 1 < len(posicoes) else len(corpo)
+        out[chave] = corpo[fim:prox].strip()
+    return out
+
+
 async def obter_parecer(db: AsyncSession, id: str) -> dict[str, Any] | None:
     """Retorna o parecer completo por id, ou None se não existir."""
     await _ensure_table(db)
     row = await db.execute(
         text(
             """
-            SELECT id, area, titulo, contexto, parecer, conclusao, escalonar,
-                   status, pdf_path, created_by, created_at
+            SELECT id, area, titulo, contexto, relatorio, fundamentacao, parecer,
+                   conclusao, escalonar, status, pdf_path, created_by, created_at
             FROM juridico_pareceres
             WHERE CAST(id AS TEXT) = :id
             """
@@ -334,13 +372,26 @@ async def obter_parecer(db: AsyncSession, id: str) -> dict[str, Any] | None:
     r = row.mappings().first()
     if not r:
         return None
+
+    relatorio = (r["relatorio"] or "").strip()
+    fundamentacao = (r["fundamentacao"] or "").strip()
+    conclusao = (r["conclusao"] or "").strip()
+    # fallback: pareceres antigos só têm o corpo consolidado → refatia
+    if not (relatorio or fundamentacao) and r["parecer"]:
+        fatias = _split_parecer(r["parecer"])
+        relatorio = relatorio or fatias.get("relatorio", "")
+        fundamentacao = fundamentacao or fatias.get("fundamentacao", "")
+        conclusao = conclusao or fatias.get("conclusao", "")
+
     return {
         "id": r["id"],
         "area": r["area"],
         "titulo": r["titulo"],
         "contexto": r["contexto"],
+        "relatorio": relatorio,
+        "fundamentacao": fundamentacao,
         "parecer": r["parecer"],
-        "conclusao": r["conclusao"],
+        "conclusao": conclusao,
         "escalonar": bool(r["escalonar"]),
         "status": r["status"],
         "pdf_path": r["pdf_path"],

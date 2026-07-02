@@ -553,8 +553,8 @@ export const moduleCategories: ModuleCategory[] = [
   },
   {
     id: 'financeiro',
-    title: 'Financeiro & Fiscal',
-    modules: modules.filter(m => ['financeiro', 'fiscal'].includes(m.id)),
+    title: 'Financeiro, Fiscal & Jurídico',
+    modules: modules.filter(m => ['financeiro', 'fiscal', 'juridico'].includes(m.id)),
   },
   {
     id: 'inteligencia',
