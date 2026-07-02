@@ -317,7 +317,7 @@ async def listar_pareceres(db: AsyncSession, limit: int = 50) -> list[dict[str, 
     return out
 
 
-async def obter_parecer(db: AsyncSession, id: int) -> dict[str, Any] | None:
+async def obter_parecer(db: AsyncSession, id: str) -> dict[str, Any] | None:
     """Retorna o parecer completo por id, ou None se não existir."""
     await _ensure_table(db)
     row = await db.execute(
@@ -326,10 +326,10 @@ async def obter_parecer(db: AsyncSession, id: int) -> dict[str, Any] | None:
             SELECT id, area, titulo, contexto, parecer, conclusao, escalonar,
                    status, pdf_path, created_by, created_at
             FROM juridico_pareceres
-            WHERE id = :id
+            WHERE CAST(id AS TEXT) = :id
             """
         ),
-        {"id": int(id)},
+        {"id": str(id)},
     )
     r = row.mappings().first()
     if not r:

@@ -56,7 +56,7 @@ async def listar_pareceres(
 
 @router.get("/pareceres/{id}", summary="Detalhe de um parecer")
 async def obter_parecer(
-    id: int,
+    id: str,
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = None,  # noqa: RUF013
 ) -> dict:
@@ -68,7 +68,7 @@ async def obter_parecer(
 
 @router.get("/pareceres/{id}/pdf", summary="PDF do parecer (padrão-ouro)")
 async def parecer_pdf(
-    id: int,
+    id: str,
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = None,  # noqa: RUF013
 ) -> Response:
