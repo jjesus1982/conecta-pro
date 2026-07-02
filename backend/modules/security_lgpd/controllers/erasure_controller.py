@@ -114,3 +114,45 @@ async def get_erasure_status(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Erro interno ao consultar status",
         )
+
+
+@router.post(
+    "/{request_id}/processar",
+    response_model=StandardResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Processa solicitacao de exclusao (Art. 18 LGPD)",
+    description=(
+        "Processa uma solicitacao. Sem 'confirmar' (padrao SEGURO): marca EM PROCESSAMENTO "
+        "(nao apaga nada). Com 'confirmar=true': EXECUTA a anonimizacao real da PII do titular "
+        "(employees/clients/users) e conclui, retornando o total de registros afetados. "
+        "A execucao com confirmar=true e destrutiva e deve passar por autorizacao/auditoria."
+    ),
+)
+async def processar_erasure(
+    current_user: CurrentActiveUser,
+    request_id: str = Path(..., description="ID da solicitacao"),
+    confirmar: bool = False,
+    service: ErasureService = Depends(get_erasure_service),
+) -> StandardResponse:
+    """Marca em processamento (confirmar=False) ou executa a anonimizacao real (confirmar=True)."""
+    try:
+        result = service.process_request(
+            request_id=request_id,
+            processor_id=str(getattr(current_user, "id", "sistema")),
+            confirmar=confirmar,
+        )
+        msg = (
+            "Anonimizacao executada e solicitacao concluida."
+            if confirmar
+            else "Solicitacao em processamento (execucao real requer confirmar=true)."
+        )
+        logger.info("Erasure processar: request=%s confirmar=%s", request_id, confirmar)
+        return StandardResponse(success=True, message=msg, data=result)
+    except (ValueError, ErasureError):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Solicitacao nao encontrada")
+    except Exception as e:  # noqa: BLE001
+        logger.error("Erro ao processar exclusao: %s", str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erro interno ao processar exclusao",
+        )
