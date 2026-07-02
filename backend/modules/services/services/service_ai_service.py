@@ -376,7 +376,7 @@ class ServiceAIService:
         Returns:
             ServiceOrderStats
         """
-        return self.repository.get_service_order_stats(client_id=client_id, service_id=service_id)
+        return self.repository.get_order_stats(client_id=client_id)
 
     def get_executive_dashboard(self) -> dict[str, Any]:
         """

@@ -74,6 +74,32 @@ class ConsentRepository:
 
         return query.order_by(Consent.created_at.desc()).all()
 
+    def list_all(self, limit: int = 100, offset: int = 0) -> list[Consent]:
+        """Lista todos os consentimentos paginados.
+
+        Args:
+            limit: Limite de resultados.
+            offset: Offset para paginacao.
+
+        Returns:
+            Lista de consentimentos.
+        """
+        return (
+            self.db.query(Consent)
+            .order_by(Consent.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
+    def count_all(self) -> int:
+        """Conta o total de consentimentos.
+
+        Returns:
+            Total de consentimentos.
+        """
+        return self.db.query(Consent).count()
+
     def update(self, consent: Consent) -> Consent:
         """Atualiza um consentimento.
 

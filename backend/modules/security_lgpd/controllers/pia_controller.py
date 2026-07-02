@@ -4,9 +4,12 @@ Controller de Avaliacao de Impacto de Privacidade (PIA/DPIA) LGPD.
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Path, status
+from fastapi import APIRouter, Depends, HTTPException, Path, status
+from sqlalchemy.orm import Session
 
 from core.auth.dependencies import CurrentActiveUser
+from core.database.session import get_sync_db_dependency
+from modules.security_lgpd.repositories.pia_repository import PIARepository
 from modules.security_lgpd.schemas.common import StandardResponse
 from modules.security_lgpd.schemas.pia import PIARequest
 from modules.security_lgpd.services.pia_service import PIAService
@@ -16,6 +19,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/pia", tags=["LGPD - Avaliacao de Impacto (PIA/DPIA)"])
 
 
+def get_pia_service(db: Session = Depends(get_sync_db_dependency)) -> PIAService:
+    """Injeta um PIAService com repository ligado a sessao de banco."""
+    return PIAService(PIARepository(db))
+
+
 @router.post(
     "/create",
     response_model=StandardResponse,
@@ -23,7 +31,11 @@ router = APIRouter(prefix="/pia", tags=["LGPD - Avaliacao de Impacto (PIA/DPIA)"
     summary="Cria avaliacao de impacto (PIA/DPIA)",
     description="Inicia avaliacao de impacto de privacidade para projeto.",
 )
-async def create_pia(current_user: CurrentActiveUser, request: PIARequest) -> StandardResponse:
+async def create_pia(
+    current_user: CurrentActiveUser,
+    request: PIARequest,
+    service: PIAService = Depends(get_pia_service),
+) -> StandardResponse:
     """
     Cria avaliacao de impacto de privacidade.
 
@@ -34,7 +46,6 @@ async def create_pia(current_user: CurrentActiveUser, request: PIARequest) -> St
         StandardResponse: Resultado da avaliacao inicial.
     """
     try:
-        service = PIAService()
         result = service.create_assessment(
             project_name=request.project_name,
             description=request.description,
@@ -74,6 +85,7 @@ async def create_pia(current_user: CurrentActiveUser, request: PIARequest) -> St
 async def get_pia(
     current_user: CurrentActiveUser,
     assessment_id: str = Path(..., description="ID da avaliacao"),
+    service: PIAService = Depends(get_pia_service),
 ) -> StandardResponse:
     """
     Consulta avaliacao de impacto.
@@ -85,7 +97,6 @@ async def get_pia(
         StandardResponse: Detalhes da avaliacao.
     """
     try:
-        service = PIAService()
         assessment = service.get_assessment(assessment_id)
 
         return StandardResponse(

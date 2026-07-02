@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.database import get_db
 from modules.client_portal.middleware.portal_auth import get_current_portal_client
 from modules.client_portal.models.ticket import ClientTicket, TicketStatus
+from modules.people_management.ged.models.access_log import AccessAction, KitAccessLog
 from modules.people_management.ged.models.document_kit import GedDocumentKit, KitStatus
 from modules.people_management.ged.models.kit_document import DocumentType, KitDocument
 
@@ -66,11 +67,23 @@ async def get_overview(
         kits_aprovados = int(kits_row.aprovados or 0)
         kits_pendentes = int(kits_row.pendentes or 0)
         docs_total = int(kits_row.docs_total or 0)
-        docs_assinados = int(kits_row.docs_assinados or 0)
+
+        # --- Downloads reais (auditoria de acesso aos kits do cliente) ---
+        downloads_result = await db.execute(
+            select(func.count())
+            .select_from(KitAccessLog)
+            .where(
+                KitAccessLog.action == AccessAction.DOWNLOADED.value,
+                KitAccessLog.kit_id.in_(
+                    select(GedDocumentKit.id).where(GedDocumentKit.client_id == client_id)
+                ),
+            )
+        )
+        docs_baixados = int(downloads_result.scalar() or 0)
 
         # --- Chamados ---
         now = datetime.now(tz=UTC)
-        thirty_days_ago = now.replace(day=max(1, now.day - 30))
+        thirty_days_ago = now - timedelta(days=30)
 
         tickets_result = await db.execute(
             select(
@@ -143,7 +156,7 @@ async def get_overview(
             "chamados_resolvidos_30d": chamados_resolvidos_30d,
             "tempo_medio_resolucao_horas": tempo_medio_horas,
             "documentos_total": docs_total,
-            "documentos_baixados": docs_assinados,
+            "documentos_baixados": docs_baixados,
             "health_score": min(100, max(0, health_score)),
             "proxima_geracao_kit": proxima_geracao.isoformat(),
         }

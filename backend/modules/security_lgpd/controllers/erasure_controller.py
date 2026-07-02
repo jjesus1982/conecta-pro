@@ -4,16 +4,24 @@ Controller de Exclusao de Dados (Direito ao Esquecimento) LGPD.
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Path, status
+from fastapi import APIRouter, Depends, HTTPException, Path, status
+from sqlalchemy.orm import Session
 
 from core.auth.dependencies import CurrentActiveUser
+from core.database.session import get_sync_db_dependency
+from modules.security_lgpd.repositories.erasure_repository import ErasureRepository
 from modules.security_lgpd.schemas.common import StandardResponse
 from modules.security_lgpd.schemas.erasure import ErasureRequestSchema
-from modules.security_lgpd.services.erasure_service import ErasureService
+from modules.security_lgpd.services.erasure_service import ErasureError, ErasureService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/erasure", tags=["LGPD - Direito ao Esquecimento"])
+
+
+def get_erasure_service(db: Session = Depends(get_sync_db_dependency)) -> ErasureService:
+    """Injeta um ErasureService com repository ligado a sessao de banco."""
+    return ErasureService(repository=ErasureRepository(db))
 
 
 @router.post(
@@ -23,7 +31,11 @@ router = APIRouter(prefix="/erasure", tags=["LGPD - Direito ao Esquecimento"])
     summary="Solicita exclusao de dados (Art. 18 LGPD)",
     description="Inicia processo de exclusao de dados do titular.",
 )
-async def request_erasure(current_user: CurrentActiveUser, request: ErasureRequestSchema) -> StandardResponse:
+async def request_erasure(
+    current_user: CurrentActiveUser,
+    request: ErasureRequestSchema,
+    service: ErasureService = Depends(get_erasure_service),
+) -> StandardResponse:
     """
     Solicita exclusao de dados (direito ao esquecimento).
 
@@ -34,7 +46,6 @@ async def request_erasure(current_user: CurrentActiveUser, request: ErasureReque
         StandardResponse: Confirmacao da solicitacao.
     """
     try:
-        service = ErasureService()
         result = service.create_request(
             titular_id=str(request.titular_id),
             titular_email=request.titular_email,
@@ -72,6 +83,7 @@ async def request_erasure(current_user: CurrentActiveUser, request: ErasureReque
 async def get_erasure_status(
     current_user: CurrentActiveUser,
     request_id: str = Path(..., description="ID da solicitacao"),
+    service: ErasureService = Depends(get_erasure_service),
 ) -> StandardResponse:
     """
     Consulta status de solicitacao de exclusao.
@@ -83,7 +95,6 @@ async def get_erasure_status(
         StandardResponse: Status atual.
     """
     try:
-        service = ErasureService()
         status_info = service.get_status(request_id)
 
         return StandardResponse(
@@ -92,7 +103,7 @@ async def get_erasure_status(
             data=status_info,
         )
 
-    except ValueError:
+    except (ValueError, ErasureError):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Solicitacao nao encontrada",

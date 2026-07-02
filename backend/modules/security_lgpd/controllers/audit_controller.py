@@ -34,18 +34,51 @@ async def create_audit_log(
         StandardResponse: Confirmacao do registro.
     """
     try:
-        service = AuditService()
-        result = service.log_event(
-            action=request.action,
-            resource_type=request.resource_type,
-            resource_id=request.resource_id,
-            user_id=request.user_id,
-            details=request.details,
-            severity=request.severity,
+        from modules.security_lgpd.services.audit_service import (
+            AuditAction,
+            AuditSeverity,
+            ResourceType,
         )
+
+        service = AuditService()
+        service.set_context(user_id=request.user_id)
+        try:
+            action = (
+                AuditAction(request.action)
+                if request.action in [a.value for a in AuditAction]
+                else AuditAction.READ
+            )
+            resource_type = (
+                ResourceType(request.resource_type)
+                if request.resource_type in [r.value for r in ResourceType]
+                else ResourceType.DATA
+            )
+            severity = (
+                AuditSeverity(request.severity)
+                if request.severity in [s.value for s in AuditSeverity]
+                else AuditSeverity.INFO
+            )
+            entry = await service.log(
+                action=action,
+                resource_type=resource_type,
+                resource_id=request.resource_id,
+                description=f"{request.action} em {request.resource_type}:{request.resource_id}",
+                metadata=request.details or {},
+                severity=severity,
+            )
+        finally:
+            service.clear_context()
+
+        result = {
+            "log_id": str(entry.id),
+            "action": request.action,
+            "resource_type": request.resource_type,
+            "timestamp": entry.timestamp.isoformat(),
+            "hash": (entry.hash[:16] + "...") if entry.hash else None,
+        }
         return StandardResponse(
             success=True,
-            message="Evento registrado na trilha de auditoria",
+            message="Evento registrado na trilha de auditoria (persistido)",
             data=result,
         )
     except ValueError as e:

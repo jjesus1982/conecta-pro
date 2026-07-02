@@ -1,11 +1,22 @@
 """
 Service de Avaliacao de Impacto de Privacidade (PIA/DPIA) LGPD.
+
+Persiste avaliacoes na tabela ``lgpd_pia_assessments`` via ``PIARepository``.
+NAO usa mais armazenamento em memoria.
 """
 
 import logging
 import uuid
 from datetime import datetime
 from typing import Any
+from uuid import UUID
+
+from modules.security_lgpd.models.pia_assessment import (
+    AssessmentStatus,
+    PIAAssessment,
+    RiskLevel,
+)
+from modules.security_lgpd.repositories.pia_repository import PIARepository
 
 logger = logging.getLogger(__name__)
 
@@ -13,12 +24,9 @@ logger = logging.getLogger(__name__)
 class PIAService:
     """Service para gerenciamento de avaliacoes de impacto.
 
-    Encapsula a logica de avaliacao de impacto de privacidade
-    conforme Art. 38 da LGPD (RIPD).
+    Encapsula a logica de avaliacao de impacto de privacidade conforme Art. 38
+    da LGPD (RIPD), persistindo as avaliacoes no banco via ``PIARepository``.
     """
-
-    # Armazenamento em memoria (em producao, usar banco de dados)
-    _assessments: dict[str, dict[str, Any]] = {}
 
     # Categorias de dados sensiveis (Art. 5, II LGPD)
     SENSITIVE_CATEGORIES = [
@@ -31,9 +39,15 @@ class PIAService:
         "biometric_data",
     ]
 
-    def __init__(self):
-        """Inicializa o service."""
-        pass
+    def __init__(self, repository: PIARepository | None = None):
+        """Inicializa o service.
+
+        Args:
+            repository: Repository de avaliacoes PIA (com sessao de banco).
+                Pode ser ``None`` apenas para endpoints estaticos (listas de
+                categorias) que nao tocam o banco.
+        """
+        self.repository = repository
 
     def _calculate_risk_level(
         self,
@@ -111,7 +125,7 @@ class PIAService:
         data_subjects: list[str] | None = None,
         risk_factors: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Cria avaliacao de impacto de privacidade.
+        """Cria avaliacao de impacto de privacidade (persistindo no banco).
 
         Args:
             project_name: Nome do projeto.
@@ -127,7 +141,6 @@ class PIAService:
         data_subjects = data_subjects or ["funcionarios"]
         risk_factors = risk_factors or []
 
-        assessment_id = str(uuid.uuid4())
         now = datetime.utcnow()
 
         risk_level = self._calculate_risk_level(
@@ -138,41 +151,42 @@ class PIAService:
         )
 
         recommendations = self._generate_recommendations(risk_level, data_categories)
+        requires_dpia = risk_level in ("high", "critical")
 
-        assessment_data = {
-            "assessment_id": assessment_id,
-            "project_name": project_name,
-            "description": description,
-            "data_categories": data_categories,
-            "processing_purposes": processing_purposes,
-            "data_subjects": data_subjects,
-            "risk_factors": risk_factors,
-            "risk_level": risk_level,
-            "requires_dpia": risk_level in ("high", "critical"),
-            "recommendations": recommendations,
-            "status": "completed",
-            "created_at": now.isoformat(),
-            "created_by": None,
-        }
+        assessment = PIAAssessment(
+            id=uuid.uuid4(),
+            project_name=project_name,
+            description=description,
+            status=AssessmentStatus.APPROVED,
+            risk_level=RiskLevel(risk_level),
+            requires_dpia=requires_dpia,
+            data_categories=data_categories,
+            processing_purposes=processing_purposes,
+            data_subjects=data_subjects,
+            risk_factors=risk_factors,
+            recommendations=recommendations,
+            created_at=now,
+            version="1.0",
+        )
 
-        self._assessments[assessment_id] = assessment_data
+        saved = self.repository.create(assessment)
 
         logger.info(
-            "PIA criado: projeto=%s, nivel de risco=%s",
+            "PIA criado (persistido): projeto=%s, nivel de risco=%s",
             project_name,
             risk_level,
         )
 
         return {
-            "assessment_id": assessment_id,
-            "project_name": project_name,
-            "risk_level": risk_level,
-            "requires_dpia": risk_level in ("high", "critical"),
-            "recommendations": recommendations,
+            "assessment_id": str(saved.id),
+            "project_name": saved.project_name,
+            "risk_level": saved.risk_level.value if saved.risk_level else risk_level,
+            "requires_dpia": saved.requires_dpia,
+            "recommendations": saved.recommendations,
         }
 
     def get_assessment(self, assessment_id: str) -> dict[str, Any]:
-        """Consulta avaliacao de impacto.
+        """Consulta avaliacao de impacto (lendo do banco).
 
         Args:
             assessment_id: ID da avaliacao.
@@ -183,10 +197,16 @@ class PIAService:
         Raises:
             ValueError: Se avaliacao nao encontrada.
         """
-        if assessment_id not in self._assessments:
+        assessment = self.repository.get_by_id(UUID(str(assessment_id)))
+        if assessment is None:
             raise ValueError(f"Avaliacao nao encontrada: {assessment_id}")
 
-        return self._assessments[assessment_id]
+        data = assessment.to_dict()
+        # Enriquecimento com campos completos nao expostos no to_dict do model
+        data["processing_purposes"] = assessment.processing_purposes
+        data["data_subjects"] = assessment.data_subjects
+        data["risk_factors"] = assessment.risk_factors
+        return data
 
     def list_assessments(
         self,
@@ -194,7 +214,7 @@ class PIAService:
         limit: int = 100,
         offset: int = 0,
     ) -> dict[str, Any]:
-        """Lista avaliacoes de impacto.
+        """Lista avaliacoes de impacto (lendo do banco).
 
         Args:
             status: Filtro por status.
@@ -204,17 +224,18 @@ class PIAService:
         Returns:
             Dict com lista de avaliacoes.
         """
-        assessments = list(self._assessments.values())
-
+        status_enum = None
         if status:
-            assessments = [a for a in assessments if a["status"] == status]
+            try:
+                status_enum = AssessmentStatus(status)
+            except ValueError:
+                status_enum = None
 
-        total = len(assessments)
-        paginated = assessments[offset : offset + limit]
+        assessments = self.repository.list(status=status_enum, limit=limit, offset=offset)
 
         return {
-            "assessments": paginated,
-            "total": total,
+            "assessments": [a.to_dict() for a in assessments],
+            "total": len(assessments),
             "limit": limit,
             "offset": offset,
         }

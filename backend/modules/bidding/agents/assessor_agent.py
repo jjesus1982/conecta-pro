@@ -67,36 +67,31 @@ class CompanyProfile(BaseModel):
             "monitoramento_cftv",
         ]
     )
-    quantidade_colaboradores: int = 44
+    # Numero de colaboradores ativos — deve vir de dado real (employees).
+    # 0 = nao informado.
+    quantidade_colaboradores: int = 0
     possui_base_operacional: bool = True
     cobertura_ufs: list[str] = Field(default_factory=lambda: ["AM"])
 
-    # Capacidade economica
-    capital_social: float = 500_000.0
-    patrimonio_liquido: float = 800_000.0
-    faturamento_anual: float = 3_000_000.0
-    indice_liquidez_corrente: float = 1.5
-    indice_liquidez_geral: float = 1.2
-    indice_endividamento: float = 0.4
+    # Capacidade economica — SEM fonte real no ERP para estes campos.
+    # None = "nao informado". O scoring NAO deve penalizar valor desconhecido
+    # nem fabricar numero. Preencher somente quando houver fonte confiavel
+    # (balanco/contabilidade).
+    capital_social: float | None = None
+    patrimonio_liquido: float | None = None
+    faturamento_anual: float | None = None
+    indice_liquidez_corrente: float | None = None
+    indice_liquidez_geral: float | None = None
+    indice_endividamento: float | None = None
 
-    # Documentos disponiveis
-    documentos_validos: list[str] = Field(
-        default_factory=lambda: [
-            "cnd_federal",
-            "cnd_estadual",
-            "cnd_municipal",
-            "crf_fgts",
-            "cndt_trabalhista",
-            "sicaf",
-            "balanco_patrimonial",
-            "contrato_social",
-        ]
-    )
+    # Documentos disponiveis — deve vir de dado real (bidding_certificates
+    # com status valido). Vazio = nenhum documento valido conhecido.
+    documentos_validos: list[str] = Field(default_factory=list)
 
-    # Historico
-    licitacoes_vencidas_12m: int = 5
-    licitacoes_participadas_12m: int = 15
-    taxa_sucesso: float = 33.3
+    # Historico — SEM fonte real consolidada. None = nao informado.
+    licitacoes_vencidas_12m: int | None = None
+    licitacoes_participadas_12m: int | None = None
+    taxa_sucesso: float | None = None
 
 
 class AssessmentResponse(BaseModel):
@@ -384,32 +379,46 @@ class AssessorAgent(BaseAgent):
 
         valor_estimado = analysis.get("valor_estimado")
 
-        # Verificar capital social minimo (geralmente 10% do valor)
+        # Verificar capital social minimo (geralmente 10% do valor).
+        # Se o capital social nao for informado (None), NAO penalizamos com
+        # base em dado fabricado — apenas sinalizamos que falta informacao.
         if valor_estimado:
             capital_minimo_estimado = float(valor_estimado) * 0.10
-            if company.capital_social < capital_minimo_estimado:
+            if company.capital_social is None:
+                observacoes.append(
+                    f"Capital social nao informado (minimo estimado: R${capital_minimo_estimado:,.2f}) - "
+                    "verificar contabilidade"
+                )
+            elif company.capital_social < capital_minimo_estimado:
                 nota -= 35
                 observacoes.append(
                     f"Capital social R${company.capital_social:,.2f} pode ser insuficiente "
                     f"(estimado minimo: R${capital_minimo_estimado:,.2f})"
                 )
 
-        # Verificar indices contabeis
+        # Verificar indices contabeis (so penaliza se o indice for conhecido).
         requisitos_economicos = [
             r for r in analysis.get("requisitos_habilitacao", []) if r.get("categoria") == "economica"
         ]
 
         for req in requisitos_economicos:
             desc = req.get("descricao", "").lower()
-            if "liquidez corrente" in desc and company.indice_liquidez_corrente < 1.0:
-                nota -= 25
-                observacoes.append("Indice de liquidez corrente abaixo de 1.0")
-            if "liquidez geral" in desc and company.indice_liquidez_geral < 1.0:
-                nota -= 25
-                observacoes.append("Indice de liquidez geral abaixo de 1.0")
-            if "endividamento" in desc and company.indice_endividamento > 0.6:
-                nota -= 20
-                observacoes.append("Endividamento elevado")
+            if "liquidez corrente" in desc:
+                if company.indice_liquidez_corrente is None:
+                    observacoes.append("Liquidez corrente exigida mas nao informada")
+                elif company.indice_liquidez_corrente < 1.0:
+                    nota -= 25
+                    observacoes.append("Indice de liquidez corrente abaixo de 1.0")
+            if "liquidez geral" in desc:
+                if company.indice_liquidez_geral is None:
+                    observacoes.append("Liquidez geral exigida mas nao informada")
+                elif company.indice_liquidez_geral < 1.0:
+                    nota -= 25
+                    observacoes.append("Indice de liquidez geral abaixo de 1.0")
+            if "endividamento" in desc:
+                if company.indice_endividamento is not None and company.indice_endividamento > 0.6:
+                    nota -= 20
+                    observacoes.append("Endividamento elevado")
 
         if "balanco_patrimonial" not in company.documentos_validos:
             nota -= 30
@@ -443,9 +452,9 @@ class AssessorAgent(BaseAgent):
             nota -= 10
             observacoes.append(f"Contrato longo ({prazo_meses} meses) - maior exposicao")
 
-        # Verificar se ja tem muitos contratos ativos
-        # (estimativa simplificada)
-        if company.licitacoes_vencidas_12m > 10:
+        # Verificar se ja tem muitos contratos ativos (estimativa simplificada).
+        # So avalia se o historico for conhecido.
+        if company.licitacoes_vencidas_12m is not None and company.licitacoes_vencidas_12m > 10:
             nota -= 15
             observacoes.append("Muitos contratos ativos - avaliar capacidade")
 
@@ -499,8 +508,11 @@ class AssessorAgent(BaseAgent):
         nota = 70.0  # Base neutra
         observacoes = []
 
-        # Taxa de sucesso historica
-        if company.taxa_sucesso > 50:
+        # Taxa de sucesso historica (so pontua se conhecida; sem historico,
+        # mantem a base neutra em vez de inventar desempenho).
+        if company.taxa_sucesso is None:
+            observacoes.append("Taxa de sucesso historica nao informada")
+        elif company.taxa_sucesso > 50:
             nota += 20
             observacoes.append(f"Taxa sucesso alta: {company.taxa_sucesso:.1f}%")
         elif company.taxa_sucesso > 30:
@@ -556,7 +568,7 @@ class AssessorAgent(BaseAgent):
             if "capital social" in desc:
                 # Tentar extrair valor minimo
                 valor_estimado = analysis.get("valor_estimado")
-                if valor_estimado:
+                if valor_estimado and company.capital_social is not None:
                     minimo = float(valor_estimado) * 0.10
                     if company.capital_social < minimo:
                         faltantes.append(

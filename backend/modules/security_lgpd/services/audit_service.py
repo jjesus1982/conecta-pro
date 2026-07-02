@@ -276,6 +276,171 @@ class InMemoryAuditStore(AuditStoreInterface):
             }
 
 
+class DatabaseAuditStore(AuditStoreInterface):
+    """Armazenamento de logs de auditoria em banco (``lgpd_audit_logs``).
+
+    Persiste cada ``AuditEntry`` na tabela ``lgpd_audit_logs`` via
+    ``AuditRepository``, garantindo durabilidade e compartilhamento entre
+    workers (ao contrario do ``InMemoryAuditStore``).
+
+    As operacoes do repository sao sincronas (SQLAlchemy ORM classico); por
+    isso rodamos cada chamada em thread (``asyncio.to_thread``) para nao
+    bloquear o event loop e usamos uma sessao sincrona propria por operacao.
+    """
+
+    def __init__(self):
+        # Import tardio para evitar dependencia circular / custo de import.
+        from core.database.session import SyncSessionLocal
+
+        self._session_factory = SyncSessionLocal
+
+    def _map_action(self, action: "AuditAction"):
+        """Mapeia a AuditAction do service para a do model (subconjunto)."""
+        from modules.security_lgpd.models.audit_log import AuditAction as ModelAction
+
+        valid = {a.value for a in ModelAction}
+        return ModelAction(action.value) if action.value in valid else ModelAction.READ
+
+    def _map_resource_type(self, resource_type: "ResourceType"):
+        """Mapeia o ResourceType do service para o do model (subconjunto)."""
+        from modules.security_lgpd.models.audit_log import ResourceType as ModelResource
+
+        valid = {r.value for r in ModelResource}
+        return ModelResource(resource_type.value) if resource_type.value in valid else ModelResource.DATA
+
+    def _map_severity(self, severity: "AuditSeverity"):
+        from modules.security_lgpd.models.audit_log import AuditSeverity as ModelSeverity
+
+        valid = {s.value for s in ModelSeverity}
+        return ModelSeverity(severity.value) if severity.value in valid else ModelSeverity.INFO
+
+    def _store_sync(self, entry: "AuditEntry") -> bool:
+        from modules.security_lgpd.models.audit_log import AuditLog
+        from modules.security_lgpd.repositories.audit_repository import AuditRepository
+
+        session = self._session_factory()
+        try:
+            repo = AuditRepository(session)
+            previous_hash = repo.get_last_hash()
+            content = (
+                f"{previous_hash or ('0' * 64)}"
+                f"{entry.timestamp.isoformat()}{entry.action.value}{entry.resource_id}"
+            )
+            event_hash = hashlib.sha256(content.encode()).hexdigest()
+            entry.previous_hash = previous_hash
+            entry.hash = event_hash
+
+            details = dict(entry.metadata or {})
+            details["description"] = entry.description
+            if entry.pii_fields_accessed:
+                details["pii_fields_accessed"] = entry.pii_fields_accessed
+            if entry.success is not None:
+                details["success"] = entry.success
+            if entry.error_message:
+                details["error_message"] = entry.error_message
+
+            log = AuditLog(
+                id=entry.id,
+                action=self._map_action(entry.action),
+                resource_type=self._map_resource_type(entry.resource_type),
+                resource_id=str(entry.resource_id) if entry.resource_id else "-",
+                user_id=str(entry.context.user_id) if entry.context.user_id else "system",
+                severity=self._map_severity(entry.severity),
+                details=details,
+                ip_address=entry.context.ip_address,
+                user_agent=entry.context.user_agent,
+                created_at=entry.timestamp,
+                event_hash=event_hash,
+                previous_hash=previous_hash,
+            )
+            repo.create(log)
+            return True
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    async def store(self, entry: "AuditEntry") -> bool:
+        return await asyncio.to_thread(self._store_sync, entry)
+
+    def _query_sync(
+        self,
+        start_date: datetime | None,
+        end_date: datetime | None,
+        user_id: str | None,
+        resource_type: "ResourceType | None",
+        action: "AuditAction | None",
+        limit: int,
+        offset: int,
+    ) -> list["AuditEntry"]:
+        from modules.security_lgpd.repositories.audit_repository import AuditRepository
+
+        session = self._session_factory()
+        try:
+            repo = AuditRepository(session)
+            rt = self._map_resource_type(resource_type) if resource_type else None
+            act = self._map_action(action) if action else None
+            rows = repo.query(
+                action=act,
+                resource_type=rt,
+                user_id=user_id,
+                start_date=start_date,
+                end_date=end_date,
+                limit=limit,
+                offset=offset,
+            )
+            entries: list[AuditEntry] = []
+            for row in rows:
+                details = dict(row.details or {})
+                entries.append(
+                    AuditEntry(
+                        id=row.id,
+                        timestamp=row.created_at,
+                        action=AuditAction(row.action.value)
+                        if row.action.value in [a.value for a in AuditAction]
+                        else AuditAction.READ,
+                        severity=AuditSeverity(row.severity.value)
+                        if row.severity and row.severity.value in [s.value for s in AuditSeverity]
+                        else AuditSeverity.INFO,
+                        resource_type=ResourceType(row.resource_type.value)
+                        if row.resource_type.value in [r.value for r in ResourceType]
+                        else ResourceType.DATA,
+                        resource_id=row.resource_id,
+                        context=AuditContext(
+                            request_id=str(row.id),
+                            user_id=row.user_id,
+                            ip_address=row.ip_address,
+                            user_agent=row.user_agent,
+                        ),
+                        description=details.get("description", ""),
+                        pii_fields_accessed=details.get("pii_fields_accessed", []),
+                        success=details.get("success", True),
+                        error_message=details.get("error_message"),
+                        metadata=details,
+                        previous_hash=row.previous_hash,
+                        hash=row.event_hash,
+                    )
+                )
+            return entries
+        finally:
+            session.close()
+
+    async def query(
+        self,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        user_id: str | None = None,
+        resource_type: "ResourceType | None" = None,
+        action: "AuditAction | None" = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list["AuditEntry"]:
+        return await asyncio.to_thread(
+            self._query_sync, start_date, end_date, user_id, resource_type, action, limit, offset
+        )
+
+
 class AuditService:
     """
     Logger de auditoria centralizado para compliance LGPD.
@@ -310,7 +475,9 @@ class AuditService:
             enable_console_output: Se imprime logs no console.
             mask_pii_in_logs: Se mascara PII nos valores logados.
         """
-        self.store = store or InMemoryAuditStore()
+        # Por padrao, persiste em banco (lgpd_audit_logs). O store em memoria
+        # so e usado se explicitamente injetado (ex.: testes).
+        self.store = store or DatabaseAuditStore()
         self.app_name = app_name
         self.enable_console = enable_console_output
         self.mask_pii = mask_pii_in_logs
@@ -333,13 +500,13 @@ class AuditService:
 
     def set_context(self, **kwargs) -> None:
         """Define contexto da requisição atual."""
-        ctx = _request_context.get().copy()
+        ctx = (_request_context.get() or {}).copy()
         ctx.update(kwargs)
         _request_context.set(ctx)
 
     def get_context(self) -> AuditContext:
         """Recupera contexto da requisição atual."""
-        ctx = _request_context.get()
+        ctx = _request_context.get() or {}
         return AuditContext(
             request_id=ctx.get("request_id", str(uuid4())),
             user_id=ctx.get("user_id"),

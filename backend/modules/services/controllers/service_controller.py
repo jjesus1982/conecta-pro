@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from core.auth.dependencies import get_current_user
 from core.database import get_db
+from core.database.session import get_sync_db_dependency
 from modules.services.models import OrderPriority, OrderStatus, ReportType, ServiceCategory, ServiceStatus, ServiceType
 from modules.services.repositories import ServiceRepository
 from modules.services.schemas import (
@@ -45,17 +46,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/services", tags=["Services"])
 
 
-def get_management_service(db: Session = Depends(get_db)) -> ServiceManagementService:
+def get_management_service(db: Session = Depends(get_sync_db_dependency)) -> ServiceManagementService:
     """Dependency para ServiceManagementService."""
     return ServiceManagementService(db)
 
 
-def get_ai_service(db: Session = Depends(get_db)) -> ServiceAIService:
+def get_ai_service(db: Session = Depends(get_sync_db_dependency)) -> ServiceAIService:
     """Dependency para ServiceAIService."""
     return ServiceAIService(db)
 
 
-def get_repository(db: Session = Depends(get_db)) -> ServiceRepository:
+def get_repository(db: Session = Depends(get_sync_db_dependency)) -> ServiceRepository:
     """Dependency para ServiceRepository."""
     return ServiceRepository(db)
 
@@ -77,15 +78,18 @@ async def list_services(
     repo: ServiceRepository = Depends(get_repository),
 ) -> list[ServiceCatalogListResponse]:
     """Lista serviços do catálogo com filtros."""
-    services = repo.list_service_catalogs(
-        category=category,
-        service_type=service_type,
-        status=service_status,
-        is_available=is_available,
-        search=search,
+    services, _total = repo.list_services(
         skip=skip,
         limit=limit,
+        category=category.value if category else None,
+        service_type=service_type.value if service_type else None,
+        status=service_status.value if service_status else None,
+        search=search,
     )
+    # is_available e uma propriedade derivada do modelo (nao ha coluna filtravel);
+    # aplica o filtro em memoria sobre o resultado real do banco.
+    if is_available is not None:
+        services = [s for s in services if s.is_available == is_available]
     return [ServiceCatalogListResponse.model_validate(s) for s in services]
 
 

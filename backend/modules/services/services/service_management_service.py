@@ -25,6 +25,7 @@ from modules.services.schemas import (
     ServiceCatalogUpdate,
     ServiceExecutionCreate,
     ServiceOrderCreate,
+    ServiceOrderFilter,
     ServiceOrderUpdate,
     ServiceReportCreate,
     ServiceReportUpdate,
@@ -433,7 +434,9 @@ class ServiceManagementService:
             Lista de tuplas (ordem, minutos restantes)
         """
         at_risk = []
-        orders = self.repository.list_service_orders(status=OrderStatus.EM_ANDAMENTO, ativo=True, limit=1000)
+        orders, _total = self.repository.list_orders(
+            filters=ServiceOrderFilter(status=OrderStatus.EM_ANDAMENTO), limit=1000
+        )
 
         now = datetime.utcnow()
         threshold = timedelta(hours=threshold_hours)

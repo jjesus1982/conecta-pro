@@ -8,7 +8,6 @@ e coordenação de técnicos para instalações e suporte.
 
 import logging
 from datetime import datetime
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -72,35 +71,24 @@ class TicketUpdate(BaseModel):
     observations: str | None = None
 
 
+# NOTA DE VERACIDADE: nao existe tabela de tickets de campo no banco (apenas
+# client_portal_tickets/client_tickets, que sao do Portal do Cliente, dominio distinto).
+# Enquanto a persistencia de tickets de campo nao for implementada, estes endpoints
+# NAO devem fabricar dados de exemplo. get_ticket -> 404; create/update/assign -> 501.
+
+
 @router.post("/tickets", response_model=TicketResponse, status_code=201)
 async def create_ticket(current_user: CurrentActiveUser, request: TicketRequest):
     """
     Cria novo ticket de atendimento.
 
-    Args:
-        request: Dados do ticket
-
-    Returns:
-        Dados do ticket criado
+    Persistencia de tickets de campo ainda nao implementada (sem tabela no banco).
+    Retorna 501 em vez de devolver um ticket que nao seria salvo.
     """
-    try:
-        ticket_id = f"TICK-{str(uuid4())[:8].upper()}"
-
-        logger.info(f"Criando ticket {ticket_id} para {request.client_name}")
-
-        return TicketResponse(
-            ticket_id=ticket_id,
-            client_name=request.client_name,
-            service_type=request.service_type,
-            priority=request.priority,
-            status="open",
-            created_at=datetime.utcnow(),
-            technician_assigned=None,
-        )
-
-    except Exception as e:
-        logger.error(f"Erro ao criar ticket: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao criar ticket: {str(e)}")
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="Persistencia de tickets de campo nao implementada.",
+    )
 
 
 @router.get("/tickets/{ticket_id}", response_model=TicketResponse)
@@ -108,25 +96,13 @@ async def get_ticket(current_user: CurrentActiveUser, ticket_id: str):
     """
     Consulta ticket específico.
 
-    Args:
-        ticket_id: ID do ticket
-
-    Returns:
-        Dados do ticket
+    Nao ha tabela de tickets de campo; nenhum ticket pode ser recuperado.
+    Retorna 404 em vez de fabricar um "Cliente Exemplo".
     """
-    try:
-        return TicketResponse(
-            ticket_id=ticket_id,
-            client_name="Cliente Exemplo",
-            service_type="Instalação",
-            priority="normal",
-            status="open",
-            created_at=datetime.utcnow(),
-        )
-
-    except Exception as e:
-        logger.error(f"Erro ao consultar ticket {ticket_id}: {e}")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Ticket não encontrado: {ticket_id}")
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"Ticket nao encontrado: {ticket_id} (persistencia de tickets de campo nao implementada).",
+    )
 
 
 @router.put("/tickets/{ticket_id}")
@@ -138,23 +114,13 @@ async def update_ticket(
     """
     Atualiza ticket.
 
-    Args:
-        ticket_id: ID do ticket
-        update: Dados para atualização
-
-    Returns:
-        Confirmação da atualização
+    Persistencia de tickets de campo ainda nao implementada (sem tabela no banco).
+    Retorna 501 em vez de simular uma atualizacao que nao ocorre.
     """
-    try:
-        logger.info(f"Atualizando ticket {ticket_id}")
-
-        return {"ticket_id": ticket_id, "updated_at": datetime.utcnow(), "message": "Ticket atualizado com sucesso"}
-
-    except Exception as e:
-        logger.error(f"Erro ao atualizar ticket {ticket_id}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao atualizar ticket: {str(e)}"
-        )
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="Persistencia de tickets de campo nao implementada.",
+    )
 
 
 @router.post("/technicians", response_model=TechnicianInfo, status_code=201)
@@ -286,28 +252,13 @@ async def assign_technician(ticket_id: str, current_user: CurrentActiveUser, tec
     """
     Atribui técnico ao ticket.
 
-    Args:
-        ticket_id: ID do ticket
-        technician_id: ID do técnico
-
-    Returns:
-        Confirmação da atribuição
+    Persistencia de tickets de campo ainda nao implementada (sem tabela no banco).
+    Retorna 501 em vez de simular uma atribuicao que nao e salva.
     """
-    try:
-        logger.info(f"Atribuindo técnico {technician_id} ao ticket {ticket_id}")
-
-        return {
-            "ticket_id": ticket_id,
-            "technician_id": technician_id,
-            "assigned_at": datetime.utcnow(),
-            "message": "Técnico atribuído com sucesso",
-        }
-
-    except Exception as e:
-        logger.error(f"Erro ao atribuir técnico: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao atribuir técnico: {str(e)}"
-        )
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="Persistencia de tickets de campo nao implementada.",
+    )
 
 
 @router.get("/dashboard")

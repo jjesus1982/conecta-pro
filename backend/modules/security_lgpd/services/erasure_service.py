@@ -198,20 +198,26 @@ class ErasureService:
         >>> result = await service.process_request(request["request_id"])
     """
 
-    def __init__(self, verification_required: bool = True, auto_process: bool = False):
+    def __init__(self, repository=None, verification_required: bool = True, auto_process: bool = False):
         """
         Inicializa o serviço.
 
         Args:
+            repository: ErasureRepository (com sessao de banco) para persistir
+                as solicitacoes na tabela ``lgpd_erasure_requests``. Quando
+                fornecido, ``create_request``/``get_status`` usam o banco (dado
+                real, durável). Quando ``None``, cai no fallback em memoria
+                (usado apenas por endpoints estaticos, ex.: listas de escopos).
             verification_required: Se requer verificação de identidade.
             auto_process: Se processa automaticamente após verificação.
         """
+        self.repository = repository
         self.verification_required = verification_required
         self.auto_process = auto_process
         self._requests: dict[str, ErasureRequest] = {}
         self._data_map: dict[str, DataMapEntry] = {}
         self._init_default_data_map()
-        logger.info("ErasureService inicializado")
+        logger.info("ErasureService inicializado (persistencia=%s)", "banco" if repository else "memoria")
 
     def _init_default_data_map(self) -> None:
         """Inicializa mapa de dados padrão."""
@@ -322,7 +328,52 @@ class ErasureService:
 
         self._requests[str(request_id)] = request
 
-        logger.info("Solicitação de exclusão criada: id=%s, titular=%s, scope=%s", request_id, titular_id, scope)
+        # Persistencia real na tabela lgpd_erasure_requests (quando ha repository).
+        if self.repository is not None:
+            from modules.security_lgpd.models.erasure_request import (
+                ErasureRequest as ErasureRequestModel,
+            )
+            from modules.security_lgpd.models.erasure_request import (
+                ErasureScope as ErasureScopeModel,
+            )
+            from modules.security_lgpd.models.erasure_request import (
+                ErasureStatus as ErasureStatusModel,
+            )
+
+            try:
+                scope_model = ErasureScopeModel(erasure_scope.value)
+            except ValueError:
+                scope_model = ErasureScopeModel.ALL
+
+            model = ErasureRequestModel(
+                id=request_id,
+                titular_id=UUID(str(titular_id)),
+                titular_email=titular_email,
+                reason=reason,
+                scope=scope_model,
+                status=ErasureStatusModel.PENDING,
+                created_at=now,
+                deadline_at=deadline,
+                affected_systems=[loc.table_name for loc in data_locations],
+                erasure_report={
+                    "data_locations": [loc.to_dict() for loc in data_locations],
+                    "blocked_locations": [loc.to_dict() for loc in blocked_locations],
+                },
+            )
+            self.repository.create(model)
+            logger.info(
+                "Solicitação de exclusão PERSISTIDA: id=%s, titular=%s, scope=%s, status=pending",
+                request_id,
+                titular_id,
+                scope,
+            )
+        else:
+            logger.info(
+                "Solicitação de exclusão criada (memoria): id=%s, titular=%s, scope=%s",
+                request_id,
+                titular_id,
+                scope,
+            )
 
         return {
             "request_id": str(request_id),
@@ -344,6 +395,25 @@ class ErasureService:
         Returns:
             Dict com status atual.
         """
+        # Leitura real do banco quando ha repository.
+        if self.repository is not None:
+            model = self.repository.get_by_id(UUID(str(request_id)))
+            if model is None:
+                raise ErasureError(f"Solicitação não encontrada: {request_id}", request_id)
+            report = model.erasure_report or {}
+            return {
+                "request_id": str(model.id),
+                "status": model.status.value if model.status else None,
+                "scope": model.scope.value if model.scope else None,
+                "created_at": model.created_at.isoformat() if model.created_at else None,
+                "deadline": model.deadline_at.isoformat() if model.deadline_at else None,
+                "processed_at": model.completed_at.isoformat() if model.completed_at else None,
+                "processed_by": model.processed_by,
+                "processing_notes": model.processing_notes,
+                "data_locations": len(report.get("data_locations", [])),
+                "blocked_locations": len(report.get("blocked_locations", [])),
+            }
+
         if request_id not in self._requests:
             raise ErasureError(f"Solicitação não encontrada: {request_id}", request_id)
 
@@ -364,15 +434,63 @@ class ErasureService:
 
     def process_request(self, request_id: str, processor_id: str) -> dict[str, Any]:
         """
-        Processa uma solicitação de exclusão.
+        Marca uma solicitação de exclusão como EM PROCESSAMENTO.
+
+        IMPORTANTE (honestidade LGPD): a anonimizacao/exclusao real dos dados
+        (tabelas employees/clients/users/medical_records, com suas regras de
+        retencao e integridade referencial) AINDA NAO esta implementada de
+        forma segura. Portanto este metodo NAO fabrica sucesso nem marca a
+        solicitacao como concluida. Ele apenas registra que a solicitacao
+        entrou em processamento (status honesto ``in_progress``), aguardando
+        execucao real (manual/automatizada supervisionada). O direito ao
+        esquecimento so pode ser reportado como concluido apos a exclusao de
+        fato ter ocorrido.
 
         Args:
             request_id: ID da solicitação.
             processor_id: ID do usuário processando.
 
         Returns:
-            Dict com resultado do processamento.
+            Dict com o status honesto (in_progress / pending) da solicitação.
         """
+        if self.repository is not None:
+            from modules.security_lgpd.models.erasure_request import (
+                ErasureStatus as ErasureStatusModel,
+            )
+
+            model = self.repository.get_by_id(UUID(str(request_id)))
+            if model is None:
+                raise ErasureError(f"Solicitação não encontrada: {request_id}", request_id)
+
+            note = (
+                "Solicitacao aceita e em processamento. Exclusao/anonimizacao "
+                "efetiva dos dados pessoais ainda pendente de execucao real "
+                "(nao implementada automaticamente). Nao concluir enquanto os "
+                "dados nao forem de fato removidos/anonimizados."
+            )
+            updated = self.repository.update_status(
+                UUID(str(request_id)),
+                ErasureStatusModel.IN_PROGRESS,
+                processor_id=processor_id,
+                notes=note,
+            )
+            report = (updated.erasure_report or {}) if updated else {}
+            logger.info(
+                "Solicitação de exclusão marcada IN_PROGRESS (execucao real pendente): request=%s",
+                request_id,
+            )
+            return {
+                "request_id": str(request_id),
+                "status": updated.status.value if updated else "in_progress",
+                "processed_by": processor_id,
+                "processed_at": updated.updated_at.isoformat() if updated and updated.updated_at else None,
+                "pending_execution": True,
+                "message": note,
+                "data_locations": len(report.get("data_locations", [])),
+                "blocked_locations": len(report.get("blocked_locations", [])),
+            }
+
+        # Fallback em memoria (sem repository): tambem NAO fabrica sucesso.
         if request_id not in self._requests:
             raise ErasureError(f"Solicitação não encontrada: {request_id}", request_id)
 
@@ -383,52 +501,15 @@ class ErasureService:
 
         request.status = ErasureStatus.IN_PROGRESS
         request.processed_by = processor_id
+        request.notes.append(
+            "Em processamento; exclusao efetiva ainda nao implementada (nao concluir sem remocao real)."
+        )
         now = datetime.utcnow()
 
-        # Processa cada localização
-        for location in request.data_locations:
-            try:
-                result = ErasureResult(
-                    location=location,
-                    success=True,
-                    method_used=location.erasure_method,
-                    executed_at=now,
-                    records_affected=1,
-                )
-                logger.info(
-                    "Exclusão executada: table=%s, method=%s", location.table_name, location.erasure_method.value
-                )
-            except Exception as e:
-                result = ErasureResult(
-                    location=location,
-                    success=False,
-                    method_used=location.erasure_method,
-                    executed_at=now,
-                    error_message=str(e),
-                )
-                logger.error("Erro na exclusão: %s", str(e))
-
-            request.results.append(result)
-
-        # Determina status final
-        successful = sum(1 for r in request.results if r.success)
-        total = len(request.results)
-
-        if successful == total and not request.blocked_locations:
-            request.status = ErasureStatus.COMPLETED
-        elif successful == total and request.blocked_locations or successful > 0:
-            request.status = ErasureStatus.PARTIAL
-        else:
-            request.status = ErasureStatus.FAILED
-
-        request.completed_at = now
-
         logger.info(
-            "Processamento concluído: request=%s, status=%s, success=%d/%d",
+            "Processamento iniciado (execucao real pendente): request=%s, status=%s",
             request_id,
             request.status.value,
-            successful,
-            total,
         )
 
         return {
@@ -436,9 +517,10 @@ class ErasureService:
             "status": request.status.value,
             "processed_by": processor_id,
             "processed_at": now.isoformat(),
-            "success_count": successful,
-            "total_count": total,
-            "blocked_count": len(request.blocked_locations),
+            "pending_execution": True,
+            "message": "Exclusao efetiva ainda nao implementada; solicitacao em processamento.",
+            "data_locations": len(request.data_locations),
+            "blocked_locations": len(request.blocked_locations),
         }
 
     def verify_request(self, request_id: str, verification_code: str) -> bool:

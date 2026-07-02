@@ -6,14 +6,22 @@ import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from sqlalchemy.orm import Session
 
 from core.auth.dependencies import get_current_user
+from core.database.session import get_sync_db_dependency
+from modules.security_lgpd.repositories.consent_repository import ConsentRepository
 from modules.security_lgpd.schemas.common import StandardResponse
 from modules.security_lgpd.schemas.consent import ConsentRequest
 from modules.security_lgpd.services.consent_service import ConsentService
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/consent", tags=["LGPD - Consentimento"])
+
+
+def get_consent_service(db: Session = Depends(get_sync_db_dependency)) -> ConsentService:
+    """Injeta um ConsentService com repository ligado a sessao de banco."""
+    return ConsentService(ConsentRepository(db))
 
 
 @router.post(
@@ -23,7 +31,11 @@ router = APIRouter(prefix="/consent", tags=["LGPD - Consentimento"])
     summary="Registra consentimento LGPD",
     description="Registra consentimento do titular conforme Art. 7 LGPD.",
 )
-async def register_consent(request: ConsentRequest, current_user: dict = Depends(get_current_user)) -> StandardResponse:
+async def register_consent(
+    request: ConsentRequest,
+    current_user: dict = Depends(get_current_user),
+    service: ConsentService = Depends(get_consent_service),
+) -> StandardResponse:
     """
     Registra consentimento de titular de dados.
     Args:
@@ -34,7 +46,6 @@ async def register_consent(request: ConsentRequest, current_user: dict = Depends
         HTTPException: Se falhar o registro.
     """
     try:
-        service = ConsentService()
         result = service.register_consent(
             titular_id=str(request.titular_id),
             titular_email=request.titular_email,
@@ -79,17 +90,15 @@ async def list_consents(
     limit: int = Query(100, ge=1, le=1000, description="Limite de resultados"),
     offset: int = Query(0, ge=0, description="Offset para paginacao"),
     current_user: dict = Depends(get_current_user),
+    service: ConsentService = Depends(get_consent_service),
 ) -> StandardResponse:
     """Lista todos os consentimentos registrados."""
     try:
-        service = ConsentService()
-        all_consents = list(service._consents.values())
-        total = len(all_consents)
-        page = all_consents[offset : offset + limit]
+        result = service.list_all(limit=limit, offset=offset)
         return StandardResponse(
             success=True,
-            message=f"Encontrados {total} consentimentos",
-            data={"consents": page, "total": total, "limit": limit, "offset": offset},
+            message=f"Encontrados {result['total']} consentimentos",
+            data=result,
         )
     except Exception as e:
         logger.error("Erro ao listar consentimentos: %s", str(e))
@@ -107,7 +116,9 @@ async def list_consents(
     description="Retorna todos os consentimentos de um titular.",
 )
 async def get_consents(
-    titular_id: UUID = Path(..., description="UUID do titular"), current_user: dict = Depends(get_current_user)
+    titular_id: UUID = Path(..., description="UUID do titular"),
+    current_user: dict = Depends(get_current_user),
+    service: ConsentService = Depends(get_consent_service),
 ) -> StandardResponse:
     """
     Consulta consentimentos de um titular.
@@ -117,7 +128,6 @@ async def get_consents(
         StandardResponse: Lista de consentimentos.
     """
     try:
-        service = ConsentService()
         result = service.get_consents_by_titular(str(titular_id))
         return StandardResponse(
             success=True,
@@ -143,6 +153,7 @@ async def revoke_consent(
     consent_id: str = Path(..., description="ID do consentimento"),
     reason: str = Query(..., min_length=5, description="Motivo da revogacao"),
     current_user: dict = Depends(get_current_user),
+    service: ConsentService = Depends(get_consent_service),
 ) -> StandardResponse:
     """
     Revoga um consentimento.
@@ -153,7 +164,6 @@ async def revoke_consent(
         StandardResponse: Confirmacao da revogacao.
     """
     try:
-        service = ConsentService()
         result = service.revoke_consent(consent_id, reason)
         logger.info("Consentimento revogado: %s", consent_id)
         return StandardResponse(
@@ -188,7 +198,7 @@ async def list_purposes(current_user: dict = Depends(get_current_user)) -> Stand
     Returns:
         StandardResponse: Lista de finalidades.
     """
-    service = ConsentService()
+    service = ConsentService(None)
     purposes = service.list_purposes()
     return StandardResponse(
         success=True,
@@ -211,7 +221,7 @@ async def list_legal_bases(current_user: dict = Depends(get_current_user)) -> St
     Returns:
         StandardResponse: Lista de bases legais.
     """
-    service = ConsentService()
+    service = ConsentService(None)
     bases = service.list_legal_bases()
     return StandardResponse(
         success=True,

@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -332,19 +333,47 @@ class NotificationAnalytics:
             days: Dias para análise
 
         Returns:
-            Dict com métricas do usuário
+            Dict com métricas do usuário. Computado de notification_logs;
+            se não houver registros, retorna zeros honestos.
         """
+        since = datetime.utcnow() - timedelta(days=days)
+        result = await db.execute(
+            text(
+                """
+                SELECT
+                    COUNT(*) FILTER (WHERE event_type IN ('sent', 'delivered')) AS total_received,
+                    COUNT(*) FILTER (WHERE event_type = 'opened') AS total_opened,
+                    COUNT(*) FILTER (WHERE event_type = 'clicked') AS total_clicked,
+                    MAX(created_at) FILTER (WHERE event_type IN ('opened', 'clicked')) AS last_engagement,
+                    MODE() WITHIN GROUP (ORDER BY channel_type) AS preferred_channel
+                FROM notification_logs
+                WHERE user_id = CAST(:user_id AS uuid)
+                  AND created_at >= :since
+                """
+            ),
+            {"user_id": str(user_id), "since": since},
+        )
+        row = result.mappings().first()
+
+        total_received = int(row["total_received"] or 0) if row else 0
+        total_opened = int(row["total_opened"] or 0) if row else 0
+        total_clicked = int(row["total_clicked"] or 0) if row else 0
+        open_rate = (total_opened / total_received) if total_received else 0.0
+        click_rate = (total_clicked / total_opened) if total_opened else 0.0
+        # Engajamento simples: média entre taxa de abertura e taxa de clique
+        engagement_score = round((open_rate + click_rate) / 2, 4)
+
         return {
             "user_id": user_id,
-            "total_received": 45,
-            "total_opened": 30,
-            "total_clicked": 10,
-            "open_rate": 0.67,
-            "click_rate": 0.22,
-            "preferred_channel": "push",
-            "preferred_time": "10:00",
-            "engagement_score": 0.75,
-            "last_engagement": datetime.utcnow() - timedelta(days=2),
+            "total_received": total_received,
+            "total_opened": total_opened,
+            "total_clicked": total_clicked,
+            "open_rate": round(open_rate, 4),
+            "click_rate": round(click_rate, 4),
+            "preferred_channel": (row["preferred_channel"] if row else None),
+            "preferred_time": None,
+            "engagement_score": engagement_score,
+            "last_engagement": (row["last_engagement"] if row else None),
         }
 
     async def forecast_metrics(
@@ -382,18 +411,53 @@ class NotificationAnalytics:
         db: AsyncSession,
         tenant_id: str | None,
     ) -> dict[str, float]:
-        """Obtém métricas em tempo real."""
+        """Obtém métricas em tempo real de notification_logs (dia corrente)."""
+        start_of_day = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        filters = "created_at >= :start_of_day"
+        params: dict[str, Any] = {"start_of_day": start_of_day}
+        if tenant_id:
+            filters += " AND tenant_id = CAST(:tenant_id AS uuid)"
+            params["tenant_id"] = str(tenant_id)
+
+        result = await db.execute(
+            text(
+                f"""
+                SELECT
+                    COUNT(*) FILTER (WHERE event_type = 'sent') AS sent_today,
+                    COUNT(*) FILTER (WHERE event_type = 'delivered') AS delivered_today,
+                    COUNT(*) FILTER (WHERE event_type = 'opened') AS opened_today,
+                    COUNT(*) FILTER (WHERE event_type = 'clicked') AS clicked_today,
+                    COUNT(DISTINCT user_id) AS active_users,
+                    AVG(processing_time_ms) AS avg_delivery_time_ms
+                FROM notification_logs
+                WHERE {filters}
+                """
+            ),
+            params,
+        )
+        row = result.mappings().first()
+
+        sent = int(row["sent_today"] or 0) if row else 0
+        delivered = int(row["delivered_today"] or 0) if row else 0
+        opened = int(row["opened_today"] or 0) if row else 0
+        clicked = int(row["clicked_today"] or 0) if row else 0
+
+        # Fila pendente (notification_queue)
+        queue_result = await db.execute(text("SELECT COUNT(*) FROM notification_queue"))
+        queue_size = int(queue_result.scalar() or 0)
+
         return {
-            "sent_today": 1250,
-            "delivered_today": 1200,
-            "opened_today": 450,
-            "clicked_today": 120,
-            "delivery_rate": 0.96,
-            "open_rate": 0.375,
-            "click_rate": 0.10,
-            "active_users": 350,
-            "queue_size": 50,
-            "avg_delivery_time_ms": 250,
+            "sent_today": sent,
+            "delivered_today": delivered,
+            "opened_today": opened,
+            "clicked_today": clicked,
+            "delivery_rate": (delivered / sent) if sent else 0.0,
+            "open_rate": (opened / delivered) if delivered else 0.0,
+            "click_rate": (clicked / opened) if opened else 0.0,
+            "active_users": int(row["active_users"] or 0) if row else 0,
+            "queue_size": queue_size,
+            "avg_delivery_time_ms": float(row["avg_delivery_time_ms"] or 0) if row else 0.0,
         }
 
     async def _get_channel_performance(
@@ -421,23 +485,44 @@ class NotificationAnalytics:
         days: int,
         tenant_id: str | None,
     ) -> ChannelPerformance:
-        """Obtém métricas de um canal."""
-        # Dados simulados
-        base_metrics = {
-            "push": {"sent": 5000, "opened": 3500, "clicked": 1000, "cost": 0},
-            "email": {"sent": 3000, "opened": 1200, "clicked": 300, "cost": 3.0},
-            "sms": {"sent": 500, "opened": 475, "clicked": 50, "cost": 25.0},
-            "whatsapp": {"sent": 800, "opened": 720, "clicked": 200, "cost": 24.0},
-            "in_app": {"sent": 4000, "opened": 3400, "clicked": 1500, "cost": 0},
-        }
+        """Obtém métricas de um canal a partir de notification_logs.
 
-        metrics = base_metrics.get(channel, {"sent": 0, "opened": 0, "clicked": 0, "cost": 0})
+        Se não houver registros para o canal, retorna zeros honestos.
+        """
+        since = datetime.utcnow() - timedelta(days=days)
 
-        sent = metrics["sent"]
-        delivered = int(sent * 0.98)
-        opened = metrics["opened"]
-        clicked = metrics["clicked"]
-        converted = int(clicked * 0.15)
+        filters = "channel_type = :channel AND created_at >= :since"
+        params: dict[str, Any] = {"channel": channel, "since": since}
+        if tenant_id:
+            filters += " AND tenant_id = CAST(:tenant_id AS uuid)"
+            params["tenant_id"] = str(tenant_id)
+
+        result = await db.execute(
+            text(
+                f"""
+                SELECT
+                    COUNT(*) FILTER (WHERE event_type = 'sent') AS sent,
+                    COUNT(*) FILTER (WHERE event_type = 'delivered') AS delivered,
+                    COUNT(*) FILTER (WHERE event_type = 'opened') AS opened,
+                    COUNT(*) FILTER (WHERE event_type = 'clicked') AS clicked,
+                    COUNT(*) FILTER (WHERE event_type = 'converted') AS converted,
+                    AVG(processing_time_ms) AS avg_delivery_ms,
+                    COALESCE(SUM(cost), 0) AS cost_total
+                FROM notification_logs
+                WHERE {filters}
+                """
+            ),
+            params,
+        )
+        row = result.mappings().first()
+
+        sent = int(row["sent"] or 0) if row else 0
+        delivered = int(row["delivered"] or 0) if row else 0
+        opened = int(row["opened"] or 0) if row else 0
+        clicked = int(row["clicked"] or 0) if row else 0
+        converted = int(row["converted"] or 0) if row else 0
+        cost_total = float(row["cost_total"] or 0.0) if row else 0.0
+        avg_delivery_ms = float(row["avg_delivery_ms"] or 0.0) if row else 0.0
 
         return ChannelPerformance(
             channel=channel,
@@ -446,14 +531,14 @@ class NotificationAnalytics:
             total_opened=opened,
             total_clicked=clicked,
             total_converted=converted,
-            delivery_rate=delivered / max(sent, 1),
-            open_rate=opened / max(delivered, 1),
-            click_rate=clicked / max(opened, 1),
-            conversion_rate=converted / max(clicked, 1),
-            avg_delivery_time_seconds=5 if channel in ["push", "in_app"] else 30,
-            cost_total=metrics["cost"],
-            cost_per_conversion=metrics["cost"] / max(converted, 1),
-            trend=TrendDirection.UP if channel in ["push", "whatsapp"] else TrendDirection.STABLE,
+            delivery_rate=(delivered / sent) if sent else 0.0,
+            open_rate=(opened / delivered) if delivered else 0.0,
+            click_rate=(clicked / opened) if opened else 0.0,
+            conversion_rate=(converted / clicked) if clicked else 0.0,
+            avg_delivery_time_seconds=avg_delivery_ms / 1000.0,
+            cost_total=cost_total,
+            cost_per_conversion=(cost_total / converted) if converted else 0.0,
+            trend=TrendDirection.STABLE,
         )
 
     async def _get_recent_campaigns(
@@ -462,49 +547,81 @@ class NotificationAnalytics:
         tenant_id: str | None,
         limit: int = 5,
     ) -> list[CampaignMetrics]:
-        """Obtém campanhas recentes."""
-        return [
-            CampaignMetrics(
-                campaign_id="camp_001",
-                name="Boas-vindas Novos Moradores",
-                start_date=datetime.utcnow() - timedelta(days=7),
-                end_date=None,
-                total_recipients=150,
-                total_sent=150,
-                total_delivered=148,
-                total_opened=95,
-                total_clicked=35,
-                total_converted=12,
-                total_unsubscribed=2,
-                delivery_rate=0.987,
-                open_rate=0.642,
-                click_rate=0.368,
-                conversion_rate=0.343,
-                unsubscribe_rate=0.013,
-                revenue_attributed=0,
-                roi=0,
+        """Obtém campanhas recentes de push_campaigns.
+
+        Se não houver campanhas, retorna lista vazia (honesto).
+        """
+        filters = ""
+        params: dict[str, Any] = {"limit": limit}
+        if tenant_id:
+            filters = "WHERE tenant_id = CAST(:tenant_id AS uuid)"
+            params["tenant_id"] = str(tenant_id)
+
+        result = await db.execute(
+            text(
+                f"""
+                SELECT
+                    id, name, created_at, started_at, completed_at,
+                    total_target, total_sent, total_delivered, total_opened,
+                    total_clicked, total_converted,
+                    delivery_rate, open_rate, click_rate, conversion_rate
+                FROM push_campaigns
+                {filters}
+                ORDER BY created_at DESC
+                LIMIT :limit
+                """
             ),
-            CampaignMetrics(
-                campaign_id="camp_002",
-                name="Lembrete Assembleia",
-                start_date=datetime.utcnow() - timedelta(days=3),
-                end_date=datetime.utcnow() - timedelta(days=1),
-                total_recipients=200,
-                total_sent=200,
-                total_delivered=198,
-                total_opened=165,
-                total_clicked=80,
-                total_converted=45,
-                total_unsubscribed=0,
-                delivery_rate=0.99,
-                open_rate=0.833,
-                click_rate=0.485,
-                conversion_rate=0.563,
-                unsubscribe_rate=0,
-                revenue_attributed=0,
-                roi=0,
-            ),
-        ]
+            params,
+        )
+        rows = result.mappings().all()
+
+        campaigns: list[CampaignMetrics] = []
+        for row in rows:
+            sent = int(row["total_sent"] or 0)
+            delivered = int(row["total_delivered"] or 0)
+            opened = int(row["total_opened"] or 0)
+            clicked = int(row["total_clicked"] or 0)
+            converted = int(row["total_converted"] or 0)
+            campaigns.append(
+                CampaignMetrics(
+                    campaign_id=str(row["id"]),
+                    name=row["name"],
+                    start_date=row["started_at"] or row["created_at"],
+                    end_date=row["completed_at"],
+                    total_recipients=int(row["total_target"] or 0),
+                    total_sent=sent,
+                    total_delivered=delivered,
+                    total_opened=opened,
+                    total_clicked=clicked,
+                    total_converted=converted,
+                    total_unsubscribed=0,
+                    delivery_rate=(
+                        float(row["delivery_rate"])
+                        if row["delivery_rate"] is not None
+                        else ((delivered / sent) if sent else 0.0)
+                    ),
+                    open_rate=(
+                        float(row["open_rate"])
+                        if row["open_rate"] is not None
+                        else ((opened / delivered) if delivered else 0.0)
+                    ),
+                    click_rate=(
+                        float(row["click_rate"])
+                        if row["click_rate"] is not None
+                        else ((clicked / opened) if opened else 0.0)
+                    ),
+                    conversion_rate=(
+                        float(row["conversion_rate"])
+                        if row["conversion_rate"] is not None
+                        else ((converted / clicked) if clicked else 0.0)
+                    ),
+                    unsubscribe_rate=0.0,
+                    revenue_attributed=0.0,
+                    roi=0.0,
+                )
+            )
+
+        return campaigns
 
     async def _get_top_campaigns(
         self,
@@ -526,14 +643,46 @@ class NotificationAnalytics:
         end_date: datetime,
         tenant_id: str | None,
     ) -> dict[str, int]:
-        """Obtém totais do período."""
+        """Obtém totais do período de notification_logs (honesto: 0 se vazio)."""
+        filters = "created_at >= :start_date AND created_at <= :end_date"
+        params: dict[str, Any] = {"start_date": start_date, "end_date": end_date}
+        if tenant_id:
+            filters += " AND tenant_id = CAST(:tenant_id AS uuid)"
+            params["tenant_id"] = str(tenant_id)
+
+        result = await db.execute(
+            text(
+                f"""
+                SELECT
+                    COUNT(*) FILTER (WHERE event_type = 'sent') AS total_sent,
+                    COUNT(*) FILTER (WHERE event_type = 'delivered') AS total_delivered,
+                    COUNT(*) FILTER (WHERE event_type = 'opened') AS total_opened,
+                    COUNT(*) FILTER (WHERE event_type = 'clicked') AS total_clicked,
+                    COUNT(*) FILTER (WHERE event_type = 'converted') AS total_converted,
+                    COUNT(DISTINCT user_id) AS unique_users
+                FROM notification_logs
+                WHERE {filters}
+                """
+            ),
+            params,
+        )
+        row = result.mappings().first()
+        if not row:
+            return {
+                "total_sent": 0,
+                "total_delivered": 0,
+                "total_opened": 0,
+                "total_clicked": 0,
+                "total_converted": 0,
+                "unique_users": 0,
+            }
         return {
-            "total_sent": 15000,
-            "total_delivered": 14700,
-            "total_opened": 8500,
-            "total_clicked": 2500,
-            "total_converted": 800,
-            "unique_users": 2500,
+            "total_sent": int(row["total_sent"] or 0),
+            "total_delivered": int(row["total_delivered"] or 0),
+            "total_opened": int(row["total_opened"] or 0),
+            "total_clicked": int(row["total_clicked"] or 0),
+            "total_converted": int(row["total_converted"] or 0),
+            "unique_users": int(row["unique_users"] or 0),
         }
 
     async def _analyze_trends(
@@ -602,22 +751,66 @@ class NotificationAnalytics:
         days: int,
         tenant_id: str | None,
     ) -> list[MetricPoint]:
-        """Obtém dados históricos de uma métrica."""
-        # Simular dados
-        data = []
-        base_value = {"open_rate": 0.35, "click_rate": 0.10, "delivery_rate": 0.96}.get(metric, 0.5)
+        """Obtém séries diárias de uma métrica de notification_logs.
 
-        for i in range(days):
-            timestamp = datetime.utcnow() - timedelta(days=days - i)
-            # Adicionar variação
-            variation = (hash(f"{metric}_{i}") % 20 - 10) / 100
-            value = base_value + variation
+        Calcula a taxa (open/click/delivery) por dia a partir dos eventos reais.
+        Se não houver eventos, retorna série vazia (honesto — sem forecast).
+        """
+        if days <= 0:
+            return []
+
+        since = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days - 1)
+
+        filters = "created_at >= :since"
+        params: dict[str, Any] = {"since": since}
+        if tenant_id:
+            filters += " AND tenant_id = CAST(:tenant_id AS uuid)"
+            params["tenant_id"] = str(tenant_id)
+
+        result = await db.execute(
+            text(
+                f"""
+                SELECT
+                    date_trunc('day', created_at) AS day,
+                    COUNT(*) FILTER (WHERE event_type = 'sent') AS sent,
+                    COUNT(*) FILTER (WHERE event_type = 'delivered') AS delivered,
+                    COUNT(*) FILTER (WHERE event_type = 'opened') AS opened,
+                    COUNT(*) FILTER (WHERE event_type = 'clicked') AS clicked
+                FROM notification_logs
+                WHERE {filters}
+                GROUP BY 1
+                ORDER BY 1
+                """
+            ),
+            params,
+        )
+        rows = result.mappings().all()
+
+        data: list[MetricPoint] = []
+        for row in rows:
+            sent = int(row["sent"] or 0)
+            delivered = int(row["delivered"] or 0)
+            opened = int(row["opened"] or 0)
+            clicked = int(row["clicked"] or 0)
+
+            if metric == "open_rate":
+                value = (opened / delivered) if delivered else 0.0
+                count = delivered
+            elif metric == "click_rate":
+                value = (clicked / opened) if opened else 0.0
+                count = opened
+            elif metric == "delivery_rate":
+                value = (delivered / sent) if sent else 0.0
+                count = sent
+            else:
+                value = 0.0
+                count = sent
 
             data.append(
                 MetricPoint(
-                    timestamp=timestamp,
-                    value=max(0, min(1, value)),
-                    count=100 + (i * 5),
+                    timestamp=row["day"],
+                    value=max(0.0, min(1.0, value)),
+                    count=count,
                 )
             )
 

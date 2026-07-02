@@ -33,3 +33,26 @@
 - kit `total_documents`/`documents_signed`/`completion_percentage` STORED-STALE (31/38 divergem; ex kit mostra 0, real 204). Afeta GP-GED + portal cliente. → recalcular do COUNT.
 - portal `/analytics/overview`: janela 30d quebrada (`.replace(day=day-30)`), `documentos_baixados`=assinados (mislabel; real em ged_kit_access_logs downloaded).
 - `/ged/stats` active_documents==total (tabela não tem status arquivamento).
+
+---
+## ✅ CORRIGIDOS (2026-07-02, commit 3f35e65d) — provados curl vs banco + bake
+- **BI executive dashboard**: R$2,85M fabricado → executive_kpis REAL (Receita 270.586,96 / Folha 95.950 / 10 KPIs); alertas de alert_level+ged_certidoes; insights fabricados removidos; trends = previous→current real.
+- **Forecast/predictive**: np.random → inter_transactions real (série diária); /forecast/accuracy 87.5 fixo → measurable:false honesto; feature_store random → clients.created_at real + resto honesto; AI report random → fontes reais (contracts/inter/clients/commissions/hr_payslips) + PDF/Excel reais.
+- **Financeiro**: /bi/profitability amount→realized_amount (erro sumiu; 0=vazio-real do período, real em 365d=1.13M); DRE 100% → honesta ("sem lançamentos no mês"); /cashflow/dashboard zeros → receivable_accounts(316.904 pend)/payable_accounts(138.175); BIService stub → queries reais; fallbacks 36476/272086 removidos.
+- **Fiscal/Gov**: NFC-e (5 endpoints) + eSocial gerar_lote → HTTP 501 honesto (não fabricam protocolo/autorização); dashboard gov status ← gov_sync_logs real (não "16/17 online" fixo); CRF/CND/ecac dead-code → NotImplementedError/valida=false.
+- **Comercial**: /crm/forecast + relatório PDF + by-seller → +is_active (280.811 → 193.167,92 real, bate com KPIs).
+- PENDENTE menor: crm_360_service.py (dead-code random) — não removido (importado por 5 testes); financial_kpis/executive_kpis stale (last_calculated_at NULL — precisa job recalc); /ged/stats active==total mislabel.
+
+---
+## ✅ VARREDURA FINAL (2026-07-02) — módulos restantes
+Fixers paralelos (finder≠fixer≠verificador). Corrigidos:
+- **Área Cliente** `/analytics/overview`: janela 30d (timedelta) + documentos_baixados (ged_kit_access_logs downloaded real). [precisa token portal p/ curl]
+- **Facilities** campo/tickets: FANTASMA "Cliente Exemplo" → 404/501 honesto (não há tabela).
+- **Gestão** notifications/intelligent/analytics: 1250/5000/45-30-10 hardcoded → notification_logs real (0 honesto, tabelas vazias); mobile/dashboard 150/45/125k → leads=17/clients=14/R$270k reais; mobile/batch "success" fabricado → 501 honesto.
+- **Licitações**: Sentinel lê bidding_certificates=8 reais (não catálogo fixo NAO_POSSUI); Assessor carrega bidding_analyses real (não ValueError); PricerAgent CompanyProfile literais → None honesto + colaboradores(employees)/docs(certificates) reais.
+- **LGPD** (security_lgpd): consent/pia/audit/erasure eram FANTASMA em-memória → agora persistem em lgpd_* (tabelas CRIADAS via models, checkfirst); erasure não fabrica mais success (status honesto pendente/in_progress). ATENÇÃO: tabelas criadas direto (sem migration file) — adicionar migration p/ reprodutibilidade; erasure exclusão real de PII ainda pendente (gate humano).
+
+## 🟡 ISSUES NÃO-MOCK descobertos (schema drift, não fabricação — fila separada)
+- **services/catalog + orders/stats + orders/at-risk = 500**: schema drift — model define `service_catalog.currency` e `service_orders.latitude` que NÃO existem no banco. Não é mock (500 honesto, não mostra dado falso). Fix = migration (add colunas) ou remover do model. service_controller já corrigido p/ sessão síncrona (repo é sync).
+- crm_360_service.py dead-code random (importado por testes).
+- executive_kpis/financial_kpis reais mas last_calculated_at NULL (falta job recalc).

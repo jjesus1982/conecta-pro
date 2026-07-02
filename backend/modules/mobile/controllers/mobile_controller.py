@@ -6,6 +6,7 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import get_current_user
@@ -156,16 +157,39 @@ async def get_mobile_dashboard(
         )
     )
 
-    # Buscar dados do dashboard
+    # Buscar dados reais do dashboard (0 honesto quando a tabela está vazia)
+    period_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    period_end = datetime.utcnow()
+
+    totals = await db.execute(
+        text(
+            """
+            SELECT
+                (SELECT COUNT(*) FROM leads) AS total_leads,
+                (SELECT COUNT(*) FROM clients) AS total_customers,
+                (SELECT COUNT(*) FROM contracts WHERE status = 'active') AS total_orders,
+                (SELECT COALESCE(SUM(monthly_value), 0)
+                   FROM contracts WHERE status = 'active') AS total_revenue,
+                (SELECT COUNT(*) FROM crm_activities
+                   WHERE completed_at IS NULL AND scheduled_at IS NOT NULL) AS pending_tasks
+            """
+        )
+    )
+    trow = totals.mappings().first()
+
+    # Notificações não lidas: não há tabela de notificações mobile por usuário no banco
+    # → 0 honesto (não fabricar). Sem query que abortaria a transação async.
+    unread_notifications = 0
+
     summary = DashboardSummary(
-        total_leads=150,
-        total_customers=45,
-        total_orders=28,
-        total_revenue=125000.00,
-        pending_tasks=12,
-        unread_notifications=5,
-        period_start=datetime.utcnow().replace(day=1),
-        period_end=datetime.utcnow(),
+        total_leads=int(trow["total_leads"] or 0) if trow else 0,
+        total_customers=int(trow["total_customers"] or 0) if trow else 0,
+        total_orders=int(trow["total_orders"] or 0) if trow else 0,
+        total_revenue=float(trow["total_revenue"] or 0.0) if trow else 0.0,
+        pending_tasks=int(trow["pending_tasks"] or 0) if trow else 0,
+        unread_notifications=unread_notifications,
+        period_start=period_start,
+        period_end=period_end,
     )
 
     # Ações rápidas baseadas no perfil
@@ -184,7 +208,7 @@ async def get_mobile_dashboard(
             icon="check-square",
             action="navigate",
             route="/tasks",
-            badge_count=12,
+            badge_count=summary.pending_tasks,
         ),
         QuickAction(
             id="notifications",
@@ -192,7 +216,7 @@ async def get_mobile_dashboard(
             icon="bell",
             action="navigate",
             route="/notifications",
-            badge_count=5,
+            badge_count=summary.unread_notifications,
         ),
         QuickAction(
             id="scan_qr",
@@ -203,31 +227,42 @@ async def get_mobile_dashboard(
         ),
     ]
 
-    # Atividades recentes (simplificado para conexões lentas)
-    recent_activities = []
+    # Atividades recentes reais de crm_activities (simplificado p/ conexões lentas)
+    recent_activities: list[RecentActivity] = []
     if not lightweight:
-        recent_activities = [
-            RecentActivity(
-                id="1",
-                type="lead",
-                title="Novo lead cadastrado",
-                description="Maria Silva - Empresa ABC",
-                icon="user-plus",
-                timestamp=datetime.utcnow(),
-                entity_type="lead",
-                entity_id="lead-001",
-            ),
-            RecentActivity(
-                id="2",
-                type="task",
-                title="Tarefa concluída",
-                description="Follow-up com cliente",
-                icon="check",
-                timestamp=datetime.utcnow(),
-                entity_type="task",
-                entity_id="task-001",
-            ),
-        ]
+        act_res = await db.execute(
+            text(
+                """
+                SELECT id, type, subject, description, created_at,
+                       client_id, lead_id, proposal_id
+                FROM crm_activities
+                ORDER BY created_at DESC
+                LIMIT 10
+                """
+            )
+        )
+        for a in act_res.mappings().all():
+            entity_type = None
+            entity_id = None
+            if a["lead_id"]:
+                entity_type, entity_id = "lead", str(a["lead_id"])
+            elif a["proposal_id"]:
+                entity_type, entity_id = "proposal", str(a["proposal_id"])
+            elif a["client_id"]:
+                entity_type, entity_id = "client", str(a["client_id"])
+
+            recent_activities.append(
+                RecentActivity(
+                    id=str(a["id"]),
+                    type=a["type"] or "activity",
+                    title=a["subject"] or "Atividade",
+                    description=a["description"] or "",
+                    icon="activity",
+                    timestamp=a["created_at"] or datetime.utcnow(),
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                )
+            )
 
     return MobileDashboardResponse(
         summary=summary,
@@ -405,43 +440,70 @@ async def execute_batch(
     await security.validate_request(request, db, "batch")
 
     start_time = datetime.utcnow()
-    results = []
+    results: list[BatchOperationResult] = []
     success_count = 0
-    failure_count = 0
+    error_count = 0
 
     for operation in batch_request.operations:
+        op_start = datetime.utcnow()
         try:
-            # Por ora, simular sucesso
-            results.append(
-                BatchOperationResult(
-                    id=operation.id,
-                    status="success",
-                    data={"message": f"Operation {operation.method} {operation.endpoint} executed"},
-                )
-            )
-            success_count += 1
-
-        except Exception as e:
+            # Roteamento de operações do batch. Nenhum handler real foi
+            # implementado ainda: retornamos status honesto "not_implemented"
+            # (HTTP 501) em vez de fabricar "success".
+            result = await _dispatch_batch_operation(db, current_user, operation)
+            results.append(result)
+            if result.status == "success":
+                success_count += 1
+            else:
+                error_count += 1
+        except Exception as e:  # noqa: BLE001
+            op_ms = int((datetime.utcnow() - op_start).total_seconds() * 1000)
             results.append(
                 BatchOperationResult(
                     id=operation.id,
                     status="error",
+                    status_code=500,
                     error=str(e),
+                    execution_time_ms=op_ms,
                 )
             )
-            failure_count += 1
+            error_count += 1
 
-            if not batch_request.continue_on_error:
-                break
+        if error_count and batch_request.stop_on_error:
+            break
 
     processing_time = (datetime.utcnow() - start_time).total_seconds() * 1000
 
     return BatchResponse(
         results=results,
-        total_operations=len(batch_request.operations),
-        successful=success_count,
-        failed=failure_count,
-        processing_time_ms=processing_time,
+        execution_time_ms=processing_time,
+        success_count=success_count,
+        error_count=error_count,
+        skipped_count=0,
+    )
+
+
+async def _dispatch_batch_operation(
+    db: AsyncSession,
+    current_user,
+    operation,
+) -> BatchOperationResult:
+    """Roteia uma operação de batch a um handler real.
+
+    Como não há handlers de batch implementados neste módulo, retorna status
+    honesto "not_implemented" (HTTP 501) — nunca fabrica "success".
+    """
+    op_start = datetime.utcnow()
+    op_ms = int((datetime.utcnow() - op_start).total_seconds() * 1000)
+    return BatchOperationResult(
+        id=operation.id,
+        status="not_implemented",
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        error=(
+            f"Batch handler não implementado para "
+            f"{operation.method} {operation.endpoint}"
+        ),
+        execution_time_ms=op_ms,
     )
 
 
