@@ -148,6 +148,7 @@ def _prompt_extracao() -> str:
         "{\n"
         '  "reclamante": "nome do reclamante/autor (pessoa que processa)",\n'
         '  "reclamante_cpf": "CPF só dígitos, ou null",\n'
+        '  "reclamante_cnpj": "CNPJ do reclamante só dígitos se ele for/tiver PJ, ou null",\n'
         '  "tipo_acao": "trabalhista|civel|tributaria",\n'
         '  "periodo": "período do vínculo/fatos se citado, ou null",\n'
         '  "pedidos": ["cada pedido/verba pleiteada como item de lista (ex.: horas extras, '
@@ -220,6 +221,25 @@ async def analisar_processo(
     eid = str(funcionario["id"]) if funcionario else None
     dossie_resumo = _resumir_dossie(dossie) if achou else {}
 
+    # BUSCA AMPLA automática: varre o ERP por nome/CPF/CNPJ (empregado OU prestador PJ/fornecedor/cliente)
+    busca_ampla: dict[str, Any] = {}
+    try:
+        pessoa = await CE.dossie_pessoa(
+            db,
+            nome=entidades.get("reclamante") or "",
+            cpf=entidades.get("reclamante_cpf"),
+            cnpj=entidades.get("reclamante_cnpj"),
+        )
+        for nome_sec, sec in (pessoa.get("secoes") or {}).items():
+            it = (sec.get("itens") or [{}])
+            busca_ampla[nome_sec] = {
+                "disponivel": sec.get("disponivel"), "total": sec.get("total"),
+                "prova": sec.get("prova"),
+                "amostra": ({k: it[0][k] for k in list(it[0])[:8]} if it and it[0] else None),
+            }
+    except Exception as e:  # noqa: BLE001
+        logger.error("Busca ampla falhou: %s", e)
+
     # panorama da empresa (regularidade FGTS/INSS/CND) — sempre útil p/ defesa
     try:
         panorama = await CE.panorama_empresa(db)
@@ -242,16 +262,21 @@ async def analisar_processo(
                          ("nome", "cargo", "data_admissao", "data_demissao", "salario_base")}
                         if funcionario else None),
         "dossie_provas": dossie_resumo,
+        "busca_automatica_erp": busca_ampla,
         "panorama_empresa": panorama_compacto,
+        "instrucao_busca": (
+            "O SISTEMA JÁ VARREU AUTOMATICAMENTE todo o ERP por nome/CPF/CNPJ do reclamante — o "
+            "resultado está em 'busca_automatica_erp' e 'dossie_provas'. Baseie as provas favoráveis "
+            "APENAS no que consta como 'disponivel:true' ali. Se 'disponivel:false', a prova NÃO "
+            "existe no sistema hoje: em 'como_obter' indique a fonte EXTERNA (FGTS.gov.br, eSocial, "
+            "extrato bancário, contador/Domínio, portal NFS-e) — não repita 'buscar no ERP', pois já "
+            "foi buscado. Se o reclamante NÃO é empregado CLT mas aparece em NFS-e/contas a pagar como "
+            "prestador, isso DEFENDE a tese de pejotização (relação autônoma) — destaque."
+        ),
         "observacao_vinculo": (
             None if achou else
-            "ATENÇÃO: o reclamante NÃO consta na base de EMPREGADOS CLT do ERP. Em ação de "
-            "reconhecimento de vínculo/pejotização isso é central: analise a tese de INEXISTÊNCIA "
-            "de vínculo empregatício (prestação autônoma via CNPJ próprio). Oriente onde buscar as "
-            "provas (contrato de prestação de serviços PJ; NFS-e emitidas pelo prestador; "
-            "comprovantes de pagamento a ele como FORNECEDOR no módulo Financeiro/contas a pagar; "
-            "ausência de exclusividade/subordinação; e-mails/ordens). Se as provas não estiverem no "
-            "ERP, indique a fonte externa (contador/Domínio, portal da NFS-e, extratos bancários)."
+            "O reclamante NÃO consta como EMPREGADO CLT (favorável à tese de não-vínculo). Verifique "
+            "em 'busca_automatica_erp' se ele aparece como prestador (NFS-e) ou fornecedor (pagamentos)."
         ),
     }
     an = await _chamar_llm(
@@ -304,6 +329,7 @@ async def analisar_processo(
         "funcionario": funcionario,
         "dossie": dossie if dossie.get("encontrado") else {"encontrado": False},
         "dossie_resumo": dossie_resumo,
+        "busca_automatica_erp": busca_ampla,
         "analise": analise,
         "escalonar": escalonar,
         "disclaimer": _DISCLAIMER,

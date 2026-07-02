@@ -27,6 +27,21 @@ async def contexto_funcionario(
     return await CE.dossie_funcionario(db, identificador)
 
 
+@router.get("/pessoa")
+async def contexto_pessoa(
+    nome: str = "",
+    cpf: str | None = None,
+    cnpj: str | None = None,
+    current_user=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Busca AUTOMÁTICA de uma pessoa em todo o ERP (empregado OU prestador PJ/fornecedor/cliente).
+
+    Varre employees, NFS-e (prestador/tomador), contas a pagar, clientes e GED por nome/CPF/CNPJ.
+    """
+    return await CE.dossie_pessoa(db, nome=nome, cpf=cpf, cnpj=cnpj)
+
+
 @router.get("/contrato/{contrato_id}")
 async def contexto_contrato(
     contrato_id: str,

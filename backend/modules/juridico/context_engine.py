@@ -37,9 +37,10 @@ def _so_digitos(s: str | None) -> str:
 
 
 async def _q(db: AsyncSession, sql: str, params: dict | None = None) -> list[dict[str, Any]]:
-    """Executa SELECT e devolve lista de dicts. Nunca levanta — devolve [] em erro."""
-    res = await db.execute(text(sql), params or {})
-    return [dict(r) for r in res.mappings().all()]
+    """Executa SELECT dentro de um SAVEPOINT (falha isola — não aborta a transação inteira)."""
+    async with db.begin_nested():  # savepoint: erro numa fonte não derruba as demais
+        res = await db.execute(text(sql), params or {})
+        return [dict(r) for r in res.mappings().all()]
 
 
 async def _bloco_resumo(
@@ -302,6 +303,100 @@ async def dossie_funcionario(db: AsyncSession, identificador: str) -> dict[str, 
         },
         "aviso": "Dossiê montado a partir do ERP (dado real). Fontes 'sem dado' indicam ausência "
                  "de registro no sistema, não ausência do fato — confirmar documento físico/externo.",
+    }
+
+
+# ── BUSCA AMPLA POR PESSOA (empregado OU prestador PJ / fornecedor / cliente) ─
+async def dossie_pessoa(
+    db: AsyncSession, nome: str | None, cpf: str | None = None, cnpj: str | None = None
+) -> dict[str, Any]:
+    """Varre AUTOMATICAMENTE todo o ERP por uma pessoa (nome/CPF/CNPJ), independent de ser
+    empregado CLT. Essencial em pejotização: busca o sujeito como PRESTADOR/FORNECEDOR/CLIENTE.
+
+    Retorna o que REALMENTE existe em cada fonte (dado real) — vazio = 'aguardando dado'.
+    """
+    nome = (nome or "").strip()
+    cpfd = _so_digitos(cpf)
+    cnpjd = _so_digitos(cnpj)
+    _NM = "__no_match_sentinel__"  # sentinela segura (nunca casa; sem byte nulo)
+    like = f"%{nome}%" if len(nome) >= 3 else _NM
+    # primeiro nome (útil p/ descrições que abreviam)
+    primeiro = nome.split()[0] if nome else ""
+    like1 = f"%{primeiro}%" if len(primeiro) >= 3 else _NM
+    P = {"nome": like, "prim": like1, "cpf": cpfd or _NM, "cnpj": cnpjd or _NM,
+         "doc": cpfd or cnpjd or _NM}
+
+    secoes: dict[str, Any] = {}
+
+    # 1) empregado CLT (nome/CPF)
+    secoes["empregado_clt"] = await _bloco(
+        db, "employees",
+        "SELECT nome, cpf, cargo, data_admissao, data_demissao, status FROM employees "
+        "WHERE nome ILIKE :nome OR regexp_replace(COALESCE(cpf,''),'\\D','','g')=:cpf",
+        P, "Se consta como empregado CLT (ausência sustenta tese de não-vínculo/PJ).")
+
+    # 2) NFS-e TOMADAS (o sujeito como PRESTADOR/emissor de nota à empresa) — prova-chave de PJ
+    secoes["nfse_como_prestador"] = await _bloco(
+        db, "nfse_entrada",
+        "SELECT numero_nfse, competencia, prestador_nome, prestador_cnpj, valor_servico, "
+        "valor_liquido, retencao_inss, retencao_irrf FROM nfse_entrada "
+        "WHERE prestador_nome ILIKE :nome OR regexp_replace(COALESCE(prestador_cnpj,''),'\\D','','g')=:cnpj "
+        "ORDER BY competencia DESC",
+        P, "NFS-e emitidas PELO reclamante à empresa = prestação autônoma (defende a tese de PJ).")
+
+    # 3) pagamentos a ele como FORNECEDOR (contas a pagar)
+    secoes["pagamentos_como_fornecedor"] = await _bloco(
+        db, "payable_accounts",
+        "SELECT description, document_number, gross_value, net_value, status, due_date, "
+        "payment_date, fiscal_document_key FROM payable_accounts "
+        "WHERE description ILIKE :nome OR description ILIKE :prim ORDER BY due_date DESC",
+        P, "Pagamentos feitos a ele como fornecedor (não folha CLT) — sustenta relação comercial/PJ.")
+
+    # 4) cadastro como cliente/fornecedor (clients)
+    secoes["cadastro_cliente_fornecedor"] = await _bloco(
+        db, "clients",
+        "SELECT name, trading_name, client_type, document_number, status FROM clients "
+        "WHERE name ILIKE :nome OR regexp_replace(COALESCE(document_number,''),'\\D','','g')=:doc",
+        P, "Se consta como pessoa jurídica cadastrada (cliente/fornecedor).")
+
+    # 5) NFS-e EMITIDAS a ele (o sujeito como tomador) — relação comercial
+    secoes["nfse_como_tomador"] = await _bloco(
+        db, "nfses",
+        "SELECT numero_nfse, data_competencia, tomador_razao_social, tomador_cpf_cnpj, valor_servicos "
+        "FROM nfses WHERE tomador_razao_social ILIKE :nome "
+        "OR regexp_replace(COALESCE(tomador_cpf_cnpj,''),'\\D','','g')=:doc ORDER BY data_competencia DESC",
+        P, "NFS-e emitidas pela empresa a ele (se figura como tomador).")
+
+    # 6) documentos no GED (por nome no título/nome do arquivo)
+    secoes["documentos_ged"] = await _bloco(
+        db, "ged_documents",
+        "SELECT code, title, document_type, category, file_path, is_signed FROM ged_documents "
+        "WHERE title ILIKE :nome OR COALESCE(ocr_text,'') ILIKE :nome ORDER BY created_at DESC LIMIT 20",
+        P, "Documentos digitalizados que mencionam a pessoa (contrato/laudo/ata).")
+    secoes["documentos_ged_kit"] = await _bloco(
+        db, "ged_kit_documents",
+        "SELECT document_type, document_name, file_path, is_signed, signature_hash FROM ged_kit_documents "
+        "WHERE document_name ILIKE :nome ORDER BY document_type LIMIT 20",
+        P, "Documentos de kit (ASO/advertência/rescisão) que mencionam a pessoa.")
+
+    disponiveis = [k for k, v in secoes.items() if v.get("disponivel")]
+    # se achou como empregado, puxa o dossiê CLT completo
+    dossie_clt = None
+    if secoes["empregado_clt"].get("disponivel"):
+        alvo = cpfd if len(cpfd) == 11 else nome
+        dossie_clt = await dossie_funcionario(db, alvo)
+
+    return {
+        "pessoa": {"nome": nome, "cpf": cpfd or None, "cnpj": cnpjd or None},
+        "e_empregado_clt": secoes["empregado_clt"].get("disponivel", False),
+        "secoes": secoes,
+        "dossie_clt": dossie_clt,
+        "sintese": {
+            "fontes_com_registro": disponiveis,
+            "cobertura": f"{len(disponiveis)}/{len(secoes)} fontes com registro",
+        },
+        "aviso": "Busca automática em todo o ERP por nome/CPF/CNPJ. Fonte vazia = sem registro "
+                 "no sistema (não prova ausência do fato) — o sistema ainda está sendo alimentado.",
     }
 
 
