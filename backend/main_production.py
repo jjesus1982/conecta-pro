@@ -1152,6 +1152,23 @@ try:
 except Exception as _e:
     logger.warning(f"Jurídico — Central de Contratos: {_e}")
 
+# Escritório Jurídico IA — Consultor, Pareceres/Análise, Riscos, Escritório/ROI, Hub/Prazos
+for _mod, _label in [
+    ("modules.juridico.consultor_controller", "Consultor IA"),
+    ("modules.juridico.documentos_controller", "Pareceres/Análise"),
+    ("modules.juridico.riscos_controller", "Riscos"),
+    ("modules.juridico.escritorio_controller", "Escritório/ROI"),
+    ("modules.juridico.hub_controller", "Hub/Prazos"),
+]:
+    try:
+        import importlib
+
+        _m = importlib.import_module(_mod)
+        api_router.include_router(_m.router)
+        logger.info("Jurídico — %s: OK", _label)
+    except Exception as _e:  # noqa: BLE001
+        logger.warning("Jurídico — %s: %s", _label, _e)
+
 # Incluir router principal
 try:
     from modules.scheduler.controllers import router as _scheduler_router

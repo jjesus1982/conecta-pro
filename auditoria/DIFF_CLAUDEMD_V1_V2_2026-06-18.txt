@@ -1,0 +1,662 @@
+2,126d1
+< **Última atualização:** 2026-04-01
+< **Branch ativa:** feature/people-management-reorganization
+< **Responsável:** Jordan Jesus (jjesus@conectamais.pro)
+<
+< ## Visão Geral
+< ERP proprietário para empresas de segurança e tecnologia.
+< Compete com SAP/NetSuite/Salesforce com compliance brasileiro nativo.
+<
+< **Empresa:** Conecta Mais — Segurança e Tecnologia
+< **CNPJ:** 35.710.481/0001-03 | Lucro Real desde 01/2026
+< **MRR:** R$ 272.086,96 | 52 funcionários | 13 clientes ativos
+<
+< ## Infraestrutura
+< | Item | Valor |
+< |------|-------|
+< | VPS | srv1134814.hstgr.cloud (82.25.75.74) — Hostinger KV4 |
+< | Backend | FastAPI + PostgreSQL + Redis · porta 8080 |
+< | Frontend | Next.js 16 + React 19 + TypeScript + Tailwind · porta 3001 |
+< | Path | /opt/conecta-pro/ |
+< | SSH | tmux sessions t1–t5 |
+<
+< ## Arquitetura
+< ```
+< /opt/conecta-pro/
+< ├── backend/          # FastAPI + SQLAlchemy
+< ├── frontend/         # Next.js 16
+< ├── agents/           # Sistema de agentes 24h
+< │   ├── core/         # BaseAgent + BaseOrchestrator
+< │   ├── modules/      # 13 orquestradores + 80 agentes
+< │   └── orchestrator_geral.py
+< ├── skills/           # 10 skills de auditoria
+< ├── reports/          # Relatórios dos ciclos
+< └── logs/             # Logs do sistema
+< ```
+<
+< ## Sistema de Agentes 24h
+< - **80 agentes** em **13 orquestradores**
+< - Ciclo: a cada 30min via cron
+< - Score atual: **10.0/10** (2026-04-01)
+< - Alertas via Telegram: @conecta_pro_monitor_bot
+<
+< ## Módulos do ERP
+< | Módulo | Score | Status |
+< |--------|-------|--------|
+< | Departamento Pessoal | 10/10 | ✅ |
+< | Recursos Humanos | 10/10 | ✅ |
+< | Ponto Eletrônico | 10/10 | ✅ |
+< | Financeiro | 10/10 | ✅ |
+< | Fiscal & Contábil | 10/10 | ✅ |
+< | Operacional | 10/10 | ✅ |
+< | GED — Kits Documentais | 10/10 | ✅ |
+< | Inteligência | 10/10 | ✅ |
+< | Negócios (CRM + Marketing + Licitações) | 10/10 | ✅ |
+< | Saúde Ocupacional | 10/10 | ✅ |
+< | Portais | 10/10 | ✅ |
+< | Equipamentos | 10/10 | ✅ |
+< | Administrativo | 10/10 | ✅ |
+<
+< ## Auditorias de Qualidade (Skills 01-10)
+< | Skill | Score | Status |
+< |-------|-------|--------|
+< | 01 Debugger | corrigido | ✅ |
+< | 02 Code Review | 9.3/10 | ✅ |
+< | 03 API RESTful | 6.2/10 | 🔄 em correção |
+< | 04 Testes | 4.1/10 | 🔄 pendente |
+< | 05 Banco | 6.4/10 | 🔄 em correção |
+< | 06 Auth | 5.7/10 | 🔄 em correção |
+< | 07 Docker | 5.8/10 | 🔄 pendente |
+< | 08 CI/CD | 9.5/10 | ✅ |
+< | 09 UX | 6.9/10 | 🔄 em correção |
+< | 10 Docs | 5.2/10 | 🔄 este fix |
+<
+< ## Comandos Essenciais
+< ```bash
+< # Token de autenticação
+< TOKEN=$(curl -sf -X POST http://127.0.0.1:8080/api/v1/auth/login \
+<   -H "Content-Type: application/x-www-form-urlencoded" \
+<   -d "username=jjesus@conectamais.pro&password=JsJ618908@#%" \
+<   | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+<
+< # Container backend
+< CONTAINER=$(docker ps --filter ancestor=conecta-pro-backend \
+<   --format '{{.Names}}' | head -1)
+<
+< # Hot copy backend (não rebuild)
+< docker cp /opt/conecta-pro/backend/modules/ $CONTAINER:/app/modules/
+< docker exec $CONTAINER kill -HUP 1
+<
+< # Deploy frontend CORRETO (preserva chunks antigos — evita ChunkLoadError)
+< ./scripts/deploy/deploy_frontend.sh
+<
+< # Build frontend manual (somente se deploy_frontend.sh não aplicável)
+< cd /opt/conecta-pro/frontend
+< NODE_OPTIONS=--max-old-space-size=4096 npm run build
+< pm2 restart all
+<
+< # Rodar ciclo de agentes manualmente
+< cd /opt/conecta-pro
+< python3 agents/orchestrator_geral.py
+< ```
+<
+< ## REGRA CRÍTICA — DEPLOY FRONTEND SEM ChunkLoadError
+< ### Origem: CPRO12 (2026-05-05) — DevOps fix chunks
+<
+< **NUNCA** fazer deploy frontend com `npm run build` + `pm2 restart all` direto.
+< **SEMPRE** usar `./scripts/deploy/deploy_frontend.sh`.
+<
+< ### Por que essa regra existe
+<
+< Next.js gera chunks com hash de conteúdo (ex: `ee79b3aa27b940fc.js`).
+< Browsers cacheiam com `Cache-Control: immutable, 1y` — o browser continua pedindo o chunk antigo após o deploy.
+< O nginx faz `proxy_pass http://frontend` (container) para `/_next/static/` — **não** serve do host.
+< Se o container for reiniciado sem preservar os chunks antigos, o browser pede o hash antigo → nginx não encontra no container → 404 → **ChunkLoadError**.
+<
+< ### Como o nginx funciona aqui (importante)
+<
+< ```nginx
+< # nginx.conf linha 169-178:
+< location /_next/static/ {
+<     proxy_pass http://frontend;          # ← container, NÃO host filesystem
+<     proxy_cache static_cache;
+<     proxy_cache_valid 200 365d;
+<     proxy_cache_use_stale error timeout updating;
+< }
+< ```
+128c3,5
+< Os chunks ficam **no container**. O host guarda o `.next/` como fonte de build mas o nginx não lê de lá.
+---
+> **Última atualização:** 2026-06-18 (v2)
+> **Branch ativa:** `fix/crm-qa-aprovado-20260614`
+> **Responsável:** Jordan Jesus (jjesus@conectamais.pro)
+130c7,9
+< ### Fluxo correto de deploy frontend
+---
+> > Cérebro operacional do projeto. Toda sessão Claude Code / executor autônomo lê isto no início.
+> > **(A) Princípios** — como pensar e agir. **(B) Operação** — infra, comandos, regras.
+> > Quando A e B conflitarem, A prevalece (princípio acima de receita).
+132,134c11
+< ```bash
+< # Script completo (preferencial):
+< ./scripts/deploy/deploy_frontend.sh
+---
+> ---
+136,143c13
+< # O script faz:
+< # 1. Arquiva chunks antigos do container → /opt/conecta-pro/.chunk_archive/TIMESTAMP/
+< # 2. npm run build no host
+< # 3. docker cp .next/{static,standalone,server,BUILD_ID} → container
+< # 4. Reinjecta chunks antigos no container (preservação anti-ChunkLoadError)
+< # 5. docker restart + pm2 restart all
+< # 6. Valida HTTP 200 + BUILD_ID host==container
+< ```
+---
+> # CAMADA A — PRINCÍPIOS (§13)
+145,149c15,67
+< ### Dry-run (sem executar)
+<
+< ```bash
+< ./scripts/deploy/deploy_frontend.sh --dry-run
+< ```
+---
+> > Conjunto único, fundido das observações de Karpathy sobre falhas de LLM ao programar e da
+> > metodologia GEDEON do Conecta PRO. Cada princípio tem um número §13.N — cite-o no STEP 0 de
+> > toda missão. **Tradeoff assumido:** estes princípios enviesam para CAUTELA sobre velocidade;
+> > para tarefas triviais (typo, one-liner óbvio), use bom senso.
+>
+> ## §13.1 — Pense antes de codar / Chesterton
+> Investigue ANTES de modificar; entenda por que algo existe antes de mudá-lo.
+> - Declare suas suposições explicitamente. Se incerto, pergunte.
+> - Se há múltiplas interpretações, apresente-as — não escolha em silêncio.
+> - Se há abordagem mais simples, diga. Questione decisões ruins.
+> - Se algo está confuso, PARE. Nomeie o que confunde. Pergunte.
+> - Mapeie read-only antes de mexer. Não remova/altere o que não entendeu.
+>
+> ## §13.2 — Simplicidade primeiro
+> Código mínimo que resolve o problema. Nada especulativo.
+> - Nenhuma feature além do pedido. Nenhuma abstração para código de uso único.
+> - Nenhuma "flexibilidade"/"configurabilidade" não solicitada.
+> - Nenhum tratamento de erro para cenários impossíveis.
+> - Teste: "um engenheiro sênior diria que isso está complicado demais?" Se sim, simplifique.
+> - Resista ao impulso de "resolver tudo": faça o que a missão pede, nada mais.
+>
+> ## §13.3 — Mudanças cirúrgicas / Escopo sagrado
+> Cada sessão tem UM escopo declarado. Toque só no que precisa; limpe só a sua própria bagunça.
+> - Não "melhore" código, comentários ou formatação adjacentes. Não refatore o que não está quebrado.
+> - Siga o estilo existente, mesmo que você fizesse diferente.
+> - Não toque módulo não-declarado. Se notar dead code não-relacionado, MENCIONE — não delete.
+> - Remova só os órfãos que SUAS mudanças criaram.
+> - Teste: toda linha alterada rastreia diretamente ao pedido da missão.
+>
+> ## §13.4 — Execução guiada por objetivo / Falsificação rigorosa
+> Defina critérios de sucesso checáveis e itere até verificá-los. Tente PROVAR que o fix está
+> errado, não só que parece certo.
+> - "Conserte o bug" → "rode um teste/curl que o reproduz, depois faça passar".
+> - Multi-step: declare um plano breve `[passo] → verifica: [check]`.
+> - Três níveis de falsificação: Básico / Médio / Rigoroso 🔴 — escale conforme o risco.
+> - Critérios fortes permitem iterar sozinho; "faça funcionar" exige clarificação constante.
+>
+> ## §13.5 — Dado real, nunca simule
+> Dado sempre REAL contra o sistema real — nunca mock. Bug "codado e nunca exercido" só aparece
+> com dado real; por isso todo módulo novo nasce testado contra o banco real no mesmo dia.
+> Validação que conta como 10/10 é REAL (CIC em browser real, ou curl/teste contra produção) —
+> autoavaliação do código NÃO conta. Scores aspiracionais de sistemas internos não são estado real:
+> meça antes de afirmar.
+>
+> ## §13.6 — Documentar antes, nunca destruir
+> - O registro do diagnóstico precede a mudança (docs antes do código).
+> - Nunca delete: comente/quarentene (reversível). Crons com `#`, arquivos para quarentena.
+> - Backup antes de qualquer operação destrutiva ou de risco (cp / dump / tag de imagem).
+> - Toda mudança de risco tem rollback documentado.
+>
+> ## §13.7 — STEP 0 obrigatório
+> Toda missão começa com um STEP 0 que: cita o(s) princípio(s) §13 aplicável(is), declara o
+> escopo (qual módulo/arquivo), e confirma o estado inicial (read-only) antes de qualquer escrita.
+153,157c71
+< ## REGRA CRÍTICA — HOT-COPY PARA TODOS OS CONTAINERS CELERY
+< ### Origem: CPRO12 (2026-05-04) — §66 (inventário módulos), §69 (fix sync session), T4 CPRO12 (pyc stale)
+<
+< **NUNCA copie um módulo apenas para o container `backend`.**
+< **TODO hot-copy deve incluir TODOS os containers Celery relevantes.**
+---
+> # CAMADA B — OPERAÇÃO
+159c73
+< ### Por que esta regra existe
+---
+> ## B.1 — Identidade
+161,165c75,76
+< Em 2026-03-20, o `celery-beat` parou de funcionar. A causa foi que `punch_controller.py`
+< foi corrigido no disco mas nunca copiado para os containers `celery-beat` e `celery-batch`.
+< O beat ficou **46 dias em loop de crash** por essa omissão.
+< Adicionalmente, descobriu-se que limpar o `__pycache__` é obrigatório antes do `docker cp` —
+< sem isso, o container usa bytecode antigo mesmo com o arquivo novo copiado (pyc stale).
+---
+> ERP proprietário para empresas de segurança e tecnologia. Compete com SAP/NetSuite/Salesforce
+> com compliance brasileiro nativo.
+167,178c78,87
+< ### Lista completa de containers (verificar quais são relevantes por módulo)
+<
+< ```
+< conecta-pro-backend                    ← sempre incluir
+< conecta-pro-celery-beat                ← incluir se módulo tem tasks agendadas (beat schedule)
+< conecta-pro-celery-batch               ← incluir se módulo tem tasks batch/import
+< conecta-pro-celery-operacional         ← incluir se módulo tem tasks operacionais
+< conecta-pro-celery-integrations        ← incluir se módulo tem tasks de integração externa
+< conecta-pro-celery-priority            ← incluir se módulo tem tasks eSocial/FGTS
+< conecta-pro-celery-nfse                ← incluir se módulo tem tasks NFS-e
+< conecta-pro-celery-sefaz               ← incluir se módulo tem tasks SEFAZ/NF-e
+< ```
+---
+> | Item | Valor |
+> |------|-------|
+> | Empresa | Conecta Mais — Segurança e Tecnologia |
+> | CNPJ | 35.710.481/0001-03 · Lucro Real desde 01/2026 |
+> | Operação | MRR R$ 272.086,96 · 52 funcionários · 13 clientes ativos |
+> | VPS | srv1134814.hstgr.cloud (82.25.75.74) — Hostinger KVM8 (8 vCPU, 32GB, 400GB) |
+> | Backend | FastAPI + PostgreSQL + Redis + Celery · porta 8080 |
+> | Frontend | Next.js 16 + React 19 + TypeScript + Tailwind · porta 3001 |
+> | Path | /opt/conecta-pro/ |
+> | Acesso | SSH porta 22 · tmux sessions t1–t5 |
+180,181c89
+< > ⚠️ Alguns containers têm prefixo de hash no nome (ex: `297439d0453a_conecta-pro-celery-operacional`).
+< > Sempre resolver com: `docker ps --format "{{.Names}}" | grep "celery-operacional"`
+---
+> ## B.2 — Autenticação (dev)
+183c91,92
+< ### Fluxo obrigatório de hot-copy
+---
+> > ⚠️ NUNCA colocar senha literal neste arquivo (a anterior vazou e foi rotacionada).
+> > A senha vive no ambiente, referenciada por variável.
+186,200c95,99
+< # OPÇÃO 1 — Script padrão (preferencial):
+< ./scripts/deploy/sync_celery_workers.sh nome_do_modulo
+<
+< # OPÇÃO 2 — Manual (quando precisar controlar quais containers):
+< MODULO=nome_do_modulo
+< for CONTAINER in conecta-pro-backend conecta-pro-celery-beat conecta-pro-celery-batch \
+<   conecta-pro-celery-operacional conecta-pro-celery-integrations \
+<   conecta-pro-celery-priority conecta-pro-celery-nfse conecta-pro-celery-sefaz; do
+<   # 1. Limpar pyc ANTES do cp (obrigatório — evita pyc stale)
+<   docker exec $CONTAINER find /app/modules/$MODULO/__pycache__ -name "*.pyc" -delete 2>/dev/null || true
+<   # 2. Copiar módulo
+<   docker cp backend/modules/$MODULO/ $CONTAINER:/app/modules/$MODULO/ && echo "OK: $CONTAINER"
+< done
+< # 3. Recarregar apenas o backend (workers Celery recarregam automaticamente)
+< docker exec conecta-pro-backend kill -HUP 1
+---
+> # Defina ADMIN_PASSWORD no seu ambiente de sessão (não comitar).
+> TOKEN=$(curl -sf -X POST http://127.0.0.1:8080/api/v1/auth/login \
+>   -H "Content-Type: application/x-www-form-urlencoded" \
+>   -d "username=jjesus@conectamais.pro&password=$ADMIN_PASSWORD" \
+>   | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+201a101
+> Regra: sempre `127.0.0.1`, nunca `localhost`. Rate limit auth: 5 req/min (usar token compartilhado).
+203c103
+< ### Por que limpar pyc antes do cp (pyc stale — T4 CPRO12)
+---
+> ## B.3 — DEPLOY: três caminhos, escolha pela natureza da mudança
+205,209c105,107
+< O Python carrega bytecode compilado (`.pyc`) em preferência ao `.py` se o pyc existir.
+< Sem limpar o cache, o container continua usando o bytecode antigo mesmo após o `docker cp`.
+< **Sintoma:** fix commitado e copiado, mas o erro persiste — worker lê `.pyc` antigo.
+<
+< ### NUNCA usar docker restart
+---
+> > Esta é a correção mais importante do v2. O CLAUDE.md antigo dizia "nunca rebuild" —
+> > isso é VERDADE para mudança de código puro, mas FALSO para schema/env/rede/dependência.
+> > Os três caminhos coexistem. Escolha pelo que mudou:
+210a109,110
+> ### B.3.1 — Mudança de CÓDIGO Python puro → HOT-COPY (sem rebuild)
+> Quando: editou um `.py` de módulo, sem mexer em schema/env/dependência/rede.
+212,219c112
+< # ERRADO — derruba e reinicia o container, perde contexto:
+< docker restart conecta-pro-backend
+<
+< # CORRETO — hot-reload sem derrubar:
+< docker exec conecta-pro-backend kill -HUP 1
+<
+< # Para workers Celery sem kill binary:
+< docker exec $CELERY_CONTAINER python3 -c "import os, signal; os.kill(1, signal.SIGHUP)"
+---
+> ./scripts/deploy/sync_celery_workers.sh <modulo>
+220a114,116
+> O script: limpa `__pycache__` → `docker cp` para **backend + 7 workers Celery** → copia
+> `celery_app.py` se necessário → `kill -HUP 1`. **Nunca** `docker restart`.
+> (Ver B.4 para o porquê de copiar para TODOS os Celery.)
+222,227c118
+< ### celery_app.py também precisa de sync
+<
+< O `celery_app.py` controla quais módulos de tasks os workers carregam (`include=[]`).
+< Se um módulo novo foi adicionado ao `include`, o `celery_app.py` deve ser copiado
+< para TODOS os workers — caso contrário as tasks não são descobertas mesmo com o módulo presente.
+<
+---
+> ### B.3.2 — Mudança de FRONTEND → script de deploy (preserva chunks)
+229,233c120
+< for CONTAINER in conecta-pro-celery-beat conecta-pro-celery-batch \
+<   conecta-pro-celery-operacional conecta-pro-celery-integrations \
+<   conecta-pro-celery-priority conecta-pro-celery-nfse conecta-pro-celery-sefaz; do
+<   docker cp backend/celery_app.py $CONTAINER:/app/celery_app.py && echo "OK: $CONTAINER"
+< done
+---
+> ./scripts/deploy/deploy_frontend.sh          # (--dry-run para simular)
+234a122,123
+> Preserva chunks antigos no container (anti-ChunkLoadError), valida BUILD_ID host==container.
+> **Nunca** `npm run build` + `pm2 restart` direto. (Ver B.5 para o porquê.)
+236,243c125,182
+< ---
+<
+< ## Zonas Proibidas
+< | Path | Motivo |
+< |------|--------|
+< | `alembic/versions/` | Migrations — nunca editar manualmente |
+< | `main_production.py` | Entry point produção — nunca modificar |
+< | `docker-compose*.yml` | Orquestração — nunca modificar |
+---
+> ### B.3.3 — Mudança de SCHEMA / .env / rede / dependência → REBUILD (manual)
+> Quando: migration nova, env nova, dependência nova, mudança de rede docker, ou qualquer
+> coisa que `kill -HUP` NÃO recarrega (HUP não recarrega rota nova, env nova, nem rede).
+> **NÃO existe script de rebuild — é manual.** Procedimento PROVADO:
+> ```
+> 1. Âncora de rollback:   docker tag conecta-pro-<svc>:latest conecta-pro-<svc>:pre-rebuild-<motivo>-<data>
+> 2. Dump do banco:        backup antes (backups/rebuild/backup_pre_<motivo>_<data>.dump)
+> 3. Build tag própria:    docker build -t conecta-pro-<svc>:rebuild-<motivo>-<data> .
+>                          (frontend: buildar no HOST com NODE_OPTIONS=--max-old-space-size=8192,
+>                           NUNCA next build dentro do container — OOM derruba produção)
+> 4. Efêmero --network none: sobe a imagem isolada, confirma código novo + boot OK ANTES do swap
+> 5. Swap + recreate:
+>    2A backend:  docker compose -f docker-compose.yml up -d --no-deps --no-build --force-recreate backend
+>    2B celery:   docker compose -f docker-compose.yml -f docker-compose.celery.yml up -d --force-recreate (workers/flower)
+> 6. Validar pós-swap: /health 200 · proposals OK · AGENT_ENABLED=true · rede chatwoot-fazerai-net presente · 9/9 healthy
+> ```
+> Se o efêmero falhar → NÃO faz swap. Se pós-swap falhar → rollback pela âncora.
+>
+> ### B.3.4 — REGRA DURA: compose canônico
+> São **4 composes** que definem `conecta-pro-backend`: `docker-compose.yml`, `.prod.yml`,
+> `.staging.yml`, `.celery.yml`. **APENAS o `docker-compose.yml` tem `env_file: .env` E a rede
+> `chatwoot-fazerai-net`.** Os `.prod.yml`/`.staging.yml` estão DEFASADOS.
+>
+> > 🔴 **Par canônico de runtime = `docker-compose.yml` + `docker-compose.celery.yml`.**
+> > NUNCA recriar o backend por `.prod.yml` ou `.staging.yml` — eles NÃO têm a rede do chatwoot
+> > nem o env_file → o backend perderia acesso a `chatwoot-fazerai:3000` e o agente cairia
+> > (nota privada/resposta falham por DNS), e o AGENT_ENABLED/CHATWOOT_* sumiriam.
+>
+> ## B.4 — REGRA CRÍTICA: hot-copy para TODOS os Celery (origem: beat 46 dias em crash)
+>
+> **NUNCA** copie um módulo só para o `backend`. Em 2026-03-20 o `celery-beat` ficou **46 dias
+> em loop de crash** porque um controller foi corrigido no disco mas não copiado para os workers.
+> **Sempre** `./scripts/deploy/sync_celery_workers.sh <modulo>` (cobre backend + 7 workers).
+>
+> Containers Celery: `celery-beat` (tasks agendadas), `celery-batch` (import), `celery-operacional`,
+> `celery-integrations`, `celery-priority` (eSocial/FGTS), `celery-nfse`, `celery-sefaz`.
+> Alguns têm prefixo de hash no nome → resolver com `docker ps --format "{{.Names}}" | grep celery-X`.
+>
+> **Limpar `__pycache__` ANTES do `docker cp` é obrigatório** (pyc stale): o Python usa bytecode
+> antigo mesmo com o `.py` novo copiado. Sintoma: fix copiado mas erro persiste.
+> O `celery_app.py` (controla `include=[]` de tasks) também precisa de sync se módulo novo entrou.
+>
+> ## B.5 — REGRA CRÍTICA: deploy frontend sem ChunkLoadError (origem: CPRO12, 2026-05-05)
+>
+> Next.js gera chunks com hash de conteúdo, cacheados pelo browser como `immutable`. O nginx faz
+> `proxy_pass http://frontend` (container) para `/_next/static/` — **não** serve do host. Se o
+> container reinicia sem preservar os chunks antigos, o browser pede o hash antigo → 404 → ChunkLoadError.
+> Por isso `deploy_frontend.sh` arquiva e reinjecta os chunks antigos no container. **Sempre o script.**
+>
+> ## B.6 — ZONAS PROIBIDAS (com mecanismo de override por missão)
+>
+> Estas operações são PROIBIDAS por DEFAULT em toda sessão autônoma:
+>
+> | Path / comando | Motivo |
+> |---|---|
+> | `alembic/versions/` | Migrations — risco de corrupção do banco; sessões paralelas pisando em migrations causam caos |
+> | `main_production.py` | Entry point de produção |
+> | `docker-compose*.yml` | Orquestração — pode derrubar produção |
+245,314c184,187
+< | `credentials/` | Chaves e certificados — nunca tocar |
+<
+< ## Regras de Trabalho
+< - Sempre usar `127.0.0.1`, nunca `localhost`
+< - Terminais via `tmux attach -t tN` (t1–t5)
+< - Frontend builds: serializados, nunca simultâneos
+< - Backend changes: hot copy via `docker cp`, nunca rebuild completo
+< - Commit após cada correção com mensagem descritiva
+< - Rate limit de auth: 5 req/min — usar token compartilhado nos agentes
+< - Pré-commit hooks ativos: ruff, detect-secrets, bandit
+<
+< ---
+<
+< ## Regras de Governança para Sessões Autônomas
+<
+< > **Contexto:** Em 2026-04-05 ocorreram 3 reverts automáticos (65c3ce14, f87e9c5b,
+< > f866cc6a) causados por sessões tmux paralelas revertendo commits de outros módulos.
+< > Estas regras são obrigatórias para todas as sessões Claude Code.
+<
+< ### Escopo de módulo obrigatório
+< Cada sessão Claude DEVE declarar no início qual módulo está editando.
+< Uma sessão que trabalha em `ged/` NÃO deve tocar em arquivos de `rh/`,
+< `operacional/`, `financeiro/` ou qualquer outro módulo não declarado.
+<
+< ### Proibição absoluta de git revert
+< Nenhuma sessão Claude pode executar `git revert` sem confirmação
+< explícita de Jordan Jesus no chat.
+< Antes de reverter qualquer coisa, a sessão DEVE escrever:
+< ```
+< AGUARDANDO APROVAÇÃO: pretendo executar git revert <hash> porque <motivo>.
+< Confirma? (sim/não)
+< ```
+< E aguardar resposta antes de prosseguir.
+<
+< ### Proibição de git push para main/develop
+< Sessões autônomas não podem fazer push direto para main ou develop.
+< Todo commit deve ficar na branch de trabalho declarada no início da sessão.
+<
+< ### Verificação de conflito antes de commit
+< Antes de qualquer `git commit`, executar:
+< ```bash
+< git diff --name-only HEAD
+< ```
+< e verificar se algum arquivo modificado pertence a módulo diferente do declarado.
+< Se sim, remover esse arquivo do stage e registrar no relatório final.
+<
+< ### Identificação da sessão
+< Todo commit de sessão autônoma DEVE incluir no final da mensagem:
+< ```
+< [session: tmux-<id>] [module: <nome>]
+< ```
+< Exemplo: `fix(ged): correção E2E [session: tmux-t1] [module: ged]`
+<
+< ### Como desfazer um commit com segurança (quando autorizado por Jordan)
+<
+< **NUNCA usar:**
+< ```bash
+< git revert <hash-de-outro-módulo>
+< git reset --hard
+< ```
+<
+< **Usar apenas (quando Jordan autorizar explicitamente):**
+< ```bash
+< # Desfazer o último commit mantendo as mudanças em stage:
+< git reset --soft HEAD~1
+<
+< # Ou, se Jordan autorizou reverter um commit específico:
+< git revert <hash> --no-edit
+< # Seguido de push para a branch de trabalho — NUNCA para main/develop
+< ```
+---
+> | `credentials/` | Chaves e certificados |
+> | `git revert <hash>` | Reverte commits de outros módulos sem autorização |
+> | `git reset --hard` | Destrói trabalho de outras sessões |
+> | `git push --force` | Sobrescreve histórico remoto |
+316,324c189,290
+< ### Resolução de conflito entre sessões
+< Se uma sessão detectar que seu commit foi revertido por outra sessão:
+< 1. **NÃO re-aplicar automaticamente**
+< 2. Notificar Jordan com:
+<    ```
+<    ATENÇÃO: commit <hash> foi revertido por <hash-revert>.
+<    Aguardo sua instrução para re-aplicar ou descartar.
+<    ```
+< 3. Aguardar confirmação antes de qualquer ação
+---
+> ### Override por missão (o mecanismo que torna a regra honesta)
+> Uma sessão PODE tocar uma zona proibida SE, e somente se, TODAS estas condições:
+> 1. **Autorização explícita de Jordan no chat** para AQUELA missão (ex: "você está autorizado a
+>    editar o docker-compose.yml nesta missão para adicionar a rede").
+> 2. **Backup antes** (cp do arquivo / dump do banco / tag da imagem).
+> 3. **Mudança cirúrgica** — só o que a missão pede, nada mais (§13.3).
+> 4. **Rollback documentado** no relatório.
+> A autorização é POR MISSÃO e POR ARQUIVO — não generaliza. Sem os 4, a zona continua proibida.
+>
+> > Precedente real (2026-06-11/12): edição autorizada do `docker-compose.yml` para adicionar
+> > `env_file: .env` e a rede `chatwoot-fazerai-net` — com backup, cirúrgica, rollback. Override válido.
+>
+> ## B.7 — Durabilidade (a lição que matou o agente — 2026-06)
+>
+> **Env e rede de RUNTIME (não declarados no compose) MORREM no próximo recreate, sem aviso.**
+> O agente WhatsApp ficou mudo porque `AGENT_ENABLED` vinha de runtime (`-e` manual) e a rede
+> chatwoot era `docker network connect` manual — ambos sumiram num recreate. Falha silenciosa:
+> passa em todo teste manual, quebra sozinha.
+>
+> **Regra:** toda var/rede que uma feature precisa DEVE estar no compose canônico (`env_file` ou
+> `environment:` / `networks:`), nunca só em runtime. Hoje (confirmado): `docker-compose.yml` tem
+> `env_file: .env` (backend) e `chatwoot-fazerai-net` declarada — sobreviveram a múltiplos rebuilds.
+>
+> ## B.8 — Governança de sessões autônomas (origem: 3 reverts cruzados, 2026-04-05)
+>
+> - **Escopo de módulo obrigatório:** cada sessão declara no início qual módulo edita. Não tocar outros.
+> - **`git revert` proibido** sem confirmação explícita de Jordan no chat. Antes de reverter, escrever
+>   `AGUARDANDO APROVAÇÃO: git revert <hash> porque <motivo>. Confirma?` e aguardar.
+> - **Sem push para main/develop.** Commit fica na branch de trabalho declarada.
+> - **Verificar conflito antes de commit:** `git diff --name-only HEAD` — se houver arquivo de módulo
+>   não-declarado, tirar do stage e registrar no relatório.
+> - **Sufixo de commit obrigatório:** `[session: tmux-<id>] [module: <nome>]`.
+> - **Desfazer com segurança (quando Jordan autorizar):** `git reset --soft HEAD~1` ou
+>   `git revert <hash> --no-edit` → push só para a branch de trabalho, NUNCA main/develop.
+> - **Anti-revert hook** instalado em `.git/hooks/commit-msg` bloqueia mensagens começando com "revert".
+>   (Procedimento de restauração do hook preservado — ver histórico/seção original se precisar reinstalar.)
+>
+> ## B.9 — Estado REAL dos módulos (medido 2026-06-18 — NÃO aspiracional)
+>
+> > ⚠️ O CLAUDE.md antigo marcava TODOS os 13 módulos "10/10 ✅". Era falso (gerado pelo sistema
+> > de agentes, que não media de verdade). Status honesto, por medição de carga de models:
+>
+> | Módulo | Models carregam | Estado |
+> |---|---|---|
+> | crm | 18/18 | 🟢 100% |
+> | hr (Departamento Pessoal) | 16/16 | 🟢 100% (corrigido 2026-06) |
+> | integrations (whatsapp) | 21/34 | 🟡 62% — 13 models em drift (próximo alvo do drift-finder) |
+> | demais módulos | não re-medidos | ⚪ status desconhecido — NÃO assumir 10/10. Medir antes de afirmar. |
+>
+> ## B.10 — Features ativas que o CLAUDE.md antigo NÃO conhecia (2026-05/06)
+>
+> ### Agente WhatsApp "José Luís"
+> Agente de IA generativo (OpenAI) no WhatsApp central (0800 880 4414) via Chatwoot fazer.ai + baileys.
+> Consultor de vendas + suporte técnico N1 (segurança eletrônica). NÃO confundir com os 80 agentes-vigia
+> (seção B.11) — José Luís é generativo/conversacional; os 80 são vigias de submódulo.
+> - Arquivo: `modules/integrations/connectors/whatsapp/agent_service.py`. Webhook: `/api/v1/whatsapp/webhook`.
+> - Memória: `cwi_message_log`. LLM via OpenAI (chave no .env).
+> - **Modo (kill-switch):** `AGENT_MODE` no .env — `copilot` (rascunha nota privada, humano envia) |
+>   `autonomous` (responde direto ao cliente, com guards: não responde grupo, não atropela conversa
+>   atribuída a humano). Anti-loop: eco outgoing→'out'→não re-dispara.
+> - Capacidades: texto + ÁUDIO (STT Whisper no webhook → transcrição vira content).
+> - **Gate LGPD:** `FOLLOWUP_AUTO_SEND=False` (constante no código, não env) — follow-up proativo ao
+>   cliente NÃO dispara; só lista para Jordan via Telegram. Mudar exige decisão de Jordan + revisão jurídica.
+> - Regra de ouro do agente: NUNCA dá preço/prazo (quem faz é humano). Identifica-se como assistente virtual.
+>
+> ### Módulo Campo — Ordens de Serviço
+> Tela de OS (lista/filtros/ações) + fluxo OS WhatsApp→Campo→tela + atualizações proativas de status no WhatsApp.
+>
+> ## B.11 — Sistema de 80 agentes-vigia: ARQUITETURA EXISTENTE, MOTOR QUARENTENADO
+>
+> > ⚠️ O CLAUDE.md antigo dizia "80 agentes, ciclo 30min, score 10/10 ativo". A ARQUITETURA é real
+> > (80 agentes / 13 orquestradores em `agents/modules/`, datados 2026-04-06). Mas a EXECUÇÃO em
+> > ciclo completo está QUARENTENADA desde 2026-05-31 (`# [LIMPEZA 20260531]`). Decisão: não investir
+> > mais neste sistema; foco exclusivo nos módulos do ERP.
+>
+> **O que cada agente é:** um VIGIA de submódulo (não IA generativa). Padrão:
+> `class AgenteX(BaseAgent): MODULO=... SUBMODULO=... ENDPOINTS=[...] CONHECE_BUGS=[...]`.
+> Conhece os endpoints e bugs conhecidos do seu submódulo. 80 agentes em 4 arquivos de definição:
+> - `dp_agentes.py` (25): DP/Ponto/RH
+> - `op_ged_agentes.py` (20): Operacional/GED
+> - `fin_fiscal_agentes.py` (19): Financeiro/Fiscal
+> - `extra_agentes.py` (16): IA/CRM/Saúde/Portais/Equipamentos/Admin
+>
+> **🟢 VIVO no cron (produz output):** `orchestrator_unificado.py rapido`+`escaladas` (*/5),
+> `heartbeat` (6h), `dashboard_api`+`context_builder` (*/2), `cto/predicao` (*/5),
+> `cto/relatorio_matinal` (10h), briefing Jordan (07h30), alerta inadimplência (08h) → Telegram @conecta_pro_monitor_bot.
+>
+> **🔴 QUARENTENADO:** ciclo `completo` */30, `proatividade`, `auto_evolucao`, `relatorio_semanal`, `turno`, sentinela 1h.
+>
+> **⚠️ CRON QUEBRADO (a limpar):** 4 jobs chamam `rotinas/scripts/{6h-testes,12h-qualidade,18h-analise,24h-briefing}.sh`
+> que NÃO existem → falham silenciosamente toda execução. `rotinas/scripts/` só tem `onvio-auth-refresh.sh`
+> e `onvio-sync-mensal.sh`. **Ação pendente:** comentar esses 4 jobs no crontab (com backup antes).
+>
+> > NÃO construir novo sistema de monitoramento dentro do Conecta PRO. Os 80 agentes-vigia originais
+> > eram falso-negativo por design (abortavam antes de medir). Foco: módulos do ERP.
+>
+> ## B.12 — Outras infra-notas
+> - NFS-e: portal nacional https://www.nfse.gov.br (desde 01/2026). SEMEF Manaus descontinuado.
+> - Cert A1: `credentials/certificates/certificado.pfx` — válido até 01/2027.
+> - Banco: Banco Inter (único; Cora removido). Certificados em `credentials/inter/`.
+> - Onvio (Portte Contábil): scripts `rotinas/scripts/onvio-{auth-refresh,sync-mensal}.sh` — ATIVOS.
+> - Pré-commit hooks: ruff, detect-secrets, bandit.
+328,363c294,296
+< ## Mecanismo Anti-Revert — commit-msg hook
+<
+< **Instalado em:** 2026-04-07 (Operação Conecta-Drive T7)
+< **Arquivo:** `.git/hooks/commit-msg`
+<
+< O hook bloqueia automaticamente qualquer commit cuja mensagem comece com "revert" (case-insensitive).
+< Se uma sessão tentar fazer `git revert` sem autorização, o commit será bloqueado com:
+<
+< ```
+< ╔══════════════════════════════════════════════╗
+< ║  CONECTA PRO — REVERT BLOQUEADO              ║
+< ║  Reverts requerem autorização de Jordan Jesus ║
+< ║  Confirme no chat antes de executar.         ║
+< ╚══════════════════════════════════════════════╝
+< ```
+<
+< Para restaurar o hook se for deletado acidentalmente:
+<
+< ```bash
+< cat > /opt/conecta-pro/.git/hooks/commit-msg << 'HOOK'
+< #!/bin/bash
+< COMMIT_MSG_FILE="$1"
+< if [ -f "$COMMIT_MSG_FILE" ]; then
+<     MSG=$(cat "$COMMIT_MSG_FILE" | head -1 | tr '[:upper:]' '[:lower:]')
+<     if echo "$MSG" | grep -q "^revert"; then
+<         echo ""; echo "╔══════════════════════════════════════════════╗"
+<         echo "║  CONECTA PRO — REVERT BLOQUEADO              ║"
+<         echo "║  Reverts requerem autorização de Jordan Jesus ║"
+<         echo "╚══════════════════════════════════════════════╝"; echo ""
+<         exit 1
+<     fi
+< fi
+< exit 0
+< HOOK
+< chmod +x /opt/conecta-pro/.git/hooks/commit-msg
+< ```
+---
+> **Este arquivo está funcionando se:** menos mudanças desnecessárias nos diffs, menos reescritas por
+> excesso de complexidade, perguntas de esclarecimento ANTES da implementação (não depois do erro),
+> e nenhuma feature crítica caindo por estado runtime-only ou compose errado.
+365,378c298,299
+< ## PROIBIDO ABSOLUTO
+<
+< As seguintes operações são PROIBIDAS em todas as sessões autônomas:
+<
+< | Comando | Motivo |
+< |---------|--------|
+< | `git revert <hash>` | Reverte commits de outros módulos sem autorização |
+< | `git reset --hard` | Destrói trabalho de outras sessões |
+< | `git push --force` | Sobrescreve histórico remoto |
+< | Editar `alembic/versions/` | Migrations — risco de corrupção do banco |
+< | Editar `docker-compose*.yml` | Orquestração — pode derrubar produção |
+< | Editar `.env*` | Variáveis de ambiente — nunca commitar |
+< | Editar `credentials/` | Chaves e certificados — nunca tocar |
+< | Editar `main_production.py` | Entry point de produção — nunca modificar |
+---
+> *v2 — 2026-06-18. Substitui a v1 de 2026-04-01 (que descrevia status aspiracional e procedimento
+> de deploy incompleto). Seções de valor da v1 preservadas (ChunkLoadError, Celery, governança, anti-revert).*

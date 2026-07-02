@@ -1,0 +1,2497 @@
+# DIFF MODEL vs BANCO (staging conecta_pro_drift_check)
+
+## RESUMO
+model_tables=377 db_tables=534
+ADITIVO  -> tabelas faltando no banco: 78 | colunas faltando: 1176
+DROP(ruido)-> tabelas so-no-banco: 234 | colunas so-no-banco: 995
+
+## [ADITIVO-CREATE_TABLE] tabelas no model ausentes no banco (78)
+  access_logs
+  campo_tecnicos
+  cct_benefit_configs
+  cct_compliance_checks
+  cct_salary_audits
+  checklists_preenchidos
+  documentos_fiscais_diaristas
+  ecd_resumos
+  efd_contribuicoes_resumos
+  efd_icms_ipi_resumos
+  email_campaigns
+  email_configs
+  email_queue
+  email_subscriptions
+  email_templates
+  email_tracking
+  employee_documents
+  employee_notifications
+  employee_payroll_configs
+  employee_preferences
+  employee_vacation_periods
+  employee_vacation_requests
+  equipment_status
+  eventos_esocial_diaristas
+  fgts_inss_certidoes
+  fgts_inss_guias
+  fgts_recolhimentos
+  fin_cost_activities
+  fin_cost_allocations
+  fin_cost_analyses
+  fin_cost_drivers
+  fin_cost_objects
+  fin_cost_pools
+  financial_analytics_cache
+  financial_scheduled_reports
+  gov_esocial_events
+  gov_notas_fiscais
+  health_complementary_exams
+  inss_contribuicoes
+  mobile_notification_logs
+  mobile_sync_queue
+  nfe
+  nfse
+  nfse_lotes
+  onboarding_checklists
+  onboarding_progress
+  onboarding_steps
+  operational_profiles
+  payroll_events
+  payroll_exports
+  payroll_integrations
+  pg_am
+  pg_attrdef
+  pg_attribute
+  pg_class
+  pg_collation
+  pg_constraint
+  pg_description
+  pg_enum
+  pg_index
+  pg_namespace
+  pg_sequence
+  pg_type
+  post_matches
+  profile_questions
+  retencoes_fiscais_diaristas
+  simples_nacional_configs
+  sped_registros
+  tax_configurations
+  tax_tables
+  turnover_audit_logs
+  turnover_predictions
+  turnover_risk_alerts
+  turnover_risk_factors
+  wa_configs
+  wa_message_logs
+  wa_message_queue
+  wa_templates
+
+## [ADITIVO-ADD_COLUMN] colunas no model ausentes no banco (1176)
+  access_history.extra_metadata (NULL)
+  api_endpoints.extra_metadata (NULL)
+  api_keys.extra_metadata (NULL)
+  audit_logs.extra_metadata (NULL)
+  benchmarks.alert_if_above (NULL)
+  benchmarks.alert_if_below (NULL)
+  benchmarks.alerts_enabled (NOT NULL)
+  benchmarks.average_value (NULL)
+  benchmarks.calculation_method (NULL)
+  benchmarks.code (NOT NULL)
+  benchmarks.color_code (NULL)
+  benchmarks.created_by (NULL)
+  benchmarks.currency_code (NULL)
+  benchmarks.current_company_value (NULL)
+  benchmarks.decimal_places (NOT NULL)
+  benchmarks.description (NULL)
+  benchmarks.deviation (NULL)
+  benchmarks.deviation_percentage (NULL)
+  benchmarks.display_order (NULL)
+  benchmarks.extra_metadata (NULL)
+  benchmarks.geographic_region (NULL)
+  benchmarks.historical_values (NULL)
+  benchmarks.icon (NULL)
+  benchmarks.improvement_deadline (NULL)
+  benchmarks.improvement_target (NULL)
+  benchmarks.is_currency (NOT NULL)
+  benchmarks.is_percentage (NOT NULL)
+  benchmarks.market_segment (NULL)
+  benchmarks.name (NOT NULL)
+  benchmarks.notes (NULL)
+  benchmarks.reference_month (NULL)
+  benchmarks.reference_quarter (NULL)
+  benchmarks.reference_year (NULL)
+  benchmarks.related_kpi_ids (NULL)
+  benchmarks.source_date (NULL)
+  benchmarks.source_name (NULL)
+  benchmarks.source_report (NULL)
+  benchmarks.source_url (NULL)
+  benchmarks.sub_industry (NULL)
+  benchmarks.tenant_id (NOT NULL)
+  benchmarks.trend (NULL)
+  benchmarks.updated_by (NULL)
+  benchmarks.valid_from (NULL)
+  benchmarks.valid_until (NULL)
+  benchmarks.visible_on_dashboard (NOT NULL)
+  benchmarks.year_over_year_change (NULL)
+  bidding_analyses.opportunity_id (NULL)
+  bidding_assessments.raw_assessment (NULL)
+  bidding_disputes.updated_at (NULL)
+  bidding_price_history.metadata_extra (NULL)
+  bidding_pricing.assessment_id (NULL)
+  bidding_pricing.raw_pricing (NULL)
+  cashflow_forecasts.actual_closing_balance (NULL)
+  cashflow_forecasts.actual_net_flow (NULL)
+  cashflow_forecasts.actual_opening_balance (NULL)
+  cashflow_forecasts.ai_factors (NULL)
+  cashflow_forecasts.ai_generated (NULL)
+  cashflow_forecasts.ai_generated_at (NULL)
+  cashflow_forecasts.balance_variance (NULL)
+  cashflow_forecasts.balance_variance_pct (NULL)
+  cashflow_forecasts.confidence_category (NULL)
+  cashflow_forecasts.confidence_level (NULL)
+  cashflow_forecasts.created_by (NULL)
+  cashflow_forecasts.daily_forecast (NULL)
+  cashflow_forecasts.description (NULL)
+  cashflow_forecasts.expected_closing_balance (NULL)
+  cashflow_forecasts.expected_net_flow (NULL)
+  cashflow_forecasts.expected_opening_balance (NULL)
+  cashflow_forecasts.expected_other_expenses (NULL)
+  cashflow_forecasts.expected_other_income (NULL)
+  cashflow_forecasts.expected_payables (NULL)
+  cashflow_forecasts.expected_receivables (NULL)
+  cashflow_forecasts.forecast_date (NOT NULL)
+  cashflow_forecasts.has_high_outflow_alert (NULL)
+  cashflow_forecasts.has_low_inflow_alert (NULL)
+  cashflow_forecasts.has_negative_balance_alert (NULL)
+  cashflow_forecasts.inflows_breakdown (NULL)
+  cashflow_forecasts.inflows_variance (NULL)
+  cashflow_forecasts.inflows_variance_pct (NULL)
+  cashflow_forecasts.outflows_breakdown (NULL)
+  cashflow_forecasts.outflows_variance (NULL)
+  cashflow_forecasts.outflows_variance_pct (NULL)
+  cashflow_forecasts.reference (NULL)
+  cashflow_forecasts.review_notes (NULL)
+  cashflow_forecasts.reviewed_at (NULL)
+  cashflow_forecasts.reviewed_by (NULL)
+  cashflow_forecasts.scenarios (NULL)
+  cashflow_forecasts.target_achieved (NULL)
+  cashflow_forecasts.target_balance (NULL)
+  chat_messages.context_data (NULL)
+  chat_messages.edited_at (NULL)
+  chat_messages.is_edited (NULL)
+  chat_messages.original_content (NULL)
+  chat_messages.referenced_entity_id (NULL)
+  chat_messages.referenced_module (NULL)
+  chat_messages.response_extra_metadata (NULL)
+  chat_messages.retry_count (NULL)
+  chat_sessions.archived_at (NULL)
+  chat_sessions.current_context (NULL)
+  chat_sessions.initial_context (NULL)
+  checklist_itens.alerta_condicao (NULL)
+  checklist_itens.alerta_mensagem (NULL)
+  checklist_itens.alerta_severidade (NULL)
+  checklist_itens.extra_metadata (NULL)
+  checklist_itens.gera_alerta (NULL)
+  checklist_itens.is_active (NOT NULL)
+  checklist_itens.pontos (NULL)
+  checklist_itens.secao_ordem (NULL)
+  checklist_respostas.alerta_data (NULL)
+  checklist_respostas.created_at (NOT NULL)
+  checklist_respostas.gerou_alerta (NULL)
+  checklist_respostas.is_valida (NULL)
+  checklist_respostas.latitude (NULL)
+  checklist_respostas.longitude (NULL)
+  checklist_respostas.mensagem_validacao (NULL)
+  checklist_respostas.ordem_servico_id (NOT NULL)
+  checklist_respostas.resposta_arquivo_url (NULL)
+  checklist_respostas.resposta_assinatura_url (NULL)
+  checklist_respostas.resposta_foto_url (NULL)
+  checklist_respostas.resposta_fotos_urls (NULL)
+  checklist_respostas.resposta_json (NULL)
+  checklist_respostas.template_id (NOT NULL)
+  checklist_respostas.updated_at (NOT NULL)
+  client_portal_ticket_messages.attachments (NULL)
+  client_portal_ticket_messages.message (NOT NULL)
+  client_portal_ticket_messages.sender_id (NULL)
+  client_portal_ticket_messages.sender_name (NOT NULL)
+  client_portal_ticket_messages.sender_type (NOT NULL)
+  codigos_servico.aliquota_maxima (NULL)
+  codigos_servico.aliquota_minima (NULL)
+  codigos_servico.cnaes_relacionados (NULL)
+  codigos_servico.created_at (NOT NULL)
+  codigos_servico.exige_obra (NULL)
+  codigos_servico.exige_retencoes_federais (NULL)
+  codigos_servico.iss_retido_obrigatorio (NULL)
+  codigos_servico.local_tributacao (NULL)
+  codigos_servico.permite_deducao (NULL)
+  codigos_servico.subitem (NULL)
+  codigos_servico.updated_at (NULL)
+  communication_announcement_reads.acknowledged_at (NULL)
+  communication_announcement_reads.ip_address (NULL)
+  communication_announcement_reads.user_agent (NULL)
+  compliance_checks.extra_metadata (NULL)
+  compliance_rules.extra_metadata (NULL)
+  data_retention_policies.extra_metadata (NULL)
+  device_tokens.app_build (NULL)
+  device_tokens.extra_metadata (NOT NULL)
+  device_tokens.last_used (NOT NULL)
+  execution_logs.created_at (NOT NULL)
+  execution_logs.duration_ms (NULL)
+  execution_logs.error_traceback (NULL)
+  execution_logs.error_type (NULL)
+  execution_logs.log_type (NOT NULL)
+  execution_logs.step_execution_id (NULL)
+  execution_logs.step_name (NULL)
+  execution_logs.tenant_id (NOT NULL)
+  executive_kpis.alert_frequency (NULL)
+  executive_kpis.alert_recipients (NULL)
+  executive_kpis.alerts_enabled (NOT NULL)
+  executive_kpis.calculation_config (NULL)
+  executive_kpis.code (NOT NULL)
+  executive_kpis.color_scheme (NULL)
+  executive_kpis.created_by (NULL)
+  executive_kpis.critical_threshold_high (NULL)
+  executive_kpis.critical_threshold_low (NULL)
+  executive_kpis.decimal_places (NOT NULL)
+  executive_kpis.department (NULL)
+  executive_kpis.description (NULL)
+  executive_kpis.display_format (NULL)
+  executive_kpis.extra_metadata (NULL)
+  executive_kpis.historical_values (NULL)
+  executive_kpis.last_12_months (NULL)
+  executive_kpis.last_alert_at (NULL)
+  executive_kpis.monthly_targets (NULL)
+  executive_kpis.name (NOT NULL)
+  executive_kpis.owner_name (NULL)
+  executive_kpis.period_end (NULL)
+  executive_kpis.period_start (NULL)
+  executive_kpis.prefix (NULL)
+  executive_kpis.quarterly_targets (NULL)
+  executive_kpis.related_kpis (NULL)
+  executive_kpis.suffix (NULL)
+  executive_kpis.tenant_id (NOT NULL)
+  executive_kpis.updated_by (NULL)
+  executive_kpis.visible_on_dashboard (NOT NULL)
+  executive_kpis.warning_threshold_high (NULL)
+  executive_kpis.warning_threshold_low (NULL)
+  executive_kpis.yearly_target (NULL)
+  fin_stock_inventories.accuracy_rate (NULL)
+  fin_stock_inventories.adjustment_value (NULL)
+  fin_stock_inventories.ativo (NOT NULL)
+  fin_stock_inventories.attachments (NULL)
+  fin_stock_inventories.auto_adjust (NULL)
+  fin_stock_inventories.counted_quantity (NULL)
+  fin_stock_inventories.counted_value (NULL)
+  fin_stock_inventories.deadline (NULL)
+  fin_stock_inventories.difference_quantity (NULL)
+  fin_stock_inventories.difference_value (NULL)
+  fin_stock_inventories.end_date (NULL)
+  fin_stock_inventories.expected_quantity (NULL)
+  fin_stock_inventories.expected_value (NULL)
+  fin_stock_inventories.extra_data (NULL)
+  fin_stock_inventories.filter_abc_class (NULL)
+  fin_stock_inventories.filter_categories (NULL)
+  fin_stock_inventories.filter_locations (NULL)
+  fin_stock_inventories.filter_products (NULL)
+  fin_stock_inventories.hit_rate (NULL)
+  fin_stock_inventories.internal_notes (NULL)
+  fin_stock_inventories.number (NOT NULL)
+  fin_stock_inventories.planned_date (NULL)
+  fin_stock_inventories.start_date (NULL)
+  fin_stock_inventories.verified_items (NULL)
+  fin_stock_inventory_items.adjusted_at (NULL)
+  fin_stock_inventory_items.adjusted_by (NULL)
+  fin_stock_inventory_items.aisle (NULL)
+  fin_stock_inventory_items.ativo (NOT NULL)
+  fin_stock_inventory_items.bin_loc (NULL)
+  fin_stock_inventory_items.difference_quantity (NULL)
+  fin_stock_inventory_items.difference_value (NULL)
+  fin_stock_inventory_items.expected_quantity (NULL)
+  fin_stock_inventory_items.expected_value (NULL)
+  fin_stock_inventory_items.expiry_date (NULL)
+  fin_stock_inventory_items.rack (NULL)
+  fin_stock_inventory_items.recount_quantity (NULL)
+  fin_stock_inventory_items.recounted_at (NULL)
+  fin_stock_inventory_items.recounted_by (NULL)
+  fin_stock_inventory_items.shelf (NULL)
+  fin_stock_inventory_items.verified_at (NULL)
+  fin_stock_inventory_items.verified_by (NULL)
+  fin_stock_movements.ativo (NOT NULL)
+  fin_stock_movements.attachments (NULL)
+  fin_stock_movements.confirmed_by (NULL)
+  fin_stock_movements.customer_id (NULL)
+  fin_stock_movements.dest_aisle (NULL)
+  fin_stock_movements.dest_bin (NULL)
+  fin_stock_movements.dest_location (NULL)
+  fin_stock_movements.dest_rack (NULL)
+  fin_stock_movements.dest_shelf (NULL)
+  fin_stock_movements.expiry_date (NULL)
+  fin_stock_movements.extra_data (NULL)
+  fin_stock_movements.internal_notes (NULL)
+  fin_stock_movements.invoice_key (NULL)
+  fin_stock_movements.invoice_number (NULL)
+  fin_stock_movements.invoice_series (NULL)
+  fin_stock_movements.number (NOT NULL)
+  fin_stock_movements.reason (NOT NULL)
+  fin_stock_movements.reference_id (NULL)
+  fin_stock_movements.reference_number (NULL)
+  fin_stock_movements.reference_type (NULL)
+  fin_stock_movements.requisition_id (NULL)
+  fin_stock_movements.requisition_number (NULL)
+  fin_stock_movements.reversal_of (NULL)
+  fin_stock_movements.reversed_by (NULL)
+  fin_stock_movements.source_aisle (NULL)
+  fin_stock_movements.source_bin (NULL)
+  fin_stock_movements.source_location (NULL)
+  fin_stock_movements.source_rack (NULL)
+  fin_stock_movements.source_shelf (NULL)
+  fin_stock_movements.supplier_id (NULL)
+  fin_stock_reservations.allow_partial (NULL)
+  fin_stock_reservations.approval_notes (NULL)
+  fin_stock_reservations.approved_at (NULL)
+  fin_stock_reservations.approved_by (NULL)
+  fin_stock_reservations.ativo (NOT NULL)
+  fin_stock_reservations.auto_expire (NULL)
+  fin_stock_reservations.batch_number (NULL)
+  fin_stock_reservations.cancelled_by (NULL)
+  fin_stock_reservations.description (NULL)
+  fin_stock_reservations.extra_data (NULL)
+  fin_stock_reservations.internal_notes (NULL)
+  fin_stock_reservations.number (NOT NULL)
+  fin_stock_reservations.quantity_pending (NULL)
+  fin_stock_reservations.quantity_requested (NOT NULL)
+  fin_stock_reservations.reference_id (NULL)
+  fin_stock_reservations.reference_number (NULL)
+  fin_stock_reservations.reference_type (NULL)
+  fin_stock_reservations.release_notes (NULL)
+  fin_stock_reservations.released_by (NULL)
+  fin_stock_reservations.requester_id (NULL)
+  fin_stock_reservations.requester_name (NULL)
+  fin_stock_reservations.required_date (NULL)
+  fin_stock_reservations.requires_approval (NULL)
+  financial_kpis.alert_enabled (NULL)
+  financial_kpis.alert_message (NULL)
+  financial_kpis.benchmark_data (NULL)
+  financial_kpis.benchmark_fonte (NULL)
+  financial_kpis.benchmark_valor (NULL)
+  financial_kpis.color (NULL)
+  financial_kpis.created_by (NULL)
+  financial_kpis.data_sources (NULL)
+  financial_kpis.extra_metadata (NULL)
+  financial_kpis.formula_descricao (NULL)
+  financial_kpis.historico_dias (NULL)
+  financial_kpis.historico_valores (NULL)
+  financial_kpis.icon (NULL)
+  financial_kpis.is_inverted (NULL)
+  financial_kpis.is_percentage (NULL)
+  financial_kpis.meta_atingida (NULL)
+  financial_kpis.meta_maximo (NULL)
+  financial_kpis.meta_minimo (NULL)
+  financial_kpis.meta_percentual (NULL)
+  financial_kpis.nome_curto (NULL)
+  financial_kpis.order (NULL)
+  financial_kpis.show_in_summary (NULL)
+  financial_kpis.tags (NULL)
+  financial_kpis.threshold_critical_max (NULL)
+  financial_kpis.threshold_critical_min (NULL)
+  financial_kpis.threshold_warning_max (NULL)
+  financial_kpis.threshold_warning_min (NULL)
+  financial_kpis.trend (NULL)
+  financial_kpis.ultimo_calculo_at (NULL)
+  financial_kpis.updated_by (NULL)
+  financial_kpis.variacao_percentual (NULL)
+  financial_widgets.aggregation (NULL)
+  financial_widgets.background_color (NULL)
+  financial_widgets.border_color (NULL)
+  financial_widgets.cache_ttl_seconds (NULL)
+  financial_widgets.chart_type (NULL)
+  financial_widgets.click_action (NULL)
+  financial_widgets.codigo (NOT NULL)
+  financial_widgets.colors (NULL)
+  financial_widgets.comparison_enabled (NULL)
+  financial_widgets.comparison_period (NULL)
+  financial_widgets.condominio_id (NOT NULL)
+  financial_widgets.created_by (NULL)
+  financial_widgets.custom_query (NULL)
+  financial_widgets.data_source (NOT NULL)
+  financial_widgets.date_range_days (NULL)
+  financial_widgets.decimal_places (NULL)
+  financial_widgets.dimension_field (NULL)
+  financial_widgets.drill_down_config (NULL)
+  financial_widgets.drill_down_enabled (NULL)
+  financial_widgets.filters (NULL)
+  financial_widgets.group_by (NULL)
+  financial_widgets.height (NOT NULL)
+  financial_widgets.icon (NULL)
+  financial_widgets.invert_colors (NULL)
+  financial_widgets.is_clickable (NULL)
+  financial_widgets.is_loading (NULL)
+  financial_widgets.is_visible (NOT NULL)
+  financial_widgets.last_error (NULL)
+  financial_widgets.last_updated_at (NULL)
+  financial_widgets.limit (NULL)
+  financial_widgets.metric_field (NULL)
+  financial_widgets.order (NULL)
+  financial_widgets.position_x (NOT NULL)
+  financial_widgets.position_y (NOT NULL)
+  financial_widgets.query_params (NULL)
+  financial_widgets.show_comparison (NULL)
+  financial_widgets.show_legend (NULL)
+  financial_widgets.show_percentage (NULL)
+  financial_widgets.show_trend (NULL)
+  financial_widgets.sort_by (NULL)
+  financial_widgets.sort_order (NULL)
+  financial_widgets.subtitulo (NULL)
+  financial_widgets.text_color (NULL)
+  financial_widgets.threshold_critical (NULL)
+  financial_widgets.threshold_success (NULL)
+  financial_widgets.threshold_warning (NULL)
+  financial_widgets.time_field (NULL)
+  financial_widgets.value_format (NULL)
+  financial_widgets.width (NOT NULL)
+  fiscal_obligations.ano (NOT NULL)
+  fiscal_obligations.arquivo_id (NULL)
+  fiscal_obligations.codigo_retorno (NULL)
+  fiscal_obligations.created_by (NULL)
+  fiscal_obligations.data_entrega (NULL)
+  fiscal_obligations.dias_para_vencimento (NULL)
+  fiscal_obligations.frequencia (NOT NULL)
+  fiscal_obligations.mensagem_retorno (NULL)
+  fiscal_obligations.mes (NULL)
+  fiscal_obligations.numero_declaracao (NULL)
+  fiscal_obligations.obrigacao_original_id (NULL)
+  fiscal_obligations.orgao_responsavel (NULL)
+  fiscal_obligations.pendencias (NULL)
+  fiscal_obligations.percentual_multa (NULL)
+  fiscal_obligations.periodo_fim (NULL)
+  fiscal_obligations.periodo_inicio (NULL)
+  fiscal_obligations.protocolo (NULL)
+  fiscal_obligations.recibo (NULL)
+  fiscal_obligations.responsavel_id (NULL)
+  fiscal_obligations.responsavel_nome (NULL)
+  fiscal_obligations.retificacao_numero (NULL)
+  fiscal_obligations.valor_multa_base (NULL)
+  fiscal_obligations.valor_multa_calculada (NULL)
+  goods_receipt_items.updated_at (NULL)
+  goods_receipts.approval_notes (NULL)
+  goods_receipts.internal_notes (NULL)
+  goods_receipts.receiver_signature (NULL)
+  goods_receipts.rejected_at (NULL)
+  goods_receipts.rejected_by (NULL)
+  health_epi_catalog.ca_number (NOT NULL)
+  health_epi_catalog.ca_validade (NULL)
+  health_epi_catalog.codigo_interno (NULL)
+  health_epi_catalog.created_by (NULL)
+  health_epi_catalog.especificacoes (NULL)
+  health_epi_catalog.imagem_url (NULL)
+  health_epi_catalog.instrucoes_armazenamento (NULL)
+  health_epi_catalog.instrucoes_higienizacao (NULL)
+  health_epi_catalog.instrucoes_uso (NULL)
+  health_epi_catalog.modelo (NULL)
+  health_epi_catalog.riscos_protegidos (NULL)
+  health_epi_catalog.validade_dias (NOT NULL)
+  health_epi_deliveries.assinatura_digital_url (NULL)
+  health_epi_deliveries.assinatura_funcionario (NULL)
+  health_epi_deliveries.ca_number (NOT NULL)
+  health_epi_deliveries.condicao_devolucao (NULL)
+  health_epi_deliveries.data_assinatura (NULL)
+  health_epi_deliveries.data_devolucao (NULL)
+  health_epi_deliveries.data_treinamento (NULL)
+  health_epi_deliveries.data_validade (NULL)
+  health_epi_deliveries.devolvido (NULL)
+  health_epi_deliveries.entregue_por (NULL)
+  health_epi_deliveries.motivo_devolucao (NULL)
+  health_epi_deliveries.observacoes (NULL)
+  health_epi_deliveries.treinamento_realizado (NULL)
+  health_epi_deliveries.updated_at (NULL)
+  health_epi_inventory.custo_unitario (NULL)
+  health_epi_inventory.data_validade_lote (NULL)
+  health_epi_inventory.fornecedor (NULL)
+  health_epi_inventory.local_armazenamento (NULL)
+  health_epi_inventory.lote_atual (NULL)
+  health_epi_inventory.quantidade_atual (NOT NULL)
+  health_epi_inventory.quantidade_maxima (NULL)
+  health_epi_inventory.ultima_entrada (NULL)
+  health_epi_inventory.ultima_saida (NULL)
+  health_occupational_risks.categoria (NOT NULL)
+  health_occupational_risks.descricao (NULL)
+  health_occupational_risks.funcoes_expostas (NULL)
+  health_occupational_risks.numero_expostos (NULL)
+  health_occupational_risks.prioridade (NULL)
+  health_risk_mappings.cargo_avaliador (NULL)
+  id_maps.extra_metadata (NULL)
+  integration_logs.extra_metadata (NULL)
+  mobile_sessions.device_token_id (NULL)
+  mobile_sessions.extra_metadata (NOT NULL)
+  mobile_sessions.last_activity_at (NOT NULL)
+  mobile_sessions.preferences (NOT NULL)
+  mobile_sessions.storage_available (NULL)
+  nfe_itens.cest (NULL)
+  nfe_itens.codigo_barras (NULL)
+  nfe_itens.cofins_base (NOT NULL)
+  nfe_itens.icms_base (NOT NULL)
+  nfe_itens.icms_modbc (NULL)
+  nfe_itens.icms_reducao_bc (NULL)
+  nfe_itens.icms_st_aliquota (NULL)
+  nfe_itens.icms_st_base (NULL)
+  nfe_itens.icms_st_modbc (NULL)
+  nfe_itens.icms_st_mva (NULL)
+  nfe_itens.icms_st_reducao_bc (NULL)
+  nfe_itens.ii_base (NULL)
+  nfe_itens.ii_despesas_aduaneiras (NULL)
+  nfe_itens.ii_iof (NULL)
+  nfe_itens.informacoes_adicionais (NULL)
+  nfe_itens.ipi_base (NULL)
+  nfe_itens.ipi_classe (NULL)
+  nfe_itens.ipi_codigo (NULL)
+  nfe_itens.item_pedido_compra (NULL)
+  nfe_itens.pedido_compra (NULL)
+  nfe_itens.percentual_tributos_estaduais (NULL)
+  nfe_itens.percentual_tributos_federais (NULL)
+  nfe_itens.percentual_tributos_municipais (NULL)
+  nfe_itens.pis_base (NOT NULL)
+  nfe_itens.updated_at (NULL)
+  nfe_itens.valor_cofins (NOT NULL)
+  nfe_itens.valor_icms (NOT NULL)
+  nfe_itens.valor_icms_st (NULL)
+  nfe_itens.valor_ii (NULL)
+  nfe_itens.valor_ipi (NULL)
+  nfe_itens.valor_outras_despesas (NOT NULL)
+  nfe_itens.valor_pis (NOT NULL)
+  nfe_itens.valor_tributos_aproximado (NULL)
+  notification_templates.allowed_days (NULL)
+  notification_templates.ativo (NOT NULL)
+  notification_templates.attachments (NULL)
+  notification_templates.available_variables (NULL)
+  notification_templates.batch_size (NOT NULL)
+  notification_templates.bounced_count (NOT NULL)
+  notification_templates.clicked_count (NOT NULL)
+  notification_templates.codigo (NOT NULL)
+  notification_templates.css_custom (NULL)
+  notification_templates.delivered_count (NOT NULL)
+  notification_templates.descricao (NULL)
+  notification_templates.exclude_conditions (NULL)
+  notification_templates.extra_metadata (NULL)
+  notification_templates.footer_text (NULL)
+  notification_templates.header_image (NULL)
+  notification_templates.in_app_action (NULL)
+  notification_templates.language (NOT NULL)
+  notification_templates.last_sent_at (NULL)
+  notification_templates.layout_template (NULL)
+  notification_templates.nome (NOT NULL)
+  notification_templates.notification_type (NOT NULL)
+  notification_templates.opened_count (NOT NULL)
+  notification_templates.priority (NOT NULL)
+  notification_templates.push_icon (NULL)
+  notification_templates.push_image (NULL)
+  notification_templates.quiet_hours_end (NULL)
+  notification_templates.quiet_hours_start (NULL)
+  notification_templates.rate_limit_per_hour (NULL)
+  notification_templates.send_conditions (NULL)
+  notification_templates.send_delay_minutes (NOT NULL)
+  notification_templates.sent_count (NOT NULL)
+  notification_templates.slack_channel (NULL)
+  notification_templates.timezone (NULL)
+  notification_templates.track_clicks (NOT NULL)
+  notification_templates.track_delivery (NOT NULL)
+  notification_templates.track_opens (NOT NULL)
+  notification_templates.unsubscribed_count (NOT NULL)
+  notification_templates.webhook_payload (NULL)
+  notification_templates.whatsapp_components (NULL)
+  notification_templates.whatsapp_template_id (NULL)
+  payable_categories.created_by (NULL)
+  payment_methods.created_by (NULL)
+  products.attributes (NULL)
+  products.blocked_reason (NULL)
+  products.brand (NULL)
+  products.cest (NULL)
+  products.cfop_default (NULL)
+  products.conversion_factor (NULL)
+  products.documents (NULL)
+  products.internal_notes (NULL)
+  products.last_purchase_at (NULL)
+  products.manufacturer (NULL)
+  products.max_stock (NULL)
+  products.min_stock (NULL)
+  products.model (NULL)
+  products.preferred_supplier_id (NULL)
+  products.technical_specs (NULL)
+  products.thumbnail_url (NULL)
+  products.total_purchases (NULL)
+  purchase_approvals.attachments (NULL)
+  purchase_approvals.created_by (NULL)
+  purchase_approvals.info_provided_at (NULL)
+  purchase_approvals.info_requested_at (NULL)
+  purchase_approvals.last_reminder_at (NULL)
+  purchase_approvals.notification_sent_at (NULL)
+  purchase_order_items.updated_at (NULL)
+  purchase_quotation_items.availability (NULL)
+  purchase_quotation_items.discount_amount (NULL)
+  purchase_quotation_items.discount_percentage (NULL)
+  purchase_quotation_items.evaluation_notes (NULL)
+  purchase_quotation_items.meets_specs (NULL)
+  purchase_quotation_items.min_quantity (NULL)
+  purchase_quotation_items.quantity_offered (NULL)
+  purchase_quotation_items.quantity_requested (NOT NULL)
+  purchase_quotation_items.supplier_description (NULL)
+  purchase_quotation_items.technical_specs (NULL)
+  purchase_quotation_items.updated_at (NULL)
+  purchase_quotations.comparison_notes (NULL)
+  purchase_quotations.expected_delivery_date (NULL)
+  purchase_quotations.internal_notes (NULL)
+  purchase_quotations.is_best_delivery (NULL)
+  purchase_quotations.is_best_overall (NULL)
+  purchase_quotations.is_best_price (NULL)
+  purchase_quotations.payment_installments (NULL)
+  purchase_quotations.received_date (NULL)
+  purchase_quotations.reference (NULL)
+  purchase_quotations.rejected_at (NULL)
+  purchase_quotations.rejected_by (NULL)
+  purchase_quotations.request_date (NOT NULL)
+  purchase_quotations.selection_justification (NULL)
+  purchase_quotations.sent_date (NULL)
+  purchase_quotations.validity_date (NULL)
+  purchase_requisition_items.actual_unit_price (NULL)
+  purchase_requisition_items.approved_unit_price (NULL)
+  purchase_requisition_items.estimated_unit_price (NULL)
+  purchase_requisition_items.quantity_received (NULL)
+  purchase_requisition_items.quantity_requested (NOT NULL)
+  purchase_requisition_items.updated_at (NULL)
+  purchase_requisitions.actual_total (NULL)
+  purchase_requisitions.approval_history (NULL)
+  purchase_requisitions.approved_at (NULL)
+  purchase_requisitions.approved_budget (NULL)
+  purchase_requisitions.cancelled_at (NULL)
+  purchase_requisitions.cancelled_by (NULL)
+  purchase_requisitions.delivery_address (NULL)
+  purchase_requisitions.delivery_contact (NULL)
+  purchase_requisitions.delivery_instructions (NULL)
+  purchase_requisitions.delivery_phone (NULL)
+  purchase_requisitions.internal_notes (NULL)
+  purchase_requisitions.min_quotations (NULL)
+  purchase_requisitions.needed_by_date (NULL)
+  purchase_requisitions.rejected_at (NULL)
+  purchase_requisitions.request_date (NOT NULL)
+  purchase_requisitions.revision (NULL)
+  purchase_requisitions.suggested_supplier_id (NULL)
+  purchase_requisitions.supplier_justification (NULL)
+  purchase_requisitions.title (NOT NULL)
+  push_ab_test_results.auto_applied (NULL)
+  push_ab_test_results.confidence_interval_lower (NULL)
+  push_ab_test_results.confidence_interval_upper (NULL)
+  push_ab_test_results.confidence_threshold (NULL)
+  push_ab_test_results.control_campaign_id (NOT NULL)
+  push_ab_test_results.control_click_rate (NULL)
+  push_ab_test_results.control_clicked (NULL)
+  push_ab_test_results.control_conversion_rate (NULL)
+  push_ab_test_results.control_converted (NULL)
+  push_ab_test_results.control_delivered (NULL)
+  push_ab_test_results.control_open_rate (NULL)
+  push_ab_test_results.control_opened (NULL)
+  push_ab_test_results.control_sent (NULL)
+  push_ab_test_results.ended_at (NULL)
+  push_ab_test_results.lift_percentage (NULL)
+  push_ab_test_results.started_at (NOT NULL)
+  push_ab_test_results.status (NULL)
+  push_ab_test_results.tenant_id (NOT NULL)
+  push_ab_test_results.test_id (NOT NULL)
+  push_ab_test_results.test_name (NOT NULL)
+  push_ab_test_results.traffic_split (NULL)
+  push_ab_test_results.variant_campaign_id (NOT NULL)
+  push_ab_test_results.variant_click_rate (NULL)
+  push_ab_test_results.variant_clicked (NULL)
+  push_ab_test_results.variant_conversion_rate (NULL)
+  push_ab_test_results.variant_converted (NULL)
+  push_ab_test_results.variant_delivered (NULL)
+  push_ab_test_results.variant_open_rate (NULL)
+  push_ab_test_results.variant_opened (NULL)
+  push_ab_test_results.variant_sent (NULL)
+  push_ab_test_results.winner (NULL)
+  push_ab_test_results.winner_declared_at (NULL)
+  push_ab_test_results.winner_metric (NULL)
+  push_campaigns.ab_parent_id (NULL)
+  push_campaigns.ab_traffic_percentage (NULL)
+  push_campaigns.ab_variant_name (NULL)
+  push_campaigns.ab_winner_metric (NULL)
+  push_campaigns.action_buttons (NULL)
+  push_campaigns.android_body (NULL)
+  push_campaigns.android_channel_id (NULL)
+  push_campaigns.android_color (NULL)
+  push_campaigns.android_icon (NULL)
+  push_campaigns.android_led_color (NULL)
+  push_campaigns.android_led_off_ms (NULL)
+  push_campaigns.android_led_on_ms (NULL)
+  push_campaigns.android_local_only (NULL)
+  push_campaigns.android_priority (NULL)
+  push_campaigns.android_sound (NULL)
+  push_campaigns.android_sticky (NULL)
+  push_campaigns.android_tag (NULL)
+  push_campaigns.android_ticker (NULL)
+  push_campaigns.android_title (NULL)
+  push_campaigns.android_vibration_pattern (NULL)
+  push_campaigns.android_visibility (NULL)
+  push_campaigns.click_action (NULL)
+  push_campaigns.data_payload (NULL)
+  push_campaigns.dismiss_rate (NULL)
+  push_campaigns.error_count (NULL)
+  push_campaigns.extra_data (NULL)
+  push_campaigns.filter_app_versions (NULL)
+  push_campaigns.filter_countries (NULL)
+  push_campaigns.filter_languages (NULL)
+  push_campaigns.filter_last_active_days (NULL)
+  push_campaigns.filter_min_engagement_score (NULL)
+  push_campaigns.ios_badge (NULL)
+  push_campaigns.ios_body (NULL)
+  push_campaigns.ios_category (NULL)
+  push_campaigns.ios_interruption_level (NULL)
+  push_campaigns.ios_relevance_score (NULL)
+  push_campaigns.ios_sound (NULL)
+  push_campaigns.ios_subtitle (NULL)
+  push_campaigns.ios_thread_id (NULL)
+  push_campaigns.ios_title (NULL)
+  push_campaigns.is_ab_test (NULL)
+  push_campaigns.last_error (NULL)
+  push_campaigns.last_run_at (NULL)
+  push_campaigns.max_recipients (NULL)
+  push_campaigns.next_run_at (NULL)
+  push_campaigns.optimal_time (NULL)
+  push_campaigns.processing_time_ms (NULL)
+  push_campaigns.rate_limit_per_second (NULL)
+  push_campaigns.recurrence_end_at (NULL)
+  push_campaigns.recurrence_rule (NULL)
+  push_campaigns.slug (NULL)
+  push_campaigns.target_condition (NULL)
+  push_campaigns.target_platforms (NULL)
+  push_campaigns.target_segment_id (NULL)
+  push_campaigns.total_targeted (NULL)
+  push_campaigns.ttl_seconds (NULL)
+  push_campaigns.updated_by (NULL)
+  push_delivery_reports.android_delivered (NULL)
+  push_delivery_reports.android_failed (NULL)
+  push_delivery_reports.android_opened (NULL)
+  push_delivery_reports.android_sent (NULL)
+  push_delivery_reports.apns_delivered (NULL)
+  push_delivery_reports.apns_failed (NULL)
+  push_delivery_reports.apns_sent (NULL)
+  push_delivery_reports.avg_delivery_latency_ms (NULL)
+  push_delivery_reports.by_app_version (NULL)
+  push_delivery_reports.errors_by_code (NULL)
+  push_delivery_reports.fcm_delivered (NULL)
+  push_delivery_reports.fcm_failed (NULL)
+  push_delivery_reports.fcm_sent (NULL)
+  push_delivery_reports.generated_at (NULL)
+  push_delivery_reports.ios_delivered (NULL)
+  push_delivery_reports.ios_failed (NULL)
+  push_delivery_reports.ios_opened (NULL)
+  push_delivery_reports.ios_sent (NULL)
+  push_delivery_reports.max_delivery_latency_ms (NULL)
+  push_delivery_reports.min_delivery_latency_ms (NULL)
+  push_delivery_reports.tenant_id (NOT NULL)
+  push_delivery_reports.web_delivered (NULL)
+  push_delivery_reports.web_failed (NULL)
+  push_delivery_reports.web_opened (NULL)
+  push_delivery_reports.web_sent (NULL)
+  push_device_sessions.actions_performed (NULL)
+  push_device_sessions.app_version (NULL)
+  push_device_sessions.extra_data (NULL)
+  push_device_sessions.notifications_opened (NULL)
+  push_device_sessions.notifications_received (NULL)
+  push_device_sessions.platform_version (NULL)
+  push_device_sessions.screens_viewed (NULL)
+  push_device_sessions.session_end (NULL)
+  push_device_sessions.session_start (NOT NULL)
+  push_device_sessions.tenant_id (NOT NULL)
+  push_device_sessions.user_id (NULL)
+  push_devices.alert_enabled (NULL)
+  push_devices.city (NULL)
+  push_devices.consecutive_failures (NULL)
+  push_devices.country (NULL)
+  push_devices.critical_alerts_enabled (NULL)
+  push_devices.device_language (NULL)
+  push_devices.device_manufacturer (NULL)
+  push_devices.device_name (NULL)
+  push_devices.device_timezone (NULL)
+  push_devices.device_token_hash (NULL)
+  push_devices.engagement_score (NULL)
+  push_devices.extra_data (NULL)
+  push_devices.last_error (NULL)
+  push_devices.latitude (NULL)
+  push_devices.longitude (NULL)
+  push_devices.notifications_enabled (NULL)
+  push_devices.platform_version (NULL)
+  push_devices.provider (NULL)
+  push_devices.provider_player_id (NULL)
+  push_devices.provisional_enabled (NULL)
+  push_devices.screen_height (NULL)
+  push_devices.screen_width (NULL)
+  push_devices.sdk_version (NULL)
+  push_devices.status_changed_at (NULL)
+  push_devices.status_reason (NULL)
+  push_devices.subscribed_topics (NULL)
+  push_devices.supports_actions (NULL)
+  push_devices.supports_badge (NULL)
+  push_devices.supports_data_only (NULL)
+  push_devices.supports_images (NULL)
+  push_devices.supports_rich_notifications (NULL)
+  push_devices.supports_silent (NULL)
+  push_devices.supports_sound (NULL)
+  push_devices.token_expires_at (NULL)
+  push_devices.token_registered_at (NULL)
+  push_devices.total_notifications_clicked (NULL)
+  push_devices.total_notifications_delivered (NULL)
+  push_devices.total_notifications_opened (NULL)
+  push_devices.total_notifications_sent (NULL)
+  push_devices.user_email (NULL)
+  push_devices.user_name (NULL)
+  push_metrics.avg_time_to_open_seconds (NULL)
+  push_metrics.calculated_at (NULL)
+  push_metrics.category (NULL)
+  push_metrics.devices_unregistered (NULL)
+  push_metrics.dismiss_rate (NULL)
+  push_metrics.error_breakdown (NULL)
+  push_metrics.failure_rate (NULL)
+  push_metrics.hourly_distribution (NULL)
+  push_metrics.new_devices_registered (NULL)
+  push_metrics.p50_time_to_open_seconds (NULL)
+  push_metrics.p95_time_to_open_seconds (NULL)
+  push_metrics.platform_breakdown (NULL)
+  push_metrics.top_campaigns (NULL)
+  push_metrics.total_devices_active (NULL)
+  push_metrics.total_expired (NULL)
+  push_metrics.total_targeted (NULL)
+  push_metrics.total_unregistered (NULL)
+  push_notification_actions.action_value (NULL)
+  push_notification_actions.app_state (NULL)
+  push_notification_actions.created_at (NOT NULL)
+  push_notification_actions.device_id (NULL)
+  push_notification_actions.extra_data (NULL)
+  push_notification_actions.ip_address (NULL)
+  push_notification_actions.latitude (NULL)
+  push_notification_actions.longitude (NULL)
+  push_notification_actions.platform (NULL)
+  push_notification_actions.source (NULL)
+  push_notification_actions.tenant_id (NOT NULL)
+  push_notification_actions.user_agent (NULL)
+  push_notification_actions.user_id (NULL)
+  push_notifications.action_buttons (NULL)
+  push_notifications.active (NULL)
+  push_notifications.app_id (NULL)
+  push_notifications.attempt (NULL)
+  push_notifications.category (NULL)
+  push_notifications.click_action (NULL)
+  push_notifications.clicked (NULL)
+  push_notifications.clicked_action (NULL)
+  push_notifications.clicked_url (NULL)
+  push_notifications.content_available (NULL)
+  push_notifications.conversion_event (NULL)
+  push_notifications.conversion_value (NULL)
+  push_notifications.converted (NULL)
+  push_notifications.data_payload (NULL)
+  push_notifications.device_token (NOT NULL)
+  push_notifications.dismissed (NULL)
+  push_notifications.error_details (NULL)
+  push_notifications.expired_at (NULL)
+  push_notifications.external_id (NULL)
+  push_notifications.extra_data (NULL)
+  push_notifications.icon_url (NULL)
+  push_notifications.ip_address (NULL)
+  push_notifications.max_attempts (NULL)
+  push_notifications.mutable_content (NULL)
+  push_notifications.notification_id (NOT NULL)
+  push_notifications.opened (NULL)
+  push_notifications.opened_count (NULL)
+  push_notifications.opened_platform (NULL)
+  push_notifications.opened_source (NULL)
+  push_notifications.platform (NOT NULL)
+  push_notifications.provider (NULL)
+  push_notifications.provider_status (NULL)
+  push_notifications.retry_reason (NULL)
+  push_notifications.status_history (NULL)
+  push_notifications.subtitle (NULL)
+  push_notifications.time_to_open_seconds (NULL)
+  push_notifications.trigger_latitude (NULL)
+  push_notifications.trigger_longitude (NULL)
+  push_notifications.triggered_by_location (NULL)
+  push_notifications.user_agent (NULL)
+  push_segments.cache_ttl_seconds (NULL)
+  push_segments.extra_data (NULL)
+  push_segments.is_system (NULL)
+  push_segments.slug (NULL)
+  receivable_categories.apply_interest (NULL)
+  receivable_categories.apply_penalty (NULL)
+  receivable_categories.interest_rate (NULL)
+  receivable_categories.penalty_rate (NULL)
+  report_exports.content_type (NULL)
+  report_exports.data_period_end (NULL)
+  report_exports.data_period_start (NULL)
+  report_exports.delivery_recipient (NULL)
+  report_exports.delivery_status (NULL)
+  report_exports.download_expires_at (NULL)
+  report_exports.error_code (NULL)
+  report_exports.export_number (NOT NULL)
+  report_exports.extra_metadata (NULL)
+  report_exports.file_checksum (NULL)
+  report_exports.file_url (NULL)
+  report_exports.filename (NULL)
+  report_exports.last_download_at (NULL)
+  report_exports.max_downloads (NULL)
+  report_exports.pages_generated (NULL)
+  report_exports.records_processed (NULL)
+  report_exports.report_subtitle (NULL)
+  report_exports.report_title (NULL)
+  report_exports.retry_count (NOT NULL)
+  report_exports.tenant_id (NOT NULL)
+  report_schedules.avg_execution_time (NULL)
+  report_schedules.bcc_recipients (NULL)
+  report_schedules.created_by (NULL)
+  report_schedules.data_end_offset (NULL)
+  report_schedules.data_period (NULL)
+  report_schedules.data_start_offset (NULL)
+  report_schedules.delivery_config (NULL)
+  report_schedules.description (NULL)
+  report_schedules.email_template (NULL)
+  report_schedules.extra_metadata (NULL)
+  report_schedules.last_execution_at (NULL)
+  report_schedules.last_failure_at (NULL)
+  report_schedules.last_success_at (NULL)
+  report_schedules.max_executions (NULL)
+  report_schedules.name (NOT NULL)
+  report_schedules.next_execution_at (NULL)
+  report_schedules.notification_recipients (NULL)
+  report_schedules.notify_on_failure (NOT NULL)
+  report_schedules.notify_on_success (NOT NULL)
+  report_schedules.relative_period (NOT NULL)
+  report_schedules.report_filename_pattern (NULL)
+  report_schedules.report_format (NOT NULL)
+  report_schedules.report_parameters (NULL)
+  report_schedules.retry_count (NOT NULL)
+  report_schedules.retry_enabled (NOT NULL)
+  report_schedules.tenant_id (NOT NULL)
+  report_schedules.updated_by (NULL)
+  report_templates.allowed_users (NULL)
+  report_templates.avg_generation_time (NULL)
+  report_templates.code (NOT NULL)
+  report_templates.color_scheme (NULL)
+  report_templates.created_by (NULL)
+  report_templates.css_styles (NULL)
+  report_templates.description (NULL)
+  report_templates.extra_metadata (NULL)
+  report_templates.logo_url (NULL)
+  report_templates.metrics (NULL)
+  report_templates.name (NOT NULL)
+  report_templates.previous_version_id (NULL)
+  report_templates.query_template (NULL)
+  report_templates.tables (NULL)
+  report_templates.tenant_id (NOT NULL)
+  report_templates.theme (NULL)
+  report_templates.updated_by (NULL)
+  report_templates.version_notes (NULL)
+  service_catalog.currency (NOT NULL)
+  service_catalog.default_sla_availability (NULL)
+  service_catalog.documentation_url (NULL)
+  service_catalog.external_service_code (NULL)
+  service_catalog.extra_metadata (NULL)
+  service_catalog.image_url (NULL)
+  service_catalog.max_duration_hours (NULL)
+  service_catalog.min_duration_hours (NULL)
+  service_catalog.plus_service_code (NULL)
+  service_catalog.required_certifications (NULL)
+  service_executions.arrival_time (NULL)
+  service_executions.attachments (NULL)
+  service_executions.client_signature (NULL)
+  service_executions.client_signature_date (NULL)
+  service_executions.client_signature_name (NULL)
+  service_executions.departure_time (NULL)
+  service_executions.end_latitude (NULL)
+  service_executions.end_longitude (NULL)
+  service_executions.issues_found (NULL)
+  service_executions.other_costs (NULL)
+  service_executions.pause_count (NOT NULL)
+  service_executions.pause_history (NULL)
+  service_executions.photos_after (NULL)
+  service_executions.photos_before (NULL)
+  service_executions.start_latitude (NULL)
+  service_executions.start_longitude (NULL)
+  service_executions.technician_signature (NULL)
+  service_executions.technician_signature_date (NULL)
+  service_executions.travel_end (NULL)
+  service_executions.waiting_duration_minutes (NULL)
+  service_orders.additional_charges_reason (NULL)
+  service_orders.approval_notes (NULL)
+  service_orders.assigned_team_id (NULL)
+  service_orders.cancelled_by (NULL)
+  service_orders.extra_metadata (NULL)
+  service_orders.first_response_at (NULL)
+  service_orders.latitude (NULL)
+  service_orders.longitude (NULL)
+  service_orders.rating_comment (NULL)
+  service_orders.rejected_at (NULL)
+  service_orders.rejected_by (NULL)
+  service_orders.requires_approval (NOT NULL)
+  service_orders.tags (NULL)
+  service_reports.corrective_actions (NULL)
+  service_reports.documents (NULL)
+  service_reports.equipment_inspected (NULL)
+  service_reports.equipment_recommendations (NULL)
+  service_reports.equipment_status (NULL)
+  service_reports.extra_metadata (NULL)
+  service_reports.pdf_generated_at (NULL)
+  service_reports.preventive_actions (NULL)
+  service_reports.sent_method (NULL)
+  service_reports.tags (NULL)
+  service_reports.technical_data (NULL)
+  service_reports.test_results (NULL)
+  service_reports.version_history (NULL)
+  simples_nacional_das.ano (NOT NULL)
+  simples_nacional_das.competencia (NOT NULL)
+  simples_nacional_das.fator_r (NULL)
+  simples_nacional_das.folha_pagamento_12_meses (NULL)
+  simples_nacional_das.iss_retido (NULL)
+  simples_nacional_das.mes (NOT NULL)
+  simples_nacional_das.numero_das (NULL)
+  simples_nacional_das.reparticao (NULL)
+  simples_nacional_das.valor_cofins (NULL)
+  simples_nacional_das.valor_cpp (NULL)
+  simples_nacional_das.valor_csll (NULL)
+  simples_nacional_das.valor_das (NOT NULL)
+  simples_nacional_das.valor_icms (NULL)
+  simples_nacional_das.valor_irpj (NULL)
+  simples_nacional_das.valor_iss (NULL)
+  simples_nacional_das.valor_iss_retido (NULL)
+  simples_nacional_das.valor_pis (NULL)
+  sla_configs.extra_metadata (NULL)
+  solides_benefit_order_items.raw_payload (NULL)
+  solides_benefit_order_items.updated_at (NOT NULL)
+  solides_credential.created_by (NULL)
+  solides_credential.last_validated_at (NULL)
+  solides_credential.token_created_at (NULL)
+  solides_credential.token_name (NULL)
+  solides_credential.updated_by (NULL)
+  sped_files.caminho_arquivo (NULL)
+  sped_files.cnpj (NOT NULL)
+  sped_files.codigo_retorno (NULL)
+  sped_files.created_by (NULL)
+  sped_files.data_geracao (NULL)
+  sped_files.data_validacao (NULL)
+  sped_files.estatisticas (NULL)
+  sped_files.inscricao_estadual (NULL)
+  sped_files.mensagem_retorno (NULL)
+  sped_files.nire (NULL)
+  sped_files.periodo_fim (NOT NULL)
+  sped_files.periodo_inicio (NOT NULL)
+  sped_files.protocolo (NULL)
+  sped_files.pva_avisos (NULL)
+  sped_files.pva_erros (NULL)
+  sped_files.pva_log (NULL)
+  sped_files.pva_resultado (NULL)
+  sped_files.pva_versao (NULL)
+  sped_files.razao_social (NOT NULL)
+  sped_files.recibo (NULL)
+  sped_files.sped_retificado_id (NULL)
+  sped_files.uf (NULL)
+  sped_files.valores_resumo (NULL)
+  sped_files.versao_layout (NOT NULL)
+  step_executions.action_id (NULL)
+  step_executions.action_type (NULL)
+  step_executions.condition_details (NULL)
+  step_executions.condition_result (NULL)
+  step_executions.execution_order (NOT NULL)
+  step_executions.metadata (NULL)
+  suframa_configs.beneficio_icms (NULL)
+  suframa_configs.beneficio_ii (NULL)
+  suframa_configs.beneficio_ipi (NULL)
+  suframa_configs.beneficio_pis_cofins (NULL)
+  suframa_configs.cnaes_habilitados (NULL)
+  suframa_configs.cnpj (NOT NULL)
+  suframa_configs.codigo_municipio (NULL)
+  suframa_configs.created_by (NULL)
+  suframa_configs.credito_presumido_icms (NULL)
+  suframa_configs.data_inscricao (NULL)
+  suframa_configs.documentos (NULL)
+  suframa_configs.endereco (NULL)
+  suframa_configs.municipio_nome (NULL)
+  suframa_configs.nome_fantasia (NULL)
+  suframa_configs.razao_social (NOT NULL)
+  suframa_configs.reducao_icms_interestadual (NULL)
+  suframa_configs.reducao_icms_interno (NULL)
+  suframa_configs.simples_anexo (NULL)
+  suframa_configs.simples_faixa (NULL)
+  suframa_configs.simples_nacional (NULL)
+  suframa_configs.status (NOT NULL)
+  suframa_configs.tipo_zona (NOT NULL)
+  suframa_configs.uf (NOT NULL)
+  suframa_operacoes.cfop (NOT NULL)
+  suframa_operacoes.chave_acesso (NULL)
+  suframa_operacoes.cofins_economia (NULL)
+  suframa_operacoes.cofins_suspenso (NULL)
+  suframa_operacoes.documento_id (NOT NULL)
+  suframa_operacoes.documento_tipo (NOT NULL)
+  suframa_operacoes.icms_economia (NULL)
+  suframa_operacoes.icms_isento (NULL)
+  suframa_operacoes.icms_reducao_percentual (NULL)
+  suframa_operacoes.internamento_data (NULL)
+  suframa_operacoes.internamento_protocolo (NULL)
+  suframa_operacoes.ipi_economia (NULL)
+  suframa_operacoes.ipi_isento (NULL)
+  suframa_operacoes.numero_documento (NULL)
+  suframa_operacoes.participante_cnpj (NOT NULL)
+  suframa_operacoes.participante_razao_social (NULL)
+  suframa_operacoes.participante_suframa (NULL)
+  suframa_operacoes.pin_data (NULL)
+  suframa_operacoes.pin_numero (NULL)
+  suframa_operacoes.pin_status (NULL)
+  suframa_operacoes.pis_economia (NULL)
+  suframa_operacoes.pis_suspenso (NULL)
+  suframa_operacoes.suframa_config_id (NOT NULL)
+  suframa_operacoes.total_economia (NULL)
+  suframa_operacoes.updated_at (NULL)
+  suframa_operacoes.valor_produtos (NOT NULL)
+  sync_queue.extra_metadata (NULL)
+  tabela_inss.is_active (NOT NULL)
+  tabela_irrf.is_active (NOT NULL)
+  tenant_settings.allowed_values (NULL)
+  tenant_settings.category (NOT NULL)
+  tenant_settings.display_order (NOT NULL)
+  tenant_settings.editable (NOT NULL)
+  tenant_settings.encrypted (NOT NULL)
+  tenant_settings.extra_metadata (NULL)
+  tenant_settings.group (NULL)
+  tenant_settings.help_text (NULL)
+  tenant_settings.history (NULL)
+  tenant_settings.label (NULL)
+  tenant_settings.last_modified_at (NULL)
+  tenant_settings.last_modified_by (NULL)
+  tenant_settings.max_value (NULL)
+  tenant_settings.min_value (NULL)
+  tenant_settings.nome (NOT NULL)
+  tenant_settings.placeholder (NULL)
+  tenant_settings.required (NOT NULL)
+  tenant_settings.requires_restart (NOT NULL)
+  tenant_settings.sensitive (NOT NULL)
+  tenant_settings.setting_type (NOT NULL)
+  tenant_settings.tags (NULL)
+  tenant_settings.validation_regex (NULL)
+  tenant_settings.valor_default (NULL)
+  tenant_settings.valor_json (NULL)
+  tenant_settings.visible (NOT NULL)
+  webhook_configs.extra_metadata (NULL)
+  work_schedules.break_tolerance_minutes (NOT NULL)
+  work_schedules.collective_agreement_id (NULL)
+  work_schedules.collective_agreement_name (NULL)
+  work_schedules.consider_holidays (NOT NULL)
+  work_schedules.daily_hours_minutes (NOT NULL)
+  work_schedules.daily_schedule (NULL)
+  work_schedules.days_off (NULL)
+  work_schedules.default_break_end (NULL)
+  work_schedules.default_break_start (NULL)
+  work_schedules.default_entry_time (NULL)
+  work_schedules.default_exit_time (NULL)
+  work_schedules.employee_registration (NULL)
+  work_schedules.entry_tolerance_minutes (NOT NULL)
+  work_schedules.exit_tolerance_minutes (NOT NULL)
+  work_schedules.extra_metadata (NULL)
+  work_schedules.holiday_calendar_id (NULL)
+  work_schedules.max_daily_hours_minutes (NOT NULL)
+  work_schedules.max_distance_meters (NOT NULL)
+  work_schedules.max_overtime_daily_minutes (NOT NULL)
+  work_schedules.max_overtime_weekly_minutes (NOT NULL)
+  work_schedules.min_biometric_score (NOT NULL)
+  work_schedules.min_break_4h_minutes (NOT NULL)
+  work_schedules.min_break_6h_minutes (NOT NULL)
+  work_schedules.min_rest_between_shifts_hours (NOT NULL)
+  work_schedules.night_hour_reduction (NOT NULL)
+  work_schedules.night_shift_multiplier (NOT NULL)
+  work_schedules.notes (NULL)
+  work_schedules.overtime_multiplier_100 (NOT NULL)
+  work_schedules.overtime_multiplier_50 (NOT NULL)
+  work_schedules.overtime_requires_approval (NOT NULL)
+  work_schedules.require_biometric (NOT NULL)
+  work_schedules.require_face_match (NOT NULL)
+  work_schedules.require_geolocation (NOT NULL)
+  work_schedules.require_liveness (NOT NULL)
+  work_schedules.tags (NULL)
+  work_schedules.time_bank_expiry_months (NOT NULL)
+  work_schedules.time_bank_max_negative_hours (NOT NULL)
+  work_schedules.time_bank_max_positive_hours (NOT NULL)
+  work_schedules.use_time_bank (NOT NULL)
+  work_schedules.valid_from (NULL)
+  work_schedules.valid_until (NULL)
+  work_schedules.weekly_hours_minutes (NOT NULL)
+  work_schedules.work_days (NULL)
+  workflow_actions.type_config (NULL)
+  workflow_conditions.updated_at (NOT NULL)
+  workflow_executions.completed_step_ids (NULL)
+  workflow_executions.current_step_index (NULL)
+  workflow_executions.current_step_name (NULL)
+  workflow_executions.error_message (NULL)
+  workflow_executions.execution_time_ms (NULL)
+  workflow_executions.initiated_by (NULL)
+  workflow_executions.is_retry (NOT NULL)
+  workflow_executions.is_scheduled (NOT NULL)
+  workflow_executions.is_test (NOT NULL)
+  workflow_executions.paused_at (NULL)
+  workflow_executions.result (NULL)
+  workflow_executions.retries (NOT NULL)
+  workflow_steps.active (NOT NULL)
+  workflow_steps.config (NOT NULL)
+  workflow_steps.continue_on_error (NOT NULL)
+  workflow_steps.entry_condition (NULL)
+  workflow_steps.is_end (NOT NULL)
+  workflow_steps.is_start (NOT NULL)
+  workflow_steps.max_retries (NOT NULL)
+  workflow_steps.order (NOT NULL)
+  workflow_steps.position (NULL)
+  workflow_triggers.active (NOT NULL)
+  workflow_triggers.config (NOT NULL)
+  workflow_triggers.current_executions (NOT NULL)
+  workflow_triggers.error_count (NOT NULL)
+  workflow_triggers.filters (NULL)
+  workflow_triggers.last_error (NULL)
+  workflow_triggers.max_executions (NULL)
+  workflow_triggers.next_scheduled_at (NULL)
+  workflow_triggers.once_per_entity (NOT NULL)
+  workflow_triggers.priority (NOT NULL)
+  workflow_triggers.status (NOT NULL)
+  workflows.active (NOT NULL)
+  workflows.config (NULL)
+  workflows.context_variables (NULL)
+  workflows.failed_executions (NOT NULL)
+  workflows.is_system (NOT NULL)
+  workflows.is_template (NOT NULL)
+  workflows.published_at (NULL)
+  workflows.slug (NOT NULL)
+  workflows.successful_executions (NOT NULL)
+  workflows.total_executions (NOT NULL)
+  workflows.versions_history (NULL)
+
+## [DROP-TABLE? RUIDO] tabelas no banco ausentes no model (234)
+  ab_experiment_events
+  ab_experiment_variants
+  ab_experiments
+  accounting_entries
+  afd_records
+  ai_call_analyses
+  ai_command_definitions
+  ai_data_profiles
+  ai_data_quality_checks
+  ai_data_quality_issues
+  ai_data_quality_rules
+  ai_duplicate_records
+  ai_email_responses
+  ai_email_rules
+  ai_email_templates
+  ai_emails
+  ai_kb_article_feedback
+  ai_kb_article_versions
+  ai_kb_articles
+  ai_kb_categories
+  ai_kb_faq_feedback
+  ai_kb_faqs
+  ai_knowledge_bases
+  ai_meeting_notes
+  ai_meeting_participants
+  ai_meeting_summaries
+  ai_meetings
+  ai_qa_interactions
+  ai_qa_sessions
+  ai_qa_suggestions
+  ai_report_executions
+  ai_report_schedules
+  ai_report_sections
+  ai_report_templates
+  ai_report_widgets
+  ai_reports
+  ai_task_dependencies
+  ai_tasks
+  ai_transcription_segments
+  ai_transcriptions
+  ai_voice_commands
+  ai_voice_recordings
+  ai_workflow_executions
+  ai_workflow_metrics
+  ai_workflow_optimizations
+  ai_workflow_templates
+  ai_workflows
+  allocations_backup_20260506
+  analytics_cache
+  assistant_conversations
+  assistant_preferences
+  chat_analytics
+  chat_templates
+  chatbot_analytics
+  chatbot_configs
+  chatbot_contexts
+  chatbot_conversations
+  chatbot_entities
+  chatbot_feedback
+  chatbot_intent_examples
+  chatbot_intents
+  chatbot_messages
+  chatbot_training_data
+  chatbot_training_jobs
+  checklist_preenchido
+  churn_predictions
+  client_ticket_messages
+  client_tickets
+  collection_actions
+  compliance_audit_logs
+  condominios
+  contract_alerts
+  contract_analyses
+  contract_extracted_clauses
+  cost_activities
+  cost_allocations
+  cost_analyses
+  cost_drivers
+  cost_objects
+  cost_pools
+  crm_activities
+  crm_contacts
+  dashboard_configs
+  dashboard_widgets
+  data_processing_requests
+  document_folders
+  documentos_fiscais
+  documents
+  drift_alerts
+  employee_alocacoes
+  employee_deductions
+  employees_backup_20260506
+  eventos_esocial
+  extracted_fields
+  extraction_templates
+  feature_store_cache
+  feedback_insights
+  fin_products
+  fraud_alerts
+  fraud_patterns
+  fraud_rules
+  gdrive_client_folders
+  gdrive_config
+  gdrive_kits
+  gdrive_uploads
+  ged_certidoes
+  ged_coleta_config
+  ged_coleta_logs
+  ged_contracheques
+  ged_document_kits_backup_20260404
+  ged_document_types
+  gedeon_client_patterns
+  gedeon_document_index
+  gedeon_kit_config
+  gedeon_kit_history
+  gedeon_learning_events
+  geofence_zones
+  gp_audit_logs
+  health_risk_categories
+  hr_employee_documents
+  hr_employee_notifications
+  hr_employee_payroll_configs
+  hr_employee_preferences
+  hr_payroll_events
+  hr_payroll_exports
+  hr_payroll_integrations
+  hr_payroll_periods
+  hr_payslip_items
+  hr_vacation_periods
+  hr_vacation_requests
+  inter_cobrancas
+  inter_conciliacao_folha
+  inter_payment_audit
+  inter_payment_otp
+  inter_payments
+  inter_pix_recebidos
+  inter_transaction_categorias
+  inter_transactions
+  inventory_demand_patterns
+  inventory_forecast_results
+  inventory_forecasts
+  inventory_items
+  kit_documental_templates
+  kit_template_presenca
+  kits_gerados
+  kpi_definitions
+  lead_scores
+  marketing_assets
+  marketing_campaigns
+  marketing_leads
+  marketplace_alerts
+  marketplace_api_keys
+  marketplace_health_checks
+  marketplace_integrations
+  marketplace_metrics
+  marketplace_oauth_credentials
+  marketplace_request_logs
+  marketplace_sync_history
+  marketplace_transform_pipelines
+  marketplace_webhook_deliveries
+  marketplace_webhook_subscriptions
+  ml_experiments
+  ml_models
+  mobile_checkins
+  mobile_checkins_v
+  mobile_devices
+  model_performance_metrics
+  nfe_compras_estoque
+  nfe_entradas
+  nfes
+  nfse_entrada
+  nfses
+  notification_analytics
+  notification_personalization_cache
+  ocr_document_scans
+  ocr_document_templates
+  ocr_extracted_fields
+  ocr_extraction_rules
+  ocr_lines
+  ocr_results
+  ocr_template_fields
+  ocr_validation_results
+  ocr_words
+  offline_queue
+  openclaw_interventions
+  openclaw_knowledge_base
+  openclaw_patterns
+  overtime_records
+  payment_agreements
+  payroll_payments
+  post_types
+  prediction_logs
+  pricing_simulations
+  proposal_approval_levels
+  proposal_signatures
+  proposal_wizard_states
+  rep_devices
+  rep_events
+  rep_syncs
+  report_executions
+  retencoes_fiscais
+  rh_alertas_absenteismo
+  rh_motivos_desligamento
+  rh_onboarding_checklist
+  rh_onboarding_templates
+  risk_profiles
+  rubricas_folha
+  sales_forecasts
+  scheduled_jobs
+  scheduled_reports
+  scheduler_execution_logs
+  scheduler_executions
+  scheduler_lock_waiters
+  scheduler_locks
+  scheduler_queue
+  scheduler_tasks
+  scheduler_workers
+  sentiment_analyses
+  sentiment_rules
+  sentiment_trends
+  sig_signature_requests
+  sig_signature_templates
+  sig_signature_verifications
+  sig_signatures
+  sig_signed_documents
+  sst_cipa_membros
+  sst_cipa_reunioes
+  template_fields
+  time_entries_v
+  user_behavior_profiles
+  user_consents
+  usuarios
+  v_operacional_financeiro
+  validation_results
+
+## [DROP-COLUMN? RUIDO] colunas no banco ausentes no model (995)
+  access_history.metadata
+  api_endpoints.metadata
+  api_keys.metadata
+  audit_logs.metadata
+  bank_accounts.allows_payments
+  bank_accounts.allows_receipts
+  bank_accounts.allows_transfers
+  bank_accounts.last_reconciled_balance
+  bank_accounts.last_reconciliation_date
+  bank_accounts.metadata
+  bank_reconciliations.closing_balance
+  bank_reconciliations.difference
+  bank_reconciliations.import_filename
+  bank_reconciliations.items_pending
+  bank_reconciliations.items_reconciled
+  bank_reconciliations.match_type
+  bank_reconciliations.matched_value
+  bank_reconciliations.metadata
+  bank_reconciliations.opening_balance
+  bank_reconciliations.progress_percentage
+  bank_reconciliations.reconciled_at
+  bank_reconciliations.reference_id
+  bank_reconciliations.reference_type
+  bank_reconciliations.statement_balance
+  bank_reconciliations.statement_credits
+  bank_reconciliations.statement_date
+  bank_reconciliations.statement_debits
+  bank_reconciliations.statement_source
+  bank_reconciliations.total_credits
+  bank_reconciliations.total_debits
+  bank_reconciliations.total_statement_items
+  bank_reconciliations.total_system_items
+  bank_reconciliations.transaction_id
+  bank_transactions.cashflow_entry_id
+  bank_transactions.contraparte_documento
+  bank_transactions.contraparte_nome
+  bank_transactions.justificativa
+  bank_transactions.justificativa_categoria
+  bank_transactions.justificativa_data
+  bank_transactions.justificativa_responsavel
+  bank_transactions.metadata
+  bank_transactions.notes
+  bank_transactions.reconciliation_id
+  bank_transactions.requires_justification
+  bank_transactions.statement_reference
+  bank_transactions.transfer_from_account_id
+  bank_transactions.transfer_to_account_id
+  benchmarks.allowed_roles
+  benchmarks.codigo
+  benchmarks.company_value
+  benchmarks.company_value_date
+  benchmarks.data_source_name
+  benchmarks.data_source_url
+  benchmarks.descricao
+  benchmarks.gap_percentage
+  benchmarks.gap_to_benchmark
+  benchmarks.history
+  benchmarks.kpi_id
+  benchmarks.mean_value
+  benchmarks.metadata
+  benchmarks.next_update
+  benchmarks.nome
+  benchmarks.owner_id
+  benchmarks.percentile_50
+  benchmarks.precision
+  benchmarks.reference_period
+  benchmarks.region
+  benchmarks.segment
+  benchmarks.std_deviation
+  benchmarks.target_date
+  benchmarks.target_percentile
+  benchmarks.update_frequency
+  benchmarks.visibility
+  bidding_analyses.estimativa_esforco_horas
+  bidding_analyses.informacoes_adicionais
+  bidding_analyses.itens_extraidos
+  bidding_analyses.justificativa_recomendacao
+  bidding_analyses.modelo_ia
+  bidding_analyses.prazos
+  bidding_assessments.scores_detalhados
+  bidding_opportunities.keywords_matched
+  bidding_opportunities.raw_data
+  bidding_opportunities.url_portal
+  billing_rules.apply_to_units
+  billing_rules.calculation_formula
+  billing_rules.days_before_due
+  billing_rules.deleted_at
+  billing_rules.deleted_by
+  billing_rules.exclude_units
+  billing_rules.notify_on_overdue
+  billing_rules.updated_by
+  cashflow_entries.category
+  cashflow_entries.confidence_level
+  cashflow_entries.metadata
+  cashflow_entries.recurrence_end_date
+  cashflow_forecasts.actual_balance
+  cashflow_forecasts.ai_accuracy_score
+  cashflow_forecasts.confidence
+  cashflow_forecasts.expected_balance
+  cashflow_forecasts.is_ai_generated
+  cashflow_forecasts.metadata
+  cashflow_forecasts.optimistic_balance
+  cashflow_forecasts.pessimistic_balance
+  cashflow_forecasts.variance_balance
+  cashflow_forecasts.variance_inflows
+  cashflow_forecasts.variance_outflows
+  cashflow_forecasts.variance_percentage
+  chat_messages.context_snapshot
+  chat_messages.metadata
+  chat_messages.updated_at
+  chat_sessions.context_data
+  checklist_itens.codigo
+  checklist_itens.condicional
+  checklist_itens.instrucoes
+  checklist_itens.is_ativo
+  checklist_itens.ordem_secao
+  checklist_respostas.arquivo_nome
+  checklist_respostas.arquivo_tipo
+  checklist_respostas.arquivo_url
+  checklist_respostas.assinatura_url
+  checklist_respostas.checklist_preenchido_id
+  checklist_respostas.foto_url
+  checklist_respostas.fotos_urls
+  checklist_respostas.is_conforme
+  checklist_respostas.pontuacao
+  checklist_respostas.resposta_datetime
+  checklist_respostas.resposta_hora
+  checklist_respostas.resposta_latitude
+  checklist_respostas.resposta_longitude
+  checklist_respostas.resposta_multipla
+  checklist_respostas.resposta_opcao
+  checklist_templates.config
+  checklist_templates.instrucoes_gerais
+  checklist_templates.is_padrao
+  client_portal_ticket_messages.content
+  client_portal_ticket_messages.sender
+  client_portal_tickets.assigned_to
+  client_portal_tickets.source
+  clients.mrr
+  clients.pix_key
+  codigos_servico.cnae_principal
+  codigos_servico.iss_aliquota_padrao
+  communication_announcement_reads.confirmed_at
+  communication_announcement_reads.is_active
+  compliance_checks.metadata
+  compliance_rules.metadata
+  contracts.kit_mensal
+  contracts.retencao_csll
+  contracts.retencao_inss
+  contracts.retencao_iss
+  contracts.tipo_servico
+  customers.auto_debit_enabled
+  customers.billing_address_city
+  customers.billing_address_complement
+  customers.billing_address_neighborhood
+  customers.billing_address_number
+  customers.billing_address_state
+  customers.billing_address_street
+  customers.billing_address_zip
+  customers.mobile
+  customers.preferred_payment_method
+  customers.updated_by
+  data_retention_policies.metadata
+  device_tokens.last_used_at
+  diarists.observacoes
+  diarists.score_confiabilidade
+  diarists.score_pontualidade
+  diarists.score_qualidade
+  diarists.ultima_analise_ia
+  diarists.valor_total_recebido
+  document_kit_assignments.metadata
+  document_kit_items.metadata
+  document_kits.metadata
+  employees.banco_agencia
+  employees.banco_codigo
+  employees.banco_conta
+  employees.banco_tipo
+  employees.cct_cargo_id
+  employees.data_desligamento
+  employees.motivo_desligamento
+  employees.observacao_desligamento
+  employees.pix_key
+  employees.pix_key_type
+  employees.portal_first_access
+  employees.portal_password_hash
+  employees.portal_password_set_at
+  execution_logs.error
+  execution_logs.stack_trace
+  execution_logs.timestamp
+  executive_kpis.allowed_roles
+  executive_kpis.calculation_frequency_minutes
+  executive_kpis.codigo
+  executive_kpis.dashboard_config
+  executive_kpis.descricao
+  executive_kpis.history
+  executive_kpis.history_retention_days
+  executive_kpis.metadata
+  executive_kpis.next_calculation_at
+  executive_kpis.nome
+  executive_kpis.precision
+  executive_kpis.threshold_critical
+  executive_kpis.threshold_excellent
+  executive_kpis.threshold_target
+  executive_kpis.threshold_warning
+  executive_kpis.trend_percentage
+  executive_kpis.visibility
+  feature_flags.data_fim
+  feature_flags.data_inicio
+  feature_flags.dependencias
+  feature_flags.estrategia
+  feature_flags.incremento_diario
+  feature_flags.is_ab_test
+  feature_flags.metadata
+  feature_flags.metricas
+  feature_flags.notas
+  feature_flags.percentual
+  feature_flags.percentual_alvo
+  feature_flags.regras_atributos
+  feature_flags.tenants_desabilitados
+  feature_flags.tenants_habilitados
+  feature_flags.tipo
+  feature_flags.updated_by
+  feature_flags.usuarios_desabilitados
+  feature_flags.usuarios_habilitados
+  feature_flags.variante_padrao
+  feature_flags.variantes
+  fin_accounting_accounts.accepts_entries
+  fin_accounting_accounts.budget_alert_percent
+  fin_accounting_accounts.budget_amount
+  fin_accounting_accounts.cash_flow_group
+  fin_accounting_accounts.full_path
+  fin_accounting_accounts.is_cash_account
+  fin_accounting_accounts.path_codes
+  fin_accounting_accounts.sped_end_date
+  fin_accounting_accounts.sped_start_date
+  fin_charts_of_accounts.activated_at
+  fin_charts_of_accounts.activated_by
+  fin_charts_of_accounts.base_version
+  fin_charts_of_accounts.external_reference
+  fin_charts_of_accounts.max_level
+  fin_charts_of_accounts.sped_layout
+  fin_charts_of_accounts.sped_nature
+  fin_stock_inventories.abc_classes
+  fin_stock_inventories.accuracy_percent
+  fin_stock_inventories.cancellation_reason
+  fin_stock_inventories.cancelled_at
+  fin_stock_inventories.closed_at
+  fin_stock_inventories.completed_at
+  fin_stock_inventories.cutoff_date
+  fin_stock_inventories.deleted_at
+  fin_stock_inventories.deleted_by
+  fin_stock_inventories.external_reference
+  fin_stock_inventories.freeze_stock
+  fin_stock_inventories.integration_data
+  fin_stock_inventories.inventory_number
+  fin_stock_inventories.locations
+  fin_stock_inventories.name
+  fin_stock_inventories.product_categories
+  fin_stock_inventories.reference_date
+  fin_stock_inventories.scheduled_date
+  fin_stock_inventories.scope_filter
+  fin_stock_inventories.started_at
+  fin_stock_inventories.tolerance_percent
+  fin_stock_inventories.tolerance_value
+  fin_stock_inventories.total_counted_value
+  fin_stock_inventories.total_divergence_value
+  fin_stock_inventories.total_system_value
+  fin_stock_inventories.updated_by
+  fin_stock_inventory_items.approved_at
+  fin_stock_inventory_items.approved_by
+  fin_stock_inventory_items.count_device
+  fin_stock_inventory_items.difference_percent
+  fin_stock_inventory_items.is_within_tolerance
+  fin_stock_inventory_items.quantity_difference
+  fin_stock_inventory_items.second_count_quantity
+  fin_stock_inventory_items.second_counted_at
+  fin_stock_inventory_items.second_counted_by
+  fin_stock_inventory_items.serial_number
+  fin_stock_inventory_items.system_quantity
+  fin_stock_inventory_items.system_value
+  fin_stock_inventory_items.value_difference
+  fin_stock_items.active
+  fin_stock_items.block_reason
+  fin_stock_items.conversion_factor
+  fin_stock_items.custom_attributes
+  fin_stock_items.days_of_stock
+  fin_stock_items.deleted_at
+  fin_stock_items.deleted_by
+  fin_stock_items.inspection_status
+  fin_stock_items.last_movement_date
+  fin_stock_items.last_purchase_cost
+  fin_stock_items.last_purchase_date
+  fin_stock_items.last_sale_date
+  fin_stock_items.maximum_stock
+  fin_stock_items.minimum_stock
+  fin_stock_items.quantity_available
+  fin_stock_items.replacement_cost
+  fin_stock_items.requires_inspection
+  fin_stock_items.standard_cost
+  fin_stock_items.turnover_rate
+  fin_stock_items.unit_of_measure
+  fin_stock_items.updated_by
+  fin_stock_items.volume_m3
+  fin_stock_items.weight_kg
+  fin_stock_movements.cancelled_at
+  fin_stock_movements.deleted_at
+  fin_stock_movements.deleted_by
+  fin_stock_movements.destination_stock_item_id
+  fin_stock_movements.external_reference
+  fin_stock_movements.integration_data
+  fin_stock_movements.location_code
+  fin_stock_movements.movement_number
+  fin_stock_movements.movement_reason
+  fin_stock_movements.quantity_base
+  fin_stock_movements.reversal_movement_id
+  fin_stock_movements.reversal_reason
+  fin_stock_movements.reversed_movement_id
+  fin_stock_movements.scheduled_date
+  fin_stock_movements.source_id
+  fin_stock_movements.source_number
+  fin_stock_movements.source_type
+  fin_stock_movements.stock_item_id
+  fin_stock_movements.updated_by
+  fin_stock_reservations.allow_partial_release
+  fin_stock_reservations.auto_release_hours
+  fin_stock_reservations.deleted_at
+  fin_stock_reservations.deleted_by
+  fin_stock_reservations.external_reference
+  fin_stock_reservations.integration_data
+  fin_stock_reservations.is_hard_reservation
+  fin_stock_reservations.quantity_remaining
+  fin_stock_reservations.requested_by
+  fin_stock_reservations.reservation_number
+  fin_stock_reservations.source_id
+  fin_stock_reservations.source_line
+  fin_stock_reservations.source_number
+  fin_stock_reservations.source_type
+  fin_stock_reservations.updated_by
+  fin_warehouses.active
+  fin_warehouses.address_format
+  fin_warehouses.allow_negative_stock
+  fin_warehouses.country
+  fin_warehouses.current_occupancy_percent
+  fin_warehouses.deleted_at
+  fin_warehouses.deleted_by
+  fin_warehouses.external_code
+  fin_warehouses.has_access_control
+  fin_warehouses.has_security
+  fin_warehouses.humidity_controlled
+  fin_warehouses.integration_data
+  fin_warehouses.is_default
+  fin_warehouses.manager_id
+  fin_warehouses.max_humidity
+  fin_warehouses.max_volume_m3
+  fin_warehouses.min_humidity
+  fin_warehouses.operating_hours
+  fin_warehouses.parent_id
+  fin_warehouses.require_batch
+  fin_warehouses.require_serial
+  fin_warehouses.security_level
+  fin_warehouses.temperature_controlled
+  fin_warehouses.updated_by
+  fin_warehouses.usable_area_m2
+  financial_dashboards.ativo
+  financial_dashboards.configuracoes
+  financial_dashboards.filtros_globais
+  financial_dashboards.icone
+  financial_dashboards.is_favorito
+  financial_dashboards.is_padrao
+  financial_dashboards.is_publico
+  financial_dashboards.ordem
+  financial_dashboards.permissoes
+  financial_dashboards.published_at
+  financial_dashboards.published_by
+  financial_dashboards.tema
+  financial_dashboards.ultima_visualizacao
+  financial_dashboards.visualizacoes
+  financial_kpis.ativo
+  financial_kpis.cor
+  financial_kpis.historico
+  financial_kpis.historico_max_registros
+  financial_kpis.icone
+  financial_kpis.is_sistema
+  financial_kpis.meta_tipo
+  financial_kpis.ordem
+  financial_kpis.proximo_calculo
+  financial_kpis.tempo_calculo_ms
+  financial_kpis.tendencia
+  financial_kpis.threshold_critical
+  financial_kpis.threshold_success
+  financial_kpis.threshold_warning
+  financial_kpis.ultima_atualizacao
+  financial_kpis.ultimo_erro
+  financial_kpis.variacao_percent
+  financial_widgets.agregacao
+  financial_widgets.altura
+  financial_widgets.ativo
+  financial_widgets.cache_ttl_segundos
+  financial_widgets.comparar_periodo_anterior
+  financial_widgets.cores
+  financial_widgets.dimensoes
+  financial_widgets.filtros
+  financial_widgets.fonte_dados
+  financial_widgets.formatacao
+  financial_widgets.is_interativo
+  financial_widgets.is_visivel
+  financial_widgets.largura
+  financial_widgets.limite_registros
+  financial_widgets.metricas
+  financial_widgets.opcoes_grafico
+  financial_widgets.ordem
+  financial_widgets.ordenacao
+  financial_widgets.periodo_dias
+  financial_widgets.posicao_x
+  financial_widgets.posicao_y
+  financial_widgets.query_config
+  financial_widgets.refresh_interval_segundos
+  financial_widgets.thresholds
+  financial_widgets.tipo_grafico
+  financial_widgets.ultimo_erro
+  financial_widgets.ultimo_refresh
+  fiscal_obligations.competencia_ano
+  fiscal_obligations.competencia_mes
+  fiscal_obligations.data_pagamento
+  fiscal_obligations.numero_recibo
+  fiscal_obligations.valor_devido
+  fiscal_obligations.valor_pago
+  ged_clients.is_active
+  ged_document_shares.created_by
+  ged_document_shares.notify_on_access
+  ged_document_signatures.expires_at
+  ged_document_signatures.rejection_reason
+  ged_document_signatures.requested_at
+  ged_document_signatures.viewed_at
+  ged_document_tags.category
+  ged_document_tags.extra_metadata
+  ged_document_tags.order_index
+  ged_document_tags.updated_by
+  ged_document_versions.checksum_algorithm
+  ged_document_versions.is_locked
+  ged_document_versions.locked_at
+  ged_document_versions.locked_by
+  ged_document_versions.restored_at
+  ged_document_versions.restored_by
+  ged_document_versions.storage_tier
+  ged_document_versions.updated_at
+  ged_documents.requires_all_signatures
+  ged_documents.signature_order_enforced
+  ged_folders.is_favorite
+  ged_folders.is_root
+  ged_folders.thumbnail_url
+  health_control_measures.categoria
+  health_control_measures.prioridade
+  health_epi_catalog.ca_numero
+  health_epi_catalog.nr_referencia
+  health_epi_catalog.validade_meses
+  health_epi_deliveries.assinatura_url
+  health_epi_inventory.data_validade
+  health_epi_inventory.localizacao
+  health_epi_inventory.lote
+  health_epi_inventory.quantidade_disponivel
+  health_occupational_risks.observacoes
+  health_occupational_risks.tipo
+  health_risk_mappings.agente_risco
+  health_risk_mappings.descricao_funcao
+  health_risk_mappings.epi_recomendado
+  health_risk_mappings.fonte_geradora
+  health_risk_mappings.funcao
+  health_risk_mappings.funcoes_expostas
+  health_risk_mappings.intensidade
+  health_risk_mappings.medidas_controle
+  health_risk_mappings.nivel_risco
+  health_risk_mappings.numero_expostos
+  health_risk_mappings.observacoes
+  health_risk_mappings.probabilidade
+  health_risk_mappings.severidade
+  health_risk_mappings.status
+  health_risk_mappings.tipo_risco
+  id_maps.metadata
+  integration_logs.metadata
+  leads.client_id
+  nfe_itens.cofins_base_calculo
+  nfe_itens.cofins_valor
+  nfe_itens.icms_base_calculo
+  nfe_itens.icms_valor
+  nfe_itens.ipi_base_calculo
+  nfe_itens.ipi_valor
+  nfe_itens.pis_base_calculo
+  nfe_itens.pis_valor
+  nfe_itens.valor_outros
+  onvio_documents.condominio_id
+  onvio_documents.created_at
+  onvio_documents.doc_scope
+  onvio_documents.referente_a_employee_id
+  ordens_servico.assinatura_cliente_at
+  ordens_servico.ativo
+  ordens_servico.avaliacao_cliente
+  ordens_servico.cliente_email
+  ordens_servico.cliente_nome
+  ordens_servico.cliente_telefone
+  ordens_servico.cobranca_extra
+  ordens_servico.comentario_cliente
+  ordens_servico.complemento
+  ordens_servico.data_fim
+  ordens_servico.data_inicio
+  ordens_servico.duracao_real_minutos
+  ordens_servico.motivo_cobranca_extra
+  ordens_servico.pendencias
+  ordens_servico.tecnico_nome
+  overtimes.calculated_value
+  overtimes.compensation_minutes
+  overtimes.deleted_at
+  overtimes.night_bonus_value
+  overtimes.overtime_100_minutes
+  overtimes.overtime_50_minutes
+  overtimes.payment_date
+  overtimes.payroll_reference
+  overtimes.rejected_at
+  overtimes.rejected_by_id
+  overtimes.rejected_by_name
+  overtimes.requires_pre_approval
+  overtimes.time_bank_minutes
+  overtimes.time_sheet_id
+  overtimes.total_minutes
+  payable_accounts.cancel_reason
+  payable_accounts.cancelled_at
+  payable_accounts.cancelled_by
+  payable_accounts.categoria
+  payable_accounts.comprovante_id
+  payable_accounts.document_type
+  payable_accounts.fornecedor_cnpj
+  payable_accounts.fornecedor_nome
+  payable_accounts.interest
+  payable_accounts.justificativa_fiscal
+  payable_accounts.nfse_entrada_id
+  payable_accounts.nfse_numero
+  payable_accounts.nota_fiscal_chave
+  payable_accounts.nota_fiscal_id
+  payable_accounts.nota_fiscal_numero
+  payable_accounts.nota_fiscal_tipo
+  payable_accounts.origem
+  payable_accounts.paid_at
+  payable_accounts.penalty
+  payable_accounts.transacao_bancaria_id
+  payable_categories.full_name
+  payable_installments.barcode_digitable
+  payable_installments.description
+  payable_installments.discount
+  payable_installments.interest
+  payable_installments.interest_rate_daily
+  payable_installments.paid_amount
+  payable_installments.penalty
+  payable_payments.amount
+  payable_payments.bank_authentication
+  payable_payments.bank_receipt
+  payable_payments.discount_applied
+  payable_payments.effective_date
+  payable_payments.fees
+  payable_payments.interest_applied
+  payable_payments.net_amount
+  payable_payments.penalty_applied
+  payable_payments.receipt_file
+  payable_payments.reverse_payment_id
+  payable_payments.reverse_reason
+  payroll_periods.calculated_by
+  payroll_periods.closed_by
+  payroll_periods.config
+  payroll_periods.description
+  payroll_periods.month
+  payroll_periods.total_employer_costs
+  payroll_periods.year
+  portal_access_logs.client_id
+  portal_access_logs.details
+  product_categories.accounting_code
+  product_categories.allow_purchase
+  product_categories.cost_center_default
+  product_categories.display_order
+  product_categories.full_name
+  product_categories.is_system
+  product_categories.minimum_quotations
+  product_categories.require_quotation
+  product_categories.require_specification
+  products.approved_suppliers
+  products.block_reason
+  products.cfop_in
+  products.cfop_out
+  products.current_stock
+  products.default_supplier_id
+  products.manufacturer_code
+  products.maximum_stock
+  products.minimum_stock
+  products.price_history
+  products.reorder_quantity
+  products.specifications
+  products.track_stock
+  proposals.approval_level_id
+  proposals.cct_breakdown
+  proposals.current_approval_level
+  proposals.margin_percent
+  proposals.pricing_simulation_id
+  proposals.signature_external_id
+  proposals.signature_provider
+  proposals.signature_status
+  proposals.signed_at
+  proposals.signed_document_url
+  proposals.tax_breakdown
+  purchase_orders.tags
+  purchase_quotation_items.availability_notes
+  purchase_quotation_items.available_quantity
+  purchase_quotation_items.icms_amount
+  purchase_quotation_items.ipi_amount
+  purchase_quotation_items.is_available
+  purchase_quotation_items.quantity
+  purchase_quotation_items.specifications
+  purchase_quotations.contact_email
+  purchase_quotations.contact_name
+  purchase_quotations.contact_phone
+  purchase_quotations.delivery_address
+  purchase_quotations.is_selected
+  purchase_quotations.payment_terms
+  purchase_quotations.quotation_date
+  purchase_quotations.response_date
+  purchase_quotations.selection_notes
+  purchase_quotations.valid_until
+  purchase_requisition_items.estimated_price
+  purchase_requisition_items.is_urgent
+  purchase_requisition_items.quantity
+  purchase_requisition_items.quantity_quoted
+  purchase_requisition_items.required_date
+  purchase_requisition_items.status
+  purchase_requisition_items.suggested_supplier_id
+  purchase_requisition_items.suggested_supplier_name
+  purchase_requisitions.approval_date
+  purchase_requisitions.approval_notes
+  purchase_requisitions.budget_available
+  purchase_requisitions.cancellation_date
+  purchase_requisitions.minimum_quotations
+  purchase_requisitions.project
+  purchase_requisitions.rejection_date
+  purchase_requisitions.requester_name
+  purchase_requisitions.required_date
+  purchase_requisitions.requisition_date
+  purchase_requisitions.tags
+  push_ab_test_results.campaign_id
+  push_ab_test_results.confidence_level
+  push_ab_test_results.is_winner
+  push_ab_test_results.total_clicked
+  push_ab_test_results.total_converted
+  push_ab_test_results.total_delivered
+  push_ab_test_results.total_opened
+  push_ab_test_results.total_sent
+  push_ab_test_results.variant_id
+  push_ab_test_results.variant_name
+  push_campaigns.ab_test_config
+  push_campaigns.ab_test_variants
+  push_campaigns.ab_test_winner_id
+  push_campaigns.action_url
+  push_campaigns.android_config
+  push_campaigns.cancelled_at
+  push_campaigns.data
+  push_campaigns.external_id
+  push_campaigns.geo_targeting
+  push_campaigns.ios_config
+  push_campaigns.local_time_delivery
+  push_campaigns.metadata
+  push_campaigns.segment_id
+  push_campaigns.send_immediately
+  push_campaigns.total_target
+  push_campaigns.web_config
+  push_delivery_reports.avg_delivery_time_ms
+  push_delivery_reports.by_platform
+  push_delivery_reports.by_status
+  push_delivery_reports.percentile_95_delivery_time_ms
+  push_device_sessions.ended_at
+  push_device_sessions.started_at
+  push_devices.device_brand
+  push_devices.language
+  push_devices.last_error_message
+  push_devices.os_version
+  push_devices.push_enabled
+  push_devices.timezone
+  push_devices.topics
+  push_devices.total_clicked
+  push_devices.total_notifications
+  push_devices.total_opened
+  push_metrics.active_devices
+  push_metrics.avg_time_to_click_ms
+  push_metrics.avg_time_to_open_ms
+  push_metrics.errors_by_code
+  push_metrics.new_devices
+  push_metrics.unregistered_devices
+  push_metrics.updated_at
+  push_notification_actions.action_data
+  push_notification_actions.action_url
+  push_notification_actions.clicked_at
+  push_notifications.action_url
+  push_notifications.data
+  push_notifications.failed_at
+  push_notifications.max_retries
+  push_notifications.message_id
+  push_notifications.metadata
+  push_notifications.retry_count
+  push_segments.cached_device_ids
+  receivable_accounts.boleto_id
+  receivable_accounts.boleto_line
+  receivable_accounts.competencia_ano
+  receivable_accounts.competencia_mes
+  receivable_accounts.customer_document
+  receivable_accounts.customer_name
+  receivable_accounts.data_recebimento
+  receivable_accounts.deleted_at
+  receivable_accounts.deleted_by
+  receivable_accounts.metadata
+  receivable_accounts.origem
+  receivable_accounts.pix_generated_at
+  receivable_accounts.pix_key
+  receivable_accounts.protest_date
+  receivable_accounts.protested_by
+  receivable_accounts.recurring_day
+  receivable_accounts.recurring_frequency
+  receivable_accounts.reference_month
+  receivable_accounts.transacao_bancaria_id
+  receivable_accounts.updated_by
+  receivable_accounts.write_off_date
+  receivable_categories.default_interest_rate
+  receivable_categories.default_penalty_rate
+  receivable_categories.is_active
+  receivable_categories.updated_by
+  receivable_installments.boleto_line
+  receivable_installments.pix_generated_at
+  receivable_installments.pix_key
+  receivable_installments.renegotiated_at
+  receivable_payments.metadata
+  receivable_payments.nsu
+  receivable_payments.payment_origin
+  receivable_payments.transaction_id
+  receivable_payments.updated_by
+  reimbursement_attachments.file_size
+  reimbursement_categories.expense_account
+  reimbursement_categories.max_amount
+  reimbursement_items.quantity
+  reimbursement_items.receipt_number
+  reimbursement_items.supplier
+  reimbursement_items.unit_price
+  reimbursement_requests.payable_id
+  reimbursement_requests.submitted_by
+  report_exports.delivery_details
+  report_exports.download_url
+  report_exports.expires_at
+  report_exports.export_id
+  report_exports.file_hash
+  report_exports.file_name
+  report_exports.last_downloaded_at
+  report_exports.metadata
+  report_exports.mime_type
+  report_exports.page_count
+  report_exports.row_count
+  report_schedules.codigo
+  report_schedules.consecutive_failures
+  report_schedules.descricao
+  report_schedules.filters
+  report_schedules.last_execution
+  report_schedules.metadata
+  report_schedules.next_execution
+  report_schedules.nome
+  report_schedules.notification_config
+  report_schedules.output_format
+  report_schedules.owner_id
+  report_schedules.parameters
+  report_schedules.storage_path
+  report_schedules.webhook_url
+  report_templates.codigo
+  report_templates.descricao
+  report_templates.grouping
+  report_templates.metadata
+  report_templates.nome
+  report_templates.owner_id
+  report_templates.sorting
+  report_templates.style_config
+  report_templates.totals_config
+  service_catalog.availability_schedule
+  service_catalog.is_available
+  service_catalog.metadata
+  service_catalog.required_materials
+  service_executions.additional_cost
+  service_executions.arrival_at_location
+  service_executions.documents
+  service_executions.gps_tracking
+  service_executions.metadata
+  service_executions.pause_duration_minutes
+  service_executions.pause_reason
+  service_executions.paused_at
+  service_executions.photos
+  service_executions.resumed_at
+  service_executions.signatures
+  service_orders.additional_charges_description
+  service_orders.assigned_team
+  service_orders.attachments
+  service_orders.completion_notes
+  service_orders.estimated_duration_hours
+  service_orders.location_coordinates
+  service_orders.metadata
+  service_orders.parent_order_id
+  service_orders.pause_reason
+  service_orders.paused_at
+  service_orders.rating_feedback
+  service_orders.requester_unit
+  service_reports.approver_id
+  service_reports.approver_name
+  service_reports.execution_id
+  service_reports.metadata
+  service_reports.previous_version_id
+  service_reports.review_notes
+  simples_nacional_das.competencia_ano
+  simples_nacional_das.competencia_mes
+  simples_nacional_das.numero_documento
+  simples_nacional_das.numero_recibo
+  simples_nacional_das.reparticao_cofins
+  simples_nacional_das.reparticao_cpp
+  simples_nacional_das.reparticao_csll
+  simples_nacional_das.reparticao_irpj
+  simples_nacional_das.reparticao_iss
+  simples_nacional_das.reparticao_pis
+  simples_nacional_das.valor_devido
+  simples_nacional_das.valor_pago
+  sla_configs.metadata
+  solides_benefit_order_items.employee_cpf
+  solides_benefit_order_items.employee_nome
+  solides_benefit_order_items.valor_total
+  solides_credential.ativo
+  solides_credential.config_id
+  solides_credential.encryption_iv
+  solides_credential.encryption_key_id
+  solides_credential.last_error
+  solides_credential.last_error_at
+  solides_credential.last_used_at
+  solides_credential.rotated_at
+  sped_files.avisos
+  sped_files.conteudo
+  sped_files.data_processamento
+  sped_files.erros
+  sped_files.protocolo_entrega
+  sped_files.recibo_transmissao
+  sped_files.resumo
+  sped_files.total_avisos
+  sped_files.total_erros
+  sst_afastamentos.data_encaminhamento_inss
+  sst_afastamentos.encaminhado_inss
+  suframa_configs.isento_ipi
+  suframa_configs.ncms_incentivados
+  suframa_configs.percentual_reducao_icms
+  suframa_configs.reducao_icms
+  suframa_configs.suspensao_pis_cofins
+  suframa_configs.tipo_incentivo
+  suframa_operacoes.active
+  suframa_operacoes.data_pin
+  suframa_operacoes.nfe_id
+  suframa_operacoes.numero_pin
+  suframa_operacoes.status_pin
+  suframa_operacoes.valor_cofins_suspenso
+  suframa_operacoes.valor_icms_desonerado
+  suframa_operacoes.valor_ipi_desonerado
+  suframa_operacoes.valor_pis_suspenso
+  suppliers.iss_rate
+  suppliers.payment_day
+  sync_queue.metadata
+  system_configs.created_by
+  system_configs.escopo
+  system_configs.grupo
+  system_configs.historico
+  system_configs.is_editavel
+  system_configs.is_sensivel
+  system_configs.is_visivel
+  system_configs.metadata
+  system_configs.ordem
+  system_configs.permite_override
+  system_configs.prioridade
+  system_configs.requer_restart
+  system_configs.tipo
+  system_configs.updated_by
+  system_configs.validacao
+  system_configs.valor_padrao
+  tabela_inss.is_ativo
+  tabela_inss.observacoes
+  tabela_inss.updated_at
+  tabela_irrf.is_ativo
+  tabela_irrf.observacoes
+  tabela_irrf.updated_at
+  tenant_settings.categoria
+  tenant_settings.created_by
+  tenant_settings.grupo
+  tenant_settings.historico
+  tenant_settings.icone
+  tenant_settings.is_editavel
+  tenant_settings.is_sensivel
+  tenant_settings.is_visivel
+  tenant_settings.metadata
+  tenant_settings.opcoes
+  tenant_settings.ordem
+  tenant_settings.tipo
+  tenant_settings.updated_by
+  tenant_settings.validacao
+  tenant_settings.valor_padrao
+  tenants.configuracoes
+  tenants.data_cancelamento
+  tenants.data_fim_trial
+  tenants.documento
+  tenants.endereco_bairro
+  tenants.endereco_cep
+  tenants.endereco_cidade
+  tenants.endereco_complemento
+  tenants.endereco_estado
+  tenants.endereco_logradouro
+  tenants.endereco_numero
+  tenants.endereco_pais
+  tenants.features_habilitadas
+  tenants.limite_api_calls_mes
+  tenants.limite_storage_gb
+  tenants.limite_usuarios
+  tenants.metadata
+  tenants.modulos_habilitados
+  tenants.notas
+  tenants.plano
+  tenants.tipo
+  tenants.uso_api_calls_mes
+  tenants.uso_storage_bytes
+  tenants.uso_usuarios_ativos
+  time_entries.anomaly_resolution
+  time_entries.biometric_verified
+  time_entries.deleted_at
+  time_entries.employee_pis
+  time_entries.facial_image_url
+  time_entries.ip_address
+  time_entries.is_night_entry
+  time_entries.location_accuracy
+  time_entries.location_address
+  time_entries.rejection_reason
+  time_entries.rep_nsr
+  time_justifications.deleted_at
+  time_sheets.created_by_id
+  time_sheets.deleted_at
+  visitas.anotacoes
+  visitas.ativo
+  visitas.complemento
+  visitas.contato_nome
+  visitas.contato_telefone
+  visitas.data_prevista_fechamento
+  visitas.ordem_servico_id
+  visitas.probabilidade_fechamento
+  visitas.referencia
+  visitas.valor_estimado
+  webhook_configs.event_type
+  webhook_configs.metadata
+  webhook_configs.payload
+  webhook_configs.provider
+  webhook_configs.received_at
+  work_schedules.daily_hours
+  work_schedules.deleted_at
+  work_schedules.end_date
+  work_schedules.flexible_break
+  work_schedules.geolocation_radius_meters
+  work_schedules.geolocation_required
+  work_schedules.has_night_shift
+  work_schedules.has_time_bank
+  work_schedules.max_break_minutes
+  work_schedules.min_break_minutes
+  work_schedules.start_date
+  work_schedules.time_bank_expiration_months
+  work_schedules.tolerance_early_minutes
+  work_schedules.tolerance_late_minutes
+  work_schedules.tolerance_overtime_minutes
+  work_schedules.weekly_hours
+  work_schedules.weekly_schedule
+  workflow_actions.data_config
+  workflow_actions.email_config
+  workflow_actions.http_config
+  workflow_actions.metadata
+  workflow_actions.task_config
+  workflow_actions.whatsapp_config
+  workflow_conditions.metadata
+  workflow_executions.completed_steps
+  workflow_executions.duration_ms
+  workflow_executions.error
+  workflow_executions.retry_count
+  workflow_steps.order_num
+  workflow_steps.position_height
+  workflow_steps.position_width
+  workflow_steps.position_x
+  workflow_steps.position_y
+  workflow_steps.retry_count
+  workflow_triggers.filter_conditions
+  workflows.execution_count
+  workflows.failure_count
+  workflows.is_enabled
+  workflows.success_count

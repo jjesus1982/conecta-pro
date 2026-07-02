@@ -1,0 +1,91 @@
+## TenantType  (tenants.tenant_type | udt: varchar)
+   CÓDIGO (.value): empresa,condominio,franquia,parceiro,interno
+   BANCO (pg_enum):
+   só no código: ['condominio', 'empresa', 'franquia', 'interno', 'parceiro'] | só no banco: ['']
+   DADO REAL: [(vazio)] linhas=1 preenchida=0
+
+## TenantPlan  (tenants.plan | udt: varchar)
+   CÓDIGO (.value): free,starter,professional,enterprise,custom
+   BANCO (pg_enum):
+   só no código: ['custom', 'enterprise', 'free', 'professional', 'starter'] | só no banco: ['']
+   DADO REAL: [(vazio)] linhas=1 preenchida=0
+
+## CampaignType  (email_campaigns.campaign_type)
+   CÓDIGO: REGULAR,AUTOMATED,DRIP,AB_TEST,TRANSACTIONAL
+   BANCO: ⚠️ COLUNA NÃO EXISTE (schema drift / Frente 2)
+
+## DeviceStatus  (push_devices.status | udt: device_status)
+   CÓDIGO (.value): active,inactive,unregistered,expired,blocked
+   BANCO (pg_enum): active,inactive,unregistered,blocked,failed
+   só no código: ['expired'] | só no banco: ['failed']
+   DADO REAL: [(vazio)] linhas=0 preenchida=0
+
+## ExecutionStatus  (service_executions.status | udt: executionstatus)
+   CÓDIGO (.value): agendada,em_deslocamento,no_local,em_execucao,pausada,aguardando_material,aguardando_aprovacao,finalizada,cancelada
+   BANCO (pg_enum): agendada,em_deslocamento,no_local,em_execucao,pausada,aguardando_material,aguardando_aprovacao,concluida,cancelada
+   só no código: ['finalizada'] | só no banco: ['concluida']
+   DADO REAL: [(vazio)] linhas=0 preenchida=0
+
+## FlagStatus  (feature_flags.status | udt: flag_status)
+   CÓDIGO (.value): ativo,inativo,gradual,beta,deprecated
+   BANCO (pg_enum): active,inactive,scheduled,expired,testing
+   só no código: ['ativo', 'beta', 'deprecated', 'gradual', 'inativo'] | só no banco: ['active', 'expired', 'inactive', 'scheduled', 'testing']
+   DADO REAL: [(vazio)] linhas=0 preenchida=0
+
+## KitType  (document_kits.tipo | udt: kit_type_enum)
+   CÓDIGO (.value): ADMISSAO,DEMISSAO,FERIAS,AFASTAMENTO,PROMOCAO,TRANSFERENCIA,CONTRATO_CLIENTE,ENCERRAMENTO_CONTRATO,MENSAL,TREINAMENTO,CERTIFICACAO,VIGILANTE,EQUIPAMENTO,AUDITORIA,LICITACAO,RENOVACAO,OUTRO
+   BANCO (pg_enum): ADMISSAO,DEMISSAO,FERIAS,AFASTAMENTO,PROMOCAO,TRANSFERENCIA,CONTRATO_CLIENTE,ENCERRAMENTO_CONTRATO,TREINAMENTO,CERTIFICACAO,VIGILANTE,EQUIPAMENTO,AUDITORIA,LICITACAO,RENOVACAO,OUTRO
+   só no código: ['MENSAL'] | só no banco: -
+   DADO REAL: [(vazio)] linhas=0 preenchida=0
+
+## NotificationPriority  (push_notifications.priority | udt: notification_priority)
+   CÓDIGO (.value): low,normal,high,critical
+   BANCO (pg_enum): low,normal,high,urgent
+   só no código: ['critical'] | só no banco: ['urgent']
+   DADO REAL: [(vazio)] linhas=0 preenchida=0
+
+## NotificationStatus  (push_notifications.status | udt: notification_status)
+   CÓDIGO (.value): pending,queued,sending,sent,delivered,opened,clicked,dismissed,failed,expired,unregistered
+   BANCO (pg_enum): pending,queued,sending,sent,delivered,opened,clicked,dismissed,failed,expired,undeliverable
+   só no código: ['unregistered'] | só no banco: ['undeliverable']
+   DADO REAL: [(vazio)] linhas=0 preenchida=0
+
+## OrderPriority  (service_orders.priority | udt: orderpriority)
+   CÓDIGO (.value): baixa,normal,alta,urgente,emergencial
+   BANCO (pg_enum): baixa,normal,alta,urgente,critica
+   só no código: ['emergencial'] | só no banco: ['critica']
+   DADO REAL: [(vazio)] linhas=0 preenchida=0
+
+## ReportType  (financial_scheduled_reports.tipo)
+   CÓDIGO: CASH_FLOW,INCOME_STATEMENT,BALANCE_SHEET,ACCOUNTS_PAYABLE,ACCOUNTS_RECEIVABLE,BUDGET_VS_ACTUAL,PROFITABILITY,KPI_SUMMARY,COST_ANALYSIS,TAX_SUMMARY,BANK_RECONCILIATION,AGING_REPORT,CUSTOM
+   BANCO: ⚠️ COLUNA NÃO EXISTE (schema drift / Frente 2)
+
+## ServiceCategory  (service_catalog.category | udt: servicecategory)
+   CÓDIGO (.value): seguranca,portaria,monitoramento,manutencao,limpeza,jardinagem,administracao,tecnologia,consultoria,treinamento,suporte,outros
+   BANCO (pg_enum): manutencao_predial,limpeza,seguranca,jardinagem,piscina,elevadores,portaria,administracao,consultoria,tecnologia,eventos,outros
+   só no código: ['manutencao', 'monitoramento', 'suporte', 'treinamento'] | só no banco: ['elevadores', 'eventos', 'manutencao_predial', 'piscina']
+   DADO REAL: [(vazio)] linhas=0 preenchida=0
+
+## ServiceStatus  (service_catalog.status | udt: servicestatus)
+   CÓDIGO (.value): rascunho,ativo,inativo,descontinuado
+   BANCO (pg_enum): ativo,inativo,suspenso,descontinuado
+   só no código: ['rascunho'] | só no banco: ['suspenso']
+   DADO REAL: [(vazio)] linhas=0 preenchida=0
+
+## ServiceType  (financial_contract_costs.service_type | udt: servicetype)
+   CÓDIGO (.value): portaria,limpeza,jardinagem,seguranca_eletronica,portaria_remota
+   BANCO (pg_enum): pontual,recorrente,emergencia,preventivo,corretivo,consultivo,projeto
+   só no código: ['jardinagem', 'limpeza', 'portaria', 'portaria_remota', 'seguranca_eletronica'] | só no banco: ['consultivo', 'corretivo', 'emergencia', 'pontual', 'preventivo', 'projeto', 'recorrente']
+   DADO REAL: [(vazio)] linhas=0 preenchida=0
+
+## SyncSource  (solides_entity_mapping.last_sync_source | udt: solides_sync_source)
+   CÓDIGO (.value): solides,conecta,manual,webhook
+   BANCO (pg_enum): solides,conecta,manual
+   só no código: ['webhook'] | só no banco: -
+   DADO REAL: [solides] linhas=44 preenchida=44
+
+## TargetType  (push_campaigns.target_type | udt: target_type)
+   CÓDIGO (.value): all,segment,users,devices,topic,tag,condition
+   BANCO (pg_enum): all,segment,users,devices,topic,tags,geo
+   só no código: ['condition', 'tag'] | só no banco: ['geo', 'tags']
+   DADO REAL: [(vazio)] linhas=0 preenchida=0

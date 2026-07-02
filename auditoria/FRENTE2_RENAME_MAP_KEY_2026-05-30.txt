@@ -1,0 +1,48 @@
+=== MAPA DE RENAME (candidatos PT->EN) — tabelas-chave ===
+
+## access_history  (db_only=1, model_missing=1)
+   RENAME  metadata         -> extra_metadata     [ALTA(dic)]
+
+## sync_queue  (db_only=1, model_missing=1)
+   RENAME  metadata         -> extra_metadata     [ALTA(dic)]
+
+## executive_kpis  (db_only=17, model_missing=32)
+   RENAME  codigo           -> code               [ALTA(dic)]
+   RENAME  descricao        -> description        [ALTA(dic)]
+   RENAME  metadata         -> extra_metadata     [ALTA(dic)]
+   RENAME  nome             -> name               [ALTA(dic)]
+   db-only sem par claro: allowed_roles, calculation_frequency_minutes, dashboard_config, history, history_retention_days, next_calculation_at, precision, threshold_critical, threshold_excellent, threshold_target, threshold_warning, trend_percentage, visibility
+   model-missing sem par: alert_frequency, alert_recipients, alerts_enabled, calculation_config, color_scheme, created_by, critical_threshold_high, critical_threshold_low, decimal_places, department, display_format, historical_values, last_12_months, last_alert_at, monthly_targets, owner_name, period_end, period_start, prefix, quarterly_targets, related_kpis, suffix, tenant_id, updated_by, visible_on_dashboard, warning_threshold_high, warning_threshold_low, yearly_target
+
+## report_templates  (db_only=9, model_missing=18)
+   RENAME  codigo           -> code               [ALTA(dic)]
+   RENAME  descricao        -> description        [ALTA(dic)]
+   RENAME  metadata         -> extra_metadata     [ALTA(dic)]
+   RENAME  nome             -> name               [ALTA(dic)]
+   db-only sem par claro: grouping, owner_id, sorting, style_config, totals_config
+   model-missing sem par: allowed_users, avg_generation_time, color_scheme, created_by, css_styles, logo_url, metrics, previous_version_id, query_template, tables, tenant_id, theme, updated_by, version_notes
+
+## report_schedules  (db_only=14, model_missing=27)
+   RENAME  descricao        -> description        [ALTA(dic)]
+   RENAME  metadata         -> extra_metadata     [ALTA(dic)]
+   RENAME  nome             -> name               [ALTA(dic)]
+   db-only sem par claro: codigo, consecutive_failures, filters, last_execution, next_execution, notification_config, output_format, owner_id, parameters, storage_path, webhook_url
+   model-missing sem par: avg_execution_time, bcc_recipients, created_by, data_end_offset, data_period, data_start_offset, delivery_config, email_template, last_execution_at, last_failure_at, last_success_at, max_executions, next_execution_at, notification_recipients, notify_on_failure, notify_on_success, relative_period, report_filename_pattern, report_format, report_parameters, retry_count, retry_enabled, tenant_id, updated_by
+
+## benchmarks  (db_only=26, model_missing=42)
+   RENAME  codigo           -> code               [ALTA(dic)]
+   RENAME  descricao        -> description        [ALTA(dic)]
+   RENAME  metadata         -> extra_metadata     [ALTA(dic)]
+   RENAME  nome             -> name               [ALTA(dic)]
+   db-only sem par claro: allowed_roles, company_value, company_value_date, data_source_name, data_source_url, gap_percentage, gap_to_benchmark, history, kpi_id, mean_value, next_update, owner_id, percentile_50, precision, reference_period, region, segment, std_deviation, target_date, target_percentile, update_frequency, visibility
+   model-missing sem par: alert_if_above, alert_if_below, alerts_enabled, average_value, calculation_method, color_code, created_by, currency_code, current_company_value, decimal_places, deviation, deviation_percentage, display_order, geographic_region, historical_values, icon, improvement_deadline, improvement_target, is_currency, is_percentage, market_segment, notes, reference_month, reference_quarter, reference_year, related_kpi_ids, source_date, source_name, source_report, source_url, sub_industry, tenant_id, trend, updated_by, valid_from, valid_until, visible_on_dashboard, year_over_year_change
+
+## financial_kpis  (db_only=17, model_missing=31)
+   RENAME  ordem            -> order              [ALTA(dic)]
+   db-only sem par claro: ativo, cor, historico, historico_max_registros, icone, is_sistema, meta_tipo, proximo_calculo, tempo_calculo_ms, tendencia, threshold_critical, threshold_success, threshold_warning, ultima_atualizacao, ultimo_erro, variacao_percent
+   model-missing sem par: alert_enabled, alert_message, benchmark_data, benchmark_fonte, benchmark_valor, color, created_by, data_sources, extra_metadata, formula_descricao, historico_dias, historico_valores, icon, is_inverted, is_percentage, meta_atingida, meta_maximo, meta_minimo, meta_percentual, nome_curto, show_in_summary, tags, threshold_critical_max, threshold_critical_min, threshold_warning_max, threshold_warning_min, trend, ultimo_calculo_at, updated_by, variacao_percentual
+
+=== RESUMO GLOBAL ===
+tabelas com pelo menos 1 rename de alta confianca: 23
+pares PT->EN de alta confianca (via dicionario) em todo o banco: 35
+tabelas-chave: 18 pares
