@@ -435,6 +435,7 @@ export const modules: Module[] = [
       { id: 'juridico-pareceres', title: 'Pareceres (IA)', href: '/modulos/juridico/pareceres', icon: 'FileSignature', permissions: ['operacional:read'], group: 'Escritorio' },
       { id: 'juridico-riscos', title: 'Riscos (Trabalhista/Tributario)', href: '/modulos/juridico/riscos', icon: 'AlertTriangle', permissions: ['operacional:read'], group: 'Escritorio' },
       { id: 'juridico-escritorio', title: 'Escritorio & ROI', href: '/modulos/juridico/escritorio', icon: 'Building2', permissions: ['operacional:read'], group: 'Escritorio' },
+      { id: 'juridico-conhecimento', title: 'Base de Conhecimento', href: '/modulos/juridico/conhecimento', icon: 'BookOpen', permissions: ['operacional:read'], group: 'Escritorio' },
       { id: 'juridico-contratos', title: 'Central de Contratos', href: '/modulos/juridico/contratos', icon: 'FileText', permissions: ['operacional:read'], group: 'Contratos' },
       { id: 'juridico-analise', title: 'Analise de Contratos (IA)', href: '/modulos/juridico/analise', icon: 'Search', permissions: ['operacional:read'], group: 'Contratos' },
       { id: 'juridico-certidoes', title: 'Certidoes (CND/FGTS)', href: '/modulos/fiscal/certidoes', icon: 'Award', permissions: ['government:certidoes'], group: 'Compliance' },

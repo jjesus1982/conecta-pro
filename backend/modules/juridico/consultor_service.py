@@ -272,6 +272,14 @@ async def consultar(
 
     contexto_real = await _contexto_dados_reais(db)
     system_prompt = _PROMPTS_AREA[area_norm] + _formatar_contexto_real(contexto_real)
+    # Base de conhecimento/playbook da própria empresa (RAG-lite)
+    try:
+        from modules.juridico import conhecimento_service as _CS
+        _kb = await _CS.contexto_para_prompt(db, area_norm, f"{pergunta} {anexo_texto or ''}")
+        if _kb:
+            system_prompt += _kb
+    except Exception:  # noqa: BLE001
+        pass
 
     contexto_usado = {
         "area": area_norm,

@@ -279,8 +279,15 @@ async def analisar_processo(
             "em 'busca_automatica_erp' se ele aparece como prestador (NFS-e) ou fornecedor (pagamentos)."
         ),
     }
+    # precedentes/playbook da própria empresa (base de conhecimento)
+    kb = ""
+    try:
+        from modules.juridico import conhecimento_service as CS
+        kb = await CS.contexto_para_prompt(db, tipo, f"{entidades.get('reclamante','')} " + " ".join(entidades.get("pedidos") or []))
+    except Exception:  # noqa: BLE001
+        kb = ""
     an = await _chamar_llm(
-        _prompt_defesa(tipo),
+        _prompt_defesa(tipo) + kb,
         "Analise a defesa cruzando os pedidos com as provas do dossiê e o panorama.\n\n"
         + json.dumps(contexto_ia, ensure_ascii=False, default=str),
         max_tokens=8000,

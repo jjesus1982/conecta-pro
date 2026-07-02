@@ -1161,6 +1161,7 @@ for _mod, _label in [
     ("modules.juridico.hub_controller", "Hub/Prazos"),
     ("modules.juridico.context_controller", "Contexto/Discovery cross-módulo"),
     ("modules.juridico.processos_controller", "Processos & Defesa (intake)"),
+    ("modules.juridico.conhecimento_controller", "Base de Conhecimento & Playbook"),
 ]:
     try:
         import importlib
