@@ -128,3 +128,8 @@ tsbuildinfo
 *.tsbuildinfo
 uploads/portal/
 PORTAL_CREDENCIAIS.txt
+det-robot/secret/
+det-robot/state/
+det-robot/.env
+det-robot/out/
+det-robot/*.pem

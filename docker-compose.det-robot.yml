@@ -1,0 +1,31 @@
+services:
+  det-robot:
+    build:
+      context: ./det-robot
+      dockerfile: Dockerfile
+    image: conecta-pro-det-robot:latest
+    container_name: conecta-pro-det-robot
+    restart: unless-stopped
+    env_file:
+      - ./det-robot/.env
+    environment:
+      DET_PFX_PATH: /cert/certificado.pfx
+      DET_BACKEND_URL: http://conecta-pro-backend:8080
+      DISPLAY: ":99"
+    entrypoint: ["/bin/bash","/app/entrypoint.sh"]
+    volumes:
+      - ./det-robot/secret/certificado.pfx:/cert/certificado.pfx:ro
+      - ./det-robot/state:/state
+      - ./det-robot/entrypoint.sh:/app/entrypoint.sh:ro
+      - ./det-robot/robot.py:/app/robot.py:ro
+    ports:
+      - "127.0.0.1:6080:6080"   # noVNC (exposto só localhost; nginx faz o proxy TLS)
+      - "127.0.0.1:8099:8099"   # API de controle do robô
+    shm_size: "1gb"
+    networks:
+      - conecta-pro-network
+
+networks:
+  conecta-pro-network:
+    external: true
+    name: conecta-pro_conecta-pro-network
