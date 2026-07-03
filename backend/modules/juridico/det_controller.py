@@ -72,3 +72,59 @@ async def coletar(
 ):
     """Dispara a coleta automática (estado honesto enquanto gov.br OAuth não habilitado)."""
     return await DET.coletar_automatico(db)
+
+
+# ── Robô Playwright (login supervisionado via noVNC + coleta headless) ────────
+import os as _os
+
+import httpx as _httpx
+
+ROBOT_URL = _os.environ.get("DET_ROBOT_URL", "http://conecta-pro-det-robot:8099")
+NOVNC_URL = "/det-vnc/vnc.html?autoconnect=1&resize=scale&path=det-vnc/websockify"
+
+
+@router.post("/robo/login")
+async def robo_login(current_user=Depends(get_current_active_user)):
+    """Inicia o login supervisionado do robô (sobe o navegador no noVNC)."""
+    try:
+        async with _httpx.AsyncClient(timeout=30) as c:
+            r = await c.post(f"{ROBOT_URL}/login/iniciar")
+            data = r.json()
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "msg": f"Robô indisponível: {e}"}
+    data["novnc_url"] = NOVNC_URL
+    return data
+
+
+@router.get("/robo/status")
+async def robo_status(current_user=Depends(get_current_active_user)):
+    """Status do robô (logado? sessão salva?)."""
+    try:
+        async with _httpx.AsyncClient(timeout=15) as c:
+            r = await c.get(f"{ROBOT_URL}/login/status")
+            return {**r.json(), "novnc_url": NOVNC_URL}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "msg": f"Robô indisponível: {e}", "disponivel": False}
+
+
+@router.post("/robo/coletar")
+async def robo_coletar(
+    current_user=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Coleta a caixa do DET (robô) e REGISTRA as mensagens no ERP."""
+    try:
+        async with _httpx.AsyncClient(timeout=180) as c:
+            r = await c.post(f"{ROBOT_URL}/coletar")
+            data = r.json()
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "msg": f"Robô indisponível: {e}"}
+    novos = 0
+    if data.get("ok") and data.get("mensagens"):
+        try:
+            novos = await DET.registrar_do_robo(db, data["mensagens"])
+            await db.commit()
+        except Exception as e:  # noqa: BLE001
+            data["registro_erro"] = str(e)
+    data["registradas_no_erp"] = novos
+    return data

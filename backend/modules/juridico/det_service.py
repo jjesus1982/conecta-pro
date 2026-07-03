@@ -182,6 +182,32 @@ async def processar_comunicacao(
     }
 
 
+async def registrar_do_robo(db: AsyncSession, mensagens: list[dict[str, Any]]) -> int:
+    """Registra na caixa do ERP as mensagens que o robô leu do DET (idempotente)."""
+    await ensure_table(db)
+    novos = 0
+    for m in mensagens or []:
+        assunto = (m.get("assunto") or "").strip()
+        orgao = (m.get("orgao") or "").strip()
+        data = (m.get("data") or "").strip()
+        if not assunto:
+            continue
+        ex = await db.execute(text(
+            "SELECT 1 FROM juridico_det_comunicacoes WHERE titulo=:t AND COALESCE(orgao,'')=:o AND COALESCE(prazo,'')=:d"),
+            {"t": assunto, "o": orgao, "d": data})
+        if ex.first():
+            continue
+        tipo = (m.get("tipo") or "comunicado").lower()
+        e_fisc = "inspeção" in orgao.lower() or "notific" in tipo
+        await db.execute(text(
+            """INSERT INTO juridico_det_comunicacoes (origem, tipo, titulo, orgao, prazo, resumo, escalonar, status)
+               VALUES ('det_robo', :tipo, :titulo, :orgao, :data, :resumo, :esc, 'nova')"""),
+            {"tipo": m.get("tipo") or "comunicado", "titulo": assunto, "orgao": orgao, "data": data,
+             "resumo": f"{m.get('tipo')} de {orgao} em {data}", "esc": e_fisc})
+        novos += 1
+    return novos
+
+
 async def listar_comunicacoes(db: AsyncSession, limit: int = 50) -> list[dict[str, Any]]:
     await ensure_table(db)
     rows = await db.execute(text(

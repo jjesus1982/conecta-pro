@@ -58,10 +58,31 @@ def _ler_caixa(page):
             el = page.get_by_text(t, exact=False)
             if el.count() > 0: el.first.click(timeout=5000); page.wait_for_timeout(3500); break
         except Exception: pass
-    try: conteudo = page.locator("body").inner_text()[:2000]
+    try: conteudo = page.locator("body").inner_text()[:4000]
     except Exception: conteudo = ""
     expirou = "/login" in page.url or "sso.acesso" in page.url
-    return {"ok": not expirou, "url": page.url, "expirou": expirou, "endpoints_det": list(dict.fromkeys(caps))[:20], "conteudo_caixa": conteudo, "msg": ("Sessao expirada" if expirou else "Caixa lida")}
+    # extrai as mensagens estruturadas (tipo, orgao, data, assunto)
+    mensagens = []
+    try:
+        import re as _re
+        linhas = [l.strip() for l in conteudo.split("\n") if l.strip()]
+        i = 0
+        tipos = ("Notificação", "Notificacao", "Aviso", "Intimação", "Intimacao", "Comunicado", "Edital")
+        meses = "jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez"
+        while i < len(linhas):
+            if linhas[i] in tipos and i + 3 < len(linhas):
+                orgao = linhas[i+1]
+                data = linhas[i+2] if _re.search(rf"\d+\s+({meses})", linhas[i+2], _re.I) else None
+                assunto = linhas[i+3] if data else linhas[i+2]
+                mensagens.append({"tipo": linhas[i], "orgao": orgao, "data": data, "assunto": assunto})
+                i += 4 if data else 3
+            else:
+                i += 1
+    except Exception:
+        pass
+    return {"ok": not expirou, "url": page.url, "expirou": expirou, "total": len(mensagens),
+            "mensagens": mensagens, "conteudo_caixa": conteudo,
+            "msg": ("Sessao expirada" if expirou else f"Caixa lida: {len(mensagens)} mensagens")}
 
 _INIT_JS = """
   window.__hcap = { cbs: [], injected: null, opts: {} };

@@ -64,6 +64,44 @@ def resolver_recaptcha_v2(sitekey: str, pageurl: str, timeout_s: int = 180, invi
     raise CaptchaError("2captcha: timeout aguardando solução")
 
 
+def resolver_hcaptcha(sitekey: str, pageurl: str, timeout_s: int = 200, invisible: bool = True) -> str:
+    """Resolve um hCaptcha (usado pelo gov.br) e devolve o h-captcha-response (token).
+
+    2captcha method=hcaptcha. gov.br usa hCaptcha invisível (invisible=True).
+    """
+    key = os.getenv("TWOCAPTCHA_API_KEY", "").strip()
+    if not key:
+        raise CaptchaError("TWOCAPTCHA_API_KEY não configurada")
+    payload = {
+        "key": key,
+        "method": "hcaptcha",
+        "sitekey": sitekey,
+        "pageurl": pageurl,
+        "json": 1,
+    }
+    if invisible:
+        payload["invisible"] = 1
+    with httpx.Client(timeout=30) as cli:
+        r = cli.post(_IN, data=payload)
+        d = r.json()
+        if d.get("status") != 1:
+            raise CaptchaError(f"2captcha in.php (hcaptcha) recusou: {d.get('request')}")
+        cap_id = d["request"]
+        logger.info("2captcha hcaptcha: enviado id=%s, aguardando solução…", cap_id)
+        deadline = time.time() + timeout_s
+        time.sleep(12)
+        while time.time() < deadline:
+            rr = cli.get(_RES, params={"key": key, "action": "get", "id": cap_id, "json": 1})
+            dd = rr.json()
+            if dd.get("status") == 1:
+                logger.info("2captcha hcaptcha: token recebido (id=%s)", cap_id)
+                return dd["request"]
+            if dd.get("request") != "CAPCHA_NOT_READY":
+                raise CaptchaError(f"2captcha res.php (hcaptcha) erro: {dd.get('request')}")
+            time.sleep(5)
+    raise CaptchaError("2captcha hcaptcha: timeout aguardando solução")
+
+
 def saldo() -> float | None:
     """Saldo da conta 2captcha (USD). None se sem chave/erro."""
     key = os.getenv("TWOCAPTCHA_API_KEY", "").strip()
