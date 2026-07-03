@@ -267,6 +267,39 @@ def _push_backend(res):
         pass
 
 
+def _debug_detalhe(page):
+    """Descobre como abrir uma mensagem: dumpa os elementos clicáveis + tenta clicar a 1ª."""
+    try:
+        page.goto("https://det.sit.trabalho.gov.br/caixapostal", wait_until="networkidle", timeout=40000)
+        page.wait_for_timeout(3000)
+    except Exception:
+        pass
+    # dump de elementos das linhas de mensagem
+    info = page.evaluate("""()=>{
+      const out={rows:[], links:[], botoes:[]};
+      document.querySelectorAll('tr, .lista-mensagem, [class*=mensagem], [class*=item]').forEach((el,i)=>{
+        if(i<8){ const t=(el.innerText||'').trim().slice(0,60); if(t) out.rows.push({tag:el.tagName, cls:el.className.slice(0,40), txt:t}); }
+      });
+      document.querySelectorAll('a[href],button').forEach((el,i)=>{ if(i<20){ const t=(el.innerText||'').trim().slice(0,30); const h=el.getAttribute('href')||''; if(t||h.includes('mensag')||h.includes('comunic')) out.links.push({txt:t, href:h.slice(0,60), id:el.id}); }});
+      return out;
+    }""")
+    # tenta clicar na 1ª mensagem (assunto)
+    detalhe = ""
+    novas_paginas = []
+    page.context.on("page", lambda p: novas_paginas.append(p.url))
+    for sel in ["a:has-text('FGTS')", "a:has-text('Notificação')", "tr:has-text('FGTS')", "[class*=assunto]"]:
+        try:
+            el = page.locator(sel).first
+            if el.count() > 0:
+                el.click(timeout=6000); page.wait_for_timeout(4000)
+                detalhe = page.locator("body").inner_text()[:1200]
+                break
+        except Exception:
+            continue
+    return {"ok": True, "url": page.url, "dom": info, "detalhe": detalhe,
+            "novas_paginas": novas_paginas, "downloads_hint": "ver se abriu PDF/nova aba"}
+
+
 def _loop_comandos(ctx, page):
     """Mantém a sessão VIVA e processa comandos NA MESMA THREAD (Playwright é thread-affine).
     Keep-alive: ping a cada 5 min; auto-coleta+push ao ERP a cada 30 min."""
@@ -280,6 +313,10 @@ def _loop_comandos(ctx, page):
         if cmd == "coletar":
             try: _RES["coletar"] = _ler_caixa(page)
             except Exception as e: _RES["coletar"] = {"ok": False, "msg": f"erro: {e}"}
+            _RES_EVT.set()
+        elif cmd == "debug_detalhe":
+            try: _RES["debug"] = _debug_detalhe(page)
+            except Exception as e: _RES["debug"] = {"ok": False, "msg": f"erro: {e}"}
             _RES_EVT.set()
         elif cmd == "parar":
             break
@@ -346,17 +383,34 @@ def coletar():
     return {"ok": False, "msg": "timeout na leitura"}
 
 
+@app.post("/debug/detalhe")
+def debug_detalhe():
+    if _LIVE.get("page") is None or not _estado.get("logado"):
+        return {"ok": False, "msg": "sem sessao viva"}
+    _RES_EVT.clear(); _RES.pop("debug", None)
+    _CMD.put("debug_detalhe")
+    if _RES_EVT.wait(timeout=90):
+        return _RES.get("debug", {"ok": False})
+    return {"ok": False, "msg": "timeout"}
+
+
 @app.get("/health")
 def health():
     return {"ok": True, "perfil": os.path.isdir(PROFILE) and bool(os.listdir(PROFILE))}
 
 
 def _auto_login_boot():
-    """Auto-login no boot se já existe perfil (sessão persistente) — mantém sempre logado."""
+    """Watchdog: mantém o DET SEMPRE logado. Re-tenta o login até passar (captcha é inconsistente)."""
     time.sleep(5)
-    if os.path.isdir(PROFILE) and os.listdir(PROFILE) and not _estado["login_em_andamento"]:
-        _estado["ultima_msg"] = "auto-login no boot…"
-        _fluxo_login()
+    while True:
+        if not _estado.get("logado") and not _estado.get("login_em_andamento"):
+            if os.path.isdir(PROFILE) and os.listdir(PROFILE):
+                _estado["ultima_msg"] = "watchdog: tentando login…"
+                try:
+                    _fluxo_login()   # bloqueia enquanto logado (loop de comandos); volta se cair
+                except Exception:
+                    pass
+        time.sleep(60)   # se caiu/falhou, tenta de novo em 1 min
 
 
 if __name__ == "__main__":
