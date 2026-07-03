@@ -254,10 +254,24 @@ def _fluxo_login():
         _estado["login_em_andamento"] = False
 
 
+def _push_backend(res):
+    """Empurra as mensagens lidas pro ERP (auto-coleta periódica)."""
+    try:
+        msgs = res.get("mensagens") if isinstance(res, dict) else None
+        if not msgs:
+            return
+        httpx.post(f"{BACKEND}/api/v1/juridico/det/ingest-robo",
+                   headers={"x-robo-token": os.environ.get("DET_ROBO_TOKEN", "conecta-det-robo-2026")},
+                   json={"mensagens": msgs}, timeout=30)
+    except Exception:
+        pass
+
+
 def _loop_comandos(ctx, page):
     """Mantém a sessão VIVA e processa comandos NA MESMA THREAD (Playwright é thread-affine).
-    Keep-alive: a cada 5 min dá um ping no DET pra sessão não expirar."""
+    Keep-alive: ping a cada 5 min; auto-coleta+push ao ERP a cada 30 min."""
     prox_ping = time.time() + 300
+    prox_coleta = time.time() + 60   # 1ª coleta automática 1 min após o login
     while True:
         try:
             cmd = _CMD.get(timeout=30)
@@ -269,6 +283,15 @@ def _loop_comandos(ctx, page):
             _RES_EVT.set()
         elif cmd == "parar":
             break
+        # AUTO-COLETA periódica: lê a caixa e empurra ao ERP a cada 30 min
+        if time.time() >= prox_coleta:
+            prox_coleta = time.time() + 1800
+            try:
+                res = _ler_caixa(page)
+                _push_backend(res)
+                _estado["ultima_msg"] = f"auto-coleta: {res.get('total', 0)} mensagens enviadas ao ERP"
+            except Exception:
+                pass
         # keep-alive periódico
         if time.time() >= prox_ping:
             prox_ping = time.time() + 300

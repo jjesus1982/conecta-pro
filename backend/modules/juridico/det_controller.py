@@ -65,6 +65,30 @@ async def listar(
     return {"comunicacoes": await DET.listar_comunicacoes(db, limit=limit)}
 
 
+import os as _os2  # noqa: E402
+
+from fastapi import Header  # noqa: E402
+
+_DET_ROBO_TOKEN = _os2.environ.get("DET_ROBO_TOKEN", "conecta-det-robo-2026")
+
+
+@router.post("/ingest-robo")
+async def ingest_robo(
+    payload: dict,
+    x_robo_token: str = Header(default=""),
+    db: AsyncSession = Depends(get_db),
+):
+    """Endpoint INTERNO — o robô empurra as mensagens lidas do DET (auto-coleta periódica).
+
+    Sem auth de usuário (rede interna), protegido por token compartilhado.
+    """
+    if x_robo_token != _DET_ROBO_TOKEN:
+        raise HTTPException(status_code=403, detail="token inválido")
+    novos = await DET.registrar_do_robo(db, payload.get("mensagens") or [])
+    await db.commit()
+    return {"ok": True, "registradas": novos}
+
+
 @router.post("/coletar")
 async def coletar(
     current_user=Depends(get_current_active_user),
