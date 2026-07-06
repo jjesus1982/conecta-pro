@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { TrendingUp, ArrowRight, Loader2, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { PageHeader } from '@/components/ui/page-header';
 import { toast } from 'sonner';
 
 const API_BASE = '/api/v1/people-management/human-resources';
@@ -82,13 +83,11 @@ export default function CarreiraPage() {
 
   return (
     <div className="space-y-6 pb-28">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <TrendingUp className="h-6 w-6" />
-          Planos de Carreira
-        </h1>
-        <p className="text-muted-foreground">Desenvolvimento e progressao dos colaboradores</p>
-      </div>
+      <PageHeader
+        icon={<TrendingUp className="h-5 w-5" />}
+        title="Planos de Carreira"
+        subtitle="Desenvolvimento e progressao dos colaboradores"
+      />
 
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />

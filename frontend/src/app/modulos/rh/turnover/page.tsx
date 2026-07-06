@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Users, AlertTriangle, AlertCircle, CheckCircle, XOctagon, Loader2, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { PageHeader } from '@/components/ui/page-header';
 import { toast } from 'sonner';
 
 const API_BASE = '/api/v1/people-management/human-resources';
@@ -97,13 +98,11 @@ export default function TurnoverPage() {
 
   return (
     <div className="space-y-6 pb-28">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Users className="h-6 w-6" />
-          Previsao de Turnover
-        </h1>
-        <p className="text-muted-foreground">Analise preditiva de risco de desligamento</p>
-      </div>
+      <PageHeader
+        icon={<Users className="h-5 w-5" />}
+        title="Previsao de Turnover"
+        subtitle="Analise preditiva de risco de desligamento"
+      />
 
       {loading ? (
         <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
@@ -115,7 +114,7 @@ export default function TurnoverPage() {
                 <Card>
                   <CardContent className="pt-6">
                     <p className="text-sm text-muted-foreground">Taxa de Turnover</p>
-                    <p className="text-3xl font-bold text-blue-400">{dashboardData.turnover_rate}%</p>
+                    <p className="font-data text-2xl font-semibold tabular-nums text-blue-400">{dashboardData.turnover_rate}%</p>
                     <p className="text-xs text-muted-foreground mt-1">Meta: {'<'} 5%</p>
                   </CardContent>
                 </Card>
@@ -126,7 +125,7 @@ export default function TurnoverPage() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-sm text-muted-foreground">{d.nivel}</p>
-                        <p className={`text-3xl font-bold ${d.cor}`}>{d.count}</p>
+                        <p className={`font-data text-2xl font-semibold tabular-nums ${d.cor}`}>{d.count}</p>
                         <p className="text-xs text-muted-foreground mt-1">colaboradores</p>
                       </div>
                       <div className={`h-10 w-10 rounded-lg ${d.bgCor} flex items-center justify-center`}>
@@ -147,7 +146,7 @@ export default function TurnoverPage() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-sm text-muted-foreground">{d.nivel}</p>
-                        <p className={`text-3xl font-bold ${d.cor}`}>{d.count}</p>
+                        <p className={`font-data text-2xl font-semibold tabular-nums ${d.cor}`}>{d.count}</p>
                         <p className="text-xs text-muted-foreground mt-1">colaboradores</p>
                       </div>
                       <div className={`h-10 w-10 rounded-lg ${d.bgCor} flex items-center justify-center`}>

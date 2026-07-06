@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Loader2, User, FileText, Calendar, ChevronRight, CheckCircle2, XCircle, Edit, Save, X, Download } from 'lucide-react';
+import { ArrowLeft, Loader2, User, FileText, Calendar, ChevronRight, CheckCircle2, XCircle, Circle, Edit, Save, X, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -183,7 +183,7 @@ export default function AdmissaoDetalhePage() {
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div>
-          <h1 className="text-2xl font-bold">{String(data.candidate_name || 'Candidato')}</h1>
+          <h1 className="font-display text-2xl font-semibold">{String(data.candidate_name || 'Candidato')}</h1>
           <p className="text-muted-foreground">Processo de admissão</p>
         </div>
         <Badge className={st.color}>{st.label}</Badge>
@@ -431,7 +431,7 @@ export default function AdmissaoDetalhePage() {
                           if (res.ok) { toast.success(`${doc.replace(/_/g, ' ')} ${!done ? 'marcado' : 'desmarcado'}`, { duration: 3000 }); loadData(); }
                         } catch { /* */ }
                       }}>
-                        <span className={done ? 'text-green-600' : 'text-muted-foreground'}>{done ? '✓' : '○'}</span>
+                        <span className={done ? 'text-green-600' : 'text-muted-foreground'}>{done ? <CheckCircle2 className="h-4 w-4" /> : <Circle className="h-4 w-4" />}</span>
                         <span className={done ? '' : 'text-muted-foreground'}>{doc.replace(/_/g, ' ')}</span>
                       </button>
                     ))}

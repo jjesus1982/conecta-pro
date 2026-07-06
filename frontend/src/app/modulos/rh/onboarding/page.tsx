@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { UserPlus, CheckCircle, Loader2, Search, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
 import { toast } from 'sonner';
 
 const API_BASE = '/api/v1/people-management/human-resources';
@@ -94,37 +96,20 @@ export default function OnboardingPage() {
 
   return (
     <div className="space-y-6 pb-28">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <UserPlus className="h-6 w-6" />
-          Onboarding de Novos Colaboradores
-        </h1>
-        <p className="text-muted-foreground">Acompanhamento da integracao de novos colaboradores</p>
-      </div>
+      <PageHeader
+        icon={<UserPlus className="h-5 w-5" />}
+        title="Onboarding de Novos Colaboradores"
+        subtitle="Acompanhamento da integracao de novos colaboradores"
+      />
 
       {loading ? (
         <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
       ) : (
         <>
           <div className="grid gap-4 md:grid-cols-3">
-            <Card>
-              <CardContent className="pt-6">
-                <p className="text-sm text-muted-foreground">Em Onboarding</p>
-                <p className="text-2xl font-bold">{inProgress}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <p className="text-sm text-muted-foreground">Concluidos</p>
-                <p className="text-2xl font-bold">{completed}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <p className="text-sm text-muted-foreground">Progresso Medio</p>
-                <p className="text-2xl font-bold">{avgProgress}%</p>
-              </CardContent>
-            </Card>
+            <StatCard label="Em Onboarding" value={inProgress} />
+            <StatCard label="Concluidos" value={completed} />
+            <StatCard label="Progresso Medio" value={`${avgProgress}%`} />
           </div>
 
           {pendencias.length > 0 && (

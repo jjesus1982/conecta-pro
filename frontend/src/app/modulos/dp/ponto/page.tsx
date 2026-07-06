@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { StatCard } from '@/components/ui/stat-card';
 
 const API_BASE = '/api/v1/people-management';
 
@@ -265,10 +266,10 @@ export default function PontoPage() {
   const atrasos = registros.filter(r => r.status === 'atraso' || r.status === 'late').length;
 
   const summaryCards = [
-    { title: 'Total Registros', value: `${totalRegistros}`, icon: Clock, color: 'text-blue-600', bgColor: 'bg-blue-50' },
-    { title: 'Horas Extras', value: `${horasExtras}`, icon: Clock, color: 'text-green-600', bgColor: 'bg-green-50' },
-    { title: 'Faltas', value: `${faltas}`, icon: AlertTriangle, color: 'text-red-600', bgColor: 'bg-red-50' },
-    { title: 'Atrasos', value: `${atrasos}`, icon: AlertTriangle, color: 'text-yellow-600', bgColor: 'bg-yellow-50' },
+    { title: 'Total Registros', value: `${totalRegistros}`, icon: Clock, color: '#2563eb' },
+    { title: 'Horas Extras', value: `${horasExtras}`, icon: Clock, color: '#16a34a' },
+    { title: 'Faltas', value: `${faltas}`, icon: AlertTriangle, color: '#dc2626' },
+    { title: 'Atrasos', value: `${atrasos}`, icon: AlertTriangle, color: '#ca8a04' },
   ];
 
   return (
@@ -279,7 +280,7 @@ export default function PontoPage() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
+            <h1 className="font-display text-2xl font-semibold flex items-center gap-2">
               <Clock className="h-6 w-6" />
               Ponto Eletrônico
             </h1>
@@ -424,19 +425,13 @@ export default function PontoPage() {
           {/* Summary Cards */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             {summaryCards.map((card) => (
-              <Card key={card.title}>
-                <CardContent className="pt-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-muted-foreground">{card.title}</p>
-                      <p className="text-2xl font-bold">{card.value}</p>
-                    </div>
-                    <div className={`h-10 w-10 rounded-lg ${card.bgColor} flex items-center justify-center`}>
-                      <card.icon className={`h-5 w-5 ${card.color}`} />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+              <StatCard
+                key={card.title}
+                icon={<card.icon className="h-4 w-4" />}
+                label={card.title}
+                value={card.value}
+                color={card.color}
+              />
             ))}
           </div>
 

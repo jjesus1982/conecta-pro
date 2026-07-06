@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  Users, ArrowLeft, Search, Loader2, AlertTriangle, CheckCircle2, Edit, Save, X,
+  Users, ArrowLeft, Search, Loader2, AlertTriangle, CheckCircle2, XCircle, Edit, Save, X,
   ChevronLeft, ChevronRight, User, FileText, MapPin, Building2, CreditCard, Shield, RefreshCw,
   Minus, Plus,
 } from 'lucide-react';
@@ -13,6 +13,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
 import { BotaoGerarContrato } from '@/app/modulos/gestao-pessoas/dp/components/BotaoGerarContrato';
 import { BotaoAvisoPrevioFerias } from '@/app/modulos/gestao-pessoas/dp/components/BotaoAvisoPrevioFerias';
 import { useCctCargos, cargoLabel } from '@/hooks/hr/useCctCargos';
@@ -398,43 +400,36 @@ export default function FuncionariosPage() {
   return (
     <div className="space-y-6 pb-28">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <PageHeader
+        icon={<Users className="h-5 w-5" />}
+        title="Cadastro de Funcionários"
+        subtitle="Complete os dados para eSocial e obrigações trabalhistas"
+        actions={(
           <Button variant="ghost" size="sm" onClick={() => router.push('/modulos/dp')}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <Users className="h-6 w-6" />
-              Cadastro de Funcionários
-            </h1>
-            <p className="text-muted-foreground">Complete os dados para eSocial e obrigações trabalhistas</p>
-          </div>
-        </div>
-      </div>
+        )}
+      />
 
       {/* Stats — Bug #3: These auto-update because they depend on enriched which depends on employees */}
       <div className="grid gap-4 md:grid-cols-4">
-        <Card><CardContent className="pt-6">
-          <p className="text-sm text-muted-foreground">Total</p>
-          <p className="text-2xl font-bold">{enriched.length}</p>
-        </CardContent></Card>
-        <Card className="cursor-pointer hover:shadow-md" onClick={() => setFilterComplete('complete')}>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Cadastro Completo</p>
-            <p className="text-2xl font-bold text-green-600">{statsComplete}</p>
-          </CardContent>
-        </Card>
-        <Card className="cursor-pointer hover:shadow-md" onClick={() => setFilterComplete('incomplete')}>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Dados Incompletos</p>
-            <p className="text-2xl font-bold text-yellow-600">{statsIncomplete}</p>
-          </CardContent>
-        </Card>
-        <Card><CardContent className="pt-6">
-          <p className="text-sm text-muted-foreground">Completude Média</p>
-          <p className={`text-2xl font-bold ${avgPercent >= 80 ? 'text-green-600' : avgPercent >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>{avgPercent}%</p>
-        </CardContent></Card>
+        <StatCard label="Total" value={enriched.length} />
+        <StatCard
+          label="Cadastro Completo"
+          value={<span className="text-green-600">{statsComplete}</span>}
+          color="#16a34a"
+          onClick={() => setFilterComplete('complete')}
+        />
+        <StatCard
+          label="Dados Incompletos"
+          value={<span className="text-yellow-600">{statsIncomplete}</span>}
+          color="#ca8a04"
+          onClick={() => setFilterComplete('incomplete')}
+        />
+        <StatCard
+          label="Completude Média"
+          value={<span className={avgPercent >= 80 ? 'text-green-600' : avgPercent >= 50 ? 'text-yellow-600' : 'text-red-600'}>{avgPercent}%</span>}
+        />
       </div>
 
       {/* Bug #2: Error state with retry */}
@@ -625,7 +620,7 @@ export default function FuncionariosPage() {
                               <td className="px-3 py-2 text-right">{d.percentual != null ? `${d.percentual}%` : '-'}</td>
                               <td className="px-3 py-2 text-center">{d.parcela_atual && d.total_parcelas ? `${d.parcela_atual}/${d.total_parcelas}` : d.total_parcelas || '-'}</td>
                               <td className="px-3 py-2">{d.data_inicio || '-'} {d.data_fim ? `a ${d.data_fim}` : ''}</td>
-                              <td className="px-3 py-2 text-center">{d.ativo ? '✓' : '✗'}</td>
+                              <td className="px-3 py-2 text-center">{d.ativo ? <CheckCircle2 className="h-4 w-4 text-green-600 inline" /> : <XCircle className="h-4 w-4 text-red-500 inline" />}</td>
                             </tr>
                           ))}
                         </tbody>

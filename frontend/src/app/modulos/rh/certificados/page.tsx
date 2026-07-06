@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Award, AlertTriangle, CheckCircle, XCircle, Loader2, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { PageHeader } from '@/components/ui/page-header';
 import { toast } from 'sonner';
 
 const API_BASE = '/api/v1/people-management/human-resources';
@@ -99,13 +100,11 @@ export default function CertificadosPage() {
 
   return (
     <div className="space-y-6 pb-28">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Award className="h-6 w-6" />
-          Certificados
-        </h1>
-        <p className="text-muted-foreground">Controle de certificados dos colaboradores</p>
-      </div>
+      <PageHeader
+        icon={<Award className="h-5 w-5" />}
+        title="Certificados"
+        subtitle="Controle de certificados dos colaboradores"
+      />
 
       {loading ? (
         <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Heart, Loader2, Search, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { PageHeader } from '@/components/ui/page-header';
 import { toast } from 'sonner';
 
 const API_BASE = '/api/v1/people-management/human-resources';
@@ -96,13 +97,11 @@ export default function ClimaPage() {
 
   return (
     <div className="space-y-6 pb-28">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Heart className="h-6 w-6" />
-          Clima Organizacional
-        </h1>
-        <p className="text-muted-foreground">Pesquisas e indicadores de clima</p>
-      </div>
+      <PageHeader
+        icon={<Heart className="h-5 w-5" />}
+        title="Clima Organizacional"
+        subtitle="Pesquisas e indicadores de clima"
+      />
 
       {loading ? (
         <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>

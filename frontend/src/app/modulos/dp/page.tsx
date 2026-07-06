@@ -7,6 +7,8 @@ import {
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
 
 const API_BASE = '/api/v1/people-management/hr';
 
@@ -63,10 +65,10 @@ export default function DPDashboardPage() {
   }, []);
 
   const statCards = [
-    { title: 'Colaboradores Ativos', value: loading ? '...' : stats.employees, subtitle: 'Total no sistema', icon: Users, color: 'text-blue-600', bgColor: 'bg-blue-50' },
-    { title: 'Admissões Pendentes', value: loading ? '...' : stats.admissions, subtitle: 'Processos em aberto', icon: UserPlus, color: 'text-green-600', bgColor: 'bg-green-50' },
-    { title: 'Férias em Andamento', value: loading ? '...' : stats.vacations, subtitle: 'Colaboradores em férias', icon: Sun, color: 'text-orange-600', bgColor: 'bg-orange-50' },
-    { title: 'Folha Bruta Est. (R$)', value: loading ? '...' : stats.payroll, subtitle: 'Soma salários base — estimado', icon: DollarSign, color: 'text-purple-600', bgColor: 'bg-purple-50' },
+    { title: 'Colaboradores Ativos', value: loading ? '...' : stats.employees, subtitle: 'Total no sistema', icon: Users, color: '#2563eb' },
+    { title: 'Admissões Pendentes', value: loading ? '...' : stats.admissions, subtitle: 'Processos em aberto', icon: UserPlus, color: '#16a34a' },
+    { title: 'Férias em Andamento', value: loading ? '...' : stats.vacations, subtitle: 'Colaboradores em férias', icon: Sun, color: '#ea580c' },
+    { title: 'Folha Bruta Est. (R$)', value: loading ? '...' : stats.payroll, subtitle: 'Soma salários base — estimado', icon: DollarSign, color: '#9333ea' },
   ];
 
   const navCards = [
@@ -86,32 +88,22 @@ export default function DPDashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Users className="h-6 w-6" />
-          Departamento Pessoal
-        </h1>
-        <p className="text-muted-foreground">
-          Gestão completa de colaboradores, folha, ponto e benefícios
-        </p>
-      </div>
+      <PageHeader
+        icon={<Users className="h-5 w-5" />}
+        title="Departamento Pessoal"
+        subtitle="Gestão completa de colaboradores, folha, ponto e benefícios"
+      />
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {statCards.map((card) => (
-          <Card key={card.title}>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">{card.title}</p>
-                  <p className="text-2xl font-bold">{card.value}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{card.subtitle}</p>
-                </div>
-                <div className={`h-10 w-10 rounded-lg ${card.bgColor} flex items-center justify-center`}>
-                  <card.icon className={`h-5 w-5 ${card.color}`} />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <StatCard
+            key={card.title}
+            icon={<card.icon className="h-4 w-4" />}
+            label={card.title}
+            value={card.value}
+            sub={card.subtitle}
+            color={card.color}
+          />
         ))}
       </div>
 

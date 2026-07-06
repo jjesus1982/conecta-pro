@@ -9,6 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
 
 const API_BASE = '/api/v1/people-management/hr';
 
@@ -115,59 +117,41 @@ export default function AdmissaoPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button type="button" variant="ghost" size="sm" onClick={() => router.push('/modulos/dp')}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <UserPlus className="h-6 w-6" />
-              Admissão de Colaboradores
-            </h1>
-            <p className="text-muted-foreground">Gerencie processos de admissão</p>
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => setFiltroStatus('todos')}>
-            <Filter className="h-4 w-4 mr-1" /> Todos
-          </Button>
-          <Button type="button" size="sm" onClick={() => setShowForm(true)}><UserPlus className="h-4 w-4 mr-1" /> Nova Admissão</Button>
-        </div>
-      </div>
+      <PageHeader
+        icon={<UserPlus className="h-5 w-5" />}
+        title="Admissão de Colaboradores"
+        subtitle="Gerencie processos de admissão"
+        actions={(
+          <>
+            <Button type="button" variant="ghost" size="sm" onClick={() => router.push('/modulos/dp')}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => setFiltroStatus('todos')}>
+              <Filter className="h-4 w-4 mr-1" /> Todos
+            </Button>
+            <Button type="button" size="sm" onClick={() => setShowForm(true)}><UserPlus className="h-4 w-4 mr-1" /> Nova Admissão</Button>
+          </>
+        )}
+      />
 
       {/* Cards de estatísticas */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4" aria-label="Estatísticas de admissão">
-        <Card>
-          <CardContent className="pt-4">
-            <p className="text-sm text-muted-foreground">Total</p>
-            <p className="text-2xl font-bold">{loading ? '...' : admissoes.length}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <p className="text-sm text-muted-foreground">Em Andamento</p>
-            <p className="text-2xl font-bold text-blue-500">
-              {loading ? '...' : admissoes.filter(a => ['in_progress', 'documents_pending', 'medical_exam', 'contract_signing'].includes(a.status)).length}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <p className="text-sm text-muted-foreground">Concluídas</p>
-            <p className="text-2xl font-bold text-green-500">
-              {loading ? '...' : admissoes.filter(a => a.status === 'completed').length}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <p className="text-sm text-muted-foreground">Canceladas</p>
-            <p className="text-2xl font-bold text-red-500">
-              {loading ? '...' : admissoes.filter(a => a.status === 'cancelled').length}
-            </p>
-          </CardContent>
-        </Card>
+        <StatCard label="Total" value={loading ? '...' : admissoes.length} />
+        <StatCard
+          label="Em Andamento"
+          value={<span className="text-blue-500">{loading ? '...' : admissoes.filter(a => ['in_progress', 'documents_pending', 'medical_exam', 'contract_signing'].includes(a.status)).length}</span>}
+          color="#3b82f6"
+        />
+        <StatCard
+          label="Concluídas"
+          value={<span className="text-green-500">{loading ? '...' : admissoes.filter(a => a.status === 'completed').length}</span>}
+          color="#22c55e"
+        />
+        <StatCard
+          label="Canceladas"
+          value={<span className="text-red-500">{loading ? '...' : admissoes.filter(a => a.status === 'cancelled').length}</span>}
+          color="#ef4444"
+        />
       </div>
 
       <div className="flex gap-2 flex-wrap">

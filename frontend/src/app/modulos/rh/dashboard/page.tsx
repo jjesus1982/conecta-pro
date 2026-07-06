@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { BarChart3, Users, TrendingDown, Clock, Smile, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
 import { toast } from 'sonner';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -128,38 +130,30 @@ export default function DashboardRHPage() {
   }, []);
 
   const kpis = [
-    { title: 'Headcount', value: loading ? '...' : stats.headcount, subtitle: 'Total ativo', icon: Users, color: 'text-blue-600', bgColor: 'bg-blue-50' },
-    { title: 'Turnover Rate', value: loading ? '...' : stats.turnoverRate, subtitle: 'Meta: < 5%', icon: TrendingDown, color: 'text-green-600', bgColor: 'bg-green-50' },
-    { title: 'Tempo Medio Contratacao', value: loading ? '...' : stats.avgHireTime, subtitle: 'Meta: 15 dias', icon: Clock, color: 'text-orange-600', bgColor: 'bg-orange-50' },
-    { title: 'Satisfacao', value: loading ? '...' : stats.satisfaction, subtitle: 'Pesquisa de clima', icon: Smile, color: 'text-purple-600', bgColor: 'bg-purple-50' },
+    { title: 'Headcount', value: loading ? '...' : stats.headcount, subtitle: 'Total ativo', icon: Users, color: '#2563eb' },
+    { title: 'Turnover Rate', value: loading ? '...' : stats.turnoverRate, subtitle: 'Meta: < 5%', icon: TrendingDown, color: '#16a34a' },
+    { title: 'Tempo Medio Contratacao', value: loading ? '...' : stats.avgHireTime, subtitle: 'Meta: 15 dias', icon: Clock, color: '#ea580c' },
+    { title: 'Satisfacao', value: loading ? '...' : stats.satisfaction, subtitle: 'Pesquisa de clima', icon: Smile, color: '#9333ea' },
   ];
 
   return (
     <div className="space-y-6 pb-28">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <BarChart3 className="h-6 w-6" />
-          Dashboard de RH
-        </h1>
-        <p className="text-muted-foreground">Indicadores e metricas de Recursos Humanos</p>
-      </div>
+      <PageHeader
+        icon={<BarChart3 className="h-5 w-5" />}
+        title="Dashboard de RH"
+        subtitle="Indicadores e metricas de Recursos Humanos"
+      />
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {kpis.map((kpi) => (
-          <Card key={kpi.title}>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">{kpi.title}</p>
-                  <p className="text-2xl font-bold">{kpi.value}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{kpi.subtitle}</p>
-                </div>
-                <div className={`h-10 w-10 rounded-lg ${kpi.bgColor} flex items-center justify-center`}>
-                  <kpi.icon className={`h-5 w-5 ${kpi.color}`} />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <StatCard
+            key={kpi.title}
+            icon={<kpi.icon className="h-4 w-4" />}
+            label={kpi.title}
+            value={kpi.value}
+            sub={kpi.subtitle}
+            color={kpi.color}
+          />
         ))}
       </div>
 

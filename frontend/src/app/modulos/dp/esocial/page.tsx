@@ -8,6 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
 
 const API_BASE_GOV = '/api/v1/government';
 const API_BASE_HR = '/api/v1/people-management/hr';
@@ -241,28 +243,24 @@ export default function ESocialPage() {
 
   return (
     <div className="space-y-6 pb-28">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button type="button" variant="ghost" size="sm" onClick={() => router.push('/modulos/dp')}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <ShieldCheck className="h-6 w-6" />
-              eSocial - Eventos
-            </h1>
-            <p className="text-muted-foreground">Gestão de eventos e obrigações do eSocial</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => setRefreshKey(k => k + 1)}>
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-          <Button type="button" size="sm" disabled={pendentes === 0} onClick={() => setShowConfirm(true)}>
-            <Send className="h-4 w-4 mr-1" /> Enviar Pendentes ({pendentes})
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        icon={<ShieldCheck className="h-5 w-5" />}
+        title="eSocial - Eventos"
+        subtitle="Gestão de eventos e obrigações do eSocial"
+        actions={(
+          <>
+            <Button type="button" variant="ghost" size="sm" onClick={() => router.push('/modulos/dp')}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => setRefreshKey(k => k + 1)}>
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+            <Button type="button" size="sm" disabled={pendentes === 0} onClick={() => setShowConfirm(true)}>
+              <Send className="h-4 w-4 mr-1" /> Enviar Pendentes ({pendentes})
+            </Button>
+          </>
+        )}
+      />
 
       {/* Confirm send dialog */}
       {showConfirm && (
@@ -293,58 +291,34 @@ export default function ESocialPage() {
         <>
           {/* Status summary cards */}
           <div className="grid gap-4 md:grid-cols-4">
-            <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setFiltroStatus(filtroStatus === 'pendente' ? 'todos' : 'pendente')}>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Pendentes</p>
-                    <p className="text-2xl font-bold text-yellow-600">{pendentes}</p>
-                  </div>
-                  <div className="h-10 w-10 rounded-lg bg-yellow-50 flex items-center justify-center">
-                    <AlertTriangle className="h-5 w-5 text-yellow-600" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setFiltroStatus(filtroStatus === 'enviado' ? 'todos' : 'enviado')}>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Enviados</p>
-                    <p className="text-2xl font-bold text-blue-600">{enviados}</p>
-                  </div>
-                  <div className="h-10 w-10 rounded-lg bg-blue-50 flex items-center justify-center">
-                    <Send className="h-5 w-5 text-blue-600" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setFiltroStatus(filtroStatus === 'aceito' ? 'todos' : 'aceito')}>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Aceitos</p>
-                    <p className="text-2xl font-bold text-green-600">{aceitos}</p>
-                  </div>
-                  <div className="h-10 w-10 rounded-lg bg-green-50 flex items-center justify-center">
-                    <ShieldCheck className="h-5 w-5 text-green-600" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setFiltroStatus(filtroStatus === 'rejeitado' ? 'todos' : 'rejeitado')}>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Rejeitados</p>
-                    <p className="text-2xl font-bold text-red-600">{rejeitados}</p>
-                  </div>
-                  <div className="h-10 w-10 rounded-lg bg-red-50 flex items-center justify-center">
-                    <X className="h-5 w-5 text-red-600" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <StatCard
+              icon={<AlertTriangle className="h-4 w-4" />}
+              label="Pendentes"
+              value={<span className="text-yellow-600">{pendentes}</span>}
+              color="#ca8a04"
+              onClick={() => setFiltroStatus(filtroStatus === 'pendente' ? 'todos' : 'pendente')}
+            />
+            <StatCard
+              icon={<Send className="h-4 w-4" />}
+              label="Enviados"
+              value={<span className="text-blue-600">{enviados}</span>}
+              color="#2563eb"
+              onClick={() => setFiltroStatus(filtroStatus === 'enviado' ? 'todos' : 'enviado')}
+            />
+            <StatCard
+              icon={<ShieldCheck className="h-4 w-4" />}
+              label="Aceitos"
+              value={<span className="text-green-600">{aceitos}</span>}
+              color="#16a34a"
+              onClick={() => setFiltroStatus(filtroStatus === 'aceito' ? 'todos' : 'aceito')}
+            />
+            <StatCard
+              icon={<X className="h-4 w-4" />}
+              label="Rejeitados"
+              value={<span className="text-red-600">{rejeitados}</span>}
+              color="#dc2626"
+              onClick={() => setFiltroStatus(filtroStatus === 'rejeitado' ? 'todos' : 'rejeitado')}
+            />
           </div>
 
           {/* Filter badges - by tipo */}

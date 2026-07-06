@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { PageHeader } from '@/components/ui/page-header';
 
 const API_BASE = '/api/v1/people-management/hr';
 
@@ -279,28 +280,24 @@ export default function BeneficiosPage() {
 
   return (
     <div className="space-y-6 pb-28">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-3">
-          <Button type="button" variant="ghost" size="sm" onClick={() => router.push('/modulos/dp')}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <Gift className="h-6 w-6" />
-              Gestão de Benefícios
-            </h1>
-            <p className="text-muted-foreground">Benefícios oferecidos aos colaboradores</p>
-          </div>
-        </div>
-        <div className="flex gap-2 flex-shrink-0">
-          <Button type="button" variant="outline" size="sm" onClick={() => { setFiltroStatus('todos'); setFiltroType('todos'); }}>
-            <Filter className="h-4 w-4 mr-1" /> Todos
-          </Button>
-          <Button type="button" size="sm" className="whitespace-nowrap" onClick={() => { resetForm(); setShowForm(true); }}>
-            <Plus className="h-4 w-4 mr-1" /> Novo Benefício
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        icon={<Gift className="h-5 w-5" />}
+        title="Gestão de Benefícios"
+        subtitle="Benefícios oferecidos aos colaboradores"
+        actions={(
+          <>
+            <Button type="button" variant="ghost" size="sm" onClick={() => router.push('/modulos/dp')}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => { setFiltroStatus('todos'); setFiltroType('todos'); }}>
+              <Filter className="h-4 w-4 mr-1" /> Todos
+            </Button>
+            <Button type="button" size="sm" className="whitespace-nowrap" onClick={() => { resetForm(); setShowForm(true); }}>
+              <Plus className="h-4 w-4 mr-1" /> Novo Benefício
+            </Button>
+          </>
+        )}
+      />
 
       {/* Status filter badges */}
       <div className="flex gap-2 flex-wrap">

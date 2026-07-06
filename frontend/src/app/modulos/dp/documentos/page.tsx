@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { PageHeader } from '@/components/ui/page-header';
 
 const API_BASE = '/api/v1/people-management/hr';
 const GED_UPLOAD_URL = '/api/v1/ged/documents/upload';
@@ -155,28 +156,24 @@ export default function DocumentosPage() {
 
   return (
     <div className="space-y-6 pb-28">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button type="button" variant="ghost" size="sm" onClick={() => router.push('/modulos/dp')}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <FolderOpen className="h-6 w-6" />
-              Documentos de Colaboradores
-            </h1>
-            <p className="text-muted-foreground">Gestão de documentos dos colaboradores</p>
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => setFiltroStatus('todos')}>
-            <Filter className="h-4 w-4 mr-1" /> Todos
-          </Button>
-          <Button type="button" size="sm" onClick={() => setShowForm(true)}>
-            <Upload className="h-4 w-4 mr-1" /> Upload Documento
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        icon={<FolderOpen className="h-5 w-5" />}
+        title="Documentos de Colaboradores"
+        subtitle="Gestão de documentos dos colaboradores"
+        actions={(
+          <>
+            <Button type="button" variant="ghost" size="sm" onClick={() => router.push('/modulos/dp')}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => setFiltroStatus('todos')}>
+              <Filter className="h-4 w-4 mr-1" /> Todos
+            </Button>
+            <Button type="button" size="sm" onClick={() => setShowForm(true)}>
+              <Upload className="h-4 w-4 mr-1" /> Upload Documento
+            </Button>
+          </>
+        )}
+      />
 
       {/* Status filter badges */}
       <div className="flex gap-2 flex-wrap">

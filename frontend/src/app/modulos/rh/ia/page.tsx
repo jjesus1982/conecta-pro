@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Brain, UserCheck, Users, Heart, CalendarClock, CheckCircle, Clock, AlertCircle, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { PageHeader } from '@/components/ui/page-header';
 
 const API_HR = '/api/v1/people-management/hr';
 const API_RH = '/api/v1/people-management/human-resources';
@@ -101,13 +102,11 @@ export default function IAPage() {
 
   return (
     <div className="space-y-6 pb-28">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Brain className="h-6 w-6" />
-          Inteligencia Artificial de Pessoas
-        </h1>
-        <p className="text-muted-foreground">12 AI Skills integradas a gestao de pessoas</p>
-      </div>
+      <PageHeader
+        icon={<Brain className="h-5 w-5" />}
+        title="Inteligencia Artificial de Pessoas"
+        subtitle="12 AI Skills integradas a gestao de pessoas"
+      />
 
       <div className="grid gap-4 md:grid-cols-2">
         {features.map((f) => (

@@ -8,6 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
 
 const API_BASE = '/api/v1/people-management';
 
@@ -257,52 +259,48 @@ export default function FolhaPage() {
 
   return (
     <div className="space-y-6 pb-28">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button type="button" variant="ghost" size="sm" onClick={() => router.push('/modulos/dp')}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <DollarSign className="h-6 w-6" />
-              Folha de Pagamento
-            </h1>
-            <p className="text-muted-foreground">Folha salarial e encargos trabalhistas</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            type="month"
-            value={periodo}
-            onChange={(e) => setPeriodo(e.target.value)}
-            className="rounded-md border px-3 py-2 text-sm bg-background"
-          />
-          <Button
-            type="button"
-            size="sm"
-            disabled={calculating}
-            onClick={handleCalculatePayroll}
-          >
-            {calculating ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Calculator className="h-4 w-4 mr-1" />}
-            {calculating ? 'Calculando...' : 'Calcular Folha'}
-          </Button>
-          {hasPublishedPayslips && (
+      <PageHeader
+        icon={<DollarSign className="h-5 w-5" />}
+        title="Folha de Pagamento"
+        subtitle="Folha salarial e encargos trabalhistas"
+        actions={(
+          <>
+            <Button type="button" variant="ghost" size="sm" onClick={() => router.push('/modulos/dp')}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <input
+              type="month"
+              value={periodo}
+              onChange={(e) => setPeriodo(e.target.value)}
+              className="rounded-md border px-3 py-2 text-sm bg-background"
+            />
             <Button
               type="button"
               size="sm"
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-              disabled={loading}
-              onClick={handleOpenPixModal}
+              disabled={calculating}
+              onClick={handleCalculatePayroll}
             >
-              <Banknote className="h-4 w-4 mr-1" />
-              💸 Pagar em Lote (PIX)
+              {calculating ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Calculator className="h-4 w-4 mr-1" />}
+              {calculating ? 'Calculando...' : 'Calcular Folha'}
             </Button>
-          )}
-          <Button type="button" variant="outline" size="sm" onClick={() => setRefreshKey(k => k + 1)}>
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
+            {hasPublishedPayslips && (
+              <Button
+                type="button"
+                size="sm"
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+                disabled={loading}
+                onClick={handleOpenPixModal}
+              >
+                <Banknote className="h-4 w-4 mr-1" />
+                💸 Pagar em Lote (PIX)
+              </Button>
+            )}
+            <Button type="button" variant="outline" size="sm" onClick={() => setRefreshKey(k => k + 1)}>
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+          </>
+        )}
+      />
 
       {loading ? (
         <div className="flex items-center justify-center py-12">
@@ -316,7 +314,7 @@ export default function FolhaPage() {
               <Card key={card.title}>
                 <CardContent className="pt-6">
                   <p className="text-sm text-muted-foreground">{card.title}</p>
-                  <p className={`text-xl font-bold ${card.color}`}>{card.value}</p>
+                  <p className={`font-data text-2xl font-semibold tabular-nums ${card.color}`}>{card.value}</p>
                 </CardContent>
               </Card>
             ))}
@@ -470,11 +468,11 @@ export default function FolhaPage() {
               <>
                 <div className="grid grid-cols-2 gap-3 mb-4">
                   <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 text-center">
-                    <p className="text-2xl font-bold text-blue-600">{pixSimulacao.prontos_para_pagar}</p>
+                    <p className="font-data text-2xl font-semibold tabular-nums text-blue-600">{pixSimulacao.prontos_para_pagar}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">Funcionários prontos</p>
                   </div>
                   <div className="bg-green-50 dark:bg-green-950/30 rounded-lg p-3 text-center">
-                    <p className="text-xl font-bold text-green-600">{fmt(pixSimulacao.total_valor)}</p>
+                    <p className="font-data text-2xl font-semibold tabular-nums text-green-600">{fmt(pixSimulacao.total_valor)}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">Total a pagar</p>
                   </div>
                 </div>

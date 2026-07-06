@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { PageHeader } from '@/components/ui/page-header';
 
 const API_BASE = '/api/v1/people-management/hr';
 
@@ -374,29 +375,25 @@ export default function FeriasPage() {
   return (
     <div className="space-y-6 pb-28">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button type="button" variant="ghost" size="sm" onClick={() => router.push('/modulos/dp')}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <Sun className="h-6 w-6" />
-              Gestão de Férias
-            </h1>
-            <p className="text-muted-foreground">Programação e controle de férias dos colaboradores</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" size="sm" variant="outline" onClick={handleSyncSolides} disabled={syncingSolides}>
-            {syncingSolides ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Calendar className="h-4 w-4 mr-1" />}
-            Sync Sólides
-          </Button>
-          <Button type="button" size="sm" onClick={() => setShowForm(true)}>
-            <Plus className="h-4 w-4 mr-1" /> Solicitar Férias
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        icon={<Sun className="h-5 w-5" />}
+        title="Gestão de Férias"
+        subtitle="Programação e controle de férias dos colaboradores"
+        actions={(
+          <>
+            <Button type="button" variant="ghost" size="sm" onClick={() => router.push('/modulos/dp')}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={handleSyncSolides} disabled={syncingSolides}>
+              {syncingSolides ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Calendar className="h-4 w-4 mr-1" />}
+              Sync Sólides
+            </Button>
+            <Button type="button" size="sm" onClick={() => setShowForm(true)}>
+              <Plus className="h-4 w-4 mr-1" /> Solicitar Férias
+            </Button>
+          </>
+        )}
+      />
 
       {/* Status Summary Cards */}
       <div className="grid gap-4 md:grid-cols-4">
@@ -405,7 +402,7 @@ export default function FeriasPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Total</p>
-                <p className="text-2xl font-bold">{statusCounts.total}</p>
+                <p className="font-data text-2xl font-semibold tabular-nums">{statusCounts.total}</p>
               </div>
               <Calendar className="h-8 w-8 text-muted-foreground" />
             </div>
@@ -416,7 +413,7 @@ export default function FeriasPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Pendentes</p>
-                <p className="text-2xl font-bold text-yellow-600">{statusCounts.pendente}</p>
+                <p className="font-data text-2xl font-semibold tabular-nums text-yellow-600">{statusCounts.pendente}</p>
               </div>
               <Clock className="h-8 w-8 text-yellow-500" />
             </div>
@@ -427,7 +424,7 @@ export default function FeriasPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Aprovadas</p>
-                <p className="text-2xl font-bold text-green-600">{statusCounts.aprovado}</p>
+                <p className="font-data text-2xl font-semibold tabular-nums text-green-600">{statusCounts.aprovado}</p>
               </div>
               <CheckCircle className="h-8 w-8 text-green-500" />
             </div>
@@ -438,7 +435,7 @@ export default function FeriasPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Rejeitadas</p>
-                <p className="text-2xl font-bold text-red-600">{statusCounts.rejeitado}</p>
+                <p className="font-data text-2xl font-semibold tabular-nums text-red-600">{statusCounts.rejeitado}</p>
               </div>
               <XCircle className="h-8 w-8 text-red-500" />
             </div>

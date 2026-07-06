@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { ClipboardCheck, Plus, Star, Loader2, X, Save, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
 import { toast } from 'sonner';
 
 const API_BASE = '/api/v1/people-management/human-resources';
@@ -100,16 +101,12 @@ export default function AvaliacoesPage() {
 
   return (
     <div className="space-y-6 pb-28">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <ClipboardCheck className="h-6 w-6" />
-            Avaliacoes de Desempenho
-          </h1>
-          <p className="text-muted-foreground">Ciclos de avaliacao e acompanhamento</p>
-        </div>
-        <Button onClick={() => setShowForm(true)}><Plus className="h-4 w-4 mr-2" />Iniciar Ciclo de Avaliacao</Button>
-      </div>
+      <PageHeader
+        icon={<ClipboardCheck className="h-5 w-5" />}
+        title="Avaliacoes de Desempenho"
+        subtitle="Ciclos de avaliacao e acompanhamento"
+        actions={<Button onClick={() => setShowForm(true)}><Plus className="h-4 w-4 mr-2" />Iniciar Ciclo de Avaliacao</Button>}
+      />
 
       {showForm && (
         <Card>
@@ -194,7 +191,7 @@ export default function AvaliacoesPage() {
                     <p className="text-sm text-muted-foreground">{total} avaliacoes registradas</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-2xl font-bold">{pct}%</p>
+                    <p className="font-data text-2xl font-semibold tabular-nums">{pct}%</p>
                     <p className="text-xs text-muted-foreground">{concluidas}/{total} concluidas</p>
                   </div>
                 </div>

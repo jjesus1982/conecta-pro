@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { PageHeader } from '@/components/ui/page-header';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -304,32 +305,28 @@ export default function AvisoPrevioPage() {
   return (
     <div className="space-y-6 p-6 pb-28">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => router.push('/modulos/dp')}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <CalendarClock className="h-6 w-6" />
-              Aviso Prévio
-            </h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Controle de avisos prévios trabalhados e indenizados — Art. 487 CLT
-            </p>
-          </div>
-        </div>
-        <Button onClick={() => { setForm({ employee_id: '', tipo: 'trabalhado', notice_start_date: new Date().toISOString().slice(0, 10) }); setDias(30); setModal(true); }}>
-          <CalendarClock className="h-4 w-4 mr-2" />
-          Novo Aviso Prévio
-        </Button>
-      </div>
+      <PageHeader
+        icon={<CalendarClock className="h-5 w-5" />}
+        title="Aviso Prévio"
+        subtitle="Controle de avisos prévios trabalhados e indenizados — Art. 487 CLT"
+        actions={(
+          <>
+            <Button variant="ghost" size="sm" onClick={() => router.push('/modulos/dp')}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <Button onClick={() => { setForm({ employee_id: '', tipo: 'trabalhado', notice_start_date: new Date().toISOString().slice(0, 10) }); setDias(30); setModal(true); }}>
+              <CalendarClock className="h-4 w-4 mr-2" />
+              Novo Aviso Prévio
+            </Button>
+          </>
+        )}
+      />
 
       {/* Cards resumo */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card>
           <CardContent className="pt-6">
-            <div className="flex items-center gap-2 text-2xl font-bold text-blue-600">
+            <div className="flex items-center gap-2 font-data text-2xl font-semibold tabular-nums text-blue-600">
               <Clock className="h-5 w-5" />
               {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : ativos}
             </div>
@@ -338,7 +335,7 @@ export default function AvisoPrevioPage() {
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <div className="flex items-center gap-2 text-2xl font-bold text-orange-500">
+            <div className="flex items-center gap-2 font-data text-2xl font-semibold tabular-nums text-orange-500">
               <AlertTriangle className="h-5 w-5" />
               {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : vencendo}
             </div>
@@ -347,7 +344,7 @@ export default function AvisoPrevioPage() {
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <div className="flex items-center gap-2 text-2xl font-bold text-green-600">
+            <div className="flex items-center gap-2 font-data text-2xl font-semibold tabular-nums text-green-600">
               <CheckCircle className="h-5 w-5" />
               {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : concluidos}
             </div>

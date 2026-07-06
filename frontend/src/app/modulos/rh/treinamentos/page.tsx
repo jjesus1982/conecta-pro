@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { GraduationCap, Plus, MapPin, Loader2, X, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
 import { toast } from 'sonner';
 
 const API_BASE = '/api/v1/people-management/human-resources';
@@ -120,16 +121,12 @@ export default function TreinamentosPage() {
 
   return (
     <div className="space-y-6 pb-28">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <GraduationCap className="h-6 w-6" />
-            Treinamentos
-          </h1>
-          <p className="text-muted-foreground">Agenda e gestao de treinamentos</p>
-        </div>
-        <Button onClick={() => setShowModal(true)}><Plus className="h-4 w-4 mr-2" />Agendar Treinamento</Button>
-      </div>
+      <PageHeader
+        icon={<GraduationCap className="h-5 w-5" />}
+        title="Treinamentos"
+        subtitle="Agenda e gestao de treinamentos"
+        actions={<Button onClick={() => setShowModal(true)}><Plus className="h-4 w-4 mr-2" />Agendar Treinamento</Button>}
+      />
 
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />

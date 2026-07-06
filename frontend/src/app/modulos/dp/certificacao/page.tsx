@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { PageHeader } from '@/components/ui/page-header';
 
 const API_BASE = '/api/v1/people-management';
 
@@ -108,15 +109,17 @@ export default function CertificacaoPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="sm" onClick={() => router.back()}><ArrowLeft className="h-4 w-4" /></Button>
-        <ShieldCheck className="h-6 w-6 text-green-600" />
-        <div>
-          <h1 className="text-2xl font-bold">Certificação Humana</h1>
-          <p className="text-sm text-muted-foreground">O trabalho humano de conferir e certificar — nada de risco jurídico vai a produção sem sua assinatura.</p>
-        </div>
-        <Button variant="outline" size="sm" className="ml-auto" onClick={fetchCerts}><RefreshCw className="h-4 w-4 mr-1" />Atualizar</Button>
-      </div>
+      <PageHeader
+        icon={<ShieldCheck className="h-5 w-5" />}
+        title="Certificação Humana"
+        subtitle="O trabalho humano de conferir e certificar — nada de risco jurídico vai a produção sem sua assinatura."
+        actions={(
+          <>
+            <Button variant="ghost" size="sm" onClick={() => router.back()}><ArrowLeft className="h-4 w-4" /></Button>
+            <Button variant="outline" size="sm" onClick={fetchCerts}><RefreshCw className="h-4 w-4 mr-1" />Atualizar</Button>
+          </>
+        )}
+      />
 
       <div className="flex flex-wrap items-center gap-2">
         {['pendente', 'certificado', 'rejeitado', ''].map((s) => (
