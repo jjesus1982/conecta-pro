@@ -14,6 +14,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { PageHeader } from '@/components/ui/page-header';
 
 interface SubModule {
   title: string;
@@ -98,12 +99,12 @@ export default function GestaoPessoasPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Gestao de Pessoas</h1>
-        <p className="text-gray-500 mt-1">
-          Gerencie todos os processos de departamento pessoal, recursos humanos e documentacao
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="PESSOAS"
+        title="Gestao de Pessoas"
+        subtitle="Gerencie todos os processos de departamento pessoal, recursos humanos e documentacao"
+        icon={<Users className="w-5 h-5" />}
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {subModules.map((mod) => {

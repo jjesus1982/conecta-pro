@@ -6,6 +6,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
 import { customInstance } from '@/lib/api-client';
 import { useCRMDashboardKpis } from '@/hooks/crm';
 import { formatCurrency } from '@/lib/utils';
@@ -95,47 +97,38 @@ export default function CRMDashboardPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Users className="h-6 w-6" />
-            CRM
-          </h1>
-          <p className="text-muted-foreground">Gestao de relacionamento com clientes</p>
-        </div>
-        <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-          Atualizar
-        </Button>
-      </div>
+      <PageHeader
+        eyebrow="COMERCIAL"
+        title="CRM"
+        subtitle="Gestao de relacionamento com clientes"
+        icon={<Users className="w-5 h-5" />}
+        actions={
+          <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            Atualizar
+          </Button>
+        }
+      />
 
       {/* KPI Summary */}
       {kpiData && (
         <div className="grid gap-4 md:grid-cols-3">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-sm text-muted-foreground">Win Rate</div>
-              <div className="text-2xl font-bold text-green-600">
-                {kpiData.opportunities_win_rate ? `${(kpiData.opportunities_win_rate * 100).toFixed(1)}%` : '0%'}
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-sm text-muted-foreground">Ticket Medio</div>
-              <div className="text-2xl font-bold">
-                {formatCurrency(kpiData.avg_deal_size || 0)}
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-sm text-muted-foreground">Ciclo Medio</div>
-              <div className="text-2xl font-bold">
-                {kpiData.avg_sales_cycle_days || 0} dias
-              </div>
-            </CardContent>
-          </Card>
+          <StatCard
+            icon={<Target className="w-4 h-4" />}
+            color="#16a34a"
+            label="Win Rate"
+            value={kpiData.opportunities_win_rate ? `${(kpiData.opportunities_win_rate * 100).toFixed(1)}%` : '0%'}
+          />
+          <StatCard
+            icon={<Users className="w-4 h-4" />}
+            label="Ticket Medio"
+            value={formatCurrency(kpiData.avg_deal_size || 0)}
+          />
+          <StatCard
+            icon={<Clock className="w-4 h-4" />}
+            label="Ciclo Medio"
+            value={`${kpiData.avg_sales_cycle_days || 0} dias`}
+          />
         </div>
       )}
 
@@ -155,7 +148,7 @@ export default function CRMDashboardPage() {
               <card.icon className={`h-5 w-5 ${card.color}`} />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{isLoading ? '...' : card.value}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums">{isLoading ? '...' : card.value}</div>
               <p className="text-xs text-muted-foreground mt-1">{card.subtitle}</p>
               <div className="flex items-center gap-1 mt-2 text-xs text-primary">
                 <span>Acessar</span>

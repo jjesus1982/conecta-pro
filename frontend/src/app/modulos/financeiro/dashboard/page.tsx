@@ -4,11 +4,14 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   DollarSign, TrendingUp, Users, Receipt, FileText, Building2,
   RefreshCw, Calendar, ArrowUpRight, ArrowDownRight,
+  Landmark, CheckCircle2, Clock, AlertTriangle,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
@@ -265,133 +268,85 @@ export default function DashboardFinanceiroPage() {
   return (
     <div className="space-y-6 p-1">
       {/* ── Header ── */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-[hsl(var(--foreground))]">Dashboard Financeiro</h1>
-          <p className="text-sm text-[hsl(var(--muted-foreground))]">
-            Dados reais das NFS-e — CONECTAMAIS ELETRONICA LTDA
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Select value={periodo} onValueChange={setPeriodo} aria-label="Periodo">
-            <SelectTrigger className="w-[180px]">
-              <Calendar className="h-4 w-4 mr-2" />
-              <SelectValue placeholder="Período" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos os meses</SelectItem>
-              {sortedMeses.map(m => (
-                <SelectItem key={m.competencia} value={m.competencia}>
-                  {new Date(m.competencia + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button variant="outline" size="sm" onClick={loadData} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
-            Atualizar
-          </Button>
-          {lastUpdate && (
-            <span className="text-xs text-[hsl(var(--muted-foreground))]">
-              {lastUpdate}
-            </span>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="FINANCEIRO"
+        title="Dashboard Financeiro"
+        subtitle="Dados reais das NFS-e — CONECTAMAIS ELETRONICA LTDA"
+        icon={<DollarSign className="w-5 h-5" />}
+        actions={
+          <>
+            <Select value={periodo} onValueChange={setPeriodo} aria-label="Periodo">
+              <SelectTrigger className="w-[180px]">
+                <Calendar className="h-4 w-4 mr-2" />
+                <SelectValue placeholder="Período" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos os meses</SelectItem>
+                {sortedMeses.map(m => (
+                  <SelectItem key={m.competencia} value={m.competencia}>
+                    {new Date(m.competencia + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="sm" onClick={loadData} disabled={loading}>
+              <RefreshCw className={`h-4 w-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
+              Atualizar
+            </Button>
+            {lastUpdate && (
+              <span className="text-xs text-[hsl(var(--muted-foreground))]">
+                {lastUpdate}
+              </span>
+            )}
+          </>
+        }
+      />
 
       {/* ── KPI Cards ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="border-l-4 border-l-emerald-500">
-          <CardContent className="pt-4 pb-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
-                  Faturamento Bruto
-                </p>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">{fmt(filteredBruto)}</p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">
-                  {filteredNfse} NFS-e emitidas
-                </p>
-              </div>
-              <div className="rounded-full bg-emerald-500/10 p-3">
-                <DollarSign className="h-6 w-6 text-emerald-500" />
-              </div>
-            </div>
-            {variacaoMes !== 0 && periodo === 'todos' && (
-              <div className={`flex items-center gap-1 mt-2 text-xs ${variacaoMes >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                {variacaoMes >= 0 ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-                {Math.abs(variacaoMes).toFixed(1)}% vs mês anterior
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <StatCard
+          icon={<DollarSign className="w-4 h-4" />}
+          color="#10b981"
+          label="Faturamento Bruto"
+          value={fmt(filteredBruto)}
+          sub={`${filteredNfse} NFS-e emitidas`}
+          change={variacaoMes !== 0 && periodo === 'todos' ? Number(variacaoMes.toFixed(1)) : undefined}
+        />
 
-        <Card className="border-l-4 border-l-blue-500">
-          <CardContent className="pt-4 pb-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
-                  Faturamento Líquido
-                </p>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">{fmt(filteredLiquido)}</p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">
-                  Após retenção ISS
-                </p>
-              </div>
-              <div className="rounded-full bg-blue-500/10 p-3">
-                <TrendingUp className="h-6 w-6 text-blue-500" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <StatCard
+          icon={<TrendingUp className="w-4 h-4" />}
+          color="#3b82f6"
+          label="Faturamento Líquido"
+          value={fmt(filteredLiquido)}
+          sub="Após retenção ISS"
+        />
 
-        <Card className="border-l-4 border-l-amber-500">
-          <CardContent className="pt-4 pb-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
-                  ISS Retido
-                </p>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">{fmt(filteredIss)}</p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">
-                  Alíquota 5%
-                </p>
-              </div>
-              <div className="rounded-full bg-amber-500/10 p-3">
-                <Receipt className="h-6 w-6 text-amber-500" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <StatCard
+          icon={<Receipt className="w-4 h-4" />}
+          color="#f59e0b"
+          label="ISS Retido"
+          value={fmt(filteredIss)}
+          sub="Alíquota 5%"
+        />
 
-        <Card className="border-l-4 border-l-violet-500">
-          <CardContent className="pt-4 pb-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
-                  Ticket Médio
-                </p>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">{fmt(mrrTotal / (totais.clientes_ativos || 1))}</p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">
-                  {totais.clientes_ativos} clientes ativos
-                </p>
-              </div>
-              <div className="rounded-full bg-violet-500/10 p-3">
-                <Users className="h-6 w-6 text-violet-500" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <StatCard
+          icon={<Users className="w-4 h-4" />}
+          color="#8b5cf6"
+          label="Ticket Médio"
+          value={fmt(mrrTotal / (totais.clientes_ativos || 1))}
+          sub={`${totais.clientes_ativos} clientes ativos`}
+        />
       </div>
 
       {/* ── Alerta Lucro Real — Saídas sem justificativa ── */}
       {justifData && justifData.total > 0 && (
         <div className="bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800 rounded-xl p-4 flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-orange-800 dark:text-orange-300">
-              ⚠️ Saídas sem justificativa fiscal (Lucro Real)
+            <p className="text-sm font-medium text-orange-800 dark:text-orange-300 flex items-center gap-1.5">
+              <AlertTriangle className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+              Saídas sem justificativa fiscal (Lucro Real)
             </p>
-            <p className="text-2xl font-bold text-orange-600 dark:text-orange-400 mt-0.5">
+            <p className="font-data text-2xl font-semibold tabular-nums text-orange-600 dark:text-orange-400 mt-0.5">
               {justifData.total} transações pendentes
             </p>
             <p className="text-xs text-orange-600 dark:text-orange-400 mt-0.5">
@@ -416,7 +371,7 @@ export default function DashboardFinanceiroPage() {
                 <p className="text-sm font-medium text-[hsl(var(--muted-foreground))]">
                   Saldo Bancario Consolidado
                 </p>
-                <p className="text-3xl font-bold text-blue-500 mt-1">{fmt(bankBalance.total)}</p>
+                <p className="font-data text-2xl font-semibold tabular-nums text-blue-500 mt-1">{fmt(bankBalance.total)}</p>
                 <div className="flex gap-4 mt-1">
                   {bankBalance.banks.map((b) => (
                     <span key={b.name} className="text-xs text-[hsl(var(--muted-foreground))]">
@@ -443,7 +398,7 @@ export default function DashboardFinanceiroPage() {
                   <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
                     Contas a Pagar
                   </p>
-                  <p className="text-2xl font-bold text-red-500 mt-1">{fmt(dreData.contas_a_pagar.valor)}</p>
+                  <p className="font-data text-2xl font-semibold tabular-nums text-red-500 mt-1">{fmt(dreData.contas_a_pagar.valor)}</p>
                   <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">
                     {dreData.contas_a_pagar.total} contas · {dreData.contas_a_pagar.vencidas} vencidas
                   </p>
@@ -461,7 +416,7 @@ export default function DashboardFinanceiroPage() {
                   <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
                     Contas a Receber
                   </p>
-                  <p className="text-2xl font-bold text-emerald-500 mt-1">{fmt(dreData.contas_a_receber.valor)}</p>
+                  <p className="font-data text-2xl font-semibold tabular-nums text-emerald-500 mt-1">{fmt(dreData.contas_a_receber.valor)}</p>
                   <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">
                     {dreData.contas_a_receber.total} contas · {dreData.contas_a_receber.vencidas} vencidas
                   </p>
@@ -479,7 +434,7 @@ export default function DashboardFinanceiroPage() {
                   <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
                     Resultado DRE (mês)
                   </p>
-                  <p className={`text-2xl font-bold mt-1 ${dreData.dre.resultado_liquido >= 0 ? 'text-blue-500' : 'text-red-500'}`}>
+                  <p className={`font-data text-2xl font-semibold tabular-nums mt-1 ${dreData.dre.resultado_liquido >= 0 ? 'text-blue-500' : 'text-red-500'}`}>
                     {fmt(dreData.dre.resultado_liquido)}
                   </p>
                   <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">
@@ -503,7 +458,7 @@ export default function DashboardFinanceiroPage() {
               <p className="text-sm font-medium text-[hsl(var(--muted-foreground))]">
                 Faturamento Mensal Recorrente (MRR)
               </p>
-              <p className="text-3xl font-bold text-emerald-500 mt-1">
+              <p className="font-data text-2xl font-semibold tabular-nums text-emerald-500 mt-1">
                 {fmt(mrrPreviewData?.total_mrr ?? mrrTotal)}
               </p>
               <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
@@ -744,8 +699,8 @@ export default function DashboardFinanceiroPage() {
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center justify-between">
             <span className="flex items-center gap-2">
-              <DollarSign className="h-4 w-4 text-green-500" />
-              🏦 Últimas transações — Banco Inter
+              <Landmark className="h-4 w-4 text-green-500" />
+              Últimas transações — Banco Inter
             </span>
             <a
               href="/modulos/financeiro/banking"
@@ -776,9 +731,9 @@ export default function DashboardFinanceiroPage() {
                     </div>
                     <div className="flex items-center gap-2 ml-2">
                       {tx.reconciliado ? (
-                        <span className="text-xs text-emerald-500">✅</span>
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
                       ) : (
-                        <span className="text-xs text-amber-500">⏳</span>
+                        <Clock className="w-3.5 h-3.5 text-amber-500" />
                       )}
                       <span className={`text-sm font-medium ${
                         isCredit ? 'text-emerald-500' : 'text-red-500'}`}>

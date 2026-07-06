@@ -1,6 +1,6 @@
 'use client';
 
-import { Shield, MapPin, Calendar, Users, Clock, ChevronRight, ArrowLeft, Search, Plus, AlertCircle, CheckCircle, UserCheck, FileWarning, Navigation, TrendingUp, TrendingDown, Activity, FileText, CalendarCheck, AlertTriangle, Brain } from 'lucide-react';
+import { Shield, MapPin, Calendar, Users, Clock, ChevronRight, ArrowLeft, Search, Plus, AlertCircle, CheckCircle, CheckCircle2, XCircle, UserCheck, FileWarning, Navigation, TrendingUp, TrendingDown, Activity, FileText, CalendarCheck, AlertTriangle, Brain } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -16,6 +16,8 @@ import { useKPITrends } from '@/hooks/useKPITrends';
 import { KPIWidget, KPIWidgetSkeleton } from '@/components/ui/kpi-widget';
 import { OperacionalTourProvider } from '@/features/onboarding/components/OperacionalTourProvider';
 import { TourTrigger } from '@/features/onboarding/components/TourTrigger';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
 
 // Sub-módulos do Operacional
 const subModules = [
@@ -171,41 +173,25 @@ export default function OperacionalPage() {
   return (
     <OperacionalTourProvider userRole="USUARIO" autoStart={false} showNotification={false}>
     <div className="min-h-screen bg-grid">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-[hsl(var(--background))]/80 backdrop-blur-xl border-b border-[hsl(var(--border))]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-4">
+      {/* Main content */}
+      <main className="py-6">
+        <PageHeader
+          eyebrow="OPERACIONAL"
+          title="Operacional"
+          subtitle="Gestao de postos, escalas e alocacoes"
+          icon={<Shield className="w-5 h-5" />}
+          actions={
+            <>
               <Link href="/dashboard">
                 <Button variant="ghost" size="sm">
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Voltar
                 </Button>
               </Link>
-              <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
-                  <Shield className="w-5 h-5 text-green-500" />
-                </div>
-                <div>
-                  <h1 className="text-lg font-semibold text-[hsl(var(--foreground))]">
-                    Operacional
-                  </h1>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                    Gestao de postos, escalas e alocacoes
-                  </p>
-                </div>
-              </div>
-            </div>
-            {/* Tour trigger button */}
-            <div className="flex items-center gap-2">
               <TourTrigger variant="menu-item" />
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Main content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            </>
+          }
+        />
         {/* KPIs Estratégicos */}
         <div className="mb-8" data-tour="dashboard-kpis">
           <h2 className="text-lg font-semibold text-[hsl(var(--foreground))] mb-4">
@@ -338,69 +324,34 @@ export default function OperacionalPage() {
             Visão Geral Rápida
           </h2>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <Link href="/modulos/operacional/postos">
-            <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4 hover:border-[hsl(var(--primary))] hover:shadow-lg transition-all duration-200 cursor-pointer">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center">
-                  <MapPin className="w-5 h-5 text-cyan-500" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
-                    {stats?.total || 0}
-                  </p>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">Postos</p>
-                </div>
-              </div>
-            </div>
-          </Link>
-
-          <Link href="/modulos/operacional/postos">
-            <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4 hover:border-[hsl(var(--primary))] hover:shadow-lg transition-all duration-200 cursor-pointer">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
-                  <CheckCircle className="w-5 h-5 text-green-500" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
-                    {stats?.filled || 0}
-                  </p>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">Preenchidos</p>
-                </div>
-              </div>
-            </div>
-          </Link>
-
-          <Link href="/modulos/operacional/postos">
-            <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4 hover:border-[hsl(var(--primary))] hover:shadow-lg transition-all duration-200 cursor-pointer">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-orange-500/10 flex items-center justify-center">
-                  <AlertCircle className="w-5 h-5 text-orange-500" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
-                    {stats?.with_vacancy || 0}
-                  </p>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">Com vagas</p>
-                </div>
-              </div>
-            </div>
-          </Link>
-
-          <Link href="/modulos/operacional/alocacoes">
-            <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4 hover:border-[hsl(var(--primary))] hover:shadow-lg transition-all duration-200 cursor-pointer">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                  <Users className="w-5 h-5 text-blue-500" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
-                    {stats?.total_allocated || 0}
-                  </p>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">Alocados</p>
-                </div>
-              </div>
-            </div>
-          </Link>
+            <StatCard
+              icon={<MapPin className="w-4 h-4" />}
+              color="#06b6d4"
+              label="Postos"
+              value={stats?.total || 0}
+              onClick={() => router.push('/modulos/operacional/postos')}
+            />
+            <StatCard
+              icon={<CheckCircle className="w-4 h-4" />}
+              color="#22c55e"
+              label="Preenchidos"
+              value={stats?.filled || 0}
+              onClick={() => router.push('/modulos/operacional/postos')}
+            />
+            <StatCard
+              icon={<AlertCircle className="w-4 h-4" />}
+              color="#f97316"
+              label="Com vagas"
+              value={stats?.with_vacancy || 0}
+              onClick={() => router.push('/modulos/operacional/postos')}
+            />
+            <StatCard
+              icon={<Users className="w-4 h-4" />}
+              color="#3b82f6"
+              label="Alocados"
+              value={stats?.total_allocated || 0}
+              onClick={() => router.push('/modulos/operacional/alocacoes')}
+            />
           </div>
         </div>
 
@@ -519,15 +470,27 @@ export default function OperacionalPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-black/20 rounded-lg p-4">
               <p className="text-xs text-zinc-500 mb-1">Status Operacional</p>
-              <p className="text-sm font-semibold text-green-400">
-                {coverageRate >= 90 ? '✓ Operação Normal' : coverageRate >= 70 ? '⚠ Atenção Necessária' : '✗ Cobertura Crítica'}
+              <p className="text-sm font-semibold text-green-400 flex items-center gap-1.5">
+                {coverageRate >= 90 ? (
+                  <><CheckCircle2 className="w-4 h-4" /> Operação Normal</>
+                ) : coverageRate >= 70 ? (
+                  <><AlertTriangle className="w-4 h-4" /> Atenção Necessária</>
+                ) : (
+                  <><XCircle className="w-4 h-4" /> Cobertura Crítica</>
+                )}
               </p>
               <p className="text-xs text-zinc-600 mt-1">{coverageRate}% de cobertura</p>
             </div>
             <div className="bg-black/20 rounded-lg p-4">
               <p className="text-xs text-zinc-500 mb-1">Risco Próximas 24h</p>
-              <p className={`text-sm font-semibold ${shiftsNeedingSubstitution > 2 ? 'text-red-400' : shiftsNeedingSubstitution > 0 ? 'text-yellow-400' : 'text-green-400'}`}>
-                {shiftsNeedingSubstitution > 2 ? '⚠ Alto' : shiftsNeedingSubstitution > 0 ? '⚠ Moderado' : '✓ Baixo'}
+              <p className={`text-sm font-semibold flex items-center gap-1.5 ${shiftsNeedingSubstitution > 2 ? 'text-red-400' : shiftsNeedingSubstitution > 0 ? 'text-yellow-400' : 'text-green-400'}`}>
+                {shiftsNeedingSubstitution > 2 ? (
+                  <><AlertTriangle className="w-4 h-4" /> Alto</>
+                ) : shiftsNeedingSubstitution > 0 ? (
+                  <><AlertTriangle className="w-4 h-4" /> Moderado</>
+                ) : (
+                  <><CheckCircle2 className="w-4 h-4" /> Baixo</>
+                )}
               </p>
               <p className="text-xs text-zinc-600 mt-1">
                 {shiftsNeedingSubstitution} {shiftsNeedingSubstitution === 1 ? 'turno em atenção' : 'turnos em atenção'}
