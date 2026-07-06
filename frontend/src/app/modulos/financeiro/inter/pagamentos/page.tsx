@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Wallet, TrendingDown, ShieldCheck, Lock } from "lucide-react";
+import { Wallet, TrendingDown, ShieldCheck, Lock, CheckCircle2, AlertTriangle } from "lucide-react";
 
 // ── tipos ─────────────────────────────────────────────────────────────────────
 
@@ -284,7 +284,7 @@ function NovoPagamentoForm({ onPrepared, saldo }: { onPrepared: () => void; sald
 
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-red-700 text-sm">
-          ⚠️ {error}
+          <AlertTriangle className="w-4 h-4 inline" /> {error}
         </div>
       )}
 
@@ -306,7 +306,7 @@ function NovoPagamentoForm({ onPrepared, saldo }: { onPrepared: () => void; sald
 
       {confirmando ? (
         <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 mb-4">
-          <p className="font-semibold text-amber-800 mb-2">⚠️ Confirme o pagamento</p>
+          <p className="font-semibold text-amber-800 mb-2 flex items-center gap-1"><AlertTriangle className="w-4 h-4" /> Confirme o pagamento</p>
           <p className="text-sm text-amber-700">
             Tipo: <strong>{TYPE_LABEL[type]}</strong> | Valor: <strong>{fmt(parseFloat(valor || "0"))}</strong>
             {type === "pix" && dest.chave && <> | Chave: <strong>{dest.chave}</strong></>}
@@ -419,7 +419,7 @@ function AprovacaoPagamento({ payment, onAction }: { payment: Payment; onAction:
         </div>
       </div>
       <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-700">
-        ⚠️ <strong>ATENÇÃO:</strong> Este pagamento será EXECUTADO imediatamente após aprovação.
+        <AlertTriangle className="w-4 h-4 inline" /> <strong>ATENÇÃO:</strong> Este pagamento será EXECUTADO imediatamente após aprovação.
         Verifique 2x os dados acima. Operação <strong>irreversível</strong>.
       </div>
 
@@ -433,7 +433,7 @@ function AprovacaoPagamento({ payment, onAction }: { payment: Payment; onAction:
         </button>
       ) : (
         <div className="space-y-3">
-          <p className="text-sm text-green-700">✅ Código enviado para jjesus@conectamais.pro. Digite o código:</p>
+          <p className="text-sm text-green-700 flex items-center gap-1"><CheckCircle2 className="w-4 h-4" /> Código enviado para jjesus@conectamais.pro. Digite o código:</p>
           <input
             type="text"
             maxLength={6}
@@ -448,13 +448,13 @@ function AprovacaoPagamento({ payment, onAction }: { payment: Payment; onAction:
               disabled={loading || otpCode.length !== 6}
               className="bg-[#FF6B35] hover:bg-orange-600 text-white px-6 py-2 rounded-lg text-sm font-bold disabled:opacity-40"
             >
-              {loading ? "Executando..." : "✅ Aprovar e Executar"}
+              {loading ? "Executando..." : <span className="inline-flex items-center gap-1"><CheckCircle2 className="w-4 h-4" /> Aprovar e Executar</span>}
             </button>
           </div>
         </div>
       )}
 
-      {error && <p className="text-red-600 text-sm mt-3">⚠️ {error}</p>}
+      {error && <p className="text-red-600 text-sm mt-3 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> {error}</p>}
 
       <button
         onClick={handleCancelar}
@@ -660,7 +660,7 @@ export default function PagamentosPage() {
       {/* Header */}
       <div style={{ background: "linear-gradient(135deg, #0A2540 0%, #1a3a5c 100%)" }}
         className="px-6 py-8 text-white">
-        <h1 className="text-2xl font-bold mb-1">Pagamentos Inter</h1>
+        <h1 className="font-display text-2xl font-semibold mb-1">Pagamentos Inter</h1>
         <p className="text-blue-200 text-sm">Módulo D7 — Operações de escrita com 2FA obrigatório</p>
       </div>
 
@@ -674,7 +674,7 @@ export default function PagamentosPage() {
           </div>
           <div>
             <p className="text-xs text-blue-300 uppercase tracking-wide">Saldo Inter</p>
-            <p className="text-xl font-bold mt-0.5">{saldo ? fmt(saldo.saldo_inter) : "—"}</p>
+            <p className="font-data text-xl font-semibold tabular-nums mt-0.5">{saldo ? fmt(saldo.saldo_inter) : "—"}</p>
             <p className="text-xs opacity-70 mt-1">Conta 370990072-2</p>
           </div>
         </div>
@@ -686,7 +686,7 @@ export default function PagamentosPage() {
           </div>
           <div>
             <p className="text-xs text-gray-500 uppercase tracking-wide">Consumido Hoje</p>
-            <p className="text-xl font-bold text-[#FF6B35] mt-0.5">{saldo ? fmt(saldo.consumido_hoje) : "—"}</p>
+            <p className="font-data text-xl font-semibold tabular-nums text-[#FF6B35] mt-0.5">{saldo ? fmt(saldo.consumido_hoje) : "—"}</p>
             <p className="text-xs text-gray-400 mt-0.5">Limite: {saldo ? fmt(saldo.limite_diario) : "—"}</p>
           </div>
         </div>
@@ -698,7 +698,7 @@ export default function PagamentosPage() {
           </div>
           <div>
             <p className="text-xs text-gray-500 uppercase tracking-wide">Limite Restante</p>
-            <p className="text-xl font-bold text-green-600 mt-0.5">{saldo ? fmt(saldo.limite_restante) : "—"}</p>
+            <p className="font-data text-xl font-semibold tabular-nums text-green-600 mt-0.5">{saldo ? fmt(saldo.limite_restante) : "—"}</p>
             <p className="text-xs text-gray-400 mt-1">disponível pra hoje</p>
           </div>
         </div>
@@ -857,7 +857,7 @@ export default function PagamentosPage() {
 
             {autoProcessarMutation.isSuccess && autoProcessarMutation.data && (
               <p className="text-sm text-green-600 mt-2">
-                ✓ {(autoProcessarMutation.data as { categorizadas: number }).categorizadas} transações categorizadas automaticamente
+                <CheckCircle2 className="w-4 h-4 inline" /> {(autoProcessarMutation.data as { categorizadas: number }).categorizadas} transações categorizadas automaticamente
               </p>
             )}
 
@@ -983,7 +983,7 @@ export default function PagamentosPage() {
                                   <span className="bg-yellow-100 text-yellow-700 text-xs px-1.5 py-0.5 rounded-full">IA{tx.confianca_sugestao !== null ? ` ${Math.round((tx.confianca_sugestao ?? 0) * 100)}%` : ""}</span>
                                 )}
                                 {tx.incluir_no_kit
-                                  ? <span className="bg-green-100 text-green-700 text-xs px-1.5 py-0.5 rounded-full">✓ Kit</span>
+                                  ? <span className="bg-green-100 text-green-700 text-xs px-1.5 py-0.5 rounded-full inline-flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Kit</span>
                                   : tx.categoria && <span className="bg-gray-100 text-gray-500 text-xs px-1.5 py-0.5 rounded-full">✗ Fora</span>}
                               </div>
                             </td>

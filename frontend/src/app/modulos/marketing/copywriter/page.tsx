@@ -5,6 +5,7 @@ import { PenLine, Sparkles, Copy, Check, Loader2, BookmarkPlus, Library } from '
 import { useState } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
+import { PageHeader } from '@/components/ui/page-header';
 
 interface Variacao { titulo: string; conteudo: string; observacao?: string; }
 interface GenResult { variacoes: Variacao[]; modelo?: string; fallback?: boolean; formato_label?: string; status?: string; }
@@ -67,15 +68,17 @@ export default function CopywriterPage() {
 
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2"><PenLine className="h-6 w-6" />Copywriter IA</h1>
-          <p className="text-gray-500">Gera conteúdo na voz da marca Conecta Mais. Você revisa e aprova — nada é publicado automaticamente.</p>
-        </div>
-        <Link href="/modulos/marketing/biblioteca" className="shrink-0 flex items-center gap-1.5 text-sm border rounded-lg px-3 py-2 hover:bg-gray-50">
-          <Library className="h-4 w-4" />Biblioteca
-        </Link>
-      </div>
+      <PageHeader
+        eyebrow="MARKETING"
+        title="Copywriter IA"
+        subtitle="Gera conteúdo na voz da marca Conecta Mais. Você revisa e aprova — nada é publicado automaticamente."
+        icon={<PenLine className="h-5 w-5" />}
+        actions={
+          <Link href="/modulos/marketing/biblioteca" className="shrink-0 flex items-center gap-1.5 text-sm border rounded-lg px-3 py-2 hover:bg-gray-50">
+            <Library className="h-4 w-4" />Biblioteca
+          </Link>
+        }
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         {/* Formulário */}

@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
 import { useAuth } from '@/hooks/useAuth';
 import { usePosts } from '@/hooks/operacional/usePosts';
 import { useCoverageReport } from '@/hooks/operacional/useReports';
@@ -85,43 +86,34 @@ export default function MapaPage() {
   return (
     <div className="p-4 md:p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Link href="/modulos/operacional">
-            <Button variant="ghost" size="icon" className="h-8 w-8">
-              <ArrowLeft className="w-4 h-4" />
+      <PageHeader
+        eyebrow="OPERACIONAL"
+        title="Mapa ao Vivo"
+        subtitle="Cobertura por região — atualiza a cada 30s"
+        icon={<Map className="w-5 h-5" />}
+        actions={
+          <>
+            <Link href="/modulos/operacional">
+              <Button variant="ghost" size="icon" className="h-8 w-8">
+                <ArrowLeft className="w-4 h-4" />
+              </Button>
+            </Link>
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/10 text-red-500 text-xs font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+              AO VIVO
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleRefresh}
+              className="h-9 w-9"
+              title="Atualizar"
+            >
+              <RefreshCw className={`w-4 h-4 ${postsLoading ? 'animate-spin' : ''}`} />
             </Button>
-          </Link>
-          <div className="flex items-center gap-2">
-            <div className="p-2 rounded-xl bg-[hsl(var(--primary))]/10">
-              <Map className="w-5 h-5 text-[hsl(var(--primary))]" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold text-[hsl(var(--foreground))]">
-                  Mapa ao Vivo
-                </h1>
-                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/10 text-red-500 text-xs font-medium">
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-                  AO VIVO
-                </span>
-              </div>
-              <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                Cobertura por região — atualiza a cada 30s
-              </p>
-            </div>
-          </div>
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={handleRefresh}
-          className="h-9 w-9"
-          title="Atualizar"
-        >
-          <RefreshCw className={`w-4 h-4 ${postsLoading ? 'animate-spin' : ''}`} />
-        </Button>
-      </div>
+          </>
+        }
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -130,21 +122,21 @@ export default function MapaPage() {
             <MapPin className="w-4 h-4 text-[hsl(var(--muted-foreground))]" />
             <span className="text-xs text-[hsl(var(--muted-foreground))]">Total Postos</span>
           </div>
-          <p className="text-2xl font-bold text-[hsl(var(--foreground))]">{stats.totalPosts}</p>
+          <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">{stats.totalPosts}</p>
         </div>
         <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
           <div className="flex items-center gap-2 mb-2">
             <CheckCircle className="w-4 h-4 text-green-500" />
             <span className="text-xs text-[hsl(var(--muted-foreground))]">Postos Ativos</span>
           </div>
-          <p className="text-2xl font-bold text-green-500">{stats.postosAtivos}</p>
+          <p className="font-data text-2xl font-semibold tabular-nums text-green-500">{stats.postosAtivos}</p>
         </div>
         <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
           <div className="flex items-center gap-2 mb-2">
             <Activity className="w-4 h-4 text-[hsl(var(--primary))]" />
             <span className="text-xs text-[hsl(var(--muted-foreground))]">Cobertura Média</span>
           </div>
-          <p className="text-2xl font-bold text-[hsl(var(--primary))]">
+          <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--primary))]">
             {stats.coberturaMedia > 0 ? `${stats.coberturaMedia.toFixed(0)}%` : '—'}
           </p>
         </div>
@@ -153,7 +145,7 @@ export default function MapaPage() {
             <AlertCircle className="w-4 h-4 text-red-500" />
             <span className="text-xs text-[hsl(var(--muted-foreground))]">Em Risco</span>
           </div>
-          <p className="text-2xl font-bold text-red-500">{stats.postosEmRisco}</p>
+          <p className="font-data text-2xl font-semibold tabular-nums text-red-500">{stats.postosEmRisco}</p>
         </div>
       </div>
 

@@ -8,6 +8,8 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ConfirmModal } from '@/components/ui/modal';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
 import { useAuth } from '@/hooks/useAuth';
 import { useAnnouncements, useAnnouncementMutations } from '@/hooks/useAnnouncements';
 import {
@@ -238,32 +240,21 @@ export default function ComunicadosPage() {
 
   return (
     <div className="min-h-screen bg-grid">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-[hsl(var(--background))]/80 backdrop-blur-xl border-b border-[hsl(var(--border))]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-4">
+      {/* Main content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <PageHeader
+          eyebrow="OPERACIONAL"
+          title="Comunicados"
+          subtitle={`${total} comunicados — ${readIds.size} lidos de ${total} total`}
+          icon={<Megaphone className="w-5 h-5" />}
+          actions={
+            <>
               <Link href="/modulos/operacional">
                 <Button variant="ghost" size="sm">
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Operacional
                 </Button>
               </Link>
-              <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                  <Megaphone className="w-5 h-5 text-blue-500" />
-                </div>
-                <div>
-                  <h1 className="text-lg font-semibold text-[hsl(var(--foreground))]">
-                    Comunicados
-                  </h1>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                    {total} comunicados &mdash; <span className="text-green-500">{readIds.size} lidos</span> de {total} total
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
               <Button variant="outline" onClick={refresh} disabled={isLoading}>
                 <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
                 Atualizar
@@ -272,62 +263,36 @@ export default function ComunicadosPage() {
                 <Plus className="w-4 h-4 mr-2" />
                 Novo Comunicado
               </Button>
-            </div>
-          </div>
-        </div>
-      </header>
+            </>
+          }
+        />
 
-      {/* Main content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Stats Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                <Megaphone className="w-5 h-5 text-blue-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">{stats.total}</p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">Total</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-gray-500/10 flex items-center justify-center">
-                <FileText className="w-5 h-5 text-gray-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">{stats.rascunhos}</p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">Rascunhos</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
-                <CheckCircle className="w-5 h-5 text-green-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">{stats.publicados}</p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">Publicados</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                <Calendar className="w-5 h-5 text-blue-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">{stats.agendados}</p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">Agendados</p>
-              </div>
-            </div>
-          </div>
+          <StatCard
+            icon={<Megaphone className="w-4 h-4" />}
+            color="#3b82f6"
+            label="Total"
+            value={stats.total}
+          />
+          <StatCard
+            icon={<FileText className="w-4 h-4" />}
+            color="#6b7280"
+            label="Rascunhos"
+            value={stats.rascunhos}
+          />
+          <StatCard
+            icon={<CheckCircle className="w-4 h-4" />}
+            color="#22c55e"
+            label="Publicados"
+            value={stats.publicados}
+          />
+          <StatCard
+            icon={<Calendar className="w-4 h-4" />}
+            color="#3b82f6"
+            label="Agendados"
+            value={stats.agendados}
+          />
         </div>
 
         {/* Templates Rapidos — exibidos apenas quando nao ha filtros ativos */}

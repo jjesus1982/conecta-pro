@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
+import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 
 interface BankTransactionDetailModalProps {
   isOpen: boolean;
@@ -193,7 +194,7 @@ export function BankTransactionDetailModal({
           <p className="text-sm text-[hsl(var(--muted-foreground))] mb-1">Valor</p>
           <p
             className={cn(
-              'text-3xl font-bold',
+              'font-data text-2xl font-semibold tabular-nums',
               transaction.transaction_type === 'credit' ? 'text-green-500' : 'text-red-500'
             )}
           >
@@ -234,7 +235,7 @@ export function BankTransactionDetailModal({
         {needsJustification && (
           <div className="mt-4 border-t border-orange-200 pt-4">
             <div className="flex items-center gap-2 mb-3">
-              <span className="text-orange-500 text-lg">⚠️</span>
+              <AlertTriangle className="w-5 h-5 text-orange-500" />
               <p className="text-sm font-medium text-orange-700">
                 Saída sem nota fiscal — Justificativa obrigatória (Lucro Real)
               </p>
@@ -322,7 +323,7 @@ export function BankTransactionDetailModal({
                     disabled={justifLoading || justifForm.descricao.length < 10}
                     className="flex-1 py-2 text-sm bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {justifLoading ? 'Salvando...' : '✅ Confirmar'}
+                    {justifLoading ? 'Salvando...' : <span className="inline-flex items-center gap-1"><CheckCircle2 className="w-4 h-4" /> Confirmar</span>}
                   </button>
                 </div>
               </div>

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Modal, ModalFooter } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Landmark } from 'lucide-react';
 
 interface ReceivableDetailModalProps {
   isOpen: boolean;
@@ -185,7 +186,7 @@ export function ReceivableDetailModal({ isOpen, onClose, receivable }: Receivabl
         <div className="grid grid-cols-2 gap-4">
           <div>
             <p className="text-sm text-[hsl(var(--muted-foreground))]">Valor</p>
-            <p className="text-xl font-bold font-mono">{formatCurrency(valor || receivable.amount)}</p>
+            <p className="text-xl font-semibold font-mono tabular-nums">{formatCurrency(valor || receivable.amount)}</p>
           </div>
           <div>
             <p className="text-sm text-[hsl(var(--muted-foreground))]">Vencimento</p>
@@ -223,7 +224,7 @@ export function ReceivableDetailModal({ isOpen, onClose, receivable }: Receivabl
         {/* Dados de cobrança existentes */}
         {(temBoleto || temPix) && !cobrancaData && (
           <div className="border-t border-gray-200 pt-4 space-y-3">
-            <p className="text-sm font-medium text-gray-700">🏦 Cobrança Inter</p>
+            <p className="text-sm font-medium text-gray-700 flex items-center gap-1"><Landmark className="w-4 h-4" /> Cobrança Inter</p>
 
             {temBoleto && (
               <div className="space-y-1">
@@ -262,7 +263,7 @@ export function ReceivableDetailModal({ isOpen, onClose, receivable }: Receivabl
         {/* Gerar nova cobrança */}
         {isPendente && (
           <div className="border-t border-gray-200 pt-4">
-            <p className="text-sm font-medium text-gray-700 mb-3">🏦 Gerar Cobrança — Banco Inter</p>
+            <p className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-1"><Landmark className="w-4 h-4" /> Gerar Cobrança — Banco Inter</p>
 
             {!cobrancaData ? (
               <div className="flex gap-2">

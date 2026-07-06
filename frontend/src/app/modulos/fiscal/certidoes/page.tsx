@@ -6,6 +6,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
 import { cn } from '@/lib/utils';
 import { emitirCnd, statusCnd, type PortalManual } from '@/services/gedeon/cndService';
 
@@ -322,44 +324,44 @@ export default function CertidoesPage() {
       )}
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-[hsl(var(--foreground))]">Certidões</h1>
-          <p className="text-sm text-[hsl(var(--muted-foreground))]">
-            Gestão de certidões negativas e regularidade fiscal
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={fetchCertidoes}
-            disabled={isLoading}
-            title="Recarregar lista"
-          >
-            <RefreshCw className={cn('w-4 h-4', isLoading && 'animate-spin')} />
-          </Button>
-          <Button
-            size="sm"
-            onClick={sincronizarTodas}
-            disabled={sincronizandoTodas || isLoading}
-          >
-            {sincronizandoTodas ? (
-              <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Sincronizando...</>
-            ) : (
-              <><RefreshCw className="w-4 h-4 mr-2" />Sincronizar Todas</>
-            )}
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => { window.location.href = '/modulos/fiscal/certidoes/emitir'; }}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white"
-            title="Emitir e baixar as CNDs automaticamente pelo Conecta PRO"
-          >
-            <Shield className="w-4 h-4 mr-2" />Emitir CNDs
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="FISCAL"
+        title="Certidões"
+        subtitle="Gestão de certidões negativas e regularidade fiscal"
+        icon={<Award className="h-5 w-5" />}
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={fetchCertidoes}
+              disabled={isLoading}
+              title="Recarregar lista"
+            >
+              <RefreshCw className={cn('w-4 h-4', isLoading && 'animate-spin')} />
+            </Button>
+            <Button
+              size="sm"
+              onClick={sincronizarTodas}
+              disabled={sincronizandoTodas || isLoading}
+            >
+              {sincronizandoTodas ? (
+                <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Sincronizando...</>
+              ) : (
+                <><RefreshCw className="w-4 h-4 mr-2" />Sincronizar Todas</>
+              )}
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => { window.location.href = '/modulos/fiscal/certidoes/emitir'; }}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              title="Emitir e baixar as CNDs automaticamente pelo Conecta PRO"
+            >
+              <Shield className="w-4 h-4 mr-2" />Emitir CNDs
+            </Button>
+          </>
+        }
+      />
 
       {/* Progresso do robô GEDEON */}
       {progresso && (
@@ -371,50 +373,30 @@ export default function CertidoesPage() {
 
       {/* Cards de resumo */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">Total</p>
-                <p className="text-2xl font-bold">{isLoading ? '…' : total}</p>
-              </div>
-              <Award className="w-8 h-8 text-blue-500 opacity-80" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">Válidas</p>
-                <p className="text-2xl font-bold text-green-600">{isLoading ? '…' : resumo.validas}</p>
-              </div>
-              <CheckCircle className="w-8 h-8 text-green-500 opacity-80" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">Vencendo 30d</p>
-                <p className="text-2xl font-bold text-yellow-600">{isLoading ? '…' : resumo.a_vencer_30d}</p>
-              </div>
-              <AlertCircle className="w-8 h-8 text-yellow-500 opacity-80" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">Vencidas</p>
-                <p className="text-2xl font-bold text-red-600">{isLoading ? '…' : resumo.vencidas}</p>
-              </div>
-              <XCircle className="w-8 h-8 text-red-500 opacity-80" />
-            </div>
-          </CardContent>
-        </Card>
+        <StatCard
+          label="Total"
+          value={isLoading ? '…' : total}
+          icon={<Award className="w-5 h-5" />}
+          color="#3b82f6"
+        />
+        <StatCard
+          label="Válidas"
+          value={isLoading ? '…' : resumo.validas}
+          icon={<CheckCircle className="w-5 h-5" />}
+          color="#16a34a"
+        />
+        <StatCard
+          label="Vencendo 30d"
+          value={isLoading ? '…' : resumo.a_vencer_30d}
+          icon={<AlertCircle className="w-5 h-5" />}
+          color="#ca8a04"
+        />
+        <StatCard
+          label="Vencidas"
+          value={isLoading ? '…' : resumo.vencidas}
+          icon={<XCircle className="w-5 h-5" />}
+          color="#dc2626"
+        />
       </div>
 
       {/* Cards por tipo */}
@@ -544,7 +526,9 @@ export default function CertidoesPage() {
                       <td className="p-3">
                         <div className="flex items-center gap-1.5">
                           {cert.alerta_ativo && (
-                            <AlertCircle className="w-3.5 h-3.5 text-red-500 shrink-0" title="Alerta ativo — renovação urgente" />
+                            <span title="Alerta ativo — renovação urgente" className="inline-flex shrink-0">
+                              <AlertCircle className="w-3.5 h-3.5 text-red-500" />
+                            </span>
                           )}
                           <p className="font-medium text-sm text-[hsl(var(--foreground))]">{cert.name}</p>
                         </div>
@@ -608,7 +592,7 @@ export default function CertidoesPage() {
                 { label: 'Validade', value: formatDate(detalhe.expiry_date) },
                 { label: 'ID', value: <span className="font-mono text-xs">{detalhe.id}</span> },
                 { label: 'Atualizado', value: formatDate(detalhe.updated_at) },
-                ...(detalhe.alerta_ativo ? [{ label: 'Alerta', value: <span className="text-red-600 font-semibold text-xs">⚠️ Renovação urgente</span> }] : []),
+                ...(detalhe.alerta_ativo ? [{ label: 'Alerta', value: <span className="inline-flex items-center gap-1 text-red-600 font-semibold text-xs"><AlertTriangle className="w-3.5 h-3.5" /> Renovação urgente</span> }] : []),
                 ...(detalhe.notes ? [{ label: 'Observações', value: detalhe.notes }] : []),
               ].map(({ label, value }) => (
                 <div key={label}>

@@ -116,7 +116,7 @@ export default function BeneficiosPortalPage() {
       {/* Header */}
       <div className="bg-white rounded-xl p-6 shadow-sm">
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-xl flex items-center gap-2">
             <Heart className="w-6 h-6 text-red-500" />
             Meus Benefícios
           </h1>
@@ -130,15 +130,15 @@ export default function BeneficiosPortalPage() {
 
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-green-50 rounded-lg p-3 text-center">
-            <p className="text-2xl font-bold text-green-600">{ativos.length}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-green-600">{ativos.length}</p>
             <p className="text-xs text-green-500">Benefícios Ativos</p>
           </div>
           <div className="bg-blue-50 rounded-lg p-3 text-center">
-            <p className="text-2xl font-bold text-blue-600">{cct.filter((b) => b.obrigatorio).length}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-blue-600">{cct.filter((b) => b.obrigatorio).length}</p>
             <p className="text-xs text-blue-500">Garantidos pela CCT</p>
           </div>
           <div className="bg-amber-50 rounded-lg p-3 text-center">
-            <p className="text-2xl font-bold text-amber-600">
+            <p className="font-data text-2xl font-semibold tabular-nums text-amber-600">
               {formatCurrency(data?.salario_base)}
             </p>
             <p className="text-xs text-amber-500">Salário Base</p>

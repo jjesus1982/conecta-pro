@@ -80,7 +80,7 @@ export default function PortalDashboardPage() {
 
       {notifications.length > 0 && (
         <div className="bg-white rounded-xl p-6 shadow-sm">
-          <h2 className="text-lg font-semibold mb-4">Notificações Recentes</h2>
+          <h2 className="font-display text-lg mb-4">Notificações Recentes</h2>
           <div className="space-y-3">
             {notifications.slice(0, 5).map((n: any, i: number) => (
               <div key={i} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">

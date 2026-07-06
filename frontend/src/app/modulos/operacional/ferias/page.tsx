@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal, ModalFooter } from '@/components/ui/modal';
+import { PageHeader } from '@/components/ui/page-header';
 import { useAuth } from '@/hooks/useAuth';
 import { useEmployees } from '@/hooks/operacional/useEmployees';
 import api from '@/lib/api';
@@ -376,47 +377,38 @@ export default function FeriasPage() {
   return (
     <div className="p-4 md:p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Link href="/modulos/operacional">
-            <Button variant="ghost" size="icon" className="h-8 w-8">
-              <ArrowLeft className="w-4 h-4" />
+      <PageHeader
+        eyebrow="OPERACIONAL"
+        title="Férias & Afastamentos"
+        subtitle="Gestão de solicitações de ausência"
+        icon={<Plane className="w-5 h-5" />}
+        actions={
+          <>
+            <Link href="/modulos/operacional">
+              <Button variant="ghost" size="icon" className="h-8 w-8">
+                <ArrowLeft className="w-4 h-4" />
+              </Button>
+            </Link>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchLeaves}
+              disabled={isFetching}
+              className="h-9"
+            >
+              <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
             </Button>
-          </Link>
-          <div className="flex items-center gap-2">
-            <div className="p-2 rounded-xl bg-blue-500/10">
-              <Plane className="w-5 h-5 text-blue-500" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-[hsl(var(--foreground))]">
-                Férias & Afastamentos
-              </h1>
-              <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                Gestão de solicitações de ausência
-              </p>
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={fetchLeaves}
-            disabled={isFetching}
-            className="h-9"
-          >
-            <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
-          </Button>
-          <Button
-            onClick={() => setShowNewModal(true)}
-            className="flex items-center gap-2 text-sm"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Nova Solicitação</span>
-            <span className="sm:hidden">Nova</span>
-          </Button>
-        </div>
-      </div>
+            <Button
+              onClick={() => setShowNewModal(true)}
+              className="flex items-center gap-2 text-sm"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">Nova Solicitação</span>
+              <span className="sm:hidden">Nova</span>
+            </Button>
+          </>
+        }
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -425,28 +417,28 @@ export default function FeriasPage() {
             <Calendar className="w-4 h-4 text-[hsl(var(--muted-foreground))]" />
             <span className="text-xs text-[hsl(var(--muted-foreground))]">Total</span>
           </div>
-          <p className="text-2xl font-bold text-[hsl(var(--foreground))]">{stats.total}</p>
+          <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">{stats.total}</p>
         </div>
         <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
           <div className="flex items-center gap-2 mb-2">
             <Clock className="w-4 h-4 text-yellow-500" />
             <span className="text-xs text-[hsl(var(--muted-foreground))]">Pendentes</span>
           </div>
-          <p className="text-2xl font-bold text-yellow-500">{stats.pendentes}</p>
+          <p className="font-data text-2xl font-semibold tabular-nums text-yellow-500">{stats.pendentes}</p>
         </div>
         <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
           <div className="flex items-center gap-2 mb-2">
             <CheckCircle className="w-4 h-4 text-green-500" />
             <span className="text-xs text-[hsl(var(--muted-foreground))]">Aprovadas</span>
           </div>
-          <p className="text-2xl font-bold text-green-500">{stats.aprovadas}</p>
+          <p className="font-data text-2xl font-semibold tabular-nums text-green-500">{stats.aprovadas}</p>
         </div>
         <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
           <div className="flex items-center gap-2 mb-2">
             <Plane className="w-4 h-4 text-blue-500" />
             <span className="text-xs text-[hsl(var(--muted-foreground))]">Em Férias Hoje</span>
           </div>
-          <p className="text-2xl font-bold text-blue-500">{stats.emFerias}</p>
+          <p className="font-data text-2xl font-semibold tabular-nums text-blue-500">{stats.emFerias}</p>
         </div>
       </div>
 

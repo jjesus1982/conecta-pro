@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { CheckCircle, PenLine, RotateCcw } from 'lucide-react';
+import { CheckCircle, PenLine, RotateCcw, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
@@ -103,7 +103,7 @@ function SignaturePad({
 
   return (
     <div className="space-y-2">
-      <div className="relative border-2 border-dashed border-gray-300 rounded-lg overflow-hidden bg-gray-50">
+      <div className="relative border-2 border-dashed border-[hsl(var(--border))] rounded-lg overflow-hidden bg-white">
         <canvas
           ref={canvasRef}
           width={520}
@@ -129,7 +129,7 @@ function SignaturePad({
       <button
         type="button"
         onClick={clearPad}
-        className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700"
+        className="flex items-center gap-1 text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
       >
         <RotateCcw className="h-3 w-3" />
         Limpar assinatura
@@ -187,21 +187,21 @@ export default function KitApprovalSection({ kitId, kitStatus, onApproved }: Kit
   const isApprovable = ['completo', 'enviado', 'COMPLETO', 'ENVIADO'].includes(kitStatus);
 
   if (loading) {
-    return <div className="animate-pulse bg-gray-100 rounded-xl h-20 w-full" />;
+    return <div className="animate-pulse bg-[hsl(var(--secondary))] rounded-xl h-20 w-full" />;
   }
 
   // Kit já aprovado
   if (approvalStatus?.status === 'aprovado') {
     return (
-      <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-start gap-3">
-        <CheckCircle className="h-5 w-5 text-emerald-600 mt-0.5 flex-shrink-0" />
+      <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 flex items-start gap-3">
+        <CheckCircle className="h-5 w-5 text-emerald-500 mt-0.5 flex-shrink-0" />
         <div>
-          <p className="text-sm font-semibold text-emerald-800">Kit Aprovado Digitalmente</p>
+          <p className="text-sm font-semibold text-emerald-500">Kit Aprovado Digitalmente</p>
           {approvalStatus.approved_by && (
-            <p className="text-xs text-emerald-600 mt-0.5">Por: {approvalStatus.approved_by}</p>
+            <p className="text-xs text-emerald-500 mt-0.5">Por: {approvalStatus.approved_by}</p>
           )}
           {approvalStatus.approved_at && (
-            <p className="text-xs text-emerald-600">
+            <p className="text-xs text-emerald-500">
               Em: {new Date(approvalStatus.approved_at).toLocaleString('pt-BR')}
             </p>
           )}
@@ -218,7 +218,7 @@ export default function KitApprovalSection({ kitId, kitStatus, onApproved }: Kit
   // Kit não aprovável ainda
   if (!isApprovable) {
     return (
-      <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm text-gray-500">
+      <div className="bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] rounded-xl p-4 text-sm text-[hsl(var(--muted-foreground))]">
         <p>O kit precisa estar <strong>completo</strong> ou <strong>enviado</strong> para ser aprovado.</p>
         <p className="mt-0.5">Status atual: <span className="font-medium capitalize">{kitStatus}</span></p>
       </div>
@@ -227,25 +227,25 @@ export default function KitApprovalSection({ kitId, kitStatus, onApproved }: Kit
 
   // Formulário de aprovação
   return (
-    <div className="bg-white border border-indigo-100 rounded-xl p-5 space-y-4 shadow-sm">
+    <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-5 space-y-4 shadow-sm">
       <div className="flex items-center gap-2">
-        <PenLine className="h-5 w-5 text-indigo-600" />
-        <h3 className="text-sm font-semibold text-gray-800">Aprovar Kit Digitalmente</h3>
+        <PenLine className="h-5 w-5 text-indigo-500" />
+        <h3 className="text-sm font-semibold text-[hsl(var(--foreground))]">Aprovar Kit Digitalmente</h3>
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">Nome completo do signatário *</label>
+        <label className="block text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1">Nome completo do signatário *</label>
         <input
           type="text"
           value={signatoryName}
           onChange={(e) => setSignatoryName(e.target.value)}
           placeholder="Ex: João da Silva"
-          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          className="w-full border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] text-[hsl(var(--foreground))] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
         />
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">Assinatura *</label>
+        <label className="block text-xs font-medium text-[hsl(var(--muted-foreground))] mb-1">Assinatura *</label>
         <SignaturePad onSignature={setSignature} />
       </div>
 
@@ -254,9 +254,9 @@ export default function KitApprovalSection({ kitId, kitStatus, onApproved }: Kit
           type="checkbox"
           checked={declared}
           onChange={(e) => setDeclared(e.target.checked)}
-          className="mt-0.5 h-4 w-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
+          className="mt-0.5 h-4 w-4 text-indigo-600 rounded border-[hsl(var(--border))] focus:ring-indigo-500"
         />
-        <span className="text-xs text-gray-600">
+        <span className="text-xs text-[hsl(var(--muted-foreground))]">
           Declaro que li e revisei todos os documentos deste kit mensal e os aprovo formalmente.
         </span>
       </label>
@@ -265,25 +265,25 @@ export default function KitApprovalSection({ kitId, kitStatus, onApproved }: Kit
         <button
           disabled={!signatoryName.trim() || !declared || !signature}
           onClick={() => setConfirm(true)}
-          className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-400 text-white text-sm font-medium rounded-lg transition-colors"
+          className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-[hsl(var(--muted))] disabled:text-[hsl(var(--muted-foreground))] text-white text-sm font-medium rounded-lg transition-colors"
         >
           Aprovar Kit
         </button>
       ) : (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2">
-          <p className="text-sm text-amber-800 font-medium">⚠️ Confirmar aprovação?</p>
-          <p className="text-xs text-amber-700">Esta ação não pode ser desfeita.</p>
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 space-y-2">
+          <p className="text-sm text-amber-500 font-medium flex items-center gap-1.5"><AlertTriangle className="h-4 w-4" /> Confirmar aprovação?</p>
+          <p className="text-xs text-amber-500">Esta ação não pode ser desfeita.</p>
           <div className="flex gap-2">
             <button
               onClick={handleApprove}
               disabled={submitting}
-              className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+              className="flex-1 py-2 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
             >
               {submitting ? 'Aprovando...' : 'Confirmar'}
             </button>
             <button
               onClick={() => setConfirm(false)}
-              className="flex-1 py-2 bg-white border border-gray-200 text-gray-600 text-sm rounded-lg hover:bg-gray-50"
+              className="flex-1 py-2 bg-[hsl(var(--card))] border border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] text-sm rounded-lg hover:bg-[hsl(var(--secondary))]"
             >
               Cancelar
             </button>

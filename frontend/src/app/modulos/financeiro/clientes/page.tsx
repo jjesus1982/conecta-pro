@@ -165,7 +165,7 @@ export default function ClientesPage() {
               <Users className="w-5 h-5 text-cyan-500" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+              <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                 {isLoading ? '...' : totalCustomers}
               </p>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">Total de Clientes</p>
@@ -179,7 +179,7 @@ export default function ClientesPage() {
               <UserCheck className="w-5 h-5 text-green-500" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+              <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                 {isLoading ? '...' : activeCustomers}
               </p>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">Ativos</p>
@@ -193,7 +193,7 @@ export default function ClientesPage() {
               <DollarSign className="w-5 h-5 text-red-500" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+              <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                 {isLoading
                   ? '...'
                   : customers.filter((c) => String(c.status) === 'defaulter').length}

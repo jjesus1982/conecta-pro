@@ -394,7 +394,7 @@ export default function RelatoriosPage() {
                   <TrendingUp className="w-5 h-5 text-green-500" />
                 </div>
                 <div>
-                  <p className="text-xl font-bold text-[hsl(var(--foreground))]">
+                  <p className="font-data text-xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                     {formatCurrency(receitaBruta)}
                   </p>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">Receita Bruta</p>
@@ -408,7 +408,7 @@ export default function RelatoriosPage() {
                   <TrendingDown className="w-5 h-5 text-red-500" />
                 </div>
                 <div>
-                  <p className="text-xl font-bold text-[hsl(var(--foreground))]">
+                  <p className="font-data text-xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                     {formatCurrency(despesaTotal)}
                   </p>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">Despesas Totais</p>
@@ -424,7 +424,7 @@ export default function RelatoriosPage() {
                   <DollarSign className={cn('w-5 h-5', lucroLiquido >= 0 ? 'text-emerald-500' : 'text-red-500')} />
                 </div>
                 <div>
-                  <p className={cn('text-xl font-bold', lucroLiquido >= 0 ? 'text-emerald-500' : 'text-red-500')}>
+                  <p className={cn('font-data text-xl font-semibold tabular-nums', lucroLiquido >= 0 ? 'text-emerald-500' : 'text-red-500')}>
                     {formatCurrency(lucroLiquido)}
                   </p>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">Lucro Líquido</p>
@@ -438,7 +438,7 @@ export default function RelatoriosPage() {
                   <Activity className="w-5 h-5 text-blue-500" />
                 </div>
                 <div>
-                  <p className="text-xl font-bold text-[hsl(var(--foreground))]">
+                  <p className="font-data text-xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                     {receitaBruta > 0 ? `${((lucroLiquido / receitaBruta) * 100).toFixed(1)}%` : '0,0%'}
                   </p>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">Margem Líquida</p>
@@ -928,7 +928,7 @@ export default function RelatoriosPage() {
             <CardContent className="pt-6">
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                 <div className="flex-1">
-                  <h2 className="text-xl font-bold text-[hsl(var(--foreground))]">
+                  <h2 className="font-display text-xl font-semibold text-[hsl(var(--foreground))]">
                     Relatório Executivo IA
                   </h2>
                   <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">
@@ -1057,7 +1057,7 @@ export default function RelatoriosPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="flex items-center justify-between mb-3">
-                      <span className="text-3xl font-bold" style={{ color: relatorio.kpis.inadimplencia_pct > 5 ? '#ef4444' : relatorio.kpis.inadimplencia_pct > 2 ? '#f97316' : '#22c55e' }}>
+                      <span className="font-data text-2xl font-semibold tabular-nums" style={{ color: relatorio.kpis.inadimplencia_pct > 5 ? '#ef4444' : relatorio.kpis.inadimplencia_pct > 2 ? '#f97316' : '#22c55e' }}>
                         {relatorio.kpis.inadimplencia_pct?.toFixed(1)}%
                       </span>
                       <Badge variant={relatorio.kpis.inadimplencia_pct > 5 ? 'destructive' : 'outline'}>

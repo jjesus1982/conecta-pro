@@ -172,7 +172,7 @@ export default function CCTPortalPage() {
       {/* Header */}
       <div className="bg-white rounded-xl p-6 shadow-sm">
         <div className="flex items-center justify-between mb-2">
-          <h1 className="text-xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-xl flex items-center gap-2">
             <Shield className="w-6 h-6 text-blue-600" />
             Convenção Coletiva de Trabalho
           </h1>
@@ -328,7 +328,7 @@ export default function CCTPortalPage() {
                   {calcResult.total_rescisao !== undefined && (
                     <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
                       <p className="text-sm text-blue-700">Total estimado da rescisão</p>
-                      <p className="text-2xl font-bold text-blue-900">{formatCurrency(calcResult.total_rescisao)}</p>
+                      <p className="font-data text-2xl font-semibold tabular-nums text-blue-900">{formatCurrency(calcResult.total_rescisao)}</p>
                     </div>
                   )}
 
@@ -424,7 +424,7 @@ export default function CCTPortalPage() {
                     <div className="grid grid-cols-2 gap-3 mb-3">
                       <div className="bg-white rounded-lg p-3">
                         <p className="text-xs text-gray-500">Percentual</p>
-                        <p className="text-xl font-bold text-purple-700">
+                        <p className="font-data text-xl font-semibold tabular-nums text-purple-700">
                           {noturno.percentual ? `${noturno.percentual}%` : '—'}
                         </p>
                       </div>

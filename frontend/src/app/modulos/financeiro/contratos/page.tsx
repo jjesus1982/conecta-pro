@@ -192,7 +192,7 @@ export default function ContratosPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-[hsl(var(--foreground))]">Gestão de Contratos</h1>
+          <h1 className="font-display text-2xl font-semibold text-[hsl(var(--foreground))]">Gestão de Contratos</h1>
           <p className="text-sm text-[hsl(var(--muted-foreground))]">
             {summary.total_ativos} contratos ativos — CONECTAMAIS ELETRONICA LTDA
           </p>
@@ -218,7 +218,7 @@ export default function ContratosPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">MRR Total</p>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">{fmt(summary.mrr_total)}</p>
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">{fmt(summary.mrr_total)}</p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">Anual: {fmt(summary.mrr_anual)}</p>
               </div>
               <div className="rounded-full bg-emerald-500/10 p-3">
@@ -233,7 +233,7 @@ export default function ContratosPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">Contratos Ativos</p>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">{summary.total_ativos}</p>
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">{summary.total_ativos}</p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">Todos condomínios</p>
               </div>
               <div className="rounded-full bg-blue-500/10 p-3">
@@ -248,7 +248,7 @@ export default function ContratosPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">Com Retenção INSS</p>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">{summary.retencoes.com_inss}</p>
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">{summary.retencoes.com_inss}</p>
                 <p className="text-xs text-amber-500 mt-0.5">INSS 11%: {fmt(inssRetidoMensal)}/mês</p>
               </div>
               <div className="rounded-full bg-amber-500/10 p-3">
@@ -263,7 +263,7 @@ export default function ContratosPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">Vencendo em 90d</p>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">
                   {summary.vencimentos.em_30_dias + summary.vencimentos.em_60_dias + summary.vencimentos.em_90_dias}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">Renovações previstas</p>
@@ -469,27 +469,27 @@ export default function ContratosPage() {
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
             <div className="rounded-lg border border-[hsl(var(--border))] p-4 text-center">
               <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase">ISS Retido (5%)</p>
-              <p className="text-xl font-bold text-amber-500 mt-1">{fmt(issRetidoMensal)}</p>
+              <p className="font-data text-xl font-semibold tabular-nums text-amber-500 mt-1">{fmt(issRetidoMensal)}</p>
               <p className="text-[10px] text-[hsl(var(--muted-foreground))]">{summary.retencoes.com_issqn} contratos</p>
             </div>
             <div className="rounded-lg border border-[hsl(var(--border))] p-4 text-center">
               <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase">INSS Retido (11%)</p>
-              <p className="text-xl font-bold text-red-500 mt-1">{fmt(inssRetidoMensal)}</p>
+              <p className="font-data text-xl font-semibold tabular-nums text-red-500 mt-1">{fmt(inssRetidoMensal)}</p>
               <p className="text-[10px] text-[hsl(var(--muted-foreground))]">{summary.retencoes.com_inss} contratos</p>
             </div>
             <div className="rounded-lg border border-[hsl(var(--border))] p-4 text-center">
               <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase">PIS/COFINS/CSLL</p>
-              <p className="text-xl font-bold text-violet-500 mt-1">{fmt(pisCofinsMensal)}</p>
+              <p className="font-data text-xl font-semibold tabular-nums text-violet-500 mt-1">{fmt(pisCofinsMensal)}</p>
               <p className="text-[10px] text-[hsl(var(--muted-foreground))]">{summary.retencoes.com_pis_cofins} contratos</p>
             </div>
             <div className="rounded-lg border border-[hsl(var(--border))] p-4 text-center">
               <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase">Total Retenções</p>
-              <p className="text-xl font-bold text-red-400 mt-1">{fmt(totalRetencoes)}</p>
+              <p className="font-data text-xl font-semibold tabular-nums text-red-400 mt-1">{fmt(totalRetencoes)}</p>
               <p className="text-[10px] text-[hsl(var(--muted-foreground))]">/mês</p>
             </div>
             <div className="rounded-lg border border-emerald-500/30 p-4 text-center bg-emerald-500/5">
               <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase">Receita Líquida</p>
-              <p className="text-xl font-bold text-emerald-500 mt-1">{fmt(summary.mrr_total - totalRetencoes)}</p>
+              <p className="font-data text-xl font-semibold tabular-nums text-emerald-500 mt-1">{fmt(summary.mrr_total - totalRetencoes)}</p>
               <p className="text-[10px] text-[hsl(var(--muted-foreground))]">/mês após retenções</p>
             </div>
           </div>

@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { customInstance } from '@/lib/api-client';
 import { Magnet, Download, Users, ArrowRightCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
 
 export default function LeadMagnetPage() {
   const queryClient = useQueryClient();
@@ -24,17 +26,21 @@ export default function LeadMagnetPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div><h1 className="text-2xl font-bold flex items-center gap-2"><Magnet className="h-6 w-6" />Lead Magnets</h1>
-        <p className="text-gray-500">Iscas digitais para captura de leads qualificados</p></div>
+      <PageHeader
+        eyebrow="MARKETING"
+        title="Lead Magnets"
+        subtitle="Iscas digitais para captura de leads qualificados"
+        icon={<Magnet className="h-5 w-5" />}
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl border p-4"><div className="text-gray-500 text-sm flex items-center gap-1"><Users className="h-4 w-4" />Total Leads</div><p className="text-2xl font-bold">{leads.length}</p></div>
-        <div className="bg-white rounded-xl border p-4"><div className="text-gray-500 text-sm flex items-center gap-1"><Download className="h-4 w-4" />Novos</div><p className="text-2xl font-bold">{leads.filter((l: any) => l.status === 'new').length}</p></div>
-        <div className="bg-white rounded-xl border p-4"><div className="text-gray-500 text-sm">Convertidos</div><p className="text-2xl font-bold text-green-600">{leads.filter((l: any) => l.status === 'converted').length}</p></div>
+        <StatCard label="Total Leads" value={leads.length} icon={<Users className="h-4 w-4" />} color="#3b82f6" />
+        <StatCard label="Novos" value={leads.filter((l: any) => l.status === 'new').length} icon={<Download className="h-4 w-4" />} color="#0891b2" />
+        <StatCard label="Convertidos" value={<span className="text-green-600">{leads.filter((l: any) => l.status === 'converted').length}</span>} color="#16a34a" />
       </div>
 
       <div className="bg-white rounded-xl border p-6 space-y-4">
-        <h2 className="font-semibold text-lg">Ideias de Lead Magnets para Segurança Patrimonial</h2>
+        <h2 className="font-display text-lg">Ideias de Lead Magnets para Segurança Patrimonial</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {[
             { title: 'Checklist de Segurança Condominial', desc: 'PDF com 30 itens essenciais para avaliar a segurança do condomínio' },

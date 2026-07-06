@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 ;
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
 import { Input } from '@/components/ui/input';
 import { ConfirmModal } from '@/components/ui/modal';
 import { useAuth } from '@/hooks/useAuth';
@@ -197,32 +198,21 @@ export default function RondasPage() {
 
   return (
     <div className="min-h-screen bg-grid">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-[hsl(var(--background))]/80 backdrop-blur-xl border-b border-[hsl(var(--border))]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-4">
+      {/* Main content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <PageHeader
+          eyebrow="OPERACIONAL"
+          title="Rondas de Inspeção"
+          subtitle={`${total} registros`}
+          icon={<Shield className="w-5 h-5" />}
+          actions={
+            <>
               <Link href="/modulos/operacional">
                 <Button variant="ghost" size="sm">
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Operacional
                 </Button>
               </Link>
-              <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                  <Shield className="w-5 h-5 text-blue-500" />
-                </div>
-                <div>
-                  <h1 className="text-lg font-semibold text-[hsl(var(--foreground))]">
-                    Rondas de Inspeção
-                  </h1>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                    {total} registros
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
               <ExportButton
                 data={exportData}
                 filename="rondas"
@@ -236,13 +226,10 @@ export default function RondasPage() {
                 <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
                 Atualizar
               </Button>
-            </div>
-          </div>
-        </div>
-      </header>
+            </>
+          }
+        />
 
-      {/* Main content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Stats Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
           <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
@@ -251,7 +238,7 @@ export default function RondasPage() {
                 <Shield className="w-5 h-5 text-blue-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {stats?.total_rounds || 0}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Total</p>
@@ -265,7 +252,7 @@ export default function RondasPage() {
                 <Play className="w-5 h-5 text-green-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {stats?.rounds_in_progress || 0}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Em Andamento</p>
@@ -279,7 +266,7 @@ export default function RondasPage() {
                 <CheckSquare className="w-5 h-5 text-gray-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {stats?.rounds_completed || 0}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Concluídas</p>
@@ -293,7 +280,7 @@ export default function RondasPage() {
                 <AlertCircle className="w-5 h-5 text-red-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {stats?.total_occurrences || 0}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Ocorrências</p>
@@ -307,7 +294,7 @@ export default function RondasPage() {
                 <Users className="w-5 h-5 text-orange-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {stats?.total_disciplinary_actions || 0}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Medidas Discip.</p>

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import KitsDoCliente from '@/components/gdrive/KitsDoCliente';
 import {
   FolderOpen, Loader2, FileText, AlertTriangle, CheckCircle2,
-  Clock, Send, Eye, Download, Users, ChevronRight,
+  Clock, Send, Eye, Download, Users, ChevronRight, FolderArchive,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -46,19 +46,19 @@ const statusLabels: Record<string, string> = {
 };
 
 const statusColors: Record<string, string> = {
-  em_montagem: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-  completo: 'bg-blue-100 text-blue-800 border-blue-200',
-  enviado: 'bg-green-100 text-green-800 border-green-200',
-  conferido: 'bg-purple-100 text-purple-800 border-purple-200',
-  aprovado: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+  em_montagem: 'bg-amber-500/10 text-amber-500 border-amber-500/30',
+  completo: 'bg-blue-500/10 text-blue-500 border-blue-500/30',
+  enviado: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30',
+  conferido: 'bg-purple-500/10 text-purple-500 border-purple-500/30',
+  aprovado: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30',
 };
 
 const cardBorderColors: Record<string, string> = {
-  em_montagem: 'border-l-yellow-400',
-  completo: 'border-l-blue-400',
-  enviado: 'border-l-green-400',
-  conferido: 'border-l-purple-400',
-  aprovado: 'border-l-emerald-400',
+  em_montagem: 'border-l-amber-500',
+  completo: 'border-l-blue-500',
+  enviado: 'border-l-emerald-500',
+  conferido: 'border-l-purple-500',
+  aprovado: 'border-l-emerald-500',
 };
 
 const statusFilterOptions = [
@@ -138,8 +138,8 @@ export default function KitsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Meus Kits</h1>
-          <p className="text-gray-500 text-sm mt-1">
+          <h1 className="text-2xl font-bold text-[hsl(var(--foreground))]">Meus Kits</h1>
+          <p className="text-[hsl(var(--muted-foreground))] text-sm mt-1">
             Kits documentais organizados por mes de referencia.
             {total > 0 && <span className="ml-1 font-medium">({total} kits)</span>}
           </p>
@@ -155,7 +155,7 @@ export default function KitsPage() {
             className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
               statusFilter === opt.key
                 ? 'bg-indigo-600 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                : 'bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]'
             }`}
           >
             {opt.label}
@@ -165,10 +165,10 @@ export default function KitsPage() {
 
       {/* Error */}
       {error && (
-        <div className="flex items-center gap-3 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+        <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-sm text-red-500">
           <AlertTriangle className="h-5 w-5 flex-shrink-0" />
           <span>{error}</span>
-          <button onClick={fetchKits} className="ml-auto text-red-600 hover:text-red-800 font-medium underline">
+          <button onClick={fetchKits} className="ml-auto text-red-500 hover:text-red-400 font-medium underline">
             Tentar novamente
           </button>
         </div>
@@ -178,16 +178,16 @@ export default function KitsPage() {
       {!loading && kits.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {[
-            { label: 'Total', value: total, color: 'text-gray-700', bg: 'bg-gray-50', icon: FolderOpen },
-            { label: 'Aprovados', value: kits.filter(k => k.status === 'aprovado').length, color: 'text-emerald-700', bg: 'bg-emerald-50', icon: CheckCircle2 },
-            { label: 'Pendentes', value: kits.filter(k => ['enviado','conferido'].includes(k.status)).length, color: 'text-amber-700', bg: 'bg-amber-50', icon: Clock },
-            { label: 'Em montagem', value: kits.filter(k => k.status === 'em_montagem').length, color: 'text-blue-700', bg: 'bg-blue-50', icon: Send },
+            { label: 'Total', value: total, color: 'text-[hsl(var(--foreground))]', bg: 'bg-[hsl(var(--secondary))]', icon: FolderOpen },
+            { label: 'Aprovados', value: kits.filter(k => k.status === 'aprovado').length, color: 'text-emerald-500', bg: 'bg-emerald-500/10', icon: CheckCircle2 },
+            { label: 'Pendentes', value: kits.filter(k => ['enviado','conferido'].includes(k.status)).length, color: 'text-amber-500', bg: 'bg-amber-500/10', icon: Clock },
+            { label: 'Em montagem', value: kits.filter(k => k.status === 'em_montagem').length, color: 'text-blue-500', bg: 'bg-blue-500/10', icon: Send },
           ].map(({ label, value, color, bg, icon: Icon }) => (
             <div key={label} className={`${bg} rounded-xl p-4 flex items-center gap-3`}>
               <Icon className={`h-5 w-5 ${color}`} />
               <div>
-                <p className={`text-xl font-bold ${color}`}>{value}</p>
-                <p className="text-xs text-gray-500">{label}</p>
+                <p className={`font-data text-xl font-semibold tabular-nums ${color}`}>{value}</p>
+                <p className="text-xs text-[hsl(var(--muted-foreground))]">{label}</p>
               </div>
             </div>
           ))}
@@ -200,10 +200,10 @@ export default function KitsPage() {
           <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
         </div>
       ) : kits.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center">
-          <FolderOpen className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-          <p className="text-gray-500 font-medium">Nenhum kit encontrado.</p>
-          <p className="text-gray-400 text-sm mt-1">
+        <div className="bg-[hsl(var(--card))] rounded-xl shadow-sm border border-[hsl(var(--border))] p-12 text-center">
+          <FolderOpen className="h-12 w-12 text-[hsl(var(--muted-foreground))] mx-auto mb-4" />
+          <p className="text-[hsl(var(--muted-foreground))] font-medium">Nenhum kit encontrado.</p>
+          <p className="text-[hsl(var(--muted-foreground))] text-sm mt-1">
             {statusFilter ? 'Tente selecionar outro filtro.' : 'Seus kits aparecerao aqui quando disponiveis.'}
           </p>
         </div>
@@ -217,8 +217,8 @@ export default function KitsPage() {
               <Link
                 key={kit.id}
                 href={`/area-cliente/kits/${kit.id}`}
-                className={`bg-white rounded-xl shadow-sm border border-gray-200 border-l-4 ${
-                  cardBorderColors[kit.status] || 'border-l-gray-400'
+                className={`bg-[hsl(var(--card))] rounded-xl shadow-sm border border-[hsl(var(--border))] border-l-4 ${
+                  cardBorderColors[kit.status] || 'border-l-[hsl(var(--border))]'
                 } p-5 hover:shadow-md transition-all group relative`}
               >
                 {canApprove && (
@@ -229,23 +229,23 @@ export default function KitsPage() {
                 )}
                 <div className="flex items-start justify-between mb-3 pr-4">
                   <div>
-                    <p className="text-base font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors capitalize">
+                    <p className="text-base font-semibold text-[hsl(var(--foreground))] group-hover:text-indigo-500 transition-colors capitalize">
                       {formatMonth(kit.reference_month)}
                     </p>
-                    <p className="text-xs text-gray-400 mt-0.5">Mês de referência</p>
+                    <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">Mês de referência</p>
                   </div>
-                  <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${statusColors[kit.status] || 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                  <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${statusColors[kit.status] || 'bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))] border-[hsl(var(--border))]'}`}>
                     {statusLabels[kit.status] || kit.status}
                   </span>
                 </div>
 
                 {/* Progress bar */}
                 <div className="mb-4">
-                  <div className="flex justify-between text-xs text-gray-500 mb-1">
+                  <div className="flex justify-between text-xs text-[hsl(var(--muted-foreground))] mb-1">
                     <span>Conclusão</span>
-                    <span className="font-semibold">{pct}%</span>
+                    <span className="font-data font-semibold tabular-nums">{pct}%</span>
                   </div>
-                  <div className="w-full bg-gray-100 rounded-full h-2">
+                  <div className="w-full bg-[hsl(var(--secondary))] rounded-full h-2">
                     <div
                       className={`h-2 rounded-full transition-all ${pct === 100 ? 'bg-emerald-500' : pct > 60 ? 'bg-indigo-500' : 'bg-amber-400'}`}
                       style={{ width: `${pct}%` }}
@@ -253,7 +253,7 @@ export default function KitsPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between text-xs text-gray-500">
+                <div className="flex items-center justify-between text-xs text-[hsl(var(--muted-foreground))]">
                   <div className="flex items-center gap-3">
                     <span className="flex items-center gap-1">
                       <FileText className="h-3.5 w-3.5" />{kit.total_documents ?? 0} docs
@@ -262,7 +262,7 @@ export default function KitsPage() {
                       <Users className="h-3.5 w-3.5" />{kit.total_employees ?? 0} func.
                     </span>
                   </div>
-                  <span className="flex items-center gap-1 text-indigo-600 font-medium group-hover:gap-1.5 transition-all">
+                  <span className="flex items-center gap-1 text-indigo-500 font-medium group-hover:gap-1.5 transition-all">
                     {canApprove ? 'Aprovar' : 'Ver'} <ChevronRight className="h-3.5 w-3.5" />
                   </span>
                 </div>
@@ -291,17 +291,17 @@ export default function KitsPage() {
               <button
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                 disabled={currentPage <= 1}
-                className="px-3 py-1.5 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="px-3 py-1.5 text-sm font-medium border border-[hsl(var(--border))] rounded-lg hover:bg-[hsl(var(--secondary))] disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Anterior
               </button>
-              <span className="text-sm text-gray-600">
+              <span className="text-sm text-[hsl(var(--muted-foreground))]">
                 Pagina {currentPage} de {totalPages}
               </span>
               <button
                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                 disabled={currentPage >= totalPages}
-                className="px-3 py-1.5 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="px-3 py-1.5 text-sm font-medium border border-[hsl(var(--border))] rounded-lg hover:bg-[hsl(var(--secondary))] disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Proxima
               </button>
@@ -310,9 +310,9 @@ export default function KitsPage() {
         </>
       )}
       {/* Histórico de kits no Google Drive */}
-      <div className="mt-8 border-t pt-8">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">
-          📁 Histórico no Google Drive
+      <div className="mt-8 border-t border-[hsl(var(--border))] pt-8">
+        <h2 className="text-lg font-semibold text-[hsl(var(--foreground))] mb-4 flex items-center gap-2">
+          <FolderArchive className="h-5 w-5" /> Histórico no Google Drive
         </h2>
         <KitsDoCliente clienteId="" />
       </div>

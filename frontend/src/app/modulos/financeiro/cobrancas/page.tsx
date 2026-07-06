@@ -30,6 +30,7 @@ import {
   ChevronDown,
   ChevronUp,
   X,
+  CheckCircle2,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -1101,7 +1102,7 @@ function TabRecorrente() {
         <Card>
           <CardContent className="pt-4 pb-3">
             <p className="text-xs text-muted-foreground">MRR {MESES[mes]}/{ano}</p>
-            <p className="text-xl font-bold text-emerald-600 mt-1">
+            <p className="font-data text-xl font-semibold tabular-nums text-emerald-600 mt-1">
               {formatCurrency(preview?.total_mrr ?? 0)}
             </p>
           </CardContent>
@@ -1109,7 +1110,7 @@ function TabRecorrente() {
         <Card>
           <CardContent className="pt-4 pb-3">
             <p className="text-xs text-muted-foreground">Clientes recorrentes</p>
-            <p className="text-xl font-bold text-blue-600 mt-1">
+            <p className="font-data text-xl font-semibold tabular-nums text-blue-600 mt-1">
               {preview?.total_clientes ?? 0}
             </p>
           </CardContent>
@@ -1117,7 +1118,7 @@ function TabRecorrente() {
         <Card>
           <CardContent className="pt-4 pb-3">
             <p className="text-xs text-muted-foreground">Sem chave PIX</p>
-            <p className={cn('text-xl font-bold mt-1', semPix.length > 0 ? 'text-red-600' : 'text-emerald-600')}>
+            <p className={cn('font-data text-xl font-semibold tabular-nums mt-1', semPix.length > 0 ? 'text-red-600' : 'text-emerald-600')}>
               {semPix.length}
             </p>
           </CardContent>
@@ -1170,7 +1171,7 @@ function TabRecorrente() {
                         ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30'
                         : 'bg-red-500/10 text-red-600 border-red-500/30'
                     )}>
-                      {c.pix_key ? 'PIX ✓' : 'Sem PIX'}
+                      {c.pix_key ? <span className="inline-flex items-center gap-1">PIX <CheckCircle2 className="w-3 h-3" /></span> : 'Sem PIX'}
                     </span>
                     <p className="text-sm font-bold text-emerald-600">
                       {formatCurrency(c.mrr)}

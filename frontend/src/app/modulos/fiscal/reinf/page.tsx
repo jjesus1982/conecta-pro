@@ -4,6 +4,8 @@ import { RefreshCw, AlertCircle, FileCode, Eye, Plus, Send, Clock, Loader2, Filt
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
 import { ReinfDetailModal } from '@/components/fiscal/reinf-detail-modal';
 import {
   useGerarR1000,
@@ -158,58 +160,33 @@ export default function ReinfPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-[hsl(var(--foreground))]">EFD-Reinf</h1>
-          <p className="text-sm text-[hsl(var(--muted-foreground))]">
-            Escrituracao Fiscal Digital de Retencoes e Informações
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="FISCAL"
+        title="EFD-Reinf"
+        subtitle="Escrituracao Fiscal Digital de Retencoes e Informações"
+        icon={<FileCode className="h-5 w-5" />}
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-[hsl(var(--muted-foreground))]">Total Eventos</p>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">{totalEventos}</p>
-              </div>
-              <div className="w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center">
-                <FileCode className="w-5 h-5 text-cyan-500" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-[hsl(var(--muted-foreground))]">Pendentes</p>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">{pendentes}</p>
-              </div>
-              <div className="w-10 h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center">
-                <Clock className="w-5 h-5 text-yellow-500" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-[hsl(var(--muted-foreground))]">Enviados</p>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">{enviados}</p>
-              </div>
-              <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
-                <Send className="w-5 h-5 text-green-500" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <StatCard
+          label="Total Eventos"
+          value={totalEventos}
+          icon={<FileCode className="w-5 h-5" />}
+          color="#06b6d4"
+        />
+        <StatCard
+          label="Pendentes"
+          value={pendentes}
+          icon={<Clock className="w-5 h-5" />}
+          color="#eab308"
+        />
+        <StatCard
+          label="Enviados"
+          value={enviados}
+          icon={<Send className="w-5 h-5" />}
+          color="#22c55e"
+        />
       </div>
 
       {/* Filters */}

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { CheckCircle2, XCircle, AlertTriangle, Clock } from 'lucide-react'
 
 interface ChecklistTipo2Data {
   score_prontidao: number
@@ -57,9 +58,9 @@ export default function GedeonChecklistTipo2({
   if (loading) {
     return (
       <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center">
-        <div className="bg-white rounded-2xl p-8 text-center">
-          <div className="w-8 h-8 border-4 border-[#1E3A5F] border-t-[#F97316] rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-sm text-gray-500">
+        <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl p-8 text-center">
+          <div className="w-8 h-8 border-4 border-blue-500 border-t-orange-500 rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-sm text-[hsl(var(--muted-foreground))]">
             GEDEON verificando {clienteNome}...
           </p>
         </div>
@@ -73,14 +74,14 @@ export default function GedeonChecklistTipo2({
 
   return (
     <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+      <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl shadow-2xl w-full max-w-md">
         {/* Header */}
-        <div className="bg-[#1E3A5F] rounded-t-2xl px-6 py-4">
-          <p className="text-white/70 text-xs uppercase tracking-wider">
+        <div className="bg-[hsl(var(--secondary))] border-b border-[hsl(var(--border))] rounded-t-2xl px-6 py-4">
+          <p className="text-[hsl(var(--muted-foreground))] text-xs uppercase tracking-wider">
             GEDEON — Kit Segurança Eletrônica
           </p>
-          <h2 className="text-white font-bold text-lg">{clienteNome}</h2>
-          <p className="text-white/60 text-sm">Competência: {competencia}</p>
+          <h2 className="text-[hsl(var(--foreground))] font-bold text-lg">{clienteNome}</h2>
+          <p className="text-[hsl(var(--muted-foreground))] text-sm">Competência: {competencia}</p>
         </div>
 
         <div className="p-6 space-y-4">
@@ -88,23 +89,25 @@ export default function GedeonChecklistTipo2({
           <div
             className={`border rounded-xl p-4 ${
               nfseOk
-                ? 'border-green-200 bg-green-50'
-                : 'border-red-200 bg-red-50'
+                ? 'border-emerald-500/30 bg-emerald-500/10'
+                : 'border-red-500/30 bg-red-500/10'
             }`}
           >
             <div className="flex items-center gap-3">
-              <span className="text-2xl">{nfseOk ? '✅' : '🔴'}</span>
+              {nfseOk
+                ? <CheckCircle2 className="w-6 h-6 text-emerald-500 flex-shrink-0" />
+                : <XCircle className="w-6 h-6 text-red-500 flex-shrink-0" />}
               <div>
-                <p className="font-semibold text-gray-800">
+                <p className="font-semibold text-[hsl(var(--foreground))]">
                   Nota Fiscal de Serviço (NFS-e)
                 </p>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-[hsl(var(--muted-foreground))]">
                   {nfseOk
                     ? 'Emitida — pronta para o kit'
                     : 'Não emitida — necessária para envio'}
                 </p>
                 {nfseOk && ctx?.checklist.nfs_e.dados && (
-                  <p className="text-xs text-green-700 mt-1">
+                  <p className="text-xs text-emerald-500 mt-1">
                     Nº{' '}
                     {
                       (ctx.checklist.nfs_e.dados as Record<string, unknown>)
@@ -125,17 +128,19 @@ export default function GedeonChecklistTipo2({
           <div
             className={`border rounded-xl p-4 ${
               boletoOk
-                ? 'border-green-200 bg-green-50'
-                : 'border-orange-200 bg-orange-50'
+                ? 'border-emerald-500/30 bg-emerald-500/10'
+                : 'border-amber-500/30 bg-amber-500/10'
             }`}
           >
             <div className="flex items-center gap-3">
-              <span className="text-2xl">{boletoOk ? '✅' : '⚠️'}</span>
+              {boletoOk
+                ? <CheckCircle2 className="w-6 h-6 text-emerald-500 flex-shrink-0" />
+                : <AlertTriangle className="w-6 h-6 text-amber-500 flex-shrink-0" />}
               <div>
-                <p className="font-semibold text-gray-800">
+                <p className="font-semibold text-[hsl(var(--foreground))]">
                   Boleto de Cobrança
                 </p>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-[hsl(var(--muted-foreground))]">
                   {boletoOk
                     ? 'Gerado — pronto para o kit'
                     : 'Não gerado — verificar financeiro'}
@@ -146,13 +151,13 @@ export default function GedeonChecklistTipo2({
 
           {/* Pendências */}
           {(ctx?.pendencias.length ?? 0) > 0 && (
-            <div className="border border-amber-200 bg-amber-50 rounded-xl p-3">
-              <p className="text-xs font-semibold text-amber-800 mb-1">
+            <div className="border border-amber-500/30 bg-amber-500/10 rounded-xl p-3">
+              <p className="text-xs font-semibold text-amber-500 mb-1">
                 Pendências:
               </p>
               <ul className="space-y-0.5">
                 {ctx?.pendencias.map((p, i) => (
-                  <li key={i} className="text-xs text-amber-700">
+                  <li key={i} className="text-xs text-amber-500">
                     • {p}
                   </li>
                 ))}
@@ -161,17 +166,17 @@ export default function GedeonChecklistTipo2({
           )}
 
           {/* Score */}
-          <div className="bg-gray-50 rounded-xl p-4 flex items-center justify-between">
-            <span className="text-sm text-gray-600 font-medium">
+          <div className="bg-[hsl(var(--secondary))] rounded-xl p-4 flex items-center justify-between">
+            <span className="text-sm text-[hsl(var(--muted-foreground))] font-medium">
               Prontidão do kit
             </span>
             <span
-              className={`text-2xl font-bold ${
+              className={`font-data text-2xl font-semibold tabular-nums ${
                 score === 100
-                  ? 'text-green-600'
+                  ? 'text-emerald-500'
                   : score >= 50
-                    ? 'text-orange-500'
-                    : 'text-red-600'
+                    ? 'text-amber-500'
+                    : 'text-red-500'
               }`}
             >
               {score}%
@@ -180,7 +185,7 @@ export default function GedeonChecklistTipo2({
 
           {/* Observações */}
           <div>
-            <p className="text-xs text-gray-500 mb-1">
+            <p className="text-xs text-[hsl(var(--muted-foreground))] mb-1">
               Observações (opcional):
             </p>
             <textarea
@@ -188,16 +193,16 @@ export default function GedeonChecklistTipo2({
               onChange={(e) => setObservacoes(e.target.value)}
               placeholder="ex: Reajuste de 5% a partir deste mês..."
               rows={2}
-              className="w-full border border-gray-300 rounded-lg p-2 text-sm resize-none focus:outline-none focus:border-[#1E3A5F]"
+              className="w-full border border-[hsl(var(--border))] bg-[hsl(var(--card))] text-[hsl(var(--foreground))] rounded-lg p-2 text-sm resize-none focus:outline-none focus:border-blue-500"
             />
           </div>
         </div>
 
         {/* Footer */}
-        <div className="border-t px-6 py-4 flex justify-between bg-gray-50 rounded-b-2xl">
+        <div className="border-t border-[hsl(var(--border))] px-6 py-4 flex justify-between bg-[hsl(var(--secondary))] rounded-b-2xl">
           <button
             onClick={onCancelar}
-            className="text-gray-500 text-sm px-4 py-2 hover:text-gray-700"
+            className="text-[hsl(var(--muted-foreground))] text-sm px-4 py-2 hover:text-[hsl(var(--foreground))]"
           >
             Cancelar
           </button>
@@ -212,13 +217,15 @@ export default function GedeonChecklistTipo2({
               })
             }
             disabled={!ctx?.pode_enviar}
-            className={`px-6 py-2 rounded-lg text-sm font-medium text-white transition-colors ${
+            className={`inline-flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-medium text-white transition-colors ${
               ctx?.pode_enviar
-                ? 'bg-[#F97316] hover:bg-orange-600'
-                : 'bg-gray-300 cursor-not-allowed'
+                ? 'bg-orange-500 hover:bg-orange-600'
+                : 'bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] cursor-not-allowed'
             }`}
           >
-            {ctx?.pode_enviar ? '✅ Montar Kit' : '⏳ Aguardando documentos'}
+            {ctx?.pode_enviar
+              ? <><CheckCircle2 className="w-4 h-4" /> Montar Kit</>
+              : <><Clock className="w-4 h-4" /> Aguardando documentos</>}
           </button>
         </div>
       </div>

@@ -5,6 +5,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 ;
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
 import { useAuth } from '@/hooks/useAuth';
 import { useCondominio } from '@/contexts/CondominioContext';
 import { usePayrollReport, useGeneratePayments } from '@/hooks/operacional/useDiarists';
@@ -107,36 +108,22 @@ export default function FechamentoFolhaPage() {
 
   return (
     <div className="min-h-screen bg-grid">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-[hsl(var(--background))]/80 backdrop-blur-xl border-b border-[hsl(var(--border))]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-4">
-              <Link href="/modulos/operacional/diaristas">
-                <Button variant="ghost" size="sm">
-                  <ArrowLeft className="w-4 h-4 mr-2" />
-                  Diaristas
-                </Button>
-              </Link>
-              <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-lg bg-violet-500/10 flex items-center justify-center">
-                  <FileText className="w-5 h-5 text-violet-500" />
-                </div>
-                <div>
-                  <h1 className="text-lg font-semibold text-[hsl(var(--foreground))]">
-                    Fechamento de Folha
-                  </h1>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                    Relatorio mensal de diaristas
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
-
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <PageHeader
+          eyebrow="OPERACIONAL · DIARISTAS"
+          title="Fechamento de Folha"
+          subtitle="Relatorio mensal de diaristas"
+          icon={<FileText className="w-5 h-5" />}
+          actions={
+            <Link href="/modulos/operacional/diaristas">
+              <Button variant="ghost" size="sm">
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Diaristas
+              </Button>
+            </Link>
+          }
+        />
+
         {/* Seletor de Competência */}
         <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4 mb-6">
           <div className="flex items-center gap-4">
@@ -203,7 +190,7 @@ export default function FechamentoFolhaPage() {
                     <Users className="w-5 h-5 text-cyan-500" />
                   </div>
                   <div>
-                    <p className="text-2xl font-bold text-[hsl(var(--foreground))]">{report.total_diaristas}</p>
+                    <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">{report.total_diaristas}</p>
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">Diaristas</p>
                   </div>
                 </div>
@@ -215,7 +202,7 @@ export default function FechamentoFolhaPage() {
                     <Calendar className="w-5 h-5 text-purple-500" />
                   </div>
                   <div>
-                    <p className="text-2xl font-bold text-[hsl(var(--foreground))]">{report.total_diarias}</p>
+                    <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">{report.total_diarias}</p>
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">Total Diarias</p>
                   </div>
                 </div>
@@ -227,7 +214,7 @@ export default function FechamentoFolhaPage() {
                     <DollarSign className="w-5 h-5 text-blue-500" />
                   </div>
                   <div>
-                    <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                    <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                       {formatCurrency(report.valor_bruto_total ?? 0)}
                     </p>
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">Valor Bruto</p>
@@ -241,7 +228,7 @@ export default function FechamentoFolhaPage() {
                     <DollarSign className="w-5 h-5 text-green-500" />
                   </div>
                   <div>
-                    <p className="text-2xl font-bold text-green-500">
+                    <p className="font-data text-2xl font-semibold tabular-nums text-green-500">
                       {formatCurrency(report.valor_liquido_total ?? 0)}
                     </p>
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">Valor Liquido</p>

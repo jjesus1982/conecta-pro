@@ -7,6 +7,7 @@ import Link from 'next/link';
 ;
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PageHeader } from '@/components/ui/page-header';
 import { useAuth } from '@/hooks/useAuth';
 import { useNotifications, useUnreadCount, useAlerts, useUserAlerts } from '@/hooks/useNotifications';
 import {
@@ -165,37 +166,30 @@ export default function NotificacoesPage() {
 
   return (
     <div className="min-h-screen bg-grid">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-[hsl(var(--background))]/80 backdrop-blur-xl border-b border-[hsl(var(--border))]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-4">
+      {/* Main content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <PageHeader
+          eyebrow="OPERACIONAL"
+          title="Notificações"
+          subtitle={`${unreadTotal} nao lidas`}
+          icon={
+            <span className="relative flex items-center justify-center">
+              <Bell className="w-5 h-5" />
+              {unreadTotal > 0 && (
+                <span className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">
+                  {unreadTotal > 99 ? '99+' : unreadTotal}
+                </span>
+              )}
+            </span>
+          }
+          actions={
+            <>
               <Link href="/modulos/operacional">
                 <Button variant="ghost" size="sm">
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Operacional
                 </Button>
               </Link>
-              <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center relative">
-                  <Bell className="w-5 h-5 text-purple-500" />
-                  {unreadTotal > 0 && (
-                    <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">
-                      {unreadTotal > 99 ? '99+' : unreadTotal}
-                    </span>
-                  )}
-                </div>
-                <div>
-                  <h1 className="text-lg font-semibold text-[hsl(var(--foreground))]">
-                    Notificações
-                  </h1>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                    {unreadTotal} nao lidas
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
               <Button variant="outline" onClick={handleRefresh} disabled={isLoading}>
                 <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
                 Atualizar
@@ -206,13 +200,10 @@ export default function NotificacoesPage() {
                   Marcar todas como lidas
                 </Button>
               )}
-            </div>
-          </div>
-        </div>
-      </header>
+            </>
+          }
+        />
 
-      {/* Main content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Alertas Ativos */}
         {alerts.length > 0 && (
           <div className="mb-6 space-y-3">
@@ -257,7 +248,7 @@ export default function NotificacoesPage() {
                 <Bell className="w-5 h-5 text-purple-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">{total}</p>
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">{total}</p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Total</p>
               </div>
             </div>
@@ -269,7 +260,7 @@ export default function NotificacoesPage() {
                 <Clock className="w-5 h-5 text-red-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">{unreadTotal}</p>
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">{unreadTotal}</p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Nao Lidas</p>
               </div>
             </div>
@@ -281,7 +272,7 @@ export default function NotificacoesPage() {
                 <AlertTriangle className="w-5 h-5 text-yellow-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">{alerts.length}</p>
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">{alerts.length}</p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Alertas</p>
               </div>
             </div>
@@ -293,7 +284,7 @@ export default function NotificacoesPage() {
                 <CheckCircle className="w-5 h-5 text-green-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {total - unreadTotal}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Lidas</p>

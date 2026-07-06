@@ -39,7 +39,7 @@ export default function FeriasPortalPage() {
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-xl p-6 shadow-sm">
-        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+        <h2 className="font-display text-lg mb-4 flex items-center gap-2">
           <Palmtree className="w-5 h-5 text-green-600" />
           Saldo de Férias
         </h2>
@@ -47,19 +47,19 @@ export default function FeriasPortalPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="p-4 bg-blue-50 rounded-lg text-center">
               <p className="text-sm text-gray-600">Dias de Direito</p>
-              <p className="text-2xl font-bold text-blue-700">{balance.dias_direito || 0}</p>
+              <p className="font-data text-2xl font-semibold tabular-nums text-blue-700">{balance.dias_direito || 0}</p>
             </div>
             <div className="p-4 bg-green-50 rounded-lg text-center">
               <p className="text-sm text-gray-600">Dias Gozados</p>
-              <p className="text-2xl font-bold text-green-700">{balance.dias_gozados || 0}</p>
+              <p className="font-data text-2xl font-semibold tabular-nums text-green-700">{balance.dias_gozados || 0}</p>
             </div>
             <div className="p-4 bg-purple-50 rounded-lg text-center">
               <p className="text-sm text-gray-600">Saldo Disponível</p>
-              <p className="text-2xl font-bold text-purple-700">{balance.dias_saldo || 0}</p>
+              <p className="font-data text-2xl font-semibold tabular-nums text-purple-700">{balance.dias_saldo || 0}</p>
             </div>
             <div className="p-4 bg-orange-50 rounded-lg text-center">
               <p className="text-sm text-gray-600">Valor Estimado</p>
-              <p className="text-2xl font-bold text-orange-700">R$ {(balance.total_bruto_ferias || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+              <p className="font-data text-2xl font-semibold tabular-nums text-orange-700">R$ {(balance.total_bruto_ferias || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
             </div>
           </div>
         ) : (
@@ -68,7 +68,7 @@ export default function FeriasPortalPage() {
       </div>
 
       <div className="bg-white rounded-xl p-6 shadow-sm">
-        <h2 className="text-lg font-semibold mb-4">Solicitações de Férias</h2>
+        <h2 className="font-display text-lg mb-4">Solicitações de Férias</h2>
         {requests.length === 0 ? (
           <p className="text-gray-500 text-center py-4">Nenhuma solicitação de férias</p>
         ) : (

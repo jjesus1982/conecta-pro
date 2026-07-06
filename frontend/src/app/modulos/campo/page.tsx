@@ -4,6 +4,8 @@ import { LogIn, Monitor, Bell, RefreshCw, ArrowRight, Users, AlertTriangle, MapP
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
 ;
 import { useCampoDashboard, useMonitoringHealth } from '@/hooks/campo/useCampo';
 
@@ -76,97 +78,46 @@ export default function CampoPage() {
 
   return (
     <div className="min-h-screen bg-grid">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-[hsl(var(--background))]/80 backdrop-blur-xl border-b border-[hsl(var(--border))]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center">
-                <MapPin className="w-5 h-5 text-cyan-500" />
-              </div>
-              <div>
-                <h1 className="text-lg font-semibold text-[hsl(var(--foreground))]">
-                  Campo
-                </h1>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                  Gestao de operacoes em campo
-                </p>
-              </div>
-            </div>
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <PageHeader
+          eyebrow="OPERACOES"
+          title="Campo"
+          subtitle="Gestao de operacoes em campo"
+          icon={<MapPin className="w-5 h-5" />}
+          actions={
             <Button variant="outline" size="sm" onClick={() => refetchDash()}>
               <RefreshCw className="w-4 h-4 mr-2" />
               Atualizar
             </Button>
-          </div>
-        </div>
-      </header>
+          }
+        />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Stats Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center">
-                  <LogIn className="w-5 h-5 text-cyan-500" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
-                    {stats.checkinsHoje}
-                  </p>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">Check-ins Hoje</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
-                  <Users className="w-5 h-5 text-green-500" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
-                    {stats.agentesEmCampo}
-                  </p>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">Agentes em Campo</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-violet-500/10 flex items-center justify-center">
-                  <Monitor className="w-5 h-5 text-violet-500" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
-                    {stats.ocorrencias}
-                  </p>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">Ocorrencias</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-red-500/10 flex items-center justify-center">
-                  <AlertTriangle className="w-5 h-5 text-red-500" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
-                    {stats.alertas}
-                  </p>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">Alertas</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <StatCard
+            icon={<LogIn className="w-4 h-4" />}
+            color="#06b6d4"
+            label="Check-ins Hoje"
+            value={stats.checkinsHoje}
+          />
+          <StatCard
+            icon={<Users className="w-4 h-4" />}
+            color="#22c55e"
+            label="Agentes em Campo"
+            value={stats.agentesEmCampo}
+          />
+          <StatCard
+            icon={<Monitor className="w-4 h-4" />}
+            color="#8b5cf6"
+            label="Ocorrencias"
+            value={stats.ocorrencias}
+          />
+          <StatCard
+            icon={<AlertTriangle className="w-4 h-4" />}
+            color="#ef4444"
+            label="Alertas"
+            value={stats.alertas}
+          />
         </div>
 
         {/* Module Cards */}

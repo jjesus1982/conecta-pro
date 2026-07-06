@@ -6,6 +6,7 @@ import {
   ExternalLink, Upload,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { PageHeader } from '@/components/ui/page-header';
 import {
   emitirCnd, statusCnd, abrirPdfCnd, uploadCnd, PORTAL_LABEL, diasParaVencer,
   type CndStatus,
@@ -88,15 +89,12 @@ export default function EmitirCndPage() {
   const manuais = data?.manuais ? Object.entries(data.manuais) : [];
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <ShieldCheck className="w-6 h-6 text-emerald-600" /> Certidões Negativas (CND)
-        </h1>
-        <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">
-          Emita as CNDs direto pelo Conecta PRO — o sistema acessa os portais, resolve o captcha e
-          baixa a certidão oficial. (SEFAZ-AM, Trabalhista e Prefeitura de Manaus.)
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="FISCAL · CERTIDÕES"
+        title="Certidões Negativas (CND)"
+        subtitle="Emita as CNDs direto pelo Conecta PRO — o sistema acessa os portais, resolve o captcha e baixa a certidão oficial. (SEFAZ-AM, Trabalhista e Prefeitura de Manaus.)"
+        icon={<ShieldCheck className="w-5 h-5" />}
+      />
 
       <Card>
         <CardContent className="p-4 flex flex-wrap items-center gap-4">

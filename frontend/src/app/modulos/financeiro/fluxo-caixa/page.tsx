@@ -226,7 +226,7 @@ export default function FluxoCaixaPage() {
               <TrendingUp className="w-5 h-5 text-green-500" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+              <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                 {isLoading ? '...' : formatCurrency(Number(dashboard?.summary?.total_inflows ?? 0))}
               </p>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">Entradas</p>
@@ -240,7 +240,7 @@ export default function FluxoCaixaPage() {
               <TrendingDown className="w-5 h-5 text-red-500" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+              <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                 {isLoading ? '...' : formatCurrency(Number(dashboard?.summary?.total_outflows ?? 0))}
               </p>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">Saidas</p>
@@ -254,7 +254,7 @@ export default function FluxoCaixaPage() {
               <DollarSign className="w-5 h-5 text-blue-500" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+              <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                 {isLoading ? '...' : formatCurrency(Number(dashboard?.summary?.closing_balance ?? 0))}
               </p>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">Saldo Atual</p>
@@ -268,7 +268,7 @@ export default function FluxoCaixaPage() {
               <Activity className="w-5 h-5 text-purple-500" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+              <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                 {isLoading ? '...' : formatCurrency(Number(dashboard?.upcoming_receivables ?? 0) - Number(dashboard?.upcoming_payables ?? 0))}
               </p>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">Projecao 30d</p>

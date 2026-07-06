@@ -3,10 +3,11 @@
 import { LogIn, Search, RefreshCw, Clock, MapPin, Eye, AlertCircle, Users, ArrowLeft } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
 import {
   Select,
   SelectContent,
@@ -105,40 +106,28 @@ export default function CheckinPage() {
 
   return (
     <div className="min-h-screen bg-grid">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-[hsl(var(--background))]/80 backdrop-blur-xl border-b border-[hsl(var(--border))]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-4">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <PageHeader
+          eyebrow="CAMPO"
+          title="Check-in / Check-out"
+          subtitle="Registros de presenca em campo"
+          icon={<LogIn className="w-5 h-5" />}
+          actions={
+            <>
               <Link href="/modulos/campo">
                 <Button variant="ghost" size="sm">
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Campo
                 </Button>
               </Link>
-              <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center">
-                  <LogIn className="w-5 h-5 text-cyan-500" />
-                </div>
-                <div>
-                  <h1 className="text-lg font-semibold text-[hsl(var(--foreground))]">
-                    Check-in / Check-out
-                  </h1>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                    Registros de presenca em campo
-                  </p>
-                </div>
-              </div>
-            </div>
-            <Button variant="outline" size="sm" onClick={() => refetch()}>
-              <RefreshCw className="w-4 h-4 mr-2" />
-              Atualizar
-            </Button>
-          </div>
-        </div>
-      </header>
+              <Button variant="outline" size="sm" onClick={() => refetch()}>
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Atualizar
+              </Button>
+            </>
+          }
+        />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Error State */}
         {isError && (
           <div className="bg-destructive/10 border border-destructive/20 rounded-xl p-4 mb-6 flex items-center gap-3">
@@ -149,47 +138,24 @@ export default function CheckinPage() {
 
         {/* Stats Cards */}
         <div className="grid grid-cols-3 gap-4 mb-6">
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
-                  <LogIn className="w-5 h-5 text-green-500" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))]">{stats.checkinsHoje}</p>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">Check-ins Hoje</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                  <Clock className="w-5 h-5 text-blue-500" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))]">{stats.checkoutsHoje}</p>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">Check-outs</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center">
-                  <Users className="w-5 h-5 text-yellow-500" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))]">{stats.pendentes}</p>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">Pendentes</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <StatCard
+            icon={<LogIn className="w-4 h-4" />}
+            color="#22c55e"
+            label="Check-ins Hoje"
+            value={stats.checkinsHoje}
+          />
+          <StatCard
+            icon={<Clock className="w-4 h-4" />}
+            color="#3b82f6"
+            label="Check-outs"
+            value={stats.checkoutsHoje}
+          />
+          <StatCard
+            icon={<Users className="w-4 h-4" />}
+            color="#eab308"
+            label="Pendentes"
+            value={stats.pendentes}
+          />
         </div>
 
         {/* Filters */}

@@ -5,6 +5,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
 import { Input } from '@/components/ui/input';
 import { Modal, ModalFooter } from '@/components/ui/modal';
 import { useAuth } from '@/hooks/useAuth';
@@ -178,32 +179,21 @@ export default function BancoHorasPage() {
 
   return (
     <div className="min-h-screen bg-grid">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-[hsl(var(--background))]/80 backdrop-blur-xl border-b border-[hsl(var(--border))]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-4">
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <PageHeader
+          eyebrow="OPERACIONAL"
+          title="Banco de Horas"
+          subtitle={`${total} lancamentos | ${pendingEntries.length} pendentes`}
+          icon={<Clock className="w-5 h-5" />}
+          actions={
+            <>
               <Link href="/modulos/operacional">
                 <Button variant="ghost" size="sm">
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Operacional
                 </Button>
               </Link>
-              <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center">
-                  <Clock className="w-5 h-5 text-purple-500" />
-                </div>
-                <div>
-                  <h1 className="text-lg font-semibold text-[hsl(var(--foreground))]">
-                    Banco de Horas
-                  </h1>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                    {total} lancamentos | {pendingEntries.length} pendentes
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading}>
                 <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
                 Atualizar
@@ -212,13 +202,10 @@ export default function BancoHorasPage() {
                 <Plus className="w-4 h-4 mr-2" />
                 Novo Lancamento
               </Button>
-            </div>
-          </div>
-        </div>
-      </header>
+            </>
+          }
+        />
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Alerts */}
         {alerts.length > 0 && (
           <div className="space-y-2 mb-6">
@@ -248,7 +235,7 @@ export default function BancoHorasPage() {
                 <User className="w-5 h-5 text-blue-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {stats?.total_employees || 0}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Funcionarios</p>
@@ -262,7 +249,7 @@ export default function BancoHorasPage() {
                 <TrendingUp className="w-5 h-5 text-green-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-green-500">
+                <p className="font-data text-2xl font-semibold tabular-nums text-green-500">
                   +{(stats?.total_credit_hours || 0).toFixed(0)}h
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Creditos</p>
@@ -276,7 +263,7 @@ export default function BancoHorasPage() {
                 <TrendingDown className="w-5 h-5 text-red-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-red-500">
+                <p className="font-data text-2xl font-semibold tabular-nums text-red-500">
                   -{(stats?.total_debit_hours || 0).toFixed(0)}h
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Debitos</p>
@@ -290,7 +277,7 @@ export default function BancoHorasPage() {
                 <RefreshCw className="w-5 h-5 text-blue-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {(stats?.total_compensated_hours || 0).toFixed(0)}h
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Compensadas</p>
@@ -304,7 +291,7 @@ export default function BancoHorasPage() {
                 <Clock className="w-5 h-5 text-yellow-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {(stats?.total_pending_hours || 0).toFixed(0)}h
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Pendentes</p>
@@ -318,7 +305,7 @@ export default function BancoHorasPage() {
                 <Timer className="w-5 h-5 text-purple-500" />
               </div>
               <div>
-                <p className={`text-2xl font-bold ${(stats?.avg_balance || 0) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                <p className={`font-data text-2xl font-semibold tabular-nums ${(stats?.avg_balance || 0) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
                   {formatHours(stats?.avg_balance || 0)}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Media Saldo</p>

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
 import { useAuth } from '@/hooks/useAuth';
 import { useCoverageReport } from '@/hooks/operacional/useReports';
 import { usePosts } from '@/hooks/operacional/usePosts';
@@ -102,32 +103,20 @@ export default function CoberturaPage() {
 
   return (
     <div className="min-h-screen bg-grid">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-[hsl(var(--background))]/80 backdrop-blur-xl border-b border-[hsl(var(--border))]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-4">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        <PageHeader
+          eyebrow="OPERACIONAL"
+          title="Cobertura ao Vivo"
+          subtitle="Monitoramento em tempo real dos postos"
+          icon={<Shield className="w-5 h-5" />}
+          actions={
+            <>
               <Link href="/modulos/operacional">
                 <Button variant="ghost" size="sm">
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Operacional
                 </Button>
               </Link>
-              <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
-                  <Shield className="w-5 h-5 text-green-500" />
-                </div>
-                <div>
-                  <h1 className="text-lg font-semibold text-[hsl(var(--foreground))]">
-                    Cobertura ao Vivo
-                  </h1>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                    Monitoramento em tempo real dos postos
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
               {/* Live badge */}
               <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/30">
                 <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
@@ -141,12 +130,10 @@ export default function CoberturaPage() {
               >
                 <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
               </Button>
-            </div>
-          </div>
-        </div>
-      </header>
+            </>
+          }
+        />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         {/* Error state */}
         {error && (
           <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-center gap-3">
@@ -167,7 +154,7 @@ export default function CoberturaPage() {
               <Activity className="w-4 h-4 text-[hsl(var(--muted-foreground))]" />
               <p className="text-xs text-[hsl(var(--muted-foreground))]">Total de Postos</p>
             </div>
-            <p className="text-2xl font-bold text-[hsl(var(--foreground))]">{totalPosts}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">{totalPosts}</p>
           </div>
 
           <div className="bg-[hsl(var(--card))] border border-green-500/30 rounded-xl p-4">
@@ -175,7 +162,7 @@ export default function CoberturaPage() {
               <CheckCircle className="w-4 h-4 text-green-500" />
               <p className="text-xs text-[hsl(var(--muted-foreground))]">Cobertura Completa</p>
             </div>
-            <p className="text-2xl font-bold text-green-500">{fullCoveragePosts}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-green-500">{fullCoveragePosts}</p>
           </div>
 
           <div className="bg-[hsl(var(--card))] border border-red-500/30 rounded-xl p-4">
@@ -183,7 +170,7 @@ export default function CoberturaPage() {
               <AlertCircle className="w-4 h-4 text-red-500" />
               <p className="text-xs text-[hsl(var(--muted-foreground))]">Em Risco</p>
             </div>
-            <p className="text-2xl font-bold text-red-500">{atRiskPosts}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-red-500">{atRiskPosts}</p>
           </div>
 
           <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
@@ -191,7 +178,7 @@ export default function CoberturaPage() {
               <Shield className="w-4 h-4 text-[hsl(var(--primary))]" />
               <p className="text-xs text-[hsl(var(--muted-foreground))]">Cobertura Geral</p>
             </div>
-            <p className={`text-2xl font-bold ${
+            <p className={`font-data text-2xl font-semibold tabular-nums ${
               overallCoverage >= 100
                 ? 'text-green-500'
                 : overallCoverage >= 80

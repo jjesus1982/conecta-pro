@@ -6,6 +6,8 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
 import { ConfirmModal } from '@/components/ui/modal';
 import { NfseFormModal } from '@/components/fiscal/nfse-form-modal';
 import { NfseDetailModal } from '@/components/fiscal/nfse-detail-modal';
@@ -133,78 +135,49 @@ export default function NfsePage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-[hsl(var(--foreground))]">NFS-e</h1>
-          <p className="text-sm text-[hsl(var(--muted-foreground))]">
-            Notas Fiscais de Servico Eletronica
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => refetch()}
-            disabled={isLoading}
-          >
-            <RefreshCw className={cn('w-4 h-4', isLoading && 'animate-spin')} />
-          </Button>
-          <Button onClick={() => setShowFormModal(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            Emitir NFS-e
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="FISCAL"
+        title="NFS-e"
+        subtitle="Notas Fiscais de Servico Eletronica"
+        icon={<FileText className="h-5 w-5" />}
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => refetch()}
+              disabled={isLoading}
+            >
+              <RefreshCw className={cn('w-4 h-4', isLoading && 'animate-spin')} />
+            </Button>
+            <Button onClick={() => setShowFormModal(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Emitir NFS-e
+            </Button>
+          </>
+        }
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-[hsl(var(--muted-foreground))]">Total Emitidas</p>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
-                  {isLoading ? '...' : totalEmitidas}
-                </p>
-              </div>
-              <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
-                <FileText className="w-5 h-5 text-green-500" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-[hsl(var(--muted-foreground))]">Canceladas</p>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
-                  {isLoading ? '...' : totalCanceladas}
-                </p>
-              </div>
-              <div className="w-10 h-10 rounded-lg bg-red-500/10 flex items-center justify-center">
-                <Ban className="w-5 h-5 text-red-500" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-[hsl(var(--muted-foreground))]">Valor Total</p>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
-                  {isLoading ? '...' : formatCurrency(valorTotal)}
-                </p>
-              </div>
-              <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                <DollarSign className="w-5 h-5 text-blue-500" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <StatCard
+          label="Total Emitidas"
+          value={isLoading ? '...' : totalEmitidas}
+          icon={<FileText className="w-5 h-5" />}
+          color="#22c55e"
+        />
+        <StatCard
+          label="Canceladas"
+          value={isLoading ? '...' : totalCanceladas}
+          icon={<Ban className="w-5 h-5" />}
+          color="#ef4444"
+        />
+        <StatCard
+          label="Valor Total"
+          value={isLoading ? '...' : formatCurrency(valorTotal)}
+          icon={<DollarSign className="w-5 h-5" />}
+          color="#3b82f6"
+        />
       </div>
 
       {/* Filters */}

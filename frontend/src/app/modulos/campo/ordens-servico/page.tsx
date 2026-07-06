@@ -16,6 +16,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { PageHeader } from '@/components/ui/page-header';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -137,24 +138,18 @@ export default function OrdensServicoCampoPage() {
   return (
     <div className="p-4 md:p-6 space-y-6">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400">
-            <ClipboardList className="h-6 w-6" />
-          </div>
-          <div>
-            <h1 className="text-xl md:text-2xl font-bold">Ordens de Serviço</h1>
-            <p className="text-sm text-muted-foreground">
-              Campo · {total} {total === 1 ? 'ordem' : 'ordens'}
-              {temFiltro ? ' (filtradas)' : ''}
-            </p>
-          </div>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
-          Atualizar
-        </Button>
-      </div>
+      <PageHeader
+        eyebrow="CAMPO"
+        title="Ordens de Serviço"
+        subtitle={`${total} ${total === 1 ? 'ordem' : 'ordens'}${temFiltro ? ' (filtradas)' : ''}`}
+        icon={<ClipboardList className="h-6 w-6" />}
+        actions={
+          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
+            Atualizar
+          </Button>
+        }
+      />
 
       {/* Filtros */}
       <Card>

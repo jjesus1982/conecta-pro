@@ -2,6 +2,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { customInstance } from '@/lib/api-client';
 import { Filter, ArrowRight } from 'lucide-react';
+import { PageHeader } from '@/components/ui/page-header';
 
 const STAGE_COLORS = ['bg-blue-200', 'bg-cyan-200', 'bg-teal-300', 'bg-green-400'];
 
@@ -20,10 +21,12 @@ export default function FunilPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2"><Filter className="h-6 w-6" />Funil de Vendas</h1>
-        <p className="text-gray-500">Pipeline com dados reais: leads → qualificados → clientes</p>
-      </div>
+      <PageHeader
+        eyebrow="MARKETING"
+        title="Funil de Vendas"
+        subtitle="Pipeline com dados reais: leads → qualificados → clientes"
+        icon={<Filter className="h-5 w-5" />}
+      />
 
       {isLoading && <p className="text-sm text-gray-400">Carregando dados reais...</p>}
 
@@ -32,7 +35,7 @@ export default function FunilPage() {
         {stages.map((s, i) => (
           <div key={i} className="flex items-center gap-2">
             <div className={`${STAGE_COLORS[i] || 'bg-gray-200'} rounded-xl p-6 text-center min-w-[150px]`}>
-              <p className="text-3xl font-bold">{s.value}</p>
+              <p className="font-data text-2xl font-semibold tabular-nums">{s.value}</p>
               <p className="text-sm font-medium mt-1">{s.stage}</p>
             </div>
             {i < stages.length - 1 && <ArrowRight className="h-5 w-5 text-gray-400" />}
@@ -44,19 +47,19 @@ export default function FunilPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border p-4">
           <p className="text-xs text-gray-500">MRR Total</p>
-          <p className="text-2xl font-bold text-green-600">{fmtBRL(totais.mrr_total)}</p>
+          <p className="font-data text-2xl font-semibold tabular-nums text-green-600">{fmtBRL(totais.mrr_total)}</p>
         </div>
         <div className="bg-white rounded-xl border p-4">
           <p className="text-xs text-gray-500">Taxa Lead → Qualificado</p>
-          <p className="text-2xl font-bold">{totais.taxa_lead_qualificado ?? 0}%</p>
+          <p className="font-data text-2xl font-semibold tabular-nums">{totais.taxa_lead_qualificado ?? 0}%</p>
         </div>
         <div className="bg-white rounded-xl border p-4">
           <p className="text-xs text-gray-500">Taxa Lead → Cliente</p>
-          <p className="text-2xl font-bold">{totais.taxa_lead_cliente ?? 0}%</p>
+          <p className="font-data text-2xl font-semibold tabular-nums">{totais.taxa_lead_cliente ?? 0}%</p>
         </div>
         <div className="bg-white rounded-xl border p-4">
           <p className="text-xs text-gray-500">Clientes ativos</p>
-          <p className="text-2xl font-bold">{totais.clientes_ativos ?? 0}</p>
+          <p className="font-data text-2xl font-semibold tabular-nums">{totais.clientes_ativos ?? 0}</p>
         </div>
       </div>
 

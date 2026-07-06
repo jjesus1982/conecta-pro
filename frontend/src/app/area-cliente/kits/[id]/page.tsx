@@ -53,11 +53,11 @@ const statusLabels: Record<string, string> = {
 };
 
 const statusColors: Record<string, string> = {
-  em_montagem: 'bg-yellow-100 text-yellow-800',
-  completo: 'bg-blue-100 text-blue-800',
-  enviado: 'bg-green-100 text-green-800',
-  conferido: 'bg-purple-100 text-purple-800',
-  aprovado: 'bg-emerald-100 text-emerald-800',
+  em_montagem: 'bg-amber-500/10 text-amber-500',
+  completo: 'bg-blue-500/10 text-blue-500',
+  enviado: 'bg-emerald-500/10 text-emerald-500',
+  conferido: 'bg-purple-500/10 text-purple-500',
+  aprovado: 'bg-emerald-500/10 text-emerald-500',
 };
 
 function formatMonth(dateStr: string): string {
@@ -167,9 +167,9 @@ export default function KitDetailPage() {
   if (error && !kit) {
     return (
       <div className="text-center py-20">
-        <AlertTriangle className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-        <p className="text-gray-500">{error}</p>
-        <Link href="/area-cliente/kits" className="text-indigo-600 hover:underline text-sm mt-2 inline-block">
+        <AlertTriangle className="h-12 w-12 text-[hsl(var(--muted-foreground))] mx-auto mb-4" />
+        <p className="text-[hsl(var(--muted-foreground))]">{error}</p>
+        <Link href="/area-cliente/kits" className="text-indigo-500 hover:underline text-sm mt-2 inline-block">
           Voltar para Meus Kits
         </Link>
       </div>
@@ -179,8 +179,8 @@ export default function KitDetailPage() {
   if (!kit) {
     return (
       <div className="text-center py-20">
-        <p className="text-gray-500">Kit nao encontrado.</p>
-        <Link href="/area-cliente/kits" className="text-indigo-600 hover:underline text-sm mt-2 inline-block">
+        <p className="text-[hsl(var(--muted-foreground))]">Kit nao encontrado.</p>
+        <Link href="/area-cliente/kits" className="text-indigo-500 hover:underline text-sm mt-2 inline-block">
           Voltar para Meus Kits
         </Link>
       </div>
@@ -194,37 +194,37 @@ export default function KitDetailPage() {
       {/* Back link */}
       <Link
         href="/area-cliente/kits"
-        className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-indigo-600 transition-colors"
+        className="inline-flex items-center gap-1.5 text-sm text-[hsl(var(--muted-foreground))] hover:text-indigo-500 transition-colors"
       >
         <ArrowLeft className="h-4 w-4" />
         Voltar para Meus Kits
       </Link>
 
       {/* Kit Header */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <div className="bg-[hsl(var(--card))] rounded-xl shadow-sm border border-[hsl(var(--border))] p-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Kit {formatMonth(kit.reference_month)}</h1>
+            <h1 className="text-2xl font-bold text-[hsl(var(--foreground))]">Kit {formatMonth(kit.reference_month)}</h1>
             <div className="flex items-center gap-3 mt-2">
               <span
                 className={`inline-block text-xs font-medium px-3 py-1 rounded-full ${
-                  statusColors[kit.status] || 'bg-gray-100 text-gray-600'
+                  statusColors[kit.status] || 'bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]'
                 }`}
               >
                 {statusLabels[kit.status] || kit.status}
               </span>
-              <span className="text-xs text-gray-400">{kit.total_documents} documentos</span>
+              <span className="text-xs text-[hsl(var(--muted-foreground))]">{kit.total_documents} documentos</span>
               {kit.documents_signed > 0 && (
-                <span className="text-xs text-green-600">{kit.documents_signed} assinados</span>
+                <span className="text-xs text-emerald-500">{kit.documents_signed} assinados</span>
               )}
             </div>
           </div>
           <div className="w-48">
-            <div className="flex justify-between text-xs text-gray-500 mb-1">
+            <div className="flex justify-between text-xs text-[hsl(var(--muted-foreground))] mb-1">
               <span>Conclusao</span>
-              <span className="font-medium">{completionPct}%</span>
+              <span className="font-data font-semibold tabular-nums">{completionPct}%</span>
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-2.5">
+            <div className="w-full bg-[hsl(var(--secondary))] rounded-full h-2.5">
               <div
                 className="bg-indigo-600 h-2.5 rounded-full transition-all"
                 style={{ width: `${completionPct}%` }}
@@ -233,37 +233,37 @@ export default function KitDetailPage() {
           </div>
         </div>
         {kit.notes && (
-          <div className="mt-4 pt-4 border-t border-gray-100">
-            <p className="text-sm text-gray-600">{kit.notes}</p>
+          <div className="mt-4 pt-4 border-t border-[hsl(var(--border))]">
+            <p className="text-sm text-[hsl(var(--muted-foreground))]">{kit.notes}</p>
           </div>
         )}
       </div>
 
       {/* Documents List */}
       {documents.length > 0 ? (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-          <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
-            <FileText className="h-5 w-5 text-indigo-600" />
-            <h2 className="text-lg font-semibold text-gray-900">Documentos ({documents.length})</h2>
+        <div className="bg-[hsl(var(--card))] rounded-xl shadow-sm border border-[hsl(var(--border))]">
+          <div className="px-6 py-4 border-b border-[hsl(var(--border))] flex items-center gap-2">
+            <FileText className="h-5 w-5 text-indigo-500" />
+            <h2 className="text-lg font-semibold text-[hsl(var(--foreground))]">Documentos ({documents.length})</h2>
           </div>
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-[hsl(var(--border))]">
             {documents.map((doc) => (
               <div key={doc.id} className="px-6 py-3.5 flex items-center justify-between">
                 <div className="flex items-center gap-3 min-w-0">
-                  <FileText className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                  <FileText className="h-4 w-4 text-[hsl(var(--muted-foreground))] flex-shrink-0" />
                   <div className="min-w-0">
-                    <span className="text-sm text-gray-700 truncate block">{doc.document_name}</span>
+                    <span className="text-sm text-[hsl(var(--foreground))] truncate block">{doc.document_name}</span>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded">
+                      <span className="text-xs bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))] px-2 py-0.5 rounded">
                         {doc.document_type}
                       </span>
                       {doc.file_size_bytes && (
-                        <span className="text-xs text-gray-400">
+                        <span className="text-xs text-[hsl(var(--muted-foreground))]">
                           {formatFileSize(doc.file_size_bytes)}
                         </span>
                       )}
                       {doc.is_signed && (
-                        <span title="Assinado" className="flex items-center gap-0.5 text-xs text-green-600">
+                        <span title="Assinado" className="flex items-center gap-0.5 text-xs text-emerald-500">
                           <PenLine className="h-3.5 w-3.5" />
                           Assinado
                         </span>
@@ -274,7 +274,7 @@ export default function KitDetailPage() {
                 <button
                   onClick={() => handleDownloadDoc(doc)}
                   disabled={downloadingDoc === doc.id}
-                  className="text-indigo-600 hover:text-indigo-800 p-2 rounded-lg hover:bg-indigo-50 transition-colors disabled:opacity-50 flex-shrink-0"
+                  className="text-indigo-500 hover:text-indigo-400 p-2 rounded-lg hover:bg-indigo-500/10 transition-colors disabled:opacity-50 flex-shrink-0"
                   title="Baixar documento"
                 >
                   {downloadingDoc === doc.id ? (
@@ -288,9 +288,9 @@ export default function KitDetailPage() {
           </div>
         </div>
       ) : (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center">
-          <FileText className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-          <p className="text-gray-500">Nenhum documento disponivel neste kit.</p>
+        <div className="bg-[hsl(var(--card))] rounded-xl shadow-sm border border-[hsl(var(--border))] p-12 text-center">
+          <FileText className="h-12 w-12 text-[hsl(var(--muted-foreground))] mx-auto mb-4" />
+          <p className="text-[hsl(var(--muted-foreground))]">Nenhum documento disponivel neste kit.</p>
         </div>
       )}
 

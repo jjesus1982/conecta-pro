@@ -395,7 +395,7 @@ export default function OrcamentosPage() {
               <div className="flex items-start justify-between">
                 <div>
                   <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Orçado Total</p>
-                  <p className="text-xl sm:text-2xl font-bold text-slate-800 dark:text-slate-100">
+                  <p className="font-data text-xl sm:text-2xl font-semibold tabular-nums text-slate-800 dark:text-slate-100">
                     {formatCurrency(totalBudgeted)}
                   </p>
                   <p className="text-xs text-slate-400 mt-1">{currentYear}</p>
@@ -413,7 +413,7 @@ export default function OrcamentosPage() {
               <div className="flex items-start justify-between">
                 <div>
                   <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Realizado</p>
-                  <p className="text-xl sm:text-2xl font-bold text-slate-800 dark:text-slate-100">
+                  <p className="font-data text-xl sm:text-2xl font-semibold tabular-nums text-slate-800 dark:text-slate-100">
                     {formatCurrency(totalActual)}
                   </p>
                   <p className="text-xs text-slate-400 mt-1">Despesas acumuladas</p>
@@ -431,7 +431,7 @@ export default function OrcamentosPage() {
               <div className="flex items-start justify-between">
                 <div>
                   <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Variação</p>
-                  <p className={`text-xl sm:text-2xl font-bold ${totalVariance >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                  <p className={`font-data text-xl sm:text-2xl font-semibold tabular-nums ${totalVariance >= 0 ? 'text-green-600' : 'text-red-500'}`}>
                     {formatCurrency(Math.abs(totalVariance))}
                   </p>
                   <p className={`text-xs mt-1 font-medium ${totalVariance >= 0 ? 'text-green-500' : 'text-red-400'}`}>
@@ -453,7 +453,7 @@ export default function OrcamentosPage() {
               <div className="flex items-start justify-between">
                 <div>
                   <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">% Execução</p>
-                  <p className={`text-xl sm:text-2xl font-bold ${totalExecPct > 100 ? 'text-red-500' : totalExecPct > 80 ? 'text-yellow-500' : 'text-green-600'}`}>
+                  <p className={`font-data text-xl sm:text-2xl font-semibold tabular-nums ${totalExecPct > 100 ? 'text-red-500' : totalExecPct > 80 ? 'text-yellow-500' : 'text-green-600'}`}>
                     {formatPct(totalExecPct)}
                   </p>
                   <div className="mt-2 h-1.5 w-full bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">

@@ -5,6 +5,7 @@ import { Modal, ModalFooter } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useProcessPayment } from '@/hooks/financial/useFinancial';
+import { Landmark, CheckCircle2 } from 'lucide-react';
 
 interface PayableDetailModalProps {
   isOpen: boolean;
@@ -134,7 +135,7 @@ export function PayableDetailModal({ isOpen, onClose, payable, onSuccess }: Paya
         <div className="grid grid-cols-2 gap-4">
           <div>
             <p className="text-sm text-[hsl(var(--muted-foreground))]">Valor</p>
-            <p className="text-xl font-bold font-mono">{formatCurrency(payable.amount)}</p>
+            <p className="text-xl font-semibold font-mono tabular-nums">{formatCurrency(payable.amount)}</p>
           </div>
           <div>
             <p className="text-sm text-[hsl(var(--muted-foreground))]">Vencimento</p>
@@ -194,7 +195,7 @@ export function PayableDetailModal({ isOpen, onClose, payable, onSuccess }: Paya
                         : 'bg-white text-gray-600 border-gray-300'
                     }`}
                   >
-                    🏦 Via Inter
+                    <span className="inline-flex items-center gap-1"><Landmark className="w-4 h-4" /> Via Inter</span>
                   </button>
                   <button
                     onClick={() => setPaymentForm((f) => ({ ...f, via_inter: false }))}
@@ -251,7 +252,7 @@ export function PayableDetailModal({ isOpen, onClose, payable, onSuccess }: Paya
                     disabled={paymentLoading}
                     className="flex-1 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
                   >
-                    {paymentLoading ? 'Pagando...' : '✅ Confirmar'}
+                    {paymentLoading ? 'Pagando...' : <span className="inline-flex items-center gap-1"><CheckCircle2 className="w-4 h-4" /> Confirmar</span>}
                   </button>
                 </div>
               </div>

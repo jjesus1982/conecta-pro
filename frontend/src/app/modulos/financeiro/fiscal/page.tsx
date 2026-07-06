@@ -162,7 +162,7 @@ export default function FiscalPage() {
                 <FileText className="w-5 h-5 text-indigo-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {dashboard?.stats?.total_nfe_emitidas ?? 0}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Total NF-e</p>
@@ -176,7 +176,7 @@ export default function FiscalPage() {
                 <FileText className="w-5 h-5 text-blue-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {dashboard?.stats?.total_nfse_emitidas ?? 0}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Total NFS-e</p>
@@ -190,7 +190,7 @@ export default function FiscalPage() {
                 <CheckCircle className="w-5 h-5 text-green-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-green-500">
+                <p className="font-data text-2xl font-semibold tabular-nums text-green-500">
                   {dashboard?.stats?.total_nfe_mes ?? 0}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Autorizadas</p>
@@ -204,7 +204,7 @@ export default function FiscalPage() {
                 <AlertCircle className="w-5 h-5 text-yellow-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-yellow-500">
+                <p className="font-data text-2xl font-semibold tabular-nums text-yellow-500">
                   {dashboard?.stats?.obrigacoes_pendentes ?? 0}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Pendentes</p>

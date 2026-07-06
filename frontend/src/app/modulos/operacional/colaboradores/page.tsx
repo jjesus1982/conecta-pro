@@ -5,6 +5,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import {
@@ -249,40 +250,37 @@ export default function ColaboradoresPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Users className="h-6 w-6" />
-            Colaboradores
-          </h1>
-          <p className="text-muted-foreground">
-            {total} colaboradores • {solidesTotal > 0 ? `${solidesTotal} no Sólides DP` : 'carregando Sólides...'}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className="text-xs gap-1">
-            <Zap className="h-3 w-3 text-yellow-500" />
-            Enriquecido com Sólides DP
-          </Badge>
-          <Button onClick={() => setNewDialogOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Novo Colaborador
-          </Button>
-          <ExportButton
-            data={exportData}
-            filename="colaboradores"
-            pdfTitle="Relatório de Colaboradores"
-            formats={['excel', 'pdf', 'csv']}
-            size="sm"
-            variant="outline"
-            buttonText="Exportar"
-          />
-          <Button variant="outline" onClick={() => { refetchLocal(); refetchSolides(); }} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Atualizar
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="OPERACIONAL"
+        title="Colaboradores"
+        subtitle={`${total} colaboradores • ${solidesTotal > 0 ? `${solidesTotal} no Sólides DP` : 'carregando Sólides...'}`}
+        icon={<Users className="h-6 w-6" />}
+        actions={
+          <>
+            <Badge variant="outline" className="text-xs gap-1">
+              <Zap className="h-3 w-3 text-yellow-500" />
+              Enriquecido com Sólides DP
+            </Badge>
+            <Button onClick={() => setNewDialogOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Novo Colaborador
+            </Button>
+            <ExportButton
+              data={exportData}
+              filename="colaboradores"
+              pdfTitle="Relatório de Colaboradores"
+              formats={['excel', 'pdf', 'csv']}
+              size="sm"
+              variant="outline"
+              buttonText="Exportar"
+            />
+            <Button variant="outline" onClick={() => { refetchLocal(); refetchSolides(); }} disabled={loading}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              Atualizar
+            </Button>
+          </>
+        }
+      />
 
       {/* Filtros */}
       <Card>
@@ -330,7 +328,7 @@ export default function ColaboradoresPage() {
             <CardTitle className="text-sm font-medium">Total</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent><div className="text-2xl font-bold">{total}</div></CardContent>
+          <CardContent><div className="font-data text-2xl font-semibold tabular-nums">{total}</div></CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -338,7 +336,7 @@ export default function ColaboradoresPage() {
             <User className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
+            <div className="font-data text-2xl font-semibold tabular-nums">
               {employees.filter((e) => ['ativo', 'active'].includes((e.status || '').toLowerCase())).length}
             </div>
           </CardContent>
@@ -349,7 +347,7 @@ export default function ColaboradoresPage() {
             <User className="h-4 w-4 text-yellow-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
+            <div className="font-data text-2xl font-semibold tabular-nums">
               {employees.filter((e) => ['afastado', 'on_leave'].includes((e.status || '').toLowerCase())).length}
             </div>
           </CardContent>
@@ -359,7 +357,7 @@ export default function ColaboradoresPage() {
             <CardTitle className="text-sm font-medium">Exibindo</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent><div className="text-2xl font-bold">{filteredEmployees.length}</div></CardContent>
+          <CardContent><div className="font-data text-2xl font-semibold tabular-nums">{filteredEmployees.length}</div></CardContent>
         </Card>
       </div>
 

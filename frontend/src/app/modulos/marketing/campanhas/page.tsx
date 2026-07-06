@@ -4,6 +4,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { customInstance } from '@/lib/api-client';
 import { Plus, Megaphone, Users, TrendingUp } from 'lucide-react';
 import { toast } from 'sonner';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
 
 export default function CampanhasPage() {
   const queryClient = useQueryClient();
@@ -31,15 +33,17 @@ export default function CampanhasPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold">Campanhas de Marketing</h1>
-          <p className="text-gray-500">Gerencie campanhas de aquisição de clientes</p>
-        </div>
-        <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-2 bg-cyan-600 text-white px-4 py-2 rounded-lg hover:bg-cyan-700">
-          <Plus className="h-4 w-4" /> Nova Campanha
-        </button>
-      </div>
+      <PageHeader
+        eyebrow="MARKETING"
+        title="Campanhas de Marketing"
+        subtitle="Gerencie campanhas de aquisição de clientes"
+        icon={<Megaphone className="h-5 w-5" />}
+        actions={
+          <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-2 bg-cyan-600 text-white px-4 py-2 rounded-lg hover:bg-cyan-700">
+            <Plus className="h-4 w-4" /> Nova Campanha
+          </button>
+        }
+      />
 
       {showForm && (
         <div className="bg-white border rounded-xl p-4 space-y-3">
@@ -61,9 +65,9 @@ export default function CampanhasPage() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl border p-4"><div className="text-gray-500 text-sm flex items-center gap-1"><Megaphone className="h-4 w-4" />Campanhas</div><p className="text-2xl font-bold">{campaigns.length}</p></div>
-        <div className="bg-white rounded-xl border p-4"><div className="text-gray-500 text-sm flex items-center gap-1"><Users className="h-4 w-4" />Total Leads</div><p className="text-2xl font-bold">{campaigns.reduce((s: number, c: any) => s + (c.total_leads || 0), 0)}</p></div>
-        <div className="bg-white rounded-xl border p-4"><div className="text-gray-500 text-sm flex items-center gap-1"><TrendingUp className="h-4 w-4" />Convertidos</div><p className="text-2xl font-bold text-green-600">{campaigns.reduce((s: number, c: any) => s + (c.converted || 0), 0)}</p></div>
+        <StatCard label="Campanhas" value={campaigns.length} icon={<Megaphone className="h-4 w-4" />} color="#0891b2" />
+        <StatCard label="Total Leads" value={campaigns.reduce((s: number, c: any) => s + (c.total_leads || 0), 0)} icon={<Users className="h-4 w-4" />} color="#3b82f6" />
+        <StatCard label="Convertidos" value={<span className="text-green-600">{campaigns.reduce((s: number, c: any) => s + (c.converted || 0), 0)}</span>} icon={<TrendingUp className="h-4 w-4" />} color="#16a34a" />
       </div>
 
       {isLoading ? <p className="text-gray-400">Carregando...</p> : campaigns.length === 0 ? (

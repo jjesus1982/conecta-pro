@@ -384,7 +384,7 @@ export default function FinanceiroPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">Receita</p>
-                    <p className="text-xl font-bold text-green-500 truncate">
+                    <p className="font-data text-xl font-semibold tabular-nums text-green-500 truncate">
                       {formatCurrency(overview?.receita_total)}
                     </p>
                     {receivableStats?.total_count != null && (
@@ -406,7 +406,7 @@ export default function FinanceiroPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">Despesa</p>
-                    <p className="text-xl font-bold text-red-500 truncate">
+                    <p className="font-data text-xl font-semibold tabular-nums text-red-500 truncate">
                       {formatCurrency(overview?.despesa_total)}
                     </p>
                     {payableStats?.total_count != null && (
@@ -428,7 +428,7 @@ export default function FinanceiroPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">Saldo</p>
-                    <p className="text-xl font-bold text-blue-500 truncate">
+                    <p className="font-data text-xl font-semibold tabular-nums text-blue-500 truncate">
                       {formatCurrency(overview?.saldo)}
                     </p>
                     {cashflowStats?.projected_balance != null && (
@@ -450,7 +450,7 @@ export default function FinanceiroPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">Inadimplência</p>
-                    <p className="text-xl font-bold text-yellow-500 truncate">
+                    <p className="font-data text-xl font-semibold tabular-nums text-yellow-500 truncate">
                       {formatCurrency(overview?.inadimplencia)}
                     </p>
                     {receivableStats?.overdue_count != null && (
@@ -879,7 +879,7 @@ export default function FinanceiroPage() {
                         <p className="text-xs text-[hsl(var(--muted-foreground))] mb-2">
                           Conta: {bank.account}
                         </p>
-                        <p className="text-2xl font-bold" style={{ color: '#00a859' }}>
+                        <p className="font-data text-2xl font-semibold tabular-nums" style={{ color: '#00a859' }}>
                           {formatCurrency(bank.available_balance)}
                         </p>
                         {bank.blocked_balance > 0 && (

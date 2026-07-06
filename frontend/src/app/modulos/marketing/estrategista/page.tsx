@@ -4,6 +4,7 @@ import { customInstance } from '@/lib/api-client';
 import { Target, Sparkles, Loader2, Calendar, Megaphone, TrendingUp, ListChecks } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
+import { PageHeader } from '@/components/ui/page-header';
 
 export default function EstrategistaPage() {
   const [objetivo, setObjetivo] = useState('');
@@ -25,10 +26,12 @@ export default function EstrategistaPage() {
 
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2"><Target className="h-6 w-6" />Estrategista IA</h1>
-        <p className="text-gray-500">Descreva o objetivo e a IA monta o plano de campanha + calendário editorial na voz da marca. Você revisa e ajusta.</p>
-      </div>
+      <PageHeader
+        eyebrow="MARKETING"
+        title="Estrategista IA"
+        subtitle="Descreva o objetivo e a IA monta o plano de campanha + calendário editorial na voz da marca. Você revisa e ajusta."
+        icon={<Target className="h-5 w-5" />}
+      />
 
       <div className="bg-white rounded-xl border p-5 space-y-4">
         <div>

@@ -410,13 +410,13 @@ export default function FaturamentoPage() {
             {/* Secondary stats */}
             <div className="grid grid-cols-3 gap-4">
               <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4 text-center">
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {summaryLoading ? '...' : summary?.qtd_faturas ?? 0}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">Faturas no Mes</p>
               </div>
               <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4 text-center">
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {summaryLoading ? '...' : summary?.qtd_clientes ?? 0}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">Clientes</p>
@@ -510,11 +510,11 @@ export default function FaturamentoPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">Contratos identificados</p>
-                    <p className="text-xl font-bold text-[hsl(var(--foreground))]">{preview.qtd_contratos}</p>
+                    <p className="font-data text-xl font-semibold tabular-nums text-[hsl(var(--foreground))]">{preview.qtd_contratos}</p>
                   </div>
                   <div>
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">Valor estimado</p>
-                    <p className="text-xl font-bold text-blue-500">{formatCurrency(preview.valor_estimado)}</p>
+                    <p className="font-data text-xl font-semibold tabular-nums text-blue-500">{formatCurrency(preview.valor_estimado)}</p>
                   </div>
                 </div>
                 {preview.observacoes.map((obs, i) => (
@@ -700,7 +700,7 @@ export default function FaturamentoPage() {
 
                     <div className="flex items-center justify-between pt-2">
                       <span className="font-bold text-[hsl(var(--foreground))]">TOTAL</span>
-                      <span className="text-2xl font-bold text-green-500">{formatCurrency(medResult.valor_total)}</span>
+                      <span className="font-data text-2xl font-semibold tabular-nums text-green-500">{formatCurrency(medResult.valor_total)}</span>
                     </div>
 
                     <div className="bg-[hsl(var(--muted))]/30 rounded-lg p-3 space-y-1">

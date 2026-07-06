@@ -134,7 +134,7 @@ export default function ContrachequePortalPage() {
             <div className="flex items-center gap-3">
               <FileText className="w-6 h-6 text-blue-600" />
               <div>
-                <h2 className="text-lg font-semibold">Contracheque</h2>
+                <h2 className="font-display text-lg">Contracheque</h2>
                 <p className="text-sm text-gray-500">Visualize e baixe seus contracheques</p>
               </div>
             </div>
@@ -194,25 +194,25 @@ export default function ContrachequePortalPage() {
             <Card>
               <CardContent className="p-4">
                 <p className="text-sm text-gray-500">Salario Base</p>
-                <p className="text-xl font-bold">{fmt(payslip.salario_base)}</p>
+                <p className="font-data text-xl font-semibold tabular-nums">{fmt(payslip.salario_base)}</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-4">
                 <p className="text-sm text-gray-500">Total Proventos</p>
-                <p className="text-xl font-bold text-green-700">{fmt(payslip.total_proventos)}</p>
+                <p className="font-data text-xl font-semibold tabular-nums text-green-700">{fmt(payslip.total_proventos)}</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-4">
                 <p className="text-sm text-gray-500">Total Descontos</p>
-                <p className="text-xl font-bold text-red-700">{fmt(payslip.total_descontos)}</p>
+                <p className="font-data text-xl font-semibold tabular-nums text-red-700">{fmt(payslip.total_descontos)}</p>
               </CardContent>
             </Card>
             <Card className="bg-blue-50 border-blue-200">
               <CardContent className="p-4">
                 <p className="text-sm text-blue-600">Salario Liquido</p>
-                <p className="text-2xl font-bold text-blue-700">{fmt(payslip.salario_liquido)}</p>
+                <p className="font-data text-2xl font-semibold tabular-nums text-blue-700">{fmt(payslip.salario_liquido)}</p>
               </CardContent>
             </Card>
           </div>

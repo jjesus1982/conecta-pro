@@ -4,6 +4,7 @@ import type { CompletudeKit, TipoServico } from '@/types/kit-completude';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { CheckCircle2 } from 'lucide-react';
 
 interface KitCardProps {
   kit: CompletudeKit;
@@ -12,11 +13,11 @@ interface KitCardProps {
 }
 
 function getCardClasses(pct: number, tipo: TipoServico): string {
-  if (tipo === 'administrativo') return 'border-gray-500 bg-gray-50';
-  if (pct >= 100) return 'border-green-600 bg-green-50';
-  if (pct >= 80) return 'border-blue-600 bg-blue-50';
-  if (pct >= 50) return 'border-amber-500 bg-amber-50';
-  return 'border-red-600 bg-red-50';
+  if (tipo === 'administrativo') return 'border-[hsl(var(--border))] bg-[hsl(var(--secondary))]';
+  if (pct >= 100) return 'border-emerald-500 bg-emerald-500/10';
+  if (pct >= 80) return 'border-blue-500 bg-blue-500/10';
+  if (pct >= 50) return 'border-amber-500 bg-amber-500/10';
+  return 'border-red-500 bg-red-500/10';
 }
 
 const TIPO_LABELS: Record<TipoServico, string> = {
@@ -43,30 +44,32 @@ export function KitCard({ kit, onClick, enviado = false }: KitCardProps) {
       data-testid="kit-card"
     >
       <div className="flex items-start justify-between gap-2">
-        <h3 className="font-bold text-gray-900 leading-tight">{condominio_nome}</h3>
+        <h3 className="font-bold text-[hsl(var(--foreground))] leading-tight">{condominio_nome}</h3>
         <div className="flex shrink-0 flex-col items-end gap-1">
           <Badge variant="outline" className="text-xs">
             {TIPO_LABELS[tipo_servico]}
           </Badge>
           {enviado && (
-            <Badge className="bg-green-600 text-white text-xs">✓ Enviado</Badge>
+            <Badge className="bg-emerald-500 text-white text-xs inline-flex items-center gap-1">
+              <CheckCircle2 className="h-3 w-3" /> Enviado
+            </Badge>
           )}
         </div>
       </div>
 
       {isAdmin ? (
         <div className="mt-4">
-          <Badge className="bg-gray-500 text-white">SEM KIT</Badge>
-          <p className="mt-2 text-xs text-gray-500">Escritório não possui kit documental</p>
+          <Badge className="bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]">SEM KIT</Badge>
+          <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">Escritório não possui kit documental</p>
         </div>
       ) : (
         <>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl font-bold">{pct.toFixed(1)}%</span>
-            <span className="text-sm text-gray-600">confirmado</span>
+            <span className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">{pct.toFixed(1)}%</span>
+            <span className="text-sm text-[hsl(var(--muted-foreground))]">confirmado</span>
           </div>
           <Progress value={pct} className="mt-2 h-2" />
-          <p className="mt-2 text-sm text-gray-600">
+          <p className="mt-2 text-sm text-[hsl(var(--muted-foreground))]">
             {metricas.total_presente_confirmado} / {metricas.total_esperado} docs
           </p>
           {metricas.total_presente_pendente_revisao > 0 && (

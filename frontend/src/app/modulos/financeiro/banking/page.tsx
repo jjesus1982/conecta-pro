@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { Landmark, CheckCircle2, Clock } from 'lucide-react'
 
 const API = '/api/v1/integrations/banking'
 const PAYMENT_API = '/api/v1/banking/payment'
@@ -244,8 +245,8 @@ export default function BankingPage() {
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              🏦 Banco Inter
+            <h1 className="font-display text-2xl font-semibold text-gray-900 flex items-center gap-2">
+              <Landmark className="w-6 h-6" /> Banco Inter
             </h1>
             <p className="text-sm text-gray-500 mt-1">
               Conta 370990072-2 • Agência 0001
@@ -254,7 +255,7 @@ export default function BankingPage() {
           {saldo && (
             <div className="text-right">
               <p className="text-sm text-gray-500">Saldo disponível</p>
-              <p className="text-3xl font-bold text-green-600">
+              <p className="font-data text-2xl font-semibold tabular-nums text-green-600">
                 {new Intl.NumberFormat('pt-BR', {
                   style: 'currency', currency: 'BRL'
                 }).format(saldo.available_balance || saldo.balance || 0)}
@@ -316,7 +317,7 @@ export default function BankingPage() {
                     <div key={item.label}
                       className="bg-gray-50 rounded-lg p-4">
                       <p className="text-sm text-gray-500">{item.label}</p>
-                      <p className={`text-2xl font-bold text-${
+                      <p className={`font-data text-2xl font-semibold tabular-nums text-${
                         item.color}-600 mt-1`}>
                         {new Intl.NumberFormat('pt-BR', {
                           style: 'currency', currency: 'BRL'
@@ -398,11 +399,11 @@ export default function BankingPage() {
                             </td>
                             <td className="py-2">
                               {tx.reconciliado ? (
-                                <span className="text-xs text-green-600">
-                                  ✅ Conciliado</span>
+                                <span className="text-xs text-green-600 inline-flex items-center gap-1">
+                                  <CheckCircle2 className="w-3 h-3" /> Conciliado</span>
                               ) : (
-                                <span className="text-xs text-yellow-600">
-                                  ⏳ Pendente</span>
+                                <span className="text-xs text-yellow-600 inline-flex items-center gap-1">
+                                  <Clock className="w-3 h-3" /> Pendente</span>
                               )}
                             </td>
                           </tr>

@@ -129,7 +129,7 @@ function KpiCard({
             {loading ? (
               <div className="h-6 w-28 bg-[hsl(var(--secondary))] rounded animate-shimmer" />
             ) : (
-              <p className={cn('text-xl font-bold', color)}>{value}</p>
+              <p className={cn('font-data text-xl font-semibold tabular-nums', color)}>{value}</p>
             )}
           </div>
           <div className={cn('w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0', color.replace('text-', 'bg-').replace('-600', '-500/10').replace('-500', '-500/10'))}>
@@ -888,7 +888,7 @@ export default function ConciliacaoPage() {
                   </div>
                   <span
                     className={cn(
-                      'text-2xl font-bold',
+                      'font-data text-2xl font-semibold tabular-nums',
                       reconciliationProgress === 100
                         ? 'text-green-500'
                         : reconciliationProgress > 50
@@ -974,7 +974,7 @@ export default function ConciliacaoPage() {
                                 </p>
                                 {(tx as any).requires_justification && (
                                   <span className="flex-shrink-0 px-1.5 py-0.5 text-xs bg-orange-100 text-orange-700 rounded font-medium">
-                                    ⚠️ Justificar
+                                    <AlertCircle className="w-3 h-3 inline" /> Justificar
                                   </span>
                                 )}
                               </div>

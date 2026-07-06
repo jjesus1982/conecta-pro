@@ -2,9 +2,10 @@
 
 import { Landmark, FileText, Users, Database, FileSpreadsheet, FileCode, Award, RefreshCw, ArrowRight, AlertCircle, Receipt } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-;
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
 import { useObterDashboardMonitoramento, useHealthCheck } from '@/hooks/government';
 
 export default function FiscalDashboardPage() {
@@ -24,34 +25,31 @@ export default function FiscalDashboardPage() {
   const certidoesCount = dashboard?.certidoes ?? dashboard?.certificados?.total ?? 0;
   const syncStatus = healthData?.status ?? dashboard?.sync_status ?? 'offline';
 
+  const syncOnline = syncStatus === 'ok' || syncStatus === 'healthy';
   const statsCards = [
     {
       title: 'NFS-e Emitidas',
       value: nfseEmitidas,
       icon: FileText,
-      color: 'text-blue-600',
-      bgColor: 'bg-blue-50',
+      color: '#2563eb',
     },
     {
       title: 'eSocial Pendente',
       value: esocialPendente,
       icon: Users,
-      color: 'text-orange-600',
-      bgColor: 'bg-orange-50',
+      color: '#ea580c',
     },
     {
       title: 'Certidoes',
       value: certidoesCount,
       icon: Award,
-      color: 'text-green-600',
-      bgColor: 'bg-green-50',
+      color: '#16a34a',
     },
     {
       title: 'Status Sync',
-      value: syncStatus === 'ok' || syncStatus === 'healthy' ? 'Online' : 'Offline',
+      value: syncOnline ? 'Online' : 'Offline',
       icon: RefreshCw,
-      color: syncStatus === 'ok' || syncStatus === 'healthy' ? 'text-emerald-600' : 'text-red-600',
-      bgColor: syncStatus === 'ok' || syncStatus === 'healthy' ? 'bg-emerald-50' : 'bg-red-50',
+      color: syncOnline ? '#059669' : '#dc2626',
     },
   ];
 
@@ -117,21 +115,18 @@ export default function FiscalDashboardPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Landmark className="h-6 w-6" />
-            Fiscal
-          </h1>
-          <p className="text-muted-foreground">
-            Gestão fiscal, tributária e obrigações acessórias
-          </p>
-        </div>
-        <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-          Atualizar
-        </Button>
-      </div>
+      <PageHeader
+        eyebrow="FISCAL"
+        title="Fiscal"
+        subtitle="Gestão fiscal, tributária e obrigações acessórias"
+        icon={<Landmark className="h-5 w-5" />}
+        actions={
+          <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            Atualizar
+          </Button>
+        }
+      />
 
       {/* Error */}
       {isError && (
@@ -152,19 +147,13 @@ export default function FiscalDashboardPage() {
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {statsCards.map((card) => (
-          <Card key={card.title}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">{card.title}</CardTitle>
-              <div className={`w-8 h-8 rounded-lg ${card.bgColor} flex items-center justify-center`}>
-                <card.icon className={`h-4 w-4 ${card.color}`} />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {isLoading ? '...' : card.value}
-              </div>
-            </CardContent>
-          </Card>
+          <StatCard
+            key={card.title}
+            label={card.title}
+            value={isLoading ? '...' : card.value}
+            icon={<card.icon className="h-4 w-4" />}
+            color={card.color}
+          />
         ))}
       </div>
 

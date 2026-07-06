@@ -8,6 +8,8 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ConfirmModal } from '@/components/ui/modal';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
 import { useAuth } from '@/hooks/useAuth';
 import { usePosts, useDeletePost } from '@/hooks/operacional/usePosts';
 import { getErrorMessage } from '@/lib/api';
@@ -186,98 +188,55 @@ export default function PostosPage() {
 
   return (
     <div className="min-h-screen bg-grid">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-[hsl(var(--background))]/80 backdrop-blur-xl border-b border-[hsl(var(--border))]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-4">
+      {/* Main content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <PageHeader
+          eyebrow="OPERACIONAL"
+          title="Postos de Trabalho"
+          subtitle={`${total} postos cadastrados`}
+          icon={<MapPin className="w-5 h-5" />}
+          actions={
+            <>
               <Link href="/modulos/operacional">
                 <Button variant="ghost" size="sm">
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Operacional
                 </Button>
               </Link>
-              <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center">
-                  <MapPin className="w-5 h-5 text-cyan-500" />
-                </div>
-                <div>
-                  <h1 className="text-lg font-semibold text-[hsl(var(--foreground))]">
-                    Postos de Trabalho
-                  </h1>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                    {total} postos cadastrados
-                  </p>
-                </div>
-              </div>
-            </div>
-            <Button variant="primary" size="sm" onClick={handleCreate}>
-              <Plus className="w-4 h-4 mr-2" />
-              Novo Posto
-            </Button>
-          </div>
-        </div>
-      </header>
+              <Button variant="primary" size="sm" onClick={handleCreate}>
+                <Plus className="w-4 h-4 mr-2" />
+                Novo Posto
+              </Button>
+            </>
+          }
+        />
 
-      {/* Main content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Stats Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center">
-                <MapPin className="w-5 h-5 text-cyan-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
-                  {stats?.total || 0}
-                </p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">Total de Postos</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
-                <CheckCircle className="w-5 h-5 text-green-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
-                  {stats?.filled || 0}
-                </p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">Preenchidos</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-orange-500/10 flex items-center justify-center">
-                <AlertCircle className="w-5 h-5 text-orange-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
-                  {stats?.with_vacancy || 0}
-                </p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">Com vagas</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                <Users className="w-5 h-5 text-blue-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
-                  {stats?.total_headcount || 0}
-                </p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">Vagas totais</p>
-              </div>
-            </div>
-          </div>
+          <StatCard
+            icon={<MapPin className="w-4 h-4" />}
+            color="#06b6d4"
+            label="Total de Postos"
+            value={stats?.total || 0}
+          />
+          <StatCard
+            icon={<CheckCircle className="w-4 h-4" />}
+            color="#22c55e"
+            label="Preenchidos"
+            value={stats?.filled || 0}
+          />
+          <StatCard
+            icon={<AlertCircle className="w-4 h-4" />}
+            color="#f97316"
+            label="Com vagas"
+            value={stats?.with_vacancy || 0}
+          />
+          <StatCard
+            icon={<Users className="w-4 h-4" />}
+            color="#3b82f6"
+            label="Vagas totais"
+            value={stats?.total_headcount || 0}
+          />
         </div>
 
         {/* Search and Filters */}

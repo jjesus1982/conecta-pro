@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
 import { Input } from '@/components/ui/input';
 import { Modal, ModalFooter } from '@/components/ui/modal';
 import { useAuth } from '@/hooks/useAuth';
@@ -283,31 +284,20 @@ export default function AlocacoesPage() {
 
   return (
     <div className="min-h-screen bg-grid">
-      <header className="sticky top-0 z-50 bg-[hsl(var(--background))]/80 backdrop-blur-xl border-b border-[hsl(var(--border))]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-4">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <PageHeader
+          eyebrow="OPERACIONAL"
+          title="Alocacoes"
+          subtitle={`${total} alocacoes encontradas`}
+          icon={<Users className="w-5 h-5" />}
+          actions={
+            <>
               <Link href="/modulos/operacional">
                 <Button variant="ghost" size="sm">
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Operacional
                 </Button>
               </Link>
-              <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
-                  <Users className="w-5 h-5 text-green-500" />
-                </div>
-                <div>
-                  <h1 className="text-lg font-semibold text-[hsl(var(--foreground))]">
-                    Alocacoes
-                  </h1>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                    {total} alocacoes encontradas
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
               <ExportButton
                 data={exportData}
                 filename="alocacoes"
@@ -321,12 +311,10 @@ export default function AlocacoesPage() {
                 <Plus className="w-4 h-4 mr-2" />
                 Nova Alocação
               </Button>
-            </div>
-          </div>
-        </div>
-      </header>
+            </>
+          }
+        />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <div className="flex flex-col sm:flex-row gap-4 mb-6">
           <Button
             variant="outline"

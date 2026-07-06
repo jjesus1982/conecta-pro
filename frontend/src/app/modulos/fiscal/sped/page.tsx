@@ -4,6 +4,7 @@ import { RefreshCw, AlertCircle, Database, Eye, FileText, Download, CheckSquare,
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { PageHeader } from '@/components/ui/page-header';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SpedDetailModal } from '@/components/fiscal/sped-detail-modal';
 import {
@@ -280,14 +281,12 @@ export default function SpedPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-[hsl(var(--foreground))]">SPED</h1>
-          <p className="text-sm text-[hsl(var(--muted-foreground))]">
-            Sistema Publico de Escrituracao Digital
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="FISCAL"
+        title="SPED"
+        subtitle="Sistema Publico de Escrituracao Digital"
+        icon={<Database className="h-5 w-5" />}
+      />
 
       {/* Period Selector */}
       {renderPeriodSelector()}

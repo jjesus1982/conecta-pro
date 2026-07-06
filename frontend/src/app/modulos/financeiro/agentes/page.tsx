@@ -243,7 +243,7 @@ export default function AgentesPage() {
                 <CheckCircle className="h-5 w-5 text-green-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-green-600">{agentesAtivos}</p>
+                <p className="font-data text-2xl font-semibold tabular-nums text-green-600">{agentesAtivos}</p>
                 <p className="text-xs text-muted-foreground">Ativos</p>
               </div>
             </CardContent>
@@ -254,7 +254,7 @@ export default function AgentesPage() {
                 <AlertTriangle className="h-5 w-5 text-yellow-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-yellow-600">{agentesParcial}</p>
+                <p className="font-data text-2xl font-semibold tabular-nums text-yellow-600">{agentesParcial}</p>
                 <p className="text-xs text-muted-foreground">Parcial</p>
               </div>
             </CardContent>
@@ -265,7 +265,7 @@ export default function AgentesPage() {
                 <XCircle className="h-5 w-5 text-orange-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-orange-600">{agentesSemSkill}</p>
+                <p className="font-data text-2xl font-semibold tabular-nums text-orange-600">{agentesSemSkill}</p>
                 <p className="text-xs text-muted-foreground">Sem skills</p>
               </div>
             </CardContent>
@@ -309,7 +309,7 @@ export default function AgentesPage() {
                       ))}
                       {agent.skills_missing.map((s) => (
                         <span key={s} className="text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded">
-                          ⚠ {s.split('-').slice(0, 2).join('-')}
+                          <AlertTriangle className="w-3 h-3 inline" /> {s.split('-').slice(0, 2).join('-')}
                         </span>
                       ))}
                       {agent.skills.length === 0 && (

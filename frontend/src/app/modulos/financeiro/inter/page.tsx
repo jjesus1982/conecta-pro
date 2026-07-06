@@ -283,7 +283,7 @@ export default function InterPage() {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-sm opacity-70">Saldo Disponível</p>
-              <p className="mt-1 text-3xl font-bold">{fmt(saldo.disponivel)}</p>
+              <p className="mt-1 font-data text-2xl font-semibold tabular-nums">{fmt(saldo.disponivel)}</p>
               {saldo.bloqueado > 0 && (
                 <p className="mt-1 text-sm opacity-60">Bloqueado: {fmt(saldo.bloqueado)}</p>
               )}

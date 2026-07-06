@@ -148,7 +148,7 @@ export default function AICommandCenterOperacionalPage() {
                 <Brain className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h1 className="text-xl font-bold">AI Command Center</h1>
+                <h1 className="font-display text-xl font-bold">AI Command Center</h1>
                 <p className="text-sm text-white/60">Inteligência Operacional em Tempo Real</p>
               </div>
             </div>
@@ -195,7 +195,7 @@ export default function AICommandCenterOperacionalPage() {
               <MapPin className="w-4 h-4 text-cyan-400" />
               <span className="text-xs text-white/60">Postos Ativos</span>
             </div>
-            <div className="text-2xl font-bold text-white">
+            <div className="font-data text-2xl font-semibold tabular-nums text-white">
               {isLoading ? '—' : overview?.posts_active ?? 0}
             </div>
             <div className="text-xs text-green-400 mt-1">Operacionais</div>
@@ -206,7 +206,7 @@ export default function AICommandCenterOperacionalPage() {
               <Shield className="w-4 h-4 text-blue-400" />
               <span className="text-xs text-white/60">Cobertura Prevista</span>
             </div>
-            <div className={`text-2xl font-bold ${coverageScore >= 90 ? 'text-green-400' : coverageScore >= 75 ? 'text-yellow-400' : 'text-red-400'}`}>
+            <div className={`font-data text-2xl font-semibold tabular-nums ${coverageScore >= 90 ? 'text-green-400' : coverageScore >= 75 ? 'text-yellow-400' : 'text-red-400'}`}>
               {isLoading ? '—' : `${coverageScore}%`}
             </div>
             <div className="text-xs text-white/40 mt-1">Próxima semana</div>
@@ -217,7 +217,7 @@ export default function AICommandCenterOperacionalPage() {
               <AlertTriangle className="w-4 h-4 text-orange-400" />
               <span className="text-xs text-white/60">Alertas Ativos</span>
             </div>
-            <div className={`text-2xl font-bold ${(overview?.active_alerts ?? 0) > 0 ? 'text-orange-400' : 'text-green-400'}`}>
+            <div className={`font-data text-2xl font-semibold tabular-nums ${(overview?.active_alerts ?? 0) > 0 ? 'text-orange-400' : 'text-green-400'}`}>
               {isLoading ? '—' : overview?.active_alerts ?? 0}
             </div>
             <div className="text-xs text-white/40 mt-1">Requerem atenção</div>
@@ -228,7 +228,7 @@ export default function AICommandCenterOperacionalPage() {
               <BarChart2 className="w-4 h-4 text-purple-400" />
               <span className="text-xs text-white/60">Score da Equipe</span>
             </div>
-            <div className="text-2xl font-bold text-purple-400">
+            <div className="font-data text-2xl font-semibold tabular-nums text-purple-400">
               {isLoading ? '—' : performanceData?.team_average_score ?? 0}
             </div>
             <div className="text-xs text-white/40 mt-1">Performance média</div>

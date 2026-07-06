@@ -4,6 +4,8 @@ import { RefreshCw, AlertCircle, FileSpreadsheet, Eye, DollarSign, Clock, Send, 
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
 import { DctfwebDetailModal } from '@/components/fiscal/dctfweb-detail-modal';
 import {
   useCalcularFGTS,
@@ -158,14 +160,12 @@ export default function DctfwebPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-[hsl(var(--foreground))]">DCTFWeb</h1>
-          <p className="text-sm text-[hsl(var(--muted-foreground))]">
-            Declaracao de Debitos e Creditos Tributarios Federais
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="FISCAL"
+        title="DCTFWeb"
+        subtitle="Declaracao de Debitos e Creditos Tributarios Federais"
+        icon={<FileSpreadsheet className="h-5 w-5" />}
+      />
 
       {/* Period Selector */}
       <div className="flex items-center gap-4 p-4 bg-[hsl(var(--muted))] rounded-lg">
@@ -224,53 +224,24 @@ export default function DctfwebPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-[hsl(var(--muted-foreground))]">Declaracoes</p>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
-                  {totalDeclaracoes}
-                </p>
-              </div>
-              <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                <FileSpreadsheet className="w-5 h-5 text-blue-500" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-[hsl(var(--muted-foreground))]">Pendentes</p>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
-                  {pendentes}
-                </p>
-              </div>
-              <div className="w-10 h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center">
-                <Clock className="w-5 h-5 text-yellow-500" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-[hsl(var(--muted-foreground))]">Enviadas</p>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
-                  {enviadas}
-                </p>
-              </div>
-              <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
-                <Send className="w-5 h-5 text-green-500" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <StatCard
+          label="Declaracoes"
+          value={totalDeclaracoes}
+          icon={<FileSpreadsheet className="w-5 h-5" />}
+          color="#3b82f6"
+        />
+        <StatCard
+          label="Pendentes"
+          value={pendentes}
+          icon={<Clock className="w-5 h-5" />}
+          color="#eab308"
+        />
+        <StatCard
+          label="Enviadas"
+          value={enviadas}
+          icon={<Send className="w-5 h-5" />}
+          color="#22c55e"
+        />
       </div>
 
       {/* Table */}

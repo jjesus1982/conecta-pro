@@ -22,14 +22,14 @@ export function MesRefSelector({ value, onChange }: MesRefSelectorProps) {
 
   return (
     <div className="flex items-center gap-2">
-      <label htmlFor="mes-ref-select" className="text-sm font-medium text-gray-700">
+      <label htmlFor="mes-ref-select" className="text-sm font-medium text-[hsl(var(--foreground))]">
         Mês/Ano:
       </label>
       <select
         id="mes-ref-select"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        className="rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--card))] text-[hsl(var(--foreground))] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
       >
         {options.map((o) => (
           <option key={o} value={o}>

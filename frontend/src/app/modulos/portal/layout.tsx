@@ -40,7 +40,7 @@ export default function PortalLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center gap-4 border-b pb-4">
-        <h1 className="text-2xl font-bold text-gray-900">Portal do Funcionário</h1>
+        <h1 className="font-display text-2xl font-semibold text-gray-900">Portal do Funcionário</h1>
       </div>
       <div className="flex flex-wrap gap-2 mb-4">
         {portalLinks.map((link) => {

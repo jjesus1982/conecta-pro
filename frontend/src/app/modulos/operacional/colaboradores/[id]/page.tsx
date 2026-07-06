@@ -385,7 +385,7 @@ export default function ColaboradorPerfilPage() {
           {/* Info principal */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-xl font-bold text-[hsl(var(--foreground))] truncate">
+              <h1 className="font-display text-xl font-bold text-[hsl(var(--foreground))] truncate">
                 {employee.nome}
               </h1>
               {renderStatusBadge(employee.status)}
@@ -412,7 +412,7 @@ export default function ColaboradorPerfilPage() {
               <Award className="h-4 w-4 text-yellow-500" />
               <span className="text-xs text-[hsl(var(--muted-foreground))]">Score</span>
             </div>
-            <span className={`text-2xl font-bold ${getScoreColor(reliabilityScore)}`}>
+            <span className={`font-data text-2xl font-semibold tabular-nums ${getScoreColor(reliabilityScore)}`}>
               {reliabilityScore}
             </span>
             <span className={`text-xs font-medium ${getScoreColor(reliabilityScore)}`}>
@@ -588,17 +588,17 @@ export default function ColaboradorPerfilPage() {
           <div className="grid grid-cols-3 gap-4">
             <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4 text-center">
               <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wide mb-1">Saldo</p>
-              <p className={`text-2xl font-bold ${timeBankSummary.saldo >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              <p className={`font-data text-2xl font-semibold tabular-nums ${timeBankSummary.saldo >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                 {timeBankSummary.saldo.toFixed(1)}h
               </p>
             </div>
             <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4 text-center">
               <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wide mb-1">Créditos</p>
-              <p className="text-2xl font-bold text-green-600">+{timeBankSummary.creditos.toFixed(1)}h</p>
+              <p className="font-data text-2xl font-semibold tabular-nums text-green-600">+{timeBankSummary.creditos.toFixed(1)}h</p>
             </div>
             <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4 text-center">
               <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wide mb-1">Débitos</p>
-              <p className="text-2xl font-bold text-red-600">-{timeBankSummary.debitos.toFixed(1)}h</p>
+              <p className="font-data text-2xl font-semibold tabular-nums text-red-600">-{timeBankSummary.debitos.toFixed(1)}h</p>
             </div>
           </div>
 

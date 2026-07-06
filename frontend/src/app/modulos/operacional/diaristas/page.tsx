@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/hooks/useAuth';
 import { useDiarists } from '@/hooks/operacional/useDiarists';
@@ -117,32 +118,21 @@ export default function DiaristasPage() {
 
   return (
     <div className="min-h-screen bg-grid">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-[hsl(var(--background))]/80 backdrop-blur-xl border-b border-[hsl(var(--border))]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-4">
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <PageHeader
+          eyebrow="OPERACIONAL"
+          title="Diaristas"
+          subtitle={`${total} cadastrados`}
+          icon={<Users className="w-5 h-5" />}
+          actions={
+            <>
               <Link href="/modulos/operacional">
                 <Button variant="ghost" size="sm">
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Operacional
                 </Button>
               </Link>
-              <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center">
-                  <Users className="w-5 h-5 text-cyan-500" />
-                </div>
-                <div>
-                  <h1 className="text-lg font-semibold text-[hsl(var(--foreground))]">
-                    Diaristas
-                  </h1>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                    {total} cadastrados
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
               <Link href="/modulos/operacional/diaristas/escala">
                 <Button variant="outline" size="sm">
                   <Calendar className="w-4 h-4 mr-2" />
@@ -163,13 +153,10 @@ export default function DiaristasPage() {
                 <Plus className="w-4 h-4 mr-2" />
                 Novo Diarista
               </Button>
-            </div>
-          </div>
-        </div>
-      </header>
+            </>
+          }
+        />
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Stats Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
@@ -178,7 +165,7 @@ export default function DiaristasPage() {
                 <Users className="w-5 h-5 text-cyan-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">{total}</p>
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">{total}</p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Total</p>
               </div>
             </div>
@@ -190,7 +177,7 @@ export default function DiaristasPage() {
                 <CheckCircle className="w-5 h-5 text-green-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {diarists.filter(d => d.status === 'ativo').length}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Ativos</p>
@@ -204,7 +191,7 @@ export default function DiaristasPage() {
                 <Star className="w-5 h-5 text-yellow-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {diarists.length > 0
                     ? (diarists.reduce((acc, d) => acc + d.media_avaliacao, 0) / diarists.length).toFixed(1)
                     : '0.0'}
@@ -220,7 +207,7 @@ export default function DiaristasPage() {
                 <Sparkles className="w-5 h-5 text-purple-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {diarists.reduce((acc, d) => acc + d.total_diarias, 0)}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Diarias Realizadas</p>

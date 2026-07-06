@@ -30,22 +30,22 @@ export function KitKPIs({ kits }: KitKPIsProps) {
   return (
     <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
       <Card className="p-4">
-        <div className="text-sm text-gray-600">Total condomínios</div>
-        <div className="text-3xl font-bold text-[#0A2540]">{total}</div>
+        <div className="text-sm text-[hsl(var(--muted-foreground))]">Total condomínios</div>
+        <div className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">{total}</div>
       </Card>
       <Card className="p-4">
-        <div className="text-sm text-gray-600">Completude confirmada</div>
-        <div className="text-3xl font-bold text-blue-600">{pctMediaConfirmada.toFixed(1)}%</div>
-        <div className="text-xs text-gray-400 mt-1">média dos elegíveis</div>
+        <div className="text-sm text-[hsl(var(--muted-foreground))]">Completude confirmada</div>
+        <div className="font-data text-2xl font-semibold tabular-nums text-blue-500">{pctMediaConfirmada.toFixed(1)}%</div>
+        <div className="text-xs text-[hsl(var(--muted-foreground))] mt-1">média dos elegíveis</div>
       </Card>
       <Card className="p-4">
-        <div className="text-sm text-gray-600">Completude total</div>
-        <div className="text-3xl font-bold text-green-600">{pctMediaTotal.toFixed(1)}%</div>
-        <div className="text-xs text-gray-400 mt-1">incluindo pendentes</div>
+        <div className="text-sm text-[hsl(var(--muted-foreground))]">Completude total</div>
+        <div className="font-data text-2xl font-semibold tabular-nums text-emerald-500">{pctMediaTotal.toFixed(1)}%</div>
+        <div className="text-xs text-[hsl(var(--muted-foreground))] mt-1">incluindo pendentes</div>
       </Card>
       <Card className="p-4">
-        <div className="text-sm text-gray-600">Docs em revisão</div>
-        <div className="text-3xl font-bold text-amber-600">{totalRevisao}</div>
+        <div className="text-sm text-[hsl(var(--muted-foreground))]">Docs em revisão</div>
+        <div className="font-data text-2xl font-semibold tabular-nums text-amber-500">{totalRevisao}</div>
       </Card>
     </div>
   );

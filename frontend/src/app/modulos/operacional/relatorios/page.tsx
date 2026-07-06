@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PageHeader } from '@/components/ui/page-header';
 import { useAuth } from '@/hooks/useAuth';
 import { useEmployees } from '@/hooks/operacional/useEmployees';
 import { usePosts } from '@/hooks/operacional/usePosts';
@@ -270,31 +271,20 @@ export default function RelatoriosPage() {
 
   return (
     <div className="min-h-screen bg-grid">
-      <header className="sticky top-0 z-50 bg-[hsl(var(--background))]/80 backdrop-blur-xl border-b border-[hsl(var(--border))]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-4">
+      <main id="report-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        <PageHeader
+          eyebrow="OPERACIONAL"
+          title="Relatórios"
+          subtitle="Cobertura, horas e custos operacionais"
+          icon={<BarChart3 className="w-5 h-5" />}
+          actions={
+            <>
               <Link href="/modulos/operacional">
                 <Button variant="ghost" size="sm">
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Operacional
                 </Button>
               </Link>
-              <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-                  <BarChart3 className="w-5 h-5 text-emerald-500" />
-                </div>
-                <div>
-                  <h1 className="text-lg font-semibold text-[hsl(var(--foreground))]">
-                    Relatórios
-                  </h1>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                    Cobertura, horas e custos operacionais
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
               <Button
                 variant="outline"
                 onClick={() => setShowFilters(!showFilters)}
@@ -322,12 +312,10 @@ export default function RelatoriosPage() {
               <Button variant="outline" onClick={fetchReports} disabled={isLoading}>
                 <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
               </Button>
-            </div>
-          </div>
-        </div>
-      </header>
+            </>
+          }
+        />
 
-      <main id="report-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         {showFilters && (
           <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

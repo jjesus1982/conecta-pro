@@ -204,7 +204,7 @@ export default function ComprasPage() {
                 <ClipboardList className="w-5 h-5 text-orange-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {dashboard?.total ?? 0}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Total Requisicoes</p>
@@ -218,7 +218,7 @@ export default function ComprasPage() {
                 <FileText className="w-5 h-5 text-blue-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {dashboard?.total_orders ?? 0}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Total Ordens</p>
@@ -232,7 +232,7 @@ export default function ComprasPage() {
                 <ShoppingCart className="w-5 h-5 text-green-500" />
               </div>
               <div>
-                <p className="text-xl font-bold text-green-500 truncate">
+                <p className="font-data text-xl font-semibold tabular-nums text-green-500 truncate">
                   {formatCurrency(dashboard?.total_estimated ? parseFloat(dashboard.total_estimated) : undefined)}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Valor Total</p>
@@ -246,7 +246,7 @@ export default function ComprasPage() {
                 <AlertCircle className="w-5 h-5 text-yellow-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-yellow-500">
+                <p className="font-data text-2xl font-semibold tabular-nums text-yellow-500">
                   {dashboard?.pending_approval ?? 0}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Pendentes</p>

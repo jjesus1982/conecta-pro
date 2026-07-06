@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
+import { AlertTriangle } from 'lucide-react'
 
 // ─── Tipos exatos do endpoint /financial/custeio/abc ──────────────────────
 interface CustoComposicao {
@@ -110,7 +111,7 @@ export default function CusteioPage() {
   if (error || !data) return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="bg-red-50 border border-red-200 rounded-xl p-6 flex items-start gap-4">
-        <span className="text-2xl">⚠️</span>
+        <AlertTriangle className="w-6 h-6 text-red-500 flex-shrink-0" />
         <div>
           <p className="font-medium text-red-900">Erro ao carregar Custeio ABC</p>
           <p className="text-sm text-red-700 mt-1">{error ? String(error) : 'Dados indisponíveis'}</p>

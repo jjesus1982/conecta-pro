@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 ;
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
 import { Input } from '@/components/ui/input';
 import { ConfirmModal } from '@/components/ui/modal';
 import { useAuth } from '@/hooks/useAuth';
@@ -171,32 +172,21 @@ export default function MedidasAdministrativasPage() {
 
   return (
     <div className="min-h-screen bg-grid">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-[hsl(var(--background))]/80 backdrop-blur-xl border-b border-[hsl(var(--border))]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-4">
+      {/* Main content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <PageHeader
+          eyebrow="OPERACIONAL"
+          title="Medidas Administrativas"
+          subtitle={`${total} registros`}
+          icon={<FileWarning className="w-5 h-5" />}
+          actions={
+            <>
               <Link href="/modulos/operacional">
                 <Button variant="ghost" size="sm">
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Operacional
                 </Button>
               </Link>
-              <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-lg bg-orange-500/10 flex items-center justify-center">
-                  <FileWarning className="w-5 h-5 text-orange-500" />
-                </div>
-                <div>
-                  <h1 className="text-lg font-semibold text-[hsl(var(--foreground))]">
-                    Medidas Administrativas
-                  </h1>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                    {total} registros
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
               <Button variant="outline" onClick={handleRefresh} disabled={isLoading}>
                 <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
                 Atualizar
@@ -205,13 +195,10 @@ export default function MedidasAdministrativasPage() {
                 <Plus className="w-4 h-4 mr-2" />
                 Nova Medida
               </Button>
-            </div>
-          </div>
-        </div>
-      </header>
+            </>
+          }
+        />
 
-      {/* Main content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Stats Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
           <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
@@ -220,7 +207,7 @@ export default function MedidasAdministrativasPage() {
                 <FileWarning className="w-5 h-5 text-blue-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {stats?.total || 0}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Total</p>
@@ -234,7 +221,7 @@ export default function MedidasAdministrativasPage() {
                 <Clock className="w-5 h-5 text-yellow-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {stats?.pending_approval || 0}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Pend. Aprovação</p>
@@ -248,7 +235,7 @@ export default function MedidasAdministrativasPage() {
                 <FileSignature className="w-5 h-5 text-orange-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {stats?.pending_signature || 0}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Pend. Assinatura</p>
@@ -262,7 +249,7 @@ export default function MedidasAdministrativasPage() {
                 <CheckCircle className="w-5 h-5 text-green-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {stats?.this_month || 0}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Este Mes</p>
@@ -276,7 +263,7 @@ export default function MedidasAdministrativasPage() {
                 <AlertTriangle className="w-5 h-5 text-purple-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {stats?.this_year || 0}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Este Ano</p>

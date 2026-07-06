@@ -60,7 +60,7 @@ export default function NfseEntradaPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-semibold flex items-center gap-2">
             <Receipt className="h-6 w-6" />
             NFS-e de Entrada — Compras com Nota
           </h1>
@@ -93,15 +93,15 @@ export default function NfseEntradaPage() {
       <div className="grid gap-4 md:grid-cols-3">
         <Card><CardContent className="pt-4">
           <p className="text-xs text-muted-foreground">Despesas Documentadas</p>
-          <p className="text-2xl font-bold">{fmt(resumo?.total_despesas_documentadas ?? 0)}</p>
+          <p className="font-data text-2xl font-semibold tabular-nums">{fmt(resumo?.total_despesas_documentadas ?? 0)}</p>
         </CardContent></Card>
         <Card><CardContent className="pt-4">
           <p className="text-xs text-muted-foreground">Notas Recebidas</p>
-          <p className="text-2xl font-bold">{total}</p>
+          <p className="font-data text-2xl font-semibold tabular-nums">{total}</p>
         </CardContent></Card>
         <Card><CardContent className="pt-4">
           <p className="text-xs text-muted-foreground">Fornecedores</p>
-          <p className="text-2xl font-bold">{resumo?.fornecedores ?? 0}</p>
+          <p className="font-data text-2xl font-semibold tabular-nums">{resumo?.fornecedores ?? 0}</p>
         </CardContent></Card>
       </div>
 

@@ -16,6 +16,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { PageHeader } from '@/components/ui/page-header';
 import apiClient from '@/lib/api-client';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -169,20 +170,17 @@ export default function NFSeMultiPage() {
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <FileText className="h-6 w-6 text-blue-600" />
-            Emissão NFS-e Inteligente
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            Seleciona automaticamente a empresa emissora e aplica liminares judiciais
-          </p>
-        </div>
-        <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
-          Ambiente: Homologação
-        </Badge>
-      </div>
+      <PageHeader
+        eyebrow="FISCAL"
+        title="Emissão NFS-e Inteligente"
+        subtitle="Seleciona automaticamente a empresa emissora e aplica liminares judiciais"
+        icon={<FileText className="h-5 w-5" />}
+        actions={
+          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+            Ambiente: Homologação
+          </Badge>
+        }
+      />
 
       {/* Formulário */}
       <Card>
@@ -493,7 +491,7 @@ export default function NFSeMultiPage() {
                         <td colSpan={2} className="py-3 font-bold text-green-800">
                           Valor Líquido a Receber
                         </td>
-                        <td className="text-right py-3 font-bold text-green-800 text-lg">
+                        <td className="text-right py-3 font-data font-semibold tabular-nums text-green-800 text-lg">
                           {formatCurrency(resultado.tributos.valor_liquido)}
                         </td>
                         <td />

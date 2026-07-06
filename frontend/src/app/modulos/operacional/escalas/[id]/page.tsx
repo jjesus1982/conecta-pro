@@ -6,6 +6,7 @@ import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 ;
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
 import { useAuth } from '@/hooks/useAuth';
 import { useScale, useScaleOperations } from '@/hooks/useScales';
 import { useShifts } from '@/hooks/useShifts';
@@ -169,32 +170,21 @@ export default function ScaleDetailPage() {
 
   return (
     <div className="min-h-screen bg-grid">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-[hsl(var(--background))]/80 backdrop-blur-xl border-b border-[hsl(var(--border))]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-4">
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <PageHeader
+          eyebrow="OPERACIONAL · ESCALAS"
+          title={`Escala: ${monthNames[scale.month - 1]} ${scale.year}`}
+          subtitle={getPostName(scale.post_id)}
+          icon={<Calendar className="w-5 h-5" />}
+          actions={
+            <>
               <Link href="/modulos/operacional/escalas">
                 <Button variant="ghost" size="sm">
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Voltar
                 </Button>
               </Link>
-              <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                  <Calendar className="w-5 h-5 text-blue-500" />
-                </div>
-                <div>
-                  <h1 className="text-lg font-semibold text-[hsl(var(--foreground))]">
-                    Escala: {monthNames[scale.month - 1]} {scale.year}
-                  </h1>
-                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                    {getPostName(scale.post_id)}
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
               {/* Status Badge */}
               <span
                 className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium border ${getStatusColor(
@@ -247,13 +237,10 @@ export default function ScaleDetailPage() {
                 <RefreshCw className={`w-4 h-4 mr-2 ${(scaleLoading || shiftsLoading) ? 'animate-spin' : ''}`} />
                 Atualizar
               </Button>
-            </div>
-          </div>
-        </div>
-      </header>
+            </>
+          }
+        />
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Scale Info Card */}
         <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-6 mb-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -323,28 +310,28 @@ export default function ScaleDetailPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-[hsl(var(--muted))]/50 rounded-lg p-4">
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                     {scale.total_shifts}
                   </p>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">Total de Turnos</p>
                 </div>
 
                 <div className="bg-[hsl(var(--muted))]/50 rounded-lg p-4">
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                     {scale.filled_shifts}
                   </p>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">Turnos Preenchidos</p>
                 </div>
 
                 <div className="bg-[hsl(var(--muted))]/50 rounded-lg p-4">
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                     {scale.total_hours.toFixed(0)}h
                   </p>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">Total de Horas</p>
                 </div>
 
                 <div className="bg-[hsl(var(--muted))]/50 rounded-lg p-4">
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                     {scale.fill_rate?.toFixed(0) || 0}%
                   </p>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">Taxa de Preenchimento</p>
@@ -352,7 +339,7 @@ export default function ScaleDetailPage() {
 
                 {scale.overtime_hours > 0 && (
                   <div className="bg-[hsl(var(--muted))]/50 rounded-lg p-4">
-                    <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                    <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                       {scale.overtime_hours.toFixed(0)}h
                     </p>
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">Horas Extras</p>
@@ -361,7 +348,7 @@ export default function ScaleDetailPage() {
 
                 {scale.estimated_cost > 0 && (
                   <div className="bg-[hsl(var(--muted))]/50 rounded-lg p-4">
-                    <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                    <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                       R$ {scale.estimated_cost.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                     </p>
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">Custo Estimado</p>

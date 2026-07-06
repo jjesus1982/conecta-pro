@@ -158,7 +158,7 @@ export default function KPITendenciasPage() {
                 <TrendingUp className="h-4 w-4 text-[#1a47f5]" />
               </div>
               <div>
-                <h1 className="text-xl font-bold leading-none">KPI Tendências</h1>
+                <h1 className="font-display text-xl font-bold leading-none">KPI Tendências</h1>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   Inteligência operacional — últimos {periodLabels[selectedPeriod]}
                 </p>
@@ -212,7 +212,7 @@ export default function KPITendenciasPage() {
           {isLoading ? (
             <Skeleton className="h-8 w-20" />
           ) : (
-            <div className="text-2xl font-bold">
+            <div className="font-data text-2xl font-semibold tabular-nums">
               {summaryData.cobertura !== null ? `${summaryData.cobertura}%` : '—'}
             </div>
           )}
@@ -232,7 +232,7 @@ export default function KPITendenciasPage() {
           {isLoading ? (
             <Skeleton className="h-8 w-16" />
           ) : (
-            <div className="text-2xl font-bold">
+            <div className="font-data text-2xl font-semibold tabular-nums">
               {summaryData.colaboradores !== null ? summaryData.colaboradores : '—'}
             </div>
           )}
@@ -252,7 +252,7 @@ export default function KPITendenciasPage() {
           {isLoading ? (
             <Skeleton className="h-8 w-16" />
           ) : (
-            <div className="text-2xl font-bold">
+            <div className="font-data text-2xl font-semibold tabular-nums">
               {summaryData.escalas !== null ? summaryData.escalas : '—'}
             </div>
           )}
@@ -272,7 +272,7 @@ export default function KPITendenciasPage() {
           {isLoading ? (
             <Skeleton className="h-8 w-16" />
           ) : (
-            <div className="text-2xl font-bold">
+            <div className="font-data text-2xl font-semibold tabular-nums">
               {summaryData.ocorrencias !== null ? summaryData.ocorrencias : '—'}
             </div>
           )}
@@ -522,15 +522,15 @@ export default function KPITendenciasPage() {
               {/* Risk score bar */}
               <div className="grid grid-cols-3 gap-4">
                 <div className="bg-zinc-800 rounded-lg p-4 text-center">
-                  <p className="text-2xl font-bold text-white">{coveragePrediction.cobertura_atual?.toFixed(1)}%</p>
+                  <p className="font-data text-2xl font-semibold tabular-nums text-white">{coveragePrediction.cobertura_atual?.toFixed(1)}%</p>
                   <p className="text-xs text-zinc-500 mt-1">Cobertura atual</p>
                 </div>
                 <div className="bg-zinc-800 rounded-lg p-4 text-center">
-                  <p className="text-2xl font-bold text-white">{coveragePrediction.total_postos}</p>
+                  <p className="font-data text-2xl font-semibold tabular-nums text-white">{coveragePrediction.total_postos}</p>
                   <p className="text-xs text-zinc-500 mt-1">Postos ativos</p>
                 </div>
                 <div className="bg-zinc-800 rounded-lg p-4 text-center">
-                  <p className="text-2xl font-bold text-white">{coveragePrediction.total_colaboradores}</p>
+                  <p className="font-data text-2xl font-semibold tabular-nums text-white">{coveragePrediction.total_colaboradores}</p>
                   <p className="text-xs text-zinc-500 mt-1">Colaboradores</p>
                 </div>
               </div>

@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
+import { AlertTriangle } from 'lucide-react'
 
 interface InventoryItem {
   id: string
@@ -205,7 +206,7 @@ export default function EstoquePage() {
                           </p>
                         )}
                         {item.is_low_stock && (
-                          <span className="text-xs text-orange-600 font-medium">⚠ Abaixo do mínimo</span>
+                          <span className="text-xs text-orange-600 font-medium inline-flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Abaixo do mínimo</span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-gray-600 font-mono text-xs">

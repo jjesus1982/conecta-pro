@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
+import { AlertTriangle } from 'lucide-react'
 
 interface TipoCusteio {
   tipo: string
@@ -267,7 +268,7 @@ export default function CustosPage() {
 
       {alertas.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-          <p className="text-sm font-medium text-red-900 mb-2">⚠️ Alertas de custeio</p>
+          <p className="text-sm font-medium text-red-900 mb-2 flex items-center gap-1"><AlertTriangle className="w-4 h-4" /> Alertas de custeio</p>
           {alertas.map((alerta, i) => (
             <p key={i} className="text-sm text-red-700">
               {alerta}
