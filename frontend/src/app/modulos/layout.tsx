@@ -182,7 +182,7 @@ export default function ModulosLayout({
           )}
         >
           {/* Header */}
-          <div className="h-16 flex items-center justify-between px-4 border-b border-[hsl(var(--border))]">
+          <div className="h-14 flex items-center justify-between px-4 border-b border-[hsl(var(--border))]">
             {sidebarOpen ? (
               <button
                 onClick={() => router.push('/dashboard')}
@@ -195,7 +195,7 @@ export default function ModulosLayout({
                   height={28}
                   className="flex-shrink-0"
                 />
-                <span className="text-sm font-semibold tracking-tight">Conecta PRO</span>
+                <span className="font-display text-sm font-semibold tracking-tight">Conecta&nbsp;<span style={{ color: '#f97707' }}>PRO</span></span>
               </button>
             ) : (
               <button
@@ -234,7 +234,7 @@ export default function ModulosLayout({
                   <ModuleIcon className="w-[18px] h-[18px] text-brand-500" />
                 </div>
                 <div className="min-w-0">
-                  <h2 className="font-semibold text-[hsl(var(--foreground))] text-sm">
+                  <h2 className="font-display font-semibold text-[hsl(var(--foreground))] text-sm">
                     {currentModule.title}
                   </h2>
                   <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5 line-clamp-1">
@@ -385,7 +385,7 @@ export default function ModulosLayout({
                 height={24}
                 className="flex-shrink-0"
               />
-              <span className="text-sm font-semibold tracking-tight">Conecta PRO</span>
+              <span className="font-display text-sm font-semibold tracking-tight">Conecta&nbsp;<span style={{ color: '#f97707' }}>PRO</span></span>
             </button>
             <button
               onClick={() => setMobileMenuOpen(false)}

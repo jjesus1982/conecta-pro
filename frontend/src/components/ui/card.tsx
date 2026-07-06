@@ -15,16 +15,8 @@ const Card = forwardRef<HTMLDivElement, CardProps>(
       `,
       interactive: `
         bg-[hsl(var(--card))] border border-[hsl(var(--border))]
-        cursor-pointer transition-all duration-300
-        hover:border-transparent hover:bg-[hsl(var(--card))]/80
-        hover:shadow-xl hover:shadow-[hsl(var(--primary))]/8
-        hover:translate-y-[-2px]
-        active:scale-[0.99]
-        relative overflow-hidden
-        before:absolute before:inset-0 before:rounded-2xl before:p-[1px]
-        before:bg-gradient-to-br before:from-transparent before:via-transparent before:to-transparent
-        before:transition-all before:duration-300 before:pointer-events-none
-        hover:before:from-[hsl(var(--primary)/0.4)] hover:before:via-[hsl(var(--accent)/0.2)] hover:before:to-[hsl(var(--primary)/0.1)]
+        cursor-pointer transition-colors duration-200
+        hover:border-[hsl(var(--primary))]/40 hover:shadow-md
       `,
       highlighted: `
         bg-[hsl(var(--card))] border border-[hsl(var(--primary))]/30
@@ -41,7 +33,7 @@ const Card = forwardRef<HTMLDivElement, CardProps>(
       <div
         ref={ref}
         className={cn(
-          'rounded-2xl p-4',
+          'rounded-xl p-4',
           variants[variant],
           className
         )}
@@ -64,7 +56,7 @@ CardHeader.displayName = 'CardHeader';
 
 const CardTitle = forwardRef<HTMLHeadingElement, HTMLAttributes<HTMLHeadingElement>>(
   ({ className, ...props }, ref) => (
-    <h3 ref={ref} className={cn('text-lg font-semibold leading-none tracking-tight', className)} {...props} />
+    <h3 ref={ref} className={cn('font-display text-lg font-semibold leading-none tracking-tight', className)} {...props} />
   )
 );
 CardTitle.displayName = 'CardTitle';

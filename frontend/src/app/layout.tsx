@@ -3,6 +3,11 @@ import { Providers } from '@/contexts/providers';
 import { Toaster } from '@/components/ui/toaster';
 import { Toaster as SonnerToaster } from 'sonner';
 import '@/styles/globals.css';
+import { Space_Grotesk, IBM_Plex_Mono } from 'next/font/google';
+
+// Tipografia com personalidade (tira a "cara de IA" do Inter-em-tudo):
+const fontDisplay = Space_Grotesk({ subsets: ['latin'], weight: ['500', '600', '700'], variable: '--font-display', display: 'swap' });
+const fontMono = IBM_Plex_Mono({ subsets: ['latin'], weight: ['400', '500', '600'], variable: '--font-data', display: 'swap' });
 
 export const metadata: Metadata = {
   title: {
@@ -31,7 +36,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="pt-BR" className="dark" suppressHydrationWarning>
+    <html lang="pt-BR" className={`dark ${fontDisplay.variable} ${fontMono.variable}`} suppressHydrationWarning>
       <head>
         <link rel="manifest" href="/manifest.json" />
         <meta name="apple-mobile-web-app-capable" content="yes" />

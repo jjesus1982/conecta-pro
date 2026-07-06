@@ -55,6 +55,8 @@ const config: Config = {
       fontFamily: {
         sans: ['Geist', 'system-ui', 'sans-serif'],
         mono: ['JetBrains Mono', 'monospace'],
+        display: ['var(--font-display)', 'Space Grotesk', 'system-ui', 'sans-serif'],
+        data: ['var(--font-data)', 'IBM Plex Mono', 'monospace'],
       },
       backgroundImage: {
         'gradient-brand': 'linear-gradient(135deg, #1a47f5 0%, #f97707 100%)',

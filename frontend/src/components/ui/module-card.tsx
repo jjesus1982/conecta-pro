@@ -116,12 +116,11 @@ export function ModuleCard({
     <div
       onClick={handleClick}
       className={cn(
-        `group relative overflow-hidden rounded-2xl border p-5
-        transition-all duration-300 cursor-pointer card-shine
+        `group relative overflow-hidden rounded-xl border p-4
+        transition-all duration-200 cursor-pointer
         bg-[hsl(var(--card))]`,
         colors.border,
-        colors.glow,
-        !disabled && 'hover:shadow-xl hover:translate-y-[-4px] active:scale-[0.98] hover:border-opacity-60',
+        !disabled && 'hover:shadow-md hover:border-opacity-60',
         disabled && 'opacity-50 cursor-not-allowed'
       )}
     >
@@ -140,11 +139,11 @@ export function ModuleCard({
         <div className="flex items-start justify-between mb-4">
           <div
             className={cn(
-              'w-12 h-12 rounded-xl flex items-center justify-center transition-transform duration-300 group-hover:scale-110',
+              'w-10 h-10 rounded-lg flex items-center justify-center',
               colors.iconBg
             )}
           >
-            <Icon className={cn('w-6 h-6', colors.text)} />
+            <Icon className={cn('w-5 h-5', colors.text)} />
           </div>
 
           {badge !== undefined && (
@@ -161,7 +160,7 @@ export function ModuleCard({
         </div>
 
         {/* Título e descrição */}
-        <h3 className="text-base font-semibold text-[hsl(var(--foreground))] mb-1.5">
+        <h3 className="font-display text-[15px] font-semibold text-[hsl(var(--foreground))] mb-1">
           {title}
         </h3>
         <p className="text-sm text-[hsl(var(--muted-foreground))] line-clamp-2">

@@ -58,7 +58,7 @@ export function KPIWidget({
       className={`
         bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4
         transition-all duration-200
-        ${onClick ? 'cursor-pointer hover:border-[hsl(var(--primary))] hover:shadow-lg hover:scale-[1.02]' : ''}
+        ${onClick ? 'cursor-pointer hover:border-[hsl(var(--primary))]/40 hover:shadow-md' : ''}
       `}
     >
       <div className="flex items-start justify-between mb-2">
@@ -73,7 +73,7 @@ export function KPIWidget({
         )}
       </div>
 
-      <p className="text-2xl font-bold text-[hsl(var(--foreground))] mb-1">
+      <p className="font-data text-2xl font-semibold text-[hsl(var(--foreground))] mb-1 tabular-nums">
         {value}
       </p>
 
