@@ -69,22 +69,25 @@ class ReportExport(Base):
     template_id = Column(UUID(as_uuid=True), ForeignKey("report_templates.id"), nullable=False, index=True)
     schedule_id = Column(UUID(as_uuid=True), ForeignKey("report_schedules.id"), nullable=True, index=True)
 
-    # Status
+    # Status — native_enum=False: as colunas no banco são VARCHAR; Enum nativo faz o
+    # asyncpg castar para o tipo PG "exportstatus", que não existe (UndefinedObjectError).
     status = Column(
-        Enum(ExportStatus, values_callable=lambda x: [e.value for e in x]),
+        Enum(ExportStatus, values_callable=lambda x: [e.value for e in x], native_enum=False),
         nullable=False,
         default=ExportStatus.PENDING,
         index=True,
     )
     trigger = Column(
-        Enum(ExportTrigger, values_callable=lambda x: [e.value for e in x]),
+        Enum(ExportTrigger, values_callable=lambda x: [e.value for e in x], native_enum=False),
         nullable=False,
         default=ExportTrigger.MANUAL,
         index=True,
     )
 
     # Formato
-    format = Column(Enum(ExportFormat, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    format = Column(
+        Enum(ExportFormat, values_callable=lambda x: [e.value for e in x], native_enum=False), nullable=False
+    )
 
     # Parâmetros usados
     parameters = Column(JSONB, nullable=True)

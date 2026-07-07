@@ -14,7 +14,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, text
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from modules.operacional.diaristas.models import (
@@ -59,7 +59,7 @@ class IntegrationService:
     _PG_ASSIGNMENT_TIPO_UNIDADE = "UNIDADE"
     _PG_RECORRENCIA_AVULSO = "AVULSO"  # recurrence_type: AVULSO|SEMANAL|QUINZENAL|MENSAL
 
-    def alocar_diarista_posto(
+    async def alocar_diarista_posto(
         self,
         diarista_id: UUID,
         condominio_id: UUID,
@@ -96,7 +96,10 @@ class IntegrationService:
             DiaristAssignment criado
         """
         # Verificar diarista existe e está ativo (diarists.ativo boolean + status varchar)
-        diarista = self.db.query(Diarist).filter(Diarist.id == diarista_id, Diarist.ativo.is_(True)).first()
+        # AsyncSession (o controller injeta async) — select()/await, não .query()
+        diarista = (
+            await self.db.execute(select(Diarist).where(Diarist.id == diarista_id, Diarist.ativo.is_(True)))
+        ).scalar_one_or_none()
 
         if not diarista:
             raise ValueError(f"Diarista {diarista_id} não encontrado ou inativo")
@@ -106,56 +109,68 @@ class IntegrationService:
 
         # Verificar condomínio existe (tabela condominios não tem model ORM neste módulo;
         # diarist_assignments.condominio_id também não tem FK no banco — validar via SQL)
-        condominio_existe = self.db.execute(
-            text("SELECT 1 FROM condominios WHERE id = :cid"), {"cid": str(condominio_id)}
+        condominio_existe = (
+            await self.db.execute(text("SELECT 1 FROM condominios WHERE id = :cid"), {"cid": str(condominio_id)})
         ).first()
 
         if not condominio_existe:
             raise ValueError(f"Condomínio {condominio_id} não encontrado")
 
-        # Verificar se não há conflito de alocação vigente no período
-        # (períodos se sobrepõem: existente.data_inicio <= novo_fim E
-        #  (existente.data_fim IS NULL OU existente.data_fim >= novo_inicio))
-        conflito_query = self.db.query(DiaristAssignment).filter(
-            DiaristAssignment.diarist_id == diarista_id,
-            DiaristAssignment.status.in_(self._PG_ASSIGNMENT_STATUS_OCUPANTES),
-            or_(DiaristAssignment.data_fim.is_(None), DiaristAssignment.data_fim >= data_inicio),
-        )
-        if data_fim is not None:
-            conflito_query = conflito_query.filter(DiaristAssignment.data_inicio <= data_fim)
-
-        conflito = conflito_query.first()
+        # Verificar se não há conflito de alocação vigente no período.
+        # status é ENUM NATIVO do PG (assignment_status) — asyncpg não compara
+        # enum = varchar sem cast; usar status::text (mesma razão nos INSERT/UPDATE).
+        conflito = (
+            await self.db.execute(
+                text(
+                    "SELECT id FROM diarist_assignments "
+                    "WHERE diarist_id = :did AND status::text IN ('ATIVO','PAUSADO') "
+                    "AND (data_fim IS NULL OR data_fim >= :di) "
+                    "AND (CAST(:df AS date) IS NULL OR data_inicio <= :df) "
+                    "LIMIT 1"
+                ),
+                {"did": str(diarista_id), "di": data_inicio, "df": data_fim},
+            )
+        ).first()
 
         if conflito:
             raise ValueError(f"Diarista já possui alocação ativa no período: Assignment {conflito.id}")
 
-        # Criar assignment (somente colunas REAIS de diarist_assignments).
-        # tipo/status/recorrencia: literais dos ENUMs do PG — os defaults do
-        # model ("avulso"/"rascunho"/"nenhuma") são inválidos no banco.
-        # dias_semana=None explícito: o default do model ([] via JSONB) é
-        # incompatível com a coluna weekday_array2[] do banco.
-        assignment = DiaristAssignment(
-            diarist_id=diarista_id,
-            condominio_id=condominio_id,
-            unidade_id=unidade_id,
-            tipo=self._PG_ASSIGNMENT_TIPO_UNIDADE if unidade_id else self._PG_ASSIGNMENT_TIPO_CONDOMINIO,
-            data_inicio=data_inicio,
-            data_fim=data_fim,
-            recorrencia=self._PG_RECORRENCIA_AVULSO,
-            dias_semana=None,
-            valor_acordado=valor_acordado if valor_acordado is not None else diarista.valor_diaria,
-            status=self._PG_ASSIGNMENT_STATUS_ATIVO,
-            observacoes=observacoes,
-        )
-
-        self.db.add(assignment)
+        # Criar assignment via SQL com CASTs explícitos: tipo/recorrencia/status
+        # são ENUMs nativos do PG e os StrEnums do model estão desalinhados
+        # ("avulso"/"rascunho"), então ORM insert falharia de duas formas.
+        valor_final = valor_acordado if valor_acordado is not None else diarista.valor_diaria
+        assignment_id = (
+            await self.db.execute(
+                text(
+                    "INSERT INTO diarist_assignments "
+                    "(id, created_at, updated_at, ativo, diarist_id, condominio_id, unidade_id, "
+                    " tipo, data_inicio, data_fim, recorrencia, valor_acordado, status, observacoes) "
+                    "VALUES (gen_random_uuid(), now(), now(), true, :did, :cid, :uid, "
+                    " CAST(:tipo AS assignment_type), :di, :df, CAST('AVULSO' AS recurrence_type), "
+                    " :va, CAST('ATIVO' AS assignment_status), :obs) "
+                    "RETURNING id"
+                ),
+                {
+                    "did": str(diarista_id),
+                    "cid": str(condominio_id),
+                    "uid": str(unidade_id) if unidade_id else None,
+                    "tipo": self._PG_ASSIGNMENT_TIPO_UNIDADE if unidade_id else self._PG_ASSIGNMENT_TIPO_CONDOMINIO,
+                    "di": data_inicio,
+                    "df": data_fim,
+                    "va": valor_final,
+                    "obs": observacoes,
+                },
+            )
+        ).scalar_one()
 
         # NOTA: DiaristStatus atual (ativo/inativo/suspenso/...) não tem valor
         # "em serviço" (antigo ON_ASSIGNMENT não existe mais) — o status do
         # diarista NÃO é alterado; "em serviço" deriva das alocações ATIVO.
 
-        self.db.commit()
-        self.db.refresh(assignment)
+        await self.db.commit()
+        assignment = (
+            await self.db.execute(select(DiaristAssignment).where(DiaristAssignment.id == assignment_id))
+        ).scalar_one()
 
         logger.info(
             f"Diarista {diarista_id} alocado ao condomínio {condominio_id} "
@@ -164,7 +179,7 @@ class IntegrationService:
 
         return assignment
 
-    def desalocar_diarista_posto(
+    async def desalocar_diarista_posto(
         self,
         assignment_id: UUID,
         motivo: str | None = None,
@@ -183,25 +198,39 @@ class IntegrationService:
         Returns:
             DiaristAssignment atualizado
         """
-        assignment = self.db.query(DiaristAssignment).filter(DiaristAssignment.id == assignment_id).first()
+        atual = (
+            await self.db.execute(
+                text("SELECT id, status::text AS status FROM diarist_assignments WHERE id = :aid"),
+                {"aid": str(assignment_id)},
+            )
+        ).first()
 
-        if not assignment:
+        if not atual:
             raise ValueError(f"Assignment {assignment_id} não encontrado")
 
-        if assignment.status == self._PG_ASSIGNMENT_STATUS_ENCERRADO:
+        if atual.status == self._PG_ASSIGNMENT_STATUS_ENCERRADO:
             raise ValueError(f"Assignment {assignment_id} já está encerrado")
 
-        assignment.status = self._PG_ASSIGNMENT_STATUS_ENCERRADO
-        assignment.data_fim = date.today()
-        if motivo:
-            assignment.observacoes = ((assignment.observacoes or "") + f"\nDesalocação: {motivo}").strip()
+        # UPDATE via SQL com CAST (status é ENUM nativo do PG — ver alocar acima)
+        await self.db.execute(
+            text(
+                "UPDATE diarist_assignments SET "
+                " status = CAST('ENCERRADO' AS assignment_status), data_fim = CURRENT_DATE, updated_at = now(), "
+                " observacoes = CASE WHEN CAST(:motivo AS text) IS NULL THEN observacoes "
+                "   ELSE btrim(coalesce(observacoes,'') || E'\\nDesalocação: ' || CAST(:motivo AS text)) END "
+                "WHERE id = :aid"
+            ),
+            {"aid": str(assignment_id), "motivo": motivo},
+        )
 
         # NOTA: sem equivalente para o antigo "voltar diarista para ACTIVE" —
         # DiaristStatus atual não tem ON_ASSIGNMENT; o status do diarista não
         # é alterado na alocação, portanto nada a reverter aqui.
 
-        self.db.commit()
-        self.db.refresh(assignment)
+        await self.db.commit()
+        assignment = (
+            await self.db.execute(select(DiaristAssignment).where(DiaristAssignment.id == assignment_id))
+        ).scalar_one()
 
         logger.info(f"Assignment {assignment_id} encerrado (data_fim={assignment.data_fim})")
 

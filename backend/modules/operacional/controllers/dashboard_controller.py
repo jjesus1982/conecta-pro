@@ -247,7 +247,7 @@ async def alocar_diarista_posto(
     service = get_integration_service(db)
 
     try:
-        assignment = service.alocar_diarista_posto(
+        assignment = await service.alocar_diarista_posto(
             diarista_id=request.diarista_id,
             condominio_id=request.condominio_id,
             data_inicio=request.data_inicio,
@@ -288,7 +288,7 @@ async def desalocar_diarista(
     service = get_integration_service(db)
 
     try:
-        assignment = service.desalocar_diarista_posto(
+        assignment = await service.desalocar_diarista_posto(
             assignment_id=assignment_id,
             motivo=request.motivo,
         )
