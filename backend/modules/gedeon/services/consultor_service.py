@@ -412,19 +412,20 @@ async def consultar(
     resposta_texto: str | None = None
     llm_meta: dict[str, Any] = {}
     try:
+        from modules.ai.conversation.services import consultor_hub as _hub
+        _extra = await _hub.contexto_compartilhado(db, 'ged')
+        _conversa = await _hub.conversa_recente(db, 'ged')
+        if _extra:
+            system_prompt = f"{system_prompt}\n\n{_extra}"
+        if _conversa:
+            system_prompt = f"{system_prompt}\n\n{_conversa}"
         from modules.ai.conversation.services.llm_provider import ClaudeProvider, OpenAIProvider
 
-        provider = OpenAIProvider(model=os.getenv("CONSULTOR_LLM_MODEL", "gpt-4o"))
-        if not provider.api_key:
-            provider = ClaudeProvider()
-        if not provider.api_key:
-            raise RuntimeError("OPENAI_API_KEY/ANTHROPIC_API_KEY ausentes")
-        llm_resp = await provider.generate(
+        pass  # geração via hub (melhor modelo + fallback)
+        resposta_texto, llm_meta = await _hub.gerar(
             messages=[{"role": "user", "content": user_content}],
             system_prompt=system_prompt, max_tokens=2500, temperature=0.2,
         )
-        resposta_texto = (llm_resp.content or "").strip()
-        llm_meta = {"model": getattr(llm_resp, "model", None)}
     except Exception as e:  # noqa: BLE001
         logger.warning("Consultor GED: LLM indisponível: %s", e)
         from modules.ai.conversation.services.llm_credit_alert import alertar_llm_indisponivel
@@ -456,6 +457,9 @@ async def consultar(
         )
     ).first()
     await db.commit()
+
+    # aprendizado permanente (best-effort, nunca quebra o chat)
+    await _hub.aprender(db, 'ged', pergunta or '', resposta_texto)
 
     return {
         "resposta": resposta_texto, "escalonar": escalonar, "disclaimer": DISCLAIMER,

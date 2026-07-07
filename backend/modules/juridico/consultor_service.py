@@ -294,15 +294,18 @@ async def consultar(
     try:
         import os as _os
 
+        from modules.ai.conversation.services import consultor_hub as _hub
+        _extra = await _hub.contexto_compartilhado(db, 'juridico')
+        _conversa = await _hub.conversa_recente(db, 'juridico')
+        if _extra:
+            system_prompt = f"{system_prompt}\n\n{_extra}"
+        if _conversa:
+            system_prompt = f"{system_prompt}\n\n{_conversa}"
         from modules.ai.conversation.services.llm_provider import ClaudeProvider, OpenAIProvider
 
         # OpenAI é o provider PRIMÁRIO dos consultores (decisão Jordan 2026-07-07:
         # mais barato que Anthropic). Claude fica como fallback se a chave faltar.
-        provider = OpenAIProvider(model=_os.getenv("CONSULTOR_LLM_MODEL", "gpt-4o"))
-        if not provider.api_key:
-            provider = ClaudeProvider()
-        if not provider.api_key:
-            raise RuntimeError("OPENAI_API_KEY/ANTHROPIC_API_KEY ausentes")
+        pass  # geração via hub (melhor modelo + fallback)
 
         user_content = pergunta.strip()
         if (anexo_texto or "").strip():
@@ -312,15 +315,10 @@ async def consultar(
                 f"{anexo_texto.strip()[:14000]}\n=== FIM DO DOCUMENTO ===\n\n"
                 "Analise o documento acima à luz da pergunta e responda de forma fundamentada."
             )
-        llm_resp = await provider.generate(
+        resposta_texto, llm_meta = await _hub.gerar(
             messages=[{"role": "user", "content": user_content}],
-            system_prompt=system_prompt,
-            max_tokens=2500,
-            temperature=0.2,
+            system_prompt=system_prompt, max_tokens=2500, temperature=0.2,
         )
-        resposta_texto = (llm_resp.content or "").strip()
-        llm_ok = bool(resposta_texto)
-        llm_meta = {"model": getattr(llm_resp, "model", None)}
     except Exception as e:
         logger.warning("Consultor jurídico: LLM indisponível (%s)", e)
         from modules.ai.conversation.services.llm_credit_alert import alertar_llm_indisponivel
@@ -408,6 +406,9 @@ async def consultar(
         consulta_id = int(row.scalar())
     except Exception as e:  # pragma: no cover
         logger.error("Falha ao persistir consulta jurídica: %s", e)
+
+    # aprendizado permanente do hub (best-effort, nunca quebra o chat)
+    await _hub.aprender(db, "juridico", pergunta or "", resposta_texto)
 
     return {
         "resposta": resposta_texto,
