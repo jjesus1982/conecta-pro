@@ -17,6 +17,7 @@ export const modules: Module[] = [
     permissions: ['crm:read'],
     enabled: true,
     subModules: [
+      { id: 'cmo-ia', title: 'Consultor Comercial IA', href: '/modulos/crm/consultor', icon: 'Bot', permissions: ['crm:read'] },
       { id: 'crm-dashboard', title: 'Dashboard', href: '/modulos/crm', icon: 'LayoutDashboard', permissions: ['crm:read'] },
       { id: 'clientes', title: 'Clientes', href: '/modulos/crm/clientes', icon: 'Building2', permissions: ['crm:clientes'] },
       { id: 'leads', title: 'Leads', href: '/modulos/crm/leads', icon: 'UserPlus', permissions: ['crm:leads'] },
@@ -118,6 +119,7 @@ export const modules: Module[] = [
     permissions: ['operacional:read'],
     enabled: true,
     subModules: [
+      { id: 'chro-ia', title: 'Consultor de Pessoas IA', href: '/modulos/gestao-pessoas/consultor', icon: 'Bot', permissions: ['operacional:read'] },
       { id: 'rh-vagas', title: 'Vagas', href: '/modulos/recrutamento/vagas', icon: 'Briefcase', permissions: ['operacional:read'], group: 'Recrutamento' },
       { id: 'rh-candidatos', title: 'Candidatos', href: '/modulos/recrutamento/candidatos', icon: 'Users', permissions: ['operacional:read'], group: 'Recrutamento' },
       { id: 'rh-candidaturas', title: 'Candidaturas', href: '/modulos/recrutamento/candidaturas', icon: 'FileText', permissions: ['operacional:read'], group: 'Recrutamento' },
@@ -198,6 +200,7 @@ export const modules: Module[] = [
       // Fluxo enxuto, focado na montagem dos kits + gestão documental
       { id: 'ged-dashboard', title: 'Kits por Condomínio', href: '/modulos/gestao-pessoas/ged', icon: 'LayoutDashboard', permissions: ['ged:read'] },
       { id: 'ged-montar', title: 'Montar / Cronograma', href: '/modulos/gestao-pessoas/ged/montar-kit', icon: 'Wand2', permissions: ['ged:read'] },
+      { id: 'ged-consultor', title: 'Consultor GED IA', href: '/modulos/gestao-pessoas/ged/consultor', icon: 'Bot', permissions: ['ged:read'] },
       { id: 'ged-certidoes', title: 'Certidões (CND)', href: '/modulos/gestao-pessoas/ged/certidoes', icon: 'Award', permissions: ['ged:read'] },
       { id: 'ged-documentos', title: 'Documentos', href: '/modulos/gestao-pessoas/ged/documentos', icon: 'FileText', permissions: ['ged:read'] },
       { id: 'ged-envios', title: 'Envios ao Cliente', href: '/modulos/gestao-pessoas/ged/envios', icon: 'Send', permissions: ['ged:read'] },
@@ -218,6 +221,7 @@ export const modules: Module[] = [
     permissions: ['operacional:read'],
     enabled: true,
     subModules: [
+      { id: 'coo-ia', title: 'Consultor Operacional IA', href: '/modulos/operacional/consultor', icon: 'Bot', permissions: ['operacional:read'] },
       // --- Postos e Escalas ---
       { id: 'postos', title: 'Postos', href: '/modulos/operacional/postos', icon: 'MapPin', permissions: ['operacional:postos'] },
       { id: 'escalas', title: 'Escalas', href: '/modulos/operacional/escalas', icon: 'CalendarDays', permissions: ['operacional:escalas'] },
@@ -353,6 +357,7 @@ export const modules: Module[] = [
     permissions: ['financial:read'],
     enabled: true,
     subModules: [
+      { id: 'cfo-ia', title: 'CFO IA', href: '/modulos/financeiro/cfo', icon: 'Bot', permissions: ['financial:read'] },
       { id: 'dashboard-financeiro', title: 'Dashboard Financeiro', href: '/modulos/financeiro/dashboard', icon: 'LayoutDashboard', permissions: ['financial:read'] },
       { id: 'contratos', title: 'Contratos', href: '/modulos/financeiro/contratos', icon: 'FileText', permissions: ['financial:read'] },
       { id: 'contas-pagar', title: 'Contas a Pagar', href: '/modulos/financeiro/contas-pagar', icon: 'TrendingDown', permissions: ['financial:contas-pagar'] },
@@ -389,6 +394,7 @@ export const modules: Module[] = [
     permissions: ['government:read'],
     enabled: true,
     subModules: [
+      { id: 'fiscal-ia', title: 'Consultor Fiscal IA', href: '/modulos/fiscal/consultor', icon: 'Bot', permissions: ['government:read'] },
       // --- Notas Fiscais ---
       { id: 'nfe', title: 'NF-e', href: '/modulos/financeiro/fiscal', icon: 'Receipt', permissions: ['government:nfse'], group: 'Notas Fiscais' },
       { id: 'nfse', title: 'NFS-e', href: '/modulos/fiscal/nfse', icon: 'FileText', permissions: ['government:nfse'], group: 'Notas Fiscais' },
@@ -536,6 +542,7 @@ export const modules: Module[] = [
     permissions: ['config:read'],
     enabled: true,
     subModules: [
+      { id: 'ceo-ia', title: 'Consultor Executivo IA', href: '/modulos/configuracoes/consultor', icon: 'Bot', permissions: ['config:read'] },
       { id: 'dashboard-config', title: 'Dashboard', href: '/modulos/configuracoes', icon: 'LayoutDashboard', permissions: ['config:read'] },
       { id: 'tenants', title: 'Tenants', href: '/modulos/configuracoes/tenants', icon: 'Building2', permissions: ['config:tenants'] },
       { id: 'feature-flags', title: 'Feature Flags', href: '/modulos/configuracoes/feature-flags', icon: 'ToggleRight', permissions: ['config:flags'] },

@@ -1127,6 +1127,47 @@ try:
 except Exception as e:
     logger.warning(f"GEDEON Consultor router: {e}")
 
+# ── Time de Consultores IA por módulo (hub compartilhado: memória + conversa cruzada) ──
+try:
+    from modules.crm.controllers.consultor_cmo_controller import router as consultor_cmo_router
+
+    api_router.include_router(consultor_cmo_router)
+    logger.info("Consultor CMO: router registrado (/comercial/consultor)")
+except Exception as e:
+    logger.warning(f"Consultor CMO router: {e}")
+
+try:
+    from modules.operacional.controllers.consultor_coo_controller import router as consultor_coo_router
+
+    api_router.include_router(consultor_coo_router)
+    logger.info("Consultor COO: router registrado (/operacional/consultor)")
+except Exception as e:
+    logger.warning(f"Consultor COO router: {e}")
+
+try:
+    from modules.people_management.controllers.consultor_chro_controller import router as consultor_chro_router
+
+    api_router.include_router(consultor_chro_router)
+    logger.info("Consultor CHRO: router registrado (/rh/consultor)")
+except Exception as e:
+    logger.warning(f"Consultor CHRO router: {e}")
+
+try:
+    from modules.fiscal.controllers.consultor_fiscal_controller import router as consultor_fiscal_router
+
+    api_router.include_router(consultor_fiscal_router)
+    logger.info("Consultor Fiscal: router registrado (/fiscal/consultor)")
+except Exception as e:
+    logger.warning(f"Consultor Fiscal router: {e}")
+
+try:
+    from modules.config.controllers.consultor_ceo_controller import router as consultor_ceo_router
+
+    api_router.include_router(consultor_ceo_router)
+    logger.info("Consultor CEO: router registrado (/gestao/consultor)")
+except Exception as e:
+    logger.warning(f"Consultor CEO router: {e}")
+
 try:
     from modules.gdrive.controllers.gdrive_controller import router as gdrive_router
 

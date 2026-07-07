@@ -28,11 +28,16 @@ logger = logging.getLogger(__name__)
 # Cadeia de modelos: melhor primeiro (gpt-5 disponível na chave, provado 2026-07-07)
 MODEL_CHAIN = ["gpt-5-chat-latest", "gpt-5", "gpt-4.1", "gpt-4o"]
 
-# Tabelas de consultas de cada consultor (p/ conversa cruzada)
+# Tabelas de consultas de cada consultor (p/ conversa cruzada entre os chats)
 TABELAS_CONSULTAS = {
     "cfo": ("financial_cfo_consultas", "CFO (Financeiro)"),
     "juridico": ("juridico_consultas", "Consultor Jurídico"),
     "ged": ("gedeon_consultas", "Consultor GED"),
+    "comercial": ("comercial_consultas", "CMO (Comercial)"),
+    "operacional": ("operacional_consultas", "COO (Operacional)"),
+    "rh": ("rh_consultas", "CHRO (Pessoas/DP)"),
+    "fiscal": ("fiscal_consultas", "Consultor Fiscal"),
+    "ceo": ("ceo_consultas", "CEO (Executivo)"),
 }
 
 _ddl_ok = False
