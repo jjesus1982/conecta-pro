@@ -91,6 +91,7 @@ export const modules: Module[] = [
     permissions: ['operacional:read'],
     enabled: true,
     subModules: [
+      { id: 'dp-consultor-ia', title: 'Consultor de Pessoas IA', href: '/modulos/gestao-pessoas/consultor', icon: 'Bot', permissions: ['operacional:read'] },
       { id: 'dp-colaboradores', title: 'Colaboradores', href: '/modulos/dp/funcionarios', icon: 'UserCheck', permissions: ['operacional:read'] },
       { id: 'dp-admissao', title: 'Admissão', href: '/modulos/dp/admissao', icon: 'UserPlus', permissions: ['operacional:read'] },
       { id: 'dp-rescisao', title: 'Rescisão', href: '/modulos/dp/rescisao', icon: 'UserMinus', permissions: ['operacional:read'] },
@@ -267,6 +268,7 @@ export const modules: Module[] = [
     permissions: ['operacional:read'],
     enabled: true,
     subModules: [
+      { id: 'sst-consultor-ia', title: 'Consultor de Pessoas IA', href: '/modulos/gestao-pessoas/consultor', icon: 'Bot', permissions: ['operacional:read'] },
       { id: 'sst-dashboard', title: 'Dashboard SST', href: '/modulos/gestao-pessoas/saude-ocupacional', icon: 'LayoutDashboard', permissions: ['operacional:read'] },
       { id: 'sst-exames', title: 'Exames / ASOs', href: '/modulos/gestao-pessoas/saude-ocupacional/exames', icon: 'Stethoscope', permissions: ['operacional:read'] },
       { id: 'sst-epis', title: 'EPIs (NR-6)', href: '/modulos/gestao-pessoas/saude-ocupacional/epi', icon: 'HardHat', permissions: ['operacional:read'] },
