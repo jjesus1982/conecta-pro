@@ -77,9 +77,12 @@ from modules.operacoes import (  # noqa: E402
     reports_router,
     scale_router,
     scale_template_router,
+    shift_handover_router,
     shift_router,
     substitution_router,
+    team_evaluation_router,
     time_bank_router,
+    triage_router,
     vacation_router,
     visita_router,
 )
@@ -101,6 +104,9 @@ router.include_router(disciplinary_router, prefix="/operacional", tags=["Operaci
 router.include_router(communication_router, prefix="/operacional", tags=["Operacional - Comunicacao"])
 router.include_router(inspection_round_router, prefix="/operacional/rondas", tags=["Operacional - Rondas de Inspecao"])
 router.include_router(vacation_router, prefix="/operacional", tags=["Operacional - Férias e Afastamentos"])
+router.include_router(shift_handover_router, prefix="/operacional", tags=["Operacional - Passagem de Turno"])
+router.include_router(team_evaluation_router, prefix="/operacional", tags=["Operacional - Avaliação de Equipe"])
+router.include_router(triage_router, prefix="/operacional", tags=["Operacional - Triagem"])
 router.include_router(diarist_router, prefix="/operacional/diaristas", tags=["Operacional - Diaristas"])
 router.include_router(
     diarist_fiscal_router, prefix="/operacional/diaristas/fiscal", tags=["Operacional - Diaristas Fiscal"]

@@ -9,6 +9,7 @@ Tudo pré-cadastrado (seed da planilha real): 6 funções, 8 preços, ~10 postos
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date as _date
 from typing import Any
 
@@ -16,6 +17,69 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
+
+# ── Validação de cadastro (CPF/PIX/contato) — NUNCA fabricar dado ────────────
+_EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
+_UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def normalizar_cpf(cpf: str | None) -> str:
+    """Só dígitos."""
+    return re.sub(r"\D", "", cpf or "")
+
+
+def cpf_valido(cpf: str | None) -> bool:
+    """Valida CPF pelos dígitos verificadores (módulo 11). Rejeita sequências repetidas."""
+    d = normalizar_cpf(cpf)
+    if len(d) != 11 or d == d[0] * 11:
+        return False
+    for i in (9, 10):
+        soma = sum(int(d[j]) * ((i + 1) - j) for j in range(i))
+        dv = (soma * 10) % 11
+        if dv == 10:
+            dv = 0
+        if dv != int(d[i]):
+            return False
+    return True
+
+
+def telefone_valido(telefone: str | None) -> bool:
+    """Telefone plausível: 10 a 13 dígitos (DDD+número, com ou sem +55)."""
+    dig = re.sub(r"\D", "", telefone or "")
+    return 10 <= len(dig) <= 13
+
+
+def validar_pix(pix: str | None) -> tuple[str | None, str | None]:
+    """Valida o FORMATO da chave PIX por tipo. Retorna (chave_normalizada, erro).
+
+    Tipos aceitos: CPF (11 dígitos válidos), telefone (+55..., 10-13 dígitos),
+    e-mail, chave aleatória (UUID). NUNCA deriva/preenche chave sozinho.
+    """
+    c = (pix or "").strip()
+    if not c:
+        return None, "Chave PIX é obrigatória — sem ela o diarista fica impagável. Peça a chave ao diarista."
+    if "@" in c:
+        if _EMAIL_RE.match(c):
+            return c.lower(), None
+        return None, f"Chave PIX '{c}' não é um e-mail válido."
+    if _UUID_RE.match(c):
+        return c.lower(), None
+    dig = re.sub(r"\D", "", c)
+    if c.startswith("+"):
+        if 10 <= len(dig) <= 13:
+            return "+" + dig, None
+        return None, f"Chave PIX telefone '{c}' inválida — use +55 + DDD + número (10 a 13 dígitos)."
+    if len(dig) == 11 and dig == c.replace(".", "").replace("-", "").replace(" ", ""):
+        if cpf_valido(dig):
+            return dig, None
+        return None, (f"Chave PIX '{c}' tem 11 dígitos mas não é um CPF válido (dígitos verificadores "
+                      "não conferem). Se for telefone, informe com +55 na frente.")
+    if len(dig) in (10, 12, 13) and dig == re.sub(r"[\s()\-.]", "", c):
+        return "+" + dig if len(dig) in (12, 13) else dig, None
+    if len(dig) == 14 and dig == re.sub(r"[./\-\s]", "", c):
+        return None, "Chave PIX CNPJ não é aceita para diarista (pessoa física) — use CPF, telefone, e-mail ou chave aleatória."
+    return None, (f"Chave PIX '{c}' com formato não reconhecido. Aceitos: CPF (11 dígitos válidos), "
+                  "telefone (+55 + DDD + número), e-mail ou chave aleatória (UUID).")
 
 # ── Seed da planilha real (março/2026) ───────────────────────────────────────
 _FUNCOES = ["AGENTE DE PORTARIA", "AUX. SERVIÇOS GERAIS", "AJUDANTE", "JARDINEIRO", "SUPERVISÃO ASG", "GERENTE"]
@@ -60,6 +124,9 @@ _DDL = [
          funcao TEXT NOT NULL, posto TEXT NOT NULL, turno TEXT NOT NULL DEFAULT 'ÚNICO',
          valor NUMERIC(10,2) NOT NULL, observacao TEXT, status VARCHAR(20) DEFAULT 'lancado',
          created_by VARCHAR(64), created_at TIMESTAMPTZ DEFAULT now())""",
+    # contato do diarista (colunas novas — idempotente)
+    "ALTER TABLE diaria_diaristas ADD COLUMN IF NOT EXISTS telefone VARCHAR(20)",
+    "ALTER TABLE diaria_diaristas ADD COLUMN IF NOT EXISTS email VARCHAR(200)",
 ]
 
 
@@ -94,11 +161,20 @@ async def cadastros(db: AsyncSession) -> dict[str, Any]:
     funcoes = [r[0] for r in (await db.execute(text("SELECT nome FROM diaria_funcoes WHERE ativo ORDER BY nome"))).all()]
     turnos = [r[0] for r in (await db.execute(text("SELECT nome FROM diaria_turnos WHERE ativo ORDER BY id"))).all()]
     postos = [r[0] for r in (await db.execute(text("SELECT nome FROM diaria_postos WHERE ativo ORDER BY nome"))).all()]
-    diaristas = [{"id": r[0], "nome": r[1], "tem_pix": bool(r[2])}
-                 for r in (await db.execute(text("SELECT id, nome, pix FROM diaria_diaristas WHERE ativo ORDER BY nome"))).all()]
+    todos = (await db.execute(text(
+        "SELECT id, nome, cpf, pix, telefone, email, COALESCE(ativo, TRUE) FROM diaria_diaristas ORDER BY nome"))).all()
+    # dropdown de lançamento: SÓ ativos (inativo não recebe diária nova)
+    diaristas = [{"id": r[0], "nome": r[1], "tem_pix": bool((r[3] or "").strip()), "tem_cpf": bool((r[2] or "").strip())}
+                 for r in todos if r[6]]
+    # gestão de cadastro: TODOS (com flag ativo), dados completos — tela interna
+    diaristas_gestao = [{"id": r[0], "nome": r[1], "cpf": r[2], "pix": r[3], "telefone": r[4],
+                         "email": r[5], "ativo": bool(r[6]),
+                         "tem_pix": bool((r[3] or "").strip()), "tem_cpf": bool((r[2] or "").strip())}
+                        for r in todos]
     precos = [{"funcao": r[0], "turno": r[1], "valor": float(r[2])}
               for r in (await db.execute(text("SELECT funcao, turno, valor FROM diaria_precos WHERE ativo ORDER BY funcao, turno"))).all()]
-    return {"funcoes": funcoes, "turnos": turnos, "postos": postos, "diaristas": diaristas, "precos": precos}
+    return {"funcoes": funcoes, "turnos": turnos, "postos": postos, "diaristas": diaristas,
+            "diaristas_gestao": diaristas_gestao, "precos": precos}
 
 
 async def preco_de(db: AsyncSession, funcao: str, turno: str | None) -> float | None:
@@ -131,18 +207,29 @@ async def lancar(db: AsyncSession, data: str, diarista_id: int, funcao: str, pos
     return {"ok": True, "id": int(r.scalar()), "valor": valor, "turno": t}
 
 
-async def listar_lancamentos(db: AsyncSession, mes: int, ano: int) -> dict[str, Any]:
+async def listar_lancamentos(db: AsyncSession, mes: int | None = None, ano: int | None = None,
+                             data: str | None = None) -> dict[str, Any]:
+    """Lançamentos do mês (mes+ano) OU de um dia exato (data=YYYY-MM-DD). `data` tem precedência."""
     await ensure_e_seed(db)
+    if data:
+        dref = _date.fromisoformat(data) if isinstance(data, str) else data
+        where, params = "l.data = :d", {"d": dref}
+        mes, ano = dref.month, dref.year
+    else:
+        where, params = "EXTRACT(MONTH FROM l.data)=:m AND EXTRACT(YEAR FROM l.data)=:a", {"m": mes, "a": ano}
     rows = await db.execute(text(
-        """SELECT l.id, l.data, d.nome, l.funcao, l.posto, l.turno, l.valor, l.observacao
+        f"""SELECT l.id, l.data, d.nome, l.funcao, l.posto, l.turno, l.valor, l.observacao
            FROM diaria_lancamentos l JOIN diaria_diaristas d ON d.id=l.diarista_id
-           WHERE EXTRACT(MONTH FROM l.data)=:m AND EXTRACT(YEAR FROM l.data)=:a
-           ORDER BY l.data, d.nome"""), {"m": mes, "a": ano})
+           WHERE {where}
+           ORDER BY l.data, d.nome"""), params)
     itens = [{"id": r[0], "data": r[1].isoformat(), "diarista": r[2], "funcao": r[3],
               "posto": r[4], "turno": r[5], "valor": float(r[6]), "observacao": r[7]}
              for r in rows.all()]
-    return {"mes": mes, "ano": ano, "total_lancamentos": len(itens),
-            "total_valor": sum(i["valor"] for i in itens), "itens": itens}
+    out: dict[str, Any] = {"mes": mes, "ano": ano, "total_lancamentos": len(itens),
+                           "total_valor": sum(i["valor"] for i in itens), "itens": itens}
+    if data:
+        out["data"] = dref.isoformat()
+    return out
 
 
 async def excluir_lancamento(db: AsyncSession, lancamento_id: int) -> dict[str, Any]:
@@ -190,17 +277,61 @@ async def resumo_gerencial(db: AsyncSession, mes: int, ano: int) -> dict[str, An
     return {"mes": mes, "ano": ano, "por_posto": por_posto, "por_funcao": por_funcao}
 
 
-# ── Cadastro de diarista (completar CPF obrigatório + PIX) ────────────────────
+# ── Cadastro de diarista (CPF + PIX válidos obrigatórios; contato) ────────────
 async def atualizar_diarista(db: AsyncSession, diarista_id: int, cpf: str | None = None,
-                             pix: str | None = None, nome: str | None = None) -> dict[str, Any]:
+                             pix: str | None = None, nome: str | None = None,
+                             telefone: str | None = None, email: str | None = None,
+                             ativo: bool | None = None) -> dict[str, Any]:
+    """Atualiza nome/cpf/pix/telefone/email/ativo com validação. NÃO permite limpar CPF/PIX
+    (viraria cadastro impagável). Inativar = ativo=false (some dos dropdowns de lançamento)."""
     await ensure_e_seed(db)
+    atual = (await db.execute(text(
+        "SELECT id, telefone, email FROM diaria_diaristas WHERE id=:id"), {"id": diarista_id})).first()
+    if not atual:
+        return {"ok": False, "http_status": 404, "mensagem": f"Diarista {diarista_id} não encontrado."}
+
     sets, params = [], {"id": diarista_id}
     if cpf is not None:
-        sets.append("cpf=:cpf"); params["cpf"] = cpf
+        cpf_n = normalizar_cpf(cpf)
+        if not cpf_n:
+            return {"ok": False, "mensagem": "Não é permitido limpar o CPF — sem CPF o diarista fica impagável."}
+        if not cpf_valido(cpf_n):
+            return {"ok": False, "mensagem": f"CPF '{cpf}' inválido (dígitos verificadores não conferem). Confira o documento com o diarista."}
+        sets.append("cpf=:cpf"); params["cpf"] = cpf_n
     if pix is not None:
-        sets.append("pix=:pix"); params["pix"] = pix
+        if not (pix or "").strip():
+            return {"ok": False, "mensagem": "Não é permitido limpar a chave PIX — sem PIX o diarista fica impagável."}
+        pix_n, erro = validar_pix(pix)
+        if erro:
+            return {"ok": False, "mensagem": erro}
+        sets.append("pix=:pix"); params["pix"] = pix_n
     if nome:
-        sets.append("nome=:nome"); params["nome"] = nome
+        sets.append("nome=:nome"); params["nome"] = nome.strip()
+    if telefone is not None:
+        tel = (telefone or "").strip()
+        if tel:
+            if not telefone_valido(tel):
+                return {"ok": False, "mensagem": f"Telefone '{telefone}' inválido — use DDD + número (10 a 13 dígitos)."}
+            sets.append("telefone=:tel"); params["tel"] = tel
+        else:
+            # limpar telefone só se sobrar e-mail (novo ou existente) — exige ao menos 1 contato
+            email_final = (email or "").strip() if email is not None else (atual[2] or "").strip()
+            if not email_final:
+                return {"ok": False, "mensagem": "Não é possível remover o telefone: o diarista ficaria sem nenhum contato (informe um e-mail antes)."}
+            sets.append("telefone=NULL")
+    if email is not None:
+        em = (email or "").strip()
+        if em:
+            if not _EMAIL_RE.match(em):
+                return {"ok": False, "mensagem": f"E-mail '{email}' inválido."}
+            sets.append("email=:email"); params["email"] = em.lower()
+        else:
+            tel_final = (telefone or "").strip() if telefone is not None else (atual[1] or "").strip()
+            if not tel_final:
+                return {"ok": False, "mensagem": "Não é possível remover o e-mail: o diarista ficaria sem nenhum contato (informe um telefone antes)."}
+            sets.append("email=NULL")
+    if ativo is not None:
+        sets.append("ativo=:ativo"); params["ativo"] = bool(ativo)
     if not sets:
         return {"ok": False, "mensagem": "Nada para atualizar."}
     await db.execute(text(f"UPDATE diaria_diaristas SET {', '.join(sets)} WHERE id=:id"), params)
@@ -208,11 +339,34 @@ async def atualizar_diarista(db: AsyncSession, diarista_id: int, cpf: str | None
     return {"ok": True}
 
 
-async def criar_diarista(db: AsyncSession, nome: str, cpf: str | None = None, pix: str | None = None) -> dict[str, Any]:
+async def criar_diarista(db: AsyncSession, nome: str, cpf: str | None = None, pix: str | None = None,
+                         telefone: str | None = None, email: str | None = None) -> dict[str, Any]:
+    """Cadastra diarista. OBRIGATÓRIOS: nome, CPF válido (módulo 11), chave PIX com formato
+    plausível e ao menos um contato (telefone OU e-mail). NUNCA fabrica/deriva dado."""
     await ensure_e_seed(db)
+    nome = (nome or "").strip()
+    if not nome:
+        return {"ok": False, "mensagem": "Nome é obrigatório."}
+    cpf_n = normalizar_cpf(cpf)
+    if not cpf_n:
+        return {"ok": False, "mensagem": "CPF é obrigatório no cadastro — sem CPF o diarista fica impagável. Peça o documento ao diarista."}
+    if not cpf_valido(cpf_n):
+        return {"ok": False, "mensagem": f"CPF '{cpf}' inválido (dígitos verificadores não conferem). Confira o documento com o diarista — nunca chute."}
+    pix_n, erro = validar_pix(pix)
+    if erro:
+        return {"ok": False, "mensagem": erro}
+    tel = (telefone or "").strip() or None
+    em = (email or "").strip() or None
+    if not tel and not em:
+        return {"ok": False, "mensagem": "Informe pelo menos um contato: telefone ou e-mail."}
+    if tel and not telefone_valido(tel):
+        return {"ok": False, "mensagem": f"Telefone '{telefone}' inválido — use DDD + número (10 a 13 dígitos)."}
+    if em and not _EMAIL_RE.match(em):
+        return {"ok": False, "mensagem": f"E-mail '{email}' inválido."}
     r = await db.execute(text(
-        "INSERT INTO diaria_diaristas (nome, cpf, pix) VALUES (:n,:c,:p) ON CONFLICT (lower(nome)) DO NOTHING RETURNING id"),
-        {"n": nome, "c": cpf, "p": pix})
+        """INSERT INTO diaria_diaristas (nome, cpf, pix, telefone, email)
+           VALUES (:n,:c,:p,:t,:e) ON CONFLICT (lower(nome)) DO NOTHING RETURNING id"""),
+        {"n": nome, "c": cpf_n, "p": pix_n, "t": tel, "e": em.lower() if em else None})
     row = r.first()
     await db.commit()
     return {"ok": True, "id": int(row[0]) if row else None, "ja_existia": row is None}

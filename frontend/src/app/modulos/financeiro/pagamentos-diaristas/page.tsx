@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Users, Loader2, CalendarDays, Send, AlertTriangle, CheckCircle2, RefreshCw, UserPlus } from 'lucide-react';
+import { Users, Loader2, CalendarDays, Send, AlertTriangle, CheckCircle2, RefreshCw, UserPlus, ClipboardList } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -27,6 +27,19 @@ export default function PagamentosDiaristasPage() {
   const [sugestoes, setSugestoes] = useState<any[]>([]);
   const [showSug, setShowSug] = useState(false);
 
+  // FLUXO 2a — diaristas lançados no dia (fonte: lançamento de diárias do Gonzaga)
+  const [dataLanc, setDataLanc] = useState(hoje);
+  const [lancados, setLancados] = useState<any>(null);
+  const [busyLanc, setBusyLanc] = useState(false);
+  const [msgLanc, setMsgLanc] = useState<string | null>(null);
+
+  // FLUXO 2b — lote mensal de diárias (dia 15)
+  const agora = new Date();
+  const [mesLote, setMesLote] = useState(agora.getMonth() + 1);
+  const [anoLote, setAnoLote] = useState(agora.getFullYear());
+  const [busyMes, setBusyMes] = useState(false);
+  const [msgMes, setMsgMes] = useState<string | null>(null);
+
   const carregarLote = async (d = data) => {
     try {
       const r = await fetch(`${API}/lote?data=${d}`, { headers: authHeaders() }).then(x => x.json());
@@ -39,7 +52,37 @@ export default function PagamentosDiaristasPage() {
       setSugestoes((r?.sugestoes || []).filter((s: any) => !s.ja_cadastrado));
     } catch { /* */ }
   };
-  useEffect(() => { carregarLote(); carregarSugestoes(); }, []);
+  const carregarLancados = async (d = dataLanc) => {
+    setMsgLanc(null);
+    try {
+      const r = await fetch(`${API}/lancados-dia/${d}`, { headers: authHeaders() }).then(x => x.json());
+      if (r?.detail) { setLancados(null); setMsgLanc(typeof r.detail === 'string' ? r.detail : 'Falha ao carregar lançados do dia.'); return; }
+      setLancados(r);
+    } catch { setLancados(null); setMsgLanc('Falha ao carregar lançados do dia.'); }
+  };
+  useEffect(() => { carregarLote(); carregarSugestoes(); carregarLancados(); }, []);
+
+  const programarLancados = async () => {
+    setBusyLanc(true); setMsgLanc(null);
+    try {
+      const r = await fetch(`${API}/programar-lancados-dia/${dataLanc}`, { method: 'POST', headers: authHeaders() }).then(x => x.json());
+      if (r?.detail) { setMsgLanc(typeof r.detail === 'string' ? r.detail : 'Falha ao programar.'); return; }
+      setMsgLanc(`${r.programados_novos ?? 0} novo(s) programado(s), ${r.ja_programados ?? 0} já programado(s)${r.sem_pix ? `, ${r.sem_pix} sem PIX` : ''} — total do dia ${brl(r.total_a_pagar_do_dia)}.`);
+      carregarLancados(dataLanc);
+      if (dataLanc !== data) { setData(dataLanc); }
+      carregarLote(dataLanc);
+    } catch { setMsgLanc('Falha ao programar os lançados do dia.'); } finally { setBusyLanc(false); }
+  };
+
+  const programarMensais = async () => {
+    setBusyMes(true); setMsgMes(null);
+    try {
+      const r = await fetch(`${API}/programar-diarias-mensais/${anoLote}/${mesLote}`, { method: 'POST', headers: authHeaders() }).then(x => x.json());
+      if (r?.detail) { setMsgMes(typeof r.detail === 'string' ? r.detail : 'Falha ao programar o lote mensal.'); return; }
+      setMsgMes(`${r.diaristas ?? 0} diarista(s), ${r.programados_novos ?? 0} novo(s) programado(s)${r.sem_pix ? `, ${r.sem_pix} sem PIX` : ''} — total ${brl(r.total_a_pagar)}, pagamento em ${r.data_pagamento || '—'}.`);
+      if (r.data_pagamento) { setData(r.data_pagamento); carregarLote(r.data_pagamento); }
+    } catch { setMsgMes('Falha ao programar o lote mensal.'); } finally { setBusyMes(false); }
+  };
 
   const programar = async () => {
     setBusy(true); setMsg(null); setResultado(null);
@@ -91,15 +134,76 @@ export default function PagamentosDiaristasPage() {
         </div>
       </div>
 
-      {/* Programar */}
+      {/* Programar (fonte: escala) */}
       <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><CalendarDays className="h-4 w-4 text-emerald-600" /> Programar do dia (a partir da escala)</CardTitle></CardHeader>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2"><CalendarDays className="h-4 w-4 text-emerald-600" /> Programar do dia (a partir da escala)</CardTitle>
+          <p className="text-xs text-muted-foreground">fonte: escala de diaristas (diarist_schedules)</p>
+        </CardHeader>
         <CardContent className="flex flex-wrap items-center gap-3">
           <input type="date" value={data} onChange={e => { setData(e.target.value); carregarLote(e.target.value); }} className="border rounded px-3 py-2 text-sm" />
           <Button onClick={programar} disabled={busy} className="bg-emerald-600 hover:bg-emerald-700 text-white">
             {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1" />} Programar VT+VR da escala
           </Button>
           {msg && <span className="text-sm text-gray-600">{msg}</span>}
+        </CardContent>
+      </Card>
+
+      {/* Diaristas lançados no dia (fonte: lançamento de diárias do Gonzaga) */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2"><ClipboardList className="h-4 w-4 text-emerald-600" /> Diaristas lançados hoje (Gonzaga)</CardTitle>
+          <p className="text-xs text-muted-foreground">fonte: lançamento de diárias do Operacional (diaria_lancamentos) — separada da escala acima</p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <input type="date" value={dataLanc} onChange={e => { setDataLanc(e.target.value); carregarLancados(e.target.value); }} className="border rounded px-3 py-2 text-sm" />
+            <Button onClick={programarLancados} disabled={busyLanc || !lancados?.itens?.length} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+              {busyLanc ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Send className="h-4 w-4 mr-1" />} Programar VT+VR dos lançados
+            </Button>
+            {lancados && <span className="text-xs text-muted-foreground">{lancados.total_diaristas ?? 0} diarista(s) · {lancados.total_lancamentos ?? 0} lançamento(s)</span>}
+          </div>
+          {msgLanc && <div className="text-sm text-gray-600">{msgLanc}</div>}
+          {!lancados?.itens?.length ? (
+            !msgLanc && <p className="text-sm text-gray-400">Nenhuma diária lançada pelo Operacional nesta data.</p>
+          ) : (
+            <div className="divide-y">
+              {lancados.itens.map((i: any) => (
+                <div key={i.lancamento_id} className="py-2 flex flex-wrap items-center justify-between gap-2 text-sm">
+                  <div className="flex-1 min-w-0">
+                    <span className="font-medium">{i.nome}</span>
+                    <span className="text-xs text-gray-500 ml-2">{i.funcao}{i.posto ? ` · ${i.posto}` : ''}{i.turno && i.turno !== 'ÚNICO' ? ` · ${i.turno}` : ''}</span>
+                  </div>
+                  <span className="font-semibold">{brl(i.valor_diaria)}</span>
+                  <div className="flex items-center gap-1">
+                    {!i.tem_pix && <Badge className="bg-red-100 text-red-700 text-xs">sem PIX</Badge>}
+                    {!i.tem_cpf && <Badge className="bg-red-100 text-red-700 text-xs">sem CPF</Badge>}
+                    {i.ja_programado_vt_vr && <Badge className="bg-green-100 text-green-700 text-xs">já programado</Badge>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Lote mensal das diárias (dia 15) */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2"><CalendarDays className="h-4 w-4 text-emerald-600" /> Programar diárias do mês (lote dia 15)</CardTitle>
+          <p className="text-xs text-muted-foreground">soma os dias trabalhados × valor da diária de cada diarista no mês e programa o lote para o dia 15</p>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center gap-3">
+          <select value={mesLote} onChange={e => setMesLote(Number(e.target.value))} className="border rounded px-3 py-2 text-sm bg-white">
+            {Array.from({ length: 12 }, (_, i) => i + 1).map(m => <option key={m} value={m}>{String(m).padStart(2, '0')}</option>)}
+          </select>
+          <select value={anoLote} onChange={e => setAnoLote(Number(e.target.value))} className="border rounded px-3 py-2 text-sm bg-white">
+            {[agora.getFullYear() - 1, agora.getFullYear(), agora.getFullYear() + 1].map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+          <Button onClick={programarMensais} disabled={busyMes} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+            {busyMes ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Send className="h-4 w-4 mr-1" />} {busyMes ? 'Programando…' : 'Programar lote do mês'}
+          </Button>
+          {msgMes && <span className="text-sm text-gray-600">{msgMes}</span>}
         </CardContent>
       </Card>
 

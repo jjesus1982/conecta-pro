@@ -34,6 +34,11 @@ class OccurrenceType(StrEnum):
     DESRESPEITO = "desrespeito"
     NEGLIGENCIA = "negligencia"
     INSUBORDINACAO = "insubordinacao"
+    # Tipos de ocorrência rápida de campo (coluna é String — aditivo, sem migration)
+    INCIDENTE = "incidente"
+    MANUTENCAO = "manutencao"
+    CONFLITO = "conflito"
+    ELOGIO = "elogio"
     OUTROS = "outros"
 
 
@@ -89,7 +94,7 @@ class Occurrence(Base):
         severity: Nível de severidade (leve, moderada, grave, gravíssima)
         category: Categoria da infração
         status: Status da ocorrência
-        employee_id: Funcionário que cometeu a infração (OBRIGATÓRIO)
+        employee_id: Funcionário envolvido (employees.id — OPCIONAL)
         inspector_id: Gestor/supervisor que fiscalizou (OBRIGATÓRIO)
         post_id: Posto onde ocorreu (OBRIGATÓRIO)
         patrol_round_id: Ronda de fiscalização relacionada (opcional)
@@ -122,13 +127,16 @@ class Occurrence(Base):
     # Status
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=OccurrenceStatus.ABERTA.value, index=True)
 
-    # Envolvidos (OBRIGATÓRIOS)
-    employee_id: Mapped[str] = mapped_column(
+    # Envolvidos
+    # NOTA (2026-07-07): no BANCO a FK de employee_id aponta para EMPLOYEES
+    # (não users) — a anotação antiga ForeignKey("users.id") estava ERRADA.
+    # Opcional: ocorrência sem funcionário específico é válida (ex.: manutenção).
+    employee_id: Mapped[str | None] = mapped_column(
         UUID(as_uuid=False),
-        ForeignKey("users.id", ondelete="RESTRICT"),
-        nullable=False,
+        ForeignKey("employees.id", ondelete="RESTRICT"),
+        nullable=True,
         index=True,
-        comment="Funcionário que cometeu a infração",
+        comment="Funcionário envolvido na ocorrência (employees.id)",
     )
     inspector_id: Mapped[str] = mapped_column(
         UUID(as_uuid=False),

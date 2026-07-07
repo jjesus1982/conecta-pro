@@ -1,0 +1,132 @@
+# === SISTEMA DE PREVENÇÃO E SEGURANÇA COMPLETO ===
+
+# Monitoramento contínuo (a cada 5 minutos)
+
+# Limpeza automática (a cada 30 minutos)
+
+# Auto-otimizador inteligente (a cada 10 minutos)
+
+# Otimização completa (a cada 30 minutos)
+
+# Eliminar finds travados (a cada 5 minutos)
+*/5 * * * * for pid in $(ps -eo pid,etime,cmd | grep 'find.*lib' | awk '$2 ~ /[2-9][0-9]:[0-9][0-9]/ {print $1}'); do kill -9 $pid 2>/dev/null; done
+
+# Monitoramento de métricas em tempo real (a cada 1 minuto)
+
+# === SEGURANÇA ===
+# ClamAV scan de uploads + atualizacao da base — SEMANAL (domingo 03:00)
+
+# ClamAV scan rápido a cada 6 horas
+
+# RKHunter scan diário (04:00)
+0 4 * * * /opt/scripts/rkhunter_scanner.sh --update > /dev/null 2>&1
+
+# RKHunter atualização de propriedades semanal (domingo 05:00)
+0 5 * * 0 /opt/scripts/rkhunter_scanner.sh --propupd > /dev/null 2>&1
+
+# Auditoria de segurança diária (06:00)
+0 6 * * * /opt/scripts/security_audit_working.sh > /var/log/security/daily_audit.log 2>&1
+
+# Sistema de monitoramento avançado (a cada 15 minutos)
+*/15 * * * * /opt/scripts/system_monitor.sh > /dev/null 2>&1
+
+# Limpeza de processos zombie (a cada 15 minutos)
+*/15 * * * * /opt/scripts/zombie_cleaner.sh > /dev/null 2>&1
+
+# === LIMPEZAS ===
+# Limpeza de logs antigos (semanal, domingos às 2:00)
+0 2 * * 0 find /var/log/security -name "*.log" -mtime +30 -delete
+
+0 3 * * 0 /opt/scripts/clamav_scanner.sh --update > /dev/null 2>&1
+*/30 * * * * /opt/scripts/zombie_cleaner.sh > /dev/null 2>&1
+# Health check do Conectado a cada 15 minutos
+# [LIMPEZA 20260531] */15 * * * * /root/check-conectado-health.sh
+
+# Limpeza de sessões diária às 03:00 AMT (07:00 UTC)
+0 7 * * * /tmp/claude-0/-root/bf0d241e-1fac-40c9-a5db-40948530fe01/scratchpad/cleanup-sessions.sh
+
+# Backup diário Conecta PRO (3AM UTC)
+0 3 * * * MONITOR_BOT_TOKEN=8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ MONITOR_CHAT_ID=5536961034 /opt/conecta-pro/scripts/backup_database.sh >> /var/log/conecta-backup.log 2>&1
+
+# Rotação de backups: manter 7 diários + 4 semanais (03:30 UTC, após backup das 03:00)
+30 3 * * * /opt/conecta-pro/scripts/backup_retention.sh >> /var/log/conecta-backup-retention.log 2>&1
+
+# Métricas customizadas para Prometheus (a cada 5 min)
+*/5 * * * * /opt/conecta-pro/scripts/metrics_collector.sh > /dev/null 2>&1
+
+# Pattern learner: analisa padroes diariamente as 03:00 UTC
+# Preventive action: verifica condicoes a cada 15 minutos
+
+# Dashboard data refresh (a cada 2 min)
+
+# Context Builder para assistente Telegram (a cada 2 min)
+*/2 * * * * python3 /opt/conecta-pro/agents/context_builder.py > /dev/null 2>&1
+0 2 1 * * /opt/conecta-pro/scripts/gerar_kits_mensais.sh
+30 7 * * 1-5 /opt/conecta-pro/scripts/briefing_jordan.sh
+0 8 * * 1-5 /opt/conecta-pro/scripts/alerta_inadimplencia.sh
+@reboot sleep 90 && /opt/conecta-pro/scripts/monitor_startup.sh
+# Nível 2+3 — Auditoria diária (2h da manhã)
+# Nível 2+3 — Auditoria semanal completa (domingo 3h)
+
+# === MONITOR UNIFICADO CONECTA PRO ===
+# Ciclo rápido — a cada 5min (containers + endpoints, silencioso se OK)
+
+# Ciclo completo — a cada 30min (13 orquestradores + relatório Telegram)
+# [LIMPEZA 20260531] */30 * * * * cd /opt/conecta-pro && MONITOR_BOT_TOKEN=8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ MONITOR_CHAT_ID=5536961034 python3 agents/orchestrator_unificado.py completo >> logs/monitor_completo.log 2>&1
+
+# Heartbeat — a cada 6h (CPU/RAM/Disco/Uptime/Redis/PM2)
+0 */6 * * * cd /opt/conecta-pro && MONITOR_BOT_TOKEN=8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ MONITOR_CHAT_ID=5536961034 python3 agents/orchestrator_unificado.py heartbeat >> logs/monitor_heartbeat.log 2>&1
+*/5 * * * * MONITOR_BOT_TOKEN=8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ MONITOR_CHAT_ID=5536961034 python3 /opt/conecta-pro/agents/orchestrator_unificado.py rapido >> /opt/conecta-pro/logs/monitor_rapido.log 2>&1
+# CTO — Relatório matinal 7h BRT (10h UTC)
+0 10 * * * MONITOR_BOT_TOKEN=8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ TELEGRAM_CHAT_ID=5536961034 python3 /opt/conecta-pro/agents/cto/relatorio_matinal.py >> /opt/conecta-pro/logs/relatorio_matinal.log 2>&1
+# CTO — Aprendizado contínuo a cada 6h
+0 */6 * * * python3 -c "import sys; sys.path.insert(0,'/opt/conecta-pro/agents/cto'); from aprendizado import AprendizadoContinuo; AprendizadoContinuo().executar()" >> /opt/conecta-pro/logs/aprendizado_cto.log 2>&1
+# [LIMPEZA 20260531] 0 */4 * * * MONITOR_BOT_TOKEN=8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ TELEGRAM_CHAT_ID=5536961034 python3 -c "import sys; sys.path.insert(0,'/opt/conecta-pro/agents/cto'); from proatividade import verificar_e_gerar_propostas, formatar_propostas_telegram; from monitor_bot import send; props=verificar_e_gerar_propostas(); msg=formatar_propostas_telegram(props); msg and send(msg)" >> /opt/conecta-pro/logs/proatividade_cto.log 2>&1
+# CTO — Auditoria mensal todo dia 1 às 09h BRT (12h UTC)
+# [LIMPEZA 20260531] 0 12 1 * * PYTHONPATH=/opt/conecta-pro/agents/cto:/opt/conecta-pro/agents/core python3 -c "from auto_evolucao import AutoEvolução; AutoEvolução().executar_auditoria_completa()" >> /opt/conecta-pro/logs/auto_evolucao.log 2>&1
+# CTO — Relatório semanal toda segunda 11h UTC (08h BRT)
+# [LIMPEZA 20260531] 0 11 * * 1 MONITOR_BOT_TOKEN=8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ TELEGRAM_CHAT_ID=5536961034 python3 /opt/conecta-pro/agents/cto/relatorio_semanal.py >> /opt/conecta-pro/logs/relatorio_semanal.log 2>&1
+# CTO — Verificar troca de turno a cada hora
+# [LIMPEZA 20260531] 0 * * * * PYTHONPATH=/opt/conecta-pro/agents/cto python3 -c "import sys; sys.path.insert(0,'/opt/conecta-pro/agents/cto'); from turno import Turno; Turno().verificar_troca_turno()" >> /opt/conecta-pro/logs/turno.log 2>&1
+# Sprint 6 — Escalada temporal autônoma (verifica thresholds a cada 5min)
+*/5 * * * * MONITOR_BOT_TOKEN=8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ TELEGRAM_CHAT_ID=5536961034 python3 agents/orchestrator_unificado.py escaladas >> logs/escaladas_cto.log 2>&1
+*/2 * * * * python3 /opt/conecta-pro/agents/dashboard_api.py >> /opt/conecta-pro/logs/dashboard.log 2>&1
+0 * * * * bash /opt/conecta-pro/agents/cto/reindexar.sh >> /opt/conecta-pro/logs/reindexacao.log 2>&1
+# CTO — Coleta métricas + predição a cada 5min
+*/5 * * * * PYTHONPATH=/opt/conecta-pro/agents/cto/predicao python3 /opt/conecta-pro/agents/cto/predicao/preditor_principal.py >> /opt/conecta-pro/logs/predicao.log 2>&1
+*/30 * * * * /opt/conecta-pro/scripts/security_monitor.sh
+
+# ── Conecta PRO — Rotinas Automáticas ──────────────────────
+# Sentinela Vital — todo hora (detecta problemas em tempo real)
+# [LIMPEZA 20260531] 0 * * * * /opt/conecta-pro/rotinas/scripts/1h-sentinela.sh >> /opt/conecta-pro/rotinas/sentinela.log 2>&1
+
+# Testes Funcionais — 4x por dia (06h, 12h, 18h, 00h)
+0 */6 * * * /opt/conecta-pro/rotinas/scripts/6h-testes.sh >> /opt/conecta-pro/rotinas/testes.log 2>&1
+
+# Qualidade e Integridade — 2x por dia (06h e 18h)
+0 6,18 * * * /opt/conecta-pro/rotinas/scripts/12h-qualidade.sh >> /opt/conecta-pro/rotinas/qualidade.log 2>&1
+
+# Análise Profunda — 1x por dia (21h)
+0 21 * * * /opt/conecta-pro/rotinas/scripts/18h-analise.sh >> /opt/conecta-pro/rotinas/analise.log 2>&1
+
+# CEO Briefing Diário — todo dia às 07:00
+0 7 * * * /opt/conecta-pro/rotinas/scripts/24h-briefing.sh >> /opt/conecta-pro/rotinas/briefing.log 2>&1
+# ── Fim Conecta PRO Rotinas ─────────────────────────────────
+
+# GEDEON Fase 3 — Onvio Sync
+0 4  * * * /opt/conecta-pro/rotinas/scripts/onvio-auth-refresh.sh   # Renovar sessão 04:00 diário
+0 7  7 * * /opt/conecta-pro/rotinas/scripts/onvio-sync-mensal.sh    # Sync mensal dia 7 07:00
+
+
+# GEDEON — Vigia do ponto assinado (ponte backend→host): roda o robô quando o orquestrador pede
+* * * * * bash /opt/conecta-pro/backend/scripts/gedeon/ponto_watcher.sh >> /opt/conecta-pro/rotinas/ponto-watcher.log 2>&1
+# GEDEON — Vigia de emissão de CND (ponte backend→host, Playwright+2captcha)
+* * * * * bash /opt/conecta-pro/backend/scripts/gedeon/cnd_watcher.sh >> /opt/conecta-pro/rotinas/cnd-watcher.log 2>&1
+# GEDEON — Auto-retry da CND Federal (RFB instável): tenta a cada 6h até a RFB cooperar
+0 */6 * * * bash /opt/conecta-pro/backend/scripts/gedeon/cnd_auto_retry.sh >> /opt/conecta-pro/rotinas/cnd-retry.log 2>&1
+* * * * * /opt/conecta-pro/scripts/session_guardian.sh >/dev/null 2>&1
+
+# Anti-reboot tmux: salva estado das sessões a cada minuto (par do session_guardian anti-OOM)
+* * * * * /opt/conecta-pro/scripts/tmux_state_save.sh >/dev/null 2>&1
+# Anti-reboot tmux: recria sessões no boot com claude --continue pré-digitado
+@reboot sleep 60 && /opt/conecta-pro/scripts/tmux_restore.sh >/dev/null 2>&1

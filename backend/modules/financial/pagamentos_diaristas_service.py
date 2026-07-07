@@ -176,6 +176,107 @@ async def programar_do_dia(db: AsyncSession, data: str, user_id: str | None = No
     }
 
 
+# ── ELO DO DIA (FLUXO 2 diário): diária LANÇADA hoje → VT+VR programado hoje ──
+async def listar_lancados_do_dia(db: AsyncSession, data: str | _date) -> dict[str, Any]:
+    """Diaristas com diária LANÇADA no dia (diaria_lancamentos × diaria_diaristas), com a flag
+    `ja_programado_vt_vr` (já existe VT+VR origem='diarias_dia' não cancelado p/ o dia).
+    Tudo lido do banco real — dia sem lançamento devolve itens=[] honesto."""
+    await _ensure(db)
+    dref = _date.fromisoformat(data) if isinstance(data, str) else data
+    if not (await db.execute(text("SELECT to_regclass('public.diaria_lancamentos')"))).scalar():
+        return {"data": dref.isoformat(), "total_diaristas": 0, "total_lancamentos": 0, "itens": [],
+                "aviso": "Nenhuma diária lançada ainda (tabela de lançamentos não existe)."}
+    rows = await db.execute(text(
+        """SELECT l.id AS lancamento_id, l.diarista_id, d.nome, l.funcao, l.posto, l.turno,
+                  l.valor, d.cpf, d.pix, d.telefone
+           FROM diaria_lancamentos l JOIN diaria_diaristas d ON d.id = l.diarista_id
+           WHERE l.data = :d
+           ORDER BY d.nome, l.id"""), {"d": dref})
+    lanc = rows.mappings().all()
+    prog = await db.execute(text(
+        """SELECT lower(beneficiario) FROM financial_pagamentos_diaristas
+           WHERE data_referencia = :d AND tipo = 'vt_vr' AND origem = 'diarias_dia'
+             AND status <> 'cancelado'"""), {"d": dref})
+    ja_programados = {r[0] for r in prog.all()}
+    itens = [{
+        "lancamento_id": r["lancamento_id"], "diarista_id": r["diarista_id"], "nome": r["nome"],
+        "funcao": r["funcao"], "posto": r["posto"], "turno": r["turno"],
+        "valor_diaria": float(r["valor"]),
+        "tem_pix": bool((r["pix"] or "").strip()), "tem_cpf": bool((r["cpf"] or "").strip()),
+        "telefone": r["telefone"],
+        "ja_programado_vt_vr": (r["nome"] or "").lower() in ja_programados,
+    } for r in lanc]
+    return {"data": dref.isoformat(),
+            "total_diaristas": len({i["diarista_id"] for i in itens}),
+            "total_lancamentos": len(itens), "itens": itens}
+
+
+async def programar_vt_vr_dos_lancados(db: AsyncSession, data: str | _date,
+                                       created_by: str | None = None) -> dict[str, Any]:
+    """Programa o VT+VR (R$32) de cada diarista DISTINTO com diária LANÇADA no dia.
+
+    origem='diarias_dia' — NUNCA mistura com origem='escala' (FLUXO 1): são fontes distintas.
+    Idempotente por (data_referencia, beneficiario, tipo='vt_vr', origem='diarias_dia',
+    status<>'cancelado'). Sem PIX no cadastro → status 'sem_pix' (NUNCA fabrica chave)."""
+    await _ensure(db)
+    dref = _date.fromisoformat(data) if isinstance(data, str) else data
+    if not (await db.execute(text("SELECT to_regclass('public.diaria_lancamentos')"))).scalar():
+        return {"data": dref.isoformat(), "programados_novos": 0, "ja_programados": 0, "sem_pix": 0,
+                "total_a_pagar_do_dia": 0.0, "itens": [],
+                "aviso": "Nenhuma diária lançada ainda (tabela de lançamentos não existe)."}
+    # 1 linha por diarista DISTINTO lançado no dia (dados reais do cadastro)
+    rows = await db.execute(text(
+        """SELECT d.id AS diarista_id, d.nome, d.cpf, d.pix,
+                  array_agg(l.id ORDER BY l.id) AS lanc_ids,
+                  array_agg(DISTINCT l.funcao || ' @ ' || l.posto) AS servicos,
+                  COUNT(*) AS qtd
+           FROM diaria_lancamentos l JOIN diaria_diaristas d ON d.id = l.diarista_id
+           WHERE l.data = :d
+           GROUP BY d.id, d.nome, d.cpf, d.pix
+           ORDER BY d.nome"""), {"d": dref})
+    pessoas = rows.mappings().all()
+    novos = ja = sem_pix = 0
+    itens: list[dict[str, Any]] = []
+    for p in pessoas:
+        # idempotência manual (diaristas FLUXO 2 têm id INT → fora do índice único de diarist_id UUID)
+        ex = await db.execute(text(
+            """SELECT id FROM financial_pagamentos_diaristas
+               WHERE data_referencia = :d AND lower(beneficiario) = lower(:b)
+                 AND tipo = 'vt_vr' AND origem = 'diarias_dia' AND status <> 'cancelado'
+               LIMIT 1"""), {"d": dref, "b": p["nome"]})
+        if ex.first():
+            ja += 1
+            itens.append({"diarista_id": p["diarista_id"], "nome": p["nome"],
+                          "valor": VALOR_VT_VR, "resultado": "ja_programado"})
+            continue
+        pix = (p.get("pix") or "").strip()
+        status = "a_revisar" if pix else "sem_pix"
+        if not pix:
+            sem_pix += 1
+        lanc_ids = ", ".join(f"#{i}" for i in (p["lanc_ids"] or []))
+        servicos = "; ".join(p["servicos"] or [])
+        await db.execute(text(
+            """INSERT INTO financial_pagamentos_diaristas
+                 (data_referencia, beneficiario, cpf, pix_key, valor, tipo, origem, status,
+                  descricao, created_by)
+               VALUES (:d, :ben, :cpf, :pix, :valor, 'vt_vr', 'diarias_dia', :st, :desc, :uid)"""),
+            {"d": dref, "ben": p["nome"], "cpf": p.get("cpf"), "pix": pix or None,
+             "valor": VALOR_VT_VR, "st": status,
+             "desc": (f"VT R$ {VALE_TRANSPORTE:.2f} + VR R$ {VALE_ALIMENTACAO:.2f} — "
+                      f"diária(s) lançada(s) em {dref.isoformat()} (lançamentos {lanc_ids}: {servicos})"),
+             "uid": str(created_by) if created_by else None})
+        novos += 1
+        itens.append({"diarista_id": p["diarista_id"], "nome": p["nome"], "valor": VALOR_VT_VR,
+                      "resultado": "programado" if pix else "programado_sem_pix", "status": status})
+    await db.commit()
+    total = (await db.execute(text(
+        """SELECT COALESCE(SUM(valor), 0) FROM financial_pagamentos_diaristas
+           WHERE data_referencia = :d AND tipo = 'vt_vr' AND origem = 'diarias_dia'
+             AND status IN ('a_revisar', 'aprovado')"""), {"d": dref})).scalar()
+    return {"data": dref.isoformat(), "programados_novos": novos, "ja_programados": ja,
+            "sem_pix": sem_pix, "total_a_pagar_do_dia": float(total or 0), "itens": itens}
+
+
 async def adicionar_manual(db: AsyncSession, data: str, beneficiario: str, pix_key: str,
                            quantidade: int = 1, valor: float | None = None, tipo: str = "cobertura_clt",
                            cpf: str | None = None, user_id: str | None = None) -> dict[str, Any]:

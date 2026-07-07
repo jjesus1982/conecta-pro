@@ -1,13 +1,14 @@
 'use client';
 
 import { ArrowLeft, Calendar, Clock, MapPin, Shield, Users, AlertCircle, CheckCircle, RefreshCw, User } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 ;
 import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/ui/page-header';
 import { useAuth } from '@/hooks/useAuth';
+import { usePermission, Permission } from '@/hooks/usePermission';
 import { useScale, useScaleOperations } from '@/hooks/useScales';
 import { useShifts } from '@/hooks/useShifts';
 import { useEmployees } from '@/hooks/useEmployees';
@@ -34,7 +35,12 @@ export default function ScaleDetailPage() {
   });
   const { employees, isLoading: employeesLoading } = useEmployees({ initialPageSize: 200 });
   const { posts } = usePosts({ initialPageSize: 100 });
-  const { submitForApproval, approveScale, publishScale, isLoading: operationLoading } = useScaleOperations();
+  const { submitForApproval, approveScale, publishScale, getLastError, isLoading: operationLoading } = useScaleOperations();
+  const { canManageScales, canApproveScales, hasPermission } = usePermission();
+  const canPublishScales = hasPermission(Permission.SCALES_PUBLISH);
+
+  // Feedback visível das transições (a página não tem toast global)
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Auth check
   useEffect(() => {
@@ -115,23 +121,48 @@ export default function ScaleDetailPage() {
     refreshShifts();
   };
 
+  // Mensagem de erro visível a partir do último erro da operação (com status HTTP)
+  const feedbackFromError = (fallback: string): string => {
+    const opError = getLastError();
+    if (opError?.status === 403) return 'Você não tem permissão para esta ação';
+    return opError?.message || fallback;
+  };
+
   // Status operations
   const handleSubmitForApproval = async () => {
     if (!scale) return;
+    setFeedback(null);
     const result = await submitForApproval(scale.id);
-    if (result) handleRefresh();
+    if (result) {
+      setFeedback({ type: 'success', message: 'Escala enviada para aprovação' });
+      handleRefresh();
+    } else {
+      setFeedback({ type: 'error', message: feedbackFromError('Erro ao enviar para aprovação') });
+    }
   };
 
   const handleApprove = async () => {
     if (!scale) return;
+    setFeedback(null);
     const result = await approveScale(scale.id);
-    if (result) handleRefresh();
+    if (result) {
+      setFeedback({ type: 'success', message: 'Escala aprovada' });
+      handleRefresh();
+    } else {
+      setFeedback({ type: 'error', message: feedbackFromError('Erro ao aprovar escala') });
+    }
   };
 
   const handlePublish = async () => {
     if (!scale) return;
+    setFeedback(null);
     const result = await publishScale(scale.id, true);
-    if (result) handleRefresh();
+    if (result) {
+      setFeedback({ type: 'success', message: 'Escala publicada' });
+      handleRefresh();
+    } else {
+      setFeedback({ type: 'error', message: feedbackFromError('Erro ao publicar escala') });
+    }
   };
 
   // Loading state
@@ -195,7 +226,7 @@ export default function ScaleDetailPage() {
               </span>
 
               {/* Action Buttons */}
-              {scale.status === 'draft' && (
+              {scale.status === 'draft' && canManageScales && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -207,7 +238,7 @@ export default function ScaleDetailPage() {
                 </Button>
               )}
 
-              {scale.status === 'pending_approval' && (
+              {scale.status === 'pending_approval' && canApproveScales && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -220,7 +251,7 @@ export default function ScaleDetailPage() {
                 </Button>
               )}
 
-              {scale.status === 'approved' && (
+              {scale.status === 'approved' && canPublishScales && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -240,6 +271,34 @@ export default function ScaleDetailPage() {
             </>
           }
         />
+
+        {/* Feedback banner das transições de status */}
+        {feedback && (
+          <div
+            role="alert"
+            className={`flex items-center justify-between gap-3 rounded-xl border p-4 mb-6 text-sm ${
+              feedback.type === 'error'
+                ? 'bg-red-500/10 text-red-500 border-red-500/20'
+                : 'bg-green-500/10 text-green-500 border-green-500/20'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {feedback.type === 'error' ? (
+                <AlertCircle className="w-4 h-4 shrink-0" />
+              ) : (
+                <CheckCircle className="w-4 h-4 shrink-0" />
+              )}
+              <span>{feedback.message}</span>
+            </div>
+            <button
+              type="button"
+              className="text-xs underline opacity-80 hover:opacity-100"
+              onClick={() => setFeedback(null)}
+            >
+              Fechar
+            </button>
+          </div>
+        )}
 
         {/* Scale Info Card */}
         <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-6 mb-6">

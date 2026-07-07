@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { ClipboardList, Loader2, Plus, Trash2, CalendarDays, Users, BarChart3 } from 'lucide-react';
+import { ClipboardList, Loader2, Plus, Trash2, CalendarDays, Users, BarChart3, UserPlus, Pencil, Power, X } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,23 @@ function authHeaders(json = true) {
   return { ...(json ? { 'Content-Type': 'application/json' } : {}), ...(t ? { Authorization: `Bearer ${t}` } : {}) };
 }
 const brl = (v: any) => { const n = Number(v); return isNaN(n) ? '—' : n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); };
+
+// máscara ###.###.###-##
+const cpfMask = (v: string) => v.replace(/\D/g, '').slice(0, 11)
+  .replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+// validação dos dígitos verificadores do CPF
+const cpfValido = (v: string) => {
+  const c = v.replace(/\D/g, '');
+  if (c.length !== 11 || /^(\d)\1{10}$/.test(c)) return false;
+  for (const n of [9, 10]) {
+    let s = 0;
+    for (let i = 0; i < n; i++) s += Number(c[i]) * (n + 1 - i);
+    if (((s * 10) % 11) % 10 !== Number(c[n])) return false;
+  }
+  return true;
+};
+// detail do backend (string PT-BR ou lista de erros de validação do FastAPI)
+const parseDetail = (d: any) => Array.isArray(d) ? d.map((e: any) => e?.msg || e?.detail || '').filter(Boolean).join(' · ') : String(d);
 
 export default function DiariasPage() {
   const hoje = new Date().toISOString().slice(0, 10);
@@ -26,6 +43,15 @@ export default function DiariasPage() {
   const [aba, setAba] = useState<'lancamentos' | 'resumo'>('lancamentos');
   const [lancs, setLancs] = useState<any>(null);
   const [resumo, setResumo] = useState<any>(null);
+
+  // cadastro/edição de diarista
+  const formVazio = { nome: '', cpf: '', pix: '', telefone: '', email: '' };
+  const [showCad, setShowCad] = useState(false);
+  const [cadForm, setCadForm] = useState(formVazio);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [salvando, setSalvando] = useState(false);
+  const [togglingId, setTogglingId] = useState<number | null>(null);
+  const [msgCad, setMsgCad] = useState<string | null>(null);
 
   const mes = Number(data.slice(5, 7)); const ano = Number(data.slice(0, 4));
   const ehAgente = funcao === 'AGENTE DE PORTARIA';
@@ -63,6 +89,55 @@ export default function DiariasPage() {
   };
   const excluir = async (id: number) => { await fetch(`${API}/lancamentos/${id}`, { method: 'DELETE', headers: authHeaders() }); carregarMes(); };
 
+  const abrirEdicao = (d: any) => {
+    setEditId(d.id); setShowCad(true); setMsgCad(null);
+    // PIX salvo não vem no /cadastros — deixar vazio = manter o atual (nunca preencher automaticamente)
+    setCadForm({ nome: d.nome || '', cpf: d.cpf ? cpfMask(d.cpf) : '', pix: '', telefone: d.telefone || '', email: d.email || '' });
+  };
+  const cancelarEdicao = () => { setEditId(null); setCadForm(formVazio); setMsgCad(null); };
+
+  const salvarDiarista = async () => {
+    setMsgCad(null);
+    const cpfDig = cadForm.cpf.replace(/\D/g, '');
+    if (!cadForm.nome.trim()) { setMsgCad('Informe o nome.'); return; }
+    if (cpfDig && !cpfValido(cadForm.cpf)) { setMsgCad('CPF inválido (dígitos verificadores não conferem).'); return; }
+    if (!editId) {
+      if (!cpfDig) { setMsgCad('CPF é obrigatório.'); return; }
+      if (!cadForm.pix.trim()) { setMsgCad('Chave PIX é obrigatória.'); return; }
+      if (!cadForm.telefone.trim() && !cadForm.email.trim()) { setMsgCad('Informe telefone ou e-mail (um dos dois).'); return; }
+    }
+    setSalvando(true);
+    try {
+      let r: Response;
+      if (editId) {
+        // PATCH: envia só o que foi preenchido; PIX vazio = mantém o atual
+        const body: any = { nome: cadForm.nome.trim(), telefone: cadForm.telefone.trim() || null, email: cadForm.email.trim() || null };
+        if (cpfDig) body.cpf = cpfDig;
+        if (cadForm.pix.trim()) body.pix = cadForm.pix.trim();
+        r = await fetch(`${API}/diaristas/${editId}`, { method: 'PATCH', headers: authHeaders(), body: JSON.stringify(body) });
+      } else {
+        const body: any = { nome: cadForm.nome.trim(), cpf: cpfDig, pix: cadForm.pix.trim() };
+        if (cadForm.telefone.trim()) body.telefone = cadForm.telefone.trim();
+        if (cadForm.email.trim()) body.email = cadForm.email.trim();
+        r = await fetch(`${API}/diaristas`, { method: 'POST', headers: authHeaders(), body: JSON.stringify(body) });
+      }
+      const j = await r.json().catch(() => null);
+      if (!r.ok) { setMsgCad(j?.detail ? parseDetail(j.detail) : `Falha ao salvar (HTTP ${r.status}).`); return; }
+      setMsgCad(editId ? 'Diarista atualizado.' : `Diarista cadastrado: ${j?.nome || cadForm.nome}.`);
+      setEditId(null); setCadForm(formVazio); carregar();
+    } catch { setMsgCad('Falha ao salvar o diarista.'); } finally { setSalvando(false); }
+  };
+
+  const toggleAtivo = async (d: any) => {
+    setTogglingId(d.id); setMsgCad(null);
+    try {
+      const r = await fetch(`${API}/diaristas/${d.id}`, { method: 'PATCH', headers: authHeaders(), body: JSON.stringify({ ativo: !(d.ativo !== false) }) });
+      const j = await r.json().catch(() => null);
+      if (!r.ok) { setMsgCad(j?.detail ? parseDetail(j.detail) : `Falha ao alterar status (HTTP ${r.status}).`); return; }
+      carregar();
+    } catch { setMsgCad('Falha ao alterar o status.'); } finally { setTogglingId(null); }
+  };
+
   const sel = 'border rounded px-2 py-1.5 text-sm bg-white';
   return (
     <div className="p-6 space-y-6 max-w-5xl">
@@ -84,7 +159,7 @@ export default function DiariasPage() {
               <div><label className="text-xs text-muted-foreground block">Diarista</label>
                 <select value={diarista} onChange={e => setDiarista(e.target.value)} className={`${sel} w-48`}>
                   <option value="">Selecione…</option>
-                  {cad.diaristas.map((d: any) => <option key={d.id} value={d.id}>{d.nome}{d.tem_pix ? '' : ' (sem PIX)'}</option>)}
+                  {cad.diaristas.filter((d: any) => d.ativo !== false).map((d: any) => <option key={d.id} value={d.id}>{d.nome}{d.tem_pix ? '' : ' (sem PIX)'}</option>)}
                 </select>
               </div>
               <div><label className="text-xs text-muted-foreground block">Função</label>
@@ -111,6 +186,64 @@ export default function DiariasPage() {
           )}
           {msg && <div className="text-sm text-gray-600 mt-2">{msg}</div>}
         </CardContent>
+      </Card>
+
+      {/* Cadastro de diaristas (mobile-first) */}
+      <Card>
+        <CardHeader className="pb-2 flex-row items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2"><UserPlus className="h-4 w-4 text-blue-600" /> Diaristas cadastrados</CardTitle>
+          <button onClick={() => { setShowCad(s => !s); if (showCad) cancelarEdicao(); }} className="text-xs text-blue-700">{showCad ? 'ocultar' : `gerenciar${cad?.diaristas?.length ? ` (${cad.diaristas.length})` : ''}`}</button>
+        </CardHeader>
+        {showCad && (
+          <CardContent className="space-y-4">
+            {/* Form novo/edição */}
+            <div className="rounded border p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-medium">{editId ? `Editando #${editId}` : 'Novo diarista'}</div>
+                {editId && <button onClick={cancelarEdicao} className="text-xs text-gray-500 flex items-center gap-1"><X className="h-3.5 w-3.5" /> cancelar edição</button>}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div><label className="text-xs text-muted-foreground block">Nome *</label>
+                  <input value={cadForm.nome} onChange={e => setCadForm(f => ({ ...f, nome: e.target.value }))} placeholder="Nome completo" className="w-full border rounded px-3 py-2 text-sm" /></div>
+                <div><label className="text-xs text-muted-foreground block">CPF *</label>
+                  <input value={cadForm.cpf} inputMode="numeric" onChange={e => setCadForm(f => ({ ...f, cpf: cpfMask(e.target.value) }))} placeholder="000.000.000-00" className={`w-full border rounded px-3 py-2 text-sm ${cadForm.cpf.replace(/\D/g, '').length === 11 && !cpfValido(cadForm.cpf) ? 'border-red-400' : ''}`} />
+                  {cadForm.cpf.replace(/\D/g, '').length === 11 && !cpfValido(cadForm.cpf) && <span className="text-xs text-red-600">CPF inválido</span>}</div>
+                <div><label className="text-xs text-muted-foreground block">Chave PIX {editId ? '(vazio = manter atual)' : '*'}</label>
+                  <input value={cadForm.pix} onChange={e => setCadForm(f => ({ ...f, pix: e.target.value }))} placeholder={editId ? 'manter a atual' : 'CPF / telefone / e-mail / aleatória'} className="w-full border rounded px-3 py-2 text-sm" /></div>
+                <div><label className="text-xs text-muted-foreground block">Telefone {editId ? '' : '(ou e-mail) *'}</label>
+                  <input value={cadForm.telefone} inputMode="tel" onChange={e => setCadForm(f => ({ ...f, telefone: e.target.value }))} placeholder="(92) 9xxxx-xxxx" className="w-full border rounded px-3 py-2 text-sm" /></div>
+                <div className="sm:col-span-2"><label className="text-xs text-muted-foreground block">E-mail {editId ? '' : '(ou telefone) *'}</label>
+                  <input value={cadForm.email} inputMode="email" onChange={e => setCadForm(f => ({ ...f, email: e.target.value }))} placeholder="email@exemplo.com" className="w-full border rounded px-3 py-2 text-sm" /></div>
+              </div>
+              <Button onClick={salvarDiarista} disabled={salvando} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white">
+                {salvando ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : (editId ? <Pencil className="h-4 w-4 mr-1" /> : <Plus className="h-4 w-4 mr-1" />)} {editId ? 'Salvar alterações' : 'Cadastrar diarista'}
+              </Button>
+              {msgCad && <div className="text-sm text-gray-700">{msgCad}</div>}
+              <p className="text-xs text-muted-foreground">CPF e chave PIX são obrigatórios para o Financeiro pagar. Informe telefone ou e-mail. Sem PIX/CPF o pagamento fica bloqueado.</p>
+            </div>
+
+            {/* Lista */}
+            {!cad?.diaristas?.length ? <p className="text-sm text-gray-400">Nenhum diarista cadastrado.</p> : (
+              <div className="divide-y">
+                {cad.diaristas.map((d: any) => {
+                  const ativo = d.ativo !== false;
+                  return (
+                    <div key={d.id} className="py-2 flex flex-wrap items-center gap-2 text-sm">
+                      <span className={`flex-1 min-w-[8rem] font-medium ${ativo ? '' : 'text-gray-400 line-through'}`}>{d.nome}</span>
+                      {!d.tem_pix && <Badge className="bg-red-100 text-red-700 text-xs">sem PIX</Badge>}
+                      {!d.cpf && <Badge className="bg-red-100 text-red-700 text-xs">sem CPF</Badge>}
+                      <Badge className={`text-xs ${ativo ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{ativo ? 'ativo' : 'inativo'}</Badge>
+                      <button onClick={() => abrirEdicao(d)} className="text-blue-600 p-1.5" title="Editar"><Pencil className="h-4 w-4" /></button>
+                      <button onClick={() => toggleAtivo(d)} disabled={togglingId === d.id} className={`p-1.5 ${ativo ? 'text-gray-400 hover:text-red-600' : 'text-gray-400 hover:text-green-600'}`} title={ativo ? 'Inativar' : 'Ativar'}>
+                        {togglingId === d.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        )}
       </Card>
 
       {/* Abas */}

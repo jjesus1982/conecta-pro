@@ -448,8 +448,14 @@ class ScaleRepository:
         total_hours = sum(s.planned_hours for s in scale.shifts if not s.is_off_day)
         overtime_hours = sum(s.overtime_hours for s in scale.shifts)
         estimated_cost = sum(s.total_pay for s in scale.shifts)
+        filled_shifts = sum(
+            1
+            for s in scale.shifts
+            if s.employee_id is not None and not s.is_off_day and s.status != ShiftStatus.CANCELLED.value
+        )
 
         scale.total_shifts = total_shifts
+        scale.filled_shifts = filled_shifts
         scale.total_hours = total_hours
         scale.overtime_hours = overtime_hours
         scale.estimated_cost = estimated_cost

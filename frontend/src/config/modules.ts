@@ -232,6 +232,11 @@ export const modules: Module[] = [
       { id: 'substituicoes', title: 'Substituicoes', href: '/modulos/operacional/substituicoes', icon: 'RefreshCw', permissions: ['operacional:read'] },
       { id: 'diaristas', title: 'Diaristas', href: '/modulos/operacional/diaristas', icon: 'UserCheck', permissions: ['operacional:read'] },
       { id: 'banco-horas', title: 'Banco de Horas', href: '/modulos/operacional/banco-horas', icon: 'Clock', permissions: ['operacional:read'] },
+      // --- Dia a dia do lider (mobile-first) ---
+      { id: 'ocorrencia-rapida', title: 'Ocorrencia Rapida', href: '/modulos/operacional/ocorrencia-rapida', icon: 'Zap', permissions: ['operacional:read'] },
+      { id: 'passagem-turno', title: 'Passagem de Turno', href: '/modulos/operacional/passagem-turno', icon: 'RefreshCw', permissions: ['operacional:read'] },
+      { id: 'avaliacao-equipe', title: 'Avaliacao de Equipe', href: '/modulos/operacional/avaliacao-equipe', icon: 'Users', permissions: ['operacional:read'] },
+      { id: 'triagem', title: 'Triagem (Gestao)', href: '/modulos/operacional/triagem', icon: 'Activity', permissions: ['operacional:read'] },
       // --- Ocorrencias e Disciplinar ---
       { id: 'ocorrencias', title: 'Ocorrencias', href: '/modulos/operacional/ocorrencias', icon: 'AlertTriangle', permissions: ['operacional:ocorrencias'] },
       { id: 'disciplinar', title: 'Processos Disciplinares', href: '/modulos/operacional/disciplinar', icon: 'FileText', permissions: ['operacional:disciplinar'] },

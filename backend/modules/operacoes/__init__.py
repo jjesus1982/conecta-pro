@@ -61,6 +61,15 @@ from modules.operacional.inspection_rounds import inspection_round_router
 # --- Operacional Occurrences ---
 from modules.operacional.occurrences import occurrence_router
 
+# --- Operacional Passagem de Turno ---
+from modules.operacional.shift_handover import shift_handover_router
+
+# --- Operacional Avaliação de Equipe ---
+from modules.operacional.team_evaluations import team_evaluation_router
+
+# --- Operacional Triagem (painel do gestor) ---
+from modules.operacional.triage import triage_router
+
 # --- Operacional Vacations ---
 from modules.operacional.vacations import vacation_router
 
@@ -79,6 +88,9 @@ __all__ = [
     "reports_router",
     "kpi_trends_router",
     "occurrence_router",
+    "shift_handover_router",
+    "team_evaluation_router",
+    "triage_router",
     "diarist_router",
     "diarist_fiscal_router",
     "disciplinary_router",

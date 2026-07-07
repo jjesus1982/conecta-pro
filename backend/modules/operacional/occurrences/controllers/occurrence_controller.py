@@ -4,15 +4,17 @@ Controller (endpoints) para Occurrence.
 
 import asyncio
 from datetime import datetime
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
-from core.cache import cache_response
 from core.cache.utils import invalidate_on_create, invalidate_on_delete, invalidate_on_update
 from core.database import get_db
 from core.logging import logger
+from modules.operacional.field_alerts import alertar_ocorrencia
 from modules.operacional.occurrences.models import (
     OccurrenceCategory,
     OccurrenceSeverity,
@@ -30,8 +32,13 @@ from modules.operacional.occurrences.schemas import (
     OccurrenceStats,
     OccurrenceUpdate,
 )
+from modules.operacional.occurrences.schemas.occurrence import (
+    OccurrenceCommentCreate,
+    OccurrenceCommentResponse,
+)
 from modules.operacional.permissions import Permission, require_operacional_permission
 from modules.operacional.publishers import publish_cat_registrada, publish_ocorrencia_registrada
+from modules.operacional.scope import OperationalScope, get_operational_scope, scope_post_ids_or_403
 
 router = APIRouter(prefix="/occurrences", tags=["Operations - Occurrences"])
 
@@ -72,16 +79,40 @@ def parse_date_filter(date_str: str | None) -> datetime | None:
 async def create_occurrence(
     data: OccurrenceCreate,
     current_user: CurrentActiveUser,
+    scope: OperationalScope = Depends(get_operational_scope),
     db: AsyncSession = Depends(get_db),
 ) -> OccurrenceResponse:
     """
-    Cria uma nova ocorrência disciplinar.
+    Cria uma nova ocorrência disciplinar/operacional.
 
-    Registra infração encontrada durante fiscalização/ronda.
-    O usuário atual deve ser um gestor/supervisor com permissão.
+    Escopo por posto: líder só registra em posto que lidera; se o body não
+    trouxer post_id e o líder tiver exatamente 1 posto, ele é preenchido
+    automaticamente (form rápido mobile).
 
     Requer autenticação.
     """
+    # Escopo por posto
+    if not scope.all_posts:
+        allowed_post_ids = scope_post_ids_or_403(scope)
+        if not data.post_id and len(allowed_post_ids) == 1:
+            # Form rápido: líder de 1 posto → posto preenchido automaticamente
+            data.post_id = allowed_post_ids[0]
+        if data.post_id and data.post_id not in allowed_post_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Posto fora do seu escopo: você só pode registrar ocorrências nos postos que lidera.",
+            )
+
+    if not data.post_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="post_id é obrigatório (informe o posto da ocorrência).",
+        )
+
+    # occurred_at ausente (form rápido) → agora
+    if data.occurred_at is None:
+        data.occurred_at = datetime.now()
+
     repo = OccurrenceRepository(db)
     occurrence = await repo.create(data, inspector_id=current_user.id)
 
@@ -131,6 +162,28 @@ async def create_occurrence(
                 afastamento=occurrence.severity.value in ("grave", "gravissima") if occurrence.severity else False,
             )
         )
+
+    # Alerta Telegram de campo (best-effort — grave/gravíssima; nunca quebra o registro)
+    try:
+        posto_nome = ""
+        row = (
+            await db.execute(text("SELECT name FROM posts WHERE id = :pid"), {"pid": str(occurrence.post_id)})
+        ).first()
+        if row and row[0]:
+            posto_nome = str(row[0])
+        asyncio.create_task(
+            alertar_ocorrencia(
+                codigo=occurrence.code,
+                titulo=occurrence.title,
+                severidade=occurrence.severity or "",
+                posto_nome=posto_nome,
+                autor=getattr(current_user, "name", None) or current_user.email,
+                descricao=occurrence.description or "",
+            )
+        )
+    except Exception as alert_err:  # noqa: BLE001 — alerta jamais bloqueia a criação
+        logger.warning("Falha ao disparar alerta de ocorrência (best-effort)", error=str(alert_err))
+
     return OccurrenceResponse.model_validate(occurrence)
 
 
@@ -141,6 +194,7 @@ async def create_occurrence(
 )
 async def list_occurrences(
     current_user: CurrentActiveUser,
+    scope: OperationalScope = Depends(get_operational_scope),
     db: AsyncSession = Depends(get_db),
     page: int = Query(1, ge=1, description="Página atual"),
     page_size: int = Query(20, ge=1, le=100, description="Itens por página"),
@@ -158,8 +212,18 @@ async def list_occurrences(
 ) -> OccurrenceListResponse:
     """
     Lista ocorrências com filtros e paginação.
+
+    Escopo por posto: líder vê SÓ os postos que lidera; gestor vê tudo.
     """
     repo = OccurrenceRepository(db)
+
+    # Escopo por posto (None = todos os postos)
+    scope_ids = None if scope.all_posts else scope_post_ids_or_403(scope)
+    if scope_ids is not None and post_id and post_id not in scope_ids:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Posto fora do seu escopo: você só vê ocorrências dos postos que lidera.",
+        )
 
     filters = OccurrenceFilter(
         occurrence_type=occurrence_type,
@@ -175,7 +239,7 @@ async def list_occurrences(
         search=search,
     )
 
-    occurrences, total = await repo.list(filters=filters, page=page, page_size=page_size)
+    occurrences, total = await repo.list(filters=filters, page=page, page_size=page_size, post_ids=scope_ids)
     total_pages = (total + page_size - 1) // page_size
 
     logger.info(
@@ -215,18 +279,20 @@ async def list_occurrences(
     response_model=OccurrenceStats,
     dependencies=[require_operacional_permission(Permission.OCCURRENCES_VIEW)],
 )
-@cache_response(ttl=180, prefix="api:occurrence")  # 3 minutos
 async def get_occurrence_stats(
     current_user: CurrentActiveUser,
+    scope: OperationalScope = Depends(get_operational_scope),
     db: AsyncSession = Depends(get_db),
 ) -> OccurrenceStats:
     """
     Obtém estatísticas de ocorrências.
 
-    Cache: 3 minutos
+    Escopo por posto: líder vê stats SÓ dos postos que lidera.
+    (Cache removido: resposta depende do escopo do usuário — cache compartilhado vazaria dados.)
     """
     repo = OccurrenceRepository(db)
-    return await repo.get_stats()
+    scope_ids = None if scope.all_posts else scope_post_ids_or_403(scope)
+    return await repo.get_stats(post_ids=scope_ids)
 
 
 @router.get(
@@ -237,15 +303,158 @@ async def get_occurrence_stats(
 async def get_occurrences_by_post(
     post_id: str,
     current_user: CurrentActiveUser,
+    scope: OperationalScope = Depends(get_operational_scope),
     db: AsyncSession = Depends(get_db),
 ) -> list[OccurrenceResponse]:
     """
     Busca ocorrências de um posto específico.
+
+    Escopo por posto: líder só consulta postos que lidera (403 fora do escopo).
     """
+    if not scope.all_posts:
+        allowed_post_ids = scope_post_ids_or_403(scope)
+        if post_id not in allowed_post_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Posto fora do seu escopo: você só vê ocorrências dos postos que lidera.",
+            )
+
     repo = OccurrenceRepository(db)
     occurrences = await repo.get_by_post(post_id)
 
     return [OccurrenceResponse.model_validate(occ) for occ in occurrences]
+
+
+async def _get_occurrence_in_scope(
+    occurrence_id: str,
+    scope: OperationalScope,
+    repo: OccurrenceRepository,
+):
+    """Busca a ocorrência e valida o escopo do usuário (404/403)."""
+    occurrence = await repo.get_by_id(occurrence_id)
+    if not occurrence:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Ocorrência {occurrence_id} não encontrada.",
+        )
+    if not scope.all_posts:
+        allowed_post_ids = scope_post_ids_or_403(scope)
+        if str(occurrence.post_id) not in allowed_post_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Ocorrência fora do seu escopo: ela não pertence a um posto que você lidera.",
+            )
+    return occurrence
+
+
+@router.post(
+    "/{occurrence_id}/comments",
+    response_model=OccurrenceCommentResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[require_operacional_permission(Permission.OCCURRENCES_CREATE)],
+)
+async def add_occurrence_comment(
+    occurrence_id: str,
+    data: OccurrenceCommentCreate,
+    current_user: CurrentActiveUser,
+    scope: OperationalScope = Depends(get_operational_scope),
+    db: AsyncSession = Depends(get_db),
+) -> OccurrenceCommentResponse:
+    """
+    Adiciona comentário a uma ocorrência.
+
+    Escopo: a ocorrência precisa estar num posto do escopo do usuário
+    (líder → postos que lidera; gestor → qualquer posto).
+    """
+    repo = OccurrenceRepository(db)
+    await _get_occurrence_in_scope(occurrence_id, scope, repo)
+
+    comment_id = str(uuid4())
+    created_at = datetime.now()
+    # SQL text: tabela occurrence_comments existe no banco (colunas = model occurrence_comment.py)
+    await db.execute(
+        text(
+            """
+            INSERT INTO occurrence_comments
+                (id, occurrence_id, author_id, author_name, content, is_internal, created_at, is_active)
+            VALUES
+                (:id, :occurrence_id, :author_id, :author_name, :content, FALSE, :created_at, TRUE)
+            """
+        ),
+        {
+            "id": comment_id,
+            "occurrence_id": occurrence_id,
+            "author_id": str(current_user.id),
+            "author_name": getattr(current_user, "name", None),
+            "content": data.content,
+            "created_at": created_at,
+        },
+    )
+    await db.commit()
+
+    logger.info(
+        "Comentário adicionado a occurrence",
+        action="add_occurrence_comment",
+        occurrence_id=occurrence_id,
+        comment_id=comment_id,
+        user_id=str(current_user.id),
+    )
+    return OccurrenceCommentResponse(
+        id=comment_id,
+        occurrence_id=occurrence_id,
+        author_id=str(current_user.id),
+        author_name=getattr(current_user, "name", None),
+        content=data.content,
+        is_internal=False,
+        created_at=created_at,
+    )
+
+
+@router.get(
+    "/{occurrence_id}/comments",
+    response_model=list[OccurrenceCommentResponse],
+    dependencies=[require_operacional_permission(Permission.OCCURRENCES_VIEW)],
+)
+async def list_occurrence_comments(
+    occurrence_id: str,
+    current_user: CurrentActiveUser,
+    scope: OperationalScope = Depends(get_operational_scope),
+    db: AsyncSession = Depends(get_db),
+) -> list[OccurrenceCommentResponse]:
+    """
+    Lista comentários ativos de uma ocorrência (mais antigos primeiro).
+
+    Escopo: mesma regra do POST — ocorrência precisa estar num posto do escopo.
+    """
+    repo = OccurrenceRepository(db)
+    await _get_occurrence_in_scope(occurrence_id, scope, repo)
+
+    rows = (
+        await db.execute(
+            text(
+                """
+                SELECT id, occurrence_id, author_id, author_name, content, is_internal, created_at
+                FROM occurrence_comments
+                WHERE occurrence_id = :occurrence_id AND is_active = TRUE
+                ORDER BY created_at ASC
+                """
+            ),
+            {"occurrence_id": occurrence_id},
+        )
+    ).mappings().all()
+
+    return [
+        OccurrenceCommentResponse(
+            id=str(r["id"]),
+            occurrence_id=str(r["occurrence_id"]),
+            author_id=str(r["author_id"]),
+            author_name=r["author_name"],
+            content=r["content"],
+            is_internal=bool(r["is_internal"]),
+            created_at=r["created_at"],
+        )
+        for r in rows
+    ]
 
 
 @router.get(

@@ -443,6 +443,9 @@ try:
         kpi_trends_router,
         notification_router,
         occurrence_router,
+        shift_handover_router,
+        team_evaluation_router,
+        triage_router,
         ocorrencias_alias,
         operacional_ai_router,
         operacional_dashboard_router,
@@ -489,6 +492,9 @@ try:
     api_router.include_router(communication_router, prefix="/operacional", tags=["Operacional - Comunicacao"])
     # Vacations
     api_router.include_router(vacation_router, prefix="/operacional", tags=["Operacional - Férias"])
+    api_router.include_router(shift_handover_router, prefix="/operacional", tags=["Operacional - Passagem de Turno"])
+    api_router.include_router(team_evaluation_router, prefix="/operacional", tags=["Operacional - Avaliação de Equipe"])
+    api_router.include_router(triage_router, prefix="/operacional", tags=["Operacional - Triagem"])
     # AI
     api_router.include_router(operacional_ai_router, prefix="/operacional", tags=["Operacional - AI"])
     # WebSocket

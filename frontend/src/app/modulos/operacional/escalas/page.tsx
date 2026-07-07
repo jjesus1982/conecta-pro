@@ -37,7 +37,11 @@ export default function EscalasPage() {
     refresh,
   } = useScales(1, 10);
   const { posts } = usePosts({ initialPageSize: 100 });
-  const { deleteScale, submitForApproval, approveScale, publishScale, isLoading: operationLoading } = useScaleOperations();
+  const { deleteScale, submitForApproval, approveScale, publishScale, getLastError, isLoading: operationLoading } = useScaleOperations();
+  const canPublishScales = hasPermission(Permission.SCALES_PUBLISH);
+
+  // Feedback visível das transições (a página não tem toast global)
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Modal states
   const [showGenerateModal, setShowGenerateModal] = useState(false);
@@ -134,22 +138,47 @@ export default function EscalasPage() {
     }
   };
 
+  // Mensagem de erro visível a partir do último erro da operação (com status HTTP)
+  const feedbackFromError = (fallback: string): string => {
+    const opError = getLastError();
+    if (opError?.status === 403) return 'Você não tem permissão para esta ação';
+    return opError?.message || fallback;
+  };
+
   // Handle submit for approval
   const handleSubmitForApproval = async (scale: Scale) => {
+    setFeedback(null);
     const result = await submitForApproval(scale.id);
-    if (result) refresh();
+    if (result) {
+      setFeedback({ type: 'success', message: 'Escala enviada para aprovação' });
+      refresh();
+    } else {
+      setFeedback({ type: 'error', message: feedbackFromError('Erro ao enviar para aprovação') });
+    }
   };
 
   // Handle approve
   const handleApprove = async (scale: Scale) => {
+    setFeedback(null);
     const result = await approveScale(scale.id);
-    if (result) refresh();
+    if (result) {
+      setFeedback({ type: 'success', message: 'Escala aprovada' });
+      refresh();
+    } else {
+      setFeedback({ type: 'error', message: feedbackFromError('Erro ao aprovar escala') });
+    }
   };
 
   // Handle publish
   const handlePublish = async (scale: Scale) => {
+    setFeedback(null);
     const result = await publishScale(scale.id, true);
-    if (result) refresh();
+    if (result) {
+      setFeedback({ type: 'success', message: 'Escala publicada' });
+      refresh();
+    } else {
+      setFeedback({ type: 'error', message: feedbackFromError('Erro ao publicar escala') });
+    }
   };
 
   // Preparar dados para exportação
@@ -229,6 +258,34 @@ export default function EscalasPage() {
             </>
           }
         />
+
+        {/* Feedback banner das transições de status */}
+        {feedback && (
+          <div
+            role="alert"
+            className={`flex items-center justify-between gap-3 rounded-xl border p-4 mb-6 text-sm ${
+              feedback.type === 'error'
+                ? 'bg-red-500/10 text-red-500 border-red-500/20'
+                : 'bg-green-500/10 text-green-500 border-green-500/20'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {feedback.type === 'error' ? (
+                <AlertCircle className="w-4 h-4 shrink-0" />
+              ) : (
+                <CheckCircle className="w-4 h-4 shrink-0" />
+              )}
+              <span>{feedback.message}</span>
+            </div>
+            <button
+              type="button"
+              className="text-xs underline opacity-80 hover:opacity-100"
+              onClick={() => setFeedback(null)}
+            >
+              Fechar
+            </button>
+          </div>
+        )}
 
         {/* Filters */}
         <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4 mb-6">
@@ -365,7 +422,7 @@ export default function EscalasPage() {
                       Ver
                     </Button>
 
-                    {scale.status === 'draft' && (
+                    {scale.status === 'draft' && canManageScales && (
                       <>
                         <Button
                           variant="outline"
@@ -389,7 +446,7 @@ export default function EscalasPage() {
                       </>
                     )}
 
-                    {scale.status === 'pending_approval' && (
+                    {scale.status === 'pending_approval' && canApproveScales && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -402,7 +459,7 @@ export default function EscalasPage() {
                       </Button>
                     )}
 
-                    {scale.status === 'approved' && (
+                    {scale.status === 'approved' && canPublishScales && (
                       <Button
                         variant="outline"
                         size="sm"

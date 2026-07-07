@@ -210,6 +210,278 @@ def send_shift_reminders(self):
 
 
 @app.task(
+    name="operacional.briefing_operacional_matinal",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=300,
+)
+def briefing_operacional_matinal(self):
+    """
+    Briefing Operacional matinal via Telegram (07:30 BRT, seg-sex via Celery Beat).
+
+    100% dados REAIS do banco — mesmas fontes das rotas/tasks existentes:
+    - posts/allocations (cobertura), scales (vigentes + drafts),
+    - occurrences (abertas por severidade),
+    - diaria_lancamentos (diárias de ontem — módulo Diárias),
+    - gp_asos (ASOs vencendo — MESMA query do SST verificar_vencimentos_aso).
+    Seção sem dado → linha honesta "sem registros". NUNCA fabrica dado.
+
+    Roteada para a fila gov.batch (worker celery-batch tem TELEGRAM_* no env).
+    """
+    try:
+        import os
+        from datetime import date, datetime, timedelta
+        from zoneinfo import ZoneInfo
+
+        from sqlalchemy import text
+
+        # Import tardio: field_alerts é módulo irmão (envio Telegram best-effort);
+        # import no topo quebraria TODAS as tasks do módulo se ele faltar.
+        from modules.operacional.field_alerts import enviar_telegram
+
+        # Datas na hora local de Manaus (operação é em Manaus-AM)
+        tz_manaus = ZoneInfo("America/Manaus")
+        agora = datetime.now(tz_manaus)
+        hoje = agora.date()
+        ontem = hoje - timedelta(days=1)
+
+        async def _gerar() -> tuple[str, dict]:
+            async with get_async_db_session() as db:
+                linhas: list[str] = [f"🎯 *Briefing Operacional — {hoje.strftime('%d/%m/%Y')}*", ""]
+                resumo: dict = {}
+
+                # ── a) POSTOS: ativos, com alocação ativa, sem cobertura ──────
+                postos_ativos = (
+                    await db.execute(text("SELECT COUNT(*) FROM posts WHERE is_active = TRUE"))
+                ).scalar() or 0
+                postos_cobertos = (
+                    await db.execute(
+                        text(
+                            """
+                            SELECT COUNT(DISTINCT a.post_id)
+                            FROM allocations a
+                            JOIN posts p ON p.id = a.post_id
+                            WHERE a.status = 'active' AND a.is_active = TRUE
+                              AND p.is_active = TRUE
+                            """
+                        )
+                    )
+                ).scalar() or 0
+                sem_cobertura = [
+                    r[0]
+                    for r in (
+                        await db.execute(
+                            text(
+                                """
+                                SELECT p.name FROM posts p
+                                WHERE p.is_active = TRUE
+                                  AND NOT EXISTS (
+                                    SELECT 1 FROM allocations a
+                                    WHERE a.post_id = p.id
+                                      AND a.status = 'active' AND a.is_active = TRUE
+                                  )
+                                ORDER BY p.name
+                                """
+                            )
+                        )
+                    ).all()
+                ]
+                linhas.append("*Postos*")
+                if postos_ativos:
+                    linhas.append(f"• {postos_ativos} ativos · {postos_cobertos} com alocação ativa")
+                    if sem_cobertura:
+                        linhas.append(f"• Sem cobertura ({len(sem_cobertura)}): " + ", ".join(sem_cobertura))
+                    else:
+                        linhas.append("• Todos os postos ativos têm alocação ativa")
+                else:
+                    linhas.append("• sem registros de postos ativos")
+                linhas.append("")
+                resumo["postos_ativos"] = int(postos_ativos)
+                resumo["postos_com_alocacao"] = int(postos_cobertos)
+                resumo["postos_sem_cobertura"] = len(sem_cobertura)
+
+                # ── b) ESCALAS: vigentes hoje + drafts pendentes ──────────────
+                vigentes = (
+                    await db.execute(
+                        text(
+                            """
+                            SELECT p.name
+                            FROM scales s
+                            JOIN posts p ON p.id = s.post_id
+                            WHERE s.is_active = TRUE
+                              AND s.status IN ('published', 'in_progress')
+                              AND s.start_date IS NOT NULL AND s.end_date IS NOT NULL
+                              AND CURRENT_DATE BETWEEN s.start_date AND s.end_date
+                            ORDER BY p.name
+                            """
+                        )
+                    )
+                ).all()
+                drafts = (
+                    await db.execute(
+                        text(
+                            """
+                            SELECT month, year, COUNT(*)
+                            FROM scales
+                            WHERE is_active = TRUE AND status = 'draft'
+                            GROUP BY month, year
+                            ORDER BY year, month
+                            """
+                        )
+                    )
+                ).all()
+                linhas.append("*Escalas*")
+                if vigentes:
+                    nomes_vig = ", ".join(sorted({r[0] for r in vigentes}))
+                    linhas.append(f"• {len(vigentes)} vigente(s) hoje: {nomes_vig}")
+                else:
+                    linhas.append("• nenhuma escala vigente hoje")
+                if drafts:
+                    partes = [f"{int(r[2])}× {int(r[0]):02d}/{int(r[1])}" for r in drafts]
+                    linhas.append(f"• Drafts pendentes: {sum(int(r[2]) for r in drafts)} ({', '.join(partes)})")
+                else:
+                    linhas.append("• sem drafts pendentes")
+                linhas.append("")
+                resumo["escalas_vigentes"] = len(vigentes)
+                resumo["escalas_draft"] = sum(int(r[2]) for r in drafts) if drafts else 0
+
+                # ── c) OCORRÊNCIAS ABERTAS por severidade ─────────────────────
+                por_sev = (
+                    await db.execute(
+                        text(
+                            """
+                            SELECT severity, COUNT(*)
+                            FROM occurrences
+                            WHERE status IN ('aberta', 'em_analise') AND is_active = TRUE
+                            GROUP BY severity
+                            """
+                        )
+                    )
+                ).all()
+                graves_nominais = (
+                    await db.execute(
+                        text(
+                            """
+                            SELECT o.code, COALESCE(p.name, 'posto não identificado')
+                            FROM occurrences o
+                            LEFT JOIN posts p ON p.id = o.post_id
+                            WHERE o.status IN ('aberta', 'em_analise')
+                              AND o.is_active = TRUE
+                              AND o.severity IN ('grave', 'gravissima')
+                            ORDER BY o.occurred_at DESC
+                            """
+                        )
+                    )
+                ).all()
+                linhas.append("*Ocorrências abertas*")
+                if por_sev:
+                    ordem = {"gravissima": 0, "grave": 1, "moderada": 2, "leve": 3}
+                    sevs = sorted(por_sev, key=lambda r: ordem.get(r[0], 9))
+                    rotulo = {"gravissima": "gravíssima(s)", "grave": "grave(s)",
+                              "moderada": "moderada(s)", "leve": "leve(s)"}
+                    linhas.append("• " + ", ".join(f"{int(r[1])} {rotulo.get(r[0], r[0])}" for r in sevs))
+                    if graves_nominais:
+                        linhas.append("• Graves/gravíssimas: " + "; ".join(f"{r[0]} ({r[1]})" for r in graves_nominais))
+                else:
+                    linhas.append("• sem ocorrências abertas")
+                linhas.append("")
+                resumo["ocorrencias_abertas"] = sum(int(r[1]) for r in por_sev) if por_sev else 0
+                resumo["ocorrencias_graves"] = len(graves_nominais)
+
+                # ── d) DIARISTAS ONTEM (diaria_lancamentos — módulo Diárias) ──
+                linhas.append(f"*Diaristas — ontem ({ontem.strftime('%d/%m')})*")
+                try:
+                    row = (
+                        await db.execute(
+                            text(
+                                """
+                                SELECT COUNT(*), COUNT(DISTINCT diarista_id), COALESCE(SUM(valor), 0)
+                                FROM diaria_lancamentos
+                                WHERE data = :ontem
+                                """
+                            ),
+                            {"ontem": ontem},
+                        )
+                    ).first()
+                    n_lanc = int(row[0]) if row else 0
+                    if n_lanc:
+                        total_str = f"{float(row[2]):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                        linhas.append(f"• {n_lanc} lançamento(s) · {int(row[1])} diarista(s) · R$ {total_str}")
+                    else:
+                        linhas.append("• nenhum lançamento ontem")
+                    resumo["diarias_ontem"] = n_lanc
+                except Exception as e:  # tabela criada sob demanda pelo módulo Diárias
+                    logger.warning(f"[Briefing] diaria_lancamentos indisponível: {e}")
+                    linhas.append("• sem registros (tabela de diárias indisponível)")
+                    resumo["diarias_ontem"] = None
+                linhas.append("")
+
+                # ── e) ASOs VENCENDO 30 dias (gp_asos — MESMA fonte do SST) ───
+                linhas.append("*ASOs vencendo (30 dias)*")
+                try:
+                    limite = hoje + timedelta(days=30)
+                    asos = (
+                        await db.execute(
+                            text(
+                                """
+                                SELECT COALESCE(e.nome, a.employee_id::text) AS nome, a.data_validade
+                                FROM gp_asos a
+                                LEFT JOIN employees e ON e.id = a.employee_id
+                                WHERE a.data_validade IS NOT NULL
+                                  AND a.data_validade BETWEEN :hoje AND :limite
+                                ORDER BY a.data_validade
+                                """
+                            ),
+                            {"hoje": hoje, "limite": limite},
+                        )
+                    ).all()
+                    if asos:
+                        urgentes = "; ".join(
+                            f"{r[0]} ({r[1].strftime('%d/%m')})" for r in asos[:3]
+                        )
+                        linhas.append(f"• {len(asos)} vencendo · mais urgentes: {urgentes}")
+                    else:
+                        linhas.append("• nenhum ASO vencendo nos próximos 30 dias")
+                    resumo["asos_vencendo_30d"] = len(asos)
+                except Exception as e:
+                    logger.warning(f"[Briefing] gp_asos indisponível: {e}")
+                    linhas.append("• sem registros (tabela gp_asos indisponível)")
+                    resumo["asos_vencendo_30d"] = None
+                linhas.append("")
+
+                # ── f) Rodapé ────────────────────────────────────────────────
+                linhas.append(f"Fonte: banco Conecta PRO · gerado {agora.strftime('%H:%M')}")
+                return "\n".join(linhas), resumo
+
+        async def _run() -> dict:
+            texto, resumo = await _gerar()
+
+            chat_jordan = (os.getenv("TELEGRAM_CHAT_ID") or "").strip()
+            chat_oper = (os.getenv("TELEGRAM_CHAT_ID_OPERACIONAL") or "").strip()
+
+            enviado_jordan = False
+            if chat_jordan:
+                enviado_jordan = await enviar_telegram(texto, chat_id=chat_jordan)
+            enviado_operacional = False
+            if chat_oper and chat_oper != chat_jordan:
+                enviado_operacional = await enviar_telegram(texto, chat_id=chat_oper)
+
+            return {
+                "enviado_jordan": bool(enviado_jordan),
+                "enviado_operacional": bool(enviado_operacional),
+                "resumo": resumo,
+            }
+
+        logger.info("[Operacional Task] Gerando briefing operacional matinal (dados reais)...")
+        result = asyncio.run(_run())
+        logger.info(f"[Operacional Task] Briefing matinal: {result}")
+        return result
+    except Exception as exc:
+        logger.error(f"[Operacional Task] Erro no briefing matinal: {exc}")
+        raise self.retry(exc=exc)
+
+
+@app.task(
     name="operacional.daily_coverage_report",
     bind=True,
     max_retries=3,

@@ -4,6 +4,8 @@ A escala do Gonzaga vira pagamento PROGRAMADO aqui; o Jordan revisa e paga em lo
 """
 from __future__ import annotations
 
+from datetime import date as _date
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -98,6 +100,36 @@ async def programar_diarias_mensais(
     return await svc.programar_diarias_mensais(
         db, mes=mes, ano=ano, data_pagamento=data_pagamento,
         user_id=str(getattr(current_user, "id", None)))
+
+
+def _validar_data(data: str) -> str:
+    try:
+        _date.fromisoformat(data)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Data inválida — use o formato YYYY-MM-DD.")
+    return data
+
+
+@router.get("/lancados-dia/{data}", summary="Diaristas com diária LANÇADA no dia (elo do dia — mostra quem já tem VT+VR programado)")
+async def lancados_dia(
+    data: str,
+    current_user=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Lê os diaria_lancamentos do dia (origem 'diarias_dia' — separado do FLUXO 1 'escala')."""
+    return await svc.listar_lancados_do_dia(db, _validar_data(data))
+
+
+@router.post("/programar-lancados-dia/{data}", summary="Programa VT+VR (R$32) dos diaristas LANÇADOS no dia (origem diarias_dia, idempotente)")
+async def programar_lancados_dia(
+    data: str,
+    current_user=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Para cada diarista DISTINTO com diária lançada no dia, deixa o VT+VR programado
+    ('a_revisar' ou 'sem_pix'). Idempotente — quem já tem registro não duplica."""
+    return await svc.programar_vt_vr_dos_lancados(
+        db, _validar_data(data), created_by=str(getattr(current_user, "id", None)))
 
 
 class ExecutarIn(BaseModel):

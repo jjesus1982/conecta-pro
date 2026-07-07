@@ -1,10 +1,31 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { customInstance } from '@/lib/api-client';
 import type { Scale, ScaleFilter, ScaleGenerateRequest, ScaleStats, PaginatedResponse } from '@/types/operacional';
 
 const BASE_URL = '/api/v1/operacional/scales';
+
+export interface ScaleOperationError {
+  status?: number;
+  message: string;
+}
+
+/**
+ * Extrai status HTTP e mensagem legível de um erro (AxiosError ou Error).
+ * Prioridade da mensagem: detail do backend > message do Error > fallback.
+ */
+function extractOperationError(err: unknown, fallback: string): ScaleOperationError {
+  const axiosLike = err as { response?: { status?: number; data?: { detail?: unknown } } };
+  const detail = axiosLike?.response?.data?.detail;
+  const message =
+    typeof detail === 'string' && detail
+      ? detail
+      : err instanceof Error && err.message
+        ? err.message
+        : fallback;
+  return { status: axiosLike?.response?.status, message };
+}
 
 function buildParams(page: number, pageSize: number, filters?: ScaleFilter | Record<string, unknown>): string {
   const params = new URLSearchParams();
@@ -124,6 +145,11 @@ export function useScale(id: string | null) {
 export function useScaleOperations() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Último erro com status HTTP, legível de forma síncrona pelas páginas
+  // logo após uma operação retornar null (o state `error` não estaria fresco no closure).
+  const lastErrorRef = useRef<ScaleOperationError | null>(null);
+
+  const getLastError = useCallback((): ScaleOperationError | null => lastErrorRef.current, []);
 
   const generateScale = useCallback(async (data: ScaleGenerateRequest): Promise<Scale | null> => {
     setIsLoading(true);
@@ -147,6 +173,7 @@ export function useScaleOperations() {
   const submitForApproval = useCallback(async (id: string): Promise<Scale | null> => {
     setIsLoading(true);
     setError(null);
+    lastErrorRef.current = null;
     try {
       const scale = await customInstance<Scale>({
         url: `${BASE_URL}/${id}/submit`,
@@ -154,8 +181,9 @@ export function useScaleOperations() {
       });
       return scale;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Erro ao enviar para aprovação';
-      setError(message);
+      const opError = extractOperationError(err, 'Erro ao enviar para aprovação');
+      lastErrorRef.current = opError;
+      setError(opError.message);
       return null;
     } finally {
       setIsLoading(false);
@@ -165,6 +193,7 @@ export function useScaleOperations() {
   const approveScale = useCallback(async (id: string, notes?: string): Promise<Scale | null> => {
     setIsLoading(true);
     setError(null);
+    lastErrorRef.current = null;
     try {
       const scale = await customInstance<Scale>({
         url: `${BASE_URL}/${id}/approve`,
@@ -173,8 +202,9 @@ export function useScaleOperations() {
       });
       return scale;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Erro ao aprovar escala';
-      setError(message);
+      const opError = extractOperationError(err, 'Erro ao aprovar escala');
+      lastErrorRef.current = opError;
+      setError(opError.message);
       return null;
     } finally {
       setIsLoading(false);
@@ -187,6 +217,7 @@ export function useScaleOperations() {
   ): Promise<Scale | null> => {
     setIsLoading(true);
     setError(null);
+    lastErrorRef.current = null;
     try {
       const scale = await customInstance<Scale>({
         url: `${BASE_URL}/${id}/publish`,
@@ -195,8 +226,9 @@ export function useScaleOperations() {
       });
       return scale;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Erro ao publicar escala';
-      setError(message);
+      const opError = extractOperationError(err, 'Erro ao publicar escala');
+      lastErrorRef.current = opError;
+      setError(opError.message);
       return null;
     } finally {
       setIsLoading(false);
@@ -224,6 +256,7 @@ export function useScaleOperations() {
   return {
     isLoading,
     error,
+    getLastError,
     generateScale,
     submitForApproval,
     approveScale,

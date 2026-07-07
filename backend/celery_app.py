@@ -106,6 +106,11 @@ app.conf.task_routes = {
     # SST - Afastamentos
     "sst.verificar_afastamentos_vencidos": {"queue": "operacional"},
     "sst.verificar_inss_pendente": {"queue": "operacional"},
+    # SST - eSocial (transmissão S-2210/S-2220/S-2230 + pull de recibos) — fila gov
+    "sst.transmit_cat_to_esocial": {"queue": "gov.esocial"},
+    "sst.transmit_aso_to_esocial": {"queue": "gov.esocial"},
+    "sst.transmit_afastamento_to_esocial": {"queue": "gov.esocial"},
+    "sst.esocial_pull_recibos": {"queue": "gov.esocial"},
     # SST - Saúde Ocupacional (health_occupational)
     "sst.verificar_asos_vencendo": {"queue": "operacional"},
     "sst.verificar_epis_vencendo": {"queue": "operacional"},
@@ -178,6 +183,15 @@ app.conf.beat_schedule = {
     "portal-materializar-kits": {
         "task": "portal.materializar_kits",
         "schedule": crontab(hour=7, minute=30),
+        "options": {"queue": "gov.batch"},
+    },
+    # ── Operacional — Briefing matinal via Telegram (seg-sex) ─────────────────
+    # TZ do Celery = America/Sao_Paulo (BRT): 07:30 BRT = hour=7, minute=30 (sem
+    # conversão para UTC — o beat agenda no timezone configurado acima).
+    # Fila gov.batch: worker celery-batch tem TELEGRAM_* no env_file .env.
+    "operacional-briefing-matinal": {
+        "task": "operacional.briefing_operacional_matinal",
+        "schedule": crontab(minute=30, hour=7, day_of_week="1-5"),
         "options": {"queue": "gov.batch"},
     },
     # Verificação de disponibilidade a cada 5 minutos
@@ -352,6 +366,13 @@ app.conf.beat_schedule = {
         "task": "sst.verificar_inss_pendente",
         "schedule": 86400.0,  # 24 horas
         "options": {"queue": "operacional"},
+    },
+    # eSocial SST — pull de recibos a cada 2h: casa recibos REAIS dos protocolos
+    # pendentes (esocial_status='transmitida' sem recibo) via WsConsultarLoteEventos
+    "esocial-pull-recibos": {
+        "task": "sst.esocial_pull_recibos",
+        "schedule": crontab(minute=20, hour="*/2"),
+        "options": {"queue": "gov.esocial"},
     },
     # =========================================================================
     # SST - SAÚDE OCUPACIONAL (health_occupational) — Alertas automáticos

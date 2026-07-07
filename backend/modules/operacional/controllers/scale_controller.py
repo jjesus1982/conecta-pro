@@ -6,7 +6,7 @@ import asyncio
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
@@ -418,6 +418,20 @@ async def publish_scale(
     Após publicação, os funcionários são notificados.
     """
     repo = ScaleRepository(db)
+
+    # Guard honesto: não publicar escala vazia (total_shifts=0 / sem turnos gerados)
+    scale_check: Any = await repo.get_by_id(str(scale_id))
+    if not scale_check:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Escala não encontrada ou não pode ser publicada",
+        )
+    if len(scale_check.shifts) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="escala sem turnos — gere os turnos antes de publicar",
+        )
+
     scale: Any = await repo.publish(str(scale_id), current_user.id)
 
     if not scale:
@@ -510,6 +524,7 @@ async def delete_scale(
 @limiter.limit(CRITICAL_LIMIT)
 async def auto_generate_scales(
     request: Request,
+    response: Response,  # exigido pelo slowapi p/ endpoints que retornam dict
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
     month: int | None = Query(None, ge=1, le=12, description="Mês (se não especificado, usa mês atual)"),

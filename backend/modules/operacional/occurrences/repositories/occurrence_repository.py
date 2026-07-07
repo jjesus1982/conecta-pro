@@ -68,7 +68,8 @@ class OccurrenceRepository:
             post_id=data.post_id,
             patrol_round_id=data.patrol_round_id,
             witnesses=data.witnesses,
-            occurred_at=data.occurred_at,
+            # occurred_at é opcional no form rápido mobile → default: agora
+            occurred_at=data.occurred_at or datetime.now(),
             reported_at=datetime.utcnow(),
             created_by=inspector_id,
         )
@@ -103,6 +104,7 @@ class OccurrenceRepository:
         filters: OccurrenceFilter | None = None,
         page: int = 1,
         page_size: int = 20,
+        post_ids: list[str] | None = None,
     ) -> tuple[list[Occurrence], int]:
         """
         Lista ocorrências com filtros e paginação.
@@ -111,17 +113,23 @@ class OccurrenceRepository:
             filters: Filtros de busca
             page: Página atual
             page_size: Itens por página
+            post_ids: Escopo de postos (None = todos; lista → só esses postos)
 
         Returns:
             Tupla (ocorrências, total)
         """
         query = select(Occurrence).where(Occurrence.is_active.is_(True))
 
+        if post_ids is not None:
+            query = query.where(Occurrence.post_id.in_(post_ids))
+
         if filters:
             query = self._apply_filters(query, filters)
 
         # Count total
         count_query = select(func.count(Occurrence.id)).where(Occurrence.is_active.is_(True))
+        if post_ids is not None:
+            count_query = count_query.where(Occurrence.post_id.in_(post_ids))
         if filters:
             count_query = self._apply_filters(count_query, filters)
 
@@ -324,14 +332,20 @@ class OccurrenceRepository:
         )
         return list(result.scalars().all())
 
-    async def get_stats(self) -> OccurrenceStats:
+    async def get_stats(self, post_ids: list[str] | None = None) -> OccurrenceStats:
         """
         Obtém estatísticas de ocorrências.
+
+        Args:
+            post_ids: Escopo de postos (None = todos; lista → só esses postos)
 
         Returns:
             Estatísticas
         """
-        result = await self.db.execute(select(Occurrence).where(Occurrence.is_active.is_(True)))
+        query = select(Occurrence).where(Occurrence.is_active.is_(True))
+        if post_ids is not None:
+            query = query.where(Occurrence.post_id.in_(post_ids))
+        result = await self.db.execute(query)
         occurrences = list(result.scalars().all())
 
         if not occurrences:
@@ -354,8 +368,9 @@ class OccurrenceRepository:
             by_severity[occ.severity] = by_severity.get(occ.severity, 0) + 1
             by_category[occ.category] = by_category.get(occ.category, 0) + 1
 
-            # Contar por funcionário (para ranking)
-            by_employee[occ.employee_id] = by_employee.get(occ.employee_id, 0) + 1
+            # Contar por funcionário (para ranking) — employee_id pode ser None
+            if occ.employee_id:
+                by_employee[occ.employee_id] = by_employee.get(occ.employee_id, 0) + 1
 
             if occ.status == OccurrenceStatus.ABERTA.value:
                 open_count += 1

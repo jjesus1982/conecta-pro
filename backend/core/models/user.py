@@ -87,6 +87,13 @@ class User(BaseModel):
         index=True,
     )
 
+    # Vínculo com funcionário (employees.id) — coluna já existe no banco.
+    # Sem relationship de propósito: apenas espelho da coluna (mudança mínima).
+    employee_id: Mapped[uuid_module.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        nullable=True,
+    )
+
     # OAuth providers
     google_id: Mapped[str | None] = mapped_column(
         String(100),

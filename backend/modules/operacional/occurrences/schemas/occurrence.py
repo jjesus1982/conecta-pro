@@ -33,11 +33,14 @@ class OccurrenceBase(BaseModel):
     occurrence_type: OccurrenceType = Field(..., description="Tipo da infração")
     severity: OccurrenceSeverity = Field(..., description="Severidade (leve, moderada, grave, gravíssima)")
     category: OccurrenceCategory = Field(..., description="Categoria da infração")
-    occurred_at: datetime = Field(..., description="Data/hora em que foi identificada")
+    # Opcional p/ form rápido mobile: ausente → controller usa now()
+    occurred_at: datetime | None = Field(None, description="Data/hora em que foi identificada (default: agora)")
 
-    # Envolvidos (OBRIGATÓRIOS)
-    employee_id: str = Field(..., description="ID do funcionário que cometeu a infração")
-    post_id: str = Field(..., description="ID do posto onde ocorreu")
+    # Envolvidos
+    # employee_id OPCIONAL: ocorrência sem funcionário específico é válida (ex.: manutenção)
+    employee_id: str | None = Field(None, description="ID do funcionário envolvido (employees.id)")
+    # post_id: se ausente e o líder tem exatamente 1 posto, o controller preenche automaticamente
+    post_id: str | None = Field(None, description="ID do posto onde ocorreu")
 
     # Opcionais
     patrol_round_id: str | None = Field(None, description="ID da ronda relacionada")
@@ -57,9 +60,9 @@ class OccurrenceCreate(OccurrenceBase):
             "example": {
                 "title": "Uso de celular em horário de trabalho",
                 "description": "Funcionário flagrado usando celular pessoal na portaria durante expediente, sem autorização",
-                "occurrence_type": "COMPORTAMENTO_INADEQUADO",
-                "severity": "LEVE",
-                "category": "USO_CELULAR",
+                "occurrence_type": "uso_celular",
+                "severity": "leve",
+                "category": "conduta",
                 "occurred_at": "2026-03-15T14:30:00",
                 "employee_id": "550e8400-e29b-41d4-a716-446655440001",
                 "post_id": "550e8400-e29b-41d4-a716-446655440002",
@@ -115,7 +118,7 @@ class OccurrenceResponse(BaseModel):
     status: str
 
     # Envolvidos
-    employee_id: str  # Funcionário infrator
+    employee_id: str | None  # Funcionário envolvido (employees.id) — opcional
     inspector_id: str  # Gestor fiscalizador
     post_id: str  # Posto
     patrol_round_id: str | None  # Ronda relacionada
@@ -169,6 +172,26 @@ class OccurrenceFilter(BaseModel):
     date_from: datetime | None = None
     date_to: datetime | None = None
     search: str | None = None
+
+
+class OccurrenceCommentCreate(BaseModel):
+    """Schema para criação de comentário em uma ocorrência."""
+
+    content: str = Field(..., min_length=2, description="Conteúdo do comentário")
+
+
+class OccurrenceCommentResponse(BaseModel):
+    """Schema de resposta para comentário de ocorrência."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    occurrence_id: str
+    author_id: str
+    author_name: str | None
+    content: str
+    is_internal: bool
+    created_at: datetime
 
 
 class OccurrenceStats(BaseModel):
