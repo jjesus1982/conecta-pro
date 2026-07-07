@@ -36,16 +36,16 @@ export function ValoresFiscaisCard({ data, isLoading, isError, onRetry }: Props)
 
   if (isError || !data) {
     return (
-      <Card className="bg-red-50 border-red-200 p-6 flex items-center justify-between">
+      <Card className="bg-red-500/10 border-red-500/30 p-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <AlertTriangle className="text-red-500" size={20} />
-          <p className="text-sm text-red-700 font-medium">
+          <p className="text-sm text-red-500 font-medium">
             Não foi possível carregar o resumo fiscal
           </p>
         </div>
         <button
           onClick={onRetry}
-          className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition-colors"
+          className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg transition-colors"
         >
           <RefreshCw size={12} />
           Tentar novamente

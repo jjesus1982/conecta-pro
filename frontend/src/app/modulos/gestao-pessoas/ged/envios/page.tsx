@@ -85,10 +85,10 @@ interface KitStats {
 }
 
 const statusConfig: Record<string, { label: string; color: string }> = {
-  ATIVO: { label: 'Ativo', color: 'bg-green-100 text-green-800' },
-  INATIVO: { label: 'Inativo', color: 'bg-gray-100 text-gray-800' },
-  ARQUIVADO: { label: 'Arquivado', color: 'bg-yellow-100 text-yellow-800' },
-  RASCUNHO: { label: 'Rascunho', color: 'bg-blue-100 text-blue-800' },
+  ATIVO: { label: 'Ativo', color: 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30' },
+  INATIVO: { label: 'Inativo', color: 'bg-gray-500/10 text-[hsl(var(--muted-foreground))] border border-gray-500/30' },
+  ARQUIVADO: { label: 'Arquivado', color: 'bg-amber-500/10 text-amber-500 border border-amber-500/30' },
+  RASCUNHO: { label: 'Rascunho', color: 'bg-blue-500/10 text-blue-500 border border-blue-500/30' },
 };
 
 const typeLabels: Record<string, string> = {
@@ -100,10 +100,10 @@ const typeLabels: Record<string, string> = {
 };
 
 const methodConfig: Record<string, { label: string; color: string; icon: React.ElementType }> = {
-  email: { label: 'Email', color: 'bg-blue-100 text-blue-800', icon: Mail },
-  portal: { label: 'Portal', color: 'bg-purple-100 text-purple-800', icon: Globe },
-  manual: { label: 'Manual', color: 'bg-gray-100 text-gray-800', icon: Printer },
-  link: { label: 'Link', color: 'bg-amber-100 text-amber-800', icon: Link2 },
+  email: { label: 'Email', color: 'bg-blue-500/10 text-blue-500 border border-blue-500/30', icon: Mail },
+  portal: { label: 'Portal', color: 'bg-purple-500/10 text-purple-500 border border-purple-500/30', icon: Globe },
+  manual: { label: 'Manual', color: 'bg-gray-500/10 text-[hsl(var(--muted-foreground))] border border-gray-500/30', icon: Printer },
+  link: { label: 'Link', color: 'bg-amber-500/10 text-amber-500 border border-amber-500/30', icon: Link2 },
 };
 
 function showToast(msg: string, type: 'success' | 'error' = 'success') {
@@ -281,7 +281,7 @@ export default function EnviosPage() {
             <Package className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{stats?.kits_ativos ?? 0}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-emerald-500">{stats?.kits_ativos ?? 0}</div>
             <p className="text-xs text-muted-foreground mt-1">Prontos para envio</p>
           </CardContent>
         </Card>
@@ -291,7 +291,7 @@ export default function EnviosPage() {
             <FileText className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{stats?.total_assignments ?? 0}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-blue-500">{stats?.total_assignments ?? 0}</div>
             <p className="text-xs text-muted-foreground mt-1">{stats?.assignments_pendentes ?? 0} pendentes</p>
           </CardContent>
         </Card>
@@ -301,7 +301,7 @@ export default function EnviosPage() {
             <CheckCircle className="h-4 w-4 text-emerald-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-emerald-600">{stats?.assignments_completos ?? 0}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-emerald-500">{stats?.assignments_completos ?? 0}</div>
             <p className="text-xs text-muted-foreground mt-1">Taxa: {stats?.taxa_conclusao ?? 0}%</p>
           </CardContent>
         </Card>
@@ -311,7 +311,7 @@ export default function EnviosPage() {
             <AlertCircle className="h-4 w-4 text-red-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">{stats?.assignments_vencidos ?? 0}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-red-500">{stats?.assignments_vencidos ?? 0}</div>
             <p className="text-xs text-muted-foreground mt-1">Precisam atencao</p>
           </CardContent>
         </Card>
@@ -399,7 +399,7 @@ export default function EnviosPage() {
                               onClick={() => generateLink(kit)}
                             >
                               {linkCopied === kit.id ? (
-                                <><CheckCircle className="h-3.5 w-3.5 mr-1 text-green-600" /> Copiado!</>
+                                <><CheckCircle className="h-3.5 w-3.5 mr-1 text-emerald-500" /> Copiado!</>
                               ) : (
                                 <><Copy className="h-3.5 w-3.5 mr-1" /> Link</>
                               )}
@@ -555,8 +555,8 @@ export default function EnviosPage() {
               )}
 
               {sendMethod === 'portal' && (
-                <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
-                  <p className="text-sm text-purple-700">
+                <div className="bg-purple-500/10 border border-purple-500/30 rounded-lg p-3">
+                  <p className="text-sm text-purple-400">
                     O kit sera disponibilizado no Portal do Cliente.
                     O cliente recebera uma notificacao automatica.
                   </p>
@@ -564,8 +564,8 @@ export default function EnviosPage() {
               )}
 
               {sendMethod === 'manual' && (
-                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-                  <p className="text-sm text-gray-700">
+                <div className="bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] rounded-lg p-3">
+                  <p className="text-sm text-[hsl(var(--foreground))]">
                     Marcar como enviado manualmente (entrega fisica, WhatsApp, etc).
                   </p>
                 </div>

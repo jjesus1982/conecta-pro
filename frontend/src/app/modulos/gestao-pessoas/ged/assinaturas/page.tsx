@@ -70,21 +70,21 @@ interface Signature {
 }
 
 const statusConfig: Record<string, { label: string; color: string; icon: React.ElementType }> = {
-  pendente: { label: 'Pendente', color: 'bg-yellow-100 text-yellow-800', icon: Clock },
-  assinado: { label: 'Assinado', color: 'bg-green-100 text-green-800', icon: CheckCircle2 },
-  recusado: { label: 'Recusado', color: 'bg-red-100 text-red-800', icon: XCircle },
-  expirado: { label: 'Expirado', color: 'bg-gray-100 text-gray-800', icon: AlertTriangle },
-  cancelado: { label: 'Cancelado', color: 'bg-gray-100 text-gray-800', icon: XCircle },
+  pendente: { label: 'Pendente', color: 'bg-amber-500/10 text-amber-500 border border-amber-500/30', icon: Clock },
+  assinado: { label: 'Assinado', color: 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30', icon: CheckCircle2 },
+  recusado: { label: 'Recusado', color: 'bg-red-500/10 text-red-500 border border-red-500/30', icon: XCircle },
+  expirado: { label: 'Expirado', color: 'bg-gray-500/10 text-[hsl(var(--muted-foreground))] border border-gray-500/30', icon: AlertTriangle },
+  cancelado: { label: 'Cancelado', color: 'bg-gray-500/10 text-[hsl(var(--muted-foreground))] border border-gray-500/30', icon: XCircle },
 };
 
 function getUrgencyBadge(expiresAt?: string) {
   if (!expiresAt) return null;
   const diff = new Date(expiresAt).getTime() - Date.now();
   const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-  if (days < 0) return <Badge className="bg-red-100 text-red-800 text-xs">Vencido</Badge>;
-  if (days === 0) return <Badge className="bg-red-100 text-red-800 text-xs">Vence hoje</Badge>;
-  if (days === 1) return <Badge className="bg-orange-100 text-orange-800 text-xs">Vence amanha</Badge>;
-  if (days <= 7) return <Badge className="bg-yellow-100 text-yellow-800 text-xs">Vence em {days}d</Badge>;
+  if (days < 0) return <Badge className="bg-red-500/10 text-red-500 border border-red-500/30 text-xs">Vencido</Badge>;
+  if (days === 0) return <Badge className="bg-red-500/10 text-red-500 border border-red-500/30 text-xs">Vence hoje</Badge>;
+  if (days === 1) return <Badge className="bg-orange-500/10 text-orange-500 border border-orange-500/30 text-xs">Vence amanha</Badge>;
+  if (days <= 7) return <Badge className="bg-amber-500/10 text-amber-500 border border-amber-500/30 text-xs">Vence em {days}d</Badge>;
   return null;
 }
 
@@ -276,12 +276,12 @@ export default function AssinaturasPage() {
             </div>
           )}
           {sig.status === 'assinado' && sig.signed_at && (
-            <span className="text-xs text-green-600">
+            <span className="text-xs text-emerald-500">
               {new Date(sig.signed_at).toLocaleDateString('pt-BR')}
             </span>
           )}
           {sig.status === 'recusado' && (
-            <span className="text-xs text-red-600 truncate max-w-[150px] block">
+            <span className="text-xs text-red-500 truncate max-w-[150px] block">
               {sig.refusal_reason || 'Recusado'}
             </span>
           )}
@@ -311,7 +311,7 @@ export default function AssinaturasPage() {
         </div>
         <div className="flex items-center gap-2">
           {stats && stats.pending > 0 && (
-            <Badge className="bg-yellow-100 text-yellow-800">
+            <Badge className="bg-amber-500/10 text-amber-500 border border-amber-500/30">
               {stats.pending} pendente{stats.pending > 1 ? 's' : ''}
             </Badge>
           )}
@@ -330,7 +330,7 @@ export default function AssinaturasPage() {
             <Clock className="h-4 w-4 text-yellow-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">{stats?.pending ?? 0}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-amber-500">{stats?.pending ?? 0}</div>
           </CardContent>
         </Card>
         <Card>
@@ -339,7 +339,7 @@ export default function AssinaturasPage() {
             <CheckCircle2 className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{stats?.signed ?? 0}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-emerald-500">{stats?.signed ?? 0}</div>
           </CardContent>
         </Card>
         <Card>
@@ -348,7 +348,7 @@ export default function AssinaturasPage() {
             <XCircle className="h-4 w-4 text-red-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">{stats?.refused ?? 0}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-red-500">{stats?.refused ?? 0}</div>
           </CardContent>
         </Card>
         <Card>
@@ -357,7 +357,7 @@ export default function AssinaturasPage() {
             <PenTool className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
+            <div className="font-data text-2xl font-semibold tabular-nums">
               {stats?.avg_time_to_sign_hours
                 ? `${Math.round(stats.avg_time_to_sign_hours)}h`
                 : '-'}
@@ -494,8 +494,8 @@ export default function AssinaturasPage() {
                   placeholder="Adicione uma observacao..."
                 />
               </div>
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <p className="text-xs text-blue-700">
+              <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
+                <p className="text-xs text-blue-400">
                   Ao confirmar, voce declara ter lido e concordar com o conteudo do documento.
                   Esta acao nao pode ser desfeita.
                 </p>

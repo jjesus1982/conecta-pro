@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Package, DollarSign, Warehouse } from 'lucide-react'
 
 interface InventoryItem {
   id: string
@@ -122,14 +122,14 @@ export default function EstoquePage() {
       {/* KPIs */}
       <div className="grid grid-cols-4 gap-4">
         {[
-          { label: 'Total Itens',  value: totalItems,  icon: '📦', color: 'text-gray-900' },
-          { label: 'Valor Total',  value: brl(totalValue), icon: '💰', color: 'text-gray-900', brl: true },
-          { label: 'Abaixo do Mínimo', value: lowStock, icon: '⚠️', color: 'text-orange-600' },
-          { label: 'Armazéns',     value: numArmazens,  icon: '🏭', color: 'text-blue-600' },
+          { label: 'Total Itens',  value: totalItems,  icon: Package, iconColor: 'text-gray-500', color: 'text-gray-900' },
+          { label: 'Valor Total',  value: brl(totalValue), icon: DollarSign, iconColor: 'text-gray-500', color: 'text-gray-900', brl: true },
+          { label: 'Abaixo do Mínimo', value: lowStock, icon: AlertTriangle, iconColor: 'text-orange-600', color: 'text-orange-600' },
+          { label: 'Armazéns',     value: numArmazens,  icon: Warehouse, iconColor: 'text-blue-600', color: 'text-blue-600' },
         ].map(k => (
           <div key={k.label} className="bg-white border border-gray-200 rounded-xl p-4">
             <p className="text-xs text-gray-500 flex items-center gap-1">
-              <span>{k.icon}</span>{k.label}
+              <k.icon className={`w-3.5 h-3.5 ${k.iconColor}`} />{k.label}
             </p>
             <p className={`text-xl font-semibold mt-1 ${k.color}`}>
               {itemsLoading ? '–' : String(k.value)}

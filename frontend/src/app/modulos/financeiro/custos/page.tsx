@@ -1,7 +1,7 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, XCircle, Star } from 'lucide-react'
 
 interface TipoCusteio {
   tipo: string
@@ -194,13 +194,15 @@ export default function CustosPage() {
                         {(tipo.tipo ?? '').replace(/_/g, ' ')}
                       </h3>
                       <span
-                        className={`text-xs px-2 py-0.5 rounded-full font-medium ${classColor[tipo.classificacao] ?? classColor.atencao}`}
+                        className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${classColor[tipo.classificacao] ?? classColor.atencao}`}
                       >
-                        {tipo.classificacao === 'estrela'
-                          ? '⭐ Estrela'
-                          : tipo.classificacao === 'abacaxi'
-                          ? '❌ Abacaxi'
-                          : '⚠️ Atenção'}
+                        {tipo.classificacao === 'estrela' ? (
+                          <><Star className="w-3 h-3" /> Estrela</>
+                        ) : tipo.classificacao === 'abacaxi' ? (
+                          <><XCircle className="w-3 h-3 text-red-600" /> Abacaxi</>
+                        ) : (
+                          <><AlertTriangle className="w-3 h-3 text-amber-500" /> Atenção</>
+                        )}
                       </span>
                     </div>
                     <p className="text-xs text-gray-500 mt-0.5">

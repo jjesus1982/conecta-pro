@@ -6,6 +6,8 @@ import {
   RefreshCw,
   FileText,
   CheckCircle,
+  CheckCircle2,
+  XCircle,
   AlertCircle,
   Clock,
   Download,
@@ -33,31 +35,31 @@ function getAuthHeader(): Record<string, string> {
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
-  folha_pagamento: '💰 Folha de Pagamento',
-  contracheque: '🧾 Contracheques',
-  fgts_guia: '🏦 GFD FGTS',
-  fgts_consignado: '🏦 FGTS Consignado',
-  fgts_relatorio: '📊 Relatório FGTS',
-  inss_guia: '💊 INSS',
-  dctfweb_declaracao: '📋 DCTFWeb Declaração',
-  dctfweb_recibo: '✅ DCTFWeb Recibo',
-  dctfweb_extrato: '📄 DCTFWeb Extrato',
-  dctfweb_debitos: '📉 DCTFWeb Débitos',
-  dctfweb_creditos: '📈 DCTFWeb Créditos',
-  admissao: '👤 Admissão',
-  rescisao: '🚪 Rescisão',
-  ferias: '🏖️ Férias',
-  decimo_terceiro: '🎄 13º Salário',
-  empresa_docs: '🏢 Empresa',
-  outros: '📎 Outros',
+  folha_pagamento: 'Folha de Pagamento',
+  contracheque: 'Contracheques',
+  fgts_guia: 'GFD FGTS',
+  fgts_consignado: 'FGTS Consignado',
+  fgts_relatorio: 'Relatório FGTS',
+  inss_guia: 'INSS',
+  dctfweb_declaracao: 'DCTFWeb Declaração',
+  dctfweb_recibo: 'DCTFWeb Recibo',
+  dctfweb_extrato: 'DCTFWeb Extrato',
+  dctfweb_debitos: 'DCTFWeb Débitos',
+  dctfweb_creditos: 'DCTFWeb Créditos',
+  admissao: 'Admissão',
+  rescisao: 'Rescisão',
+  ferias: 'Férias',
+  decimo_terceiro: '13º Salário',
+  empresa_docs: 'Empresa',
+  outros: 'Outros',
 };
 
 const STATUS_CLASS: Record<string, string> = {
-  success: 'bg-green-100 text-green-800',
-  partial: 'bg-yellow-100 text-yellow-800',
-  error: 'bg-red-100 text-red-800',
-  running: 'bg-blue-100 text-blue-800',
-  pending: 'bg-gray-100 text-gray-600',
+  success: 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30',
+  partial: 'bg-amber-500/10 text-amber-500 border border-amber-500/30',
+  error: 'bg-red-500/10 text-red-500 border border-red-500/30',
+  running: 'bg-blue-500/10 text-blue-500 border border-blue-500/30',
+  pending: 'bg-gray-500/10 text-[hsl(var(--muted-foreground))] border border-gray-500/30',
 };
 
 const HIGHLIGHT_CATS = [
@@ -141,19 +143,19 @@ export default function OnvioSyncPage() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+          <h1 className="text-2xl font-bold text-[hsl(var(--foreground))]">
             GEDEON — Onvio Sync
           </h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">
             Documentos da Portte Contábil sincronizados automaticamente
           </p>
         </div>
         <div className="flex items-center gap-3">
           <div
-            className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-full ${
+            className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-full border ${
               sessao?.sessao_valida
-                ? 'bg-green-50 text-green-700'
-                : 'bg-red-50 text-red-700'
+                ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30'
+                : 'bg-red-500/10 text-red-500 border-red-500/30'
             }`}
           >
             {sessao?.sessao_valida ? (
@@ -179,23 +181,23 @@ export default function OnvioSyncPage() {
 
       {/* Cards de stats */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-700">
-          <p className="text-xs text-gray-500 uppercase tracking-wide">
+        <div className="bg-[hsl(var(--card))] rounded-xl p-4 shadow-sm border border-[hsl(var(--border))]">
+          <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wide">
             Total Documentos
           </p>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">
+          <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">
             {stats?.total ?? '—'}
           </p>
         </div>
         {HIGHLIGHT_CATS.map((cat) => (
           <div
             key={cat}
-            className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-700"
+            className="bg-[hsl(var(--card))] rounded-xl p-4 shadow-sm border border-[hsl(var(--border))]"
           >
-            <p className="text-xs text-gray-500 uppercase tracking-wide truncate">
-              {CATEGORY_LABELS[cat]?.replace(/^[^\s]+ /, '')}
+            <p className="text-xs text-[hsl(var(--muted-foreground))] uppercase tracking-wide truncate">
+              {CATEGORY_LABELS[cat]}
             </p>
-            <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">
+            <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">
               {stats?.por_categoria?.[cat] ?? 0}
             </p>
           </div>
@@ -212,31 +214,31 @@ export default function OnvioSyncPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Histórico de syncs */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-          <div className="p-4 border-b border-gray-100 dark:border-gray-700">
-            <h2 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+        <div className="bg-[hsl(var(--card))] rounded-xl shadow-sm border border-[hsl(var(--border))]">
+          <div className="p-4 border-b border-[hsl(var(--border))]">
+            <h2 className="font-semibold text-[hsl(var(--foreground))] flex items-center gap-2">
               <Clock size={16} />
               Histórico de Syncs
             </h2>
           </div>
-          <div className="divide-y divide-gray-100 dark:divide-gray-700">
+          <div className="divide-y divide-[hsl(var(--border))]">
             {(historico ?? []).map((log) => (
               <div
                 key={log.id}
                 className="p-3 flex items-center justify-between"
               >
                 <div>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">
+                  <p className="text-sm font-medium text-[hsl(var(--foreground))]">
                     {log.mes_ref}
                   </p>
-                  <p className="text-xs text-gray-400">
+                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
                     {new Date(log.created_at).toLocaleString('pt-BR')}
                     {log.duracao_s != null &&
                       ` · ${log.duracao_s.toFixed(1)}s`}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-green-600">+{log.novos}</span>
+                  <span className="text-xs text-emerald-500">+{log.novos}</span>
                   {log.erros > 0 && (
                     <span className="text-xs text-red-500">
                       {log.erros} erros
@@ -247,7 +249,7 @@ export default function OnvioSyncPage() {
               </div>
             ))}
             {!historico?.length && (
-              <p className="p-4 text-sm text-gray-400 text-center">
+              <p className="p-4 text-sm text-[hsl(var(--muted-foreground))] text-center">
                 Nenhum sync realizado ainda
               </p>
             )}
@@ -255,16 +257,16 @@ export default function OnvioSyncPage() {
         </div>
 
         {/* Documentos por categoria */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-          <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-            <h2 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+        <div className="bg-[hsl(var(--card))] rounded-xl shadow-sm border border-[hsl(var(--border))]">
+          <div className="p-4 border-b border-[hsl(var(--border))] flex items-center justify-between">
+            <h2 className="font-semibold text-[hsl(var(--foreground))] flex items-center gap-2">
               <FileText size={16} />
               Por Categoria
             </h2>
             <select
               value={catFiltro}
               onChange={(e) => setCatFiltro(e.target.value)}
-              className="text-xs border rounded px-2 py-1 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              className="text-xs rounded px-2 py-1 bg-[hsl(var(--card))] text-[hsl(var(--foreground))] border border-[hsl(var(--border))]"
             >
               <option value="">Todas</option>
               {Object.entries(CATEGORY_LABELS).map(([k, v]) => (
@@ -274,29 +276,29 @@ export default function OnvioSyncPage() {
               ))}
             </select>
           </div>
-          <div className="max-h-80 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700">
+          <div className="max-h-80 overflow-y-auto divide-y divide-[hsl(var(--border))]">
             {(docs?.documentos ?? []).map((d) => (
               <div
                 key={d.id}
-                className="p-3 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                className="p-3 flex items-center justify-between hover:bg-[hsl(var(--secondary))] transition-colors"
               >
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-gray-900 dark:text-white truncate">
+                  <p className="text-xs font-medium text-[hsl(var(--foreground))] truncate">
                     {d.nome}
                   </p>
-                  <p className="text-xs text-gray-400">
+                  <p className="text-xs text-[hsl(var(--muted-foreground))]">
                     {d.mes_ref ?? '—'} ·{' '}
                     {CATEGORY_LABELS[d.categoria] ?? d.categoria}
                   </p>
                 </div>
                 <Download
                   size={14}
-                  className="text-gray-300 flex-shrink-0 ml-2"
+                  className="text-[hsl(var(--muted-foreground))] flex-shrink-0 ml-2"
                 />
               </div>
             ))}
             {!docs?.documentos?.length && (
-              <p className="p-4 text-sm text-gray-400 text-center">
+              <p className="p-4 text-sm text-[hsl(var(--muted-foreground))] text-center">
                 Sem documentos importados ainda
               </p>
             )}
@@ -306,18 +308,20 @@ export default function OnvioSyncPage() {
 
       {/* Banner pós-sync */}
       {syncMutation.data && (
-        <div className="bg-green-50 border border-green-200 rounded-xl p-4">
-          <p className="text-sm font-medium text-green-800">
-            ✅ Sync concluído —{' '}
+        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4">
+          <p className="text-sm font-medium text-emerald-500 flex items-center gap-2">
+            <CheckCircle2 size={16} className="text-emerald-500 flex-shrink-0" />
+            Sync concluído —{' '}
             {syncMutation.data.resultado?.novos ?? 0} novos documentos
             importados
           </p>
         </div>
       )}
       {syncMutation.isError && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-          <p className="text-sm font-medium text-red-800">
-            ❌ Falha no sync — verifique a conexão com o Onvio
+        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
+          <p className="text-sm font-medium text-red-500 flex items-center gap-2">
+            <XCircle size={16} className="text-red-500 flex-shrink-0" />
+            Falha no sync — verifique a conexão com o Onvio
           </p>
         </div>
       )}

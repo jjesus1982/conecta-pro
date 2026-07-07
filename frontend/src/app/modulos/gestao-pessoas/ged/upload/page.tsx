@@ -356,9 +356,9 @@ export default function UploadPage() {
         </div>
       )}
       {success && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-2">
-          <CheckCircle2 className="h-4 w-4 text-green-600 flex-shrink-0" />
-          <p className="text-sm text-green-700">{success}</p>
+        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+          <p className="text-sm text-emerald-500">{success}</p>
           <Button variant="ghost" size="icon" className="ml-auto h-6 w-6" onClick={() => setSuccess('')}>
             <X className="h-3 w-3" />
           </Button>
@@ -380,7 +380,7 @@ export default function UploadPage() {
                   dragActive
                     ? 'border-primary bg-primary/5'
                     : selectedFile
-                      ? 'border-green-300 bg-green-50'
+                      ? 'border-emerald-500/40 bg-emerald-500/10'
                       : 'border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/50'
                 }`}
               >
@@ -396,7 +396,7 @@ export default function UploadPage() {
                     {(() => {
                       const ext = selectedFile.name.split('.').pop()?.toLowerCase() || '';
                       const Icon = getFileIcon(ext);
-                      return <Icon className="h-12 w-12 mx-auto text-green-600" />;
+                      return <Icon className="h-12 w-12 mx-auto text-emerald-500" />;
                     })()}
                     <p className="font-medium text-foreground">{selectedFile.name}</p>
                     <p className="text-sm text-muted-foreground">{formatBytes(selectedFile.size)}</p>
@@ -596,10 +596,10 @@ export default function UploadPage() {
                         <Badge
                           className={
                             doc.status === 'ativo'
-                              ? 'bg-green-100 text-green-800'
+                              ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30'
                               : doc.status === 'rascunho'
-                                ? 'bg-yellow-100 text-yellow-800'
-                                : 'bg-gray-100 text-gray-800'
+                                ? 'bg-amber-500/10 text-amber-500 border border-amber-500/30'
+                                : 'bg-gray-500/10 text-[hsl(var(--muted-foreground))] border border-gray-500/30'
                           }
                         >
                           {doc.status}

@@ -258,7 +258,7 @@ export default function WhatsAppPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge className={waStatus?.online ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
+          <Badge className={waStatus?.online ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30' : 'bg-red-500/10 text-red-500 border border-red-500/30'}>
             {waStatus?.online ? <Wifi className="h-3 w-3 mr-1" /> : <WifiOff className="h-3 w-3 mr-1" />}
             {waStatus?.online ? 'Online' : waStatus?.enabled ? 'Offline' : 'Desabilitado'}
           </Badge>
@@ -269,11 +269,11 @@ export default function WhatsAppPage() {
       </div>
 
       {/* Status card */}
-      <Card className={waStatus?.online ? 'border-green-200' : 'border-yellow-200'}>
+      <Card className={waStatus?.online ? 'border-emerald-500/30' : 'border-amber-500/30'}>
         <CardContent className="p-4">
           <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-lg ${waStatus?.online ? 'bg-green-100' : 'bg-yellow-100'}`}>
-              <MessageCircle className={`h-5 w-5 ${waStatus?.online ? 'text-green-600' : 'text-yellow-600'}`} />
+            <div className={`p-2 rounded-lg ${waStatus?.online ? 'bg-emerald-500/10' : 'bg-amber-500/10'}`}>
+              <MessageCircle className={`h-5 w-5 ${waStatus?.online ? 'text-emerald-500' : 'text-amber-500'}`} />
             </div>
             <div>
               <p className="font-medium">
@@ -427,7 +427,7 @@ export default function WhatsAppPage() {
                         <td className="p-3 text-muted-foreground">{log.recipient}</td>
                         <td className="p-3 font-mono text-xs">{log.phone}</td>
                         <td className="p-3">
-                          <Badge className={log.status === 'enviado' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}>
+                          <Badge className={log.status === 'enviado' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30' : 'bg-amber-500/10 text-amber-500 border border-amber-500/30'}>
                             {log.status === 'enviado' ? <CheckCircle className="h-3 w-3 mr-1" /> : <XCircle className="h-3 w-3 mr-1" />}
                             {log.status}
                           </Badge>
@@ -479,7 +479,7 @@ export default function WhatsAppPage() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setKitModal(false)}>Cancelar</Button>
-            <Button onClick={handleSendKit} disabled={sending || !kitPhone} className="bg-green-600 hover:bg-green-700">
+            <Button onClick={handleSendKit} disabled={sending || !kitPhone} className="bg-emerald-600 hover:bg-emerald-700">
               {sending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
               Enviar
             </Button>

@@ -51,8 +51,8 @@ const reports: ReportCard[] = [
     title: 'Relatório Mensal',
     description: 'Resumo completo dos kits documentais do período selecionado, incluindo status de envio e aprovação.',
     icon: FileText,
-    color: 'text-blue-600',
-    bgColor: 'bg-blue-50',
+    color: 'text-blue-500',
+    bgColor: 'bg-blue-500/10',
     endpoint: '/reports/monthly',
   },
   {
@@ -60,8 +60,8 @@ const reports: ReportCard[] = [
     title: 'Relatório por Cliente',
     description: 'Detalhamento por cliente com histórico de kits, documentos pendentes e taxa de conclusão.',
     icon: Users,
-    color: 'text-green-600',
-    bgColor: 'bg-green-50',
+    color: 'text-emerald-500',
+    bgColor: 'bg-emerald-500/10',
     endpoint: '/reports/by-client',
   },
   {
@@ -69,8 +69,8 @@ const reports: ReportCard[] = [
     title: 'Análise de Compliance',
     description: 'Verificação de conformidade documental, certidões vencidas e documentos obrigatórios faltantes.',
     icon: Shield,
-    color: 'text-purple-600',
-    bgColor: 'bg-purple-50',
+    color: 'text-purple-500',
+    bgColor: 'bg-purple-500/10',
     endpoint: '/reports/compliance',
   },
   {
@@ -78,8 +78,8 @@ const reports: ReportCard[] = [
     title: 'Histórico de Assinaturas',
     description: 'Rastreamento de todas as assinaturas digitais realizadas no período, com informações de certificado.',
     icon: PenTool,
-    color: 'text-amber-600',
-    bgColor: 'bg-amber-50',
+    color: 'text-amber-500',
+    bgColor: 'bg-amber-500/10',
     endpoint: '/reports/signatures',
   },
 ];
@@ -166,34 +166,34 @@ export default function RelatoriosPage() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Relatórios GED</h1>
-        <p className="text-gray-500 mt-1">Gere e exporte relatórios do módulo de documentos</p>
+        <h1 className="text-2xl font-bold text-[hsl(var(--foreground))]">Relatórios GED</h1>
+        <p className="text-[hsl(var(--muted-foreground))] mt-1">Gere e exporte relatórios do módulo de documentos</p>
       </div>
 
-      <Card className="border border-gray-200">
+      <Card className="border border-[hsl(var(--border))]">
         <CardContent className="p-4">
           <div className="flex flex-wrap items-end gap-4">
-            <Calendar className="h-5 w-5 text-gray-400 mb-1" />
+            <Calendar className="h-5 w-5 text-[hsl(var(--muted-foreground))] mb-1" />
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Data Início</label>
+              <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1">Data Início</label>
               <input
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                className="px-3 py-2 bg-[hsl(var(--card))] text-[hsl(var(--foreground))] border border-[hsl(var(--border))] rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Data Fim</label>
+              <label className="block text-xs text-[hsl(var(--muted-foreground))] mb-1">Data Fim</label>
               <input
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                className="px-3 py-2 bg-[hsl(var(--card))] text-[hsl(var(--foreground))] border border-[hsl(var(--border))] rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
               />
             </div>
             {(!startDate || !endDate) && (
-              <p className="text-xs text-amber-600 mb-1">Selecione o período para gerar os relatórios</p>
+              <p className="text-xs text-amber-500 mb-1">Selecione o período para gerar os relatórios</p>
             )}
           </div>
         </CardContent>
@@ -204,7 +204,7 @@ export default function RelatoriosPage() {
           const Icon = report.icon;
           const isGenerating = generatingId === report.id;
           return (
-            <Card key={report.id} className="border border-gray-200">
+            <Card key={report.id} className="border border-[hsl(var(--border))]">
               <CardHeader className="pb-2">
                 <div className="flex items-start gap-3">
                   <div className={`p-3 rounded-lg ${report.bgColor}`}>
@@ -212,7 +212,7 @@ export default function RelatoriosPage() {
                   </div>
                   <div className="flex-1">
                     <CardTitle className="text-base font-semibold">{report.title}</CardTitle>
-                    <p className="text-sm text-gray-500 mt-1">{report.description}</p>
+                    <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">{report.description}</p>
                   </div>
                 </div>
               </CardHeader>
@@ -233,7 +233,7 @@ export default function RelatoriosPage() {
                   <button
                     onClick={() => handleDownload(report)}
                     disabled={isGenerating || !startDate || !endDate}
-                    className="flex items-center gap-2 px-3 py-2 text-sm font-medium bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="flex items-center gap-2 px-3 py-2 text-sm font-medium bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-lg hover:bg-[hsl(var(--secondary))] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     <Download className="h-4 w-4" />
                     Download PDF

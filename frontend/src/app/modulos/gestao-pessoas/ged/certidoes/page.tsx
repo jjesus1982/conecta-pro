@@ -16,6 +16,7 @@ import {
   ChevronUp,
   Clock,
   CheckCircle,
+  Radio,
   XCircle as XCircleSmall,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -196,10 +197,10 @@ function getColor(c: Certificate): SemaforoColor {
 }
 
 const COLOR_STYLES: Record<SemaforoColor, { border: string; bg: string; badge: string; label: string }> = {
-  verde:    { border: 'border-l-green-500',  bg: 'bg-green-50',  badge: 'bg-green-100 text-green-800',   label: 'Regular' },
-  amarelo:  { border: 'border-l-yellow-400', bg: 'bg-yellow-50', badge: 'bg-yellow-100 text-yellow-800', label: 'Indeterminado' },
-  vermelho: { border: 'border-l-red-500',    bg: 'bg-red-50',    badge: 'bg-red-100 text-red-800',       label: 'Irregular/Vencido' },
-  cinza:    { border: 'border-l-gray-300',   bg: 'bg-gray-50',   badge: 'bg-gray-100 text-gray-600',     label: 'Manual' },
+  verde:    { border: 'border-l-emerald-500', bg: 'bg-emerald-500/10', badge: 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30', label: 'Regular' },
+  amarelo:  { border: 'border-l-amber-400',   bg: 'bg-amber-500/10',   badge: 'bg-amber-500/10 text-amber-500 border border-amber-500/30',       label: 'Indeterminado' },
+  vermelho: { border: 'border-l-red-500',     bg: 'bg-red-500/10',     badge: 'bg-red-500/10 text-red-500 border border-red-500/30',             label: 'Irregular/Vencido' },
+  cinza:    { border: 'border-l-gray-500',    bg: 'bg-gray-500/10',    badge: 'bg-gray-500/10 text-[hsl(var(--muted-foreground))] border border-gray-500/30', label: 'Manual' },
 };
 
 const COLOR_ICONS: Record<SemaforoColor, React.FC<{ className?: string }>> = {
@@ -210,10 +211,10 @@ const COLOR_ICONS: Record<SemaforoColor, React.FC<{ className?: string }>> = {
 };
 
 const COLOR_TEXT: Record<SemaforoColor, string> = {
-  verde:    'text-green-600',
-  amarelo:  'text-yellow-600',
-  vermelho: 'text-red-600',
-  cinza:    'text-gray-400',
+  verde:    'text-emerald-500',
+  amarelo:  'text-amber-500',
+  vermelho: 'text-red-500',
+  cinza:    'text-[hsl(var(--muted-foreground))]',
 };
 
 // ── Componente principal ───────────────────────────────────────────────────────
@@ -335,9 +336,9 @@ export default function CertidoesPage() {
   if (certsError) {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-4">
-        <XCircle className="h-12 w-12 text-red-400" />
+        <XCircle className="h-12 w-12 text-red-500" />
         <div className="text-center">
-          <p className="font-semibold text-red-700">Erro ao carregar certidões</p>
+          <p className="font-semibold text-red-500">Erro ao carregar certidões</p>
           <p className="text-sm text-muted-foreground mt-1">
             {certsErrorMsg instanceof Error ? certsErrorMsg.message : 'Verifique sua conexão e tente novamente.'}
           </p>
@@ -355,7 +356,7 @@ export default function CertidoesPage() {
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2 text-[#0A2540]">
+          <h1 className="text-2xl font-bold flex items-center gap-2 text-[hsl(var(--foreground))]">
             <ShieldCheck className="h-6 w-6" />
             Certidões da Empresa
           </h1>
@@ -407,7 +408,7 @@ export default function CertidoesPage() {
                   <div className="flex items-start gap-2 min-w-0">
                     <Icon className={`h-4 w-4 mt-0.5 flex-shrink-0 ${COLOR_TEXT[cor]}`} />
                     <div className="min-w-0">
-                      <p className="font-semibold text-sm text-[#0A2540] truncate">{label}</p>
+                      <p className="font-semibold text-sm text-[hsl(var(--foreground))] truncate">{label}</p>
                       <p className="text-xs text-muted-foreground mt-0.5">
                         Validade: {c.expiry_date ? `${formatDate(c.expiry_date)} (${dias > 0 ? `${dias}d` : 'vencida'})` : '—'}
                       </p>
@@ -419,25 +420,25 @@ export default function CertidoesPage() {
                 </div>
 
                 {parsed?.fonte && (
-                  <p className="text-xs text-muted-foreground mt-2 truncate">
-                    📡 {parsed.fonte}
+                  <p className="text-xs text-muted-foreground mt-2 truncate flex items-center gap-1">
+                    <Radio className="h-3 w-3 flex-shrink-0" /> {parsed.fonte}
                   </p>
                 )}
                 {parsed?.nota && (
-                  <p className="text-xs italic text-gray-600 mt-1 line-clamp-2">{parsed.nota}</p>
+                  <p className="text-xs italic text-muted-foreground mt-1 line-clamp-2">{parsed.nota}</p>
                 )}
 
                 <button
                   onClick={() => toggleExpanded(c.id)}
-                  className="mt-2 flex items-center gap-1 text-xs text-[#1E3A5F] hover:text-[#0A2540] underline-offset-2 hover:underline"
+                  className="mt-2 flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 underline-offset-2 hover:underline"
                 >
                   {isOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                   {isOpen ? 'Ocultar detalhes' : 'Ver detalhes'}
                 </button>
 
                 {isOpen && (
-                  <div className="mt-2 rounded-md bg-slate-50 border border-slate-100 p-2 overflow-x-auto">
-                    <pre className="text-[11px] text-slate-700 leading-5 whitespace-pre-wrap">
+                  <div className="mt-2 rounded-md bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] p-2 overflow-x-auto">
+                    <pre className="text-[11px] text-[hsl(var(--muted-foreground))] leading-5 whitespace-pre-wrap">
                       {parsed
                         ? JSON.stringify(parsed, null, 2)
                         : (c.notes ?? 'sem dados')}
@@ -452,11 +453,11 @@ export default function CertidoesPage() {
 
       {/* ── Alerta vencimento urgente ────────────────────────────────────── */}
       {(resumo.vencidas > 0 || urgentCount > 0) && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
-          <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="font-medium text-red-800">Atenção — certidões precisam de ação</p>
-            <p className="text-sm text-red-600 mt-0.5">
+            <p className="font-medium text-red-500">Atenção — certidões precisam de ação</p>
+            <p className="text-sm text-red-500 mt-0.5">
               {resumo.vencidas > 0 && `${resumo.vencidas} vencida(s). `}
               {urgentCount > 0 && `${urgentCount} vence(m) em menos de 7 dias.`}
             </p>
@@ -466,31 +467,31 @@ export default function CertidoesPage() {
 
       {/* ── Stats de validade ────────────────────────────────────────────── */}
       <div className="grid gap-4 md:grid-cols-4">
-        <Card className="border-green-200">
+        <Card className="border-emerald-500/30">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Válidas</CardTitle>
-            <CheckCircle className="h-4 w-4 text-green-600" />
+            <CheckCircle className="h-4 w-4 text-emerald-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{resumo.validas}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-emerald-500">{resumo.validas}</div>
           </CardContent>
         </Card>
-        <Card className="border-yellow-200">
+        <Card className="border-amber-500/30">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Vencendo (30d)</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-yellow-600" />
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">{resumo.a_vencer_30d}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-amber-500">{resumo.a_vencer_30d}</div>
           </CardContent>
         </Card>
-        <Card className="border-red-200">
+        <Card className="border-red-500/30">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Vencidas</CardTitle>
-            <XCircleSmall className="h-4 w-4 text-red-600" />
+            <XCircleSmall className="h-4 w-4 text-red-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">{resumo.vencidas}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-red-500">{resumo.vencidas}</div>
           </CardContent>
         </Card>
         <Card>
@@ -499,7 +500,7 @@ export default function CertidoesPage() {
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{certificates.length}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums">{certificates.length}</div>
           </CardContent>
         </Card>
       </div>
@@ -590,7 +591,7 @@ export default function CertidoesPage() {
                         <td className="p-3 text-muted-foreground">{formatDate(cert.issue_date)}</td>
                         <td className="p-3 text-muted-foreground">{formatDate(cert.expiry_date)}</td>
                         <td className="p-3 text-center">
-                          <span className={days <= 0 ? 'text-red-600 font-bold' : days <= 7 ? 'text-red-600 font-semibold' : days <= 30 ? 'text-yellow-600 font-semibold' : 'text-green-600'}>
+                          <span className={days <= 0 ? 'text-red-500 font-bold' : days <= 7 ? 'text-red-500 font-semibold' : days <= 30 ? 'text-amber-500 font-semibold' : 'text-emerald-500'}>
                             {days <= 0 ? 'Vencida' : `${days}d`}
                           </span>
                         </td>
@@ -636,18 +637,18 @@ export default function CertidoesPage() {
                   <Badge
                     variant={h.status === 'success' ? 'default' : 'outline'}
                     className={
-                      h.status === 'success' ? 'bg-green-100 text-green-800 border-green-200' :
-                      h.status === 'partial' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' :
-                      'bg-red-100 text-red-800 border-red-200'
+                      h.status === 'success' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30' :
+                      h.status === 'partial' ? 'bg-amber-500/10 text-amber-500 border border-amber-500/30' :
+                      'bg-red-500/10 text-red-500 border border-red-500/30'
                     }
                   >
                     {h.status}
                   </Badge>
                   <span className="text-muted-foreground">{new Date(h.run_at).toLocaleString('pt-BR')}</span>
-                  <span className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">{h.run_type}</span>
-                  <span className="font-medium text-green-700">✓ {h.certidoes_atualizadas} atualizadas</span>
+                  <span className="text-xs bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))] px-1.5 py-0.5 rounded">{h.run_type}</span>
+                  <span className="font-medium text-emerald-500 inline-flex items-center gap-1"><CheckCircle className="h-3 w-3" /> {h.certidoes_atualizadas} atualizadas</span>
                   {(h.alertas_disparados ?? 0) > 0 && (
-                    <span className="font-medium text-amber-700">⚠ {h.alertas_disparados} alertas</span>
+                    <span className="font-medium text-amber-500 inline-flex items-center gap-1"><AlertTriangle className="h-3 w-3" /> {h.alertas_disparados} alertas</span>
                   )}
                   <span className="ml-auto text-muted-foreground text-xs">{((h.duration_ms ?? 0) / 1000).toFixed(1)}s</span>
                 </div>

@@ -2,7 +2,8 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, XCircle, Star } from 'lucide-react'
+import type { ElementType } from 'react'
 
 // ─── Tipos exatos do endpoint /financial/custeio/abc ──────────────────────
 interface CustoComposicao {
@@ -76,10 +77,10 @@ const LABEL: Record<string, string> = {
   manutencao_cftv: 'Manutenção CFTV',
 }
 
-const CLASS_STYLE: Record<string, { bg: string; text: string; border: string; icon: string }> = {
-  estrela: { bg: 'bg-green-50',  text: 'text-green-700',  border: 'border-green-200',  icon: '⭐' },
-  atencao: { bg: 'bg-yellow-50', text: 'text-yellow-700', border: 'border-yellow-200', icon: '⚠️' },
-  abacaxi: { bg: 'bg-red-50',    text: 'text-red-700',    border: 'border-red-200',    icon: '❌' },
+const CLASS_STYLE: Record<string, { bg: string; text: string; border: string; icon: ElementType }> = {
+  estrela: { bg: 'bg-green-500/10', text: 'text-green-500', border: 'border-green-500/30', icon: Star },
+  atencao: { bg: 'bg-amber-500/10', text: 'text-amber-500', border: 'border-amber-500/30', icon: AlertTriangle },
+  abacaxi: { bg: 'bg-red-500/10',   text: 'text-red-500',   border: 'border-red-500/30',   icon: XCircle },
 }
 
 const mcColor = (v: number) =>
@@ -261,8 +262,8 @@ export default function CusteioPage() {
                 {/* Cabeçalho */}
                 <div className="flex items-center justify-between p-4 border-b border-gray-50">
                   <div className="flex items-center gap-3">
-                    <span className={`px-2.5 py-1 rounded-full text-xs font-medium border ${cs.bg} ${cs.text} ${cs.border}`}>
-                      {cs.icon} {tipo.classificacao.charAt(0).toUpperCase() + tipo.classificacao.slice(1)}
+                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border ${cs.bg} ${cs.text} ${cs.border}`}>
+                      <cs.icon className="w-3 h-3" /> {tipo.classificacao.charAt(0).toUpperCase() + tipo.classificacao.slice(1)}
                     </span>
                     <div>
                       <h3 className="font-medium text-gray-900">

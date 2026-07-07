@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
+import { Users, CheckCircle2, Ban } from 'lucide-react'
 
 interface Supplier {
   id: string
@@ -109,12 +110,12 @@ export default function FornecedoresPage() {
       {/* KPI Cards */}
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: 'Total',     value: total,     icon: '👥', color: 'text-blue-600' },
-          { label: 'Ativos',    value: ativos,    icon: '✅', color: 'text-green-600' },
-          { label: 'Bloqueados',value: bloqueados, icon: '🚫', color: 'text-red-600' },
+          { label: 'Total',     value: total,     icon: Users,        color: 'text-blue-600' },
+          { label: 'Ativos',    value: ativos,    icon: CheckCircle2, color: 'text-emerald-600' },
+          { label: 'Bloqueados',value: bloqueados, icon: Ban,         color: 'text-red-600' },
         ].map(k => (
           <div key={k.label} className="bg-white border border-gray-200 rounded-xl p-4 flex items-center gap-4">
-            <span className="text-2xl">{k.icon}</span>
+            <k.icon className={`w-7 h-7 ${k.color}`} />
             <div>
               <p className="text-xs text-gray-500">{k.label}</p>
               <p className={`text-3xl font-semibold ${k.color}`}>

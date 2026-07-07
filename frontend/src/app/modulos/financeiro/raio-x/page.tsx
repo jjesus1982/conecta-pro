@@ -98,7 +98,7 @@ export default function RaioXPage() {
 
   const kpis = [
     { label: 'Saldo em conta', valor: brl(p.saldo_banco), sub: p.saldo_fonte, cor: 'text-[#0A2540]' },
-    { label: 'Runway (caixa ÷ folha)', valor: p.runway_meses != null ? `${p.runway_meses} meses` : '—', sub: runwayBaixo ? '⚠️ caixa curto' : 'saudável', cor: runwayBaixo ? 'text-red-600' : 'text-green-600' },
+    { label: 'Runway (caixa ÷ folha)', valor: p.runway_meses != null ? `${p.runway_meses} meses` : '—', sub: runwayBaixo ? <span className="inline-flex items-center gap-1"><AlertTriangle className="w-3 h-3 text-red-500" /> caixa curto</span> : 'saudável', cor: runwayBaixo ? 'text-red-600' : 'text-green-600' },
     { label: 'MRR contratado', valor: brl(p.mrr_contratado), sub: `${p.contratos ?? 0} contratos`, cor: 'text-emerald-600' },
     { label: 'Resultado mensal', valor: brl(p.resultado_mensal), sub: `receita − custos (inclui provisões)`, cor: (p.resultado_mensal ?? 0) >= 0 ? 'text-green-600' : 'text-red-600' },
   ]

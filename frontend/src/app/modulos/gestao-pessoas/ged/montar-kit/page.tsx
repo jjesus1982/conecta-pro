@@ -168,13 +168,13 @@ export default function MontarKitPage() {
                     <div className="flex items-center gap-2 min-w-[16px]">
                       {e.vencido
                         ? <CheckCircle2 className="w-4 h-4 text-emerald-500" title="data já passou" />
-                        : <Clock className="w-4 h-4 text-gray-300" />}
+                        : <Clock className="w-4 h-4 text-[hsl(var(--muted-foreground))]" />}
                     </div>
                     <div className="flex-1 min-w-[200px]">
                       <div className="text-sm font-medium flex items-center gap-2">
                         {e.titulo}
                         {e.prazo && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 flex items-center gap-0.5">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/30 flex items-center gap-0.5">
                             <AlertTriangle className="w-3 h-3" /> assinar até {fmtData(e.prazo)}
                           </span>
                         )}
@@ -221,7 +221,7 @@ export default function MontarKitPage() {
           <CardHeader><CardTitle className="text-base">Progresso da montagem</CardTitle></CardHeader>
           <CardContent className="p-4 pt-0 space-y-2">
             {montando && (
-              <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2 mb-1">
+              <p className="text-xs text-amber-500 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 mb-1">
                 A montagem completa leva ~2-3 minutos (busca Onvio + Inter + Sólides + Drive). As etapas
                 ficam girando e concluem juntas no fim. Para acompanhar <strong>item por item</strong>, use a
                 ficha de cada condomínio (menu → Kits por Condomínio → clique no condomínio).
@@ -232,8 +232,8 @@ export default function MontarKitPage() {
               const done = status.state === 'SUCCESS' || status.state === 'FAILURE';
               let icon;
               if (e) icon = e.ok ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <XCircle className="w-4 h-4 text-red-500" />;
-              else if (done) icon = <XCircle className="w-4 h-4 text-gray-300" />;
-              else icon = montando ? <Loader2 className="w-4 h-4 animate-spin text-violet-500" /> : <Clock className="w-4 h-4 text-gray-300" />;
+              else if (done) icon = <XCircle className="w-4 h-4 text-[hsl(var(--muted-foreground))]" />;
+              else icon = montando ? <Loader2 className="w-4 h-4 animate-spin text-violet-500" /> : <Clock className="w-4 h-4 text-[hsl(var(--muted-foreground))]" />;
               return (
                 <div key={k} className="flex items-center gap-2 text-sm">
                   {icon}
@@ -247,7 +247,7 @@ export default function MontarKitPage() {
               const orqOk = status.state === 'SUCCESS';
               const ps = status.ponto?.state;
               let icon: React.ReactNode; let txt: string;
-              if (!orqOk) { icon = <Clock className="w-4 h-4 text-gray-300" />; txt = 'aguardando a montagem'; }
+              if (!orqOk) { icon = <Clock className="w-4 h-4 text-[hsl(var(--muted-foreground))]" />; txt = 'aguardando a montagem'; }
               else if (ps === 'done') { icon = <CheckCircle2 className="w-4 h-4 text-emerald-500" />; txt = status.ponto?.arquivados ? `${status.ponto.arquivados} novos arquivados` : 'concluído'; }
               else if (ps === 'error') { icon = <XCircle className="w-4 h-4 text-red-500" />; txt = 'falhou'; }
               else { icon = <Loader2 className="w-4 h-4 animate-spin text-violet-500" />; txt = ps === 'running' ? 'baixando do Sólides…' : 'na fila…'; }
@@ -262,8 +262,8 @@ export default function MontarKitPage() {
             {status.resumo && (
               <div className="text-sm pt-2 font-medium">
                 {status.resumo.etapas_falha === 0
-                  ? <span className="text-emerald-600">✓ Kit montado — {status.resumo.etapas_ok} etapas concluídas</span>
-                  : <span className="text-amber-600">{status.resumo.etapas_ok} OK, {status.resumo.etapas_falha} com pendência</span>}
+                  ? <span className="text-emerald-500 inline-flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Kit montado — {status.resumo.etapas_ok} etapas concluídas</span>
+                  : <span className="text-amber-500">{status.resumo.etapas_ok} OK, {status.resumo.etapas_falha} com pendência</span>}
               </div>
             )}
             {status.erro && <div className="text-sm text-red-500">{status.erro}</div>}
@@ -304,7 +304,7 @@ export default function MontarKitPage() {
                       <td className="px-4 py-2 font-medium">{c.condominio}</td>
                       {c.subpastas.map((s) => (
                         <td key={s.nome} className="px-3 py-2 text-center">
-                          <span className={s.docs > 0 ? '' : 'text-gray-300'}>{s.docs}</span>
+                          <span className={s.docs > 0 ? 'tabular-nums' : 'text-[hsl(var(--muted-foreground))] tabular-nums'}>{s.docs}</span>
                         </td>
                       ))}
                       <td className="px-3 py-2 text-center font-semibold">{c.total}</td>

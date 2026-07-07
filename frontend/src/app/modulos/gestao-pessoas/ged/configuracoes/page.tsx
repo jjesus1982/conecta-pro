@@ -323,19 +323,19 @@ export default function ConfiguracoesPage() {
 
   function statusBadge(status: string) {
     const map: Record<string, string> = {
-      success: 'bg-emerald-100 text-emerald-800',
-      partial: 'bg-amber-100 text-amber-800',
-      error: 'bg-red-100 text-red-800',
-      running: 'bg-blue-100 text-blue-800',
+      success: 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30',
+      partial: 'bg-amber-500/10 text-amber-500 border border-amber-500/30',
+      error: 'bg-red-500/10 text-red-500 border border-red-500/30',
+      running: 'bg-blue-500/10 text-blue-500 border border-blue-500/30',
     };
-    return `inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${map[status] ?? 'bg-gray-100 text-gray-600'}`;
+    return `inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${map[status] ?? 'bg-gray-500/10 text-[hsl(var(--muted-foreground))] border border-gray-500/30'}`;
   }
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-        <span className="ml-2 text-gray-500">Carregando configuracoes...</span>
+        <Loader2 className="h-8 w-8 animate-spin text-[hsl(var(--muted-foreground))]" />
+        <span className="ml-2 text-[hsl(var(--muted-foreground))]">Carregando configuracoes...</span>
       </div>
     );
   }
@@ -343,28 +343,28 @@ export default function ConfiguracoesPage() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Configurações GED</h1>
-        <p className="text-gray-500 mt-1">Gerencie integracoes, templates e preferencias</p>
+        <h1 className="text-2xl font-bold text-[hsl(var(--foreground))]">Configurações GED</h1>
+        <p className="text-[hsl(var(--muted-foreground))] mt-1">Gerencie integracoes, templates e preferencias</p>
       </div>
 
       {/* Google Drive */}
-      <Card className="border border-gray-200">
+      <Card className="border border-[hsl(var(--border))]">
         <CardHeader className="pb-2">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-green-50 rounded-lg">
-              <HardDrive className="h-5 w-5 text-green-600" />
+            <div className="p-2 bg-emerald-500/10 rounded-lg">
+              <HardDrive className="h-5 w-5 text-emerald-500" />
             </div>
             <div className="flex-1">
               <CardTitle className="text-base font-semibold">Google Drive</CardTitle>
-              <p className="text-sm text-gray-500">Integracao para envio automatico de kits</p>
+              <p className="text-sm text-[hsl(var(--muted-foreground))]">Integracao para envio automatico de kits</p>
             </div>
             {driveConfig.connected ? (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/30">
                 <CheckCircle className="h-3 w-3" />
                 Conectado
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-600">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full bg-gray-500/10 text-[hsl(var(--muted-foreground))] border border-gray-500/30">
                 <XCircle className="h-3 w-3" />
                 Desconectado
               </span>
@@ -373,17 +373,17 @@ export default function ConfiguracoesPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">ID da Pasta</label>
+            <label className="block text-sm font-medium text-[hsl(var(--foreground))] mb-1">ID da Pasta</label>
             <input
               type="text"
               value={driveConfig.folder_id}
               onChange={(e) => setDriveConfig({ ...driveConfig, folder_id: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="w-full px-3 py-2 bg-[hsl(var(--card))] text-[hsl(var(--foreground))] border border-[hsl(var(--border))] rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
               placeholder="ID da pasta no Google Drive"
             />
           </div>
           {driveConfig.connected && (driveConfig.email || driveConfig.nome) && (
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-[hsl(var(--muted-foreground))]">
               Conectado como: {driveConfig.nome || driveConfig.email}
             </p>
           )}
@@ -391,7 +391,7 @@ export default function ConfiguracoesPage() {
             {driveConfig.connected ? (
               <button
                 onClick={handleDriveDisconnect}
-                className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-600 bg-white border border-red-300 rounded-lg hover:bg-red-50 transition-colors"
+                className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-500 bg-[hsl(var(--card))] border border-red-500/30 rounded-lg hover:bg-red-500/10 transition-colors"
               >
                 <Unlink className="h-4 w-4" />
                 Desconectar
@@ -422,37 +422,37 @@ export default function ConfiguracoesPage() {
       </Card>
 
       {/* Email Templates */}
-      <Card className="border border-gray-200">
+      <Card className="border border-[hsl(var(--border))]">
         <CardHeader className="pb-2">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-50 rounded-lg">
-              <Mail className="h-5 w-5 text-blue-600" />
+            <div className="p-2 bg-blue-500/10 rounded-lg">
+              <Mail className="h-5 w-5 text-blue-500" />
             </div>
             <div>
               <CardTitle className="text-base font-semibold">Templates de Email</CardTitle>
-              <p className="text-sm text-gray-500">Modelos de email para envio de kits</p>
+              <p className="text-sm text-[hsl(var(--muted-foreground))]">Modelos de email para envio de kits</p>
             </div>
           </div>
         </CardHeader>
         <CardContent>
           {emailTemplates.length === 0 ? (
-            <p className="text-sm text-gray-400 py-4 text-center">Nenhum template cadastrado</p>
+            <p className="text-sm text-[hsl(var(--muted-foreground))] py-4 text-center">Nenhum template cadastrado</p>
           ) : (
             <div className="space-y-2">
               {emailTemplates.map((template) => (
                 <div
                   key={template.id}
-                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                  className="flex items-center justify-between p-3 bg-[hsl(var(--secondary))] rounded-lg"
                 >
                   <div>
-                    <p className="text-sm font-medium text-gray-900">{template.name}</p>
-                    <p className="text-xs text-gray-500">Assunto: {template.assunto || template.subject || '—'}</p>
+                    <p className="text-sm font-medium text-[hsl(var(--foreground))]">{template.name}</p>
+                    <p className="text-xs text-[hsl(var(--muted-foreground))]">Assunto: {template.assunto || template.subject || '—'}</p>
                   </div>
                   <button
-                    className="p-1.5 rounded hover:bg-gray-200 transition-colors"
+                    className="p-1.5 rounded hover:bg-[hsl(var(--secondary))] transition-colors"
                     title="Editar template"
                   >
-                    <Pencil className="h-4 w-4 text-gray-500" />
+                    <Pencil className="h-4 w-4 text-[hsl(var(--muted-foreground))]" />
                   </button>
                 </div>
               ))}
@@ -462,31 +462,31 @@ export default function ConfiguracoesPage() {
       </Card>
 
       {/* Document Types */}
-      <Card className="border border-gray-200">
+      <Card className="border border-[hsl(var(--border))]">
         <CardHeader className="pb-2">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-amber-50 rounded-lg">
-              <FileText className="h-5 w-5 text-amber-600" />
+            <div className="p-2 bg-amber-500/10 rounded-lg">
+              <FileText className="h-5 w-5 text-amber-500" />
             </div>
             <div>
               <CardTitle className="text-base font-semibold">Tipos de Documento</CardTitle>
-              <p className="text-sm text-gray-500">Ative ou desative tipos de documentos nos kits</p>
+              <p className="text-sm text-[hsl(var(--muted-foreground))]">Ative ou desative tipos de documentos nos kits</p>
             </div>
           </div>
         </CardHeader>
         <CardContent>
           {documentTypes.length === 0 ? (
-            <p className="text-sm text-gray-400 py-4 text-center">Nenhum tipo de documento cadastrado</p>
+            <p className="text-sm text-[hsl(var(--muted-foreground))] py-4 text-center">Nenhum tipo de documento cadastrado</p>
           ) : (
             <div className="space-y-2">
               {documentTypes.map((docType) => (
                 <div
                   key={docType.id}
-                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                  className="flex items-center justify-between p-3 bg-[hsl(var(--secondary))] rounded-lg"
                 >
                   <div>
-                    <p className="text-sm font-medium text-gray-900">{docType.name}</p>
-                    <p className="text-xs text-gray-500 font-mono">{docType.code}</p>
+                    <p className="text-sm font-medium text-[hsl(var(--foreground))]">{docType.name}</p>
+                    <p className="text-xs text-[hsl(var(--muted-foreground))] font-mono">{docType.code}</p>
                   </div>
                   <button
                     onClick={() => toggleDocumentType(docType)}
@@ -494,9 +494,9 @@ export default function ConfiguracoesPage() {
                     title={docType.enabled ? 'Desativar' : 'Ativar'}
                   >
                     {docType.enabled ? (
-                      <ToggleRight className="h-7 w-7 text-blue-600" />
+                      <ToggleRight className="h-7 w-7 text-blue-500" />
                     ) : (
-                      <ToggleLeft className="h-7 w-7 text-gray-400" />
+                      <ToggleLeft className="h-7 w-7 text-[hsl(var(--muted-foreground))]" />
                     )}
                   </button>
                 </div>
@@ -507,15 +507,15 @@ export default function ConfiguracoesPage() {
       </Card>
 
       {/* Coleta Automatica — D4 */}
-      <Card className="border border-gray-200">
+      <Card className="border border-[hsl(var(--border))]">
         <CardHeader className="pb-2">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-purple-50 rounded-lg">
-              <Clock className="h-5 w-5 text-purple-600" />
+            <div className="p-2 bg-purple-500/10 rounded-lg">
+              <Clock className="h-5 w-5 text-purple-500" />
             </div>
             <div className="flex-1">
               <CardTitle className="text-base font-semibold">Coleta Automatica</CardTitle>
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-[hsl(var(--muted-foreground))]">
                 Sync Onvio + montagem de kits + matching. Padrao: dia 21 as 06h (Manaus).
               </p>
             </div>
@@ -525,9 +525,9 @@ export default function ConfiguracoesPage() {
               title={coleta.enabled ? 'Desativar agendamento' : 'Ativar agendamento'}
             >
               {coleta.enabled ? (
-                <ToggleRight className="h-7 w-7 text-blue-600" />
+                <ToggleRight className="h-7 w-7 text-blue-500" />
               ) : (
-                <ToggleLeft className="h-7 w-7 text-gray-400" />
+                <ToggleLeft className="h-7 w-7 text-[hsl(var(--muted-foreground))]" />
               )}
             </button>
           </div>
@@ -535,21 +535,21 @@ export default function ConfiguracoesPage() {
         <CardContent className="space-y-4">
           {/* Config cron */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Expressao Cron</label>
+            <label className="block text-sm font-medium text-[hsl(var(--foreground))] mb-1">Expressao Cron</label>
             <input
               type="text"
               value={coleta.cron_expr}
               onChange={(e) => setColeta({ ...coleta, cron_expr: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="w-full px-3 py-2 bg-[hsl(var(--card))] text-[hsl(var(--foreground))] border border-[hsl(var(--border))] rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
               placeholder="0 6 21 * *"
             />
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
               Formato: min hora dia-do-mes mes dia-da-semana · Timezone: {coleta.timezone}
             </p>
           </div>
 
           {/* Status e ultima execucao */}
-          <div className="flex items-center gap-4 text-xs text-gray-500">
+          <div className="flex items-center gap-4 text-xs text-[hsl(var(--muted-foreground))]">
             {coleta.last_run && (
               <span>Ultima execucao: {new Date(coleta.last_run).toLocaleString('pt-BR')}</span>
             )}
@@ -587,7 +587,7 @@ export default function ConfiguracoesPage() {
             </button>
             <button
               onClick={fetchColetaHistory}
-              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-[hsl(var(--muted-foreground))] bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-lg hover:bg-[hsl(var(--secondary))] transition-colors"
               title="Atualizar historico"
             >
               <RefreshCw className="h-4 w-4" />
@@ -597,40 +597,40 @@ export default function ConfiguracoesPage() {
           {/* Historico */}
           {coletaLogs.length > 0 && (
             <div className="mt-2">
-              <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wider">
+              <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] mb-2 uppercase tracking-wider">
                 Historico (ultimas {coletaLogs.length})
               </p>
               <div className="space-y-1">
                 {coletaLogs.map((log) => (
-                  <div key={log.id} className="border border-gray-100 rounded-lg">
+                  <div key={log.id} className="border border-[hsl(var(--border))] rounded-lg">
                     <button
-                      className="w-full flex items-center gap-3 p-2.5 text-left hover:bg-gray-50 transition-colors rounded-lg"
+                      className="w-full flex items-center gap-3 p-2.5 text-left hover:bg-[hsl(var(--secondary))] transition-colors rounded-lg"
                       onClick={() => setExpandedLog(expandedLog === log.id ? null : log.id)}
                     >
                       <span className={statusBadge(log.status)}>{log.status}</span>
-                      <span className="text-xs text-gray-500 flex-1">
+                      <span className="text-xs text-[hsl(var(--muted-foreground))] flex-1">
                         {new Date(log.run_at).toLocaleString('pt-BR', { timeZone: 'America/Manaus' })}
                       </span>
-                      <span className="text-xs text-gray-400 font-mono">{log.run_type}</span>
-                      <span className="text-xs text-gray-400">{formatDuration(log.duration_ms)}</span>
+                      <span className="text-xs text-[hsl(var(--muted-foreground))] font-mono">{log.run_type}</span>
+                      <span className="text-xs text-[hsl(var(--muted-foreground))]">{formatDuration(log.duration_ms)}</span>
                       {expandedLog === log.id ? (
-                        <ChevronUp className="h-3 w-3 text-gray-400" />
+                        <ChevronUp className="h-3 w-3 text-[hsl(var(--muted-foreground))]" />
                       ) : (
-                        <ChevronDown className="h-3 w-3 text-gray-400" />
+                        <ChevronDown className="h-3 w-3 text-[hsl(var(--muted-foreground))]" />
                       )}
                     </button>
                     {expandedLog === log.id && (
-                      <div className="px-3 pb-3 text-xs text-gray-600 space-y-1 border-t border-gray-100 pt-2">
+                      <div className="px-3 pb-3 text-xs text-[hsl(var(--muted-foreground))] space-y-1 border-t border-[hsl(var(--border))] pt-2">
                         <div className="flex gap-4">
                           <span>Sync novos: <strong>{log.sync_novos}</strong></span>
                           <span>Kits montados: <strong>{log.kits_assembled}</strong></span>
                           <span>Onvio casados: <strong>{log.onvio_matched}</strong></span>
                         </div>
                         {log.triggered_by && (
-                          <div className="text-gray-400">Por: {log.triggered_by}</div>
+                          <div className="text-[hsl(var(--muted-foreground))]">Por: {log.triggered_by}</div>
                         )}
                         {log.erros && log.erros.length > 0 && (
-                          <pre className="bg-red-50 text-red-700 p-2 rounded text-xs overflow-x-auto max-h-32">
+                          <pre className="bg-red-500/10 text-red-500 p-2 rounded text-xs overflow-x-auto max-h-32">
                             {JSON.stringify(log.erros, null, 2)}
                           </pre>
                         )}
@@ -643,7 +643,7 @@ export default function ConfiguracoesPage() {
           )}
 
           {coletaLogs.length === 0 && !loading && (
-            <p className="text-xs text-gray-400 text-center py-2">
+            <p className="text-xs text-[hsl(var(--muted-foreground))] text-center py-2">
               Nenhuma execucao registrada. Clique em "Executar agora" para iniciar.
             </p>
           )}

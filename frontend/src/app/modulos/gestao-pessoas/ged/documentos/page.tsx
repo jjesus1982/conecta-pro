@@ -151,22 +151,22 @@ export default function DocumentosSearchPage() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Busca de Documentos</h1>
-        <p className="text-gray-500 mt-1">Pesquise documentos em todos os kits</p>
+        <h1 className="text-2xl font-bold text-[hsl(var(--foreground))]">Busca de Documentos</h1>
+        <p className="text-[hsl(var(--muted-foreground))] mt-1">Pesquise documentos em todos os kits</p>
       </div>
 
-      <Card className="border border-gray-200">
+      <Card className="border border-[hsl(var(--border))]">
         <CardContent className="p-4 space-y-4">
           <div className="flex gap-2">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[hsl(var(--muted-foreground))]" />
               <input
                 type="text"
                 placeholder="Buscar por nome do documento, funcionario..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                className="w-full pl-10 pr-4 py-2 bg-[hsl(var(--card))] text-[hsl(var(--foreground))] border border-[hsl(var(--border))] rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
               />
             </div>
             <button
@@ -179,11 +179,11 @@ export default function DocumentosSearchPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-4">
-            <Filter className="h-4 w-4 text-gray-400" />
+            <Filter className="h-4 w-4 text-[hsl(var(--muted-foreground))]" />
             <select
               value={filterClient}
               onChange={(e) => setFilterClient(e.target.value)}
-              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="px-3 py-1.5 bg-[hsl(var(--card))] text-[hsl(var(--foreground))] border border-[hsl(var(--border))] rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
             >
               <option value="">Todos os Clientes</option>
               {clientOptions.map((c) => (
@@ -193,7 +193,7 @@ export default function DocumentosSearchPage() {
             <select
               value={filterType}
               onChange={(e) => setFilterType(e.target.value)}
-              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="px-3 py-1.5 bg-[hsl(var(--card))] text-[hsl(var(--foreground))] border border-[hsl(var(--border))] rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
             >
               {typeOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -202,7 +202,7 @@ export default function DocumentosSearchPage() {
             <select
               value={filterOrigin}
               onChange={(e) => setFilterOrigin(e.target.value)}
-              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="px-3 py-1.5 bg-[hsl(var(--card))] text-[hsl(var(--foreground))] border border-[hsl(var(--border))] rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
             >
               {originOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -211,7 +211,7 @@ export default function DocumentosSearchPage() {
             <select
               value={filterSigned}
               onChange={(e) => setFilterSigned(e.target.value)}
-              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="px-3 py-1.5 bg-[hsl(var(--card))] text-[hsl(var(--foreground))] border border-[hsl(var(--border))] rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
             >
               {signedOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -223,58 +223,58 @@ export default function DocumentosSearchPage() {
 
       {loading ? (
         <div className="flex items-center justify-center h-48">
-          <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-          <span className="ml-2 text-gray-500">Buscando documentos...</span>
+          <Loader2 className="h-8 w-8 animate-spin text-[hsl(var(--muted-foreground))]" />
+          <span className="ml-2 text-[hsl(var(--muted-foreground))]">Buscando documentos...</span>
         </div>
       ) : (
-        <Card className="border border-gray-200">
+        <Card className="border border-[hsl(var(--border))]">
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-gray-200 bg-gray-50">
-                    <th className="text-left py-3 px-4 font-medium text-gray-500">Nome</th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-500">Tipo</th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-500">Kit</th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-500">Funcionario</th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-500">Assinado</th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-500">Data</th>
+                  <tr className="border-b border-[hsl(var(--border))] bg-[hsl(var(--secondary))]">
+                    <th className="text-left py-3 px-4 font-medium text-[hsl(var(--muted-foreground))]">Nome</th>
+                    <th className="text-left py-3 px-4 font-medium text-[hsl(var(--muted-foreground))]">Tipo</th>
+                    <th className="text-left py-3 px-4 font-medium text-[hsl(var(--muted-foreground))]">Kit</th>
+                    <th className="text-left py-3 px-4 font-medium text-[hsl(var(--muted-foreground))]">Funcionario</th>
+                    <th className="text-left py-3 px-4 font-medium text-[hsl(var(--muted-foreground))]">Assinado</th>
+                    <th className="text-left py-3 px-4 font-medium text-[hsl(var(--muted-foreground))]">Data</th>
                   </tr>
                 </thead>
                 <tbody>
                   {!searched ? (
                     <tr>
-                      <td colSpan={6} className="py-12 text-center text-gray-400">
+                      <td colSpan={6} className="py-12 text-center text-[hsl(var(--muted-foreground))]">
                         <Search className="h-8 w-8 mx-auto mb-2 opacity-50" />
                         Utilize os filtros acima para buscar documentos
                       </td>
                     </tr>
                   ) : results.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-12 text-center text-gray-400">
+                      <td colSpan={6} className="py-12 text-center text-[hsl(var(--muted-foreground))]">
                         <FileText className="h-8 w-8 mx-auto mb-2 opacity-50" />
                         Nenhum documento encontrado
                       </td>
                     </tr>
                   ) : (
                     results.map((doc) => (
-                      <tr key={doc.id} className="border-b border-gray-100 hover:bg-gray-50">
+                      <tr key={doc.id} className="border-b border-[hsl(var(--border))] hover:bg-[hsl(var(--secondary))]">
                         <td className="py-3 px-4 font-medium">{doc.title || doc.name || '—'}</td>
                         <td className="py-3 px-4">
-                          <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-700">
+                          <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-[hsl(var(--secondary))] text-[hsl(var(--foreground))]">
                             {doc.document_type || '—'}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-gray-600">{doc.kit_name || doc.category || '—'}</td>
-                        <td className="py-3 px-4 text-gray-600">{doc.employee_name || '—'}</td>
+                        <td className="py-3 px-4 text-[hsl(var(--muted-foreground))]">{doc.kit_name || doc.category || '—'}</td>
+                        <td className="py-3 px-4 text-[hsl(var(--muted-foreground))]">{doc.employee_name || '—'}</td>
                         <td className="py-3 px-4">
                           {doc.signed || doc.status === 'assinado' ? (
-                            <CheckCircle className="h-5 w-5 text-green-500" />
+                            <CheckCircle className="h-5 w-5 text-emerald-500" />
                           ) : (
-                            <XCircle className="h-5 w-5 text-red-400" />
+                            <XCircle className="h-5 w-5 text-red-500" />
                           )}
                         </td>
-                        <td className="py-3 px-4 text-gray-600">{formatDate(doc.created_at)}</td>
+                        <td className="py-3 px-4 text-[hsl(var(--muted-foreground))]">{formatDate(doc.created_at)}</td>
                       </tr>
                     ))
                   )}
