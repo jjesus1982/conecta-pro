@@ -146,6 +146,18 @@ app.conf.update(
 
 # Beat Schedule (tarefas agendadas)
 app.conf.beat_schedule = {
+    # ── Financeiro — Conciliação bancária diária (extrato Inter → bridge → categoriza) ──
+    "financeiro-conciliacao-inter-diaria": {
+        "task": "financial.inter_reconciliacao_diaria",
+        "schedule": crontab(hour=8, minute=0),
+        "options": {"queue": "gov.batch"},
+    },
+    # ── Financeiro — Monitor de pagamentos pendentes de aprovação (status vivo do Inter) ──
+    "financeiro-monitor-pagamentos-pendentes": {
+        "task": "financial.inter_monitorar_pendentes",
+        "schedule": crontab(minute="*/5"),
+        "options": {"queue": "gov.batch"},
+    },
     # ── GEDEON — Kronos/Themis ────────────────────────────────────────────────
     "gedeon-kronos-diario": {
         "task": "gedeon.kronos.verificacao_diaria",
@@ -212,6 +224,17 @@ app.conf.beat_schedule = {
         "task": "government_integrations.tasks.sync.sincronizar_nfe_entrada",
         "schedule": crontab(minute=0, hour="*/2"),
         "options": {"queue": "gov.sefaz.nfe"},
+    },
+    # NFS-e nacional (gov.br/ADN): receita emitidas + custo tomadas — diário 04:30.
+    # Junho e futuros completam sozinhos quando o Ambiente Nacional recebe as notas.
+    "financial-nfse-nacional-diario": {
+        "task": "financial.sincronizar_nfse_nacional",
+        "schedule": crontab(hour=4, minute=30),
+    },
+    # Contabilidade que fecha sozinha: folha + ISS no razão — diariamente às 05:00
+    "financial-fechar-razao-diario": {
+        "task": "financial.fechar_razao_auto",
+        "schedule": crontab(hour=5, minute=0),
     },
     # =========================================================================
     # SÓLIDES - INTEGRAÇÃO RH/DP

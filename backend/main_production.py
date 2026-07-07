@@ -1173,6 +1173,36 @@ for _mod, _label in [
     except Exception as _e:  # noqa: BLE001
         logger.warning("Jurídico — %s: %s", _label, _e)
 
+# Financeiro — CFO IA (consultor financeiro ancorado nos números reais do ERP)
+try:
+    import importlib as _il_cfo
+
+    _cfo_mod = _il_cfo.import_module("modules.financial.cfo_controller")
+    api_router.include_router(_cfo_mod.router)
+    logger.info("Financeiro — CFO IA: OK")
+except Exception as _e:  # noqa: BLE001
+    logger.warning("Financeiro — CFO IA: %s", _e)
+
+# Financeiro — Pagamentos de diaristas (elo Operacional→Financeiro: escala vira lote a pagar)
+try:
+    import importlib as _il_pgd
+
+    _pgd_mod = _il_pgd.import_module("modules.financial.pagamentos_diaristas_controller")
+    api_router.include_router(_pgd_mod.router)
+    logger.info("Financeiro — Pagamentos Diaristas: OK")
+except Exception as _e:  # noqa: BLE001
+    logger.warning("Financeiro — Pagamentos Diaristas: %s", _e)
+
+# Operacional — Diárias (modelo da planilha: cadastros + lançamento c/ valor automático + resumo dia 15)
+try:
+    import importlib as _il_dia
+
+    _dia_mod = _il_dia.import_module("modules.operacional.diaristas.diarias_controller")
+    api_router.include_router(_dia_mod.router)
+    logger.info("Operacional — Diárias: OK")
+except Exception as _e:  # noqa: BLE001
+    logger.warning("Operacional — Diárias: %s", _e)
+
 # Incluir router principal
 try:
     from modules.scheduler.controllers import router as _scheduler_router
