@@ -127,7 +127,7 @@ app.conf.task_routes = {
 # Configurações gerais
 app.conf.update(
     # Timezone
-    timezone="America/Sao_Paulo",
+    timezone="America/Manaus",
     enable_utc=True,
     # Serialização
     task_serializer="json",
