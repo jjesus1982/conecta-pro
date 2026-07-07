@@ -17,45 +17,6 @@ from modules.hr.employee_portal.schemas import (
 logger = logging.getLogger(__name__)
 
 
-def _payslip_brand_page(canvas, doc):
-    """Marca Conecta Mais (logo + linha no topo, rodapé oficial) em todas as páginas do holerite."""
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.units import mm
-
-    from modules.crm.services import pdf_branding as B
-
-    canvas.saveState()
-    w, h = A4
-    lp = B.logo_path("header")
-    drew = False
-    if lp:
-        try:
-            canvas.drawImage(
-                lp, 15 * mm, h - 20 * mm, width=50 * mm, height=12 * mm,
-                preserveAspectRatio=True, anchor="sw", mask="auto",
-            )
-            drew = True
-        except Exception:  # noqa: BLE001
-            pass
-    if not drew:
-        canvas.setFont("Helvetica-Bold", 8)
-        canvas.setFillColor(B.AZUL_ESCURO)
-        canvas.drawString(15 * mm, h - 15 * mm, B.EMPRESA["nome"])
-    canvas.setStrokeColor(B.LARANJA)
-    canvas.setLineWidth(1.2)
-    canvas.line(15 * mm, h - 22 * mm, w - 15 * mm, h - 22 * mm)
-    canvas.setStrokeColor(B.AZUL_ESCURO)
-    canvas.setLineWidth(0.6)
-    canvas.line(15 * mm, 14 * mm, w - 15 * mm, 14 * mm)
-    canvas.setFont("Helvetica", 6.5)
-    canvas.setFillColor(B.AZUL_MEDIO)
-    canvas.drawString(
-        15 * mm, 10 * mm, f"{B.EMPRESA['nome']} | CNPJ: {B.EMPRESA['cnpj']} | {B.EMPRESA['fone']} | {B.EMPRESA['site']}"
-    )
-    canvas.drawRightString(w - 15 * mm, 10 * mm, f"Página {doc.page}")
-    canvas.restoreState()
-
-
 class PaySlipService:
     """Service para operações de contracheques."""
 
@@ -189,209 +150,117 @@ class PaySlipService:
         self,
         payslip_id: UUID,
     ) -> str | None:
-        """Gera PDF do contracheque com ReportLab."""
+        """Gera o PDF do contracheque no PADRÃO-OURO Conecta Mais (mesmo do holerite do DP).
+
+        Recalcula pelo motor da folha (idêntico ao holerite oficial); se o colaborador não
+        estiver ativo/calculável, usa os dados publicados no próprio contracheque (JSONB).
+        """
         payslip = await self.repo.get_by_id(payslip_id)
         if not payslip:
             return None
 
         from pathlib import Path
 
-        from reportlab.lib import colors
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-        from reportlab.lib.units import cm, mm
-        from reportlab.platypus import (
-            Paragraph,
-            SimpleDocTemplate,
-            Spacer,
-            Table,
-            TableStyle,
-        )
+        from modules.people_management.folha.services.holerite_pdf import montar_holerite_pdf
 
-        # Diretório de saída
         out_dir = Path(f"/app/uploads/payslips/{payslip.condominio_id}")
         out_dir.mkdir(parents=True, exist_ok=True)
         pdf_file = out_dir / f"{payslip.payslip_code}.pdf"
 
-        styles = getSampleStyleSheet()
-        title_s = ParagraphStyle("T", parent=styles["Title"], fontSize=14, spaceAfter=2 * mm)
-        normal_s = ParagraphStyle("N", parent=styles["Normal"], fontSize=8, leading=10)
-        bold_s = ParagraphStyle("B", parent=normal_s, fontName="Helvetica-Bold")
-        small_s = ParagraphStyle("S", parent=normal_s, fontSize=7, textColor=colors.grey)
+        emp_id = str(payslip.employee_id)
+        mes = int(payslip.reference_month)
+        ano = int(payslip.reference_year)
 
-        doc = SimpleDocTemplate(
-            str(pdf_file),
-            pagesize=A4,
-            leftMargin=1.5 * cm,
-            rightMargin=1.5 * cm,
-            topMargin=2.7 * cm,
-            bottomMargin=1.8 * cm,
-        )
-        story = []
+        data_pag = None
+        if getattr(payslip, "payment_date", None):
+            try:
+                data_pag = payslip.payment_date.strftime("%d/%m/%Y")
+            except Exception:
+                data_pag = str(payslip.payment_date)
 
-        # Faixa de título (a marca Conecta Mais é desenhada no topo por _payslip_brand_page)
-        story.append(Paragraph(f"CONTRACHEQUE — {payslip.payslip_code}", title_s))
-        story.append(Spacer(1, 5 * mm))
+        holerite = None
+        fdad: dict = {}
+        # 1) Padrão-ouro: recalcula pelo motor da folha (idêntico ao holerite do DP)
+        try:
+            from sqlalchemy import text as _text
 
-        # Dados do funcionário
-        emp_data = [
-            [
-                "Funcionário",
-                str(getattr(payslip, "employee_name", "") or "—"),
-                "Matrícula",
-                str(getattr(payslip, "employee_matricula", "") or "—"),
-            ],
-            [
-                "Cargo",
-                str(getattr(payslip, "employee_cargo", "") or "—"),
-                "Departamento",
-                str(getattr(payslip, "employee_departamento", "") or "—"),
-            ],
-            [
-                "Competência",
-                str(payslip.payslip_code or ""),
-                "Tipo",
-                str(getattr(payslip, "payslip_type", "") or "MENSAL"),
-            ],
-        ]
-        emp_table = Table(emp_data, colWidths=[2.5 * cm, 6.5 * cm, 2.5 * cm, 6.5 * cm])
-        emp_table.setStyle(
-            TableStyle(
-                [
-                    ("FONTSIZE", (0, 0), (-1, -1), 8),
-                    ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-                    ("FONTNAME", (2, 0), (2, -1), "Helvetica-Bold"),
-                    ("GRID", (0, 0), (-1, -1), 0.3, colors.grey),
-                    ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f0f0f0")),
-                    ("BACKGROUND", (2, 0), (2, -1), colors.HexColor("#f0f0f0")),
-                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                    ("TOPPADDING", (0, 0), (-1, -1), 2),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-                ]
+            from core.database.session import get_sync_db_dependency
+            from modules.people_management.folha.services.calculo_service import (
+                calcular_folha_colaborador,
             )
-        )
-        story.append(emp_table)
-        story.append(Spacer(1, 5 * mm))
 
-        # Proventos e descontos
-        earnings = getattr(payslip, "earnings", []) or []
-        deductions = getattr(payslip, "deductions", []) or []
+            sdb = next(get_sync_db_dependency())
+            try:
+                res = calcular_folha_colaborador(sdb, emp_id, mes, ano)
+                if "error" not in res:
+                    holerite = res
+                    row = sdb.execute(
+                        _text("SELECT cpf, pis, matricula, data_admissao FROM employees WHERE CAST(id AS TEXT) = :e"),
+                        {"e": emp_id},
+                    ).first()
+                    if row:
+                        adm = row[3]
+                        fdad = {
+                            "cpf": row[0],
+                            "pis": row[1] or "—",
+                            "matricula": row[2] or "—",
+                            "data_admissao": adm.strftime("%d/%m/%Y") if hasattr(adm, "strftime") else (adm or "—"),
+                            "posto": res.get("posto") or res.get("condominio") or "—",
+                        }
+            finally:
+                sdb.close()
+        except Exception:
+            logger.exception("Falha ao recalcular contracheque %s pelo motor; usando dados publicados", payslip_id)
+            holerite = None
 
-        prov_header = [
-            Paragraph("<b>Código</b>", small_s),
-            Paragraph("<b>Descrição</b>", small_s),
-            Paragraph("<b>Ref.</b>", small_s),
-            Paragraph("<b>Valor (R$)</b>", small_s),
-        ]
-        prov_rows = [prov_header]
-        total_prov = 0
-        for e in earnings if isinstance(earnings, list) else []:
-            val = float(e.get("value", 0) if isinstance(e, dict) else getattr(e, "value", 0))
-            total_prov += val
-            prov_rows.append(
-                [
-                    str(e.get("code", "") if isinstance(e, dict) else getattr(e, "code", "")),
-                    str(e.get("description", "") if isinstance(e, dict) else getattr(e, "description", "")),
-                    str(e.get("reference", "") if isinstance(e, dict) else getattr(e, "reference", "")),
-                    f"{val:,.2f}",
-                ]
-            )
-        prov_rows.append(["", Paragraph("<b>TOTAL PROVENTOS</b>", bold_s), "", f"{total_prov:,.2f}"])
+        # 2) Fallback: monta a partir dos dados publicados no contracheque (JSONB)
+        if holerite is None:
 
-        desc_header = [
-            Paragraph("<b>Código</b>", small_s),
-            Paragraph("<b>Descrição</b>", small_s),
-            Paragraph("<b>Ref.</b>", small_s),
-            Paragraph("<b>Valor (R$)</b>", small_s),
-        ]
-        desc_rows = [desc_header]
-        total_desc = 0
-        for d in deductions if isinstance(deductions, list) else []:
-            val = float(d.get("value", 0) if isinstance(d, dict) else getattr(d, "value", 0))
-            total_desc += val
-            desc_rows.append(
-                [
-                    str(d.get("code", "") if isinstance(d, dict) else getattr(d, "code", "")),
-                    str(d.get("description", "") if isinstance(d, dict) else getattr(d, "description", "")),
-                    str(d.get("reference", "") if isinstance(d, dict) else getattr(d, "reference", "")),
-                    f"{val:,.2f}",
-                ]
-            )
-        desc_rows.append(["", Paragraph("<b>TOTAL DESCONTOS</b>", bold_s), "", f"{total_desc:,.2f}"])
+            def _map(items):
+                mapped = []
+                for it in items or []:
+                    if isinstance(it, dict):
+                        mapped.append(
+                            {
+                                "descricao": it.get("description") or it.get("descricao") or "—",
+                                "referencia": it.get("reference") or it.get("referencia") or "",
+                                "valor": float(it.get("value") or it.get("valor") or 0),
+                            }
+                        )
+                return mapped
 
-        col_w = [2 * cm, 8.5 * cm, 2 * cm, 3 * cm]
-        tbl_style = TableStyle(
-            [
-                ("FONTSIZE", (0, 0), (-1, -1), 7),
-                ("GRID", (0, 0), (-1, -1), 0.3, colors.grey),
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2d3748")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("ALIGN", (3, 0), (3, -1), "RIGHT"),
-                ("TOPPADDING", (0, 0), (-1, -1), 2),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-            ]
-        )
+            holerite = {
+                "employee_nome": getattr(payslip, "employee_name", "") or "—",
+                "cargo": getattr(payslip, "employee_cargo", "") or "—",
+                "escala": getattr(payslip, "employee_escala", "") or "—",
+                "mes": mes,
+                "ano": ano,
+                "proventos": _map(getattr(payslip, "earnings", [])),
+                "descontos": _map(getattr(payslip, "deductions", [])),
+                "total_proventos": float(payslip.total_earnings or 0),
+                "total_descontos": float(payslip.total_deductions or 0),
+                "liquido": float(payslip.net_salary or 0),
+                "base_inss": float(payslip.inss_base or 0),
+                "base_fgts": float(payslip.fgts_base or 0),
+                "base_irrf": float(payslip.irrf_base or 0),
+                "fgts_empresa": float(payslip.fgts_value or 0),
+            }
+            fdad = {
+                "matricula": getattr(payslip, "employee_matricula", "") or "—",
+                "posto": getattr(payslip, "employee_departamento", "") or "—",
+            }
 
-        story.append(Paragraph("<b>PROVENTOS</b>", bold_s))
-        t1 = Table(prov_rows, colWidths=col_w)
-        t1.setStyle(tbl_style)
-        story.append(t1)
-        story.append(Spacer(1, 3 * mm))
+        if data_pag:
+            holerite["data_pagamento"] = data_pag
 
-        story.append(Paragraph("<b>DESCONTOS</b>", bold_s))
-        t2 = Table(desc_rows, colWidths=col_w)
-        t2.setStyle(tbl_style)
-        story.append(t2)
-        story.append(Spacer(1, 5 * mm))
-
-        # Líquido
-        liquido = total_prov - total_desc
-        liq_data = [
-            [
-                "SALÁRIO BRUTO",
-                f"R$ {total_prov:,.2f}",
-                "DESCONTOS",
-                f"R$ {total_desc:,.2f}",
-                "LÍQUIDO",
-                f"R$ {liquido:,.2f}",
-            ]
-        ]
-        liq_table = Table(liq_data, colWidths=[2.5 * cm, 3.5 * cm, 2.5 * cm, 3.5 * cm, 2.5 * cm, 3.5 * cm])
-        liq_table.setStyle(
-            TableStyle(
-                [
-                    ("FONTSIZE", (0, 0), (-1, -1), 9),
-                    ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
-                    ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-                    ("BACKGROUND", (4, 0), (5, 0), colors.HexColor("#c6f6d5")),
-                    ("ALIGN", (1, 0), (1, 0), "RIGHT"),
-                    ("ALIGN", (3, 0), (3, 0), "RIGHT"),
-                    ("ALIGN", (5, 0), (5, 0), "RIGHT"),
-                ]
-            )
-        )
-        story.append(liq_table)
-        story.append(Spacer(1, 1 * cm))
-
-        # Rodapé
-        story.append(Paragraph("_" * 50, normal_s))
-        story.append(Paragraph("Assinatura do Funcionário", small_s))
-        story.append(Spacer(1, 5 * mm))
-        story.append(
-            Paragraph(
-                f"Documento gerado eletronicamente pelo Conecta PRO em {datetime.now().strftime('%d/%m/%Y %H:%M')}",
-                small_s,
-            )
-        )
-
-        doc.build(story, onFirstPage=_payslip_brand_page, onLaterPages=_payslip_brand_page)
+        pdf_file.write_bytes(montar_holerite_pdf(holerite, fdad))
 
         pdf_path = str(pdf_file)
         payslip.pdf_path = pdf_path
         payslip.pdf_generated_at = datetime.utcnow()
         await self.db.commit()
 
-        logger.info("PDF gerado para contracheque %s em %s", payslip_id, pdf_path)
+        logger.info("PDF (padrão-ouro) gerado para contracheque %s em %s", payslip_id, pdf_path)
         return pdf_path
 
     async def publish_payslip(

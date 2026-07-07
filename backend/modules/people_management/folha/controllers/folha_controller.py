@@ -62,6 +62,131 @@ async def calcular_holerite(
     return HoleriteResponse(**result)
 
 
+@router.get(
+    "/holerite/{employee_id}/{mes}/{ano}/pdf",
+    summary="Baixar holerite em PDF (padrão-ouro Conecta Mais, 1 folha A4)",
+)
+def baixar_holerite_pdf(
+    employee_id: str,
+    mes: int,
+    ano: int,
+    db: Session = Depends(get_sync_db_dependency),
+):
+    """Gera o PDF completo e branded do holerite (proventos, descontos, bases, FGTS, assinaturas)."""
+    from fastapi.responses import Response
+    from sqlalchemy import text
+
+    from ..services.holerite_pdf import montar_holerite_pdf
+
+    result = calculo_service.calcular_folha_colaborador(db, employee_id, mes, ano)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+
+    # dados do funcionário para o cabeçalho (tolerante a colunas ausentes)
+    fdad: dict[str, Any] = {}
+    try:
+        row = db.execute(
+            text("SELECT cpf, pis, matricula, data_admissao FROM employees WHERE CAST(id AS TEXT) = :e"),
+            {"e": str(employee_id)},
+        ).first()
+        if row:
+            adm = row[3]
+            fdad = {
+                "cpf": row[0],
+                "pis": row[1] or "—",
+                "matricula": row[2] or "—",
+                "data_admissao": adm.strftime("%d/%m/%Y") if hasattr(adm, "strftime") else (adm or "—"),
+                "posto": result.get("posto") or result.get("condominio") or "—",
+            }
+    except Exception:
+        fdad = {}
+
+    # Data de PAGAMENTO real: do fechamento/lote (payroll_periods) da competência.
+    # Preferir o período JÁ PAGO/aprovado; sem data confirmada → holerite deixa campo em branco.
+    try:
+        dp = db.execute(
+            text(
+                "SELECT payment_date FROM payroll_periods "
+                "WHERE reference_month = :m AND reference_year = :y AND payment_date IS NOT NULL "
+                "ORDER BY (status IN ('paid','closed','approved')) DESC, payment_date DESC LIMIT 1"
+            ),
+            {"m": mes, "y": ano},
+        ).scalar()
+        if dp:
+            fdad["data_pagamento"] = dp.strftime("%d/%m/%Y") if hasattr(dp, "strftime") else str(dp)
+    except Exception:
+        pass
+
+    pdf = montar_holerite_pdf(result, fdad)
+    nome = (result.get("employee_nome") or "colaborador").split()[0].lower()
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="holerite_{nome}_{mes:02d}_{ano}.pdf"'},
+    )
+
+
+@router.get(
+    "/recibo-vt-vr/{employee_id}/{mes}/{ano}/pdf",
+    summary="Baixar Recibo de VT e VR em PDF (padrão-ouro Conecta Mais)",
+)
+def baixar_recibo_vt_vr_pdf(
+    employee_id: str,
+    mes: int,
+    ano: int,
+    vt_concedido: float | None = Query(default=None, description="Valor do crédito de VT concedido (tarifa × dias)"),
+    db: Session = Depends(get_sync_db_dependency),
+):
+    """Gera o PDF do Recibo de Vale-Transporte e Vale-Refeição da competência."""
+    from fastapi.responses import Response
+    from sqlalchemy import text
+
+    from ..services.recibo_vt_vr_pdf import montar_recibo_vt_vr_pdf
+
+    result = calculo_service.calcular_folha_colaborador(db, employee_id, mes, ano)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+
+    fdad: dict[str, Any] = {}
+    try:
+        row = db.execute(
+            text("SELECT cpf, pis, matricula FROM employees WHERE CAST(id AS TEXT) = :e"),
+            {"e": str(employee_id)},
+        ).first()
+        if row:
+            fdad = {
+                "cpf": row[0],
+                "pis": row[1] or "—",
+                "matricula": row[2] or "—",
+                "posto": result.get("posto") or result.get("condominio") or "—",
+            }
+    except Exception:
+        fdad = {}
+
+    # data de pagamento real (mesmo do holerite): fechamento/lote da competência
+    try:
+        dp = db.execute(
+            text(
+                "SELECT payment_date FROM payroll_periods "
+                "WHERE reference_month = :m AND reference_year = :y AND payment_date IS NOT NULL "
+                "ORDER BY (status IN ('paid','closed','approved')) DESC, payment_date DESC LIMIT 1"
+            ),
+            {"m": mes, "y": ano},
+        ).scalar()
+        if dp:
+            fdad["data_pagamento"] = dp.strftime("%d/%m/%Y") if hasattr(dp, "strftime") else str(dp)
+    except Exception:
+        pass
+
+    pdf = montar_recibo_vt_vr_pdf(result, fdad, vt_concedido=vt_concedido)
+    nome = (result.get("employee_nome") or "colaborador").split()[0].lower()
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="recibo_vt_vr_{nome}_{mes:02d}_{ano}.pdf"'},
+    )
+
+
 @router.post(
     "/calcular/todos/{mes}/{ano}",
     response_model=FolhaBatchResponse,

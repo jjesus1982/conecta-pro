@@ -30,8 +30,9 @@ async def financial_overview_stats(
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Overview financeiro: receita, despesa, saldo, inadimplencia."""
-    # Receita: NFS-e emitidas (acumulado)
-    r_nfse = (await db.execute(text("SELECT COALESCE(SUM(valor_servicos), 0) FROM nfses WHERE active = true"))).scalar()
+    # Receita: NFS-e emitidas (acumulado) — fonte autoritativa nfse_emitidas_nacional
+    # (todas as linhas sao validas cStat 100; sem coluna active/status).
+    r_nfse = (await db.execute(text("SELECT COALESCE(SUM(valor_servicos), 0) FROM nfse_emitidas_nacional"))).scalar()
 
     # Despesa: payable_accounts pagos
     r_desp = (
@@ -105,16 +106,20 @@ async def receivable_stats(
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Stats de contas a receber."""
+    # Saldo em aberto = valor liquido a receber menos o que ja foi pago
+    # (COALESCE(remaining_value, net_value - paid_value)). Isso desconta parciais
+    # e usa net_value (nao gross_value) para bater com o extrato do banco.
+    saldo = "COALESCE(remaining_value, net_value - COALESCE(paid_value, 0))"
     r = await db.execute(
         text(
             "SELECT "
             "  COUNT(*) as total, "
             "  COUNT(*) FILTER (WHERE status NOT IN ('paga','cancelada','baixada')) as pendentes, "
-            "  COALESCE(SUM(gross_value) FILTER (WHERE status NOT IN ('paga','cancelada','baixada')), 0) as total_pendente, "
+            f"  COALESCE(SUM({saldo}) FILTER (WHERE status NOT IN ('paga','cancelada','baixada')), 0) as total_pendente, "
             "  COUNT(*) FILTER (WHERE status NOT IN ('paga','cancelada','baixada') AND due_date < CURRENT_DATE) as vencidas, "
-            "  COALESCE(SUM(gross_value) FILTER (WHERE status NOT IN ('paga','cancelada','baixada') AND due_date < CURRENT_DATE), 0) as total_vencido, "
+            f"  COALESCE(SUM({saldo}) FILTER (WHERE status NOT IN ('paga','cancelada','baixada') AND due_date < CURRENT_DATE), 0) as total_vencido, "
             "  COUNT(*) FILTER (WHERE status IN ('paga')) as recebidas, "
-            "  COALESCE(SUM(gross_value) FILTER (WHERE status IN ('paga')), 0) as total_recebido "
+            "  COALESCE(SUM(COALESCE(paid_value, net_value)) FILTER (WHERE status IN ('paga')), 0) as total_recebido "
             "FROM receivable_accounts"
         )
     )

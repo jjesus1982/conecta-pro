@@ -171,6 +171,7 @@ class PortalService:
             "name": "",
             "position": None,
             "workplace": None,
+            "escala": None,
             "next_shift": None,
             "pending_documents": 0,
             "unread_notifications": 0,
@@ -190,7 +191,9 @@ class PortalService:
                 dashboard["workplace"] = getattr(employee, "cliente_nome", None) or getattr(
                     employee, "posto_atual_nome", None
                 )
-                dashboard["next_shift"] = getattr(employee, "escala_padrao", None)
+                # escala_padrao e o TIPO de escala (ex.: '12x36', '44h'), nao um turno agendado.
+                # Expor como 'escala'; next_shift permanece None ate haver fonte real de agenda.
+                dashboard["escala"] = getattr(employee, "escala_padrao", None)
 
         except ImportError:
             logger.warning("Modelo Employee nao disponivel para dashboard.")
@@ -213,6 +216,10 @@ class PortalService:
 
         # [Veracidade] documentos pendentes = docs do funcionario ainda NAO assinados em ged_kit_documents.
         # Era max(0, 0 - signed) -> sempre 0 (formula quebrada/placeholder).
+        # [Veracidade] Aplica o MESMO filtro de veracidade da tela /portal/my-documents
+        # (document_view_service.get_my_documents): exclui placeholders e registros
+        # sem arquivo (file_path NULL). Sem isso o card mostrava 35 (8 reais + 16 sem
+        # arquivo + 11 placeholders), contradizendo a tela que so lista os 8 reais.
         try:
             from sqlalchemy import text as _sqltext
 
@@ -220,7 +227,9 @@ class PortalService:
                 await self.db.execute(
                     _sqltext(
                         "SELECT count(*) FROM ged_kit_documents "
-                        "WHERE CAST(employee_id AS TEXT) = :e AND is_signed = false"
+                        "WHERE CAST(employee_id AS TEXT) = :e AND is_signed = false "
+                        "AND file_path IS NOT NULL "
+                        "AND COALESCE(document_name, '') NOT LIKE '[PLACEHOLDER]%'"
                     ),
                     {"e": str(employee_id)},
                 )

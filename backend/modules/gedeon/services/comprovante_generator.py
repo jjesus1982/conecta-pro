@@ -81,29 +81,41 @@ def gerar_comprovante_pdf(
     W, H = A4
     x0, x1 = 20 * mm, W - 20 * mm
 
-    # ── Cabeçalho (marca Conecta Mais) ──
-    c.setFillColor(_AZUL)
-    c.rect(0, H - 32 * mm, W, 32 * mm, fill=1, stroke=0)
-    # faixa laranja da marca no topo
+    # ── Cabeçalho (marca Conecta Mais — logo cheia sobre fundo branco) ──
+    # faixa laranja fina no topo
     c.setFillColor(_LARANJA)
-    c.rect(0, H - 3 * mm, W, 3 * mm, fill=1, stroke=0)
-    # logo Conecta Mais (canto direito do banner); ignora se ausente
-    _lg = B.logo_path("header")
-    if _lg:
+    c.rect(0, H - 2.5 * mm, W, 2.5 * mm, fill=1, stroke=0)
+    # logo COMPLETA Conecta Mais (canto esquerdo, cores da marca sobre branco)
+    for _lg in ("/app/uploads/assets/conecta-mais/conecta-mais.png", B.logo_path("cover"), B.logo_path("header")):
+        if not _lg:
+            continue
         try:
             c.drawImage(
-                _lg, x1 - 52 * mm, H - 14 * mm, width=52 * mm, height=11 * mm,
-                preserveAspectRatio=True, anchor="ne", mask="auto",
+                _lg,
+                x0,
+                H - 34 * mm,
+                width=46 * mm,
+                height=26 * mm,
+                preserveAspectRatio=True,
+                anchor="nw",
+                mask="auto",
             )
+            break
         except Exception:
-            pass
-    c.setFillColor(colors.white)
-    c.setFont("Helvetica-Bold", 18)
-    c.drawString(x0, H - 18 * mm, "COMPROVANTE DE PAGAMENTO")
-    c.setFont("Helvetica", 10)
-    c.drawString(x0, H - 25 * mm, f"{EMPRESA_NOME}  •  CNPJ {EMPRESA_CNPJ}")
-    c.setFont("Helvetica", 9)
-    c.drawRightString(x1, H - 29 * mm, BANCO_ORIGEM)
+            continue
+    # título e dados da empresa à direita, em azul
+    c.setFillColor(_AZUL)
+    c.setFont("Helvetica-Bold", 17)
+    c.drawRightString(x1, H - 15 * mm, "COMPROVANTE DE PAGAMENTO")
+    c.setFillColor(_CINZA)
+    c.setFont("Helvetica", 8.5)
+    c.drawRightString(x1, H - 20 * mm, EMPRESA_NOME)
+    c.drawRightString(x1, H - 24 * mm, f"CNPJ {EMPRESA_CNPJ}")
+    c.drawRightString(x1, H - 28 * mm, BANCO_ORIGEM)
+    # régua fina azul separando o cabeçalho
+    c.setStrokeColor(_AZUL)
+    c.setLineWidth(0.6)
+    c.line(x0, H - 37 * mm, x1, H - 37 * mm)
 
     # ── Valor em destaque ──
     y = H - 50 * mm
@@ -158,7 +170,8 @@ def gerar_comprovante_pdf(
     c.setFillColor(_AZUL)
     c.setFont("Helvetica-Bold", 7.5)
     c.drawString(
-        x0, 16 * mm,
+        x0,
+        16 * mm,
         f"{B.EMPRESA['nome']} | CNPJ: {B.EMPRESA['cnpj']} | {B.EMPRESA['fone']} | {B.EMPRESA['site']}",
     )
     c.setFillColor(_CINZA)

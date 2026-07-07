@@ -88,13 +88,13 @@ async def get_financial_dashboard(
             SELECT
                 COALESCE(SUM(net_value) FILTER (
                     WHERE due_date < CURRENT_DATE
-                    AND status NOT IN ('pago','cancelado','cancelled')), 0) AS vencido,
+                    AND status NOT IN ('pago','cancelado','cancelled','cancelada','baixada')), 0) AS vencido,
                 COALESCE(SUM(net_value) FILTER (
                     WHERE due_date >= CURRENT_DATE
-                    AND status NOT IN ('pago','cancelado','cancelled')), 0) AS a_vencer,
+                    AND status NOT IN ('pago','cancelado','cancelled','cancelada','baixada')), 0) AS a_vencer,
                 COUNT(*) FILTER (
                     WHERE due_date < CURRENT_DATE
-                    AND status NOT IN ('pago','cancelado','cancelled')) AS qtd_vencido
+                    AND status NOT IN ('pago','cancelado','cancelled','cancelada','baixada')) AS qtd_vencido
             FROM payable_accounts
         """)
         )
@@ -106,11 +106,11 @@ async def get_financial_dashboard(
             SELECT
                 COALESCE(SUM(net_value) FILTER (
                     WHERE due_date < CURRENT_DATE
-                    AND status NOT IN ('pago','cancelado','cancelled','paga')), 0) AS vencido,
+                    AND status NOT IN ('pago','cancelado','cancelled','paga','cancelada','baixada')), 0) AS vencido,
                 COALESCE(SUM(net_value) FILTER (
-                    WHERE status NOT IN ('pago','cancelado','cancelled','paga')), 0) AS total_pendente,
+                    WHERE status NOT IN ('pago','cancelado','cancelled','paga','cancelada','baixada')), 0) AS total_pendente,
                 COUNT(*) FILTER (
-                    WHERE status NOT IN ('pago','cancelado','cancelled','paga')) AS qtd_pendente
+                    WHERE status NOT IN ('pago','cancelado','cancelled','paga','cancelada','baixada')) AS qtd_pendente
             FROM receivable_accounts
         """)
         )

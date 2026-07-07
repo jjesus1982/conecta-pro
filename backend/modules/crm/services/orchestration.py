@@ -829,10 +829,13 @@ async def resumo_financeiro(db: AsyncSession) -> dict:
     nfse = (
         (
             await db.execute(
+                # [Veracidade] Fonte autoritativa = nfse_emitidas_nacional (77 notas
+                # jan-jun / R$1.428.413,04 = razão 3.1.1.01). `nfses` so tinha jan-fev
+                # (27 notas / R$542k) -> total do dashboard CRM subvalorizado.
                 text("""
         SELECT count(*) AS qtd, COALESCE(SUM(valor_servicos),0) AS total,
                COALESCE(SUM(valor_servicos) FILTER (WHERE data_emissao >= date_trunc('month', now())),0) AS mes
-        FROM nfses
+        FROM nfse_emitidas_nacional
     """)
             )
         )

@@ -2,7 +2,7 @@
 
 Recalcula os KPIs "congelados" das tabelas `executive_kpis` e `financial_kpis`
 a partir do dado REAL das tabelas de origem (contracts, hr_payslips, clients,
-employees, bank_accounts, inter_transactions, nfses).
+employees, bank_accounts, inter_transactions, nfse_emitidas_nacional).
 
 Regra: para cada KPI reconhecido (por code/codigo), calcula o valor real,
 move current -> previous e grava o novo valor + last_calculated_at = now().
@@ -19,8 +19,8 @@ Fontes provadas (2026-07, DB conecta_pro):
                         (clients total = 14)
     - FUNCIONARIOS:     COUNT(employees) WHERE status='ativo' = 50
     - SALDO:            SUM(bank_accounts.current_balance) WHERE ativo = 54688.03
-    - NFS-e:            COUNT(nfses) WHERE status='autorizada' = 27
-    - ISS:              SUM(nfses.iss_valor) WHERE status='autorizada' = 27133.76
+    - NFS-e:            COUNT(nfse_emitidas_nacional) = 77
+    - ISS:              SUM(nfse_emitidas_nacional.iss_valor) = 71420.71
 """
 
 from __future__ import annotations
@@ -111,19 +111,19 @@ async def src_contratos_ativos(db: AsyncSession) -> Decimal | None:
 
 
 async def src_nfse_count(db: AsyncSession) -> Decimal | None:
-    """NFS-e emitidas = notas autorizadas."""
+    """NFS-e emitidas = notas da fonte autoritativa (todas validas cStat 100)."""
     val = await _scalar(
         db,
-        "SELECT COUNT(*) FROM nfses WHERE status = 'autorizada'",
+        "SELECT COUNT(*) FROM nfse_emitidas_nacional",
     )
     return Decimal(str(val)) if val is not None else None
 
 
 async def src_iss_total(db: AsyncSession) -> Decimal | None:
-    """ISS recolhido = soma do iss_valor das NFS-e autorizadas."""
+    """ISS recolhido = soma do iss_valor das NFS-e (fonte autoritativa)."""
     val = await _scalar(
         db,
-        "SELECT COALESCE(SUM(iss_valor), 0) FROM nfses WHERE status = 'autorizada'",
+        "SELECT COALESCE(SUM(iss_valor), 0) FROM nfse_emitidas_nacional",
     )
     return Decimal(str(val)) if val is not None else None
 

@@ -377,12 +377,13 @@ async def get_relatorio_mensal(
     }
 
     # NFS-e do mês
+    # [Veracidade] Fonte autoritativa = nfse_emitidas_nacional (jan-jun, cStat 100).
+    # `nfses` so tinha jan-fev. competencia e varchar 'YYYY-MM'.
     nfse_result = await db.execute(
         text("""
         SELECT COUNT(*) as total, COALESCE(SUM(valor_servicos), 0) as valor_total
-        FROM nfses
-        WHERE active = true
-        AND DATE_TRUNC('month', data_competencia) = DATE_TRUNC('month', CAST(:mes AS date))
+        FROM nfse_emitidas_nacional
+        WHERE competencia = to_char(CAST(:mes AS date), 'YYYY-MM')
         """),
         {"mes": mes_date},
     )

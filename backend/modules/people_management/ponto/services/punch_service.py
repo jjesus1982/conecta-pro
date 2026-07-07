@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import extract, func, select, text
+from sqlalchemy import String, cast, extract, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.clock_punch import ClockPunchModel
@@ -64,8 +64,11 @@ class PunchService:
         now = datetime.utcnow()
         timestamp = data.timestamp or now.isoformat()
 
-        # Determinar status
-        status = "normal"
+        # Determinar status — vocabulário REAL do ciclo de vida do ponto: uma batida
+        # nova nasce 'pending' (aguardando aprovação) e vira 'approved' na conferência.
+        # (99,8% do banco usa pending/approved; 'normal'/'regular' eram seed legado.)
+        # 'offline'/'fora_local' são marcadores de exceção sobre esse ciclo.
+        status = "pending"
         if data.is_offline:
             status = "offline"
 
@@ -214,37 +217,48 @@ class PunchService:
         punches = list(result.scalars().all())
         batidas = [p.to_dict() for p in punches]
 
-        # Agrupa as batidas por dia para montar o espelho (formato que o front consome:
-        # dias[] com entrada1/saida1/entrada2/saida2/total). Cada par entrada->saida
-        # soma minutos trabalhados; lidamos com até 2 pares (manhã/tarde) por dia.
+        # Pareamento CRONOLÓGICO entrada->saída (mesma lógica correta do fechamento em
+        # fechar_mes / horas_service). NÃO agrupamos por dia-calendário: o turno noturno
+        # 12x36 CRUZA a meia-noite (entrada 21:00 dia N -> saída 03:00 dia N+1), então o
+        # pareamento por dia perdia todos os plantões (total=00:00, saldo -180h absurdo).
+        # Cada par é atribuído à linha do dia da ENTRADA. Até 2 pares (manhã/tarde ou
+        # 1º/2º plantão) por dia da entrada, coerente com o formato do front.
         _SEMANA = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sab", "Dom"]
-        por_dia: dict[Any, list[ClockPunchModel]] = {}
-        for p in punches:
-            if not p.punch_timestamp:
-                continue
-            por_dia.setdefault(p.punch_timestamp.date(), []).append(p)
+        seq = sorted(
+            (p for p in punches if p.punch_timestamp),
+            key=lambda x: x.punch_timestamp,
+        )
 
         def _hhmm(dt: datetime | None) -> str:
             return dt.strftime("%H:%M") if dt else ""
 
+        # Constrói pares (entrada, saída) cronológicos, ignorando pares inconsistentes
+        # (duração <=0 ou >=24h). Tipagem: 'entrada'/'retorno' abrem, 'saida' fecha.
+        pares: list[tuple[datetime, datetime]] = []
+        entrada_aberta: datetime | None = None
+        for p in seq:
+            t = (p.punch_type or "").lower()
+            if "entrada" in t or "retorno" in t:
+                entrada_aberta = p.punch_timestamp
+            elif "saida" in t and entrada_aberta is not None:
+                dur_min = (p.punch_timestamp - entrada_aberta).total_seconds() / 60.0
+                if 0 < dur_min < 24 * 60:
+                    pares.append((entrada_aberta, p.punch_timestamp))
+                entrada_aberta = None
+
+        # Agrupa os pares pela DATA DA ENTRADA (é o dia do plantão para o front).
+        por_dia_entrada: dict[Any, list[tuple[datetime, datetime]]] = {}
+        for ent, sai in pares:
+            por_dia_entrada.setdefault(ent.date(), []).append((ent, sai))
+
         dias: list[dict[str, Any]] = []
         total_min = 0
-        for data_dia in sorted(por_dia):
-            ps = sorted(por_dia[data_dia], key=lambda x: x.punch_timestamp)
-            entradas = [
-                x.punch_timestamp
-                for x in ps
-                if "entrada" in (x.punch_type or "").lower() or "retorno" in (x.punch_type or "").lower()
-            ]
-            saidas = [x.punch_timestamp for x in ps if "saida" in (x.punch_type or "").lower()]
-            # se não houver tipagem confiável, intercala pela ordem (par/ímpar)
-            if not entradas and not saidas:
-                entradas = [x.punch_timestamp for i, x in enumerate(ps) if i % 2 == 0]
-                saidas = [x.punch_timestamp for i, x in enumerate(ps) if i % 2 == 1]
-            e1 = entradas[0] if len(entradas) > 0 else None
-            s1 = saidas[0] if len(saidas) > 0 else None
-            e2 = entradas[1] if len(entradas) > 1 else None
-            s2 = saidas[1] if len(saidas) > 1 else None
+        for data_dia in sorted(por_dia_entrada):
+            plist = sorted(por_dia_entrada[data_dia], key=lambda x: x[0])
+            e1 = plist[0][0] if len(plist) > 0 else None
+            s1 = plist[0][1] if len(plist) > 0 else None
+            e2 = plist[1][0] if len(plist) > 1 else None
+            s2 = plist[1][1] if len(plist) > 1 else None
             dia_min = 0
             for ent, sai in ((e1, s1), (e2, s2)):
                 if ent and sai and sai > ent:
@@ -266,6 +280,48 @@ class PunchService:
 
         total_trabalhado = f"{total_min // 60:02d}:{total_min % 60:02d}"
 
+        # Horas esperadas por ESCALA (regra Jordan): 12x36=180h/mês, 44h=220h/mês.
+        # PRORRATEADO pelos dias decorridos no mês (útil p/ 44h, plantão p/ 12x36): mês parcial
+        # (ex.: começo de julho) não deve exibir saldo -204:00 contra o mês inteiro.
+        from sqlalchemy import text as _text
+
+        from .dashboard_service import (
+            _esperado_prorrateado_min,
+            _ESPERADO_MES,
+            _fator_prorata,
+            _hoje_manaus,
+        )
+
+        # [Ponto Ciclo3 - Achado 3] Valida EXISTÊNCIA do funcionário antes de montar o
+        # espelho. Antes, um employee_id inexistente caía no default '12x36' e o endpoint
+        # devolvia 200 com um espelho fantasma (-180h), divergindo do banco-horas que
+        # retorna 404. Agora sinalizamos ausência para o controller devolver 404 igual.
+        _emp = (await self.db.execute(
+            _text("SELECT COALESCE(escala_padrao,'12x36') FROM employees WHERE CAST(id AS text)=:e"),
+            {"e": str(employee_id)},
+        )).first()
+        if _emp is None:
+            raise ValueError("Colaborador nao encontrado")
+        escala = _emp[0] or "12x36"
+
+        _hoje = _hoje_manaus()
+        esperado_min = _esperado_prorrateado_min(escala, month, year, _hoje)
+        esperado_cheio_min = int(_ESPERADO_MES.get(escala, 220.0) * 60)
+        fator = _fator_prorata(escala, month, year, _hoje)
+
+        # [Ponto Ciclo3 - Achado 2] Distingue "não bateu ponto no período" de "trabalhou e
+        # deve horas". Sem NENHUMA batida no mês não há débito de horas a cobrar: exibir
+        # saldo -180h cru é dado incoerente. Saldo neutro (0) + obs de aguardando dado.
+        if len(batidas) == 0:
+            saldo_min = 0
+            saldo_str = "+00:00"
+            _obs_periodo = "sem batidas no periodo / aguardando dado"
+        else:
+            saldo_min = total_min - esperado_min
+            _sg = "+" if saldo_min >= 0 else "-"
+            saldo_str = f"{_sg}{abs(saldo_min) // 60:02d}:{abs(saldo_min) % 60:02d}"
+            _obs_periodo = ""
+
         return {
             "employee_id": employee_id,
             "month": month,
@@ -274,6 +330,14 @@ class PunchService:
             "total_batidas": len(batidas),
             "total_dias": len(dias),
             "total_trabalhado": total_trabalhado,
+            "escala": escala,
+            # Esperado PRORRATEADO até hoje (o que efetivamente já era devido no período decorrido).
+            "horas_esperadas": f"{esperado_min // 60:02d}:{esperado_min % 60:02d}",
+            "horas_esperadas_mes_cheio": f"{esperado_cheio_min // 60:03d}:{esperado_cheio_min % 60:02d}",
+            "prorata_pct": round(fator * 100, 1),
+            "saldo": saldo_str,
+            "saldo_minutos": saldo_min,
+            "obs": _obs_periodo,
             "dias": dias,
             "batidas": batidas,
         }
@@ -375,7 +439,36 @@ class PunchService:
 
         query = query.order_by(JustificationModel.created_at.desc())
         result = await self.db.execute(query)
-        return [j.to_dict() for j in result.scalars().all()]
+        rows = result.scalars().all()
+
+        # Enriquecer com nome do colaborador (JOIN employees) e data de referencia.
+        # gp_justifications so guarda employee_id; a UI mostra Colaborador e Data.
+        emp_ids = {j.employee_id for j in rows if j.employee_id}
+        nomes: dict[str, str] = {}
+        if emp_ids:
+            try:
+                name_rows = (
+                    await self.db.execute(
+                        text("SELECT CAST(id AS TEXT) AS id, nome FROM employees WHERE CAST(id AS TEXT) = ANY(:ids)"),
+                        {"ids": list(emp_ids)},
+                    )
+                ).fetchall()
+                nomes = {r[0]: r[1] for r in name_rows}
+            except Exception:
+                nomes = {}
+
+        out = []
+        for j in rows:
+            d = j.to_dict()
+            nome = nomes.get(str(j.employee_id))
+            d["employee_name"] = nome
+            d["colaborador"] = nome
+            # Data de referencia: created_at (data em que a justificativa foi lancada)
+            data_ref = j.created_at.date().isoformat() if j.created_at else None
+            d["data"] = data_ref
+            d["date"] = data_ref
+            out.append(d)
+        return out
 
     async def fechar_mes(
         self,
@@ -438,28 +531,78 @@ class PunchService:
         horas_noturnas = round(noturno_min / 60.0, 2)
         dias_trabalhados = len(dias_distintos)
 
-        closing = MonthlyClosingModel(
-            employee_id=employee_id,
-            month=month,
-            year=year,
-            total_horas_trabalhadas=horas_trabalhadas,  # REAL: soma dos pares entrada/saida
+        # [Ponto loop] IDEMPOTÊNCIA: re-fechar o mesmo mês NÃO pode duplicar linha.
+        # Sem UNIQUE(employee_id,month,year) no schema, aplicamos upsert manual:
+        # comparamos por CAST TEXT (robusto a variações de tipo do employee_id — linhas
+        # legadas podem ter sido criadas quando a coluna era Integer/uuid) e se já
+        # houver MAIS DE UMA linha para (employee_id,month,year), consolidamos: UPDATE
+        # na mais antiga e DELETE das órfãs (dedup na escrita, sem apagar dado real).
+        existentes = list(
+            (
+                await self.db.execute(
+                    select(MonthlyClosingModel)
+                    .where(
+                        cast(MonthlyClosingModel.employee_id, String) == str(employee_id),
+                        MonthlyClosingModel.month == month,
+                        MonthlyClosingModel.year == year,
+                    )
+                    .order_by(MonthlyClosingModel.id.asc())
+                )
+            ).scalars().all()
+        )
+        existing = existentes[0] if existentes else None
+        # Remove linhas duplicadas remanescentes (mantém apenas a mais antiga).
+        for orfa in existentes[1:]:
+            logger.warning(
+                "Fechamento duplicado removido (dedup): id=%s employee=%s %02d/%d",
+                orfa.id,
+                employee_id,
+                month,
+                year,
+            )
+            await self.db.delete(orfa)
+
+        agora = datetime.utcnow()
+        if existing is not None:
+            existing.total_horas_trabalhadas = horas_trabalhadas  # REAL: soma dos pares entrada/saida
             # Extras 50/100 e faltas: sem base confiavel de escala/jornada esperada
             # ainda; deixados em 0.0 ate haver calculo honesto (nao inventar).
-            total_horas_extras_50=0.0,
-            total_horas_extras_100=0.0,
-            total_horas_noturnas=horas_noturnas,  # REAL: janela noturna 22:00-05:00
-            total_faltas=0,
-            total_atrasos_minutos=0.0,
-            total_dias_trabalhados=dias_trabalhados,
-            fechado=True,
-            fechado_por=fechado_por,
-            fechado_em=datetime.utcnow(),
-        )
-        self.db.add(closing)
+            existing.total_horas_extras_50 = 0.0
+            existing.total_horas_extras_100 = 0.0
+            existing.total_horas_noturnas = horas_noturnas  # REAL: janela noturna 22:00-05:00
+            existing.total_faltas = 0
+            existing.total_atrasos_minutos = 0.0
+            existing.total_dias_trabalhados = dias_trabalhados
+            existing.fechado = True
+            existing.fechado_por = fechado_por
+            existing.fechado_em = agora
+            existing.updated_at = agora
+            closing = existing
+            acao = "reaberto/atualizado"
+        else:
+            closing = MonthlyClosingModel(
+                employee_id=employee_id,
+                month=month,
+                year=year,
+                total_horas_trabalhadas=horas_trabalhadas,  # REAL: soma dos pares entrada/saida
+                total_horas_extras_50=0.0,
+                total_horas_extras_100=0.0,
+                total_horas_noturnas=horas_noturnas,  # REAL: janela noturna 22:00-05:00
+                total_faltas=0,
+                total_atrasos_minutos=0.0,
+                total_dias_trabalhados=dias_trabalhados,
+                fechado=True,
+                fechado_por=fechado_por,
+                fechado_em=agora,
+            )
+            self.db.add(closing)
+            acao = "criado"
+
         await self.db.flush()
 
         logger.info(
-            "Ponto fechado: employee=%s %02d/%d (%d batidas, %d dias, %.2fh reais, %.2fh not.)",
+            "Ponto fechado (%s): employee=%s %02d/%d (%d batidas, %d dias, %.2fh reais, %.2fh not.)",
+            acao,
             employee_id,
             month,
             year,

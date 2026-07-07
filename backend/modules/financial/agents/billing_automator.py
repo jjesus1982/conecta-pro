@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from sqlalchemy import and_, func, select
 
 from modules.financial.agents.base_agent import BaseAgent
+from modules.financial.models.customer import Customer
 from modules.financial.models.receivable_account import ReceivableAccount, ReceivableStatus
 
 
@@ -55,7 +56,12 @@ class BillingAutomatorAgent(BaseAgent):
                     func.min(ReceivableAccount.due_date).label("vencimento_min"),
                     func.max(ReceivableAccount.due_date).label("vencimento_max"),
                     func.max(ReceivableAccount.status).label("status_exemplo"),
+                    # Nome real: prioriza o cliente do CRM (join), caindo para o
+                    # nome denormalizado na propria conta (NFS-e sem vinculo ao CRM).
+                    func.max(Customer.name).label("crm_customer_name"),
+                    func.max(ReceivableAccount.customer_name).label("account_customer_name"),
                 )
+                .outerjoin(Customer, ReceivableAccount.customer_id == Customer.id)
                 .where(
                     and_(
                         ReceivableAccount.due_date >= primeiro_dia,
@@ -84,10 +90,18 @@ class BillingAutomatorAgent(BaseAgent):
                 )
                 venc_medio = (venc_min + timedelta(days=venc_medio_delta)).isoformat() if venc_min else None
 
+                # Nome real do cliente: CRM > nome denormalizado na conta.
+                # So cai no placeholder do UUID se nenhum nome real existir.
+                customer_name = (
+                    row.crm_customer_name
+                    or row.account_customer_name
+                    or (f"Cliente {str(row.customer_id)[:8]}" if row.customer_id else "Sem cliente")
+                )
+
                 result.append(
                     {
                         "customer_id": str(row.customer_id) if row.customer_id else None,
-                        "customer_name": f"Cliente {str(row.customer_id)[:8]}" if row.customer_id else "Sem cliente",
+                        "customer_name": customer_name,
                         "valor_total": round(float(row.valor_total or 0), 2),
                         "qtd_titulos": row.qtd_titulos or 0,
                         "vencimento_medio": venc_medio,

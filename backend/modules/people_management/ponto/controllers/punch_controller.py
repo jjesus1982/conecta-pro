@@ -206,7 +206,12 @@ async def get_espelho_mensal(
 ) -> dict[str, Any]:
     """Retorna espelho de ponto mensal."""
     service = PunchService(db)
-    return await service.get_espelho_mensal(employee_id, month, year)
+    try:
+        return await service.get_espelho_mensal(employee_id, month, year)
+    except ValueError as e:
+        # [Ponto Ciclo3 - Achado 3] Funcionário inexistente => 404, igual ao banco-horas
+        # (antes devolvia 200 com espelho fantasma -180h).
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 @router.post("/justificativa", response_model=JustificationResponse, status_code=201)
@@ -291,6 +296,75 @@ async def fechar_mes(
         )
     )
     return MonthlyClosingResponse(**result)
+
+
+@router.post("/fechamento-mes", status_code=201)
+async def fechar_mes_todos(
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Fecha o ponto mensal de TODOS os funcionários ativos (tela Fechamento Mensal).
+    Recebe {mes, ano, fechado_por?}. Fecha cada um; retorna resumo (fechados/erros)."""
+    from sqlalchemy import text as _text
+
+    mes = int(payload.get("mes") or payload.get("month"))
+    ano = int(payload.get("ano") or payload.get("year"))
+    fechado_por = payload.get("fechado_por") or "sistema"
+    rows = (await db.execute(_text("SELECT CAST(id AS text) FROM employees WHERE status='ativo'"))).fetchall()
+    service = PunchService(db)
+    fechados, erros = 0, []
+    for (eid,) in rows:
+        try:
+            await service.fechar_mes(eid, mes, ano, fechado_por)
+            fechados += 1
+        except Exception as e:  # noqa: BLE001
+            erros.append({"employee_id": eid, "erro": str(e)[:120]})
+    return {"ok": True, "competencia": f"{ano}-{mes:02d}", "total": len(rows),
+            "fechados": fechados, "erros": len(erros), "detalhe_erros": erros[:5]}
+
+
+@router.get("/fechamento/status", summary="Status de fechamento por competência (estado REAL)")
+async def fechamento_status(
+    month: int = Query(..., ge=1, le=12),
+    year: int = Query(..., ge=2020),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Estado REAL de fechamento de uma competência a partir de gp_monthly_closings.
+
+    Retorna quantos colaboradores estão com o ponto fechado no mês/ano e deriva
+    o status da competência: 'fechado' se todos ativos fecharam, 'em_revisao' se
+    parte fechou, 'aberto' se nenhum. NUNCA hardcoded.
+    """
+    total_ativos = (
+        await db.execute(text("SELECT COUNT(*) FROM employees WHERE status='ativo'"))
+    ).scalar() or 0
+    # COUNT(DISTINCT employee_id): linhas duplicadas legadas (mesmo funcionário fechado
+    # 2x) não podem estourar o total (>100%). fechados <= colaboradores sempre.
+    row = (
+        await db.execute(
+            text(
+                "SELECT COUNT(DISTINCT employee_id) FILTER (WHERE fechado IS TRUE) AS fechados, "
+                "COUNT(*) AS registros "
+                "FROM gp_monthly_closings WHERE month = :m AND year = :y"
+            ),
+            {"m": month, "y": year},
+        )
+    ).first()
+    fechados = int(row[0]) if row else 0
+    if total_ativos > 0 and fechados >= total_ativos:
+        status = "fechado"
+    elif fechados > 0:
+        status = "em_revisao"
+    else:
+        status = "aberto"
+    return {
+        "month": month,
+        "year": year,
+        "status": status,
+        "colaboradores": int(total_ativos),
+        "fechados": fechados,
+        "pendencias": max(0, int(total_ativos) - fechados),
+    }
 
 
 # ==================== DASHBOARD E RELATORIOS (sync, dados reais) ====================

@@ -235,6 +235,20 @@ async def emitir_cobranca(
             payer_number=req.payer_number,
             payer_neighborhood=req.payer_neighborhood,
         )
+        # Inter gera o boleto de forma ASSÍNCRONA — o POST volta só com o código.
+        # Busca os dados de pagamento reais (barcode/linha/PIX/PDF) antes de persistir.
+        bid = result.get("boleto_id")
+        if bid and not (result.get("barcode") or result.get("digitable_line")):
+            import asyncio as _asyncio
+            for _tent in range(4):
+                await _asyncio.sleep(2)
+                det = await adapter.get_boleto(bid)
+                if det.get("barcode") or det.get("linha_digitavel") or det.get("pix_copy_paste"):
+                    result["barcode"] = det.get("barcode") or result.get("barcode")
+                    result["digitable_line"] = det.get("linha_digitavel") or result.get("digitable_line")
+                    result["pix_qrcode"] = det.get("pix_copy_paste") or result.get("pix_qrcode")
+                    result["pdf_url"] = det.get("pdf_url") or result.get("pdf_url")
+                    break
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Erro Inter: {exc}") from exc
     finally:

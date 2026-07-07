@@ -97,6 +97,9 @@ async def ensure_table(db: AsyncSession) -> None:
         )
         """
     ))
+    # inteiro-teor da comunicação (populado pelo robô quando abre a mensagem no DET)
+    await db.execute(text(
+        "ALTER TABLE juridico_det_comunicacoes ADD COLUMN IF NOT EXISTS inteiro_teor TEXT"))
 
 
 # ── classificação da comunicação ────────────────────────────────────────────
@@ -182,8 +185,45 @@ async def processar_comunicacao(
     }
 
 
+# pistas de que a comunicação é uma ação/intimação judicial (dispara o dossiê)
+_PISTAS_JUDICIAL = (
+    "reclamante", "reclamada", "vara do trabalho", "trt", "audiência", "audiencia",
+    "processo n", "processo nº", "processo no", "intimação", "intimacao", "citação",
+    "citacao", "reclamação trabalhista", "reclamacao trabalhista", "justiça do trabalho",
+    "justica do trabalho", "juízo", "juizo", "contestação", "contestacao",
+)
+
+
+def _parece_judicial(tipo: str, titulo: str, teor: str | None) -> bool:
+    """Heurística leve: só chama o LLM/dossiê quando a comunicação tem cara de processo."""
+    blob = f"{tipo or ''} {titulo or ''} {teor or ''}".lower()
+    if tipo and tipo.lower() in ("intimacao", "intimação", "processo_trabalhista"):
+        return True
+    return any(p in blob for p in _PISTAS_JUDICIAL)
+
+
+async def _ligar_dossie(db: AsyncSession, comunicacao_id: int, texto: str) -> None:
+    """Monta o dossiê de defesa para uma intimação e o liga à comunicação (idempotente por linha)."""
+    try:
+        from modules.juridico import processos_service as PS
+        intake = await PS.analisar_processo(db, texto=texto, numero=None, tipo="trabalhista", user_id=None)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("DET dossiê auto: %s", e)
+        return
+    if not intake.get("ok"):
+        return
+    await db.execute(text(
+        "UPDATE juridico_det_comunicacoes SET processo_id=:pid, escalonar=:esc, status='dossie_montado' WHERE id=:id"),
+        {"pid": intake.get("id"), "esc": bool(intake.get("escalonar")), "id": comunicacao_id})
+
+
 async def registrar_do_robo(db: AsyncSession, mensagens: list[dict[str, Any]]) -> int:
-    """Registra na caixa do ERP as mensagens que o robô leu do DET (idempotente)."""
+    """Registra na caixa do ERP as mensagens que o robô leu do DET (idempotente).
+
+    Quando a mensagem traz inteiro-teor e tem cara de intimação judicial, MONTA o dossiê
+    de defesa automaticamente e liga o processo à comunicação (o que o Jordan pediu:
+    "baixa o inteiro-teor de cada comunicação e liga as intimações ao dossiê").
+    """
     await ensure_table(db)
     novos = 0
     for m in mensagens or []:
@@ -192,26 +232,42 @@ async def registrar_do_robo(db: AsyncSession, mensagens: list[dict[str, Any]]) -
         data = (m.get("data") or "").strip()
         if not assunto:
             continue
-        ex = await db.execute(text(
-            "SELECT 1 FROM juridico_det_comunicacoes WHERE titulo=:t AND COALESCE(orgao,'')=:o AND COALESCE(prazo,'')=:d"),
-            {"t": assunto, "o": orgao, "d": data})
-        if ex.first():
-            continue
+        teor = (m.get("inteiro_teor") or "").strip() or None
         tipo = (m.get("tipo") or "comunicado").lower()
+        ex = await db.execute(text(
+            "SELECT id, inteiro_teor, processo_id FROM juridico_det_comunicacoes "
+            "WHERE titulo=:t AND COALESCE(orgao,'')=:o AND COALESCE(prazo,'')=:d"),
+            {"t": assunto, "o": orgao, "d": data})
+        row = ex.mappings().first()
+        if row:
+            # já existe — se o inteiro-teor chegou agora (2ª passada), completa o registro
+            if teor and not (row.get("inteiro_teor") or "").strip():
+                await db.execute(text(
+                    "UPDATE juridico_det_comunicacoes SET inteiro_teor=:teor WHERE id=:id"),
+                    {"teor": teor, "id": row["id"]})
+                # teor tardio de intimação ainda sem dossiê → monta agora
+                if not row.get("processo_id") and _parece_judicial(tipo, assunto, teor):
+                    await _ligar_dossie(db, row["id"], teor)
+            continue
         e_fisc = "inspeção" in orgao.lower() or "notific" in tipo
-        await db.execute(text(
-            """INSERT INTO juridico_det_comunicacoes (origem, tipo, titulo, orgao, prazo, resumo, escalonar, status)
-               VALUES ('det_robo', :tipo, :titulo, :orgao, :data, :resumo, :esc, 'nova')"""),
+        ins = await db.execute(text(
+            """INSERT INTO juridico_det_comunicacoes (origem, tipo, titulo, orgao, prazo, resumo, inteiro_teor, escalonar, status)
+               VALUES ('det_robo', :tipo, :titulo, :orgao, :data, :resumo, :teor, :esc, 'nova')
+               RETURNING id"""),
             {"tipo": m.get("tipo") or "comunicado", "titulo": assunto, "orgao": orgao, "data": data,
-             "resumo": f"{m.get('tipo')} de {orgao} em {data}", "esc": e_fisc})
+             "resumo": f"{m.get('tipo')} de {orgao} em {data}", "teor": teor, "esc": e_fisc})
+        new_id = ins.scalar()
         novos += 1
+        # intimação judicial com inteiro-teor → monta o dossiê e liga
+        if teor and _parece_judicial(tipo, assunto, teor):
+            await _ligar_dossie(db, new_id, teor)
     return novos
 
 
 async def listar_comunicacoes(db: AsyncSession, limit: int = 50) -> list[dict[str, Any]]:
     await ensure_table(db)
     rows = await db.execute(text(
-        "SELECT id, origem, tipo, titulo, numero, orgao, prazo, resumo, processo_id, escalonar, "
+        "SELECT id, origem, tipo, titulo, numero, orgao, prazo, resumo, inteiro_teor, processo_id, escalonar, "
         "status, created_at FROM juridico_det_comunicacoes ORDER BY created_at DESC LIMIT :l"),
         {"l": int(limit)})
     out = []
@@ -219,10 +275,101 @@ async def listar_comunicacoes(db: AsyncSession, limit: int = 50) -> list[dict[st
         out.append({
             "id": r["id"], "origem": r["origem"], "tipo": r["tipo"], "titulo": r["titulo"],
             "numero": r["numero"], "orgao": r["orgao"], "prazo": r["prazo"], "resumo": r["resumo"],
+            "inteiro_teor": r["inteiro_teor"],
             "processo_id": r["processo_id"], "escalonar": bool(r["escalonar"]), "status": r["status"],
             "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
         })
     return out
+
+
+async def obter_comunicacao(db: AsyncSession, comunicacao_id: int) -> dict[str, Any] | None:
+    """Uma comunicação completa (inclui inteiro-teor) para leitura/abertura/PDF na tela."""
+    await ensure_table(db)
+    r = await db.execute(text(
+        "SELECT id, origem, tipo, titulo, numero, orgao, prazo, resumo, inteiro_teor, processo_id, "
+        "escalonar, status, created_at FROM juridico_det_comunicacoes WHERE id=:id"),
+        {"id": int(comunicacao_id)})
+    row = r.mappings().first()
+    if not row:
+        return None
+    return {
+        "id": row["id"], "origem": row["origem"], "tipo": row["tipo"], "titulo": row["titulo"],
+        "numero": row["numero"], "orgao": row["orgao"], "prazo": row["prazo"], "resumo": row["resumo"],
+        "inteiro_teor": row["inteiro_teor"], "processo_id": row["processo_id"],
+        "escalonar": bool(row["escalonar"]), "status": row["status"],
+        "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+    }
+
+
+def gerar_pdf_comunicacao(c: dict[str, Any]) -> bytes:
+    """PDF padrão-ouro (pdf_branding) de UMA comunicação do DET — para ler/baixar dentro do ERP.
+
+    Reprodução fiel do inteiro-teor lido do Domicílio Eletrônico Trabalhista (uso interno).
+    """
+    import io
+    from datetime import datetime, timezone
+
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    from modules.crm.services import pdf_branding as B
+
+    st = B.styles()
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=40 * mm, bottomMargin=16 * mm,
+                            leftMargin=16 * mm, rightMargin=16 * mm)
+    W = A4[0] - 32 * mm
+    story: list = []
+
+    def _p(txt, key="corpo"):
+        safe = (str(txt) or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        return Paragraph(safe.replace("\n", "<br/>"), st[key])
+
+    data_str = (c.get("created_at") or "")[:10] or datetime.now(timezone.utc).strftime("%d/%m/%Y")
+    meta = Table(
+        [[Paragraph("<b>Tipo</b>", st["cell"]), Paragraph(str(c.get("tipo") or "—"), st["cell"]),
+          Paragraph("<b>Órgão</b>", st["cell"]), Paragraph(str(c.get("orgao") or "—"), st["cell"])],
+         [Paragraph("<b>Data</b>", st["cell"]), Paragraph(str(c.get("prazo") or data_str), st["cell"]),
+          Paragraph("<b>Nº</b>", st["cell"]), Paragraph(str(c.get("numero") or "—"), st["cell"])]],
+        colWidths=[24 * mm, W / 2 - 24 * mm, 24 * mm, W / 2 - 24 * mm])
+    meta.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#D9E1F2")),
+        ("BACKGROUND", (0, 0), (0, -1), B.FUNDO_CLARO), ("BACKGROUND", (2, 0), (2, -1), B.FUNDO_CLARO),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6), ("RIGHTPADDING", (0, 0), (-1, -1), 6)]))
+    story.append(_p(f"<b>{c.get('titulo') or 'Comunicação DET'}</b>", "corpo"))
+    story.append(Spacer(1, 3 * mm)); story.append(meta); story.append(Spacer(1, 5 * mm))
+
+    teor = (c.get("inteiro_teor") or "").strip()
+    story += B.secao("INTEIRO-TEOR", st)
+    story.append(_p(teor if teor else "Inteiro-teor ainda não coletado para esta comunicação."))
+
+    if c.get("escalonar"):
+        story.append(Spacer(1, 4 * mm))
+        al = Table([[Paragraph(
+            "<b>ATENÇÃO:</b> comunicação de fiscalização/intimação — verifique o prazo e a ação necessária.",
+            ParagraphStyle("al", parent=st["corpo"], textColor=colors.HexColor("#B45309")))]], colWidths=[W])
+        al.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.8, B.LARANJA),
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FFF7ED")),
+                    ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8)]))
+        story.append(al)
+
+    story.append(Spacer(1, 5 * mm))
+    story.append(Paragraph(
+        '<font size="7.5" color="#6B7280">Reprodução fiel da comunicação recebida no Domicílio '
+        'Eletrônico Trabalhista (DET), coletada pelo Conecta PRO para uso interno. Documento oficial '
+        'disponível no portal do DET (det.sit.trabalho.gov.br).</font>',
+        ParagraphStyle("disc", parent=st["small"], fontSize=7.5, leading=10)))
+
+    doc.build(story,
+              onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo="COMUNICAÇÃO DET", seal_watermark=True),
+              onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo="COMUNICAÇÃO DET", seal_watermark=True))
+    return buf.getvalue()
 
 
 async def coletar_automatico(db: AsyncSession) -> dict[str, Any]:

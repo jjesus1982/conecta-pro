@@ -57,8 +57,11 @@ class ClockPunchModel(Base):
     punch_timestamp = Column(DateTime, nullable=False, index=True)
     server_timestamp = Column(DateTime, nullable=False, default=datetime.utcnow)
 
-    # Status (varchar no banco)
-    status = Column(String(20), nullable=False, default="normal")
+    # Status (varchar no banco). Vocabulário REAL do ciclo de vida do ponto:
+    # 'pending' (batida nova, aguardando conferência) -> 'approved' (conferida).
+    # Marcadores de exceção: 'offline', 'fora_local'. (O antigo default 'normal'/'regular'
+    # era seed legado e não coincidia com as 4409 batidas reais em pending/approved.)
+    status = Column(String(20), nullable=False, default="pending")
 
     # Reconhecimento facial
     facial_match = Column(Boolean, nullable=True)

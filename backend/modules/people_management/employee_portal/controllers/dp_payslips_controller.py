@@ -120,26 +120,7 @@ async def criar_payslip(
 ) -> Any:
     """Cria contracheque manualmente. Status inicial: DRAFT."""
     try:
-        from modules.hr.employee_portal.models.payslip import PaySlip, PaySlipStatus, PaySlipType
-
-        payslip = PaySlip(
-            id=uuid.uuid4(),
-            employee_id=uuid.UUID(body.employee_id),
-            competence_month=body.mes,
-            competence_year=body.ano,
-            gross_salary=body.salario_bruto,
-            net_salary=body.salario_liquido,
-            deductions=sum(d.valor for d in body.descontos),
-            status=PaySlipStatus.DRAFT,
-            payslip_type=PaySlipType.MONTHLY,
-            notes=body.observacoes,
-            items=[
-                {"descricao": i.descricao, "valor": i.valor, "tipo": i.tipo} for i in (body.proventos + body.descontos)
-            ],
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
-            is_active=True,
-        )
+        payslip = _build_payslip(body)
         db.add(payslip)
         await db.commit()
         await db.refresh(payslip)
@@ -236,8 +217,8 @@ async def publicar_payslip(
 
             await AutoNotificationService(db).notify_payslip_published(
                 employee_id=str(payslip.employee_id),
-                mes=payslip.competence_month,
-                ano=payslip.competence_year,
+                mes=payslip.reference_month,
+                ano=payslip.reference_year,
             )
         except Exception as notif_err:
             logger.warning("Auto-notificação payslip falhou: %s", notif_err)
@@ -270,10 +251,12 @@ async def reverter_rascunho(
 async def deletar_payslip(
     payslip_id: uuid.UUID, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)
 ) -> None:
-    """Soft delete de contracheque."""
+    """Soft delete de contracheque (marca como CANCELLED — o model não tem is_active)."""
     payslip = await _get_or_404(db, payslip_id)
     try:
-        payslip.is_active = False
+        from modules.hr.employee_portal.models.payslip import PaySlipStatus
+
+        payslip.status = PaySlipStatus.CANCELLED.value
         payslip.updated_at = datetime.utcnow()
         await db.commit()
     except Exception as exc:
@@ -295,27 +278,7 @@ async def importar_lote(
     erros = []
     for item in items:
         try:
-            from modules.hr.employee_portal.models.payslip import PaySlip, PaySlipStatus, PaySlipType
-
-            p = PaySlip(
-                id=uuid.uuid4(),
-                employee_id=uuid.UUID(item.employee_id),
-                competence_month=item.mes,
-                competence_year=item.ano,
-                gross_salary=item.salario_bruto,
-                net_salary=item.salario_liquido,
-                deductions=sum(d.valor for d in item.descontos),
-                status=PaySlipStatus.DRAFT,
-                payslip_type=PaySlipType.MONTHLY,
-                notes=item.observacoes,
-                items=[
-                    {"descricao": i.descricao, "valor": i.valor, "tipo": i.tipo}
-                    for i in (item.proventos + item.descontos)
-                ],
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
-                is_active=True,
-            )
+            p = _build_payslip(item)
             db.add(p)
             criados += 1
         except Exception as exc:
@@ -326,6 +289,56 @@ async def importar_lote(
 
 
 # ─────────────────────────── HELPERS ──────────────────────────────
+
+# Sentinela usado pelas folhas manuais (mesmo valor das folhas já existentes no
+# banco); manual não está atrelado a um condomínio específico.
+_DEFAULT_CONDOMINIO_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+
+def _build_payslip(body: "PayslipCreateBody") -> Any:
+    """Constrói um PaySlip a partir do body, mapeando para as colunas REAIS de hr_payslips.
+
+    O model NÃO possui competence_month/competence_year/notes/is_active/items nem
+    setter para gross_salary. Usamos os campos reais: reference_year/reference_month/
+    reference_period, base_salary/total_earnings/total_deductions/net_salary e
+    earnings/deductions JSONB. Preenche colunas NOT NULL (payslip_code, condominio_id,
+    reference_period).
+    """
+    from modules.hr.employee_portal.models.payslip import PaySlip, PaySlipStatus, PaySlipType
+
+    emp_uuid = uuid.UUID(body.employee_id)
+    reference_period = f"{body.ano:04d}-{body.mes:02d}"
+    total_deductions = float(sum(d.valor for d in body.descontos))
+    total_earnings = float(body.salario_bruto)
+
+    # earnings/deductions como JSONB no formato esperado ({code, description, value}).
+    earnings_json = [
+        {"code": None, "description": p.descricao, "value": float(p.valor)} for p in body.proventos
+    ]
+    deductions_json = [
+        {"code": None, "description": d.descricao, "value": float(d.valor)} for d in body.descontos
+    ]
+
+    payslip = PaySlip(
+        id=uuid.uuid4(),
+        condominio_id=_DEFAULT_CONDOMINIO_ID,
+        employee_id=emp_uuid,
+        payslip_code=f"MANUAL-{reference_period}-{str(emp_uuid)[:8]}",
+        payslip_type=PaySlipType.MONTHLY.value,
+        status=PaySlipStatus.DRAFT.value,
+        reference_year=body.ano,
+        reference_month=body.mes,
+        reference_period=reference_period,
+        base_salary=total_earnings,
+        total_earnings=total_earnings,
+        total_deductions=total_deductions,
+        net_salary=float(body.salario_liquido),
+        earnings=earnings_json,
+        deductions=deductions_json,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    return payslip
 
 
 async def _get_or_404(db: AsyncSession, payslip_id: uuid.UUID):
@@ -342,6 +355,27 @@ async def _get_or_404(db: AsyncSession, payslip_id: uuid.UUID):
     return payslip
 
 
+# Códigos de LINHA DE TOTAL nas rubricas do Domínio/Portte (não são itens individuais).
+_TOTAL_ROW_CODES = {"0099", "99", "9999", "0999"}
+
+
+def _is_total_row(rubrica: dict) -> bool:
+    """True se a rubrica é uma linha de TOTAL (não itemizável).
+
+    Evita a dupla contagem de 'Proventos Totais' (0099) e 'Total Descontos' (9999)
+    no detalhamento. Casa por código normalizado e, como defesa, por descrição.
+    """
+    code = str(rubrica.get("code") or "").strip().lstrip("0") or "0"
+    code_raw = str(rubrica.get("code") or "").strip()
+    if code_raw in _TOTAL_ROW_CODES or code in {c.lstrip("0") or "0" for c in _TOTAL_ROW_CODES}:
+        return True
+    desc = str(rubrica.get("description") or rubrica.get("descricao") or "").upper()
+    return "PROVENTOS TOTAIS" in desc or "TOTAL DESCONTOS" in desc or desc.strip() in {
+        "TOTAIS",
+        "TOTAL",
+    }
+
+
 def _serialize_payslip(p: Any) -> dict:
     # Mapeia campos do model hr_payslips (reference_month/year, total_earnings, earnings JSONB)
     earnings_raw = p.earnings if p.earnings else []
@@ -355,7 +389,7 @@ def _serialize_payslip(p: Any) -> dict:
                 "tipo": "provento",
             }
             for e in earnings_raw
-            if isinstance(e, dict)
+            if isinstance(e, dict) and not _is_total_row(e)
         ]
     if isinstance(deductions_raw, list):
         items += [
@@ -365,7 +399,7 @@ def _serialize_payslip(p: Any) -> dict:
                 "tipo": "desconto",
             }
             for d in deductions_raw
-            if isinstance(d, dict)
+            if isinstance(d, dict) and not _is_total_row(d)
         ]
     _bruto = float(p.total_earnings or 0)
     _liquido = float(p.net_salary or 0)

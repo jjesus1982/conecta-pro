@@ -11,7 +11,7 @@ from datetime import date
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
-from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from modules.crm.services import pdf_branding as B
 
@@ -41,8 +41,8 @@ def build_commercial_report_pdf(ctx: dict) -> bytes:
         pagesize=A4,
         leftMargin=16 * mm,
         rightMargin=16 * mm,
-        topMargin=26 * mm,
-        bottomMargin=20 * mm,
+        topMargin=40 * mm,
+        bottomMargin=16 * mm,
         title="Relatório Comercial",
     )
     st = B.styles()
@@ -50,32 +50,14 @@ def build_commercial_report_pdf(ctx: dict) -> bytes:
     hoje = ctx.get("data") or date.today()
     periodo = f"{_MESES[hoje.month].capitalize()}/{hoje.year}"
 
-    # CAPA
-    el.append(Spacer(1, 26 * mm))
-    lp = B.logo_path("cover")
-    if lp:
-        try:
-            img = Image(lp, width=54 * mm, height=38 * mm, kind="proportional")
-            img.hAlign = "CENTER"
-            el.append(img)
-        except Exception:  # noqa: BLE001
-            pass
-    el.append(Spacer(1, 8 * mm))
+    # Faixa de período + confidencialidade (o cabeçalho branded já vem do header_footer)
     el.append(
-        Table(
-            [[""]],
-            colWidths=[60 * mm],
-            hAlign="CENTER",
-            style=TableStyle([("LINEBELOW", (0, 0), (-1, -1), 2.5, B.LARANJA)]),
+        Paragraph(
+            f"Período de referência: <b>{periodo}</b>  ·  <font color='#F97316'><b>CONFIDENCIAL</b></font>",
+            st["small"],
         )
     )
-    el.append(Spacer(1, 10 * mm))
-    el.append(Paragraph("RELATÓRIO COMERCIAL", st["capa_titulo"]))
-    el.append(Spacer(1, 2 * mm))
-    el.append(Paragraph(periodo, st["capa_sub"]))
-    el.append(Spacer(1, 16 * mm))
-    el.append(Paragraph("— CONFIDENCIAL —", st["destaque"]))
-    el.append(PageBreak())
+    el.append(Spacer(1, 4 * mm))
 
     # INDICADORES
     el += B.secao("Indicadores", st)
@@ -156,7 +138,7 @@ def build_commercial_report_pdf(ctx: dict) -> bytes:
 
     doc.build(
         el,
-        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True),
-        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True),
+        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo="RELATÓRIO COMERCIAL"),
+        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo="RELATÓRIO COMERCIAL"),
     )
     return buf.getvalue()

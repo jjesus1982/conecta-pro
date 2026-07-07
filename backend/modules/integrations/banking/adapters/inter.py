@@ -37,6 +37,25 @@ logger = logging.getLogger(__name__)
 REDIS_TOKEN_KEY = "inter:token"
 
 
+def _formatar_chave_pix(chave: str, tipo_chave: str = "") -> str:
+    """Normaliza a chave PIX para o formato que o DICT/Inter espera. O tipo é auto-detectado pelo
+    Inter (destinatario.tipo='CHAVE'), mas o telefone precisa vir como +55DDDNNNNNNNNN."""
+    c = (chave or "").strip()
+    t = (tipo_chave or "").upper()
+    if "@" in c:  # e-mail
+        return c
+    dig = "".join(ch for ch in c if ch.isdigit())
+    is_tel = t in ("TELEFONE", "PHONE", "CELULAR", "TEL")
+    if is_tel and not c.startswith("+") and 10 <= len(dig) <= 11:
+        return "+55" + dig
+    if c.startswith("+"):
+        return c
+    # CPF (11) / CNPJ (14): só dígitos; EVP (aleatória): mantém como veio
+    if len(dig) in (11, 14) and not is_tel:
+        return dig
+    return c
+
+
 def _extrair_nome_da_descricao(descricao: str) -> str:
     """
     Extrai nome do beneficiário da descrição PIX do Banco Inter.
@@ -77,6 +96,7 @@ class InterAdapter(BaseBankingAdapter):
         "extrato": "extrato.read",
         "saldo": "extrato.read",
         "pix": "pix.write pix.read",
+        "pagamento_pix": "pagamento-pix.write pagamento-pix.read",
         "cob": "cob.write cob.read",
         "webhook": "webhook.write webhook.read",
         "boleto": "boleto-cobranca.write boleto-cobranca.read",
@@ -94,14 +114,17 @@ class InterAdapter(BaseBankingAdapter):
     async def _get_client(self) -> httpx.AsyncClient:
         """Retorna cliente HTTP com certificado mTLS."""
         if self._client is None:
-            # Configura SSL com certificado
+            # Configura SSL com certificado. O Inter exige mTLS em TODA requisição (inclusive os
+            # pagamentos). Se o caminho não vier nas credenciais, usa o cert padrão do container —
+            # sem isso, endpoints de pagamento (PIX) são recusados com 401.
             ssl_context = ssl.create_default_context()
 
-            if self.credentials.certificate_path:
-                ssl_context.load_cert_chain(
-                    certfile=self.credentials.certificate_path,
-                    keyfile=self.credentials.private_key_path,
-                )
+            cert = self.credentials.certificate_path or "/app/credentials/inter/Inter_API_Certificado.crt"
+            key = self.credentials.private_key_path or "/app/credentials/inter/Inter_API_Chave.key"
+            if cert and os.path.exists(cert):
+                ssl_context.load_cert_chain(certfile=cert, keyfile=key)
+            else:
+                logger.warning("Inter mTLS: certificado não encontrado em %s — pagamentos falharão", cert)
 
             self._client = httpx.AsyncClient(
                 base_url=self.base_url,
@@ -142,6 +165,7 @@ class InterAdapter(BaseBankingAdapter):
                     self.SCOPES["extrato"],
                     self.SCOPES["saldo"],
                     self.SCOPES["pix"],
+                    self.SCOPES["pagamento_pix"],
                     self.SCOPES.get("cob", "cob.write cob.read"),
                     self.SCOPES.get("webhook", "webhook.write webhook.read"),
                     self.SCOPES["boleto"],
@@ -253,9 +277,12 @@ class InterAdapter(BaseBankingAdapter):
 
         transactions = []
         for item in data.get("transacoes", []):
-            tx_type = TransactionType.CREDIT if item.get("tipoOperacao") == "C" else TransactionType.DEBIT
+            # DIREÇÃO real do dinheiro vem SEMPRE de tipoOperacao ("C"=entrada, "D"=saída).
+            # NÃO derivar direção do tipoTransacao (PIX/TED/BOLETO), porque um "PIX ENVIADO" é
+            # tipoOperacao="D" (saída) e ficaria como crédito se olhássemos só o rótulo PIX.
+            is_debit = item.get("tipoOperacao") == "D"
 
-            # Mapeia tipo específico
+            # tipo específico (só rótulo/categoria — não define direção)
             tipo = item.get("tipoTransacao", "").upper()
             if "PIX" in tipo:
                 tx_type = TransactionType.PIX
@@ -263,6 +290,8 @@ class InterAdapter(BaseBankingAdapter):
                 tx_type = TransactionType.TED
             elif "BOLETO" in tipo:
                 tx_type = TransactionType.BOLETO
+            else:
+                tx_type = TransactionType.DEBIT if is_debit else TransactionType.CREDIT
 
             # Extrai beneficiário: prefere detalhes.nome da API, fallback na descrição
             detalhes = item.get("detalhes", {}) or {}
@@ -270,11 +299,16 @@ class InterAdapter(BaseBankingAdapter):
             c_name = detalhes.get("nome") or _extrair_nome_da_descricao(descricao)
             c_doc = detalhes.get("cpfCnpj") or detalhes.get("cpf") or ""
 
+            # amount ASSINADO: negativo p/ saída, positivo p/ entrada. Preserva a direção mesmo
+            # quando o tipo específico (PIX/TED/BOLETO) esconde o sentido do lançamento.
+            valor = self._parse_amount(item.get("valor", 0))
+            valor = -abs(valor) if is_debit else abs(valor)
+
             transactions.append(
                 BankTransaction(
                     transaction_id=item.get("idTransacao", ""),
                     date=datetime.fromisoformat(item.get("dataEntrada", "")),
-                    amount=self._parse_amount(item.get("valor", 0)),
+                    amount=valor,
                     transaction_type=tx_type,
                     description=descricao,
                     balance_after=self._parse_amount(item.get("saldo", 0)) if item.get("saldo") else None,
@@ -974,30 +1008,59 @@ class InterAdapter(BaseBankingAdapter):
             data_pagamento=data_pagamento.isoformat(),
         )
 
+    async def consultar_pix_pagamento(self, codigo_solicitacao: str) -> dict:
+        """Consulta o status REAL de um pagamento PIX no Inter. GET /banking/v2/pix/{cod}.
+        Retorna status (AGUARDANDO_APROVACAO | APROVADO | REALIZADO | REJEITADO | ...) e histórico."""
+        try:
+            data = await self._request("GET", f"/banking/v2/pix/{codigo_solicitacao}")
+            tx = data.get("transacaoPix", data)
+            return {
+                "success": True,
+                "status": tx.get("status", ""),
+                "valor": tx.get("valor"),
+                "chave": tx.get("chave", ""),
+                "erros": tx.get("erros", []),
+                "historico": data.get("historico", []),
+                "raw": data,
+            }
+        except BankingAdapterError as exc:
+            corpo = str(exc.details.get("response", "")) if getattr(exc, "details", None) else ""
+            return {"success": False, "status_code": exc.code, "detail": f"{exc}{(' — ' + corpo[:300]) if corpo else ''}"}
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
     async def enviar_pix(
         self, chave: str, tipo_chave: str, valor: Decimal, nome_recebedor: str = "", descricao: str = ""
     ) -> dict:
-        """D7.3 — Enviar PIX. POST /banking/v2/pix."""
+        """D7.3 — Enviar PIX. POST /banking/v2/pix.
+
+        Formato validado com a API do Inter (2026-07): destinatario.tipo é a CONSTANTE 'CHAVE'
+        (o Inter auto-detecta se a chave é CPF/telefone/e-mail/EVP). NÃO enviar 'nome' nem o tipo
+        da chave — isso causava HTTP 400. Telefone é normalizado para +55DDDNNNNNNNNN.
+        """
         try:
             payload = {
                 "valor": str(valor),
-                "descricao": descricao or f"PIX para {nome_recebedor or chave}",
+                "descricao": (descricao or f"PIX para {nome_recebedor or chave}")[:140],
                 "destinatario": {
-                    "chave": chave,
-                    "tipo": tipo_chave.upper(),
+                    "tipo": "CHAVE",
+                    "chave": _formatar_chave_pix(chave, tipo_chave),
                 },
             }
-            if nome_recebedor:
-                payload["destinatario"]["nome"] = nome_recebedor
             data = await self._request("POST", "/banking/v2/pix", json=payload)
             return {
                 "success": True,
                 "endToEndId": data.get("endToEndId", ""),
                 "codigoSolicitacao": data.get("codigoSolicitacao", ""),
-                "status": data.get("status", "processando"),
+                # o Inter devolve 'tipoRetorno' (ex.: AGUARDANDO_APROVACAO) — captura o status REAL
+                "status": data.get("tipoRetorno") or data.get("status", "PROCESSANDO"),
             }
         except BankingAdapterError as exc:
-            return {"success": False, "status_code": exc.code, "detail": str(exc)}
+            # expõe o motivo REAL do Inter (corpo da resposta), não só o código
+            corpo = ""
+            if getattr(exc, "details", None):
+                corpo = str(exc.details.get("response", ""))[:400]
+            return {"success": False, "status_code": exc.code, "detail": f"{exc}{(' — ' + corpo) if corpo else ''}"}
         except Exception as exc:
             return {"success": False, "error": str(exc)}
 

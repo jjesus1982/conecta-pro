@@ -296,30 +296,9 @@ class AdmissionService:
             employee.id,
         )
 
-        # Publicar evento de funcionário admitido no ConectaEventBus
-        try:
-            import asyncio
-
-            from infrastructure.event_bus import ConectaEvent, EventTypes, event_bus
-
-            asyncio.create_task(
-                event_bus.publish(
-                    ConectaEvent(
-                        event_type=EventTypes.DP_FUNCIONARIO_ADMITIDO,
-                        payload={
-                            "employee_id": str(employee.id),
-                            "nome": employee.nome,
-                            "cargo": employee.cargo or "",
-                            "departamento": employee.departamento or "",
-                            "data_admissao": str(employee.data_admissao) if employee.data_admissao else None,
-                            "admission_id": str(admission_id),
-                        },
-                        source_module="dp",
-                        funcionario_id=str(employee.id),
-                    )
-                )
-            )
-        except Exception as _pub_err:
-            logger.warning("Falha ao publicar DP_FUNCIONARIO_ADMITIDO: %s", _pub_err)
-
+        # NÃO publicar DP_FUNCIONARIO_ADMITIDO aqui. A publicação correta é feita pelo
+        # controller (admission_controller.complete_admission) via publish_funcionario_admitido,
+        # que usa a chave `funcionario_nome` (reconhecida pelo handler GEDEON) e resolve o
+        # cliente_id (backfill) para montar o kit do condomínio certo. Publicar aqui gerava um
+        # evento DUPLICADO e QUEBRADO (payload key `nome`, sem cliente_id) que o GEDEON ignora.
         return {"admission": admission, "employee": employee}

@@ -279,49 +279,76 @@ async def list_nfse(
     competencia: str | None = Query(None, description="YYYY-MM (ex: 2026-01)"),
     cliente: str | None = Query(None, description="Filtro por razao social (parcial)"),
     status: str | None = Query(None, description="autorizada, cancelada, etc."),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     current_user: CurrentActiveUser = None,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Lista NFS-e emitidas com filtros."""
-    conditions = ["active = true"]
-    params: dict[str, Any] = {"limit": limit}
+    """Lista NFS-e emitidas com filtros.
+
+    FONTE REAL: nfse_emitidas_nacional (portal nacional gov.br, todos os meses de 2026,
+    só cStat 100 = autorizadas). Não existe coluna 'active'/'status' (toda linha é válida),
+    nem 'numero_rps'/'iss_retido'/'discriminacao'. 'competencia' é VARCHAR 'YYYY-MM'.
+    Mesma fonte usada por /nfse/dashboard logo abaixo (que estava correto).
+    """
+    conditions: list[str] = []
+    params: dict[str, Any] = {"limit": limit, "offset": offset}
 
     if competencia:
-        conditions.append("to_char(data_competencia, 'YYYY-MM') = :competencia")
+        conditions.append("competencia = :competencia")
         params["competencia"] = competencia
     if cliente:
-        conditions.append("tomador_razao_social ILIKE :cliente")
+        conditions.append("tomador_nome ILIKE :cliente")
         params["cliente"] = f"%{cliente}%"
-    if status:
-        conditions.append("status = :status")
-        params["status"] = status
+    # NOTA: nfse_emitidas_nacional não tem coluna 'status' — todas as linhas são
+    # autorizadas (cStat 100). O filtro 'status' é ignorado (mantido na assinatura
+    # por compatibilidade de API). Só cancelaria se houvesse uma tabela de canceladas.
 
-    where = " AND ".join(conditions)
+    where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+
+    # COUNT(*) real da query com os MESMOS filtros (independente do limit/offset da
+    # página). Antes retornava len(rows), que mentia sobre o total quando o LIMIT
+    # truncava (ex.: 77 notas no banco, mas total=50). Params de paginação removidos
+    # do COUNT para não colidir com a query sem LIMIT.
+    count_params = {k: v for k, v in params.items() if k not in ("limit", "offset")}
+    count_result = await db.execute(
+        text(f"SELECT count(*) FROM nfse_emitidas_nacional{where}"),
+        count_params,
+    )
+    total = int(count_result.scalar() or 0)
+
     result = await db.execute(
-        text(f"SELECT * FROM nfses WHERE {where} ORDER BY data_competencia DESC, numero_rps LIMIT :limit"),
+        text(
+            f"SELECT chave_acesso, numero, competencia, data_emissao, "
+            f"tomador_nome, tomador_cnpj, descricao, valor_servicos, "
+            f"iss_aliquota, iss_valor "
+            f"FROM nfse_emitidas_nacional{where} "
+            f"ORDER BY competencia DESC, data_emissao DESC "
+            f"LIMIT :limit OFFSET :offset"
+        ),
         params,
     )
     rows = result.mappings().all()
 
     return {
-        "total": len(rows),
+        "total": total,
         "items": [
             {
-                "id": str(r["id"]),
-                "numero_nfse": r["numero_nfse"],
-                "numero_rps": r["numero_rps"],
-                "status": r["status"],
+                "id": r["chave_acesso"],
+                "numero_nfse": r["numero"],
+                "numero_rps": None,
+                "status": "autorizada",
                 "data_emissao": r["data_emissao"].isoformat() if r["data_emissao"] else None,
-                "data_competencia": r["data_competencia"].isoformat() if r["data_competencia"] else None,
-                "tomador_razao_social": r["tomador_razao_social"],
-                "tomador_cpf_cnpj": r["tomador_cpf_cnpj"],
-                "descricao_servico": r["descricao_servico"],
-                "valor_servicos": float(r["valor_servicos"]),
-                "iss_aliquota": float(r["iss_aliquota"]),
+                # competencia é VARCHAR 'YYYY-MM' na fonte nacional (não é date)
+                "data_competencia": r["competencia"],
+                "tomador_razao_social": r["tomador_nome"],
+                "tomador_cpf_cnpj": r["tomador_cnpj"],
+                "descricao_servico": r["descricao"],
+                "valor_servicos": float(r["valor_servicos"] or 0),
+                "iss_aliquota": float(r["iss_aliquota"] or 0),
                 "iss_valor": float(r["iss_valor"]) if r["iss_valor"] else 0,
-                "iss_retido": r["iss_retido"],
-                "discriminacao": r["discriminacao"],
+                "iss_retido": False,
+                "discriminacao": r["descricao"],
             }
             for r in rows
         ],
@@ -334,19 +361,19 @@ async def nfse_dashboard(
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Dashboard de faturamento com metricas consolidadas."""
+    # FONTE REAL: nfse_emitidas_nacional (portal nacional gov.br, só cStat 100, todos meses 2026)
     # Faturamento por competencia
     por_mes = await db.execute(
         text("""
         SELECT
-            to_char(data_competencia, 'YYYY-MM') as competencia,
+            competencia as competencia,
             count(*) as nfse_emitidas,
             sum(valor_servicos) as faturamento_bruto,
             sum(iss_valor) as iss_total,
             sum(valor_servicos) - COALESCE(sum(iss_valor), 0) as faturamento_liquido
-        FROM nfses
-        WHERE active = true
-        GROUP BY data_competencia
-        ORDER BY data_competencia DESC
+        FROM nfse_emitidas_nacional
+        GROUP BY competencia
+        ORDER BY competencia DESC
         LIMIT 12
     """)
     )
@@ -356,14 +383,13 @@ async def nfse_dashboard(
     por_cliente = await db.execute(
         text("""
         SELECT
-            tomador_razao_social as cliente,
-            tomador_cpf_cnpj as cnpj,
+            tomador_nome as cliente,
+            tomador_cnpj as cnpj,
             count(*) as nfse_emitidas,
             sum(valor_servicos) as total_bruto,
             sum(iss_valor) as total_iss
-        FROM nfses
-        WHERE active = true
-        GROUP BY tomador_razao_social, tomador_cpf_cnpj
+        FROM nfse_emitidas_nacional
+        GROUP BY tomador_nome, tomador_cnpj
         ORDER BY sum(valor_servicos) DESC
     """)
     )
@@ -373,12 +399,11 @@ async def nfse_dashboard(
     por_servico = await db.execute(
         text("""
         SELECT
-            descricao_servico as servico,
+            descricao as servico,
             count(*) as quantidade,
             sum(valor_servicos) as total
-        FROM nfses
-        WHERE active = true
-        GROUP BY descricao_servico
+        FROM nfse_emitidas_nacional
+        GROUP BY descricao
         ORDER BY sum(valor_servicos) DESC
     """)
     )
@@ -389,12 +414,11 @@ async def nfse_dashboard(
         text("""
         SELECT
             count(*) as total_nfse,
-            count(DISTINCT tomador_cpf_cnpj) as total_clientes,
+            count(DISTINCT tomador_cnpj) as total_clientes,
             sum(valor_servicos) as faturamento_total,
             sum(iss_valor) as iss_total,
             avg(valor_servicos) as ticket_medio
-        FROM nfses
-        WHERE active = true
+        FROM nfse_emitidas_nacional
     """)
     )
     t = totais.mappings().first()
@@ -524,7 +548,7 @@ async def contracts_summary(
         """)
     )
     rows = result.mappings().all()
-    ativos = [r for r in rows if r["status"] in ("ativo", "ACTIVE")]
+    ativos = [r for r in rows if (r["status"] or "").lower() in ("ativo", "active")]
     total_mrr = sum(float(r["monthly_value"]) for r in ativos)
     com_inss = sum(1 for r in ativos if r["sla_config"] and r["sla_config"].get("retencao_inss"))
     com_issqn = sum(1 for r in ativos if r["sla_config"] and r["sla_config"].get("retencao_issqn"))
@@ -779,7 +803,7 @@ async def headcount_by_client(
         SELECT
             g.id as client_id,
             g.name as cliente,
-            (SELECT n2.tomador_cpf_cnpj FROM nfses n2 WHERE n2.condominio_id = g.id LIMIT 1) as cnpj,
+            g.cnpj as cnpj,
             count(DISTINCT a.employee_id) as headcount,
             (SELECT sum(e2.salario_base)
              FROM employees e2
@@ -792,13 +816,17 @@ async def headcount_by_client(
                 AND e2.is_active = true
              )
             ) as folha_bruta,
+            -- FONTE REAL: nfse_emitidas_nacional NÃO tem condominio_id; casamos por CNPJ.
+            -- ged_clients.cnpj é punctuado (00.000.000/0000-00) e tomador_cnpj é só dígitos,
+            -- então normalizamos ambos com regexp_replace. competencia é VARCHAR 'YYYY-MM'
+            -- (MAX lexicográfico = mês mais recente). Sem coluna 'active' (toda linha válida).
             COALESCE((
-                SELECT sum(valor_servicos)
-                FROM nfses
-                WHERE condominio_id = g.id
-                AND data_competencia = (
-                    SELECT MAX(data_competencia) FROM nfses
-                    WHERE condominio_id = g.id AND active = true
+                SELECT sum(n.valor_servicos)
+                FROM nfse_emitidas_nacional n
+                WHERE regexp_replace(g.cnpj, '[^0-9]', '', 'g') = n.tomador_cnpj
+                AND n.competencia = (
+                    SELECT MAX(n2.competencia) FROM nfse_emitidas_nacional n2
+                    WHERE regexp_replace(g.cnpj, '[^0-9]', '', 'g') = n2.tomador_cnpj
                 )
             ), 0) as contrato_mensal
         FROM ged_clients g

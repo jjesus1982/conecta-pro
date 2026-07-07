@@ -40,7 +40,9 @@ class TerminationUpdate(BaseModel):
     exit_interview_done: bool | None = None
     exit_interview_notes: str | None = None
     esocial_event_sent: bool | None = None
-    documents_generated: dict | None = None
+    # Aceita tanto lista de nomes de documentos (["TRCT", ...]) quanto
+    # dicionário (compatibilidade com registros antigos que gravaram {}).
+    documents_generated: list | dict | None = None
     notes: str | None = None
 
 
@@ -92,7 +94,9 @@ class TerminationResponse(BaseModel):
     exit_interview_done: bool = False
     exit_interview_notes: str | None = None
     esocial_event_sent: bool = False
-    documents_generated: dict | None = None
+    # Banco guarda lista (["TRCT", "eSocial S-2299"]) para rescisões concluídas
+    # e {} para as iniciadas — aceitar ambos evita ResponseValidationError.
+    documents_generated: list | dict | None = None
     created_by_id: UUID | None = None
     created_at: datetime
     updated_at: datetime

@@ -50,7 +50,9 @@ class PortalDigitalSignature(Base):
     __tablename__ = "portal_digital_signatures"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    document_id = Column(Integer, nullable=False, index=True)
+    # Documentos do portal (ged_kit_documents) usam ID UUID/texto; armazenamos
+    # como String para casar com o path do controller (UUID str). Ver auditoria.
+    document_id = Column(String(64), nullable=False, index=True)
     document_type = Column(
         Enum(DocumentType, name="portal_document_type_enum"),
         nullable=False,

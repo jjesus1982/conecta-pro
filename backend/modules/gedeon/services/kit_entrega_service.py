@@ -46,63 +46,77 @@ def _salvar_marker(competencia: str, condominio: str, data: dict) -> dict:
 
 def _gerar_indice_pdf(competencia: str, condominio: str, kit: dict, atlas: dict | None) -> str:
     """Gera a capa/índice em PDF e devolve o caminho local."""
-    from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet
     from reportlab.lib.units import cm, mm
-    from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
     from modules.crm.services import pdf_branding as B
 
     os.makedirs("/app/uploads/kit_indices", exist_ok=True)
     out = f"/app/uploads/kit_indices/indice_{competencia}_{_slug(condominio)}.pdf"
-    styles = getSampleStyleSheet()
-    # topMargin ~35mm p/ não sobrepor o header (logo horizontal) da marca Conecta Mais
-    doc = SimpleDocTemplate(out, pagesize=A4, topMargin=35 * mm, bottomMargin=2 * cm)
+    st = B.styles()
+    # topMargin 40mm p/ não sobrepor o cabeçalho da marca (logo completa Conecta Mais)
+    doc = SimpleDocTemplate(out, pagesize=A4, topMargin=40 * mm, bottomMargin=16 * mm)
     el = []
-    # capa (pág.1 não recebe header automático) — logo da marca no topo
-    _cover = B.logo_path("cover") or B.logo_path("header")
-    if _cover:
-        try:
-            el.append(Image(_cover, width=60 * mm, height=22 * mm, kind="proportional"))
-            el.append(Spacer(1, 0.3 * cm))
-        except Exception:
-            pass
-    el.append(Paragraph("<b>Conecta Mais — Kit Documental Mensal</b>", styles["Title"]))
-    el.append(Spacer(1, 0.3 * cm))
-    el.append(Paragraph(f"<b>Condomínio:</b> {condominio}", styles["Normal"]))
-    el.append(Paragraph(f"<b>Competência:</b> {competencia}  &nbsp;&nbsp; <b>Kit:</b> {kit.get('status','')}", styles["Normal"]))
-    el.append(Paragraph(f"<b>Completude:</b> {kit.get('completion_percentage', 0)}%", styles["Normal"]))
+    el.append(Paragraph("Kit Documental Mensal", st["capa_titulo"]))
+    el.append(Spacer(1, 0.4 * cm))
+    # ficha resumo do kit (competência, condomínio, completude, selo ATLAS) em caixa da marca
+    ficha = [
+        [Paragraph("<b>Condomínio</b>", st["cell"]), Paragraph(condominio, st["cell"])],
+        [Paragraph("<b>Competência</b>", st["cell"]), Paragraph(str(competencia), st["cell"])],
+        [Paragraph("<b>Kit</b>", st["cell"]), Paragraph(str(kit.get("status", "")), st["cell"])],
+        [Paragraph("<b>Completude</b>", st["cell"]), Paragraph(f"{kit.get('completion_percentage', 0)}%", st["cell"])],
+    ]
     if atlas:
-        selo = "✔ CONFERIDO (ATLAS)" if atlas.get("selo") == "conferido" else "⚠ REVISAR (ATLAS)"
-        el.append(Paragraph(f"<b>Conferência:</b> {selo}", styles["Normal"]))
-    el.append(Paragraph(f"<b>Gerado em:</b> {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles["Normal"]))
-    el.append(Spacer(1, 0.5 * cm))
-    el.append(Paragraph("<b>Índice de documentos</b>", styles["Heading2"]))
+        selo = "CONFERIDO (ATLAS)" if atlas.get("selo") == "conferido" else "REVISAR (ATLAS)"
+        ficha.append([Paragraph("<b>Conferência</b>", st["cell"]), Paragraph(selo, st["cell"])])
+    ficha.append(
+        [Paragraph("<b>Gerado em</b>", st["cell"]), Paragraph(datetime.now().strftime("%d/%m/%Y %H:%M"), st["cell"])]
+    )
+    tf = Table(ficha, colWidths=[4 * cm, 13 * cm])
+    tf.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), B.FUNDO_CLARO),
+                ("BOX", (0, 0), (-1, -1), 0.6, B.AZUL_ESCURO),
+                ("LINEBELOW", (0, 0), (-1, -2), 0.25, B.AZUL_MEDIO),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ]
+        )
+    )
+    el.append(tf)
+    el.append(Spacer(1, 0.6 * cm))
+    el.extend(B.secao("Índice de documentos", st))
     for sp in kit.get("subpastas", []):
         el.append(Spacer(1, 0.2 * cm))
-        el.append(Paragraph(f"<b>{sp['nome']}</b> ({sp.get('docs', 0)} documentos)", styles["Heading3"]))
+        el.append(Paragraph(f"{sp['nome']} ({sp.get('docs', 0)} documentos)", st["h_sec"]))
         arqs = sp.get("arquivos", [])
         if arqs:
-            linhas = [[str(i + 1), a["name"]] for i, a in enumerate(arqs)]
-            t = Table(linhas, colWidths=[1 * cm, 15 * cm])
+            linhas = [
+                [Paragraph(str(i + 1), st["cellr"]), Paragraph(a["name"], st["cell"])] for i, a in enumerate(arqs)
+            ]
+            t = Table(linhas, colWidths=[1 * cm, 16 * cm])
             t.setStyle(
                 TableStyle(
                     [
-                        ("FONTSIZE", (0, 0), (-1, -1), 8),
-                        ("TEXTCOLOR", (0, 0), (0, -1), colors.grey),
+                        ("TEXTCOLOR", (0, 0), (0, -1), B.AZUL_MEDIO),
                         ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
                         ("TOPPADDING", (0, 0), (-1, -1), 2),
+                        ("ROWBACKGROUNDS", (0, 0), (-1, -1), [None, B.FUNDO_CLARO]),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
                     ]
                 )
             )
             el.append(t)
         else:
-            el.append(Paragraph("<i>— vazio —</i>", styles["Normal"]))
+            el.append(Paragraph("<i>— vazio —</i>", st["small"]))
     doc.build(
         el,
-        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True),
-        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True),
+        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo="KIT DOCUMENTAL"),
+        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo="KIT DOCUMENTAL"),
     )
     return out
 
@@ -171,7 +185,9 @@ def preparar_entrega(competencia: str, condominio: str, conferir: bool = True) -
     return marker
 
 
-def marcar_entregue(competencia: str, condominio: str, canal: str = "manual", obs: str = "", autor: str | None = None) -> dict:
+def marcar_entregue(
+    competencia: str, condominio: str, canal: str = "manual", obs: str = "", autor: str | None = None
+) -> dict:
     """Registra que o kit FOI entregue ao cliente (manualmente). canal: whatsapp|email|impresso|manual."""
     marker = status_entrega(competencia, condominio)
     marker["estado"] = "entregue"
@@ -180,7 +196,13 @@ def marcar_entregue(competencia: str, condominio: str, canal: str = "manual", ob
     marker["obs"] = obs
     hist = marker.get("historico", [])
     hist.append(
-        {"acao": "entregue", "canal": canal, "obs": obs, "autor": autor, "em": datetime.now().isoformat(timespec="seconds")}
+        {
+            "acao": "entregue",
+            "canal": canal,
+            "obs": obs,
+            "autor": autor,
+            "em": datetime.now().isoformat(timespec="seconds"),
+        }
     )
     marker["historico"] = hist
     return _salvar_marker(competencia, condominio, marker)

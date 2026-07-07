@@ -355,11 +355,16 @@ async def visao_360_cliente(
     )
 
     # NFS-e
+    # [Veracidade] Fonte autoritativa = nfse_emitidas_nacional (77 notas jan-jun,
+    # cStat 100). `nfses` so tem 27 notas jan-fev -> ficha do cliente mostrava
+    # historico fiscal incompleto. Sem coluna status (todas autorizadas = cStat 100).
     nfse = await db.execute(
         text("""
-        SELECT numero_nfse, data_competencia, valor_servicos, status
-        FROM nfses WHERE tomador_cpf_cnpj = :cnpj
-        ORDER BY data_competencia DESC LIMIT 10
+        SELECT numero, competencia, valor_servicos, 'autorizada' AS status
+        FROM nfse_emitidas_nacional
+        WHERE regexp_replace(COALESCE(tomador_cnpj,''),'[^0-9]','','g')
+              = regexp_replace(COALESCE(:cnpj,''),'[^0-9]','','g')
+        ORDER BY competencia DESC LIMIT 10
     """),
         {"cnpj": cl[2]},
     )
@@ -380,12 +385,15 @@ async def visao_360_cliente(
     )
 
     # MRR historico (NFS-e agrupado por mes)
+    # [Veracidade] Fonte autoritativa = nfse_emitidas_nacional (jan-jun completo).
+    # competencia e varchar 'YYYY-MM'; agrupa por ela e devolve data p/ o strftime.
     mrr_hist = await db.execute(
         text("""
-        SELECT DATE_TRUNC('month', data_competencia) as mes,
+        SELECT to_date(competencia || '-01', 'YYYY-MM-DD') as mes,
                SUM(valor_servicos) as total
-        FROM nfses
-        WHERE tomador_cpf_cnpj = :cnpj
+        FROM nfse_emitidas_nacional
+        WHERE regexp_replace(COALESCE(tomador_cnpj,''),'[^0-9]','','g')
+              = regexp_replace(COALESCE(:cnpj,''),'[^0-9]','','g')
         GROUP BY mes
         ORDER BY mes DESC
         LIMIT 12

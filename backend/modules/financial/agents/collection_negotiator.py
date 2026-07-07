@@ -122,9 +122,12 @@ class CollectionNegotiatorAgent(BaseAgent):
                 ReceivableAccount.id,
                 ReceivableAccount.description,
                 ReceivableAccount.net_value,
+                ReceivableAccount.paid_value,
+                ReceivableAccount.remaining_value,
                 ReceivableAccount.due_date,
                 ReceivableAccount.status,
                 ReceivableAccount.customer_id,
+                ReceivableAccount.customer_name.label("account_customer_name"),
                 ReceivableAccount.collection_attempts,
             ).where(ReceivableAccount.id == receivable_id)
             row = (await self.session.execute(q)).first()
@@ -134,8 +137,15 @@ class CollectionNegotiatorAgent(BaseAgent):
             dias = (today - row.due_date).days if row.due_date < today else 0
             nivel, prioridade, canal = _classificar(dias)
 
-            # Busca nome do cliente
-            customer_name = row.description or "Cliente"
+            # Valor em atraso = saldo restante (desconta parciais).
+            if row.remaining_value is not None:
+                valor = float(row.remaining_value)
+            else:
+                valor = float((row.net_value or 0) - (row.paid_value or 0))
+
+            # Nome do devedor: CRM, depois nome denormalizado na conta,
+            # e por fim a descricao do servico.
+            customer_name = row.account_customer_name or row.description or "Cliente"
             if row.customer_id:
                 cq = select(Customer.name).where(Customer.id == row.customer_id)
                 cname = (await self.session.execute(cq)).scalar_one_or_none()
@@ -144,7 +154,7 @@ class CollectionNegotiatorAgent(BaseAgent):
 
             mensagem = _MENSAGENS[nivel].format(
                 nome=customer_name,
-                valor=float(row.net_value or 0),
+                valor=valor,
                 vencimento=row.due_date.strftime("%d/%m/%Y") if row.due_date else "-",
                 dias=dias,
             )
@@ -152,7 +162,7 @@ class CollectionNegotiatorAgent(BaseAgent):
             return {
                 "id": str(row.id),
                 "customer_name": customer_name,
-                "valor": float(row.net_value or 0),
+                "valor": valor,
                 "dias_atraso": dias,
                 "nivel": nivel,
                 "acao": nivel.replace("_", " ").title(),
@@ -175,10 +185,13 @@ class CollectionNegotiatorAgent(BaseAgent):
                 ReceivableAccount.id,
                 ReceivableAccount.description,
                 ReceivableAccount.net_value,
+                ReceivableAccount.paid_value,
+                ReceivableAccount.remaining_value,
                 ReceivableAccount.due_date,
                 ReceivableAccount.customer_id,
                 ReceivableAccount.collection_attempts,
-                Customer.name.label("customer_name"),
+                ReceivableAccount.customer_name.label("account_customer_name"),
+                Customer.name.label("crm_customer_name"),
             )
             .outerjoin(Customer, ReceivableAccount.customer_id == Customer.id)
             .where(
@@ -203,11 +216,25 @@ class CollectionNegotiatorAgent(BaseAgent):
 
         for row in rows:
             dias = (today - row.due_date).days
-            valor = float(row.net_value or 0)
+            # Valor em atraso = saldo restante (desconta o que ja foi pago em
+            # contas parciais). remaining_value pode ser NULL nas contas totalmente
+            # pendentes, entao cai para net_value - paid_value e por fim net_value.
+            if row.remaining_value is not None:
+                valor = float(row.remaining_value)
+            else:
+                valor = float((row.net_value or 0) - (row.paid_value or 0))
             total_em_atraso += valor
 
             nivel, prioridade, canal = _classificar(dias)
-            customer_name = row.customer_name or row.description or "Cliente nao identificado"
+            # Nome do devedor: prioriza o cliente do CRM, depois o nome
+            # denormalizado na propria conta (NFS-e sem vinculo ao CRM),
+            # e so entao a descricao do servico como ultimo recurso.
+            customer_name = (
+                row.crm_customer_name
+                or row.account_customer_name
+                or row.description
+                or "Cliente nao identificado"
+            )
 
             mensagem = _MENSAGENS[nivel].format(
                 nome=customer_name,

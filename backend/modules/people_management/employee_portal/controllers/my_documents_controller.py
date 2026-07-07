@@ -63,7 +63,7 @@ async def get_my_documents(
 async def sign_document(
     request: Request,
     employee_id: CurrentEmployeeId,
-    document_id: int = Path(..., gt=0, description="ID do documento", alias="id"),
+    document_id: str = Path(..., description="ID do documento (UUID)", alias="id"),
     sign_data: SignDocumentRequest = None,  # type: ignore[assignment]
     db: AsyncSession = Depends(get_db),
 ) -> Any:
@@ -87,7 +87,7 @@ async def sign_document(
         asyncio.create_task(
             publish_documento_assinado(
                 employee_id=str(employee_id),
-                funcionario_nome=getattr(current_user, "full_name", ""),
+                funcionario_nome="",  # corrigido: 'current_user' não existe neste escopo (auth por employee_id)
                 document_id=document_id,
                 document_type=document_type,
             )
@@ -108,12 +108,12 @@ async def sign_document(
     description="Verifica a validade da assinatura de um documento.",
 )
 async def verify_document_signature(
-    current_user: CurrentActiveUser,
-    document_id: int = Path(..., gt=0, description="ID do documento", alias="id"),
+    employee_id: CurrentEmployeeId,
+    document_id: str = Path(..., description="ID do documento (UUID)", alias="id"),
     signature_hash: str = None,  # type: ignore[assignment]
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Verifica a assinatura digital de um documento."""
+    """Verifica a assinatura digital de um documento (auth do funcionário via portal)."""
     if not signature_hash:
         raise HTTPException(
             status_code=http_status.HTTP_400_BAD_REQUEST,

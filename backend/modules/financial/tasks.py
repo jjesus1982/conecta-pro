@@ -12,6 +12,62 @@ logger = logging.getLogger(__name__)
 
 
 @app.task(
+    name="financial.sincronizar_nfse_nacional",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=600,
+)
+def sincronizar_nfse_nacional_task(self):
+    """Puxa NFS-e emitidas (receita) + tomadas (custo) do ADN nacional (gov.br) e fecha o razão.
+    Diário: junho e meses futuros completam sozinhos quando o Ambiente Nacional recebe as notas.
+    """
+    try:
+        from modules.financial.services.ledger_auto_service import LedgerAutoService
+        from modules.financial.services.nfse_nacional_sync_service import NFSeNacionalSyncService
+
+        svc = NFSeNacionalSyncService()
+        emit = svc.sincronizar()
+        tom = svc.sincronizar_tomadas()
+        fechar = LedgerAutoService().fechar()
+        # Fecha o fluxo de caixa: corrige sinal dos recebidos + justifica cada saída
+        try:
+            from modules.financial.services.fluxo_caixa_service import FluxoCaixaService
+            fc = FluxoCaixaService().recategorizar_saidas()
+        except Exception as fce:
+            logger.warning("recategorizacao fluxo caixa falhou (segue): %s", fce)
+            fc = {"erro": str(fce)}
+        logger.info("NFS-e nacional sync: emitidas=%s tomadas=%s fluxo=%s",
+                    emit.get("validas_cStat100"), tom.get("recebidas"), fc.get("reclassificadas"))
+        return {"emitidas": emit.get("por_competencia"), "tomadas": tom.get("por_competencia_2026"),
+                "razao": fechar.get("novos_lancamentos"), "fluxo_caixa": fc.get("por_categoria")}
+    except Exception as exc:
+        logger.error("Erro no sync NFS-e nacional: %s", exc)
+        raise self.retry(exc=exc)
+
+
+@app.task(
+    name="financial.fechar_razao_auto",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=300,
+)
+def fechar_razao_auto_task(self):
+    """Contabilidade que fecha sozinha: posta folha (hr_payslips) + ISS (nfses) no razão
+    accounting_entries, idempotente, com empresa_id. Alimenta balancete + DRE.
+    Executado diariamente via Celery Beat.
+    """
+    try:
+        from modules.financial.services.ledger_auto_service import LedgerAutoService
+
+        result = LedgerAutoService().fechar()
+        logger.info("Fechamento automático do razão: %s", result)
+        return result
+    except Exception as exc:
+        logger.error("Erro no fechamento do razão: %s", exc)
+        raise self.retry(exc=exc)
+
+
+@app.task(
     name="financial.sync_cashflow_entries",
     bind=True,
     max_retries=3,
@@ -37,6 +93,78 @@ def sync_cashflow_entries_task(self):
     except Exception as exc:
         logger.error("[Financial Task] sync_cashflow error: %s", exc)
         raise self.retry(exc=exc)
+
+
+@app.task(
+    name="financial.inter_reconciliacao_diaria",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=300,
+)
+def inter_reconciliacao_diaria_task(self):
+    """Conciliação bancária DIÁRIA: sincroniza o extrato do Banco Inter e organiza a conciliação.
+
+    Puxa os últimos 7 dias do extrato via API → grava em inter_transactions → faz a PONTE para
+    bank_transactions (conciliação) → auto-categoriza os PIX de VT+VR de diaristas (R$32 e múltiplos)
+    e marca os fornecedores conhecidos. Idempotente. Não move dinheiro nem baixa contas.
+    """
+    try:
+        async def _run(session):
+            from modules.integrations.inter.inter_sync_service import InterSyncService
+            svc = InterSyncService(session)
+            return await svc.sincronizar_extrato(dias=7)
+
+        result = _run_async(_run)
+        logger.info("[Financial Task] inter_reconciliacao_diaria: %s", result)
+        return result
+    except Exception as exc:
+        logger.error("[Financial Task] inter_reconciliacao_diaria error: %s", exc)
+        raise self.retry(exc=exc)
+
+
+@app.task(
+    name="financial.inter_monitorar_pendentes",
+    bind=True,
+    max_retries=1,
+)
+def inter_monitorar_pendentes_task(self):
+    """MONITOR automático: verifica no Inter o status dos pagamentos que estão
+    'aguardando_aprovacao' e atualiza para 'confirmado'/'erro' quando o Inter concluir/rejeitar.
+    Assim o Jordan não precisa clicar em 'Status Inter' — o sistema acompanha em tempo real.
+    Só leitura no Inter; não move dinheiro."""
+    try:
+        async def _run(session):
+            from sqlalchemy import text
+
+            from modules.integrations.inter.services.payment_service import InterPaymentService
+
+            rows = (
+                await session.execute(
+                    text(
+                        "SELECT id FROM inter_payments "
+                        "WHERE status = 'aguardando_aprovacao' "
+                        "AND created_at > now() - interval '10 days' "
+                        "ORDER BY created_at DESC LIMIT 50"
+                    )
+                )
+            ).fetchall()
+            svc = InterPaymentService(session)
+            atualizados = 0
+            for r in rows:
+                try:
+                    res = await svc.atualizar_status_inter(str(r[0]))
+                    if res.get("status") != "aguardando_aprovacao":
+                        atualizados += 1
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("monitor pendente %s: %s", r[0], e)
+            return {"checados": len(rows), "concluidos_ou_alterados": atualizados}
+
+        result = _run_async(_run)
+        logger.info("[Financial Task] inter_monitorar_pendentes: %s", result)
+        return result
+    except Exception as exc:
+        logger.error("[Financial Task] inter_monitorar_pendentes error: %s", exc)
+        raise self.retry(exc=exc, countdown=120)
 
 
 # ═══════════════════════════════════════

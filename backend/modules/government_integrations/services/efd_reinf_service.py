@@ -11,6 +11,7 @@ from decimal import Decimal
 from typing import Any
 
 from ..core.certificate_manager import CertificateManager
+from ..core.empresa_context import get_empresa_fiscal
 from ..core.efd_reinf import (
     NATUREZAS_RENDIMENTO,
     ClassificacaoTributaria,
@@ -30,8 +31,10 @@ class EFDReinfService:
     """Service para operações EFD-Reinf."""
 
     def __init__(self):
-        """Inicializa o service."""
-        self.cnpj = os.getenv("EFD_REINF_CNPJ", os.getenv("EMPRESA_CNPJ", "35710481000103"))
+        """Inicializa o service com a identificação REAL da empresa (tabela empresas)."""
+        empresa = get_empresa_fiscal()
+        self.cnpj = empresa.cnpj
+        self.razao_social = empresa.razao_social
         self.ambiente_str = os.getenv("EFD_REINF_ENVIRONMENT", "producao_restrita")
         self.cert_path = os.getenv("CERTIFICATE_PATH", "")
         self.cert_password = os.getenv("CERTIFICATE_PASSWORD", "")
@@ -374,7 +377,7 @@ class EFDReinfService:
         # 1. Gerar XML do R-1000
         info = InfoContribuinte(
             cnpj=self.cnpj,
-            razao_social="CONECTAMAIS ELETRONICA LTDA",
+            razao_social=self.razao_social,
             classificacao_tributaria=ClassificacaoTributaria.EMPRESA_GERAL,
             inicio_validade="2026-01",
             ind_desoneracao="0",

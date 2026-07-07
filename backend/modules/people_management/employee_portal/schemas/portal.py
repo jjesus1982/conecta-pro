@@ -43,6 +43,10 @@ class PortalDashboard(BaseModel):
     name: str
     position: str | None = None
     workplace: str | None = None
+    # escala = tipo de escala padrao do funcionario (ex.: '12x36', '44h') — dado real do cadastro.
+    escala: str | None = None
+    # next_shift = proxima data/hora de turno agendado. None enquanto nao houver
+    # fonte real de agenda (nao reaproveitar escala_padrao aqui — semantica distinta).
     next_shift: str | None = None
     pending_documents: int = 0
     unread_notifications: int = 0

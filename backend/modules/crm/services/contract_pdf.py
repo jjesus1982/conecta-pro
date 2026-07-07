@@ -33,8 +33,8 @@ def build_contract_pdf(c) -> bytes:
         pagesize=A4,
         leftMargin=16 * mm,
         rightMargin=16 * mm,
-        topMargin=26 * mm,
-        bottomMargin=20 * mm,
+        topMargin=40 * mm,
+        bottomMargin=16 * mm,
         title=f"Contrato {_g(c, 'contract_number', default='')}",
     )
     st = B.styles()
@@ -185,37 +185,24 @@ def build_contract_pdf(c) -> bytes:
         ):
             el.append(Paragraph(cl, st["corpo"]))
 
-    el.append(Spacer(1, 10 * mm))
-    el.append(Paragraph(B.data_extenso(inicio), st["corpo"]))
-    el.append(Spacer(1, 12 * mm))
-    # selo entre as assinaturas
-    sp = B.logo_path("seal")
-    assinatura = Table(
-        [
-            [
-                [
-                    Paragraph("_______________________________", st["corpo"]),
-                    Paragraph("<b>CONTRATADA</b>", st["assina"]),
-                    Paragraph(f"{B.EMPRESA['nome']}", st["small"]),
-                    Paragraph(f"{B.EMPRESA['ceo']} — {B.EMPRESA['ceo_cargo']}", st["small"]),
-                ],
-                (Image(sp, width=28 * mm, height=28 * mm, kind="proportional") if sp else Paragraph("", st["small"])),
-                [
-                    Paragraph("_______________________________", st["corpo"]),
-                    Paragraph("<b>CONTRATANTE</b>", st["assina"]),
-                    Paragraph(f"{cliente}", st["small"]),
-                    Paragraph(f"CNPJ/CPF: {cnpj}" if cnpj else "", st["small"]),
-                ],
-            ]
-        ],
-        colWidths=[74 * mm, 30 * mm, 74 * mm],
+    el.append(Spacer(1, 8 * mm))
+    # Assinaturas: CONTRATANTE (cliente, assina manual/pelo motor) + CONTRATADA (empresa, digital CEO)
+    cliente_ident = f"CNPJ/CPF {cnpj}" if cnpj else None
+    el += B.campos_assinatura(
+        st,
+        funcionario_nome=cliente,
+        funcionario_cpf=cliente_ident,
+        funcionario_label="Assinatura do Contratante",
+        funcionario_doc_rotulo="CNPJ/CPF",
+        digital_funcionario=False,
+        digital_empresa=True,
+        data_str=B.br_date(inicio),
+        espaco_antes=8,
     )
-    assinatura.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("ALIGN", (1, 0), (1, 0), "CENTER")]))
-    el.append(assinatura)
 
     doc.build(
         el,
-        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True),
-        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True),
+        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True, pular_primeira=True),
+        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True, pular_primeira=True),
     )
     return buf.getvalue()

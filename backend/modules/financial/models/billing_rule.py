@@ -234,13 +234,18 @@ class BillingRule(Base):
 
         return float(self.base_value)
 
-    def pause(self) -> None:
+    def pause(self, reason: str | None = None) -> None:
         """Pausa a regra."""
         self.status = BillingRuleStatus.PAUSADA.value
 
     def resume(self) -> None:
         """Retoma a regra."""
         self.status = BillingRuleStatus.ATIVA.value
+
+    def activate(self) -> None:
+        """Ativa a regra (retoma execucao)."""
+        self.status = BillingRuleStatus.ATIVA.value
+        self.ativo = True
 
     def deactivate(self) -> None:
         """Desativa a regra."""

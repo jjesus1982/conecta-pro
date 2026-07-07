@@ -311,8 +311,6 @@ class ReportGeneratorService:
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.units import mm
         from reportlab.platypus import (
-            Image,
-            PageBreak,
             Paragraph,
             SimpleDocTemplate,
             Spacer,
@@ -328,8 +326,8 @@ class ReportGeneratorService:
             pagesize=A4,
             leftMargin=16 * mm,
             rightMargin=16 * mm,
-            topMargin=35 * mm,
-            bottomMargin=20 * mm,
+            topMargin=40 * mm,
+            bottomMargin=16 * mm,
             title=f"Relatório {getattr(report, 'name', '')}",
         )
         st = B.styles()
@@ -339,37 +337,18 @@ class ReportGeneratorService:
         tipo = getattr(getattr(report, "report_type", None), "value", None) or str(
             getattr(report, "report_type", "") or ""
         )
+        nome_rel = getattr(report, "name", "") or "Relatório"
 
-        # ---------------- CAPA ----------------
-        cover = B.logo_path("cover")
-        el.append(Spacer(1, 26 * mm))
-        if cover:
-            try:
-                img = Image(cover, width=58 * mm, height=40 * mm, kind="proportional")
-                img.hAlign = "CENTER"
-                el.append(img)
-            except Exception:  # noqa: BLE001
-                pass
-        el.append(Spacer(1, 8 * mm))
+        # Identificação do relatório (o cabeçalho branded já vem do header_footer)
         el.append(
-            Table(
-                [[""]],
-                colWidths=[60 * mm],
-                hAlign="CENTER",
-                style=TableStyle([("LINEBELOW", (0, 0), (-1, -1), 2.5, B.LARANJA)]),
+            Paragraph(
+                f"<b>{nome_rel}</b>  ·  {B.data_extenso(gerado)}"
+                + (f"  ·  Tipo: {tipo}" if tipo else "")
+                + "  ·  <font color='#F97316'><b>CONFIDENCIAL</b></font>",
+                st["small"],
             )
         )
-        el.append(Spacer(1, 10 * mm))
-        el.append(Paragraph("RELATÓRIO", st["capa_titulo"]))
-        el.append(Spacer(1, 3 * mm))
-        el.append(Paragraph(getattr(report, "name", "") or "Relatório", st["capa_sub"]))
-        el.append(Spacer(1, 12 * mm))
-        el.append(Paragraph(B.data_extenso(gerado), st["capa_meta"]))
-        if tipo:
-            el.append(Paragraph(f"Tipo: {tipo}", st["capa_meta"]))
-        el.append(Spacer(1, 14 * mm))
-        el.append(Paragraph("— CONFIDENCIAL —", st["destaque"]))
-        el.append(PageBreak())
+        el.append(Spacer(1, 4 * mm))
 
         # ---------------- CONTEÚDO ----------------
         el += B.secao("Resumo do Relatório", st)
@@ -406,8 +385,8 @@ class ReportGeneratorService:
 
         doc.build(
             el,
-            onFirstPage=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True),
-            onLaterPages=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True),
+            onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo="RELATÓRIO DE RH"),
+            onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo="RELATÓRIO DE RH"),
         )
         return buf.getvalue()
 

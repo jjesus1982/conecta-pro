@@ -1,8 +1,11 @@
 """
 Popular accounting_entries com lançamentos retroativos reais.
-Fonte: nfses (27 notas) + bank_transactions Inter
+Fonte de RECEITA: nfse_emitidas_nacional (portal nacional, cStat 100 = fonte da verdade,
+77 notas / R$1.428.413,04, todas as competências). NUNCA a tabela velha 'nfses' (só 27
+notas / R$542k — jan-fev — que corromperia a receita 3.1.1.01 se re-executado).
+Fonte de BANCO: bank_transactions Inter.
 Plano de contas simplificado Conecta Mais (Lucro Real).
-Idempotente: usa ON CONFLICT DO NOTHING + LEFT JOIN anti-duplicata.
+Idempotente: LEFT JOIN anti-duplicata por documento_ref (receita) e bank_transaction_id (banco).
 """
 
 import os
@@ -23,12 +26,15 @@ with engine.connect() as conn:
     inserted = 0
 
     # ── Lançamentos por NFS-e emitida (receita de serviços) ───────────────────
+    # FONTE DA VERDADE: nfse_emitidas_nacional (portal nacional, cStat 100). A competência
+    # é VARCHAR 'YYYY-MM' na própria tabela. Chave única do documento = chave_acesso.
+    # Anti-duplicata por documento_ref (NFSE-<chave_acesso>) — NUNCA re-lançar receita.
     try:
         nfses = conn.execute(
             text("""
-                SELECT id, numero_nfse, valor_servicos, data_emissao, tomador_razao_social
-                FROM nfses
-                WHERE status = 'autorizada'
+                SELECT chave_acesso, numero, valor_servicos, data_emissao,
+                       tomador_nome, competencia
+                FROM nfse_emitidas_nacional
                 ORDER BY data_emissao
             """)
         ).fetchall()
@@ -37,32 +43,42 @@ with engine.connect() as conn:
             valor = float(getattr(nf, "valor_servicos", 0) or 0)
             if valor <= 0:
                 continue
+            chave = str(getattr(nf, "chave_acesso", "") or "")
+            doc_ref = f"NFSE-{chave or getattr(nf, 'numero', '')}"
+            # anti-duplicata: pula se já existe lançamento com esse documento_ref
+            ja = conn.execute(
+                text("SELECT 1 FROM accounting_entries WHERE documento_ref = :d LIMIT 1"),
+                {"d": doc_ref},
+            ).first()
+            if ja:
+                continue
+            comp = str(getattr(nf, "competencia", "") or "")
+            periodo = comp if comp else str(getattr(nf, "data_emissao", datetime.now().date()))[:7]
             conn.execute(
                 text("""
                     INSERT INTO accounting_entries
                         (data_lancamento, conta_debito, conta_credito, valor,
                          historico, tipo_lancamento, documento_ref,
-                         nfse_id, periodo_competencia, status)
+                         periodo_competencia, status)
                     VALUES
                         (:data, '1.1.3.01', '3.1.1.01', :valor,
                          :hist, 'nfse_emitida', :doc,
-                         :nfse_id, :periodo, 'confirmado')
+                         :periodo, 'confirmado')
                     ON CONFLICT DO NOTHING
                 """),
                 {
                     "data": getattr(nf, "data_emissao", datetime.now().date()),
                     "valor": valor,
                     "hist": (
-                        f"NFS-e {getattr(nf, 'numero_nfse', '')} - {str(getattr(nf, 'tomador_razao_social', ''))[:50]}"
+                        f"NFS-e {getattr(nf, 'numero', '')} - {str(getattr(nf, 'tomador_nome', ''))[:50]}"
                     ),
-                    "doc": f"NFSE-{getattr(nf, 'numero_nfse', '')}",
-                    "nfse_id": nf.id,
-                    "periodo": str(getattr(nf, "data_emissao", datetime.now().date()))[:7],
+                    "doc": doc_ref,
+                    "periodo": periodo,
                 },
             )
             inserted += 1
 
-        print(f"Lançamentos NFS-e: {len(nfses)} notas → {inserted} inseridos")
+        print(f"Lançamentos NFS-e (nacional): {len(nfses)} notas → {inserted} inseridos")
     except Exception as e:
         print(f"NFS-e erro: {e}")
 

@@ -6,10 +6,14 @@ Camada de serviço que encapsula a lógica de negócio do SPED Contábil.
 
 import logging
 import os
+import re
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
+import psycopg2
+
+from ..core.empresa_context import get_empresa_fiscal
 from ..core.sped_contabil import (
     ContaContabil,
     DemonstrativoBalancoPatrimonial,
@@ -51,10 +55,12 @@ class SPEDContabilService:
     }
 
     def __init__(self):
-        """Inicializa o service."""
-        self.cnpj = os.environ.get("SPED_CNPJ", os.environ.get("EMPRESA_CNPJ", ""))
-        self.razao_social = os.environ.get("EMPRESA_RAZAO_SOCIAL", "Empresa")
+        """Inicializa o service com a identificação REAL da empresa (tabela empresas)."""
+        empresa = get_empresa_fiscal()
+        self.cnpj = empresa.cnpj
+        self.razao_social = empresa.razao_social
         self.tipo_ecd = os.environ.get("SPED_TIPO_ECD", "G")
+        self._empresa_id = "619a3df1-8bce-49ce-b77a-04f80a0e8491"
 
         self.manager = SPEDContabilManager(
             cnpj=self.cnpj,
@@ -265,6 +271,111 @@ class SPEDContabilService:
             ],
         }
 
+    @staticmethod
+    def _db_url() -> str:
+        return re.sub(r"\+asyncpg|\+psycopg2?", "", os.getenv("DATABASE_URL", ""))
+
+    @staticmethod
+    def _competencias_do_periodo(dt_inicio, dt_fim) -> list[str]:
+        """Lista de competências 'YYYY-MM' entre duas datas (inclusive)."""
+        comps: list[str] = []
+        ano, mes = dt_inicio.year, dt_inicio.month
+        while (ano, mes) <= (dt_fim.year, dt_fim.month):
+            comps.append(f"{ano:04d}-{mes:02d}")
+            mes += 1
+            if mes > 12:
+                mes = 1
+                ano += 1
+        return comps
+
+    def carregar_lancamentos_do_periodo(self, dt_inicio, dt_fim) -> int:
+        """
+        Popula o manager com os lançamentos REAIS do razão (accounting_entries) da
+        empresa principal no período. Cada lançamento gera também as contas
+        (débito/crédito) referenciadas, para que os blocos I050/I150/I155 não saiam
+        vazios. Retorna a quantidade de lançamentos carregados.
+        """
+        url = self._db_url()
+        if not url:
+            return 0
+
+        comps = self._competencias_do_periodo(dt_inicio, dt_fim)
+        try:
+            conn = psycopg2.connect(url)
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT id, data_lancamento, conta_debito, conta_credito,
+                               valor, historico
+                        FROM accounting_entries
+                        WHERE status = 'confirmado'
+                          AND empresa_id = %s::uuid
+                          AND periodo_competencia = ANY(%s)
+                        ORDER BY data_lancamento, id
+                        """,
+                        (self._empresa_id, comps),
+                    )
+                    rows = cur.fetchall()
+            finally:
+                conn.close()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("SPED Contábil: falha ao carregar lançamentos do período (%s)", e)
+            return 0
+
+        contas_vistas: set[str] = set()
+
+        def _garante_conta(codigo: str):
+            codigo = (codigo or "").strip()
+            if not codigo or codigo in contas_vistas:
+                return
+            contas_vistas.add(codigo)
+            # Natureza da conta (NaturezaConta): 01=Ativo, 02=Passivo, 03=PL,
+            # 04=Resultado credora (receita), 05=Resultado devedora (despesa/custo).
+            # Plano: 1=Ativo, 2=Passivo/PL, 3=Receita, 4=Despesa/Custo.
+            primeiro = codigo[:1]
+            if primeiro == "1":
+                natureza = "01"
+            elif primeiro == "2":
+                natureza = "02"
+            elif primeiro == "3":
+                natureza = "04"
+            else:  # "4" e demais: despesa/custo (resultado devedora)
+                natureza = "05"
+            self.adicionar_conta(
+                {
+                    "codigo": codigo,
+                    "descricao": f"Conta {codigo}",
+                    "tipo": "A",  # analítica
+                    "nivel": codigo.count(".") + 1,
+                    "natureza": natureza,
+                }
+            )
+
+        carregados = 0
+        for _id, data_lanc, c_deb, c_cred, valor, historico in rows:
+            _garante_conta(c_deb)
+            _garante_conta(c_cred)
+            self.adicionar_lancamento(
+                {
+                    "numero": int(_id),
+                    "data": data_lanc.strftime("%Y-%m-%d"),
+                    "conta_debito": (c_deb or "").strip(),
+                    "conta_credito": (c_cred or "").strip(),
+                    "valor": str(valor or 0),
+                    "historico": (historico or "")[:255],
+                }
+            )
+            carregados += 1
+
+        logger.info(
+            "SPED Contábil: %d lançamentos reais + %d contas carregados do período %s",
+            carregados,
+            len(contas_vistas),
+            comps,
+        )
+        return carregados
+
     def gerar_arquivo(
         self,
         ano_referencia: int,
@@ -310,20 +421,37 @@ class SPEDContabilService:
         dt_inicio = datetime.strptime(periodo_inicio, "%Y-%m-%d").date()
         dt_fim = datetime.strptime(periodo_fim, "%Y-%m-%d").date()
 
+        # Se nenhum lançamento foi passado, consolida o razão REAL (accounting_entries)
+        # do período — em vez de gerar ECD com blocos I/J vazios.
+        auto_carregados = 0
+        if not lancamentos and not self.manager.lancamentos:
+            auto_carregados = self.carregar_lancamentos_do_periodo(dt_inicio, dt_fim)
+
         conteudo = self.manager.gerar_arquivo(ano_referencia, dt_inicio, dt_fim, numero_ordem)
 
         # Valida
         validacao = self.manager.validar_arquivo(conteudo)
 
+        total_lanc = len(self.manager.lancamentos)
         return {
             "ano_referencia": ano_referencia,
             "periodo_inicio": periodo_inicio,
             "periodo_fim": periodo_fim,
             "total_registros": validacao["total_registros"],
             "total_contas": len(self.manager.plano_contas),
-            "total_lancamentos": len(self.manager.lancamentos),
+            "total_lancamentos": total_lanc,
+            "lancamentos_reais_carregados": auto_carregados,
             "hash_md5": validacao["hash"],
             "conteudo": conteudo,
+            "veracidade": {
+                "fonte_lancamentos": "accounting_entries" if auto_carregados else "manual",
+                "status": ("consolidado_com_razao_real" if total_lanc else "sem_lancamentos_no_periodo"),
+                "observacao": (
+                    "ECD consolidada a partir do razão real (accounting_entries) da empresa "
+                    "principal. Balanço/DRE (blocos J) e ajustes finais são responsabilidade "
+                    "do contador quando não informados explicitamente."
+                ),
+            },
         }
 
     def validar_arquivo(self, conteudo: str) -> dict[str, Any]:

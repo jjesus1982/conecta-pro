@@ -23,6 +23,116 @@ def _hoje_manaus() -> date:
     return datetime.now(TZ_MANAUS).date()
 
 
+# Esperado mensal CHEIO por escala (regra Jordan): 12x36=180h/mês, 44h=220h/mês.
+_ESPERADO_MES = {"12x36": 180.0, "44h": 220.0}
+
+
+def _dias_no_mes(month: int, year: int) -> int:
+    """Quantidade de dias do mês (calendário)."""
+    if month == 12:
+        prox = date(year + 1, 1, 1)
+    else:
+        prox = date(year, month + 1, 1)
+    return (prox - date(year, month, 1)).days
+
+
+def _dias_uteis_no_intervalo(inicio: date, fim: date) -> int:
+    """Conta dias úteis (seg-sex) em [inicio, fim] inclusive."""
+    if fim < inicio:
+        return 0
+    dias = 0
+    d = inicio
+    while d <= fim:
+        if d.weekday() < 5:  # 0=seg ... 4=sex
+            dias += 1
+        d += timedelta(days=1)
+    return dias
+
+
+def _fator_prorata(escala: str, month: int, year: int, hoje: date) -> float:
+    """Fração do esperado mensal já 'devida' até o dia decorrido.
+
+    - Mês futuro: 0.0 (nada esperado ainda).
+    - Mês passado/completo: 1.0 (esperado cheio).
+    - Mês corrente parcial: proporção dos dias decorridos.
+
+    Para escala 44h prorratea por DIAS ÚTEIS (seg-sex); para plantões (12x36)
+    prorratea por DIAS CORRIDOS (plantões acontecem em qualquer dia).
+    """
+    primeiro = date(year, month, 1)
+    ultimo = date(year, month, _dias_no_mes(month, year))
+
+    if hoje < primeiro:
+        return 0.0
+    if hoje >= ultimo:
+        return 1.0
+
+    # Mês corrente parcial: decorrido = do dia 1 até hoje (inclusive).
+    if escala == "44h":
+        decorridos = _dias_uteis_no_intervalo(primeiro, hoje)
+        totais = _dias_uteis_no_intervalo(primeiro, ultimo)
+    else:
+        decorridos = (hoje - primeiro).days + 1
+        totais = (ultimo - primeiro).days + 1
+
+    if totais <= 0:
+        return 0.0
+    return min(1.0, decorridos / totais)
+
+
+def _esperado_prorrateado_min(escala: str, month: int, year: int, hoje: date) -> int:
+    """Esperado (em minutos) prorrateado pelos dias decorridos no mês."""
+    esperado_cheio_min = _ESPERADO_MES.get(escala, 220.0) * 60.0
+    return int(round(esperado_cheio_min * _fator_prorata(escala, month, year, hoje)))
+
+
+def _horas_trab_por_escala(db: Session, month: int, year: int) -> dict[str, dict[str, float]]:
+    """Horas trabalhadas REAIS (pareamento entrada->saida) agregadas por escala no mês.
+
+    Pareia cronologicamente entrada->saida por funcionário (NÃO usa MAX-MIN, que
+    contaria o intervalo de almoço/turno partido como trabalhado). Ignora pares
+    inconsistentes (<=0 ou >24h). Retorna {escala: {"horas": X, "n": qtd_colab}}.
+    """
+    rows = db.execute(
+        text(
+            "SELECT p.employee_id, COALESCE(e.escala_padrao,'12x36') AS escala, "
+            "       p.punch_type, p.punch_timestamp "
+            "FROM gp_clock_punches p "
+            "JOIN employees e ON CAST(e.id AS text)=CAST(p.employee_id AS text) "
+            "WHERE e.status='ativo' "
+            "  AND EXTRACT(MONTH FROM p.punch_timestamp)=:m "
+            "  AND EXTRACT(YEAR FROM p.punch_timestamp)=:y "
+            "ORDER BY p.employee_id, p.punch_timestamp"
+        ),
+        {"m": month, "y": year},
+    ).fetchall()
+
+    # Agrupa batidas por funcionário preservando a ordem cronológica.
+    por_emp: dict[Any, dict[str, Any]] = {}
+    for emp_id, escala, ptype, ts in rows:
+        d = por_emp.setdefault(emp_id, {"escala": escala or "12x36", "batidas": []})
+        d["batidas"].append((ptype, ts))
+
+    agg: dict[str, dict[str, float]] = {}
+    for _emp, info in por_emp.items():
+        escala = info["escala"]
+        total_min = 0.0
+        entrada = None
+        for ptype, ts in info["batidas"]:
+            t = (ptype or "").lower()
+            if t == "entrada":
+                entrada = ts
+            elif t == "saida" and entrada is not None:
+                dur = (ts - entrada).total_seconds() / 60.0
+                if 0 < dur < 24 * 60:
+                    total_min += dur
+                entrada = None
+        bucket = agg.setdefault(escala, {"horas": 0.0, "n": 0})
+        bucket["horas"] += total_min / 60.0
+        bucket["n"] += 1
+    return agg
+
+
 # Constantes CCT 2026 SINDECOMPRESTS
 HORA_NOTURNA_MINUTOS = 52.5
 ADICIONAL_NOTURNO_PCT = 0.20
@@ -104,6 +214,40 @@ def get_dashboard(db: Session) -> dict[str, Any]:
         )
     ).scalar()
 
+    # Banco de horas REAL por ESCALA (regra Jordan): esperado 12x36=180h/mês, 44h=220h/mês.
+    # Trabalhado = pareamento entrada->saida (NÃO MAX-MIN; senão conta intervalo como trabalhado).
+    # Esperado é PRORRATEADO pelos dias decorridos do mês (útil/plantão), para não comparar
+    # mês parcial (ex.: começo de julho) contra o esperado do mês inteiro.
+    bh = {"total_credito": 0.0, "total_debito": 0.0, "saldo_medio": 0.0, "status": "calculado", "colaboradores": 0}
+    try:
+        _hoje = _hoje_manaus()
+        agg = _horas_trab_por_escala(db, _hoje.month, _hoje.year)
+        cred = deb = 0.0
+        ncol = 0
+        for escala, info in agg.items():
+            n = int(info["n"])
+            esperado_por_colab_h = _esperado_prorrateado_min(escala, _hoje.month, _hoje.year, _hoje) / 60.0
+            esperado = esperado_por_colab_h * n
+            saldo = float(info["horas"]) - esperado
+            if saldo >= 0:
+                cred += saldo
+            else:
+                deb += saldo
+            ncol += n
+        bh = {
+            "total_credito": round(cred, 1),
+            "total_debito": round(deb, 1),
+            "saldo_medio": round((cred + deb) / ncol, 1) if ncol else 0.0,
+            "status": "calculado",
+            "colaboradores": ncol,
+            "obs": (
+                "Trabalhado = pareamento entrada->saída (exclui intervalos). "
+                "Esperado prorrateado pelos dias decorridos do mês (12x36=180h, 44h=220h no mês cheio)."
+            ),
+        }
+    except Exception as _e:  # noqa: BLE001
+        logger.warning("banco de horas dashboard falhou: %s", _e)
+
     return {
         "total_colaboradores": total,
         "presentes_hoje": presentes,
@@ -112,7 +256,7 @@ def get_dashboard(db: Session) -> dict[str, Any]:
         "inconsistencias_periodo": _contar_inconsistencias_mes(db),
         "sem_escala": sem_escala,
         "pontos_em_aberto": em_aberto,
-        "banco_horas": {"total_credito": None, "total_debito": None, "saldo_medio": None, "status": "nao_calculado"},
+        "banco_horas": bh,
         "por_escala": por_escala,
         "ultima_sync_solides": ultima_sync.isoformat() if ultima_sync else None,
     }
@@ -210,33 +354,45 @@ def get_inconsistencias(
         )
 
     # 4. Intrajornada nao concedida (<1h de intervalo)
-    intervalos = db.execute(
+    # Os dispositivos NÃO emitem saida_almoco/retorno_almoco (banco: 1 saida_almoco,
+    # 0 retorno_almoco) — o intervalo é registrado como saida/entrada normais. O plantão
+    # 12x36 é entrada 21:00->saida 03:00 (intervalo) entrada 04:00->saida 09:00.
+    # Detectamos a intrajornada pelo GAP entre uma 'saida' e a próxima 'entrada' do MESMO
+    # turno: gap curto (>0 e < TETO) é o intervalo; se < 60min, viola a CCT. Gaps grandes
+    # (>= TETO) são a folga de 36h entre plantões, não intervalo. Calculado em Python
+    # sobre batidas ordenadas para atravessar corretamente a meia-noite.
+    _INTRA_TETO_HORAS = 6.0  # separa intervalo intra-turno (curto) da folga entre plantões
+    intra_rows = db.execute(
         text(
-            "SELECT sa.employee_id, DATE(sa.punch_timestamp) as dia, "
-            "  EXTRACT(EPOCH FROM (ret.punch_timestamp - sa.punch_timestamp))/60 as min_intervalo "
-            "FROM gp_clock_punches sa "
-            "JOIN gp_clock_punches ret ON sa.employee_id=ret.employee_id "
-            "  AND ret.punch_type='retorno_almoco' "
-            "  AND DATE(ret.punch_timestamp)=DATE(sa.punch_timestamp) "
-            "WHERE sa.punch_type='saida_almoco' "
-            "AND DATE(sa.punch_timestamp) BETWEEN :ini AND :fim "
-            "AND EXTRACT(EPOCH FROM (ret.punch_timestamp - sa.punch_timestamp))/60 < :min_m "
-            "ORDER BY dia DESC"
+            "SELECT employee_id, punch_type, punch_timestamp FROM gp_clock_punches "
+            "WHERE punch_type IN ('entrada','saida') "
+            "AND DATE(punch_timestamp) BETWEEN :ini AND :fim "
+            "ORDER BY employee_id, punch_timestamp"
         ),
-        {"ini": inicio, "fim": fim, "min_m": INTRAJORNADA_MINIMA_HORAS * 60},
+        {"ini": inicio, "fim": fim},
     ).fetchall()
-    for row in intervalos:
-        items.append(
-            {
-                "employee_id": str(row[0]),
-                "employee_nome": _nomes.get(str(row[0]), f"Emp#{row[0]}"),
-                "data": str(row[1]),
-                "tipo": "intrajornada_nao_concedida",
-                "descricao": f"Intervalo de {row[2]:.0f}min abaixo do minimo 60min CCT",
-                "gravidade": "media",
-                "resolvida": False,
-            }
-        )
+    _por_emp: dict[str, list[Any]] = {}
+    for emp_id, ptype, pts in intra_rows:
+        _por_emp.setdefault(str(emp_id), []).append((ptype, pts))
+    for emp_id, seq in _por_emp.items():
+        for i in range(len(seq) - 1):
+            tipo_a, ts_a = seq[i]
+            tipo_b, ts_b = seq[i + 1]
+            # gap saida -> próxima entrada = candidato a intervalo intra-turno
+            if (tipo_a or "").lower() == "saida" and (tipo_b or "").lower() == "entrada":
+                gap_min = (ts_b - ts_a).total_seconds() / 60.0
+                if 0 < gap_min < _INTRA_TETO_HORAS * 60 and gap_min < INTRAJORNADA_MINIMA_HORAS * 60:
+                    items.append(
+                        {
+                            "employee_id": emp_id,
+                            "employee_nome": _nomes.get(emp_id, f"Emp#{emp_id}"),
+                            "data": str(ts_a.date()),
+                            "tipo": "intrajornada_nao_concedida",
+                            "descricao": f"Intervalo de {gap_min:.0f}min abaixo do minimo 60min CCT",
+                            "gravidade": "media",
+                            "resolvida": False,
+                        }
+                    )
 
     # Sumarizar por tipo e gravidade
     por_tipo: dict[str, int] = {}
@@ -256,36 +412,35 @@ def get_inconsistencias(
 
 
 def get_banco_horas(db: Session, employee_id: str) -> dict[str, Any]:
-    """Retorna saldo de banco de horas do colaborador."""
-    emp = db.execute(text("SELECT id, nome FROM employees WHERE CAST(id AS TEXT)=:eid"), {"eid": employee_id}).first()
+    """Retorna saldo de banco de horas do colaborador.
+
+    Definição UNIFICADA com o espelho/fechamento: saldo = horas trabalhadas REAIS
+    (pareamento entrada->saída, exclui intervalos) − esperado PRORRATEADO pelos dias
+    decorridos no mês corrente. Débitos são calculados (não hardcoded 0.0).
+    """
+    from .horas_service import horas_reais_ponto
+
+    emp = db.execute(
+        text("SELECT id, nome, COALESCE(escala_padrao,'12x36') FROM employees WHERE CAST(id AS TEXT)=:eid"),
+        {"eid": employee_id},
+    ).first()
 
     if not emp:
         return {"error": "Colaborador nao encontrado"}
 
-    # Calcular horas extras do mes atual
-    hoje = date.today()
-    inicio_mes = hoje.replace(day=1).isoformat()
+    escala = emp[2] or "12x36"
+    hoje = _hoje_manaus()
 
-    he = (
-        db.execute(
-            text(
-                "SELECT COALESCE(SUM("
-                "  CASE WHEN EXTRACT(EPOCH FROM (sai.punch_timestamp - ent.punch_timestamp))/3600 > 12 "
-                "  THEN EXTRACT(EPOCH FROM (sai.punch_timestamp - ent.punch_timestamp))/3600 - 12 "
-                "  ELSE 0 END"
-                "), 0) as total_he "
-                "FROM gp_clock_punches ent "
-                "JOIN gp_clock_punches sai ON ent.employee_id=sai.employee_id "
-                "  AND sai.punch_type='saida' "
-                "  AND DATE(sai.punch_timestamp)=DATE(ent.punch_timestamp) "
-                "WHERE ent.punch_type='entrada' "
-                "AND CAST(ent.employee_id AS TEXT)=:eid "
-                "AND DATE(ent.punch_timestamp) >= :ini"
-            ),
-            {"eid": employee_id, "ini": inicio_mes},
-        ).scalar()
-        or 0.0
-    )
+    # Horas trabalhadas REAIS do mês corrente (pareamento entrada->saída).
+    horas = horas_reais_ponto(db, employee_id, hoje.month, hoje.year)
+    trabalhado_h = float(horas.get("horas_trabalhadas") or 0.0)
+
+    # Esperado prorrateado pelos dias decorridos (útil/plantão) até hoje.
+    esperado_h = _esperado_prorrateado_min(escala, hoje.month, hoje.year, hoje) / 60.0
+
+    saldo_h = round(trabalhado_h - esperado_h, 2)
+    creditos = round(max(0.0, saldo_h), 2)
+    debitos = round(min(0.0, saldo_h), 2)
 
     # Prazo CCT: 6 meses para compensacao
     vencimento = (hoje + timedelta(days=BANCO_HORAS_PRAZO_MESES * 30)).isoformat()
@@ -293,11 +448,18 @@ def get_banco_horas(db: Session, employee_id: str) -> dict[str, Any]:
     return {
         "employee_id": employee_id,
         "employee_nome": emp[1],
-        "saldo_horas": float(he),
-        "creditos": float(he),
-        "debitos": 0.0,
+        "escala": escala,
+        "horas_trabalhadas": round(trabalhado_h, 2),
+        "horas_esperadas": round(esperado_h, 2),
+        "saldo_horas": saldo_h,
+        "creditos": creditos,
+        "debitos": debitos,
         "vencimento_proximo": vencimento,
         "detalhes": [],
+        "obs": (
+            "Saldo = trabalhado real (pares entrada->saída) − esperado prorrateado "
+            f"pelos dias decorridos ({escala}). Mês corrente pode estar parcial."
+        ),
     }
 
 
@@ -804,34 +966,12 @@ def registrar_ajuste(db: Session, ajuste: dict[str, Any]) -> dict[str, Any]:
 
 
 def _contar_inconsistencias_mes(db: Session) -> int:
-    """Conta inconsistencias do mes corrente."""
-    hoje = date.today()
-    inicio = hoje.replace(day=1).isoformat()
-    fim = hoje.isoformat()
+    """Conta inconsistencias do mes corrente.
 
-    # Sem escala
-    sem_escala = (
-        db.execute(
-            text("SELECT COUNT(*) FROM employees WHERE status='ativo' AND (escala_padrao IS NULL OR escala_padrao='')")
-        ).scalar()
-        or 0
-    )
-
-    # Pontos em aberto
-    abertos = (
-        db.execute(
-            text(
-                "SELECT COUNT(DISTINCT e.employee_id) FROM gp_clock_punches e "
-                "WHERE e.punch_type='entrada' "
-                "AND DATE(e.punch_timestamp) BETWEEN :ini AND :fim "
-                "AND NOT EXISTS ("
-                "  SELECT 1 FROM gp_clock_punches s "
-                "  WHERE s.employee_id=e.employee_id AND s.punch_type='saida' "
-                "  AND DATE(s.punch_timestamp)=DATE(e.punch_timestamp))"
-            ),
-            {"ini": inicio, "fim": fim},
-        ).scalar()
-        or 0
-    )
-
-    return sem_escala + abertos
+    [Ponto Ciclo3 - Achado 4] FONTE ÚNICA: delega ao mesmo motor do relatório
+    (get_inconsistencias) para a mesma janela (mês corrente até hoje). Antes este KPI
+    contava só sem_escala + pontos_em_aberto (por funcionário-distinto) e omitia as
+    regras CCT (jornada_excedida, intrajornada), divergindo do relatório detalhado
+    (dashboard=15 vs relatório=21). Agora ambos usam a MESMA contagem por item/dia.
+    """
+    return int(get_inconsistencias(db).get("total_inconsistencias", 0))

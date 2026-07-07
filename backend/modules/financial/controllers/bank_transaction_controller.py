@@ -30,6 +30,14 @@ from modules.financial.schemas import (
 
 logger = logging.getLogger(__name__)
 
+
+def _user_email(current_user) -> str | None:
+    """Extrai o e-mail do usuario seja ele dict ou objeto User (evita AttributeError)."""
+    if isinstance(current_user, dict):
+        return current_user.get("email")
+    return getattr(current_user, "email", None)
+
+
 router = APIRouter(prefix="/bank-transactions", tags=["Transações Bancárias"])
 
 
@@ -72,14 +80,14 @@ async def create_transaction(
         transaction = await repo.create(data.model_dump())
 
         # Atualiza saldo da conta se transação efetivada
-        if transaction.status == TransactionStatus.EFETIVADA:
+        if str(transaction.status).lower() in ("confirmado", "confirmada"):
             if transaction.transaction_type == TransactionType.CREDITO:
                 account.update_balance(transaction.amount)
             else:
                 account.update_balance(-transaction.amount)
             await session.commit()
 
-        logger.info(f"Transação criada: {transaction.id} por {current_user.get('email')}")
+        logger.info(f"Transação criada: {transaction.id} por {_user_email(current_user)}")
         return BankTransactionResponse.model_validate(transaction)
     except Exception as e:
         logger.error(f"Erro ao criar transação: {e}")
@@ -138,11 +146,8 @@ async def get_pending_reconciliation(
     current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
 ) -> list[BankTransactionResponse]:
     """Retorna transações pendentes de conciliação bancária."""
-    # Default to last 30 days for pending reconciliation
-    end_date = date.today()
-    start_date = end_date - timedelta(days=30)
-    transactions = await repo.get_pending_reconciliation(bank_account_id, start_date, end_date)
-    return [BankTransactionResponse.model_validate(t) for t in transactions[:limit]]
+    transactions = await repo.get_pending_reconciliation(bank_account_id, limit)
+    return [BankTransactionResponse.model_validate(t) for t in transactions]
 
 
 @router.get(
@@ -263,17 +268,15 @@ async def update_transaction(
             detail="Transação não encontrada",
         )
 
-    if transaction.reconciliation_status == ReconciliationStatus.CONCILIADO:
+    if str(transaction.reconciliation_status).lower() in ("conciliado", "conciliada"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Não é possível alterar transação já conciliada",
         )
 
     update_data = data.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(transaction, key, value)
-    updated = await repo.update(transaction)
-    logger.info(f"Transação atualizada: {transaction_id} por {current_user.get('email')}")
+    updated = await repo.update(transaction_id, update_data)
+    logger.info(f"Transação atualizada: {transaction_id} por {_user_email(current_user)}")
     return BankTransactionResponse.model_validate(updated)
 
 
@@ -297,14 +300,14 @@ async def delete_transaction(
             detail="Transação não encontrada",
         )
 
-    if transaction.reconciliation_status == ReconciliationStatus.CONCILIADO:
+    if str(transaction.reconciliation_status).lower() in ("conciliado", "conciliada"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Não é possível excluir transação já conciliada",
         )
 
     # Reverte saldo se transação estava efetivada
-    if transaction.status == TransactionStatus.EFETIVADA:
+    if str(transaction.status).lower() in ("confirmado", "confirmada"):
         account = await account_repo.get_by_id(transaction.bank_account_id)
         if account:
             if transaction.transaction_type == TransactionType.CREDITO:
@@ -314,7 +317,7 @@ async def delete_transaction(
 
     await repo.delete(transaction_id)
     await session.commit()
-    logger.info(f"Transação excluída: {transaction_id} por {current_user.get('email')}")
+    logger.info(f"Transação excluída: {transaction_id} por {_user_email(current_user)}")
 
 
 # ==================== OPERAÇÕES ====================
@@ -338,14 +341,16 @@ async def confirm_transaction(
             detail="Transação não encontrada",
         )
 
-    if transaction.status != TransactionStatus.PENDENTE:
+    # Aceita ambas as grafias presentes na base (pendente)
+    if str(transaction.status).lower() not in ("pendente",):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Apenas transações pendentes podem ser confirmadas",
         )
 
-    # Atualiza status
-    transaction.status = TransactionStatus.EFETIVADA
+    # Atualiza status — usa "confirmado" (grafia dominante na base real).
+    # repo.update recebe o objeto ORM (flush+refresh); mutamos os atributos aqui.
+    transaction.status = "confirmado"
     updated = await repo.update(transaction)
 
     # Atualiza saldo
@@ -357,7 +362,7 @@ async def confirm_transaction(
             account.update_balance(-transaction.amount)
 
     await session.commit()
-    logger.info(f"Transação confirmada: {transaction_id} por {current_user.get('email')}")
+    logger.info(f"Transação confirmada: {transaction_id} por {_user_email(current_user)}")
     # Publisher GEDEON Event Bus — nota emitida (crédito confirmado)
     if transaction.transaction_type == TransactionType.CREDITO:
         try:
@@ -400,14 +405,14 @@ async def cancel_transaction(
             detail="Transação não encontrada",
         )
 
-    if transaction.reconciliation_status == ReconciliationStatus.CONCILIADO:
+    if str(transaction.reconciliation_status).lower() in ("conciliado", "conciliada"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Não é possível cancelar transação conciliada",
         )
 
     # Reverte saldo se estava efetivada
-    if transaction.status == TransactionStatus.EFETIVADA:
+    if str(transaction.status).lower() in ("confirmado", "confirmada"):
         account = await account_repo.get_by_id(transaction.bank_account_id)
         if account:
             if transaction.transaction_type == TransactionType.CREDITO:
@@ -415,14 +420,14 @@ async def cancel_transaction(
             else:
                 account.update_balance(transaction.amount)
 
-    # Atualiza status
-    # Atualiza status
-    transaction.status = TransactionStatus.CANCELADA
-    transaction.notes = f"{transaction.notes or ''}\nCancelamento: {reason}".strip()
+    # Atualiza status — usa "cancelado" (grafia dominante na base real).
+    # Registra o motivo em memo (BankTransaction nao tem coluna 'notes').
+    transaction.status = "cancelado"
+    transaction.memo = f"{getattr(transaction, 'memo', '') or ''}\nCancelamento: {reason}".strip()
     updated = await repo.update(transaction)
 
     await session.commit()
-    logger.info(f"Transação cancelada: {transaction_id} por {current_user.get('email')}, motivo: {reason}")
+    logger.info(f"Transação cancelada: {transaction_id} por {_user_email(current_user)}, motivo: {reason}")
     return BankTransactionResponse.model_validate(updated)
 
 
@@ -446,19 +451,21 @@ async def reconcile_transaction(
             detail="Transação não encontrada",
         )
 
-    if transaction.status != TransactionStatus.EFETIVADA:
+    if str(transaction.status).lower() not in ("confirmado", "confirmada"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Apenas transações efetivadas podem ser conciliadas",
         )
 
-    transaction.reconciliation_status = ReconciliationStatus.CONCILIADO
+    # Marca como conciliada (grafia "conciliado" dominante na base real).
+    transaction.reconciliation_status = "conciliado"
     transaction.reconciled_at = date.today()
-    if statement_reference:
+    if statement_reference and hasattr(transaction, "statement_reference"):
         transaction.statement_reference = statement_reference
 
     updated = await repo.update(transaction)
-    logger.info(f"Transação conciliada: {transaction_id} por {current_user.get('email')}")
+    await repo.session.commit()
+    logger.info(f"Transação conciliada: {transaction_id} por {_user_email(current_user)}")
     return BankTransactionResponse.model_validate(updated)
 
 
@@ -511,8 +518,8 @@ async def import_transactions(
                     "description": tx_data.description,
                     "transaction_date": tx_data.transaction_date,
                     "statement_reference": tx_data.reference,
-                    "status": TransactionStatus.EFETIVADA,
-                    "reconciliation_status": ReconciliationStatus.PENDENTE,
+                    "status": "confirmado",
+                    "reconciliation_status": "pendente",
                 }
             )
             created += 1
@@ -523,7 +530,7 @@ async def import_transactions(
 
     logger.info(
         f"Importação de transações: {created} criadas, {duplicates} duplicadas, "
-        f"{len(errors)} erros, por {current_user.get('email')}"
+        f"{len(errors)} erros, por {_user_email(current_user)}"
     )
 
     return {
@@ -575,15 +582,15 @@ async def import_ofx_file(
                     "description": tx["description"],
                     "transaction_date": tx["date"],
                     "statement_reference": tx["fitid"],
-                    "status": TransactionStatus.EFETIVADA,
-                    "reconciliation_status": ReconciliationStatus.PENDENTE,
+                    "status": "confirmado",
+                    "reconciliation_status": "pendente",
                 }
             )
             created += 1
 
         await session.commit()
 
-        logger.info(f"Arquivo OFX importado: {created} transações, por {current_user.get('email')}")
+        logger.info(f"Arquivo OFX importado: {created} transações, por {_user_email(current_user)}")
 
         return {
             "success": True,

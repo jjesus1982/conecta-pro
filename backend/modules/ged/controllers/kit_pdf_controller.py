@@ -67,11 +67,10 @@ def _gerar_contracheque(
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_CENTER
     from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import cm, mm
     from reportlab.platypus import (
         HRFlowable,
-        Image,
         Paragraph,
         SimpleDocTemplate,
         Spacer,
@@ -92,53 +91,20 @@ def _gerar_contracheque(
     liquido = round(salario - inss - vt, 2)
 
     buf = io.BytesIO()
-    # topMargin ~35mm p/ não sobrepor o header (marca Conecta Mais)
+    # topMargin 42mm p/ não sobrepor o cabeçalho da marca (logo completa Conecta Mais)
     doc = SimpleDocTemplate(
-        buf, pagesize=A4, topMargin=35 * mm, bottomMargin=1.5 * cm, leftMargin=2 * cm, rightMargin=2 * cm
+        buf, pagesize=A4, topMargin=42 * mm, bottomMargin=1.5 * cm, leftMargin=2 * cm, rightMargin=2 * cm
     )
-    st = getSampleStyleSheet()
     s: list[Any] = []
 
-    _hdr_logo = B.logo_path("header")
-    if _hdr_logo:
-        try:
-            _left = Image(_hdr_logo, width=45 * mm, height=10 * mm, kind="proportional")
-        except Exception:
-            _left = Paragraph(
-                '<b><font color="#FFFFFF" size="14">CONECTA MAIS</font></b>'
-                '<br/><font color="#FF6B35" size="9">Seguranca e Tecnologia</font>',
-                st["Normal"],
-            )
-    else:
-        _left = Paragraph(
-            '<b><font color="#FFFFFF" size="14">CONECTA MAIS</font></b>'
-            '<br/><font color="#FF6B35" size="9">Seguranca e Tecnologia</font>',
-            st["Normal"],
-        )
-    hdr = Table(
-        [
-            [
-                _left,
-                Paragraph(
-                    '<b><font color="#FFFFFF" size="12">CONTRACHEQUE</font></b>'
-                    f'<br/><font color="#CCCCCC" size="9">Competencia: {competencia}</font>',
-                    st["Normal"],
-                ),
-            ]
-        ],
-        colWidths=[10 * cm, 7 * cm],
-    )
-    hdr.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, -1), AZ),
-                ("TEXTCOLOR", (0, 0), (-1, -1), colors.white),
-                ("PADDING", (0, 0), (-1, -1), 12),
-                ("ALIGN", (1, 0), (1, 0), "RIGHT"),
-            ]
+    # Título limpo do documento (cabeçalho da marca é desenhado por B.header_footer)
+    s.append(
+        Paragraph(
+            '<b><font color="#0A2540" size="14">CONTRACHEQUE</font></b>'
+            f'<br/><font color="grey" size="9">Competencia: {competencia}</font>',
+            ParagraphStyle("cc_titulo", spaceAfter=6),
         )
     )
-    s.append(hdr)
     s.append(Spacer(1, 0.3 * cm))
 
     info = Table(
@@ -250,7 +216,7 @@ def _gerar_contracheque(
     s.append(
         Paragraph(
             f'<font size="7" color="grey">{B.EMPRESA["nome"]} | CNPJ {B.EMPRESA["cnpj"]} | '
-            f'{B.EMPRESA["fone"]} | {B.EMPRESA["site"]} | '
+            f"{B.EMPRESA['fone']} | {B.EMPRESA['site']} | "
             f"Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}</font>",
             ParagraphStyle("ft", alignment=TA_CENTER),
         )
@@ -258,8 +224,8 @@ def _gerar_contracheque(
 
     doc.build(
         s,
-        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True),
-        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True),
+        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo="CONTRACHEQUE"),
+        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo="CONTRACHEQUE"),
     )
     return buf.getvalue()
 
@@ -279,25 +245,18 @@ def _gerar_nfse_pdf(
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import cm, mm
-    from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
     from modules.crm.services import pdf_branding as B
 
     buf = io.BytesIO()
-    # topMargin ~35mm p/ não sobrepor o header (marca Conecta Mais)
+    # topMargin 42mm p/ não sobrepor o cabeçalho da marca (logo completa Conecta Mais)
     doc = SimpleDocTemplate(
-        buf, pagesize=A4, topMargin=35 * mm, bottomMargin=2 * cm, leftMargin=2 * cm, rightMargin=2 * cm
+        buf, pagesize=A4, topMargin=42 * mm, bottomMargin=2 * cm, leftMargin=2 * cm, rightMargin=2 * cm
     )
     AZ = colors.HexColor("#0A2540")
 
     s: list[Any] = []
-    _cover = B.logo_path("cover") or B.logo_path("header")
-    if _cover:
-        try:
-            s.append(Image(_cover, width=55 * mm, height=20 * mm, kind="proportional"))
-            s.append(Spacer(1, 0.2 * cm))
-        except Exception:
-            pass
     s.append(
         Paragraph(
             f'<b><font color="#0A2540" size="16">NFS-e No {numero}</font></b>', ParagraphStyle("t", alignment=TA_CENTER)
@@ -337,8 +296,8 @@ def _gerar_nfse_pdf(
     s.append(t)
     doc.build(
         s,
-        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True),
-        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True),
+        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo=f"NFS-e Nº {numero}"),
+        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo=f"NFS-e Nº {numero}"),
     )
     return buf.getvalue()
 

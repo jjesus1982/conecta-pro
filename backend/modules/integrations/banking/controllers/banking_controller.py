@@ -14,6 +14,8 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from core.auth.dependencies import get_current_user
+from core.database import get_db
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -656,23 +658,35 @@ async def list_boletos(
     status: str | None = Query(default=None),
     days: int = Query(default=30, ge=1, le=365),
     current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Lista boletos emitidos via Banco Inter."""
+    """Lista boletos emitidos via Banco Inter (lê a tabela inter_cobrancas)."""
+    from sqlalchemy import text as _text
     boletos: list[BoletoListItem] = []
-    service = _get_banking_service()
-
-    banks_to_query = [bank_code] if bank_code else ["077"]
-
-    for code in banks_to_query:
-        adapter = service._adapters.get(code)
-
-        if adapter is None:
-            logger.debug("Adapter não disponível para banco %s — ignorando", code)
-            continue
-
-        # Inter não expõe listagem direta na versão atual do adapter
-        logger.debug("Listagem de boletos não disponível para Banco Inter (077)")
-
+    try:
+        rows = await db.execute(_text(
+            """SELECT cobranca_id_inter, valor, vencimento, pagador, status,
+                      url_boleto, pix_copia_cola, barcode, linha_digitavel, descricao, created_at
+               FROM inter_cobrancas
+               WHERE created_at >= now() - make_interval(days => :d)
+               ORDER BY created_at DESC"""), {"d": days})
+        for r in rows.mappings().all():
+            if status and (r["status"] or "").upper() != status.upper():
+                continue
+            pag = r["pagador"] if isinstance(r["pagador"], dict) else {}
+            boletos.append(BoletoListItem(
+                boleto_id=str(r["cobranca_id_inter"] or ""),
+                bank_code="077", bank_name="Banco Inter",
+                amount=float(r["valor"] or 0),
+                due_date=str(r["vencimento"] or "")[:10],
+                payer_name=(pag.get("nome") or "") if pag else "",
+                status=r["status"] or "A_RECEBER",
+                barcode=r["barcode"], digitable_line=r["linha_digitavel"],
+                pdf_url=r["url_boleto"] or (r["pix_copia_cola"] or None),
+                created_at=r["created_at"].isoformat() if r["created_at"] else None,
+            ))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("list_boletos (inter_cobrancas): %s", e)
     return BoletoListResponse(boletos=boletos, total=len(boletos))
 
 
@@ -706,11 +720,26 @@ async def get_bank_statement_full(
             closing_balance += float(statement.closing_balance or 0)
 
             for tx in statement.transactions:
-                amount = float(abs(tx.amount))
+                raw_amount = float(tx.amount)
+                amount = abs(raw_amount)
                 tx_type_str = str(tx.transaction_type.value) if tx.transaction_type else "unknown"
-                # Inter API sempre retorna amount positivo; usa transaction_type para direção
-                # DEBITO = saída; qualquer outro (CREDITO, PIX, BOLETO, TED) = entrada
-                is_credit = tx_type_str not in ("DEBITO",)
+                desc_up = (tx.description or "").upper()
+                # DIREÇÃO robusta do dinheiro (não confiar só no enum de tipo, pois PIX/TED/BOLETO
+                # não dizem o sentido). Ordem de confiança:
+                #   1) sinal do amount (adapter já assina: <0 = saída) — fonte primária;
+                #   2) enum DEBITO;
+                #   3) palavras-chave de saída na descrição (ENVIADO/PAGAMENTO/PAGTO).
+                if raw_amount < 0:
+                    is_credit = False
+                elif raw_amount > 0:
+                    is_credit = True
+                else:
+                    is_credit = (
+                        tx_type_str not in ("DEBITO",)
+                        and "ENVIADO" not in desc_up
+                        and "PAGAMENTO" not in desc_up
+                        and "PAGTO" not in desc_up
+                    )
 
                 if is_credit:
                     total_credits += amount

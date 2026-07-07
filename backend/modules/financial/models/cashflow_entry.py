@@ -17,6 +17,7 @@ from sqlalchemy import (
     String,
     Text,
 )
+from sqlalchemy.dialects.postgresql import ENUM as PGEnum
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from core.models import Base
@@ -87,9 +88,46 @@ class CashFlowEntry(Base):
     )
 
     # Tipo e classificacao
-    entry_type = Column(String(20), nullable=False)
-    source_type = Column(String(30), nullable=False, default=CashFlowSourceType.MANUAL.value)
-    status = Column(String(20), nullable=False, default=CashFlowEntryStatus.PREVISTO.value)
+    # Colunas nativas de ENUM no Postgres (cashflowentrytype/cashflowsourcetype/
+    # cashflowentrystatus). Mapeadas como PGEnum plano (labels string) com
+    # create_type=False para o SQLAlchemy emitir o cast correto no INSERT
+    # (evita DatatypeMismatchError character varying -> enum). Os labels sao
+    # exatamente os do banco (fonte da verdade), nao acoplados ao StrEnum Python.
+    entry_type = Column(
+        PGEnum(
+            "entrada",
+            "saida",
+            name="cashflowentrytype",
+            create_type=False,
+        ),
+        nullable=False,
+    )
+    source_type = Column(
+        PGEnum(
+            "conta_pagar",
+            "conta_receber",
+            "transferencia",
+            "manual",
+            "recorrente",
+            "previsao",
+            name="cashflowsourcetype",
+            create_type=False,
+        ),
+        nullable=False,
+        default=CashFlowSourceType.MANUAL.value,
+    )
+    status = Column(
+        PGEnum(
+            "previsto",
+            "confirmado",
+            "realizado",
+            "cancelado",
+            name="cashflowentrystatus",
+            create_type=False,
+        ),
+        nullable=False,
+        default=CashFlowEntryStatus.PREVISTO.value,
+    )
 
     # Categoria (usa categorias existentes de pagar/receber)
     payable_category_id = Column(
@@ -142,7 +180,23 @@ class CashFlowEntry(Base):
 
     # Recorrencia
     is_recurring = Column(Boolean, default=False)
-    recurrence_frequency = Column(String(20), nullable=True)
+    # ENUM nativo no Postgres (recurrencefrequency). Mapeado como PGEnum plano
+    # com create_type=False para emitir o cast correto no INSERT.
+    recurrence_frequency = Column(
+        PGEnum(
+            "diaria",
+            "semanal",
+            "quinzenal",
+            "mensal",
+            "bimestral",
+            "trimestral",
+            "semestral",
+            "anual",
+            name="recurrencefrequency",
+            create_type=False,
+        ),
+        nullable=True,
+    )
     recurrence_day = Column(Integer, nullable=True)  # Dia do mes/semana
     recurrence_start = Column(Date, nullable=True)
     recurrence_end = Column(Date, nullable=True)

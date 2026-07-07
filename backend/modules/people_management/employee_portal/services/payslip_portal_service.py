@@ -11,6 +11,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
+# Códigos de LINHA DE TOTAL nas rubricas (Domínio/Portte). Não são itens
+# individuais: incluí-los duplica a contagem (ex.: 'Proventos Totais' somado a
+# 'Salário Base' > bruto real). Filtramos do detalhamento do contracheque.
+_TOTAL_ROW_CODES = {"0099", "99", "9999", "0999"}
+
+
+def _is_total_row(rubrica: dict) -> bool:
+    """True se a rubrica é uma linha de TOTAL (não itemizável)."""
+    code_raw = str(rubrica.get("code") or "").strip()
+    if code_raw in _TOTAL_ROW_CODES:
+        return True
+    desc = str(rubrica.get("description") or rubrica.get("descricao") or "").upper()
+    return (
+        "PROVENTOS TOTAIS" in desc
+        or "TOTAL DESCONTOS" in desc
+        or desc.strip() in {"TOTAIS", "TOTAL"}
+    )
+
 
 class PayslipPortalService:
     """Service para consulta de contracheques no portal do funcionario.
@@ -89,7 +107,7 @@ class PayslipPortalService:
         employee_id: UUID,
         month: int,
         year: int,
-    ) -> dict:
+    ) -> dict | None:
         """Busca contracheque especifico e registra visualizacao.
 
         Args:
@@ -98,16 +116,15 @@ class PayslipPortalService:
             year: Ano.
 
         Returns:
-            Dict com dados do contracheque.
-
-        Raises:
-            KeyError: Se contracheque nao encontrado ou nao pertence ao funcionario.
+            Dict com dados do contracheque, ou None se nao encontrado
+            (o controller converte em 404).
         """
         repo = self._get_repo()
         payslip = await repo.get_by_employee_month_year(employee_id, month, year)
 
         if not payslip:
-            raise KeyError(f"Contracheque de {month:02d}/{year} nao encontrado.")
+            # Vazio-real: sem holerite no mes/ano -> None -> controller emite 404.
+            return None
 
         # Registrar visualizacao
         await repo.record_view(payslip.id)
@@ -130,16 +147,15 @@ class PayslipPortalService:
             year: Ano.
 
         Returns:
-            Caminho do arquivo PDF ou None.
-
-        Raises:
-            KeyError: Se contracheque nao encontrado.
+            Caminho do arquivo PDF, ou None se o contracheque nao existe
+            ou o PDF ainda nao foi gerado (o controller trata o None).
         """
         repo = self._get_repo()
         payslip = await repo.get_by_employee_month_year(employee_id, month, year)
 
         if not payslip:
-            raise KeyError(f"Contracheque de {month:02d}/{year} nao encontrado.")
+            # Vazio-real: sem holerite no mes/ano -> None (nao quebra com 500).
+            return None
 
         # Registrar download
         await repo.record_download(payslip.id)
@@ -227,7 +243,7 @@ class PayslipPortalService:
             # Construir lista de itens no formato do portal (PayslipItem)
             items = []
             for e in earnings if isinstance(earnings, list) else []:
-                if isinstance(e, dict):
+                if isinstance(e, dict) and not _is_total_row(e):
                     items.append(
                         {
                             "description": e.get("description", ""),
@@ -237,7 +253,7 @@ class PayslipPortalService:
                         }
                     )
             for d in deductions if isinstance(deductions, list) else []:
-                if isinstance(d, dict):
+                if isinstance(d, dict) and not _is_total_row(d):
                     items.append(
                         {
                             "description": d.get("description", ""),

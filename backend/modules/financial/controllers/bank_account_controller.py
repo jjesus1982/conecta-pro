@@ -29,6 +29,14 @@ from modules.financial.schemas import (
 
 logger = logging.getLogger(__name__)
 
+
+def _user_email(current_user) -> str | None:
+    """Extrai o e-mail do usuario seja ele dict ou objeto User (evita AttributeError)."""
+    if isinstance(current_user, dict):
+        return current_user.get("email")
+    return getattr(current_user, "email", None)
+
+
 router = APIRouter(prefix="/bank-accounts", tags=["Contas Bancárias"])
 
 
@@ -46,6 +54,12 @@ def get_repository(session: AsyncSession = Depends(get_session)) -> BankAccountR
     status_code=status.HTTP_201_CREATED,
     summary="Criar conta bancária",
 )
+@router.post(
+    "/",
+    response_model=BankAccountResponse,
+    status_code=status.HTTP_201_CREATED,
+    include_in_schema=False,
+)
 async def create_bank_account(
     data: BankAccountCreate,
     repo: BankAccountRepository = Depends(get_repository),
@@ -54,7 +68,7 @@ async def create_bank_account(
     """Cria nova conta bancária."""
     try:
         account = await repo.create(data.model_dump())
-        logger.info(f"Conta bancária criada: {account.id} por {current_user.get('email')}")
+        logger.info(f"Conta bancária criada: {account.id} por {_user_email(current_user)}")
         return BankAccountResponse.model_validate(account)
     except Exception as e:
         logger.error(f"Erro ao criar conta bancária: {e}")
@@ -68,6 +82,11 @@ async def create_bank_account(
     "",
     response_model=list[BankAccountResponse],
     summary="Listar contas bancárias",
+)
+@router.get(
+    "/",
+    response_model=list[BankAccountResponse],
+    include_in_schema=False,
 )
 async def list_bank_accounts(  # pylint: disable=unused-argument
     condominio_id: UUID | None = Query(None),
@@ -189,10 +208,8 @@ async def update_bank_account(
         )
 
     update_data = data.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(account, key, value)
-    updated = await repo.update(account)
-    logger.info(f"Conta bancária atualizada: {account_id} por {current_user.get('email')}")
+    updated = await repo.update(account_id, update_data)
+    logger.info(f"Conta bancária atualizada: {account_id} por {_user_email(current_user)}")
     return BankAccountResponse.model_validate(updated)
 
 
@@ -221,7 +238,7 @@ async def delete_bank_account(
         )
 
     await repo.delete(account_id)
-    logger.info(f"Conta bancária excluída: {account_id} por {current_user.get('email')}")
+    logger.info(f"Conta bancária excluída: {account_id} por {_user_email(current_user)}")
 
 
 # ==================== OPERAÇÕES ====================
@@ -243,9 +260,8 @@ async def activate_account(
             detail="Conta bancária não encontrada",
         )
 
-    account.status = BankAccountStatus.ATIVA
-    updated = await repo.update(account)
-    logger.info(f"Conta bancária ativada: {account_id} por {current_user.get('email')}")
+    updated = await repo.update(account_id, {"status": BankAccountStatus.ATIVA})
+    logger.info(f"Conta bancária ativada: {account_id} por {_user_email(current_user)}")
     return BankAccountResponse.model_validate(updated)
 
 
@@ -265,9 +281,8 @@ async def suspend_account(
             detail="Conta bancária não encontrada",
         )
 
-    account.status = BankAccountStatus.SUSPENSA
-    updated = await repo.update(account)
-    logger.info(f"Conta bancária suspensa: {account_id} por {current_user.get('email')}")
+    updated = await repo.update(account_id, {"status": BankAccountStatus.SUSPENSA})
+    logger.info(f"Conta bancária suspensa: {account_id} por {_user_email(current_user)}")
     return BankAccountResponse.model_validate(updated)
 
 
@@ -300,11 +315,10 @@ async def set_as_main_account(
     )
 
     # Define esta como principal
-    account.is_main = True
-    updated = await repo.update(account)
+    updated = await repo.update(account_id, {"is_main": True})
     await session.commit()
 
-    logger.info(f"Conta principal definida: {account_id} por {current_user.get('email')}")
+    logger.info(f"Conta principal definida: {account_id} por {_user_email(current_user)}")
     return BankAccountResponse.model_validate(updated)
 
 
@@ -378,7 +392,7 @@ async def transfer_between_accounts(
 
     logger.info(
         f"Transferência realizada: {data.amount} de {data.from_account_id} "
-        f"para {data.to_account_id} por {current_user.get('email')}"
+        f"para {data.to_account_id} por {_user_email(current_user)}"
     )
 
     return {
@@ -428,7 +442,7 @@ async def adjust_balance(
     await session.commit()
 
     logger.info(
-        f"Saldo ajustado: conta {account_id}, diferença {difference}, por {current_user.get('email')}, motivo: {reason}"
+        f"Saldo ajustado: conta {account_id}, diferença {difference}, por {_user_email(current_user)}, motivo: {reason}"
     )
 
     return BankAccountResponse.model_validate(account)

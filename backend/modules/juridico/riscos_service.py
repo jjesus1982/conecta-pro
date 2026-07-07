@@ -283,18 +283,25 @@ def riscos_tributario(db: Session) -> dict[str, Any]:
         )
     ).mappings().first()
 
+    # [Veracidade] Enquadramento no Simples depende do FATURAMENTO TOTAL — usar a
+    # fonte autoritativa nfse_emitidas_nacional (77 notas jan-jun / R$1.428.413,04 =
+    # razão 3.1.1.01). A tabela `nfses` so tinha jan-fev (R$542k) e daria uma
+    # conclusao legal ERRADA sobre o teto do Simples.
+    # A tabela nacional NAO carrega detalhamento de retencoes csll/pis/cofins nem
+    # a flag inss_liminar_aplicada -> retornados como 0/None (honesto: dado nao
+    # disponivel nesta fonte, nao fabricar).
     nfse = db.execute(
         text(
             """
             SELECT count(*) AS qtd,
                    coalesce(sum(valor_servicos), 0) AS total_servicos,
                    coalesce(sum(iss_valor), 0)      AS iss,
-                   coalesce(sum(inss_valor), 0)     AS inss,
-                   coalesce(sum(csll_valor), 0)     AS csll,
-                   coalesce(sum(pis_valor), 0)      AS pis,
-                   coalesce(sum(cofins_valor), 0)   AS cofins,
-                   count(*) FILTER (WHERE inss_liminar_aplicada = true) AS nfse_liminar_inss
-            FROM nfses
+                   coalesce(sum(inss_retido), 0)    AS inss,
+                   0::numeric                       AS csll,
+                   0::numeric                       AS pis,
+                   0::numeric                       AS cofins,
+                   NULL::bigint                     AS nfse_liminar_inss
+            FROM nfse_emitidas_nacional
             """
         )
     ).mappings().first()
@@ -365,6 +372,11 @@ def riscos_tributario(db: Session) -> dict[str, Any]:
             "cofins_retido_nfse": _f(_d((nfse or {}).get("cofins"))),
             "base_legal": "Lei 10.833/2003 — há LIMINAR de recolhimento zerado (a confirmar)",
         },
+        # [Veracidade] O detalhamento de retenções CSLL/PIS/COFINS por nota e a flag
+        # de liminar INSS não constam na fonte fiscal nacional (nfse_emitidas_nacional);
+        # exibidos como 0 significa "não disponível nesta fonte", não "retido zero".
+        "nota_fonte": "iss/inss vêm da NFS-e nacional (jan-jun); csll/pis/cofins "
+        "por nota e liminar INSS não são rastreados nesta fonte — consultar razão/contador.",
     }
 
     # ---- Riscos identificados (só o que decorre do dado real + contexto) ----

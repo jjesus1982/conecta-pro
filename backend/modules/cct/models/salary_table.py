@@ -5,6 +5,7 @@ Tabela Salarial CCT 2026 — SINDECOMPRESTS/SINDICOND-AM.
 Piso geral: R$ 1.670,00 — Reajuste: 7,1% (piso) / 4,5% (acima do piso).
 """
 
+import unicodedata
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
@@ -123,12 +124,65 @@ TABELA_SALARIAL_CCT_2026: tuple[SalaryEntry, ...] = (
 )
 
 
+def _normalizar_cargo(texto: str) -> str:
+    """Normaliza um nome de cargo: sem acentos, maiúsculo, espaços colapsados."""
+    if not texto:
+        return ""
+    sem_acento = unicodedata.normalize("NFKD", texto)
+    sem_acento = sem_acento.encode("ascii", "ignore").decode("ascii")
+    return " ".join(sem_acento.upper().split())
+
+
+# Aliases: cargo REAL cadastrado nos employees -> chave EXATA na tabela CCT 2026.
+# Os cargos operacionais não batem literalmente com as chaves longas da CCT
+# (ex.: 'AGENTE DE PORTARIA' == 'PORTEIROS AGENTE DE PORTARIA GUARDETE').
+# Chaves já normalizadas (sem acento/maiúsculas).
+_CARGO_ALIASES: dict[str, str] = {
+    "AGENTE DE PORTARIA": "PORTEIROS AGENTE DE PORTARIA GUARDETE",
+    "PORTEIRO": "PORTEIROS AGENTE DE PORTARIA GUARDETE",
+    "GUARDETE": "PORTEIROS AGENTE DE PORTARIA GUARDETE",
+    "AGENTE DE SERVICOS GERAIS": "SERVICOS GERAIS FAXINEIRO",
+    "SERVICOS GERAIS": "SERVICOS GERAIS FAXINEIRO",
+    "FAXINEIRO": "SERVICOS GERAIS FAXINEIRO",
+    "ARTIFICE": "ARTIFICE NAO ESPECIALIZADO",
+    "JARDINEIRO": "JARDINEIROS",
+    "LIDER DE PORTARIA": "LIDER DE PORTARIA",
+    "AGENTE DE PORTARIA LIDER": "LIDER DE PORTARIA",
+}
+
+# Índice normalizado das entradas da CCT (chave normalizada -> entry).
+_INDICE_NORMALIZADO: dict[str, "SalaryEntry"] = {
+    _normalizar_cargo(entry.cargo): entry for entry in TABELA_SALARIAL_CCT_2026
+}
+
+
 def get_piso_by_cargo(cargo_nome: str) -> SalaryEntry | None:
-    """Busca entrada na tabela salarial pelo nome do cargo (case-insensitive)."""
-    cargo_upper = cargo_nome.strip().upper()
-    for entry in TABELA_SALARIAL_CCT_2026:
-        if entry.cargo == cargo_upper:
+    """Busca entrada na tabela salarial pelo nome do cargo.
+
+    Robusto a acentuação, caixa e às nomenclaturas curtas usadas no cadastro de
+    funcionários (via tabela de aliases) e, por último, a match por substring.
+    """
+    cargo_norm = _normalizar_cargo(cargo_nome)
+    if not cargo_norm:
+        return None
+
+    # 1. Match exato (normalizado) contra as chaves da CCT.
+    entry = _INDICE_NORMALIZADO.get(cargo_norm)
+    if entry is not None:
+        return entry
+
+    # 2. Alias explícito (cargo curto do cadastro -> chave longa da CCT).
+    alvo = _CARGO_ALIASES.get(cargo_norm)
+    if alvo is not None:
+        entry = _INDICE_NORMALIZADO.get(_normalizar_cargo(alvo))
+        if entry is not None:
             return entry
+
+    # 3. Substring: cargo do funcionário contido na chave da CCT (ou vice-versa).
+    for chave, entry in _INDICE_NORMALIZADO.items():
+        if cargo_norm in chave or chave in cargo_norm:
+            return entry
+
     return None
 
 

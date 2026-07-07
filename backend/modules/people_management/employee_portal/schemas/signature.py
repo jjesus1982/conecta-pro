@@ -15,9 +15,13 @@ class SignDocumentRequest(BaseModel):
         document_type: Tipo do documento (warning, payslip, contract, etc.).
     """
 
-    document_id: int = Field(..., gt=0, description="ID do documento")
+    # Documentos do portal (ged_kit_documents) usam ID UUID (str). O path param
+    # é a fonte da verdade; este campo do body é opcional/informativo.
+    document_id: str | None = Field(
+        None, description="ID do documento (UUID). O path param prevalece."
+    )
     document_type: str = Field(
-        ...,
+        default="other",
         description="Tipo do documento (warning, suspension, payslip, contract, "
         "vacation, policy, training_certificate, other)",
     )
@@ -65,7 +69,7 @@ class VerifySignatureResponse(BaseModel):
     """
 
     is_valid: bool
-    document_id: int | None = None
+    document_id: str | None = None
     document_type: str | None = None
     employee_id: str | None = None
     signed_at: datetime | None = None

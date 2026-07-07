@@ -11,6 +11,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 
 try:
@@ -25,6 +26,13 @@ class MonthlyClosingModel(Base):
     """Fechamento mensal de ponto de um funcionario."""
 
     __tablename__ = "gp_monthly_closings"
+    # [Ponto Ciclo3] Blinda contra duplicata (employee_id, month, year): uma competência
+    # só pode ter UMA linha de fechamento por funcionário. O dedup manual em
+    # PunchService.fechar_mes já consolida na escrita; esta constraint torna a garantia
+    # de schema. Requer migração no banco (ver relato) — declara a intenção no ORM.
+    __table_args__ = (
+        UniqueConstraint("employee_id", "month", "year", name="uq_monthly_closing_emp_mes_ano"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     # [Ponto loop] era Integer — employees têm UUID (String 36), como clock_punch/justification

@@ -4,6 +4,7 @@ Gera XMLs compatíveis com o layout eSocial S-1.2 para transmissão ao governo.
 """
 
 import logging
+import os
 from datetime import date
 from typing import Any
 from xml.etree.ElementTree import Element, SubElement, tostring
@@ -11,6 +12,26 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 logger = logging.getLogger(__name__)
 
 ESOCIAL_NAMESPACE = "http://www.esocial.gov.br/schema/evt/evtAdmissao/v_S_01_02_00"
+
+
+def _tp_amb() -> str:
+    """Resolve o tpAmb do eSocial a partir da configuração/ambiente.
+
+    Regra: 1=produção, 2=homologação (dados reais em ambiente de testes).
+    Fonte de verdade: variável de ambiente ESOCIAL_TP_AMB quando definida;
+    caso contrário deriva de settings.environment ('production' => '1').
+    NUNCA hardcoded — evitar transmitir produção como homologação e vice-versa.
+    """
+    explicit = os.getenv("ESOCIAL_TP_AMB")
+    if explicit and explicit.strip() in ("1", "2"):
+        return explicit.strip()
+    try:
+        from core.config import settings
+
+        env = (getattr(settings, "environment", "") or "").lower()
+    except Exception:  # pragma: no cover - fallback defensivo
+        env = os.getenv("ENVIRONMENT", "").lower()
+    return "1" if env in ("production", "prod") else "2"
 
 
 class ESocialEventService:
@@ -30,7 +51,7 @@ class ESocialEventService:
         # ideEvento
         ide = SubElement(evt, "ideEvento")
         SubElement(ide, "indRetif").text = "1"
-        SubElement(ide, "tpAmb").text = "2"  # homologação
+        SubElement(ide, "tpAmb").text = _tp_amb()  # 1=produção, 2=homologação (config)
         SubElement(ide, "procEmi").text = "1"
         SubElement(ide, "verProc").text = "ConectaPRO_2.0"
 
@@ -76,7 +97,7 @@ class ESocialEventService:
         # ideEvento
         ide = SubElement(evt, "ideEvento")
         SubElement(ide, "indRetif").text = "1"
-        SubElement(ide, "tpAmb").text = "2"
+        SubElement(ide, "tpAmb").text = _tp_amb()  # 1=produção, 2=homologação (config)
         SubElement(ide, "procEmi").text = "1"
         SubElement(ide, "verProc").text = "ConectaPRO_2.0"
 

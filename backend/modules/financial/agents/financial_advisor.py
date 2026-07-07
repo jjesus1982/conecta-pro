@@ -154,24 +154,18 @@ REGRAS:
         past_90 = today - timedelta(days=90)
 
         try:
-            # --- Receitas ---
-            recv_30_q = select(func.coalesce(func.sum(ReceivableAccount.net_value), 0)).where(
-                and_(
-                    ReceivableAccount.payment_date >= past_30,
-                    ReceivableAccount.payment_date <= today,
-                    ReceivableAccount.status == ReceivableStatus.PAGA.value,
-                )
-            )
-            recv_30 = float((await self.session.execute(recv_30_q)).scalar_one() or 0)
-
-            recv_prev_q = select(func.coalesce(func.sum(ReceivableAccount.net_value), 0)).where(
-                and_(
-                    ReceivableAccount.payment_date >= past_60,
-                    ReceivableAccount.payment_date < past_30,
-                    ReceivableAccount.status == ReceivableStatus.PAGA.value,
-                )
-            )
-            recv_prev = float((await self.session.execute(recv_prev_q)).scalar_one() or 0)
+            # --- Receitas --- FONTE REAL: recebimentos de cliente no extrato Inter (categorizados),
+            # pois receivable_accounts PAGA nos últimos 30d fica vazio (recebíveis de competências
+            # passadas). bank_transactions 'Recebimento cliente' = dinheiro real que entrou.
+            from sqlalchemy import text as _text
+            recv_30 = float((await self.session.execute(_text(
+                "SELECT COALESCE(SUM(amount),0) FROM bank_transactions "
+                "WHERE category='Recebimento cliente' AND transaction_date >= :p AND transaction_date <= :t"
+            ), {"p": past_30, "t": today})).scalar() or 0)
+            recv_prev = float((await self.session.execute(_text(
+                "SELECT COALESCE(SUM(amount),0) FROM bank_transactions "
+                "WHERE category='Recebimento cliente' AND transaction_date >= :p60 AND transaction_date < :p30"
+            ), {"p60": past_60, "p30": past_30})).scalar() or 0)
 
             # --- Despesas ---
             pay_30_q = select(func.coalesce(func.sum(PayableAccount.net_value), 0)).where(
@@ -193,8 +187,13 @@ REGRAS:
             )
             total_vencido = float((await self.session.execute(total_vencimento_q)).scalar_one() or 0)
 
+            # Numerador (em atraso) usa a MESMA janela do denominador (past_90..today)
+            # para que a taxa nunca ultrapasse 100%. Sem o piso past_90, titulos
+            # vencidos ha muito tempo entravam no numerador mas nao no denominador,
+            # produzindo taxas impossiveis (>100%).
             em_atraso_q = select(func.coalesce(func.sum(ReceivableAccount.net_value), 0)).where(
                 and_(
+                    ReceivableAccount.due_date >= past_90,
                     ReceivableAccount.due_date < today,
                     ReceivableAccount.status.notin_(
                         [
@@ -207,9 +206,10 @@ REGRAS:
             )
             em_atraso = float((await self.session.execute(em_atraso_q)).scalar_one() or 0)
 
-            # Contagem de inadimplentes
+            # Contagem de inadimplentes (mesma janela past_90..today)
             cnt_inadimplentes_q = select(func.count(ReceivableAccount.id)).where(
                 and_(
+                    ReceivableAccount.due_date >= past_90,
                     ReceivableAccount.due_date < today,
                     ReceivableAccount.status.notin_(
                         [
@@ -239,7 +239,12 @@ REGRAS:
 
             # --- Calculos derivados ---
             margem_30d = ((recv_30 - pay_30) / recv_30 * 100) if recv_30 > 0 else 0.0
-            taxa_inadimplencia = (em_atraso / total_vencido * 100) if total_vencido > 0 else 0.0
+            # Cap defensivo em 100%: em_atraso (vencidos e nao pagos) e sempre um
+            # subconjunto de total_vencido (todos os vencidos, pagos ou nao) na
+            # mesma janela, entao a taxa nunca deveria exceder 100%.
+            taxa_inadimplencia = (
+                min(em_atraso / total_vencido * 100, 100.0) if total_vencido > 0 else 0.0
+            )
 
             if recv_30 > recv_prev * 1.02:
                 tendencia = "crescimento"

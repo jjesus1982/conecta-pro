@@ -52,7 +52,7 @@ class SignatureService:
 
     async def sign_document(
         self,
-        document_id: int,
+        document_id: str,
         document_type: str,
         employee_id: UUID,
         ip_address: str | None = None,
@@ -121,7 +121,7 @@ class SignatureService:
             await self.db.refresh(signature)
 
             logger.info(
-                "Documento %d assinado por employee_id=%s hash=%s",
+                "Documento %s assinado por employee_id=%s hash=%s",
                 document_id,
                 employee_id,
                 signature_hash[:16],
@@ -214,7 +214,7 @@ class SignatureService:
 
     def _generate_hash(
         self,
-        document_id: int,
+        document_id: str,
         employee_id: UUID,
         timestamp: datetime,
     ) -> str:
@@ -236,7 +236,7 @@ class SignatureService:
 
     async def _get_existing_signature(
         self,
-        document_id: int,
+        document_id: str,
         employee_id: UUID,
     ) -> PortalDigitalSignature | None:
         """Busca assinatura existente para documento + funcionario.

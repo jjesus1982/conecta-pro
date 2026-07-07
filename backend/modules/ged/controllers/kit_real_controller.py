@@ -26,27 +26,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["GED - Kit Real"])
 
 
-def _brand_build(doc, story):
-    """doc.build com header/footer (logo + CNPJ/contato) da marca Conecta Mais."""
+def _brand_build(doc, story, titulo: str | None = None):
+    """doc.build com o cabeçalho/rodapé da marca Conecta Mais (logo completa + título azul + réguas)."""
     doc.build(
         story,
-        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True),
-        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True),
+        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo=titulo),
+        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo=titulo),
     )
-
-
-def _logo_cover_flowable(width_mm=55, height_mm=20):
-    """Retorna um Image flowable com o logo da marca (ou None se indisponível)."""
-    from reportlab.lib.units import mm
-    from reportlab.platypus import Image
-
-    p = B.logo_path("cover") or B.logo_path("header")
-    if not p:
-        return None
-    try:
-        return Image(p, width=width_mm * mm, height=height_mm * mm, kind="proportional")
-    except Exception:
-        return None
 
 
 async def _get_employees_for_client(db: AsyncSession, client_id: str) -> list[dict]:
@@ -266,17 +252,13 @@ async def _add_certidoes(db: AsyncSession, kit_id: str, comp: date) -> int:
         from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
         buf = io.BytesIO()
-        # topMargin ~35mm p/ não sobrepor o header (marca Conecta Mais)
+        # topMargin 42mm p/ não sobrepor o cabeçalho da marca (logo completa Conecta Mais)
         doc = SimpleDocTemplate(
-            buf, pagesize=A4, topMargin=35 * mm, bottomMargin=2 * cm, leftMargin=2 * cm, rightMargin=2 * cm
+            buf, pagesize=A4, topMargin=42 * mm, bottomMargin=2 * cm, leftMargin=2 * cm, rightMargin=2 * cm
         )
         st = getSampleStyleSheet()
         AZ = colors.HexColor("#0A2540")
         story: list[Any] = []
-        _lg = _logo_cover_flowable()
-        if _lg is not None:
-            story.append(_lg)
-            story.append(Spacer(1, 0.2 * cm))
         story += [
             Paragraph(
                 f'<b><font color="#0A2540" size="14">{c["nome"]}</font></b>', ParagraphStyle("t", alignment=TA_CENTER)
@@ -316,7 +298,7 @@ async def _add_certidoes(db: AsyncSession, kit_id: str, comp: date) -> int:
                 st["Normal"],
             )
         )
-        _brand_build(doc, story)
+        _brand_build(doc, story, titulo="CERTIDÃO")
         chk = hashlib.sha256(buf.getvalue()).hexdigest()[:12]
         fname = f"{doc_type}_{chk}.pdf"
         Path("/app/uploads/ged/kits").mkdir(parents=True, exist_ok=True)
@@ -394,15 +376,11 @@ async def _add_fiscal_docs(db: AsyncSession, kit_id: str, comp: date) -> int:
 
         AZ = colors.HexColor("#0A2540")
         buf = io.BytesIO()
-        # topMargin ~35mm p/ não sobrepor o header (marca Conecta Mais)
+        # topMargin 42mm p/ não sobrepor o cabeçalho da marca (logo completa Conecta Mais)
         doc = SimpleDocTemplate(
-            buf, pagesize=A4, topMargin=35 * mm, bottomMargin=2 * cm, leftMargin=2 * cm, rightMargin=2 * cm
+            buf, pagesize=A4, topMargin=42 * mm, bottomMargin=2 * cm, leftMargin=2 * cm, rightMargin=2 * cm
         )
         story: list[Any] = []
-        _lg = _logo_cover_flowable()
-        if _lg is not None:
-            story.append(_lg)
-            story.append(Spacer(1, 0.2 * cm))
         story += [
             Paragraph(
                 f'<b><font color="#0A2540" size="14">{o["nome"]}</font></b>', ParagraphStyle("t", alignment=TA_CENTER)
@@ -436,7 +414,7 @@ async def _add_fiscal_docs(db: AsyncSession, kit_id: str, comp: date) -> int:
             )
         )
         story.append(t)
-        _brand_build(doc, story)
+        _brand_build(doc, story, titulo="OBRIGAÇÃO FISCAL")
         chk = hashlib.sha256(buf.getvalue()).hexdigest()[:12]
         fname = f"{doc_type}_{m_ant:02d}{a_ant}_{chk}.pdf"
         from pathlib import Path
@@ -502,15 +480,11 @@ async def _add_comprovantes_bancarios(db: AsyncSession, kit_id: str, employees: 
     AZ = colors.HexColor("#0A2540")
     LJ = colors.HexColor("#FF6B35")
     buf = io.BytesIO()
-    # topMargin ~35mm p/ não sobrepor o header (marca Conecta Mais)
+    # topMargin 42mm p/ não sobrepor o cabeçalho da marca (logo completa Conecta Mais)
     doc = SimpleDocTemplate(
-        buf, pagesize=A4, topMargin=35 * mm, bottomMargin=1.5 * cm, leftMargin=2 * cm, rightMargin=2 * cm
+        buf, pagesize=A4, topMargin=42 * mm, bottomMargin=1.5 * cm, leftMargin=2 * cm, rightMargin=2 * cm
     )
     story: list[Any] = []
-    _lg = _logo_cover_flowable()
-    if _lg is not None:
-        story.append(_lg)
-        story.append(Spacer(1, 0.2 * cm))
     story += [
         Paragraph(
             f'<b><font color="#0A2540" size="13">EXTRATO BANCARIO — PAGAMENTOS {comp.strftime("%m/%Y")}</font></b>',
@@ -557,7 +531,7 @@ async def _add_comprovantes_bancarios(db: AsyncSession, kit_id: str, employees: 
         )
     )
     story.append(t)
-    _brand_build(doc, story)
+    _brand_build(doc, story, titulo="EXTRATO BANCÁRIO")
     chk = hashlib.sha256(buf.getvalue()).hexdigest()[:12]
     fname = f"extrato_bancario_{comp.strftime('%Y%m')}_{chk}.pdf"
 
@@ -579,9 +553,9 @@ async def _add_boleto_nfse(db: AsyncSession, kit_id: str, client_id: str, comp: 
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_CENTER
     from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import cm, mm
-    from reportlab.platypus import HRFlowable, Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
     exists = (
         await db.execute(
@@ -617,55 +591,27 @@ async def _add_boleto_nfse(db: AsyncSession, kit_id: str, client_id: str, comp: 
     total_valor = sum(float(n["valor_servicos"]) for n in nfses)
     mes_ano = comp.strftime("%m/%Y")
 
-    AZ = colors.HexColor("#0A2540")
     AZ2 = colors.HexColor("#1E3A5F")
     buf = io.BytesIO()
-    # topMargin ~35mm p/ não sobrepor o header (marca Conecta Mais)
+    # topMargin 42mm p/ não sobrepor o cabeçalho da marca (logo completa Conecta Mais)
     doc = SimpleDocTemplate(
-        buf, pagesize=A4, topMargin=35 * mm, bottomMargin=1.5 * cm, leftMargin=2 * cm, rightMargin=2 * cm
+        buf, pagesize=A4, topMargin=42 * mm, bottomMargin=1.5 * cm, leftMargin=2 * cm, rightMargin=2 * cm
     )
-    st = getSampleStyleSheet()
     story: list[Any] = []
 
-    # Header (logo real da marca quando disponível)
-    _hdr_logo = B.logo_path("header")
-    if _hdr_logo:
-        try:
-            _left = Image(_hdr_logo, width=50 * mm, height=11 * mm, kind="proportional")
-        except Exception:
-            _left = Paragraph(
-                '<b><font color="white" size="13">Conecta Mais</font></b><br/><font color="white" size="8">Seguranca e Tecnologia</font>',
-                st["Normal"],
-            )
-    else:
-        _left = Paragraph(
-            '<b><font color="white" size="13">Conecta Mais</font></b><br/><font color="white" size="8">Seguranca e Tecnologia</font>',
-            st["Normal"],
-        )
-    hdr = Table(
-        [
-            [
-                _left,
-                Paragraph(f'<b><font color="white" size="14">R$ {total_valor:,.2f}</font></b>', st["Normal"]),
-            ]
-        ],
-        colWidths=[12 * cm, 5 * cm],
-    )
-    hdr.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, -1), AZ),
-                ("PADDING", (0, 0), (-1, -1), 10),
-                ("ALIGN", (1, 0), (1, 0), "RIGHT"),
-            ]
+    # Título limpo + valor total do boleto (o cabeçalho da marca é desenhado por B.header_footer)
+    story.append(
+        Paragraph(
+            '<b><font color="#0A2540" size="14">BOLETO / COBRANÇA</font></b>'
+            f'<br/><font color="#FF6B35" size="15">R$ {total_valor:,.2f}</font>',
+            ParagraphStyle("boleto_titulo", spaceAfter=6),
         )
     )
-    story.append(hdr)
     story.append(Spacer(1, 0.3 * cm))
 
     nfs_str = ", ".join(f"NF {n['numero_nfse']}" for n in nfses)
     dados = [
-        ["BENEFICIARIO", "CONECTAMAIS ELETRONICA LTDA — CNPJ 35.710.481/0001-03"],
+        ["BENEFICIARIO", f"{B.EMPRESA['nome']} — CNPJ {B.EMPRESA['cnpj']}"],
         ["PAGADOR", cliente_nome],
         ["REFERENCIA", f"Servicos prestados — {mes_ano} ({nfs_str})"],
         ["VENCIMENTO", f"15/{comp.strftime('%m/%Y')}"],
@@ -693,12 +639,12 @@ async def _add_boleto_nfse(db: AsyncSession, kit_id: str, client_id: str, comp: 
     story.append(
         Paragraph(
             f'<font size="7" color="grey">{B.EMPRESA["nome"]} | CNPJ {B.EMPRESA["cnpj"]} | '
-            f'{B.EMPRESA["fone"]} | {B.EMPRESA["site"]} | {mes_ano}</font>',
+            f"{B.EMPRESA['fone']} | {B.EMPRESA['site']} | {mes_ano}</font>",
             ParagraphStyle("ft", alignment=TA_CENTER),
         )
     )
 
-    _brand_build(doc, story)
+    _brand_build(doc, story, titulo="BOLETO NFS-e")
     chk = hashlib.sha256(buf.getvalue()).hexdigest()[:12]
     fname = f"boleto_nfse_{comp.strftime('%Y%m')}_{chk}.pdf"
     Path(f"/app/uploads/ged/kits/{fname}").write_bytes(buf.getvalue())
@@ -748,16 +694,12 @@ async def _add_comprovante_vt(db: AsyncSession, kit_id: str, client_id: str, com
     CZ = colors.HexColor("#F8FAFC")
 
     buf = io.BytesIO()
-    # topMargin ~35mm p/ não sobrepor o header (marca Conecta Mais)
+    # topMargin 42mm p/ não sobrepor o cabeçalho da marca (logo completa Conecta Mais)
     doc = SimpleDocTemplate(
-        buf, pagesize=A4, topMargin=35 * mm, bottomMargin=1.5 * cm, leftMargin=1.5 * cm, rightMargin=1.5 * cm
+        buf, pagesize=A4, topMargin=42 * mm, bottomMargin=1.5 * cm, leftMargin=1.5 * cm, rightMargin=1.5 * cm
     )
     st = getSampleStyleSheet()
     story: list[Any] = []
-    _lg = _logo_cover_flowable()
-    if _lg is not None:
-        story.append(_lg)
-        story.append(Spacer(1, 0.2 * cm))
     story.append(
         Paragraph(f'<b><font color="#0A2540" size="12">COMPROVANTE VALE TRANSPORTE — {mes_ano}</font></b>', st["Title"])
     )
@@ -820,7 +762,7 @@ async def _add_comprovante_vt(db: AsyncSession, kit_id: str, client_id: str, com
         )
     )
 
-    _brand_build(doc, story)
+    _brand_build(doc, story, titulo="COMPROVANTE VT")
     chk = hashlib.sha256(buf.getvalue()).hexdigest()[:12]
     fname = f"comp_vt_{comp.strftime('%Y%m')}_{chk}.pdf"
     Path(f"/app/uploads/ged/kits/{fname}").write_bytes(buf.getvalue())

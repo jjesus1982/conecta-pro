@@ -47,10 +47,14 @@ class BancoHorasResponse(BaseModel):
 
     employee_id: str
     employee_nome: str
+    escala: str | None = None
+    horas_trabalhadas: float = 0.0
+    horas_esperadas: float = 0.0
     saldo_horas: float = 0.0
     creditos: float = 0.0
     debitos: float = 0.0
     vencimento_proximo: str | None = None
+    obs: str | None = None
     detalhes: list[dict[str, Any]] = Field(default_factory=list)
 
 

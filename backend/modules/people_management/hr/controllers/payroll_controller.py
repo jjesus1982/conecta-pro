@@ -179,8 +179,10 @@ def _build_payslip_pdf(calc: dict, month: int, year: int) -> bytes:
     from reportlab.lib.units import cm, mm
     from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+    from modules.crm.services import pdf_branding as B
+
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=2.7 * cm, bottomMargin=1.8 * cm)
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=42 * mm, bottomMargin=22 * mm)
     styles = getSampleStyleSheet()
 
     title_style = ParagraphStyle("Title2", parent=styles["Heading1"], fontSize=14, alignment=1)
@@ -190,7 +192,7 @@ def _build_payslip_pdf(calc: dict, month: int, year: int) -> bytes:
 
     elements = []
 
-    # Título do documento (a marca Conecta Mais é desenhada no topo da página por _payroll_brand_page)
+    # Faixa de competência (a marca e o título "CONTRACHEQUE" vêm do topo via B.header_footer)
     elements.append(Paragraph(f"CONTRACHEQUE — Competencia {month:02d}/{year}", title_style))
     elements.append(Spacer(1, 4 * mm))
 
@@ -307,47 +309,12 @@ def _build_payslip_pdf(calc: dict, month: int, year: int) -> bytes:
         )
     )
 
-    doc.build(elements, onFirstPage=_payroll_brand_page, onLaterPages=_payroll_brand_page)
-    return buffer.getvalue()
-
-
-def _payroll_brand_page(canvas, doc):
-    """Marca Conecta Mais (logo + linha no topo, rodapé oficial) em todas as páginas do contracheque."""
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.units import mm
-
-    from modules.crm.services import pdf_branding as B
-
-    canvas.saveState()
-    w, h = A4
-    lp = B.logo_path("header")
-    drew = False
-    if lp:
-        try:
-            canvas.drawImage(
-                lp, 15 * mm, h - 20 * mm, width=50 * mm, height=12 * mm,
-                preserveAspectRatio=True, anchor="sw", mask="auto",
-            )
-            drew = True
-        except Exception:  # noqa: BLE001
-            pass
-    if not drew:
-        canvas.setFont("Helvetica-Bold", 8)
-        canvas.setFillColor(B.AZUL_ESCURO)
-        canvas.drawString(15 * mm, h - 15 * mm, B.EMPRESA["nome"])
-    canvas.setStrokeColor(B.LARANJA)
-    canvas.setLineWidth(1.2)
-    canvas.line(15 * mm, h - 22 * mm, w - 15 * mm, h - 22 * mm)
-    canvas.setStrokeColor(B.AZUL_ESCURO)
-    canvas.setLineWidth(0.6)
-    canvas.line(15 * mm, 14 * mm, w - 15 * mm, 14 * mm)
-    canvas.setFont("Helvetica", 6.5)
-    canvas.setFillColor(B.AZUL_MEDIO)
-    canvas.drawString(
-        15 * mm, 10 * mm, f"{B.EMPRESA['nome']} | CNPJ: {B.EMPRESA['cnpj']} | {B.EMPRESA['fone']} | {B.EMPRESA['site']}"
+    doc.build(
+        elements,
+        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo="CONTRACHEQUE"),
+        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo="CONTRACHEQUE"),
     )
-    canvas.drawRightString(w - 15 * mm, 10 * mm, f"Página {doc.page}")
-    canvas.restoreState()
+    return buffer.getvalue()
 
 
 # =============================================================================
@@ -412,7 +379,9 @@ async def create_benefit(
     db: AsyncSession = Depends(get_db),
     employee_id: str = Query(..., description="ID do funcionário"),
     benefit_type: str = Query(
-        ..., description="Tipo: Emprestimo Consignado, Pensao Alimenticia, Vale Refeicao, Plano Saude, etc"
+        ...,
+        alias="type",
+        description="Tipo: Emprestimo Consignado, Pensao Alimenticia, Vale Refeicao, Plano Saude, etc",
     ),
     employee_contribution: float = Query(0, description="Valor desconto do funcionário"),
     company_contribution: float = Query(0, description="Valor da empresa"),
@@ -430,7 +399,7 @@ async def create_benefit(
         ),
         {
             "emp_id": employee_id,
-            "type": type,
+            "type": benefit_type,
             "provider": provider or None,
             "plan": plan_name or None,
             "emp_val": employee_contribution,
@@ -440,7 +409,7 @@ async def create_benefit(
     )
     new_id = result.scalar()
     await db.commit()
-    return {"id": str(new_id), "message": f"Rubrica '{type}' cadastrada para funcionário {employee_id}"}
+    return {"id": str(new_id), "message": f"Rubrica '{benefit_type}' cadastrada para funcionário {employee_id}"}
 
 
 @router.delete(

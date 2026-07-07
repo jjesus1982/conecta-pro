@@ -39,28 +39,31 @@ async def notas(db: AsyncSession, client_id: str) -> dict:
     cnpj, _ = await _cnpj_e_cliente(db, client_id)
     if not cnpj:
         return {"notas": [], "total": 0, "valor_total": 0.0}
+    # [Veracidade] Fonte autoritativa = nfse_emitidas_nacional (77 notas jan-jun,
+    # cStat 100). A tabela `nfses` so tem 27 notas jan-fev (R$542k) e exibia
+    # historico fiscal INCOMPLETO ao cliente no portal (faltavam mar-jun).
+    # `nfse_emitidas_nacional` nao tem link_nfse/status (todas autorizadas = cStat 100).
     rows = (
         await db.execute(
             text(
-                """SELECT numero_nfse, data_emissao, data_competencia, valor_servicos, status,
-                          link_nfse, discriminacao, tomador_razao_social
-                   FROM nfses
-                   WHERE regexp_replace(COALESCE(tomador_cpf_cnpj,''),'[^0-9]','','g') = :cnpj
-                     AND COALESCE(active, true) = true
-                   ORDER BY data_emissao DESC"""
+                """SELECT numero, data_emissao, competencia, valor_servicos, descricao,
+                          tomador_nome
+                   FROM nfse_emitidas_nacional
+                   WHERE regexp_replace(COALESCE(tomador_cnpj,''),'[^0-9]','','g') = :cnpj
+                   ORDER BY competencia DESC, data_emissao DESC"""
             ),
             {"cnpj": cnpj},
         )
     ).mappings().all()
     notas = [
         {
-            "numero": r["numero_nfse"],
+            "numero": r["numero"],
             "emissao": str(r["data_emissao"])[:10] if r["data_emissao"] else None,
-            "competencia": str(r["data_competencia"])[:10] if r["data_competencia"] else None,
+            "competencia": r["competencia"],
             "valor": float(r["valor_servicos"] or 0),
-            "status": r["status"],
-            "link": r["link_nfse"],
-            "descricao": (r["discriminacao"] or "")[:120],
+            "status": "autorizada",
+            "link": None,
+            "descricao": (r["descricao"] or "")[:120],
         }
         for r in rows
     ]

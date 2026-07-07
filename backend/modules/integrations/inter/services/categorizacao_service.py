@@ -379,8 +379,13 @@ class InterCategorizacaoService:
         filtro_mes = ""
         params: dict = {}
         if mes_ref:
-            # Aceita YYYY-MM e converte para filtro de data
-            ano, mes = mes_ref.split("-")
+            # Aceita YYYY-MM e MM.YYYY (a tela manda '06.2026')
+            if "-" in mes_ref:
+                ano, mes = mes_ref.split("-")[:2]
+            elif "." in mes_ref:
+                mes, ano = mes_ref.split(".")[:2]
+            else:
+                raise ValueError(f"mes_ref inválido: {mes_ref}")
             import calendar as _cal
 
             ultimo_dia = _cal.monthrange(int(ano), int(mes))[1]
@@ -847,8 +852,13 @@ class InterCategorizacaoService:
         }
 
     def stats_mes(self, mes_ref: str) -> dict:
-        """Estatísticas de categorização do mês."""
-        mes, ano = mes_ref.split(".")
+        """Estatísticas de categorização do mês. Aceita 'MM.YYYY' e 'YYYY-MM'."""
+        if "-" in mes_ref:
+            ano, mes = mes_ref.split("-")[:2]
+        elif "." in mes_ref:
+            mes, ano = mes_ref.split(".")[:2]
+        else:
+            raise ValueError(f"mes_ref inválido: {mes_ref} (use YYYY-MM ou MM.YYYY)")
         ultimo_dia = calendar.monthrange(int(ano), int(mes))[1]
 
         rows = self.db.execute(

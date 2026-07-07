@@ -996,9 +996,12 @@ async def _tool_consultar_minha_conta(args: dict) -> dict:
             ).fetchall()
             notas = (
                 await db.execute(
+                    # [Veracidade] Fonte autoritativa = nfse_emitidas_nacional (jan-jun,
+                    # cStat 100). `nfses` so tinha jan-fev. Sem coluna status
+                    # (todas autorizadas = cStat 100).
                     text(
-                        "SELECT numero_nfse, to_char(data_emissao,'DD/MM/YYYY'), status, valor_servicos "
-                        "FROM nfses WHERE regexp_replace(coalesce(tomador_cpf_cnpj,''),'\\D','','g') = :c "
+                        "SELECT numero, to_char(data_emissao,'DD/MM/YYYY'), 'autorizada' AS status, valor_servicos "
+                        "FROM nfse_emitidas_nacional WHERE regexp_replace(coalesce(tomador_cnpj,''),'\\D','','g') = :c "
                         "ORDER BY data_emissao DESC NULLS LAST LIMIT 3"
                     ),
                     {"c": cnpj},

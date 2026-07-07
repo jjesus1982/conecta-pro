@@ -20,8 +20,8 @@ from modules.crm.services import pdf_branding as B
 # Marca Conecta Mais — DANFSe entregue ao TOMADOR (cliente)
 _AZUL = B.AZUL_ESCURO
 _LARANJA = B.LARANJA
-_CINZA = colors.HexColor("#6b7280")
-_CLARO = colors.HexColor("#eef1f4")
+_CINZA = B.TEXTO
+_CLARO = B.FUNDO_CLARO
 
 
 def _g(xml: str, tag: str, bloco: str | None = None) -> str:
@@ -86,34 +86,23 @@ def gerar_danfse_pdf(xml: str) -> bytes:
     W, H = A4
     x0, x1 = 18 * mm, W - 18 * mm
 
+    # Cabeçalho da marca aprovado (logo completa Conecta Mais + título azul + réguas)
+    y = B.marca_canvas(c, titulo="NOTA FISCAL DE SERVIÇO")
+    # subtítulo/identificação do documento fiscal abaixo do cabeçalho da marca
     c.setFillColor(_AZUL)
-    c.rect(0, H - 30 * mm, W, 30 * mm, fill=1, stroke=0)
-    # faixa laranja da marca no topo
-    c.setFillColor(_LARANJA)
-    c.rect(0, H - 3 * mm, W, 3 * mm, fill=1, stroke=0)
-    # logo Conecta Mais no banner (canto direito, acima do número); ignora se ausente
-    _lg = B.logo_path("header")
-    if _lg:
-        try:
-            c.drawImage(
-                _lg, x1 - 46 * mm, H - 27 * mm, width=46 * mm, height=9 * mm,
-                preserveAspectRatio=True, anchor="nw", mask="auto",
-            )
-        except Exception:
-            pass
-    c.setFillColor(colors.white)
-    c.setFont("Helvetica-Bold", 15)
-    c.drawString(x0, H - 13 * mm, "NFS-e — Nota Fiscal de Serviço Eletrônica")
-    c.setFont("Helvetica", 9)
-    c.drawString(x0, H - 19 * mm, "DANFSe — Padrão Nacional · Prefeitura de Manaus / SEMEF")
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(x0, y, "DANFSe — Nota Fiscal de Serviço Eletrônica · Padrão Nacional")
+    c.setFillColor(_CINZA)
     c.setFont("Helvetica", 8)
-    c.drawString(x0, H - 24 * mm, f"{B.EMPRESA['nome']} · CNPJ {B.EMPRESA['cnpj']}")
+    c.drawString(x0, y - 5 * mm, "Prefeitura de Manaus / SEMEF")
+    c.setFillColor(colors.black)
     c.setFont("Helvetica-Bold", 11)
-    c.drawRightString(x1, H - 13 * mm, f"Nº {d['numero']}")
+    c.drawRightString(x1, y, f"Nº {d['numero']}")
+    c.setFillColor(_CINZA)
     c.setFont("Helvetica", 8)
-    c.drawRightString(x1, H - 19 * mm, f"Competência {d['competencia']}  ·  Emissão {d['emissao']}")
+    c.drawRightString(x1, y - 5 * mm, f"Competência {d['competencia']}  ·  Emissão {d['emissao']}")
 
-    y = H - 38 * mm
+    y = y - 12 * mm
 
     def secao(titulo, linhas, altura):
         nonlocal y
@@ -181,26 +170,23 @@ def gerar_danfse_pdf(xml: str) -> bytes:
         27 * mm,
     )
 
+    # Chave de acesso da NFS-e (dado fiscal) — acima do rodapé oficial da marca (linha em 16mm)
     c.setStrokeColor(_LARANJA)
     c.setLineWidth(0.8)
-    c.line(x0, 26 * mm, x1, 26 * mm)
+    c.line(x0, 34 * mm, x1, 34 * mm)
     c.setFillColor(_CINZA)
     c.setFont("Helvetica", 7)
-    c.drawString(x0, 21 * mm, "Chave de Acesso da NFS-e:")
+    c.drawString(x0, 29 * mm, "Chave de Acesso da NFS-e:")
     c.setFont("Helvetica-Bold", 8)
     c.setFillColor(colors.black)
-    c.drawString(x0, 17 * mm, d["chave"])
+    c.drawString(x0, 25 * mm, d["chave"])
     c.setFillColor(_CINZA)
     c.setFont("Helvetica", 7)
     c.drawString(
-        x0, 12 * mm, "Verifique a autenticidade pela chave de acesso no portal nacional da NFS-e (www.nfse.gov.br)."
+        x0, 20 * mm, "Verifique a autenticidade pela chave de acesso no portal nacional da NFS-e (www.nfse.gov.br)."
     )
-    c.setFillColor(_AZUL)
-    c.setFont("Helvetica-Bold", 7)
-    c.drawString(
-        x0, 8 * mm,
-        f"{B.EMPRESA['nome']} | CNPJ: {B.EMPRESA['cnpj']} | {B.EMPRESA['fone']} | {B.EMPRESA['site']}",
-    )
+    # rodapé oficial da marca (CNPJ / contato / site)
+    B.rodape_canvas(c, pagina=1)
     c.showPage()
     c.save()
     buf.seek(0)

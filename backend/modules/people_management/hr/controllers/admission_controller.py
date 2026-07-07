@@ -206,6 +206,7 @@ async def upload_document(
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Upload de documento para o processo de admissao."""
+    import os
     from pathlib import Path
     from uuid import uuid4
 
@@ -214,8 +215,33 @@ async def upload_document(
     if not admission:
         raise HTTPException(status_code=404, detail="Admissao nao encontrada")
 
-    upload_dir = Path(f"/opt/conecta-pro/uploads/admissions/{admission_id}")
-    upload_dir.mkdir(parents=True, exist_ok=True)
+    # Base gravável: configurável por env, com fallback para /tmp/uploads
+    # (o volume padrão /app/uploads pode estar montado somente-leitura).
+    base_candidates = [
+        os.getenv("HR_UPLOAD_DIR"),
+        "/app/uploads",
+        "/tmp/uploads",
+    ]
+    upload_dir = None
+    last_error: Exception | None = None
+    for base in base_candidates:
+        if not base:
+            continue
+        candidate = Path(base) / "admissions" / admission_id
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            # Confirma que é realmente gravável
+            if os.access(candidate, os.W_OK):
+                upload_dir = candidate
+                break
+        except OSError as exc:  # permissão, disco, etc.
+            last_error = exc
+            continue
+    if upload_dir is None:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Nao foi possivel criar diretorio de upload gravavel: {last_error}",
+        )
 
     ext = (file.filename or "doc").rsplit(".", 1)[-1] if file.filename else "pdf"
     file_id = str(uuid4())[:8]

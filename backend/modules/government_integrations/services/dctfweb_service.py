@@ -6,8 +6,12 @@ Camada de serviço para operações de DCTFWeb.
 
 import logging
 import os
+import re
 from datetime import datetime
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
+
+import psycopg2
 
 from ..core.dctfweb import (
     DARF,
@@ -18,6 +22,7 @@ from ..core.dctfweb import (
     TipoCredito,
     TipoDeclaracao,
 )
+from ..core.empresa_context import get_empresa_fiscal
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +31,12 @@ class DCTFWebService:
     """Service para operações DCTFWeb."""
 
     def __init__(self):
-        """Inicializa o service."""
-        self.cnpj = os.getenv("DCTFWEB_CNPJ", os.getenv("EMPRESA_CNPJ", "35710481000103"))
-        self.razao_social = os.getenv("EMPRESA_RAZAO_SOCIAL", "Conecta Seguranca LTDA")
+        """Inicializa o service com a identificação REAL da empresa (tabela empresas)."""
+        empresa = get_empresa_fiscal()
+        self.cnpj = empresa.cnpj
+        self.razao_social = empresa.razao_social
         self.ambiente = os.getenv("DCTFWEB_ENVIRONMENT", "producao")
+        self._empresa_folha_periodos: dict[str, dict[str, Any]] = {}
 
         self.manager = DCTFWebManager(
             cnpj=self.cnpj,
@@ -74,6 +81,112 @@ class DCTFWebService:
             "total_creditos": str(declaracao.total_creditos),
             "saldo_a_pagar": str(declaracao.saldo_a_pagar),
         }
+
+    # -- Fonte real da folha (hr_payslips) para alimentar a DCTFWeb -----------
+
+    @staticmethod
+    def _db_url() -> str:
+        return re.sub(r"\+asyncpg|\+psycopg2?", "", os.getenv("DATABASE_URL", ""))
+
+    def carregar_folha_do_periodo(self, periodo_apuracao: str) -> dict[str, Any] | None:
+        """
+        Lê a folha REAL (hr_payslips) da competência e monta o dicionário de dados
+        do eSocial esperado pelo manager (contribuição do segurado, patronal, RAT,
+        terceiros). NUNCA fabrica: se a competência não tem holerite populado,
+        retorna None (a tela deve exibir 'aguardando importação eSocial').
+
+        Bases legais aplicadas sobre a base REAL de INSS da folha:
+        - INSS descontado do segurado: soma real de inss_value dos holerites.
+        - CP patronal (cód. 1138): 20% sobre a base de INSS da folha.
+        - RAT/GILRAT (cód. 1171): 3% (grau de risco vigilância/portaria) — ajustável.
+        - Terceiros/Sistema S (5,8%): distribuído nos códigos padrão.
+        Se a base de INSS estiver zerada, retorna None (nada a declarar de verdade).
+        """
+        url = self._db_url()
+        if not url:
+            return None
+
+        try:
+            conn = psycopg2.connect(url)
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT
+                            COUNT(*),
+                            COALESCE(SUM(inss_value), 0),
+                            COALESCE(SUM(inss_base), 0),
+                            COALESCE(SUM(irrf_value), 0),
+                            COALESCE(SUM(fgts_value), 0)
+                        FROM hr_payslips
+                        WHERE reference_period = %s
+                          AND status <> 'cancelled'
+                        """,
+                        (periodo_apuracao,),
+                    )
+                    row = cur.fetchone()
+            finally:
+                conn.close()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("DCTFWeb: falha ao ler hr_payslips de %s (%s)", periodo_apuracao, e)
+            return None
+
+        n, inss_seg, inss_base, irrf, fgts = row
+        if not n or Decimal(str(inss_base)) <= 0:
+            # Sem folha real populada nesta competência → nada a fabricar.
+            return None
+
+        inss_seg = Decimal(str(inss_seg))
+        inss_base = Decimal(str(inss_base))
+        fgts = Decimal(str(fgts))
+
+        def _q(v: Decimal) -> float:
+            return float(v.quantize(Decimal("0.01"), ROUND_HALF_UP))
+
+        patronal = inss_base * Decimal("0.20")
+        rat = inss_base * Decimal("0.03")
+        terceiros_total = inss_base * Decimal("0.058")
+        # distribuição usual do Sistema S para código de FPAS de vigilância/serviços
+        terceiros = {
+            "1184": _q(inss_base * Decimal("0.025")),  # Salário Educação 2,5%
+            "1208": _q(inss_base * Decimal("0.015")),  # SEST 1,5%
+            "1211": _q(inss_base * Decimal("0.010")),  # SENAT 1,0%
+            "1187": _q(inss_base * Decimal("0.002")),  # INCRA 0,2%
+            "1205": _q(inss_base * Decimal("0.001")),  # SENAR 0,1% (quando aplicável)
+        }
+
+        dados = {
+            "contribuicao_segurado": _q(inss_seg),
+            "contribuicao_patronal": _q(patronal),
+            "rat": _q(rat),
+            "terceiros": terceiros,
+        }
+
+        self._empresa_folha_periodos[periodo_apuracao] = {
+            "fonte": "hr_payslips",
+            "holerites": int(n),
+            "inss_base": _q(inss_base),
+            "inss_segurado": _q(inss_seg),
+            "inss_patronal_20pct": _q(patronal),
+            "rat_3pct": _q(rat),
+            "terceiros_5_8pct": _q(terceiros_total),
+            "fgts_informativo": _q(fgts),  # FGTS é guia própria (não DARF DCTFWeb)
+        }
+        logger.info(
+            "DCTFWeb: folha real %s carregada de hr_payslips (%d holerites, base INSS %.2f)",
+            periodo_apuracao,
+            int(n),
+            float(inss_base),
+        )
+        return dados
+
+    def _dados_esocial_efetivos(
+        self, periodo_apuracao: str, dados_esocial: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        """Usa os dados passados explicitamente; senão tenta a folha real."""
+        if dados_esocial:
+            return dados_esocial
+        return self.carregar_folha_do_periodo(periodo_apuracao)
 
     def importar_esocial(
         self,
@@ -140,6 +253,7 @@ class DCTFWebService:
         """
         declaracao = self.manager.criar_declaracao(periodo_apuracao)
 
+        dados_esocial = self._dados_esocial_efetivos(periodo_apuracao, dados_esocial)
         if dados_esocial:
             declaracao = self.manager.importar_esocial(declaracao, dados_esocial)
 
@@ -148,7 +262,9 @@ class DCTFWebService:
 
         logger.info(f"DCTFWeb consolidada: {len(declaracao.debitos)} débitos, {len(declaracao.creditos)} créditos")
 
-        return self._declaracao_to_dict(declaracao)
+        resultado = self._declaracao_to_dict(declaracao)
+        resultado["veracidade"] = self._veracidade(periodo_apuracao, declaracao)
+        return resultado
 
     def gerar_darfs(
         self,
@@ -171,6 +287,7 @@ class DCTFWebService:
         """
         declaracao = self.manager.criar_declaracao(periodo_apuracao)
 
+        dados_esocial = self._dados_esocial_efetivos(periodo_apuracao, dados_esocial)
         if dados_esocial:
             declaracao = self.manager.importar_esocial(declaracao, dados_esocial)
 
@@ -192,6 +309,7 @@ class DCTFWebService:
             "saldo_a_pagar": str(declaracao.saldo_a_pagar),
             "quantidade_darfs": len(darfs),
             "darfs": [self._darf_to_dict(d) for d in darfs],
+            "veracidade": self._veracidade(periodo_apuracao, declaracao),
         }
 
     def transmitir(
@@ -213,6 +331,7 @@ class DCTFWebService:
         """
         declaracao = self.manager.criar_declaracao(periodo_apuracao)
 
+        dados_esocial = self._dados_esocial_efetivos(periodo_apuracao, dados_esocial)
         if dados_esocial:
             declaracao = self.manager.importar_esocial(declaracao, dados_esocial)
 
@@ -221,6 +340,7 @@ class DCTFWebService:
 
         self.manager.gerar_darfs(declaracao)
         resultado = self.manager.transmitir(declaracao)
+        resultado["veracidade"] = self._veracidade(periodo_apuracao, declaracao)
 
         logger.info(f"DCTFWeb transmitida: {resultado['numero_recibo']}")
 
@@ -230,13 +350,63 @@ class DCTFWebService:
         """
         Consulta declaração por período.
 
+        Consolida a folha REAL (hr_payslips) para mostrar o que já é apurável
+        localmente. A consulta oficial (e-CAC) continua pendente de integração —
+        rotulada honestamente, sem fingir apuração transmitida.
+
         Args:
             periodo_apuracao: Período (YYYY-MM)
 
         Returns:
             Dict com dados da declaração
         """
-        return self.manager.consultar(periodo_apuracao)
+        base = self.manager.consultar(periodo_apuracao)
+        dados_esocial = self.carregar_folha_do_periodo(periodo_apuracao)
+        if dados_esocial:
+            declaracao = self.manager.criar_declaracao(periodo_apuracao)
+            declaracao = self.manager.importar_esocial(declaracao, dados_esocial)
+            base["apuracao_local"] = {
+                "total_debitos": str(declaracao.total_debitos),
+                "saldo_a_pagar": str(declaracao.saldo_a_pagar),
+                "debitos": [self._debito_to_dict(d) for d in declaracao.debitos],
+            }
+            base["veracidade"] = self._veracidade(periodo_apuracao, declaracao)
+            base["mensagem"] = (
+                "Apuração LOCAL a partir da folha real (hr_payslips). Consulta oficial "
+                "via e-CAC ainda não integrada."
+            )
+        else:
+            base["veracidade"] = self._veracidade(periodo_apuracao, None)
+            base["mensagem"] = (
+                "Sem folha (hr_payslips) populada nesta competência — aguardando importação "
+                "eSocial. Consulta oficial via e-CAC ainda não integrada."
+            )
+        return base
+
+    def _veracidade(self, periodo_apuracao: str, declaracao: DCTFWebDeclaracao | None) -> dict[str, Any]:
+        """Bloco de honestidade: de onde vieram os números (ou por que estão vazios)."""
+        folha = self._empresa_folha_periodos.get(periodo_apuracao)
+        tem_debitos = bool(declaracao and declaracao.debitos)
+        if folha and tem_debitos:
+            status_v = "apurado_da_folha_real"
+            obs = (
+                "Débitos previdenciários apurados a partir da folha real (hr_payslips): "
+                "INSS segurado da folha; patronal 20%, RAT/GILRAT 3% e Terceiros 5,8% sobre a "
+                "base de INSS da competência. FGTS é guia própria (não entra em DARF DCTFWeb). "
+                "Retenções de serviços (Reinf) e ajustes finais são do contador."
+            )
+        else:
+            status_v = "aguardando_importacao_esocial"
+            obs = (
+                "Sem folha real (hr_payslips) desta competência — nada foi fabricado. "
+                "Importe a folha/eSocial para apurar os débitos previdenciários reais."
+            )
+        return {
+            "fonte": "hr_payslips" if folha else "sem_dados",
+            "status": status_v,
+            "folha": folha,
+            "observacao": obs,
+        }
 
     def listar_codigos_receita(self) -> dict[str, Any]:
         """

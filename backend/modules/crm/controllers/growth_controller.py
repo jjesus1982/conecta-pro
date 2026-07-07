@@ -35,11 +35,11 @@ _PUBLIC_ERP = os.getenv("PUBLIC_ERP_URL", "https://erp.conectamais.pro").rstrip(
 _DOCS_DIR = "/app/uploads/docs"
 
 
-async def _salvar_pdf(db, tipo: str, titulo: str, pdf_bytes: bytes, *, ref_tipo=None, ref_id=None, teste=False) -> dict:
-    """Persiste + registra + link público (delega ao serviço compartilhado docs_registry)."""
+async def _salvar_pdf(db, tipo: str, titulo: str, pdf_bytes: bytes, *, ref_tipo=None, ref_id=None, teste=False, drive=False, filename=None) -> dict:
+    """Persiste + registra + link público (delega ao docs_registry). drive=True: sobe pro Google Drive."""
     from modules.crm.services.docs_registry import salvar_pdf
 
-    return await salvar_pdf(db, tipo, titulo, pdf_bytes, ref_tipo=ref_tipo, ref_id=ref_id, teste=teste)
+    return await salvar_pdf(db, tipo, titulo, pdf_bytes, ref_tipo=ref_tipo, ref_id=ref_id, teste=teste, drive=drive, filename=filename)
 
 
 @router.get("/docs/download/{doc_id}")
@@ -1182,7 +1182,7 @@ async def forecast_by_seller(db: AsyncSession = Depends(get_db)):
 
 @router.get("/reports/comercial/pdf")
 async def relatorio_comercial_pdf(
-    _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db), salvar: bool = False, teste: bool = False
+    _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db), salvar: bool = False, teste: bool = False, drive: bool = False
 ):
     """Gera o Relatório Comercial em PDF (MRR, clientes, pipeline, top deals). salvar=true: registra + link."""
     from fastapi import Response
@@ -1246,7 +1246,7 @@ async def relatorio_comercial_pdf(
 
     pdf = build_commercial_report_pdf(ctx)
     if salvar:
-        return await _salvar_pdf(db, "relatorio", "Relatório Comercial", pdf, teste=teste)
+        return await _salvar_pdf(db, "relatorio", "Relatório Comercial", pdf, teste=teste, drive=drive)
     return Response(
         content=pdf,
         media_type="application/pdf",
@@ -1293,6 +1293,7 @@ async def gerar_recibo_pdf(
     _=Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
     salvar: bool = False,
+    drive: bool = False,
     teste: bool = False,
 ):
     """Gera um RECIBO de pagamento em PDF no padrão Conecta Mais (com selo).
@@ -1303,7 +1304,7 @@ async def gerar_recibo_pdf(
 
     pdf = build_recibo_pdf(data.model_dump())
     if salvar:
-        return await _salvar_pdf(db, "recibo", f"Recibo {data.numero or ''} - {data.pagador}", pdf, teste=teste)
+        return await _salvar_pdf(db, "recibo", f"Recibo {data.numero or ''} - {data.pagador}", pdf, teste=teste, drive=drive)
     return Response(
         content=pdf, media_type="application/pdf", headers={"Content-Disposition": 'inline; filename="recibo.pdf"'}
     )
@@ -1315,6 +1316,7 @@ async def gerar_os_pdf(
     _=Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
     salvar: bool = False,
+    drive: bool = False,
     teste: bool = False,
 ):
     """Gera uma ORDEM DE SERVIÇO em PDF (com selo). salvar=true: registra + link de download."""
@@ -1324,7 +1326,7 @@ async def gerar_os_pdf(
 
     pdf = build_ordem_servico_pdf(data.model_dump())
     if salvar:
-        return await _salvar_pdf(db, "ordem_servico", f"OS {data.numero or ''} - {data.cliente}", pdf, teste=teste)
+        return await _salvar_pdf(db, "ordem_servico", f"OS {data.numero or ''} - {data.cliente}", pdf, teste=teste, drive=drive)
     return Response(
         content=pdf,
         media_type="application/pdf",
@@ -1363,6 +1365,7 @@ async def gerar_aditivo_pdf(
     _=Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
     salvar: bool = False,
+    drive: bool = False,
     teste: bool = False,
 ):
     """Gera um TERMO ADITIVO de contrato em PDF (com selo). Enriquece pelo contrato. salvar=true: registra + link."""
@@ -1391,6 +1394,7 @@ async def gerar_aditivo_pdf(
             ref_tipo="contract",
             ref_id=data.contrato_numero,
             teste=teste,
+            drive=drive,
         )
     return Response(
         content=pdf, media_type="application/pdf", headers={"Content-Disposition": 'inline; filename="aditivo.pdf"'}
@@ -1403,6 +1407,7 @@ async def gerar_atestado_pdf(
     _=Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
     salvar: bool = False,
+    drive: bool = False,
     teste: bool = False,
 ):
     """Gera um ATESTADO DE CAPACIDADE TÉCNICA em PDF (com selo). salvar=true: registra + link."""
@@ -1412,7 +1417,7 @@ async def gerar_atestado_pdf(
 
     pdf = build_atestado_pdf(data.model_dump())
     if salvar:
-        return await _salvar_pdf(db, "atestado", f"Atestado {data.numero or ''} - {data.emitente}", pdf, teste=teste)
+        return await _salvar_pdf(db, "atestado", f"Atestado {data.numero or ''} - {data.emitente}", pdf, teste=teste, drive=drive)
     return Response(
         content=pdf, media_type="application/pdf", headers={"Content-Disposition": 'inline; filename="atestado.pdf"'}
     )
@@ -1729,6 +1734,7 @@ class VisitaPdfIn(BaseModel):
     ref: str
     salvar: bool = True
     teste: bool = False
+    drive: bool = False
 
 
 @router.post("/visitas/pdf", status_code=201)
@@ -1745,7 +1751,7 @@ async def visita_pdf(data: VisitaPdfIn, _=Depends(get_current_active_user), db: 
     if data.salvar:
         await V.finalizar(db, data.ref)
         return await _salvar_pdf(
-            db, "relatorio_visita", f"Relatório de Visita - {pd.get('cliente_nome')}", pdf, teste=data.teste
+            db, "relatorio_visita", f"Relatório de Visita - {pd.get('cliente_nome')}", pdf, teste=data.teste, drive=data.drive
         )
     return Response(
         content=pdf, media_type="application/pdf", headers={"Content-Disposition": 'inline; filename="visita.pdf"'}
@@ -1918,3 +1924,143 @@ async def anotar_cliente_ep(data: NotaIn, user=Depends(get_current_active_user),
 async def ficha_cliente_ep(ref: str, db: AsyncSession = Depends(get_db)):
     """Ficha viva do cliente: dados + anotações + último status de negociação."""
     return await O.ficha_cliente(db, ref)
+
+
+# ==================== APRESENTAÇÕES (padrão Conecta PRO — slides + PDF) ====================
+
+
+class ApresentacaoIn(BaseModel):
+    """Estrutura de uma apresentação no padrão Conecta PRO (o cowork monta isto)."""
+
+    titulo: str
+    subtitulo: str | None = None
+    cliente: str | None = None
+    local: str | None = None
+    data: str | None = None
+    slides: list[dict[str, Any]] = []
+
+
+@router.post("/apresentacoes/gerar")
+async def gerar_apresentacao(
+    data: ApresentacaoIn,
+    _=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+    formato: str = "pptx",
+    salvar: bool = False,
+    drive: bool = False,
+    teste: bool = False,
+):
+    """Gera uma APRESENTAÇÃO no padrão Conecta PRO (mesma identidade dos documentos).
+
+    formato: 'pptx' (editável), 'pdf' (para envio). salvar=true (só pdf): devolve link
+    público de download clicável (para o Cowork/WhatsApp)."""
+    from fastapi import Response
+
+    from modules.crm.services.presentation_builder import build_pptx, pptx_to_pdf
+
+    dados = data.model_dump()
+    fmt = (formato or "pptx").lower()
+    pptx = build_pptx(dados)
+    slug = (data.titulo or "apresentacao").lower().replace(" ", "_")[:40]
+
+    if fmt == "pdf":
+        pdf = pptx_to_pdf(pptx)
+        if salvar:
+            return await _salvar_pdf(db, "apresentacao", data.titulo, pdf, teste=teste, drive=drive)
+        return Response(
+            content=pdf, media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="{slug}.pdf"'},
+        )
+    return Response(
+        content=pptx,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={"Content-Disposition": f'attachment; filename="{slug}.pptx"'},
+    )
+
+
+@router.get("/apresentacoes/exemplo")
+async def apresentacao_exemplo(db: AsyncSession = Depends(get_db)):
+    """Gera uma apresentação de EXEMPLO (proposta CFTV) e devolve link público — para
+    conferir o padrão visual no navegador."""
+    from modules.crm.services.presentation_builder import build_pptx, pptx_to_pdf
+
+    dados = {
+        "titulo": "Vídeo Monitoramento Inteligente",
+        "subtitulo": "Sistema Sentinela com Inteligência Artificial",
+        "cliente": "Grupo PARVI", "local": "Manaus/AM", "data": "Julho/2026",
+        "slides": [
+            {"tipo": "problema", "titulo": "O Desafio", "subtitulo": "O que precisamos resolver no seu pátio", "itens": [
+                {"titulo": "Pátio aberto de 4.421 m²", "desc": "Grande área sem barreira física, exposta a invasões."},
+                {"titulo": "Entrada exposta", "desc": "Acesso principal sem monitoramento contínuo."},
+                {"titulo": "Sem energia e rede no local", "desc": "Infraestrutura precisa ser autônoma."},
+                {"titulo": "Vigilância 24h necessária", "desc": "Risco em qualquer horário, inclusive madrugada."}]},
+            {"tipo": "sobre"},
+            {"tipo": "solucao", "titulo": "Nossa Solução", "subtitulo": "Cobertura total com tecnologia própria", "cards": [
+                {"titulo": "Cobertura total do muro", "desc": "Perímetro de ~255 m sem ponto cego."},
+                {"titulo": "8 câmeras 360°", "desc": "Visão panorâmica em cores, mesmo no escuro."},
+                {"titulo": "Analítico de placa", "desc": "Leitura automática de veículos (LPR)."},
+                {"titulo": "Sinalização ostensiva", "desc": "Inibição visível de invasores."}]},
+            {"tipo": "investimento", "titulo": "Investimento", "opcoes": [
+                {"nome": "Locação 12 meses", "valor": "R$ 3.026/mês", "itens": ["Torre completa", "Sentinela + IA", "Nuvem", "Central 24h", "Manutenção"]},
+                {"nome": "Locação 24 meses", "valor": "R$ 2.361/mês", "destaque": True, "itens": ["Tudo do plano 12m", "Melhor custo-benefício", "Prioridade de suporte"]}],
+                "observacao": "Valores de locação. Referência de compra à vista sob consulta."},
+            {"tipo": "contato", "cta": "Vamos proteger seu pátio?"},
+        ],
+    }
+    pdf = pptx_to_pdf(build_pptx(dados))
+    return await _salvar_pdf(db, "apresentacao", "Exemplo — Padrão de Apresentação Conecta PRO", pdf)
+
+
+# ==================== ORÇAMENTO / PROPOSTA DE PAGAMENTO ÚNICO (material/serviço) ====================
+
+
+class ItemOrcamentoIn(BaseModel):
+    descricao: str
+    valor_unit: float
+    qtd: float = 1
+    unidade: str = "un"
+    tipo: str = "material"  # material | servico
+
+
+class OrcamentoIn(BaseModel):
+    cliente: str
+    itens: list[ItemOrcamentoIn]
+    documento: str | None = None          # CNPJ/CPF do cliente
+    cidade: str | None = None
+    numero: str | None = None
+    titulo: str | None = None
+    objeto: str | None = None
+    desconto_avista_pct: float | None = None
+    parcelas: int | None = None
+    entrada: float | None = None
+    condicoes: dict[str, Any] | None = None
+    observacao: str | None = None
+
+
+@router.post("/docs/orcamento/pdf")
+async def gerar_orcamento_pdf(
+    data: OrcamentoIn,
+    _=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+    salvar: bool = False,
+    drive: bool = False,
+    teste: bool = False,
+):
+    """Gera um ORÇAMENTO / proposta de PAGAMENTO ÚNICO (material, serviço ou ambos) no padrão-ouro.
+    Suporta à vista (com desconto) e/ou parcelado. salvar=true: registra + link público de download."""
+    import time as _time
+
+    from fastapi import Response
+
+    from modules.crm.services.doc_pdf import build_orcamento_pdf
+
+    payload = data.model_dump()
+    if not payload.get("numero"):
+        payload["numero"] = f"ORC-2026-{int(_time.time()) % 100000:05d}"
+    pdf = build_orcamento_pdf(payload)
+    if salvar:
+        return await _salvar_pdf(db, "orcamento", f"Orçamento {payload['numero']} - {data.cliente}", pdf, teste=teste, drive=drive)
+    return Response(
+        content=pdf, media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="orcamento_{payload["numero"]}.pdf"'},
+    )

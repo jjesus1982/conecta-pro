@@ -135,10 +135,13 @@ class VacationService:
         dias_gozados = 0
         if VacationRequest:
             try:
+                # O banco grava status em português ('aprovado'/'aprovada'); manter
+                # também os valores em inglês por compatibilidade histórica.
+                status_aprovado = ["aprovado", "aprovada", "approved", "APPROVED"]
                 vac_result = await self.db.execute(
                     select(VacationRequest).where(
                         VacationRequest.employee_id == str(employee_id),
-                        VacationRequest.status == "approved",
+                        VacationRequest.status.in_(status_aprovado),
                     )
                 )
                 vacations = vac_result.scalars().all()
@@ -147,11 +150,28 @@ class VacationService:
                         dias_gozados += v.days_count
                     elif hasattr(v, "start_date") and hasattr(v, "end_date"):
                         if v.start_date and v.end_date:
-                            dias_gozados += (v.end_date - v.start_date).days
+                            # +1: intervalo inclusivo (o registro de criação grava days com +1)
+                            dias_gozados += (v.end_date - v.start_date).days + 1
             except Exception as e:
                 logger.warning("Erro ao buscar férias gozadas: %s", e)
 
         dias_saldo = max(0, dias_direito_total - dias_gozados)
+
+        # [Achado 5] Detecção de período aquisitivo VENCIDO (art. 137 CLT — dobra).
+        # Cada período aquisitivo completo (12 meses) abre um período concessivo de mais
+        # 12 meses para o empregador conceder as férias. Se um período aquisitivo já venceu
+        # (>= 24 meses de admissão sem que essas férias tenham sido gozadas), o pagamento é
+        # em DOBRA. Aproximação: dias vencidos = saldo que corresponde a períodos aquisitivos
+        # já encerrados há mais de 12 meses e ainda não gozados.
+        # Períodos concessivos já vencidos = períodos aquisitivos completos com mais de
+        # 12 meses de "idade" (ou seja, admissão há >= 24 meses para o 1º, >=36 p/ o 2º...).
+        periodos_concessivos_vencidos = max(0, (meses_trabalhados - 12) // 12)
+        dias_potencial_vencido = periodos_concessivos_vencidos * 30
+        # Dos dias em saldo, quantos pertencem a período aquisitivo já vencido (não gozado).
+        dias_vencidos = max(0, min(dias_saldo, dias_potencial_vencido - 0))
+        # Só há dobra sobre o que efetivamente ainda está em saldo e é de período vencido.
+        dias_vencidos = min(dias_vencidos, dias_saldo)
+        alerta_dobra = dias_vencidos > 0
 
         # Cálculo de valores monetários das férias com CLT real
         salario_base = Decimal(str(employee.salario_base or 0))
@@ -179,6 +199,16 @@ class VacationService:
             "dias_gozados": dias_gozados,
             "dias_saldo": dias_saldo,
             "dias_proporcional_periodo_atual": dias_proporcional,
+            # [Achado 5] Alerta de período aquisitivo vencido (art. 137 CLT — férias em DOBRA)
+            "dias_vencidos": dias_vencidos,
+            "periodos_concessivos_vencidos": periodos_concessivos_vencidos,
+            "alerta_dobra": alerta_dobra,
+            "aviso_dobra": (
+                f"{dias_vencidos} dia(s) de férias em período aquisitivo VENCIDO "
+                "(art. 137 CLT): pagamento em DOBRA se não concedidas"
+                if alerta_dobra
+                else None
+            ),
             "valor_ferias": valor_ferias,
             "terco_constitucional": terco_constitucional,
             "abono_pecuniario": abono_pecuniario,
@@ -207,7 +237,9 @@ class VacationService:
         if not vacation:
             raise ValueError(f"Solicitação de férias {vacation_id} não encontrada")
 
-        vacation.status = "approved"
+        # Grava status em PT-BR ('aprovado'), consistente com o banco, com o filtro
+        # ?status=aprovado e com o frontend (badge/contadores). NÃO produzir 'approved' (inglês).
+        vacation.status = "aprovado"
         if hasattr(vacation, "approved_by_id"):
             vacation.approved_by_id = str(approved_by_id) if approved_by_id else None
 
@@ -245,7 +277,7 @@ class VacationService:
         logger.info("Férias %s aprovadas", vacation_id)
         return {
             "vacation_id": str(vacation_id),
-            "status": "approved",
+            "status": "aprovado",
             "message": "Férias aprovadas com sucesso",
         }
 

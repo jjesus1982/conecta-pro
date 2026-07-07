@@ -6,10 +6,14 @@ Camada de serviço que encapsula a lógica de negócio do SPED Fiscal.
 
 import logging
 import os
+import re
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
+import psycopg2
+
+from ..core.empresa_context import get_empresa_fiscal
 from ..core.sped_fiscal import (
     DocumentoFiscal,
     FinalidadeArquivo,
@@ -45,13 +49,15 @@ class SPEDFiscalService:
     }
 
     def __init__(self):
-        """Inicializa o service."""
-        self.cnpj = os.environ.get("SPED_CNPJ", os.environ.get("EMPRESA_CNPJ", ""))
-        self.razao_social = os.environ.get("EMPRESA_RAZAO_SOCIAL", "Empresa")
-        self.ie = os.environ.get("EMPRESA_IE", "")
-        self.uf = os.environ.get("EMPRESA_UF", "SP")
-        self.cod_municipio = os.environ.get("EMPRESA_COD_MUNICIPIO", "3550308")
+        """Inicializa o service com a identificação REAL da empresa (tabela empresas)."""
+        empresa = get_empresa_fiscal()
+        self.cnpj = empresa.cnpj
+        self.razao_social = empresa.razao_social
+        self.ie = empresa.inscricao_estadual
+        self.uf = empresa.uf
+        self.cod_municipio = empresa.codigo_municipio
         self.perfil = os.environ.get("SPED_PERFIL", "A")
+        self._empresa_id = "619a3df1-8bce-49ce-b77a-04f80a0e8491"
 
         self.manager = SPEDFiscalManager(
             cnpj=self.cnpj,
@@ -260,6 +266,85 @@ class SPEDFiscalService:
             "saldo_credor": str(apuracao.saldo_credor),
         }
 
+    @staticmethod
+    def _db_url() -> str:
+        return re.sub(r"\+asyncpg|\+psycopg2?", "", os.getenv("DATABASE_URL", ""))
+
+    @staticmethod
+    def _competencias_do_periodo(dt_inicio, dt_fim) -> list[str]:
+        """Lista de competências 'YYYY-MM' entre duas datas (inclusive)."""
+        comps: list[str] = []
+        ano, mes = dt_inicio.year, dt_inicio.month
+        while (ano, mes) <= (dt_fim.year, dt_fim.month):
+            comps.append(f"{ano:04d}-{mes:02d}")
+            mes += 1
+            if mes > 12:
+                mes = 1
+                ano += 1
+        return comps
+
+    def carregar_documentos_do_periodo(self, dt_inicio, dt_fim) -> int:
+        """
+        Popula o manager com as NFS-e emitidas reais (nfse_emitidas_nacional) do
+        período, para que o arquivo SPED reflita os documentos de verdade em vez
+        de sair vazio. Retorna a quantidade de documentos carregados.
+
+        Nota de honestidade: a empresa é prestadora de SERVIÇOS (emite NFS-e), sem
+        movimentação de mercadorias com ICMS/IPI — por isso os documentos entram
+        sem débito de ICMS/IPI. A escrituração fiscal de ISS/serviços é municipal,
+        mas os documentos reais são refletidos aqui para não gerar arquivo oco.
+        """
+        url = self._db_url()
+        if not url:
+            return 0
+
+        comps = self._competencias_do_periodo(dt_inicio, dt_fim)
+        try:
+            conn = psycopg2.connect(url)
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT chave_acesso, numero, competencia, data_emissao,
+                               tomador_cnpj, tomador_nome, valor_servicos
+                        FROM nfse_emitidas_nacional
+                        WHERE competencia = ANY(%s)
+                        ORDER BY data_emissao
+                        """,
+                        (comps,),
+                    )
+                    rows = cur.fetchall()
+            finally:
+                conn.close()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("SPED Fiscal: falha ao carregar NFS-e do período (%s)", e)
+            return 0
+
+        carregados = 0
+        for chave, numero, _comp, data_emissao, tom_cnpj, tom_nome, valor in rows:
+            emissao = data_emissao.date() if data_emissao else dt_inicio
+            self.adicionar_documento(
+                {
+                    "tipo": "55",
+                    "chave": (chave or "")[:44],
+                    "numero": str(numero or ""),
+                    "serie": "1",
+                    "data_emissao": emissao.strftime("%Y-%m-%d"),
+                    "data_entrada_saida": emissao.strftime("%Y-%m-%d"),
+                    "codigo_participante": (re.sub(r"\D", "", tom_cnpj or "") or "SEMDOC"),
+                    "valor_total": str(valor or 0),
+                    "cfop": "5933",  # prestação de serviço sujeito ao ISS
+                }
+            )
+            # nomeia o participante recém-criado, se aplicável
+            cod_part = re.sub(r"\D", "", tom_cnpj or "") or "SEMDOC"
+            if cod_part in self.manager.participantes and tom_nome:
+                self.manager.participantes[cod_part].nome = tom_nome
+            carregados += 1
+
+        logger.info("SPED Fiscal: %d NFS-e reais carregadas do período %s", carregados, comps)
+        return carregados
+
     def gerar_arquivo(
         self,
         periodo_inicio: str,
@@ -306,21 +391,38 @@ class SPEDFiscalService:
         dt_fim = datetime.strptime(periodo_fim, "%Y-%m-%d").date()
         final = FinalidadeArquivo(finalidade)
 
+        # Se nenhum documento foi passado explicitamente, consolida os documentos
+        # REAIS (NFS-e emitidas) do período — em vez de gerar arquivo vazio.
+        auto_carregados = 0
+        if not documentos and not self.manager.documentos:
+            auto_carregados = self.carregar_documentos_do_periodo(dt_inicio, dt_fim)
+
         conteudo = self.manager.gerar_arquivo(dt_inicio, dt_fim, final)
 
         # Valida
         validacao = self.manager.validar_arquivo(conteudo)
 
+        total_docs = len(self.manager.documentos)
         return {
             "periodo_inicio": periodo_inicio,
             "periodo_fim": periodo_fim,
             "total_registros": validacao["total_registros"],
             "total_participantes": len(self.manager.participantes),
             "total_produtos": len(self.manager.produtos),
-            "total_documentos": len(self.manager.documentos),
+            "total_documentos": total_docs,
             "total_inventario": len(self.manager.inventario),
+            "documentos_reais_carregados": auto_carregados,
             "hash_md5": validacao["hash"],
             "conteudo": conteudo,
+            "veracidade": {
+                "fonte_documentos": "nfse_emitidas_nacional" if auto_carregados else "manual",
+                "status": ("consolidado_com_dados_reais" if total_docs else "sem_documentos_no_periodo"),
+                "observacao": (
+                    "EFD ICMS/IPI: empresa prestadora de serviços (NFS-e). Documentos reais do "
+                    "período consolidados sem débito de ICMS/IPI; apuração de ISS é municipal. "
+                    "Adições/ajustes fiscais são do contador."
+                ),
+            },
         }
 
     def validar_arquivo(self, conteudo: str) -> dict[str, Any]:

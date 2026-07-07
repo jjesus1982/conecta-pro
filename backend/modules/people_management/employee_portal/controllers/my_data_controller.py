@@ -135,11 +135,37 @@ async def update_my_data(
 
             logger.info(f"Dados atualizados para employee {employee_id}: {list(update_fields.keys())}")
 
-    except (ImportError, Exception) as e:
-        logger.warning(f"Erro ao atualizar dados: {e}")
+            # [Veracidade] Devolver o registro REAL persistido (mesma forma do GET),
+            # nao um placeholder hardcoded. O front faz setData(resposta) e precisa
+            # do nome/cargo/admissao/CPF reais para nao "sumir" apos Salvar.
+            cpf = getattr(employee, "cpf", None)
+            if cpf and len(cpf) > 4:
+                cpf = f"***.***.***-{cpf[-2:]}"
 
-    return MyDataResponse(
-        nome="Funcionario",
-        cpf="***.***.***.***-**",
-        **dict(update_fields.items()),
+            return MyDataResponse(
+                nome=getattr(employee, "nome", None) or getattr(employee, "name", None),
+                cpf=cpf,
+                cargo=getattr(employee, "cargo", None) or getattr(employee, "position", None),
+                data_admissao=str(employee.data_admissao)
+                if getattr(employee, "data_admissao", None)
+                else None,
+                telefone=getattr(employee, "telefone", None) or getattr(employee, "phone", None),
+                email=getattr(employee, "email", None),
+                endereco=getattr(employee, "endereco", None) or getattr(employee, "address", None),
+                contato_emergencia=getattr(employee, "contato_emergencia", None),
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Erro ao atualizar dados: {e}")
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erro ao atualizar dados. Tente novamente.",
+        )
+
+    # Funcionario nao encontrado.
+    raise HTTPException(
+        status_code=http_status.HTTP_404_NOT_FOUND,
+        detail="Funcionario nao encontrado.",
     )

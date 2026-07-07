@@ -25,46 +25,22 @@ from modules.people_management.hr.services.vacation_service import VacationServi
 logger = logging.getLogger(__name__)
 
 
-def _vacation_brand_page(canvas, doc):
-    """Marca Conecta Mais (logo + linha no topo, rodapé oficial) no Aviso Prévio de Férias."""
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.units import mm
-
-    from modules.crm.services import pdf_branding as B
-
-    canvas.saveState()
-    w, h = A4
-    lp = B.logo_path("header")
-    drew = False
-    if lp:
-        try:
-            canvas.drawImage(
-                lp, 25 * mm, h - 20 * mm, width=50 * mm, height=12 * mm,
-                preserveAspectRatio=True, anchor="sw", mask="auto",
-            )
-            drew = True
-        except Exception:  # noqa: BLE001
-            pass
-    if not drew:
-        canvas.setFont("Helvetica-Bold", 8)
-        canvas.setFillColor(B.AZUL_ESCURO)
-        canvas.drawString(25 * mm, h - 15 * mm, B.EMPRESA["nome"])
-    canvas.setStrokeColor(B.LARANJA)
-    canvas.setLineWidth(1.2)
-    canvas.line(25 * mm, h - 22 * mm, w - 25 * mm, h - 22 * mm)
-    canvas.setStrokeColor(B.AZUL_ESCURO)
-    canvas.setLineWidth(0.6)
-    canvas.line(25 * mm, 14 * mm, w - 25 * mm, 14 * mm)
-    canvas.setFont("Helvetica", 6.5)
-    canvas.setFillColor(B.AZUL_MEDIO)
-    canvas.drawString(
-        25 * mm, 10 * mm, f"{B.EMPRESA['nome']} | CNPJ: {B.EMPRESA['cnpj']} | {B.EMPRESA['fone']} | {B.EMPRESA['site']}"
-    )
-    canvas.drawRightString(w - 25 * mm, 10 * mm, f"Página {doc.page}")
-    canvas.restoreState()
-
-
 router = APIRouter(prefix="/vacations", tags=["DP - Férias"])
+
+
+def _normalize_days(raw: Any) -> str | None:
+    """[Achado 6] Normaliza o campo `days` para inteiro puro em string ('30').
+
+    Dados legados foram gravados com sufixo ('30 dias', '15 dias'); a criação (POST) grava
+    número puro. Aqui extraímos apenas o inteiro para exibição consistente na tela,
+    independente do formato armazenado. Retorna None se não houver número.
+    """
+    if raw is None:
+        return None
+    import re as _re
+
+    m = _re.search(r"\d+", str(raw))
+    return m.group(0) if m else None
 
 # FIX 2026-04-16: include_router(_vacation_ops_router) REMOVIDO.
 # O ops router tem prefix="/vacations" — incluí-lo aqui gerava prefix duplo
@@ -81,6 +57,7 @@ async def list_vacations(
     db: AsyncSession = Depends(get_db),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    status: str | None = Query(None, description="Filtrar por status: pendente, aprovado, rejeitado, cancelado"),
 ) -> Any:
     """Lista solicitações de férias."""
     try:
@@ -90,13 +67,15 @@ async def list_vacations(
         from modules.operacional.vacations.models import VacationRequest
 
         count_q = sa_select(func.count()).select_from(VacationRequest)
-        total = (await db.execute(count_q)).scalar() or 0
         query = (
             sa_select(VacationRequest)
             .order_by(VacationRequest.created_at.desc())
-            .offset((page - 1) * page_size)
-            .limit(page_size)
         )
+        if status and status != "todos":
+            count_q = count_q.where(VacationRequest.status == status)
+            query = query.where(VacationRequest.status == status)
+        total = (await db.execute(count_q)).scalar() or 0
+        query = query.offset((page - 1) * page_size).limit(page_size)
         result = await db.execute(query)
         items = result.scalars().all()
         return {
@@ -109,7 +88,7 @@ async def list_vacations(
                     "status": v.status,
                     "start_date": str(v.start_date) if getattr(v, "start_date", None) else None,
                     "end_date": str(v.end_date) if getattr(v, "end_date", None) else None,
-                    "days": getattr(v, "days", None),
+                    "days": _normalize_days(getattr(v, "days", None)),
                     "reason": getattr(v, "reason", None),
                     "created_at": v.created_at.isoformat() if getattr(v, "created_at", None) else None,
                 }
@@ -155,7 +134,7 @@ async def list_vacations_by_employee(
                     "status": item.status,
                     "start_date": str(item.start_date) if item.start_date else None,
                     "end_date": str(item.end_date) if item.end_date else None,
-                    "days": item.days,
+                    "days": _normalize_days(item.days),
                     "reason": item.reason,
                     "notes": item.notes,
                     "approved_by": str(item.approved_by) if item.approved_by else None,
@@ -256,7 +235,11 @@ async def approve_vacation(
         # [Item −1/A1] resolve cliente_id do funcionário (backfill) → GEDEON monta o kit certo
         _vac_emp = str(result.get("employee_id", "")) if isinstance(result, dict) else ""
         _vac_cli = (
-            (await db.execute(_sqltext("SELECT cliente_id FROM employees WHERE CAST(id AS TEXT)=:i"), {"i": _vac_emp})).scalar()
+            (
+                await db.execute(
+                    _sqltext("SELECT cliente_id FROM employees WHERE CAST(id AS TEXT)=:i"), {"i": _vac_emp}
+                )
+            ).scalar()
             if _vac_emp
             else None
         )
@@ -335,29 +318,27 @@ async def gerar_aviso_previo_ferias(
     try:
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4
-        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-        from reportlab.lib.units import cm
+        from reportlab.lib.units import mm
         from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+        from modules.crm.services import pdf_branding as B
+
+        st = B.styles()
+        body_style = st["corpo"]
+        label_style = st["cell"]
 
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(
             buffer,
             pagesize=A4,
-            rightMargin=2.5 * cm,
-            leftMargin=2.5 * cm,
-            topMargin=3.2 * cm,
-            bottomMargin=2.2 * cm,
+            rightMargin=16 * mm,
+            leftMargin=16 * mm,
+            topMargin=40 * mm,
+            bottomMargin=16 * mm,
         )
-        styles = getSampleStyleSheet()
-        title_style = ParagraphStyle("Title", parent=styles["Heading1"], fontSize=14, spaceAfter=20, alignment=1)
-        body_style = ParagraphStyle(
-            "Body", parent=styles["Normal"], fontSize=11, leading=18, spaceAfter=10, alignment=4
-        )
-        label_style = ParagraphStyle("Label", parent=styles["Normal"], fontSize=11, leading=16)
 
         story = []
-        story.append(Paragraph("AVISO PRÉVIO DE FÉRIAS", title_style))
-        story.append(Spacer(1, 0.3 * cm))
+        story += B.secao("DADOS DO EMPREGADO", st)
 
         box_data = [
             [Paragraph(f"<b>Empregado(a):</b> {employee_name}", label_style)],
@@ -365,22 +346,24 @@ async def gerar_aviso_previo_ferias(
             [Paragraph(f"<b>Data de Admissão:</b> {admission_date}", label_style)],
             [Paragraph(f"<b>Período Aquisitivo:</b> {period_start} a {period_end}", label_style)],
         ]
-        box = Table(box_data, colWidths=[16 * cm])
+        box = Table(box_data, colWidths=[178 * mm])
         box.setStyle(
             TableStyle(
                 [
-                    ("BOX", (0, 0), (-1, -1), 0.75, colors.black),
-                    ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 10),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-                    ("TOPPADDING", (0, 0), (-1, -1), 6),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                    ("BOX", (0, 0), (-1, -1), 0.6, B.AZUL_ESCURO),
+                    ("INNERGRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#D9E1F2")),
+                    ("BACKGROUND", (0, 0), (-1, -1), B.FUNDO_CLARO),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
                 ]
             )
         )
         story.append(box)
-        story.append(Spacer(1, 0.5 * cm))
+        story.append(Spacer(1, 5 * mm))
 
+        story += B.secao("COMUNICADO", st)
         story.append(Paragraph(f"Prezado(a) <b>{employee_name}</b>,", body_style))
         story.append(
             Paragraph(
@@ -398,36 +381,23 @@ async def gerar_aviso_previo_ferias(
             )
         )
         story.append(Paragraph(f"Retorno previsto: <b>{return_date}</b>.", body_style))
-        story.append(Spacer(1, 1.5 * cm))
-        story.append(Paragraph(f"Manaus/AM, {notice_date}", body_style))
-        story.append(Spacer(1, 2.5 * cm))
 
-        sig_data = [
-            [
-                Paragraph("____________________________", label_style),
-                Paragraph("____________________________", label_style),
-            ],
-            [
-                Paragraph(
-                    "CONECTAMAIS ELETRONICA LTDA<br/>CNPJ 35.710.481/0001-03<br/>Empregadora",
-                    label_style,
-                ),
-                Paragraph(f"{employee_name}<br/>Empregado(a)", label_style),
-            ],
-        ]
-        sig_table = Table(sig_data, colWidths=[8 * cm, 8 * cm])
-        sig_table.setStyle(
-            TableStyle(
-                [
-                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("TOPPADDING", (0, 1), (-1, 1), 4),
-                ]
-            )
+        # Assinaturas (padrão-ouro: funcionário assina digital pelo Portal; empresa = CEO Jordan)
+        story += B.campos_assinatura(
+            st,
+            funcionario_nome=employee_name,
+            data_str=notice_date,
+            digital_funcionario=True,
+            digital_empresa=True,
+            data_empresa=notice_date,
+            espaco_antes=14,
         )
-        story.append(sig_table)
 
-        doc.build(story, onFirstPage=_vacation_brand_page, onLaterPages=_vacation_brand_page)
+        doc.build(
+            story,
+            onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo="AVISO DE FÉRIAS"),
+            onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo="AVISO DE FÉRIAS"),
+        )
         pdf_bytes = buffer.getvalue()
         buffer.close()
 

@@ -360,11 +360,14 @@ async def dossie_pessoa(
         P, "Se consta como pessoa jurídica cadastrada (cliente/fornecedor).")
 
     # 5) NFS-e EMITIDAS a ele (o sujeito como tomador) — relação comercial
+    # [Veracidade] Fonte autoritativa = nfse_emitidas_nacional (77 notas jan-jun,
+    # cStat 100). `nfses` so tinha jan-fev -> contexto juridico incompleto.
     secoes["nfse_como_tomador"] = await _bloco(
-        db, "nfses",
-        "SELECT numero_nfse, data_competencia, tomador_razao_social, tomador_cpf_cnpj, valor_servicos "
-        "FROM nfses WHERE tomador_razao_social ILIKE :nome "
-        "OR regexp_replace(COALESCE(tomador_cpf_cnpj,''),'\\D','','g')=:doc ORDER BY data_competencia DESC",
+        db, "nfse_emitidas_nacional",
+        "SELECT numero, competencia, tomador_nome AS tomador_razao_social, "
+        "tomador_cnpj AS tomador_cpf_cnpj, valor_servicos "
+        "FROM nfse_emitidas_nacional WHERE tomador_nome ILIKE :nome "
+        "OR regexp_replace(COALESCE(tomador_cnpj,''),'\\D','','g')=:doc ORDER BY competencia DESC",
         P, "NFS-e emitidas pela empresa a ele (se figura como tomador).")
 
     # 6) documentos no GED (por nome no título/nome do arquivo)
@@ -454,12 +457,15 @@ async def dossie_cliente(db: AsyncSession, cliente_id: str) -> dict[str, Any]:
             "SELECT contract_number, name, start_date, end_date, monthly_value, status "
             "FROM contracts WHERE CAST(client_id AS TEXT)=:cl ORDER BY start_date DESC", P,
             "Relação contratual e valores."),
+        # [Veracidade] Fonte autoritativa = nfse_emitidas_nacional (77 notas jan-jun,
+        # cStat 100). `nfses` so tinha jan-fev -> faturamento incompleto. Sem coluna
+        # status (todas autorizadas = cStat 100).
         "faturamento_nfse": await _bloco(
-            db, "nfses",
-            "SELECT numero_nfse, data_competencia, valor_servicos, iss_valor, status "
-            "FROM nfses WHERE regexp_replace(COALESCE(tomador_cpf_cnpj,''),'\\D','','g') = "
+            db, "nfse_emitidas_nacional",
+            "SELECT numero, competencia, valor_servicos, iss_valor, 'autorizada' AS status "
+            "FROM nfse_emitidas_nacional WHERE regexp_replace(COALESCE(tomador_cnpj,''),'\\D','','g') = "
             "(SELECT regexp_replace(COALESCE(document_number,''),'\\D','','g') FROM clients WHERE CAST(id AS TEXT)=:cl) "
-            "ORDER BY data_competencia DESC", P,
+            "ORDER BY competencia DESC", P,
             "Faturamento efetivo ao cliente (NFS-e emitidas)."),
     }
     return {"encontrado": True, "cliente": cl, "secoes": secoes}

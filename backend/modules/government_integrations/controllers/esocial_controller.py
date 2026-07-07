@@ -183,25 +183,64 @@ async def listar_eventos(
     status_filter: str | None = Query(None, alias="status", description="Filtrar por status"),
     data_inicial: str | None = Query(None, description="Data inicial (YYYY-MM-DD)"),
     data_final: str | None = Query(None, description="Data final (YYYY-MM-DD)"),
+    db: AsyncSession = Depends(get_db),
 ) -> StandardResponse:
-    """Lista eventos eSocial com filtros."""
-    eventos_suportados = ESocialService.EVENTOS_SUPORTADOS
+    """Lista eventos eSocial REAIS transmitidos.
+
+    FONTE REAL: tabela eventos_esocial (transmissões efetivas, com protocolo/recibo/
+    data_envio). NÃO é o catálogo de tipos suportados — para isso use
+    GET /esocial/eventos-suportados. Se não houver transmissão real, retorna lista
+    vazia (vazio-real honesto), nunca o catálogo disfarçado de eventos pendentes.
+    """
+    conditions: list[str] = []
+    params: dict[str, Any] = {}
+
+    if tipo_evento:
+        conditions.append("tipo_evento = :tipo_evento")
+        params["tipo_evento"] = tipo_evento
+    if status_filter:
+        conditions.append("status = :status_filter")
+        params["status_filter"] = status_filter
+    if data_inicial:
+        conditions.append("data_envio >= :data_inicial")
+        params["data_inicial"] = data_inicial
+    if data_final:
+        conditions.append("data_envio <= :data_final")
+        params["data_final"] = data_final
+
+    where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+    result = await db.execute(
+        text(
+            "SELECT id, tipo_evento, status, competencia, data_geracao, "
+            "data_envio, data_retorno, protocolo, recibo, erro_codigo, "
+            "erro_mensagem, tentativas "
+            f"FROM eventos_esocial{where} "
+            "ORDER BY COALESCE(data_envio, data_geracao) DESC NULLS LAST"
+        ),
+        params,
+    )
+    rows = result.mappings().all()
+
+    # Mapa código -> nome amigável a partir do catálogo suportado (apenas rótulo)
+    nomes = {e["codigo"]: e["nome"] for e in ESocialService.EVENTOS_SUPORTADOS}
+
     itens = [
         {
-            "id": f"evt-{i + 1:04d}",
-            "tipo_evento": e["codigo"],
-            "nome_evento": e["nome"],
-            "status": "pendente",
-            "data_transmissao": None,
-            "protocolo": None,
-            "ambiente": "homologacao",
+            "id": str(r["id"]),
+            "tipo_evento": r["tipo_evento"],
+            "nome_evento": nomes.get(r["tipo_evento"], r["tipo_evento"]),
+            "status": r["status"],
+            "competencia": r["competencia"],
+            "data_transmissao": r["data_envio"].isoformat() if r["data_envio"] else None,
+            "data_retorno": r["data_retorno"].isoformat() if r["data_retorno"] else None,
+            "protocolo": r["protocolo"],
+            "recibo": r["recibo"],
+            "erro_codigo": r["erro_codigo"],
+            "erro_mensagem": r["erro_mensagem"],
+            "tentativas": r["tentativas"],
         }
-        for i, e in enumerate(eventos_suportados)
+        for r in rows
     ]
-    if tipo_evento:
-        itens = [e for e in itens if e["tipo_evento"] == tipo_evento]
-    if status_filter:
-        itens = [e for e in itens if e["status"] == status_filter]
     return StandardResponse(
         success=True,
         message=f"{len(itens)} evento(s) encontrado(s)",

@@ -732,27 +732,30 @@ async def listar_nfses(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    """Lista NFS-e emitidas. Lê a tabela REAL `nfses` (o model antigo apontava p/ a
-    tabela `nfse`, que nunca foi criada) e devolve um array no formato que a tela consome.
-    condominio_id é ignorado no filtro: as NFS-e da empresa pertencem aos condominio_ids
-    reais e o front injeta um placeholder de dev."""
-    conds = ["active IS true"]
+    """Lista NFS-e emitidas da fonte autoritativa `nfse_emitidas_nacional`
+    (77 notas jan-jun, todas validas cStat 100). Devolve um array no formato que a
+    tela consome. condominio_id é ignorado no filtro (as NFS-e da empresa pertencem
+    aos condominio_ids reais e o front injeta um placeholder de dev).
+    A tabela nacional nao tem coluna status/active/numero_rps/serie_rps/codigo_verificacao:
+    todas as linhas sao autorizadas; competencia (varchar 'YYYY-MM') substitui data_competencia."""
+    conds: list[str] = []
     params: dict[str, Any] = {"limit": page_size, "offset": (page - 1) * page_size}
-    if status:
-        conds.append("status = :status")
-        params["status"] = status
+    # Filtro por status: a fonte so contem notas autorizadas. Se pedirem outro
+    # status, o resultado e vazio (nao existem canceladas/rejeitadas aqui).
+    if status and status.lower() not in ("autorizada", "autorizado", "authorized"):
+        conds.append("1 = 0")
     if search:
-        conds.append("(tomador_razao_social ILIKE :s OR numero_nfse::text ILIKE :s)")
+        conds.append("(tomador_nome ILIKE :s OR numero::text ILIKE :s)")
         params["s"] = f"%{search}%"
-    where = " AND ".join(conds)
+    where = (" AND ".join(conds)) if conds else "TRUE"
     rows = (
         await db.execute(
             text(
-                "SELECT id::text AS id, numero_nfse, numero_rps, serie_rps, status, "
-                "tomador_razao_social, tomador_cpf_cnpj, codigo_verificacao, "
-                "valor_servicos, data_emissao, data_competencia, created_at "
-                f"FROM nfses WHERE {where} "
-                "ORDER BY data_competencia DESC NULLS LAST, numero_rps DESC LIMIT :limit OFFSET :offset"
+                "SELECT chave_acesso, numero, competencia, "
+                "tomador_nome, tomador_cnpj, "
+                "valor_servicos, data_emissao, created_at "
+                f"FROM nfse_emitidas_nacional WHERE {where} "
+                "ORDER BY data_emissao DESC NULLS LAST, numero DESC LIMIT :limit OFFSET :offset"
             ),
             params,
         )
@@ -763,21 +766,21 @@ async def listar_nfses(
 
     return [
         {
-            "id": r["id"],
-            "number": r["numero_nfse"] or r["numero_rps"],
-            "series": r["serie_rps"],
-            "recipient_name": r["tomador_razao_social"],
-            "recipient_document": r["tomador_cpf_cnpj"],
-            "access_key": r["codigo_verificacao"],
+            "id": r["chave_acesso"] or r["numero"],
+            "number": r["numero"],
+            "series": None,
+            "recipient_name": r["tomador_nome"],
+            "recipient_document": r["tomador_cnpj"],
+            "access_key": r["chave_acesso"],
             "amount": float(r["valor_servicos"] or 0),
             "total_amount": float(r["valor_servicos"] or 0),
             "net_amount": float(r["valor_servicos"] or 0),
-            "status": r["status"],
+            "status": "autorizada",
             "issue_date": _iso(r["data_emissao"]),
-            "competence_date": _iso(r["data_competencia"]),
+            "competence_date": r["competencia"],
             "created_at": _iso(r["created_at"]),
             # aliases PT p/ robustez
-            "numero": r["numero_nfse"] or r["numero_rps"],
+            "numero": r["numero"],
             "valor": float(r["valor_servicos"] or 0),
         }
         for r in rows
@@ -827,9 +830,10 @@ async def emitir_nfse(
     repo: FiscalRepository = Depends(get_repository),
     current_user: dict = Depends(require_permission("fiscal:nfse:emitir")),
 ) -> NFSeEmitirResponse:
-    """Emite NFS-e para a prefeitura.
+    """Emite NFS-e para a prefeitura de Manaus (ABRASF 2.0, produção real).
 
-    TODO: Integrar com webservice da prefeitura de Manaus (ABRASF 2.0)
+    Liga ao motor real (NFSeManausService). O resultado é HONESTO: se a prefeitura autorizar,
+    grava o número/código reais; se rejeitar, grava o erro real. Nunca finge sucesso.
     """
     nfse = await repo.get_nfse_by_id(data.nfse_id)
     if not nfse:
@@ -840,20 +844,99 @@ async def emitir_nfse(
             detail=f"NFS-e em status {nfse.status} nao pode ser emitida",
         )
 
-    # TODO: Implementar integracao com prefeitura
-    logger.info(f"Emitindo NFS-e RPS {nfse.numero_rps} - ambiente {data.ambiente}")
+    import re as _re
 
-    await repo.update_nfse(data.nfse_id, {"status": "enviando"})
+    from modules.government_integrations.services.nfse_manaus_service import NFSeManausService
+
+    def _g(*names, default=None):
+        for n in names:
+            v = getattr(nfse, n, None)
+            if v not in (None, ""):
+                return v
+        return default
+
+    tomador_data = {
+        "cpf_cnpj": _g("tomador_cpf_cnpj", default=""),
+        "razao_social": _g("tomador_razao_social", default=""),
+        "endereco": _g("tomador_logradouro", "tomador_endereco", default=""),
+        "numero": _g("tomador_numero", default="S/N"),
+        "bairro": _g("tomador_bairro", default=""),
+        "cidade": _g("tomador_municipio", "tomador_cidade", default="Manaus"),
+        "uf": _g("tomador_uf", default="AM"),
+        "cep": _g("tomador_cep", default=""),
+        "email": _g("tomador_email"),
+        "telefone": _g("tomador_telefone"),
+        "inscricao_municipal": _g("tomador_inscricao_municipal"),
+    }
+    servico_data = {
+        "codigo_servico": _g("codigo_servico", default="11.02"),
+        "discriminacao": _g("discriminacao", "descricao_servico", default=""),
+        "valor_servicos": float(_g("valor_servicos", default=0) or 0),
+        "aliquota_iss": float(_g("iss_aliquota", default=0.05) or 0.05),
+        "iss_retido": bool(_g("iss_retido", default=False)),
+        "codigo_cnae": _g("codigo_cnae"),
+        "valor_deducoes": float(_g("valor_deducoes", default=0) or 0),
+    }
+    comp = None
+    dc = _g("data_competencia", "competencia")
+    if dc is not None:
+        try:
+            comp = dc.strftime("%Y-%m")
+        except Exception:  # noqa: BLE001
+            comp = str(dc)[:7]
+
+    logger.info("Emitindo NFS-e REAL: RPS=%s tomador=%s valor=%s", nfse.numero_rps,
+                tomador_data["cpf_cnpj"], servico_data["valor_servicos"])
+    try:
+        svc = NFSeManausService()
+        # Empresa é LUCRO REAL (não Simples) — optante_simples=False
+        resultado = svc.emitir_nfse(tomador_data, servico_data, competencia=comp, optante_simples=False)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Falha ao emitir NFS-e %s: %s", data.nfse_id, exc)
+        await repo.update_nfse(data.nfse_id, {"status": "rejeitada"})
+        raise HTTPException(status_code=502, detail=f"Falha ao emitir na prefeitura: {exc}") from exc
+
+    status_ws = (resultado.get("status") or "").lower()
+    saida = resultado.get("resposta_ws", {}) or {}
+    corpo = str(saida.get("outputxml") or saida.get("resposta_raw") or "")
+    numero_nfse = None
+    codigo_verif = None
+    m = _re.search(r"<Numero>(\d+)</Numero>", corpo)
+    if m:
+        numero_nfse = m.group(1)
+    m = _re.search(r"<CodigoVerificacao>(.*?)</CodigoVerificacao>", corpo)
+    if m:
+        codigo_verif = m.group(1)
+    erro_msg = None
+    me = _re.search(r"<Mensagem>(.*?)</Mensagem>", corpo)
+    if me:
+        erro_msg = me.group(1)
+
+    if numero_nfse:
+        novo_status = "autorizada"
+        upd = {"status": "autorizada", "numero_nfse": numero_nfse}
+        if codigo_verif:
+            upd["codigo_verificacao"] = codigo_verif
+        await repo.update_nfse(data.nfse_id, upd)
+        mensagem = f"NFS-e autorizada pela prefeitura (nº {numero_nfse})"
+    elif status_ws in ("enviado", "processando") and not erro_msg:
+        novo_status = "processando"
+        await repo.update_nfse(data.nfse_id, {"status": "processando"})
+        mensagem = "NFS-e enviada à prefeitura; aguardando autorização (consulte o status)."
+    else:
+        novo_status = "rejeitada"
+        await repo.update_nfse(data.nfse_id, {"status": "rejeitada"})
+        mensagem = f"Prefeitura rejeitou: {erro_msg or resultado.get('mensagem') or 'erro não detalhado'}"
 
     return NFSeEmitirResponse(
         nfse_id=data.nfse_id,
-        status="enviando",
-        numero_nfse=None,
-        codigo_verificacao=None,
+        status=novo_status,
+        numero_nfse=numero_nfse,
+        codigo_verificacao=codigo_verif,
         link_nfse=None,
-        protocolo=None,
-        mensagem="NFS-e enviada para processamento",
-        xml=None,
+        protocolo=resultado.get("protocolo"),
+        mensagem=mensagem,
+        xml=resultado.get("xml_envio"),
         pdf=None,
     )
 
@@ -1421,18 +1504,19 @@ async def obter_dashboard_fiscal(
     if not ano:
         ano = date.today().year
 
-    total_nfse = (await db.execute(text("SELECT count(*) FROM nfses WHERE active IS true"))).scalar() or 0
+    total_nfse = (await db.execute(text("SELECT count(*) FROM nfse_emitidas_nacional"))).scalar() or 0
     total_nfse_mes = (
         await db.execute(
             text(
-                "SELECT count(*) FROM nfses WHERE active IS true "
-                "AND EXTRACT(MONTH FROM data_competencia) = :m AND EXTRACT(YEAR FROM data_competencia) = :a"
+                "SELECT count(*) FROM nfse_emitidas_nacional "
+                "WHERE CAST(substr(competencia, 6, 2) AS int) = :m "
+                "AND CAST(left(competencia, 4) AS int) = :a"
             ),
             {"m": mes, "a": ano},
         )
     ).scalar() or 0
     valor_total = (
-        await db.execute(text("SELECT COALESCE(SUM(valor_servicos), 0) FROM nfses WHERE active IS true"))
+        await db.execute(text("SELECT COALESCE(SUM(valor_servicos), 0) FROM nfse_emitidas_nacional"))
     ).scalar() or 0
     try:
         obrig_pend = (
@@ -1446,16 +1530,17 @@ async def obter_dashboard_fiscal(
     notas_recentes = [
         {
             "tipo": "NFS-e",
-            "numero": r["numero_nfse"] or r["numero_rps"],
+            "numero": r["numero"],
             "valor": float(r["valor_servicos"] or 0),
             "data": r["data_emissao"].isoformat() if r["data_emissao"] else None,
-            "status": r["status"],
+            # nfse_emitidas_nacional so contem notas validas (cStat 100)
+            "status": "autorizada",
         }
         for r in (
             await db.execute(
                 text(
-                    "SELECT numero_nfse, numero_rps, valor_servicos, data_emissao, status "
-                    "FROM nfses WHERE active IS true ORDER BY data_competencia DESC NULLS LAST LIMIT 5"
+                    "SELECT numero, valor_servicos, data_emissao "
+                    "FROM nfse_emitidas_nacional ORDER BY data_emissao DESC NULLS LAST LIMIT 5"
                 )
             )
         ).mappings().all()

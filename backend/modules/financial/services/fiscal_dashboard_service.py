@@ -28,6 +28,8 @@ def get_dashboard_fiscal(mes: int, ano: int) -> dict:
     try:
         # ------------------------------------------------------------------
         # 1. RECEITAS — NFS-e emitidas (saída)
+        #    Fonte autoritativa: nfse_emitidas_nacional (todas validas cStat 100).
+        #    Filtro mensal pela coluna `competencia` (varchar 'YYYY-MM').
         #    Colunas reais: valor_servicos, iss_valor
         # ------------------------------------------------------------------
         cur.execute(
@@ -36,10 +38,9 @@ def get_dashboard_fiscal(mes: int, ano: int) -> dict:
                 COUNT(*) AS qtd,
                 COALESCE(SUM(valor_servicos), 0) AS total,
                 COALESCE(SUM(iss_valor), 0) AS total_iss
-            FROM nfses
-            WHERE EXTRACT(MONTH FROM data_emissao) = %s
-              AND EXTRACT(YEAR  FROM data_emissao) = %s
-              AND status = 'autorizada'
+            FROM nfse_emitidas_nacional
+            WHERE CAST(substr(competencia, 6, 2) AS int) = %s
+              AND CAST(left(competencia, 4)   AS int) = %s
             """,
             (mes, ano),
         )
@@ -67,15 +68,16 @@ def get_dashboard_fiscal(mes: int, ano: int) -> dict:
         total_receitas = receita_servicos["valor"] + receita_vendas["valor"]
 
         # ------------------------------------------------------------------
-        # 3. DESPESAS — NFS-e recebidas (entrada)
-        #    Colunas reais: data_emissao (date), valor_servico
+        # 3. DESPESAS — NFS-e recebidas (tomadas)
+        #    Fonte autoritativa: nfse_tomadas_nacional (competencia 'YYYY-MM').
+        #    Colunas reais: valor_servicos, competencia
         # ------------------------------------------------------------------
         cur.execute(
             """
-            SELECT COUNT(*), COALESCE(SUM(valor_servico), 0)
-            FROM nfse_entrada
-            WHERE EXTRACT(MONTH FROM data_emissao) = %s
-              AND EXTRACT(YEAR  FROM data_emissao) = %s
+            SELECT COUNT(*), COALESCE(SUM(valor_servicos), 0)
+            FROM nfse_tomadas_nacional
+            WHERE CAST(substr(competencia, 6, 2) AS int) = %s
+              AND CAST(left(competencia, 4)   AS int) = %s
             """,
             (mes, ano),
         )

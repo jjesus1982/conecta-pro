@@ -100,6 +100,10 @@ class ReceivableAccount(Base):
         nullable=True,
         index=True,
     )
+    # Nome/documento do devedor (denormalizado — usado quando customer_id e NULL,
+    # ex.: contas importadas de NFS-e sem vinculo com o CRM)
+    customer_name = Column(String(255), nullable=True)
+    customer_document = Column(String(20), nullable=True)
 
     # Vinculacao com unidade/morador
     unidade_id = Column(UUID(as_uuid=True), nullable=True, index=True)

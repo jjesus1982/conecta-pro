@@ -274,8 +274,21 @@ def sincronizar_nfe_entrada(
         )
 
         svc = NFEEntradaSyncService()
-        resultado = svc.buscar_nfe_recebidas(ultimo_nsu=ultimo_nsu)
+        # Loop completo: puxa TODAS as NF-e contra o CNPJ desde o último NSU salvo, processa os
+        # docZip (procNFe/resNFe) e persiste. Respeita o anti-abuso da SEFAZ (para em cStat 656).
+        resultado = svc.sincronizar_completo(max_lotes=30)
         logger.info("NF-e entrada sync concluído: %s", resultado)
+
+        # Manifesta CIÊNCIA (evento 210210) nas resumos novas — janela de 10 dias da SEFAZ.
+        # Isso libera o procNFe completo (com itens/descrições) na próxima distribuição → estoque.
+        # Limite baixo p/ não estourar o anti-abuso; o resto vem nas próximas rodadas de 2h.
+        try:
+            manif = svc.manifestar_pendentes(limite=10)
+            logger.info("Manifestação ciência automática: %s", manif)
+            resultado["manifestacao"] = manif
+        except Exception as mex:  # não derruba o sync por causa da manifestação
+            logger.warning("Manifestação automática falhou (segue): %s", mex)
+
         return resultado
     except Exception as exc:
         logger.error("Erro na sincronização NF-e entrada: %s", exc)

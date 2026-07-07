@@ -77,7 +77,9 @@ class ContractResponse(BaseModel):
     union_name: str | None = None
     union_code: str | None = None
     is_current: bool = True
-    previous_contract_id: str | None = None
+    # ORM devolve UUID; aceitar str | UUID evita ResponseValidationError que
+    # quebrava a lista inteira quando algum contrato tinha previous_contract_id.
+    previous_contract_id: str | UUID | None = None
     notes: str | None = None
     document_path: str | None = None
     signed_at: datetime | None = None

@@ -99,13 +99,20 @@ async def get_custeio_abc(
               AND category IS NOT NULL
               AND category != ''
               AND category != 'receita'
+              AND transaction_date >= (SELECT MAX(transaction_date) FROM bank_transactions) - 30
             GROUP BY category
             ORDER BY total DESC
         """)
         )
         custos = custos_q.fetchall()
 
-        custo_total_global = sum(float(c.total) for c in custos)
+        # Categorias GENÉRICAS (tipo de transação, não de despesa): misturam custo operacional
+        # com transferências internas, pró-labore e financiamentos → NÃO entram no custo até
+        # serem classificadas (trabalho do Fiscal, casando com NF-e de entrada).
+        _GENERICO = {"PIX", "DEBITO", "TED", "SAQUE", "OUTROS"}
+        custo_classificado = sum(float(c.total) for c in custos if c.category not in _GENERICO)
+        saidas_nao_classificadas = sum(float(c.total) for c in custos if c.category in _GENERICO)
+        custo_total_global = custo_classificado
         custo_folha = next((float(c.total) for c in custos if c.category == "folha_pagamento"), 0)
         custo_fornec = next((float(c.total) for c in custos if c.category == "fornecedores"), 0)
         custo_impostos = next((float(c.total) for c in custos if c.category == "impostos"), 0)
@@ -186,8 +193,14 @@ async def get_custeio_abc(
             "periodo_referencia": mes_ref,
             "mrr_total": round(mrr_total, 2),
             "custo_total_mes": round(custo_total_global, 2),
+            "saidas_nao_classificadas": round(saidas_nao_classificadas, 2),
             "resultado_estimado": round(mrr_total - custo_total_global, 2),
             "margem_global_pct": round((mrr_total - custo_total_global) / mrr_total * 100, 1) if mrr_total > 0 else 0,
+            "observacao": (
+                "Margem sobre o custo CLASSIFICADO do último mês. As 'saidas_nao_classificadas' "
+                "(PIX/débitos genéricos) misturam custo, transferências internas, pró-labore e "
+                "financiamentos — a margem precisa fica após o Fiscal categorizar cada saída pela NF-e."
+            ),
             "cct_2026": {
                 "piso_base_cct": PISO_CATEGORIA,
                 "custo_all_in_posto": round(CUSTO_CLT_POSTO, 2),

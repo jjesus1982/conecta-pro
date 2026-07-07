@@ -28,17 +28,19 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from modules.crm.services import pdf_branding as B
+
 logger = logging.getLogger(__name__)
 
 # Diretorio padrao para salvar PDFs
 PDF_OUTPUT_DIR = Path("/opt/conecta-pro/backend/media/bidding/proposals")
 
-# Dados da empresa para cabecalho
+# Dados da empresa para cabecalho (marca centralizada)
 COMPANY_HEADER = {
-    "razao_social": "CONECTAMAIS ELETRONICA LTDA",
-    "cnpj": "35.710.481/0001-03",
+    "razao_social": B.EMPRESA["nome"],
+    "cnpj": B.EMPRESA["cnpj"],
     "inscricao_municipal": "45177801",
-    "endereco": "Manaus - AM",
+    "endereco": B.EMPRESA["endereco"],
 }
 
 
@@ -59,7 +61,7 @@ def _build_styles() -> dict[str, ParagraphStyle]:
             fontSize=14,
             alignment=TA_CENTER,
             spaceAfter=2 * mm,
-            textColor=colors.HexColor("#1a1a2e"),
+            textColor=B.AZUL_ESCURO,
         ),
         "company_info": ParagraphStyle(
             "CompanyInfo",
@@ -78,7 +80,7 @@ def _build_styles() -> dict[str, ParagraphStyle]:
             alignment=TA_CENTER,
             spaceBefore=8 * mm,
             spaceAfter=6 * mm,
-            textColor=colors.HexColor("#1a1a2e"),
+            textColor=B.AZUL_ESCURO,
         ),
         "section_title": ParagraphStyle(
             "SectionTitle",
@@ -87,7 +89,7 @@ def _build_styles() -> dict[str, ParagraphStyle]:
             fontSize=10,
             spaceBefore=5 * mm,
             spaceAfter=3 * mm,
-            textColor=colors.HexColor("#1a1a2e"),
+            textColor=B.AZUL_ESCURO,
         ),
         "body": ParagraphStyle(
             "BodyText2",
@@ -188,56 +190,13 @@ def _build_styles() -> dict[str, ParagraphStyle]:
 # Page template helpers (header/footer)
 # ──────────────────────────────────────────────
 
-_HEADER_COLOR = colors.HexColor("#1a1a2e")
-_LINE_COLOR = colors.HexColor("#2d6a4f")
-
-
-def _draw_header_footer(canvas, doc):
-    """Draws company header and page number footer on every page."""
-    canvas.saveState()
-    page_width, page_height = A4
-
-    # ── Header ──
-    canvas.setStrokeColor(_LINE_COLOR)
-    canvas.setLineWidth(2)
-    canvas.line(2 * cm, page_height - 1.5 * cm, page_width - 2 * cm, page_height - 1.5 * cm)
-
-    canvas.setFont("Helvetica-Bold", 12)
-    canvas.setFillColor(_HEADER_COLOR)
-    canvas.drawCentredString(page_width / 2, page_height - 1.3 * cm, COMPANY_HEADER["razao_social"])
-
-    canvas.setFont("Helvetica", 8)
-    canvas.setFillColor(colors.HexColor("#444444"))
-    info_line = (
-        f"CNPJ: {COMPANY_HEADER['cnpj']}  |  "
-        f"Insc. Municipal: {COMPANY_HEADER['inscricao_municipal']}  |  "
-        f"{COMPANY_HEADER['endereco']}"
-    )
-    canvas.drawCentredString(page_width / 2, page_height - 1.85 * cm, info_line)
-
-    canvas.setStrokeColor(_LINE_COLOR)
-    canvas.setLineWidth(0.5)
-    canvas.line(2 * cm, page_height - 2.0 * cm, page_width - 2 * cm, page_height - 2.0 * cm)
-
-    # ── Footer ──
-    canvas.setStrokeColor(colors.HexColor("#cccccc"))
-    canvas.setLineWidth(0.5)
-    canvas.line(2 * cm, 1.5 * cm, page_width - 2 * cm, 1.5 * cm)
-
-    canvas.setFont("Helvetica", 7)
-    canvas.setFillColor(colors.HexColor("#888888"))
-    canvas.drawString(
-        2 * cm,
-        1.0 * cm,
-        f"Gerado em {datetime.utcnow().strftime('%d/%m/%Y %H:%M')} — Conecta PRO",
-    )
-    canvas.drawRightString(page_width - 2 * cm, 1.0 * cm, f"Pagina {doc.page}")
-
-    canvas.restoreState()
+# Cores da marca centralizada (moldura visual padrao-ouro)
+_HEADER_COLOR = B.AZUL_ESCURO
+_LINE_COLOR = B.AZUL_MEDIO
 
 
 def _create_doc_template(buffer: io.BytesIO, title: str = "Documento") -> SimpleDocTemplate:
-    """Creates a SimpleDocTemplate with standard margins and metadata."""
+    """Creates a SimpleDocTemplate with brand margins (top 40mm / bottom 16mm) and metadata."""
     return SimpleDocTemplate(
         buffer,
         pagesize=A4,
@@ -245,8 +204,8 @@ def _create_doc_template(buffer: io.BytesIO, title: str = "Documento") -> Simple
         author=COMPANY_HEADER["razao_social"],
         leftMargin=2 * cm,
         rightMargin=2 * cm,
-        topMargin=2.5 * cm,
-        bottomMargin=2 * cm,
+        topMargin=40 * mm,
+        bottomMargin=16 * mm,
     )
 
 
@@ -278,27 +237,24 @@ def _build_ref_block(styles: dict, orgao: str, modalidade: str, numero_edital: s
 
 
 def _build_signature_block(styles: dict, variaveis: dict) -> list:
-    """Returns flowables for the signature block at the end of a document."""
-    data_hoje = datetime.utcnow().strftime("%d/%m/%Y")
-    elements = [
-        Spacer(1, 10 * mm),
-        Paragraph(f"Manaus-AM, {data_hoje}.", styles["body"]),
-        Spacer(1, 15 * mm),
-        Paragraph("___________________________________", styles["body_center"]),
-        Paragraph(f"<b>{variaveis.get('razao_social', '')}</b>", styles["body_center"]),
-        Paragraph(f"CNPJ: {variaveis.get('cnpj', '')}", styles["body_center"]),
-        Paragraph(
-            f"{variaveis.get('representante', variaveis.get('representante_legal', ''))}",
-            styles["body_center"],
-        ),
-    ]
-    cpf = variaveis.get("cpf_representante", "")
-    if cpf:
-        elements.append(Paragraph(f"CPF: {cpf}", styles["body_center"]))
-    rg = variaveis.get("rg_representante", "")
-    if rg:
-        elements.append(Paragraph(f"RG: {rg}", styles["body_center"]))
-    return elements
+    """Returns flowables for the signature block (marca centralizada, assinatura digital da empresa).
+
+    Documento de licitacao e assinado SO pela empresa (CEO default JORDAN JESUS). Reaproveita o
+    helper de marca B.campos_assinatura para posicionar a ancora invisivel ASSINAR::EMPRESA e o
+    padrao visual, ocultando a coluna de "funcionario" (nao se aplica a proposta de licitacao).
+    """
+    data_hoje = B.br_date(datetime.utcnow())
+    representante = variaveis.get("representante") or variaveis.get("representante_legal") or None
+    # Licitação: só a EMPRESA (representante legal) assina — sem coluna de funcionário.
+    flowables = B.campos_assinatura(
+        responsavel_nome=representante,
+        cidade="Manaus/AM",
+        data_str=data_hoje,
+        digital_empresa=True,
+        data_empresa=data_hoje,
+        incluir_funcionario=False,
+    )
+    return flowables
 
 
 # ──────────────────────────────────────────────
@@ -788,7 +744,7 @@ def _render_planilha_custos(content: str, variaveis: dict, styles: dict, pricing
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (-1, 0), _HEADER_COLOR),
-                ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#2d6a4f")),
+                ("BACKGROUND", (0, -1), (-1, -1), B.LARANJA),
                 ("TEXTCOLOR", (0, -1), (-1, -1), colors.white),
                 ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
                 ("TOPPADDING", (0, 0), (-1, -1), 5),
@@ -971,19 +927,24 @@ def render_pdf(
 
     if document_type == "carta_proposta":
         elements = _render_carta_proposta(document_content, variaveis, styles)
+        header_titulo = "CARTA PROPOSTA"
     elif document_type == "planilha_custos":
         elements = _render_planilha_custos(document_content, variaveis, styles, pricing_data)
+        header_titulo = "PLANILHA DE CUSTOS"
     elif document_type.startswith("declaracao_"):
         elements = _render_declaracao(document_content, variaveis, styles, titulo)
+        header_titulo = "DECLARACAO"
     elif document_type == "checklist_habilitacao":
         elements = _render_checklist(document_content, variaveis, styles)
+        header_titulo = "HABILITACAO"
     else:
         elements = _render_raw_text(document_content, styles, titulo)
+        header_titulo = "LICITACAO"
 
     doc.build(
         elements,
-        onFirstPage=_draw_header_footer,
-        onLaterPages=_draw_header_footer,
+        onFirstPage=lambda c, d: B.header_footer(c, d, titulo=header_titulo),
+        onLaterPages=lambda c, d: B.header_footer(c, d, titulo=header_titulo),
     )
     return buffer.getvalue()
 

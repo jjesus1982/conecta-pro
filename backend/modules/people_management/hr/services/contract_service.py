@@ -19,45 +19,6 @@ from modules.people_management.hr.models.contract import (
 logger = logging.getLogger(__name__)
 
 
-def _contrato_brand_page(canvas, doc):
-    """Marca Conecta Mais (logo + linha no topo, rodapé oficial) no contrato de trabalho."""
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.units import mm
-
-    from modules.crm.services import pdf_branding as B
-
-    canvas.saveState()
-    w, h = A4
-    lp = B.logo_path("header")
-    drew = False
-    if lp:
-        try:
-            canvas.drawImage(
-                lp, 30 * mm, h - 20 * mm, width=50 * mm, height=12 * mm,
-                preserveAspectRatio=True, anchor="sw", mask="auto",
-            )
-            drew = True
-        except Exception:  # noqa: BLE001
-            pass
-    if not drew:
-        canvas.setFont("Helvetica-Bold", 8)
-        canvas.setFillColor(B.AZUL_ESCURO)
-        canvas.drawString(30 * mm, h - 15 * mm, B.EMPRESA["nome"])
-    canvas.setStrokeColor(B.LARANJA)
-    canvas.setLineWidth(1.2)
-    canvas.line(30 * mm, h - 22 * mm, w - 20 * mm, h - 22 * mm)
-    canvas.setStrokeColor(B.AZUL_ESCURO)
-    canvas.setLineWidth(0.6)
-    canvas.line(30 * mm, 14 * mm, w - 20 * mm, 14 * mm)
-    canvas.setFont("Helvetica", 6.5)
-    canvas.setFillColor(B.AZUL_MEDIO)
-    canvas.drawString(
-        30 * mm, 10 * mm, f"{B.EMPRESA['nome']} | CNPJ: {B.EMPRESA['cnpj']} | {B.EMPRESA['fone']} | {B.EMPRESA['site']}"
-    )
-    canvas.drawRightString(w - 20 * mm, 10 * mm, f"Página {doc.page}")
-    canvas.restoreState()
-
-
 class ContractService:
     """Serviço de Contratos de Trabalho — visão DP."""
 
@@ -292,20 +253,17 @@ async def gerar_pdf_contrato(db: AsyncSession, contract_id: str) -> bytes:
     """
     from datetime import datetime
 
-    from reportlab.lib import colors
-    from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
+    from reportlab.lib.enums import TA_CENTER
     from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-    from reportlab.lib.units import cm
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.units import mm
     from reportlab.platypus import (
-        HRFlowable,
         Paragraph,
         SimpleDocTemplate,
-        Spacer,
-        Table,
-        TableStyle,
     )
     from sqlalchemy import text
+
+    from modules.crm.services import pdf_branding as B
 
     # ── 1. Buscar contrato + funcionário ──────────────────────────────────────
     r = await db.execute(
@@ -381,7 +339,7 @@ async def gerar_pdf_contrato(db: AsyncSession, contract_id: str) -> bytes:
     type_label = type_labels.get(ct["type"], ct["type"].upper())
 
     sal = float(ct.get("base_salary") or 0)
-    sal_fmt = f"R$ {sal:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    sal_fmt = B.brl(sal)
     hoje = datetime.now()
     meses_pt = [
         "",
@@ -412,80 +370,45 @@ async def gerar_pdf_contrato(db: AsyncSession, contract_id: str) -> bytes:
     unhealthy = float(ct.get("unhealthy_pay_percent") or 0)
     night = float(ct.get("night_shift_percent") or 0)
 
-    # ── 4. Construir PDF com reportlab ────────────────────────────────────────
-    AZUL = colors.HexColor("#1E3A5F")
-    CINZA = colors.HexColor("#555555")
+    # ── 4. Construir PDF com reportlab (padrão-ouro Conecta Mais) ─────────────
+    st = B.styles()
+    s_corpo = st["corpo"]
+    s_subtitulo = ParagraphStyle(
+        "Subtitulo",
+        parent=st["corpo"],
+        fontSize=10,
+        leading=14,
+        alignment=TA_CENTER,
+        textColor=B.AZUL_MEDIO,
+        spaceAfter=8,
+    )
+    empregada_cpf = ct.get("employee_cpf", "N/I")
+    if empregada_cpf == "N/I":
+        empregada_cpf = None
 
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        leftMargin=3 * cm,
-        rightMargin=2 * cm,
-        topMargin=3.2 * cm,
-        bottomMargin=2.2 * cm,
+        leftMargin=16 * mm,
+        rightMargin=16 * mm,
+        topMargin=40 * mm,
+        bottomMargin=16 * mm,
         title=f"Contrato de Trabalho — {employee_name}",
-        author="Conecta Mais Segurança e Tecnologia Ltda",
-    )
-
-    styles = getSampleStyleSheet()
-    s_titulo = ParagraphStyle(
-        "Titulo",
-        parent=styles["Heading1"],
-        fontSize=14,
-        alignment=TA_CENTER,
-        spaceAfter=4,
-        textColor=AZUL,
-        fontName="Helvetica-Bold",
-    )
-    s_subtitulo = ParagraphStyle(
-        "Subtitulo",
-        parent=styles["Normal"],
-        fontSize=10,
-        alignment=TA_CENTER,
-        spaceAfter=14,
-        textColor=CINZA,
-    )
-    s_secao = ParagraphStyle(
-        "Secao",
-        parent=styles["Normal"],
-        fontSize=11,
-        spaceBefore=10,
-        spaceAfter=4,
-        textColor=AZUL,
-        fontName="Helvetica-Bold",
-    )
-    s_corpo = ParagraphStyle(
-        "Corpo",
-        parent=styles["Normal"],
-        fontSize=11,
-        alignment=TA_JUSTIFY,
-        leading=18,
-        spaceAfter=8,
-    )
-    s_assina = ParagraphStyle(
-        "Assina",
-        parent=styles["Normal"],
-        fontSize=10,
-        alignment=TA_CENTER,
-        leading=16,
+        author=B.EMPRESA["nome"],
     )
 
     story: list = []
 
-    # Cabeçalho
-    story.append(Spacer(1, 0.3 * cm))
-    story.append(Paragraph("CONTRATO INDIVIDUAL DE TRABALHO", s_titulo))
+    # Subtítulo com o tipo de contrato
     story.append(Paragraph(type_label, s_subtitulo))
-    story.append(HRFlowable(width="100%", thickness=1.5, color=AZUL))
-    story.append(Spacer(1, 0.4 * cm))
 
     # Partes
-    story.append(Paragraph("DAS PARTES", s_secao))
+    story += B.secao("DAS PARTES", st)
     story.append(
         Paragraph(
-            "<b>EMPREGADORA:</b> Conecta Mais Segurança e Tecnologia Ltda, "
-            "CNPJ 35.710.481/0001-03, com sede em Manaus/AM, "
+            f"<b>EMPREGADORA:</b> {B.EMPRESA['razao']}, "
+            f"CNPJ {B.EMPRESA['cnpj']}, com sede em {B.EMPRESA['endereco']}, "
             "doravante denominada simplesmente <b>EMPREGADORA</b>;",
             s_corpo,
         )
@@ -538,7 +461,7 @@ async def gerar_pdf_contrato(db: AsyncSession, contract_id: str) -> bytes:
         ),
     ]
 
-    story.append(Paragraph("DAS CLÁUSULAS", s_secao))
+    story += B.secao("DAS CLÁUSULAS", st)
     for titulo, texto in clausulas_padrao:
         story.append(Paragraph(f"<b>CLÁUSULA {titulo}</b>", s_corpo))
         story.append(Paragraph(texto, s_corpo))
@@ -551,36 +474,20 @@ async def gerar_pdf_contrato(db: AsyncSession, contract_id: str) -> bytes:
             story.append(Paragraph(f"<b>CLÁUSULA {titulo_cl}</b>", s_corpo))
             story.append(Paragraph(texto_cl, s_corpo))
 
-    # Assinaturas
-    story.append(Spacer(1, 0.8 * cm))
-    story.append(HRFlowable(width="100%", thickness=0.5, color=CINZA))
-    story.append(Spacer(1, 0.3 * cm))
-    story.append(Paragraph(f"Manaus/AM, {data_extenso}", s_assina))
-    story.append(Spacer(1, 1.2 * cm))
-
-    sign_data = [
-        [
-            Paragraph(
-                "______________________________<br/><b>Conecta Mais Segurança e Tecnologia Ltda</b><br/>EMPREGADORA",
-                s_assina,
-            ),
-            Paragraph(
-                f"______________________________<br/><b>{employee_name}</b><br/>EMPREGADO(A)",
-                s_assina,
-            ),
-        ]
-    ]
-    sign_table = Table(sign_data, colWidths=[8 * cm, 8 * cm])
-    sign_table.setStyle(
-        TableStyle(
-            [
-                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("TOPPADDING", (0, 0), (-1, -1), 0),
-            ]
-        )
+    # Assinaturas (padrão-ouro: funcionário assina digital pelo Portal; empresa = CEO Jordan)
+    story += B.campos_assinatura(
+        st,
+        funcionario_nome=employee_name,
+        funcionario_cpf=empregada_cpf,
+        data_str=data_extenso,
+        digital_funcionario=True,
+        digital_empresa=True,
+        espaco_antes=14,
     )
-    story.append(sign_table)
 
-    doc.build(story, onFirstPage=_contrato_brand_page, onLaterPages=_contrato_brand_page)
+    doc.build(
+        story,
+        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo="CONTRATO DE TRABALHO"),
+        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo="CONTRATO DE TRABALHO"),
+    )
     return buffer.getvalue()

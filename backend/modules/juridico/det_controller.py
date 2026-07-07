@@ -65,6 +65,36 @@ async def listar(
     return {"comunicacoes": await DET.listar_comunicacoes(db, limit=limit)}
 
 
+@router.get("/comunicacoes/{comunicacao_id}")
+async def obter(
+    comunicacao_id: int,
+    current_user=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Uma comunicação completa (inteiro-teor) para ler/abrir na tela."""
+    c = await DET.obter_comunicacao(db, comunicacao_id)
+    if not c:
+        raise HTTPException(status_code=404, detail="Comunicação não encontrada")
+    return c
+
+
+@router.get("/comunicacoes/{comunicacao_id}/pdf")
+async def baixar_pdf(
+    comunicacao_id: int,
+    current_user=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Baixa a comunicação do DET em PDF (padrão-ouro, reprodução fiel do inteiro-teor)."""
+    from fastapi.responses import Response
+    c = await DET.obter_comunicacao(db, comunicacao_id)
+    if not c:
+        raise HTTPException(status_code=404, detail="Comunicação não encontrada")
+    pdf = DET.gerar_pdf_comunicacao(c)
+    nome = f"DET_comunicacao_{comunicacao_id}.pdf"
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="{nome}"'})
+
+
 import os as _os2  # noqa: E402
 
 from fastapi import Header  # noqa: E402

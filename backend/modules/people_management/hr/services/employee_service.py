@@ -133,12 +133,19 @@ class EmployeeService:
         current_contract = contract_result.scalar_one_or_none()
 
         def _to_dict(obj):
-            """Converte SQLAlchemy model para dict serializável."""
+            """Converte SQLAlchemy model para dict serializável.
+
+            Itera pelos atributos mapeados (Python attribute names) e não pelos
+            nomes de coluna do banco. Em modelos onde o nome do atributo difere
+            do nome da coluna (ex.: curso_formacao mapeado para a coluna
+            'curso_vigilante'), usar ``column.key`` causaria AttributeError.
+            """
             if obj is None:
                 return None
             from sqlalchemy import inspect as sa_inspect
 
-            return {c.key: getattr(obj, c.key) for c in sa_inspect(type(obj)).columns}
+            mapper = sa_inspect(type(obj))
+            return {attr.key: getattr(obj, attr.key) for attr in mapper.column_attrs}
 
         return {
             "employee": _to_dict(employee),

@@ -43,11 +43,13 @@ class MyScheduleResponse(BaseModel):
     year: int = 0
     shifts: list[MyShiftResponse] = []
     total_hours: float = 0.0
-    escala_padrao: str = ""
-    turno_padrao: str = ""
-    carga_horaria_semanal: int = 0
-    jornada_trabalho: str = ""
-    cargo: str = ""
+    # Campos vindos do Employee podem ser NULL no banco -> aceitar None
+    # (getattr(default=...) nao protege quando a coluna existe mas e None).
+    escala_padrao: str | None = ""
+    turno_padrao: str | None = ""
+    carga_horaria_semanal: int | None = 0
+    jornada_trabalho: str | None = ""
+    cargo: str | None = ""
     posto_atual_nome: str | None = None
 
     model_config = ConfigDict(from_attributes=True, extra="allow")

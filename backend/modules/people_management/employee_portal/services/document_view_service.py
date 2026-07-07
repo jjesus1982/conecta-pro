@@ -15,6 +15,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 
 
+def _carga_from_escala(escala_padrao: str) -> int:
+    """Deriva a carga horaria semanal a partir do tipo de escala.
+
+    Usado como fallback coerente com o perfil (my_profile default 44) quando
+    employees.carga_horaria_semanal esta NULL. Pela CCT SINDECOMPRESTS/AM,
+    tanto 12x36 quanto 44h correspondem a 44h/semana. Retorna 44 como padrao
+    para escalas conhecidas; 0 se nao houver escala reconhecida (vazio-real).
+    """
+    e = (escala_padrao or "").strip().lower().replace(" ", "")
+    if not e:
+        return 0
+    # 12x36, 44h, e demais escalas da categoria => 44h/semana.
+    if "12x36" in e or "44" in e or "6x1" in e or "5x2" in e:
+        return 44
+    if "36" in e:  # ex.: '36h'
+        return 36
+    if "30" in e:  # meio periodo
+        return 30
+    return 44
+
+
 class DocumentViewService:
     """Servico para visualizacao de documentos do funcionario.
 
@@ -145,16 +166,21 @@ class DocumentViewService:
             employee = emp_result.scalar_one_or_none()
 
             if employee:
+                escala_padrao = getattr(employee, "escala_padrao", "") or ""
                 schedule["employee_name"] = getattr(employee, "nome", "")
-                schedule["escala_padrao"] = getattr(employee, "escala_padrao", "")
+                schedule["escala_padrao"] = escala_padrao
                 schedule["turno_padrao"] = getattr(employee, "turno_padrao", "")
-                schedule["carga_horaria_semanal"] = getattr(employee, "carga_horaria_semanal", 0)
                 schedule["jornada_trabalho"] = getattr(employee, "jornada_trabalho", "")
                 schedule["cargo"] = getattr(employee, "cargo", "")
                 schedule["posto_atual_nome"] = getattr(employee, "posto_atual_nome", "")
 
-                # Calcular horas estimadas do mes
-                carga = getattr(employee, "carga_horaria_semanal", 0) or 0
+                # Coerencia com o perfil (my_profile usa default 44):
+                # quando a coluna carga_horaria_semanal estiver NULL/0, derivar da
+                # escala_padrao (12x36 e 44h => 44h/semana pela CCT). Nao chumbar 0.
+                carga = getattr(employee, "carga_horaria_semanal", None) or 0
+                if not carga and escala_padrao:
+                    carga = _carga_from_escala(escala_padrao)
+                schedule["carga_horaria_semanal"] = carga
                 schedule["total_hours"] = float(carga * 4.33)
 
         except ImportError:
@@ -185,12 +211,17 @@ class DocumentViewService:
         try:
             from sqlalchemy import text as _sqltext
 
+            # [Veracidade] Só expõe documentos REAIS ao funcionário: exclui
+            # placeholders ('[PLACEHOLDER] ...') e registros sem arquivo
+            # (file_path NULL) — eram ~552 placeholders + ~1479 sem arquivo.
             result = await self.db.execute(
                 _sqltext(
                     "SELECT CAST(id AS TEXT) AS id, document_type, document_name, "
                     "is_signed, signed_at, file_path "
                     "FROM ged_kit_documents "
                     "WHERE CAST(employee_id AS TEXT) = :e "
+                    "AND file_path IS NOT NULL "
+                    "AND COALESCE(document_name, '') NOT LIKE '[PLACEHOLDER]%' "
                     "ORDER BY created_at DESC"
                 ),
                 {"e": str(employee_id)},

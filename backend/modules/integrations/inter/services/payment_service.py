@@ -132,8 +132,13 @@ class InterPaymentService:
         data_pagamento: date,
         prepared_by: str,
         observacoes: str = "",
+        categoria: str = "outro",
     ) -> dict[str, Any]:
-        """Cria registro com status='preparado'. Sem chamada Inter."""
+        """Cria registro com status='preparado'. Sem chamada Inter.
+
+        categoria: classifica a saída (pro_labore | transferencia | fornecedor | imposto |
+        diarista | aluguel | folha | reembolso | outro) — é o que torna a conciliação automática
+        e os números fidedignos (o Jordan categoriza cada saída ao pagar pelo Conecta PRO)."""
         valor_d = Decimal(str(valor))
 
         if payment_type not in TIPOS_VALIDOS:
@@ -174,10 +179,10 @@ class InterPaymentService:
             text("""
                 INSERT INTO inter_payments
                     (id, payment_type, destinatario, valor, data_pagamento,
-                     status, prepared_by, observacoes, created_at, updated_at)
+                     status, prepared_by, observacoes, categoria, created_at, updated_at)
                 VALUES
                     (:id, :pt, cast(:dest as jsonb), :valor, :dp,
-                     'preparado', :pb, :obs, NOW(), NOW())
+                     'preparado', :pb, :obs, :cat, NOW(), NOW())
             """),
             {
                 "id": payment_id,
@@ -187,6 +192,7 @@ class InterPaymentService:
                 "dp": data_pagamento,
                 "pb": prepared_by,
                 "obs": observacoes,
+                "cat": (categoria or "outro"),
             },
         )
         await self._audit(payment_id, prepared_by, None, "preparado", "preparado por usuário")
@@ -392,28 +398,135 @@ class InterPaymentService:
             await self.db.commit()
             raise PaymentError(f"Inter API falhou: {erro}") from exc
 
-        # Salvar resposta Inter
+        # VALIDAÇÃO DE SUCESSO REAL — o Inter só confirmou se retornou um identificador
+        # (endToEndId/codigoSolicitacao) E não sinalizou success=false. Um 401/erro do Inter
+        # devolve {"success": false, ...} SEM lançar exceção — nunca pode virar 'executado'.
+        sucesso = bool(inter_payment_id) and inter_response.get("success") is not False
+        if not sucesso:
+            detalhe = (
+                inter_response.get("detail")
+                or inter_response.get("error")
+                or "Inter não confirmou o pagamento (sem comprovante). Nada foi pago."
+            )
+            await self.db.execute(
+                text("""
+                    UPDATE inter_payments
+                    SET status = 'erro', inter_response = cast(:resp as jsonb), updated_at = NOW()
+                    WHERE id = :id
+                """),
+                {"resp": json.dumps(inter_response), "id": payment_id},
+            )
+            await self._audit(payment_id, user_id, "executado", "erro", f"Inter recusou/não confirmou: {detalhe}")
+            await self.db.commit()
+            logger.error("D7 executar: Inter NÃO confirmou payment_id=%s resp=%s", payment_id, inter_response)
+            raise PaymentError(f"Inter não confirmou o pagamento: {detalhe}")
+
+        # O Inter ACEITOU o pedido, mas pagamento por API entra numa fila e pode ficar
+        # AGUARDANDO_APROVACAO. Grava o status REAL (não assume 'executado'/concluído).
+        novo_status = _map_status_inter(inter_response.get("status"))
         await self.db.execute(
             text("""
                 UPDATE inter_payments
                 SET inter_payment_id = :ipid,
                     inter_response = cast(:resp as jsonb),
+                    status = :st,
                     updated_at = NOW()
                 WHERE id = :id
             """),
-            {"ipid": inter_payment_id, "resp": json.dumps(inter_response), "id": payment_id},
+            {"ipid": inter_payment_id, "resp": json.dumps(inter_response), "st": novo_status, "id": payment_id},
         )
         await self._audit(
-            payment_id, user_id, "aprovado", "executado", f"Inter chamado, inter_payment_id={inter_payment_id}"
+            payment_id, user_id, "executado", novo_status,
+            f"Inter aceitou (cod={inter_payment_id}); status Inter={inter_response.get('status')}",
         )
         await self.db.commit()
 
-        logger.info("D7 executar: payment_id=%s inter_payment_id=%s", payment_id, inter_payment_id)
+        logger.info("D7 executar: payment_id=%s cod=%s status_inter=%s -> %s",
+                    payment_id, inter_payment_id, inter_response.get("status"), novo_status)
         return {
             "id": payment_id,
-            "status": "executado",
+            "status": novo_status,
+            "aguardando_aprovacao": novo_status == "aguardando_aprovacao",
             "inter_payment_id": inter_payment_id,
+            "status_inter": inter_response.get("status"),
+            "mensagem": (
+                "Pagamento CRIADO no Inter, mas AGUARDANDO SUA APROVAÇÃO no app do Inter "
+                "(ou desative a exigência de aprovação de pagamentos por API nas configurações do Inter)."
+                if novo_status == "aguardando_aprovacao"
+                else "Pagamento aceito pelo Inter."
+            ),
             "inter_response": inter_response,
+        }
+
+    # ── monitorar status real no Inter ────────────────────────────────────────
+
+    async def atualizar_status_inter(self, payment_id: str) -> dict[str, Any]:
+        """MONITOR: consulta o status REAL do pagamento no Inter e atualiza nosso registro.
+        É como saber, em tempo real, se o Inter já concluiu, se está aguardando aprovação, ou
+        se rejeitou. Não move dinheiro (só leitura no Inter)."""
+        row = (
+            (
+                await self.db.execute(
+                    text("SELECT id, status, inter_payment_id FROM inter_payments WHERE id = :id"),
+                    {"id": payment_id},
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if not row:
+            raise PaymentError(f"payment_id não encontrado: {payment_id}")
+        cod = row["inter_payment_id"]
+        if not cod:
+            return {"id": payment_id, "status": row["status"], "status_inter": None,
+                    "mensagem": "Pagamento ainda não enviado ao Inter (sem código de solicitação)."}
+
+        import os as _os
+
+        from modules.integrations.banking.adapters.base import BankCredentials
+        from modules.integrations.banking.adapters.inter import InterAdapter
+
+        adapter = InterAdapter(
+            BankCredentials(
+                client_id=_os.getenv("INTER_CLIENT_ID", ""),
+                client_secret=_os.getenv("INTER_CLIENT_SECRET", ""),
+                certificate_path=_os.getenv("INTER_CERT_PATH"),
+                private_key_path=_os.getenv("INTER_KEY_PATH"),
+                environment=_os.getenv("INTER_ENVIRONMENT", "production"),
+            )
+        )
+        try:
+            consulta = await adapter.consultar_pix_pagamento(cod)
+        finally:
+            try:
+                await adapter.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+        if not consulta.get("success"):
+            return {"id": payment_id, "status": row["status"], "status_inter": None,
+                    "erro": consulta.get("detail") or consulta.get("error"),
+                    "mensagem": "Não foi possível consultar o status no Inter agora."}
+
+        status_inter = consulta.get("status", "")
+        novo = _map_status_inter(status_inter)
+        if novo != row["status"]:
+            await self.db.execute(
+                text("UPDATE inter_payments SET status = :st, updated_at = NOW() WHERE id = :id"),
+                {"st": novo, "id": payment_id},
+            )
+            await self._audit(payment_id, None, row["status"], novo, f"Status Inter={status_inter}")
+            await self.db.commit()
+
+        msg = {
+            "aguardando_aprovacao": "Aguardando SUA aprovação no app do Inter (o dinheiro ainda NÃO saiu).",
+            "confirmado": "Pagamento CONCLUÍDO — o dinheiro saiu da conta.",
+            "erro": "Pagamento REJEITADO/cancelado pelo Inter.",
+        }.get(novo, "Em processamento.")
+        return {
+            "id": payment_id, "status": novo, "status_inter": status_inter,
+            "historico": consulta.get("historico", []), "erros": consulta.get("erros", []),
+            "mensagem": msg,
         }
 
     # ── cancelar ──────────────────────────────────────────────────────────────
@@ -484,7 +597,8 @@ class InterPaymentService:
                 await self.db.execute(
                     text(f"""
                 SELECT id, payment_type, valor, data_pagamento, status,
-                       inter_payment_id, approved_at, executed_at, observacoes, created_at
+                       inter_payment_id, approved_at, executed_at, observacoes,
+                       COALESCE(categoria, 'outro') AS categoria, created_at
                 FROM inter_payments WHERE {" AND ".join(where)}
                 ORDER BY created_at DESC LIMIT :limit
             """),
@@ -528,10 +642,22 @@ class InterPaymentService:
 # ── helpers independentes ─────────────────────────────────────────────────────
 
 
+def _map_status_inter(status_inter: str | None) -> str:
+    """Mapeia o status do Inter para o status interno. Default seguro = aguardando_aprovacao
+    (NUNCA assume concluído sem o Inter confirmar REALIZADO/APROVADO)."""
+    s = (status_inter or "").upper()
+    if s in ("REALIZADO", "APROVADO", "EFETIVADO", "EFETUADO", "PROCESSADO", "CONCLUIDO", "PAGO", "TRANSACAO_APROVADA"):
+        return "confirmado"
+    if s in ("REJEITADO", "CANCELADO", "FALHA", "ERRO", "NAO_REALIZADO", "TRANSACAO_REJEITADA"):
+        return "erro"
+    # AGUARDANDO_APROVACAO, REQUER_APROVACAO, PENDENTE, EM_PROCESSAMENTO, AGENDADO, vazio…
+    return "aguardando_aprovacao"
+
+
 def _validar_destinatario(payment_type: str, dest: dict) -> None:
     required: dict[str, list[str]] = {
         "boleto": ["codigo_barras"],
-        "pix": ["chave", "tipo_chave"],
+        "pix": ["chave"],  # tipo_chave é opcional: o Inter auto-detecta (destinatario.tipo='CHAVE')
         "darf": ["periodo_apuracao", "codigo_receita"],
         "gps": ["competencia", "codigo_pagamento"],
         "ted_interno": ["agencia", "conta", "banco"],

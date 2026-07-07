@@ -127,14 +127,37 @@ class TerminationService:
             raise ValueError(f"Funcionário {employee_id} não encontrado")
 
         salario_base = Decimal(str(employee.salario_base or 0))
+
+        # Base das verbas rescisórias = salário-base + adicionais que integram a
+        # remuneração (CLT art. 457/459 e Súmulas TST): insalubridade,
+        # periculosidade e adicional de ronda. Mesma convenção do motor de folha
+        # (calculo_service): percentual aplicado sobre o salário-base/piso.
+        insal_pct = Decimal(str(getattr(employee, "insalubridade_percentual", 0) or 0)) / Decimal("100")
+        peric_pct = Decimal(str(getattr(employee, "periculosidade_percentual", 0) or 0)) / Decimal("100")
+        ronda_pct = Decimal(str(getattr(employee, "adicional_ronda_percentual", 0) or 0)) / Decimal("100")
+        adic_insalubridade = (salario_base * insal_pct).quantize(Decimal("0.01"))
+        adic_periculosidade = (salario_base * peric_pct).quantize(Decimal("0.01"))
+        adic_ronda = (salario_base * ronda_pct).quantize(Decimal("0.01"))
+        remuneracao_base = salario_base + adic_insalubridade + adic_periculosidade + adic_ronda
+
         data_admissao = employee.data_admissao
 
         if not data_admissao:
             data_admissao = last_working_day  # fallback
 
-        # Meses trabalhados
-        delta = last_working_day - data_admissao
-        months_worked = max(1, delta.days // 30)
+        # Meses trabalhados (meses de calendário com regra dos 15 dias, tanto no
+        # mês de admissão quanto no de demissão — não usar delta.days//30, que
+        # usa mês fictício de 30 dias e infla os avos).
+        meses_calendario = (last_working_day.year - data_admissao.year) * 12 + (
+            last_working_day.month - data_admissao.month
+        )
+        # Mês de admissão só conta se admitido até o dia 15.
+        if data_admissao.day > 15:
+            meses_calendario -= 1
+        # Mês de demissão conta se trabalhou >= 15 dias nele.
+        if last_working_day.day >= 15:
+            meses_calendario += 1
+        months_worked = max(1, min(meses_calendario, 12))
 
         # Mapear tipo de rescisão para clt_calculator
         type_map = {
@@ -145,18 +168,20 @@ class TerminationService:
         }
         tipo_str = type_map.get(termination_type, str(termination_type.value))
 
-        # Estimar saldo FGTS acumulado
-        saldo_fgts = salario_base * Decimal("0.08") * months_worked
+        # Estimar saldo FGTS acumulado (8% sobre a remuneração, base que inclui adicionais)
+        saldo_fgts = remuneracao_base * Decimal("0.08") * months_worked
 
         # Férias vencidas (simplificado: 30 dias se > 12 meses)
         ferias_vencidas_dias = 30 if months_worked > 12 else 0
 
-        # Dias trabalhados no mês da rescisão
-        dias_trabalhados_mes = last_working_day.day
+        # Dias trabalhados no mês da rescisão — teto de 30 para não exceder 100%
+        # do salário do mês (a base do saldo é salário/30; dia 31 daria 103%).
+        dias_trabalhados_mes = min(last_working_day.day, 30)
 
-        # Usar clt_calculator para cálculo completo
+        # Usar clt_calculator para cálculo completo. A base das verbas é a
+        # remuneração (salário + adicionais integrativos), não só o salário-base.
         calc = calcular_rescisao(
-            salario_base=salario_base,
+            salario_base=remuneracao_base,
             tipo_rescisao=tipo_str,
             data_admissao=data_admissao,
             data_demissao=last_working_day,
@@ -171,6 +196,11 @@ class TerminationService:
             "termination_type": termination_type,
             "last_working_day": last_working_day,
             "months_worked": months_worked,
+            "salario_base": float(salario_base),
+            "adicional_insalubridade": float(adic_insalubridade),
+            "adicional_periculosidade": float(adic_periculosidade),
+            "adicional_ronda": float(adic_ronda),
+            "remuneracao_base": float(remuneracao_base),
             "saldo_salario": float(calc["saldo_salario"]),
             "aviso_previo_indenizado": float(calc["aviso_previo_indenizado"]),
             "aviso_previo_dias": calc["aviso_previo_dias"],

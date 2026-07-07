@@ -262,15 +262,20 @@ class TaxCalculatorAgent:
         if receita_mes <= 0:
             return resultado
 
-        # Base de cálculo IRPJ/CSLL (presunção 32% para serviços)
-        lucro_presumido_mes = receita_mes * LUCRO_REAL["presuncao_servicos"]
+        # Base de cálculo IRPJ/CSLL. Lucro REAL de fato = receita − custos/despesas dedutíveis.
+        # Só cai na presunção de 32% (aproximação Presumido) quando não há custo informado.
+        if custos_dedutiveis_mes and custos_dedutiveis_mes > 0:
+            lucro_presumido_mes = max(Decimal("0"), receita_mes - custos_dedutiveis_mes)
+            lucro_trimestre = max(Decimal("0"), receita_trimestre - custos_dedutiveis_mes * 3)
+        else:
+            lucro_presumido_mes = receita_mes * LUCRO_REAL["presuncao_servicos"]
+            lucro_trimestre = receita_trimestre * LUCRO_REAL["presuncao_servicos"]
         resultado.lucro_bruto = lucro_presumido_mes
 
         # 1. IRPJ base = 15% sobre lucro
         irpj_base = (lucro_presumido_mes * LUCRO_REAL["irpj_base"]).quantize(Decimal("0.01"), ROUND_HALF_UP)
 
         # 2. IRPJ adicional (10% sobre excedente de R$ 60k/trimestre, proporcional ao mês)
-        lucro_trimestre = receita_trimestre * LUCRO_REAL["presuncao_servicos"]
         excedente = max(Decimal("0"), lucro_trimestre - LUCRO_REAL["irpj_limite_trimestral"])
         irpj_adicional_trim = (excedente * LUCRO_REAL["irpj_adicional"]).quantize(Decimal("0.01"), ROUND_HALF_UP)
         irpj_adicional_mes = (irpj_adicional_trim / 3).quantize(Decimal("0.01"), ROUND_HALF_UP)

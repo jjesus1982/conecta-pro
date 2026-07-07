@@ -115,16 +115,13 @@ async def download_payslip(
             detail="Contracheque não encontrado",
         )
 
-    if not payslip.pdf_path:
-        # Gerar PDF se não existir
-        pdf_path = await service.generate_pdf(payslip_id)
-        if not pdf_path:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Erro ao gerar PDF",
-            )
-    else:
-        pdf_path = payslip.pdf_path
+    # Sempre (re)gera no padrão-ouro atual — evita servir PDF antigo em cache.
+    pdf_path = await service.generate_pdf(payslip_id)
+    if not pdf_path:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erro ao gerar PDF",
+        )
 
     return FileResponse(
         path=pdf_path,

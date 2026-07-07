@@ -17,9 +17,7 @@ from __future__ import annotations
 import io
 
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_RIGHT
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import (
     Image,
@@ -43,15 +41,8 @@ FUNDO_CLARO = B.FUNDO_CLARO
 FONTE = B.FONTE
 FONTE_B = B.FONTE_B
 
-EMPRESA = {
-    "nome": "CONECTA MAIS - SEGURANÇA E TECNOLOGIA",
-    "cnpj": "35.710.481/0001-03",
-    "fone": "0800 880 4414",
-    "site": "www.conectamaistech.com.br",
-    "ceo": "Jordan Santos de Jesus",
-    "ceo_cargo": "Diretor Executivo (CEO)",
-    "ceo_contato": "jjesus@conectamais.pro | (92) 98646-5328",
-}
+# Marca (nome, CNPJ, CEO, contatos) vem TODA de B.EMPRESA — sem strings hardcoded antigas.
+EMPRESA = B.EMPRESA
 _MESES = B.MESES
 
 
@@ -77,73 +68,22 @@ def _mes_ano(d) -> str:
 
 # ---------------------------------------------------------------- header/footer
 def _header_footer(canvas, doc):
-    """Header + footer oficiais Conecta Mais nas páginas internas (delega à marca)."""
-    B.header_footer(canvas, doc, seal_watermark=False)
+    """Header + footer oficiais Conecta Mais nas páginas internas (delega à marca).
+    A proposta tem CAPA comercial própria na pág. 1 → pular_primeira=True."""
+    B.header_footer(canvas, doc, seal_watermark=False, pular_primeira=True)
 
 
 # ---------------------------------------------------------------- estilos
 def _styles():
-    ss = getSampleStyleSheet()
-    return {
-        "capa_titulo": ParagraphStyle(
-            "ct",
-            parent=ss["Normal"],
-            fontName=FONTE_B,
-            fontSize=34,
-            leading=40,
-            textColor=AZUL_ESCURO,
-            alignment=TA_CENTER,
-        ),
-        "capa_sub": ParagraphStyle(
-            "cs",
-            parent=ss["Normal"],
-            fontName=FONTE,
-            fontSize=15,
-            leading=20,
-            textColor=AZUL_MEDIO,
-            alignment=TA_CENTER,
-        ),
-        "capa_resumo": ParagraphStyle(
-            "cr", parent=ss["Normal"], fontName=FONTE_B, fontSize=11, leading=15, textColor=LARANJA, alignment=TA_CENTER
-        ),
-        "capa_meta": ParagraphStyle(
-            "cm", parent=ss["Normal"], fontName=FONTE, fontSize=10, leading=14, textColor=TEXTO, alignment=TA_CENTER
-        ),
-        "h_sec": ParagraphStyle(
-            "hs", parent=ss["Normal"], fontName=FONTE_B, fontSize=15, leading=19, textColor=AZUL_ESCURO, spaceAfter=4
-        ),
-        "corpo": ParagraphStyle(
-            "co",
-            parent=ss["Normal"],
-            fontName=FONTE,
-            fontSize=10,
-            leading=15,
-            textColor=TEXTO,
-            alignment=TA_JUSTIFY,
-            spaceAfter=6,
-        ),
-        "cell": ParagraphStyle("ce", parent=ss["Normal"], fontName=FONTE, fontSize=8.5, leading=11, textColor=TEXTO),
-        "cellr": ParagraphStyle(
-            "cer", parent=ss["Normal"], fontName=FONTE, fontSize=8.5, leading=11, textColor=TEXTO, alignment=TA_RIGHT
-        ),
-        "cellh": ParagraphStyle(
-            "ch", parent=ss["Normal"], fontName=FONTE_B, fontSize=8.5, leading=11, textColor=colors.white
-        ),
-        "assina": ParagraphStyle(
-            "as", parent=ss["Normal"], fontName=FONTE_B, fontSize=10, leading=14, textColor=AZUL_ESCURO
-        ),
-        "small": ParagraphStyle(
-            "sm", parent=ss["Normal"], fontName=FONTE, fontSize=8.5, leading=12, textColor=AZUL_MEDIO
-        ),
-    }
+    """Estilos oficiais da marca (B.styles) + o extra 'capa_resumo' (destaque laranja centralizado)
+    usado só na capa da proposta. Sem duplicar a paleta — tudo delega ao módulo de marca."""
+    st = B.styles()
+    st["capa_resumo"] = st["destaque"]
+    return st
 
 
 def _secao(titulo: str, st) -> list:
-    return [
-        Paragraph(titulo, st["h_sec"]),
-        Table([[""]], colWidths=[178 * mm], style=TableStyle([("LINEBELOW", (0, 0), (-1, -1), 1.5, LARANJA)])),
-        Spacer(1, 4 * mm),
-    ]
+    return B.secao(titulo, st)
 
 
 # ---------------------------------------------------------------- documento
@@ -154,8 +94,8 @@ def build_proposal_pdf(p) -> bytes:
         pagesize=A4,
         leftMargin=16 * mm,
         rightMargin=16 * mm,
-        topMargin=30 * mm,
-        bottomMargin=20 * mm,
+        topMargin=40 * mm,
+        bottomMargin=16 * mm,
         title=f"Proposta {getattr(p, 'number', '')}",
     )
     st = _styles()
@@ -225,7 +165,7 @@ def build_proposal_pdf(p) -> bytes:
     el.append(Paragraph("Prezados Senhores,", st["corpo"]))
     el.append(
         Paragraph(
-            "É com grande satisfação que a <b>Conecta Mais — Segurança e Tecnologia</b> apresenta esta "
+            f"É com grande satisfação que a <b>{EMPRESA['nome']}</b> apresenta esta "
             "proposta comercial. Somos uma empresa especializada em segurança patrimonial, com soluções "
             "humanizadas e tecnológicas (vigilância, portaria remota e presencial, controle de acesso, "
             "CFTV e monitoramento 24 horas), comprometida com a proteção do seu patrimônio e a "
@@ -253,7 +193,7 @@ def build_proposal_pdf(p) -> bytes:
     el.append(Spacer(1, 6 * mm))
     el.append(Paragraph(EMPRESA["ceo"], st["assina"]))
     el.append(Paragraph(EMPRESA["ceo_cargo"], st["small"]))
-    el.append(Paragraph(EMPRESA["ceo_contato"], st["small"]))
+    el.append(Paragraph(f"{EMPRESA['email']}  |  {EMPRESA['fone']}", st["small"]))
     el.append(PageBreak())
 
     # ---------------- 3) ESCOPO + INVESTIMENTO ----------------
@@ -374,6 +314,31 @@ def build_proposal_pdf(p) -> bytes:
         "Soluções integradas: segurança humana + eletrônica (CFTV, controle de acesso, alarme).",
     ):
         el.append(Paragraph(f"•  {dif}", st["corpo"]))
+
+    # ---------------- Aceite (assinaturas) ----------------
+    # O CLIENTE aceita/assina (manual ou pelo motor de assinatura do Conecta PRO) e a EMPRESA
+    # assina digitalmente (CEO). Âncoras ASSINAR::FUNCIONARIO / ASSINAR::EMPRESA preservadas.
+    el.append(Spacer(1, 6 * mm))
+    el += _secao("Aceite da Proposta", st)
+    el.append(
+        Paragraph(
+            "Manifestando concordância com os termos, valores e condições acima, as partes firmam o presente "
+            "aceite, que servirá de base para a formalização do respectivo contrato de prestação de serviços.",
+            st["corpo"],
+        )
+    )
+    cliente_ident = f"CNPJ/CPF {doc_cli}" if doc_cli else None
+    el += B.campos_assinatura(
+        st,
+        funcionario_nome=cliente,
+        funcionario_cpf=cliente_ident,
+        funcionario_label="Assinatura do Cliente",
+        funcionario_doc_rotulo="CNPJ/CPF",
+        digital_funcionario=False,
+        digital_empresa=True,
+        data_str=B.br_date(emitido),
+        espaco_antes=6,
+    )
 
     doc.build(el, onFirstPage=_header_footer, onLaterPages=_header_footer)
     return buf.getvalue()

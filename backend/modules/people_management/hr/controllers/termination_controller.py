@@ -84,7 +84,18 @@ async def list_terminations(
                     "total_amount": float(t.total_amount) if t.total_amount else None,
                     "exit_interview_done": t.exit_interview_done,
                     "exit_interview_notes": t.exit_interview_notes,
-                    "esocial_event_sent": t.esocial_event_sent,
+                    # [Achado 4] eSocial HONESTO: o módulo DP apenas GERA o XML (endpoint
+                    # /esocial/s2299/gerar retorna XML p/ download); NÃO há transmissão ao
+                    # webservice do eSocial aqui, logo não existe recibo/protocolo. Expomos
+                    # os dois estados separados em vez de fingir "evento transmitido".
+                    # - esocial_xml_gerado: XML/documento eSocial foi gerado (fato local)
+                    # - esocial_transmitido: só True com nº de recibo real (hoje: nunca, externo)
+                    "esocial_xml_gerado": bool(t.esocial_event_sent),
+                    "esocial_transmitido": False,
+                    "esocial_protocolo": None,
+                    # Compat: mantém a chave antiga, mas seu SIGNIFICADO agora é "XML gerado"
+                    # (não "transmitido"). Frontend rotula honestamente.
+                    "esocial_event_sent": bool(t.esocial_event_sent),
                     "documents_generated": t.documents_generated or {},
                     "created_by_id": str(t.created_by_id) if t.created_by_id else None,
                     "created_at": t.created_at.isoformat() if t.created_at else None,

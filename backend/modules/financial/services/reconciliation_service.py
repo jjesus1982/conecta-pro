@@ -68,13 +68,13 @@ def _get_or_create_reconciliation_session(mes: int, ano: int, cur) -> str:
     cur.execute(
         """
         INSERT INTO bank_reconciliations (
-            bank_account_id, period_type, period_start, period_end,
+            id, bank_account_id, period_type, period_start, period_end,
             opening_balance, status, total_credits, total_debits,
             total_adjustments, total_system_items, total_statement_items,
             items_reconciled, items_pending, progress_percentage,
             ativo, description, reference, match_type, created_at
         ) VALUES (
-            %s, 'mensal', %s, %s,
+            gen_random_uuid(), %s, 'mensal', %s, %s,
             0, 'em_andamento', 0, 0,
             0, 0, 0, 0, 0, 0,
             TRUE, %s, %s, 'cascata_3_estrategias', NOW()

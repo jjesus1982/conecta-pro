@@ -32,8 +32,8 @@ logger = logging.getLogger(__name__)
 # Endpoints eSocial
 ESOCIAL_ENDPOINTS = {
     "producao": {
-        "envio_lote": "https://webservices.producaorestrita.esocial.gov.br/servicos/empregador/enviarloteeventos/WsEnviarLoteEventos.svc",
-        "consulta_lote": "https://webservices.producaorestrita.esocial.gov.br/servicos/empregador/consultarloteeventos/WsConsultarLoteEventos.svc",
+        "envio_lote": "https://webservices.esocial.gov.br/servicos/empregador/enviarloteeventos/WsEnviarLoteEventos.svc",
+        "consulta_lote": "https://webservices.esocial.gov.br/servicos/empregador/consultarloteeventos/WsConsultarLoteEventos.svc",
     },
     "producao_restrita": {
         "envio_lote": "https://webservices.producaorestrita.esocial.gov.br/servicos/empregador/enviarloteeventos/WsEnviarLoteEventos.svc",

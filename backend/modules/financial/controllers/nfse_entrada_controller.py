@@ -37,29 +37,38 @@ async def listar_nfse_entrada(
     db: AsyncSession = Depends(get_session),
     _user: dict = Depends(get_current_user),
 ) -> dict:
-    """Lista NFS-e recebidas de fornecedores (Lucro Real)."""
-    conds = ["EXTRACT(YEAR FROM competencia) = :ano"]
-    params: dict = {"ano": ano}
+    """Lista NFS-e recebidas de fornecedores (Lucro Real).
+
+    FONTE REAL: nfse_tomadas_nacional (portal nacional gov.br, 182 notas em 2026).
+    competencia é VARCHAR 'YYYY-MM' (não é date) => filtro de ano via LIKE :ano||'%'.
+    Colunas: valor_servicos (plural!), iss_valor, prestador_cnpj/prestador_nome, descricao.
+    Não existe 'categoria' nem 'valor_liquido' na fonte nacional.
+    """
+    conds = ["competencia LIKE :ano_like"]
+    params: dict = {"ano": ano, "ano_like": f"{ano}%"}
 
     if competencia:
-        conds.append("to_char(competencia,'YYYY-MM') = :comp")
+        conds.append("competencia = :comp")
         params["comp"] = competencia
     if fornecedor_cnpj:
         conds.append("prestador_cnpj = :cnpj")
         params["cnpj"] = re.sub(r"\D", "", fornecedor_cnpj)
-    if categoria:
-        conds.append("categoria = :cat")
-        params["cat"] = categoria
+    # NOTA: nfse_tomadas_nacional não tem coluna 'categoria'; o filtro é ignorado
+    # (mantido na assinatura por compatibilidade de API).
 
     where = " AND ".join(conds)
     rows = (
         await db.execute(
-            text(f"SELECT * FROM nfse_entrada WHERE {where} ORDER BY data_emissao DESC"),
+            text(
+                f"SELECT chave_acesso, numero, competencia, data_emissao, "
+                f"prestador_cnpj, prestador_nome, valor_servicos, iss_valor, descricao "
+                f"FROM nfse_tomadas_nacional WHERE {where} ORDER BY data_emissao DESC"
+            ),
             params,
         )
     ).fetchall()
 
-    total_valor = sum(float(r.valor_servico or 0) for r in rows)
+    total_valor = sum(float(r.valor_servicos or 0) for r in rows)
     return {
         "total": len(rows),
         "total_valor_bruto": round(total_valor, 2),
@@ -118,20 +127,28 @@ async def resumo_fiscal(
     db: AsyncSession = Depends(get_session),
     _user: dict = Depends(get_current_user),
 ) -> dict:
-    """Resumo por fornecedor para Receita Federal."""
-    filtro = "AND EXTRACT(MONTH FROM competencia)=:mes" if mes else ""
-    p: dict = {"ano": ano}
+    """Resumo por fornecedor para Receita Federal.
+
+    FONTE REAL: nfse_tomadas_nacional. competencia é VARCHAR 'YYYY-MM'.
+    Filtro de ano via LIKE :ano||'%'; filtro de mês compara a competencia exata 'YYYY-MM'.
+    A fonte nacional não tem 'categoria' (removida do GROUP BY) nem 'valor_liquido'
+    (líquido = valor_servicos - iss_valor retido). valor bruto = valor_servicos.
+    """
+    p: dict = {"ano_like": f"{ano}%"}
     if mes:
-        p["mes"] = mes
+        filtro = "AND competencia = :comp"
+        p["comp"] = f"{ano}-{int(mes):02d}"
+    else:
+        filtro = ""
     rows = (
         await db.execute(
             text(
-                f"SELECT prestador_cnpj, prestador_nome, categoria, "
-                f"COUNT(*) as qtd, SUM(valor_servico) as total_bruto, "
-                f"SUM(valor_liquido) as total_liquido "
-                f"FROM nfse_entrada "
-                f"WHERE EXTRACT(YEAR FROM competencia)=:ano {filtro} "
-                f"GROUP BY prestador_cnpj, prestador_nome, categoria "
+                f"SELECT prestador_cnpj, prestador_nome, "
+                f"COUNT(*) as qtd, SUM(valor_servicos) as total_bruto, "
+                f"SUM(valor_servicos - COALESCE(iss_valor, 0)) as total_liquido "
+                f"FROM nfse_tomadas_nacional "
+                f"WHERE competencia LIKE :ano_like {filtro} "
+                f"GROUP BY prestador_cnpj, prestador_nome "
                 f"ORDER BY total_bruto DESC"
             ),
             p,
@@ -323,23 +340,29 @@ async def fiscal_stats_real(
     db: AsyncSession = Depends(get_session),
     _user: dict = Depends(get_current_user),
 ) -> dict:
-    """Stats fiscais baseadas em NFS-e reais (nao NF-e)."""
+    """Stats fiscais baseadas em NFS-e reais emitidas (fonte autoritativa).
+
+    FONTE: nfse_emitidas_nacional (portal nacional ADN, só cStat 100 — mesma fonte
+    do DRE/relatorios). A tabela legada `nfses` cobria só jan-fev/2026 (27 notas) e
+    subreportava a receita de serviço em ~62%.
+    """
     nfse = (
         await db.execute(
             text(
                 "SELECT COUNT(*) as total, "
                 "COALESCE(SUM(valor_servicos),0) as receita, "
                 "COALESCE(SUM(iss_valor),0) as iss "
-                "FROM nfses"
+                "FROM nfse_emitidas_nacional"
             )
         )
     ).fetchone()
+    # competencia é VARCHAR 'YYYY-MM' na fonte nacional — usar direto (padrão do DRE)
     por_mes = (
         await db.execute(
             text(
-                "SELECT to_char(data_emissao,'YYYY-MM') as mes, "
+                "SELECT competencia as mes, "
                 "COUNT(*) as qtd, SUM(valor_servicos) as valor "
-                "FROM nfses GROUP BY 1 ORDER BY 1"
+                "FROM nfse_emitidas_nacional GROUP BY competencia ORDER BY competencia"
             )
         )
     ).fetchall()
@@ -375,9 +398,21 @@ async def custos_resumo(
         )
     ).fetchone()
 
-    folha = 95950.20
-    fgts = 7676.02
-    inss = 19190.04
+    # FOLHA REAL (hr_payslips) da competência — sem número fixo. Onde não há folha lançada, 0 (honesto).
+    fol = (
+        await db.execute(
+            text(
+                "SELECT COALESCE(SUM(total_earnings),0), COALESCE(SUM(fgts_value),0), "
+                "COALESCE(SUM(inss_value),0), COUNT(*) "
+                "FROM hr_payslips WHERE reference_year=:ano AND reference_month=:mes"
+            ),
+            {"mes": mes, "ano": ano},
+        )
+    ).fetchone()
+    folha = float(fol[0] or 0)
+    fgts = float(fol[1] or 0)
+    inss = float(fol[2] or 0)
+    n_holerites = int(fol[3] or 0)
     cpv = folha + fgts + inss
     desp_nota = float(desp.total) if desp else 0
 
@@ -386,6 +421,9 @@ async def custos_resumo(
         "cpv": {"folha": folha, "fgts": fgts, "inss": inss, "total": round(cpv, 2)},
         "despesas_operacionais": {"com_nota": round(desp_nota, 2), "qtd_notas": int(desp.qtd) if desp else 0},
         "total_custos": round(cpv + desp_nota, 2),
+        "fonte_folha": "hr_payslips (real)",
+        "holerites_no_mes": n_holerites,
+        "aviso": None if n_holerites > 0 else "Sem folha lançada nesta competência (custo de folha = 0). Nada é estimado.",
     }
 
 

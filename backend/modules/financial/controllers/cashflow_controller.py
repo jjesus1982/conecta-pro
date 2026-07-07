@@ -299,26 +299,40 @@ async def get_dashboard(
         else:
             outflows_by_category[cat] = str(val)
 
-    # ── Contas a receber (pendente / vencido) — dados reais ─────────────────
-    rec_result = await session.execute(
-        text("""
-            SELECT
-                COALESCE(SUM(net_value) FILTER (
-                    WHERE status NOT IN ('pago','cancelado','cancelled','paga')), 0) AS pending,
-                COALESCE(SUM(net_value) FILTER (
-                    WHERE due_date < CURRENT_DATE
-                    AND status NOT IN ('pago','cancelado','cancelled','paga')), 0) AS overdue,
-                COUNT(*) FILTER (
-                    WHERE due_date < CURRENT_DATE
-                    AND status NOT IN ('pago','cancelado','cancelled','paga')) AS qtd_overdue,
-                COUNT(*) FILTER (
-                    WHERE status NOT IN ('pago','cancelado','cancelled','paga')) AS qtd_pending
-            FROM receivable_accounts
-            WHERE condominio_id = :cid
-        """),
-        {"cid": cid},
-    )
-    rec = rec_result.one()
+    # ── Contas a receber — FONTE ÚNICA canônica (NFS-e emitidas − recebido, aging FIFO) ─────
+    # Antes lia receivable_accounts (SEED fictício: "Parise Village" etc. no cid a1b2c3d4…),
+    # que divergia do relatório /financial/relatorios/contas-receber (base NFS-e). Agora ambas
+    # as telas consomem o MESMO cálculo do FluxoCaixaService, então o número reconcilia.
+    try:
+        from modules.financial.services.fluxo_caixa_service import FluxoCaixaService
+
+        _car = FluxoCaixaService().contas_a_receber(today.year)
+        _total_ar = _car.get("total_a_receber", 0.0) or 0.0
+        # A Receber por competência já é "em aberto" (faturado − recebido, floor 0). Vencido =
+        # competências fechadas (mês anterior ao atual) ainda com saldo em aberto.
+        _mes_atual = today.strftime("%Y-%m")
+        _overdue_ar = sum(
+            (m.get("a_receber", 0.0) or 0.0)
+            for m in _car.get("meses", [])
+            if m.get("competencia", "") < _mes_atual and (m.get("a_receber", 0.0) or 0.0) > 0
+        )
+        _qtd_pending = sum(1 for m in _car.get("meses", []) if (m.get("a_receber", 0.0) or 0.0) > 0)
+        _qtd_overdue = sum(
+            1 for m in _car.get("meses", [])
+            if m.get("competencia", "") < _mes_atual and (m.get("a_receber", 0.0) or 0.0) > 0
+        )
+    except Exception as _e:  # noqa: BLE001
+        logger.warning("A Receber canônico (NFS-e) indisponível, caindo p/ 0: %s", _e)
+        _total_ar = _overdue_ar = 0.0
+        _qtd_pending = _qtd_overdue = 0
+
+    class _Rec:
+        pending = _total_ar
+        overdue = _overdue_ar
+        qtd_pending = _qtd_pending
+        qtd_overdue = _qtd_overdue
+
+    rec = _Rec()
 
     # ── Contas a pagar (pendente / vencido) — dados reais ───────────────────
     pay_result = await session.execute(
@@ -413,8 +427,34 @@ async def create_entry(
 ) -> CashFlowEntryResponse:
     """Cria nova entrada de fluxo de caixa."""
     try:
-        entry = await repo.create(data.model_dump())
-        logger.info(f"Entrada de fluxo criada: {entry.id} por {current_user.get('email')}")
+        payload = data.model_dump()
+        # Normaliza entry_type para os labels do ENUM nativo do Postgres
+        # (cashflowentrytype = entrada/saida). O frontend/schema pode enviar
+        # income/expense (ou entrada/saida). Sem isso o INSERT falha (enum mismatch).
+        _ENTRY_TYPE_MAP = {
+            "income": "entrada",
+            "inflow": "entrada",
+            "credit": "entrada",
+            "entrada": "entrada",
+            "expense": "saida",
+            "outflow": "saida",
+            "debit": "saida",
+            "saida": "saida",
+            "transferencia": "transferencia",
+            "transfer": "transferencia",
+            "previsao": "previsao",
+            "ajuste": "ajuste",
+        }
+        raw_type = str(payload.get("entry_type", "")).lower().strip()
+        payload["entry_type"] = _ENTRY_TYPE_MAP.get(raw_type, raw_type)
+
+        entry = await repo.create(payload)
+        _user_email = (
+            current_user.get("email")
+            if isinstance(current_user, dict)
+            else getattr(current_user, "email", None)
+        )
+        logger.info(f"Entrada de fluxo criada: {entry.id} por {_user_email}")
         return CashFlowEntryResponse.model_validate(entry)
     except Exception as e:
         logger.error(f"Erro ao criar entrada: {e}")
