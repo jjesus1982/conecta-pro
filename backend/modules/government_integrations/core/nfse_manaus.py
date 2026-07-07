@@ -582,9 +582,12 @@ class NFSeManausManager:
             # Parseia resposta
             if response.status_code == 200:
                 if "Outputxml" in response.text:
-                    match = re.search(r"<Outputxml>(.*?)</Outputxml>", response.text, re.DOTALL)
+                    # O provedor retorna <Outputxml xmlns="...">...</Outputxml> (com atributo) —
+                    # a regex precisa aceitar atributos, senão a extração falha silenciosamente.
+                    import html as _html
+                    match = re.search(r"<Outputxml[^>]*>(.*?)</Outputxml>", response.text, re.DOTALL)
                     if match:
-                        resultado["outputxml"] = match.group(1)
+                        resultado["outputxml"] = _html.unescape(match.group(1))
                         resultado["sucesso"] = True
                 elif "Fault" in response.text:
                     match = re.search(r"<faultstring>(.*?)</faultstring>", response.text, re.DOTALL)
@@ -597,6 +600,21 @@ class NFSeManausManager:
         except requests.RequestException as e:
             logger.error(f"Erro na requisição {operacao}: {e}")
             return {"sucesso": False, "erro": str(e), "operacao": operacao}
+
+    def consultar_nfse_por_numero(self, numero: int, timeout: int = 40) -> dict[str, Any]:
+        """Consulta UMA NFS-e emitida pelo número, via operação ConsultarNfse (a única que a
+        prefeitura de Manaus expõe — o ConsultarNfseServicoPrestado/listagem em massa dá 404).
+        IMPORTANTE: Manaus usa o Prestador no formato ABRASF 1.x (<Cnpj> direto, NÃO <CpfCnpj>).
+        Retorna dict com outputxml (código 000 = OK). Numeração real de Manaus (contínua desde
+        2020), não o numero_rps interno."""
+        xml_dados = (
+            f'<ConsultarNfseEnvio xmlns="{self.NS_TIPOS}" versao="2.04">'
+            f"<Prestador><Cnpj>{self.cnpj}</Cnpj>"
+            f"<InscricaoMunicipal>{self.inscricao_municipal}</InscricaoMunicipal></Prestador>"
+            f"<NumeroNfse>{numero}</NumeroNfse>"
+            f"</ConsultarNfseEnvio>"
+        )
+        return self.enviar_requisicao("ConsultarNfse", xml_dados, timeout=timeout)
 
 
 # Códigos de serviço comuns para vigilância/segurança
