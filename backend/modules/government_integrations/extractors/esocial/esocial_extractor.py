@@ -91,10 +91,11 @@ class ExtratoreSocial(ExtratorBase):
 
     # URLs dos webservices
     URLS = {
+        # PRODUÇÃO REAL: hosts oficiais distintos por serviço (envio/consulta/download).
         "producao": {
-            "envio": "https://webservices.producaorestrita.esocial.gov.br/servicos/empregador/enviarloteeventos/WsEnviarLoteEventos.svc",
-            "consulta": "https://webservices.producaorestrita.esocial.gov.br/servicos/empregador/consultarloteeventos/WsConsultarLoteEventos.svc",
-            "download": "https://webservices.producaorestrita.esocial.gov.br/servicos/empregador/downloadEventos/WsDownloadEventos.svc",
+            "envio": "https://webservices.envio.esocial.gov.br/servicos/empregador/enviarloteeventos/WsEnviarLoteEventos.svc",
+            "consulta": "https://webservices.consulta.esocial.gov.br/servicos/empregador/consultarloteeventos/WsConsultarLoteEventos.svc",
+            "download": "https://webservices.download.esocial.gov.br/servicos/empregador/downloadEventos/WsDownloadEventos.svc",
         },
         "homologacao": {
             "envio": "https://webservices.producaorestrita.esocial.gov.br/servicos/empregador/enviarloteeventos/WsEnviarLoteEventos.svc",

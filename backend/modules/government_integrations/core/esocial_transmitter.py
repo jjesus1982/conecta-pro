@@ -107,6 +107,22 @@ class Environment(StrEnum):
     PRODUCAO_RESTRITA = "2"  # Homologacao
 
 
+def resolve_environment(ambiente: str | None = None) -> "Environment":
+    """Resolve o ambiente eSocial a partir de parâmetro explícito ou da env ESOCIAL_AMBIENTE.
+
+    Valores aceitos: "producao" (ou "prod"/"1") => PRODUCAO;
+    qualquer outro valor (inclui "producaorestrita", "homologacao", "2", vazio)
+    => PRODUCAO_RESTRITA.
+
+    REGRA DE SEGURANÇA: o default é SEMPRE producaorestrita — NUNCA produção
+    por omissão. A virada para produção é explícita: ESOCIAL_AMBIENTE=producao.
+    """
+    valor = (ambiente or os.getenv("ESOCIAL_AMBIENTE") or "producaorestrita").strip().lower()
+    if valor in ("producao", "producao_real", "prod", "1"):
+        return Environment.PRODUCAO
+    return Environment.PRODUCAO_RESTRITA
+
+
 class ESocialError(Exception):
     """Erro em operacao eSocial."""
 
@@ -462,14 +478,25 @@ class ESocialTransmitter:
         >>> result = await transmitter.transmit(event.id)
     """
 
+    # URLs oficiais dos webservices eSocial.
+    # PRODUÇÃO usa hosts distintos por serviço (envio/consulta/download);
+    # PRODUÇÃO RESTRITA (ambiente de testes do governo, dados reais) usa host único.
     WEBSERVICE_URLS = {
-        Environment.PRODUCAO: "https://webservices.producao.esocial.gov.br",
-        Environment.PRODUCAO_RESTRITA: "https://webservices.producaorestrita.esocial.gov.br",
+        Environment.PRODUCAO: {
+            "envio": "https://webservices.envio.esocial.gov.br",
+            "consulta": "https://webservices.consulta.esocial.gov.br",
+            "download": "https://webservices.download.esocial.gov.br",
+        },
+        Environment.PRODUCAO_RESTRITA: {
+            "envio": "https://webservices.producaorestrita.esocial.gov.br",
+            "consulta": "https://webservices.producaorestrita.esocial.gov.br",
+            "download": "https://webservices.producaorestrita.esocial.gov.br",
+        },
     }
 
     def __init__(
         self,
-        environment: Environment = Environment.PRODUCAO_RESTRITA,
+        environment: Environment | None = None,
         certificate_path: str | None = None,
         certificate_password: str | None = None,
         certificate_data: bytes | None = None,
@@ -478,11 +505,14 @@ class ESocialTransmitter:
         Inicializa o transmissor.
 
         Args:
-            environment: Ambiente de transmissao.
+            environment: Ambiente de transmissao. Se None, resolve via env
+                ESOCIAL_AMBIENTE (default seguro: producaorestrita).
             certificate_path: Caminho do certificado A1 (.pfx/.p12).
             certificate_password: Senha do certificado.
             certificate_data: Dados do certificado em bytes (alternativa ao path).
         """
+        if environment is None:
+            environment = resolve_environment()
         self.environment = environment
         self.certificate_path = certificate_path
         self.certificate_password = certificate_password
@@ -593,6 +623,51 @@ class ESocialTransmitter:
 
         logger.info("Evento criado: id=%s, type=%s, cnpj=%s", event.id, event_type.value, employer_cnpj)
 
+        return event
+
+    async def create_event_from_xml(
+        self,
+        event_type: EventType,
+        employer_cnpj: str,
+        xml_content: str,
+        employee_cpf: str | None = None,
+        reference_id: str | None = None,
+        reference_date: date | None = None,
+    ) -> ESocialEvent:
+        """
+        Cria evento eSocial a partir de XML JÁ CONSTRUÍDO externamente.
+
+        Usado pelos geradores de eventos SST (S-2210/S-2220/S-2230/S-2240) do
+        módulo people_management, que constroem o XML conforme o leiaute e o
+        entregam pronto para assinatura+transmissão. O XML DEVE conter o
+        atributo Id="..." no elemento do evento (exigido pela assinatura).
+
+        Raises:
+            ESocialError: Se o XML não parseia ou não contém Id.
+        """
+        try:
+            ET.fromstring(xml_content)
+        except Exception as e:  # noqa: BLE001
+            raise ESocialError(f"XML inválido para {event_type.value}: {e}")
+
+        if 'Id="' not in xml_content:
+            raise ESocialError(f"XML de {event_type.value} sem atributo Id — assinatura impossível")
+
+        event = ESocialEvent(
+            id=uuid4(),
+            event_type=event_type,
+            status=TransmissionStatus.PENDING,
+            employer_cnpj=employer_cnpj,
+            employee_cpf=employee_cpf,
+            xml_content=xml_content,
+            reference_id=reference_id,
+            reference_date=reference_date,
+            metadata={"xml_origin": "external_builder"},
+        )
+        self._events[event.id] = event
+        logger.info(
+            "Evento (XML externo) criado: id=%s, type=%s, cnpj=%s", event.id, event_type.value, employer_cnpj
+        )
         return event
 
     async def _build_xml(self, event_type: EventType, employer_cnpj: str, data: dict[str, Any]) -> str:
@@ -813,8 +888,8 @@ class ESocialTransmitter:
         # Montar envelope SOAP
         soap_envelope = self._build_soap_envelope(event.xml_signed, grupo)
 
-        # URL do webservice
-        base_url = self.WEBSERVICE_URLS[self.environment]
+        # URL do webservice (host de ENVIO do ambiente corrente)
+        base_url = self.WEBSERVICE_URLS[self.environment]["envio"]
         url = f"{base_url}/servicos/empregador/enviarloteeventos/WsEnviarLoteEventos.svc"
 
         logger.info(
@@ -955,8 +1030,8 @@ class ESocialTransmitter:
         if not event.protocol:
             raise ESocialError("Evento sem protocolo para consulta")
 
-        # URL do webservice de consulta
-        base_url = self.WEBSERVICE_URLS[self.environment]
+        # URL do webservice de consulta (host de CONSULTA do ambiente corrente)
+        base_url = self.WEBSERVICE_URLS[self.environment]["consulta"]
         url = f"{base_url}/servicos/empregador/consultarloteeventos/WsConsultarLoteEventos.svc"
 
         soap_consulta = self._build_consulta_soap(event.protocol)
@@ -1109,7 +1184,7 @@ def get_esocial_transmitter() -> ESocialTransmitter:
 
 
 def init_esocial_transmitter(
-    environment: Environment = Environment.PRODUCAO_RESTRITA,
+    environment: Environment | None = None,
     certificate_path: str | None = None,
     certificate_password: str | None = None,
     certificate_data: bytes | None = None,

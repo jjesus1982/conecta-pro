@@ -87,7 +87,7 @@ async def send_esocial_event(request: ESocialEventRequest) -> StandardResponse:
         HTTPException: Se falhar a transmissão.
     """
     try:
-        resultado = ESocialService.enviar_evento(
+        resultado = await ESocialService.enviar_evento(
             tipo_evento=request.tipo_evento,
             funcionario_id=str(request.funcionario_id),
             dados=request.dados,
@@ -258,7 +258,7 @@ async def listar_eventos(
 async def configurar_empresa(request: ConfigurarEmpresaRequest) -> StandardResponse:
     """Configura/atualiza dados do empregador no eSocial via S-1000."""
     try:
-        resultado = ESocialService.enviar_evento(
+        resultado = await ESocialService.enviar_evento(
             tipo_evento="S-1000",
             funcionario_id="empresa",
             dados={

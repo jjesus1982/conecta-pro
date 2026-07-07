@@ -35,6 +35,13 @@ class CATModel(Base):
     afastamento = Column(Integer, nullable=True, default=0)  # dias
     numero_cat_inss = Column(String(20), nullable=True)
 
+    # eSocial S-2210 (transmissão real)
+    numero_recibo_esocial = Column(String(60), nullable=True)
+    esocial_status = Column(String(20), nullable=False, default="nao_transmitida")
+    # nao_transmitida|transmitida|aceita|rejeitada|erro
+    esocial_transmitida_em = Column(DateTime(timezone=True), nullable=True)
+
+    # Ciclo de vida da CAT: aberta|transmitida|registrada_inss|encerrada
     status = Column(String(20), nullable=False, default="aberta")
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None))
     updated_at = Column(DateTime, nullable=True, onupdate=lambda: datetime.now(UTC).replace(tzinfo=None))

@@ -62,6 +62,11 @@ class Afastamento(Base):
     gera_estabilidade: Mapped[bool] = mapped_column(Boolean, default=False)
     estabilidade_ate: Mapped[date | None] = mapped_column(Date)
 
+    # eSocial S-2230 (transmissão real)
+    recibo_s2230: Mapped[str | None] = mapped_column(String(60))
+    esocial_status: Mapped[str] = mapped_column(String(20), default="nao_transmitida")
+    # nao_transmitida|transmitida|aceita|rejeitada|erro
+
     observacoes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
