@@ -158,13 +158,14 @@ async def tratar_intercorrencia(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-@router.delete("/intercorrencias/{intercorrencia_id}", status_code=204, summary="Exclui intercorrência (registro errado)")
+@router.delete("/intercorrencias/{intercorrencia_id}", summary="Exclui intercorrência (registro errado)")
 async def excluir_intercorrencia(
     intercorrencia_id: int,
     current_user=Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
-) -> None:
+) -> dict:
     try:
         await svc.excluir_intercorrencia(db, intercorrencia_id)
+        return {"ok": True}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
