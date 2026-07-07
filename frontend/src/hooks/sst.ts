@@ -12,6 +12,9 @@ import {
   sstService,
   type AfastamentoCreate,
   type CATCreate,
+  type FichaEPIGerarPayload,
+  type FichaEPIStatus,
+  type LTCATUpdatePayload,
 } from '@/lib/services/sst';
 
 // =============================================================================
@@ -28,6 +31,9 @@ export const sstKeys = {
   estabilidade: () => [...sstKeys.all, 'estabilidade'] as const,
   ajudaMedicamento: () => [...sstKeys.all, 'ajuda-medicamento'] as const,
   ltcat: () => [...sstKeys.all, 'ltcat'] as const,
+  asos: () => [...sstKeys.all, 'asos'] as const,
+  fichasEPI: () => [...sstKeys.all, 'fichas-epi'] as const,
+  nr1Compliance: () => [...sstKeys.all, 'nr1-compliance'] as const,
 };
 
 // =============================================================================
@@ -158,6 +164,79 @@ export function useCreateCAT() {
   });
 }
 
+/**
+ * Hook para transmitir CAT ao eSocial (S-2210)
+ */
+export function useTransmitirCAT() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (catId: string) => sstService.transmitirCAT(catId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: sstKeys.cats() });
+    },
+  });
+}
+
+// =============================================================================
+// ASO (eSocial S-2220)
+// =============================================================================
+
+/**
+ * Hook para listar ASOs com status eSocial
+ */
+export function useASOs() {
+  return useQuery({
+    queryKey: sstKeys.asos(),
+    queryFn: () => sstService.listASOs(),
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+// =============================================================================
+// FICHAS DE EPI
+// =============================================================================
+
+/**
+ * Hook para listar fichas de EPI
+ */
+export function useFichasEPI(status?: FichaEPIStatus) {
+  return useQuery({
+    queryKey: [...sstKeys.fichasEPI(), status],
+    queryFn: () => sstService.listFichasEPI(status),
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+/**
+ * Hook para gerar ficha de EPI consolidando entregas sem ficha
+ */
+export function useGerarFichaEPI() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: FichaEPIGerarPayload) => sstService.gerarFichaEPI(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: sstKeys.fichasEPI() });
+    },
+  });
+}
+
+// =============================================================================
+// COMPLIANCE NR-1
+// =============================================================================
+
+/**
+ * Hook para o painel de compliance NR-1 (calcado por funcionario)
+ */
+export function useNR1Compliance() {
+  return useQuery({
+    queryKey: sstKeys.nr1Compliance(),
+    queryFn: () => sstService.getNR1Compliance(),
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
 // =============================================================================
 // ESTABILIDADE
 // =============================================================================
@@ -200,5 +279,19 @@ export function useLTCATStatus() {
     queryKey: sstKeys.ltcat(),
     queryFn: () => sstService.getLTCATStatus(),
     staleTime: 30 * 1000,
+  });
+}
+
+/**
+ * Hook para atualizar o registro do LTCAT
+ */
+export function useUpdateLTCAT() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: LTCATUpdatePayload) => sstService.updateLTCAT(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: sstKeys.ltcat() });
+    },
   });
 }

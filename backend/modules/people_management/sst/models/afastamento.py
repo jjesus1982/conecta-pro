@@ -66,6 +66,7 @@ class Afastamento(Base):
     recibo_s2230: Mapped[str | None] = mapped_column(String(60))
     esocial_status: Mapped[str] = mapped_column(String(20), default="nao_transmitida")
     # nao_transmitida|transmitida|aceita|rejeitada|erro
+    esocial_protocolo: Mapped[str | None] = mapped_column(String(100))  # protocolo REAL do lote (pull)
 
     observacoes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -3,16 +3,28 @@
 Endpoints:
 - GET  /sst/dashboard
 - GET  /sst/afastamentos
-- POST /sst/afastamentos
+- POST /sst/afastamentos                  (gatilho eSocial S-2230)
 - GET  /sst/afastamentos/{id}
-- PUT  /sst/afastamentos/{id}/retorno
+- PUT  /sst/afastamentos/{id}/retorno     (gatilho eSocial S-2230 término)
 - GET  /sst/nr1/dashboard
 - GET  /sst/nr1/colaboradores-risco
+- GET  /sst/nr1/compliance                (painel "calçado NR-1" por funcionário)
 - GET  /sst/pcmso/status
 - GET  /sst/ppra/status
 - GET  /sst/asos/vencendo
 - GET  /sst/asos/sem-aso
-- POST /sst/cat
+- POST /sst/cat                           (gatilho eSocial S-2210 + prazo 1 dia útil)
+- POST /sst/cat/{cat_id}/transmitir       (botão Transmitir ao eSocial)
+- PUT  /sst/aso/{id}/resultado            (gatilho eSocial S-2220)
+- POST /sst/epi                           (gera FICHA DE EPI pendente de assinatura)
+- POST /sst/epi/fichas/gerar
+- GET  /sst/epi/fichas
+- GET  /sst/epi/fichas/minhas             (Portal do Funcionário)
+- GET  /sst/epi/fichas/{id}/pdf
+- POST /sst/epi/fichas/{id}/assinar       (assinatura digital do FUNCIONÁRIO)
+- GET  /sst/ltcat/status                  (fonte real: sst_ltcat)
+- PUT  /sst/ltcat
+- GET  /sst/ppp/{employee_id}?transmit=true (S-2240 real)
 - GET  /sst/estabilidade/ativos
 - GET  /sst/ajuda-medicamento/ativos
 - GET  /sst/cipa/membros
@@ -21,16 +33,18 @@ Endpoints:
 """
 
 import logging
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
+from modules.people_management.employee_portal.auth import CurrentEmployeeId
 from modules.people_management.sst.schemas.sst_schemas import (
     ASOCreate,
     ASOResultUpdate,
@@ -38,11 +52,47 @@ from modules.people_management.sst.schemas.sst_schemas import (
     EPIDeliveryCreate,
     RiskCreate,
 )
+from modules.people_management.sst.services.ficha_epi_service import FichaEPIService
 from modules.people_management.sst.services.sst_service import SSTService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sst", tags=["SST — Saude e Seguranca do Trabalho"])
+
+# Tipos de afastamento com código na Tabela 18 do eSocial (S-2230) — os demais
+# exigem classificação humana e NÃO são enfileirados (honestidade > automação)
+_TIPOS_S2230_MAPEAVEIS = {"doenca", "acidente_trabalho", "acidente_trajeto", "licenca_maternidade"}
+
+
+def _proximo_dia_util(d: date) -> date:
+    """Próximo dia útil após d (sáb/dom pulados; feriados nacionais não modelados)."""
+    nd = d + timedelta(days=1)
+    while nd.weekday() >= 5:
+        nd += timedelta(days=1)
+    return nd
+
+
+def _enfileirar_transmissao(task: Any, ref_id: str, evento: str) -> dict[str, Any]:
+    """Enfileira a transmissão eSocial via Celery (fila gov.esocial).
+
+    HONESTO: a resposta informa apenas que a transmissão foi ENFILEIRADA —
+    protocolo/recibo REAIS são gravados pela task e pelo pull de recibos.
+    NUNCA dizemos 'enviado' sem recibo/protocolo real.
+    """
+    try:
+        r = task.delay(str(ref_id))
+        return {
+            "evento": evento,
+            "transmissao_enfileirada": True,
+            "task_id": str(r.id),
+            "nota": (
+                "Transmissão ENFILEIRADA (fila gov.esocial). Protocolo/recibo reais "
+                "serão gravados pela task e pelo beat esocial-pull-recibos."
+            ),
+        }
+    except Exception as exc:  # broker indisponível etc. — nunca fingir sucesso
+        logger.error("Enfileiramento %s (%s) falhou: %s", evento, ref_id, exc)
+        return {"evento": evento, "transmissao_enfileirada": False, "erro": str(exc)}
 
 
 # ================================================================
@@ -83,10 +133,33 @@ async def registrar_afastamento(
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Registra novo afastamento com regras CCT 2026 automaticas."""
+    """Registra novo afastamento com regras CCT 2026 automaticas.
+
+    GATILHO eSocial: tipos mapeáveis na Tabela 18 (doenca, acidente_trabalho,
+    acidente_trajeto, licenca_maternidade) enfileiram o S-2230 automaticamente.
+    """
     service = SSTService(db)
     result = await service.registrar_afastamento(data)
     await db.commit()
+
+    tipo = str(result.get("tipo") or "").lower()
+    if tipo in _TIPOS_S2230_MAPEAVEIS:
+        from modules.people_management.sst.tasks.esocial_tasks import (
+            transmit_afastamento_to_esocial,
+        )
+
+        result["esocial"] = _enfileirar_transmissao(
+            transmit_afastamento_to_esocial, result["id"], "S-2230"
+        )
+    else:
+        result["esocial"] = {
+            "evento": "S-2230",
+            "transmissao_enfileirada": False,
+            "motivo": (
+                f"Tipo '{tipo}' sem código na Tabela 18 do eSocial — classificação "
+                "humana necessária (não será fabricada)."
+            ),
+        }
     return result
 
 
@@ -111,12 +184,32 @@ async def registrar_retorno(
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Registra retorno de afastamento (calcula estabilidade CCT)."""
+    """Registra retorno de afastamento (calcula estabilidade CCT).
+
+    GATILHO eSocial: RE-TRANSMITE o S-2230, que agora inclui <fimAfastamento>
+    (comportamento do gerador quando status=encerrado — S-2230 de término).
+    """
     service = SSTService(db)
     result = await service.registrar_retorno(afastamento_id, data.get("data_retorno", ""))
     if not result:
         raise HTTPException(status_code=404, detail="Afastamento nao encontrado")
     await db.commit()
+
+    tipo = str(result.get("tipo") or "").lower()
+    if tipo in _TIPOS_S2230_MAPEAVEIS:
+        from modules.people_management.sst.tasks.esocial_tasks import (
+            transmit_afastamento_to_esocial,
+        )
+
+        result["esocial"] = _enfileirar_transmissao(
+            transmit_afastamento_to_esocial, afastamento_id, "S-2230 (término/fimAfastamento)"
+        )
+    else:
+        result["esocial"] = {
+            "evento": "S-2230",
+            "transmissao_enfileirada": False,
+            "motivo": f"Tipo '{tipo}' sem código na Tabela 18 do eSocial.",
+        }
     return result
 
 
@@ -144,6 +237,22 @@ async def listar_colaboradores_risco(
     service = SSTService(db)
     items = await service.listar_colaboradores_risco()
     return {"total": len(items), "colaboradores": items}
+
+
+@router.get("/nr1/compliance")
+async def get_nr1_compliance(
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Painel 'CALÇADO NR-1' por funcionário ativo — score HONESTO.
+
+    Checks por funcionário: ASO em dia (vencimento real), EPIs com ficha
+    ASSINADA digitalmente, exposição a riscos mapeada (gp_risks) e
+    treinamentos NR (só se houver tabela — guard). Inclui os ASOs vencidos
+    como pendência visível. 'Calçado' = todos os checks aplicáveis OK.
+    """
+    service = SSTService(db)
+    return await service.get_nr1_compliance()
 
 
 # ================================================================
@@ -210,7 +319,12 @@ async def abrir_cat(
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Abre CAT (Comunicacao de Acidente de Trabalho)."""
+    """Abre CAT (Comunicacao de Acidente de Trabalho).
+
+    GATILHO eSocial: enfileira a transmissão do S-2210 (fila gov.esocial).
+    PRAZO LEGAL: a CAT deve ser comunicada até o 1º dia útil após o acidente
+    (Lei 8.213/91 Art. 22) — deadline_transmissao calculado e retornado.
+    """
     from modules.people_management.sst.models.cat import CATModel
 
     cat = CATModel(
@@ -228,6 +342,11 @@ async def abrir_cat(
     )
     db.add(cat)
     await db.flush()
+    await db.commit()  # a task Celery lê a CAT em outro processo — precisa estar persistida
+
+    from modules.people_management.sst.tasks.esocial_tasks import transmit_cat_to_esocial
+
+    deadline = _proximo_dia_util(cat.data_acidente) if cat.data_acidente else None
     return {
         "cat_id": cat.cat_id,
         "employee_id": cat.employee_id,
@@ -236,6 +355,13 @@ async def abrir_cat(
         "local": cat.local,
         "gravidade": cat.gravidade,
         "status": cat.status,
+        "esocial_status": cat.esocial_status,
+        "deadline_transmissao": str(deadline) if deadline else None,
+        "prazo_legal": (
+            "CAT: 1 dia útil após o acidente (Lei 8.213/91 Art. 22). "
+            "Cálculo pula sáb/dom; feriados nacionais não modelados."
+        ),
+        "esocial": _enfileirar_transmissao(transmit_cat_to_esocial, cat.cat_id, "S-2210"),
     }
 
 
@@ -249,7 +375,10 @@ async def listar_cats(
     from sqlalchemy import text as sql_text
 
     try:
-        query = "SELECT cat_id, employee_id, tipo_acidente, data_acidente, local, gravidade, status FROM gp_cats"
+        query = (
+            "SELECT cat_id, employee_id, tipo_acidente, data_acidente, local, gravidade, status, "
+            "esocial_status, numero_recibo_esocial, esocial_protocolo, esocial_transmitida_em FROM gp_cats"
+        )
         params: dict[str, Any] = {}
         if employee_id:
             query += " WHERE employee_id::text = :eid"
@@ -265,6 +394,11 @@ async def listar_cats(
                 "local": r[4],
                 "gravidade": r[5],
                 "status": r[6],
+                "esocial_status": r[7],
+                "recibo_esocial": r[8],
+                "esocial_protocolo": r[9],
+                "esocial_transmitida_em": str(r[10]) if r[10] else None,
+                "deadline_transmissao": str(_proximo_dia_util(r[3])) if r[3] else None,
             }
             for r in result.fetchall()
         ]
@@ -272,6 +406,46 @@ async def listar_cats(
         logger.warning("SST listar CATs: %s", exc)
         cats = []
     return {"total": len(cats), "cats": cats}
+
+
+@router.post("/cat/{cat_id}/transmitir")
+async def transmitir_cat(
+    cat_id: str,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Botão 'Transmitir ao eSocial' — (re)enfileira o S-2210 da CAT.
+
+    Útil para reprocessar CATs com esocial_status='erro'/'rejeitada' após
+    correção do dado. Resposta honesta: apenas ENFILEIRA (recibo real vem depois).
+    """
+    row = (
+        await db.execute(
+            text("SELECT cat_id, esocial_status, numero_recibo_esocial FROM gp_cats WHERE cat_id = :c"),
+            {"c": cat_id},
+        )
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="CAT nao encontrada")
+    if row[2]:
+        return {
+            "cat_id": cat_id,
+            "esocial_status": row[1],
+            "recibo_esocial": row[2],
+            "esocial": {
+                "evento": "S-2210",
+                "transmissao_enfileirada": False,
+                "motivo": "CAT já possui recibo REAL do eSocial — nada a retransmitir.",
+            },
+        }
+
+    from modules.people_management.sst.tasks.esocial_tasks import transmit_cat_to_esocial
+
+    return {
+        "cat_id": cat_id,
+        "esocial_status": row[1],
+        "esocial": _enfileirar_transmissao(transmit_cat_to_esocial, cat_id, "S-2210"),
+    }
 
 
 @router.get("/cat/taxa-acidente")
@@ -353,7 +527,10 @@ async def listar_asos(
     from sqlalchemy import text as sql_text
 
     try:
-        query = "SELECT aso_id, employee_id, tipo, status, data_agendamento, data_realizacao, apto FROM gp_asos"
+        query = (
+            "SELECT aso_id, employee_id, tipo, status, data_agendamento, data_realizacao, apto, "
+            "esocial_status, recibo_s2220, esocial_protocolo FROM gp_asos"
+        )
         params: dict[str, Any] = {}
         if employee_id:
             query += " WHERE employee_id = :eid"
@@ -369,6 +546,9 @@ async def listar_asos(
                 "data_agendamento": str(r[4]) if r[4] else None,
                 "data_realizacao": str(r[5]) if r[5] else None,
                 "apto": r[6],
+                "esocial_status": r[7],
+                "recibo_s2220": r[8],
+                "esocial_protocolo": r[9],
             }
             for r in result.fetchall()
         ]
@@ -385,11 +565,15 @@ async def registrar_resultado_aso(
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Registra resultado de ASO realizado."""
+    """Registra resultado de ASO realizado.
+
+    GATILHO eSocial: status vira 'realizado' → enfileira o S-2220 (Monitoramento
+    da Saúde do Trabalhador) na fila gov.esocial.
+    """
     from sqlalchemy import text as sql_text
 
     try:
-        await db.execute(
+        result = await db.execute(
             sql_text(
                 "UPDATE gp_asos SET apto = :apto, restricoes = :rest, medico = :med, "
                 "crm = :crm, status = 'realizado', data_realizacao = CURRENT_DATE "
@@ -397,10 +581,22 @@ async def registrar_resultado_aso(
             ),
             {"apto": data.apto, "rest": str(data.restricoes), "med": data.medico, "crm": data.crm, "aid": aso_id},
         )
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="ASO nao encontrado")
         await db.commit()
-        return {"aso_id": aso_id, "status": "realizado", "apto": data.apto}
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"ASO nao encontrado: {exc}") from exc
+
+    from modules.people_management.sst.tasks.esocial_tasks import transmit_aso_to_esocial
+
+    return {
+        "aso_id": aso_id,
+        "status": "realizado",
+        "apto": data.apto,
+        "esocial": _enfileirar_transmissao(transmit_aso_to_esocial, aso_id, "S-2220"),
+    }
 
 
 # ================================================================
@@ -414,7 +610,11 @@ async def registrar_entrega_epi(
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Registra entrega de EPI."""
+    """Registra entrega de EPI e gera a FICHA DE EPI digital (NR-6).
+
+    Fluxo NR-1/NR-6: entrega → ficha em PDF padrão-ouro (assinatura só do
+    FUNCIONÁRIO) → status pendente_assinatura → funcionário assina digitalmente.
+    """
     from modules.people_management.sst.models.epi import EPIDeliveryModel
 
     epi = EPIDeliveryModel(
@@ -427,6 +627,20 @@ async def registrar_entrega_epi(
     )
     db.add(epi)
     await db.flush()
+    await db.commit()
+
+    # Gera a ficha de EPI (pendente de assinatura) cobrindo esta entrega
+    ficha_info: dict[str, Any]
+    try:
+        ficha = await FichaEPIService(db).gerar_ficha(str(data.employee_id), [epi.delivery_id])
+        ficha_info = {
+            "ficha_id": ficha["ficha_id"],
+            "status": ficha["status"],
+            "pdf": f"/people-management/sst/epi/fichas/{ficha['ficha_id']}/pdf",
+        }
+    except ValueError as exc:  # honesto: entrega registrada, ficha não gerada
+        ficha_info = {"ficha_id": None, "status": "nao_gerada", "erro": str(exc)}
+
     return {
         "delivery_id": epi.delivery_id,
         "employee_id": epi.employee_id,
@@ -434,6 +648,7 @@ async def registrar_entrega_epi(
         "quantidade": data.quantidade,
         "data_entrega": str(epi.data_entrega) if hasattr(epi, "data_entrega") else None,
         "status": "entregue",
+        "ficha_epi": ficha_info,
     }
 
 
@@ -447,20 +662,133 @@ async def listar_epis(
     from sqlalchemy import text as sql_text
 
     try:
-        query = "SELECT delivery_id, employee_id, epi_nome, quantidade, epi_ca, nr FROM gp_epi_deliveries"
+        query = (
+            "SELECT d.delivery_id, d.employee_id, d.epi_nome, d.quantidade, d.epi_ca, d.nr, "
+            "d.ficha_epi_id, f.status AS ficha_status "
+            "FROM gp_epi_deliveries d LEFT JOIN sst_fichas_epi f ON f.id = d.ficha_epi_id"
+        )
         params: dict[str, Any] = {}
         if employee_id:
-            query += " WHERE employee_id = :eid"
+            query += " WHERE d.employee_id = :eid"
             params["eid"] = employee_id
         result = await db.execute(sql_text(query), params)
         epis = [
-            {"delivery_id": r[0], "employee_id": r[1], "epi": r[2], "quantidade": r[3], "ca": r[4], "status": r[5]}
+            {
+                "delivery_id": r[0],
+                "employee_id": r[1],
+                "epi": r[2],
+                "quantidade": r[3],
+                "ca": r[4],
+                "status": r[5],
+                "ficha_epi_id": str(r[6]) if r[6] else None,
+                "ficha_status": r[7] or "sem_ficha",
+            }
             for r in result.fetchall()
         ]
     except Exception as exc:
         logger.warning("SST listar EPIs: %s", exc)
         epis = []
     return {"total": len(epis), "epis": epis}
+
+
+# ================================================================
+# FICHA DE EPI DIGITAL (NR-1/NR-6) — assinada pelo FUNCIONÁRIO
+# ================================================================
+
+
+@router.post("/epi/fichas/gerar", status_code=201)
+async def gerar_ficha_epi(
+    data: dict,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Gera ficha de EPI consolidando as entregas SEM ficha de um funcionário.
+
+    Body: {"employee_id": "<uuid>", "delivery_ids": ["<opcional>"]}.
+    Útil para regularizar o legado (entregas antigas sem ficha assinada).
+    """
+    employee_id = data.get("employee_id")
+    if not employee_id:
+        raise HTTPException(status_code=422, detail="employee_id é obrigatório")
+    try:
+        ficha = await FichaEPIService(db).gerar_ficha(str(employee_id), data.get("delivery_ids"))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    ficha["pdf"] = f"/people-management/sst/epi/fichas/{ficha['ficha_id']}/pdf"
+    return ficha
+
+
+@router.get("/epi/fichas")
+async def listar_fichas_epi(
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+    status: str | None = Query(None, description="pendente_assinatura|assinada"),
+    employee_id: str | None = Query(None),
+) -> Any:
+    """Lista fichas de EPI (status honesto: pendente_assinatura|assinada)."""
+    fichas = await FichaEPIService(db).listar_fichas(status, employee_id)
+    return {
+        "total": len(fichas),
+        "pendentes_assinatura": sum(1 for f in fichas if f["status"] == "pendente_assinatura"),
+        "assinadas": sum(1 for f in fichas if f["status"] == "assinada"),
+        "fichas": fichas,
+    }
+
+
+@router.get("/epi/fichas/minhas")
+async def minhas_fichas_epi(
+    employee_id: CurrentEmployeeId,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Fichas de EPI do funcionário logado no Portal (para assinar)."""
+    fichas = await FichaEPIService(db).listar_fichas(None, str(employee_id))
+    return {"total": len(fichas), "fichas": fichas}
+
+
+@router.get("/epi/fichas/{ficha_id}/pdf")
+async def download_ficha_epi_pdf(
+    ficha_id: str,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Download do PDF padrão-ouro da ficha (bloco de autenticidade se assinada)."""
+    try:
+        pdf, nome = await FichaEPIService(db).pdf_ficha(ficha_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{nome}"'},
+    )
+
+
+@router.post("/epi/fichas/{ficha_id}/assinar")
+async def assinar_ficha_epi(
+    ficha_id: str,
+    request: Request,
+    employee_id: CurrentEmployeeId,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Funcionário assina a PRÓPRIA ficha digitalmente (token do Portal).
+
+    REUSA a infra de assinatura do Portal do Funcionário: hash SHA-256 gravado
+    em portal_digital_signatures (document_type='ficha_epi') + IP/User-Agent.
+    Nunca marca 'assinada' sem hash real.
+    """
+    try:
+        ficha = await FichaEPIService(db).assinar_ficha(
+            ficha_id,
+            signer_employee_id=str(employee_id),
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    ficha["pdf"] = f"/people-management/sst/epi/fichas/{ficha['ficha_id']}/pdf"
+    return ficha
 
 
 # ================================================================
@@ -663,26 +991,122 @@ async def ltcat_status(
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Retorna status do LTCAT vigente."""
+    """Status do LTCAT lido de TABELA REAL (sst_ltcat) — fim do hardcode.
+
+    Fatores de risco vêm do mapa real (gp_risks). Campos responsavel/validade
+    são editáveis via PUT /sst/ltcat.
+    """
     result = await db.execute(text("SELECT count(*) FROM posts WHERE is_active = true"))
     total_postos = result.scalar() or 0
+
+    ltcat = (
+        await db.execute(
+            text(
+                "SELECT id, status, responsavel_tecnico, registro_conselho, validade_inicio, "
+                "validade_fim, observacoes, updated_at FROM sst_ltcat ORDER BY created_at DESC LIMIT 1"
+            )
+        )
+    ).mappings().first()
+    if not ltcat:
+        raise HTTPException(
+            status_code=404,
+            detail="Nenhum registro em sst_ltcat — rode a migração 2026-07-07_sst_ondaB_FORWARD.sql",
+        )
+
+    riscos = (
+        await db.execute(
+            text(
+                "SELECT categoria, descricao, nivel FROM gp_risks WHERE status <> 'encerrado' "
+                "ORDER BY categoria, nivel"
+            )
+        )
+    ).mappings().all()
+
+    vigencia = None
+    if ltcat["validade_inicio"] and ltcat["validade_fim"]:
+        vigencia = f"{ltcat['validade_inicio']} a {ltcat['validade_fim']}"
+
+    status = ltcat["status"]
+    if status == "vigente" and ltcat["validade_fim"] and ltcat["validade_fim"] < date.today():
+        status = "vencido"  # derivação honesta pela data real
+
+    proxima_acao = {
+        "pendente_elaboracao": "Contratar engenheiro de segurança do trabalho para elaboração",
+        "em_elaboracao": "Acompanhar elaboração com o responsável técnico",
+        "vigente": "Manter laudo atualizado; revisar a cada alteração de ambiente",
+        "vencido": "Renovar o LTCAT — laudo fora da validade",
+    }.get(status, "Revisar registro do LTCAT")
 
     return {
         "documento": "LTCAT - Laudo Técnico das Condições Ambientais de Trabalho",
         "base_legal": "Lei 8.213/91 Art. 58 + IN INSS 128/2022",
         "empresa": "CONECTAMAIS ELETRONICA LTDA",
         "cnpj": "35.710.481/0001-03",
-        "vigencia": "2026-01-01 a 2026-12-31",
-        "responsavel_tecnico": "A definir (Engenheiro de Segurança)",
+        "ltcat_id": str(ltcat["id"]),
+        "vigencia": vigencia or "aguardando dado (validade não definida)",
+        "responsavel_tecnico": ltcat["responsavel_tecnico"] or "aguardando dado (não definido)",
+        "registro_conselho": ltcat["registro_conselho"],
         "postos_avaliados": total_postos,
-        "status": "pendente_elaboracao",
+        "status": status,
+        "observacoes": ltcat["observacoes"],
         "fatores_risco": [
-            {"agente": "Ruído", "tipo": "físico", "nr_referencia": "NR-15 Anexo 1"},
-            {"agente": "Calor", "tipo": "físico", "nr_referencia": "NR-15 Anexo 3"},
-            {"agente": "Jornada prolongada", "tipo": "ergonômico", "nr_referencia": "NR-17"},
-            {"agente": "Risco de agressão", "tipo": "acidente", "nr_referencia": "NR-1"},
+            {"agente": r["descricao"], "tipo": r["categoria"], "nivel": r["nivel"]} for r in riscos
         ],
-        "proxima_acao": "Contratar engenheiro de segurança para elaboração",
+        "fonte_fatores_risco": "gp_risks (mapa real de riscos)",
+        "proxima_acao": proxima_acao,
+    }
+
+
+@router.put("/ltcat")
+async def atualizar_ltcat(
+    data: dict,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Atualiza o registro do LTCAT (responsável, validade, status, observações).
+
+    Campos aceitos: status (pendente_elaboracao|em_elaboracao|vigente|vencido),
+    responsavel_tecnico, registro_conselho, validade_inicio, validade_fim,
+    observacoes. Campos não enviados não são alterados.
+    """
+    permitidos = {
+        "status", "responsavel_tecnico", "registro_conselho",
+        "validade_inicio", "validade_fim", "observacoes",
+    }
+    status_validos = {"pendente_elaboracao", "em_elaboracao", "vigente", "vencido"}
+    campos = {k: v for k, v in data.items() if k in permitidos}
+    if not campos:
+        raise HTTPException(status_code=422, detail=f"Nenhum campo editável enviado. Aceitos: {sorted(permitidos)}")
+    if "status" in campos and campos["status"] not in status_validos:
+        raise HTTPException(status_code=422, detail=f"status inválido. Válidos: {sorted(status_validos)}")
+    for k in ("validade_inicio", "validade_fim"):
+        if campos.get(k):
+            try:
+                campos[k] = date.fromisoformat(str(campos[k]))
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=f"{k} inválida (use YYYY-MM-DD)") from exc
+
+    sets = ", ".join(f"{k} = :{k}" for k in campos)
+    result = await db.execute(
+        text(
+            f"UPDATE sst_ltcat SET {sets}, updated_at = NOW() "  # noqa: S608 — chaves whitelisted
+            "WHERE id = (SELECT id FROM sst_ltcat ORDER BY created_at DESC LIMIT 1) "
+            "RETURNING id, status, responsavel_tecnico, registro_conselho, validade_inicio, validade_fim, observacoes"
+        ),
+        campos,
+    )
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Nenhum registro em sst_ltcat para atualizar")
+    await db.commit()
+    return {
+        "ltcat_id": str(row["id"]),
+        "status": row["status"],
+        "responsavel_tecnico": row["responsavel_tecnico"],
+        "registro_conselho": row["registro_conselho"],
+        "validade_inicio": str(row["validade_inicio"]) if row["validade_inicio"] else None,
+        "validade_fim": str(row["validade_fim"]) if row["validade_fim"] else None,
+        "observacoes": row["observacoes"],
     }
 
 
@@ -691,11 +1115,18 @@ async def gerar_ppp(
     employee_id: str,
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
+    transmit: bool = Query(
+        False,
+        description="true = transmite DE VERDADE o S-2240 deste funcionário ao eSocial "
+        "(ambiente ESOCIAL_AMBIENTE, default produção restrita)",
+    ),
 ) -> Any:
     """Gera PPP (Perfil Profissiográfico Previdenciário) de um funcionário.
 
     Documento obrigatório conforme Lei 8.213/91 Art. 58 e IN INSS 128/2022.
-    Alimenta o evento S-2240 do eSocial.
+    Com transmit=true, chama transmitir_evento_sst('S-2240', employee_id) —
+    transmissão REAL; dados obrigatórios ausentes aparecem HONESTOS na resposta
+    (ValueError do gerador da Onda A), nunca protocolo fabricado.
     """
     # Buscar dados do funcionário
     result = await db.execute(
@@ -717,10 +1148,29 @@ async def gerar_ppp(
     )
     asos = [dict(r) for r in asos_result.mappings().all()]
 
+    esocial: dict[str, Any]
+    if transmit:
+        from modules.people_management.hr.services.esocial_service import transmitir_evento_sst
+
+        try:
+            esocial = await transmitir_evento_sst(db, "S-2240", employee_id)
+            await db.commit()
+        except ValueError as exc:
+            # HONESTO: dado obrigatório ausente — nada foi transmitido, nada fabricado
+            esocial = {"status": "nao_transmitido", "erros": [str(exc)], "protocolo": None, "recibo": None}
+        except RuntimeError as exc:
+            esocial = {"status": "erro_infraestrutura", "erros": [str(exc)], "protocolo": None, "recibo": None}
+    else:
+        esocial = {
+            "status": "nao_transmitido",
+            "nota": "Use ?transmit=true para transmitir o S-2240 real deste funcionário.",
+        }
+
     return {
         "documento": "PPP - Perfil Profissiográfico Previdenciário",
         "base_legal": "Lei 8.213/91 Art. 58 § 4º + IN INSS 128/2022",
         "esocial_evento": "S-2240",
+        "esocial": esocial,
         "empresa": {
             "razao_social": "CONECTAMAIS ELETRONICA LTDA",
             "cnpj": "35.710.481/0001-03",

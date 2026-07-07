@@ -1,9 +1,13 @@
 'use client';
 
-import { FileText, Building2, AlertTriangle, RefreshCw, ShieldCheck, Clock, UserCheck } from 'lucide-react';
+import { useState } from 'react';
+import { FileText, Building2, AlertTriangle, RefreshCw, ShieldCheck, Clock, UserCheck, Pencil } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Table,
   TableBody,
@@ -12,15 +16,37 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { toast } from 'sonner';
-import { useLTCATStatus } from '@/hooks/sst';
+import { useLTCATStatus, useUpdateLTCAT } from '@/hooks/sst';
+import type { LTCATStatusValor, LTCATUpdatePayload } from '@/lib/services/sst';
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   vigente: { label: 'Vigente', className: 'bg-green-100 text-green-800' },
   pendente_elaboracao: { label: 'Pendente Elaboracao', className: 'bg-yellow-100 text-yellow-800' },
+  em_elaboracao: { label: 'Em Elaboracao', className: 'bg-blue-100 text-blue-800' },
   vencido: { label: 'Vencido', className: 'bg-red-100 text-red-800' },
-  em_revisao: { label: 'Em Revisao', className: 'bg-blue-100 text-blue-800' },
 };
+
+const STATUS_OPTIONS: { value: LTCATStatusValor; label: string }[] = [
+  { value: 'pendente_elaboracao', label: 'Pendente Elaboracao' },
+  { value: 'em_elaboracao', label: 'Em Elaboracao' },
+  { value: 'vigente', label: 'Vigente' },
+  { value: 'vencido', label: 'Vencido' },
+];
 
 const TIPO_RISCO_CONFIG: Record<string, { label: string; className: string }> = {
   fisico: { label: 'Fisico', className: 'bg-blue-100 text-blue-800' },
@@ -52,6 +78,62 @@ function getStatusBadge(status: string) {
 
 export default function LTCATPage() {
   const { data, isLoading, error, refetch } = useLTCATStatus();
+  const updateLTCAT = useUpdateLTCAT();
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState<{
+    status: string;
+    responsavel_tecnico: string;
+    registro_conselho: string;
+    validade_inicio: string;
+    validade_fim: string;
+    observacoes: string;
+  }>({
+    status: '',
+    responsavel_tecnico: '',
+    registro_conselho: '',
+    validade_inicio: '',
+    validade_fim: '',
+    observacoes: '',
+  });
+
+  const openEdit = () => {
+    const responsavel = data?.responsavel_tecnico ?? '';
+    setEditForm({
+      status: STATUS_CONFIG[data?.status ?? ''] ? (data?.status as string) : '',
+      responsavel_tecnico: responsavel.startsWith('aguardando dado') ? '' : responsavel,
+      registro_conselho: data?.registro_conselho ?? '',
+      validade_inicio: '',
+      validade_fim: '',
+      observacoes: data?.observacoes ?? '',
+    });
+    setEditOpen(true);
+  };
+
+  const handleSaveEdit = async () => {
+    const payload: LTCATUpdatePayload = {};
+    if (editForm.status) payload.status = editForm.status as LTCATStatusValor;
+    if (editForm.responsavel_tecnico.trim()) payload.responsavel_tecnico = editForm.responsavel_tecnico.trim();
+    if (editForm.registro_conselho.trim()) payload.registro_conselho = editForm.registro_conselho.trim();
+    if (editForm.validade_inicio) payload.validade_inicio = editForm.validade_inicio;
+    if (editForm.validade_fim) payload.validade_fim = editForm.validade_fim;
+    if (editForm.observacoes.trim()) payload.observacoes = editForm.observacoes.trim();
+
+    if (Object.keys(payload).length === 0) {
+      toast.error('Preencha ao menos um campo para atualizar', { duration: 5000 });
+      return;
+    }
+
+    try {
+      await updateLTCAT.mutateAsync(payload);
+      toast.success('LTCAT atualizado com sucesso', { duration: 4000 });
+      setEditOpen(false);
+      refetch();
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      toast.error(typeof detail === 'string' ? detail : 'Erro ao atualizar LTCAT', { duration: 6000 });
+    }
+  };
 
   const handleRefresh = async () => {
     try {
@@ -83,10 +165,16 @@ export default function LTCATPage() {
             </p>
           </div>
         </div>
-        <Button variant="outline" onClick={handleRefresh} disabled={isLoading}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-          Atualizar
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={handleRefresh} disabled={isLoading}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            Atualizar
+          </Button>
+          <Button onClick={openEdit} disabled={isLoading}>
+            <Pencil className="h-4 w-4 mr-2" />
+            Editar LTCAT
+          </Button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -142,9 +230,16 @@ export default function LTCATPage() {
             {isLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <p className="text-sm font-medium truncate" title={data?.responsavel_tecnico ?? ''}>
-                {data?.responsavel_tecnico ?? 'N/A'}
-              </p>
+              <div>
+                <p className="text-sm font-medium truncate" title={data?.responsavel_tecnico ?? ''}>
+                  {data?.responsavel_tecnico ?? '—'}
+                </p>
+                {data?.registro_conselho && (
+                  <p className="text-xs text-muted-foreground font-mono truncate">
+                    {data.registro_conselho}
+                  </p>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>
@@ -169,6 +264,11 @@ export default function LTCATPage() {
                 <span className="font-medium">{data.vigencia}</span>
               </div>
             </div>
+            {data.observacoes && (
+              <p className="text-sm text-muted-foreground mt-2">
+                <span className="font-medium text-foreground">Observacoes:</span> {data.observacoes}
+              </p>
+            )}
           </CardContent>
         </Card>
       )}
@@ -190,6 +290,9 @@ export default function LTCATPage() {
           <CardTitle className="text-base">Fatores de Risco Identificados</CardTitle>
           <CardDescription>
             Agentes nocivos mapeados nos postos de trabalho conforme NR-15 e legislacao previdenciaria.
+            {data?.fonte_fatores_risco && (
+              <span className="block text-xs mt-1">Fonte: {data.fonte_fatores_risco}</span>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
@@ -209,7 +312,7 @@ export default function LTCATPage() {
                 <TableRow>
                   <TableHead>Agente de Risco</TableHead>
                   <TableHead>Tipo</TableHead>
-                  <TableHead>NR Referencia</TableHead>
+                  <TableHead>Nivel</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -218,9 +321,13 @@ export default function LTCATPage() {
                     <TableCell className="font-medium">{fator.agente}</TableCell>
                     <TableCell>{getTipoRiscoBadge(fator.tipo)}</TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="text-xs">
-                        {fator.nr_referencia}
-                      </Badge>
+                      {fator.nivel ? (
+                        <Badge variant="outline" className="text-xs">
+                          {fator.nivel}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -242,6 +349,93 @@ export default function LTCATPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Dialog - Editar LTCAT */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar LTCAT</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="ltcat_status">Status</Label>
+              <Select
+                value={editForm.status}
+                onValueChange={(v) => setEditForm({ ...editForm, status: v })}
+              >
+                <SelectTrigger id="ltcat_status">
+                  <SelectValue placeholder="Selecione o status" />
+                </SelectTrigger>
+                <SelectContent>
+                  {STATUS_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="ltcat_responsavel">Responsavel Tecnico</Label>
+                <Input
+                  id="ltcat_responsavel"
+                  value={editForm.responsavel_tecnico}
+                  onChange={(e) => setEditForm({ ...editForm, responsavel_tecnico: e.target.value })}
+                  placeholder="Nome do responsavel tecnico"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="ltcat_registro">Registro no Conselho</Label>
+                <Input
+                  id="ltcat_registro"
+                  value={editForm.registro_conselho}
+                  onChange={(e) => setEditForm({ ...editForm, registro_conselho: e.target.value })}
+                  placeholder="Ex: CREA/AM 12345"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="ltcat_validade_inicio">Validade - Inicio</Label>
+                <Input
+                  id="ltcat_validade_inicio"
+                  type="date"
+                  value={editForm.validade_inicio}
+                  onChange={(e) => setEditForm({ ...editForm, validade_inicio: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="ltcat_validade_fim">Validade - Fim</Label>
+                <Input
+                  id="ltcat_validade_fim"
+                  type="date"
+                  value={editForm.validade_fim}
+                  onChange={(e) => setEditForm({ ...editForm, validade_fim: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ltcat_observacoes">Observacoes</Label>
+              <Textarea
+                id="ltcat_observacoes"
+                value={editForm.observacoes}
+                onChange={(e) => setEditForm({ ...editForm, observacoes: e.target.value })}
+                placeholder="Observacoes sobre o laudo"
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSaveEdit} disabled={updateLTCAT.isPending}>
+              {updateLTCAT.isPending ? 'Salvando...' : 'Salvar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

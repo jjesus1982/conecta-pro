@@ -36,10 +36,35 @@ import {
   useExpiringASOs,
   useScheduleExam,
 } from '@/hooks/health-occupational';
+import { useASOs } from '@/hooks/sst';
+import type { ASOItem } from '@/lib/services/sst';
+
+function getESocialBadge(esocialStatus: string) {
+  const styles: Record<string, string> = {
+    nao_transmitida: 'bg-gray-100 text-gray-800',
+    transmitida: 'bg-blue-100 text-blue-800',
+    aceita: 'bg-green-100 text-green-800',
+    rejeitada: 'bg-red-100 text-red-800',
+    erro: 'bg-red-100 text-red-800',
+  };
+  const labels: Record<string, string> = {
+    nao_transmitida: 'Nao transmitida',
+    transmitida: 'Transmitida',
+    aceita: 'Aceita',
+    rejeitada: 'Rejeitada',
+    erro: 'Erro',
+  };
+  return (
+    <Badge className={styles[esocialStatus] || 'bg-gray-100 text-gray-800'}>
+      {labels[esocialStatus] || esocialStatus}
+    </Badge>
+  );
+}
 
 export default function ExamesPage() {
   const { data: stats, isLoading: statsLoading } = usePCMSOStatistics();
   const { data: expiringASOs, isLoading: asosLoading, error: asosError, refetch } = useExpiringASOs(30);
+  const { data: esocialASOsData, isLoading: esocialASOsLoading, error: esocialASOsError } = useASOs();
   const scheduleExam = useScheduleExam();
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -74,6 +99,10 @@ export default function ExamesPage() {
   };
 
   const asosList = Array.isArray(expiringASOs) ? expiringASOs : (expiringASOs as any)?.items ?? [];
+
+  const esocialASOs: ASOItem[] = Array.isArray(esocialASOsData)
+    ? (esocialASOsData as ASOItem[])
+    : esocialASOsData?.asos ?? esocialASOsData?.items ?? [];
 
   const filteredASOs = search
     ? asosList.filter((aso: any) =>
@@ -365,6 +394,61 @@ export default function ExamesPage() {
                     <TableCell className="text-sm text-muted-foreground">
                       {aso.clinica || '-'}
                     </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* eSocial - S-2220 (ASOs) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <FileCheck className="h-4 w-4" />
+            eSocial — S-2220 (ASOs)
+          </CardTitle>
+          <CardDescription>
+            Situacao de transmissao dos Atestados de Saude Ocupacional ao eSocial (evento S-2220).
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          {esocialASOsLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+            </div>
+          ) : esocialASOsError ? (
+            <div className="text-center py-8 text-muted-foreground text-sm">
+              Erro ao carregar ASOs do eSocial.
+            </div>
+          ) : esocialASOs.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <FileCheck className="h-16 w-16 mx-auto mb-4 opacity-50" />
+              <h3 className="text-lg font-medium">Nenhum ASO registrado</h3>
+              <p className="mt-2">Nao ha ASOs para acompanhamento no eSocial.</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>ASO ID</TableHead>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>eSocial</TableHead>
+                  <TableHead>Recibo S-2220</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {esocialASOs.map((aso) => (
+                  <TableRow key={aso.aso_id}>
+                    <TableCell className="text-sm font-mono">
+                      {aso.aso_id.length > 8 ? `${aso.aso_id.substring(0, 8)}...` : aso.aso_id}
+                    </TableCell>
+                    <TableCell className="text-sm">{aso.tipo || '—'}</TableCell>
+                    <TableCell className="text-sm">{aso.status || '—'}</TableCell>
+                    <TableCell>{getESocialBadge(aso.esocial_status)}</TableCell>
+                    <TableCell className="text-sm font-mono">{aso.recibo_s2220 || '—'}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

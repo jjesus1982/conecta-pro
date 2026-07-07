@@ -40,6 +40,7 @@ class CATModel(Base):
     esocial_status = Column(String(20), nullable=False, default="nao_transmitida")
     # nao_transmitida|transmitida|aceita|rejeitada|erro
     esocial_transmitida_em = Column(DateTime(timezone=True), nullable=True)
+    esocial_protocolo = Column(String(100), nullable=True)  # protocolo REAL do lote (pull de recibos)
 
     # Ciclo de vida da CAT: aberta|transmitida|registrada_inss|encerrada
     status = Column(String(20), nullable=False, default="aberta")

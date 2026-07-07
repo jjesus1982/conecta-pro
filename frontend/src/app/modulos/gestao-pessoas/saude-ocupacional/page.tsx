@@ -1,6 +1,6 @@
 'use client';
 
-import { Heart, Stethoscope, HardHat, AlertTriangle, FileCheck, ShieldAlert, Package, ArrowRight, FileText, UserX, Pill, Shield } from 'lucide-react';
+import { Heart, Stethoscope, HardHat, AlertTriangle, FileCheck, ShieldAlert, Package, ArrowRight, FileText, UserX, Pill, Shield, ShieldCheck } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useRouter } from 'next/navigation';
 import { usePCMSOStatistics, useEPIStatistics, usePPRAStatistics } from '@/hooks/health-occupational';
@@ -38,6 +38,14 @@ const subPages = [
     href: '/modulos/gestao-pessoas/saude-ocupacional/ltcat',
     color: 'text-teal-600',
     bg: 'bg-teal-50',
+  },
+  {
+    title: 'Compliance NR-1',
+    description: 'Painel calcado por funcionario — score honesto por fatos no banco (ASO, EPI, riscos, treinamentos)',
+    icon: ShieldCheck,
+    href: '/modulos/gestao-pessoas/saude-ocupacional/compliance-nr1',
+    color: 'text-green-600',
+    bg: 'bg-green-50',
   },
   {
     title: 'CAT - Acidente de Trabalho',

@@ -1,6 +1,6 @@
 'use client';
 
-import { FileWarning, AlertTriangle, BarChart3, RefreshCw } from 'lucide-react';
+import { FileWarning, AlertTriangle, BarChart3, RefreshCw, Send } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -13,7 +13,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { toast } from 'sonner';
-import { useCATs, useTaxaAcidente } from '@/hooks/sst';
+import { useCATs, useTaxaAcidente, useTransmitirCAT } from '@/hooks/sst';
+import type { CATItem } from '@/lib/services/sst';
 
 function getGravidadeBadge(gravidade: string) {
   const styles: Record<string, string> = {
@@ -33,6 +34,59 @@ function getGravidadeBadge(gravidade: string) {
       {labels[gravidade] || gravidade}
     </Badge>
   );
+}
+
+function getESocialBadge(esocialStatus: string) {
+  const styles: Record<string, string> = {
+    nao_transmitida: 'bg-gray-100 text-gray-800',
+    transmitida: 'bg-blue-100 text-blue-800',
+    aceita: 'bg-green-100 text-green-800',
+    rejeitada: 'bg-red-100 text-red-800',
+    erro: 'bg-red-100 text-red-800',
+  };
+  const labels: Record<string, string> = {
+    nao_transmitida: 'Nao transmitida',
+    transmitida: 'Transmitida',
+    aceita: 'Aceita',
+    rejeitada: 'Rejeitada',
+    erro: 'Erro',
+  };
+  return (
+    <Badge className={styles[esocialStatus] || 'bg-gray-100 text-gray-800'}>
+      {labels[esocialStatus] || esocialStatus}
+    </Badge>
+  );
+}
+
+/** Compara datas locais (YYYY-MM-DD) sem fuso: -1 antes, 0 igual, 1 depois */
+function compararComHoje(dataISO: string): number {
+  const hoje = new Date();
+  const hojeStr = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`;
+  if (hojeStr < dataISO) return -1;
+  if (hojeStr === dataISO) return 0;
+  return 1;
+}
+
+function getPrazoCell(cat: CATItem) {
+  if (!cat.deadline_transmissao) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+  const dataFormatada = new Date(`${cat.deadline_transmissao}T00:00:00`).toLocaleDateString('pt-BR');
+  const naoTransmitida = cat.esocial_status === 'nao_transmitida';
+  const comparacao = compararComHoje(cat.deadline_transmissao);
+
+  if (naoTransmitida && comparacao > 0) {
+    return (
+      <span className="flex items-center gap-1 font-medium text-red-600">
+        <AlertTriangle className="h-4 w-4" />
+        {dataFormatada}
+      </span>
+    );
+  }
+  if (naoTransmitida && comparacao === 0) {
+    return <span className="font-medium text-yellow-600">{dataFormatada}</span>;
+  }
+  return <span>{dataFormatada}</span>;
 }
 
 function getStatusBadge(status: string) {
@@ -58,6 +112,22 @@ function getStatusBadge(status: string) {
 export default function CATPage() {
   const { data: catsData, isLoading: catsLoading, error: catsError, refetch } = useCATs();
   const { data: taxaData, isLoading: taxaLoading } = useTaxaAcidente();
+  const transmitirCAT = useTransmitirCAT();
+
+  const handleTransmitir = async (catId: string) => {
+    try {
+      const result = await transmitirCAT.mutateAsync(catId);
+      if (result?.esocial?.transmissao_enfileirada) {
+        toast.success('Transmissao enfileirada — aguardando protocolo real', { duration: 5000 });
+      } else {
+        const motivo = result?.esocial?.motivo || result?.esocial?.erro || 'Transmissao nao enfileirada';
+        toast.error(motivo, { duration: 6000 });
+      }
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail;
+      toast.error(typeof detail === 'string' ? detail : 'Erro ao transmitir CAT ao eSocial', { duration: 6000 });
+    }
+  };
 
   const handleRefresh = async () => {
     try {
@@ -84,6 +154,9 @@ export default function CATPage() {
           </h1>
           <p className="text-muted-foreground">
             Registro e acompanhamento de acidentes de trabalho
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            CAT: prazo legal de 1 dia util apos o acidente (Lei 8.213/91)
           </p>
         </div>
         <Button variant="outline" onClick={handleRefresh} disabled={catsLoading}>
@@ -177,6 +250,10 @@ export default function CATPage() {
                   <TableHead>Local</TableHead>
                   <TableHead>Gravidade</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>eSocial</TableHead>
+                  <TableHead>Recibo</TableHead>
+                  <TableHead>Prazo</TableHead>
+                  <TableHead className="w-[180px]">Acoes</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -194,6 +271,25 @@ export default function CATPage() {
                     <TableCell className="text-sm">{cat.local}</TableCell>
                     <TableCell>{getGravidadeBadge(cat.gravidade)}</TableCell>
                     <TableCell>{getStatusBadge(cat.status)}</TableCell>
+                    <TableCell>{getESocialBadge(cat.esocial_status)}</TableCell>
+                    <TableCell className="text-sm font-mono">
+                      {cat.recibo_esocial || '—'}
+                    </TableCell>
+                    <TableCell className="text-sm">{getPrazoCell(cat)}</TableCell>
+                    <TableCell>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleTransmitir(cat.cat_id)}
+                        disabled={!!cat.recibo_esocial || transmitirCAT.isPending}
+                        title={cat.recibo_esocial ? 'CAT ja possui recibo do eSocial' : 'Transmitir S-2210 ao eSocial'}
+                      >
+                        <Send className="h-4 w-4 mr-2" />
+                        {transmitirCAT.isPending && transmitirCAT.variables === cat.cat_id
+                          ? 'Enviando...'
+                          : 'Transmitir ao eSocial'}
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

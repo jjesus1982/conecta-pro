@@ -71,6 +71,13 @@ export interface SSTDashboard {
 // TIPOS - CAT
 // =============================================================================
 
+export type ESocialStatus =
+  | 'nao_transmitida'
+  | 'transmitida'
+  | 'aceita'
+  | 'rejeitada'
+  | 'erro';
+
 export interface CATItem {
   cat_id: string;
   employee_id: string;
@@ -79,6 +86,11 @@ export interface CATItem {
   local: string;
   gravidade: string;
   status: string;
+  esocial_status: ESocialStatus;
+  recibo_esocial: string | null;
+  esocial_protocolo: string | null;
+  esocial_transmitida_em: string | null;
+  deadline_transmissao: string | null;
 }
 
 export interface CATList {
@@ -100,6 +112,133 @@ export interface TaxaAcidente {
   total_colaboradores: number;
   total_cats: number;
   taxa_acidente_percentual: number;
+}
+
+export interface CATTransmitirResponse {
+  cat_id: string;
+  esocial_status: ESocialStatus;
+  esocial: {
+    transmissao_enfileirada: boolean;
+    task_id?: string;
+    motivo?: string;
+    erro?: string;
+  };
+}
+
+// =============================================================================
+// TIPOS - ASO (eSocial S-2220)
+// =============================================================================
+
+export interface ASOItem {
+  aso_id: string;
+  employee_id?: string;
+  employee_nome?: string;
+  tipo: string;
+  status: string;
+  esocial_status: ESocialStatus;
+  recibo_s2220: string | null;
+  esocial_protocolo: string | null;
+}
+
+export interface ASOList {
+  total?: number;
+  asos?: ASOItem[];
+  items?: ASOItem[];
+}
+
+// =============================================================================
+// TIPOS - FICHAS DE EPI
+// =============================================================================
+
+export type FichaEPIStatus = 'pendente_assinatura' | 'assinada';
+
+export interface FichaEPIItemEntrega {
+  epi_nome: string;
+  ca: string | null;
+  quantidade: number;
+  data_entrega: string | null;
+  data_validade: string | null;
+}
+
+export interface FichaEPI {
+  ficha_id: string;
+  employee_id: string;
+  employee_nome: string;
+  itens: FichaEPIItemEntrega[];
+  status: FichaEPIStatus;
+  assinatura_hash: string | null;
+  assinado_em: string | null;
+  created_at: string | null;
+}
+
+export interface FichaEPIList {
+  total: number;
+  pendentes_assinatura: number;
+  assinadas: number;
+  fichas: FichaEPI[];
+}
+
+export interface FichaEPIGerarPayload {
+  employee_id: string;
+  delivery_ids?: string[];
+}
+
+// =============================================================================
+// TIPOS - COMPLIANCE NR-1
+// =============================================================================
+
+export interface NR1CheckASO {
+  ok: boolean;
+  situacao: string;
+  data_validade: string | null;
+}
+
+export interface NR1CheckEPI {
+  ok: boolean;
+  situacao: string;
+  entregas: number;
+  com_ficha_assinada: number;
+}
+
+export interface NR1CheckRiscos {
+  ok: boolean;
+  situacao: string;
+  fonte: string;
+}
+
+export interface NR1CheckTreinamentos {
+  ok: boolean | null;
+  situacao: string;
+  nota?: string;
+}
+
+export interface NR1Funcionario {
+  employee_id: string;
+  nome: string;
+  cargo: string;
+  score: number;
+  calcado: boolean;
+  checks: {
+    aso: NR1CheckASO;
+    epi: NR1CheckEPI;
+    riscos: NR1CheckRiscos;
+    treinamentos: NR1CheckTreinamentos;
+  };
+}
+
+export interface NR1Compliance {
+  resumo: {
+    total_funcionarios_ativos: number;
+    calcados: number;
+    descalcados: number;
+    asos_vencidos_registros: number;
+    funcionarios_aso_vencido: number;
+    fichas_epi_pendentes_assinatura: number;
+    entregas_epi_sem_ficha: number;
+    riscos_mapeados_vigentes: number;
+    treinamentos_fonte: string;
+  };
+  funcionarios: NR1Funcionario[];
 }
 
 // =============================================================================
@@ -149,20 +288,39 @@ export interface AjudaMedicamentoList {
 export interface LTCATFatorRisco {
   agente: string;
   tipo: string;
-  nr_referencia: string;
+  nivel: string | null;
 }
 
+export type LTCATStatusValor =
+  | 'pendente_elaboracao'
+  | 'em_elaboracao'
+  | 'vigente'
+  | 'vencido';
+
 export interface LTCATStatus {
+  ltcat_id: string | null;
   documento: string;
   base_legal: string;
   empresa: string;
   cnpj: string;
   vigencia: string;
   responsavel_tecnico: string;
+  registro_conselho: string | null;
+  observacoes: string | null;
+  fonte_fatores_risco: string | null;
   postos_avaliados: number;
-  status: string;
+  status: LTCATStatusValor | string;
   fatores_risco: LTCATFatorRisco[];
   proxima_acao: string;
+}
+
+export interface LTCATUpdatePayload {
+  status?: LTCATStatusValor;
+  responsavel_tecnico?: string;
+  registro_conselho?: string;
+  validade_inicio?: string;
+  validade_fim?: string;
+  observacoes?: string;
 }
 
 // =============================================================================
@@ -223,8 +381,36 @@ export const sstService = {
   createCAT: (data: CATCreate) =>
     api.post(`${BASE}/cat`, data).then((r) => r.data),
 
+  transmitirCAT: (catId: string) =>
+    api
+      .post<CATTransmitirResponse>(`${BASE}/cat/${catId}/transmitir`)
+      .then((r) => r.data),
+
   getTaxaAcidente: () =>
     api.get<TaxaAcidente>(`${BASE}/cat/taxa-acidente`).then((r) => r.data),
+
+  // ASO (eSocial S-2220)
+  listASOs: () => api.get<ASOList>(`${BASE}/aso`).then((r) => r.data),
+
+  // Fichas de EPI
+  listFichasEPI: (status?: FichaEPIStatus) =>
+    api
+      .get<FichaEPIList>(`${BASE}/epi/fichas`, {
+        params: status ? { status } : {},
+      })
+      .then((r) => r.data),
+
+  gerarFichaEPI: (data: FichaEPIGerarPayload) =>
+    api.post(`${BASE}/epi/fichas/gerar`, data).then((r) => r.data),
+
+  downloadFichaEPIPdf: (fichaId: string) =>
+    api
+      .get(`${BASE}/epi/fichas/${fichaId}/pdf`, { responseType: 'blob' })
+      .then((r) => r.data as Blob),
+
+  // Compliance NR-1
+  getNR1Compliance: () =>
+    api.get<NR1Compliance>(`${BASE}/nr1/compliance`).then((r) => r.data),
 
   // Estabilidade
   listEstabilidade: () =>
@@ -251,6 +437,9 @@ export const sstService = {
   // LTCAT
   getLTCATStatus: () =>
     api.get<LTCATStatus>(`${BASE}/ltcat/status`).then((r) => r.data),
+
+  updateLTCAT: (data: LTCATUpdatePayload) =>
+    api.put(`${BASE}/ltcat`, data).then((r) => r.data),
 };
 
 export default sstService;

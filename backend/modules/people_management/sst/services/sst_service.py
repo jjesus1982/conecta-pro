@@ -585,6 +585,184 @@ class SSTService:
 
         return {"indice": indice, "recomendacoes": recomendacoes}
 
+    # ================================================================
+    # NR-1 COMPLIANCE — painel "calçado" por funcionário (dados REAIS)
+    # ================================================================
+
+    async def get_nr1_compliance(self) -> dict[str, Any]:
+        """Painel NR-1 por funcionário ativo — score HONESTO por fatos no banco.
+
+        Checks aplicáveis por funcionário:
+        1. ASO em dia (gp_asos: último ASO com data_validade >= hoje)
+        2. EPIs com ficha ASSINADA (gp_epi_deliveries → sst_fichas_epi.status)
+        3. Exposição a riscos mapeada (gp_risks — mapa vigente; o vínculo por
+           posto NÃO é resolvível hoje: gp_risks.posto_id não casa com posts/
+           condominios, limitação declarada, não mascarada)
+        4. Treinamentos NR: só se existir tabela real (guard to_regclass) —
+           sem tabela, o item é reportado como 'sem_fonte' e NÃO entra no score.
+        """
+        hoje = date.today()
+
+        employees = (
+            await self.db.execute(
+                text("SELECT id, nome, cargo FROM employees WHERE status = 'ativo' ORDER BY nome")
+            )
+        ).mappings().all()
+
+        # Último ASO por funcionário (validade mais recente)
+        asos = (
+            await self.db.execute(
+                text(
+                    "SELECT DISTINCT ON (employee_id) employee_id, data_validade, status, tipo "
+                    "FROM gp_asos "
+                    "ORDER BY employee_id, data_validade DESC NULLS LAST"
+                )
+            )
+        ).mappings().all()
+        aso_por_emp = {str(a["employee_id"]): dict(a) for a in asos}
+
+        # Entregas de EPI × fichas assinadas
+        epis = (
+            await self.db.execute(
+                text(
+                    "SELECT d.employee_id::text AS eid, "
+                    "count(*) AS entregas, "
+                    "count(*) FILTER (WHERE f.status = 'assinada') AS com_ficha_assinada, "
+                    "count(*) FILTER (WHERE d.ficha_epi_id IS NULL) AS sem_ficha "
+                    "FROM gp_epi_deliveries d "
+                    "LEFT JOIN sst_fichas_epi f ON f.id = d.ficha_epi_id "
+                    "GROUP BY d.employee_id"
+                )
+            )
+        ).mappings().all()
+        epi_por_emp = {e["eid"]: dict(e) for e in epis}
+
+        # Mapa de riscos vigente (global — posto_id sem FK resolvível, honesto)
+        riscos_ativos = (
+            await self.db.execute(text("SELECT count(*) FROM gp_risks WHERE status <> 'encerrado'"))
+        ).scalar() or 0
+
+        # Treinamentos NR: guard — só avalia se houver tabela real
+        treino_tabela = (
+            await self.db.execute(
+                text(
+                    "SELECT coalesce(to_regclass('sst_treinamentos'), to_regclass('gp_treinamentos'), "
+                    "to_regclass('hr_trainings'))::text"
+                )
+            )
+        ).scalar()
+
+        funcionarios: list[dict[str, Any]] = []
+        calcados = 0
+        asos_vencidos_func = 0
+        for emp in employees:
+            eid = str(emp["id"])
+            checks: dict[str, Any] = {}
+
+            # 1. ASO
+            aso = aso_por_emp.get(eid)
+            if not aso or not aso.get("data_validade"):
+                checks["aso"] = {"ok": False, "situacao": "sem_aso", "data_validade": None}
+            elif aso["data_validade"] >= hoje:
+                checks["aso"] = {
+                    "ok": True, "situacao": "em_dia", "data_validade": str(aso["data_validade"]),
+                }
+            else:
+                checks["aso"] = {
+                    "ok": False, "situacao": "vencido", "data_validade": str(aso["data_validade"]),
+                }
+                asos_vencidos_func += 1
+
+            # 2. EPI com ficha assinada
+            epi = epi_por_emp.get(eid)
+            if not epi:
+                checks["epi"] = {
+                    "ok": False, "situacao": "sem_entrega_registrada",
+                    "entregas": 0, "com_ficha_assinada": 0,
+                }
+            else:
+                ok = epi["entregas"] > 0 and epi["com_ficha_assinada"] == epi["entregas"]
+                situacao = "fichas_assinadas" if ok else (
+                    "sem_ficha" if epi["sem_ficha"] == epi["entregas"] else "ficha_pendente"
+                )
+                checks["epi"] = {
+                    "ok": ok, "situacao": situacao,
+                    "entregas": epi["entregas"],
+                    "com_ficha_assinada": epi["com_ficha_assinada"],
+                }
+
+            # 3. Riscos mapeados (mapa global vigente — limitação de vínculo declarada)
+            checks["riscos"] = {
+                "ok": riscos_ativos > 0,
+                "situacao": "mapa_vigente" if riscos_ativos > 0 else "sem_mapa",
+                "fonte": "gp_risks (mapa global — vínculo por posto não resolvível hoje)",
+            }
+
+            # 4. Treinamentos NR (guard honesto)
+            if treino_tabela:
+                treinos = (
+                    await self.db.execute(
+                        text(f"SELECT count(*) FROM {treino_tabela} WHERE employee_id::text = :eid"),  # noqa: S608
+                        {"eid": eid},
+                    )
+                ).scalar() or 0
+                checks["treinamentos"] = {"ok": treinos > 0, "situacao": f"{treinos} registro(s)"}
+            else:
+                checks["treinamentos"] = {
+                    "ok": None, "situacao": "sem_fonte",
+                    "nota": "Sem tabela de treinamentos NR no banco — item não avaliado (não entra no score)",
+                }
+
+            aplicaveis = [c for c in checks.values() if c["ok"] is not None]
+            ok_count = sum(1 for c in aplicaveis if c["ok"])
+            score = round(ok_count / len(aplicaveis) * 100) if aplicaveis else 0
+            calcado = bool(aplicaveis) and ok_count == len(aplicaveis)
+            if calcado:
+                calcados += 1
+
+            funcionarios.append(
+                {
+                    "employee_id": eid,
+                    "nome": emp["nome"],
+                    "cargo": emp["cargo"],
+                    "checks": checks,
+                    "score": score,
+                    "calcado": calcado,
+                }
+            )
+
+        # ASOs vencidos TOTAIS (todas as linhas, pendência visível — inclui históricos)
+        asos_vencidos_total = (
+            await self.db.execute(
+                text("SELECT count(*) FROM gp_asos WHERE data_validade < CURRENT_DATE")
+            )
+        ).scalar() or 0
+        fichas_pendentes = (
+            await self.db.execute(
+                text("SELECT count(*) FROM sst_fichas_epi WHERE status = 'pendente_assinatura'")
+            )
+        ).scalar() or 0
+        entregas_sem_ficha = (
+            await self.db.execute(
+                text("SELECT count(*) FROM gp_epi_deliveries WHERE ficha_epi_id IS NULL")
+            )
+        ).scalar() or 0
+
+        return {
+            "resumo": {
+                "total_funcionarios_ativos": len(employees),
+                "calcados": calcados,
+                "descalcados": len(employees) - calcados,
+                "asos_vencidos_registros": asos_vencidos_total,
+                "funcionarios_aso_vencido": asos_vencidos_func,
+                "fichas_epi_pendentes_assinatura": fichas_pendentes,
+                "entregas_epi_sem_ficha": entregas_sem_ficha,
+                "riscos_mapeados_vigentes": riscos_ativos,
+                "treinamentos_fonte": treino_tabela or "sem_tabela",
+            },
+            "funcionarios": funcionarios,
+        }
+
     @staticmethod
     def _afastamento_to_dict(af: Afastamento) -> dict:
         """Converte Afastamento para dict."""

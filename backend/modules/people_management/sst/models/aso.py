@@ -62,6 +62,7 @@ class ASOModel(Base):
     recibo_s2220 = Column(String(60), nullable=True)
     esocial_status = Column(String(20), nullable=False, default="nao_transmitida")
     # nao_transmitida|transmitida|aceita|rejeitada|erro
+    esocial_protocolo = Column(String(100), nullable=True)  # protocolo REAL do lote (pull de recibos)
 
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None))
     updated_at = Column(DateTime, nullable=True, onupdate=lambda: datetime.now(UTC).replace(tzinfo=None))

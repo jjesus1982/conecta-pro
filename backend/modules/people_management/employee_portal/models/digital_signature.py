@@ -21,6 +21,7 @@ class DocumentType(enum.StrEnum):
     VACATION = "vacation"
     POLICY = "policy"
     TRAINING_CERTIFICATE = "training_certificate"
+    FICHA_EPI = "ficha_epi"  # Ficha de EPI (NR-6) — assinada pelo funcionário
     OTHER = "other"
 
 
