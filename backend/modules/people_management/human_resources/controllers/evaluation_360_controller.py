@@ -176,6 +176,91 @@ async def gerar_relatorio(
         raise HTTPException(400, str(e)) from e
 
 
+class ResponderRequest(BaseModel):
+    """Request para o avaliador LOGADO responder um ciclo 360."""
+
+    evaluator_type: str = Field(
+        ...,
+        description="Tipo: self, manager, peer, subordinate, client",
+    )
+    scores: dict[str, float] = Field(..., description="Notas por dimensao (0-10)")
+    comments: dict[str, str] | None = Field(None, description="Comentarios por dimensao")
+
+
+def _evaluator_ids(current_user: Any) -> list[str]:
+    """IDs pelos quais o usuario logado pode figurar como avaliador."""
+    ids = [str(getattr(current_user, "id", "") or "")]
+    emp = getattr(current_user, "employee_id", None)
+    if emp:
+        ids.append(str(emp))
+    return [i for i in ids if i]
+
+
+@router.get("/pendencias")
+async def minhas_pendencias(
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Ciclos 360 em coleta que o avaliador logado ainda nao respondeu."""
+    service = Evaluation360Service(db)
+    pending = await service.list_pending_for_evaluator(_evaluator_ids(current_user))
+    return {
+        "items": pending,
+        "total": len(pending),
+        "evaluator": getattr(current_user, "name", None) or getattr(current_user, "email", None),
+    }
+
+
+@router.post("/ciclos/{ciclo_id}/responder", status_code=201)
+async def responder_como_usuario_logado(
+    ciclo_id: str,
+    request: ResponderRequest,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Registra a resposta do avaliador LOGADO (identidade vem do token, nao do payload)."""
+    try:
+        evaluator_type = EvaluatorType(request.evaluator_type)
+    except ValueError:
+        raise HTTPException(
+            400,
+            f"Tipo de avaliador invalido: {request.evaluator_type}. Use: self, manager, peer, subordinate, client",
+        )
+
+    evaluator_name = getattr(current_user, "name", None) or getattr(current_user, "email", "") or "usuario"
+    service = Evaluation360Service(db)
+    try:
+        response = await service.submit_response(
+            cycle_id=ciclo_id,
+            evaluator_id=str(current_user.id),
+            evaluator_type=evaluator_type,
+            evaluator_name=evaluator_name,
+            scores=request.scores,
+            comments=request.comments,
+        )
+        await db.commit()
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+    scores = response.scores or {}
+    weighted = sum(scores.get(d["id"], 0) * d["peso"] for d in EVALUATION_DIMENSIONS)
+    return {
+        "evaluator": response.evaluator_name,
+        "type": response.evaluator_type.value,
+        "weighted_score": round(weighted, 2),
+    }
+
+
+@router.get("/resultados")
+async def resultados_agregados(
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Resultados agregados por avaliado — calculados so de respostas reais."""
+    service = Evaluation360Service(db)
+    return await service.aggregate_results()
+
+
 @router.get("/ciclos")
 async def listar_ciclos(
     current_user: CurrentActiveUser,

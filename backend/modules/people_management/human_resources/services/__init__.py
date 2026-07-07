@@ -9,6 +9,9 @@ from modules.people_management.human_resources.services.career_service import Ca
 from modules.people_management.human_resources.services.evaluation_360_service import (
     Evaluation360Service,
 )
+from modules.people_management.human_resources.services.integrated_performance_service import (
+    IntegratedPerformanceService,
+)
 from modules.people_management.human_resources.services.performance_service import (
     PerformanceService,
 )
@@ -55,5 +58,6 @@ __all__ = [
     "TurnoverService",
     "OnboardingService",
     "Evaluation360Service",
+    "IntegratedPerformanceService",
     "ResumeParserService",
 ]

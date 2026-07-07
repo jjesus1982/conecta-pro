@@ -138,6 +138,17 @@ class Evaluation360Service:
         if isinstance(evaluator_type, str):
             evaluator_type = EvaluatorType(evaluator_type)
 
+        # Um avaliador responde uma unica vez por ciclo
+        existing = await self.db.execute(
+            select(Evaluation360Response.id).where(
+                Evaluation360Response.cycle_id == cycle.id,
+                Evaluation360Response.evaluator_id == str(evaluator_id),
+            )
+        )
+        if existing.scalar_one_or_none():
+            msg = f"Avaliador {evaluator_name} ja respondeu este ciclo"
+            raise ValueError(msg)
+
         response = Evaluation360Response(
             cycle_id=cycle.id,
             evaluator_id=evaluator_id,
@@ -303,6 +314,97 @@ class Evaluation360Service:
             }
             for c in cycles
         ]
+
+    async def list_pending_for_evaluator(self, evaluator_ids: list[str]) -> list[dict[str, Any]]:
+        """Ciclos em coleta que o avaliador (por qualquer um de seus IDs) ainda nao respondeu."""
+        ids = [str(i) for i in evaluator_ids if i]
+        stmt = (
+            select(Evaluation360Cycle)
+            .options(selectinload(Evaluation360Cycle.responses))
+            .where(Evaluation360Cycle.status == EvaluationStatus.COLLECTING)
+        )
+        result = await self.db.execute(stmt)
+        cycles = result.scalars().all()
+
+        pending = []
+        for c in cycles:
+            answered = {str(r.evaluator_id) for r in c.responses}
+            if answered.intersection(ids):
+                continue
+            pending.append(
+                {
+                    "cycle_id": str(c.id),
+                    "employee_id": str(c.employee_id),
+                    "employee_name": c.employee_name,
+                    "period": f"{c.period_start} a {c.period_end}",
+                    "responses_count": len(c.responses),
+                    "dimensoes": [
+                        {"id": d["id"], "nome": d["nome"], "peso": d["peso"]} for d in EVALUATION_DIMENSIONS
+                    ],
+                }
+            )
+        return pending
+
+    async def aggregate_results(self) -> dict[str, Any]:
+        """Resultados agregados por avaliado, calculados ao vivo das respostas reais.
+
+        Nao muda o status dos ciclos; ciclos sem resposta aparecem como
+        "aguardando respostas" — nunca com nota fabricada.
+        """
+        stmt = select(Evaluation360Cycle).options(selectinload(Evaluation360Cycle.responses))
+        result = await self.db.execute(stmt)
+        cycles = result.scalars().all()
+
+        por_avaliado: dict[str, dict[str, Any]] = {}
+        for c in cycles:
+            emp_id = str(c.employee_id)
+            entry = por_avaliado.setdefault(
+                emp_id,
+                {"employee_id": emp_id, "employee_name": c.employee_name, "ciclos": []},
+            )
+            if c.responses:
+                scores_ponderados = [_weighted_score_for_response(r.scores or {}) for r in c.responses]
+                media_parcial = round(sum(scores_ponderados) / len(scores_ponderados), 2)
+                por_tipo: dict[str, int] = {}
+                for r in c.responses:
+                    por_tipo[r.evaluator_type.value] = por_tipo.get(r.evaluator_type.value, 0) + 1
+                entry["ciclos"].append(
+                    {
+                        "cycle_id": str(c.id),
+                        "status": c.status.value,
+                        "period": f"{c.period_start} a {c.period_end}",
+                        "responses_count": len(c.responses),
+                        "respostas_por_tipo": por_tipo,
+                        "media_parcial": media_parcial,
+                        "final_score": c.final_score,
+                        "classification": _classify_score(c.final_score) if c.final_score is not None else None,
+                    }
+                )
+            else:
+                entry["ciclos"].append(
+                    {
+                        "cycle_id": str(c.id),
+                        "status": c.status.value,
+                        "period": f"{c.period_start} a {c.period_end}",
+                        "responses_count": 0,
+                        "media_parcial": None,
+                        "final_score": None,
+                        "nota": "aguardando respostas reais",
+                    }
+                )
+
+        avaliados = list(por_avaliado.values())
+        total_respostas = sum(cc["responses_count"] for a in avaliados for cc in a["ciclos"])
+        return {
+            "avaliados": avaliados,
+            "total_ciclos": len(cycles),
+            "total_respostas": total_respostas,
+            "nota": (
+                None
+                if total_respostas
+                else "Nenhuma resposta 360 registrada ainda — resultados aparecerao quando os avaliadores responderem."
+            ),
+        }
 
     async def _get_cycle(self, cycle_id: str) -> Evaluation360Cycle:
         """Busca ciclo ou levanta erro."""

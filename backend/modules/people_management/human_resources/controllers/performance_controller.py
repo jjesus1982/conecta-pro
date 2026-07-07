@@ -31,6 +31,9 @@ from modules.people_management.human_resources.schemas.performance import (
     PerformanceReviewResponse,
     PerformanceReviewUpdate,
 )
+from modules.people_management.human_resources.services.integrated_performance_service import (
+    IntegratedPerformanceService,
+)
 from modules.people_management.human_resources.services.performance_service import (
     PerformanceService,
 )
@@ -38,6 +41,56 @@ from modules.people_management.human_resources.services.performance_service impo
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/performance", tags=["RH - Desempenho"])
+
+
+@router.get(
+    "/visao-integrada",
+    summary="Visao integrada de desempenho (RH x ponto x campo x SST x treinamento)",
+)
+async def visao_integrada(
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Visao integrada por funcionario ativo, com score composto transparente.
+
+    Cruza performance_reviews, avaliacao 360, avaliacoes do lider,
+    ponto (30d), ocorrencias de campo (90d), treinamentos, tempo de casa
+    e afastamentos. Fontes ausentes viram blocos "indisponivel" — nunca
+    numeros fabricados.
+    """
+    service = IntegratedPerformanceService(db)
+    try:
+        return await service.visao_integrada()
+    except Exception as e:
+        logger.error(f"Erro na visao integrada de desempenho: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erro ao montar visao integrada de desempenho.",
+        )
+
+
+@router.get(
+    "/visao-integrada/{employee_id}",
+    summary="Visao integrada de desempenho de um funcionario",
+)
+async def visao_integrada_funcionario(
+    employee_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Visao integrada de desempenho para um funcionario ativo especifico."""
+    service = IntegratedPerformanceService(db)
+    try:
+        result = await service.visao_integrada(employee_id=str(employee_id))
+    except Exception as e:
+        logger.error(f"Erro na visao integrada de desempenho ({employee_id}): {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erro ao montar visao integrada de desempenho.",
+        )
+    if result.get("erro"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=result["erro"])
+    return result
 
 
 @router.post(
