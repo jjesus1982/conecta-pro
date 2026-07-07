@@ -219,12 +219,47 @@ def daily_coverage_report(self):
     """
     Task para geração diária de relatório de cobertura.
     Executa todo dia às 23:55h via Celery Beat.
+
+    Usa dados REAIS via ReportsRepository (mesma fonte das rotas
+    /operacional/reports/coverage) — nunca dados simulados.
     """
     try:
-        from datetime import datetime
+        from datetime import date
 
-        logger.info("[Operacional Task] Gerando relatório diário de cobertura...")
-        return {"status": "ok", "date": datetime.utcnow().strftime("%Y-%m-%d")}
+        from modules.operacional.repositories.reports_repository import ReportsRepository
+
+        async def _generate():
+            async with get_async_db_session() as db:
+                repo = ReportsRepository(db)
+                today = date.today()
+                period_start = date(today.year, today.month, 1)
+                items = await repo.get_coverage(period_start, today)
+
+                total_allocations = sum(item["total_allocations"] for item in items)
+                active_allocations = sum(item["active_allocations"] for item in items)
+                coverage_rate = (
+                    round(active_allocations / total_allocations * 100, 2) if total_allocations else 0.0
+                )
+
+                critical_posts = [
+                    item["post_name"] for item in items if item["total_allocations"] and item["coverage_rate"] < 90.0
+                ]
+
+                return {
+                    "status": "ok",
+                    "date": today.isoformat(),
+                    "period_start": period_start.isoformat(),
+                    "total_posts": len(items),
+                    "total_allocations": total_allocations,
+                    "active_allocations": active_allocations,
+                    "coverage_rate": coverage_rate,
+                    "critical_posts": critical_posts,
+                }
+
+        logger.info("[Operacional Task] Gerando relatório diário de cobertura (dados reais)...")
+        result = asyncio.run(_generate())
+        logger.info(f"[Operacional Task] Relatório diário de cobertura: {result}")
+        return result
     except Exception as exc:
         logger.error(f"[Operacional Task] Erro no relatório diário: {exc}")
         raise self.retry(exc=exc)

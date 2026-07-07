@@ -107,6 +107,22 @@ class InspectionRoundService:
         """Lista rondas com filtros."""
         return await self.repository.list(tenant_id, skip, limit, filters)
 
+    async def get_rounds_by_inspector(
+        self,
+        inspector_id: str,
+        tenant_id: str,
+        limit: int = 50,
+    ) -> builtins.list[InspectionRound]:
+        """Lista rondas de um inspetor (mais recentes primeiro)."""
+        filters = InspectionRoundFilter(inspector_id=inspector_id)
+        rounds, _total = await self.repository.list(
+            tenant_id=tenant_id,
+            skip=0,
+            limit=limit,
+            filters=filters,
+        )
+        return rounds
+
     async def update(self, round_id: str, data: InspectionRoundUpdate) -> InspectionRound:
         """Atualiza uma ronda."""
         inspection_round = await self.get_by_id(round_id)

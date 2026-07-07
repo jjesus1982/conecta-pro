@@ -15,7 +15,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
@@ -116,7 +117,7 @@ async def get_dashboard(
     current_user: CurrentActiveUser,
     data: date | None = Query(None, description="Data de referência (default: hoje)"),
     cliente_id: UUID | None = Query(None, description="Filtrar por cliente"),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ) -> DashboardResponse:
     """
     Retorna dashboard unificado do operacional.
@@ -132,7 +133,7 @@ async def get_dashboard(
     service = get_integration_service(db)
 
     try:
-        dashboard = service.get_dashboard_unificado(
+        dashboard = await service.get_dashboard_unificado(
             data_referencia=data,
             cliente_id=cliente_id,
         )
@@ -154,7 +155,7 @@ async def get_metricas_periodo(
     data_inicio: date = Query(..., description="Data inicial"),
     data_fim: date = Query(..., description="Data final"),
     cliente_id: UUID | None = Query(None, description="Filtrar por cliente"),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ) -> MetricasPeriodoResponse:
     """
     Retorna métricas de um período específico.
@@ -173,7 +174,7 @@ async def get_metricas_periodo(
     service = get_integration_service(db)
 
     try:
-        metricas = service.get_metricas_periodo(
+        metricas = await service.get_metricas_periodo(
             data_inicio=data_inicio,
             data_fim=data_fim,
             cliente_id=cliente_id,
@@ -199,7 +200,7 @@ async def get_metricas_periodo(
 async def get_ocupacao_postos(
     current_user: CurrentActiveUser,
     data: date | None = Query(None, description="Data de referência (default: hoje)"),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ) -> list[OcupacaoPostoResponse]:
     """
     Retorna ocupação detalhada de cada posto.
@@ -212,7 +213,7 @@ async def get_ocupacao_postos(
     service = get_integration_service(db)
 
     try:
-        ocupacao = service.get_ocupacao_postos(data_referencia=data)
+        ocupacao = await service.get_ocupacao_postos(data_referencia=data)
         return ocupacao
     except Exception as e:
         raise HTTPException(
@@ -234,7 +235,7 @@ async def get_ocupacao_postos(
 async def alocar_diarista_posto(
     request: AlocarDiaristaPostoRequest,
     current_user: CurrentActiveUser,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """
     Aloca um diarista a um condomínio.
@@ -280,7 +281,7 @@ async def desalocar_diarista(
     assignment_id: UUID,
     request: DesalocarDiaristaRequest,
     current_user: CurrentActiveUser,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """
     Encerra a alocação de um diarista (status ENCERRADO + data_fim=hoje).
@@ -322,7 +323,7 @@ async def sugerir_diarista_posto(
     current_user: CurrentActiveUser,
     data: date = Query(..., description="Data desejada para cobertura"),
     habilidades: str | None = Query(None, description="Habilidades requeridas (separadas por vírgula)"),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ) -> list[SugestaoDiaristaResponse]:
     """
     Sugere diaristas disponíveis para um posto.
@@ -339,7 +340,7 @@ async def sugerir_diarista_posto(
         habilidades_lista = [h.strip() for h in habilidades.split(",")]
 
     try:
-        sugestoes = service.sugerir_diarista_posto(
+        sugestoes = await service.sugerir_diarista_posto(
             post_id=post_id,
             data=data,
             habilidades_requeridas=habilidades_lista,
@@ -361,7 +362,7 @@ async def sugerir_diarista_posto(
 @router.get("/resumo-dia", summary="Resumo do dia", description="Retorna resumo executivo do dia atual")
 async def get_resumo_dia(
     current_user: CurrentActiveUser,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """
     Retorna resumo executivo do dia atual.
@@ -371,7 +372,7 @@ async def get_resumo_dia(
     service = get_integration_service(db)
 
     try:
-        dashboard = service.get_dashboard_unificado()
+        dashboard = await service.get_dashboard_unificado()
 
         return {
             "data": dashboard["data_referencia"],
@@ -393,7 +394,7 @@ async def get_resumo_dia(
 async def get_kpis(
     current_user: CurrentActiveUser,
     periodo_dias: int = Query(30, ge=7, le=365, description="Período em dias"),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """
     Retorna KPIs operacionais.
@@ -406,8 +407,35 @@ async def get_kpis(
     data_inicio = data_fim - timedelta(days=periodo_dias)
 
     try:
-        metricas = service.get_metricas_periodo(data_inicio, data_fim)
-        dashboard = service.get_dashboard_unificado()
+        metricas = await service.get_metricas_periodo(data_inicio, data_fim)
+        dashboard = await service.get_dashboard_unificado()
+
+        # Tendência REAL: mesmo cálculo sobre o período imediatamente anterior
+        # (shifts/diarist_schedules reais) — deltas em pontos percentuais/valores.
+        anterior_fim = data_inicio - timedelta(days=1)
+        anterior_inicio = anterior_fim - timedelta(days=periodo_dias - 1)
+        metricas_anteriores = await service.get_metricas_periodo(anterior_inicio, anterior_fim)
+
+        comparacao = {
+            "periodo_anterior": metricas_anteriores["periodo"],
+            "delta_taxa_comparecimento_diaristas": round(
+                metricas["diaristas"]["taxa_comparecimento"]
+                - metricas_anteriores["diaristas"]["taxa_comparecimento"],
+                2,
+            ),
+            "delta_taxa_conclusao_turnos": round(
+                metricas["funcionarios"]["taxa_conclusao"] - metricas_anteriores["funcionarios"]["taxa_conclusao"],
+                2,
+            ),
+            "delta_horas_diaristas": round(
+                metricas["diaristas"]["horas_trabalhadas"] - metricas_anteriores["diaristas"]["horas_trabalhadas"],
+                2,
+            ),
+            "delta_servicos_realizados": (
+                metricas["consolidado"]["servicos_concluidos"]
+                - metricas_anteriores["consolidado"]["servicos_concluidos"]
+            ),
+        }
 
         return {
             "periodo": metricas["periodo"],
@@ -419,7 +447,7 @@ async def get_kpis(
                 "total_servicos_realizados": metricas["consolidado"]["servicos_concluidos"],
             },
             "tendencia": {
-                "comparado_periodo_anterior": "Não calculado",
+                "comparado_periodo_anterior": comparacao,
             },
         }
     except Exception as e:
@@ -432,7 +460,7 @@ async def get_kpis(
 async def get_kpi_trends(
     current_user: CurrentActiveUser,
     period: str = Query("7d", description="Período de análise (7d, 30d, 90d)"),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """
     Retorna dados históricos de KPIs para sparklines.
@@ -449,9 +477,7 @@ async def get_kpi_trends(
     - Ocorrências do mês
     - Taxa de cobertura (%)
     """
-    from modules.operacional.models import Scale, ScaleStatus
-    from modules.operacional.occurrences.models import Occurrence
-    from modules.operacional.repositories import PostRepository, ScaleRepository
+    from modules.operacional.repositories import PostRepository
 
     # Definir período
     periods: dict[str, int] = {
@@ -470,7 +496,26 @@ async def get_kpi_trends(
 
     try:
         post_repo = PostRepository(db)
-        ScaleRepository(db)
+
+        # Stats de postos: FOTO ATUAL (não existe histórico diário de postos/
+        # alocações no banco). get_stats é ASYNC e retorna PostStats (Pydantic)
+        # — await + acesso por atributo (o bug antigo era coroutine sem await
+        # sendo lida com .get()).
+        stats = await post_repo.get_stats()
+        total_postos = stats.by_status.get("active", 0)
+        colaboradores_result = await db.execute(
+            text("SELECT count(*) FROM employees WHERE status = 'ativo'")
+        )
+        total_colaboradores = int(colaboradores_result.scalar() or 0)
+        cobertura_atual = round((stats.filled / stats.total * 100) if stats.total > 0 else 0)
+
+        # Escalas em andamento: FOTO ATUAL (scales.is_active — NÃO existe
+        # coluna "ativo"; status varchar 'in_progress').
+        escalas_atual = (
+            await db.execute(
+                text("SELECT count(*) FROM scales WHERE status = 'in_progress' AND is_active = true")
+            )
+        ).scalar_one()
 
         # Calcular dados diários
         postos_ativos: list[int] = []
@@ -479,34 +524,30 @@ async def get_kpi_trends(
         ocorrencias_mes: list[int] = []
         cobertura_percentual: list[int] = []
 
-        # Gerar dados para cada dia do período
+        # Gerar dados para cada dia do período.
+        # HONESTIDADE: só ocorrências têm carimbo temporal (occurred_at) —
+        # as demais séries repetem a foto atual porque não há histórico.
         for i in range(days):
             data_ref = hoje - timedelta(days=days - i - 1)
 
-            # Postos ativos na data
-            stats: dict[str, Any] = post_repo.get_stats()
-            postos_ativos.append(stats.get("total", 0))
+            postos_ativos.append(total_postos)
+            colaboradores_ativos.append(total_colaboradores)
+            escalas_em_andamento.append(escalas_atual)
+            cobertura_percentual.append(cobertura_atual)
 
-            colaboradores_ativos.append(stats.get("total_allocated", 0))
-
-            # Escalas em andamento
-            escalas = db.query(Scale).filter(Scale.status == ScaleStatus.IN_PROGRESS, Scale.ativo).count()
-            escalas_em_andamento.append(escalas)
-
-            # Ocorrências do mês
+            # Ocorrências do mês acumuladas até data_ref (occurred_at é a
+            # coluna real — "data_ocorrencia" não existe)
             primeiro_dia_mes = data_ref.replace(day=1)
             ocorrencias = (
-                db.query(Occurrence)
-                .filter(Occurrence.data_ocorrencia >= primeiro_dia_mes, Occurrence.data_ocorrencia <= data_ref)
-                .count()
-            )
+                await db.execute(
+                    text(
+                        "SELECT count(*) FROM occurrences "
+                        "WHERE occurred_at >= :ini AND occurred_at < :fim"
+                    ),
+                    {"ini": primeiro_dia_mes, "fim": data_ref + timedelta(days=1)},
+                )
+            ).scalar_one()
             ocorrencias_mes.append(ocorrencias)
-
-            # Taxa de cobertura
-            total = stats.get("total", 0)
-            filled = stats.get("filled", 0)
-            coverage = round((filled / total * 100) if total > 0 else 0)
-            cobertura_percentual.append(coverage)
 
         return {
             "period": period,
@@ -518,6 +559,10 @@ async def get_kpi_trends(
                 "ocorrencias_mes": ocorrencias_mes,
                 "cobertura_percentual": cobertura_percentual,
             },
+            "nota": (
+                "Séries de postos/colaboradores/escalas/cobertura refletem a foto atual "
+                "(não há histórico diário no banco); apenas ocorrencias_mes é histórica (occurred_at)."
+            ),
         }
 
     except Exception as e:

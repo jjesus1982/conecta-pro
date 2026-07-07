@@ -752,37 +752,41 @@ async def get_evaluation(
 # ==================== AI ENDPOINTS ====================
 
 
-@router.get("/ai/suggest", response_model=DiaristSuggestionResponse)
+@router.get("/ai/suggest", response_model=list[DiaristSuggestionResponse])
 async def suggest_diarists(
     data: date,
     tipo: DiaristType | None = None,
     duracao_horas: int = Query(8, ge=1, le=12),
     priorizar_conhecidas: bool = True,
+    condominio_id: UUID | None = Query(None),
     ai_service: DiaristAIService = Depends(get_ai_service),
     _: dict = Depends(get_current_user),
-) -> DiaristSuggestionResponse:
+) -> list[DiaristSuggestionResponse]:
     """Sugere diaristas para uma data usando IA."""
     return await ai_service.suggest_diarists(
         data=data,
         tipo=tipo,
         duracao_horas=duracao_horas,
         priorizar_conhecidas=priorizar_conhecidas,
+        condominio_id=condominio_id,
     )
 
 
-@router.get("/ai/availability", response_model=DiaristAvailabilityResponse)
+@router.get("/ai/availability", response_model=list[DiaristAvailabilityResponse])
 async def analyze_availability(
     data_inicio: date,
     data_fim: date,
     tipo: DiaristType | None = None,
+    condominio_id: UUID | None = Query(None),
     ai_service: DiaristAIService = Depends(get_ai_service),
     _: dict = Depends(get_current_user),
-) -> DiaristAvailabilityResponse:
+) -> list[DiaristAvailabilityResponse]:
     """Analisa disponibilidade de diaristas em um período."""
     return await ai_service.analyze_availability(
         data_inicio=data_inicio,
         data_fim=data_fim,
         tipo=tipo,
+        condominio_id=condominio_id,
     )
 
 
@@ -816,14 +820,16 @@ async def optimize_schedule(
     data_inicio: date,
     data_fim: date,
     budget: Decimal | None = None,
+    condominio_id: UUID | None = Query(None),
     ai_service: DiaristAIService = Depends(get_ai_service),
     _: dict = Depends(get_current_user),
 ) -> ScheduleOptimizationResponse:
-    """Otimiza agendamentos do condomínio usando IA."""
+    """Otimiza agendamentos usando IA (condominio_id opcional = todos)."""
     return await ai_service.optimize_schedule(
         data_inicio=data_inicio,
         data_fim=data_fim,
         budget=budget,
+        condominio_id=condominio_id,
     )
 
 

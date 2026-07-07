@@ -554,10 +554,14 @@ class DiaristRepository:
         concluidos = sum(1 for s in schedules if s.status == ScheduleStatus.CONCLUIDO)
         cancelados = sum(1 for s in schedules if s.status == ScheduleStatus.CANCELADO)
 
-        # Horas trabalhadas
+        # Horas trabalhadas — DiaristSchedule NÃO tem coluna/atributo
+        # horas_trabalhadas; o real é a property duracao_minutos
+        # (checkin_real/checkout_real). Sem check-in/out registrado → 0.
         horas_trabalhadas = sum(
-            s.horas_trabalhadas or Decimal("0") for s in schedules if s.status == ScheduleStatus.CONCLUIDO
-        )
+            (Decimal(s.duracao_minutos) / Decimal(60))
+            for s in schedules
+            if s.status == ScheduleStatus.CONCLUIDO and s.duracao_minutos is not None
+        ) or Decimal("0")
 
         # Taxa de pontualidade
         pontuais = sum(1 for s in schedules if s.teve_checkin)
@@ -599,12 +603,20 @@ class DiaristRepository:
         if not data_fim:
             data_fim = date.today()
 
-        # Total de diaristas ativas
-        diaristas_query = select(func.count(func.distinct(DiaristAssignment.diarist_id))).where(
-            DiaristAssignment.ativo.is_(True)
-        )
+        # Total de diaristas ativas.
+        # Sem condominio_id (visão geral), contar direto na tabela diarists —
+        # contar via diarist_assignments (tabela sem vínculos ativos) dava
+        # total_diaristas=0 com 5 diaristas ativas reais no banco.
         if condominio_id:
-            diaristas_query = diaristas_query.where(DiaristAssignment.condominio_id == condominio_id)
+            diaristas_query = select(func.count(func.distinct(DiaristAssignment.diarist_id))).where(
+                DiaristAssignment.ativo.is_(True),
+                DiaristAssignment.condominio_id == condominio_id,
+            )
+        else:
+            diaristas_query = select(func.count(Diarist.id)).where(
+                Diarist.ativo.is_(True),
+                Diarist.status == DiaristStatus.ATIVO.value,
+            )
         diaristas_result = await self.db.execute(diaristas_query)
         total_diaristas = diaristas_result.scalar() or 0
 

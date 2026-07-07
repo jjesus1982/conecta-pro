@@ -40,6 +40,7 @@ class KPITrendsResponse(BaseModel):
     period: str
     days: int
     data: KPITrendsData
+    nota: str | None = None
 
 
 @router.get("", response_model=KPITrendsResponse)
@@ -85,18 +86,23 @@ async def get_kpi_trends(  # pylint: disable=too-many-locals
             postos_count = result.scalar() or 0
             postos_ativos.append(int(postos_count))
 
-            # Colaboradores ativos
+            # Colaboradores ativos — status='ativo' (a flag is_active está
+            # inconsistente no banco: inclui demitidos e tem NULL em ativos)
             result = await db.execute(
                 select(func.count(Employee.id))
-                .where(Employee.is_active.is_(True))
+                .where(Employee.status == "ativo")
                 .where(Employee.created_at <= current_date)
             )
             colab_count = result.scalar() or 0
             colaboradores_ativos.append(int(colab_count))
 
-            # Escalas em andamento
+            # Escalas em andamento — 'active' NÃO é status válido de scales
+            # (valores reais: draft, pending_approval, approved, published,
+            # in_progress, completed, cancelled). Mesmo mapeamento do dashboard.
             result = await db.execute(
-                select(func.count(Scale.id)).where(Scale.status == "active").where(Scale.created_at <= current_date)
+                select(func.count(Scale.id))
+                .where(Scale.status.in_(["approved", "published", "in_progress"]))
+                .where(Scale.created_at <= current_date)
             )
             escalas_count = result.scalar() or 0
             escalas_em_andamento.append(int(escalas_count))
@@ -145,6 +151,11 @@ async def get_kpi_trends(  # pylint: disable=too-many-locals
                 escalas_em_andamento=escalas_em_andamento,
                 ocorrencias_mes=ocorrencias_mes,
                 cobertura_percentual=cobertura_percentual,
+            ),
+            nota=(
+                "Séries de postos/colaboradores/escalas/cobertura são snapshot atual "
+                "retroprojetado (filtro created_at <= dia — não há histórico diário no banco); "
+                "apenas ocorrencias_mes é série histórica real."
             ),
         )
 
@@ -200,7 +211,7 @@ async def get_performance_scores(
                             0
                         ) AS recent_occurrences
                     FROM employees e
-                    WHERE e.is_active = true
+                    WHERE e.status = 'ativo'
                 )
                 SELECT
                     id,
@@ -276,7 +287,9 @@ async def get_coverage_prediction(_user: CurrentActiveUser, db: AsyncSession = D
 
     total = (await db.execute(text("SELECT count(*) FROM posts"))).scalar() or 0
     cobertos = (
-        await db.execute(text("SELECT count(DISTINCT post_id) FROM allocations WHERE status='active'"))
+        await db.execute(
+            text("SELECT count(DISTINCT post_id) FROM allocations WHERE status='active' AND is_active = true")
+        )
     ).scalar() or 0
     cobertura = round((cobertos / total * 100) if total else 0.0, 1)
     nivel = "baixo" if cobertura >= 90 else "medio" if cobertura >= 70 else "alto"

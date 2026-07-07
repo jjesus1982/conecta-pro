@@ -145,6 +145,18 @@ export default function OperacionalPage() {
 
   const monthlyHours = scaleStats?.total_hours || 0;
 
+  // Delta REAL da cobertura no período (último − primeiro ponto da série de trends).
+  // Sem série suficiente → sem tendência (nada de percentual inventado).
+  const coverageSeries = trendsData?.cobertura_percentual;
+  const coverageFirst = Array.isArray(coverageSeries) ? coverageSeries[0] : undefined;
+  const coverageLast = Array.isArray(coverageSeries)
+    ? coverageSeries[coverageSeries.length - 1]
+    : undefined;
+  const coverageChange =
+    typeof coverageFirst === 'number' && typeof coverageLast === 'number' && coverageSeries!.length >= 2
+      ? Math.round((coverageLast - coverageFirst) * 10) / 10
+      : undefined;
+
   const pendingOccurrences = occurrenceStats?.pending_resolution || 0;
 
   const activeScales = scaleStats?.by_status?.in_progress || 0;
@@ -287,8 +299,14 @@ export default function OperacionalPage() {
               <KPIWidget
                 title="Cobertura de Postos"
                 value={`${coverageRate}%`}
-                change={5}
-                changeType={coverageRate >= 80 ? 'positive' : 'negative'}
+                change={coverageChange}
+                changeType={
+                  coverageChange === undefined || coverageChange === 0
+                    ? 'neutral'
+                    : coverageChange > 0
+                    ? 'positive'
+                    : 'negative'
+                }
                 icon={Activity}
                 iconColor={
                   coverageRate >= 90

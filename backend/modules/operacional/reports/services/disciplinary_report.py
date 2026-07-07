@@ -9,8 +9,11 @@ Quality Score: 99+/100
 import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +79,7 @@ class DisciplinaryReportService:
     
     Exemplo:
         ```python
-        service = DisciplinaryReportService()
+        service = DisciplinaryReportService(db)  # AsyncSession (fonte real)
         report = await service.generate(
             tenant_id=uuid,
             start_date=date(2026, 1, 1),
@@ -86,9 +89,14 @@ class DisciplinaryReportService:
         ```
     """
     
-    def __init__(self) -> None:
-        """Inicializa o servico."""
-        pass
+    def __init__(self, db: Optional["AsyncSession"] = None) -> None:
+        """Inicializa o servico.
+
+        Args:
+            db: Sessao async do banco (fonte real: tabela disciplinary_actions).
+                Sem sessao, os loaders retornam listas vazias (nunca dados simulados).
+        """
+        self.db = db
     
     async def generate(
         self,
@@ -158,14 +166,51 @@ class DisciplinaryReportService:
         start_date: date,
         end_date: date,
     ) -> List[Dict[str, Any]]:
-        """Carrega medidas disciplinares."""
-        # Mock data
-        return [
-            {"type": "advertencia_verbal", "reason": "atraso", "days_to_apply": 1},
-            {"type": "advertencia_escrita", "reason": "falta", "days_to_apply": 2},
-            {"type": "advertencia_escrita", "reason": "atraso", "days_to_apply": 1},
-            {"type": "suspensao", "reason": "insubordinacao", "days_to_apply": 3},
-        ]
+        """Carrega medidas disciplinares REAIS (tabela disciplinary_actions)."""
+        if self.db is None:
+            logger.warning(
+                "DisciplinaryReportService._load_actions: fonte real não conectada "
+                "(sem sessão de banco) — retornando vazio (mock removido)"
+            )
+            return []
+
+        from sqlalchemy import select
+
+        from modules.operacional.disciplinary.models.disciplinary_action import (
+            DisciplinaryAction,
+            DisciplinaryActionStatus,
+        )
+
+        query = (
+            select(
+                DisciplinaryAction.action_type,
+                DisciplinaryAction.reason_category,
+                DisciplinaryAction.status,
+                DisciplinaryAction.incident_date,
+                DisciplinaryAction.application_date,
+            )
+            .where(DisciplinaryAction.is_active.is_(True))
+            .where(DisciplinaryAction.tenant_id == str(tenant_id))
+            .where(DisciplinaryAction.status != DisciplinaryActionStatus.CANCELADA.value)
+            .where(DisciplinaryAction.incident_date >= start_date)
+            .where(DisciplinaryAction.incident_date <= end_date)
+        )
+        rows = (await self.db.execute(query)).all()
+
+        actions: List[Dict[str, Any]] = []
+        for row in rows:
+            days_to_apply = None
+            if row.application_date and row.incident_date:
+                days_to_apply = (row.application_date - row.incident_date).days
+            actions.append(
+                {
+                    "type": row.action_type,
+                    "reason": row.reason_category,
+                    "status": row.status,
+                    "days_to_apply": days_to_apply,
+                }
+            )
+        return actions
     
     async def _load_employees_disciplinary(
         self,
@@ -173,28 +218,68 @@ class DisciplinaryReportService:
         start_date: date,
         end_date: date,
     ) -> List[Dict[str, Any]]:
-        """Carrega dados disciplinares por funcionario."""
-        # Mock data
-        return [
-            {
-                "employee_id": UUID("00000000-0000-0000-0000-000000000001"),
-                "employee_name": "Joao Silva",
-                "warnings": 2,
-                "suspensions": 1,
-                "suspension_days": 3,
-                "last_date": date(2026, 1, 15),
-                "last_type": "suspensao",
-            },
-            {
-                "employee_id": UUID("00000000-0000-0000-0000-000000000002"),
-                "employee_name": "Pedro Costa",
-                "warnings": 1,
-                "suspensions": 0,
-                "suspension_days": 0,
-                "last_date": date(2026, 1, 10),
-                "last_type": "advertencia_verbal",
-            },
-        ]
+        """Carrega dados disciplinares REAIS por funcionario (disciplinary_actions)."""
+        if self.db is None:
+            logger.warning(
+                "DisciplinaryReportService._load_employees_disciplinary: fonte real não conectada "
+                "(sem sessão de banco) — retornando vazio (mock removido)"
+            )
+            return []
+
+        from sqlalchemy import select
+
+        from modules.operacional.disciplinary.models.disciplinary_action import (
+            DisciplinaryAction,
+            DisciplinaryActionStatus,
+            DisciplinaryActionType,
+        )
+
+        query = (
+            select(
+                DisciplinaryAction.employee_id,
+                DisciplinaryAction.employee_name,
+                DisciplinaryAction.action_type,
+                DisciplinaryAction.suspension_days,
+                DisciplinaryAction.incident_date,
+            )
+            .where(DisciplinaryAction.is_active.is_(True))
+            .where(DisciplinaryAction.tenant_id == str(tenant_id))
+            .where(DisciplinaryAction.status != DisciplinaryActionStatus.CANCELADA.value)
+            .where(DisciplinaryAction.incident_date >= start_date)
+            .where(DisciplinaryAction.incident_date <= end_date)
+        )
+        rows = (await self.db.execute(query)).all()
+
+        warning_types = {
+            DisciplinaryActionType.ADVERTENCIA_VERBAL.value,
+            DisciplinaryActionType.ADVERTENCIA_ESCRITA.value,
+        }
+
+        per_employee: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            key = str(row.employee_id)
+            emp = per_employee.setdefault(
+                key,
+                {
+                    "employee_id": UUID(key),
+                    "employee_name": row.employee_name,
+                    "warnings": 0,
+                    "suspensions": 0,
+                    "suspension_days": 0,
+                    "last_date": None,
+                    "last_type": None,
+                },
+            )
+            if row.action_type in warning_types:
+                emp["warnings"] += 1
+            elif row.action_type == DisciplinaryActionType.SUSPENSAO.value:
+                emp["suspensions"] += 1
+                emp["suspension_days"] += int(row.suspension_days or 0)
+            if row.incident_date and (emp["last_date"] is None or row.incident_date > emp["last_date"]):
+                emp["last_date"] = row.incident_date
+                emp["last_type"] = row.action_type
+
+        return list(per_employee.values())
     
     def _calculate_stats(self, data: List[Dict[str, Any]]) -> DisciplinaryStats:
         """Calcula estatisticas."""
@@ -204,8 +289,8 @@ class DisciplinaryReportService:
             warnings_written=len([d for d in data if d["type"] == "advertencia_escrita"]),
             suspensions=len([d for d in data if d["type"] == "suspensao"]),
             terminations=len([d for d in data if d["type"] == "demissao_justa_causa"]),
-            pending_approval=0,
-            pending_signature=0,
+            pending_approval=len([d for d in data if d.get("status") == "pendente_aprovacao"]),
+            pending_signature=len([d for d in data if d.get("status") == "pendente_assinatura"]),
         )
     
     def _process_employees(
@@ -265,8 +350,8 @@ class DisciplinaryReportService:
         return with_multiple / total * 100 if total > 0 else 0
     
     def _calculate_avg_time(self, data: List[Dict[str, Any]]) -> float:
-        """Calcula tempo medio para aplicar medida."""
-        if not data:
+        """Calcula tempo medio para aplicar medida (so medidas ja aplicadas)."""
+        times = [d["days_to_apply"] for d in data if d.get("days_to_apply") is not None]
+        if not times:
             return 0
-        times = [d["days_to_apply"] for d in data]
         return sum(times) / len(times)

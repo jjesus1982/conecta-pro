@@ -16,7 +16,8 @@ from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -288,7 +289,7 @@ Dúvidas? Fale com o suporte.""",
 class NotificacaoService:
     """Serviço de notificações para diaristas."""
 
-    def __init__(self, db: Session):
+    def __init__(self, db: AsyncSession):
         self.db = db
         self._notificacoes_enviadas: list[dict] = []  # Cache em memória
 
@@ -296,7 +297,7 @@ class NotificacaoService:
     # CRIAÇÃO E ENVIO DE NOTIFICAÇÕES
     # =========================================================================
 
-    def criar_notificacao(
+    async def criar_notificacao(
         self,
         diarist_id: UUID,
         tipo: TipoNotificacao,
@@ -324,15 +325,16 @@ class NotificacaoService:
         # Buscar diarista
         from modules.operacional.diaristas.models import Diarist
 
-        diarista = self.db.query(Diarist).filter(Diarist.id == diarist_id).first()
+        result = await self.db.execute(select(Diarist).where(Diarist.id == diarist_id))
+        diarista = result.scalar_one_or_none()
 
         if not diarista:
             raise ValueError(f"Diarista {diarist_id} não encontrado")
 
         # Preparar dados base
         dados = dados or {}
-        dados["nome"] = diarista.full_name or diarista.first_name
-        dados["telefone"] = diarista.phone
+        dados["nome"] = diarista.nome
+        dados["telefone"] = diarista.telefone
 
         # Obter template ou usar mensagem custom
         if mensagem_custom:
@@ -385,9 +387,9 @@ class NotificacaoService:
 
         try:
             if canal == CanalNotificacao.WHATSAPP:
-                self._enviar_whatsapp(diarista.phone, mensagem)
+                self._enviar_whatsapp(diarista.telefone, mensagem)
             elif canal == CanalNotificacao.SMS:
-                self._enviar_sms(diarista.phone, mensagem)
+                self._enviar_sms(diarista.telefone, mensagem)
             elif canal == CanalNotificacao.EMAIL:
                 self._enviar_email(diarista.email, titulo, mensagem)
             elif canal == CanalNotificacao.PUSH:
@@ -521,7 +523,7 @@ class NotificacaoService:
     # NOTIFICAÇÕES AUTOMÁTICAS
     # =========================================================================
 
-    def enviar_confirmacao_agendamento(
+    async def enviar_confirmacao_agendamento(
         self,
         diarist_id: UUID,
         schedule_id: UUID,
@@ -529,57 +531,62 @@ class NotificacaoService:
         """Envia confirmação de novo agendamento."""
         from modules.operacional.diaristas.models import DiaristSchedule
 
-        schedule = self.db.query(DiaristSchedule).filter(DiaristSchedule.id == schedule_id).first()
+        result = await self.db.execute(select(DiaristSchedule).where(DiaristSchedule.id == schedule_id))
+        schedule = result.scalar_one_or_none()
 
         if not schedule:
             raise ValueError(f"Schedule {schedule_id} não encontrado")
 
         dados = {
-            "local": schedule.location or "A confirmar",
-            "data": schedule.date.strftime("%d/%m/%Y"),
-            "horario_inicio": schedule.scheduled_start.strftime("%H:%M") if schedule.scheduled_start else "A confirmar",
-            "horario_fim": schedule.scheduled_end.strftime("%H:%M") if schedule.scheduled_end else "A confirmar",
-            "valor": f"{schedule.agreed_rate or 0:.2f}",
-            "observacoes": schedule.notes or "Nenhuma observação",
+            "local": "A confirmar",  # tabela diarist_schedules não tem campo de local
+            "data": schedule.data_trabalho.strftime("%d/%m/%Y"),
+            "horario_inicio": schedule.hora_inicio.strftime("%H:%M") if schedule.hora_inicio else "A confirmar",
+            "horario_fim": schedule.hora_fim.strftime("%H:%M") if schedule.hora_fim else "A confirmar",
+            "valor": f"{schedule.valor_previsto or 0:.2f}",
+            "observacoes": schedule.observacoes or "Nenhuma observação",
         }
 
-        return self.criar_notificacao(
+        return await self.criar_notificacao(
             diarist_id=diarist_id,
             tipo=TipoNotificacao.CONFIRMACAO_AGENDAMENTO,
             dados=dados,
         )
 
-    def enviar_lembrete_24h(self, diarist_id: UUID, schedule_id: UUID) -> dict[str, Any]:
+    async def enviar_lembrete_24h(self, diarist_id: UUID, schedule_id: UUID) -> dict[str, Any]:
         """Envia lembrete 24h antes do serviço."""
         from modules.operacional.diaristas.models import DiaristAssignment, DiaristSchedule
 
-        schedule = self.db.query(DiaristSchedule).filter(DiaristSchedule.id == schedule_id).first()
+        result = await self.db.execute(select(DiaristSchedule).where(DiaristSchedule.id == schedule_id))
+        schedule = result.scalar_one_or_none()
 
         if not schedule:
             raise ValueError(f"Schedule {schedule_id} não encontrado")
 
-        # Buscar assignment para obter dados do cliente
-        assignment = (
-            self.db.query(DiaristAssignment).filter(DiaristAssignment.id == schedule.assignment_id).first()
-            if schedule.assignment_id
-            else None
-        )
+        # Buscar assignment para obter dados do serviço
+        assignment = None
+        if schedule.assignment_id:
+            assignment_result = await self.db.execute(
+                select(DiaristAssignment).where(DiaristAssignment.id == schedule.assignment_id)
+            )
+            assignment = assignment_result.scalar_one_or_none()
 
         dados = {
-            "local": schedule.location or "A confirmar",
-            "data": schedule.date.strftime("%d/%m/%Y"),
-            "horario_inicio": schedule.scheduled_start.strftime("%H:%M") if schedule.scheduled_start else "A confirmar",
-            "cliente": assignment.client_name if assignment else "Cliente",
-            "endereco": assignment.location if assignment else schedule.location or "A confirmar",
+            # diarist_schedules/diarist_assignments não têm campo de local/endereço;
+            # usar a descrição do assignment quando houver, sem fabricar dado
+            "local": (assignment.descricao if assignment and assignment.descricao else "A confirmar"),
+            "data": schedule.data_trabalho.strftime("%d/%m/%Y"),
+            "horario_inicio": schedule.hora_inicio.strftime("%H:%M") if schedule.hora_inicio else "A confirmar",
+            "cliente": "Cliente",
+            "endereco": "A confirmar",
         }
 
-        return self.criar_notificacao(
+        return await self.criar_notificacao(
             diarist_id=diarist_id,
             tipo=TipoNotificacao.LEMBRETE_24H,
             dados=dados,
         )
 
-    def enviar_alerta_atraso(
+    async def enviar_alerta_atraso(
         self,
         diarist_id: UUID,
         schedule_id: UUID,
@@ -588,24 +595,25 @@ class NotificacaoService:
         """Envia alerta quando diarista está atrasado."""
         from modules.operacional.diaristas.models import DiaristSchedule
 
-        schedule = self.db.query(DiaristSchedule).filter(DiaristSchedule.id == schedule_id).first()
+        result = await self.db.execute(select(DiaristSchedule).where(DiaristSchedule.id == schedule_id))
+        schedule = result.scalar_one_or_none()
 
         if not schedule:
             raise ValueError(f"Schedule {schedule_id} não encontrado")
 
         dados = {
-            "local": schedule.location or "Local do serviço",
-            "horario_inicio": schedule.scheduled_start.strftime("%H:%M") if schedule.scheduled_start else "Horário",
+            "local": "Local do serviço",  # tabela diarist_schedules não tem campo de local
+            "horario_inicio": schedule.hora_inicio.strftime("%H:%M") if schedule.hora_inicio else "Horário",
             "telefone_cliente": telefone_cliente or "Não informado",
         }
 
-        return self.criar_notificacao(
+        return await self.criar_notificacao(
             diarist_id=diarist_id,
             tipo=TipoNotificacao.ALERTA_ATRASO,
             dados=dados,
         )
 
-    def enviar_notificacao_pagamento(
+    async def enviar_notificacao_pagamento(
         self,
         diarist_id: UUID,
         payment_id: UUID,
@@ -614,32 +622,40 @@ class NotificacaoService:
         """Envia notificação de pagamento."""
         from modules.operacional.diaristas.models import DiaristPayment
 
-        payment = self.db.query(DiaristPayment).filter(DiaristPayment.id == payment_id).first()
+        result = await self.db.execute(select(DiaristPayment).where(DiaristPayment.id == payment_id))
+        payment = result.scalar_one_or_none()
 
         if not payment:
             raise ValueError(f"Payment {payment_id} não encontrado")
 
         if tipo == TipoNotificacao.PAGAMENTO_APROVADO:
+            total_descontos = (
+                float(payment.retencao_inss or 0)
+                + float(payment.retencao_iss or 0)
+                + float(payment.retencao_irrf or 0)
+                + float(payment.outros_descontos or 0)
+            )
             dados = {
-                "periodo": f"{payment.period_start.strftime('%d/%m')} a {payment.period_end.strftime('%d/%m/%Y')}",
-                "valor": f"{payment.gross_amount:.2f}",
-                "forma_pagamento": payment.payment_method or "Transferência",
-                "qtd_servicos": payment.schedules_count or 0,
-                "horas": f"{payment.total_hours:.1f}h" if payment.total_hours else "0h",
-                "descontos": f"{payment.deductions:.2f}" if payment.deductions else "0.00",
+                "periodo": payment.data_referencia.strftime("%d/%m/%Y") if payment.data_referencia else "Não informado",
+                "valor": f"{payment.valor_bruto or 0:.2f}",
+                "forma_pagamento": payment.forma_pagamento or "Transferência",
+                "qtd_servicos": len(payment.schedules_ids or []),
+                # tabela diarist_payments não registra horas trabalhadas
+                "horas": "não informado",
+                "descontos": f"{total_descontos:.2f}",
             }
         else:  # PAGAMENTO_REALIZADO
             dados = {
-                "valor": f"{payment.net_amount:.2f}",
-                "data_pagamento": payment.paid_at.strftime("%d/%m/%Y")
-                if payment.paid_at
+                "valor": f"{payment.valor_liquido or 0:.2f}",
+                "data_pagamento": payment.data_pagamento.strftime("%d/%m/%Y")
+                if payment.data_pagamento
                 else date.today().strftime("%d/%m/%Y"),
-                "detalhes_bancarios": f"PIX: {payment.pix_key}"
-                if hasattr(payment, "pix_key") and payment.pix_key
+                "detalhes_bancarios": f"Forma: {payment.forma_pagamento}"
+                if payment.forma_pagamento
                 else "Via banco cadastrado",
             }
 
-        return self.criar_notificacao(
+        return await self.criar_notificacao(
             diarist_id=diarist_id,
             tipo=tipo,
             dados=dados,
@@ -649,7 +665,7 @@ class NotificacaoService:
     # PROCESSAMENTO EM LOTE
     # =========================================================================
 
-    def processar_lembretes_24h(self) -> list[dict[str, Any]]:
+    async def processar_lembretes_24h(self) -> list[dict[str, Any]]:
         """
         Processa lembretes 24h para todos os agendamentos de amanhã.
 
@@ -659,19 +675,19 @@ class NotificacaoService:
 
         amanha = date.today() + timedelta(days=1)
 
-        schedules = (
-            self.db.query(DiaristSchedule)
-            .filter(
-                DiaristSchedule.date == amanha,
-                DiaristSchedule.status.in_(["scheduled", "confirmed"]),
+        result = await self.db.execute(
+            select(DiaristSchedule).where(
+                DiaristSchedule.data_trabalho == amanha,
+                # ENUM PostgreSQL schedule_status usa valores uppercase
+                DiaristSchedule.status.in_(["AGENDADO", "CONFIRMADO"]),
             )
-            .all()
         )
+        schedules = list(result.scalars().all())
 
         resultados = []
         for schedule in schedules:
             try:
-                resultado = self.enviar_lembrete_24h(
+                resultado = await self.enviar_lembrete_24h(
                     diarist_id=schedule.diarist_id,
                     schedule_id=schedule.id,
                 )
@@ -689,7 +705,7 @@ class NotificacaoService:
         logger.info(f"Processados {len(resultados)} lembretes 24h para {amanha}")
         return resultados
 
-    def verificar_atrasos(self, tolerancia_minutos: int = 15) -> list[dict[str, Any]]:
+    async def verificar_atrasos(self, tolerancia_minutos: int = 15) -> list[dict[str, Any]]:
         """
         Verifica diaristas atrasados e envia alertas.
 
@@ -702,26 +718,26 @@ class NotificacaoService:
         hora_atual = agora.time()
 
         # Buscar schedules de hoje sem check-in e com horário já passado
-        schedules = (
-            self.db.query(DiaristSchedule)
-            .filter(
-                DiaristSchedule.date == hoje,
-                DiaristSchedule.status == "confirmed",
-                DiaristSchedule.actual_check_in.is_(None),
-                DiaristSchedule.scheduled_start <= hora_atual,
+        result = await self.db.execute(
+            select(DiaristSchedule).where(
+                DiaristSchedule.data_trabalho == hoje,
+                # ENUM PostgreSQL schedule_status usa valores uppercase
+                DiaristSchedule.status == "CONFIRMADO",
+                DiaristSchedule.checkin_real.is_(None),
+                DiaristSchedule.hora_inicio <= hora_atual,
             )
-            .all()
         )
+        schedules = list(result.scalars().all())
 
         resultados = []
         for schedule in schedules:
             # Calcular atraso
-            horario_inicio = datetime.combine(hoje, schedule.scheduled_start)
+            horario_inicio = datetime.combine(hoje, schedule.hora_inicio)
             atraso_minutos = (agora - horario_inicio).total_seconds() / 60
 
             if atraso_minutos >= tolerancia_minutos:
                 try:
-                    resultado = self.enviar_alerta_atraso(
+                    resultado = await self.enviar_alerta_atraso(
                         diarist_id=schedule.diarist_id,
                         schedule_id=schedule.id,
                     )
@@ -800,6 +816,6 @@ class NotificacaoService:
 
 
 # Singleton
-def get_notificacao_service(db: Session) -> NotificacaoService:
+def get_notificacao_service(db: AsyncSession) -> NotificacaoService:
     """Factory function para obter instância do serviço."""
     return NotificacaoService(db)

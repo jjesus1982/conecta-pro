@@ -57,12 +57,6 @@ const getStatusIcon = (status: AnnouncementStatus) => {
   }
 };
 
-// Helper para contagem de leituras deterministica por ID
-const getReadCount = (id: string) => {
-  const seed = id.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
-  return seed % 40;
-};
-
 // Templates rapidos de comunicado
 const ANNOUNCEMENT_TEMPLATES = [
   { id: 't1', title: 'Escala Extra — Feriado', body: 'Informamos que havera escala extra no proximo feriado. Todos os colaboradores escalados devem confirmar presenca ate [DATA].', category: 'operacional', priority: 'alta' },
@@ -189,22 +183,17 @@ export default function ComunicadosPage() {
     setShowDeleteModal(true);
   };
 
-  const handleConfirmRead = async (id: string) => {
-    try {
-      await api.post(`/api/v1/operacional/comunicacao/comunicados/${id}/confirmar-leitura`);
-      refresh();
-    } catch {
-      // Silently fail — endpoint may not be implemented yet
-    }
-  };
-
+  // Endpoint real de confirmação de leitura (announcement_controller: POST /comunicados/{id}/confirmar).
+  // O body AnnouncementAcknowledgeRequest é obrigatório (campos opcionais) — enviar {}.
   const handleMarkAsRead = async (id: string) => {
     try {
-      await api.post(`/api/v1/operacional/comunicados/announcements/${id}/read`);
-    } catch {
-      // Silently fail — optimistic update below
+      await api.post(`/api/v1/operacional/comunicacao/comunicados/${id}/confirmar`, {});
+      setReadIds(prev => new Set([...prev, id]));
+      refresh();
+    } catch (err) {
+      // Não marca como lido se a API falhou — sem atualização otimista dissimulada
+      console.error('Erro ao confirmar leitura do comunicado:', err);
     }
-    setReadIds(prev => new Set([...prev, id]));
   };
 
   const formatDate = (dateStr: string) => {
@@ -505,8 +494,10 @@ export default function ComunicadosPage() {
                               <div className="flex items-center gap-1">
                                 <CheckCircle className="w-3 h-3 text-green-500" />
                                 <span className="text-xs text-[hsl(var(--muted-foreground))]">
-                                  {announcement.read_count ?? getReadCount(announcement.id)}/
-                                  {(announcement as any).target_count ?? 44}
+                                  {announcement.read_count ?? 0}
+                                  {(announcement as any).target_count != null
+                                    ? `/${(announcement as any).target_count}`
+                                    : ' leituras'}
                                 </span>
                               </div>
                             )}

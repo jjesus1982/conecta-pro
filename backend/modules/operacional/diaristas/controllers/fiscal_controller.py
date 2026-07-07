@@ -15,7 +15,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
@@ -117,7 +118,7 @@ class RelatorioRetencoesResponse(BaseModel):
 async def calcular_retencoes(
     request: CalculoRetencoesRequest,
     current_user: CurrentActiveUser,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Calcula todas as retenções fiscais para um valor.
@@ -132,7 +133,7 @@ async def calcular_retencoes(
     service = get_fiscal_service(db)
 
     try:
-        resultado = service.calcular_todas_retencoes(
+        resultado = await service.calcular_todas_retencoes(
             valor_bruto=request.valor_bruto,
             dependentes=request.dependentes,
             aliquota_iss=request.aliquota_iss,
@@ -161,6 +162,8 @@ async def calcular_retencoes(
             "valor_liquido": float(resultado["valor_liquido"]),
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao calcular retenções: {str(e)}"
@@ -175,12 +178,12 @@ async def simular_retencoes(
     current_user: CurrentActiveUser,
     dependentes: int = Query(0, ge=0),
     aliquota_iss: Decimal | None = Query(None),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Simulação rápida de retenções."""
     service = get_fiscal_service(db)
 
-    resultado = service.calcular_todas_retencoes(
+    resultado = await service.calcular_todas_retencoes(
         valor_bruto=valor_bruto,
         dependentes=dependentes,
         aliquota_iss=aliquota_iss,
@@ -213,7 +216,7 @@ async def simular_retencoes(
 async def gerar_rpa(
     request: GerarRPARequest,
     current_user: CurrentActiveUser,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Gera RPA (Recibo de Pagamento Autônomo) para um diarista.
@@ -224,7 +227,7 @@ async def gerar_rpa(
     service = get_fiscal_service(db)
 
     try:
-        documento = service.gerar_rpa(
+        documento = await service.gerar_rpa(
             diarist_id=request.diarist_id,
             payment_id=request.payment_id,
             valor_bruto=request.valor_bruto,
@@ -255,6 +258,8 @@ async def gerar_rpa(
 
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao gerar RPA: {str(e)}")
 
@@ -272,13 +277,13 @@ async def listar_documentos(
     competencia: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
     status_filter: StatusDocumentoFiscal | None = Query(None, alias="status"),
     limit: int = Query(50, ge=1, le=200),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Lista documentos fiscais."""
     service = get_fiscal_service(db)
 
     try:
-        documentos = service.listar_documentos(
+        documentos = await service.listar_documentos(
             diarist_id=diarist_id,
             tipo=tipo,
             competencia=competencia,
@@ -305,6 +310,8 @@ async def listar_documentos(
             for doc in documentos
         ]
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao listar documentos: {str(e)}"
@@ -317,12 +324,13 @@ async def listar_documentos(
 async def get_documento(
     documento_id: UUID,
     current_user: CurrentActiveUser,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Retorna detalhes de um documento fiscal."""
     from modules.operacional.diaristas.models.documento_fiscal import DocumentoFiscal
 
-    documento = db.query(DocumentoFiscal).filter(DocumentoFiscal.id == documento_id).first()
+    result = await db.execute(select(DocumentoFiscal).where(DocumentoFiscal.id == documento_id))
+    documento = result.scalar_one_or_none()
 
     if not documento:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Documento não encontrado")
@@ -396,7 +404,7 @@ async def relatorio_retencoes(
     data_inicio: date = Query(..., description="Data inicial"),
     data_fim: date = Query(..., description="Data final"),
     diarist_id: UUID | None = Query(None),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Gera relatório de retenções por período.
@@ -414,13 +422,15 @@ async def relatorio_retencoes(
     service = get_fiscal_service(db)
 
     try:
-        relatorio = service.relatorio_retencoes_periodo(
+        relatorio = await service.relatorio_retencoes_periodo(
             data_inicio=data_inicio,
             data_fim=data_fim,
             diarist_id=diarist_id,
         )
         return relatorio
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao gerar relatório: {str(e)}"
@@ -436,24 +446,22 @@ async def relatorio_diarista(
     diarist_id: UUID,
     current_user: CurrentActiveUser,
     ano: int = Query(..., ge=2020, le=2030),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Relatório fiscal consolidado de um diarista para um ano."""
-    get_fiscal_service(db)
-
     from modules.operacional.diaristas.models.documento_fiscal import DocumentoFiscal
 
     # Buscar todos os documentos do ano
-    documentos = (
-        db.query(DocumentoFiscal)
-        .filter(
+    result = await db.execute(
+        select(DocumentoFiscal)
+        .where(
             DocumentoFiscal.diarist_id == diarist_id,
             DocumentoFiscal.is_active,
             DocumentoFiscal.competencia.like(f"{ano}-%"),
         )
         .order_by(DocumentoFiscal.competencia)
-        .all()
     )
+    documentos = list(result.scalars().all())
 
     # Agrupar por mês
     por_mes = {}
@@ -521,34 +529,42 @@ async def relatorio_diarista(
 # =============================================================================
 
 
-@router.get("/tabelas/inss", summary="Tabela INSS", description="Retorna tabela INSS vigente")
-async def get_tabela_inss(current_user: CurrentActiveUser):
-    """Retorna tabela INSS vigente para contribuintes individuais."""
-    # Tabela INSS 2026 para contribuinte individual (autonomo)
+@router.get("/tabelas/inss", summary="Tabela INSS", description="Retorna tabela INSS vigente (do banco)")
+async def get_tabela_inss(
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Retorna tabela INSS vigente para contribuintes individuais (fonte: tabela_inss no banco)."""
+    service = get_fiscal_service(db)
+    tabela = await service._get_tabela_inss()  # 422 honesto se não houver vigência cadastrada
+
     return {
-        "vigencia": date.today().strftime("%Y-%m"),
+        "vigencia_inicio": tabela["vigencia_inicio"],
+        "vigencia_fim": tabela["vigencia_fim"],
         "tipo_contribuinte": "Contribuinte Individual (Autônomo)",
-        "aliquota": 11.0,
-        "teto": 8157.41,
-        "observacao": "Alíquota de 11% sobre valor até o teto para contribuinte individual",
+        "aliquota": float(tabela["aliquota_autonomo"]),
+        "teto": float(tabela["teto"]),
+        "faixas": tabela["faixas"],
+        "fonte": "banco de dados (tabela_inss)",
+        "observacao": "Alíquota sobre valor até o teto para contribuinte individual",
     }
 
 
-@router.get("/tabelas/irrf", summary="Tabela IRRF", description="Retorna tabela IRRF vigente")
-async def get_tabela_irrf(current_user: CurrentActiveUser):
-    """Retorna tabela IRRF vigente."""
-    # Tabela IRRF 2026
-    faixas = [
-        {"ate": 2259.20, "aliquota": 0, "deducao": 0},
-        {"ate": 2826.65, "aliquota": 7.5, "deducao": 169.44},
-        {"ate": 3751.05, "aliquota": 15.0, "deducao": 381.44},
-        {"ate": 4664.68, "aliquota": 22.5, "deducao": 662.77},
-        {"acima_de": 4664.68, "aliquota": 27.5, "deducao": 896.00},
-    ]
+@router.get("/tabelas/irrf", summary="Tabela IRRF", description="Retorna tabela IRRF vigente (do banco)")
+async def get_tabela_irrf(
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Retorna tabela IRRF vigente (fonte: tabela_irrf no banco)."""
+    service = get_fiscal_service(db)
+    tabela = await service._get_tabela_irrf()  # 422 honesto se não houver vigência cadastrada
+
     return {
-        "vigencia": date.today().strftime("%Y-%m"),
-        "faixas": faixas,
-        "deducao_por_dependente": 189.59,
+        "vigencia_inicio": tabela["vigencia_inicio"],
+        "vigencia_fim": tabela["vigencia_fim"],
+        "faixas": tabela["faixas"],
+        "deducao_por_dependente": float(tabela["deducao_dependente"]),
+        "fonte": "banco de dados (tabela_irrf)",
     }
 
 

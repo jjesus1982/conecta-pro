@@ -9,8 +9,11 @@ Quality Score: 99+/100
 import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +74,7 @@ class OvertimeReportService:
     
     Exemplo:
         ```python
-        service = OvertimeReportService()
+        service = OvertimeReportService(db)  # AsyncSession (fonte real)
         report = await service.generate(
             tenant_id=uuid,
             start_date=date(2026, 1, 1),
@@ -84,19 +87,22 @@ class OvertimeReportService:
     
     # Limite mensal de HE por funcionario (CLT)
     MAX_MONTHLY_OVERTIME = 60.0
-    
-    # Valores para calculo de custo
-    DEFAULT_HOURLY_RATE = 25.0
-    OVERTIME_50_MULTIPLIER = 1.5
-    OVERTIME_100_MULTIPLIER = 2.0
-    NIGHT_BONUS_MULTIPLIER = 1.2
-    
+
     def __init__(
         self,
-        hourly_rate: float = DEFAULT_HOURLY_RATE,
+        db: Optional["AsyncSession"] = None,
     ) -> None:
-        """Inicializa o servico."""
-        self.hourly_rate = hourly_rate
+        """Inicializa o servico.
+
+        Args:
+            db: Sessao async do banco (fonte real). Sem sessao,
+                os loaders retornam listas vazias (nunca dados simulados).
+
+        Nota de veracidade: os custos de HE vem dos valores REAIS lancados
+        nos turnos (shifts.overtime_pay + shifts.night_bonus) — nao ha mais
+        estimativa por taxa horaria fabricada.
+        """
+        self.db = db
     
     async def generate(
         self,
@@ -188,26 +194,65 @@ class OvertimeReportService:
         end_date: date,
         employee_ids: Optional[List[UUID]],
     ) -> List[Dict[str, Any]]:
-        """Carrega dados de HE dos funcionarios."""
-        # Mock data
-        return [
-            {
-                "employee_id": UUID("00000000-0000-0000-0000-000000000001"),
-                "employee_name": "Joao Silva",
-                "regular_hours": 176,
-                "overtime_50": 15,
-                "overtime_100": 8,
-                "night_hours": 20,
-            },
-            {
-                "employee_id": UUID("00000000-0000-0000-0000-000000000002"),
-                "employee_name": "Maria Santos",
-                "regular_hours": 176,
-                "overtime_50": 8,
-                "overtime_100": 4,
-                "night_hours": 0,
-            },
-        ]
+        """Carrega dados REAIS de HE dos funcionarios (shifts agregados)."""
+        if self.db is None:
+            logger.warning(
+                "OvertimeReportService._load_employees_overtime: fonte real não conectada "
+                "(sem sessão de banco) — retornando vazio (mock removido)"
+            )
+            return []
+
+        from sqlalchemy import case, func, or_, select
+
+        from modules.operacional.models.employee import Employee
+        from modules.operacional.models.shift import Shift
+
+        # HE 100%: feriados e domingos (dow=0 no PostgreSQL)
+        is_100 = or_(Shift.is_holiday.is_(True), func.extract("dow", Shift.shift_date) == 0)
+
+        query = (
+            select(
+                Shift.employee_id,
+                func.coalesce(func.sum(Shift.actual_hours), 0.0).label("actual_hours"),
+                func.coalesce(func.sum(case((is_100, Shift.overtime_hours), else_=0.0)), 0.0).label("overtime_100"),
+                func.coalesce(func.sum(case((is_100, 0.0), else_=Shift.overtime_hours)), 0.0).label("overtime_50"),
+                func.coalesce(func.sum(Shift.night_hours), 0.0).label("night_hours"),
+                func.coalesce(func.sum(Shift.overtime_pay + Shift.night_bonus), 0.0).label("overtime_cost"),
+            )
+            .where(Shift.is_active.is_(True))
+            .where(Shift.employee_id.isnot(None))
+            .where(Shift.shift_date >= start_date)
+            .where(Shift.shift_date <= end_date)
+            .group_by(Shift.employee_id)
+        )
+        if employee_ids:
+            query = query.where(Shift.employee_id.in_([str(e) for e in employee_ids]))
+
+        rows = list((await self.db.execute(query)).all())
+        if not rows:
+            return []
+
+        names_result = await self.db.execute(
+            select(Employee.id, Employee.nome).where(Employee.id.in_([UUID(str(r.employee_id)) for r in rows]))
+        )
+        names = {str(row.id): row.nome for row in names_result.all()}
+
+        items: List[Dict[str, Any]] = []
+        for row in rows:
+            overtime_total = float(row.overtime_50 or 0.0) + float(row.overtime_100 or 0.0)
+            regular = max(float(row.actual_hours or 0.0) - overtime_total, 0.0)
+            items.append(
+                {
+                    "employee_id": UUID(str(row.employee_id)),
+                    "employee_name": names.get(str(row.employee_id), "(funcionario nao cadastrado)"),
+                    "regular_hours": round(regular, 2),
+                    "overtime_50": float(row.overtime_50 or 0.0),
+                    "overtime_100": float(row.overtime_100 or 0.0),
+                    "night_hours": float(row.night_hours or 0.0),
+                    "overtime_cost": float(row.overtime_cost or 0.0),
+                }
+            )
+        return items
     
     async def _load_clients_overtime(
         self,
@@ -216,15 +261,56 @@ class OvertimeReportService:
         end_date: date,
         client_id: Optional[UUID],
     ) -> List[Dict[str, Any]]:
-        """Carrega dados de HE por cliente."""
-        # Mock data
+        """Carrega dados REAIS de HE por cliente (shifts x postos x clients)."""
+        if self.db is None:
+            logger.warning(
+                "OvertimeReportService._load_clients_overtime: fonte real não conectada "
+                "(sem sessão de banco) — retornando vazio (mock removido)"
+            )
+            return []
+
+        from sqlalchemy import func, select
+
+        from modules.clients.models.client import Client
+        from modules.operacional.models.post import Post
+        from modules.operacional.models.shift import Shift
+
+        query = (
+            select(
+                Post.client_id,
+                func.count(func.distinct(Shift.post_id)).label("posts_count"),
+                func.coalesce(func.sum(Shift.overtime_hours), 0.0).label("total_overtime_hours"),
+                func.coalesce(func.sum(Shift.overtime_pay + Shift.night_bonus), 0.0).label("total_overtime_cost"),
+            )
+            .select_from(Shift)
+            .join(Post, Post.id == Shift.post_id)
+            .where(Shift.is_active.is_(True))
+            .where(Shift.shift_date >= start_date)
+            .where(Shift.shift_date <= end_date)
+            .where(Post.client_id.isnot(None))
+            .group_by(Post.client_id)
+        )
+        if client_id:
+            query = query.where(Post.client_id == str(client_id))
+
+        rows = list((await self.db.execute(query)).all())
+        if not rows:
+            return []
+
+        names_result = await self.db.execute(
+            select(Client.id, Client.name).where(Client.id.in_([UUID(str(r.client_id)) for r in rows]))
+        )
+        names = {str(row.id): row.name for row in names_result.all()}
+
         return [
             {
-                "client_id": UUID("00000000-0000-0000-0000-000000000001"),
-                "client_name": "Cliente A",
-                "posts_count": 3,
-                "total_overtime_hours": 25,
-            },
+                "client_id": UUID(str(row.client_id)),
+                "client_name": names.get(str(row.client_id), "(cliente nao cadastrado)"),
+                "posts_count": int(row.posts_count or 0),
+                "total_overtime_hours": float(row.total_overtime_hours or 0.0),
+                "total_overtime_cost": float(row.total_overtime_cost or 0.0),
+            }
+            for row in rows
         ]
     
     def _process_employees(
@@ -239,12 +325,9 @@ class OvertimeReportService:
         result = []
         for emp in data:
             ot = emp["overtime_50"] + emp["overtime_100"]
-            cost = (
-                emp["overtime_50"] * self.hourly_rate * self.OVERTIME_50_MULTIPLIER +
-                emp["overtime_100"] * self.hourly_rate * self.OVERTIME_100_MULTIPLIER +
-                emp["night_hours"] * self.hourly_rate * (self.NIGHT_BONUS_MULTIPLIER - 1)
-            )
-            
+            # Custo REAL vindo dos turnos (overtime_pay + night_bonus), nunca estimado
+            cost = float(emp.get("overtime_cost", 0.0))
+
             result.append(EmployeeOvertime(
                 employee_id=emp["employee_id"],
                 employee_name=emp["employee_name"],
@@ -266,7 +349,8 @@ class OvertimeReportService:
         """Processa dados de clientes."""
         result = []
         for client in data:
-            cost = client["total_overtime_hours"] * self.hourly_rate * self.OVERTIME_50_MULTIPLIER
+            # Custo REAL vindo dos turnos (overtime_pay + night_bonus), nunca estimado
+            cost = float(client.get("total_overtime_cost", 0.0))
             result.append(ClientOvertime(
                 client_id=client["client_id"],
                 client_name=client["client_name"],

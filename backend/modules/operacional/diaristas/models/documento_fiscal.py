@@ -325,7 +325,7 @@ class TabelaINSS(Base):
 
     # Metadados
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
+    is_active = Column("is_ativo", Boolean, default=True, nullable=False)  # coluna real do banco e is_ativo
 
     def __repr__(self):
         return f"<TabelaINSS vigência {self.vigencia_inicio}>"
@@ -361,7 +361,7 @@ class TabelaIRRF(Base):
 
     # Metadados
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
+    is_active = Column("is_ativo", Boolean, default=True, nullable=False)  # coluna real do banco e is_ativo
 
     def __repr__(self):
         return f"<TabelaIRRF vigência {self.vigencia_inicio}>"

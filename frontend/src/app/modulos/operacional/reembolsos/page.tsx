@@ -170,14 +170,15 @@ export default function ReembolsosOperacionalPage() {
     setRejectReason('');
   };
 
+  // Endpoint real: POST /reimbursements/{id}/process (gera conta a pagar).
+  // Body ReimbursementProcessRequest (due_date, notes) é opcional no backend.
   const handleMarkPaid = async (id: string) => {
     try {
-      await api.post(`/api/v1/reimbursements/${id}/pay`);
+      await api.post(`/api/v1/reimbursements/${id}/process`);
       refresh();
       refreshStats();
-    } catch {
-      showToast('Funcionalidade em implementação — pagamento registrado localmente');
-      refresh();
+    } catch (err) {
+      showToast(`Erro ao processar pagamento: ${getErrorMessage(err)}`);
     }
   };
 

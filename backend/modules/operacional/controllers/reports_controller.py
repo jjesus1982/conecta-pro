@@ -191,8 +191,10 @@ async def operacional_dashboard(
     total_postos = (await db.execute(select(func.count(Post.id)))).scalar() or 0
     postos_ativos = (await db.execute(select(func.count(Post.id)).where(Post.status == "active"))).scalar() or 0
 
+    # status='ativo' (a flag is_active está inconsistente no banco:
+    # inclui demitidos/inativos/suspenso e tem NULL em ativos)
     total_colaboradores = (
-        await db.execute(select(func.count(Employee.id)).where(Employee.is_active.is_(True)))
+        await db.execute(select(func.count(Employee.id)).where(Employee.status == "ativo"))
     ).scalar() or 0
 
     alocacoes_ativas = (

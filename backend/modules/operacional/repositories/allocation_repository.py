@@ -8,6 +8,7 @@ from datetime import date, datetime
 from uuid import uuid4
 
 from sqlalchemy import and_, func, select, update
+from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.logging import logger
@@ -512,35 +513,43 @@ class AllocationRepository:
 
     async def get_available_employees(
         self,
-        shift_date: date,
+        shift_date: date | str,
         post_id: str | None = None,  # pylint: disable=unused-argument
     ) -> list[str]:
         """
         Lista funcionários disponíveis em uma data.
 
         Args:
-            shift_date: Data
+            shift_date: Data (date ou string ISO "YYYY-MM-DD")
             post_id: ID do posto (opcional, para priorizar)
 
         Returns:
             Lista de IDs de funcionários disponíveis
         """
-        # Busca alocações ativas
+        # A data pode chegar como string do query param; comparar str com
+        # coluna Date quebra no Postgres ("operator does not exist:
+        # date <= character varying"). Converter antes do bind.
+        if isinstance(shift_date, str):
+            shift_date = date.fromisoformat(shift_date)
+
+        # Disponivel = funcionario ATIVO sem alocacao ativa cobrindo a data.
+        # (Antes retornava exatamente os JA alocados, como lista de strings —
+        # quebrava o response_model list[dict] e invertia a semantica.)
         result = await self.db.execute(
-            select(Allocation).where(
-                Allocation.status == AllocationStatus.ACTIVE.value,
-                Allocation.start_date <= shift_date,
-                Allocation.is_active.is_(True),
-            )
+            sa_text(
+                "SELECT e.id::text AS id, e.nome, e.cargo "
+                "FROM employees e "
+                "WHERE e.status = 'ativo' AND NOT EXISTS ("
+                "  SELECT 1 FROM allocations a "
+                "  WHERE a.employee_id = e.id "
+                "    AND a.status = 'active' AND a.is_active = true "
+                "    AND a.start_date <= :shift_date "
+                "    AND (a.end_date IS NULL OR a.end_date >= :shift_date)"
+                ") ORDER BY e.nome"
+            ),
+            {"shift_date": shift_date},
         )
-        allocations = list(result.scalars().all())
-
-        available = []
-        for allocation in allocations:
-            if allocation.end_date is None or allocation.end_date >= shift_date:
-                available.append(allocation.employee_id)
-
-        return list(set(available))
+        return [dict(row) for row in result.mappings().all()]
 
     async def bulk_delete(self, allocation_ids: list[str]) -> dict:
         """

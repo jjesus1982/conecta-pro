@@ -186,7 +186,10 @@ export default function ColaboradorPerfilPage() {
 
   // ===== DOCUMENTOS (localStorage) =====
 
-  const docsKey = `operacional_docs_${id}`;
+  // v2: a chave antiga (operacional_docs_${id}) era semeada com documentos DEMO fabricados
+  // (CNH/CREA/ASO/SIGMA fictícios) — foi abandonada e é removida no load.
+  const docsKey = `operacional_docs_v2_${id}`;
+  const legacyDocsKey = `operacional_docs_${id}`;
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [docForm, setDocForm] = useState<{ type: DocumentRecord['type']; number: string; expiration: string }>({
     type: 'CNH',
@@ -195,66 +198,17 @@ export default function ColaboradorPerfilPage() {
   });
   const [docError, setDocError] = useState<string | null>(null);
 
-  // Gera documentos demo realistas usando o id do colaborador como semente
-  function buildDemoDocs(empId: string): DocumentRecord[] {
-    const seed = empId.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
-    // Número de matrícula fictício baseado no ID
-    const mat = String(10000 + (seed % 89999)).padStart(5, '0');
-    return [
-      {
-        id: `${empId}-cnh`,
-        type: 'CNH',
-        number: `${mat.slice(0, 3)}${String(seed % 9999999).padStart(7, '0')}`,
-        expiration: '2027-08-15',
-        status: computeDocStatus('2027-08-15'),
-      },
-      {
-        id: `${empId}-curso-vig`,
-        type: 'Curso Vigilância',
-        number: `CV-AM-${mat}`,
-        expiration: '2025-06-30',
-        status: computeDocStatus('2025-06-30'),
-      },
-      {
-        id: `${empId}-aso`,
-        type: 'ASO',
-        number: `ASO-${mat}-2026`,
-        expiration: '2026-04-05',
-        status: computeDocStatus('2026-04-05'),
-      },
-      {
-        id: `${empId}-cert-arm`,
-        type: 'Outro',
-        number: `SIGMA-AM-${mat}`,
-        expiration: '2025-11-20',
-        status: computeDocStatus('2025-11-20'),
-      },
-      {
-        id: `${empId}-crea`,
-        type: 'CREA',
-        number: `CREA-AM-${String(50000 + (seed % 49999))}`,
-        expiration: '2027-12-31',
-        status: computeDocStatus('2027-12-31'),
-      },
-    ];
-  }
-
   useEffect(() => {
     try {
+      // Remove a chave legada semeada com dados fabricados — não é lida nunca mais
+      localStorage.removeItem(legacyDocsKey);
       const stored = localStorage.getItem(docsKey);
       if (stored) {
         const parsed: DocumentRecord[] = JSON.parse(stored);
         // Recompute status on load
         setDocuments(parsed.map(d => ({ ...d, status: computeDocStatus(d.expiration) })));
-      } else if (id) {
-        // Primeira vez: seed com documentos demo realistas
-        const demoDocs = buildDemoDocs(id);
-        setDocuments(demoDocs);
-        try {
-          localStorage.setItem(docsKey, JSON.stringify(demoDocs));
-        } catch {
-          // ignore
-        }
+      } else {
+        setDocuments([]);
       }
     } catch {
       // ignore
@@ -763,8 +717,8 @@ export default function ColaboradorPerfilPage() {
             {documents.length === 0 ? (
               <div className="text-center py-10 text-[hsl(var(--muted-foreground))]">
                 <FileText className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                <p>Nenhum documento cadastrado</p>
-                <p className="text-xs mt-1">Use o formulário acima para adicionar documentos</p>
+                <p>Nenhum documento — integração com o GED pendente</p>
+                <p className="text-xs mt-1">Documentos adicionados manualmente acima ficam salvos apenas neste navegador</p>
               </div>
             ) : (
               <Table>

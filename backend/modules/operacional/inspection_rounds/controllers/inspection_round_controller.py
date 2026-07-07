@@ -182,7 +182,7 @@ async def get_my_rounds(
     service: InspectionRoundService = Depends(get_inspection_service),
 ) -> list[InspectionRoundSummary]:
     """Lista rondas do inspetor."""
-    rounds = service.get_rounds_by_inspector(str(inspector_id), str(tenant_id), limit)
+    rounds = await service.get_rounds_by_inspector(str(inspector_id), str(tenant_id), limit)
     return [InspectionRoundSummary.model_validate(r) for r in rounds]
 
 

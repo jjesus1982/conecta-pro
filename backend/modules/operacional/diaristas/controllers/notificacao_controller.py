@@ -14,7 +14,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
@@ -117,7 +117,7 @@ class EstatisticasResponse(BaseModel):
 async def enviar_notificacao(
     request: EnviarNotificacaoRequest,
     current_user: CurrentActiveUser,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Envia uma notificação para um diarista.
@@ -141,7 +141,7 @@ async def enviar_notificacao(
     service = get_notificacao_service(db)
 
     try:
-        resultado = service.criar_notificacao(
+        resultado = await service.criar_notificacao(
             diarist_id=request.diarist_id,
             tipo=request.tipo,
             canal=request.canal,
@@ -169,13 +169,13 @@ async def enviar_notificacao(
 async def enviar_confirmacao_agendamento(
     request: EnviarConfirmacaoRequest,
     current_user: CurrentActiveUser,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Envia notificação de confirmação de agendamento."""
     service = get_notificacao_service(db)
 
     try:
-        resultado = service.enviar_confirmacao_agendamento(
+        resultado = await service.enviar_confirmacao_agendamento(
             diarist_id=request.diarist_id,
             schedule_id=request.schedule_id,
         )
@@ -194,13 +194,13 @@ async def enviar_confirmacao_agendamento(
 async def enviar_lembrete_24h(
     request: EnviarLembreteRequest,
     current_user: CurrentActiveUser,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Envia lembrete 24h antes do serviço."""
     service = get_notificacao_service(db)
 
     try:
-        resultado = service.enviar_lembrete_24h(
+        resultado = await service.enviar_lembrete_24h(
             diarist_id=request.diarist_id,
             schedule_id=request.schedule_id,
         )
@@ -219,13 +219,13 @@ async def enviar_lembrete_24h(
 async def enviar_alerta_atraso(
     request: EnviarAlertaAtrasoRequest,
     current_user: CurrentActiveUser,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Envia alerta de atraso para o diarista."""
     service = get_notificacao_service(db)
 
     try:
-        resultado = service.enviar_alerta_atraso(
+        resultado = await service.enviar_alerta_atraso(
             diarist_id=request.diarist_id,
             schedule_id=request.schedule_id,
             telefone_cliente=request.telefone_cliente,
@@ -245,13 +245,13 @@ async def enviar_alerta_atraso(
 async def enviar_notificacao_pagamento(
     request: EnviarNotificacaoPagamentoRequest,
     current_user: CurrentActiveUser,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Envia notificação de pagamento."""
     service = get_notificacao_service(db)
 
     try:
-        resultado = service.enviar_notificacao_pagamento(
+        resultado = await service.enviar_notificacao_pagamento(
             diarist_id=request.diarist_id,
             payment_id=request.payment_id,
             tipo=request.tipo,
@@ -275,7 +275,7 @@ async def enviar_notificacao_pagamento(
 async def processar_lembretes_24h(
     background_tasks: BackgroundTasks,
     current_user: CurrentActiveUser,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Processa lembretes 24h para todos os agendamentos de amanhã.
@@ -284,11 +284,8 @@ async def processar_lembretes_24h(
     """
     service = get_notificacao_service(db)
 
-    # Executar em background para não bloquear
-    def processar():
-        return service.processar_lembretes_24h()
-
-    background_tasks.add_task(processar)
+    # Executar em background para não bloquear (BackgroundTasks aceita callable async)
+    background_tasks.add_task(service.processar_lembretes_24h)
 
     return {
         "message": "Processamento de lembretes iniciado em background",
@@ -306,7 +303,7 @@ async def verificar_atrasos(
     current_user: CurrentActiveUser,
     tolerancia_minutos: int = Query(15, ge=5, le=60, description="Tolerância em minutos"),
     background_tasks: BackgroundTasks = None,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Verifica diaristas atrasados e envia alertas.
@@ -316,7 +313,7 @@ async def verificar_atrasos(
     service = get_notificacao_service(db)
 
     try:
-        resultados = service.verificar_atrasos(tolerancia_minutos=tolerancia_minutos)
+        resultados = await service.verificar_atrasos(tolerancia_minutos=tolerancia_minutos)
         return {
             "message": "Verificação concluída",
             "atrasos_detectados": len(resultados),
@@ -345,7 +342,7 @@ async def listar_notificacoes(
     tipo: TipoNotificacao | None = Query(None, description="Filtrar por tipo"),
     status_filter: StatusNotificacao | None = Query(None, alias="status", description="Filtrar por status"),
     limit: int = Query(50, ge=1, le=200, description="Limite de resultados"),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Lista notificações enviadas."""
     service = get_notificacao_service(db)
@@ -374,7 +371,7 @@ async def listar_notificacoes_diarista(
     diarist_id: UUID,
     current_user: CurrentActiveUser,
     limit: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Lista notificações de um diarista específico."""
     service = get_notificacao_service(db)
@@ -406,7 +403,7 @@ async def get_estatisticas(
     current_user: CurrentActiveUser,
     data_inicio: date | None = Query(None, description="Data inicial"),
     data_fim: date | None = Query(None, description="Data final"),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Retorna estatísticas de notificações."""
     service = get_notificacao_service(db)
@@ -531,13 +528,13 @@ async def enviar_boas_vindas(
     diarist_id: UUID,
     current_user: CurrentActiveUser,
     canal: CanalNotificacao = Query(CanalNotificacao.WHATSAPP),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Envia mensagem de boas-vindas para um novo diarista."""
     service = get_notificacao_service(db)
 
     try:
-        resultado = service.criar_notificacao(
+        resultado = await service.criar_notificacao(
             diarist_id=diarist_id,
             tipo=TipoNotificacao.BOAS_VINDAS,
             canal=canal,

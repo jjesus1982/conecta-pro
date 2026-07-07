@@ -1,21 +1,24 @@
 """
 Controller de Férias e Afastamentos.
+
+LEITURA: a fonte canônica é a tabela `hr_vacation_requests` (módulo DP /
+People Management). A tabela local `vacation_requests` é um espelho
+DEPRECATED e desatualizado — ler dela produzia solicitações fantasma
+(faltavam FER-2026-001..005 SUBMITTED).
+
+ESCRITA: desabilitada (HTTP 501). Escrever no espelho deprecated criaria
+estado fantasma que o DP nunca vê.
 """
 
-import asyncio
 import logging
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, select
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser, get_current_active_user
 from core.database import get_db
-from modules.operacional.models.employee import Employee
-from modules.operacional.publishers import publish_ferias_aprovadas_op
 
-from .models import VacationRequest
 from .schemas import (
     VacationRequestCreate,
     VacationRequestListResponse,
@@ -31,6 +34,78 @@ router = APIRouter(
     dependencies=[Depends(get_current_active_user)],
 )
 
+_READ_ONLY_DETAIL = (
+    "Solicitações de férias são geridas pelo módulo DP (People Management) — "
+    "este endpoint é somente leitura."
+)
+
+# Mapeamento status hr_vacation_requests (uppercase) → status PT usado no response
+_STATUS_PT = {
+    "SUBMITTED": "pendente",
+    "PENDING": "pendente",
+    "APPROVED": "aprovado",
+    "REJECTED": "rejeitado",
+    "DRAFT": "rascunho",
+    "CANCELLED": "cancelado",
+    "SCHEDULED": "programado",
+    "IN_PROGRESS": "em_andamento",
+    "COMPLETED": "concluido",
+    "INTERRUPTED": "interrompido",
+    "PAID": "pago",
+}
+
+_BASE_SELECT = """
+    SELECT
+        CAST(h.id AS TEXT) AS id,
+        CAST(h.employee_id AS TEXT) AS employee_id,
+        e.nome AS employee_name,
+        h.status AS raw_status,
+        h.request_code,
+        h.start_date,
+        h.end_date,
+        h.days_requested,
+        h.employee_notes,
+        h.hr_notes,
+        h.rejection_reason,
+        CAST(h.hr_approved_by AS TEXT) AS approved_by,
+        h.hr_approved_at AS approved_at,
+        h.created_at,
+        COALESCE(h.updated_at, h.created_at) AS updated_at
+    FROM hr_vacation_requests h
+    LEFT JOIN employees e ON e.id = h.employee_id
+"""
+
+
+def _map_status(raw: str | None) -> str:
+    """Mapeia status da tabela canônica para o vocabulário PT do response."""
+    if not raw:
+        return "desconhecido"
+    return _STATUS_PT.get(raw.upper(), raw.lower())
+
+
+def _row_to_response(row) -> VacationRequestResponse:
+    """Converte uma linha de hr_vacation_requests no shape do response atual."""
+    days_str = None
+    if row.days_requested is not None:
+        days_str = f"{row.days_requested} dia{'s' if row.days_requested != 1 else ''}"
+    return VacationRequestResponse(
+        id=row.id,
+        employee_id=row.employee_id,
+        employee_name=row.employee_name,
+        type="ferias",
+        status=_map_status(row.raw_status),
+        start_date=row.start_date,
+        end_date=row.end_date,
+        days=days_str,
+        reason=row.employee_notes,
+        notes=row.hr_notes,
+        approved_by=row.approved_by,
+        approved_at=row.approved_at,
+        rejected_reason=row.rejection_reason,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
 
 @router.get("", response_model=VacationRequestListResponse)
 async def list_vacation_requests(
@@ -40,29 +115,28 @@ async def list_vacation_requests(
     employee_id: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> VacationRequestListResponse:
-    """Lista solicitações de férias e afastamentos."""
+    """Lista solicitações de férias (fonte canônica: hr_vacation_requests, módulo DP)."""
     try:
-        q = select(VacationRequest).where(VacationRequest.is_active)
+        result = await db.execute(text(_BASE_SELECT + " ORDER BY h.created_at DESC"))
+        rows = result.fetchall()
+
+        items = [_row_to_response(r) for r in rows]
 
         if status:
-            q = q.where(VacationRequest.status == status)
+            items = [i for i in items if i.status == status]
         if type_filter:
-            q = q.where(VacationRequest.type == type_filter)
+            # A fonte canônica contém apenas férias
+            items = [i for i in items if i.type == type_filter]
         if employee_id:
-            q = q.where(VacationRequest.employee_id == employee_id)
+            items = [i for i in items if i.employee_id == employee_id]
 
-        q = q.order_by(VacationRequest.created_at.desc())
-        result = await db.execute(q)
-        items = result.scalars().all()
-
-        # Count by status
         total = len(items)
         pendente = sum(1 for i in items if i.status == "pendente")
         aprovado = sum(1 for i in items if i.status == "aprovado")
         rejeitado = sum(1 for i in items if i.status == "rejeitado")
 
         return VacationRequestListResponse(
-            items=[VacationRequestResponse.model_validate(i) for i in items],
+            items=items,
             total=total,
             pendente=pendente,
             aprovado=aprovado,
@@ -73,141 +147,63 @@ async def list_vacation_requests(
         return VacationRequestListResponse(items=[], total=0, pendente=0, aprovado=0, rejeitado=0)
 
 
-@router.post("", response_model=VacationRequestResponse, status_code=201)
+@router.post("", status_code=501)
 async def create_vacation_request(
     data: VacationRequestCreate,
     current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> VacationRequestResponse:
-    """Cria nova solicitação de férias/afastamento."""
-    # Calculate days
-    delta = (data.end_date - data.start_date).days + 1
-    days_str = f"{delta} dia{'s' if delta > 1 else ''}"
-
-    # BUG-03 fix: auto-preencher employee_name quando não fornecido
-    employee_name = data.employee_name
-    if not employee_name:
-        emp_result = await db.execute(select(Employee).where(Employee.id == data.employee_id))
-        emp = emp_result.scalar_one_or_none()
-        if emp:
-            employee_name = emp.nome
-
-    req = VacationRequest(
-        employee_id=str(data.employee_id),
-        employee_name=employee_name,
-        type=data.type,
-        status="pendente",
-        start_date=data.start_date,
-        end_date=data.end_date,
-        days=days_str,
-        reason=data.reason,
-        notes=data.notes,
-    )
-    db.add(req)
-    await db.commit()
-    await db.refresh(req)
-    return VacationRequestResponse.model_validate(req)
+) -> None:
+    """DESABILITADO: escrita é responsabilidade do módulo DP."""
+    raise HTTPException(status_code=501, detail=_READ_ONLY_DETAIL)
 
 
 @router.get("/{request_id}", response_model=VacationRequestResponse)
 async def get_vacation_request(
     request_id: str, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)
 ) -> VacationRequestResponse:
-    """Busca uma solicitação pelo ID."""
+    """Busca uma solicitação pelo ID (fonte canônica: hr_vacation_requests)."""
     result = await db.execute(
-        select(VacationRequest).where(and_(VacationRequest.id == request_id, VacationRequest.is_active))
+        text(_BASE_SELECT + " WHERE CAST(h.id AS TEXT) = :rid"),
+        {"rid": request_id},
     )
-    req = result.scalar_one_or_none()
-    if not req:
+    row = result.fetchone()
+    if not row:
         raise HTTPException(status_code=404, detail="Solicitação não encontrada")
-    return VacationRequestResponse.model_validate(req)
+    return _row_to_response(row)
 
 
-@router.patch("/{request_id}", response_model=VacationRequestResponse)
+@router.patch("/{request_id}", status_code=501)
 async def update_vacation_request(
     request_id: str,
     data: VacationRequestUpdate,
     current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> VacationRequestResponse:
-    """Atualiza uma solicitação."""
-    result = await db.execute(
-        select(VacationRequest).where(and_(VacationRequest.id == request_id, VacationRequest.is_active))
-    )
-    req = result.scalar_one_or_none()
-    if not req:
-        raise HTTPException(status_code=404, detail="Solicitação não encontrada")
-
-    for field, value in data.model_dump(exclude_none=True).items():
-        setattr(req, field, value)
-
-    req.updated_at = datetime.utcnow()
-    await db.commit()
-    await db.refresh(req)
-    return VacationRequestResponse.model_validate(req)
+) -> None:
+    """DESABILITADO: escrita é responsabilidade do módulo DP."""
+    raise HTTPException(status_code=501, detail=_READ_ONLY_DETAIL)
 
 
-@router.post("/{request_id}/approve", response_model=VacationRequestResponse, status_code=201)
+@router.post("/{request_id}/approve", status_code=501)
 async def approve_vacation_request(
     request_id: str,
     current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> VacationRequestResponse:
-    """Aprova uma solicitação."""
-    result = await db.execute(select(VacationRequest).where(VacationRequest.id == request_id))
-    req = result.scalar_one_or_none()
-    if not req:
-        raise HTTPException(status_code=404, detail="Solicitação não encontrada")
-
-    req.status = "aprovado"
-    req.approved_at = datetime.utcnow()
-    req.updated_at = datetime.utcnow()
-    await db.commit()
-    await db.refresh(req)
-    asyncio.create_task(
-        publish_ferias_aprovadas_op(
-            request_id=str(req.id),
-            employee_id=str(req.employee_id),
-            employee_name=str(req.employee_name or ""),
-        )
-    )
-    return VacationRequestResponse.model_validate(req)
+) -> None:
+    """DESABILITADO: aprovação é responsabilidade do módulo DP."""
+    raise HTTPException(status_code=501, detail=_READ_ONLY_DETAIL)
 
 
-@router.post("/{request_id}/reject", response_model=VacationRequestResponse, status_code=201)
+@router.post("/{request_id}/reject", status_code=501)
 async def reject_vacation_request(
     request_id: str,
     current_user: CurrentActiveUser,
     reason: str | None = None,
-    db: AsyncSession = Depends(get_db),
-) -> VacationRequestResponse:
-    """Rejeita uma solicitação."""
-    result = await db.execute(select(VacationRequest).where(VacationRequest.id == request_id))
-    req = result.scalar_one_or_none()
-    if not req:
-        raise HTTPException(status_code=404, detail="Solicitação não encontrada")
-
-    req.status = "rejeitado"
-    req.rejected_reason = reason
-    req.updated_at = datetime.utcnow()
-    await db.commit()
-    await db.refresh(req)
-    return VacationRequestResponse.model_validate(req)
+) -> None:
+    """DESABILITADO: rejeição é responsabilidade do módulo DP."""
+    raise HTTPException(status_code=501, detail=_READ_ONLY_DETAIL)
 
 
-@router.delete("/{request_id}", status_code=204)
+@router.delete("/{request_id}", status_code=501)
 async def delete_vacation_request(
     request_id: str,
     current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Cancela/exclui uma solicitação."""
-    result = await db.execute(select(VacationRequest).where(VacationRequest.id == request_id))
-    req = result.scalar_one_or_none()
-    if not req:
-        raise HTTPException(status_code=404, detail="Solicitação não encontrada")
-
-    req.is_active = False
-    req.status = "cancelado"
-    req.updated_at = datetime.utcnow()
-    await db.commit()
+    """DESABILITADO: cancelamento é responsabilidade do módulo DP."""
+    raise HTTPException(status_code=501, detail=_READ_ONLY_DETAIL)

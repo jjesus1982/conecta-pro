@@ -4,8 +4,14 @@ Serviço Fiscal para Diaristas.
 Fornece funcionalidades para:
 - Cálculo de retenções (INSS, ISS, IRRF)
 - Geração de RPA
-- Integração com e-Social
+- Integração com e-Social (criação de eventos PENDENTES — transmissão real NÃO implementada)
 - Relatórios fiscais
+
+REGRAS DE HONESTIDADE FISCAL:
+- Tabelas INSS/IRRF vêm SEMPRE do banco (tabela_inss / tabela_irrf).
+  Sem vigência cadastrada => HTTP 422 honesto, nunca valor chumbado silencioso.
+- CNPJ do tomador vem SEMPRE do cadastro real (tabela empresas) ou do request.
+  Nunca placeholder em documento fiscal.
 """
 
 import logging
@@ -14,8 +20,9 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, or_
-from sqlalchemy.orm import Session
+from fastapi import HTTPException
+from sqlalchemy import func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.operacional.diaristas.models import Diarist, DiaristPayment
 from modules.operacional.diaristas.models.documento_fiscal import (
@@ -34,51 +41,29 @@ from modules.operacional.diaristas.models.documento_fiscal import (
 logger = logging.getLogger(__name__)
 
 
-# =============================================================================
-# TABELAS PADRÃO (quando não há registro no banco)
-# =============================================================================
+# ISS varia por município. Padrão usado quando não informado: 5% (teto legal
+# da LC 116/2003; alíquota aplicada em Manaus para serviços de limpeza).
+ALIQUOTA_ISS_PADRAO = Decimal("5.00")
 
-TABELA_INSS_PADRAO_2026 = {
-    "vigencia": "2026-01",
-    "faixas": [
-        {"ate": Decimal("1518.00"), "aliquota": Decimal("7.5")},
-        {"ate": Decimal("2793.88"), "aliquota": Decimal("9.0")},
-        {"ate": Decimal("4190.83"), "aliquota": Decimal("12.0")},
-        {"ate": Decimal("8157.41"), "aliquota": Decimal("14.0")},
-    ],
-    "teto": Decimal("8157.41"),
-    "aliquota_autonomo": Decimal("11.00"),  # Alíquota para contribuinte individual
-}
 
-TABELA_IRRF_PADRAO_2026 = {
-    "vigencia": "2026-01",
-    "faixas": [
-        {"ate": Decimal("2428.80"), "aliquota": Decimal("0"), "deducao": Decimal("0")},
-        {"ate": Decimal("2826.65"), "aliquota": Decimal("7.5"), "deducao": Decimal("182.16")},
-        {"ate": Decimal("3751.05"), "aliquota": Decimal("15.0"), "deducao": Decimal("393.94")},
-        {"ate": Decimal("4664.68"), "aliquota": Decimal("22.5"), "deducao": Decimal("675.18")},
-        {"acima_de": Decimal("4664.68"), "aliquota": Decimal("27.5"), "deducao": Decimal("908.42")},
-    ],
-    "deducao_dependente": Decimal("189.59"),
-}
-
-# ISS varia por município, usando alíquota média
-ALIQUOTA_ISS_PADRAO = Decimal("5.00")  # 5%
+def _dec(valor: Any) -> Decimal:
+    """Converte valor de JSONB (float/int/str) para Decimal com segurança."""
+    if isinstance(valor, Decimal):
+        return valor
+    return Decimal(str(valor))
 
 
 class FiscalService:
     """Serviço de cálculos e documentos fiscais para diaristas."""
 
-    def __init__(self, db: Session):
+    def __init__(self, db: AsyncSession):
         self.db = db
-        self._tabela_inss = None
-        self._tabela_irrf = None
 
     # =========================================================================
     # CÁLCULOS DE RETENÇÕES
     # =========================================================================
 
-    def calcular_inss(
+    async def calcular_inss(
         self,
         valor_bruto: Decimal,
         data_referencia: date | None = None,
@@ -86,8 +71,8 @@ class FiscalService:
         """
         Calcula INSS para contribuinte individual (autônomo).
 
-        Para autônomos, a alíquota é de 11% sobre o valor até o teto.
-        Pode ser 20% se quiser contribuir para aposentadoria por tempo de contribuição.
+        Para autônomos, a alíquota é a definida na tabela vigente (tabela_inss)
+        sobre o valor até o teto.
 
         Args:
             valor_bruto: Valor bruto do serviço
@@ -95,15 +80,18 @@ class FiscalService:
 
         Returns:
             Dict com base_calculo, aliquota e valor
+
+        Raises:
+            HTTPException 422: se não há tabela INSS cadastrada para o período
         """
-        tabela = self._get_tabela_inss(data_referencia)
+        tabela = await self._get_tabela_inss(data_referencia)
 
         # Base é o menor entre valor bruto e teto
-        teto = tabela.get("teto", TABELA_INSS_PADRAO_2026["teto"])
+        teto = _dec(tabela["teto"])
         base_calculo = min(valor_bruto, teto)
 
-        # Alíquota padrão para autônomo
-        aliquota = tabela.get("aliquota_autonomo", Decimal("11.00"))
+        # Alíquota para contribuinte individual (autônomo) — vem do banco
+        aliquota = _dec(tabela["aliquota_autonomo"])
 
         # Cálculo
         valor_inss = (base_calculo * aliquota / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -115,7 +103,7 @@ class FiscalService:
             "teto_aplicado": base_calculo < valor_bruto,
         }
 
-    def calcular_irrf(
+    async def calcular_irrf(
         self,
         valor_bruto: Decimal,
         inss_retido: Decimal = Decimal("0"),
@@ -135,29 +123,33 @@ class FiscalService:
 
         Returns:
             Dict com base_calculo, aliquota, deducao e valor
-        """
-        tabela = self._get_tabela_irrf(data_referencia)
 
-        # Dedução por dependente
-        deducao_dependente = tabela.get("deducao_dependente", TABELA_IRRF_PADRAO_2026["deducao_dependente"])
+        Raises:
+            HTTPException 422: se não há tabela IRRF cadastrada para o período
+        """
+        tabela = await self._get_tabela_irrf(data_referencia)
+
+        # Dedução por dependente — vem do banco
+        deducao_dependente = _dec(tabela["deducao_dependente"])
 
         # Base de cálculo
         base_calculo = valor_bruto - inss_retido - (dependentes * deducao_dependente)
         base_calculo = max(base_calculo, Decimal("0"))
 
-        # Encontrar faixa
-        faixas = tabela.get("faixas", TABELA_IRRF_PADRAO_2026["faixas"])
+        # Encontrar faixa (JSONB do banco; aceita chave "acima_de" ou "acima")
+        faixas = tabela["faixas"]
         aliquota = Decimal("0")
         deducao = Decimal("0")
 
         for faixa in faixas:
-            if "ate" in faixa and base_calculo <= faixa["ate"]:
-                aliquota = faixa["aliquota"]
-                deducao = faixa["deducao"]
+            if "ate" in faixa and base_calculo <= _dec(faixa["ate"]):
+                aliquota = _dec(faixa["aliquota"])
+                deducao = _dec(faixa.get("deducao", 0))
                 break
-            elif "acima_de" in faixa and base_calculo > faixa["acima_de"]:
-                aliquota = faixa["aliquota"]
-                deducao = faixa["deducao"]
+            limite_acima = faixa.get("acima_de", faixa.get("acima"))
+            if limite_acima is not None and base_calculo > _dec(limite_acima):
+                aliquota = _dec(faixa["aliquota"])
+                deducao = _dec(faixa.get("deducao", 0))
 
         # Cálculo
         if aliquota > 0:
@@ -188,7 +180,7 @@ class FiscalService:
 
         Args:
             valor_bruto: Valor bruto do serviço
-            aliquota: Alíquota do ISS (se não informada, usa padrão)
+            aliquota: Alíquota do ISS (se não informada, usa padrão 5% — Manaus)
             municipio_codigo: Código IBGE do município
 
         Returns:
@@ -206,7 +198,7 @@ class FiscalService:
             "municipio": municipio_codigo,
         }
 
-    def calcular_todas_retencoes(
+    async def calcular_todas_retencoes(
         self,
         valor_bruto: Decimal,
         dependentes: int = 0,
@@ -226,10 +218,10 @@ class FiscalService:
             Dict com todos os cálculos e valor líquido
         """
         # INSS primeiro (deduz do IRRF)
-        inss = self.calcular_inss(valor_bruto, data_referencia)
+        inss = await self.calcular_inss(valor_bruto, data_referencia)
 
         # IRRF (considera INSS)
-        irrf = self.calcular_irrf(valor_bruto, inss["valor"], dependentes, data_referencia)
+        irrf = await self.calcular_irrf(valor_bruto, inss["valor"], dependentes, data_referencia)
 
         # ISS
         iss = self.calcular_iss(valor_bruto, aliquota_iss)
@@ -253,7 +245,7 @@ class FiscalService:
     # GERAÇÃO DE DOCUMENTOS
     # =========================================================================
 
-    def gerar_rpa(
+    async def gerar_rpa(
         self,
         diarist_id: UUID,
         payment_id: UUID | None = None,
@@ -278,23 +270,25 @@ class FiscalService:
             codigo_servico: Código do serviço (LC 116/2003)
             dependentes: Número de dependentes
             aliquota_iss: Alíquota do ISS
-            tomador_cnpj: CNPJ do tomador
+            tomador_cnpj: CNPJ do tomador (se ausente, busca a empresa real no banco)
             tomador_razao_social: Razão social do tomador
 
         Returns:
             DocumentoFiscal criado
         """
         # Buscar diarista
-        diarista = self.db.query(Diarist).filter(Diarist.id == diarist_id).first()
+        result = await self.db.execute(select(Diarist).where(Diarist.id == diarist_id))
+        diarista = result.scalar_one_or_none()
         if not diarista:
             raise ValueError(f"Diarista {diarist_id} não encontrado")
 
         # Se payment_id, buscar valor do pagamento
         payment = None
         if payment_id:
-            payment = self.db.query(DiaristPayment).filter(DiaristPayment.id == payment_id).first()
+            result = await self.db.execute(select(DiaristPayment).where(DiaristPayment.id == payment_id))
+            payment = result.scalar_one_or_none()
             if payment and not valor_bruto:
-                valor_bruto = payment.gross_amount
+                valor_bruto = payment.valor_bruto
 
         if not valor_bruto:
             raise ValueError("Valor bruto é obrigatório")
@@ -303,15 +297,21 @@ class FiscalService:
         if not competencia:
             competencia = date.today().strftime("%Y-%m")
 
+        # Tomador: se não informado, buscar a empresa REAL no banco (nunca placeholder)
+        if not tomador_cnpj or not tomador_razao_social:
+            empresa = await self._get_empresa_tomadora()
+            tomador_cnpj = tomador_cnpj or empresa.cnpj
+            tomador_razao_social = tomador_razao_social or empresa.razao_social
+
         # Calcular retenções
-        retencoes = self.calcular_todas_retencoes(
+        retencoes = await self.calcular_todas_retencoes(
             valor_bruto=valor_bruto,
             dependentes=dependentes,
             aliquota_iss=aliquota_iss,
         )
 
         # Gerar número do RPA
-        numero = self._gerar_numero_documento("RPA")
+        numero = await self._gerar_numero_documento("RPA")
 
         # Criar documento
         documento = DocumentoFiscal(
@@ -328,16 +328,16 @@ class FiscalService:
             valor_iss=retencoes["iss"]["valor"],
             valor_irrf=retencoes["irrf"]["valor"],
             valor_liquido=retencoes["valor_liquido"],
-            # Prestador
+            # Prestador (colunas reais do model Diarist — PT-BR)
             prestador_cpf=diarista.cpf,
-            prestador_nome=diarista.full_name,
-            prestador_endereco=diarista.address if hasattr(diarista, "address") else None,
-            prestador_municipio=diarista.city if hasattr(diarista, "city") else None,
-            prestador_uf=diarista.state if hasattr(diarista, "state") else None,
-            prestador_pis=diarista.pis if hasattr(diarista, "pis") else None,
-            # Tomador
-            tomador_cnpj=tomador_cnpj or "00.000.000/0001-00",  # TODO: Buscar da empresa
-            tomador_razao_social=tomador_razao_social or "Conecta PRO Ltda",
+            prestador_nome=diarista.nome,
+            prestador_endereco=diarista.endereco,
+            prestador_municipio=diarista.cidade,
+            prestador_uf=diarista.estado,
+            prestador_pis=None,  # Diarist não possui PIS cadastrado — não inventar
+            # Tomador (dados reais — request ou tabela empresas)
+            tomador_cnpj=tomador_cnpj,
+            tomador_razao_social=tomador_razao_social,
             # Serviço
             descricao_servico=descricao_servico,
             codigo_servico=codigo_servico,
@@ -351,6 +351,8 @@ class FiscalService:
         )
 
         self.db.add(documento)
+        # Flush para materializar documento.id antes de criar as retenções filhas
+        await self.db.flush()
 
         # Criar retenções detalhadas
         if retencoes["inss"]["valor"] > 0:
@@ -388,22 +390,21 @@ class FiscalService:
             )
             self.db.add(retencao_irrf)
 
-        self.db.commit()
-        self.db.refresh(documento)
+        await self.db.commit()
+        await self.db.refresh(documento)
 
         logger.info(f"RPA {numero} gerado para diarista {diarist_id}")
 
         return documento
 
-    def _gerar_numero_documento(self, prefixo: str = "RPA") -> str:
+    async def _gerar_numero_documento(self, prefixo: str = "RPA") -> str:
         """Gera número sequencial para documento."""
         ano = date.today().year
         # Buscar último número do ano
-        ultimo = (
-            self.db.query(func.max(DocumentoFiscal.numero))
-            .filter(DocumentoFiscal.numero.like(f"{prefixo}-{ano}-%"))
-            .scalar()
+        result = await self.db.execute(
+            select(func.max(DocumentoFiscal.numero)).where(DocumentoFiscal.numero.like(f"{prefixo}-{ano}-%"))
         )
+        ultimo = result.scalar()
 
         if ultimo:
             seq = int(ultimo.split("-")[-1]) + 1
@@ -415,38 +416,44 @@ class FiscalService:
     # =========================================================================
     # E-SOCIAL
     # =========================================================================
+    # IMPORTANTE: estes métodos apenas CRIAM o evento com status PENDENTE no
+    # banco. NÃO há transmissão real ao e-Social aqui — nenhum status de
+    # "autorizado/transmitido" é fabricado. A transmissão real, quando
+    # implementada, deve atualizar status/recibo com o retorno oficial.
 
-    def criar_evento_s2300(
+    async def criar_evento_s2300(
         self,
         diarist_id: UUID,
         data_inicio: date,
     ) -> EventoESocial:
         """
-        Cria evento S-2300 (Trabalhador Sem Vínculo - Início).
+        Cria evento S-2300 (Trabalhador Sem Vínculo - Início) com status PENDENTE.
 
         Este evento deve ser enviado quando um autônomo é contratado.
+        A transmissão real ao e-Social NÃO é feita aqui.
 
         Args:
             diarist_id: ID do diarista
             data_inicio: Data de início da prestação de serviço
 
         Returns:
-            EventoESocial criado
+            EventoESocial criado (PENDENTE)
         """
-        diarista = self.db.query(Diarist).filter(Diarist.id == diarist_id).first()
+        result = await self.db.execute(select(Diarist).where(Diarist.id == diarist_id))
+        diarista = result.scalar_one_or_none()
         if not diarista:
             raise ValueError(f"Diarista {diarist_id} não encontrado")
 
         competencia = data_inicio.strftime("%Y-%m")
 
-        # Dados do evento
+        # Dados do evento — apenas dados REAIS do cadastro; campos ausentes vão
+        # como None (o envio real deve validar/completar antes de transmitir).
         dados_evento = {
             "cpfTrab": diarista.cpf,
-            "nmTrab": diarista.full_name,
-            "dtNascto": diarista.birth_date.isoformat()
-            if hasattr(diarista, "birth_date") and diarista.birth_date
-            else None,
-            "sexo": "M" if diarista.gender == "male" else "F" if hasattr(diarista, "gender") else "M",
+            "nmTrab": diarista.nome,
+            "dtNascto": diarista.data_nascimento.isoformat() if diarista.data_nascimento else None,
+            # Diarist não possui campo de sexo cadastrado — não inventar
+            "sexo": None,
             "cadIni": {
                 "codCateg": "701",  # Contribuinte individual - Autônomo
                 "dtInicio": data_inicio.isoformat(),
@@ -467,23 +474,24 @@ class FiscalService:
         )
 
         self.db.add(evento)
-        self.db.commit()
-        self.db.refresh(evento)
+        await self.db.commit()
+        await self.db.refresh(evento)
 
-        logger.info(f"Evento S-2300 criado para diarista {diarist_id}")
+        logger.info(f"Evento S-2300 criado (PENDENTE, sem transmissão) para diarista {diarist_id}")
 
         return evento
 
-    def criar_evento_s1200(
+    async def criar_evento_s1200(
         self,
         diarist_id: UUID,
         competencia: str,
         valor_remuneracao: Decimal,
     ) -> EventoESocial:
         """
-        Cria evento S-1200 (Remuneração de Trabalhador vinculado ao RGPS).
+        Cria evento S-1200 (Remuneração RGPS) com status PENDENTE.
 
         Este evento informa a remuneração mensal do autônomo.
+        A transmissão real ao e-Social NÃO é feita aqui.
 
         Args:
             diarist_id: ID do diarista
@@ -491,14 +499,16 @@ class FiscalService:
             valor_remuneracao: Valor da remuneração
 
         Returns:
-            EventoESocial criado
+            EventoESocial criado (PENDENTE)
         """
-        diarista = self.db.query(Diarist).filter(Diarist.id == diarist_id).first()
+        result = await self.db.execute(select(Diarist).where(Diarist.id == diarist_id))
+        diarista = result.scalar_one_or_none()
         if not diarista:
             raise ValueError(f"Diarista {diarist_id} não encontrado")
 
-        # Calcular INSS
-        self.calcular_inss(valor_remuneracao)
+        # CNPJ REAL da empresa (nunca placeholder em evento fiscal)
+        empresa = await self._get_empresa_tomadora()
+        cnpj_digits = "".join(ch for ch in empresa.cnpj if ch.isdigit())
 
         dados_evento = {
             "cpfTrab": diarista.cpf,
@@ -511,7 +521,7 @@ class FiscalService:
                         "ideEstabLot": [
                             {
                                 "tpInsc": "1",  # CNPJ
-                                "nrInsc": "00000000000100",  # TODO: Buscar CNPJ da empresa
+                                "nrInsc": cnpj_digits,  # CNPJ real (tabela empresas)
                                 "detVerbas": [
                                     {
                                         "codRubr": "1000",
@@ -544,10 +554,12 @@ class FiscalService:
         )
 
         self.db.add(evento)
-        self.db.commit()
-        self.db.refresh(evento)
+        await self.db.commit()
+        await self.db.refresh(evento)
 
-        logger.info(f"Evento S-1200 criado para diarista {diarist_id}, competência {competencia}")
+        logger.info(
+            f"Evento S-1200 criado (PENDENTE, sem transmissão) para diarista {diarist_id}, competência {competencia}"
+        )
 
         return evento
 
@@ -555,7 +567,7 @@ class FiscalService:
     # CONSULTAS E RELATÓRIOS
     # =========================================================================
 
-    def listar_documentos(
+    async def listar_documentos(
         self,
         diarist_id: UUID | None = None,
         tipo: TipoDocumentoFiscal | None = None,
@@ -564,20 +576,23 @@ class FiscalService:
         limit: int = 50,
     ) -> list[DocumentoFiscal]:
         """Lista documentos fiscais com filtros."""
-        query = self.db.query(DocumentoFiscal).filter(DocumentoFiscal.is_active)
+        stmt = select(DocumentoFiscal).where(DocumentoFiscal.is_active)
 
         if diarist_id:
-            query = query.filter(DocumentoFiscal.diarist_id == diarist_id)
+            stmt = stmt.where(DocumentoFiscal.diarist_id == diarist_id)
         if tipo:
-            query = query.filter(DocumentoFiscal.tipo == tipo)
+            stmt = stmt.where(DocumentoFiscal.tipo == tipo)
         if competencia:
-            query = query.filter(DocumentoFiscal.competencia == competencia)
+            stmt = stmt.where(DocumentoFiscal.competencia == competencia)
         if status:
-            query = query.filter(DocumentoFiscal.status == status)
+            stmt = stmt.where(DocumentoFiscal.status == status)
 
-        return query.order_by(DocumentoFiscal.data_emissao.desc()).limit(limit).all()
+        stmt = stmt.order_by(DocumentoFiscal.data_emissao.desc()).limit(limit)
 
-    def relatorio_retencoes_periodo(
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def relatorio_retencoes_periodo(
         self,
         data_inicio: date,
         data_fim: date,
@@ -594,14 +609,14 @@ class FiscalService:
         Returns:
             Dict com totais de retenções
         """
-        query = self.db.query(
+        stmt = select(
             func.sum(DocumentoFiscal.valor_bruto).label("total_bruto"),
             func.sum(DocumentoFiscal.valor_inss).label("total_inss"),
             func.sum(DocumentoFiscal.valor_iss).label("total_iss"),
             func.sum(DocumentoFiscal.valor_irrf).label("total_irrf"),
             func.sum(DocumentoFiscal.valor_liquido).label("total_liquido"),
             func.count(DocumentoFiscal.id).label("qtd_documentos"),
-        ).filter(
+        ).where(
             DocumentoFiscal.is_active,
             DocumentoFiscal.status == StatusDocumentoFiscal.EMITIDO,
             DocumentoFiscal.data_emissao >= data_inicio,
@@ -609,9 +624,10 @@ class FiscalService:
         )
 
         if diarist_id:
-            query = query.filter(DocumentoFiscal.diarist_id == diarist_id)
+            stmt = stmt.where(DocumentoFiscal.diarist_id == diarist_id)
 
-        resultado = query.first()
+        result = await self.db.execute(stmt)
+        resultado = result.first()
 
         return {
             "periodo": {
@@ -635,53 +651,112 @@ class FiscalService:
     # HELPERS
     # =========================================================================
 
-    def _get_tabela_inss(self, data_referencia: date | None = None) -> dict:
-        """Obtém tabela INSS vigente."""
+    async def _get_empresa_tomadora(self):
+        """
+        Busca a empresa tomadora REAL no banco (tabela empresas).
+
+        Nunca retorna placeholder: se não houver empresa com CNPJ cadastrado,
+        levanta 422 honesto.
+        """
+        from modules.empresas.models.empresa import Empresa
+
+        result = await self.db.execute(
+            select(Empresa)
+            .where(Empresa.cnpj.isnot(None))
+            .order_by(Empresa.is_principal.desc().nulls_last(), Empresa.created_at)
+            .limit(1)
+        )
+        empresa = result.scalars().first()
+
+        if not empresa or not empresa.cnpj or not empresa.razao_social:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "CNPJ do tomador não informado e nenhuma empresa com CNPJ cadastrada na tabela "
+                    "'empresas'. Informe tomador_cnpj/tomador_razao_social ou cadastre a empresa — "
+                    "documento fiscal nunca é emitido com CNPJ placeholder."
+                ),
+            )
+
+        return empresa
+
+    async def _get_tabela_inss(self, data_referencia: date | None = None) -> dict:
+        """
+        Obtém tabela INSS vigente do banco (tabela_inss).
+
+        Raises:
+            HTTPException 422: se não há vigência cadastrada para o período
+        """
         data = data_referencia or date.today()
 
-        tabela = (
-            self.db.query(TabelaINSS)
-            .filter(
+        result = await self.db.execute(
+            select(TabelaINSS)
+            .where(
                 TabelaINSS.is_active,
                 TabelaINSS.vigencia_inicio <= data,
                 or_(TabelaINSS.vigencia_fim.is_(None), TabelaINSS.vigencia_fim >= data),
             )
-            .first()
+            .order_by(TabelaINSS.vigencia_inicio.desc())
+            .limit(1)
         )
+        tabela = result.scalars().first()
 
-        if tabela:
-            return {
-                "faixas": tabela.faixas,
-                "teto": tabela.teto_contribuicao,
-                "aliquota_autonomo": tabela.aliquota_autonomo,
-            }
+        if not tabela:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Tabela INSS não cadastrada para o período {data.isoformat()} "
+                    "(tabela_inss). Cadastre a vigência — cálculo fiscal não usa valores chumbados."
+                ),
+            )
 
-        return TABELA_INSS_PADRAO_2026
+        return {
+            "vigencia_inicio": tabela.vigencia_inicio.isoformat(),
+            "vigencia_fim": tabela.vigencia_fim.isoformat() if tabela.vigencia_fim else None,
+            "faixas": tabela.faixas,
+            "teto": tabela.teto_contribuicao,
+            "aliquota_autonomo": tabela.aliquota_autonomo,
+        }
 
-    def _get_tabela_irrf(self, data_referencia: date | None = None) -> dict:
-        """Obtém tabela IRRF vigente."""
+    async def _get_tabela_irrf(self, data_referencia: date | None = None) -> dict:
+        """
+        Obtém tabela IRRF vigente do banco (tabela_irrf).
+
+        Raises:
+            HTTPException 422: se não há vigência cadastrada para o período
+        """
         data = data_referencia or date.today()
 
-        tabela = (
-            self.db.query(TabelaIRRF)
-            .filter(
+        result = await self.db.execute(
+            select(TabelaIRRF)
+            .where(
                 TabelaIRRF.is_active,
                 TabelaIRRF.vigencia_inicio <= data,
                 or_(TabelaIRRF.vigencia_fim.is_(None), TabelaIRRF.vigencia_fim >= data),
             )
-            .first()
+            .order_by(TabelaIRRF.vigencia_inicio.desc())
+            .limit(1)
         )
+        tabela = result.scalars().first()
 
-        if tabela:
-            return {
-                "faixas": tabela.faixas,
-                "deducao_dependente": tabela.deducao_dependente,
-            }
+        if not tabela:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Tabela IRRF não cadastrada para o período {data.isoformat()} "
+                    "(tabela_irrf). Cadastre a vigência — cálculo fiscal não usa valores chumbados."
+                ),
+            )
 
-        return TABELA_IRRF_PADRAO_2026
+        return {
+            "vigencia_inicio": tabela.vigencia_inicio.isoformat(),
+            "vigencia_fim": tabela.vigencia_fim.isoformat() if tabela.vigencia_fim else None,
+            "faixas": tabela.faixas,
+            "deducao_dependente": tabela.deducao_dependente,
+        }
 
 
-# Singleton
-def get_fiscal_service(db: Session) -> FiscalService:
+# Factory
+def get_fiscal_service(db: AsyncSession) -> FiscalService:
     """Factory function para obter instância do serviço."""
     return FiscalService(db)

@@ -168,7 +168,7 @@ async def get_available_employees(
     Lista funcionários disponíveis para alocação em um posto na data.
     """
     repo = AllocationRepository(db)
-    employees: list[dict[str, Any]] = await repo.get_available_employees(post_id, target_date)
+    employees: list[dict[str, Any]] = await repo.get_available_employees(shift_date=target_date, post_id=post_id)
 
     return employees
 

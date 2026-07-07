@@ -14,24 +14,13 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select, text
-from sqlalchemy.orm import Session
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.operacional.diaristas.models import (
     Diarist,
     DiaristAssignment,
-    DiaristSchedule,
     DiaristStatus,
-)
-from modules.operacional.models import (
-    Allocation,
-    AllocationStatus,
-    Post,
-    PostStatus,
-    Scale,
-    ScaleStatus,
-    Shift,
-    ShiftStatus,
 )
 
 logger = logging.getLogger(__name__)
@@ -40,7 +29,7 @@ logger = logging.getLogger(__name__)
 class IntegrationService:
     """Serviço de integração entre Diaristas e módulo Operacional."""
 
-    def __init__(self, db: Session):
+    def __init__(self, db: AsyncSession):
         self.db = db
 
     # =========================================================================
@@ -240,7 +229,7 @@ class IntegrationService:
     # DASHBOARD UNIFICADO
     # =========================================================================
 
-    def get_dashboard_unificado(
+    async def get_dashboard_unificado(
         self,
         data_referencia: date | None = None,
         cliente_id: UUID | None = None,
@@ -248,140 +237,180 @@ class IntegrationService:
         """
         Retorna dashboard unificado com métricas de operacional e diaristas.
 
+        REWRITE (2026-07-07): reescrito async com SQL raw sobre o SCHEMA REAL
+        (o código antigo usava .query() síncrono sobre AsyncSession e colunas/
+        enums defuntos: Shift.start_time, Diarist.is_active, DiaristStatus.
+        ON_ASSIGNMENT, DiaristSchedule.date, ScaleStatus.ACTIVE, etc.).
+
         Args:
             data_referencia: Data de referência (default: hoje)
-            cliente_id: Filtrar por cliente específico
+            cliente_id: Filtrar por cliente específico (aplica-se só a postos)
 
         Returns:
             Dict com métricas consolidadas
         """
         data_ref = data_referencia or date.today()
+        cid = str(cliente_id) if cliente_id else None
 
-        # Métricas de Postos
-        postos_query = self.db.query(Post)
-        if cliente_id:
-            postos_query = postos_query.filter(Post.client_id == cliente_id)
-
-        total_postos = postos_query.count()
-        postos_ativos = postos_query.filter(Post.status == PostStatus.ACTIVE).count()
-        postos_inativos = postos_query.filter(Post.status == PostStatus.INACTIVE).count()
-
-        # Métricas de Escalas
-        escalas_query = self.db.query(Scale).filter(Scale.start_date <= data_ref, Scale.end_date >= data_ref)
-
-        escalas_ativas = escalas_query.filter(Scale.status == ScaleStatus.ACTIVE).count()
-        escalas_em_execucao = escalas_query.filter(Scale.status == ScaleStatus.IN_PROGRESS).count()
-
-        # Métricas de Turnos do dia
-        turnos_hoje = self.db.query(Shift).filter(func.date(Shift.start_time) == data_ref).count()
-
-        turnos_em_andamento = (
-            self.db.query(Shift)
-            .filter(func.date(Shift.start_time) == data_ref, Shift.status == ShiftStatus.IN_PROGRESS)
-            .count()
-        )
-
-        # Métricas de Alocações (funcionários fixos)
-        alocacoes_ativas = self.db.query(Allocation).filter(Allocation.status == AllocationStatus.ACTIVE).count()
-
-        # Métricas de Diaristas
-        total_diaristas = self.db.query(Diarist).filter(Diarist.is_active).count()
-
-        diaristas_ativos = (
-            self.db.query(Diarist).filter(Diarist.is_active, Diarist.status == DiaristStatus.ACTIVE).count()
-        )
-
-        diaristas_em_servico = (
-            self.db.query(Diarist).filter(Diarist.is_active, Diarist.status == DiaristStatus.ON_ASSIGNMENT).count()
-        )
-
-        diaristas_suspensos = (
-            self.db.query(Diarist).filter(Diarist.is_active, Diarist.status == DiaristStatus.SUSPENDED).count()
-        )
-
-        # Assignments de diaristas do dia
-        assignments_hoje = (
-            self.db.query(DiaristAssignment)
-            .filter(
-                DiaristAssignment.status == "active",
-                DiaristAssignment.start_date <= data_ref,
-                or_(DiaristAssignment.end_date.is_(None), DiaristAssignment.end_date >= data_ref),
+        # Métricas de Postos (posts.status é varchar: active/inactive/temporary/suspended)
+        # + capacidade REAL = SUM(required_headcount) dos postos ativos (fim da
+        # heurística chumbada "postos_ativos * 3 turnos").
+        postos = (
+            await self.db.execute(
+                text(
+                    "SELECT count(*) AS total, "
+                    " count(*) FILTER (WHERE status = 'active') AS ativos, "
+                    " count(*) FILTER (WHERE status = 'inactive') AS inativos, "
+                    " COALESCE(SUM(required_headcount) FILTER (WHERE status = 'active'), 0) AS capacidade "
+                    "FROM posts "
+                    "WHERE CAST(:cid AS uuid) IS NULL OR client_id = CAST(:cid AS uuid)"
+                ),
+                {"cid": cid},
             )
-            .count()
-        )
+        ).one()
 
-        # Schedules de diaristas do dia
-        schedules_hoje = self.db.query(DiaristSchedule).filter(DiaristSchedule.date == data_ref).count()
+        # Métricas de Escalas — scales NÃO tem start_date/end_date; a vigência
+        # é month/year. ScaleStatus não tem "ACTIVE": ativas = approved/
+        # published/in_progress; em execução = in_progress. Filtrar is_active.
+        escalas = (
+            await self.db.execute(
+                text(
+                    "SELECT "
+                    " count(*) FILTER (WHERE status IN ('approved','published','in_progress')) AS ativas, "
+                    " count(*) FILTER (WHERE status = 'in_progress') AS em_execucao "
+                    "FROM scales WHERE is_active = true AND month = :m AND year = :y"
+                ),
+                {"m": data_ref.month, "y": data_ref.year},
+            )
+        ).one()
 
-        schedules_confirmados = (
-            self.db.query(DiaristSchedule)
-            .filter(DiaristSchedule.date == data_ref, DiaristSchedule.status == "confirmed")
-            .count()
-        )
+        # Métricas de Turnos do dia (shifts.shift_date; NÃO existe start_time)
+        turnos = (
+            await self.db.execute(
+                text(
+                    "SELECT count(*) AS hoje, "
+                    " count(*) FILTER (WHERE status = 'in_progress') AS em_andamento "
+                    "FROM shifts WHERE shift_date = :d"
+                ),
+                {"d": data_ref},
+            )
+        ).one()
 
-        schedules_checkin = (
-            self.db.query(DiaristSchedule)
-            .filter(DiaristSchedule.date == data_ref, DiaristSchedule.actual_check_in.isnot(None))
-            .count()
-        )
+        # Métricas de Alocações (funcionários fixos) — allocations.status varchar
+        alocacoes_ativas = (
+            await self.db.execute(text("SELECT count(*) FROM allocations WHERE status = 'active' AND is_active = true"))
+        ).scalar_one()
 
-        # Calcular taxa de ocupação
-        capacidade_postos = postos_ativos * 3  # Assumindo 3 turnos por posto
+        # Métricas de Diaristas — diarists.ativo (bool) + status varchar minúsculo.
+        # NÃO existe DiaristStatus.ON_ASSIGNMENT: "em serviço" deriva de
+        # diarist_schedules com status EM_ANDAMENTO na data (ENUM PG → ::text).
+        diaristas = (
+            await self.db.execute(
+                text(
+                    "SELECT count(*) AS total, "
+                    " count(*) FILTER (WHERE status = 'ativo') AS disponiveis, "
+                    " count(*) FILTER (WHERE status = 'suspenso') AS suspensos "
+                    "FROM diarists WHERE ativo = true"
+                )
+            )
+        ).one()
+
+        # Assignments vigentes na data (enum nativo PG → status::text)
+        assignments_hoje = (
+            await self.db.execute(
+                text(
+                    "SELECT count(*) FROM diarist_assignments "
+                    "WHERE status::text = 'ATIVO' AND data_inicio <= :d "
+                    "AND (data_fim IS NULL OR data_fim >= :d)"
+                ),
+                {"d": data_ref},
+            )
+        ).scalar_one()
+
+        # Schedules do dia (data_trabalho/checkin_real; enum schedule_status → ::text)
+        schedules = (
+            await self.db.execute(
+                text(
+                    "SELECT count(*) AS hoje, "
+                    " count(*) FILTER (WHERE status::text = 'CONFIRMADO') AS confirmados, "
+                    " count(*) FILTER (WHERE checkin_real IS NOT NULL) AS com_checkin, "
+                    " count(DISTINCT diarist_id) FILTER (WHERE status::text = 'EM_ANDAMENTO') AS em_servico "
+                    "FROM diarist_schedules WHERE data_trabalho = :d"
+                ),
+                {"d": data_ref},
+            )
+        ).one()
+
+        # Taxa de ocupação sobre capacidade REAL (SUM(required_headcount) dos
+        # postos ativos). Se a soma for 0/NULL, taxa = None honesto (sem chute).
+        capacidade_postos = int(postos.capacidade or 0)
         ocupacao_funcionarios = alocacoes_ativas
         ocupacao_diaristas = assignments_hoje
         ocupacao_total = ocupacao_funcionarios + ocupacao_diaristas
-        taxa_ocupacao = (ocupacao_total / capacidade_postos * 100) if capacidade_postos > 0 else 0
+        taxa_ocupacao = round(ocupacao_total / capacidade_postos * 100, 2) if capacidade_postos > 0 else None
+
+        ocupacao: dict[str, Any] = {
+            "capacidade_estimada": capacidade_postos,
+            "funcionarios_alocados": ocupacao_funcionarios,
+            "diaristas_alocados": ocupacao_diaristas,
+            "total_alocado": ocupacao_total,
+            "taxa_ocupacao_percentual": taxa_ocupacao,
+        }
+        if taxa_ocupacao is not None and taxa_ocupacao > 100:
+            ocupacao["nota"] = (
+                "Taxa > 100%: required_headcount cadastrado nos postos "
+                f"({capacidade_postos}) esta abaixo das alocacoes ativas reais ({ocupacao_total}) — "
+                "pendencia de cadastro, nao de calculo."
+            )
+        if capacidade_postos == 0:
+            ocupacao["nota"] = "Capacidade não informada (required_headcount zerado nos postos ativos)"
 
         return {
             "data_referencia": data_ref.isoformat(),
             "postos": {
-                "total": total_postos,
-                "ativos": postos_ativos,
-                "inativos": postos_inativos,
+                "total": postos.total,
+                "ativos": postos.ativos,
+                "inativos": postos.inativos,
             },
             "escalas": {
-                "ativas": escalas_ativas,
-                "em_execucao": escalas_em_execucao,
+                "ativas": escalas.ativas,
+                "em_execucao": escalas.em_execucao,
             },
             "turnos": {
-                "hoje": turnos_hoje,
-                "em_andamento": turnos_em_andamento,
+                "hoje": turnos.hoje,
+                "em_andamento": turnos.em_andamento,
             },
             "funcionarios": {
                 "alocacoes_ativas": alocacoes_ativas,
             },
             "diaristas": {
-                "total": total_diaristas,
-                "disponiveis": diaristas_ativos,
-                "em_servico": diaristas_em_servico,
-                "suspensos": diaristas_suspensos,
+                "total": diaristas.total,
+                "disponiveis": diaristas.disponiveis,
+                "em_servico": schedules.em_servico,
+                "suspensos": diaristas.suspensos,
                 "assignments_hoje": assignments_hoje,
-                "schedules_hoje": schedules_hoje,
-                "schedules_confirmados": schedules_confirmados,
-                "com_checkin": schedules_checkin,
+                "schedules_hoje": schedules.hoje,
+                "schedules_confirmados": schedules.confirmados,
+                "com_checkin": schedules.com_checkin,
             },
-            "ocupacao": {
-                "capacidade_estimada": capacidade_postos,
-                "funcionarios_alocados": ocupacao_funcionarios,
-                "diaristas_alocados": ocupacao_diaristas,
-                "total_alocado": ocupacao_total,
-                "taxa_ocupacao_percentual": round(taxa_ocupacao, 2),
-            },
-            "alertas": self._gerar_alertas(data_ref),
+            "ocupacao": ocupacao,
+            "alertas": await self._gerar_alertas(data_ref),
         }
 
-    def _gerar_alertas(self, data_referencia: date) -> list[dict[str, Any]]:
-        """Gera alertas automáticos baseados na situação atual."""
-        alertas = []
+    async def _gerar_alertas(self, data_referencia: date) -> list[dict[str, Any]]:
+        """Gera alertas automáticos baseados na situação atual (schema real)."""
+        alertas: list[dict[str, Any]] = []
 
-        # Alerta: Postos sem cobertura
+        # Alerta: Postos ativos sem funcionário fixo alocado (allocations.post_id)
         postos_sem_cobertura = (
-            self.db.query(Post)
-            .filter(Post.status == PostStatus.ACTIVE)
-            .outerjoin(Allocation, and_(Allocation.post_id == Post.id, Allocation.status == AllocationStatus.ACTIVE))
-            .filter(Allocation.id.is_(None))
-            .count()
-        )
+            await self.db.execute(
+                text(
+                    "SELECT count(*) FROM posts p "
+                    "WHERE p.status = 'active' AND NOT EXISTS ("
+                    " SELECT 1 FROM allocations a WHERE a.post_id = p.id AND a.status = 'active' AND a.is_active = true)"
+                )
+            )
+        ).scalar_one()
 
         if postos_sem_cobertura > 0:
             alertas.append(
@@ -393,19 +422,20 @@ class IntegrationService:
                 }
             )
 
-        # Alerta: Diaristas com check-in atrasado
+        # Alerta: Diaristas com check-in atrasado (schedule CONFIRMADO na data,
+        # hora_inicio já passou e checkin_real ausente)
         agora = datetime.now()
         if agora.hour >= 8:  # Após 8h
             schedules_atrasados = (
-                self.db.query(DiaristSchedule)
-                .filter(
-                    DiaristSchedule.date == data_referencia,
-                    DiaristSchedule.status == "confirmed",
-                    DiaristSchedule.actual_check_in.is_(None),
-                    DiaristSchedule.scheduled_start <= agora.time(),
+                await self.db.execute(
+                    text(
+                        "SELECT count(*) FROM diarist_schedules "
+                        "WHERE data_trabalho = :d AND status::text = 'CONFIRMADO' "
+                        "AND checkin_real IS NULL AND hora_inicio <= CAST(:agora AS time)"
+                    ),
+                    {"d": data_referencia, "agora": agora.time().replace(microsecond=0)},
                 )
-                .count()
-            )
+            ).scalar_one()
 
             if schedules_atrasados > 0:
                 alertas.append(
@@ -417,10 +447,10 @@ class IntegrationService:
                     }
                 )
 
-        # Alerta: Poucos diaristas disponíveis
+        # Alerta: Poucos diaristas disponíveis (ativo=true + status='ativo')
         diaristas_disponiveis = (
-            self.db.query(Diarist).filter(Diarist.is_active, Diarist.status == DiaristStatus.ACTIVE).count()
-        )
+            await self.db.execute(text("SELECT count(*) FROM diarists WHERE ativo = true AND status = 'ativo'"))
+        ).scalar_one()
 
         if diaristas_disponiveis < 5:
             alertas.append(
@@ -438,7 +468,7 @@ class IntegrationService:
     # MÉTRICAS E RELATÓRIOS
     # =========================================================================
 
-    def get_metricas_periodo(
+    async def get_metricas_periodo(
         self,
         data_inicio: date,
         data_fim: date,
@@ -447,10 +477,19 @@ class IntegrationService:
         """
         Retorna métricas consolidadas para um período.
 
+        REWRITE (2026-07-07): async + SQL raw sobre o schema real
+        (data_trabalho/checkin_real/checkout_real; enum schedule_status em
+        MAIÚSCULO via ::text; shifts.shift_date — NÃO existe Shift.start_time).
+
+        NOTA DE HONESTIDADE: não existe coluna hours_worked — horas trabalhadas
+        = checkout_real - checkin_real quando AMBOS presentes; senão conta 0.
+        cliente_id é aceito por compatibilidade mas NÃO é aplicável:
+        diarist_schedules e shifts não têm vínculo direto com cliente.
+
         Args:
             data_inicio: Data inicial do período
             data_fim: Data final do período
-            cliente_id: Filtrar por cliente (opcional)
+            cliente_id: Filtrar por cliente (não aplicável — ver nota)
 
         Returns:
             Dict com métricas do período
@@ -458,40 +497,47 @@ class IntegrationService:
         # Total de dias no período
         dias_periodo = (data_fim - data_inicio).days + 1
 
-        # Schedules de diaristas no período
-        schedules_query = self.db.query(DiaristSchedule).filter(
-            DiaristSchedule.date >= data_inicio, DiaristSchedule.date <= data_fim
-        )
+        # Schedules de diaristas no período (uma query agregada)
+        sched = (
+            await self.db.execute(
+                text(
+                    "SELECT count(*) AS total, "
+                    " count(*) FILTER (WHERE status::text = 'CONCLUIDO') AS realizados, "
+                    " count(*) FILTER (WHERE status::text = 'CANCELADO') AS cancelados, "
+                    " count(*) FILTER (WHERE status::text = 'NAO_COMPARECEU') AS faltas, "
+                    " COALESCE(SUM(EXTRACT(EPOCH FROM (checkout_real - checkin_real)) / 3600.0) "
+                    "   FILTER (WHERE status::text = 'CONCLUIDO' "
+                    "     AND checkin_real IS NOT NULL AND checkout_real IS NOT NULL), 0) AS horas "
+                    "FROM diarist_schedules "
+                    "WHERE data_trabalho >= :di AND data_trabalho <= :df"
+                ),
+                {"di": data_inicio, "df": data_fim},
+            )
+        ).one()
 
-        total_schedules = schedules_query.count()
-        schedules_realizados = schedules_query.filter(DiaristSchedule.status == "completed").count()
-        schedules_cancelados = schedules_query.filter(DiaristSchedule.status == "cancelled").count()
-        schedules_faltas = schedules_query.filter(DiaristSchedule.status == "no_show").count()
-
-        # Horas trabalhadas
-        horas_trabalhadas = self.db.query(func.sum(DiaristSchedule.hours_worked)).filter(
-            DiaristSchedule.date >= data_inicio, DiaristSchedule.date <= data_fim, DiaristSchedule.status == "completed"
-        ).scalar() or Decimal("0")
+        total_schedules = sched.total
+        schedules_realizados = sched.realizados
+        schedules_cancelados = sched.cancelados
+        schedules_faltas = sched.faltas
+        horas_trabalhadas = sched.horas or Decimal("0")
 
         # Taxa de comparecimento
         taxa_comparecimento = schedules_realizados / total_schedules * 100 if total_schedules > 0 else 0
 
-        # Turnos do período (funcionários fixos)
-        turnos_periodo = (
-            self.db.query(Shift)
-            .filter(func.date(Shift.start_time) >= data_inicio, func.date(Shift.start_time) <= data_fim)
-            .count()
-        )
-
-        turnos_concluidos = (
-            self.db.query(Shift)
-            .filter(
-                func.date(Shift.start_time) >= data_inicio,
-                func.date(Shift.start_time) <= data_fim,
-                Shift.status == ShiftStatus.COMPLETED,
+        # Turnos do período (funcionários fixos) — shifts.shift_date
+        turnos = (
+            await self.db.execute(
+                text(
+                    "SELECT count(*) AS total, "
+                    " count(*) FILTER (WHERE status = 'completed') AS concluidos "
+                    "FROM shifts WHERE shift_date >= :di AND shift_date <= :df"
+                ),
+                {"di": data_inicio, "df": data_fim},
             )
-            .count()
-        )
+        ).one()
+
+        turnos_periodo = turnos.total
+        turnos_concluidos = turnos.concluidos
 
         return {
             "periodo": {
@@ -518,161 +564,175 @@ class IntegrationService:
             },
         }
 
-    def get_ocupacao_postos(
+    async def get_ocupacao_postos(
         self,
         data_referencia: date | None = None,
     ) -> list[dict[str, Any]]:
         """
         Retorna ocupação detalhada de cada posto.
 
+        REWRITE (2026-07-07): async + SQL raw sobre o schema real.
+
+        NOTA DE HONESTIDADE: diarist_assignments NÃO tem post_id (só
+        condominio_id) — "diaristas por posto" NÃO é derivável do banco.
+        diaristas_alocados retorna 0 com nota em detalhes; a cobertura por
+        posto considera apenas funcionários fixos (allocations.post_id).
+
         Args:
-            data_referencia: Data de referência (default: hoje)
+            data_referencia: Data de referência (mantida por compatibilidade;
+                allocations são filtradas por status='active', como antes)
 
         Returns:
             Lista com status de ocupação de cada posto
         """
-        data_ref = data_referencia or date.today()
+        postos = (
+            await self.db.execute(
+                text("SELECT id, name, post_type FROM posts WHERE status = 'active' ORDER BY name")
+            )
+        ).all()
 
-        postos = self.db.query(Post).filter(Post.status == PostStatus.ACTIVE).all()
+        if not postos:
+            return []
+
+        # Alocações ativas de funcionários fixos, agrupadas por posto em Python
+        alocacoes = (
+            await self.db.execute(
+                text("SELECT id, post_id, employee_id FROM allocations WHERE status = 'active' AND is_active = true")
+            )
+        ).all()
+
+        alocacoes_por_posto: dict[str, list[Any]] = {}
+        for a in alocacoes:
+            alocacoes_por_posto.setdefault(str(a.post_id), []).append(a)
 
         resultado = []
-
         for posto in postos:
-            # Buscar alocações de funcionários fixos
-            alocacoes = (
-                self.db.query(Allocation)
-                .filter(Allocation.post_id == posto.id, Allocation.status == AllocationStatus.ACTIVE)
-                .all()
-            )
-
-            # Buscar assignments de diaristas
-            assignments = (
-                self.db.query(DiaristAssignment)
-                .filter(
-                    DiaristAssignment.post_id == posto.id,
-                    DiaristAssignment.status == "active",
-                    DiaristAssignment.start_date <= data_ref,
-                    or_(DiaristAssignment.end_date.is_(None), DiaristAssignment.end_date >= data_ref),
-                )
-                .all()
-            )
+            alocs = alocacoes_por_posto.get(str(posto.id), [])
 
             resultado.append(
                 {
                     "posto_id": str(posto.id),
                     "posto_nome": posto.name,
-                    "posto_tipo": posto.type.value if hasattr(posto.type, "value") else str(posto.type),
-                    "funcionarios_alocados": len(alocacoes),
-                    "diaristas_alocados": len(assignments),
-                    "total_alocados": len(alocacoes) + len(assignments),
-                    "status": "coberto" if (alocacoes or assignments) else "descoberto",
+                    "posto_tipo": str(posto.post_type),
+                    "funcionarios_alocados": len(alocs),
+                    # NÃO derivável: assignments de diaristas são por condomínio,
+                    # não por posto — 0 honesto (nunca inventar vínculo).
+                    "diaristas_alocados": 0,
+                    "total_alocados": len(alocs),
+                    "status": "coberto" if alocs else "descoberto",
                     "detalhes": {
                         "funcionarios": [
-                            {"allocation_id": str(a.id), "employee_id": str(a.employee_id)} for a in alocacoes
+                            {"allocation_id": str(a.id), "employee_id": str(a.employee_id)} for a in alocs
                         ],
-                        "diaristas": [
-                            {"assignment_id": str(a.id), "diarist_id": str(a.diarist_id)} for a in assignments
-                        ],
+                        "diaristas": [],
+                        "nota_diaristas": (
+                            "Alocação de diarista não é vinculada a posto "
+                            "(diarist_assignments usa condominio_id) — contagem por posto indisponível"
+                        ),
                     },
                 }
             )
 
         return resultado
 
-    def sugerir_diarista_posto(
+    async def sugerir_diarista_posto(
         self,
         post_id: UUID,
         data: date,
         habilidades_requeridas: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """
-        Sugere diaristas disponíveis para um posto.
+        Sugere diaristas disponíveis para uma data.
+
+        REWRITE (2026-07-07): async + SQL raw sobre o schema real
+        (diarists.ativo/status/avaliacao_media/total_servicos/especialidades/
+        tipos_servico; NÃO existem is_active/full_name/average_rating/skills/
+        total_assignments). Disponível = ativo=true + status='ativo', SEM
+        schedule (AGENDADO/CONFIRMADO/EM_ANDAMENTO) na data e SEM assignment
+        (ATIVO/PAUSADO) vigente na data.
+
+        NOTA: post_id é mantido para compatibilidade de rota, mas não filtra
+        nada — diaristas não têm vínculo com posto no schema atual.
 
         Args:
-            post_id: ID do posto
+            post_id: ID do posto (informativo apenas — ver nota)
             data: Data desejada
-            habilidades_requeridas: Lista de habilidades necessárias
+            habilidades_requeridas: Habilidades desejadas (comparadas com
+                especialidades + tipos_servico do cadastro)
 
         Returns:
             Lista de diaristas sugeridos ordenados por adequação
-
-        PERFORMANCE OPTIMIZATION (2026-02-05):
-        - Pre-fetch all schedules in single query to avoid N+1
-        - Use set for O(1) conflict lookup
-        - Reduces queries from N+1 to 2 queries total
         """
-        # Buscar diaristas disponíveis
-        diaristas_disponiveis = (
-            self.db.query(Diarist).filter(Diarist.is_active, Diarist.status == DiaristStatus.ACTIVE).all()
-        )
-
-        if not diaristas_disponiveis:
-            return []
-
-        # PERFORMANCE: Pre-fetch all schedules in single query (evita N+1)
-        diarista_ids = [d.id for d in diaristas_disponiveis]
-        schedules_ocupados = (
-            self.db.query(DiaristSchedule)
-            .filter(
-                DiaristSchedule.diarist_id.in_(diarista_ids),
-                DiaristSchedule.date == data,
-                DiaristSchedule.status.in_(["scheduled", "confirmed"]),
+        candidatos = (
+            await self.db.execute(
+                text(
+                    "SELECT d.id, d.nome, d.avaliacao_media, d.total_servicos, "
+                    " d.especialidades, d.tipos_servico "
+                    "FROM diarists d "
+                    "WHERE d.ativo = true AND d.status = 'ativo' "
+                    "AND NOT EXISTS ("
+                    " SELECT 1 FROM diarist_schedules s "
+                    " WHERE s.diarist_id = d.id AND s.data_trabalho = :d "
+                    " AND s.status::text IN ('AGENDADO','CONFIRMADO','EM_ANDAMENTO')) "
+                    "AND NOT EXISTS ("
+                    " SELECT 1 FROM diarist_assignments a "
+                    " WHERE a.diarist_id = d.id AND a.status::text IN ('ATIVO','PAUSADO') "
+                    " AND a.data_inicio <= :d AND (a.data_fim IS NULL OR a.data_fim >= :d)) "
+                    "ORDER BY d.avaliacao_media DESC NULLS LAST, d.total_servicos DESC NULLS LAST"
+                ),
+                {"d": data},
             )
-            .all()
-        )
+        ).all()
 
-        # Create set for O(1) lookup
-        diaristas_ocupados_ids = {s.diarista_id for s in schedules_ocupados}
-
-        # Filtrar quem não tem conflito na data
         sugestoes = []
-
-        for diarista in diaristas_disponiveis:
-            # PERFORMANCE: O(1) lookup instead of query
-            if diarista.id in diaristas_ocupados_ids:
-                continue
-
-            # Calcular score de adequação
+        for diarista in candidatos:
             score = 100
-            motivos = []
+            motivos: list[str] = []
 
-            # Verificar habilidades
-            if habilidades_requeridas and hasattr(diarista, "skills"):
-                skills_diarista = diarista.skills or []
-                matches = len(set(habilidades_requeridas) & set(skills_diarista))
-                if matches < len(habilidades_requeridas):
-                    score -= (len(habilidades_requeridas) - matches) * 10
-                    motivos.append(f"Faltam {len(habilidades_requeridas) - matches} habilidades")
+            # Habilidades: comparar com colunas reais (especialidades + tipos_servico)
+            if habilidades_requeridas:
+                habilidades_diarista = {
+                    h.strip().lower()
+                    for h in list(diarista.especialidades or []) + list(diarista.tipos_servico or [])
+                    if h
+                }
+                requeridas = {h.strip().lower() for h in habilidades_requeridas if h and h.strip()}
+                faltantes = len(requeridas - habilidades_diarista)
+                if faltantes > 0:
+                    score -= faltantes * 10
+                    motivos.append(f"Faltam {faltantes} habilidade(s)")
 
-            # Verificar avaliação média
-            if hasattr(diarista, "average_rating") and diarista.average_rating:
-                if diarista.average_rating >= 4.5:
+            # Avaliação média (coluna real: avaliacao_media)
+            avaliacao = float(diarista.avaliacao_media) if diarista.avaliacao_media is not None else None
+            if avaliacao is not None and avaliacao > 0:
+                if avaliacao >= 4.5:
                     score += 10
                     motivos.append("Avaliação excelente")
-                elif diarista.average_rating < 3.5:
+                elif avaliacao < 3.5:
                     score -= 20
                     motivos.append("Avaliação baixa")
 
             sugestoes.append(
                 {
                     "diarist_id": str(diarista.id),
-                    "nome": diarista.full_name,
+                    "nome": diarista.nome,
                     "score": score,
                     "motivos": motivos,
-                    "avaliacao": float(diarista.average_rating)
-                    if hasattr(diarista, "average_rating") and diarista.average_rating
-                    else None,
-                    "total_servicos": diarista.total_assignments if hasattr(diarista, "total_assignments") else 0,
+                    "avaliacao": avaliacao,
+                    "total_servicos": int(diarista.total_servicos or 0),
                 }
             )
 
-        # Ordenar por score
-        sugestoes.sort(key=lambda x: x["score"], reverse=True)
+        # Ordenar por score (desempate: avaliação e experiência reais)
+        sugestoes.sort(
+            key=lambda x: (x["score"], x["avaliacao"] or 0, x["total_servicos"]),
+            reverse=True,
+        )
 
         return sugestoes[:10]  # Top 10
 
 
 # Singleton para uso global
-def get_integration_service(db: Session) -> IntegrationService:
+def get_integration_service(db: AsyncSession) -> IntegrationService:
     """Factory function para obter instância do serviço."""
     return IntegrationService(db)

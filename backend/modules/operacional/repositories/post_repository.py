@@ -11,6 +11,7 @@ from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.logging import logger
+from modules.operacional.models.allocation import Allocation, AllocationStatus
 from modules.operacional.models.post import Post, PostStatus
 from modules.operacional.schemas.post import PostCreate, PostFilter, PostStats, PostUpdate
 
@@ -369,13 +370,22 @@ class PostRepository:
         """
         Obtém estatísticas de postos.
 
+        Veracidade:
+        - total/by_status cobrem TODOS os postos (incl. não-ativos) — antes o
+          filtro is_active escondia os postos inactive/suspended (total=9 vs 12 reais).
+        - total_allocated/filled/with_vacancy usam a contagem REAL de alocações
+          ativas (allocations.status='active' AND is_active=true) — a coluna
+          desnormalizada posts.current_headcount está podre (dava 51 vs 45 reais).
+        - Métricas operacionais (by_type/by_shift/vagas/custos/alocados) seguem
+          calculadas só sobre postos ativos, como antes.
+
         Returns:
             Estatísticas
         """
-        result = await self.db.execute(select(Post).where(Post.is_active.is_(True)))
-        posts = list(result.scalars().all())
+        result = await self.db.execute(select(Post))
+        all_posts = list(result.scalars().all())
 
-        if not posts:
+        if not all_posts:
             return PostStats(
                 total=0,
                 by_status={},
@@ -388,6 +398,18 @@ class PostRepository:
                 total_monthly_cost=0.0,
             )
 
+        # Contagem real de alocações ativas por posto (fonte: allocations,
+        # NÃO a coluna desnormalizada posts.current_headcount)
+        alloc_result = await self.db.execute(
+            select(Allocation.post_id, func.count(Allocation.id))
+            .where(
+                Allocation.status == AllocationStatus.ACTIVE.value,
+                Allocation.is_active.is_(True),
+            )
+            .group_by(Allocation.post_id)
+        )
+        alloc_by_post: dict[str, int] = {str(post_id): int(qty) for post_id, qty in alloc_result.all()}
+
         by_status: dict[str, int] = {}
         by_type: dict[str, int] = {}
         by_shift: dict[str, int] = {}
@@ -397,24 +419,29 @@ class PostRepository:
         total_allocated = 0
         total_monthly_cost = 0.0
 
-        for post in posts:
+        for post in all_posts:
             by_status[post.status] = by_status.get(post.status, 0) + 1
+
+            if not post.is_active:
+                # Postos não-ativos entram só em total/by_status
+                continue
+
             by_type[post.post_type] = by_type.get(post.post_type, 0) + 1
             by_shift[post.shift_type] = by_shift.get(post.shift_type, 0) + 1
 
             total_headcount += post.required_headcount
             total_monthly_cost += post.monthly_cost
 
-            if post.is_filled:
+            real_allocated = alloc_by_post.get(str(post.id), 0)
+            total_allocated += real_allocated
+
+            if real_allocated >= post.required_headcount:
                 filled += 1
-            if post.vacancy_count > 0:
+            if post.required_headcount - real_allocated > 0:
                 with_vacancy += 1
 
-            # Usar current_headcount em vez de contar allocations (lazy="noload")
-            total_allocated += post.current_headcount
-
         return PostStats(
-            total=len(posts),
+            total=len(all_posts),
             by_status=by_status,
             by_type=by_type,
             by_shift=by_shift,
