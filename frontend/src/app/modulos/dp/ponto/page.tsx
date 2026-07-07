@@ -21,16 +21,16 @@ function getAuthHeaders() {
 }
 
 const statusConfig: Record<string, { label: string; className: string }> = {
-  normal: { label: 'Normal', className: 'bg-green-500 text-white' },
-  atraso: { label: 'Atraso', className: 'bg-yellow-500 text-white' },
-  falta: { label: 'Falta', className: 'bg-red-500 text-white' },
-  hora_extra: { label: 'Hora Extra', className: 'bg-blue-500 text-white' },
-  late: { label: 'Atraso', className: 'bg-yellow-500 text-white' },
-  absent: { label: 'Falta', className: 'bg-red-500 text-white' },
-  overtime: { label: 'Hora Extra', className: 'bg-blue-500 text-white' },
-  incomplete: { label: 'Incompleto', className: 'bg-orange-500 text-white' },
-  justified: { label: 'Justificado', className: 'bg-cyan-500 text-white' },
-  completed: { label: 'Completo', className: 'bg-green-500 text-white' },
+  normal: { label: 'Normal', className: 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30' },
+  atraso: { label: 'Atraso', className: 'bg-amber-500/10 text-amber-500 border border-amber-500/30' },
+  falta: { label: 'Falta', className: 'bg-red-500/10 text-red-500 border border-red-500/30' },
+  hora_extra: { label: 'Hora Extra', className: 'bg-blue-500/10 text-blue-500 border border-blue-500/30' },
+  late: { label: 'Atraso', className: 'bg-amber-500/10 text-amber-500 border border-amber-500/30' },
+  absent: { label: 'Falta', className: 'bg-red-500/10 text-red-500 border border-red-500/30' },
+  overtime: { label: 'Hora Extra', className: 'bg-blue-500/10 text-blue-500 border border-blue-500/30' },
+  incomplete: { label: 'Incompleto', className: 'bg-orange-500/10 text-orange-500 border border-orange-500/30' },
+  justified: { label: 'Justificado', className: 'bg-cyan-500/10 text-cyan-500 border border-cyan-500/30' },
+  completed: { label: 'Completo', className: 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30' },
 };
 
 const PAGE_SIZE = 15;
@@ -484,7 +484,7 @@ export default function PontoPage() {
                     </TableHeader>
                     <TableBody>
                       {paginatedData.map((item, i) => {
-                        const st = statusConfig[item.status] || { label: item.status || 'N/A', className: 'bg-gray-500 text-white' };
+                        const st = statusConfig[item.status] || { label: item.status || 'N/A', className: 'bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]' };
                         const hasNoClockOut = !item.saida;
                         return (
                           <TableRow key={item.id || i}>

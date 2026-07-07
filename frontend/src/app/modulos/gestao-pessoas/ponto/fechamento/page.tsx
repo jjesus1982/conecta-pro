@@ -23,9 +23,9 @@ interface FechamentoResponse {
 }
 
 const statusConfig: Record<string, { label: string; classes: string; icon: typeof Lock }> = {
-  aberto: { label: 'Aberto', classes: 'bg-green-100 text-green-800', icon: Unlock },
-  em_revisao: { label: 'Em Revisao', classes: 'bg-yellow-100 text-yellow-800', icon: AlertTriangle },
-  fechado: { label: 'Fechado', classes: 'bg-gray-100 text-gray-600', icon: Lock },
+  aberto: { label: 'Aberto', classes: 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30', icon: Unlock },
+  em_revisao: { label: 'Em Revisao', classes: 'bg-amber-500/10 text-amber-500 border border-amber-500/30', icon: AlertTriangle },
+  fechado: { label: 'Fechado', classes: 'bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]', icon: Lock },
 };
 
 export default function FechamentoPage() {
@@ -101,36 +101,36 @@ export default function FechamentoPage() {
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Lock className="w-6 h-6 text-gray-700" />
+          <Lock className="w-6 h-6 text-[hsl(var(--muted-foreground))]" />
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Fechamento Mensal</h1>
-            <p className="text-gray-500 mt-1">Controle de fechamento do ponto por competencia</p>
+            <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">Fechamento Mensal</h1>
+            <p className="text-[hsl(var(--muted-foreground))] mt-1">Controle de fechamento do ponto por competencia</p>
           </div>
         </div>
-        <button type="button" className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
+        <button type="button" className="flex items-center gap-2 px-4 py-2 bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-lg text-sm font-medium hover:bg-[hsl(var(--secondary))] transition-colors">
           <Download className="h-4 w-4" />
           Relatorio Geral
         </button>
       </div>
 
       {fechamentoMutation.isError && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+        <div className="bg-red-500/10 border border-red-500/30 text-red-500 px-4 py-3 rounded-lg text-sm">
           Erro ao fechar competencia: {fechamentoMutation.error.message}
         </div>
       )}
 
       {fechamentoMutation.isSuccess && (
-        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">
+        <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 px-4 py-3 rounded-lg text-sm">
           Competência fechada com sucesso!
         </div>
       )}
 
       <div className="flex items-center gap-4">
-        <label className="text-sm text-gray-600">Competência:</label>
+        <label className="text-sm text-[hsl(var(--muted-foreground))]">Competência:</label>
         <select
           value={selectedMonth}
           onChange={(e) => setSelectedMonth(Number(e.target.value))}
-          className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="px-3 py-2 border border-[hsl(var(--border))] rounded-lg text-sm bg-[hsl(var(--card))] focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           {monthNames.map((name, idx) => (
             <option key={idx} value={idx + 1}>{name}</option>
@@ -139,7 +139,7 @@ export default function FechamentoPage() {
         <select
           value={selectedYear}
           onChange={(e) => setSelectedYear(Number(e.target.value))}
-          className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="px-3 py-2 border border-[hsl(var(--border))] rounded-lg text-sm bg-[hsl(var(--card))] focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           {[2024, 2025, 2026, 2027].map((y) => (
             <option key={y} value={y}>{y}</option>
@@ -152,31 +152,31 @@ export default function FechamentoPage() {
           const config = statusConfig[m.status]!;
           const StatusIcon = config.icon;
           return (
-            <Card key={m.mes} className={`border ${m.status === 'aberto' ? 'border-blue-300 ring-1 ring-blue-100' : 'border-gray-200'}`}>
+            <Card key={m.mes} className={`border ${m.status === 'aberto' ? 'border-blue-500/40 ring-1 ring-blue-500/20' : 'border-[hsl(var(--border))]'}`}>
               <CardContent className="p-5">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-semibold text-gray-900">{m.mes}</h3>
+                  <h3 className="font-semibold text-[hsl(var(--foreground))]">{m.mes}</h3>
                   <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full ${config.classes}`}>
                     <StatusIcon className="h-3 w-3" />
                     {config.label}
                   </span>
                 </div>
-                <div className="space-y-2 text-sm text-gray-600">
+                <div className="space-y-2 text-sm text-[hsl(var(--muted-foreground))]">
                   <div className="flex justify-between">
                     <span>Periodo</span>
-                    <span className="font-medium text-gray-800">{m.periodo}</span>
+                    <span className="font-medium text-[hsl(var(--foreground))]">{m.periodo}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Colaboradores</span>
                     {loadingDashboard ? (
-                      <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+                      <Loader2 className="h-4 w-4 animate-spin text-[hsl(var(--muted-foreground))]" />
                     ) : (
-                      <span className="font-medium text-gray-800">{m.colaboradores}</span>
+                      <span className="font-data text-sm font-semibold tabular-nums text-[hsl(var(--foreground))]">{m.colaboradores}</span>
                     )}
                   </div>
                   <div className="flex justify-between">
                     <span>Pendencias</span>
-                    <span className={`font-medium ${m.pendencias > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                    <span className={`font-data font-semibold tabular-nums ${m.pendencias > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
                       {m.pendencias}
                     </span>
                   </div>
@@ -187,7 +187,7 @@ export default function FechamentoPage() {
         })}
       </div>
 
-      <Card className="border border-gray-200">
+      <Card className="border border-[hsl(var(--border))]">
         <CardHeader className="pb-2">
           <CardTitle className="text-lg font-semibold flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-amber-500" />
@@ -197,23 +197,23 @@ export default function FechamentoPage() {
         <CardContent>
           {loadingDashboard ? (
             <div className="flex justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+              <Loader2 className="h-6 w-6 animate-spin text-[hsl(var(--muted-foreground))]" />
             </div>
           ) : pendencias === 0 ? (
-            <div className="text-center py-8 text-gray-400">
+            <div className="text-center py-8 text-[hsl(var(--muted-foreground))]">
               Nenhuma pendencia encontrada para este periodo.
             </div>
           ) : (
-            <div className="text-sm text-gray-600 py-4">
-              <p>Existem <strong className="text-red-600">{pendencias}</strong> inconsistencias e <strong className="text-amber-600">{pontosAbertos}</strong> pontos em aberto neste periodo.</p>
-              <p className="mt-2 text-gray-400">Resolva as pendencias antes de fechar a competencia.</p>
+            <div className="text-sm text-[hsl(var(--muted-foreground))] py-4">
+              <p>Existem <strong className="text-red-500">{pendencias}</strong> inconsistencias e <strong className="text-amber-500">{pontosAbertos}</strong> pontos em aberto neste periodo.</p>
+              <p className="mt-2 text-[hsl(var(--muted-foreground))]">Resolva as pendencias antes de fechar a competencia.</p>
             </div>
           )}
         </CardContent>
       </Card>
 
       <div className="flex justify-end gap-3">
-        <button type="button" className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
+        <button type="button" className="px-4 py-2 bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-lg text-sm font-medium hover:bg-[hsl(var(--secondary))] transition-colors">
           Revisar Pendencias
         </button>
         <button
@@ -227,15 +227,15 @@ export default function FechamentoPage() {
 
       {confirmando && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <Card className="w-full max-w-md border border-gray-200">
+          <Card className="w-full max-w-md border border-[hsl(var(--border))]">
             <CardContent className="p-6">
-              <h3 className="text-lg font-bold text-gray-900 mb-2">Confirmar Fechamento</h3>
-              <p className="text-sm text-gray-600 mb-4">
+              <h3 className="text-lg font-bold text-[hsl(var(--foreground))] mb-2">Confirmar Fechamento</h3>
+              <p className="text-sm text-[hsl(var(--muted-foreground))] mb-4">
                 Tem certeza que deseja fechar a competencia {monthNames[selectedMonth - 1]} {selectedYear}?
                 {pendencias > 0 && ` Existem ${pendencias} pendencias nao resolvidas.`} Apos o fechamento, nao sera possivel alterar batidas.
               </p>
               {fechamentoMutation.isError && (
-                <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-sm mb-4">
+                <div className="bg-red-500/10 border border-red-500/30 text-red-500 px-3 py-2 rounded-lg text-sm mb-4">
                   {fechamentoMutation.error.message}
                 </div>
               )}
@@ -243,7 +243,7 @@ export default function FechamentoPage() {
                 <button
                   onClick={() => setConfirmando(false)}
                   disabled={fechamentoMutation.isPending}
-                  className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50"
+                  className="px-4 py-2 bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-lg text-sm font-medium hover:bg-[hsl(var(--secondary))]"
                 >
                   Cancelar
                 </button>

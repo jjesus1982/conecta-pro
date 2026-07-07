@@ -106,12 +106,12 @@ export default function BaterPontoPage() {
   return (
     <div className="p-6 space-y-6 max-w-3xl mx-auto">
       <div className="flex items-center gap-3 mb-2">
-        <Fingerprint className="w-6 h-6 text-blue-600" />
-        <h1 className="text-2xl font-bold text-gray-900">Bater Ponto</h1>
+        <Fingerprint className="w-6 h-6 text-blue-500" />
+        <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">Bater Ponto</h1>
       </div>
 
       {punchMutation.isError && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+        <div className="bg-red-500/10 border border-red-500/30 text-red-500 px-4 py-3 rounded-lg text-sm">
           {(() => {
             const err = punchMutation.error as any;
             const detail = err?.response?.data?.detail || err?.message || 'Erro desconhecido';
@@ -123,10 +123,10 @@ export default function BaterPontoPage() {
         </div>
       )}
 
-      <Card className="border border-gray-200">
+      <Card className="border border-[hsl(var(--border))]">
         <CardContent className="p-8 flex flex-col items-center">
-          <p className="text-5xl font-bold text-gray-900 mb-2">{currentTime}</p>
-          <p className="text-sm text-gray-500 mb-8">
+          <p className="font-data tabular-nums text-5xl font-bold text-[hsl(var(--foreground))] mb-2">{currentTime}</p>
+          <p className="text-sm text-[hsl(var(--muted-foreground))] mb-8">
             {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}
           </p>
 
@@ -161,40 +161,40 @@ export default function BaterPontoPage() {
               ) : (
                 <MapPin className="h-4 w-4 text-red-500" />
               )}
-              <span className={geoEnabled ? 'text-green-600' : 'text-red-600'}>
+              <span className={geoEnabled ? 'text-emerald-500' : 'text-red-500'}>
                 {geoEnabled ? 'GPS Ativo' : 'GPS Inativo'}
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <Wifi className="h-4 w-4 text-green-500" />
-              <span className="text-green-600">Online</span>
+              <Wifi className="h-4 w-4 text-emerald-500" />
+              <span className="text-emerald-500">Online</span>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      <Card className="border border-gray-200">
+      <Card className="border border-[hsl(var(--border))]">
         <CardContent className="p-4">
-          <h2 className="text-sm font-semibold text-gray-700 mb-3">Batidas de Hoje</h2>
+          <h2 className="text-sm font-semibold text-[hsl(var(--foreground))] mb-3">Batidas de Hoje</h2>
           {loadingPunches ? (
             <div className="flex justify-center py-4">
-              <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+              <Loader2 className="h-5 w-5 animate-spin text-[hsl(var(--muted-foreground))]" />
             </div>
           ) : (
             <div className="space-y-3">
               {punches.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-4">Nenhuma batida registrada hoje</p>
+                <p className="text-sm text-[hsl(var(--muted-foreground))] text-center py-4">Nenhuma batida registrada hoje</p>
               ) : (
                 punches.map((punch, idx) => (
-                  <div key={punch.id ?? idx} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                  <div key={punch.id ?? idx} className="flex items-center justify-between py-2 border-b border-[hsl(var(--border))] last:border-0">
                     <div className="flex items-center gap-3">
-                      <Clock className="h-4 w-4 text-gray-400" />
+                      <Clock className="h-4 w-4 text-[hsl(var(--muted-foreground))]" />
                       <div>
-                        <p className="text-sm font-medium text-gray-900">{punch.tipo || punch.type || `Batida ${idx + 1}`}</p>
-                        <p className="text-xs text-gray-500">{punch.local || punch.location || ''}</p>
+                        <p className="text-sm font-medium text-[hsl(var(--foreground))]">{punch.tipo || punch.type || `Batida ${idx + 1}`}</p>
+                        <p className="text-xs text-[hsl(var(--muted-foreground))]">{punch.local || punch.location || ''}</p>
                       </div>
                     </div>
-                    <span className="text-sm font-mono font-medium text-gray-700">{punch.hora || punch.timestamp || '--:--'}</span>
+                    <span className="font-data tabular-nums text-sm font-medium text-[hsl(var(--foreground))]">{punch.hora || punch.timestamp || '--:--'}</span>
                   </div>
                 ))
               )}
