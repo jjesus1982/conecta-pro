@@ -1,0 +1,13 @@
+# Blue/Green deploy do backend — serviço "green" temporário na porta 8081.
+# Herda TODA a definição do serviço backend via extends (env, volumes, networks,
+# healthcheck) — qualquer mudança futura no backend propaga sozinha.
+# Usado exclusivamente por scripts/deploy_backend_bluegreen.sh. Não subir à mão.
+services:
+  backend-green:
+    extends:
+      file: docker-compose.yml
+      service: backend
+    container_name: conecta-pro-backend-green
+    ports: !override
+      - "8081:8080"
+    restart: "no"  # temporário: vive só durante o deploy
