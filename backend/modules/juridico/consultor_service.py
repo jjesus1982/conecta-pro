@@ -323,6 +323,8 @@ async def consultar(
         llm_meta = {"model": getattr(llm_resp, "model", None)}
     except Exception as e:
         logger.warning("Consultor jurídico: LLM indisponível (%s)", e)
+        from modules.ai.conversation.services.llm_credit_alert import alertar_llm_indisponivel
+        await alertar_llm_indisponivel("Consultor Jurídico", str(e))
         llm_ok = False
 
     if not llm_ok:

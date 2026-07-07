@@ -1118,6 +1118,15 @@ try:
 except Exception as e:
     logger.warning(f"GEDEON Onvio Stats router: {e}")
 
+# GEDEON — Consultor GED IA (chat de kits + intercorrências do mês, padrão CFO/Jurídico)
+try:
+    from modules.gedeon.controllers.consultor_controller import router as gedeon_consultor_router
+
+    api_router.include_router(gedeon_consultor_router)
+    logger.info("GEDEON Consultor GED IA: router registrado (/gedeon/consultor)")
+except Exception as e:
+    logger.warning(f"GEDEON Consultor router: {e}")
+
 try:
     from modules.gdrive.controllers.gdrive_controller import router as gdrive_router
 
