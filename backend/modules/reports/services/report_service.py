@@ -371,10 +371,20 @@ class ReportService:
         export.tenant_id = tenant_id
         export.parameters = data.parameters
         export.filters = data.filters
-        export.data_period_start = data.data_period_start
-        export.data_period_end = data.data_period_end
-        export.report_title = data.report_title
-        export.report_subtitle = data.report_subtitle
+
+        # Campos sem coluna própria em report_exports → extra_metadata (JSONB)
+        extra = {
+            key: value
+            for key, value in {
+                "data_period_start": data.data_period_start.isoformat() if data.data_period_start else None,
+                "data_period_end": data.data_period_end.isoformat() if data.data_period_end else None,
+                "report_title": data.report_title,
+                "report_subtitle": data.report_subtitle,
+            }.items()
+            if value is not None
+        }
+        if extra:
+            export.extra_metadata = extra
 
         return await self.repository.create_export(export)
 
@@ -791,10 +801,8 @@ class ReportService:
                 {"id": str(t.id), "name": t.name, "usage_count": t.usage_count}
                 for t in top_templates
             ],
-            recent_exports=[
-                {"id": str(e.id), "template_id": str(e.template_id), "status": e.status.value}
-                for e in recent_exports
-            ],
+            # Objetos ORM reais — validados por ReportExportResponse (from_attributes)
+            recent_exports=list(recent_exports),
             schedule_health={}
         )
 

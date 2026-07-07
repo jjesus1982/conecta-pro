@@ -327,11 +327,11 @@ async def get_download_info(token: str, current_user: CurrentActiveUser, service
         raise HTTPException(status_code=410, detail="Exportação expirada ou indisponível")
 
     return ReportExportDownload(
-        download_url=export.file_url or f"/files/{export.file_path}",
-        filename=export.filename or f"report_{export.export_number}.{export.format.value}",
-        content_type=export.content_type or "application/octet-stream",
+        download_url=export.download_url or f"/files/{export.file_path}",
+        filename=export.file_name or f"report_{export.export_id}.{export.format.value}",
+        content_type=export.mime_type or "application/octet-stream",
         file_size=export.file_size or 0,
-        expires_at=export.download_expires_at,
+        expires_at=export.expires_at,
     )
 
 

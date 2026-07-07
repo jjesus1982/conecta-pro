@@ -9,6 +9,7 @@ Fornece endpoints para:
 """
 
 from datetime import date, timedelta
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -31,15 +32,20 @@ router = APIRouter()
 
 
 class AlocarDiaristaPostoRequest(BaseModel):
-    """Request para alocar diarista a um posto."""
+    """Request para alocar diarista a um condomínio.
+
+    REWRITE (Ciclo 3, item 15): alinhado ao schema atual de diarist_assignments
+    (condominio_id/unidade_id/data_inicio/data_fim). Campos antigos removidos
+    sem equivalente no banco: post_id (→ condominio_id), shift_id, cliente_id,
+    contrato_id.
+    """
 
     diarista_id: UUID
-    post_id: UUID
+    condominio_id: UUID
     data_inicio: date
     data_fim: date | None = None
-    shift_id: UUID | None = None
-    cliente_id: UUID | None = None
-    contrato_id: UUID | None = None
+    unidade_id: UUID | None = None
+    valor_acordado: Decimal | None = Field(None, ge=0)
     observacoes: str | None = Field(None, max_length=500)
 
 
@@ -221,8 +227,8 @@ async def get_ocupacao_postos(
 
 @router.post(
     "/alocar-diarista",
-    summary="Alocar diarista a posto",
-    description="Aloca um diarista a um posto de trabalho",
+    summary="Alocar diarista a condomínio",
+    description="Aloca um diarista a um condomínio (diarist_assignments)",
     status_code=201,
 )
 async def alocar_diarista_posto(
@@ -231,11 +237,11 @@ async def alocar_diarista_posto(
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """
-    Aloca um diarista a um posto de trabalho.
+    Aloca um diarista a um condomínio.
 
     Validações:
     - Diarista deve estar ativo e disponível
-    - Posto deve estar ativo
+    - Condomínio deve existir
     - Não pode haver conflito de datas
     """
     service = get_integration_service(db)
@@ -243,12 +249,11 @@ async def alocar_diarista_posto(
     try:
         assignment = service.alocar_diarista_posto(
             diarista_id=request.diarista_id,
-            post_id=request.post_id,
+            condominio_id=request.condominio_id,
             data_inicio=request.data_inicio,
             data_fim=request.data_fim,
-            shift_id=request.shift_id,
-            cliente_id=request.cliente_id,
-            contrato_id=request.contrato_id,
+            unidade_id=request.unidade_id,
+            valor_acordado=request.valor_acordado,
             observacoes=request.observacoes,
         )
 
@@ -278,9 +283,7 @@ async def desalocar_diarista(
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """
-    Remove alocação de diarista de um posto.
-
-    Finaliza o assignment e libera o diarista.
+    Encerra a alocação de um diarista (status ENCERRADO + data_fim=hoje).
     """
     service = get_integration_service(db)
 

@@ -14,7 +14,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, func, or_, text
 from sqlalchemy.orm import Session
 
 from modules.operacional.diaristas.models import (
@@ -47,101 +47,119 @@ class IntegrationService:
     # ALOCAÇÃO DE DIARISTAS A POSTOS
     # =========================================================================
 
+    # Valores REAIS dos ENUMs do PostgreSQL (fonte: \d diarist_assignments).
+    # ATENÇÃO: os StrEnums em diaristas/models/diarist.py (AssignmentStatus/
+    # AssignmentType/RecurrenceType) estão DESALINHADOS do banco — usar os
+    # literais abaixo em escrita, senão o INSERT falha com
+    # "invalid input value for enum".
+    _PG_ASSIGNMENT_STATUS_ATIVO = "ATIVO"  # assignment_status: ATIVO|PAUSADO|ENCERRADO|CANCELADO
+    _PG_ASSIGNMENT_STATUS_ENCERRADO = "ENCERRADO"
+    _PG_ASSIGNMENT_STATUS_OCUPANTES = ("ATIVO", "PAUSADO")  # bloqueiam nova alocação
+    _PG_ASSIGNMENT_TIPO_CONDOMINIO = "CONDOMINIO"  # assignment_type: CONDOMINIO|UNIDADE|AREA_COMUM
+    _PG_ASSIGNMENT_TIPO_UNIDADE = "UNIDADE"
+    _PG_RECORRENCIA_AVULSO = "AVULSO"  # recurrence_type: AVULSO|SEMANAL|QUINZENAL|MENSAL
+
     def alocar_diarista_posto(
         self,
         diarista_id: UUID,
-        post_id: UUID,
+        condominio_id: UUID,
         data_inicio: date,
         data_fim: date | None = None,
-        shift_id: UUID | None = None,
-        cliente_id: UUID | None = None,
-        contrato_id: UUID | None = None,
+        unidade_id: UUID | None = None,
+        valor_acordado: Decimal | None = None,
         observacoes: str | None = None,
-        created_by: UUID | None = None,
     ) -> DiaristAssignment:
         """
-        Aloca um diarista a um posto de trabalho.
+        Aloca um diarista a um condomínio (schema atual de diarist_assignments).
+
+        REWRITE (Ciclo 3, item 15): o schema antigo (post_id, shift_id,
+        cliente_id, contrato_id, client_name, location, start_date, end_date,
+        notes, created_by) NÃO EXISTE MAIS. O schema atual usa
+        condominio_id/unidade_id/data_inicio/data_fim/observacoes.
+        Parâmetros antigos SEM equivalente foram removidos:
+        - post_id      → substituído por condominio_id (tabela condominios)
+        - shift_id     → sem coluna equivalente (turno agora é hora_inicio/hora_fim)
+        - cliente_id   → sem coluna equivalente
+        - contrato_id  → sem coluna equivalente
+        - created_by   → sem coluna equivalente
 
         Args:
-            diarista_id: ID do diarista
-            post_id: ID do posto
+            diarista_id: ID do diarista (tabela diarists)
+            condominio_id: ID do condomínio (tabela condominios) — NOT NULL no banco
             data_inicio: Data de início da alocação
             data_fim: Data de fim (opcional, para alocações temporárias)
-            shift_id: ID do turno específico (opcional)
-            cliente_id: ID do cliente do posto
-            contrato_id: ID do contrato associado
+            unidade_id: ID da unidade dentro do condomínio (opcional)
+            valor_acordado: Valor acordado; se None, usa diarists.valor_diaria do cadastro
             observacoes: Observações adicionais
-            created_by: ID do usuário que criou
 
         Returns:
             DiaristAssignment criado
         """
-        # Verificar diarista existe e está ativo
-        diarista = self.db.query(Diarist).filter(Diarist.id == diarista_id, Diarist.is_active).first()
+        # Verificar diarista existe e está ativo (diarists.ativo boolean + status varchar)
+        diarista = self.db.query(Diarist).filter(Diarist.id == diarista_id, Diarist.ativo.is_(True)).first()
 
         if not diarista:
             raise ValueError(f"Diarista {diarista_id} não encontrado ou inativo")
 
-        if diarista.status not in [DiaristStatus.ACTIVE, DiaristStatus.ON_ASSIGNMENT]:
+        if diarista.status != DiaristStatus.ATIVO.value:
             raise ValueError(f"Diarista não está disponível. Status: {diarista.status}")
 
-        # Verificar posto existe e está ativo
-        post = self.db.query(Post).filter(Post.id == post_id, Post.status == PostStatus.ACTIVE).first()
+        # Verificar condomínio existe (tabela condominios não tem model ORM neste módulo;
+        # diarist_assignments.condominio_id também não tem FK no banco — validar via SQL)
+        condominio_existe = self.db.execute(
+            text("SELECT 1 FROM condominios WHERE id = :cid"), {"cid": str(condominio_id)}
+        ).first()
 
-        if not post:
-            raise ValueError(f"Posto {post_id} não encontrado ou inativo")
+        if not condominio_existe:
+            raise ValueError(f"Condomínio {condominio_id} não encontrado")
 
-        # Verificar se não há conflito de alocação
-        conflito = (
-            self.db.query(DiaristAssignment)
-            .filter(
-                DiaristAssignment.diarist_id == diarista_id,
-                DiaristAssignment.status == "active",
-                or_(
-                    and_(
-                        DiaristAssignment.start_date <= data_inicio,
-                        or_(DiaristAssignment.end_date.is_(None), DiaristAssignment.end_date >= data_inicio),
-                    ),
-                    and_(
-                        DiaristAssignment.start_date <= data_fim,
-                        or_(DiaristAssignment.end_date.is_(None), DiaristAssignment.end_date >= data_fim),
-                    )
-                    if data_fim
-                    else False,
-                ),
-            )
-            .first()
+        # Verificar se não há conflito de alocação vigente no período
+        # (períodos se sobrepõem: existente.data_inicio <= novo_fim E
+        #  (existente.data_fim IS NULL OU existente.data_fim >= novo_inicio))
+        conflito_query = self.db.query(DiaristAssignment).filter(
+            DiaristAssignment.diarist_id == diarista_id,
+            DiaristAssignment.status.in_(self._PG_ASSIGNMENT_STATUS_OCUPANTES),
+            or_(DiaristAssignment.data_fim.is_(None), DiaristAssignment.data_fim >= data_inicio),
         )
+        if data_fim is not None:
+            conflito_query = conflito_query.filter(DiaristAssignment.data_inicio <= data_fim)
+
+        conflito = conflito_query.first()
 
         if conflito:
             raise ValueError(f"Diarista já possui alocação ativa no período: Assignment {conflito.id}")
 
-        # Criar assignment
+        # Criar assignment (somente colunas REAIS de diarist_assignments).
+        # tipo/status/recorrencia: literais dos ENUMs do PG — os defaults do
+        # model ("avulso"/"rascunho"/"nenhuma") são inválidos no banco.
+        # dias_semana=None explícito: o default do model ([] via JSONB) é
+        # incompatível com a coluna weekday_array2[] do banco.
         assignment = DiaristAssignment(
             diarist_id=diarista_id,
-            post_id=post_id,
-            shift_id=shift_id,
-            cliente_id=cliente_id or post.client_id if hasattr(post, "client_id") else None,
-            contrato_id=contrato_id,
-            client_name=post.name,
-            location=post.address if hasattr(post, "address") else None,
-            start_date=data_inicio,
-            end_date=data_fim,
-            status="active",
-            notes=observacoes,
-            created_by=created_by,
+            condominio_id=condominio_id,
+            unidade_id=unidade_id,
+            tipo=self._PG_ASSIGNMENT_TIPO_UNIDADE if unidade_id else self._PG_ASSIGNMENT_TIPO_CONDOMINIO,
+            data_inicio=data_inicio,
+            data_fim=data_fim,
+            recorrencia=self._PG_RECORRENCIA_AVULSO,
+            dias_semana=None,
+            valor_acordado=valor_acordado if valor_acordado is not None else diarista.valor_diaria,
+            status=self._PG_ASSIGNMENT_STATUS_ATIVO,
+            observacoes=observacoes,
         )
 
         self.db.add(assignment)
 
-        # Atualizar status do diarista
-        diarista.status = DiaristStatus.ON_ASSIGNMENT
+        # NOTA: DiaristStatus atual (ativo/inativo/suspenso/...) não tem valor
+        # "em serviço" (antigo ON_ASSIGNMENT não existe mais) — o status do
+        # diarista NÃO é alterado; "em serviço" deriva das alocações ATIVO.
 
         self.db.commit()
         self.db.refresh(assignment)
 
         logger.info(
-            f"Diarista {diarista_id} alocado ao posto {post_id} de {data_inicio} até {data_fim or 'indefinido'}"
+            f"Diarista {diarista_id} alocado ao condomínio {condominio_id} "
+            f"de {data_inicio} até {data_fim or 'indefinido'}"
         )
 
         return assignment
@@ -150,15 +168,17 @@ class IntegrationService:
         self,
         assignment_id: UUID,
         motivo: str | None = None,
-        updated_by: UUID | None = None,
     ) -> DiaristAssignment:
         """
-        Remove alocação de diarista de um posto.
+        Encerra a alocação de um diarista (schema atual de diarist_assignments).
+
+        REWRITE (Ciclo 3, item 15): encerrar = status ENCERRADO + data_fim=hoje.
+        Parâmetro antigo removido sem equivalente:
+        - updated_by → sem coluna equivalente no schema atual
 
         Args:
             assignment_id: ID da alocação
-            motivo: Motivo da desalocação
-            updated_by: ID do usuário que atualizou
+            motivo: Motivo da desalocação (anexado em observacoes)
 
         Returns:
             DiaristAssignment atualizado
@@ -168,32 +188,22 @@ class IntegrationService:
         if not assignment:
             raise ValueError(f"Assignment {assignment_id} não encontrado")
 
-        assignment.status = "completed"
-        assignment.end_date = date.today()
+        if assignment.status == self._PG_ASSIGNMENT_STATUS_ENCERRADO:
+            raise ValueError(f"Assignment {assignment_id} já está encerrado")
+
+        assignment.status = self._PG_ASSIGNMENT_STATUS_ENCERRADO
+        assignment.data_fim = date.today()
         if motivo:
-            assignment.notes = (assignment.notes or "") + f"\nDesalocação: {motivo}"
+            assignment.observacoes = ((assignment.observacoes or "") + f"\nDesalocação: {motivo}").strip()
 
-        # Verificar se diarista tem outras alocações ativas
-        outras_alocacoes = (
-            self.db.query(DiaristAssignment)
-            .filter(
-                DiaristAssignment.diarist_id == assignment.diarist_id,
-                DiaristAssignment.id != assignment_id,
-                DiaristAssignment.status == "active",
-            )
-            .count()
-        )
-
-        if outras_alocacoes == 0:
-            # Voltar status do diarista para ativo
-            diarista = self.db.query(Diarist).filter(Diarist.id == assignment.diarist_id).first()
-            if diarista:
-                diarista.status = DiaristStatus.ACTIVE
+        # NOTA: sem equivalente para o antigo "voltar diarista para ACTIVE" —
+        # DiaristStatus atual não tem ON_ASSIGNMENT; o status do diarista não
+        # é alterado na alocação, portanto nada a reverter aqui.
 
         self.db.commit()
         self.db.refresh(assignment)
 
-        logger.info(f"Assignment {assignment_id} finalizado")
+        logger.info(f"Assignment {assignment_id} encerrado (data_fim={assignment.data_fim})")
 
         return assignment
 

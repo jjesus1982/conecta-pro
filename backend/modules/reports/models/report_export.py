@@ -1,6 +1,14 @@
 """
 ReportExport Model - Exportações de Relatórios
 Sprint 34: Relatórios Gerenciais
+
+Reconciliado com a tabela real `report_exports` (2026-07-07, Ciclo 3 item 16):
+a tabela do banco é a fonte da verdade — nomes/tipos/nullable abaixo batem 1:1
+com o `\\d report_exports` de produção. NÃO reintroduzir colunas fantasmas
+(export_number, filename, content_type, file_url, file_checksum, max_downloads,
+download_expires_at, last_download_at, records_processed, pages_generated,
+error_code, retry_count, delivery_recipient, delivery_status, report_title,
+report_subtitle, data_period_start/end).
 """
 # pylint: disable=unused-argument
 
@@ -9,7 +17,7 @@ import secrets
 from datetime import datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import BigInteger, Boolean, Column, DateTime, Enum, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
@@ -57,87 +65,73 @@ class ReportExport(Base):
 
     # Identificação
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    template_id = Column(UUID(as_uuid=True), ForeignKey("report_templates.id"), nullable=False)
-    schedule_id = Column(UUID(as_uuid=True), ForeignKey("report_schedules.id"), nullable=True)
-    export_number = Column(String(50), nullable=False, unique=True)
+    export_id = Column(String(50), nullable=False, unique=True)
+    template_id = Column(UUID(as_uuid=True), ForeignKey("report_templates.id"), nullable=False, index=True)
+    schedule_id = Column(UUID(as_uuid=True), ForeignKey("report_schedules.id"), nullable=True, index=True)
 
     # Status
     status = Column(
-        Enum(ExportStatus, values_callable=lambda x: [e.value for e in x]), nullable=False, default=ExportStatus.PENDING
+        Enum(ExportStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=ExportStatus.PENDING,
+        index=True,
     )
     trigger = Column(
         Enum(ExportTrigger, values_callable=lambda x: [e.value for e in x]),
         nullable=False,
         default=ExportTrigger.MANUAL,
+        index=True,
     )
 
     # Formato
     format = Column(Enum(ExportFormat, values_callable=lambda x: [e.value for e in x]), nullable=False)
-    filename = Column(String(500), nullable=True)
-    content_type = Column(String(100), nullable=True)
 
     # Parâmetros usados
     parameters = Column(JSONB, nullable=True)
     filters = Column(JSONB, nullable=True)
-    data_period_start = Column(DateTime, nullable=True)
-    data_period_end = Column(DateTime, nullable=True)
 
     # Arquivo gerado
+    file_name = Column(String(500), nullable=True)
     file_path = Column(String(1000), nullable=True)
-    file_url = Column(String(2000), nullable=True)
     file_size = Column(BigInteger, nullable=True)
-    file_checksum = Column(String(64), nullable=True)
-
-    # Download
-    download_token = Column(String(100), nullable=True)
-    download_count = Column(Integer, nullable=False, default=0)
-    max_downloads = Column(Integer, nullable=True)
-    download_expires_at = Column(DateTime, nullable=True)
-    last_download_at = Column(DateTime, nullable=True)
+    file_hash = Column(String(64), nullable=True)
+    mime_type = Column(String(100), nullable=True)
+    row_count = Column(Integer, nullable=True)
+    page_count = Column(Integer, nullable=True)
 
     # Processamento
-    started_at = Column(DateTime, nullable=True)
-    completed_at = Column(DateTime, nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
     processing_time_ms = Column(Integer, nullable=True)
-    records_processed = Column(Integer, nullable=True)
-    pages_generated = Column(Integer, nullable=True)
 
     # Erro
     error_message = Column(Text, nullable=True)
-    error_code = Column(String(50), nullable=True)
     error_details = Column(JSONB, nullable=True)
-    retry_count = Column(Integer, nullable=False, default=0)
+
+    # Download
+    download_url = Column(String(1000), nullable=True)
+    download_token = Column(String(100), nullable=True, index=True)
+    download_count = Column(Integer, nullable=False, default=0)
+    last_downloaded_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
 
     # Entrega
     delivered = Column(Boolean, nullable=False, default=False)
-    delivered_at = Column(DateTime, nullable=True)
-    delivery_method = Column(String(50), nullable=True)
-    delivery_recipient = Column(String(500), nullable=True)
-    delivery_status = Column(String(50), nullable=True)
+    delivered_at = Column(DateTime(timezone=True), nullable=True)
+    delivery_method = Column(String(20), nullable=True)
+    delivery_details = Column(JSONB, nullable=True)
 
-    # Metadados
-    report_title = Column(String(500), nullable=True)
-    report_subtitle = Column(String(500), nullable=True)
+    # Auditoria / Metadados
+    requested_by = Column(UUID(as_uuid=True), nullable=True, index=True)
     extra_metadata = Column(JSONB, nullable=True)
-
-    # Auditoria
-    requested_by = Column(UUID(as_uuid=True), nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
     ativo = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=datetime.utcnow)
+    tenant_id = Column(UUID(as_uuid=True), nullable=True)
 
     # Relacionamentos
     template = relationship("ReportTemplate", back_populates="exports")
     schedule = relationship("ReportSchedule", back_populates="exports")
-
-    __table_args__ = (
-        Index("ix_report_exports_tenant_status", "tenant_id", "status"),
-        Index("ix_report_exports_template", "template_id"),
-        Index("ix_report_exports_schedule", "schedule_id"),
-        Index("ix_report_exports_created", "created_at"),
-        Index("ix_report_exports_download_token", "download_token"),
-    )
 
     @classmethod
     def create_export(
@@ -151,12 +145,12 @@ class ReportExport(Base):
         """Cria uma nova exportação."""
         timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
         token = secrets.token_hex(4).upper()
-        export_number = f"EXP-{timestamp}-{token}"
+        export_id = f"EXP-{timestamp}-{token}"
 
         return cls(
             template_id=template_id,
             schedule_id=schedule_id,
-            export_number=export_number,
+            export_id=export_id,
             format=export_format,
             trigger=trigger,
             requested_by=requested_by,
@@ -182,28 +176,29 @@ class ReportExport(Base):
         self.completed_at = datetime.utcnow()
         self.file_path = file_path
         self.file_size = file_size
-        self.file_checksum = file_checksum
-        self.records_processed = records
-        self.pages_generated = pages
+        self.file_hash = file_checksum
+        self.row_count = records
+        self.page_count = pages
 
         if self.started_at:
-            delta = self.completed_at - self.started_at
+            delta = self.completed_at - self._naive(self.started_at)
             self.processing_time_ms = int(delta.total_seconds() * 1000)
 
         # Define expiração padrão de 7 dias
-        self.download_expires_at = datetime.utcnow() + timedelta(days=7)
+        self.expires_at = datetime.utcnow() + timedelta(days=7)
         self.updated_at = datetime.utcnow()
 
     def fail(self, error_message: str, error_code: str | None = None, error_details: dict | None = None) -> None:
-        """Marca como falho."""
+        """Marca como falho. error_code é armazenado dentro de error_details (JSONB)."""
         self.status = ExportStatus.FAILED
         self.completed_at = datetime.utcnow()
         self.error_message = error_message
-        self.error_code = error_code
+        if error_code:
+            error_details = {**(error_details or {}), "error_code": error_code}
         self.error_details = error_details
 
         if self.started_at:
-            delta = self.completed_at - self.started_at
+            delta = self.completed_at - self._naive(self.started_at)
             self.processing_time_ms = int(delta.total_seconds() * 1000)
 
         self.updated_at = datetime.utcnow()
@@ -224,41 +219,42 @@ class ReportExport(Base):
         if self.status != ExportStatus.COMPLETED:
             return False
 
-        if self.download_expires_at and datetime.utcnow() > self.download_expires_at:
+        if self.expires_at and datetime.utcnow() > self._naive(self.expires_at):
             self.expire()
             return False
 
-        if self.max_downloads and self.download_count >= self.max_downloads:
-            return False
-
         self.download_count += 1
-        self.last_download_at = datetime.utcnow()
+        self.last_downloaded_at = datetime.utcnow()
         self.updated_at = datetime.utcnow()
         return True
 
     def record_delivery(self, method: str, recipient: str, status: str = "sent") -> None:
-        """Registra entrega."""
+        """Registra entrega. Destinatário e status ficam em delivery_details (JSONB)."""
         self.delivered = True
         self.delivered_at = datetime.utcnow()
         self.delivery_method = method
-        self.delivery_recipient = recipient
-        self.delivery_status = status
+        self.delivery_details = {**(self.delivery_details or {}), "recipient": recipient, "status": status}
         self.updated_at = datetime.utcnow()
 
     def regenerate_token(self, expires_in_days: int = 7) -> str:
         """Regenera token de download."""
         self.download_token = secrets.token_urlsafe(32)
-        self.download_expires_at = datetime.utcnow() + timedelta(days=expires_in_days)
+        self.expires_at = datetime.utcnow() + timedelta(days=expires_in_days)
         self.updated_at = datetime.utcnow()
         return self.download_token
 
     def extend_expiration(self, days: int) -> None:
         """Estende a expiração."""
-        if self.download_expires_at:
-            self.download_expires_at += timedelta(days=days)
+        if self.expires_at:
+            self.expires_at += timedelta(days=days)
         else:
-            self.download_expires_at = datetime.utcnow() + timedelta(days=days)
+            self.expires_at = datetime.utcnow() + timedelta(days=days)
         self.updated_at = datetime.utcnow()
+
+    @staticmethod
+    def _naive(dt: datetime) -> datetime:
+        """Compara com segurança datetimes vindos do banco (timestamptz) contra utcnow naive."""
+        return dt.replace(tzinfo=None) if dt.tzinfo is not None else dt
 
     @property
     def is_completed(self) -> bool:
@@ -275,9 +271,7 @@ class ReportExport(Base):
         """Verifica se pode ser baixado."""
         if self.status != ExportStatus.COMPLETED:
             return False
-        if self.download_expires_at and datetime.utcnow() > self.download_expires_at:
-            return False
-        if self.max_downloads and self.download_count >= self.max_downloads:
+        if self.expires_at and datetime.utcnow() > self._naive(self.expires_at):
             return False
         return True
 
@@ -286,7 +280,7 @@ class ReportExport(Base):
         """Verifica se expirou."""
         if self.status == ExportStatus.EXPIRED:
             return True
-        if self.download_expires_at and datetime.utcnow() > self.download_expires_at:
+        if self.expires_at and datetime.utcnow() > self._naive(self.expires_at):
             return True
         return False
 

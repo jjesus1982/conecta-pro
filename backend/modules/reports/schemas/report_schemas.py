@@ -175,7 +175,11 @@ class ReportScheduleList(BaseModel):
 # ========================
 
 class ReportExportCreate(BaseModel):
-    """Schema para criação de exportação."""
+    """Schema para criação de exportação.
+
+    data_period_* e report_title/subtitle não têm coluna própria na tabela
+    report_exports — são persistidos em extra_metadata (JSONB) pelo service.
+    """
     template_id: UUID
     format: str = "pdf"
     parameters: Optional[Dict[str, Any]] = None
@@ -187,26 +191,27 @@ class ReportExportCreate(BaseModel):
 
 
 class ReportExportResponse(BaseModel):
-    """Schema de resposta de exportação."""
+    """Schema de resposta de exportação (campos = colunas reais de report_exports)."""
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    tenant_id: UUID
+    tenant_id: Optional[UUID] = None
     template_id: UUID
     schedule_id: Optional[UUID] = None
-    export_number: str
+    export_id: str
     status: str
     trigger: str
     format: str
-    filename: Optional[str] = None
+    file_name: Optional[str] = None
     file_size: Optional[int] = None
-    file_url: Optional[str] = None
+    mime_type: Optional[str] = None
+    download_url: Optional[str] = None
     download_token: Optional[str] = None
     download_count: int
-    download_expires_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
     processing_time_ms: Optional[int] = None
-    records_processed: Optional[int] = None
-    pages_generated: Optional[int] = None
+    row_count: Optional[int] = None
+    page_count: Optional[int] = None
     error_message: Optional[str] = None
     delivered: bool
     delivered_at: Optional[datetime] = None
@@ -229,7 +234,7 @@ class ReportExportDownload(BaseModel):
     filename: str
     content_type: str
     file_size: int
-    expires_at: datetime
+    expires_at: Optional[datetime] = None
 
 
 # ========================
