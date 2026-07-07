@@ -2,7 +2,10 @@
 
 Idempotente — as 4 tabelas já existem em produção (criadas via models direto).
 Esta migration garante o schema em deploys limpos. Guarda com inspector.has_table
-antes de cada create_table (op.create_table não tem if_not_exists nativo).
+antes de cada create_table (op.create_table não tem if_not_exists nativo) e cria
+cada ENUM via DO $$ ... EXCEPTION WHEN duplicate_object (os types podem já existir
+se os models rodaram create_all(checkfirst) antes do alembic — ex.: `risklevel` é
+COMPARTILHADO com risk_profiles/fraud_detection e tem 6 valores em produção).
 
 Revision ID: lgpd_tables_20260702
 Revises: cct_adicionais_emp_20260701
@@ -42,7 +45,9 @@ _LEGAL_BASIS = (
     "legitimate_interest",
     "credit_protection",
 )
-_RISK_LEVEL = ("low", "medium", "high", "critical")
+# NB: o type pg `risklevel` é compartilhado com risk_profiles (ai/fraud_detection);
+# em produção tem 6 valores (\dT+ risklevel) — superset dos 4 usados pelo model LGPD.
+_RISK_LEVEL = ("minimal", "low", "medium", "high", "critical", "blocked")
 _ASSESSMENT_STATUS = ("draft", "in_review", "approved", "rejected", "archived")
 _ERASURE_STATUS = ("pending", "in_progress", "completed", "rejected", "partial")
 _ERASURE_SCOPE = ("all", "personal", "marketing", "analytics")
@@ -63,10 +68,39 @@ _AUDIT_ACTION = (
 _AUDIT_SEVERITY = ("debug", "info", "warning", "error", "critical")
 _RESOURCE_TYPE = ("user", "document", "consent", "data", "system", "audit")
 
+_ENUMS = {
+    "consentpurpose": _CONSENT_PURPOSE,
+    "legalbasis": _LEGAL_BASIS,
+    "consentstatus": _CONSENT_STATUS,
+    "assessmentstatus": _ASSESSMENT_STATUS,
+    "risklevel": _RISK_LEVEL,
+    "erasurescope": _ERASURE_SCOPE,
+    "erasurestatus": _ERASURE_STATUS,
+    "auditaction": _AUDIT_ACTION,
+    "resourcetype": _RESOURCE_TYPE,
+    "auditseverity": _AUDIT_SEVERITY,
+}
+
+
+def _enum(name: str) -> postgresql.ENUM:
+    """Referencia o type pg SEM emitir CREATE TYPE (já garantido em _ensure_enums)."""
+    return postgresql.ENUM(*_ENUMS[name], name=name, create_type=False)
+
+
+def _ensure_enums() -> None:
+    """CREATE TYPE idempotente — o type pode já existir (models create_all/checkfirst)."""
+    for name, values in _ENUMS.items():
+        vals = ", ".join("'" + v + "'" for v in values)
+        op.execute(
+            f"DO $$ BEGIN CREATE TYPE {name} AS ENUM ({vals}); "
+            "EXCEPTION WHEN duplicate_object THEN NULL; END $$;"
+        )
+
 
 def upgrade() -> None:
     conn = op.get_bind()
     insp = inspect(conn)
+    _ensure_enums()
 
     # ------------------------------------------------------------------
     # lgpd_consents
@@ -79,18 +113,18 @@ def upgrade() -> None:
             sa.Column("titular_email", sa.String(length=255), nullable=False),
             sa.Column(
                 "purpose",
-                sa.Enum(*_CONSENT_PURPOSE, name="consentpurpose"),
+                _enum("consentpurpose"),
                 nullable=False,
             ),
             sa.Column(
                 "legal_basis",
-                sa.Enum(*_LEGAL_BASIS, name="legalbasis"),
+                _enum("legalbasis"),
                 nullable=False,
             ),
             sa.Column("description", sa.Text(), nullable=False),
             sa.Column(
                 "status",
-                sa.Enum(*_CONSENT_STATUS, name="consentstatus"),
+                _enum("consentstatus"),
                 nullable=False,
             ),
             sa.Column("created_at", sa.DateTime(), nullable=False),
@@ -116,12 +150,12 @@ def upgrade() -> None:
             sa.Column("description", sa.Text(), nullable=False),
             sa.Column(
                 "status",
-                sa.Enum(*_ASSESSMENT_STATUS, name="assessmentstatus"),
+                _enum("assessmentstatus"),
                 nullable=False,
             ),
             sa.Column(
                 "risk_level",
-                sa.Enum(*_RISK_LEVEL, name="risklevel"),
+                _enum("risklevel"),
                 nullable=True,
             ),
             sa.Column("requires_dpia", sa.Boolean(), nullable=True),
@@ -154,12 +188,12 @@ def upgrade() -> None:
             sa.Column("reason", sa.Text(), nullable=False),
             sa.Column(
                 "scope",
-                sa.Enum(*_ERASURE_SCOPE, name="erasurescope"),
+                _enum("erasurescope"),
                 nullable=False,
             ),
             sa.Column(
                 "status",
-                sa.Enum(*_ERASURE_STATUS, name="erasurestatus"),
+                _enum("erasurestatus"),
                 nullable=False,
             ),
             sa.Column("created_at", sa.DateTime(), nullable=False),
@@ -185,19 +219,19 @@ def upgrade() -> None:
             sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
             sa.Column(
                 "action",
-                sa.Enum(*_AUDIT_ACTION, name="auditaction"),
+                _enum("auditaction"),
                 nullable=False,
             ),
             sa.Column(
                 "resource_type",
-                sa.Enum(*_RESOURCE_TYPE, name="resourcetype"),
+                _enum("resourcetype"),
                 nullable=False,
             ),
             sa.Column("resource_id", sa.String(length=255), nullable=False),
             sa.Column("user_id", sa.String(length=255), nullable=False),
             sa.Column(
                 "severity",
-                sa.Enum(*_AUDIT_SEVERITY, name="auditseverity"),
+                _enum("auditseverity"),
                 nullable=False,
             ),
             sa.Column("details", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
@@ -221,7 +255,8 @@ def downgrade() -> None:
     op.execute("DROP TABLE IF EXISTS lgpd_erasure_requests CASCADE")
     op.execute("DROP TABLE IF EXISTS lgpd_pia_assessments CASCADE")
     op.execute("DROP TABLE IF EXISTS lgpd_consents CASCADE")
-    # Enums (só existem se as tabelas foram criadas por esta migration)
+    # Enums: dropar só se ninguém mais usa — `risklevel` é compartilhado com
+    # risk_profiles (fraud_detection); DROP sem guarda falharia em produção.
     for enum_name in (
         "consentpurpose",
         "legalbasis",
@@ -234,4 +269,7 @@ def downgrade() -> None:
         "resourcetype",
         "auditseverity",
     ):
-        op.execute(f"DROP TYPE IF EXISTS {enum_name}")
+        op.execute(
+            f"DO $$ BEGIN DROP TYPE IF EXISTS {enum_name}; "
+            "EXCEPTION WHEN dependent_objects_still_exist THEN NULL; END $$;"
+        )

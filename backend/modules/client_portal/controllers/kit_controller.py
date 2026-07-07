@@ -59,9 +59,11 @@ async def historico_drive(
     Retorna os ultimos 24 meses de kits que possuem link no Drive,
     ordenados do mais recente ao mais antigo.
     """
+    from sqlalchemy import func as sa_func
     from sqlalchemy import select as sa_select
 
     from modules.people_management.ged.models.document_kit import GedDocumentKit
+    from modules.people_management.ged.models.kit_document import KitDocument
 
     result = await db.execute(
         sa_select(GedDocumentKit)
@@ -74,12 +76,24 @@ async def historico_drive(
     )
     kits = result.scalars().all()
 
+    # total_docs AO VIVO (COUNT real em ged_kit_documents) numa única query
+    # agregada — a coluna stored total_documents fica stale.
+    doc_counts: dict[str, int] = {}
+    kit_ids = [str(kit.id) for kit in kits]
+    if kit_ids:
+        counts_result = await db.execute(
+            sa_select(KitDocument.kit_id, sa_func.count())
+            .where(KitDocument.kit_id.in_(kit_ids))
+            .group_by(KitDocument.kit_id)
+        )
+        doc_counts = {str(row[0]): int(row[1] or 0) for row in counts_result.all()}
+
     return {
         "total": len(kits),
         "kits": [
             {
                 "competencia": kit.reference_month.strftime("%Y-%m"),
-                "total_docs": kit.total_documents,
+                "total_docs": doc_counts.get(str(kit.id), 0),
                 "share_link": kit.google_drive_link,
                 "status": kit.status,
                 "criado_em": str(kit.created_at.date()) if kit.created_at else "",

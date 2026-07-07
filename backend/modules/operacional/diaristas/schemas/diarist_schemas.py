@@ -183,7 +183,7 @@ class DiaristAssignmentBase(BaseModel):
     """Schema base de Alocacao."""
 
     diarist_id: UUID
-    tipo: AssignmentType = AssignmentType.AVULSO
+    tipo: AssignmentType = AssignmentType.CONDOMINIO
     servico_tipo: str = Field(..., max_length=50)
     servico_descricao: str | None = None
     local_servico: str | None = Field(None, max_length=200)
@@ -196,7 +196,7 @@ class DiaristAssignmentBase(BaseModel):
     horario_fim: time | None = Field(default=time(17, 0))
     carga_horaria: int | None = Field(8, ge=1, le=12)
 
-    recorrencia: RecurrenceType = RecurrenceType.NENHUMA
+    recorrencia: RecurrenceType = RecurrenceType.AVULSO
     dias_semana: list[Weekday] | None = Field(default_factory=list)
     intervalo_dias: int | None = Field(None, ge=1)
     total_ocorrencias: int | None = Field(None, ge=1)

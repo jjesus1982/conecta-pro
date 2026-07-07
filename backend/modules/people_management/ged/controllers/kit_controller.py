@@ -298,10 +298,11 @@ async def send_kit_email(
 
     Valida completude (100%) antes de enviar. Marca kit como enviado se bem-sucedido.
     """
-    from sqlalchemy import select
+    from sqlalchemy import func, select
 
     from modules.people_management.ged.models.client import GedClient
     from modules.people_management.ged.models.document_kit import GedDocumentKit
+    from modules.people_management.ged.models.kit_document import KitDocument
 
     # G3: buscar kit diretamente em ged_document_kits
     kit_result = await db.execute(select(GedDocumentKit).where(GedDocumentKit.id == kit_id))
@@ -309,8 +310,19 @@ async def send_kit_email(
     if not kit:
         raise HTTPException(status_code=404, detail="Kit nao encontrado")
 
-    # INV-5: envio bloqueado se completion_percentage < 100
-    pct = float(kit.completion_percentage or 0)
+    # INV-5: envio bloqueado se completude AO VIVO < 100
+    # (COUNT real em ged_kit_documents; a coluna stored fica stale)
+    _total = (
+        await db.scalar(select(func.count()).select_from(KitDocument).where(KitDocument.kit_id == str(kit.id)))
+    ) or 0
+    _signed = (
+        await db.scalar(
+            select(func.count())
+            .select_from(KitDocument)
+            .where(KitDocument.kit_id == str(kit.id), KitDocument.is_signed.is_(True))
+        )
+    ) or 0
+    pct = (_signed / _total) * 100 if _total else 0.0
     if pct < 100:
         raise HTTPException(
             status_code=400,
@@ -385,11 +397,12 @@ async def enviar_kit(
     """
     from datetime import datetime
 
-    from sqlalchemy import select
+    from sqlalchemy import func, select
 
     from modules.gdrive.services.email_kit_service import email_kit_service as _email_svc
     from modules.people_management.ged.models.client import GedClient
     from modules.people_management.ged.models.document_kit import GedDocumentKit
+    from modules.people_management.ged.models.kit_document import KitDocument
     from modules.people_management.ged.services.google_drive_service import GoogleDriveService
 
     # 1. Buscar kit
@@ -398,8 +411,19 @@ async def enviar_kit(
     if not kit:
         raise HTTPException(status_code=404, detail="Kit não encontrado")
 
-    # 2. Validar completude (INV-5)
-    pct = float(kit.completion_percentage or 0)
+    # 2. Validar completude AO VIVO (INV-5)
+    # (COUNT real em ged_kit_documents; a coluna stored fica stale)
+    _total = (
+        await db.scalar(select(func.count()).select_from(KitDocument).where(KitDocument.kit_id == str(kit.id)))
+    ) or 0
+    _signed = (
+        await db.scalar(
+            select(func.count())
+            .select_from(KitDocument)
+            .where(KitDocument.kit_id == str(kit.id), KitDocument.is_signed.is_(True))
+        )
+    ) or 0
+    pct = (_signed / _total) * 100 if _total else 0.0
     if pct < 100:
         raise HTTPException(
             status_code=400,

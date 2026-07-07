@@ -10,7 +10,7 @@ import math
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.people_management.ged.models.client import GedClient
@@ -146,9 +146,11 @@ class KitService:
         page = (skip // limit) + 1 if limit > 0 else 1
         pages = math.ceil(total / limit) if limit > 0 else 0
 
+        # Contadores AO VIVO em lote: uma única query agregada (sem N+1)
+        counts = await self._live_doc_counts([str(kit.id) for kit in kits])
         items = []
         for kit in kits:
-            items.append(await self._to_response(kit))
+            items.append(await self._to_response(kit, counts=counts.get(str(kit.id), (0, 0))))
 
         return KitListResponse(
             items=items,
@@ -255,15 +257,20 @@ class KitService:
         # Kits enviados aguardando aprovacao
         kits_pending_approval = status_map.get(KitStatus.ENVIADO, 0) + status_map.get(KitStatus.CONFERIDO, 0)
 
-        # Media de completude dos kits em montagem
-        avg_query = select(func.avg(GedDocumentKit.completion_percentage)).where(
-            GedDocumentKit.status == KitStatus.EM_MONTAGEM
-        )
+        # Media de completude dos kits em montagem — AO VIVO a partir do
+        # COUNT real em ged_kit_documents (a coluna stored fica stale)
+        em_montagem_query = select(GedDocumentKit.id).where(GedDocumentKit.status == KitStatus.EM_MONTAGEM)
         for f in base_filter:
-            avg_query = avg_query.where(f)
-        avg_result = await self.db.execute(avg_query)
-        avg_completion_raw = avg_result.scalar()
-        average_completion = Decimal(str(round(float(avg_completion_raw or 0), 2)))
+            em_montagem_query = em_montagem_query.where(f)
+        em_montagem_result = await self.db.execute(em_montagem_query)
+        em_montagem_ids = [str(row) for row in em_montagem_result.scalars().all()]
+
+        counts = await self._live_doc_counts(em_montagem_ids)
+        pcts = []
+        for kit_id in em_montagem_ids:
+            total_docs, signed_docs = counts.get(kit_id, (0, 0))
+            pcts.append((signed_docs / total_docs) * 100 if total_docs > 0 else 0.0)
+        average_completion = Decimal(str(round(sum(pcts) / len(pcts), 2))) if pcts else Decimal("0.00")
 
         return KitSummary(
             total_kits=total_kits,
@@ -289,9 +296,11 @@ class KitService:
             select(GedDocumentKit).where(GedDocumentKit.reference_month == ref).order_by(GedDocumentKit.created_at)
         )
         kits = result.scalars().all()
+        # Contadores AO VIVO em lote: uma única query agregada (sem N+1)
+        counts = await self._live_doc_counts([str(kit.id) for kit in kits])
         items = []
         for kit in kits:
-            items.append(await self._to_response(kit))
+            items.append(await self._to_response(kit, counts=counts.get(str(kit.id), (0, 0))))
         return items
 
     async def recalculate_kit_completion(self, kit_id: str) -> KitResponse:
@@ -457,7 +466,33 @@ class KitService:
             by_type=by_type,
         )
 
-    async def _to_response(self, kit: GedDocumentKit, include_documents_summary: bool = False) -> KitResponse:
+    async def _live_doc_counts(self, kit_ids: list[str]) -> dict[str, tuple[int, int]]:
+        """Contadores AO VIVO por kit: (total, assinados).
+
+        Fonte de verdade é o COUNT real em ged_kit_documents; as colunas
+        stored (total_documents/documents_signed/completion_percentage)
+        de ged_document_kits ficam desatualizadas. Uma única query
+        agregada para o lote inteiro (sem N+1).
+        """
+        if not kit_ids:
+            return {}
+        result = await self.db.execute(
+            select(
+                KitDocument.kit_id,
+                func.count().label("total"),
+                func.count(case((KitDocument.is_signed.is_(True), 1))).label("signed"),
+            )
+            .where(KitDocument.kit_id.in_(kit_ids))
+            .group_by(KitDocument.kit_id)
+        )
+        return {str(row.kit_id): (int(row.total or 0), int(row.signed or 0)) for row in result.all()}
+
+    async def _to_response(
+        self,
+        kit: GedDocumentKit,
+        include_documents_summary: bool = False,
+        counts: tuple[int, int] | None = None,
+    ) -> KitResponse:
         """Converte GedDocumentKit ORM para KitResponse."""
         client_name = await self._get_client_name(str(kit.client_id))
 
@@ -467,16 +502,10 @@ class KitService:
 
         # Contadores computados AO VIVO do COUNT real em ged_kit_documents
         # (fonte de verdade); as colunas stored do kit ficam desatualizadas.
-        total_documents = (
-            await self.db.scalar(select(func.count()).select_from(KitDocument).where(KitDocument.kit_id == str(kit.id)))
-        ) or 0
-        documents_signed = (
-            await self.db.scalar(
-                select(func.count())
-                .select_from(KitDocument)
-                .where(KitDocument.kit_id == str(kit.id), KitDocument.is_signed.is_(True))
-            )
-        ) or 0
+        # Em listas, `counts` vem pré-computado por uma única query agregada.
+        if counts is None:
+            counts = (await self._live_doc_counts([str(kit.id)])).get(str(kit.id), (0, 0))
+        total_documents, documents_signed = counts
         completion_percentage = round(documents_signed / total_documents * 100, 2) if total_documents else 0
 
         return KitResponse(

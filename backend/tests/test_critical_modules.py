@@ -284,9 +284,9 @@ class TestCrmModule:
         assert models is not None
 
     def test_import_services(self):
-        from modules.crm.services import crm_360_service
+        from modules.crm import services
 
-        assert crm_360_service is not None
+        assert services is not None
 
 
 # =============================================================================

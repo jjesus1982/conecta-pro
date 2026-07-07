@@ -58,15 +58,23 @@ async def get_overview(
                         )
                     )
                 ).label("pendentes"),
-                func.sum(GedDocumentKit.total_documents).label("docs_total"),
-                func.sum(GedDocumentKit.documents_signed).label("docs_assinados"),
             ).where(GedDocumentKit.client_id == client_id)
         )
         kits_row = kits_result.one()
         kits_total = int(kits_row.total or 0)
         kits_aprovados = int(kits_row.aprovados or 0)
         kits_pendentes = int(kits_row.pendentes or 0)
-        docs_total = int(kits_row.docs_total or 0)
+
+        # Documentos AO VIVO: COUNT real em ged_kit_documents (fonte de
+        # verdade) — os contadores stored de ged_document_kits ficam stale.
+        docs_result = await db.execute(
+            select(func.count())
+            .select_from(KitDocument)
+            .where(
+                KitDocument.kit_id.in_(select(GedDocumentKit.id).where(GedDocumentKit.client_id == client_id))
+            )
+        )
+        docs_total = int(docs_result.scalar() or 0)
 
         # --- Downloads reais (auditoria de acesso aos kits do cliente) ---
         downloads_result = await db.execute(
@@ -188,13 +196,26 @@ async def get_kits_history(
     Retorna os ultimos N meses de kits, util para graficos de barra.
     """
     try:
+        # Contadores AO VIVO por kit (COUNT real em ged_kit_documents) numa
+        # única query agregada — os contadores stored do kit ficam stale.
+        doc_counts = (
+            select(
+                KitDocument.kit_id.label("kit_id"),
+                func.count().label("docs_total"),
+                func.count(case((KitDocument.is_signed.is_(True), 1))).label("docs_signed"),
+            )
+            .group_by(KitDocument.kit_id)
+            .subquery()
+        )
+
         result = await db.execute(
             select(
                 GedDocumentKit.reference_month,
                 GedDocumentKit.status,
-                GedDocumentKit.total_documents,
-                GedDocumentKit.completion_percentage,
+                func.coalesce(doc_counts.c.docs_total, 0).label("docs_total"),
+                func.coalesce(doc_counts.c.docs_signed, 0).label("docs_signed"),
             )
+            .outerjoin(doc_counts, doc_counts.c.kit_id == GedDocumentKit.id)
             .where(GedDocumentKit.client_id == client_id)
             .order_by(GedDocumentKit.reference_month.desc())
             .limit(months)
@@ -205,12 +226,15 @@ async def get_kits_history(
         for row in reversed(rows):
             ref_month = row.reference_month
             month_str = f"{ref_month.year}-{ref_month.month:02d}"
+            docs_total = int(row.docs_total or 0)
+            docs_signed = int(row.docs_signed or 0)
+            completion_pct = round((docs_signed / docs_total) * 100, 2) if docs_total > 0 else 0.0
             history.append(
                 {
                     "month": month_str,
                     "status": row.status,
-                    "documents": int(row.total_documents or 0),
-                    "completion_pct": float(row.completion_percentage or 0),
+                    "documents": docs_total,
+                    "completion_pct": completion_pct,
                 }
             )
 

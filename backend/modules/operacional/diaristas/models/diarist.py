@@ -66,37 +66,29 @@ class DocumentType(StrEnum):
 
 
 class AssignmentType(StrEnum):
-    """Tipos de alocacao."""
+    """Tipos de alocacao. Valores uppercase para alinhar com PG ENUM assignment_type."""
 
-    AVULSO = "avulso"
-    RECORRENTE = "recorrente"
-    TEMPORARIO = "temporario"
-    SUBSTITUICAO = "substituicao"
-    EMERGENCIAL = "emergencial"
+    CONDOMINIO = "CONDOMINIO"
+    UNIDADE = "UNIDADE"
+    AREA_COMUM = "AREA_COMUM"
 
 
 class AssignmentStatus(StrEnum):
-    """Status da alocacao."""
+    """Status da alocacao. Valores uppercase para alinhar com PG ENUM assignment_status."""
 
-    RASCUNHO = "rascunho"
-    AGENDADO = "agendado"
-    CONFIRMADO = "confirmado"
-    EM_ANDAMENTO = "em_andamento"
-    CONCLUIDO = "concluido"
-    CANCELADO = "cancelado"
-    SUSPENSO = "suspenso"
-    EXPIRADO = "expirado"
+    ATIVO = "ATIVO"
+    PAUSADO = "PAUSADO"
+    ENCERRADO = "ENCERRADO"
+    CANCELADO = "CANCELADO"
 
 
 class RecurrenceType(StrEnum):
-    """Tipos de recorrencia."""
+    """Tipos de recorrencia. Valores uppercase para alinhar com PG ENUM recurrence_type."""
 
-    DIARIA = "diaria"
-    SEMANAL = "semanal"
-    QUINZENAL = "quinzenal"
-    MENSAL = "mensal"
-    CUSTOMIZADA = "customizada"
-    NENHUMA = "nenhuma"
+    AVULSO = "AVULSO"
+    SEMANAL = "SEMANAL"
+    QUINZENAL = "QUINZENAL"
+    MENSAL = "MENSAL"
 
 
 class ScheduleStatus(StrEnum):
@@ -313,8 +305,8 @@ class DiaristAssignment(Base):
     unidade_id = Column(PG_UUID(as_uuid=True))
 
     # Tipo e status
-    tipo = Column(String(30), nullable=False, default=AssignmentType.AVULSO.value, index=True)
-    status = Column(String(30), nullable=False, default=AssignmentStatus.RASCUNHO.value, index=True)
+    tipo = Column(String(30), nullable=False, default=AssignmentType.CONDOMINIO.value, index=True)
+    status = Column(String(30), nullable=False, default=AssignmentStatus.ATIVO.value, index=True)
 
     # Servico
     descricao = Column(Text)
@@ -326,7 +318,7 @@ class DiaristAssignment(Base):
     hora_fim = Column(Time, default=time(17, 0))
 
     # Recorrencia
-    recorrencia = Column(String(30), nullable=False, default=RecurrenceType.NENHUMA.value)
+    recorrencia = Column(String(30), nullable=False, default=RecurrenceType.AVULSO.value)
     dias_semana = Column(JSONB, default=list)
 
     # Financeiro
@@ -344,16 +336,12 @@ class DiaristAssignment(Base):
     @property
     def is_ativo(self) -> bool:
         """Verifica se alocacao esta ativa."""
-        return self.status in [
-            AssignmentStatus.AGENDADO.value,
-            AssignmentStatus.CONFIRMADO.value,
-            AssignmentStatus.EM_ANDAMENTO.value,
-        ]
+        return self.status == AssignmentStatus.ATIVO.value
 
     @property
     def is_recorrente(self) -> bool:
         """Verifica se e recorrente."""
-        return self.recorrencia != RecurrenceType.NENHUMA.value
+        return self.recorrencia != RecurrenceType.AVULSO.value
 
     @property
     def dias_restantes(self) -> int | None:
@@ -363,16 +351,16 @@ class DiaristAssignment(Base):
         return (self.data_fim - date.today()).days
 
     def confirmar(self) -> None:
-        """Confirma alocacao."""
-        self.status = AssignmentStatus.CONFIRMADO.value
+        """Confirma alocacao (torna ativa)."""
+        self.status = AssignmentStatus.ATIVO.value
 
     def iniciar(self) -> None:
-        """Inicia alocacao."""
-        self.status = AssignmentStatus.EM_ANDAMENTO.value
+        """Inicia alocacao (torna ativa)."""
+        self.status = AssignmentStatus.ATIVO.value
 
     def concluir(self) -> None:
-        """Conclui alocacao."""
-        self.status = AssignmentStatus.CONCLUIDO.value
+        """Conclui alocacao (encerra)."""
+        self.status = AssignmentStatus.ENCERRADO.value
 
     def cancelar(self, motivo: str, cancelado_por: str) -> None:
         """Cancela alocacao."""
@@ -382,14 +370,14 @@ class DiaristAssignment(Base):
         self.cancelado_at = datetime.utcnow()
 
     def suspender(self) -> None:
-        """Suspende alocacao."""
-        self.status = AssignmentStatus.SUSPENSO.value
+        """Suspende alocacao (pausa)."""
+        self.status = AssignmentStatus.PAUSADO.value
 
     def aprovar(self, aprovador_id: str) -> None:
-        """Aprova alocacao."""
+        """Aprova alocacao (torna ativa)."""
         self.aprovador_id = UUID(aprovador_id)
         self.aprovado_at = datetime.utcnow()
-        self.status = AssignmentStatus.AGENDADO.value
+        self.status = AssignmentStatus.ATIVO.value
 
     def calcular_valor_total(self) -> None:
         """Calcula valor total."""

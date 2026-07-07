@@ -7,8 +7,9 @@ documentais mensais e documentos individuais.
 
 import logging
 import math
+from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.client_portal.schemas.kit import (
@@ -74,7 +75,10 @@ class PortalKitAccessService:
         page = (skip // limit) + 1 if limit > 0 else 1
         pages = math.ceil(total / limit) if limit > 0 else 0
 
-        items = [self._kit_to_response(kit) for kit in kits]
+        # Contadores AO VIVO (COUNT real em ged_kit_documents) numa única
+        # query agregada — as colunas stored do kit ficam stale.
+        counts = await self._live_doc_counts([str(kit.id) for kit in kits])
+        items = [self._kit_to_response(kit, counts.get(str(kit.id), (0, 0))) for kit in kits]
 
         return PortalKitListResponse(
             items=items,
@@ -107,7 +111,8 @@ class PortalKitAccessService:
             action=AccessAction.VIEWED,
         )
 
-        return self._kit_to_response(kit)
+        counts = await self._live_doc_counts([str(kit.id)])
+        return self._kit_to_response(kit, counts.get(str(kit.id), (0, 0)))
 
     async def list_documents(
         self,
@@ -254,10 +259,39 @@ class PortalKitAccessService:
             action,
         )
 
+    async def _live_doc_counts(self, kit_ids: list[str]) -> dict[str, tuple[int, int]]:
+        """Contadores AO VIVO por kit: (total, assinados).
+
+        Fonte de verdade é o COUNT real em ged_kit_documents; as colunas
+        stored (total_documents/documents_signed/completion_percentage)
+        de ged_document_kits ficam desatualizadas. Uma única query
+        agregada para o lote inteiro (sem N+1).
+        """
+        if not kit_ids:
+            return {}
+        result = await self.db.execute(
+            select(
+                KitDocument.kit_id,
+                func.count().label("total"),
+                func.count(case((KitDocument.is_signed.is_(True), 1))).label("signed"),
+            )
+            .where(KitDocument.kit_id.in_(kit_ids))
+            .group_by(KitDocument.kit_id)
+        )
+        return {str(row.kit_id): (int(row.total or 0), int(row.signed or 0)) for row in result.all()}
+
     @staticmethod
-    def _kit_to_response(kit: GedDocumentKit) -> PortalKitResponse:
-        """Converte GedDocumentKit ORM para PortalKitResponse."""
+    def _kit_to_response(kit: GedDocumentKit, counts: tuple[int, int] = (0, 0)) -> PortalKitResponse:
+        """Converte GedDocumentKit ORM para PortalKitResponse.
+
+        Contadores vêm de `counts` (computados ao vivo de ged_kit_documents),
+        nunca das colunas stored do kit.
+        """
         documents = []
+        total_docs, signed_docs = counts
+        completion = (
+            Decimal(str(round((signed_docs / total_docs) * 100, 2))) if total_docs > 0 else Decimal("0.00")
+        )
 
         return PortalKitResponse(
             id=str(kit.id),
@@ -265,9 +299,9 @@ class PortalKitAccessService:
             reference_month=kit.reference_month,
             status=kit.status,
             total_employees=kit.total_employees,
-            total_documents=kit.total_documents,
-            documents_signed=kit.documents_signed,
-            completion_percentage=kit.completion_percentage,
+            total_documents=total_docs,
+            documents_signed=signed_docs,
+            completion_percentage=completion,
             sent_at=kit.sent_at,
             sent_method=kit.sent_method,
             zip_file_path=kit.zip_file_path,
