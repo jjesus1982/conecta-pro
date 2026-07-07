@@ -138,8 +138,11 @@ async def get_pending_reconciliation(
     current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
 ) -> list[BankTransactionResponse]:
     """Retorna transações pendentes de conciliação bancária."""
-    transactions = await repo.get_pending_reconciliation(bank_account_id, limit)
-    return [BankTransactionResponse.model_validate(t) for t in transactions]
+    # Default to last 30 days for pending reconciliation
+    end_date = date.today()
+    start_date = end_date - timedelta(days=30)
+    transactions = await repo.get_pending_reconciliation(bank_account_id, start_date, end_date)
+    return [BankTransactionResponse.model_validate(t) for t in transactions[:limit]]
 
 
 @router.get(
@@ -267,7 +270,9 @@ async def update_transaction(
         )
 
     update_data = data.model_dump(exclude_unset=True)
-    updated = await repo.update(transaction_id, update_data)
+    for key, value in update_data.items():
+        setattr(transaction, key, value)
+    updated = await repo.update(transaction)
     logger.info(f"Transação atualizada: {transaction_id} por {current_user.get('email')}")
     return BankTransactionResponse.model_validate(updated)
 
@@ -340,7 +345,8 @@ async def confirm_transaction(
         )
 
     # Atualiza status
-    updated = await repo.update(transaction_id, {"status": TransactionStatus.EFETIVADA})
+    transaction.status = TransactionStatus.EFETIVADA
+    updated = await repo.update(transaction)
 
     # Atualiza saldo
     account = await account_repo.get_by_id(transaction.bank_account_id)
@@ -410,13 +416,10 @@ async def cancel_transaction(
                 account.update_balance(transaction.amount)
 
     # Atualiza status
-    updated = await repo.update(
-        transaction_id,
-        {
-            "status": TransactionStatus.CANCELADA,
-            "notes": f"{transaction.notes or ''}\nCancelamento: {reason}".strip(),
-        },
-    )
+    # Atualiza status
+    transaction.status = TransactionStatus.CANCELADA
+    transaction.notes = f"{transaction.notes or ''}\nCancelamento: {reason}".strip()
+    updated = await repo.update(transaction)
 
     await session.commit()
     logger.info(f"Transação cancelada: {transaction_id} por {current_user.get('email')}, motivo: {reason}")
@@ -449,14 +452,12 @@ async def reconcile_transaction(
             detail="Apenas transações efetivadas podem ser conciliadas",
         )
 
-    update_data = {
-        "reconciliation_status": ReconciliationStatus.CONCILIADO,
-        "reconciled_at": date.today(),
-    }
+    transaction.reconciliation_status = ReconciliationStatus.CONCILIADO
+    transaction.reconciled_at = date.today()
     if statement_reference:
-        update_data["statement_reference"] = statement_reference
+        transaction.statement_reference = statement_reference
 
-    updated = await repo.update(transaction_id, update_data)
+    updated = await repo.update(transaction)
     logger.info(f"Transação conciliada: {transaction_id} por {current_user.get('email')}")
     return BankTransactionResponse.model_validate(updated)
 

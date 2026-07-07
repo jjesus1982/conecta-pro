@@ -189,7 +189,9 @@ async def update_bank_account(
         )
 
     update_data = data.model_dump(exclude_unset=True)
-    updated = await repo.update(account_id, update_data)
+    for key, value in update_data.items():
+        setattr(account, key, value)
+    updated = await repo.update(account)
     logger.info(f"Conta bancária atualizada: {account_id} por {current_user.get('email')}")
     return BankAccountResponse.model_validate(updated)
 
@@ -241,7 +243,8 @@ async def activate_account(
             detail="Conta bancária não encontrada",
         )
 
-    updated = await repo.update(account_id, {"status": BankAccountStatus.ATIVA})
+    account.status = BankAccountStatus.ATIVA
+    updated = await repo.update(account)
     logger.info(f"Conta bancária ativada: {account_id} por {current_user.get('email')}")
     return BankAccountResponse.model_validate(updated)
 
@@ -262,7 +265,8 @@ async def suspend_account(
             detail="Conta bancária não encontrada",
         )
 
-    updated = await repo.update(account_id, {"status": BankAccountStatus.SUSPENSA})
+    account.status = BankAccountStatus.SUSPENSA
+    updated = await repo.update(account)
     logger.info(f"Conta bancária suspensa: {account_id} por {current_user.get('email')}")
     return BankAccountResponse.model_validate(updated)
 
@@ -296,7 +300,8 @@ async def set_as_main_account(
     )
 
     # Define esta como principal
-    updated = await repo.update(account_id, {"is_main": True})
+    account.is_main = True
+    updated = await repo.update(account)
     await session.commit()
 
     logger.info(f"Conta principal definida: {account_id} por {current_user.get('email')}")

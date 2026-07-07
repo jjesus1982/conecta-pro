@@ -274,6 +274,16 @@ class BankTransactionRepository:
         await self.session.refresh(transaction)
         return transaction
 
+    async def delete(self, transaction_id: UUID) -> bool:
+        """Deleta transacao (soft delete)."""
+        transaction = await self.get_by_id(transaction_id)
+        if transaction:
+            transaction.ativo = False
+            transaction.status = TransactionStatus.CANCELADA.value
+            await self.session.flush()
+            return True
+        return False
+
     async def get_pending_reconciliation(
         self,
         bank_account_id: UUID,
