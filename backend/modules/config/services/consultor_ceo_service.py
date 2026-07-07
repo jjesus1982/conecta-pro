@@ -132,7 +132,8 @@ async def panorama(db: AsyncSession) -> dict[str, Any]:
     # 3) Pessoas — funcionários ativos (employees)
     try:
         n = (
-            await db.execute(text("SELECT count(*) FROM employees WHERE is_active"))
+            # status='ativo' e o criterio canonico (t2 2026-07-07: is_active e flag podre — 47 errado vs 50 real)
+            await db.execute(text("SELECT count(*) FROM employees WHERE status = 'ativo'"))
         ).scalar_one()
         pano["funcionarios_ativos"] = int(n)
     except Exception as e:  # noqa: BLE001
