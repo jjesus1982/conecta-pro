@@ -33,7 +33,7 @@ DISCLAIMER_PADRAO = (
 )
 
 MSG_INDISPONIVEL = (
-    "CFO IA indisponível — configurar. O provedor de LLM (Anthropic) não está acessível no "
+    "CFO IA indisponível — configurar. O provedor de LLM não está acessível no "
     "momento. Os números do painel abaixo continuam reais; a análise por IA volta assim que "
     "a integração for ajustada."
 )
@@ -679,10 +679,17 @@ async def consultar(
     llm_ok = False
     llm_meta: dict[str, Any] = {}
     try:
-        from modules.ai.conversation.services.llm_provider import ClaudeProvider
-        provider = ClaudeProvider()
+        import os as _os
+
+        from modules.ai.conversation.services.llm_provider import ClaudeProvider, OpenAIProvider
+
+        # OpenAI é o provider PRIMÁRIO dos consultores (decisão Jordan 2026-07-07:
+        # mais barato que Anthropic). Claude fica como fallback se a chave faltar.
+        provider = OpenAIProvider(model=_os.getenv("CONSULTOR_LLM_MODEL", "gpt-4o"))
         if not provider.api_key:
-            raise RuntimeError("ANTHROPIC_API_KEY ausente")
+            provider = ClaudeProvider()
+        if not provider.api_key:
+            raise RuntimeError("OPENAI_API_KEY/ANTHROPIC_API_KEY ausentes")
         user_content = (pergunta or "").strip() or "Faça um diagnóstico financeiro da empresa agora."
         if (anexo_texto or "").strip():
             user_content = (
