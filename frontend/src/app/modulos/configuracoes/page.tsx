@@ -97,7 +97,7 @@ export default function ConfiguracoesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <Settings className="h-6 w-6" />
             Configurações
           </h1>
@@ -130,7 +130,7 @@ export default function ConfiguracoesPage() {
             <Building2 className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
+            <div className="font-data text-2xl font-semibold tabular-nums">
               {isLoading ? '...' : dashboard?.total_tenants ?? 0}
             </div>
           </CardContent>
@@ -141,7 +141,7 @@ export default function ConfiguracoesPage() {
             <Users className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">
+            <div className="font-data text-2xl font-semibold tabular-nums text-green-600">
               {isLoading ? '...' : dashboard?.active_tenants ?? 0}
             </div>
           </CardContent>
@@ -152,7 +152,7 @@ export default function ConfiguracoesPage() {
             <Zap className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">
+            <div className="font-data text-2xl font-semibold tabular-nums text-blue-600">
               {isLoading ? '...' : dashboard?.trial_tenants ?? 0}
             </div>
           </CardContent>
@@ -163,7 +163,7 @@ export default function ConfiguracoesPage() {
             <ToggleRight className="h-4 w-4 text-purple-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-purple-600">
+            <div className="font-data text-2xl font-semibold tabular-nums text-purple-600">
               {isLoading ? '...' : dashboard?.active_feature_flags ?? 0}
             </div>
           </CardContent>

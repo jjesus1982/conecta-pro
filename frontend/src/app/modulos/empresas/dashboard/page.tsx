@@ -189,7 +189,7 @@ function KpiCard({
         <div className="flex items-start justify-between">
           <div>
             <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{title}</p>
-            <p className={cn('text-2xl font-bold mt-1', color)}>{value}</p>
+            <p className={cn('font-data text-2xl font-semibold tabular-nums mt-1', color)}>{value}</p>
             {sub && <p className="text-xs text-gray-500 mt-0.5">{sub}</p>}
           </div>
           <div className={cn('p-2.5 rounded-xl', color.includes('blue') ? 'bg-blue-50' : color.includes('red') ? 'bg-red-50' : color.includes('green') ? 'bg-green-50' : 'bg-orange-50')}>
@@ -255,7 +255,7 @@ export default function DashboardMultiEmpresaPage() {
                 <LayoutDashboard className="w-7 h-7 text-white" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-white">Conecta Mais — Visão do Grupo</h1>
+                <h1 className="font-display text-2xl font-bold text-white">Conecta Mais — Visão do Grupo</h1>
                 <p className="text-blue-200 text-sm mt-0.5">Dashboard Multi-Empresa consolidado</p>
               </div>
             </div>
@@ -663,7 +663,7 @@ export default function DashboardMultiEmpresaPage() {
                 { label: 'Pendentes', value: fiscal?.obrigacoes_mes.pendentes ?? 0, color: 'text-yellow-700', bg: 'bg-yellow-50' },
               ].map((item, i) => (
                 <div key={i} className={cn('rounded-xl p-4 text-center', item.bg)}>
-                  <p className={cn('text-2xl font-bold', item.color)}>{item.value}</p>
+                  <p className={cn('font-data text-2xl font-semibold tabular-nums', item.color)}>{item.value}</p>
                   <p className="text-xs text-gray-500 mt-0.5">{item.label}</p>
                 </div>
               ))}

@@ -115,7 +115,7 @@ export default function PageBeneficios() {
           <ArrowLeft className="w-4 h-4" /> Voltar
         </Link>
         <span className="text-gray-300">|</span>
-        <h1 className="text-2xl font-bold text-[#1E3A5F]">
+        <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">
           Benefícios
         </h1>
         <span className="ml-auto px-3 py-1 rounded-full text-sm font-medium bg-orange-100 text-orange-700 border border-orange-200">
@@ -151,7 +151,7 @@ export default function PageBeneficios() {
                   <AlertCircle className="w-4 h-4 text-yellow-500" aria-label="Sem desconto cadastrado" />
                 )}
               </div>
-              <p className="text-2xl font-bold text-[#1E3A5F]">{t.qtd}</p>
+              <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">{t.qtd}</p>
               <p className="text-xs text-gray-400">beneficiários</p>
               {t.custo > 0 && (
                 <p className="text-sm font-semibold text-gray-600 mt-1">

@@ -162,7 +162,7 @@ export default function PIADPIAPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <FileText className="h-6 w-6" />
             PIA / DPIA
           </h1>
@@ -197,7 +197,7 @@ export default function PIADPIAPage() {
             {isLoading ? (
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             ) : (
-              <div className="text-2xl font-bold text-blue-600">{totalAssessments}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-blue-600">{totalAssessments}</div>
             )}
           </CardContent>
         </Card>
@@ -211,7 +211,7 @@ export default function PIADPIAPage() {
             {isLoading ? (
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             ) : (
-              <div className="text-2xl font-bold text-amber-600">{inProgress}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-amber-600">{inProgress}</div>
             )}
           </CardContent>
         </Card>
@@ -225,7 +225,7 @@ export default function PIADPIAPage() {
             {isLoading ? (
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             ) : (
-              <div className="text-2xl font-bold text-red-600">{highRisk}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-red-600">{highRisk}</div>
             )}
           </CardContent>
         </Card>

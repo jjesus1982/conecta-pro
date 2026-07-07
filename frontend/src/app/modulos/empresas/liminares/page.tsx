@@ -136,7 +136,7 @@ export default function LiminaresPage() {
         </Link>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold text-[#111b57] flex items-center gap-3">
+            <h1 className="font-display text-2xl md:text-3xl font-bold text-[#111b57] flex items-center gap-3">
               <Scale className="h-8 w-8 text-[#f97707]" />
               Liminares Judiciais
             </h1>
@@ -184,7 +184,7 @@ export default function LiminaresPage() {
             )}
           >
             <p className="text-xs text-gray-500 mb-1">{kpi.label}</p>
-            <p className={cn('text-2xl font-bold', kpi.text)}>{kpi.count}</p>
+            <p className={cn('font-data text-2xl font-semibold tabular-nums', kpi.text)}>{kpi.count}</p>
           </button>
         ))}
       </div>

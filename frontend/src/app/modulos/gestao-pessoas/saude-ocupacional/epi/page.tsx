@@ -153,7 +153,7 @@ export default function EPIPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <HardHat className="h-6 w-6" />
             Equipamentos de Protecao - EPI
           </h1>
@@ -184,7 +184,7 @@ export default function EPIPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold">{(stats as any)?.total_epis_ativos ?? (stats as any)?.total_epis ?? 0}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums">{(stats as any)?.total_epis_ativos ?? (stats as any)?.total_epis ?? 0}</div>
             )}
           </CardContent>
         </Card>
@@ -198,7 +198,7 @@ export default function EPIPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-blue-600">{(stats as any)?.entregas_ano ?? (stats as any)?.total_entregas ?? 0}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-blue-600">{(stats as any)?.entregas_ano ?? (stats as any)?.total_entregas ?? 0}</div>
             )}
           </CardContent>
         </Card>
@@ -212,7 +212,7 @@ export default function EPIPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-yellow-600">{(stats as any)?.itens_baixo_estoque ?? (stats as any)?.estoque_baixo ?? 0}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-yellow-600">{(stats as any)?.itens_baixo_estoque ?? (stats as any)?.estoque_baixo ?? 0}</div>
             )}
           </CardContent>
         </Card>
@@ -226,7 +226,7 @@ export default function EPIPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-red-600">{(stats as any)?.assinaturas_pendentes ?? (stats as any)?.cas_vencendo ?? 0}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-red-600">{(stats as any)?.assinaturas_pendentes ?? (stats as any)?.cas_vencendo ?? 0}</div>
             )}
           </CardContent>
         </Card>

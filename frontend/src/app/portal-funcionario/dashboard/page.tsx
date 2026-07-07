@@ -57,7 +57,7 @@ export default function PortalDashboardPage() {
 
       {/* Content */}
       <main className="max-w-5xl mx-auto px-6 py-8">
-        <h2 className="text-2xl font-bold text-gray-900 mb-1">Ola, {employeeName.split(' ')[0]}!</h2>
+        <h2 className="font-display text-2xl font-bold text-gray-900 mb-1">Ola, {employeeName.split(' ')[0]}!</h2>
         <p className="text-gray-500 mb-8">O que voce precisa hoje?</p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

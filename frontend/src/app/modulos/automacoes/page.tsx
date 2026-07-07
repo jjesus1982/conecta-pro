@@ -48,7 +48,7 @@ export default function AutomacoesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <Zap className="h-6 w-6" />
             Automacoes e Workflows
           </h1>
@@ -69,7 +69,7 @@ export default function AutomacoesPage() {
             {isLoading ? (
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             ) : (
-              <div className="text-2xl font-bold text-blue-600">
+              <div className="font-data text-2xl font-semibold tabular-nums text-blue-600">
                 {totalWorkflows}
               </div>
             )}
@@ -85,7 +85,7 @@ export default function AutomacoesPage() {
             {isLoading ? (
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             ) : (
-              <div className="text-2xl font-bold text-green-600">
+              <div className="font-data text-2xl font-semibold tabular-nums text-green-600">
                 {activeWorkflows}
               </div>
             )}
@@ -101,7 +101,7 @@ export default function AutomacoesPage() {
             {isLoading ? (
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             ) : (
-              <div className="text-2xl font-bold text-purple-600">
+              <div className="font-data text-2xl font-semibold tabular-nums text-purple-600">
                 {totalExecutions}
               </div>
             )}
@@ -117,7 +117,7 @@ export default function AutomacoesPage() {
             {isLoading ? (
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             ) : (
-              <div className="text-2xl font-bold text-amber-600">
+              <div className="font-data text-2xl font-semibold tabular-nums text-amber-600">
                 {runningEstimate}
               </div>
             )}

@@ -141,7 +141,7 @@ export default function ChamadosPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Chamados</h1>
+          <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">Chamados</h1>
           <p className="text-gray-500 text-sm mt-1">
             Gerencie suas solicitacoes e acompanhe respostas.
             {total > 0 && <span className="ml-1 font-medium">({total} chamados)</span>}

@@ -358,7 +358,7 @@ export default function ArquivosPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Arquivos</h1>
+          <h1 className="font-display text-2xl font-bold">Arquivos</h1>
           <p className="text-muted-foreground">
             Gerencie seus documentos e arquivos
           </p>

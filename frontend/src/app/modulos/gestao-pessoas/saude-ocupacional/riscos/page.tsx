@@ -197,7 +197,7 @@ export default function RiscosPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <AlertTriangle className="h-6 w-6" />
             Riscos Ocupacionais - PPRA/PGR
           </h1>
@@ -228,7 +228,7 @@ export default function RiscosPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold">{(stats as any)?.total_riscos_identificados ?? 0}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums">{(stats as any)?.total_riscos_identificados ?? 0}</div>
             )}
           </CardContent>
         </Card>
@@ -242,7 +242,7 @@ export default function RiscosPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-blue-600">{(stats as any)?.total_mapeamentos_ativos ?? 0}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-blue-600">{(stats as any)?.total_mapeamentos_ativos ?? 0}</div>
             )}
           </CardContent>
         </Card>
@@ -256,7 +256,7 @@ export default function RiscosPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-green-600">{(stats as any)?.riscos_alto_nivel ?? 0}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-green-600">{(stats as any)?.riscos_alto_nivel ?? 0}</div>
             )}
           </CardContent>
         </Card>
@@ -270,7 +270,7 @@ export default function RiscosPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-orange-600">{(stats as any)?.medidas_pendentes ?? 0}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-orange-600">{(stats as any)?.medidas_pendentes ?? 0}</div>
             )}
           </CardContent>
         </Card>

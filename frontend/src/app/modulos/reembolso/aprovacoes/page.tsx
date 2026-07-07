@@ -162,7 +162,7 @@ export default function AprovacoesPage() {
                 <Clock className="w-5 h-5 text-yellow-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {stats?.pending_count || 0}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Pendentes</p>
@@ -176,7 +176,7 @@ export default function AprovacoesPage() {
                 <DollarSign className="w-5 h-5 text-blue-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {formatCurrency(stats?.pending_amount || 0)}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Valor Pendente</p>
@@ -190,7 +190,7 @@ export default function AprovacoesPage() {
                 <CheckCircle className="w-5 h-5 text-green-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {stats?.approved_count || 0}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Aprovados</p>
@@ -204,7 +204,7 @@ export default function AprovacoesPage() {
                 <DollarSign className="w-5 h-5 text-emerald-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {formatCurrency(stats?.approved_amount || 0)}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Valor Aprovado</p>

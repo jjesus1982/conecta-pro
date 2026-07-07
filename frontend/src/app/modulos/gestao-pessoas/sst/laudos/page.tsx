@@ -86,7 +86,7 @@ export default function LTCATPage() {
             <FileText className="w-6 h-6 text-indigo-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">LTCAT</h1>
+            <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">LTCAT</h1>
             <p className="text-gray-500 text-sm">Laudo Tecnico das Condicoes Ambientais de Trabalho</p>
           </div>
           <span className="ml-3 px-2.5 py-1 text-xs font-medium bg-indigo-100 text-indigo-700 rounded-full">
@@ -118,7 +118,7 @@ export default function LTCATPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Postos Avaliados</p>
-                <p className="text-2xl font-bold mt-1">{data.postos_avaliados}</p>
+                <p className="font-data text-2xl font-semibold tabular-nums mt-1">{data.postos_avaliados}</p>
               </div>
               <div className="p-2 bg-blue-50 rounded-lg">
                 <Building2 className="w-5 h-5 text-blue-600" />
@@ -131,7 +131,7 @@ export default function LTCATPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Agentes de Risco</p>
-                <p className="text-2xl font-bold mt-1">{data.fatores_risco.length}</p>
+                <p className="font-data text-2xl font-semibold tabular-nums mt-1">{data.fatores_risco.length}</p>
               </div>
               <div className="p-2 bg-amber-50 rounded-lg">
                 <AlertTriangle className="w-5 h-5 text-amber-600" />

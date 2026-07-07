@@ -196,7 +196,7 @@ export default function ContratoDetalhePage() {
             <ArrowLeft className="h-4 w-4 mr-2" />
             Voltar
           </Button>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <FileSignature className="h-6 w-6" />
             Contrato {c.numero_contrato}
           </h1>

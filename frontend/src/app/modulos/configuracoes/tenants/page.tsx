@@ -153,7 +153,7 @@ export default function TenantsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <Building2 className="h-6 w-6" />
             Tenants
           </h1>
@@ -179,7 +179,7 @@ export default function TenantsPage() {
             <Building2 className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums">{stats.total}</div>
           </CardContent>
         </Card>
         <Card>
@@ -188,7 +188,7 @@ export default function TenantsPage() {
             <Users className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{stats.active}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-green-600">{stats.active}</div>
           </CardContent>
         </Card>
         <Card>
@@ -197,7 +197,7 @@ export default function TenantsPage() {
             <Zap className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{stats.trial}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-blue-600">{stats.trial}</div>
           </CardContent>
         </Card>
         <Card>
@@ -206,7 +206,7 @@ export default function TenantsPage() {
             <Pause className="h-4 w-4 text-yellow-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">{stats.suspended}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-yellow-600">{stats.suspended}</div>
           </CardContent>
         </Card>
       </div>

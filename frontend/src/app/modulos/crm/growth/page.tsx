@@ -43,7 +43,7 @@ export default function GrowthPage() {
   const [tab, setTab] = useState('products');
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      <h1 className="text-2xl font-bold text-slate-800 mb-1">Growth — CRM avançado</h1>
+      <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))] mb-1">Growth — CRM avançado</h1>
       <p className="text-slate-500 mb-5 text-sm">Catálogo, sequências, automação, formulários, agendamento, segmentos, propriedades, scoring e forecast.</p>
       <div className="flex flex-wrap gap-2 mb-6">
         {TABS.map((t) => {

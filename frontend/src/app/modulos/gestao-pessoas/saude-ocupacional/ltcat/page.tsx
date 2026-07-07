@@ -71,7 +71,7 @@ export default function LTCATPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: '#0A2540' }}>
+          <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))] flex items-center gap-2">
             <FileText className="h-6 w-6" />
             LTCAT - Laudo Tecnico das Condicoes Ambientais do Trabalho
           </h1>
@@ -100,7 +100,7 @@ export default function LTCATPage() {
             {isLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-blue-600">{postosAvaliados}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-blue-600">{postosAvaliados}</div>
             )}
           </CardContent>
         </Card>
@@ -114,7 +114,7 @@ export default function LTCATPage() {
             {isLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-orange-600">{totalAgentes}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-orange-600">{totalAgentes}</div>
             )}
           </CardContent>
         </Card>

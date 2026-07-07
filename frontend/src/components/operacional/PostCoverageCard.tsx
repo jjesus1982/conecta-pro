@@ -94,7 +94,7 @@ export function PostCoverageCard({
 
       {/* Coverage percentage */}
       <div className="mb-3">
-        <span className={`text-3xl font-bold ${c.text}`}>
+        <span className={`font-data text-3xl font-semibold tabular-nums ${c.text}`}>
           {coverageRate.toFixed(0)}
           <span className="text-lg font-semibold">%</span>
         </span>

@@ -340,7 +340,7 @@ export default function EntrevistasPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <Calendar className="h-6 w-6" />
             Entrevistas
           </h1>
@@ -362,31 +362,31 @@ export default function EntrevistasPage() {
         <Card>
           <CardContent className="pt-4">
             <p className="text-sm text-muted-foreground">Total</p>
-            <p className="text-2xl font-bold">{stats?.total_interviews ?? 0}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums">{stats?.total_interviews ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
             <p className="text-sm text-muted-foreground">Agendadas</p>
-            <p className="text-2xl font-bold text-blue-600">{stats?.scheduled ?? 0}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-blue-600">{stats?.scheduled ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
             <p className="text-sm text-muted-foreground">Realizadas</p>
-            <p className="text-2xl font-bold text-green-600">{stats?.completed ?? 0}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-green-600">{stats?.completed ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
             <p className="text-sm text-muted-foreground">Canceladas</p>
-            <p className="text-2xl font-bold text-red-600">{stats?.cancelled ?? 0}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-red-600">{stats?.cancelled ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
             <p className="text-sm text-muted-foreground">Ausentes</p>
-            <p className="text-2xl font-bold text-orange-600">{stats?.no_show ?? 0}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-orange-600">{stats?.no_show ?? 0}</p>
           </CardContent>
         </Card>
       </div>

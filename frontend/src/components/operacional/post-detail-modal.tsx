@@ -108,20 +108,20 @@ export function PostDetailModal({
           </h3>
           <div className="grid grid-cols-3 gap-4">
             <div className="text-center">
-              <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+              <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                 {post.required_headcount}
               </p>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">Necessario</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-bold text-green-500">
+              <p className="font-data text-2xl font-semibold tabular-nums text-green-500">
                 {post.current_headcount}
               </p>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">Alocados</p>
             </div>
             <div className="text-center">
               <p
-                className={`text-2xl font-bold ${
+                className={`font-data text-2xl font-semibold tabular-nums ${
                   post.vacancy_count > 0 ? 'text-orange-500' : 'text-green-500'
                 }`}
               >

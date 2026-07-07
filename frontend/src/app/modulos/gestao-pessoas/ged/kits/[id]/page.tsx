@@ -282,7 +282,7 @@ export default function KitDetailPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-[hsl(var(--foreground))]">{kit.client_name}</h1>
+            <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">{kit.client_name}</h1>
             <span className={`inline-flex px-2.5 py-1 text-xs font-medium rounded-full ${statusColors[kit.status] || 'bg-gray-500/10 text-[hsl(var(--muted-foreground))] border border-gray-500/30'}`}>
               {statusLabels[kit.status] || kit.status}
             </span>

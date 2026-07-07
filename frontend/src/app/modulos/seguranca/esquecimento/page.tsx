@@ -139,7 +139,7 @@ export default function EsquecimentoPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <Trash2 className="h-6 w-6" />
             Direito ao Esquecimento
           </h1>
@@ -189,7 +189,7 @@ export default function EsquecimentoPage() {
             {isLoading ? (
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             ) : (
-              <div className="text-2xl font-bold text-blue-600">{total}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-blue-600">{total}</div>
             )}
           </CardContent>
         </Card>
@@ -203,7 +203,7 @@ export default function EsquecimentoPage() {
             {isLoading ? (
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             ) : (
-              <div className="text-2xl font-bold text-amber-600">{pending}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-amber-600">{pending}</div>
             )}
           </CardContent>
         </Card>
@@ -217,7 +217,7 @@ export default function EsquecimentoPage() {
             {isLoading ? (
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             ) : (
-              <div className="text-2xl font-bold text-green-600">{completed}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-green-600">{completed}</div>
             )}
           </CardContent>
         </Card>

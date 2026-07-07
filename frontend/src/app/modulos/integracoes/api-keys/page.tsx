@@ -121,7 +121,7 @@ export default function APIKeysPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <Key className="h-6 w-6" />
             API Keys
           </h1>
@@ -149,7 +149,7 @@ export default function APIKeysPage() {
             <Key className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums">{stats.total}</div>
           </CardContent>
         </Card>
         <Card>
@@ -158,7 +158,7 @@ export default function APIKeysPage() {
             <CheckCircle className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{stats.active}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-green-600">{stats.active}</div>
           </CardContent>
         </Card>
         <Card>
@@ -167,7 +167,7 @@ export default function APIKeysPage() {
             <XCircle className="h-4 w-4 text-red-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">{stats.revoked}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-red-600">{stats.revoked}</div>
           </CardContent>
         </Card>
       </div>

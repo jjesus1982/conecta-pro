@@ -147,7 +147,7 @@ export default function PageDesempenho() {
           <ArrowLeft className="w-4 h-4" /> Voltar
         </Link>
         <span className="text-gray-300">|</span>
-        <h1 className="text-2xl font-bold text-[#1E3A5F]">Avaliações de Desempenho</h1>
+        <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">Avaliações de Desempenho</h1>
         <span className="ml-auto px-3 py-1 rounded-full text-sm font-medium bg-orange-100 text-orange-700 border border-orange-200">
           {avaliacoes.length} avaliações
         </span>
@@ -161,7 +161,7 @@ export default function PageDesempenho() {
               <Users className="w-5 h-5 text-blue-600" />
             </div>
             <p className="text-sm text-gray-500">Total avaliações</p>
-            <p className="text-2xl font-bold text-[#1E3A5F] mt-1">{avaliacoes.length}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">{avaliacoes.length}</p>
           </CardContent>
         </Card>
         <Card className="border border-gray-100">
@@ -170,7 +170,7 @@ export default function PageDesempenho() {
               <Award className="w-5 h-5 text-green-600" />
             </div>
             <p className="text-sm text-gray-500">Concluídas</p>
-            <p className="text-2xl font-bold text-green-600 mt-1">{concluidas.length}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-green-600 mt-1">{concluidas.length}</p>
           </CardContent>
         </Card>
         <Card className="border border-gray-100">
@@ -179,7 +179,7 @@ export default function PageDesempenho() {
               <Star className="w-5 h-5 text-yellow-500" />
             </div>
             <p className="text-sm text-gray-500">Nota média</p>
-            <p className="text-2xl font-bold text-yellow-600 mt-1">
+            <p className="font-data text-2xl font-semibold tabular-nums text-yellow-600 mt-1">
               {mediaScore > 0 ? mediaScore.toFixed(1) : '—'}
             </p>
           </CardContent>
@@ -190,7 +190,7 @@ export default function PageDesempenho() {
               <TrendingUp className="w-5 h-5 text-[#F97316]" />
             </div>
             <p className="text-sm text-gray-500">Taxa conclusão</p>
-            <p className="text-2xl font-bold text-[#F97316] mt-1">
+            <p className="font-data text-2xl font-semibold tabular-nums text-[#F97316] mt-1">
               {avaliacoes.length > 0
                 ? Math.round((concluidas.length / avaliacoes.length) * 100)
                 : 0}

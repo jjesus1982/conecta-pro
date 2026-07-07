@@ -356,7 +356,7 @@ export default function CertidoesPage() {
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2 text-[hsl(var(--foreground))]">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2 text-[hsl(var(--foreground))]">
             <ShieldCheck className="h-6 w-6" />
             Certidões da Empresa
           </h1>

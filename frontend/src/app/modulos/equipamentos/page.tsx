@@ -44,7 +44,7 @@ export default function EquipamentosPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
+        <h1 className="font-display text-2xl font-bold flex items-center gap-2">
           <Wrench className="h-6 w-6" />
           Equipamentos
         </h1>
@@ -64,7 +64,7 @@ export default function EquipamentosPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold">{stats?.total ?? 0}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums">{stats?.total ?? 0}</div>
             )}
           </CardContent>
         </Card>
@@ -78,7 +78,7 @@ export default function EquipamentosPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-blue-600">{stats?.in_stock ?? 0}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-blue-600">{stats?.in_stock ?? 0}</div>
             )}
           </CardContent>
         </Card>
@@ -92,7 +92,7 @@ export default function EquipamentosPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-orange-600">{stats?.in_maintenance ?? 0}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-orange-600">{stats?.in_maintenance ?? 0}</div>
             )}
           </CardContent>
         </Card>
@@ -106,7 +106,7 @@ export default function EquipamentosPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-red-600">{alertCount}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-red-600">{alertCount}</div>
             )}
           </CardContent>
         </Card>

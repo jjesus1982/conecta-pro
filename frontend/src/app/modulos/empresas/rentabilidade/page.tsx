@@ -193,7 +193,7 @@ export default function RentabilidadePage() {
           <ArrowLeft className="h-4 w-4" />
           Voltar para Multi-Empresa
         </Link>
-        <h1 className="text-2xl md:text-3xl font-bold text-[#111b57] flex items-center gap-3">
+        <h1 className="font-display text-2xl md:text-3xl font-bold text-[hsl(var(--foreground))] flex items-center gap-3">
           <TrendingUp className="h-8 w-8 text-[#f97707]" />
           Rentabilidade por Contrato
         </h1>
@@ -405,7 +405,7 @@ export default function RentabilidadePage() {
                 <div className="mt-5 flex items-center justify-between bg-white rounded-xl px-5 py-4 border border-gray-200">
                   <div>
                     <p className="text-xs text-gray-500">Margem Líquida</p>
-                    <p className={cn('text-3xl font-bold', margemColor(result.margem))}>
+                    <p className={cn('font-data text-3xl font-semibold tabular-nums', margemColor(result.margem))}>
                       {result.margem.toFixed(1)}%
                     </p>
                   </div>

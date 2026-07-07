@@ -58,7 +58,7 @@ export default function DetPage() {
       <div className="flex items-center gap-3">
         <Landmark className="h-7 w-7 text-blue-700" />
         <div>
-          <h1 className="text-2xl font-bold">Monitoramento DET</h1>
+          <h1 className="font-display text-2xl font-bold">Monitoramento DET</h1>
           <p className="text-sm text-muted-foreground">Domicílio Eletrônico Trabalhista — comunicações e processos contra o CNPJ, tratados automaticamente.</p>
         </div>
       </div>

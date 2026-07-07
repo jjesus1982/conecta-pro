@@ -74,7 +74,7 @@ export default function SegurancaPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <ShieldCheck className="h-6 w-6" />
             Seguranca & LGPD
           </h1>
@@ -95,7 +95,7 @@ export default function SegurancaPage() {
             {isLoading ? (
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             ) : (
-              <div className="text-2xl font-bold text-green-600">
+              <div className="font-data text-2xl font-semibold tabular-nums text-green-600">
                 {activeConsents}
               </div>
             )}
@@ -111,7 +111,7 @@ export default function SegurancaPage() {
             {isLoading ? (
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             ) : (
-              <div className="text-2xl font-bold text-blue-600">
+              <div className="font-data text-2xl font-semibold tabular-nums text-blue-600">
                 {piasCompleted}
               </div>
             )}
@@ -127,7 +127,7 @@ export default function SegurancaPage() {
             {isLoading ? (
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             ) : (
-              <div className="text-2xl font-bold text-red-600">
+              <div className="font-data text-2xl font-semibold tabular-nums text-red-600">
                 {erasureRequests}
               </div>
             )}

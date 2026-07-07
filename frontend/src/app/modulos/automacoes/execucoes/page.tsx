@@ -178,7 +178,7 @@ export default function ExecucoesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <History className="h-6 w-6" />
             Historico de Execucoes
           </h1>
@@ -238,7 +238,7 @@ export default function ExecucoesPage() {
               {executionsLoading ? (
                 <div className="h-8 w-16 animate-pulse rounded bg-muted" />
               ) : (
-                <div className="text-2xl font-bold">{stats.total}</div>
+                <div className="font-data text-2xl font-semibold tabular-nums">{stats.total}</div>
               )}
             </CardContent>
           </Card>
@@ -252,7 +252,7 @@ export default function ExecucoesPage() {
               {executionsLoading ? (
                 <div className="h-8 w-16 animate-pulse rounded bg-muted" />
               ) : (
-                <div className="text-2xl font-bold text-green-600">
+                <div className="font-data text-2xl font-semibold tabular-nums text-green-600">
                   {stats.completed}
                 </div>
               )}
@@ -268,7 +268,7 @@ export default function ExecucoesPage() {
               {executionsLoading ? (
                 <div className="h-8 w-16 animate-pulse rounded bg-muted" />
               ) : (
-                <div className="text-2xl font-bold text-red-600">
+                <div className="font-data text-2xl font-semibold tabular-nums text-red-600">
                   {stats.failed}
                 </div>
               )}
@@ -284,7 +284,7 @@ export default function ExecucoesPage() {
               {executionsLoading ? (
                 <div className="h-8 w-16 animate-pulse rounded bg-muted" />
               ) : (
-                <div className="text-2xl font-bold text-blue-600">
+                <div className="font-data text-2xl font-semibold tabular-nums text-blue-600">
                   {stats.running}
                 </div>
               )}

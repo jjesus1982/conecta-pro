@@ -159,7 +159,7 @@ export default function FinanceiroRelatorioPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">Receita Prevista</p>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">
                     {typeof receitaPrevista === 'number' && receitaPrevista > 0
                       ? formatCurrency(receitaPrevista)
                       : '--'}
@@ -177,7 +177,7 @@ export default function FinanceiroRelatorioPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">Precisão Forecast</p>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">
                     {typeof precisaoForecast === 'number'
                       ? `${(precisaoForecast * (precisaoForecast <= 1 ? 100 : 1)).toFixed(1)}%`
                       : '--'}
@@ -195,7 +195,7 @@ export default function FinanceiroRelatorioPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">Alertas Fraude</p>
-                  <p className="text-2xl font-bold text-red-500 mt-1">{alertasFraude}</p>
+                  <p className="font-data text-2xl font-semibold tabular-nums text-red-500 mt-1">{alertasFraude}</p>
                 </div>
                 <div className="w-10 h-10 rounded-lg bg-red-500/10 flex items-center justify-center">
                   <ShieldAlert className="w-5 h-5 text-red-500" />
@@ -209,7 +209,7 @@ export default function FinanceiroRelatorioPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">Índice Inadimplência</p>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">
                     {typeof inadimplencia === 'number'
                       ? `${(inadimplencia * (inadimplencia <= 1 ? 100 : 1)).toFixed(1)}%`
                       : '--'}

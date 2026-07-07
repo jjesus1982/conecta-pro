@@ -283,7 +283,7 @@ export default function CandidatosPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <UserPlus className="h-6 w-6" />
             Candidatos
           </h1>
@@ -305,25 +305,25 @@ export default function CandidatosPage() {
         <Card>
           <CardContent className="pt-4">
             <p className="text-sm text-muted-foreground">Total</p>
-            <p className="text-2xl font-bold">{stats?.total_candidates ?? 0}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums">{stats?.total_candidates ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
             <p className="text-sm text-muted-foreground">Ativos</p>
-            <p className="text-2xl font-bold text-green-600">{stats?.active_candidates ?? 0}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-green-600">{stats?.active_candidates ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
             <p className="text-sm text-muted-foreground">Bloqueados</p>
-            <p className="text-2xl font-bold text-red-600">{stats?.blocked_candidates ?? 0}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-red-600">{stats?.blocked_candidates ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
             <p className="text-sm text-muted-foreground">Contratados</p>
-            <p className="text-2xl font-bold text-blue-600">{stats?.hired_candidates ?? 0}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-blue-600">{stats?.hired_candidates ?? 0}</p>
           </CardContent>
         </Card>
       </div>

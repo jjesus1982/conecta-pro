@@ -136,7 +136,7 @@ export function TemplateManager() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-[hsl(var(--foreground))]">
+          <h2 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">
             Templates de Escalas
           </h2>
           <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">

@@ -150,11 +150,11 @@ export function DocumentVersionHistory({
             <div className="grid grid-cols-3 gap-4 p-4 bg-gray-50 rounded-lg">
               <div>
                 <p className="text-sm text-gray-500">Total de Versões</p>
-                <p className="text-2xl font-bold">{versions.length}</p>
+                <p className="font-data text-2xl font-semibold tabular-nums">{versions.length}</p>
               </div>
               <div>
                 <p className="text-sm text-gray-500">Versão Atual</p>
-                <p className="text-2xl font-bold">
+                <p className="font-data text-2xl font-semibold tabular-nums">
                   {versions.find((v) => v.is_current) != null
                     ? `v${versions.find((v) => v.is_current)!.version_number}`
                     : '-'}

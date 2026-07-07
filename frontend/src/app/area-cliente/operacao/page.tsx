@@ -62,7 +62,7 @@ export default function RaioXPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+        <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))] flex items-center gap-2">
           <ShieldCheck className="w-7 h-7 text-indigo-600" /> Raio-X da Operação
         </h1>
         <p className="text-sm text-gray-500 mt-1">
@@ -78,7 +78,7 @@ export default function RaioXPage() {
               <span className="text-xs font-medium text-gray-500">{c.label}</span>
               <span className={`w-9 h-9 rounded-lg ${c.bg} flex items-center justify-center`}><c.icon className={`w-5 h-5 ${c.cor}`} /></span>
             </div>
-            <div className={`text-2xl font-bold mt-2 ${c.cor}`}>{c.value}</div>
+            <div className={`font-data text-2xl font-semibold tabular-nums mt-2 ${c.cor}`}>{c.value}</div>
           </div>
         ))}
       </div>

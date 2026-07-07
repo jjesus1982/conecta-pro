@@ -27,7 +27,7 @@ export default function NotificacoesPage() {
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Bell className="w-7 h-7 text-indigo-600" /> Notificações</h1>
+        <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))] flex items-center gap-2"><Bell className="w-7 h-7 text-indigo-600" /> Notificações</h1>
         <p className="text-sm text-gray-500 mt-1">Avisos da Conecta Mais sobre sua operação — escala, faltas, documentos e mais.</p>
       </div>
 

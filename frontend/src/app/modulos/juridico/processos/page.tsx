@@ -78,7 +78,7 @@ export default function ProcessosPage() {
   };
 
   const [enviando, setEnviando] = useState(false);
-  const [envioMsg, setEnvioMsg] = useState<string | null>(null);
+  const [envioMsg, setEnvioMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [destinoCQB, setDestinoCQB] = useState('contato@cqbadvogados.com.br');
 
   const encaminharCQB = async () => {
@@ -92,9 +92,9 @@ export default function ProcessosPage() {
       });
       const d = await r.json();
       if (!r.ok || !d.enviado) throw new Error(d?.detail || d?.mensagem || 'Falha no envio');
-      setEnvioMsg(`✅ Encaminhado para ${d.destinatario}`);
+      setEnvioMsg({ ok: true, text: `Encaminhado para ${d.destinatario}` });
     } catch (e: any) {
-      setEnvioMsg(`❌ ${e?.message || 'Falha no envio'}`);
+      setEnvioMsg({ ok: false, text: e?.message || 'Falha no envio' });
     } finally { setEnviando(false); }
   };
 
@@ -105,7 +105,7 @@ export default function ProcessosPage() {
       <div className="flex items-center gap-3">
         <Scale className="w-7 h-7 text-blue-600" />
         <div>
-          <h1 className="text-2xl font-bold">Processos &amp; Defesa</h1>
+          <h1 className="font-display text-2xl font-bold">Processos &amp; Defesa</h1>
           <p className="text-sm text-gray-500">Suba o processo — o Escritório Jurídico IA investiga o ERP inteiro e monta a análise de defesa com base no dado real.</p>
         </div>
       </div>
@@ -234,7 +234,12 @@ export default function ProcessosPage() {
               <Button onClick={encaminharCQB} disabled={enviando} className="bg-blue-600 hover:bg-blue-700 text-white">
                 {enviando ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Enviando…</> : <><FileText className="w-4 h-4 mr-2" /> Encaminhar</>}
               </Button>
-              {envioMsg && <div className="w-full text-sm mt-1">{envioMsg}</div>}
+              {envioMsg && (
+                <div className={`w-full text-sm mt-1 flex items-center gap-1 ${envioMsg.ok ? 'text-emerald-500' : 'text-red-500'}`}>
+                  {envioMsg.ok ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                  {envioMsg.text}
+                </div>
+              )}
             </CardContent>
           </Card>
 

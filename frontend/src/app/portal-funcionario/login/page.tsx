@@ -97,13 +97,13 @@ export default function PortalLoginPage() {
           <div className="lg:hidden text-center mb-8">
             <div className="flex items-center justify-center gap-2 mb-1">
               <ShieldCheck className="w-7 h-7 text-[#0A2540]" />
-              <h1 className="text-2xl font-bold text-[#0A2540]">CONECTA PRO</h1>
+              <h1 className="font-display text-2xl font-bold text-[#0A2540]">CONECTA PRO</h1>
             </div>
             <p className="text-gray-500 text-sm">Portal do Funcionario</p>
           </div>
 
           <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-1">Bem-vindo</h2>
+            <h2 className="font-display text-2xl font-bold text-gray-900 mb-1">Bem-vindo</h2>
             <p className="text-gray-500 text-sm mb-6">Acesse com seu CPF e senha</p>
 
             {error && (

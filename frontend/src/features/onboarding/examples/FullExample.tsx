@@ -326,19 +326,19 @@ export function CompletePageExample() {
               <h2 className="text-lg font-bold mb-4">KPIs Principais</h2>
               <div className="grid grid-cols-4 gap-4">
                 <div className="bg-white p-4 rounded-lg border">
-                  <p className="text-2xl font-bold">42</p>
+                  <p className="font-data text-2xl font-semibold tabular-nums">42</p>
                   <p className="text-sm text-gray-600">Postos Ativos</p>
                 </div>
                 <div className="bg-white p-4 rounded-lg border">
-                  <p className="text-2xl font-bold">156</p>
+                  <p className="font-data text-2xl font-semibold tabular-nums">156</p>
                   <p className="text-sm text-gray-600">Colaboradores</p>
                 </div>
                 <div className="bg-white p-4 rounded-lg border">
-                  <p className="text-2xl font-bold">8</p>
+                  <p className="font-data text-2xl font-semibold tabular-nums">8</p>
                   <p className="text-sm text-gray-600">Escalas Ativas</p>
                 </div>
                 <div className="bg-white p-4 rounded-lg border">
-                  <p className="text-2xl font-bold">95%</p>
+                  <p className="font-data text-2xl font-semibold tabular-nums">95%</p>
                   <p className="text-sm text-gray-600">Taxa Cobertura</p>
                 </div>
               </div>

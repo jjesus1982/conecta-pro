@@ -69,7 +69,7 @@ export default function RiscosJuridicosPage() {
       <div className="flex items-center gap-3">
         <AlertTriangle className="h-7 w-7 text-red-600" />
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Riscos Jurídicos</h1>
+          <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">Riscos Jurídicos</h1>
           <p className="text-sm text-muted-foreground">{dash?.titulo || 'Trabalhista + Tributário'}{dash?.referencia ? ` · referência ${dash.referencia}` : ''}</p>
         </div>
       </div>
@@ -92,19 +92,19 @@ export default function RiscosJuridicosPage() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <Card><CardContent className="pt-6">
                 <div className="text-xs text-muted-foreground">Exposição total estimada</div>
-                <div className="text-2xl font-bold text-red-600 mt-1">{fmt(trab.total_exposicao_estimada)}</div>
+                <div className="font-data text-2xl font-semibold tabular-nums text-red-600 mt-1">{fmt(trab.total_exposicao_estimada)}</div>
               </CardContent></Card>
               <Card><CardContent className="pt-6">
                 <Users className="h-5 w-5 text-blue-600" />
-                <div className="text-2xl font-bold mt-2">{trab.funcionarios_com_risco ?? 0}</div>
+                <div className="font-data text-2xl font-semibold tabular-nums mt-2">{trab.funcionarios_com_risco ?? 0}</div>
                 <div className="text-xs text-muted-foreground">Funcionários com risco</div>
               </CardContent></Card>
               <Card><CardContent className="pt-6">
-                <div className="text-2xl font-bold mt-2">{trab.afastamentos_estabilidade ?? 0}</div>
+                <div className="font-data text-2xl font-semibold tabular-nums mt-2">{trab.afastamentos_estabilidade ?? 0}</div>
                 <div className="text-xs text-muted-foreground">Afastamentos c/ estabilidade</div>
               </CardContent></Card>
               <Card><CardContent className="pt-6">
-                <div className="text-2xl font-bold mt-2">{trab.afastamentos_acidentarios ?? 0}</div>
+                <div className="font-data text-2xl font-semibold tabular-nums mt-2">{trab.afastamentos_acidentarios ?? 0}</div>
                 <div className="text-xs text-muted-foreground">Afastamentos acidentários</div>
               </CardContent></Card>
             </div>
@@ -198,7 +198,7 @@ export default function RiscosJuridicosPage() {
                 <div className="text-xs text-muted-foreground">Faturamento anualizado</div>
               </CardContent></Card>
               <Card><CardContent className="pt-6">
-                <div className="text-2xl font-bold mt-2">{pct(enq.ocupacao_teto_pct)}</div>
+                <div className="font-data text-2xl font-semibold tabular-nums mt-2">{pct(enq.ocupacao_teto_pct)}</div>
                 <div className="text-xs text-muted-foreground">Ocupação do teto Simples</div>
               </CardContent></Card>
               <Card><CardContent className="pt-6">

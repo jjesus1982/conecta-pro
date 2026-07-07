@@ -38,7 +38,7 @@ export default function Cliente360Page() {
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold text-gray-900">{cliente.name}</h1>
+          <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">{cliente.name}</h1>
           <p className="text-gray-500">CNPJ: {cliente.cnpj} | {cliente.crm_origin === 'converted_lead' ? `Lead: ${cliente.lead_name}` : 'Cliente direto'}</p>
         </div>
         <div className="flex gap-2">
@@ -54,25 +54,25 @@ export default function Cliente360Page() {
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <div className="bg-white rounded-xl border p-4">
           <div className="flex items-center gap-2 text-gray-500 text-sm mb-1"><DollarSign className="h-4 w-4" /> MRR</div>
-          <p className="text-2xl font-bold text-green-600">R$ {cliente.mrr?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+          <p className="font-data text-2xl font-semibold tabular-nums text-green-600">R$ {cliente.mrr?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
         </div>
         <div className="bg-white rounded-xl border p-4">
           <div className="flex items-center gap-2 text-gray-500 text-sm mb-1"><Heart className="h-4 w-4" /> Health Score</div>
-          <p className={`text-2xl font-bold ${(cliente.health_score ?? 0) >= 70 ? 'text-green-600' : (cliente.health_score ?? 0) >= 40 ? 'text-yellow-600' : 'text-red-600'}`}>
+          <p className={`font-data text-2xl font-semibold tabular-nums ${(cliente.health_score ?? 0) >= 70 ? 'text-green-600' : (cliente.health_score ?? 0) >= 40 ? 'text-yellow-600' : 'text-red-600'}`}>
             {cliente.health_score ?? 0}
           </p>
         </div>
         <div className="bg-white rounded-xl border p-4">
           <div className="flex items-center gap-2 text-gray-500 text-sm mb-1"><FileText className="h-4 w-4" /> Contratos</div>
-          <p className="text-2xl font-bold">{contratos.length}</p>
+          <p className="font-data text-2xl font-semibold tabular-nums">{contratos.length}</p>
         </div>
         <div className="bg-white rounded-xl border p-4">
           <div className="flex items-center gap-2 text-gray-500 text-sm mb-1"><Users className="h-4 w-4" /> Contatos</div>
-          <p className="text-2xl font-bold">{contatos.length}</p>
+          <p className="font-data text-2xl font-semibold tabular-nums">{contatos.length}</p>
         </div>
         <div className="bg-white rounded-xl border p-4">
           <div className="flex items-center gap-2 text-gray-500 text-sm mb-1"><Activity className="h-4 w-4" /> NFS-e</div>
-          <p className="text-2xl font-bold">{nfse.length}</p>
+          <p className="font-data text-2xl font-semibold tabular-nums">{nfse.length}</p>
         </div>
       </div>
 

@@ -136,7 +136,7 @@ export default function BeneficiosPage() {
           <div className="space-y-5">
             <div className="bg-white rounded-xl shadow-sm p-5">
               <p className="text-sm text-gray-500">Salário base (piso CCT)</p>
-              <p className="text-2xl font-bold text-gray-900">{brl(data.salario_base)}</p>
+              <p className="font-data text-2xl font-semibold tabular-nums text-gray-900">{brl(data.salario_base)}</p>
               <p className="text-xs text-gray-400 mt-1">{data.cct}</p>
             </div>
 

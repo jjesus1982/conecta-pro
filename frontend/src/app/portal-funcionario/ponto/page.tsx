@@ -131,7 +131,7 @@ export default function PontoPage() {
               <div className="bg-white rounded-xl shadow-sm p-5 flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-500 flex items-center gap-1"><Timer className="w-4 h-4" /> Saldo do banco de horas</p>
-                  <p className={`text-2xl font-bold ${banco.saldo_horas >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                  <p className={`font-data text-2xl font-semibold tabular-nums ${banco.saldo_horas >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                     {banco.saldo_horas >= 0 ? '+' : ''}{banco.saldo_horas.toFixed(2)}h
                   </p>
                 </div>

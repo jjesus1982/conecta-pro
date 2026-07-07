@@ -20,7 +20,7 @@ export function ComingSoon({ title, description, moduleHref }: ComingSoonProps) 
         <Construction className="w-10 h-10 text-brand-500" />
       </div>
 
-      <h1 className="text-2xl font-bold text-[hsl(var(--foreground))] mb-2">
+      <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))] mb-2">
         {title}
       </h1>
 

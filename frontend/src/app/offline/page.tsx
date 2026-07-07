@@ -17,7 +17,7 @@ export default function OfflinePage() {
           <div className="w-24 h-24 mx-auto rounded-full bg-orange-500/10 flex items-center justify-center mb-6">
             <WifiOff className="w-12 h-12 text-orange-500" />
           </div>
-          <h1 className="text-2xl font-bold text-[hsl(var(--foreground))] mb-2">
+          <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))] mb-2">
             Voce esta offline
           </h1>
           <p className="text-[hsl(var(--muted-foreground))]">

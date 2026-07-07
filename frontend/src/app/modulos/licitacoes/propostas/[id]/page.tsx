@@ -122,7 +122,7 @@ export default function PropostaDetalhePage() {
           <div className="flex items-center gap-3">
             <FileText className="h-8 w-8 text-muted-foreground" />
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">
+              <h1 className="font-display text-3xl font-bold tracking-tight">
                 Proposta {(proposal as any).numero_proposta || proposal.id.substring(0, 8)}
               </h1>
               <p className="text-muted-foreground">

@@ -117,7 +117,7 @@ export default function SolidesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <Zap className="h-6 w-6" />
             Solides DP
           </h1>
@@ -162,7 +162,7 @@ export default function SolidesPage() {
             )}
           </CardHeader>
           <CardContent>
-            <div className={`text-2xl font-bold ${isConnected ? 'text-green-600' : 'text-red-600'}`}>
+            <div className={`font-data text-2xl font-semibold tabular-nums ${isConnected ? 'text-green-600' : 'text-red-600'}`}>
               {isConnected ? 'Conectado' : 'Desconectado'}
             </div>
           </CardContent>
@@ -173,7 +173,7 @@ export default function SolidesPage() {
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{employees.length}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums">{employees.length}</div>
           </CardContent>
         </Card>
         <Card>
@@ -193,7 +193,7 @@ export default function SolidesPage() {
             <AlertTriangle className="h-4 w-4 text-yellow-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">{conflicts.length}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-yellow-600">{conflicts.length}</div>
           </CardContent>
         </Card>
       </div>

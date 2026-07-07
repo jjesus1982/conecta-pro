@@ -303,7 +303,7 @@ export default function AssinaturasPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <PenTool className="h-6 w-6" />
             Assinaturas Digitais
           </h1>

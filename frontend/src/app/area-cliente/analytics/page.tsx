@@ -83,7 +83,7 @@ function MetricCard({
         <Icon className="h-6 w-6 text-white" />
       </div>
       <div>
-        <p className="text-2xl font-bold text-gray-900">{value}</p>
+        <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">{value}</p>
         <p className="text-sm font-medium text-gray-600">{label}</p>
         {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
       </div>
@@ -183,7 +183,7 @@ export default function AnalyticsPage() {
           <BarChart2 className="h-6 w-6 text-white" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Relatórios e Analytics</h1>
+          <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">Relatórios e Analytics</h1>
           <p className="text-sm text-gray-500">Histórico e métricas do seu portal</p>
         </div>
       </div>

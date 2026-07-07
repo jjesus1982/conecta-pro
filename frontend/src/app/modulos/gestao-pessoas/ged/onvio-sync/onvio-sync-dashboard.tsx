@@ -143,7 +143,7 @@ export default function OnvioSyncPage() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-[hsl(var(--foreground))]">
+          <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">
             GEDEON — Onvio Sync
           </h1>
           <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">

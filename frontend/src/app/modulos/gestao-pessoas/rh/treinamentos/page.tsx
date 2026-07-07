@@ -113,7 +113,7 @@ export default function PageTreinamentos() {
           <ArrowLeft className="w-4 h-4" /> Voltar
         </Link>
         <span className="text-gray-300">|</span>
-        <h1 className="text-2xl font-bold text-[#1E3A5F]">Treinamentos</h1>
+        <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">Treinamentos</h1>
         <span className="ml-auto px-3 py-1 rounded-full text-sm font-medium bg-orange-100 text-orange-700 border border-orange-200">
           {treinamentos.length} cursos
         </span>
@@ -127,7 +127,7 @@ export default function PageTreinamentos() {
               <GraduationCap className="w-5 h-5 text-blue-600" />
             </div>
             <p className="text-sm text-gray-500">Total de cursos</p>
-            <p className="text-2xl font-bold text-[#1E3A5F] mt-1">{treinamentos.length}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">{treinamentos.length}</p>
           </CardContent>
         </Card>
         <Card className="border border-gray-100">
@@ -136,7 +136,7 @@ export default function PageTreinamentos() {
               <CheckCircle className="w-5 h-5 text-green-600" />
             </div>
             <p className="text-sm text-gray-500">Ativos</p>
-            <p className="text-2xl font-bold text-green-600 mt-1">{ativos}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-green-600 mt-1">{ativos}</p>
           </CardContent>
         </Card>
         <Card className="border border-gray-100">
@@ -145,7 +145,7 @@ export default function PageTreinamentos() {
               <Users className="w-5 h-5 text-[#F97316]" />
             </div>
             <p className="text-sm text-gray-500">Total inscritos</p>
-            <p className="text-2xl font-bold text-[#F97316] mt-1">{totalInscritos}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-[#F97316] mt-1">{totalInscritos}</p>
           </CardContent>
         </Card>
         <Card className="border border-gray-100">
@@ -154,7 +154,7 @@ export default function PageTreinamentos() {
               <Clock className="w-5 h-5 text-purple-600" />
             </div>
             <p className="text-sm text-gray-500">Carga horária total</p>
-            <p className="text-2xl font-bold text-purple-600 mt-1">{totalHoras}h</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-purple-600 mt-1">{totalHoras}h</p>
           </CardContent>
         </Card>
       </div>

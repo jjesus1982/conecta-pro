@@ -97,7 +97,7 @@ export default function EscritorioRoiPage() {
       <div className="flex items-center gap-3">
         <Scale className="h-7 w-7 text-blue-700" />
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Escritório & ROI</h1>
+          <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">Escritório & ROI</h1>
           <p className="text-sm text-muted-foreground">Internalizar demandas jurídicas via IA vs escritório externo pago.</p>
         </div>
       </div>
@@ -109,7 +109,7 @@ export default function EscritorioRoiPage() {
             <div className="flex items-center justify-between">
               <Building2 className="h-5 w-5 text-gray-600" />
             </div>
-            <div className="text-2xl font-bold mt-2">{fmt(custoFixo.valor)}<span className="text-sm text-muted-foreground">/mês</span></div>
+            <div className="font-data text-2xl font-semibold tabular-nums mt-2">{fmt(custoFixo.valor)}<span className="text-sm text-muted-foreground">/mês</span></div>
             <div className="text-xs text-muted-foreground">Custo fixo do escritório</div>
             {custoFixo.rotulo && (
               <div className="text-[10px] text-amber-600 mt-1 flex items-start gap-1"><Info className="h-3 w-3 mt-0.5 shrink-0" />{custoFixo.rotulo}</div>
@@ -120,7 +120,7 @@ export default function EscritorioRoiPage() {
         <Card>
           <CardContent className="pt-6">
             <TrendingUp className="h-5 w-5 text-blue-600" />
-            <div className="text-2xl font-bold mt-2">{pct(roi.pct_internalizacao)}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums mt-2">{pct(roi.pct_internalizacao)}</div>
             <div className="text-xs text-muted-foreground">Internalização ({roi.resolvidas_interno}/{roi.total_demandas} demandas)</div>
           </CardContent>
         </Card>
@@ -128,7 +128,7 @@ export default function EscritorioRoiPage() {
         <Card className="border-green-300 bg-green-50">
           <CardContent className="pt-6">
             <PiggyBank className="h-5 w-5 text-green-600" />
-            <div className="text-2xl font-bold mt-2 text-green-700">{fmt(roi.economia_estimada)}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums mt-2 text-green-700">{fmt(roi.economia_estimada)}</div>
             <div className="text-xs text-muted-foreground">Economia estimada</div>
             {roi.economia_estimada_metodo && (
               <div className="text-[10px] text-green-700 mt-1">{roi.economia_estimada_metodo}</div>
@@ -139,7 +139,7 @@ export default function EscritorioRoiPage() {
         <Card>
           <CardContent className="pt-6">
             <Cpu className="h-5 w-5 text-purple-600" />
-            <div className="text-2xl font-bold mt-2">{roi.consultas_ia_internas ?? 0}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums mt-2">{roi.consultas_ia_internas ?? 0}</div>
             <div className="text-xs text-muted-foreground">Consultas IA internas</div>
             {roi.consultas_ia_nota && <div className="text-[10px] text-muted-foreground mt-1">{roi.consultas_ia_nota}</div>}
           </CardContent>
@@ -148,9 +148,9 @@ export default function EscritorioRoiPage() {
 
       {/* resumo demandas */}
       <div className="grid grid-cols-3 gap-4">
-        <Card><CardContent className="pt-6"><div className="text-2xl font-bold">{roi.total_demandas ?? 0}</div><div className="text-xs text-muted-foreground">Total de demandas</div></CardContent></Card>
-        <Card><CardContent className="pt-6"><div className="text-2xl font-bold text-blue-600">{roi.resolvidas_interno ?? 0}</div><div className="text-xs text-muted-foreground">Resolvidas internamente</div></CardContent></Card>
-        <Card><CardContent className="pt-6"><div className="text-2xl font-bold text-gray-600">{roi.resolvidas_escritorio ?? 0}</div><div className="text-xs text-muted-foreground">Resolvidas pelo escritório {fmt(roi.custo_variavel_escritorio)}</div></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="font-data text-2xl font-semibold tabular-nums">{roi.total_demandas ?? 0}</div><div className="text-xs text-muted-foreground">Total de demandas</div></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="font-data text-2xl font-semibold tabular-nums text-blue-600">{roi.resolvidas_interno ?? 0}</div><div className="text-xs text-muted-foreground">Resolvidas internamente</div></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--muted-foreground))]">{roi.resolvidas_escritorio ?? 0}</div><div className="text-xs text-muted-foreground">Resolvidas pelo escritório {fmt(roi.custo_variavel_escritorio)}</div></CardContent></Card>
       </div>
 
       {/* Série mensal (mini gráfico de barras) */}

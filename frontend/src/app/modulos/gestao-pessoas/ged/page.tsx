@@ -106,7 +106,7 @@ export default function GEDDashboardPage() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-[hsl(var(--foreground))]">Kits por Condomínio</h1>
+          <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">Kits por Condomínio</h1>
           <p className="text-[hsl(var(--muted-foreground))] mt-1">
             Completude real (Google Drive){data ? ` — kit de ${data.mes_kit} (competência ${data.competencia})` : ''}.
             Clique no condomínio para abrir a <strong>ficha individualizada</strong> (checklist + anexos).

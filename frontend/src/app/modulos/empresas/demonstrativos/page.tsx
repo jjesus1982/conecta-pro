@@ -906,7 +906,7 @@ export default function DemonstrativosPage() {
               <BarChart2 className="w-7 h-7 text-white" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-white">Demonstrativos Financeiros</h1>
+              <h1 className="font-display text-2xl font-bold text-white">Demonstrativos Financeiros</h1>
               <p className="text-blue-200 text-sm mt-0.5">DRE · Balanço · DFC · Consolidado · Exportação Domínio TOTVS</p>
             </div>
           </div>

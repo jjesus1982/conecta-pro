@@ -31,7 +31,7 @@ export default function FinanceiroPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><BadgeDollarSign className="w-7 h-7 text-emerald-600" /> Financeiro</h1>
+        <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))] flex items-center gap-2"><BadgeDollarSign className="w-7 h-7 text-emerald-600" /> Financeiro</h1>
         <p className="text-sm text-gray-500 mt-1">Suas notas fiscais, contrato e cobranças com a Conecta Mais.</p>
       </div>
 
@@ -39,15 +39,15 @@ export default function FinanceiroPage() {
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
           <div className="flex items-center justify-between"><span className="text-xs font-medium text-gray-500">Notas fiscais</span><Receipt className="w-5 h-5 text-indigo-500" /></div>
-          <div className="text-2xl font-bold mt-2 text-gray-900">{notas.length}</div>
+          <div className="font-data text-2xl font-semibold tabular-nums mt-2 text-[hsl(var(--foreground))]">{notas.length}</div>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
           <div className="flex items-center justify-between"><span className="text-xs font-medium text-gray-500">Total faturado</span><Wallet className="w-5 h-5 text-emerald-500" /></div>
-          <div className="text-2xl font-bold mt-2 text-emerald-600">{fmt(faturado)}</div>
+          <div className="font-data text-2xl font-semibold tabular-nums mt-2 text-emerald-600">{fmt(faturado)}</div>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
           <div className="flex items-center justify-between"><span className="text-xs font-medium text-gray-500">Contrato mensal</span><FileText className="w-5 h-5 text-amber-500" /></div>
-          <div className="text-2xl font-bold mt-2 text-gray-900">{contrato ? fmt(contrato.valor_mensal) : '—'}</div>
+          <div className="font-data text-2xl font-semibold tabular-nums mt-2 text-[hsl(var(--foreground))]">{contrato ? fmt(contrato.valor_mensal) : '—'}</div>
         </div>
       </div>
 

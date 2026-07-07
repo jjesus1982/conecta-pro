@@ -236,24 +236,24 @@ export function AnnouncementDetailModal({
               ) : stats ? (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                    <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                       {stats.total_recipients}
                     </p>
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">Destinatarios</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-blue-500">{stats.total_reads}</p>
+                    <p className="font-data text-2xl font-semibold tabular-nums text-blue-500">{stats.total_reads}</p>
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">Leituras</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-green-500">
+                    <p className="font-data text-2xl font-semibold tabular-nums text-green-500">
                       {stats.read_percentage.toFixed(0)}%
                     </p>
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">Taxa de Leitura</p>
                   </div>
                   {announcement.requires_acknowledgment && (
                     <div className="text-center">
-                      <p className="text-2xl font-bold text-purple-500">
+                      <p className="font-data text-2xl font-semibold tabular-nums text-purple-500">
                         {stats.total_acknowledgments}
                       </p>
                       <p className="text-xs text-[hsl(var(--muted-foreground))]">Confirmacoes</p>
@@ -263,18 +263,18 @@ export function AnnouncementDetailModal({
               ) : (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-blue-500">{announcement.read_count}</p>
+                    <p className="font-data text-2xl font-semibold tabular-nums text-blue-500">{announcement.read_count}</p>
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">Leituras</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-green-500">
+                    <p className="font-data text-2xl font-semibold tabular-nums text-green-500">
                       {announcement.read_percentage.toFixed(0)}%
                     </p>
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">Taxa de Leitura</p>
                   </div>
                   {announcement.requires_acknowledgment && (
                     <div className="text-center">
-                      <p className="text-2xl font-bold text-purple-500">
+                      <p className="font-data text-2xl font-semibold tabular-nums text-purple-500">
                         {announcement.acknowledgment_count}
                       </p>
                       <p className="text-xs text-[hsl(var(--muted-foreground))]">Confirmacoes</p>

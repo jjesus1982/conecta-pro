@@ -293,19 +293,19 @@ export function ApplyTemplateDialog({
 
                 <div className="grid grid-cols-3 gap-3">
                   <div className="bg-[hsl(var(--card))] rounded-lg p-3 text-center">
-                    <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                    <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                       {previewScale.total_shifts}
                     </p>
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">Turnos</p>
                   </div>
                   <div className="bg-[hsl(var(--card))] rounded-lg p-3 text-center">
-                    <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                    <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                       {previewScale.total_hours.toFixed(0)}h
                     </p>
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">Horas</p>
                   </div>
                   <div className="bg-[hsl(var(--card))] rounded-lg p-3 text-center">
-                    <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                    <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                       {previewScale.fill_rate?.toFixed(0) || 0}%
                     </p>
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">Cobertura</p>

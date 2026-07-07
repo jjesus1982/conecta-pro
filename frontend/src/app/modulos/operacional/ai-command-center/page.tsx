@@ -3,7 +3,8 @@
 import {
   Brain, Activity, Shield, TrendingUp, TrendingDown, AlertTriangle,
   CheckCircle, Users, MapPin, Clock, Target, Zap, RefreshCw,
-  BarChart2, ArrowLeft, ChevronRight, Eye, Wifi, WifiOff, Bell
+  BarChart2, ArrowLeft, ChevronRight, Eye, Wifi, WifiOff, Bell,
+  Calendar, Sparkles, type LucideIcon
 } from 'lucide-react';
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
@@ -73,12 +74,21 @@ const RISK_LABELS: Record<string, string> = {
 };
 
 const AGENT_NAMES: Record<string, string> = {
-  scale_optimizer: '📅 Otimizador de Escalas',
-  coverage_predictor: '🎯 Preditor de Cobertura',
-  performance_analyzer: '📊 Analisador de Performance',
-  substitution_optimizer: '🔄 Otimizador de Substituições',
-  occurrence_analyzer: '⚠️ Classificador de Ocorrências',
-  predictive_analyzer: '🔮 Analisador Preditivo',
+  scale_optimizer: 'Otimizador de Escalas',
+  coverage_predictor: 'Preditor de Cobertura',
+  performance_analyzer: 'Analisador de Performance',
+  substitution_optimizer: 'Otimizador de Substituições',
+  occurrence_analyzer: 'Classificador de Ocorrências',
+  predictive_analyzer: 'Analisador Preditivo',
+};
+
+const AGENT_ICONS: Record<string, LucideIcon> = {
+  scale_optimizer: Calendar,
+  coverage_predictor: Target,
+  performance_analyzer: BarChart2,
+  substitution_optimizer: RefreshCw,
+  occurrence_analyzer: AlertTriangle,
+  predictive_analyzer: Sparkles,
 };
 
 export default function AICommandCenterOperacionalPage() {
@@ -375,11 +385,13 @@ export default function AICommandCenterOperacionalPage() {
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             {commandData?.agents_status ? (
-              Object.entries(commandData.agents_status).map(([key, status]) => (
+              Object.entries(commandData.agents_status).map(([key, status]) => {
+                const AgentIcon = AGENT_ICONS[key] || Brain;
+                return (
                 <div key={key} className="flex flex-col items-center p-3 bg-white/5 rounded-lg text-center">
-                  <div className="text-xl mb-1">{AGENT_NAMES[key]?.split(' ')[0] || '🤖'}</div>
+                  <AgentIcon className="w-5 h-5 mb-1 text-white/70" />
                   <div className="text-xs text-white/70 mb-1">
-                    {AGENT_NAMES[key]?.split(' ').slice(1).join(' ') || key}
+                    {AGENT_NAMES[key] || key}
                   </div>
                   <div className={`text-xs px-2 py-0.5 rounded-full ${
                     status === 'active' ? 'bg-green-900/40 text-green-400' : 'bg-red-900/40 text-red-400'
@@ -387,7 +399,8 @@ export default function AICommandCenterOperacionalPage() {
                     {status === 'active' ? 'Ativo' : 'Inativo'}
                   </div>
                 </div>
-              ))
+                );
+              })
             ) : (
               [1, 2, 3, 4, 5, 6].map(i => (
                 <div key={i} className="h-20 bg-white/5 rounded-lg animate-pulse" />

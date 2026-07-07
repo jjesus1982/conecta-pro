@@ -204,7 +204,7 @@ export default function KitDetailPage() {
       <div className="bg-[hsl(var(--card))] rounded-xl shadow-sm border border-[hsl(var(--border))] p-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-[hsl(var(--foreground))]">Kit {formatMonth(kit.reference_month)}</h1>
+            <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">Kit {formatMonth(kit.reference_month)}</h1>
             <div className="flex items-center gap-3 mt-2">
               <span
                 className={`inline-block text-xs font-medium px-3 py-1 rounded-full ${

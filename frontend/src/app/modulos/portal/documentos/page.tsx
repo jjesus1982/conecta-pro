@@ -112,21 +112,21 @@ export default function DocumentosPortalPage() {
         {/* Estatisticas */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div className="bg-blue-50 rounded-lg p-3 text-center">
-            <p className="text-2xl font-bold text-blue-600">{documents.length}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-blue-600">{documents.length}</p>
             <p className="text-xs text-blue-500">Total de Documentos</p>
           </div>
           <div className="bg-green-50 rounded-lg p-3 text-center">
-            <p className="text-2xl font-bold text-green-600">
+            <p className="font-data text-2xl font-semibold tabular-nums text-green-600">
               {documents.filter((d) => d.signed).length}
             </p>
             <p className="text-xs text-green-500">Assinados</p>
           </div>
           <div className="bg-amber-50 rounded-lg p-3 text-center">
-            <p className="text-2xl font-bold text-amber-600">{comunicados.length}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-amber-600">{comunicados.length}</p>
             <p className="text-xs text-amber-500">Comunicados</p>
           </div>
           <div className="bg-purple-50 rounded-lg p-3 text-center">
-            <p className="text-2xl font-bold text-purple-600">{cctData ? 1 : 0}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-purple-600">{cctData ? 1 : 0}</p>
             <p className="text-xs text-purple-500">CCT Vigente</p>
           </div>
         </div>

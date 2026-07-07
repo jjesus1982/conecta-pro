@@ -272,7 +272,7 @@ export default function CandidaturasPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <FileText className="h-6 w-6" />
             Candidaturas
           </h1>
@@ -295,31 +295,31 @@ export default function CandidaturasPage() {
         <Card>
           <CardContent className="pt-4">
             <p className="text-sm text-muted-foreground">Total</p>
-            <p className="text-2xl font-bold">{stats?.total_applications ?? 0}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums">{stats?.total_applications ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
             <p className="text-sm text-muted-foreground">Em Andamento</p>
-            <p className="text-2xl font-bold text-cyan-600">{stats?.active_applications ?? stats?.in_process ?? 0}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-cyan-600">{stats?.active_applications ?? stats?.in_process ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
             <p className="text-sm text-muted-foreground">Contratados</p>
-            <p className="text-2xl font-bold text-green-600">{stats?.hired ?? 0}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-green-600">{stats?.hired ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
             <p className="text-sm text-muted-foreground">Rejeitados</p>
-            <p className="text-2xl font-bold text-red-600">{stats?.rejected ?? 0}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-red-600">{stats?.rejected ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
             <p className="text-sm text-muted-foreground">Taxa Conversao</p>
-            <p className="text-2xl font-bold text-purple-600">{stats?.conversion_rate ? `${(stats.conversion_rate * 100).toFixed(1)}%` : '0%'}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-purple-600">{stats?.conversion_rate ? `${(stats.conversion_rate * 100).toFixed(1)}%` : '0%'}</p>
           </CardContent>
         </Card>
       </div>

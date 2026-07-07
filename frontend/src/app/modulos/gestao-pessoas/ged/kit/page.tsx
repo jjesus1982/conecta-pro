@@ -155,7 +155,7 @@ function KitFichaInner() {
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
+            <h1 className="font-display text-2xl font-bold flex items-center gap-2">
               <Building2 className="w-6 h-6 text-blue-500" /> {f.condominio}
             </h1>
             <p className="text-sm text-[hsl(var(--muted-foreground))]">Kit — competência {f.competencia} • montagem ponto a ponto</p>

@@ -181,7 +181,7 @@ export default function KitsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Kits de Documentos</h1>
+          <h1 className="font-display text-2xl font-bold">Kits de Documentos</h1>
           <p className="text-muted-foreground">
             Conjuntos padronizados de documentos para processos especificos
           </p>

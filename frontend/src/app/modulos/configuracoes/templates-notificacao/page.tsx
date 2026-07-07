@@ -156,7 +156,7 @@ export default function TemplatesNotificacaoPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <Mail className="h-6 w-6" />
             Templates de Notificacao
           </h1>
@@ -182,7 +182,7 @@ export default function TemplatesNotificacaoPage() {
             <Mail className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums">{stats.total}</div>
           </CardContent>
         </Card>
         <Card>
@@ -191,7 +191,7 @@ export default function TemplatesNotificacaoPage() {
             <Power className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{stats.active}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-green-600">{stats.active}</div>
           </CardContent>
         </Card>
         <Card>
@@ -200,7 +200,7 @@ export default function TemplatesNotificacaoPage() {
             <Mail className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{stats.byChannel['email'] || 0}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-blue-600">{stats.byChannel['email'] || 0}</div>
           </CardContent>
         </Card>
         <Card>
@@ -209,7 +209,7 @@ export default function TemplatesNotificacaoPage() {
             <Bell className="h-4 w-4 text-purple-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-purple-600">
+            <div className="font-data text-2xl font-semibold tabular-nums text-purple-600">
               {(stats.byChannel['push'] || 0) + (stats.byChannel['sms'] || 0)}
             </div>
           </CardContent>

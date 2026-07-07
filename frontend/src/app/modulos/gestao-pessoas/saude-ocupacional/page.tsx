@@ -86,7 +86,7 @@ export default function SaudeOcupacionalPage() {
     <div className="space-y-6 pb-28">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
+        <h1 className="font-display text-2xl font-bold flex items-center gap-2">
           <Heart className="h-6 w-6" />
           Saude Ocupacional
         </h1>
@@ -106,7 +106,7 @@ export default function SaudeOcupacionalPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold">{(pcmsoStats as any)?.total_exames ?? 0}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums">{(pcmsoStats as any)?.total_exames ?? 0}</div>
             )}
           </CardContent>
         </Card>
@@ -120,7 +120,7 @@ export default function SaudeOcupacionalPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-yellow-600">
+              <div className="font-data text-2xl font-semibold tabular-nums text-yellow-600">
                 {(dashboard as any)?.asos_vencendo_30d ?? (pcmsoStats as any)?.asos_vencendo ?? 0}
               </div>
             )}
@@ -136,7 +136,7 @@ export default function SaudeOcupacionalPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-orange-600">
+              <div className="font-data text-2xl font-semibold tabular-nums text-orange-600">
                 {(dashboard as any)?.afastados_ativos ?? 0}
               </div>
             )}
@@ -152,7 +152,7 @@ export default function SaudeOcupacionalPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-red-600">
+              <div className="font-data text-2xl font-semibold tabular-nums text-red-600">
                 {(ppraStats as any)?.total_riscos ?? 0}
               </div>
             )}

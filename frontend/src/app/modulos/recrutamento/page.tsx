@@ -141,7 +141,7 @@ export default function RecrutamentoDashboardPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <Users className="h-6 w-6" />
             Recrutamento e Selecao
           </h1>
@@ -176,7 +176,7 @@ export default function RecrutamentoDashboardPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">{card.title}</p>
-                  <p className="text-2xl font-bold">
+                  <p className="font-data text-2xl font-semibold tabular-nums">
                     {loading ? '...' : card.value}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">{card.subtitle}</p>

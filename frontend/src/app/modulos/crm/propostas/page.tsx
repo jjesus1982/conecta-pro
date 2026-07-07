@@ -261,7 +261,7 @@ export default function PropostasPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2"><FileText className="h-6 w-6" />Propostas</h1>
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2"><FileText className="h-6 w-6" />Propostas</h1>
           <p className="text-muted-foreground">Orçamentos com itens, cálculo automático e cliente</p>
         </div>
         <div className="flex items-center gap-2">
@@ -276,7 +276,7 @@ export default function PropostasPage() {
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">{label}</CardTitle><Icon className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
-            <CardContent><div className={`text-2xl font-bold ${color}`}>{val}</div></CardContent>
+            <CardContent><div className={`font-data text-2xl font-semibold tabular-nums ${color}`}>{val}</div></CardContent>
           </Card>
         ))}
       </div>
@@ -410,7 +410,7 @@ export default function PropostasPage() {
               {(!editItem || editItemsLoaded) && <Button variant="outline" size="sm" onClick={addItem}><Plus className="h-4 w-4 mr-1" />Adicionar item</Button>}
               <div className="flex justify-end pt-2 border-t">
                 <div className="text-right"><span className="text-sm text-muted-foreground mr-3">VALOR TOTAL</span>
-                  <span className="text-2xl font-bold text-green-600">{formatCurrency(liveSubtotal)}</span></div>
+                  <span className="font-data text-2xl font-semibold tabular-nums text-green-600">{formatCurrency(liveSubtotal)}</span></div>
               </div>
             </div>
 

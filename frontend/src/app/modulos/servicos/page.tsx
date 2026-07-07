@@ -60,7 +60,7 @@ export default function ServicosPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <FileSignature className="h-6 w-6" />
             Servicos
           </h1>
@@ -80,7 +80,7 @@ export default function ServicosPage() {
             <FileSignature className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">
+            <div className="font-data text-2xl font-semibold tabular-nums text-blue-600">
               {isLoading ? '...' : contratosAtivos}
             </div>
           </CardContent>
@@ -91,7 +91,7 @@ export default function ServicosPage() {
             <ClipboardList className="h-4 w-4 text-purple-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-purple-600">0</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-purple-600">0</div>
           </CardContent>
         </Card>
         <Card>
@@ -100,7 +100,7 @@ export default function ServicosPage() {
             <Calendar className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">0</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-green-600">0</div>
           </CardContent>
         </Card>
         <Card>
@@ -109,7 +109,7 @@ export default function ServicosPage() {
             <AlertCircle className="h-4 w-4 text-orange-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-600">
+            <div className="font-data text-2xl font-semibold tabular-nums text-orange-600">
               {isLoading ? '...' : totalAlertas}
             </div>
           </CardContent>
@@ -140,7 +140,7 @@ export default function ServicosPage() {
               <card.icon className={`h-5 w-5 ${card.color}`} />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{isLoading ? '...' : card.value}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums">{isLoading ? '...' : card.value}</div>
               <p className="text-xs text-muted-foreground mt-1">{card.description}</p>
               <div className="flex items-center gap-1 mt-2 text-xs text-primary">
                 <span>Acessar</span>

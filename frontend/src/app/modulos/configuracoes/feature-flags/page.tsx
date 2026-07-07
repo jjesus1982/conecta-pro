@@ -136,7 +136,7 @@ export default function FeatureFlagsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <ToggleRight className="h-6 w-6" />
             Feature Flags
           </h1>
@@ -162,7 +162,7 @@ export default function FeatureFlagsPage() {
             <ToggleRight className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums">{stats.total}</div>
           </CardContent>
         </Card>
         <Card>
@@ -171,7 +171,7 @@ export default function FeatureFlagsPage() {
             <Power className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{stats.active}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-green-600">{stats.active}</div>
           </CardContent>
         </Card>
         <Card>
@@ -180,7 +180,7 @@ export default function FeatureFlagsPage() {
             <Zap className="h-4 w-4 text-orange-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-600">{stats.rollout}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-orange-600">{stats.rollout}</div>
           </CardContent>
         </Card>
         <Card>
@@ -189,7 +189,7 @@ export default function FeatureFlagsPage() {
             <Ban className="h-4 w-4 text-gray-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-gray-500">{stats.disabled}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-gray-500">{stats.disabled}</div>
           </CardContent>
         </Card>
       </div>

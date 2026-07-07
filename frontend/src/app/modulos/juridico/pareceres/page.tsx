@@ -113,7 +113,7 @@ export default function PareceresPage() {
         <div className="flex items-center gap-3">
           <Scale className="h-7 w-7 text-blue-700" />
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Pareceres Jurídicos IA</h1>
+            <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">Pareceres Jurídicos IA</h1>
             <p className="text-sm text-muted-foreground">A IA fundamenta, o humano certifica — rascunhos opinativos.</p>
           </div>
         </div>

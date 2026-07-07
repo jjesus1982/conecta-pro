@@ -203,15 +203,15 @@ export default function AssinaturaPortalPage() {
         {/* Estatísticas */}
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-amber-50 rounded-lg p-3 text-center">
-            <p className="text-2xl font-bold text-amber-600">{pendentes.length}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-amber-600">{pendentes.length}</p>
             <p className="text-xs text-amber-500">Pendentes de Assinatura</p>
           </div>
           <div className="bg-green-50 rounded-lg p-3 text-center">
-            <p className="text-2xl font-bold text-green-600">{assinados.length}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-green-600">{assinados.length}</p>
             <p className="text-xs text-green-500">Documentos Assinados</p>
           </div>
           <div className="bg-blue-50 rounded-lg p-3 text-center">
-            <p className="text-2xl font-bold text-blue-600">{documents.length}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-blue-600">{documents.length}</p>
             <p className="text-xs text-blue-500">Total de Documentos</p>
           </div>
         </div>

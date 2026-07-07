@@ -174,7 +174,7 @@ export default function ComercialRelatorioPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">Top Leads</p>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">{totalLeads}</p>
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">{totalLeads}</p>
                 </div>
                 <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
                   <Users className="w-5 h-5 text-amber-500" />
@@ -188,7 +188,7 @@ export default function ComercialRelatorioPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">Score Médio</p>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">
                     {scoreMedio > 0
                       ? scoreMedio <= 1
                         ? `${(scoreMedio * 100).toFixed(0)}%`
@@ -208,7 +208,7 @@ export default function ComercialRelatorioPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">Risco Churn</p>
-                  <p className="text-2xl font-bold text-red-500 mt-1">
+                  <p className="font-data text-2xl font-semibold tabular-nums text-red-500 mt-1">
                     {typeof riscoChurn === 'number' && riscoChurn > 0
                       ? `${(riscoChurn * (riscoChurn <= 1 ? 100 : 1)).toFixed(1)}%`
                       : '--'}
@@ -226,7 +226,7 @@ export default function ComercialRelatorioPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">Conversão</p>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">
                     {typeof conversao === 'number' && conversao > 0
                       ? `${(conversao * (conversao <= 1 ? 100 : 1)).toFixed(1)}%`
                       : '--'}

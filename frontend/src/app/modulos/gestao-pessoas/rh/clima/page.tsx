@@ -138,7 +138,7 @@ export default function PageClima() {
           <ArrowLeft className="w-4 h-4" /> Voltar
         </Link>
         <span className="text-gray-300">|</span>
-        <h1 className="text-2xl font-bold text-[#1E3A5F]">Clima Organizacional</h1>
+        <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">Clima Organizacional</h1>
         <span className="ml-auto px-3 py-1 rounded-full text-sm font-medium bg-orange-100 text-orange-700 border border-orange-200">
           {pesquisas.length} pesquisas
         </span>
@@ -152,7 +152,7 @@ export default function PageClima() {
               <Wind className="w-5 h-5 text-blue-600" />
             </div>
             <p className="text-sm text-gray-500">Total de pesquisas</p>
-            <p className="text-2xl font-bold text-[#1E3A5F] mt-1">{pesquisas.length}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">{pesquisas.length}</p>
           </CardContent>
         </Card>
         <Card className="border border-gray-100">
@@ -161,7 +161,7 @@ export default function PageClima() {
               <CheckCircle className="w-5 h-5 text-green-600" />
             </div>
             <p className="text-sm text-gray-500">Pesquisas ativas</p>
-            <p className="text-2xl font-bold text-green-600 mt-1">{ativas}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-green-600 mt-1">{ativas}</p>
           </CardContent>
         </Card>
         <Card className="border border-gray-100">
@@ -170,7 +170,7 @@ export default function PageClima() {
               <BarChart3 className="w-5 h-5 text-[#F97316]" />
             </div>
             <p className="text-sm text-gray-500">Score médio</p>
-            <p className="text-2xl font-bold text-[#F97316] mt-1">
+            <p className="font-data text-2xl font-semibold tabular-nums text-[#F97316] mt-1">
               {mediaScore > 0 ? mediaScore.toFixed(1) : '—'}
             </p>
           </CardContent>

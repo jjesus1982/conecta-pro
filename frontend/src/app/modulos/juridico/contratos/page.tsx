@@ -62,7 +62,7 @@ export default function CentralContratosPage() {
       <div className="flex items-center gap-3">
         <Scale className="h-7 w-7 text-blue-700" />
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Central de Contratos</h1>
+          <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">Central de Contratos</h1>
           <p className="text-sm text-muted-foreground">Jurídico — visão consolidada e alertas (referência: {dash?.referencia})</p>
         </div>
       </div>
@@ -75,7 +75,7 @@ export default function CentralContratosPage() {
               <div className="flex items-center justify-between">
                 <k.icon className={`h-5 w-5 ${k.color}`} />
               </div>
-              <div className="text-2xl font-bold mt-2">{k.value ?? 0}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums mt-2">{k.value ?? 0}</div>
               <div className="text-xs text-muted-foreground">{k.label}</div>
             </CardContent>
           </Card>

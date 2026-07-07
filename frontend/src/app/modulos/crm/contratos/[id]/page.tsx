@@ -47,7 +47,7 @@ export default function ContratoDetailPage() {
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <FileSignature className="h-6 w-6" />
             {isLoading ? 'Carregando...' : ((c?.number || c?.numero || c?.contract_number) as string) || 'Contrato'}
           </h1>

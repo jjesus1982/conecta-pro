@@ -445,7 +445,7 @@ export default function DisputasDashboardPage() {
                   <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">
                     Disputas Ativas
                   </p>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">
                     {kpi.disputas_ativas}
                   </p>
                 </div>
@@ -463,7 +463,7 @@ export default function DisputasDashboardPage() {
                   <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">
                     Disputas Vencidas
                   </p>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">
                     {kpi.disputas_vencidas}
                   </p>
                 </div>
@@ -481,7 +481,7 @@ export default function DisputasDashboardPage() {
                   <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">
                     Economia Media
                   </p>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">
                     {kpi.economia_media}
                     <span className="text-sm font-normal text-[hsl(var(--muted-foreground))]">%</span>
                   </p>
@@ -500,7 +500,7 @@ export default function DisputasDashboardPage() {
                   <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">
                     Posicao Media
                   </p>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">
                     {kpi.posicao_media}
                     <span className="text-sm font-normal text-[hsl(var(--muted-foreground))]">o</span>
                   </p>

@@ -166,7 +166,7 @@ export function PatrolRoundDetailModal({
               <CheckSquare className="w-4 h-4 text-blue-500" />
               <span className="text-sm text-blue-500">Checkpoints</span>
             </div>
-            <p className="text-2xl font-bold text-blue-500">
+            <p className="font-data text-2xl font-semibold tabular-nums text-blue-500">
               {patrolRound.total_checkpoints}
             </p>
           </div>
@@ -176,7 +176,7 @@ export function PatrolRoundDetailModal({
               <AlertCircle className="w-4 h-4 text-red-500" />
               <span className="text-sm text-red-500">Ocorrências</span>
             </div>
-            <p className="text-2xl font-bold text-red-500">
+            <p className="font-data text-2xl font-semibold tabular-nums text-red-500">
               {patrolRound.total_occurrences}
             </p>
           </div>
@@ -186,7 +186,7 @@ export function PatrolRoundDetailModal({
               <FileText className="w-4 h-4 text-orange-500" />
               <span className="text-sm text-orange-500">Med. Discip.</span>
             </div>
-            <p className="text-2xl font-bold text-orange-500">
+            <p className="font-data text-2xl font-semibold tabular-nums text-orange-500">
               {patrolRound.total_disciplinary_actions}
             </p>
           </div>
@@ -196,7 +196,7 @@ export function PatrolRoundDetailModal({
               <User className="w-4 h-4 text-green-500" />
               <span className="text-sm text-green-500">Funcionários</span>
             </div>
-            <p className="text-2xl font-bold text-green-500">
+            <p className="font-data text-2xl font-semibold tabular-nums text-green-500">
               {patrolRound.total_employees_checked}
             </p>
           </div>

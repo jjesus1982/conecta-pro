@@ -216,7 +216,7 @@ export default function GedClientesPage() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[hsl(var(--foreground))]">Clientes GED</h1>
+          <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">Clientes GED</h1>
           <p className="text-[hsl(var(--muted-foreground))] mt-1">Gerencie os clientes para envio de kits documentais</p>
         </div>
         <button

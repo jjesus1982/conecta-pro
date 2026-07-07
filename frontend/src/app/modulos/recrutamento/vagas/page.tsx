@@ -245,7 +245,7 @@ export default function VagasPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <Briefcase className="h-6 w-6" />
             Vagas
           </h1>
@@ -267,25 +267,25 @@ export default function VagasPage() {
         <Card>
           <CardContent className="pt-4">
             <p className="text-sm text-muted-foreground">Total</p>
-            <p className="text-2xl font-bold">{stats?.total_positions ?? 0}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums">{stats?.total_positions ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
             <p className="text-sm text-muted-foreground">Abertas</p>
-            <p className="text-2xl font-bold text-green-600">{stats?.open_positions ?? 0}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-green-600">{stats?.open_positions ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
             <p className="text-sm text-muted-foreground">Preenchidas</p>
-            <p className="text-2xl font-bold text-blue-600">{stats?.filled_positions ?? 0}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-blue-600">{stats?.filled_positions ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
             <p className="text-sm text-muted-foreground">Fechadas</p>
-            <p className="text-2xl font-bold text-red-600">{stats?.closed_positions ?? 0}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-red-600">{stats?.closed_positions ?? 0}</p>
           </CardContent>
         </Card>
       </div>

@@ -159,7 +159,7 @@ export default function ExecucoesPage() {
             >
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
+            <h1 className="font-display text-2xl font-bold flex items-center gap-2">
               <History className="h-6 w-6" />
               Historico de Execucoes
             </h1>
@@ -181,7 +181,7 @@ export default function ExecucoesPage() {
             {isLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold">{totalExecutions}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums">{totalExecutions}</div>
             )}
           </CardContent>
         </Card>
@@ -194,7 +194,7 @@ export default function ExecucoesPage() {
             {isLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-blue-600">{runningCount}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-blue-600">{runningCount}</div>
             )}
           </CardContent>
         </Card>
@@ -207,7 +207,7 @@ export default function ExecucoesPage() {
             {isLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-green-600">{successCount}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-green-600">{successCount}</div>
             )}
           </CardContent>
         </Card>
@@ -220,7 +220,7 @@ export default function ExecucoesPage() {
             {isLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-red-600">{failedCount}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-red-600">{failedCount}</div>
             )}
           </CardContent>
         </Card>

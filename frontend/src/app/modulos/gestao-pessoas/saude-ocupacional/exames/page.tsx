@@ -112,7 +112,7 @@ export default function ExamesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <Stethoscope className="h-6 w-6" />
             Exames Medicos - PCMSO
           </h1>
@@ -219,7 +219,7 @@ export default function ExamesPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold">{(stats as any)?.total_exames_ano ?? 0}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums">{(stats as any)?.total_exames_ano ?? 0}</div>
             )}
           </CardContent>
         </Card>
@@ -233,7 +233,7 @@ export default function ExamesPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-blue-600">{(stats as any)?.exames_pendentes ?? 0}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-blue-600">{(stats as any)?.exames_pendentes ?? 0}</div>
             )}
           </CardContent>
         </Card>
@@ -247,7 +247,7 @@ export default function ExamesPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-green-600">{(stats as any)?.exames_realizados ?? 0}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-green-600">{(stats as any)?.exames_realizados ?? 0}</div>
             )}
           </CardContent>
         </Card>
@@ -261,7 +261,7 @@ export default function ExamesPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-yellow-600">{(stats as any)?.asos_vencendo_30_dias ?? 0}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-yellow-600">{(stats as any)?.asos_vencendo_30_dias ?? 0}</div>
             )}
           </CardContent>
         </Card>

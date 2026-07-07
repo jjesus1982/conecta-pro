@@ -254,7 +254,7 @@ export default function ConsentimentoPage() {
                 <CheckCircle2 className="w-5 h-5 text-green-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {stats.activeCount}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Ativos</p>
@@ -268,7 +268,7 @@ export default function ConsentimentoPage() {
                 <ShieldOff className="w-5 h-5 text-red-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {stats.revokedCount}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Revogados</p>
@@ -282,7 +282,7 @@ export default function ConsentimentoPage() {
                 <Clock className="w-5 h-5 text-yellow-500" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {stats.expiringCount}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Expirando</p>

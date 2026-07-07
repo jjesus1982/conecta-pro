@@ -99,7 +99,7 @@ export default function ConsultorJuridicoPage() {
       <div className="flex items-center gap-3">
         <Scale className="h-7 w-7 text-indigo-700" />
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Consultor Jurídico IA</h1>
+          <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">Consultor Jurídico IA</h1>
           <p className="text-sm text-muted-foreground">Trabalhista, cível e tributário — anexe documentos para análise. Apoio, não parecer formal.</p>
         </div>
       </div>

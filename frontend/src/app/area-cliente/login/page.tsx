@@ -76,7 +76,7 @@ export default function LoginPage() {
           <div className="inline-flex items-center justify-center w-16 h-16 bg-indigo-100 rounded-full mb-4">
             <Shield className="h-8 w-8 text-indigo-600" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Conecta PRO</h1>
+          <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">Conecta PRO</h1>
           <p className="text-sm text-gray-500 mt-1">Área do Cliente</p>
         </div>
 

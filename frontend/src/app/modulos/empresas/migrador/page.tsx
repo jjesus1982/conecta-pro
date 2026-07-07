@@ -548,7 +548,7 @@ function SecaoAnaliseLote() {
                 k.color === 'green' ? 'bg-green-50 border-green-200' :
                 k.color === 'blue' ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'
               }`}>
-                <p className="text-2xl font-bold text-gray-900">{k.value}</p>
+                <p className="font-data text-2xl font-semibold tabular-nums text-gray-900">{k.value}</p>
                 <p className="text-xs text-gray-600 mt-1">{k.label}</p>
               </div>
             ))}
@@ -557,7 +557,7 @@ function SecaoAnaliseLote() {
           {/* Economia total */}
           <div className="bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl p-5">
             <p className="text-sm opacity-90 mb-1">Economia anual total estimada</p>
-            <p className="text-3xl font-bold">{fmt(resultado.economia_anual_total)}</p>
+            <p className="font-data text-3xl font-semibold tabular-nums">{fmt(resultado.economia_anual_total)}</p>
             <p className="text-sm opacity-75 mt-1">migrando {resultado.humanizados} contratos para Patrimonial</p>
           </div>
 
@@ -716,7 +716,7 @@ export default function MigradorPage() {
             <ArrowRightLeft className="w-7 h-7 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Migrador de Contratos</h1>
+            <h1 className="font-display text-2xl font-bold text-gray-900">Migrador de Contratos</h1>
             <p className="text-gray-500 mt-1">
               Classifique e migre contratos entre Eletrônica e Patrimonial com análise tributária completa
             </p>

@@ -156,7 +156,7 @@ export default function OperacionalRelatorioPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">Escalas Ativas</p>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">{escalasAtivas}</p>
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">{escalasAtivas}</p>
                 </div>
                 <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
                   <Users className="w-5 h-5 text-emerald-500" />
@@ -170,7 +170,7 @@ export default function OperacionalRelatorioPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">Ocorrências</p>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">{ocorrencias}</p>
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">{ocorrencias}</p>
                 </div>
                 <div className="w-10 h-10 rounded-lg bg-orange-500/10 flex items-center justify-center">
                   <AlertTriangle className="w-5 h-5 text-orange-500" />
@@ -184,7 +184,7 @@ export default function OperacionalRelatorioPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">SLA Cumprido</p>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">
                     {typeof slaCumprido === 'number'
                       ? `${(slaCumprido * (slaCumprido <= 1 ? 100 : 1)).toFixed(1)}%`
                       : slaCumprido || '0%'}
@@ -202,7 +202,7 @@ export default function OperacionalRelatorioPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">Postos Ativos</p>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">{postosAtivos}</p>
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">{postosAtivos}</p>
                 </div>
                 <div className="w-10 h-10 rounded-lg bg-violet-500/10 flex items-center justify-center">
                   <MapPin className="w-5 h-5 text-violet-500" />

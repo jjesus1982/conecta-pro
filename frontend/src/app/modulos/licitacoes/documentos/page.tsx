@@ -113,7 +113,7 @@ export default function DocumentosPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <Folder className="h-6 w-6" />
             Documentos de Licitação
           </h1>
@@ -172,7 +172,7 @@ export default function DocumentosPage() {
                 <FileText className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{stats.total}</div>
+                <div className="font-data text-2xl font-semibold tabular-nums">{stats.total}</div>
                 <p className="text-xs text-muted-foreground">Documentos cadastrados</p>
               </CardContent>
             </Card>
@@ -183,7 +183,7 @@ export default function DocumentosPage() {
                 <CheckCircle2 className="h-4 w-4 text-green-600" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-green-600">{stats.aprovados}</div>
+                <div className="font-data text-2xl font-semibold tabular-nums text-green-600">{stats.aprovados}</div>
                 <p className="text-xs text-muted-foreground">Validados</p>
               </CardContent>
             </Card>
@@ -194,7 +194,7 @@ export default function DocumentosPage() {
                 <Clock className="h-4 w-4 text-yellow-600" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-yellow-600">{stats.pendentes}</div>
+                <div className="font-data text-2xl font-semibold tabular-nums text-yellow-600">{stats.pendentes}</div>
                 <p className="text-xs text-muted-foreground">Aguardando validação</p>
               </CardContent>
             </Card>
@@ -205,7 +205,7 @@ export default function DocumentosPage() {
                 <XCircle className="h-4 w-4 text-red-600" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-red-600">{stats.rejeitados}</div>
+                <div className="font-data text-2xl font-semibold tabular-nums text-red-600">{stats.rejeitados}</div>
                 <p className="text-xs text-muted-foreground">Precisam correção</p>
               </CardContent>
             </Card>

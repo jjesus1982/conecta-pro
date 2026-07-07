@@ -141,7 +141,7 @@ export default function DashboardsExecutivosPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">Total KPIs</p>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">{totalKpis}</p>
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">{totalKpis}</p>
                 </div>
                 <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
                   <Activity className="w-5 h-5 text-blue-500" />
@@ -155,7 +155,7 @@ export default function DashboardsExecutivosPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">Alertas Ativos</p>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">{totalAlerts}</p>
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">{totalAlerts}</p>
                 </div>
                 <div className="w-10 h-10 rounded-lg bg-orange-500/10 flex items-center justify-center">
                   <AlertTriangle className="w-5 h-5 text-orange-500" />
@@ -169,7 +169,7 @@ export default function DashboardsExecutivosPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">Alertas Críticos</p>
-                  <p className="text-2xl font-bold text-red-500 mt-1">{criticalAlerts}</p>
+                  <p className="font-data text-2xl font-semibold tabular-nums text-red-500 mt-1">{criticalAlerts}</p>
                 </div>
                 <div className="w-10 h-10 rounded-lg bg-red-500/10 flex items-center justify-center">
                   <AlertTriangle className="w-5 h-5 text-red-500" />
@@ -183,7 +183,7 @@ export default function DashboardsExecutivosPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">Insights</p>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">{totalInsights}</p>
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">{totalInsights}</p>
                 </div>
                 <div className="w-10 h-10 rounded-lg bg-violet-500/10 flex items-center justify-center">
                   <Lightbulb className="w-5 h-5 text-violet-500" />

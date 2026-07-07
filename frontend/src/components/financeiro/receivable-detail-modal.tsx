@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Modal, ModalFooter } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Landmark } from 'lucide-react';
+import { Landmark, CheckCircle2, XCircle, Copy, Receipt, Zap } from 'lucide-react';
 
 interface ReceivableDetailModalProps {
   isOpen: boolean;
@@ -61,7 +61,7 @@ interface CobrancaData {
 
 export function ReceivableDetailModal({ isOpen, onClose, receivable }: ReceivableDetailModalProps) {
   const [cobrancaLoading, setCobrancaLoading] = useState(false);
-  const [cobrancaMsg, setCobrancaMsg] = useState('');
+  const [cobrancaMsg, setCobrancaMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [cobrancaData, setCobrancaData] = useState<CobrancaData | null>(null);
 
   if (!receivable) return null;
@@ -76,7 +76,7 @@ export function ReceivableDetailModal({ isOpen, onClose, receivable }: Receivabl
 
   const handleGerarCobranca = async (tipo: 'boleto' | 'pix') => {
     setCobrancaLoading(true);
-    setCobrancaMsg('');
+    setCobrancaMsg(null);
     try {
       const headers = {
         'Content-Type': 'application/json',
@@ -126,9 +126,9 @@ export function ReceivableDetailModal({ isOpen, onClose, receivable }: Receivabl
             boleto_id: d.boleto_id,
             valor,
           });
-          setCobrancaMsg('✅ Boleto gerado com sucesso!');
+          setCobrancaMsg({ ok: true, text: 'Boleto gerado com sucesso!' });
         } else {
-          setCobrancaMsg(`❌ ${d.detail || d.error || JSON.stringify(d)}`);
+          setCobrancaMsg({ ok: false, text: d.detail || d.error || JSON.stringify(d) });
         }
       } else {
         const r = await fetch('/api/v1/integrations/banking/pix/generate', {
@@ -151,13 +151,13 @@ export function ReceivableDetailModal({ isOpen, onClose, receivable }: Receivabl
             charge_id: d.charge_id,
             valor,
           });
-          setCobrancaMsg('✅ PIX gerado com sucesso!');
+          setCobrancaMsg({ ok: true, text: 'PIX gerado com sucesso!' });
         } else {
-          setCobrancaMsg(`❌ ${d.detail || d.error || JSON.stringify(d)}`);
+          setCobrancaMsg({ ok: false, text: d.detail || d.error || JSON.stringify(d) });
         }
       }
     } catch (e) {
-      setCobrancaMsg(`❌ Erro: ${e}`);
+      setCobrancaMsg({ ok: false, text: `Erro: ${e}` });
     } finally {
       setCobrancaLoading(false);
     }
@@ -165,8 +165,8 @@ export function ReceivableDetailModal({ isOpen, onClose, receivable }: Receivabl
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    setCobrancaMsg('📋 Copiado!');
-    setTimeout(() => setCobrancaMsg(''), 2000);
+    setCobrancaMsg({ ok: true, text: 'Copiado!' });
+    setTimeout(() => setCobrancaMsg(null), 2000);
   };
 
   return (
@@ -236,9 +236,9 @@ export function ReceivableDetailModal({ isOpen, onClose, receivable }: Receivabl
                   onClick={() =>
                     copyToClipboard(receivable.boleto_digitable_line || receivable.boleto_barcode || '')
                   }
-                  className="w-full py-1.5 text-xs border border-gray-300 rounded text-gray-600 hover:bg-gray-50"
+                  className="w-full py-1.5 text-xs border border-gray-300 rounded text-gray-600 hover:bg-gray-50 inline-flex items-center justify-center gap-1"
                 >
-                  📋 Copiar boleto
+                  <Copy className="w-3 h-3" /> Copiar boleto
                 </button>
               </div>
             )}
@@ -251,9 +251,9 @@ export function ReceivableDetailModal({ isOpen, onClose, receivable }: Receivabl
                 </div>
                 <button
                   onClick={() => copyToClipboard(receivable.pix_copy_paste)}
-                  className="w-full py-1.5 text-xs border border-gray-300 rounded text-gray-600 hover:bg-gray-50"
+                  className="w-full py-1.5 text-xs border border-gray-300 rounded text-gray-600 hover:bg-gray-50 inline-flex items-center justify-center gap-1"
                 >
-                  📋 Copiar PIX
+                  <Copy className="w-3 h-3" /> Copiar PIX
                 </button>
               </div>
             )}
@@ -272,14 +272,14 @@ export function ReceivableDetailModal({ isOpen, onClose, receivable }: Receivabl
                   disabled={cobrancaLoading}
                   className="flex-1 py-2 text-sm bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:opacity-50 transition-colors"
                 >
-                  {cobrancaLoading ? '...' : '🧾 Boleto'}
+                  {cobrancaLoading ? '...' : <span className="inline-flex items-center gap-1"><Receipt className="w-4 h-4" /> Boleto</span>}
                 </button>
                 <button
                   onClick={() => handleGerarCobranca('pix')}
                   disabled={cobrancaLoading}
                   className="flex-1 py-2 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 transition-colors"
                 >
-                  {cobrancaLoading ? '...' : '⚡ PIX'}
+                  {cobrancaLoading ? '...' : <span className="inline-flex items-center gap-1"><Zap className="w-4 h-4" /> PIX</span>}
                 </button>
               </div>
             ) : (
@@ -294,9 +294,9 @@ export function ReceivableDetailModal({ isOpen, onClose, receivable }: Receivabl
                       onClick={() =>
                         copyToClipboard(cobrancaData.digitable_line || cobrancaData.barcode || '')
                       }
-                      className="w-full py-1.5 text-xs border border-gray-300 rounded text-gray-600 hover:bg-gray-50"
+                      className="w-full py-1.5 text-xs border border-gray-300 rounded text-gray-600 hover:bg-gray-50 inline-flex items-center justify-center gap-1"
                     >
-                      📋 Copiar código
+                      <Copy className="w-3 h-3" /> Copiar código
                     </button>
                   </>
                 )}
@@ -308,14 +308,14 @@ export function ReceivableDetailModal({ isOpen, onClose, receivable }: Receivabl
                     </div>
                     <button
                       onClick={() => copyToClipboard(cobrancaData.pix_copy_paste || '')}
-                      className="w-full py-1.5 text-xs border border-gray-300 rounded text-gray-600 hover:bg-gray-50"
+                      className="w-full py-1.5 text-xs border border-gray-300 rounded text-gray-600 hover:bg-gray-50 inline-flex items-center justify-center gap-1"
                     >
-                      📋 Copiar PIX
+                      <Copy className="w-3 h-3" /> Copiar PIX
                     </button>
                   </>
                 )}
                 <button
-                  onClick={() => { setCobrancaData(null); setCobrancaMsg(''); }}
+                  onClick={() => { setCobrancaData(null); setCobrancaMsg(null); }}
                   className="w-full py-1 text-xs text-gray-400 hover:text-gray-600"
                 >
                   Gerar outra cobrança
@@ -324,8 +324,9 @@ export function ReceivableDetailModal({ isOpen, onClose, receivable }: Receivabl
             )}
 
             {cobrancaMsg && (
-              <p className={`text-xs mt-2 ${cobrancaMsg.startsWith('✅') || cobrancaMsg.startsWith('📋') ? 'text-green-600' : 'text-red-600'}`}>
-                {cobrancaMsg}
+              <p className={`text-xs mt-2 inline-flex items-center gap-1 ${cobrancaMsg.ok ? 'text-emerald-500' : 'text-red-500'}`}>
+                {cobrancaMsg.ok ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                {cobrancaMsg.text}
               </p>
             )}
           </div>

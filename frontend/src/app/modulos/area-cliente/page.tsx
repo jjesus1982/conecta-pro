@@ -89,7 +89,7 @@ export default function AreaClientePage() {
     <div className="p-6 space-y-8 pb-28">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+        <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))] flex items-center gap-2">
           <Shield className="h-6 w-6 text-indigo-600" />
           Area do Cliente
         </h1>

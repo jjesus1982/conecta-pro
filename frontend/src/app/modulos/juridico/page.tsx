@@ -60,7 +60,7 @@ export default function EscritorioJuridicoHub() {
       <div className="flex items-center gap-3">
         <Scale className="h-8 w-8 text-blue-700" />
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Escritório Jurídico IA — Conecta Mais</h1>
+          <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">Escritório Jurídico IA — Conecta Mais</h1>
           <p className="text-sm text-muted-foreground">
             Visão consolidada {dash?.referencia ? `· referência ${dash.referencia}` : ''}
             {dash?.pendencias_totais != null ? ` · ${dash.pendencias_totais} pendências` : ''}

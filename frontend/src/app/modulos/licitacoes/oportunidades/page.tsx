@@ -389,7 +389,7 @@ export default function OportunidadesPage() {
                   <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">
                     Total Oportunidades
                   </p>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">
                     {stats.total}
                   </p>
                 </div>
@@ -407,7 +407,7 @@ export default function OportunidadesPage() {
                   <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">
                     Novas (Hoje)
                   </p>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">
                     {stats.novasHoje}
                   </p>
                 </div>
@@ -425,7 +425,7 @@ export default function OportunidadesPage() {
                   <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">
                     Score Medio
                   </p>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">
                     {stats.avgScore}
                     <span className="text-sm font-normal text-[hsl(var(--muted-foreground))]">/100</span>
                   </p>
@@ -444,7 +444,7 @@ export default function OportunidadesPage() {
                   <p className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">
                     Portais Consultados
                   </p>
-                  <p className="text-2xl font-bold text-[hsl(var(--foreground))] mt-1">
+                  <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">
                     {stats.portais}
                   </p>
                 </div>

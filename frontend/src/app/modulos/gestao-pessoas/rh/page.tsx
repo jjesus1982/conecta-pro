@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   Users, UserCheck, UserX, FileText, TrendingUp,
   Briefcase, Gift, GraduationCap, Star, Wind, BarChart3,
-  AlertTriangle, CheckCircle, ArrowRight, Loader2,
+  AlertTriangle, CheckCircle, CheckCircle2, ArrowRight, Loader2,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -132,7 +132,7 @@ export default function DashboardRH() {
     <div className="min-h-screen bg-[#F8F9FB] p-6 overflow-x-hidden">
       {/* Cabeçalho */}
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-[#1E3A5F]">Recursos Humanos</h1>
+        <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">Recursos Humanos</h1>
         <p className="text-gray-500 mt-1">
           Gestão de pessoas, CCT, benefícios e desenvolvimento
         </p>
@@ -151,7 +151,7 @@ export default function DashboardRH() {
                   <Icon className={`w-5 h-5 ${m.iconCor}`} />
                 </div>
                 <p className="text-sm text-gray-500">{m.label}</p>
-                <p className={`text-2xl font-bold mt-1 ${m.cor}`}>{m.valor}</p>
+                <p className={`font-data text-2xl font-semibold tabular-nums mt-1 ${m.cor}`}>{m.valor}</p>
               </CardContent>
             </Card>
           );
@@ -207,8 +207,8 @@ export default function DashboardRH() {
                 </div>
                 <div>
                   <p className="text-sm text-gray-500">Conformidade</p>
-                  <p className="font-semibold text-green-600">
-                    {cct?.conformidade_pct ?? 100}% ✅
+                  <p className="font-semibold text-green-600 inline-flex items-center gap-1">
+                    {cct?.conformidade_pct ?? 100}% <CheckCircle2 className="w-4 h-4" />
                   </p>
                 </div>
               </div>

@@ -162,7 +162,7 @@ export default function ComissoesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <Coins className="h-6 w-6" />
             Comissoes
           </h1>
@@ -196,7 +196,7 @@ export default function ComissoesPage() {
             <Coins className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.totalComissoes}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums">{stats.totalComissoes}</div>
           </CardContent>
         </Card>
         <Card>
@@ -205,7 +205,7 @@ export default function ComissoesPage() {
             <DollarSign className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{formatCurrency(stats.valorTotal)}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-green-600">{formatCurrency(stats.valorTotal)}</div>
           </CardContent>
         </Card>
         <Card>
@@ -214,7 +214,7 @@ export default function ComissoesPage() {
             <TrendingUp className="h-4 w-4 text-yellow-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">{stats.pendentes}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-yellow-600">{stats.pendentes}</div>
           </CardContent>
         </Card>
       </div>

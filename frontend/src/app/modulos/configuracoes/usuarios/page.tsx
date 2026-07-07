@@ -275,7 +275,7 @@ export default function UsuariosPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <Shield className="h-6 w-6 text-[#1E3A5F]" />
             Gestão de Permissões
           </h1>

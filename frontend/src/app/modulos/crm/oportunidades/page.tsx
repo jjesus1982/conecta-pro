@@ -214,7 +214,7 @@ export default function OportunidadesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <Target className="h-6 w-6" />
             Oportunidades
           </h1>
@@ -244,7 +244,7 @@ export default function OportunidadesPage() {
             <Target className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums">{stats.total}</div>
           </CardContent>
         </Card>
         <Card>
@@ -253,7 +253,7 @@ export default function OportunidadesPage() {
             <TrendingUp className="h-4 w-4 text-yellow-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">{stats.emNegociacao}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-yellow-600">{stats.emNegociacao}</div>
           </CardContent>
         </Card>
         <Card>
@@ -262,7 +262,7 @@ export default function OportunidadesPage() {
             <Target className="h-4 w-4 text-purple-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-purple-600">{stats.propostas}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-purple-600">{stats.propostas}</div>
           </CardContent>
         </Card>
         <Card>
@@ -271,7 +271,7 @@ export default function OportunidadesPage() {
             <DollarSign className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{formatCurrency(stats.valorPipeline)}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-green-600">{formatCurrency(stats.valorPipeline)}</div>
           </CardContent>
         </Card>
       </div>

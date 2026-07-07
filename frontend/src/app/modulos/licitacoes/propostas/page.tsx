@@ -174,7 +174,7 @@ export default function PropostasPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">
+          <h1 className="font-display text-3xl font-bold tracking-tight">
             Propostas de Licitação
           </h1>
           <p className="text-muted-foreground">

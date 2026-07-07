@@ -46,7 +46,7 @@ export default function ForgotPasswordPage() {
 
         {/* Header */}
         <div className="text-center mb-8">
-          <h2 className="text-2xl font-bold text-[hsl(var(--foreground))]">
+          <h2 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">
             Esqueceu a senha?
           </h2>
           <p className="text-[hsl(var(--muted-foreground))] mt-1">

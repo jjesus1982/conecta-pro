@@ -82,7 +82,7 @@ export default function PageCargos() {
           <ArrowLeft className="w-4 h-4" /> Voltar
         </Link>
         <span className="text-gray-300">|</span>
-        <h1 className="text-2xl font-bold text-[#1E3A5F]">
+        <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">
           Cargos CCT — SINDECOMPRESTS 2026
         </h1>
         <span className="ml-auto px-3 py-1 rounded-full text-sm font-medium bg-orange-100 text-orange-700 border border-orange-200">

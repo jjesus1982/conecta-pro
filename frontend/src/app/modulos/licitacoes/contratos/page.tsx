@@ -153,7 +153,7 @@ export default function ContratosPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <FileSignature className="h-6 w-6" />
             Contratos Públicos
           </h1>
@@ -179,7 +179,7 @@ export default function ContratosPage() {
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{total}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums">{total}</div>
             <p className="text-xs text-muted-foreground">Contratos cadastrados</p>
           </CardContent>
         </Card>
@@ -190,7 +190,7 @@ export default function ContratosPage() {
             <TrendingUp className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{vigentesCount}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-green-600">{vigentesCount}</div>
             <p className="text-xs text-muted-foreground">Em execução</p>
           </CardContent>
         </Card>
@@ -201,7 +201,7 @@ export default function ContratosPage() {
             <Clock className="h-4 w-4 text-yellow-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">{vencendoCount}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-yellow-600">{vencendoCount}</div>
             <p className="text-xs text-muted-foreground">Próximos 60 dias</p>
           </CardContent>
         </Card>
@@ -212,7 +212,7 @@ export default function ContratosPage() {
             <DollarSign className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{formatCurrency(valorTotal)}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-blue-600">{formatCurrency(valorTotal)}</div>
             <p className="text-xs text-muted-foreground">Soma dos contratos</p>
           </CardContent>
         </Card>

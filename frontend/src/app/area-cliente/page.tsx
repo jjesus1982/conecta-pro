@@ -124,7 +124,7 @@ function HealthGauge({ score }: { score: number }) {
             strokeDasharray={`${(score / 100) * 120} 239`} strokeLinecap="round" />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-2xl font-bold text-gray-900">{score}</span>
+          <span className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">{score}</span>
         </div>
       </div>
       <span className="text-xs font-medium mt-1" style={{ color }}>{label}</span>
@@ -200,7 +200,7 @@ export default function DashboardPage() {
       {/* ── Header ─────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">
+          <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">
             Olá, {clientName?.split(' ')[0] || 'Bem-vindo'}! 👋
           </h1>
           <p className="text-gray-500 mt-0.5 text-sm">
@@ -262,7 +262,7 @@ export default function DashboardPage() {
             </div>
             <span className="text-xs text-gray-400">total</span>
           </div>
-          <p className="text-2xl font-bold text-gray-900">{overview?.kits_total ?? kits.length}</p>
+          <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">{overview?.kits_total ?? kits.length}</p>
           <p className="text-xs text-gray-500 mt-0.5">Kits documentais</p>
           <p className="text-xs text-emerald-600 font-medium mt-1">
             {overview?.kits_approved ?? 0} aprovados
@@ -277,7 +277,7 @@ export default function DashboardPage() {
             </div>
             <span className="text-xs text-gray-400">abertos</span>
           </div>
-          <p className="text-2xl font-bold text-gray-900">{openTickets.length}</p>
+          <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">{openTickets.length}</p>
           <p className="text-xs text-gray-500 mt-0.5">Chamados ativos</p>
           <p className="text-xs text-gray-400 font-medium mt-1">
             {overview?.tickets_total ?? tickets.length} no total
@@ -292,7 +292,7 @@ export default function DashboardPage() {
             </div>
             <span className="text-xs text-gray-400">pendente</span>
           </div>
-          <p className="text-2xl font-bold text-gray-900">{pendingKits.length}</p>
+          <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">{pendingKits.length}</p>
           <p className="text-xs text-gray-500 mt-0.5">Aguardando sua aprovação</p>
           {pendingKits.length > 0 && (
             <Link href="/area-cliente/kits" className="text-xs text-amber-600 font-medium mt-1 block hover:underline">
@@ -511,7 +511,7 @@ export default function DashboardPage() {
             </div>
             <span className="text-sm font-semibold text-gray-700">Equipe Alocada</span>
           </div>
-          <p className="text-2xl font-bold text-gray-900">{opResumo?.equipe_total ?? '—'}</p>
+          <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">{opResumo?.equipe_total ?? '—'}</p>
           <p className="text-xs text-gray-400 mt-0.5">funcionários em serviço</p>
         </div>
 

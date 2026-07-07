@@ -141,7 +141,7 @@ export default function IntegracoesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <Plug className="h-6 w-6" />
             Integrações
           </h1>
@@ -166,7 +166,7 @@ export default function IntegracoesPage() {
             <Plug className="h-4 w-4 text-navy-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{loading ? '—' : data?.total ?? 0}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums">{loading ? '—' : data?.total ?? 0}</div>
           </CardContent>
         </Card>
         <Card>
@@ -175,7 +175,7 @@ export default function IntegracoesPage() {
             <Wifi className="h-4 w-4 text-emerald-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-emerald-500">{loading ? '—' : data?.online ?? 0}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-emerald-500">{loading ? '—' : data?.online ?? 0}</div>
           </CardContent>
         </Card>
         <Card>
@@ -184,7 +184,7 @@ export default function IntegracoesPage() {
             <WifiOff className="h-4 w-4 text-red-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-500">{loading ? '—' : data?.offline ?? 0}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-red-500">{loading ? '—' : data?.offline ?? 0}</div>
           </CardContent>
         </Card>
         <Card>
@@ -193,7 +193,7 @@ export default function IntegracoesPage() {
             <Clock className="h-4 w-4 text-blue-400" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-400">{loading ? '—' : data?.homologacao ?? 0}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-blue-400">{loading ? '—' : data?.homologacao ?? 0}</div>
             <p className="text-xs text-muted-foreground mt-1">tpAmb=2 (teste)</p>
           </CardContent>
         </Card>

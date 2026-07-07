@@ -82,7 +82,7 @@ export default function PrimeiroAcessoPage() {
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Acesso criado com sucesso!</h2>
+          <h2 className="font-display text-2xl font-bold text-gray-900 mb-2">Acesso criado com sucesso!</h2>
           <p className="text-gray-500">Redirecionando para o login...</p>
         </div>
       </div>
@@ -93,7 +93,7 @@ export default function PrimeiroAcessoPage() {
     <div className="min-h-screen flex flex-col lg:flex-row">
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-[#0A2540] to-[#1E3A5F] text-white flex-col justify-center px-16">
         <ShieldCheck className="w-10 h-10 text-blue-300 mb-4" />
-        <h1 className="text-3xl font-bold mb-2">Primeiro Acesso</h1>
+        <h1 className="font-display text-3xl font-bold mb-2">Primeiro Acesso</h1>
         <p className="text-blue-200">Configure sua senha para acessar o portal.</p>
         <div className="mt-8 space-y-3">
           {[1, 2].map((s) => (

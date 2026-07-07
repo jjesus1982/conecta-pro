@@ -232,7 +232,7 @@ export default function IAHubPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-3">
+          <h1 className="font-display text-3xl font-bold flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center">
               <Bot className="w-5 h-5 text-white" />
             </div>

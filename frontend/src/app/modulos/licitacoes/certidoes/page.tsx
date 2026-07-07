@@ -323,7 +323,7 @@ export default function CertidoesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
               <Shield className="h-5 w-5 text-white" />
             </div>
@@ -379,7 +379,7 @@ export default function CertidoesPage() {
             )}
             <div>
               <div className="flex items-center gap-3">
-                <h2 className={`text-2xl font-bold ${activeData.apto_licitar ? 'text-green-700' : 'text-red-700'}`}>
+                <h2 className={`font-display text-2xl font-bold ${activeData.apto_licitar ? 'text-green-700' : 'text-red-700'}`}>
                   Apto para Licitar: {activeData.apto_licitar ? 'SIM' : 'NAO'}
                 </h2>
                 <Badge variant={activeData.apto_licitar ? 'success' : 'destructive'} className="text-sm px-3 py-1">
@@ -418,7 +418,7 @@ export default function CertidoesPage() {
             <Shield className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{kpis.total}</div>
+            <div className="font-data text-3xl font-semibold tabular-nums">{kpis.total}</div>
             <p className="text-xs text-muted-foreground mt-1">documentos monitorados</p>
           </CardContent>
         </Card>
@@ -429,7 +429,7 @@ export default function CertidoesPage() {
             <CheckCircle2 className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-green-600">{kpis.validos}</div>
+            <div className="font-data text-3xl font-semibold tabular-nums text-green-600">{kpis.validos}</div>
             <p className="text-xs text-muted-foreground mt-1">certidoes em dia</p>
           </CardContent>
         </Card>
@@ -440,7 +440,7 @@ export default function CertidoesPage() {
             <Clock className="h-4 w-4 text-yellow-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-yellow-600">{kpis.vencendo}</div>
+            <div className="font-data text-3xl font-semibold tabular-nums text-yellow-600">{kpis.vencendo}</div>
             <p className="text-xs text-muted-foreground mt-1">requerem atencao</p>
           </CardContent>
         </Card>
@@ -451,7 +451,7 @@ export default function CertidoesPage() {
             <XCircle className="h-4 w-4 text-red-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-red-600">{kpis.criticos}</div>
+            <div className="font-data text-3xl font-semibold tabular-nums text-red-600">{kpis.criticos}</div>
             <p className="text-xs text-muted-foreground mt-1">acao imediata necessaria</p>
           </CardContent>
         </Card>

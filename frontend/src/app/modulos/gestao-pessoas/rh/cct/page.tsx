@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
-  ArrowLeft, CheckCircle, Search, FileText, TrendingUp,
+  ArrowLeft, CheckCircle, CheckCircle2, Search, FileText, TrendingUp,
   Users, Calendar, Loader2,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -107,7 +107,7 @@ export default function PageCCT() {
           <ArrowLeft className="w-4 h-4" /> Voltar
         </Link>
         <span className="text-gray-300">|</span>
-        <h1 className="text-2xl font-bold text-[#1E3A5F]">
+        <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">
           Convenção Coletiva de Trabalho
         </h1>
       </div>
@@ -159,8 +159,8 @@ export default function PageCCT() {
             <div className="bg-green-50 rounded-lg p-4">
               <TrendingUp className="w-5 h-5 text-green-600 mb-2" />
               <p className="text-xs text-gray-500">Conformidade salarial</p>
-              <p className="font-semibold text-green-600 mt-1">
-                {cct?.conformidade_pct ?? 100}% ✅
+              <p className="font-semibold text-green-600 mt-1 inline-flex items-center gap-1">
+                {cct?.conformidade_pct ?? 100}% <CheckCircle2 className="w-4 h-4" />
               </p>
             </div>
           </div>

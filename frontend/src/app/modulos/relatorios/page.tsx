@@ -99,7 +99,7 @@ export default function RelatoriosPage() {
                   <p className="text-xs text-[hsl(var(--muted-foreground))]">
                     Relatórios Disponíveis
                   </p>
-                  <p className="text-3xl font-bold text-[hsl(var(--foreground))] mt-1">4</p>
+                  <p className="font-data text-3xl font-semibold tabular-nums text-[hsl(var(--foreground))] mt-1">4</p>
                   <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
                     Módulos de análise
                   </p>

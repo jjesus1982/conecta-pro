@@ -112,7 +112,7 @@ export default function GedeonChecklist({ clienteId, competencia, clienteNome, o
 
         <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
           {!ctx && (
-            <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 text-sm text-blue-500 flex items-start gap-2">
+            <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 text-sm text-blue-400 flex items-start gap-2">
               <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
               <span>GEDEON sem dados acumulados para esta competência. A montagem prosseguirá normalmente.</span>
             </div>
@@ -151,13 +151,13 @@ export default function GedeonChecklist({ clienteId, competencia, clienteNome, o
             <div className="border border-[hsl(var(--border))] rounded-xl p-4">
               <h3 className="font-semibold text-[hsl(var(--foreground))] mb-3 text-sm flex items-center gap-2">
                 <Users className="w-4 h-4" /> Movimentação de Pessoal
-                <span className="bg-blue-500/10 text-blue-500 text-xs px-2 py-0.5 rounded-full">{ctx.movimentacao_pessoal.length}</span>
+                <span className="bg-blue-500/10 text-blue-400 text-xs px-2 py-0.5 rounded-full">{ctx.movimentacao_pessoal.length}</span>
               </h3>
               <div className="space-y-2">
                 {ctx.movimentacao_pessoal.map((item, i) => (
                   <div key={i} className="flex items-start gap-2 bg-[hsl(var(--secondary))] rounded-lg p-2">
                     <span className="flex-shrink-0 mt-0.5">
-                      {item.tipo === 'admissao' ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : item.tipo === 'demissao' ? <XCircle className="w-4 h-4 text-red-500" /> : item.tipo === 'atestado' ? <AlertTriangle className="w-4 h-4 text-amber-500" /> : item.tipo === 'ferias' ? <Info className="w-4 h-4 text-blue-500" /> : <Circle className="w-4 h-4 text-[hsl(var(--muted-foreground))]" />}
+                      {item.tipo === 'admissao' ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : item.tipo === 'demissao' ? <XCircle className="w-4 h-4 text-red-500" /> : item.tipo === 'atestado' ? <AlertTriangle className="w-4 h-4 text-amber-500" /> : item.tipo === 'ferias' ? <Info className="w-4 h-4 text-blue-400" /> : <Circle className="w-4 h-4 text-[hsl(var(--muted-foreground))]" />}
                     </span>
                     <div className="flex-1">
                       <p className="text-sm font-medium text-[hsl(var(--foreground))]">

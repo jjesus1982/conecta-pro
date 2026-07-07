@@ -310,7 +310,7 @@ export default function ObrigacoesPage() {
       {/* Header */}
       <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-[#111b57] flex items-center gap-3">
+          <h1 className="font-display text-2xl md:text-3xl font-bold text-[hsl(var(--foreground))] flex items-center gap-3">
             <ClipboardList className="h-8 w-8 text-[#f97707]" />
             Obrigações Fiscais Multi-Empresa
           </h1>
@@ -390,7 +390,7 @@ export default function ObrigacoesPage() {
           <Card key={kpi.label} className={cn('border', kpi.color)}>
             <CardContent className="p-4">
               <div className={cn('mb-2', kpi.color.split(' ')[1])}>{kpi.icon}</div>
-              <p className={cn('text-3xl font-bold', kpi.valueColor)}>{kpi.value}</p>
+              <p className={cn('font-data text-3xl font-semibold tabular-nums', kpi.valueColor)}>{kpi.value}</p>
               <p className="text-xs font-medium mt-1 text-gray-500">{kpi.label}</p>
             </CardContent>
           </Card>

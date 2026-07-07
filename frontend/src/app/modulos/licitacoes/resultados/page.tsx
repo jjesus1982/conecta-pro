@@ -41,7 +41,7 @@ export default function ResultadosLicitacoesPage() {
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       <div className="flex items-center gap-3">
         <Trophy className="h-7 w-7 text-yellow-500" />
-        <h1 className="text-2xl font-bold text-gray-900">Resultados de Licitacoes</h1>
+        <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">Resultados de Licitacoes</h1>
       </div>
 
       {/* KPIs */}
@@ -50,19 +50,19 @@ export default function ResultadosLicitacoesPage() {
           <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
             <TrendingUp className="h-4 w-4 text-green-500" /> Vencidas
           </div>
-          <p className="text-2xl font-bold text-green-600">{totalVencidas}</p>
+          <p className="font-data text-2xl font-semibold tabular-nums text-green-600">{totalVencidas}</p>
         </div>
         <div className="bg-white rounded-xl border p-4">
           <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
             <TrendingDown className="h-4 w-4 text-red-500" /> Perdidas
           </div>
-          <p className="text-2xl font-bold text-red-600">{totalPerdidas}</p>
+          <p className="font-data text-2xl font-semibold tabular-nums text-red-600">{totalPerdidas}</p>
         </div>
         <div className="bg-white rounded-xl border p-4">
           <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
             <Trophy className="h-4 w-4 text-yellow-500" /> Valor Total Vencidas
           </div>
-          <p className="text-2xl font-bold text-green-600">
+          <p className="font-data text-2xl font-semibold tabular-nums text-green-600">
             R$ {valorVencidas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </p>
         </div>

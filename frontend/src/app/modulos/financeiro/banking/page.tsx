@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Landmark, CheckCircle2, Clock } from 'lucide-react'
+import { Landmark, CheckCircle2, Clock, XCircle, Wallet, List, Receipt, Zap, CreditCard, RefreshCw, Lightbulb, type LucideIcon } from 'lucide-react'
 
 const API = '/api/v1/integrations/banking'
 const PAYMENT_API = '/api/v1/banking/payment'
@@ -30,7 +30,7 @@ export default function BankingPage() {
   const [saldo, setSaldo] = useState<Saldo | null>(null)
   const [extrato, setExtrato] = useState<Transacao[]>([])
   const [loading, setLoading] = useState(false)
-  const [msg, setMsg] = useState('')
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [token, setToken] = useState('')
 
   // Boleto form
@@ -96,7 +96,7 @@ export default function BankingPage() {
         : d
       setSaldo(interBank || d)
     } catch {
-      setMsg('Erro ao carregar saldo')
+      setMsg({ ok: false, text: 'Erro ao carregar saldo' })
     } finally { setLoading(false) }
   }, [getToken, authHeader])
 
@@ -108,7 +108,7 @@ export default function BankingPage() {
         { headers: authHeader(t) })
       const d = await r.json()
       setExtrato(d.transactions || d.items || [])
-    } catch { setMsg('Erro ao carregar extrato') }
+    } catch { setMsg({ ok: false, text: 'Erro ao carregar extrato' }) }
     finally { setLoading(false) }
   }, [getToken, authHeader])
 
@@ -121,7 +121,7 @@ export default function BankingPage() {
   }, [tab, loadExtrato])
 
   const emitirBoleto = async () => {
-    setLoading(true); setMsg('')
+    setLoading(true); setMsg(null)
     try {
       const t = await getToken()
       const r = await fetch(`${API}/boleto/generate`, {
@@ -134,7 +134,7 @@ export default function BankingPage() {
       })
       const d = await r.json()
       if (d.success || d.boleto_id) {
-        setMsg(`✅ Boleto emitido! ID: ${d.boleto_id}`)
+        setMsg({ ok: true, text: `Boleto emitido! ID: ${d.boleto_id}` })
         // Buscar barcode
         if (d.boleto_id) {
           const r2 = await fetch(
@@ -142,19 +142,19 @@ export default function BankingPage() {
             { headers: authHeader(t) })
           const d2 = await r2.json()
           if (d2.barcode || d2.linha_digitavel) {
-            setMsg(`✅ Boleto: ${d2.linha_digitavel || d2.barcode}`)
+            setMsg({ ok: true, text: `Boleto: ${d2.linha_digitavel || d2.barcode}` })
           }
         }
       } else {
-        setMsg(`❌ Erro: ${d.detail || JSON.stringify(d)}`)
+        setMsg({ ok: false, text: `Erro: ${d.detail || JSON.stringify(d)}` })
       }
     } catch (e) {
-      setMsg(`❌ Erro: ${e}`)
+      setMsg({ ok: false, text: `Erro: ${e}` })
     } finally { setLoading(false) }
   }
 
   const enviarPix = async () => {
-    setLoading(true); setMsg('')
+    setLoading(true); setMsg(null)
     try {
       const t = await getToken()
       const r = await fetch(`${API}/pix/generate`, {
@@ -167,18 +167,18 @@ export default function BankingPage() {
       })
       const d = await r.json()
       if (d.success || d.charge_id) {
-        setMsg(`✅ PIX gerado! Copia e cola: ${
-          (d.pix_copy_paste || '').substring(0, 50)}...`)
+        setMsg({ ok: true, text: `PIX gerado! Copia e cola: ${
+          (d.pix_copy_paste || '').substring(0, 50)}...` })
       } else {
-        setMsg(`❌ ${d.detail || JSON.stringify(d)}`)
+        setMsg({ ok: false, text: `${d.detail || JSON.stringify(d)}` })
       }
     } catch (e) {
-      setMsg(`❌ ${e}`)
+      setMsg({ ok: false, text: `${e}` })
     } finally { setLoading(false) }
   }
 
   const pagarBoleto = async () => {
-    setLoading(true); setMsg('')
+    setLoading(true); setMsg(null)
     try {
       const t = await getToken()
       const r = await fetch(`${PAYMENT_API}/barcode`, {
@@ -192,17 +192,17 @@ export default function BankingPage() {
       })
       const d = await r.json()
       if (d.success) {
-        setMsg(`✅ Pagamento realizado! ID: ${d.payment_id}`)
+        setMsg({ ok: true, text: `Pagamento realizado! ID: ${d.payment_id}` })
       } else {
-        setMsg(`❌ ${d.detail || JSON.stringify(d)}`)
+        setMsg({ ok: false, text: `${d.detail || JSON.stringify(d)}` })
       }
     } catch (e) {
-      setMsg(`❌ ${e}`)
+      setMsg({ ok: false, text: `${e}` })
     } finally { setLoading(false) }
   }
 
   const pagarDarf = async () => {
-    setLoading(true); setMsg('')
+    setLoading(true); setMsg(null)
     try {
       const t = await getToken()
       const r = await fetch(`${PAYMENT_API}/darf`, {
@@ -215,22 +215,22 @@ export default function BankingPage() {
       })
       const d = await r.json()
       if (d.success) {
-        setMsg(`✅ DARF pago! ID: ${d.payment_id}`)
+        setMsg({ ok: true, text: `DARF pago! ID: ${d.payment_id}` })
       } else {
-        setMsg(`❌ ${d.detail || JSON.stringify(d)}`)
+        setMsg({ ok: false, text: `${d.detail || JSON.stringify(d)}` })
       }
     } catch (e) {
-      setMsg(`❌ ${e}`)
+      setMsg({ ok: false, text: `${e}` })
     } finally { setLoading(false) }
   }
 
-  const tabs: {id: Tab, label: string, icon: string}[] = [
-    {id: 'saldo', label: 'Saldo', icon: '💰'},
-    {id: 'extrato', label: 'Extrato', icon: '📋'},
-    {id: 'boleto', label: 'Emitir Boleto', icon: '🧾'},
-    {id: 'pix', label: 'Cobrar PIX', icon: '⚡'},
-    {id: 'pagar', label: 'Pagar Boleto', icon: '💳'},
-    {id: 'darf', label: 'Pagar DARF', icon: '🏛️'},
+  const tabs: {id: Tab, label: string, icon: LucideIcon}[] = [
+    {id: 'saldo', label: 'Saldo', icon: Wallet},
+    {id: 'extrato', label: 'Extrato', icon: List},
+    {id: 'boleto', label: 'Emitir Boleto', icon: Receipt},
+    {id: 'pix', label: 'Cobrar PIX', icon: Zap},
+    {id: 'pagar', label: 'Pagar Boleto', icon: CreditCard},
+    {id: 'darf', label: 'Pagar DARF', icon: Landmark},
   ]
 
   const inputClass = `w-full border border-gray-300 rounded-lg px-3 py-2
@@ -269,26 +269,29 @@ export default function BankingPage() {
           {tabs.map(t => (
             <button
               key={t.id}
-              onClick={() => { setTab(t.id); setMsg('') }}
-              className={`${btnClass} ${
+              onClick={() => { setTab(t.id); setMsg(null) }}
+              className={`${btnClass} inline-flex items-center gap-2 ${
                 tab === t.id
                   ? 'bg-blue-600 text-white'
                   : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
               }`}
             >
-              {t.icon} {t.label}
+              <t.icon className="w-4 h-4" /> {t.label}
             </button>
           ))}
         </div>
 
         {/* Mensagem */}
         {msg && (
-          <div className={`p-3 rounded-lg mb-4 text-sm ${
-            msg.startsWith('✅')
-              ? 'bg-green-50 text-green-800 border border-green-200'
-              : 'bg-red-50 text-red-800 border border-red-200'
+          <div className={`p-3 rounded-lg mb-4 text-sm flex items-center gap-2 ${
+            msg.ok
+              ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+              : 'bg-red-500/10 text-red-500 border border-red-500/20'
           }`}>
-            {msg}
+            {msg.ok
+              ? <CheckCircle2 className="w-4 h-4 shrink-0" />
+              : <XCircle className="w-4 h-4 shrink-0" />}
+            <span className="break-all">{msg.text}</span>
           </div>
         )}
 
@@ -331,10 +334,10 @@ export default function BankingPage() {
               )}
               <button
                 onClick={loadSaldo}
-                className={`${btnClass} bg-blue-600 text-white mt-4`}
+                className={`${btnClass} bg-blue-600 text-white mt-4 inline-flex items-center gap-2`}
                 disabled={loading}
               >
-                🔄 Atualizar
+                <RefreshCw className="w-4 h-4" /> Atualizar
               </button>
             </div>
           )}
@@ -459,7 +462,7 @@ export default function BankingPage() {
                 className={`${btnClass} bg-orange-500
                   text-white mt-4 hover:bg-orange-600`}
               >
-                {loading ? 'Emitindo...' : '🧾 Emitir Boleto'}
+                {loading ? 'Emitindo...' : <span className="inline-flex items-center gap-2"><Receipt className="w-4 h-4" /> Emitir Boleto</span>}
               </button>
             </div>
           )}
@@ -497,7 +500,7 @@ export default function BankingPage() {
                 className={`${btnClass} bg-green-500
                   text-white mt-4 hover:bg-green-600`}
               >
-                {loading ? 'Gerando...' : '⚡ Gerar PIX'}
+                {loading ? 'Gerando...' : <span className="inline-flex items-center gap-2"><Zap className="w-4 h-4" /> Gerar PIX</span>}
               </button>
             </div>
           )}
@@ -566,7 +569,7 @@ export default function BankingPage() {
                 className={`${btnClass} bg-blue-600
                   text-white mt-4 hover:bg-blue-700`}
               >
-                {loading ? 'Pagando...' : '💳 Pagar'}
+                {loading ? 'Pagando...' : <span className="inline-flex items-center gap-2"><CreditCard className="w-4 h-4" /> Pagar</span>}
               </button>
             </div>
           )}
@@ -577,9 +580,10 @@ export default function BankingPage() {
               <h2 className="text-lg font-semibold mb-4">
                 Pagar DARF
               </h2>
-              <div className="bg-blue-50 rounded-lg p-3 mb-4 text-sm text-blue-800">
-                💡 Códigos mais usados: 2100=INSS | 6015=IRPJ |
-                2372=CSLL | 0561=COFINS | 8109=PIS
+              <div className="bg-blue-50 rounded-lg p-3 mb-4 text-sm text-blue-800 flex items-start gap-2">
+                <Lightbulb className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>Códigos mais usados: 2100=INSS | 6015=IRPJ |
+                2372=CSLL | 0561=COFINS | 8109=PIS</span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -642,7 +646,7 @@ export default function BankingPage() {
                 className={`${btnClass} bg-red-600
                   text-white mt-4 hover:bg-red-700`}
               >
-                {loading ? 'Pagando...' : '🏛️ Pagar DARF'}
+                {loading ? 'Pagando...' : <span className="inline-flex items-center gap-2"><Landmark className="w-4 h-4" /> Pagar DARF</span>}
               </button>
             </div>
           )}

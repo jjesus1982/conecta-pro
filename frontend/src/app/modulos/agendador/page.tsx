@@ -84,7 +84,7 @@ export default function AgendadorPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <Clock className="h-6 w-6" />
             Agendador de Tarefas
           </h1>
@@ -118,7 +118,7 @@ export default function AgendadorPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-blue-600">
+              <div className="font-data text-2xl font-semibold tabular-nums text-blue-600">
                 {taskStats?.total_tasks ?? 0}
               </div>
             )}
@@ -134,7 +134,7 @@ export default function AgendadorPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-green-600">
+              <div className="font-data text-2xl font-semibold tabular-nums text-green-600">
                 {recentExecutions}
               </div>
             )}
@@ -150,7 +150,7 @@ export default function AgendadorPage() {
             {queueLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-amber-600">
+              <div className="font-data text-2xl font-semibold tabular-nums text-amber-600">
                 {queueItemsTotal}
               </div>
             )}
@@ -166,7 +166,7 @@ export default function AgendadorPage() {
             {workerLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-purple-600">
+              <div className="font-data text-2xl font-semibold tabular-nums text-purple-600">
                 {workerStats?.active_workers ?? 0}
               </div>
             )}

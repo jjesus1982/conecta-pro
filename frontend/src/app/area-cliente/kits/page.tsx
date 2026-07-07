@@ -138,7 +138,7 @@ export default function KitsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-[hsl(var(--foreground))]">Meus Kits</h1>
+          <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">Meus Kits</h1>
           <p className="text-[hsl(var(--muted-foreground))] text-sm mt-1">
             Kits documentais organizados por mes de referencia.
             {total > 0 && <span className="ml-1 font-medium">({total} kits)</span>}

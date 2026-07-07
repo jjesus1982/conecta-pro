@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
-import { AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, XCircle, PenLine } from 'lucide-react';
 
 interface BankTransactionDetailModalProps {
   isOpen: boolean;
@@ -37,11 +37,11 @@ export function BankTransactionDetailModal({
     responsavel: 'Jordan Jesus',
   });
   const [justifLoading, setJustifLoading] = useState(false);
-  const [justifMsg, setJustifMsg] = useState('');
+  const [justifMsg, setJustifMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const handleJustificar = async () => {
     if (justifForm.descricao.length < 10) {
-      setJustifMsg('❌ Descrição muito curta (mínimo 10 caracteres)');
+      setJustifMsg({ ok: false, text: 'Descrição muito curta (mínimo 10 caracteres)' });
       return;
     }
     setJustifLoading(true);
@@ -63,16 +63,16 @@ export function BankTransactionDetailModal({
       });
       const d = await r.json();
       if (d.status === 'justificado') {
-        setJustifMsg('✅ Justificativa registrada — Lucro Real OK');
+        setJustifMsg({ ok: true, text: 'Justificativa registrada — Lucro Real OK' });
         setTimeout(() => {
           onClose();
           onSuccess?.();
         }, 1800);
       } else {
-        setJustifMsg(`❌ ${d.detail || d.erro || JSON.stringify(d)}`);
+        setJustifMsg({ ok: false, text: d.detail || d.erro || JSON.stringify(d) });
       }
     } catch (e) {
-      setJustifMsg(`❌ Erro: ${String(e)}`);
+      setJustifMsg({ ok: false, text: `Erro: ${String(e)}` });
     } finally {
       setJustifLoading(false);
     }
@@ -81,7 +81,7 @@ export function BankTransactionDetailModal({
   const handleClose = () => {
     setShowJustif(false);
     setJustifForm({ categoria: 'outros', descricao: '', responsavel: 'Jordan Jesus' });
-    setJustifMsg('');
+    setJustifMsg(null);
     onClose();
   };
 
@@ -244,9 +244,9 @@ export function BankTransactionDetailModal({
             {!showJustif ? (
               <button
                 onClick={() => setShowJustif(true)}
-                className="w-full bg-orange-500 text-white py-2 px-4 rounded-lg text-sm font-medium hover:bg-orange-600 transition-colors"
+                className="w-full bg-orange-500 text-white py-2 px-4 rounded-lg text-sm font-medium hover:bg-orange-600 transition-colors inline-flex items-center justify-center gap-2"
               >
-                📝 Registrar Justificativa
+                <PenLine className="w-4 h-4" /> Registrar Justificativa
               </button>
             ) : (
               <div className="space-y-3">
@@ -300,11 +300,12 @@ export function BankTransactionDetailModal({
                 {justifMsg && (
                   <p
                     className={cn(
-                      'text-sm',
-                      justifMsg.startsWith('✅') ? 'text-green-600' : 'text-red-600'
+                      'text-sm inline-flex items-center gap-1',
+                      justifMsg.ok ? 'text-emerald-500' : 'text-red-500'
                     )}
                   >
-                    {justifMsg}
+                    {justifMsg.ok ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                    {justifMsg.text}
                   </p>
                 )}
 
@@ -312,7 +313,7 @@ export function BankTransactionDetailModal({
                   <button
                     onClick={() => {
                       setShowJustif(false);
-                      setJustifMsg('');
+                      setJustifMsg(null);
                     }}
                     className="flex-1 py-2 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50"
                   >

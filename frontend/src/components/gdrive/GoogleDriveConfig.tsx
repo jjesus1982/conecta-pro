@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { FolderOpen, Link2, CheckCircle2 } from 'lucide-react'
 
 function getToken(): string {
   if (typeof window === 'undefined') return ''
@@ -62,8 +63,8 @@ export default function GoogleDriveConfig() {
     <div className="border rounded-xl p-5 bg-white">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center text-xl">
-            🗂️
+          <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
+            <FolderOpen className="w-5 h-5 text-[#1E3A5F]" />
           </div>
           <div>
             <p className="font-semibold text-gray-800">Google Drive</p>
@@ -90,7 +91,11 @@ export default function GoogleDriveConfig() {
           disabled={conectando}
           className="mt-4 w-full bg-[#1E3A5F] text-white py-2.5 rounded-lg text-sm font-medium hover:bg-blue-900 transition disabled:opacity-60"
         >
-          {conectando ? 'Verificando...' : '🔗 Conectar Google Drive'}
+          {conectando ? 'Verificando...' : (
+            <span className="inline-flex items-center justify-center gap-2">
+              <Link2 className="w-4 h-4" /> Conectar Google Drive
+            </span>
+          )}
         </button>
       )}
 
@@ -99,8 +104,8 @@ export default function GoogleDriveConfig() {
       )}
 
       {status?.conectado && (
-        <p className="mt-3 text-xs text-green-600">
-          ✅ Kits enviados automaticamente ao Drive após montagem.
+        <p className="mt-3 text-xs text-emerald-500 inline-flex items-center gap-1">
+          <CheckCircle2 className="w-3 h-3" /> Kits enviados automaticamente ao Drive após montagem.
         </p>
       )}
     </div>

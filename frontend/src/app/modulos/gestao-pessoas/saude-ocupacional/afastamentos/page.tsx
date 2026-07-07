@@ -70,7 +70,7 @@ export default function AfastamentosPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: '#0A2540' }}>
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2 text-[hsl(var(--foreground))]">
             <UserX className="h-6 w-6" />
             Afastamentos
           </h1>
@@ -95,7 +95,7 @@ export default function AfastamentosPage() {
             {isLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-yellow-600">{totalAfastados}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-yellow-600">{totalAfastados}</div>
             )}
           </CardContent>
         </Card>
@@ -109,7 +109,7 @@ export default function AfastamentosPage() {
             {isLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-blue-600">{taxaAfastamento}%</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-blue-600">{taxaAfastamento}%</div>
             )}
           </CardContent>
         </Card>
@@ -123,7 +123,7 @@ export default function AfastamentosPage() {
             {isLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-green-600">
+              <div className="font-data text-2xl font-semibold tabular-nums text-green-600">
                 {custoMensal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
               </div>
             )}

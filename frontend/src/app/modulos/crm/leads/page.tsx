@@ -90,7 +90,7 @@ export default function LeadsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-[hsl(var(--foreground))]">Leads</h1>
+          <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">Leads</h1>
           <p className="text-sm text-[hsl(var(--muted-foreground))]">
             Gerencie seus leads e oportunidades de negócio
           </p>
@@ -292,7 +292,7 @@ export default function LeadsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-[hsl(var(--muted-foreground))]">Total de Leads</p>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {isLoading ? '...' : totalLeads}
                 </p>
               </div>
@@ -308,7 +308,7 @@ export default function LeadsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-[hsl(var(--muted-foreground))]">Leads Novos</p>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {isLoading ? '...' : leadsNovos}
                 </p>
               </div>
@@ -324,7 +324,7 @@ export default function LeadsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-[hsl(var(--muted-foreground))]">Valor Estimado</p>
-                <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {isLoading ? '...' : formatCurrency(valorTotal)}
                 </p>
               </div>

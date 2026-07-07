@@ -359,7 +359,7 @@ export default function BiDashboardPage() {
       {/* Header + Filters + Export */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <BarChart3 className="h-6 w-6" style={{ color: BLUE }} />
             Business Intelligence
           </h1>
@@ -524,19 +524,19 @@ export default function BiDashboardPage() {
             <Card className="border-green-200 bg-green-50/50 dark:bg-green-950/10">
               <CardContent className="pt-4">
                 <div className="flex items-center gap-2 mb-1"><CheckCircle2 className="h-5 w-5 text-green-600" /><span className="text-sm font-medium">Cumpridas</span></div>
-                <div className="text-3xl font-bold text-green-700">{bi?.fiscal.obrigacoes_cumpridas || 0}</div>
+                <div className="font-data text-3xl font-semibold tabular-nums text-green-700">{bi?.fiscal.obrigacoes_cumpridas || 0}</div>
               </CardContent>
             </Card>
             <Card className="border-yellow-200 bg-yellow-50/50 dark:bg-yellow-950/10">
               <CardContent className="pt-4">
                 <div className="flex items-center gap-2 mb-1"><Clock className="h-5 w-5 text-yellow-600" /><span className="text-sm font-medium">Pendentes</span></div>
-                <div className="text-3xl font-bold text-yellow-700">{bi?.fiscal.obrigacoes_pendentes || 0}</div>
+                <div className="font-data text-3xl font-semibold tabular-nums text-yellow-700">{bi?.fiscal.obrigacoes_pendentes || 0}</div>
               </CardContent>
             </Card>
             <Card className="border-blue-200 bg-blue-50/50 dark:bg-blue-950/10">
               <CardContent className="pt-4">
                 <div className="flex items-center gap-2 mb-1"><Receipt className="h-5 w-5 text-blue-600" /><span className="text-sm font-medium">Total a Recolher</span></div>
-                <div className="text-3xl font-bold text-blue-700">{BRL((bi?.fiscal.proximas || []).reduce((a, o) => a + o.valor, 0))}</div>
+                <div className="font-data text-3xl font-semibold tabular-nums text-blue-700">{BRL((bi?.fiscal.proximas || []).reduce((a, o) => a + o.valor, 0))}</div>
               </CardContent>
             </Card>
           </div>

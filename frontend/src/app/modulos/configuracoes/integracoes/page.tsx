@@ -233,7 +233,7 @@ export default function ConfiguracoesIntegracoesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <Plug className="h-6 w-6" />
             Integrações
           </h1>
@@ -263,7 +263,7 @@ export default function ConfiguracoesIntegracoesPage() {
             <Plug className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalCount}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums">{totalCount}</div>
           </CardContent>
         </Card>
         <Card>
@@ -272,7 +272,7 @@ export default function ConfiguracoesIntegracoesPage() {
             <CheckCircle2 className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{connectedCount}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-green-600">{connectedCount}</div>
           </CardContent>
         </Card>
         <Card>
@@ -281,7 +281,7 @@ export default function ConfiguracoesIntegracoesPage() {
             <XCircle className="h-4 w-4 text-red-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-500">{totalCount - connectedCount}</div>
+            <div className="font-data text-2xl font-semibold tabular-nums text-red-500">{totalCount - connectedCount}</div>
           </CardContent>
         </Card>
       </div>

@@ -78,7 +78,7 @@ export default function CATPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: '#0A2540' }}>
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2 text-[hsl(var(--foreground))]">
             <FileWarning className="h-6 w-6" />
             CAT - Comunicacao de Acidente de Trabalho
           </h1>
@@ -103,7 +103,7 @@ export default function CATPage() {
             {catsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold" style={{ color: '#FF6B35' }}>{totalCATs}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums" style={{ color: '#FF6B35' }}>{totalCATs}</div>
             )}
           </CardContent>
         </Card>
@@ -117,7 +117,7 @@ export default function CATPage() {
             {taxaLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-red-600">{taxaAcidente.toFixed(2)}%</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-red-600">{taxaAcidente.toFixed(2)}%</div>
             )}
           </CardContent>
         </Card>
@@ -131,7 +131,7 @@ export default function CATPage() {
             {taxaLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-blue-600">{totalColaboradores}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-blue-600">{totalColaboradores}</div>
             )}
           </CardContent>
         </Card>

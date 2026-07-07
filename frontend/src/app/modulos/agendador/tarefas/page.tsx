@@ -263,7 +263,7 @@ export default function TarefasPage() {
             >
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
+            <h1 className="font-display text-2xl font-bold flex items-center gap-2">
               <ListTodo className="h-6 w-6" />
               Tarefas Agendadas
             </h1>
@@ -407,7 +407,7 @@ export default function TarefasPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold">{taskStats?.total_tasks ?? 0}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums">{taskStats?.total_tasks ?? 0}</div>
             )}
           </CardContent>
         </Card>
@@ -420,7 +420,7 @@ export default function TarefasPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-green-600">{activeTasks}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-green-600">{activeTasks}</div>
             )}
           </CardContent>
         </Card>
@@ -433,7 +433,7 @@ export default function TarefasPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-yellow-600">{pausedTasks}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-yellow-600">{pausedTasks}</div>
             )}
           </CardContent>
         </Card>
@@ -446,7 +446,7 @@ export default function TarefasPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-red-600">{failedTasks}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-red-600">{failedTasks}</div>
             )}
           </CardContent>
         </Card>

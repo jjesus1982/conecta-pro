@@ -239,7 +239,7 @@ function PastasContent() {
             </Link>
           )}
           <div>
-            <h1 className="text-2xl font-bold">
+            <h1 className="font-display text-2xl font-bold">
               {(currentFolder as any)?.name || 'Pastas'}
             </h1>
             <p className="text-muted-foreground">

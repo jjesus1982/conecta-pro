@@ -119,7 +119,7 @@ export default function PageRelatorios() {
           <ArrowLeft className="w-4 h-4" /> Voltar
         </Link>
         <span className="text-gray-300">|</span>
-        <h1 className="text-2xl font-bold text-[#1E3A5F]">Relatórios RH</h1>
+        <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">Relatórios RH</h1>
         <button
           className="ml-auto flex items-center gap-2 px-4 py-2 bg-[#1E3A5F] text-white text-sm font-medium rounded-lg hover:bg-[#16305a] transition-colors"
           onClick={() => {
@@ -163,7 +163,7 @@ export default function PageRelatorios() {
                     <Icon className={`w-5 h-5 ${m.iconCor}`} />
                   </div>
                   <p className="text-sm text-gray-500">{m.label}</p>
-                  <p className={`text-2xl font-bold mt-1 ${m.cor}`}>{m.valor}</p>
+                  <p className={`font-data text-2xl font-semibold tabular-nums mt-1 ${m.cor}`}>{m.valor}</p>
                 </CardContent>
               </Card>
             );

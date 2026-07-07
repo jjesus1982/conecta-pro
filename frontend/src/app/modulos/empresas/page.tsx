@@ -180,7 +180,7 @@ export default function EmpresasPage() {
     <div className="min-h-screen bg-gray-50 p-4 md:p-8">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-2xl md:text-3xl font-bold text-[#111b57] flex items-center gap-3">
+        <h1 className="font-display text-2xl md:text-3xl font-bold text-[hsl(var(--foreground))] flex items-center gap-3">
           <Building2 className="h-8 w-8 text-[#f97707]" />
           Gestão Multi-Empresa
         </h1>
@@ -529,11 +529,11 @@ export default function EmpresasPage() {
                   <div className="bg-red-50 rounded-xl p-4 flex justify-between items-center">
                     <div>
                       <p className="text-sm text-gray-500">Total de Impostos</p>
-                      <p className="text-2xl font-bold text-red-600">{fmt(lResult.total)}</p>
+                      <p className="font-data text-2xl font-semibold tabular-nums text-red-600">{fmt(lResult.total)}</p>
                     </div>
                     <div className="text-right">
                       <p className="text-xs text-gray-500">Carga Tributária</p>
-                      <p className="text-2xl font-bold text-red-700">{lResult.pct}%</p>
+                      <p className="font-data text-2xl font-semibold tabular-nums text-red-700">{lResult.pct}%</p>
                     </div>
                   </div>
                 </div>
@@ -606,7 +606,7 @@ export default function EmpresasPage() {
                           {regime.badge}
                         </span>
                       </div>
-                      <p className="text-2xl font-bold text-gray-900">{regime.das}</p>
+                      <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">{regime.das}</p>
                       <p className="text-sm text-gray-500 mt-1">Carga: {regime.pct}</p>
                     </div>
                   ))}

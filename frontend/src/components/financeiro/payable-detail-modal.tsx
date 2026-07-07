@@ -5,7 +5,7 @@ import { Modal, ModalFooter } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useProcessPayment } from '@/hooks/financial/useFinancial';
-import { Landmark, CheckCircle2 } from 'lucide-react';
+import { Landmark, CheckCircle2, XCircle, CreditCard, PenLine } from 'lucide-react';
 
 interface PayableDetailModalProps {
   isOpen: boolean;
@@ -59,13 +59,13 @@ export function PayableDetailModal({ isOpen, onClose, payable, onSuccess }: Paya
     data_pagamento: new Date().toISOString().split('T')[0],
   });
   const [paymentLoading, setPaymentLoading] = useState(false);
-  const [paymentMsg, setPaymentMsg] = useState('');
+  const [paymentMsg, setPaymentMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const processPayment = useProcessPayment();
 
   const handlePagar = async () => {
     setPaymentLoading(true);
-    setPaymentMsg('');
+    setPaymentMsg(null);
     try {
       if (paymentForm.via_inter && paymentForm.codigo_barras) {
         // Pagar via Inter API
@@ -85,13 +85,13 @@ export function PayableDetailModal({ isOpen, onClose, payable, onSuccess }: Paya
         });
         const d = await r.json();
         if (d.success) {
-          setPaymentMsg('✅ Pagamento realizado via Banco Inter!');
+          setPaymentMsg({ ok: true, text: 'Pagamento realizado via Banco Inter!' });
           setTimeout(() => {
             onClose();
             onSuccess?.();
           }, 2000);
         } else {
-          setPaymentMsg(`❌ ${d.detail || JSON.stringify(d)}`);
+          setPaymentMsg({ ok: false, text: d.detail || JSON.stringify(d) });
         }
       } else {
         // Registrar pagamento manual
@@ -103,14 +103,14 @@ export function PayableDetailModal({ isOpen, onClose, payable, onSuccess }: Paya
             payment_date: paymentForm.data_pagamento ?? '',
           },
         });
-        setPaymentMsg('✅ Pagamento registrado!');
+        setPaymentMsg({ ok: true, text: 'Pagamento registrado!' });
         setTimeout(() => {
           onClose();
           onSuccess?.();
         }, 2000);
       }
     } catch (e) {
-      setPaymentMsg(`❌ Erro: ${e}`);
+      setPaymentMsg({ ok: false, text: `Erro: ${e}` });
     } finally {
       setPaymentLoading(false);
     }
@@ -180,7 +180,7 @@ export function PayableDetailModal({ isOpen, onClose, payable, onSuccess }: Paya
                 onClick={() => setShowPayment(true)}
                 className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
               >
-                💳 Registrar Pagamento
+                <CreditCard className="w-4 h-4" /> Registrar Pagamento
               </button>
             ) : (
               <div className="space-y-3">
@@ -205,7 +205,7 @@ export function PayableDetailModal({ isOpen, onClose, payable, onSuccess }: Paya
                         : 'bg-white text-gray-600 border-gray-300'
                     }`}
                   >
-                    📝 Manual
+                    <span className="inline-flex items-center gap-1"><PenLine className="w-4 h-4" /> Manual</span>
                   </button>
                 </div>
 
@@ -232,11 +232,12 @@ export function PayableDetailModal({ isOpen, onClose, payable, onSuccess }: Paya
 
                 {paymentMsg && (
                   <p
-                    className={`text-sm ${
-                      paymentMsg.startsWith('✅') ? 'text-green-600' : 'text-red-600'
+                    className={`text-sm inline-flex items-center gap-1 ${
+                      paymentMsg.ok ? 'text-emerald-500' : 'text-red-500'
                     }`}
                   >
-                    {paymentMsg}
+                    {paymentMsg.ok ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                    {paymentMsg.text}
                   </p>
                 )}
 

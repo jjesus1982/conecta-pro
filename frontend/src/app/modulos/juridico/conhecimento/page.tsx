@@ -41,7 +41,7 @@ export default function ConhecimentoPage() {
       <div className="flex items-center gap-3">
         <BookOpen className="h-7 w-7 text-indigo-700" />
         <div>
-          <h1 className="text-2xl font-bold">Base de Conhecimento & Playbook</h1>
+          <h1 className="font-display text-2xl font-bold">Base de Conhecimento & Playbook</h1>
           <p className="text-sm text-muted-foreground">A memória jurídica da Conecta Mais — precedentes reais e os procedimentos de como agir. O Consultor e a análise de processos consultam isto automaticamente.</p>
         </div>
       </div>

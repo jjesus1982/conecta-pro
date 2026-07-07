@@ -1,6 +1,6 @@
 'use client';
 
-import { Users, Briefcase, Shield, Smartphone, DollarSign, Landmark, FolderOpen, Wrench, Plug, BarChart3, Settings, Bell, Search, LogOut, User, TrendingUp, TrendingDown, Wifi, WifiOff, Loader2, Handshake, Megaphone, Scale } from 'lucide-react';
+import { Users, Briefcase, Shield, Smartphone, DollarSign, Landmark, FolderOpen, Wrench, Plug, BarChart3, Settings, Bell, Search, LogOut, User, TrendingUp, TrendingDown, Wifi, WifiOff, Loader2, Handshake, Megaphone, Scale, XCircle, AlertTriangle } from 'lucide-react';
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -181,7 +181,7 @@ export default function DashboardPage() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         {/* Welcome */}
         <div className="mb-6 sm:mb-8 animate-slide-up gradient-brand-subtle rounded-2xl p-4 sm:p-6">
-          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-[hsl(var(--foreground))]">
+          <h1 className="font-display text-xl sm:text-2xl md:text-3xl font-bold text-[hsl(var(--foreground))]">
             {greeting}, <span className="text-[hsl(var(--primary))]">{user?.name?.split(' ')[0] || 'Usuário'}</span>
           </h1>
           <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1.5 capitalize">
@@ -282,7 +282,9 @@ export default function DashboardPage() {
                         : 'bg-amber-50 border-amber-200'
                   }`}
                 >
-                  <span className="text-lg">{isExpired ? '🔴' : isCritical ? '🔴' : '🟡'}</span>
+                  {isExpired || isCritical
+                    ? <XCircle className="w-5 h-5 text-red-500 shrink-0" />
+                    : <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />}
                   <div className="flex-1 min-w-0">
                     <p className={`text-sm font-medium ${isExpired || isCritical ? 'text-red-800' : 'text-amber-800'}`}>
                       {cert.nome || cert.tipo}
@@ -318,7 +320,7 @@ export default function DashboardPage() {
                 <Users className="w-4 h-4 text-blue-600" />
                 <span className="text-sm font-semibold">Gestao RH</span>
               </div>
-              <p className="text-2xl font-bold">{stats?.employees ?? 0}</p>
+              <p className="font-data text-2xl font-semibold tabular-nums">{stats?.employees ?? 0}</p>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">funcionarios ativos</p>
             </div>
 
@@ -330,7 +332,7 @@ export default function DashboardPage() {
                 <FolderOpen className="w-4 h-4 text-amber-600" />
                 <span className="text-sm font-semibold">GED</span>
               </div>
-              <p className="text-2xl font-bold">{kitStats?.kits_ativos ?? 0}</p>
+              <p className="font-data text-2xl font-semibold tabular-nums">{kitStats?.kits_ativos ?? 0}</p>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">kits ativos | {gedStats?.total_documents ?? 0} docs</p>
             </div>
 
@@ -342,7 +344,7 @@ export default function DashboardPage() {
                 <DollarSign className="w-4 h-4 text-green-600" />
                 <span className="text-sm font-semibold">Financeiro</span>
               </div>
-              <p className="text-2xl font-bold">{stats?.clients ?? 0}</p>
+              <p className="font-data text-2xl font-semibold tabular-nums">{stats?.clients ?? 0}</p>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">clientes ativos</p>
             </div>
 
@@ -354,7 +356,7 @@ export default function DashboardPage() {
                 <Shield className="w-4 h-4 text-cyan-600" />
                 <span className="text-sm font-semibold">Operacional</span>
               </div>
-              <p className="text-2xl font-bold">{stats?.active_posts ?? 0}</p>
+              <p className="font-data text-2xl font-semibold tabular-nums">{stats?.active_posts ?? 0}</p>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">postos | {stats?.scales ?? 0} escalas</p>
             </div>
 
@@ -366,7 +368,7 @@ export default function DashboardPage() {
                 <Landmark className="w-4 h-4 text-red-600" />
                 <span className="text-sm font-semibold">Compliance</span>
               </div>
-              <p className="text-2xl font-bold text-red-600">{certAlerts.length}</p>
+              <p className="font-data text-2xl font-semibold tabular-nums text-red-600">{certAlerts.length}</p>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">
                 {certAlerts.filter(c => c.dias_para_vencer <= 0).length > 0
                   ? `${certAlerts.filter(c => c.dias_para_vencer <= 0).length} vencida(s)!`
@@ -382,7 +384,7 @@ export default function DashboardPage() {
                 <Plug className="w-4 h-4 text-purple-600" />
                 <span className="text-sm font-semibold">Integracoes</span>
               </div>
-              <p className="text-2xl font-bold">{integrations?.online ?? 0}/{integrations?.total ?? 0}</p>
+              <p className="font-data text-2xl font-semibold tabular-nums">{integrations?.online ?? 0}/{integrations?.total ?? 0}</p>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">online | Gov.br ativo</p>
             </div>
           </div>

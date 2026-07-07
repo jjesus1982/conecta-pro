@@ -77,7 +77,7 @@ function StatCardComponent({ label, value, color, icon }: StatCard) {
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm text-gray-500">{label}</p>
-          <p className={`text-3xl font-bold mt-1 ${texts[color]}`}>{value}</p>
+          <p className={`font-data text-3xl font-semibold tabular-nums mt-1 ${texts[color]}`}>{value}</p>
         </div>
         <div className={`${texts[color]} opacity-60`}>{icon}</div>
       </div>
@@ -179,7 +179,7 @@ export default function AlertasSSTPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))] flex items-center gap-2">
             <Shield className="text-blue-600" size={28} />
             Painel de Alertas SST
           </h1>

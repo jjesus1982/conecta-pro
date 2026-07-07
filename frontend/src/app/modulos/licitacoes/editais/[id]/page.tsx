@@ -218,7 +218,7 @@ export default function TenderDetailPage() {
               <p className="text-sm text-[hsl(var(--muted-foreground))] mb-1">
                 Valor Estimado
               </p>
-              <p className="text-2xl font-bold text-[hsl(var(--foreground))]">
+              <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                 {formatCurrency(tender.estimated_value)}
               </p>
             </div>

@@ -151,7 +151,7 @@ export default function DocumentosSearchPage() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-[hsl(var(--foreground))]">Busca de Documentos</h1>
+        <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">Busca de Documentos</h1>
         <p className="text-[hsl(var(--muted-foreground))] mt-1">Pesquise documentos em todos os kits</p>
       </div>
 

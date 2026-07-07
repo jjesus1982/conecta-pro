@@ -53,7 +53,7 @@ export default function AtividadesPage() {
   return (
     <div className="p-6 space-y-6 max-w-4xl mx-auto">
       <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2"><Activity className="h-6 w-6" />Atividades & Tarefas</h1>
+        <h1 className="font-display text-2xl font-bold flex items-center gap-2"><Activity className="h-6 w-6" />Atividades & Tarefas</h1>
         <p className="text-gray-500">Lembretes de follow-up e a linha do tempo do CRM</p>
       </div>
 

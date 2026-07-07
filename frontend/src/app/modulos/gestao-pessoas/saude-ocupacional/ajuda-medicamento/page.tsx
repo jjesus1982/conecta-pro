@@ -36,7 +36,7 @@ export default function AjudaMedicamentoPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: '#0A2540' }}>
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2 text-[hsl(var(--foreground))]">
             <Pill className="h-6 w-6" />
             Ajuda Medicamento
           </h1>
@@ -61,7 +61,7 @@ export default function AjudaMedicamentoPage() {
             {isLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-blue-600">{total}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-blue-600">{total}</div>
             )}
           </CardContent>
         </Card>
@@ -75,7 +75,7 @@ export default function AjudaMedicamentoPage() {
             {isLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-green-600">
+              <div className="font-data text-2xl font-semibold tabular-nums text-green-600">
                 {valorUnitario.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
               </div>
             )}
@@ -91,7 +91,7 @@ export default function AjudaMedicamentoPage() {
             {isLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold" style={{ color: '#FF6B35' }}>
+              <div className="font-data text-2xl font-semibold tabular-nums" style={{ color: '#FF6B35' }}>
                 {custoMensal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
               </div>
             )}

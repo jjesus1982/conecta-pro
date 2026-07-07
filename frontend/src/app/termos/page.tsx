@@ -12,7 +12,7 @@ export default function TermosPage() {
   return (
     <main className="min-h-screen bg-gray-50 py-12 px-4">
       <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow-sm p-8">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Termos de Uso</h1>
+        <h1 className="font-display text-2xl font-bold text-gray-900 mb-2">Termos de Uso</h1>
         <p className="text-sm text-gray-500 mb-8">Última atualização: abril de 2026</p>
 
         <section className="space-y-6 text-gray-700 text-sm leading-relaxed">

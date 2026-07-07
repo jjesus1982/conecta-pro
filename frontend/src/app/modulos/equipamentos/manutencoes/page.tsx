@@ -155,7 +155,7 @@ export default function ManutencoesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
             <Settings className="h-6 w-6" />
             Manutenções
           </h1>
@@ -186,7 +186,7 @@ export default function ManutencoesPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold">{stats?.total ?? 0}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums">{stats?.total ?? 0}</div>
             )}
           </CardContent>
         </Card>
@@ -200,7 +200,7 @@ export default function ManutencoesPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-blue-600">{stats?.in_progress ?? 0}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-blue-600">{stats?.in_progress ?? 0}</div>
             )}
           </CardContent>
         </Card>
@@ -214,7 +214,7 @@ export default function ManutencoesPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-red-600">{stats?.overdue ?? 0}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-red-600">{stats?.overdue ?? 0}</div>
             )}
           </CardContent>
         </Card>
@@ -228,7 +228,7 @@ export default function ManutencoesPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="text-2xl font-bold text-green-600">{stats?.completed ?? 0}</div>
+              <div className="font-data text-2xl font-semibold tabular-nums text-green-600">{stats?.completed ?? 0}</div>
             )}
           </CardContent>
         </Card>

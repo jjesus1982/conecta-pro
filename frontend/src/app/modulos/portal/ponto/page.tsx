@@ -146,7 +146,7 @@ export default function PontoPortalPage() {
                   ? <TrendingDown className="w-5 h-5 text-red-600" />
                   : <Minus className="w-5 h-5 text-gray-500" />}
             </div>
-            <p className={`text-2xl font-bold ${
+            <p className={`font-data text-2xl font-semibold tabular-nums ${
               saldo > 0 ? 'text-green-600' : saldo < 0 ? 'text-red-600' : 'text-gray-600'
             }`}>
               {saldo >= 0 ? '+' : ''}{saldo.toFixed(1)}h
@@ -158,11 +158,11 @@ export default function PontoPortalPage() {
             </p>
           </div>
           <div className="bg-blue-50 rounded-lg p-4 text-center">
-            <p className="text-2xl font-bold text-blue-600">{historico?.total_registros ?? 0}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-blue-600">{historico?.total_registros ?? 0}</p>
             <p className="text-xs text-blue-500 mt-0.5">Registros no Mês</p>
           </div>
           <div className="bg-purple-50 rounded-lg p-4 text-center">
-            <p className="text-2xl font-bold text-purple-600">{bancoHoras?.total_entradas ?? 0}</p>
+            <p className="font-data text-2xl font-semibold tabular-nums text-purple-600">{bancoHoras?.total_entradas ?? 0}</p>
             <p className="text-xs text-purple-500 mt-0.5">Total Lançamentos</p>
           </div>
         </div>
@@ -273,7 +273,7 @@ export default function PontoPortalPage() {
                     : 'bg-gray-50 border-gray-200'
               }`}>
                 <p className="text-sm text-gray-600 mb-1">Saldo atual do banco de horas</p>
-                <p className={`text-3xl font-bold ${
+                <p className={`font-data text-3xl font-semibold tabular-nums ${
                   saldo > 0 ? 'text-green-700' : saldo < 0 ? 'text-red-700' : 'text-gray-700'
                 }`}>
                   {saldo >= 0 ? '+' : ''}{saldo.toFixed(2)}h

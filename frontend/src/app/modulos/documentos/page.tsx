@@ -107,7 +107,7 @@ export default function DocumentosPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Gestão Eletrônica de Documentos</h1>
+          <h1 className="font-display text-2xl font-bold">Gestão Eletrônica de Documentos</h1>
           <p className="text-muted-foreground">
             Sistema completo de gestão, versionamento e controle de documentos
           </p>
@@ -137,7 +137,7 @@ export default function DocumentosPage() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Pastas</p>
-              <p className="text-2xl font-bold">{stats?.total_folders || 0}</p>
+              <p className="font-data text-2xl font-semibold tabular-nums">{stats?.total_folders || 0}</p>
               <p className="text-xs text-muted-foreground">
                 {stats?.active_folders || 0} ativas
               </p>
@@ -152,7 +152,7 @@ export default function DocumentosPage() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Documentos</p>
-              <p className="text-2xl font-bold">{stats?.total_documents || 0}</p>
+              <p className="font-data text-2xl font-semibold tabular-nums">{stats?.total_documents || 0}</p>
               <p className="text-xs text-muted-foreground">
                 {stats?.active_documents || 0} ativos
               </p>
@@ -167,7 +167,7 @@ export default function DocumentosPage() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Armazenamento</p>
-              <p className="text-2xl font-bold">{formatFileSize(stats?.total_storage_bytes || 0)}</p>
+              <p className="font-data text-2xl font-semibold tabular-nums">{formatFileSize(stats?.total_storage_bytes || 0)}</p>
               <p className="text-xs text-muted-foreground">
                 {stats?.total_versions || 0} versões
               </p>
@@ -182,7 +182,7 @@ export default function DocumentosPage() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">A vencer</p>
-              <p className="text-2xl font-bold">{expiringDocs.length}</p>
+              <p className="font-data text-2xl font-semibold tabular-nums">{expiringDocs.length}</p>
               <p className="text-xs text-muted-foreground">
                 {stats?.expired_documents || 0} expirados
               </p>
@@ -200,7 +200,7 @@ export default function DocumentosPage() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Aprovações</p>
-              <p className="text-2xl font-bold">{pendingApprovals.length}</p>
+              <p className="font-data text-2xl font-semibold tabular-nums">{pendingApprovals.length}</p>
               <p className="text-xs text-muted-foreground">pendentes</p>
             </div>
           </CardContent>
@@ -213,7 +213,7 @@ export default function DocumentosPage() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Assinaturas</p>
-              <p className="text-2xl font-bold">{pendingSignatures.length}</p>
+              <p className="font-data text-2xl font-semibold tabular-nums">{pendingSignatures.length}</p>
               <p className="text-xs text-muted-foreground">
                 {stats?.total_signatures || 0} total
               </p>
@@ -228,7 +228,7 @@ export default function DocumentosPage() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Compartilhamentos</p>
-              <p className="text-2xl font-bold">{stats?.total_shares || 0}</p>
+              <p className="font-data text-2xl font-semibold tabular-nums">{stats?.total_shares || 0}</p>
               <p className="text-xs text-muted-foreground">
                 {stats?.active_shares || 0} ativos
               </p>
@@ -243,7 +243,7 @@ export default function DocumentosPage() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Tags</p>
-              <p className="text-2xl font-bold">{stats?.total_tags || 0}</p>
+              <p className="font-data text-2xl font-semibold tabular-nums">{stats?.total_tags || 0}</p>
               <p className="text-xs text-muted-foreground">organizacionais</p>
             </div>
           </CardContent>
