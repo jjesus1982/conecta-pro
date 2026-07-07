@@ -63,10 +63,15 @@ async def _ensure_schema(db: AsyncSession) -> None:
                     fonte      TEXT,
                     ativo      BOOLEAN      NOT NULL DEFAULT TRUE,
                     created_at TIMESTAMPTZ  NOT NULL DEFAULT now()
-                );
-                CREATE INDEX IF NOT EXISTS ix_consultor_memorias_origem
-                    ON consultor_memorias (origem, ativo);
+                )
                 """
+            )
+        )
+        # asyncpg nao aceita multiplos comandos num prepared statement — indice a parte
+        await db.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_consultor_memorias_origem "
+                "ON consultor_memorias (origem, ativo)"
             )
         )
         await db.commit()
@@ -157,6 +162,8 @@ async def contexto_compartilhado(db: AsyncSession, origem_atual: str, *, max_mem
             for q in qs:
                 cruzadas.append(f"- [{rotulo}] P: {q.pergunta[:120]} | R: {q.resposta[:200]}")
         except Exception:  # noqa: BLE001 — tabela pode não existir ainda
+            # asyncpg: query falha envenena a transação — rollback obrigatório
+            await db.rollback()
             continue
     if cruzadas:
         partes.append("")
@@ -182,6 +189,7 @@ async def conversa_recente(db: AsyncSession, origem: str, *, limit: int = 6) -> 
             )
         ).fetchall()
     except Exception:  # noqa: BLE001
+        await db.rollback()
         return ""
     if not rows:
         return ""

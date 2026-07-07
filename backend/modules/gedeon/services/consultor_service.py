@@ -97,10 +97,15 @@ async def _ensure_schema(db: AsyncSession) -> None:
                     tratada_em    TIMESTAMPTZ,
                     created_by    VARCHAR(64),
                     created_at    TIMESTAMPTZ  NOT NULL DEFAULT now()
-                );
-                CREATE INDEX IF NOT EXISTS ix_gedeon_interc_cond_comp
-                    ON gedeon_intercorrencias (condominio, competencia);
+                )
                 """
+            )
+        )
+        # asyncpg nao aceita multiplos comandos num prepared statement — indice a parte
+        await db.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_gedeon_interc_cond_comp "
+                "ON gedeon_intercorrencias (condominio, competencia)"
             )
         )
         await db.commit()
