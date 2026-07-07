@@ -83,11 +83,11 @@ class Benchmark(Base):
     description = Column(Text, nullable=True)
 
     # Classificação
-    category = Column(Enum(BenchmarkCategory, values_callable=lambda x: [e.value for e in x]), nullable=False)
-    benchmark_type = Column(Enum(BenchmarkType, values_callable=lambda x: [e.value for e in x]), nullable=False)
-    source = Column(Enum(BenchmarkSource, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    category = Column(Enum(BenchmarkCategory, values_callable=lambda x: [e.value for e in x], native_enum=False), nullable=False)
+    benchmark_type = Column(Enum(BenchmarkType, values_callable=lambda x: [e.value for e in x], native_enum=False), nullable=False)
+    source = Column(Enum(BenchmarkSource, values_callable=lambda x: [e.value for e in x], native_enum=False), nullable=False)
     status = Column(
-        Enum(BenchmarkStatus, values_callable=lambda x: [e.value for e in x]),
+        Enum(BenchmarkStatus, values_callable=lambda x: [e.value for e in x], native_enum=False),
         nullable=False,
         default=BenchmarkStatus.ACTIVE,
     )
@@ -126,7 +126,7 @@ class Benchmark(Base):
 
     # Comparação atual
     current_company_value = Column(Float, nullable=True)
-    comparison_result = Column(Enum(ComparisonResult, values_callable=lambda x: [e.value for e in x]), nullable=True)
+    comparison_result = Column(Enum(ComparisonResult, values_callable=lambda x: [e.value for e in x], native_enum=False), nullable=True)
     deviation = Column(Float, nullable=True)
     deviation_percentage = Column(Float, nullable=True)
     percentile_rank = Column(Float, nullable=True)

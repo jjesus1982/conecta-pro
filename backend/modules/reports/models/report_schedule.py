@@ -66,13 +66,13 @@ class ReportSchedule(Base):
 
     # Status
     status = Column(
-        Enum(ScheduleStatus, values_callable=lambda x: [e.value for e in x]),
+        Enum(ScheduleStatus, values_callable=lambda x: [e.value for e in x], native_enum=False),
         nullable=False,
         default=ScheduleStatus.ACTIVE,
     )
 
     # Frequência
-    frequency = Column(Enum(ScheduleFrequency, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    frequency = Column(Enum(ScheduleFrequency, values_callable=lambda x: [e.value for e in x], native_enum=False), nullable=False)
     cron_expression = Column(String(100), nullable=True)
     timezone = Column(String(50), nullable=False, default="America/Sao_Paulo")
 
@@ -100,7 +100,7 @@ class ReportSchedule(Base):
 
     # Entrega
     delivery_method = Column(
-        Enum(DeliveryMethod, values_callable=lambda x: [e.value for e in x]),
+        Enum(DeliveryMethod, values_callable=lambda x: [e.value for e in x], native_enum=False),
         nullable=False,
         default=DeliveryMethod.EMAIL,
     )

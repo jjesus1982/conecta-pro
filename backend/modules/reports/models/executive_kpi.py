@@ -91,15 +91,15 @@ class ExecutiveKPI(Base):
     description = Column(Text, nullable=True)
 
     # Classificação
-    category = Column(Enum(KPICategory, values_callable=lambda x: [e.value for e in x]), nullable=False)
-    kpi_type = Column(Enum(KPIType, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    category = Column(Enum(KPICategory, values_callable=lambda x: [e.value for e in x], native_enum=False), nullable=False)
+    kpi_type = Column(Enum(KPIType, values_callable=lambda x: [e.value for e in x], native_enum=False), nullable=False)
     direction = Column(
-        Enum(KPIDirection, values_callable=lambda x: [e.value for e in x]),
+        Enum(KPIDirection, values_callable=lambda x: [e.value for e in x], native_enum=False),
         nullable=False,
         default=KPIDirection.INCREASE,
     )
     status = Column(
-        Enum(KPIStatus, values_callable=lambda x: [e.value for e in x]), nullable=False, default=KPIStatus.ACTIVE
+        Enum(KPIStatus, values_callable=lambda x: [e.value for e in x], native_enum=False), nullable=False, default=KPIStatus.ACTIVE
     )
 
     # Unidade e formato
@@ -124,7 +124,7 @@ class ExecutiveKPI(Base):
     critical_threshold_high = Column(Float, nullable=True)
 
     # Período
-    aggregation_period = Column(Enum(AggregationPeriod), nullable=False, default=AggregationPeriod.MONTHLY)
+    aggregation_period = Column(Enum(AggregationPeriod, native_enum=False), nullable=False, default=AggregationPeriod.MONTHLY)
     period_start = Column(DateTime, nullable=True)
     period_end = Column(DateTime, nullable=True)
 
@@ -135,7 +135,7 @@ class ExecutiveKPI(Base):
     calculation_config = Column(JSONB, nullable=True)
 
     # Status atual
-    alert_level = Column(Enum(KPIAlertLevel), nullable=False, default=KPIAlertLevel.NORMAL)
+    alert_level = Column(Enum(KPIAlertLevel, native_enum=False), nullable=False, default=KPIAlertLevel.NORMAL)
     trend = Column(String(20), nullable=True)
     variance = Column(Float, nullable=True)
     variance_percentage = Column(Float, nullable=True)
