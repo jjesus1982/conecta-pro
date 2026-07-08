@@ -250,3 +250,23 @@ todos os módulos. Aplicado (auditoria/FORWARD_verdades_jordan_2026-07-08.sql; b
   cobertura do Euler com end_date 21/07 e turnos ≥22/07 cancelados (fim da cobertura).
 - Provado no quadro: Mirante hoje espera Malaquias/Mauricio/Paulo/Gama/Euler — Ediwilson fora ✓.
 - PENDÊNCIA: lotação do EULER após 22/07 (cobertura acaba) — perguntar ao Jordan perto da data.
+
+## RODADA 5c (08/07) — Mirante pelo ditado do Jordan
+- Malaquias → PRIME ARENA (alocação+DP+turnos). Telma e Vanderlice → Condomínio Mirante das Flores
+  (equipe de limpeza = Telma/Paulo/Vanderlice); "Portaria Principal - Mirante" ficou com 0 alocados.
+- Mirante = 6 AGP (Ailton, Gama, Ediwilson, Eduardo, Mauricio + VAGA do Marcelino — rescisão hoje;
+  substituto Alexandre Silva em contratação) + 3 ASG. required_headcount=9 FIXADO pelo Jordan
+  (exceção à regra required=alocados; nota no posto).
+- **Ediwilson é AGP** (palavra do Jordan) → na volta (22/07+) sai do comercial e entra no 12x36
+  diurno/dias ímpares 07-19 (lacuna real do posto; PROVISÓRIO — confirmar turno). Lacuna restante
+  noturno/pares fica para o Alexandre na admissão.
+- Marcelino: alocação já encerrada (rodada 5); rescisão financeira é com o Jordan hoje.
+
+## Perguntas em aberto p/ Jordan (rodada 5c)
+1. "Portaria Principal - Mirante das Flores" ficou sem ninguém — desativo o posto (fundido no
+   Condomínio Mirante) ou mantém p/ uso futuro?
+2. Ediwilson volta no DIURNO dias ímpares (provisório) — confirma ou é noturno/outra alternância?
+3. Antonio Walcicley (Ideal) e Erika (Laranjeiras), líderes de portaria: também contam como AGP em
+   12x36 (como o Ediwilson) ou seguem 44h comercial? Hoje estão em 44h.
+4. Euler após 21/07 (fim da cobertura do Ediwilson): qual lotação?
+5. Alexandre Silva: quando a admissão concluir no DP, encaixo no noturno/dias pares do Mirante.
