@@ -104,3 +104,50 @@ frontend build+docker cp. Migrations com rito backup→staging→prod (FORWARD/R
 3 ocorrências TESTE → canceladas+inativas; 1 passagem e 1 avaliação de teste → inativas; diarista
 ZZE2E → deletado. Ficaram (reais e intencionais): pagamentos programados da CONCEIÇÃO (sem_pix),
 9 escalas de julho publicadas, mensagens de teste no Telegram do Jordan.
+
+---
+
+# RODADA 2 (mesma noite) — Presença ao vivo + rename + automações
+
+Ordem do Jordan: continuar lapidando em modo autônomo; corrigir alocações; presença pelas batidas
+(Sólides) com opção manual; renomear Operações→Operacional; inspirar nos melhores do segmento.
+
+## Entregas
+1. **Alocações corrigidas** (ordem explícita): Antonio→Ideal Flores, Erika→Laranjeiras Village
+   (nota de auditoria no registro; headcount dos 3 postos recalculado). Obs: turnos de JULHO dos dois
+   ainda apontam pros postos antigos (escalas geradas antes da correção) — agosto nasce certo; o quadro
+   de presença trata a realidade via alocação.
+2. **PRESENÇA AO VIVO** (`/operacional/presenca/hoje` + tela `/modulos/operacional/presenca`):
+   turnos do dia × primeira batida real (`gp_clock_punches`, sync Sólides VIVO — batidas do próprio dia)
+   com fallback check-in manual pelo líder (escopado; 409 se já presente). Status honesto por horário
+   (TZ Manaus), flags facial/geofence, extras (batida sem turno → posto da alocação), sem_posto.
+   **Provado == oráculo**: 7 batidas reais do dia → 1 presente no turno (MAURICIO, Villa Dei Fiori,
+   00:51 noturno), 4 extras nos postos certos, 2 sem posto (JONILSON/ADEILSON — sem alocação ativa).
+   Check-in manual: 200 → presente fonte manual → 409 repetido → revertido (teste limpo).
+   **Insight exposto pelo quadro**: as escalas de julho auto-geradas NÃO refletem quem realmente
+   trabalha (padrão 12x36 arbitrário) — plano × realidade agora é visível para a gestão ajustar.
+3. **Automações novas (beat, fila gov.batch)**:
+   - `operacional.vigia_ausencia` (*/30min, 8-23h SP = 7-22h Manaus): turno em andamento 30-60min sem
+     batida/check-in → Telegram operacional (janela única por turno). Provado inline (0 na janela — honesto).
+   - `operacional.gerar_escalas_proximo_mes` (dia 25, 08h): escalas do mês seguinte em RASCUNHO +
+     aviso Telegram "revise e publique" — nunca publica sozinho.
+   - Briefing 07:30 ganhou seção *Presença agora* (batidas/esperados/postos em andamento sem batida).
+4. **Rename Operações→Operacional**: todos os labels visíveis (modules.ts, hub Gestão de Pessoas,
+   origem de kits GED); ids/rotas/permissions intactos. Deixados de propósito: valores de dado
+   "Operacoes" em dropdowns de departamento do DP (são dado do banco, não nome de módulo).
+5. **Integração IA na triagem**: botão "Sugerir medida (IA)" nas ocorrências → advisor do módulo
+   disciplinar (categoria pré-mapeada, descrição editável; resposta com medida/confiança/histórico/
+   referências legais + aviso "decisão é humana"). Ocorrência sem funcionário → mensagem honesta.
+6. Portão de qualidade final: sweep 217 rotas GET → **173×200, 26×404 honestos, 18×422 de parâmetro,
+   ZERO 500**.
+
+## Roadmap sugerido (inspiração TrackTik/Silvertrac — próximas lapidações)
+- Rondas com checkpoint QR/NFC + geolocalização no celular (base inspection_rounds já existe).
+- Post orders (instruções de posto) versionadas no GED, visíveis na tela do líder.
+- Absenteísmo histórico por posto/funcionário no BI (base: presença × escala acumuladas).
+- Espelho de ocorrências não-sensíveis no portal do cliente (área-cliente já tem operação).
+- Reconciliar turnos de julho de Antonio/Erika (ou aguardar agosto).
+
+## Decisões do Jordan registradas
+- Grupo Telegram: "nem faço questão" → alertas e briefing seguem no chat dele (env aponta pro chat dele).
+- Senhas dos líderes: ele providencia.
