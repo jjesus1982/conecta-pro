@@ -276,6 +276,8 @@ export const modules: Module[] = [
     subModules: [
       { id: 'sst-consultor-ia', title: 'Consultor de Pessoas IA', href: '/modulos/gestao-pessoas/consultor', icon: 'Bot', permissions: ['operacional:read'] },
       { id: 'sst-dashboard', title: 'Dashboard SST', href: '/modulos/gestao-pessoas/saude-ocupacional', icon: 'LayoutDashboard', permissions: ['operacional:read'] },
+      { id: 'sst-prontuario', title: 'Prontuário SST', href: '/modulos/gestao-pessoas/saude-ocupacional/prontuario', icon: 'BookUser', permissions: ['operacional:read'] },
+      { id: 'sst-calendario-legal', title: 'Calendário Legal', href: '/modulos/gestao-pessoas/saude-ocupacional/calendario-legal', icon: 'CalendarClock', permissions: ['operacional:read'] },
       { id: 'sst-exames', title: 'Exames / ASOs', href: '/modulos/gestao-pessoas/saude-ocupacional/exames', icon: 'Stethoscope', permissions: ['operacional:read'] },
       { id: 'sst-treinamentos', title: 'Treinamentos NR', href: '/modulos/gestao-pessoas/saude-ocupacional/treinamentos', icon: 'GraduationCap', permissions: ['operacional:read'] },
       { id: 'sst-epis', title: 'EPIs (NR-6)', href: '/modulos/gestao-pessoas/saude-ocupacional/epi', icon: 'HardHat', permissions: ['operacional:read'] },

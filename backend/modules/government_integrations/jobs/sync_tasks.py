@@ -421,3 +421,40 @@ def sincronizar_todos_tenants(servico: str = "sefaz_nfe"):
         task_func.delay(str(tenant_id))
 
     return {"enfileirados": len(tenants), "servico": servico}
+
+
+# ============================================================================
+# ESPELHO OFICIAL do eSocial (Missão D) — eventos JÁ TRANSMITIDOS
+# ============================================================================
+
+
+@shared_task(
+    bind=True,
+    name="government_integrations.tasks.espelho.sincronizar_espelho_esocial",
+    queue="gov.esocial",
+    max_retries=1,
+)
+def sincronizar_espelho_esocial(
+    self,
+    tipos: list | None = None,
+    periodo: str | None = None,
+    cpfs: list | None = None,
+    max_acessos: int = 8,
+):
+    """Sincroniza o espelho do eSocial (consulta identificadores + download — READ-ONLY).
+
+    Respeita o orçamento do governo (10 acessos/dia, bloqueio dias 1-7) e a
+    fila de janelas por CPF; beat semanal continua a enumeração de onde parou.
+    NUNCA transmite nada.
+    """
+    from modules.government_integrations.services.esocial_espelho_service import (
+        sincronizar_espelho,
+    )
+
+    try:
+        resultado = run_async(sincronizar_espelho(tipos=tipos, periodo=periodo, cpfs=cpfs, max_acessos=max_acessos))
+        logger.info("Espelho eSocial: %s", resultado)
+        return resultado
+    except Exception as exc:
+        logger.error("Espelho eSocial: falha geral: %s", exc)
+        return {"status": "erro", "erro": str(exc)}

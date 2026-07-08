@@ -1,7 +1,8 @@
 'use client';
 
-import { Stethoscope, Calendar, FileCheck, AlertCircle, Clock, CheckCircle, Plus, RefreshCw, Search } from 'lucide-react';
-import { useState } from 'react';
+import { Stethoscope, Calendar, CalendarClock, Download, FileCheck, AlertCircle, Clock, CheckCircle, HeartPulse, History, Paperclip, Plus, RefreshCw, Search } from 'lucide-react';
+import Link from 'next/link';
+import { useRef, useState, type ChangeEvent } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -36,8 +37,8 @@ import {
   useExpiringASOs,
   useScheduleExam,
 } from '@/hooks/health-occupational';
-import { useASOs, useRegistrarResultadoASO, useASOsRegularizacao, useAgendarASOsLote } from '@/hooks/sst';
-import { apiErrorDetail, type ASOItem, type ASORegularizacaoItem } from '@/lib/services/sst';
+import { useASOs, useRegistrarResultadoASO, useASOsRegularizacao, useAgendarASOsLote, useEsteiraPCMSO, useUploadASOAnexo, useASORetroativo, useSemASO } from '@/hooks/sst';
+import { apiErrorDetail, sstService, type ASOItem, type ASORegularizacaoItem, type EsteiraAgendaItem } from '@/lib/services/sst';
 import { EmployeeSelect, useActiveEmployees } from '@/components/sst/EmployeeSelect';
 
 function getESocialBadge(esocialStatus: string) {
@@ -71,6 +72,10 @@ export default function ExamesPage() {
   const { data: employees } = useActiveEmployees();
   const { data: regularizacao, isLoading: regLoading } = useASOsRegularizacao();
   const agendarLote = useAgendarASOsLote();
+  const { data: esteira, isLoading: esteiraLoading } = useEsteiraPCMSO(12);
+  const uploadAnexo = useUploadASOAnexo();
+  const asoRetroativo = useASORetroativo();
+  const { data: semAso } = useSemASO();
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -83,6 +88,14 @@ export default function ExamesPage() {
     clinica: '',
     tipo: 'periodico',
   });
+  // Alvo do lote (regularização OU esteira preventiva) — quem o dialog agenda
+  const [loteAlvo, setLoteAlvo] = useState<{ employee_id: string; nome: string }[]>([]);
+
+  const abrirLoteCom = (alvo: { employee_id: string; nome: string }[]) => {
+    if (alvo.length === 0) return;
+    setLoteAlvo(alvo);
+    setLoteDialogOpen(true);
+  };
 
   const pendentes = regularizacao?.pendentes ?? [];
 
@@ -104,17 +117,15 @@ export default function ExamesPage() {
   };
 
   const handleAgendarLote = async () => {
-    if (!loteForm.data_agendamento || selecionados.size === 0) return;
+    if (!loteForm.data_agendamento || loteAlvo.length === 0) return;
     try {
       const result = await agendarLote.mutateAsync(
-        pendentes
-          .filter((p: ASORegularizacaoItem) => selecionados.has(p.employee_id))
-          .map((p: ASORegularizacaoItem) => ({
-            employee_id: p.employee_id,
-            data_agendamento: loteForm.data_agendamento,
-            clinica: loteForm.clinica || undefined,
-            tipo: loteForm.tipo,
-          }))
+        loteAlvo.map((p) => ({
+          employee_id: p.employee_id,
+          data_agendamento: loteForm.data_agendamento,
+          clinica: loteForm.clinica || undefined,
+          tipo: loteForm.tipo,
+        }))
       );
       if (result.total_erros > 0) {
         toast.warning(
@@ -131,6 +142,7 @@ export default function ExamesPage() {
       }
       setLoteDialogOpen(false);
       setSelecionados(new Set());
+      setLoteAlvo([]);
       setLoteForm({ data_agendamento: '', clinica: '', tipo: 'periodico' });
     } catch (error) {
       toast.error(apiErrorDetail(error, 'Erro ao agendar em lote'), { duration: 6000 });
@@ -155,6 +167,107 @@ export default function ExamesPage() {
     crm: '',
     observacoes: '',
   });
+  // Anexo opcional junto do resultado
+  const [resultadoFile, setResultadoFile] = useState<File | null>(null);
+  const resultadoFileRef = useRef<HTMLInputElement>(null);
+
+  // Anexo do ASO (clipe na lista): upload inline via input escondido
+  const anexoInputRef = useRef<HTMLInputElement>(null);
+  const [anexoAsoId, setAnexoAsoId] = useState<string | null>(null);
+  const [baixandoAsoId, setBaixandoAsoId] = useState<string | null>(null);
+
+  // Carga retroativa (admissionais em papel, pré-sistema) — fluxo sequencial
+  const [retroDialogOpen, setRetroDialogOpen] = useState(false);
+  const [retroForm, setRetroForm] = useState({
+    employee_id: '',
+    tipo: 'admissional',
+    data_realizacao: '',
+    clinica: '',
+    medico: '',
+    apto: 'true',
+  });
+  const [retroFile, setRetroFile] = useState<File | null>(null);
+  const retroFileRef = useRef<HTMLInputElement>(null);
+  const [retroSalvosSessao, setRetroSalvosSessao] = useState(0);
+
+  const abrirUploadAnexo = (asoId: string) => {
+    setAnexoAsoId(asoId);
+    anexoInputRef.current?.click();
+  };
+
+  const handleAnexoSelecionado = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !anexoAsoId) return;
+    try {
+      await uploadAnexo.mutateAsync({ asoId: anexoAsoId, file });
+      toast.success(`Documento "${file.name}" anexado ao ASO`, { duration: 5000 });
+    } catch (error) {
+      toast.error(apiErrorDetail(error, 'Erro ao anexar o documento'), { duration: 6000 });
+    } finally {
+      setAnexoAsoId(null);
+    }
+  };
+
+  const baixarAnexo = async (aso: ASOItem) => {
+    setBaixandoAsoId(aso.aso_id);
+    try {
+      const blob = await sstService.downloadASOAnexo(aso.aso_id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = aso.arquivo_nome || `aso-${aso.aso_id.substring(0, 8)}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      toast.error(apiErrorDetail(error, 'Erro ao baixar o anexo do ASO'), { duration: 6000 });
+    } finally {
+      setBaixandoAsoId(null);
+    }
+  };
+
+  const limparRetroForm = () => {
+    setRetroForm({
+      employee_id: '',
+      tipo: 'admissional',
+      data_realizacao: '',
+      clinica: '',
+      medico: '',
+      apto: 'true',
+    });
+    setRetroFile(null);
+    if (retroFileRef.current) retroFileRef.current.value = '';
+  };
+
+  const handleSalvarRetroativo = async () => {
+    if (!retroForm.employee_id || !retroForm.data_realizacao) return;
+    if (!retroFile) {
+      toast.error('Carga retroativa exige o documento digitalizado — anexe o ASO em papel (PDF/JPG/PNG)', { duration: 6000 });
+      return;
+    }
+    try {
+      const r = await asoRetroativo.mutateAsync({
+        payload: {
+          employee_id: retroForm.employee_id,
+          tipo: retroForm.tipo,
+          data_realizacao: retroForm.data_realizacao,
+          clinica: retroForm.clinica || undefined,
+          medico: retroForm.medico || undefined,
+          apto: retroForm.apto === 'true',
+        },
+        file: retroFile,
+      });
+      setRetroSalvosSessao((n) => n + 1);
+      toast.success(
+        `ASO retroativo de ${r.employee_nome} salvo${r.data_validade ? ` — valido ate ${new Date(`${r.data_validade}T12:00:00`).toLocaleDateString('pt-BR')}` : ''}`,
+        { duration: 5000 }
+      );
+      // Fluxo um-atrás-do-outro: limpa e mantém o dialog aberto pro PRÓXIMO
+      limparRetroForm();
+    } catch (error) {
+      toast.error(apiErrorDetail(error, 'Erro ao salvar o ASO retroativo'), { duration: 8000 });
+    }
+  };
 
   const employeeNomeById = (id?: string) =>
     (employees ?? []).find((e) => e.id === id)?.nome ?? null;
@@ -180,6 +293,8 @@ export default function ExamesPage() {
 
   const openResultado = (aso: ASOItem) => {
     setResultadoForm({ apto: 'true', restricoes: '', medico: '', crm: '', observacoes: '' });
+    setResultadoFile(null);
+    if (resultadoFileRef.current) resultadoFileRef.current.value = '';
     setResultadoASO(aso);
   };
 
@@ -204,6 +319,15 @@ export default function ExamesPage() {
         toast.success('Resultado registrado', { duration: 4000 });
         const motivo = result?.esocial?.motivo || result?.esocial?.erro;
         if (motivo) toast.warning(`eSocial: ${motivo}`, { duration: 6000 });
+      }
+      // Anexo opcional junto do resultado (falha do anexo NÃO desfaz o resultado)
+      if (resultadoFile) {
+        try {
+          await uploadAnexo.mutateAsync({ asoId: resultadoASO.aso_id, file: resultadoFile });
+          toast.success(`Documento "${resultadoFile.name}" anexado ao ASO`, { duration: 5000 });
+        } catch (anexoError) {
+          toast.error(apiErrorDetail(anexoError, 'Resultado salvo, mas o anexo falhou — use o clipe na lista para reenviar'), { duration: 8000 });
+        }
       }
       setResultadoASO(null);
     } catch (error) {
@@ -251,6 +375,15 @@ export default function ExamesPage() {
 
   return (
     <div className="space-y-6 pb-28">
+      {/* Input escondido — upload inline do anexo pelo clipe da lista */}
+      <input
+        ref={anexoInputRef}
+        type="file"
+        accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+        className="hidden"
+        onChange={handleAnexoSelecionado}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -266,6 +399,13 @@ export default function ExamesPage() {
           <Button variant="outline" onClick={handleRefresh} disabled={asosLoading}>
             <RefreshCw className={`h-4 w-4 mr-2 ${asosLoading ? 'animate-spin' : ''}`} />
             Atualizar
+          </Button>
+          <Button variant="outline" onClick={() => { setRetroSalvosSessao(0); setRetroDialogOpen(true); }}>
+            <History className="h-4 w-4 mr-2" />
+            Carga Retroativa
+            {typeof semAso?.total === 'number' && semAso.total > 0 && (
+              <Badge className="ml-2 bg-red-100 text-red-800">{semAso.total}</Badge>
+            )}
           </Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
@@ -427,7 +567,13 @@ export default function ExamesPage() {
                 </CardDescription>
               </div>
               <Button
-                onClick={() => setLoteDialogOpen(true)}
+                onClick={() =>
+                  abrirLoteCom(
+                    pendentes
+                      .filter((p: ASORegularizacaoItem) => selecionados.has(p.employee_id))
+                      .map((p: ASORegularizacaoItem) => ({ employee_id: p.employee_id, nome: p.nome }))
+                  )
+                }
                 disabled={selecionados.size === 0}
                 className="shrink-0"
               >
@@ -480,7 +626,13 @@ export default function ExamesPage() {
                       />
                     </TableCell>
                     <TableCell>
-                      <div className="font-medium">{p.nome}</div>
+                      <Link
+                        href={`/modulos/gestao-pessoas/saude-ocupacional/prontuario/${p.employee_id}`}
+                        className="font-medium hover:text-primary hover:underline underline-offset-4"
+                        title={`Abrir Prontuário SST 360 de ${p.nome}`}
+                      >
+                        {p.nome}
+                      </Link>
                       <div className="text-xs text-muted-foreground">{p.cargo || ''}</div>
                     </TableCell>
                     <TableCell className="text-sm">{p.posto_nome}</TableCell>
@@ -518,6 +670,239 @@ export default function ExamesPage() {
         </Card>
       )}
 
+      {/* Esteira Preventiva PCMSO — projeção 12 meses (nada é gravado) */}
+      <Card className="border-blue-200">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2 text-blue-800">
+            <CalendarClock className="h-5 w-5" />
+            Esteira Preventiva — PCMSO (proximos 12 meses)
+          </CardTitle>
+          <CardDescription>
+            Projecao ao vivo: ultimo exame realizado + 12 meses (NR-7). Agendar aqui ANTES de
+            vencer e o que evita a fila de regularizacao. Nada e gravado pela projecao — a fonte
+            da verdade continua sendo o registro real dos ASOs.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          {esteiraLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+            </div>
+          ) : !esteira ? (
+            <p className="text-sm text-muted-foreground">Erro ao carregar a esteira preventiva.</p>
+          ) : (
+            <>
+              {/* Card do PCMSO (documento oficial) */}
+              {esteira.pcmso ? (
+                <div className="rounded-md border bg-blue-50/50 p-4 grid gap-3 md:grid-cols-4">
+                  <div className="md:col-span-2">
+                    <div className="text-xs text-muted-foreground flex items-center gap-1">
+                      <HeartPulse className="h-3.5 w-3.5" />
+                      Medico coordenador (PCMSO)
+                    </div>
+                    <div className="font-medium">{esteira.pcmso.medico_coordenador}</div>
+                    <div className="text-xs text-muted-foreground">
+                      CRM {esteira.pcmso.crm}/{esteira.pcmso.uf}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Vigencia</div>
+                    <div className="font-medium text-sm">
+                      {new Date(`${esteira.pcmso.vigencia_inicio}T12:00:00`).toLocaleDateString('pt-BR')}
+                      {' — '}
+                      {new Date(`${esteira.pcmso.vigencia_fim}T12:00:00`).toLocaleDateString('pt-BR')}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">PCMSO vence em</div>
+                    <Badge
+                      className={
+                        esteira.pcmso.dias_para_vencer_pcmso <= 30
+                          ? 'bg-red-100 text-red-800'
+                          : esteira.pcmso.dias_para_vencer_pcmso <= 90
+                            ? 'bg-yellow-100 text-yellow-800'
+                            : 'bg-green-100 text-green-800'
+                      }
+                    >
+                      {esteira.pcmso.dias_para_vencer_pcmso} dias
+                    </Badge>
+                    {!esteira.pcmso.vigente_hoje && (
+                      <div className="text-xs text-red-700 mt-1">Fora da vigencia!</div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-md border border-yellow-300 bg-yellow-50 p-4 text-sm text-yellow-900">
+                  Nenhum PCMSO cadastrado (sst_pcmso vazio) — os exames por funcao ficam
+                  &quot;a definir&quot; ate o cadastro do documento oficial.
+                </div>
+              )}
+
+              {/* Totais da projecao */}
+              <div className="flex flex-wrap gap-2">
+                <Badge className="bg-red-100 text-red-800">
+                  Sem ASO (agendar ja): {esteira.totais.pendente_imediato}
+                </Badge>
+                <Badge className="bg-orange-100 text-orange-800">
+                  Vencidos: {esteira.totais.vencidos}
+                </Badge>
+                <Badge className="bg-blue-100 text-blue-800">
+                  Previstos no horizonte: {esteira.totais.previstos}
+                </Badge>
+                <Badge className="bg-green-100 text-green-800">
+                  Ja agendados: {esteira.totais.ja_agendados}
+                </Badge>
+                {esteira.totais.sem_mapa_exames > 0 && (
+                  <Badge variant="outline">
+                    Funcao sem mapa no PCMSO: {esteira.totais.sem_mapa_exames}
+                  </Badge>
+                )}
+                {esteira.totais.alem_do_horizonte > 0 && (
+                  <Badge variant="outline">
+                    Alem de 12 meses: {esteira.totais.alem_do_horizonte}
+                  </Badge>
+                )}
+              </div>
+
+              {/* Linha do tempo por mes */}
+              {esteira.resumo_por_mes.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Nenhum exame periodico previsto no horizonte — esteira em dia.
+                </p>
+              ) : (
+                <div className="space-y-6">
+                  {esteira.resumo_por_mes.map((m) => {
+                    const itensMes = esteira.agenda.filter(
+                      (i: EsteiraAgendaItem) => i.mes === m.mes
+                    );
+                    const agendaveis = itensMes.filter((i: EsteiraAgendaItem) => !i.ja_agendado);
+                    return (
+                      <div key={m.mes} className="border-l-2 border-blue-200 pl-4">
+                        <div className="flex items-center justify-between gap-4 flex-wrap">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold">{m.label}</span>
+                            <Badge variant="outline">{m.total} funcionario(s)</Badge>
+                            {m.vencidos + m.pendente_imediato > 0 && (
+                              <Badge className="bg-red-100 text-red-800">
+                                {m.vencidos + m.pendente_imediato} acao imediata
+                              </Badge>
+                            )}
+                            {m.agendados > 0 && (
+                              <Badge className="bg-green-100 text-green-800">
+                                {m.agendados} ja agendado(s)
+                              </Badge>
+                            )}
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={agendaveis.length === 0}
+                            onClick={() =>
+                              abrirLoteCom(
+                                agendaveis.map((i: EsteiraAgendaItem) => ({
+                                  employee_id: i.employee_id,
+                                  nome: i.nome,
+                                }))
+                              )
+                            }
+                          >
+                            <Calendar className="h-4 w-4 mr-2" />
+                            Agendar estes ({agendaveis.length})
+                          </Button>
+                        </div>
+                        <div className="mt-2 overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Funcionario</TableHead>
+                                <TableHead>Posto</TableHead>
+                                <TableHead>Situacao</TableHead>
+                                <TableHead>Exames previstos (PCMSO)</TableHead>
+                                <TableHead>Agendamento</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {itensMes.map((i: EsteiraAgendaItem) => (
+                                <TableRow
+                                  key={i.employee_id}
+                                  className={i.ja_agendado ? 'opacity-60' : ''}
+                                >
+                                  <TableCell>
+                                    <div className="font-medium">{i.nome}</div>
+                                    <div className="text-xs text-muted-foreground">
+                                      {i.cargo || ''}
+                                      {i.grupo_pcmso ? ` — ${i.grupo_pcmso}` : ''}
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className="text-sm">{i.posto_nome}</TableCell>
+                                  <TableCell>
+                                    {i.situacao === 'pendente_imediato' ? (
+                                      <Badge className="bg-red-100 text-red-800">
+                                        Sem ASO — agendar ja
+                                      </Badge>
+                                    ) : i.situacao === 'vencido' ? (
+                                      <Badge className="bg-red-100 text-red-800">
+                                        Vencido ha {i.dias_vencido}d
+                                      </Badge>
+                                    ) : (
+                                      <Badge className="bg-blue-100 text-blue-800">
+                                        Vence em {i.dias_para_vencer}d (
+                                        {new Date(`${i.data_prevista}T12:00:00`).toLocaleDateString('pt-BR')})
+                                      </Badge>
+                                    )}
+                                  </TableCell>
+                                  <TableCell>
+                                    {i.exames_definidos ? (
+                                      <div className="flex flex-wrap gap-1 max-w-md">
+                                        {i.exames_previstos.map((e) => (
+                                          <Badge
+                                            key={e.nome}
+                                            variant="outline"
+                                            className="font-normal text-xs"
+                                            title={
+                                              e.cod_tabela27
+                                                ? `Tabela 27 eSocial: ${e.cod_tabela27}`
+                                                : 'Sem codigo na Tabela 27'
+                                            }
+                                          >
+                                            {e.nome}
+                                          </Badge>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span className="text-xs text-yellow-700">
+                                        {i.nota_exames || 'exames a definir no PCMSO'}
+                                      </span>
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="text-sm">
+                                    {i.ja_agendado && i.proxima_data_agendada ? (
+                                      <span className="text-green-700">
+                                        {new Date(`${i.proxima_data_agendada}T12:00:00`).toLocaleDateString('pt-BR')}
+                                      </span>
+                                    ) : (
+                                      <span className="text-xs text-muted-foreground">
+                                        nao agendado
+                                      </span>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <p className="text-xs text-muted-foreground">{esteira.nota}</p>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Dialog - Agendar em lote */}
       <Dialog open={loteDialogOpen} onOpenChange={setLoteDialogOpen}>
         <DialogContent>
@@ -526,7 +911,7 @@ export default function ExamesPage() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
-              <span className="font-medium">{selecionados.size} funcionario(s) selecionado(s)</span>
+              <span className="font-medium">{loteAlvo.length} funcionario(s) selecionado(s)</span>
               <span className="text-muted-foreground">
                 {' '}
                 — a data e a clinica abaixo valem para todos.
@@ -580,11 +965,11 @@ export default function ExamesPage() {
             </Button>
             <Button
               onClick={handleAgendarLote}
-              disabled={agendarLote.isPending || !loteForm.data_agendamento || selecionados.size === 0}
+              disabled={agendarLote.isPending || !loteForm.data_agendamento || loteAlvo.length === 0}
             >
               {agendarLote.isPending
                 ? 'Agendando...'
-                : `Agendar ${selecionados.size} exame(s)`}
+                : `Agendar ${loteAlvo.length} exame(s)`}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -731,6 +1116,7 @@ export default function ExamesPage() {
                   <TableHead>Status</TableHead>
                   <TableHead>eSocial</TableHead>
                   <TableHead>Recibo S-2220</TableHead>
+                  <TableHead className="w-[90px]">Anexo</TableHead>
                   <TableHead className="w-[190px]">Acoes</TableHead>
                 </TableRow>
               </TableHeader>
@@ -739,17 +1125,62 @@ export default function ExamesPage() {
                   <TableRow key={aso.aso_id}>
                     <TableCell>
                       <div className="font-medium">
-                        {aso.employee_nome || employeeNomeById(aso.employee_id) || (
-                          <span className="font-mono text-xs text-muted-foreground">
-                            {aso.aso_id.substring(0, 8)}...
-                          </span>
+                        {aso.employee_id ? (
+                          <Link
+                            href={`/modulos/gestao-pessoas/saude-ocupacional/prontuario/${aso.employee_id}`}
+                            className="hover:text-primary hover:underline underline-offset-4"
+                            title="Abrir Prontuário SST 360"
+                          >
+                            {aso.employee_nome ||
+                              employeeNomeById(aso.employee_id) || (
+                                <span className="font-mono text-xs text-muted-foreground">
+                                  {aso.aso_id.substring(0, 8)}...
+                                </span>
+                              )}
+                          </Link>
+                        ) : (
+                          aso.employee_nome || (
+                            <span className="font-mono text-xs text-muted-foreground">
+                              {aso.aso_id.substring(0, 8)}...
+                            </span>
+                          )
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="text-sm">{aso.tipo || '—'}</TableCell>
+                    <TableCell className="text-sm">
+                      {aso.tipo || '—'}
+                      {aso.retroativo && (
+                        <Badge variant="outline" className="ml-1 text-[10px] font-normal" title="Carga retroativa: exame feito em papel antes do sistema">
+                          retroativo
+                        </Badge>
+                      )}
+                    </TableCell>
                     <TableCell className="text-sm">{aso.status || '—'}</TableCell>
                     <TableCell>{getESocialBadge(aso.esocial_status)}</TableCell>
                     <TableCell className="text-sm font-mono">{aso.recibo_s2220 || '—'}</TableCell>
+                    <TableCell>
+                      {aso.arquivo_nome ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => baixarAnexo(aso)}
+                          disabled={baixandoAsoId === aso.aso_id}
+                          title={`Baixar documento digitalizado: ${aso.arquivo_nome}`}
+                        >
+                          <Download className="h-4 w-4 text-green-700" />
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => abrirUploadAnexo(aso.aso_id)}
+                          disabled={uploadAnexo.isPending && anexoAsoId === aso.aso_id}
+                          title="Sem documento digitalizado — anexar ASO (PDF/JPG/PNG, max 10MB)"
+                        >
+                          <Paperclip className="h-4 w-4 text-muted-foreground" />
+                        </Button>
+                      )}
+                    </TableCell>
                     <TableCell>
                       {aso.status !== 'realizado' ? (
                         <Button
@@ -841,6 +1272,19 @@ export default function ExamesPage() {
                 placeholder="Observacoes adicionais"
               />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="resultado_anexo">ASO digitalizado (opcional)</Label>
+              <Input
+                id="resultado_anexo"
+                ref={resultadoFileRef}
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                onChange={(e) => setResultadoFile(e.target.files?.[0] ?? null)}
+              />
+              <p className="text-xs text-muted-foreground">
+                PDF/JPG/PNG ate 10MB — da pra anexar depois pelo clipe na lista.
+              </p>
+            </div>
             <p className="text-xs text-muted-foreground">
               Ao salvar, o ASO vira &quot;realizado&quot; e o evento S-2220 e enfileirado ao eSocial
               (recibo real chega depois, via pull automatico).
@@ -852,6 +1296,142 @@ export default function ExamesPage() {
             </Button>
             <Button onClick={handleRegistrarResultado} disabled={registrarResultado.isPending}>
               {registrarResultado.isPending ? 'Salvando...' : 'Registrar resultado'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog - Carga Retroativa (admissionais em papel, pre-sistema) */}
+      <Dialog open={retroDialogOpen} onOpenChange={setRetroDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <History className="h-5 w-5" />
+              Carga Retroativa — ASOs em papel
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm space-y-1">
+              <div>
+                <span className="font-medium">{retroSalvosSessao}</span> digitalizado(s) nesta
+                sessao —{' '}
+                <span className="font-medium">
+                  {typeof semAso?.total === 'number' ? semAso.total : '…'}
+                </span>{' '}
+                funcionario(s) ainda sem ASO digitalizado.
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Todos fizeram o exame admissional antes de contratar (em papel, pre-sistema).
+                &quot;Sem ASO&quot; = documento nao digitalizado, nao exame nao feito. Ao salvar,
+                o formulario limpa e continua aberto pro proximo.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="retro_funcionario">Funcionario</Label>
+              <EmployeeSelect
+                id="retro_funcionario"
+                value={retroForm.employee_id}
+                onChange={(employeeId) => setRetroForm({ ...retroForm, employee_id: employeeId })}
+                placeholder="Busque pelo nome, matricula ou CPF..."
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="retro_tipo">Tipo</Label>
+                <Select
+                  value={retroForm.tipo}
+                  onValueChange={(v) => setRetroForm({ ...retroForm, tipo: v })}
+                >
+                  <SelectTrigger id="retro_tipo">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="admissional">Admissional</SelectItem>
+                    <SelectItem value="periodico">Periodico</SelectItem>
+                    <SelectItem value="retorno_trabalho">Retorno ao Trabalho</SelectItem>
+                    <SelectItem value="mudanca_funcao">Mudanca de Funcao</SelectItem>
+                    <SelectItem value="demissional">Demissional</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="retro_data">Data do exame (passada)</Label>
+                <Input
+                  id="retro_data"
+                  type="date"
+                  max={new Date().toISOString().slice(0, 10)}
+                  value={retroForm.data_realizacao}
+                  onChange={(e) => setRetroForm({ ...retroForm, data_realizacao: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="retro_clinica">Clinica (opcional)</Label>
+                <Input
+                  id="retro_clinica"
+                  value={retroForm.clinica}
+                  onChange={(e) => setRetroForm({ ...retroForm, clinica: e.target.value })}
+                  placeholder="Nome da clinica"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="retro_medico">Medico (opcional)</Label>
+                <Input
+                  id="retro_medico"
+                  value={retroForm.medico}
+                  onChange={(e) => setRetroForm({ ...retroForm, medico: e.target.value })}
+                  placeholder="Nome do medico"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="retro_apto">Resultado</Label>
+              <Select
+                value={retroForm.apto}
+                onValueChange={(v) => setRetroForm({ ...retroForm, apto: v })}
+              >
+                <SelectTrigger id="retro_apto">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="true">Apto</SelectItem>
+                  <SelectItem value="false">Inapto</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="retro_arquivo">Documento digitalizado (OBRIGATORIO)</Label>
+              <Input
+                id="retro_arquivo"
+                ref={retroFileRef}
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                onChange={(e) => setRetroFile(e.target.files?.[0] ?? null)}
+              />
+              <p className="text-xs text-muted-foreground">
+                PDF/JPG/PNG ate 10MB. Sem o documento nao ha prova — a carga retroativa e recusada.
+              </p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              O ASO entra como &quot;realizado&quot; (retroativo) e a validade e calculada em +12
+              meses (NR-7) — admissional/periodico zeram o relogio do compliance.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRetroDialogOpen(false)}>
+              Fechar
+            </Button>
+            <Button
+              onClick={handleSalvarRetroativo}
+              disabled={
+                asoRetroativo.isPending ||
+                !retroForm.employee_id ||
+                !retroForm.data_realizacao ||
+                !retroFile
+              }
+            >
+              {asoRetroativo.isPending ? 'Salvando...' : 'Salvar e proximo'}
             </Button>
           </DialogFooter>
         </DialogContent>

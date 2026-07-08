@@ -11,6 +11,8 @@ Alertas (todos por FATO no banco — nunca fabricados):
 3. CATs com esocial_status em nao_transmitida/erro há mais de 4h
    (prazo legal S-2210 = 1 dia útil!) — diário
 4. Fichas de EPI pendentes de assinatura há 7+ dias — diário
+5. ESTEIRA PCMSO PREVENTIVA: funcionários com ASO vencendo em ≤45 dias e SEM
+   agendamento futuro em gp_asos (agrupado) — diário
 
 Dedupe: por correlation_id (chave estável por tipo de alerta). Se já existe
 notificação NÃO-LIDA igual (mesmo título/corpo) para o usuário, não recria;
@@ -186,7 +188,130 @@ def _coletar_alertas(db, incluir_semanais: bool) -> list[dict]:
             }
         )
 
+    # 5. ESTEIRA PCMSO PREVENTIVA: funcionários ATIVOS cujo último ASO vence em
+    #    ≤45 dias e que NÃO têm nenhum agendamento futuro em gp_asos — o alvo é
+    #    agendar ANTES de vencer ("nunca mais 88 ASOs vencidos"). Fato no banco:
+    #    último data_validade por funcionário + ausência de status='agendado' futuro.
+    preventivo = db.execute(
+        text(
+            """
+            WITH ultimo AS (
+                SELECT DISTINCT ON (a.employee_id) a.employee_id, a.data_validade
+                FROM gp_asos a
+                WHERE a.data_validade IS NOT NULL
+                ORDER BY a.employee_id, a.data_validade DESC
+            )
+            SELECT count(*) AS funcs, min(u.data_validade) AS primeiro_vencimento
+            FROM ultimo u
+            JOIN employees e ON e.id = u.employee_id AND e.status = 'ativo'
+            WHERE u.data_validade >= CURRENT_DATE
+              AND u.data_validade <= CURRENT_DATE + INTERVAL '45 days'
+              AND NOT EXISTS (
+                  SELECT 1 FROM gp_asos g
+                  WHERE g.employee_id = u.employee_id
+                    AND g.status = 'agendado'
+                    AND g.data_agendamento >= CURRENT_DATE
+              )
+            """
+        )
+    ).mappings().first()
+    if preventivo and preventivo["funcs"]:
+        alertas.append(
+            {
+                "chave": "sst:esteira_pcmso_45d_sem_agendamento",
+                "titulo": (
+                    f"PCMSO preventivo: {preventivo['funcs']} funcionário(s) "
+                    "precisam agendar exame periódico (45d)"
+                ),
+                "corpo": (
+                    f"{preventivo['funcs']} funcionário(s) ativo(s) têm ASO vencendo em até "
+                    f"45 dias (primeiro vencimento: {preventivo['primeiro_vencimento']:%d/%m/%Y}) "
+                    "e NENHUM exame agendado. Agende pela Esteira Preventiva antes de vencer "
+                    "(NR-7 — exame periódico anual)."
+                ),
+                "action_url": "/modulos/gestao-pessoas/saude-ocupacional/exames",
+                "prioridade": QueuePriority.HIGH,
+            }
+        )
+
+    # 6. Calendário Legal SST — PCMSO/LTCAT/CAs de EPI/treinamentos NR ≤30d
+    alertas.extend(_alertas_calendario_legal(db))
+
     return alertas
+
+
+def _alertas_calendario_legal(db) -> list[dict]:
+    """Itens LEGAIS do calendário SST vencidos ou vencendo em ≤30 dias.
+
+    Cobre o que os alertas existentes NÃO cobrem: PCMSO (vigência), LTCAT
+    (validade), CAs dos EPIs do CATÁLOGO (health_epi_catalog.ca_validade) e
+    treinamentos NR (sst_treinamentos). ASOs e fichas de EPI já têm alertas
+    próprios — não duplicar. Fatos do banco, nunca fabricados. Dedupe padrão
+    via chave estável (correlation_id) como os demais alertas.
+    """
+    from sqlalchemy import text
+
+    from modules.notifications.models import QueuePriority
+
+    try:
+        row = db.execute(
+            text(
+                "SELECT "
+                "(SELECT count(*) FROM sst_pcmso WHERE vigencia_fim <= CURRENT_DATE + 30) AS pcmso, "
+                "(SELECT count(*) FROM sst_pcmso WHERE vigencia_fim < CURRENT_DATE) AS pcmso_venc, "
+                "(SELECT count(*) FROM sst_ltcat WHERE validade_fim IS NOT NULL "
+                "   AND validade_fim <= CURRENT_DATE + 30) AS ltcat, "
+                "(SELECT count(*) FROM sst_ltcat WHERE validade_fim IS NOT NULL "
+                "   AND validade_fim < CURRENT_DATE) AS ltcat_venc, "
+                "(SELECT count(*) FROM health_epi_catalog WHERE ativo = true "
+                "   AND ca_validade IS NOT NULL AND ca_validade <= CURRENT_DATE + 30) AS cas, "
+                "(SELECT count(*) FROM health_epi_catalog WHERE ativo = true "
+                "   AND ca_validade IS NOT NULL AND ca_validade < CURRENT_DATE) AS cas_venc, "
+                "(SELECT count(*) FROM sst_treinamentos "
+                "   WHERE vencimento <= CURRENT_DATE + 30) AS trein, "
+                "(SELECT count(*) FROM sst_treinamentos "
+                "   WHERE vencimento < CURRENT_DATE) AS trein_venc"
+            )
+        ).mappings().first()
+    except Exception as exc:
+        logger.error("_alertas_calendario_legal: falha ao consultar o banco: %s", exc)
+        return []
+
+    if not row:
+        return []
+
+    partes: list[str] = []
+    tem_vencido = False
+    if row["pcmso"]:
+        partes.append(f"{row['pcmso']} PCMSO")
+        tem_vencido = tem_vencido or bool(row["pcmso_venc"])
+    if row["ltcat"]:
+        partes.append(f"{row['ltcat']} LTCAT")
+        tem_vencido = tem_vencido or bool(row["ltcat_venc"])
+    if row["cas"]:
+        partes.append(f"{row['cas']} CA(s) de EPI do catálogo")
+        tem_vencido = tem_vencido or bool(row["cas_venc"])
+    if row["trein"]:
+        partes.append(f"{row['trein']} treinamento(s) NR")
+        tem_vencido = tem_vencido or bool(row["trein_venc"])
+
+    if not partes:
+        return []
+
+    total = (row["pcmso"] or 0) + (row["ltcat"] or 0) + (row["cas"] or 0) + (row["trein"] or 0)
+    return [
+        {
+            "chave": "sst:calendario_legal_30d",
+            "titulo": f"SST: {total} item(ns) do Calendário Legal vencendo em 30 dias",
+            "corpo": (
+                "Itens legais SST vencidos ou vencendo em 30 dias: "
+                + "; ".join(partes)
+                + ". Veja o Calendário Legal para a lista completa com ações sugeridas."
+            ),
+            "action_url": "/modulos/gestao-pessoas/saude-ocupacional/calendario-legal",
+            "prioridade": QueuePriority.CRITICAL if tem_vencido else QueuePriority.HIGH,
+        }
+    ]
 
 
 @app.task(name="sst.alertas_diarios")

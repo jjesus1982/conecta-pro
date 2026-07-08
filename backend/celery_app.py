@@ -74,6 +74,7 @@ app.conf.task_routes = {
     "government_integrations.tasks.sync.*": {"queue": "gov.batch"},
     "government_integrations.tasks.sync.sincronizar_nfe": {"queue": "gov.sefaz.nfe"},
     "government_integrations.tasks.sync.sincronizar_esocial": {"queue": "gov.esocial"},
+    "government_integrations.tasks.espelho.sincronizar_espelho_esocial": {"queue": "gov.esocial"},
     "government_integrations.tasks.sync.sincronizar_fgts": {"queue": "gov.fgts"},
     "government_integrations.tasks.sync.sincronizar_nfse": {"queue": "gov.nfse"},
     # Monitoring tasks
@@ -387,6 +388,16 @@ app.conf.beat_schedule = {
     "esocial-pull-recibos": {
         "task": "sst.esocial_pull_recibos",
         "schedule": crontab(minute=20, hour="*/2"),
+        "options": {"queue": "gov.esocial"},
+    },
+    # eSocial ESPELHO OFICIAL — re-sync DIÁRIO 09:10 (baixa eventos JÁ
+    # TRANSMITIDOS — read-only). O governo limita a 10 acessos/dia e bloqueia
+    # os dias 1-7 do mês (a task respeita o orçamento e pula sozinha o bloqueio);
+    # com esse teto, cadência semanal levaria ~1 ano p/ enumerar a fila — por
+    # isso diário (usa até 8 acessos/dia, deixa 2 de margem p/ runs manuais).
+    "esocial-espelho-sync": {
+        "task": "government_integrations.tasks.espelho.sincronizar_espelho_esocial",
+        "schedule": crontab(minute=10, hour=9),
         "options": {"queue": "gov.esocial"},
     },
     # =========================================================================

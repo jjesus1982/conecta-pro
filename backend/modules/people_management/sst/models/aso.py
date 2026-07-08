@@ -58,6 +58,15 @@ class ASOModel(Base):
 
     documento_url = Column(String(500), nullable=True)
 
+    # Anexo digitalizado do ASO (papel → PDF/JPG/PNG no volume ./uploads)
+    # (migration 2026-07-08_sst_aso_anexos)
+    arquivo_path = Column(String(500), nullable=True)
+    arquivo_nome = Column(String(255), nullable=True)
+    arquivo_subido_em = Column(DateTime(timezone=True), nullable=True)
+    # Carga retroativa: exame feito em papel ANTES do sistema (fato CEO: todos
+    # fizeram admissional antes de contratar). Anexo obrigatório na carga.
+    retroativo = Column(Boolean, nullable=False, default=False)
+
     # eSocial S-2220 (transmissão real)
     recibo_s2220 = Column(String(60), nullable=True)
     esocial_status = Column(String(20), nullable=False, default="nao_transmitida")
@@ -83,4 +92,7 @@ class ASOModel(Base):
             "restricoes": self.restricoes,
             "clinica": self.clinica,
             "medico": self.medico,
+            "retroativo": bool(self.retroativo),
+            "arquivo_nome": self.arquivo_nome,
+            "tem_anexo": bool(self.arquivo_path),
         }

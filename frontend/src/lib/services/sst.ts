@@ -183,6 +183,10 @@ export interface ASOItem {
   esocial_status: ESocialStatus;
   recibo_s2220: string | null;
   esocial_protocolo: string | null;
+  /** Nome original do ASO digitalizado anexado (null = sem anexo) */
+  arquivo_nome?: string | null;
+  /** true = carga retroativa (exame em papel, pré-sistema) */
+  retroativo?: boolean;
 }
 
 export interface ASOList {
@@ -205,6 +209,50 @@ export interface ASOResultadoResponse {
   status: string;
   apto: boolean;
   esocial: ESocialEnfileiramento;
+}
+
+/** POST /sst/aso/{id}/anexo — upload do ASO digitalizado */
+export interface ASOAnexoResponse {
+  aso_id: string;
+  arquivo_nome: string;
+  arquivo_path: string;
+  tamanho_bytes: number;
+}
+
+/** POST /sst/aso/retroativo — carga retroativa (anexo OBRIGATÓRIO) */
+export interface ASORetroativoPayload {
+  employee_id: string;
+  tipo: string;
+  data_realizacao: string;
+  clinica?: string;
+  medico?: string;
+  crm?: string;
+  apto?: boolean;
+}
+
+export interface ASORetroativoResponse {
+  aso_id: string;
+  employee_id: string;
+  employee_nome: string;
+  tipo: string;
+  status: string;
+  retroativo: boolean;
+  data_realizacao: string;
+  data_validade: string | null;
+  arquivo_nome: string;
+  esocial: ESocialEnfileiramento;
+}
+
+/** GET /sst/asos/sem-aso — funcionários ativos sem NENHUM ASO digitalizado */
+export interface SemASOItem {
+  employee_id: string;
+  nome: string;
+  cargo: string | null;
+}
+
+export interface SemASOList {
+  total: number;
+  colaboradores: SemASOItem[];
 }
 
 // =============================================================================
@@ -350,6 +398,193 @@ export interface NR1Compliance {
 }
 
 // =============================================================================
+// TIPOS - PRONTUÁRIO SST 360 (dossiê completo por funcionário)
+// =============================================================================
+
+/** Todo bloco do prontuário carrega a fonte real; se o domínio falhou, vem `erro` */
+export interface ProntuarioBlocoBase {
+  fonte: string;
+  erro?: string;
+}
+
+export interface ProntuarioIdentificacao {
+  fonte: string;
+  employee_id: string;
+  nome: string;
+  cpf: string | null;
+  matricula: string | null;
+  cargo: string | null;
+  data_admissao: string | null;
+  data_demissao: string | null;
+  status: string;
+  posto_atual: { posto_id: string; nome: string } | null;
+  posto_atual_erro?: string;
+}
+
+export interface ProntuarioCompliance extends ProntuarioBlocoBase {
+  score?: number | null;
+  calcado?: boolean | null;
+  checks?: NR1Funcionario['checks'] | null;
+  nota?: string;
+}
+
+export interface ProntuarioASOItem {
+  aso_id: string;
+  tipo: string | null;
+  status: string | null;
+  data_agendamento: string | null;
+  data_realizacao: string | null;
+  data_validade: string | null;
+  vencido: boolean;
+  clinica: string | null;
+  medico: string | null;
+  crm: string | null;
+  apto: boolean | null;
+  exames: { dt_exame?: string; cod_procedimento?: string; nome?: string }[] | null;
+  esocial_status: string | null;
+  recibo_s2220: string | null;
+}
+
+export interface ProntuarioASOs extends ProntuarioBlocoBase {
+  total?: number;
+  proximo_vencimento?: string | null;
+  vencido?: boolean;
+  historico?: ProntuarioASOItem[];
+}
+
+export interface ProntuarioEPIEntrega {
+  delivery_id: string;
+  epi_nome: string;
+  ca: string | null;
+  quantidade: number;
+  nr: string | null;
+  data_entrega: string | null;
+  data_validade: string | null;
+  data_devolucao: string | null;
+  ficha_epi_id: string | null;
+  ficha_status: string | null;
+}
+
+export interface ProntuarioFichaEPI {
+  ficha_id: string;
+  status: FichaEPIStatus | string;
+  itens: FichaEPIItemEntrega[];
+  assinatura_hash: string | null;
+  assinado_em: string | null;
+  created_at: string | null;
+}
+
+export interface ProntuarioEPIs extends ProntuarioBlocoBase {
+  total_entregas?: number;
+  entregas?: ProntuarioEPIEntrega[];
+  total_fichas?: number;
+  fichas_assinadas?: number;
+  fichas?: ProntuarioFichaEPI[];
+}
+
+export interface ProntuarioRisco {
+  risk_id: string;
+  categoria: string;
+  descricao: string;
+  nivel: string;
+  fonte_geradora: string | null;
+  medidas_controle: string[];
+  epi_recomendado: string[];
+  cod_agente_nocivo: string | null;
+  utiliz_epc: string | null;
+  utiliz_epi: string | null;
+  medicao: string | null;
+  status: string;
+}
+
+export interface ProntuarioRiscosFuncao extends ProntuarioBlocoBase {
+  cargo?: string | null;
+  funcao_token?: string | null;
+  total?: number;
+  riscos?: ProntuarioRisco[];
+  nota?: string;
+}
+
+export interface ProntuarioTreinamento {
+  id: string;
+  norma: string;
+  descricao: string | null;
+  data_realizacao: string;
+  validade_meses: number;
+  vencimento: string;
+  situacao: TreinamentoSituacao | string;
+  certificado_path: string | null;
+  created_by: string | null;
+}
+
+export interface ProntuarioTreinamentos extends ProntuarioBlocoBase {
+  total?: number;
+  treinamentos?: ProntuarioTreinamento[];
+}
+
+export interface ProntuarioAfastamento {
+  id: string;
+  tipo: string;
+  motivo: string | null;
+  data_inicio: string;
+  data_fim_prevista: string | null;
+  data_retorno: string | null;
+  dias_previstos: number | null;
+  cid: string | null;
+  medico: string | null;
+  crm: string | null;
+  status: string;
+  gera_estabilidade: boolean;
+  estabilidade_ate: string | null;
+  ajuda_medicamento_ativa: boolean;
+  esocial_status: string | null;
+  recibo_s2230: string | null;
+  esocial_protocolo: string | null;
+}
+
+export interface ProntuarioAfastamentos extends ProntuarioBlocoBase {
+  total?: number;
+  estabilidade_vigente_ate?: string | null;
+  afastamentos?: ProntuarioAfastamento[];
+}
+
+export interface ProntuarioCAT {
+  cat_id: string;
+  tipo_acidente: string;
+  data_acidente: string;
+  hora_acidente: string | null;
+  local: string;
+  descricao: string;
+  gravidade: string;
+  parte_corpo: string | null;
+  agente_causador: string | null;
+  afastamento_dias: number | null;
+  numero_cat_inss: string | null;
+  status: string;
+  esocial_status: string | null;
+  recibo_esocial: string | null;
+  esocial_protocolo: string | null;
+  esocial_transmitida_em: string | null;
+}
+
+export interface ProntuarioCATs extends ProntuarioBlocoBase {
+  total?: number;
+  cats?: ProntuarioCAT[];
+}
+
+export interface ProntuarioSST {
+  gerado_em: string;
+  identificacao: ProntuarioIdentificacao;
+  compliance: ProntuarioCompliance;
+  asos: ProntuarioASOs;
+  epis: ProntuarioEPIs;
+  riscos_funcao: ProntuarioRiscosFuncao;
+  treinamentos: ProntuarioTreinamentos;
+  afastamentos: ProntuarioAfastamentos;
+  cats: ProntuarioCATs;
+}
+
+// =============================================================================
 // TIPOS - TREINAMENTOS NR (4º pilar do compliance NR-1)
 // =============================================================================
 
@@ -450,6 +685,87 @@ export interface ASOAgendarLoteResponse {
     status: string;
   }[];
   erros: { employee_id: string; erro: string }[];
+  nota: string;
+}
+
+// =============================================================================
+// TIPOS - ESTEIRA PCMSO PREVENTIVA (projeção 12m — nada é gravado)
+// =============================================================================
+
+export interface EsteiraPCMSODoc {
+  pcmso_id: string;
+  medico_coordenador: string;
+  crm: string;
+  uf: string;
+  elaborador: string | null;
+  vigencia_inicio: string;
+  vigencia_fim: string;
+  vigente_hoje: boolean;
+  dias_para_vencer_pcmso: number;
+  grupos_funcao: string[];
+}
+
+export interface EsteiraExamePrevisto {
+  nome: string;
+  cod_tabela27: string | null;
+}
+
+export type EsteiraSituacao = 'pendente_imediato' | 'vencido' | 'previsto';
+
+export interface EsteiraAgendaItem {
+  employee_id: string;
+  nome: string;
+  cargo: string | null;
+  posto_id: string | null;
+  posto_nome: string;
+  situacao: EsteiraSituacao;
+  data_prevista: string;
+  mes: string; // YYYY-MM
+  vencimento_base: string | null;
+  dias_para_vencer: number | null;
+  dias_vencido: number | null;
+  base: { tipo: string; data_realizacao: string } | null;
+  grupo_pcmso: string | null;
+  exames_definidos: boolean;
+  exames_previstos: EsteiraExamePrevisto[];
+  nota_exames: string | null;
+  ja_agendado: boolean;
+  proxima_data_agendada: string | null;
+}
+
+export interface EsteiraMesResumo {
+  mes: string;
+  label: string;
+  total: number;
+  pendente_imediato: number;
+  vencidos: number;
+  previstos: number;
+  agendados: number;
+}
+
+export interface EsteiraPostoResumo {
+  posto_nome: string;
+  posto_id: string | null;
+  total: number;
+  acao_imediata: number;
+}
+
+export interface EsteiraPCMSO {
+  gerado_em: string;
+  horizonte_meses: number;
+  pcmso: EsteiraPCMSODoc | null;
+  total_funcionarios_ativos: number;
+  totais: {
+    pendente_imediato: number;
+    vencidos: number;
+    previstos: number;
+    ja_agendados: number;
+    sem_mapa_exames: number;
+    alem_do_horizonte: number;
+  };
+  resumo_por_mes: EsteiraMesResumo[];
+  resumo_por_posto: EsteiraPostoResumo[];
+  agenda: EsteiraAgendaItem[];
   nota: string;
 }
 
@@ -576,6 +892,29 @@ export interface PostoOption {
   status?: string | null;
 }
 
+// =============================================================================
+// TIPOS - CALENDARIO LEGAL SST
+// =============================================================================
+
+export type CalendarioLegalCriticidade = 'vencido' | 'atencao' | 'ok' | 'sem_data';
+
+export interface CalendarioLegalItem {
+  titulo: string;
+  categoria: string;
+  vencimento: string | null;
+  dias_restantes: number | null;
+  criticidade: CalendarioLegalCriticidade;
+  acao_sugerida: string;
+  fonte: string;
+}
+
+export interface CalendarioLegal {
+  gerado_em: string;
+  total: number;
+  resumo: Record<CalendarioLegalCriticidade, number>;
+  itens: CalendarioLegalItem[];
+}
+
 export const AFASTAMENTO_STATUS_LABELS: Record<string, string> = {
   ativo: 'Ativo',
   encerrado: 'Encerrado',
@@ -665,6 +1004,39 @@ export const sstService = {
   // ASO (eSocial S-2220)
   listASOs: () => api.get<ASOList>(`${BASE}/aso`).then((r) => r.data),
 
+  // Anexo do ASO (documento digitalizado — PDF/JPG/PNG, max 10MB)
+  uploadASOAnexo: (asoId: string, file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api
+      .post<ASOAnexoResponse>(`${BASE}/aso/${asoId}/anexo`, fd)
+      .then((r) => r.data);
+  },
+
+  downloadASOAnexo: (asoId: string) =>
+    api
+      .get(`${BASE}/aso/${asoId}/anexo`, { responseType: 'blob' })
+      .then((r) => r.data as Blob),
+
+  // Carga retroativa (exame em papel pré-sistema — anexo OBRIGATÓRIO)
+  criarASORetroativo: (payload: ASORetroativoPayload, file: File) => {
+    const fd = new FormData();
+    fd.append('employee_id', payload.employee_id);
+    fd.append('tipo', payload.tipo);
+    fd.append('data_realizacao', payload.data_realizacao);
+    if (payload.clinica) fd.append('clinica', payload.clinica);
+    if (payload.medico) fd.append('medico', payload.medico);
+    if (payload.crm) fd.append('crm', payload.crm);
+    fd.append('apto', String(payload.apto ?? true));
+    fd.append('file', file);
+    return api
+      .post<ASORetroativoResponse>(`${BASE}/aso/retroativo`, fd)
+      .then((r) => r.data);
+  },
+
+  // Funcionários ativos sem nenhum ASO digitalizado (contador da carga retroativa)
+  listSemASO: () => api.get<SemASOList>(`${BASE}/asos/sem-aso`).then((r) => r.data),
+
   // Regularização de ASOs vencidas
   getASOsRegularizacao: () =>
     api.get<ASORegularizacao>(`${BASE}/asos/regularizacao`).then((r) => r.data),
@@ -672,6 +1044,14 @@ export const sstService = {
   agendarASOsLote: (itens: ASOAgendarLoteItem[]) =>
     api
       .post<ASOAgendarLoteResponse>(`${BASE}/asos/agendar-lote`, itens)
+      .then((r) => r.data),
+
+  // Esteira PCMSO Preventiva (projeção ao vivo — nada é gravado)
+  getEsteiraPCMSO: (horizonteMeses = 12) =>
+    api
+      .get<EsteiraPCMSO>(`${BASE}/pcmso/esteira`, {
+        params: { horizonte_meses: horizonteMeses },
+      })
       .then((r) => r.data),
 
   // Treinamentos NR (sst_treinamentos)
@@ -721,6 +1101,12 @@ export const sstService = {
     api
       .get(`${BASE}/epi/fichas/${fichaId}/pdf`, { responseType: 'blob' })
       .then((r) => r.data as Blob),
+
+  // Prontuário SST 360 (dossiê completo por funcionário)
+  getProntuario: (employeeId: string) =>
+    api
+      .get<ProntuarioSST>(`${BASE}/prontuario/${employeeId}`)
+      .then((r) => r.data),
 
   // Compliance NR-1
   getNR1Compliance: () =>
@@ -784,6 +1170,10 @@ export const sstService = {
 
   updateLTCAT: (data: LTCATUpdatePayload) =>
     api.put(`${BASE}/ltcat`, data).then((r) => r.data),
+
+  // Calendario Legal SST (radar unico de vencimentos legais)
+  getCalendarioLegal: () =>
+    api.get<CalendarioLegal>(`${BASE}/calendario-legal`).then((r) => r.data),
 };
 
 export default sstService;

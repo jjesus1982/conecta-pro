@@ -29,6 +29,7 @@ from .dctfweb_controller import router as dctfweb_router
 from .ecac_controller import router as ecac_router
 from .efd_reinf_controller import router as efd_reinf_router
 from .esocial_controller import router as esocial_router
+from .esocial_espelho_controller import router as esocial_espelho_router
 from .extraction_controller import router as extraction_router
 from .fgts_digital_controller import router as fgts_digital_router
 from .fgts_inss_controller import router as fgts_inss_router
@@ -54,6 +55,7 @@ router = APIRouter(prefix="/government", tags=["Government - Integracoes Governa
 router.include_router(receita_federal_router)
 router.include_router(fgts_inss_router)
 router.include_router(esocial_router)
+router.include_router(esocial_espelho_router)
 router.include_router(sefaz_router)
 router.include_router(status_router)
 router.include_router(certificate_router)

@@ -321,7 +321,15 @@ export default function EPIPage() {
             {statsLoading ? (
               <div className="h-8 w-16 animate-pulse rounded bg-muted" />
             ) : (
-              <div className="font-data text-2xl font-semibold tabular-nums text-red-600">{(stats as any)?.assinaturas_pendentes ?? (stats as any)?.cas_vencendo ?? 0}</div>
+              <>
+                {/* FATO: CAs do catalogo (health_epi_catalog.ca_validade) vencidos ou a vencer em 90d — nunca entregas */}
+                <div className="font-data text-2xl font-semibold tabular-nums text-red-600">{(stats as any)?.cas_vencendo ?? 0}</div>
+                {((stats as any)?.cas_sem_validade ?? 0) > 0 && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {(stats as any).cas_sem_validade} CA(s) sem validade registrada
+                  </p>
+                )}
+              </>
             )}
           </CardContent>
         </Card>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import {
   ShieldCheck,
   ShieldAlert,
@@ -309,7 +310,15 @@ export default function ComplianceNR1Page() {
               <TableBody>
                 {funcionarios.map((f) => (
                   <TableRow key={f.employee_id}>
-                    <TableCell className="font-medium">{f.nome}</TableCell>
+                    <TableCell className="font-medium">
+                      <Link
+                        href={`/modulos/gestao-pessoas/saude-ocupacional/prontuario/${f.employee_id}`}
+                        className="hover:text-primary hover:underline underline-offset-4"
+                        title={`Abrir Prontuário SST 360 de ${f.nome}`}
+                      >
+                        {f.nome}
+                      </Link>
+                    </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{f.cargo || '—'}</TableCell>
                     <TableCell>{getASOBadge(f.checks.aso)}</TableCell>
                     <TableCell>{getEPIBadge(f.checks.epi)}</TableCell>

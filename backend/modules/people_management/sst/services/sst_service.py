@@ -251,18 +251,36 @@ class SSTService:
     # ================================================================
 
     async def get_pcmso_status(self) -> dict[str, Any]:
-        """Status do PCMSO calculado a partir de dados reais (gp_asos)."""
+        """Status do PCMSO: documento REAL (sst_pcmso) + execução real (gp_asos)."""
+        from modules.people_management.sst.services.esteira_pcmso_service import (
+            carregar_pcmso,
+        )
+
         total = await self._count_employees()
         stats = await self._get_pcmso_stats()
 
         percentual = round(stats["realizados"] * 100 / total, 1) if total > 0 else 0
 
+        # Documento oficial do PCMSO (médico coordenador, vigência, countdown)
+        documento = None
+        try:
+            documento = await carregar_pcmso(self.db)
+            if documento:
+                documento.pop("exames_por_funcao", None)  # mapa completo fica na esteira
+        except Exception as exc:
+            logger.debug("Tabela sst_pcmso indisponível: %s", exc)
+
         return {
             "programa": "PCMSO — Programa de Controle Medico de Saude Ocupacional",
             "obrigatorio_cct": True,
             "clausula_cct": "23a — SINDECOMPRESTS/SINDICOND-AM 2026",
-            "vigente": stats["realizados"] > 0,
-            "coordenador": "Dr. Medico do Trabalho",
+            "vigente": bool(documento and documento["vigente_hoje"]) or stats["realizados"] > 0,
+            "coordenador": (
+                documento["medico_coordenador"]
+                if documento
+                else "aguardando cadastro do PCMSO (sst_pcmso)"
+            ),
+            "documento": documento,
             "total_colaboradores": total,
             "exames_realizados": stats["realizados"],
             "exames_pendentes": stats["pendentes"],
@@ -1039,6 +1057,406 @@ class SSTService:
             },
             "funcionarios": funcionarios,
         }
+
+    # ================================================================
+    # PRONTUÁRIO SST 360 — dossiê completo por funcionário
+    # ================================================================
+
+    async def get_prontuario(self, employee_id: str) -> dict[str, Any] | None:
+        """Prontuário SST 360 — TUDO de saúde ocupacional de um funcionário.
+
+        O dossiê que se abre quando o fiscal pergunta "me mostra o do João".
+        Cada bloco é isolado em try/except: um domínio falho não derruba o
+        prontuário (vem com {"erro": ...} honesto no bloco). Todo bloco carrega
+        `fonte` (tabela real) e vazios são declarados, nunca mascarados.
+        """
+        hoje = date.today()
+
+        # Identificação (bloco raiz — se o funcionário não existe, 404 no controller)
+        emp = (
+            await self.db.execute(
+                text(
+                    "SELECT id, nome, cpf, matricula, cargo, data_admissao, "
+                    "data_demissao, status FROM employees WHERE id::text = :eid"
+                ),
+                {"eid": str(employee_id)},
+            )
+        ).mappings().first()
+        if not emp:
+            return None
+        eid = str(emp["id"])
+
+        prontuario: dict[str, Any] = {
+            "gerado_em": str(hoje),
+            "identificacao": {
+                "fonte": "employees + allocations→posts",
+                "employee_id": eid,
+                "nome": emp["nome"],
+                "cpf": emp["cpf"],
+                "matricula": emp["matricula"],
+                "cargo": emp["cargo"],
+                "data_admissao": str(emp["data_admissao"]) if emp["data_admissao"] else None,
+                "data_demissao": str(emp["data_demissao"]) if emp["data_demissao"] else None,
+                "status": emp["status"],
+                "posto_atual": None,  # preenchido abaixo (allocations ativas → posts)
+            },
+        }
+
+        # --- Posto atual (allocations ativas → posts) --------------------
+        try:
+            posto = (
+                await self.db.execute(
+                    text(
+                        """
+                        SELECT p.id AS posto_id, p.name AS posto_nome
+                        FROM allocations al
+                        JOIN posts p ON p.id = al.post_id
+                        WHERE al.employee_id::text = :eid
+                          AND al.is_active = true AND al.status = 'active'
+                          AND (al.end_date IS NULL OR al.end_date >= CURRENT_DATE)
+                        ORDER BY al.is_primary DESC, al.start_date DESC
+                        LIMIT 1
+                        """
+                    ),
+                    {"eid": eid},
+                )
+            ).mappings().first()
+            prontuario["identificacao"]["posto_atual"] = (
+                {"posto_id": str(posto["posto_id"]), "nome": posto["posto_nome"]}
+                if posto
+                else None  # honesto: sem alocação ativa
+            )
+        except Exception as exc:
+            logger.warning("Prontuário %s: bloco posto falhou: %s", eid, exc)
+            prontuario["identificacao"]["posto_atual_erro"] = str(exc)
+
+        # --- Compliance NR-1 (os 4 checks + score) ------------------------
+        try:
+            compliance = await self.get_nr1_compliance()
+            meu = next(
+                (f for f in compliance.get("funcionarios", []) if f["employee_id"] == eid),
+                None,
+            )
+            if meu:
+                prontuario["compliance"] = {
+                    "fonte": "get_nr1_compliance (gp_asos + gp_epi_deliveries/sst_fichas_epi + gp_risks + sst_treinamentos)",
+                    "score": meu["score"],
+                    "calcado": meu["calcado"],
+                    "checks": meu["checks"],
+                }
+            else:
+                prontuario["compliance"] = {
+                    "fonte": "get_nr1_compliance",
+                    "score": None,
+                    "calcado": None,
+                    "checks": None,
+                    "nota": "Funcionário fora do painel NR-1 (painel avalia apenas status='ativo')",
+                }
+        except Exception as exc:
+            logger.warning("Prontuário %s: bloco compliance falhou: %s", eid, exc)
+            prontuario["compliance"] = {"fonte": "get_nr1_compliance", "erro": str(exc)}
+
+        # --- ASOs (histórico + próximo vencimento) ------------------------
+        try:
+            asos = (
+                await self.db.execute(
+                    text(
+                        "SELECT aso_id, tipo, status, data_agendamento, data_realizacao, "
+                        "data_validade, clinica, medico, crm, apto, exames, "
+                        "esocial_status, recibo_s2220 "
+                        "FROM gp_asos WHERE employee_id::text = :eid "
+                        "ORDER BY COALESCE(data_realizacao, data_agendamento) DESC NULLS LAST"
+                    ),
+                    {"eid": eid},
+                )
+            ).mappings().all()
+            historico = []
+            proximo_vencimento: str | None = None
+            for a in asos:
+                historico.append(
+                    {
+                        "aso_id": a["aso_id"],
+                        "tipo": str(a["tipo"]) if a["tipo"] else None,
+                        "status": str(a["status"]) if a["status"] else None,
+                        "data_agendamento": str(a["data_agendamento"]) if a["data_agendamento"] else None,
+                        "data_realizacao": str(a["data_realizacao"]) if a["data_realizacao"] else None,
+                        "data_validade": str(a["data_validade"]) if a["data_validade"] else None,
+                        "vencido": bool(a["data_validade"] and a["data_validade"] < hoje),
+                        "clinica": a["clinica"],
+                        "medico": a["medico"],
+                        "crm": a["crm"],
+                        "apto": a["apto"],
+                        "exames": a["exames"],
+                        "esocial_status": a["esocial_status"],
+                        "recibo_s2220": a["recibo_s2220"],
+                    }
+                )
+            validades = [a["data_validade"] for a in asos if a["data_validade"]]
+            if validades:
+                proximo_vencimento = str(max(validades))
+            prontuario["asos"] = {
+                "fonte": "gp_asos",
+                "total": len(historico),
+                "proximo_vencimento": proximo_vencimento,
+                "vencido": bool(validades) and max(validades) < hoje,
+                "historico": historico,
+            }
+        except Exception as exc:
+            logger.warning("Prontuário %s: bloco ASOs falhou: %s", eid, exc)
+            prontuario["asos"] = {"fonte": "gp_asos", "erro": str(exc)}
+
+        # --- EPIs (entregas + fichas c/ status de assinatura) --------------
+        try:
+            entregas = (
+                await self.db.execute(
+                    text(
+                        "SELECT d.delivery_id, d.epi_nome, d.epi_ca, d.quantidade, d.nr, "
+                        "d.data_entrega, d.data_validade, d.data_devolucao, "
+                        "d.ficha_epi_id::text AS ficha_epi_id, f.status AS ficha_status "
+                        "FROM gp_epi_deliveries d "
+                        "LEFT JOIN sst_fichas_epi f ON f.id = d.ficha_epi_id "
+                        "WHERE d.employee_id::text = :eid ORDER BY d.data_entrega DESC"
+                    ),
+                    {"eid": eid},
+                )
+            ).mappings().all()
+            fichas = (
+                await self.db.execute(
+                    text(
+                        "SELECT id::text AS ficha_id, status, itens, assinatura_hash, "
+                        "assinado_em, created_at "
+                        "FROM sst_fichas_epi WHERE employee_id::text = :eid "
+                        "ORDER BY created_at DESC"
+                    ),
+                    {"eid": eid},
+                )
+            ).mappings().all()
+            prontuario["epis"] = {
+                "fonte": "gp_epi_deliveries + sst_fichas_epi",
+                "total_entregas": len(entregas),
+                "entregas": [
+                    {
+                        "delivery_id": e["delivery_id"],
+                        "epi_nome": e["epi_nome"],
+                        "ca": e["epi_ca"],
+                        "quantidade": e["quantidade"],
+                        "nr": e["nr"],
+                        "data_entrega": str(e["data_entrega"]) if e["data_entrega"] else None,
+                        "data_validade": str(e["data_validade"]) if e["data_validade"] else None,
+                        "data_devolucao": str(e["data_devolucao"]) if e["data_devolucao"] else None,
+                        "ficha_epi_id": e["ficha_epi_id"],
+                        "ficha_status": e["ficha_status"] or ("sem_ficha" if not e["ficha_epi_id"] else None),
+                    }
+                    for e in entregas
+                ],
+                "total_fichas": len(fichas),
+                "fichas_assinadas": sum(1 for f in fichas if f["status"] == "assinada"),
+                "fichas": [
+                    {
+                        "ficha_id": f["ficha_id"],
+                        "status": f["status"],
+                        "itens": f["itens"] or [],
+                        "assinatura_hash": f["assinatura_hash"],
+                        "assinado_em": f["assinado_em"].isoformat() if f["assinado_em"] else None,
+                        "created_at": f["created_at"].isoformat() if f["created_at"] else None,
+                    }
+                    for f in fichas
+                ],
+            }
+        except Exception as exc:
+            logger.warning("Prontuário %s: bloco EPIs falhou: %s", eid, exc)
+            prontuario["epis"] = {"fonte": "gp_epi_deliveries + sst_fichas_epi", "erro": str(exc)}
+
+        # --- Riscos da FUNÇÃO (PGR GES — gp_risks.funcoes_aplicaveis) -------
+        try:
+            from modules.people_management.hr.services.esocial_service import (
+                _cargo_token,
+                _json_list,
+            )
+
+            token = _cargo_token(emp["cargo"])
+            riscos_rows = (
+                await self.db.execute(
+                    text(
+                        "SELECT risk_id, categoria, descricao, nivel, fonte_geradora, "
+                        "medidas_controle, epi_recomendado, status, cod_agente_nocivo, "
+                        "utiliz_epc, utiliz_epi, medicao, funcoes_aplicaveis "
+                        "FROM gp_risks WHERE COALESCE(status,'') <> 'encerrado'"
+                    )
+                )
+            ).mappings().all()
+            da_funcao = []
+            for r in riscos_rows:
+                if token and token in _json_list(r["funcoes_aplicaveis"]):
+                    da_funcao.append(
+                        {
+                            "risk_id": r["risk_id"],
+                            "categoria": r["categoria"],
+                            "descricao": r["descricao"],
+                            "nivel": r["nivel"],
+                            "fonte_geradora": r["fonte_geradora"],
+                            "medidas_controle": _json_list(r["medidas_controle"]),
+                            "epi_recomendado": _json_list(r["epi_recomendado"]),
+                            "cod_agente_nocivo": r["cod_agente_nocivo"],
+                            "utiliz_epc": r["utiliz_epc"],
+                            "utiliz_epi": r["utiliz_epi"],
+                            "medicao": r["medicao"],
+                            "status": r["status"],
+                        }
+                    )
+            prontuario["riscos_funcao"] = {
+                "fonte": "gp_risks.funcoes_aplicaveis (PGR MBS Engenharia — GES por função) + Tabela 24 eSocial",
+                "cargo": emp["cargo"],
+                "funcao_token": token,
+                "total": len(da_funcao),
+                "riscos": da_funcao,
+                **(
+                    {"nota": "Cargo não mapeado no PGR (sem token de função) — nenhum risco atribuível"}
+                    if not token
+                    else {}
+                ),
+            }
+        except Exception as exc:
+            logger.warning("Prontuário %s: bloco riscos falhou: %s", eid, exc)
+            prontuario["riscos_funcao"] = {"fonte": "gp_risks", "erro": str(exc)}
+
+        # --- Treinamentos NR (c/ vencimentos) -------------------------------
+        try:
+            treinos = (
+                await self.db.execute(
+                    text(
+                        "SELECT id::text AS id, norma, descricao, data_realizacao, "
+                        "validade_meses, vencimento, certificado_path, created_by "
+                        "FROM sst_treinamentos WHERE employee_id::text = :eid "
+                        "ORDER BY vencimento DESC"
+                    ),
+                    {"eid": eid},
+                )
+            ).mappings().all()
+            prontuario["treinamentos"] = {
+                "fonte": "sst_treinamentos",
+                "total": len(treinos),
+                "treinamentos": [
+                    {
+                        "id": t["id"],
+                        "norma": t["norma"],
+                        "descricao": t["descricao"],
+                        "data_realizacao": str(t["data_realizacao"]),
+                        "validade_meses": t["validade_meses"],
+                        "vencimento": str(t["vencimento"]),
+                        "situacao": self._situacao_treinamento(t["vencimento"], hoje),
+                        "certificado_path": t["certificado_path"],
+                        "created_by": t["created_by"],
+                    }
+                    for t in treinos
+                ],
+            }
+        except Exception as exc:
+            logger.warning("Prontuário %s: bloco treinamentos falhou: %s", eid, exc)
+            prontuario["treinamentos"] = {"fonte": "sst_treinamentos", "erro": str(exc)}
+
+        # --- Afastamentos (c/ estabilidade + status eSocial S-2230) ---------
+        try:
+            afs = (
+                await self.db.execute(
+                    text(
+                        "SELECT id::text AS id, tipo, motivo, data_inicio, data_fim_prevista, "
+                        "data_retorno, dias_previstos, cid, medico, crm, status, "
+                        "gera_estabilidade, estabilidade_ate, ajuda_medicamento_ativa, "
+                        "esocial_status, recibo_s2230, esocial_protocolo "
+                        "FROM sst_afastamentos WHERE employee_id::text = :eid "
+                        "ORDER BY data_inicio DESC"
+                    ),
+                    {"eid": eid},
+                )
+            ).mappings().all()
+            estabilidade_vigente = next(
+                (
+                    str(a["estabilidade_ate"])
+                    for a in afs
+                    if a["gera_estabilidade"] and a["estabilidade_ate"] and a["estabilidade_ate"] >= hoje
+                ),
+                None,
+            )
+            prontuario["afastamentos"] = {
+                "fonte": "sst_afastamentos (CCT Cláusula 29ª + eSocial S-2230)",
+                "total": len(afs),
+                "estabilidade_vigente_ate": estabilidade_vigente,
+                "afastamentos": [
+                    {
+                        "id": a["id"],
+                        "tipo": a["tipo"],
+                        "motivo": a["motivo"],
+                        "data_inicio": str(a["data_inicio"]),
+                        "data_fim_prevista": str(a["data_fim_prevista"]) if a["data_fim_prevista"] else None,
+                        "data_retorno": str(a["data_retorno"]) if a["data_retorno"] else None,
+                        "dias_previstos": a["dias_previstos"],
+                        "cid": a["cid"],
+                        "medico": a["medico"],
+                        "crm": a["crm"],
+                        "status": a["status"],
+                        "gera_estabilidade": a["gera_estabilidade"],
+                        "estabilidade_ate": str(a["estabilidade_ate"]) if a["estabilidade_ate"] else None,
+                        "ajuda_medicamento_ativa": a["ajuda_medicamento_ativa"],
+                        "esocial_status": a["esocial_status"],
+                        "recibo_s2230": a["recibo_s2230"],
+                        "esocial_protocolo": a["esocial_protocolo"],
+                    }
+                    for a in afs
+                ],
+            }
+        except Exception as exc:
+            logger.warning("Prontuário %s: bloco afastamentos falhou: %s", eid, exc)
+            prontuario["afastamentos"] = {"fonte": "sst_afastamentos", "erro": str(exc)}
+
+        # --- CATs (c/ recibos eSocial S-2210) --------------------------------
+        try:
+            cats = (
+                await self.db.execute(
+                    text(
+                        "SELECT cat_id, tipo_acidente, data_acidente, hora_acidente, local, "
+                        "descricao, gravidade, parte_corpo, agente_causador, afastamento, "
+                        "numero_cat_inss, status, esocial_status, numero_recibo_esocial, "
+                        "esocial_protocolo, esocial_transmitida_em "
+                        "FROM gp_cats WHERE employee_id::text = :eid ORDER BY data_acidente DESC"
+                    ),
+                    {"eid": eid},
+                )
+            ).mappings().all()
+            prontuario["cats"] = {
+                "fonte": "gp_cats (eSocial S-2210)",
+                "total": len(cats),
+                "cats": [
+                    {
+                        "cat_id": c["cat_id"],
+                        "tipo_acidente": c["tipo_acidente"],
+                        "data_acidente": str(c["data_acidente"]),
+                        "hora_acidente": c["hora_acidente"],
+                        "local": c["local"],
+                        "descricao": c["descricao"],
+                        "gravidade": c["gravidade"],
+                        "parte_corpo": c["parte_corpo"],
+                        "agente_causador": c["agente_causador"],
+                        "afastamento_dias": c["afastamento"],
+                        "numero_cat_inss": c["numero_cat_inss"],
+                        "status": c["status"],
+                        "esocial_status": c["esocial_status"],
+                        "recibo_esocial": c["numero_recibo_esocial"],
+                        "esocial_protocolo": c["esocial_protocolo"],
+                        "esocial_transmitida_em": (
+                            c["esocial_transmitida_em"].isoformat()
+                            if c["esocial_transmitida_em"]
+                            else None
+                        ),
+                    }
+                    for c in cats
+                ],
+            }
+        except Exception as exc:
+            logger.warning("Prontuário %s: bloco CATs falhou: %s", eid, exc)
+            prontuario["cats"] = {"fonte": "gp_cats", "erro": str(exc)}
+
+        return prontuario
 
     @staticmethod
     def _afastamento_to_dict(af: Afastamento) -> dict:

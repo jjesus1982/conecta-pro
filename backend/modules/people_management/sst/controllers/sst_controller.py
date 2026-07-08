@@ -11,6 +11,7 @@ Endpoints:
 - GET  /sst/nr1/compliance                (painel "calçado NR-1" por funcionário)
 - GET  /sst/nr1/compliance/pdf            (relatório padrão-ouro p/ auditor fiscal)
 - GET  /sst/pcmso/status
+- GET  /sst/pcmso/esteira                 (esteira PREVENTIVA — projeção 12m dos periódicos)
 - GET  /sst/ppra/status
 - GET  /sst/asos/vencendo
 - GET  /sst/asos/sem-aso
@@ -22,6 +23,9 @@ Endpoints:
 - POST /sst/cat                           (gatilho eSocial S-2210 + prazo 1 dia útil)
 - POST /sst/cat/{cat_id}/transmitir       (botão Transmitir ao eSocial)
 - PUT  /sst/aso/{id}/resultado            (gatilho eSocial S-2220)
+- POST /sst/aso/{id}/anexo                (upload do ASO digitalizado — PDF/JPG/PNG, max 10MB)
+- GET  /sst/aso/{id}/anexo                (download do documento; 404 honesto se nao anexado)
+- POST /sst/aso/retroativo                (carga retroativa: exame em papel pre-sistema; ANEXO OBRIGATORIO)
 - POST /sst/epi                           (gera FICHA DE EPI pendente de assinatura)
 - POST /sst/epi/fichas/gerar
 - GET  /sst/epi/fichas
@@ -32,6 +36,7 @@ Endpoints:
 - PUT  /sst/ltcat
 - GET  /sst/ppp/{employee_id}?transmit=true (S-2240 real)
 - GET  /sst/ppp/{employee_id}/pdf         (PPP padrão-ouro — doc oficial p/ INSS)
+- GET  /sst/prontuario/{employee_id}      (Prontuário SST 360 — dossiê completo)
 - GET  /sst/estabilidade/ativos
 - GET  /sst/ajuda-medicamento/ativos
 - GET  /sst/cipa/membros
@@ -40,11 +45,11 @@ Endpoints:
 """
 
 import logging
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -118,6 +123,24 @@ async def get_dashboard(
     """Dashboard SST com dados reais dos colaboradores."""
     service = SSTService(db)
     return await service.get_dashboard()
+
+
+@router.get("/calendario-legal")
+async def get_calendario_legal(
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Calendário Legal SST — radar único de TODOS os vencimentos legais.
+
+    Agrega PCMSO, LTCAT, PGR, CAs dos EPIs do catálogo, treinamentos NR,
+    ASOs e fichas de EPI pendentes — tudo por FATO no banco (itens sem data
+    aparecem como 'sem_data', honestos, nunca fabricados).
+    """
+    from modules.people_management.sst.services.calendario_legal_service import (
+        montar_calendario_legal,
+    )
+
+    return await montar_calendario_legal(db)
 
 
 # ================================================================
@@ -302,6 +325,27 @@ async def get_pcmso_status(
     """Status PCMSO (CCT 2026 Clausula 23a — obrigatorio)."""
     service = SSTService(db)
     return await service.get_pcmso_status()
+
+
+@router.get("/pcmso/esteira")
+async def get_pcmso_esteira(
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+    horizonte_meses: int = Query(12, ge=1, le=24, description="Horizonte da projeção em meses"),
+) -> Any:
+    """Esteira PCMSO Preventiva — agenda projetada dos exames periódicos.
+
+    Para CADA funcionário ativo: último ASO realizado → próximo vencimento
+    (12 meses, NR-7); sem ASO → pendente imediato. Inclui os exames previstos
+    da função (sst_pcmso.exames_por_funcao) e resumos por mês e por posto.
+    Projeção calculada AO VIVO — NADA é gravado (fonte da verdade = gp_asos).
+    """
+    from modules.people_management.sst.services.esteira_pcmso_service import (
+        EsteiraPCMSOService,
+    )
+
+    service = EsteiraPCMSOService(db)
+    return await service.projetar_agenda(horizonte_meses)
 
 
 @router.get("/ppra/status")
@@ -719,7 +763,7 @@ async def listar_asos(
     try:
         query = (
             "SELECT aso_id, employee_id, tipo, status, data_agendamento, data_realizacao, apto, "
-            "esocial_status, recibo_s2220, esocial_protocolo FROM gp_asos"
+            "esocial_status, recibo_s2220, esocial_protocolo, arquivo_nome, retroativo FROM gp_asos"
         )
         params: dict[str, Any] = {}
         if employee_id:
@@ -739,6 +783,8 @@ async def listar_asos(
                 "esocial_status": r[7],
                 "recibo_s2220": r[8],
                 "esocial_protocolo": r[9],
+                "arquivo_nome": r[10],
+                "retroativo": bool(r[11]),
             }
             for r in result.fetchall()
         ]
@@ -787,6 +833,240 @@ async def registrar_resultado_aso(
         "apto": data.apto,
         "esocial": _enfileirar_transmissao(transmit_aso_to_esocial, aso_id, "S-2220"),
     }
+
+
+# ================================================================
+# ANEXO DO ASO (documento digitalizado) + CARGA RETROATIVA
+# ================================================================
+# Fato de negócio (CEO): TODOS os funcionários fizeram exames admissionais
+# antes de contratar — em PAPEL, pré-sistema. "Sem ASO" no compliance =
+# documento não digitalizado, não exame não feito. Daqui pra frente o papel
+# sobe digitalizado (anexo) e o histórico entra pela carga retroativa.
+
+_ASO_UPLOAD_DIR = "/app/uploads/asos"  # volume ./uploads — persiste ao recreate
+_ASO_ANEXO_TIPOS = {
+    ".pdf": "application/pdf",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+}
+_ASO_ANEXO_MAX_BYTES = 10 * 1024 * 1024  # 10MB
+
+
+def _somar_meses(d: date, meses: int) -> date:
+    """Soma meses preservando o dia (clampa no fim do mês — 31/jan+1m=28/fev)."""
+    import calendar
+
+    total = d.month - 1 + meses
+    ano, mes = d.year + total // 12, total % 12 + 1
+    return date(ano, mes, min(d.day, calendar.monthrange(ano, mes)[1]))
+
+
+def _gravar_anexo_aso(aso_id: str, nome_original: str, conteudo: bytes) -> tuple[str, str]:
+    """Valida e grava o anexo em /app/uploads/asos/{aso_id}.{ext}.
+
+    Retorna (arquivo_path, arquivo_nome). 422 honesto para tipo/tamanho
+    inválido. Dir criado com dono erp:erp (best-effort — volume pode nascer root).
+    """
+    import os
+    import re
+    import shutil
+
+    if not re.fullmatch(r"[A-Za-z0-9-]{1,64}", aso_id):  # uuid4 — nunca vira path traversal
+        raise HTTPException(status_code=422, detail="aso_id invalido")
+
+    ext = os.path.splitext(nome_original)[1].lower()
+    if ext not in _ASO_ANEXO_TIPOS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Tipo de arquivo nao aceito ({ext or 'sem extensao'}) — envie PDF, JPG ou PNG",
+        )
+    if len(conteudo) == 0:
+        raise HTTPException(status_code=422, detail="Arquivo vazio — digitalize o ASO e tente de novo")
+    if len(conteudo) > _ASO_ANEXO_MAX_BYTES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Arquivo com {len(conteudo) / (1024 * 1024):.1f}MB — o limite e 10MB",
+        )
+
+    os.makedirs(_ASO_UPLOAD_DIR, exist_ok=True)
+    caminho = os.path.join(_ASO_UPLOAD_DIR, f"{aso_id}{ext}")
+    with open(caminho, "wb") as fh:
+        fh.write(conteudo)
+    for alvo in (_ASO_UPLOAD_DIR, caminho):
+        try:
+            shutil.chown(alvo, user="erp", group="erp")
+        except (LookupError, PermissionError, OSError):
+            pass  # fora do container não existe user erp — não é erro
+    return caminho, nome_original[:255]
+
+
+@router.post("/aso/retroativo", status_code=201)
+async def carga_retroativa_aso(
+    current_user: CurrentActiveUser,
+    employee_id: str = Form(...),
+    tipo: str = Form("admissional"),
+    data_realizacao: date = Form(...),
+    clinica: str | None = Form(None),
+    medico: str | None = Form(None),
+    crm: str | None = Form(None),
+    apto: bool = Form(True),
+    file: UploadFile | None = File(None),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Carga retroativa de ASO feito em PAPEL antes do sistema.
+
+    Cria gp_asos status='realizado', retroativo=true, data_validade=+12 meses
+    (admissional/periodico zeram o relógio NR-7). ANEXO OBRIGATÓRIO no mesmo
+    multipart — sem o documento digitalizado não há prova, não há registro.
+    Conta normalmente no compliance NR-1 (é gp_asos realizado com validade).
+    """
+    if file is None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Carga retroativa exige o documento digitalizado — o exame foi feito "
+                "em papel; sem o anexo nao ha prova (doutrina: nunca registrar fato sem documento)"
+            ),
+        )
+    if tipo not in ASO_TIPOS_VALIDOS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Tipo invalido '{tipo}' — validos: {', '.join(ASO_TIPOS_VALIDOS)}",
+        )
+    if data_realizacao > date.today():
+        raise HTTPException(
+            status_code=422,
+            detail="Carga retroativa e para exame JA realizado — data_realizacao nao pode ser futura",
+        )
+
+    emp_nome = (
+        await db.execute(text("SELECT nome FROM employees WHERE id::text = :eid"), {"eid": employee_id})
+    ).scalar()
+    if not emp_nome:
+        raise HTTPException(status_code=404, detail="Funcionario nao encontrado")
+
+    # NR-7: exame clínico zera o relógio — validade 12 meses (demissional não gera validade)
+    data_validade = None if tipo == "demissional" else _somar_meses(data_realizacao, 12)
+
+    from modules.people_management.sst.models.aso import ASOModel
+
+    aso_id = str(uuid4())
+    conteudo = await file.read()
+    caminho, nome_arquivo = _gravar_anexo_aso(aso_id, file.filename or "documento", conteudo)
+
+    aso = ASOModel(
+        aso_id=aso_id,
+        employee_id=employee_id,
+        tipo=tipo,
+        status="realizado",
+        data_realizacao=data_realizacao,
+        data_validade=data_validade,
+        clinica=clinica,
+        medico=medico,
+        crm=crm,
+        apto=apto,
+        retroativo=True,
+        arquivo_path=caminho,
+        arquivo_nome=nome_arquivo,
+        arquivo_subido_em=datetime.now(UTC),
+    )
+    db.add(aso)
+    await db.commit()
+
+    return {
+        "aso_id": aso_id,
+        "employee_id": employee_id,
+        "employee_nome": emp_nome,
+        "tipo": tipo,
+        "status": "realizado",
+        "retroativo": True,
+        "data_realizacao": str(data_realizacao),
+        "data_validade": str(data_validade) if data_validade else None,
+        "arquivo_nome": nome_arquivo,
+        "esocial": {
+            "transmissao_enfileirada": False,
+            "motivo": (
+                "ASO retroativo (papel, pre-sistema) — S-2220 nao e enfileirado "
+                "automaticamente; transmissao de historico e decisao humana"
+            ),
+        },
+    }
+
+
+@router.post("/aso/{aso_id}/anexo", status_code=201)
+async def anexar_documento_aso(
+    aso_id: str,
+    current_user: CurrentActiveUser,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Anexa o ASO digitalizado (PDF/JPG/PNG, max 10MB) a um ASO existente.
+
+    Reenvio substitui o anexo anterior (mesmo aso_id no volume ./uploads).
+    """
+    existe = (
+        await db.execute(text("SELECT aso_id FROM gp_asos WHERE aso_id = :aid"), {"aid": aso_id})
+    ).scalar()
+    if not existe:
+        raise HTTPException(status_code=404, detail="ASO nao encontrado")
+
+    conteudo = await file.read()
+    caminho, nome_arquivo = _gravar_anexo_aso(aso_id, file.filename or "documento", conteudo)
+
+    await db.execute(
+        text(
+            "UPDATE gp_asos SET arquivo_path = :p, arquivo_nome = :n, "
+            "arquivo_subido_em = now() WHERE aso_id = :aid"
+        ),
+        {"p": caminho, "n": nome_arquivo, "aid": aso_id},
+    )
+    await db.commit()
+    return {
+        "aso_id": aso_id,
+        "arquivo_nome": nome_arquivo,
+        "arquivo_path": caminho,
+        "tamanho_bytes": len(conteudo),
+    }
+
+
+@router.get("/aso/{aso_id}/anexo")
+async def baixar_anexo_aso(
+    aso_id: str,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Baixa o documento digitalizado do ASO — 404 honesto se não anexado."""
+    import os
+
+    row = (
+        await db.execute(
+            text("SELECT arquivo_path, arquivo_nome FROM gp_asos WHERE aso_id = :aid"),
+            {"aid": aso_id},
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="ASO nao encontrado")
+    caminho, nome = row[0], row[1]
+    if not caminho:
+        raise HTTPException(
+            status_code=404, detail="ASO sem documento digitalizado — anexe o arquivo primeiro"
+        )
+    if not os.path.isfile(caminho):
+        raise HTTPException(
+            status_code=404,
+            detail="Anexo registrado mas arquivo ausente no volume ./uploads — reenvie o documento",
+        )
+
+    ext = os.path.splitext(caminho)[1].lower()
+    with open(caminho, "rb") as fh:
+        conteudo = fh.read()
+    safe_nome = (nome or f"aso-{aso_id}{ext}").replace('"', "").replace("\n", " ")
+    return Response(
+        content=conteudo,
+        media_type=_ASO_ANEXO_TIPOS.get(ext, "application/octet-stream"),
+        headers={"Content-Disposition": f'attachment; filename="{safe_nome}"'},
+    )
 
 
 # ================================================================
@@ -1357,6 +1637,28 @@ async def atualizar_ltcat(
         "validade_fim": str(row["validade_fim"]) if row["validade_fim"] else None,
         "observacoes": row["observacoes"],
     }
+
+
+@router.get("/prontuario/{employee_id}")
+async def get_prontuario_sst(
+    employee_id: str,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Prontuário SST 360 — dossiê completo de saúde ocupacional do funcionário.
+
+    Agrega em UMA resposta: identificação (posto atual real), compliance NR-1
+    (4 checks + score), ASOs (histórico + vencimento), EPIs (entregas + fichas
+    c/ assinatura), riscos da FUNÇÃO (PGR GES + Tabela 24), treinamentos NR,
+    afastamentos (estabilidade CCT + eSocial S-2230) e CATs (recibos S-2210).
+    Cada bloco é isolado: um domínio falho vem com {"erro": ...} sem derrubar
+    o restante. Campos com `fonte` marcada; vazios são honestos.
+    """
+    service = SSTService(db)
+    prontuario = await service.get_prontuario(employee_id)
+    if prontuario is None:
+        raise HTTPException(status_code=404, detail="Funcionário não encontrado")
+    return prontuario
 
 
 @router.get("/ppp/{employee_id}")

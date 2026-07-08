@@ -536,14 +536,25 @@ class EPIService:
     # ==========================================================================
 
     def get_statistics(self) -> dict[str, Any]:
-        """Retorna estatisticas de EPI."""
+        """Retorna estatisticas de EPI.
+
+        HONESTIDADE (auditoria 2026-07): "CAs vencendo" conta CAs de EPIs do
+        CATALOGO (health_epi_catalog.ca_validade) vencidos ou a vencer em 90
+        dias — NUNCA entregas sem assinatura (isso e assinaturas_pendentes).
+        CAs sem validade registrada sao expostos em cas_sem_validade (nao
+        entram no vencendo — sem data nao ha vencimento a afirmar).
+        """
+        _zerado = {
+            "total_epis_ativos": 0,
+            "entregas_ano": 0,
+            "itens_baixo_estoque": 0,
+            "assinaturas_pendentes": 0,
+            "cas_vencendo": 0,
+            "cas_vencidos": 0,
+            "cas_sem_validade": 0,
+        }
         if not self.db:
-            return {
-                "total_epis_ativos": 0,
-                "entregas_ano": 0,
-                "itens_baixo_estoque": 0,
-                "assinaturas_pendentes": 0,
-            }
+            return dict(_zerado)
 
         from sqlalchemy import text
 
@@ -575,17 +586,28 @@ class EPIService:
                 or 0
             )
 
+            ca_row = self.db.execute(
+                text(
+                    "SELECT "
+                    "count(*) FILTER (WHERE ca_validade IS NOT NULL "
+                    "  AND ca_validade <= current_date + INTERVAL '90 days') AS vencendo, "
+                    "count(*) FILTER (WHERE ca_validade IS NOT NULL "
+                    "  AND ca_validade < current_date) AS vencidos, "
+                    "count(*) FILTER (WHERE ca_validade IS NULL) AS sem_validade "
+                    "FROM health_epi_catalog WHERE ativo = true"
+                )
+            ).mappings().first()
+
             return {
                 "total_epis_ativos": total_epis,
                 "entregas_ano": total_deliveries,
                 "itens_baixo_estoque": low_stock,
                 "assinaturas_pendentes": pending_signatures,
+                # CAs do CATALOGO (fato: health_epi_catalog.ca_validade)
+                "cas_vencendo": (ca_row["vencendo"] if ca_row else 0) or 0,
+                "cas_vencidos": (ca_row["vencidos"] if ca_row else 0) or 0,
+                "cas_sem_validade": (ca_row["sem_validade"] if ca_row else 0) or 0,
             }
         except Exception as e:
             logger.error("Erro ao consultar estatisticas EPI: %s", e)
-            return {
-                "total_epis_ativos": 0,
-                "entregas_ano": 0,
-                "itens_baixo_estoque": 0,
-                "assinaturas_pendentes": 0,
-            }
+            return dict(_zerado)

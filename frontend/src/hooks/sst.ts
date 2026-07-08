@@ -13,6 +13,7 @@ import {
   type AfastamentoCreate,
   type ASOAgendarLoteItem,
   type ASOResultadoPayload,
+  type ASORetroativoPayload,
   type CATCreate,
   type EPIEntregaCreate,
   type FichaEPIGerarPayload,
@@ -40,7 +41,10 @@ export const sstKeys = {
   fichasEPI: () => [...sstKeys.all, 'fichas-epi'] as const,
   nr1Compliance: () => [...sstKeys.all, 'nr1-compliance'] as const,
   regularizacao: () => [...sstKeys.all, 'asos-regularizacao'] as const,
+  semAso: () => [...sstKeys.all, 'sem-aso'] as const,
   treinamentos: () => [...sstKeys.all, 'treinamentos'] as const,
+  prontuario: (employeeId: string) => [...sstKeys.all, 'prontuario', employeeId] as const,
+  esteiraPCMSO: (horizonte: number) => [...sstKeys.all, 'esteira-pcmso', horizonte] as const,
 };
 
 // =============================================================================
@@ -217,6 +221,54 @@ export function useRegistrarResultadoASO() {
   });
 }
 
+/**
+ * Hook para anexar o ASO digitalizado (PDF/JPG/PNG) a um ASO existente
+ */
+export function useUploadASOAnexo() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ asoId, file }: { asoId: string; file: File }) =>
+      sstService.uploadASOAnexo(asoId, file),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: sstKeys.asos() });
+    },
+  });
+}
+
+/**
+ * Hook para a carga retroativa de ASO (exame em papel pré-sistema —
+ * anexo obrigatório; cria gp_asos realizado + retroativo=true)
+ */
+export function useASORetroativo() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ payload, file }: { payload: ASORetroativoPayload; file: File }) =>
+      sstService.criarASORetroativo(payload, file),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: sstKeys.asos() });
+      queryClient.invalidateQueries({ queryKey: sstKeys.semAso() });
+      queryClient.invalidateQueries({ queryKey: sstKeys.regularizacao() });
+      queryClient.invalidateQueries({ queryKey: sstKeys.nr1Compliance() });
+      queryClient.invalidateQueries({ queryKey: sstKeys.dashboard() });
+      queryClient.invalidateQueries({ queryKey: [...sstKeys.all, 'esteira-pcmso'] });
+    },
+  });
+}
+
+/**
+ * Hook para o contador de funcionários ativos sem NENHUM ASO digitalizado
+ * (fonte honesta da carga retroativa — documento não digitalizado ≠ exame não feito)
+ */
+export function useSemASO() {
+  return useQuery({
+    queryKey: sstKeys.semAso(),
+    queryFn: () => sstService.listSemASO(),
+    staleTime: 60 * 1000,
+  });
+}
+
 // =============================================================================
 // REGULARIZAÇÃO DE ASOs VENCIDAS
 // =============================================================================
@@ -244,7 +296,24 @@ export function useAgendarASOsLote() {
       queryClient.invalidateQueries({ queryKey: sstKeys.regularizacao() });
       queryClient.invalidateQueries({ queryKey: sstKeys.asos() });
       queryClient.invalidateQueries({ queryKey: sstKeys.dashboard() });
+      queryClient.invalidateQueries({ queryKey: [...sstKeys.all, 'esteira-pcmso'] });
     },
+  });
+}
+
+// =============================================================================
+// ESTEIRA PCMSO PREVENTIVA
+// =============================================================================
+
+/**
+ * Hook para a esteira preventiva do PCMSO (projeção ao vivo dos periódicos —
+ * último ASO realizado + 12 meses; nada é gravado, fonte da verdade = gp_asos)
+ */
+export function useEsteiraPCMSO(horizonteMeses = 12) {
+  return useQuery({
+    queryKey: sstKeys.esteiraPCMSO(horizonteMeses),
+    queryFn: () => sstService.getEsteiraPCMSO(horizonteMeses),
+    staleTime: 60 * 1000,
   });
 }
 
@@ -368,6 +437,18 @@ export function useNR1Compliance() {
   return useQuery({
     queryKey: sstKeys.nr1Compliance(),
     queryFn: () => sstService.getNR1Compliance(),
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+/**
+ * Hook para o Prontuário SST 360 de um funcionário (dossiê completo)
+ */
+export function useProntuarioSST(employeeId: string | null) {
+  return useQuery({
+    queryKey: sstKeys.prontuario(employeeId ?? ''),
+    queryFn: () => sstService.getProntuario(employeeId as string),
+    enabled: !!employeeId,
     staleTime: 2 * 60 * 1000,
   });
 }
