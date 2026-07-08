@@ -345,6 +345,108 @@ def briefing_operacional_matinal(self):
                 resumo["escalas_vigentes"] = len(vigentes)
                 resumo["escalas_draft"] = sum(int(r[2]) for r in drafts) if drafts else 0
 
+                # ── b2) PRESENÇA AGORA (escala × batidas reais) ───────────────
+                # Mesmas fontes do quadro /operacional/presenca/hoje, via SQL
+                # direto (sem importar o controller): gp_clock_punches + shifts.
+                # Batida válida = status fora de ('rejected','cancelado'); COALESCE
+                # protege status NULL. "Em andamento" = agora (hora LOCAL de
+                # Manaus — punch_timestamp e planned_* são naive em hora local)
+                # dentro da janela planejada, com braço específico p/ turno
+                # noturno (fim <= início atravessa a meia-noite). Check-in manual
+                # (actual_start_time) conta como presença. Vazio → linha honesta.
+                linhas.append("*Presença agora*")
+                try:
+                    row_b = (
+                        await db.execute(
+                            text(
+                                """
+                                SELECT COUNT(*), COUNT(DISTINCT employee_id)
+                                FROM gp_clock_punches
+                                WHERE punch_timestamp::date = :hoje
+                                  AND COALESCE(status, '') NOT IN ('rejected', 'cancelado')
+                                """
+                            ),
+                            {"hoje": hoje},
+                        )
+                    ).first()
+                    batidas_hoje = int(row_b[0] or 0)
+                    func_com_batida = int(row_b[1] or 0)
+
+                    turnos_esperados = (
+                        await db.execute(
+                            text(
+                                """
+                                SELECT COUNT(*)
+                                FROM shifts
+                                WHERE shift_date = :hoje
+                                  AND employee_id IS NOT NULL
+                                  AND is_off_day = FALSE
+                                  AND status <> 'cancelled'
+                                  AND is_active = TRUE
+                                """
+                            ),
+                            {"hoje": hoje},
+                        )
+                    ).scalar() or 0
+
+                    postos_sem_batida = (
+                        await db.execute(
+                            text(
+                                """
+                                SELECT DISTINCT p.name
+                                FROM shifts sh
+                                JOIN posts p ON p.id = sh.post_id
+                                WHERE sh.shift_date = :hoje
+                                  AND sh.employee_id IS NOT NULL
+                                  AND sh.is_off_day = FALSE
+                                  AND sh.status <> 'cancelled'
+                                  AND sh.is_active = TRUE
+                                  AND sh.actual_start_time IS NULL
+                                  AND (
+                                        (sh.planned_end_time > sh.planned_start_time
+                                         AND :agora_hora BETWEEN sh.planned_start_time AND sh.planned_end_time)
+                                     OR (sh.planned_end_time <= sh.planned_start_time
+                                         AND (:agora_hora >= sh.planned_start_time
+                                              OR :agora_hora <= sh.planned_end_time))
+                                  )
+                                  AND NOT EXISTS (
+                                      SELECT 1 FROM gp_clock_punches cp
+                                      WHERE cp.employee_id = sh.employee_id
+                                        AND cp.punch_timestamp::date = :hoje
+                                        AND COALESCE(cp.status, '') NOT IN ('rejected', 'cancelado')
+                                  )
+                                ORDER BY p.name
+                                """
+                            ),
+                            # .time() de datetime aware já devolve hora local NAIVE
+                            {"hoje": hoje, "agora_hora": agora.time()},
+                        )
+                    ).all()
+
+                    if turnos_esperados or batidas_hoje:
+                        linhas.append(
+                            f"• {func_com_batida} funcionário(s) com batida hoje "
+                            f"({batidas_hoje} batida(s)) · {int(turnos_esperados)} turno(s) esperado(s) no dia"
+                        )
+                        if postos_sem_batida:
+                            linhas.append(
+                                "• Turno em andamento SEM batida: "
+                                + ", ".join(r[0] for r in postos_sem_batida)
+                            )
+                        else:
+                            linhas.append("• nenhum posto com turno em andamento sem batida")
+                    else:
+                        linhas.append("• sem turnos esperados hoje e sem batidas até o momento")
+                    resumo["batidas_hoje"] = batidas_hoje
+                    resumo["funcionarios_com_batida"] = func_com_batida
+                    resumo["turnos_esperados_hoje"] = int(turnos_esperados)
+                    resumo["postos_em_andamento_sem_batida"] = len(postos_sem_batida)
+                except Exception as e:
+                    logger.warning(f"[Briefing] presença indisponível: {e}")
+                    linhas.append("• sem registros (fontes de presença indisponíveis)")
+                    resumo["batidas_hoje"] = None
+                linhas.append("")
+
                 # ── c) OCORRÊNCIAS ABERTAS por severidade ─────────────────────
                 por_sev = (
                     await db.execute(
@@ -534,4 +636,132 @@ def daily_coverage_report(self):
         return result
     except Exception as exc:
         logger.error(f"[Operacional Task] Erro no relatório diário: {exc}")
+        raise self.retry(exc=exc)
+
+
+@app.task(
+    name="operacional.vigia_ausencia",
+    bind=True,
+    max_retries=1,
+)
+def vigia_ausencia(self):
+    """Vigia de ausência: turno em andamento há 30-60min sem batida nem check-in manual → Telegram.
+
+    Roda a cada 30min (beat). Janela de disparo única por turno: só alerta quando
+    'agora' está entre inicio+30min e inicio+60min (cadência */30 ⇒ no máx. 1 alerta/turno).
+    Horários de shifts/batidas são hora LOCAL de Manaus (mesma decisão do módulo presence).
+    """
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    from sqlalchemy import text
+
+    async def _run() -> dict:
+        tz_manaus = ZoneInfo("America/Manaus")
+        agora = datetime.now(tz_manaus).replace(tzinfo=None)
+        hoje = agora.date()
+        async with get_async_db_session() as db:
+            rows = (
+                await db.execute(
+                    text(
+                        """
+                        SELECT e.nome, p.name AS posto, s.planned_start_time, s.planned_end_time
+                        FROM shifts s
+                        JOIN employees e ON e.id = s.employee_id
+                        JOIN posts p ON p.id = s.post_id
+                        WHERE s.shift_date = :hoje
+                          AND s.employee_id IS NOT NULL
+                          AND s.is_off_day = FALSE
+                          AND s.is_active = TRUE
+                          AND s.status NOT IN ('cancelled', 'completed', 'missed')
+                          AND s.actual_start_time IS NULL
+                          AND NOT EXISTS (
+                            SELECT 1 FROM gp_clock_punches gp
+                            WHERE gp.employee_id = s.employee_id
+                              AND gp.punch_timestamp::date = :hoje
+                              AND COALESCE(gp.status, '') NOT IN ('rejected', 'cancelado')
+                          )
+                        """
+                    ),
+                    {"hoje": hoje},
+                )
+            ).all()
+
+        alertas = []
+        for nome, posto, ini, fim in rows:
+            if ini is None:
+                continue
+            inicio_dt = datetime.combine(hoje, ini)
+            janela_ini = inicio_dt + timedelta(minutes=30)
+            janela_fim = inicio_dt + timedelta(minutes=60)
+            if janela_ini <= agora < janela_fim:
+                horario = f"{ini:%H:%M}–{fim:%H:%M}" if fim else f"{ini:%H:%M}"
+                alertas.append(f"• {nome} — {posto} (turno {horario})")
+
+        enviado = False
+        if alertas:
+            from modules.operacional.field_alerts import enviar_telegram  # lazy
+
+            texto = (
+                "⚠️ *Sem batida de ponto* (30min após o início do turno)\n"
+                + "\n".join(alertas)
+                + f"\n_Verificado às {agora:%H:%M} (Manaus) · fonte: escala × gp_clock_punches_"
+            )
+            enviado = await enviar_telegram(texto)
+        return {"turnos_sem_presenca_na_janela": len(alertas), "enviado": enviado}
+
+    try:
+        result = asyncio.run(_run())
+        logger.info(f"[Operacional Task] Vigia de ausência: {result}")
+        return result
+    except Exception as exc:
+        logger.error(f"[Operacional Task] Erro no vigia de ausência: {exc}")
+        raise self.retry(exc=exc)
+
+
+@app.task(
+    name="operacional.gerar_escalas_proximo_mes",
+    bind=True,
+    max_retries=2,
+)
+def gerar_escalas_proximo_mes(self):
+    """Dia 25: gera em RASCUNHO as escalas do mês seguinte a partir das alocações ativas
+    e avisa a gestão no Telegram para revisar e publicar. Nunca publica sozinho."""
+
+    async def _run() -> dict:
+        from datetime import date
+
+        from modules.operacional.services.auto_scale_service import AutoScaleService
+
+        hoje = date.today()
+        mes = 1 if hoje.month == 12 else hoje.month + 1
+        ano = hoje.year + 1 if hoje.month == 12 else hoje.year
+
+        async with get_async_db_session() as db:
+            service = AutoScaleService(db)
+            result = await service.generate_scales_for_month(mes, ano, created_by=None)
+
+        from modules.operacional.field_alerts import enviar_telegram  # lazy
+
+        if result.get("scales_created", 0) > 0:
+            texto = (
+                f"📅 *Escalas de {mes:02d}/{ano} geradas em rascunho*\n"
+                f"• {result['scales_created']} escalas · {result['shifts_created']} turnos\n"
+                "Revise e publique em Operacional → Escalas (ou na Triagem)."
+            )
+        else:
+            texto = (
+                f"📅 Escalas de {mes:02d}/{ano}: nada gerado "
+                f"(já existiam ou sem alocações ativas). Erros: {len(result.get('errors', []))}"
+            )
+        enviado = await enviar_telegram(texto)
+        result["telegram_enviado"] = enviado
+        return result
+
+    try:
+        result = asyncio.run(_run())
+        logger.info(f"[Operacional Task] Escalas do próximo mês: {result}")
+        return result
+    except Exception as exc:
+        logger.error(f"[Operacional Task] Erro ao gerar escalas do próximo mês: {exc}")
         raise self.retry(exc=exc)

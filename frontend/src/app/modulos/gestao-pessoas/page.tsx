@@ -52,7 +52,7 @@ const subModules: SubModule[] = [
     bgColor: 'bg-amber-50',
   },
   {
-    title: 'Operacoes',
+    title: 'Operacional',
     description: 'Postos, escalas, campo e inteligencia operacional',
     href: '/modulos/operacional',
     icon: Shield,

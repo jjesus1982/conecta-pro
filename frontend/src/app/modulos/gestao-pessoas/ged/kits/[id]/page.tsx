@@ -131,7 +131,7 @@ const originLabels: Record<string, string> = {
   fiscal: 'Fiscal',
   contabil: 'Contábil',
   financeiro: 'Financeiro',
-  operacoes: 'Operações',
+  operacoes: 'Operacional',
   banco: 'Banco',
   sistema: 'Sistema',
 };

@@ -168,7 +168,7 @@ export const modules: Module[] = [
   {
     id: 'gestao-pessoas',
     title: 'Gestao de Pessoas',
-    description: 'Hub de DP, RH, GED, Operacoes, SST, Ponto e Portal',
+    description: 'Hub de DP, RH, GED, Operacional, SST, Ponto e Portal',
     icon: 'Users',
     href: '/modulos/gestao-pessoas',
     color: 'blue',
@@ -178,7 +178,7 @@ export const modules: Module[] = [
       { id: 'gp-dp', title: 'Departamento Pessoal', href: '/modulos/dp', icon: 'Users', permissions: ['operacional:read'] },
       { id: 'gp-rh', title: 'Recursos Humanos', href: '/modulos/gestao-pessoas/rh', icon: 'Heart', permissions: ['operacional:read'] },
       { id: 'gp-ged', title: 'GED - Kits Documentais', href: '/modulos/gestao-pessoas/ged', icon: 'FolderOpen', permissions: ['ged:read'] },
-      { id: 'gp-operacoes', title: 'Operacoes', href: '/modulos/operacional', icon: 'Shield', permissions: ['operacional:read'] },
+      { id: 'gp-operacoes', title: 'Operacional', href: '/modulos/operacional', icon: 'Shield', permissions: ['operacional:read'] },
       { id: 'gp-sst', title: 'Saude e Seguranca', href: '/modulos/gestao-pessoas/sst', icon: 'ShieldCheck', permissions: ['operacional:read'] },
       { id: 'gp-ponto', title: 'Ponto Eletronico', href: '/modulos/gestao-pessoas/ponto', icon: 'Clock', permissions: ['operacional:read'] },
       { id: 'gp-portal', title: 'Portal do Funcionario', href: '/modulos/portal', icon: 'UserCircle', permissions: ['operacional:read'] },
@@ -214,7 +214,7 @@ export const modules: Module[] = [
   // =================================================================
   {
     id: 'operacoes',
-    title: 'Operacoes',
+    title: 'Operacional',
     description: 'Postos, escalas, campo e inteligencia operacional',
     icon: 'Shield',
     href: '/modulos/operacional',
@@ -233,6 +233,7 @@ export const modules: Module[] = [
       { id: 'diaristas', title: 'Diaristas', href: '/modulos/operacional/diaristas', icon: 'UserCheck', permissions: ['operacional:read'] },
       { id: 'banco-horas', title: 'Banco de Horas', href: '/modulos/operacional/banco-horas', icon: 'Clock', permissions: ['operacional:read'] },
       // --- Dia a dia do lider (mobile-first) ---
+      { id: 'presenca-hoje', title: 'Presenca Hoje', href: '/modulos/operacional/presenca', icon: 'UserCheck', permissions: ['operacional:read'] },
       { id: 'ocorrencia-rapida', title: 'Ocorrencia Rapida', href: '/modulos/operacional/ocorrencia-rapida', icon: 'Zap', permissions: ['operacional:read'] },
       { id: 'passagem-turno', title: 'Passagem de Turno', href: '/modulos/operacional/passagem-turno', icon: 'RefreshCw', permissions: ['operacional:read'] },
       { id: 'avaliacao-equipe', title: 'Avaliacao de Equipe', href: '/modulos/operacional/avaliacao-equipe', icon: 'Users', permissions: ['operacional:read'] },

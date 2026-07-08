@@ -5,12 +5,14 @@ import Link from 'next/link';
 import {
   AlertTriangle,
   ArrowLeft,
+  Bot,
   CalendarX,
   CheckCircle2,
   MessageSquare,
   RefreshCw,
   ShieldAlert,
   Star,
+  UserCheck,
   Wrench,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -65,6 +67,75 @@ interface PainelTriagem {
   };
 }
 
+// ── Presença agora (contrato /operacional/presenca/hoje) ─────────────────────
+interface PresencaFuncionario {
+  employee_id: string;
+  nome: string;
+  status: 'presente' | 'atrasado' | 'ausente' | 'aguardando';
+}
+
+interface PresencaPosto {
+  post_id: string;
+  post_nome: string;
+  esperados?: number;
+  presentes?: number;
+  atrasados?: number;
+  ausentes?: number;
+  aguardando?: number;
+  funcionarios?: PresencaFuncionario[];
+}
+
+interface PresencaHoje {
+  atualizado_em?: string;
+  resumo?: {
+    esperados?: number;
+    presentes?: number;
+    atrasados?: number;
+    ausentes?: number;
+    aguardando?: number;
+    extras?: number;
+  };
+  postos?: PresencaPosto[];
+}
+
+// ── IA disciplinar (contrato /operacional/medidas-administrativas/ia/recomendar)
+const CATEGORIAS_MOTIVO: Array<{ valor: string; rotulo: string }> = [
+  { valor: 'falta', rotulo: 'Falta' },
+  { valor: 'atraso', rotulo: 'Atraso' },
+  { valor: 'insubordinacao', rotulo: 'Insubordinação' },
+  { valor: 'indisciplina', rotulo: 'Indisciplina' },
+  { valor: 'dano_patrimonio', rotulo: 'Dano ao patrimônio' },
+  { valor: 'negligencia', rotulo: 'Negligência' },
+  { valor: 'embriaguez', rotulo: 'Embriaguez' },
+  { valor: 'abandono_emprego', rotulo: 'Abandono de emprego' },
+  { valor: 'ato_improbidade', rotulo: 'Ato de improbidade' },
+  { valor: 'violacao_segredo', rotulo: 'Violação de segredo' },
+  { valor: 'desistencia_habitual', rotulo: 'Desídia habitual' },
+  { valor: 'ofensa_fisica', rotulo: 'Ofensa física' },
+  { valor: 'ofensa_moral', rotulo: 'Ofensa moral' },
+  { valor: 'jogos_azar', rotulo: 'Jogos de azar' },
+  { valor: 'perda_habilitacao', rotulo: 'Perda de habilitação' },
+  { valor: 'outros', rotulo: 'Outros' },
+];
+
+const MEDIDA_LABEL: Record<string, string> = {
+  advertencia_verbal: 'Advertência verbal',
+  advertencia_escrita: 'Advertência escrita',
+  suspensao: 'Suspensão',
+  demissao_justa_causa: 'Demissão por justa causa',
+};
+
+interface RecomendacaoIA {
+  recommended_action: string;
+  confidence_score: number;
+  reasoning: string;
+  previous_warnings: number;
+  previous_suspensions: number;
+  last_incident_date?: string | null;
+  alternative_actions?: string[];
+  legal_references?: string[];
+}
+
 const SEVERIDADE_BADGE: Record<string, string> = {
   leve: 'bg-green-100 text-green-800',
   moderada: 'bg-yellow-100 text-yellow-800',
@@ -103,6 +174,10 @@ export default function TriagemPage() {
   const [acessoNegado, setAcessoNegado] = useState(false);
   const [erroCarga, setErroCarga] = useState<string | null>(null);
 
+  // Presença agora
+  const [presenca, setPresenca] = useState<PresencaHoje | null>(null);
+  const [presencaErro, setPresencaErro] = useState(false);
+
   // Modais
   const [ocorrenciaAlvo, setOcorrenciaAlvo] = useState<OcorrenciaItem | null>(null);
   const [modo, setModo] = useState<'resolver' | 'comentar' | null>(null);
@@ -110,6 +185,16 @@ export default function TriagemPage() {
   const [notasResolucao, setNotasResolucao] = useState('');
   const [comentario, setComentario] = useState('');
   const [enviando, setEnviando] = useState(false);
+
+  // IA disciplinar
+  const [iaAlvo, setIaAlvo] = useState<OcorrenciaItem | null>(null);
+  const [iaEmployeeId, setIaEmployeeId] = useState<string | null>(null);
+  const [iaIncidentDate, setIaIncidentDate] = useState<string | null>(null);
+  const [iaCategoria, setIaCategoria] = useState('outros');
+  const [iaDescricao, setIaDescricao] = useState('');
+  const [iaCarregandoDetalhe, setIaCarregandoDetalhe] = useState(false);
+  const [iaGerando, setIaGerando] = useState(false);
+  const [iaResultado, setIaResultado] = useState<RecomendacaoIA | null>(null);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -130,9 +215,80 @@ export default function TriagemPage() {
     }
   }, []);
 
+  const carregarPresenca = useCallback(async () => {
+    try {
+      const res = await api.get('/api/v1/operacional/presenca/hoje');
+      setPresenca(res.data || {});
+      setPresencaErro(false);
+    } catch {
+      setPresenca(null);
+      setPresencaErro(true);
+    }
+  }, []);
+
   useEffect(() => {
     carregar();
-  }, [carregar]);
+    carregarPresenca();
+  }, [carregar, carregarPresenca]);
+
+  const abrirSugestaoIA = async (o: OcorrenciaItem) => {
+    setIaAlvo(o);
+    setIaResultado(null);
+    setIaEmployeeId(null);
+    setIaCategoria('outros');
+    setIaDescricao('');
+    setIaIncidentDate(null);
+    setIaCarregandoDetalhe(true);
+    try {
+      // O painel não traz o funcionário — buscar o detalhe da ocorrência
+      const res = await api.get(`/api/v1/operacional/occurrences/${o.id}`);
+      const det = res.data || {};
+      setIaEmployeeId(det.employee_involved_id || null);
+      const cat = String(det.category || '').toLowerCase();
+      if (CATEGORIAS_MOTIVO.some((c) => c.valor === cat)) setIaCategoria(cat);
+      setIaDescricao(String(det.description || det.title || o.title || o.titulo || ''));
+      const quando = det.occurred_at || o.occurred_at || o.created_at;
+      if (quando) {
+        const d = new Date(String(quando));
+        if (!Number.isNaN(d.getTime())) setIaIncidentDate(d.toISOString().slice(0, 10));
+      }
+    } catch {
+      toast.error('Não foi possível carregar os detalhes da ocorrência.');
+      setIaAlvo(null);
+    } finally {
+      setIaCarregandoDetalhe(false);
+    }
+  };
+
+  const gerarRecomendacao = async () => {
+    if (!iaAlvo || !iaEmployeeId) return;
+    if (iaDescricao.trim().length < 10) {
+      toast.error('Descreva o incidente (mínimo 10 caracteres)');
+      return;
+    }
+    setIaGerando(true);
+    try {
+      const res = await api.post('/api/v1/operacional/medidas-administrativas/ia/recomendar', {
+        employee_id: iaEmployeeId,
+        reason_category: iaCategoria,
+        reason_description: iaDescricao.trim(),
+        incident_date: iaIncidentDate || new Date().toISOString().slice(0, 10),
+      });
+      setIaResultado(res.data as RecomendacaoIA);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: unknown } } };
+      const detail = e.response?.data?.detail;
+      toast.error(typeof detail === 'string' ? detail : 'A IA não conseguiu gerar a recomendação agora.');
+    } finally {
+      setIaGerando(false);
+    }
+  };
+
+  const fecharIA = () => {
+    setIaAlvo(null);
+    setIaResultado(null);
+    setIaEmployeeId(null);
+  };
 
   const fecharModal = () => {
     setModo(null);
@@ -256,6 +412,86 @@ export default function TriagemPage() {
         </Card>
       ) : painel ? (
         <>
+          {/* Presença agora */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center justify-between gap-2 text-base">
+                <span className="flex items-center gap-2">
+                  <UserCheck className="h-4 w-4 text-green-600" /> Presença agora
+                </span>
+                <Link
+                  href="/modulos/operacional/presenca"
+                  className="text-xs font-normal text-blue-600 hover:underline"
+                >
+                  Ver quadro completo →
+                </Link>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {presencaErro ? (
+                <p className="text-sm text-muted-foreground">
+                  Presença ao vivo indisponível no momento.
+                </p>
+              ) : !presenca ? (
+                <p className="text-sm text-muted-foreground">Carregando presença…</p>
+              ) : (
+                <>
+                  <div className="flex flex-wrap gap-1.5">
+                    <Badge className="bg-slate-100 text-slate-800">
+                      {presenca.resumo?.esperados ?? 0} esperados
+                    </Badge>
+                    <Badge className="bg-green-100 text-green-800">
+                      {presenca.resumo?.presentes ?? 0} presentes
+                    </Badge>
+                    <Badge className="bg-amber-100 text-amber-800">
+                      {presenca.resumo?.atrasados ?? 0} atrasados
+                    </Badge>
+                    <Badge className="bg-red-100 text-red-800">
+                      {presenca.resumo?.ausentes ?? 0} ausentes
+                    </Badge>
+                    <Badge className="bg-gray-100 text-gray-700">
+                      {presenca.resumo?.aguardando ?? 0} aguardando
+                    </Badge>
+                    {(presenca.resumo?.extras ?? 0) > 0 && (
+                      <Badge className="bg-blue-100 text-blue-800">
+                        {presenca.resumo?.extras} extras
+                      </Badge>
+                    )}
+                  </div>
+                  {(() => {
+                    const criticos = (presenca.postos || [])
+                      .map((p) => ({
+                        posto: p.post_nome,
+                        pendentes: (p.funcionarios || []).filter(
+                          (f) => f.status === 'ausente' || f.status === 'atrasado',
+                        ),
+                      }))
+                      .filter((p) => p.pendentes.length > 0);
+                    if (criticos.length === 0) {
+                      return (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Nenhum ausente ou atrasado nos postos agora.
+                        </p>
+                      );
+                    }
+                    return (
+                      <ul className="mt-2 space-y-1">
+                        {criticos.map((p) => (
+                          <li key={p.posto} className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-900">
+                            <span className="font-semibold">{p.posto}: </span>
+                            {p.pendentes
+                              .map((f) => `${f.nome} (${f.status === 'ausente' ? 'ausente' : 'atrasado'})`)
+                              .join(', ')}
+                          </li>
+                        ))}
+                      </ul>
+                    );
+                  })()}
+                </>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Cards de topo */}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <Card>
@@ -363,7 +599,7 @@ export default function TriagemPage() {
                             </p>
                           )}
                         </div>
-                        <div className="flex shrink-0 gap-2">
+                        <div className="flex shrink-0 flex-wrap gap-2">
                           <Button
                             size="sm"
                             onClick={() => {
@@ -382,6 +618,9 @@ export default function TriagemPage() {
                             }}
                           >
                             <MessageSquare className="mr-1 h-4 w-4" /> Comentar
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => abrirSugestaoIA(o)}>
+                            <Bot className="mr-1 h-4 w-4" /> Sugerir medida (IA)
                           </Button>
                         </div>
                       </div>
@@ -536,6 +775,117 @@ export default function TriagemPage() {
             <Button onClick={comentar} isLoading={enviando} disabled={!comentario.trim()}>
               Enviar comentário
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Sugerir medida (IA) */}
+      <Dialog open={!!iaAlvo} onOpenChange={(aberto) => !aberto && fecharIA()}>
+        <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Bot className="h-5 w-5 text-violet-600" /> Sugerir medida administrativa (IA)
+            </DialogTitle>
+            <DialogDescription>{iaAlvo?.title || iaAlvo?.titulo || ''}</DialogDescription>
+          </DialogHeader>
+
+          {iaCarregandoDetalhe ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">
+              Carregando detalhes da ocorrência…
+            </p>
+          ) : !iaEmployeeId ? (
+            <p className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Esta ocorrência não tem funcionário vinculado. A IA precisa do funcionário para
+              analisar o histórico disciplinar — vincule o funcionário na ocorrência antes.
+            </p>
+          ) : iaResultado ? (
+            <div className="space-y-3">
+              <div className="rounded-lg border border-violet-200 bg-violet-50 p-3">
+                <p className="text-xs text-muted-foreground">Medida recomendada</p>
+                <p className="text-lg font-bold">
+                  {MEDIDA_LABEL[iaResultado.recommended_action] || iaResultado.recommended_action}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Confiança: {Math.round((iaResultado.confidence_score ?? 0) * 100)}%
+                </p>
+              </div>
+              <div>
+                <p className="text-sm font-medium">Justificativa</p>
+                <p className="whitespace-pre-wrap text-sm text-muted-foreground">{iaResultado.reasoning}</p>
+              </div>
+              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                <Badge variant="secondary">{iaResultado.previous_warnings} advertência(s) anteriores</Badge>
+                <Badge variant="secondary">{iaResultado.previous_suspensions} suspensão(ões) anteriores</Badge>
+              </div>
+              {(iaResultado.alternative_actions || []).length > 0 && (
+                <div>
+                  <p className="text-sm font-medium">Alternativas</p>
+                  <p className="text-sm text-muted-foreground">
+                    {(iaResultado.alternative_actions || [])
+                      .map((a) => MEDIDA_LABEL[a] || a)
+                      .join(', ')}
+                  </p>
+                </div>
+              )}
+              {(iaResultado.legal_references || []).length > 0 && (
+                <div>
+                  <p className="text-sm font-medium">Referências legais</p>
+                  <ul className="list-inside list-disc text-sm text-muted-foreground">
+                    {(iaResultado.legal_references || []).map((ref, i) => (
+                      <li key={i}>{ref}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <p className="rounded bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                Recomendação gerada por IA a partir do histórico — a decisão é humana e deve
+                considerar o contexto completo.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1 block text-sm font-medium">Categoria do motivo</label>
+                <select
+                  value={iaCategoria}
+                  onChange={(e) => setIaCategoria(e.target.value)}
+                  className="w-full rounded-md border border-[hsl(var(--border))] bg-transparent px-3 py-2 text-sm"
+                >
+                  {CATEGORIAS_MOTIVO.map((c) => (
+                    <option key={c.valor} value={c.valor}>
+                      {c.rotulo}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">Descrição do incidente</label>
+                <Textarea
+                  value={iaDescricao}
+                  onChange={(e) => setIaDescricao(e.target.value)}
+                  placeholder="O que aconteceu? (mínimo 10 caracteres)"
+                  rows={3}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                A IA analisa o histórico disciplinar real do funcionário e sugere a medida conforme a CLT.
+              </p>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button variant="ghost" onClick={fecharIA} disabled={iaGerando}>
+              Fechar
+            </Button>
+            {iaEmployeeId && !iaResultado && !iaCarregandoDetalhe && (
+              <Button
+                onClick={gerarRecomendacao}
+                isLoading={iaGerando}
+                disabled={iaDescricao.trim().length < 10}
+              >
+                Gerar recomendação
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

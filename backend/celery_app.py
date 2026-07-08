@@ -194,6 +194,19 @@ app.conf.beat_schedule = {
         "schedule": crontab(minute=30, hour=7, day_of_week="1-5"),
         "options": {"queue": "gov.batch"},
     },
+    # Vigia de ausência: turno em andamento sem batida (30-60min do início) → Telegram.
+    # Beat TZ = America/Sao_Paulo; turnos são hora de Manaus (SP-1h): hour 8-23 SP cobre 7-22 Manaus.
+    "operacional-vigia-ausencia": {
+        "task": "operacional.vigia_ausencia",
+        "schedule": crontab(minute="0,30", hour="8-23"),
+        "options": {"queue": "gov.batch"},
+    },
+    # Dia 25, 08:00 SP: gera em rascunho as escalas do mês seguinte (nunca publica sozinho)
+    "operacional-escalas-proximo-mes": {
+        "task": "operacional.gerar_escalas_proximo_mes",
+        "schedule": crontab(minute=0, hour=8, day_of_month="25"),
+        "options": {"queue": "gov.batch"},
+    },
     # Verificação de disponibilidade a cada 5 minutos
     "check-endpoints-5min": {
         "task": "government_integrations.tasks.monitoring.verificar_disponibilidade",

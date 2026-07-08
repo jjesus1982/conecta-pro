@@ -70,6 +70,9 @@ from modules.operacional.team_evaluations import team_evaluation_router
 # --- Operacional Triagem (painel do gestor) ---
 from modules.operacional.triage import triage_router
 
+# --- Operacional Presença (quadro ao vivo escala × ponto) ---
+from modules.operacional.presence import presence_router
+
 # --- Operacional Vacations ---
 from modules.operacional.vacations import vacation_router
 
@@ -91,6 +94,7 @@ __all__ = [
     "shift_handover_router",
     "team_evaluation_router",
     "triage_router",
+    "presence_router",
     "diarist_router",
     "diarist_fiscal_router",
     "disciplinary_router",

@@ -446,6 +446,7 @@ try:
         shift_handover_router,
         team_evaluation_router,
         triage_router,
+        presence_router,
         ocorrencias_alias,
         operacional_ai_router,
         operacional_dashboard_router,
@@ -495,6 +496,7 @@ try:
     api_router.include_router(shift_handover_router, prefix="/operacional", tags=["Operacional - Passagem de Turno"])
     api_router.include_router(team_evaluation_router, prefix="/operacional", tags=["Operacional - Avaliação de Equipe"])
     api_router.include_router(triage_router, prefix="/operacional", tags=["Operacional - Triagem"])
+    api_router.include_router(presence_router, prefix="/operacional", tags=["Operacional - Presença"])
     # AI
     api_router.include_router(operacional_ai_router, prefix="/operacional", tags=["Operacional - AI"])
     # WebSocket
