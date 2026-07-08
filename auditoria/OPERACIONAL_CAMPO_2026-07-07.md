@@ -151,3 +151,45 @@ Ordem do Jordan: continuar lapidando em modo autônomo; corrigir alocações; pr
 ## Decisões do Jordan registradas
 - Grupo Telegram: "nem faço questão" → alertas e briefing seguem no chat dele (env aponta pro chat dele).
 - Senhas dos líderes: ele providencia.
+
+---
+
+# RODADA 3 (manhã 08/07) — Escalas de julho = trabalho REAL + fuso das batidas
+
+Ordem do Jordan: "ajuste as escalas de julho pra refletir quem realmente trabalha... apenas os AGPs
+em 12x36, demais em 44h semanais comerciais... fidelidade por posto e quantidade de funcionários por posto".
+
+## Descoberta crítica — batidas são UTC
+Provado por sequência real: ADEMIR (ASG) entrada 11:02 UTC = **07:02 Manaus** (almoço 11-12 local,
+saída 16:00) e ANILSON (AGP) 22:00 UTC = **noturno 18:00–06:00 Manaus com 1h pausa**. Meu módulo de
+presença de ontem tratava como hora local → corrigido (conversão UTC→Manaus em presença, vigia e
+briefing). Batida noturna de 20:51 Manaus era contada no dia errado — agora não é mais.
+
+## Escalas de julho regeneradas do padrão real (script: auditoria/SCRIPT_regen_escalas_julho_2026-07-08.py)
+- Fonte: batidas dos últimos 60 dias (turno = mediana da 1ª entrada; paridade de dias 12x36 =
+  maioria ímpar/par dos dias trabalhados). **Todos os 21 AGPs tinham histórico — zero chute.**
+- Resultado: **756 turnos** (substituíram os 558 fictícios do gerador padrão, backup
+  `PRE_ESCALAS_REAIS_20260708` antes): 21 AGPs em 12x36 (**12 noturnos, 9 diurnos** — o quadro real
+  pende pro noturno), 16 em 44h comercial (10 ASG + 2 artífices + 1 jardineiro + 3 líderes;
+  seg-sex 8h com 1h almoço + sáb 4h, início pela mediana real de cada um).
+- Fidelidade por posto == quadro alocado (ex.: Ideal Flores 8 AGP + 5 comerciais; Michelangelo só
+  1 ASG; Portaria Principal Mirante 2 ASG). Zero duplo-turno no mês (validado por SQL).
+- Nota honesta: Gelain tem 1 único AGP (diurno alternado) — cobertura de portaria tem buracos REAIS
+  que agora ficam visíveis; Líder de Portaria ficou em 44h por ordem literal ("apenas os AGPs em 12x36").
+
+## Quantidade de funcionários por posto (pendência antiga fechada)
+`required_headcount`/`current_headcount` = quadro REAL por posto (Ideal 13, Mirante 5, Prime 5,
+Villa Dei Fiori 4, Laranjeiras 4, Villa dos Pássaros 2, Portaria Mirante 2, Gelain 1, Michelangelo 1).
+Taxa de ocupação: 409% → **121,6%** — o excedente é FATO: **8 alocações ativas de funcionários
+não-ativos (afastados/suspensos/demitidos)** → decisão do Jordan (encerrar alocação ou manter vaga).
+
+## Fidelidade do quadro de presença
+- Novo campo `batidas_sincronizadas_ate` + aviso âmbar na tela quando o sync do Sólides está
+  defasado (>90min) — às 08:19 de hoje a última batida sincronizada era de 05:58: os "atrasados"
+  podem ser atraso do SYNC, não do funcionário, e a tela agora DIZ isso.
+
+## AÇÕES DO JORDAN (novas desta rodada)
+1. 8 alocações ativas de funcionários não-ativos — encerrar ou manter (taxa >100% até resolver).
+2. Gelain com 1 AGP: portaria descoberta em dias alternados e à noite — contratar/realocar?
+3. Frequência do sync de batidas do Sólides (últimas chegam com horas de atraso em certos períodos)
+   — se quiser presença mais "ao vivo", aumentar a frequência do sync.
