@@ -37,9 +37,9 @@ class ASOModel(Base):
     aso_id = Column(String(36), unique=True, nullable=False, index=True)
     employee_id = Column(String(36), nullable=False, index=True)
 
-    tipo = Column(Enum(ASOType, values_callable=lambda x: [e.value for e in x], name="aso_type_enum"), nullable=False)
+    tipo = Column(Enum(ASOType, values_callable=lambda x: [e.value for e in x], name="aso_type_enum", native_enum=False), nullable=False)
     status = Column(
-        Enum(ASOStatus, values_callable=lambda x: [e.value for e in x], name="aso_status_enum"),
+        Enum(ASOStatus, values_callable=lambda x: [e.value for e in x], name="aso_status_enum", native_enum=False),
         nullable=False,
         default=ASOStatus.AGENDADO,
     )
