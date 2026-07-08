@@ -11,12 +11,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   sstService,
   type AfastamentoCreate,
+  type ASOAgendarLoteItem,
   type ASOResultadoPayload,
   type CATCreate,
   type EPIEntregaCreate,
   type FichaEPIGerarPayload,
   type FichaEPIStatus,
   type LTCATUpdatePayload,
+  type TreinamentoNRCreate,
 } from '@/lib/services/sst';
 
 // =============================================================================
@@ -37,6 +39,8 @@ export const sstKeys = {
   entregasEPI: () => [...sstKeys.all, 'entregas-epi'] as const,
   fichasEPI: () => [...sstKeys.all, 'fichas-epi'] as const,
   nr1Compliance: () => [...sstKeys.all, 'nr1-compliance'] as const,
+  regularizacao: () => [...sstKeys.all, 'asos-regularizacao'] as const,
+  treinamentos: () => [...sstKeys.all, 'treinamentos'] as const,
 };
 
 // =============================================================================
@@ -208,6 +212,86 @@ export function useRegistrarResultadoASO() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: sstKeys.asos() });
       queryClient.invalidateQueries({ queryKey: sstKeys.dashboard() });
+      queryClient.invalidateQueries({ queryKey: sstKeys.nr1Compliance() });
+    },
+  });
+}
+
+// =============================================================================
+// REGULARIZAÇÃO DE ASOs VENCIDAS
+// =============================================================================
+
+/**
+ * Hook para o plano de regularização das ASOs vencidas (lista priorizada)
+ */
+export function useASOsRegularizacao() {
+  return useQuery({
+    queryKey: sstKeys.regularizacao(),
+    queryFn: () => sstService.getASOsRegularizacao(),
+    staleTime: 60 * 1000,
+  });
+}
+
+/**
+ * Hook para agendar ASOs em lote (regularização em massa)
+ */
+export function useAgendarASOsLote() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (itens: ASOAgendarLoteItem[]) => sstService.agendarASOsLote(itens),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: sstKeys.regularizacao() });
+      queryClient.invalidateQueries({ queryKey: sstKeys.asos() });
+      queryClient.invalidateQueries({ queryKey: sstKeys.dashboard() });
+    },
+  });
+}
+
+// =============================================================================
+// TREINAMENTOS NR (sst_treinamentos)
+// =============================================================================
+
+/**
+ * Hook para listar treinamentos NR
+ */
+export function useTreinamentos(filters?: {
+  employee_id?: string;
+  norma?: string;
+  vencendo_em_dias?: number;
+}) {
+  return useQuery({
+    queryKey: [...sstKeys.treinamentos(), filters],
+    queryFn: () => sstService.listTreinamentos(filters),
+    staleTime: 60 * 1000,
+  });
+}
+
+/**
+ * Hook para registrar treinamento NR realizado
+ */
+export function useCriarTreinamento() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: TreinamentoNRCreate) => sstService.criarTreinamento(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: sstKeys.treinamentos() });
+      queryClient.invalidateQueries({ queryKey: sstKeys.nr1Compliance() });
+    },
+  });
+}
+
+/**
+ * Hook para excluir registro de treinamento (correção de lançamento)
+ */
+export function useExcluirTreinamento() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => sstService.excluirTreinamento(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: sstKeys.treinamentos() });
       queryClient.invalidateQueries({ queryKey: sstKeys.nr1Compliance() });
     },
   });

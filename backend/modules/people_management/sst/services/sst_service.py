@@ -1,5 +1,6 @@
 """Service SST — Wiring real com banco de dados, CCT 2026 e dados reais."""
 
+import calendar
 import logging
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -34,6 +35,15 @@ CID_ACIDENTE_PREFIXOS = ("W", "V", "X", "Y")
 GRAU_RISCO_BAIXO = 1
 GRAU_RISCO_MEDIO = 2
 GRAU_RISCO_ALTO = 3
+
+
+def somar_meses(d: date, meses: int) -> date:
+    """d + N meses (dia clampado no fim do mês) — cálculo do vencimento de treinamento."""
+    m = d.month - 1 + meses
+    ano = d.year + m // 12
+    mes = m % 12 + 1
+    dia = min(d.day, calendar.monthrange(ano, mes)[1])
+    return date(ano, mes, dia)
 
 
 def _grau_risco_cct(peric: float, insal: float) -> int:
@@ -331,6 +341,243 @@ class SSTService:
         return sem_aso
 
     # ================================================================
+    # TREINAMENTOS NR (sst_treinamentos) — 4º pilar do compliance NR-1
+    # ================================================================
+
+    @staticmethod
+    def _situacao_treinamento(vencimento: date, hoje: date) -> str:
+        if vencimento < hoje:
+            return "vencido"
+        if vencimento <= hoje + timedelta(days=30):
+            return "vencendo"
+        return "em_dia"
+
+    async def criar_treinamento(self, data: dict, created_by: str | None = None) -> dict:
+        """Registra treinamento NR REALIZADO (dado real — nunca fabricado).
+
+        vencimento é CALCULADO: data_realizacao + validade_meses (meses).
+        """
+        from modules.people_management.sst.schemas.sst_schemas import NORMAS_TREINAMENTO
+
+        norma = str(data.get("norma") or "")
+        if norma not in NORMAS_TREINAMENTO:
+            raise ValueError(f"norma inválida '{norma}'. Válidas: {', '.join(NORMAS_TREINAMENTO)}")
+        try:
+            dt_realizacao = date.fromisoformat(str(data["data_realizacao"])[:10])
+        except (KeyError, ValueError) as exc:
+            raise ValueError("data_realizacao inválida (use YYYY-MM-DD)") from exc
+        if dt_realizacao > date.today():
+            raise ValueError("data_realizacao no futuro — registre só treinamentos REALIZADOS")
+        validade_meses = int(data.get("validade_meses") or 12)
+        if not 1 <= validade_meses <= 120:
+            raise ValueError("validade_meses deve estar entre 1 e 120")
+        vencimento = somar_meses(dt_realizacao, validade_meses)
+
+        emp = (
+            await self.db.execute(
+                text("SELECT id, nome FROM employees WHERE id::text = :eid"),
+                {"eid": str(data["employee_id"])},
+            )
+        ).mappings().first()
+        if not emp:
+            raise ValueError("Funcionário não encontrado")
+
+        row = (
+            await self.db.execute(
+                text(
+                    "INSERT INTO sst_treinamentos "
+                    "(employee_id, norma, descricao, data_realizacao, validade_meses, "
+                    " vencimento, certificado_path, created_by) "
+                    "VALUES (:eid, :norma, :descricao, :realizacao, :meses, :venc, :cert, :autor) "
+                    "RETURNING id, employee_id, norma, descricao, data_realizacao, "
+                    "validade_meses, vencimento, certificado_path, created_by"
+                ),
+                {
+                    "eid": str(data["employee_id"]),
+                    "norma": norma,
+                    "descricao": data.get("descricao"),
+                    "realizacao": dt_realizacao,
+                    "meses": validade_meses,
+                    "venc": vencimento,
+                    "cert": data.get("certificado_path"),
+                    "autor": created_by,
+                },
+            )
+        ).mappings().first()
+        await self.db.commit()
+        hoje = date.today()
+        return {
+            "id": str(row["id"]),
+            "employee_id": str(row["employee_id"]),
+            "employee_nome": emp["nome"],
+            "norma": row["norma"],
+            "descricao": row["descricao"],
+            "data_realizacao": str(row["data_realizacao"]),
+            "validade_meses": row["validade_meses"],
+            "vencimento": str(row["vencimento"]),
+            "situacao": self._situacao_treinamento(row["vencimento"], hoje),
+            "certificado_path": row["certificado_path"],
+            "created_by": row["created_by"],
+        }
+
+    async def listar_treinamentos(
+        self,
+        employee_id: str | None = None,
+        norma: str | None = None,
+        vencendo_em_dias: int | None = None,
+    ) -> list[dict]:
+        """Lista treinamentos NR com nome real do funcionário.
+
+        vencendo_em_dias=N: só vencidos + os que vencem nos próximos N dias.
+        """
+        query = (
+            "SELECT t.id, t.employee_id, e.nome AS employee_nome, t.norma, t.descricao, "
+            "t.data_realizacao, t.validade_meses, t.vencimento, t.certificado_path, t.created_by "
+            "FROM sst_treinamentos t JOIN employees e ON e.id = t.employee_id WHERE 1=1"
+        )
+        params: dict[str, Any] = {}
+        if employee_id:
+            query += " AND t.employee_id::text = :eid"
+            params["eid"] = employee_id
+        if norma:
+            query += " AND t.norma = :norma"
+            params["norma"] = norma
+        if vencendo_em_dias is not None:
+            query += " AND t.vencimento <= :limite"
+            params["limite"] = date.today() + timedelta(days=vencendo_em_dias)
+        query += " ORDER BY t.vencimento ASC, e.nome"
+        rows = (await self.db.execute(text(query), params)).mappings().all()
+        hoje = date.today()
+        return [
+            {
+                "id": str(r["id"]),
+                "employee_id": str(r["employee_id"]),
+                "employee_nome": r["employee_nome"],
+                "norma": r["norma"],
+                "descricao": r["descricao"],
+                "data_realizacao": str(r["data_realizacao"]),
+                "validade_meses": r["validade_meses"],
+                "vencimento": str(r["vencimento"]),
+                "situacao": self._situacao_treinamento(r["vencimento"], hoje),
+                "certificado_path": r["certificado_path"],
+                "created_by": r["created_by"],
+            }
+            for r in rows
+        ]
+
+    async def excluir_treinamento(self, treinamento_id: str) -> bool:
+        """Exclui um registro de treinamento (correção de lançamento errado)."""
+        result = await self.db.execute(
+            text("DELETE FROM sst_treinamentos WHERE id::text = :tid"),
+            {"tid": treinamento_id},
+        )
+        await self.db.commit()
+        return result.rowcount > 0
+
+    # ================================================================
+    # REGULARIZAÇÃO DE ASOs VENCIDAS (plano das 88)
+    # ================================================================
+
+    async def listar_asos_regularizacao(self) -> dict[str, Any]:
+        """Lista priorizada de funcionários ATIVOS com o último ASO vencido.
+
+        Priorização: mais vencido primeiro (dias_vencido DESC). Inclui o posto
+        atual REAL (allocations ativas → posts) para logística das clínicas e
+        se já existe um novo ASO agendado (evita agendamento duplicado).
+        """
+        hoje = date.today()
+        rows = (
+            await self.db.execute(
+                text(
+                    """
+                    WITH ultimo_aso AS (
+                        SELECT DISTINCT ON (a.employee_id)
+                               a.employee_id, a.aso_id, a.tipo, a.data_validade, a.clinica
+                        FROM gp_asos a
+                        WHERE a.data_validade IS NOT NULL
+                        ORDER BY a.employee_id, a.data_validade DESC
+                    ),
+                    posto_atual AS (
+                        SELECT DISTINCT ON (al.employee_id)
+                               al.employee_id, p.id AS posto_id, p.name AS posto_nome
+                        FROM allocations al
+                        JOIN posts p ON p.id = al.post_id
+                        WHERE al.is_active = true AND al.status = 'active'
+                          AND (al.end_date IS NULL OR al.end_date >= CURRENT_DATE)
+                        ORDER BY al.employee_id, al.is_primary DESC, al.start_date DESC
+                    ),
+                    agendados AS (
+                        SELECT employee_id, min(data_agendamento) AS proxima_data
+                        FROM gp_asos
+                        WHERE status = 'agendado' AND data_agendamento >= CURRENT_DATE
+                        GROUP BY employee_id
+                    )
+                    SELECT e.id AS employee_id, e.nome, e.cargo,
+                           u.aso_id, u.tipo, u.data_validade,
+                           (CURRENT_DATE - u.data_validade) AS dias_vencido,
+                           pa.posto_id, pa.posto_nome, ag.proxima_data
+                    FROM ultimo_aso u
+                    JOIN employees e ON e.id = u.employee_id AND e.status = 'ativo'
+                    LEFT JOIN posto_atual pa ON pa.employee_id = u.employee_id
+                    LEFT JOIN agendados ag ON ag.employee_id = u.employee_id
+                    WHERE u.data_validade < CURRENT_DATE
+                    ORDER BY u.data_validade ASC, e.nome
+                    """
+                )
+            )
+        ).mappings().all()
+
+        pendentes = [
+            {
+                "employee_id": str(r["employee_id"]),
+                "nome": r["nome"],
+                "cargo": r["cargo"],
+                "aso_id": r["aso_id"],
+                "tipo_ultimo_aso": r["tipo"],
+                "data_validade": str(r["data_validade"]),
+                "dias_vencido": int(r["dias_vencido"]),
+                "posto_id": str(r["posto_id"]) if r["posto_id"] else None,
+                "posto_nome": r["posto_nome"] or "Sem posto ativo",
+                "ja_agendado": r["proxima_data"] is not None,
+                "proxima_data_agendada": str(r["proxima_data"]) if r["proxima_data"] else None,
+            }
+            for r in rows
+        ]
+
+        # Resumo por posto (logística: agrupar exames por localização)
+        por_posto: dict[str, dict[str, Any]] = {}
+        for p in pendentes:
+            grupo = por_posto.setdefault(
+                p["posto_nome"],
+                {"posto_nome": p["posto_nome"], "posto_id": p["posto_id"], "pendentes": 0, "mais_vencido_dias": 0},
+            )
+            grupo["pendentes"] += 1
+            grupo["mais_vencido_dias"] = max(grupo["mais_vencido_dias"], p["dias_vencido"])
+
+        # Registros vencidos TOTAIS (inclui históricos de quem já renovou/saiu)
+        registros_vencidos = (
+            await self.db.execute(
+                text("SELECT count(*) FROM gp_asos WHERE data_validade < CURRENT_DATE")
+            )
+        ).scalar() or 0
+
+        return {
+            "gerado_em": str(hoje),
+            "registros_aso_vencidos_total": registros_vencidos,
+            "funcionarios_pendentes": len(pendentes),
+            "ja_agendados": sum(1 for p in pendentes if p["ja_agendado"]),
+            "nota": (
+                "registros_aso_vencidos_total conta TODAS as linhas vencidas em gp_asos "
+                "(inclui históricos); funcionarios_pendentes conta funcionários ATIVOS "
+                "cujo ASO mais recente está vencido — é a fila real de regularização."
+            ),
+            "resumo_por_posto": sorted(
+                por_posto.values(), key=lambda g: g["pendentes"], reverse=True
+            ),
+            "pendentes": pendentes,
+        }
+
+    # ================================================================
     # ESTABILIDADE (CCT Clausula 29a)
     # ================================================================
 
@@ -598,8 +845,8 @@ class SSTService:
         3. Exposição a riscos mapeada (gp_risks — mapa vigente; o vínculo por
            posto NÃO é resolvível hoje: gp_risks.posto_id não casa com posts/
            condominios, limitação declarada, não mascarada)
-        4. Treinamentos NR: só se existir tabela real (guard to_regclass) —
-           sem tabela, o item é reportado como 'sem_fonte' e NÃO entra no score.
+        4. Treinamentos NR (sst_treinamentos): em dia = treinamento NR-1 com
+           vencimento válido; vencido/sem registro = pendência (entra no score).
         """
         hoje = date.today()
 
@@ -642,19 +889,28 @@ class SSTService:
             await self.db.execute(text("SELECT count(*) FROM gp_risks WHERE status <> 'encerrado'"))
         ).scalar() or 0
 
-        # Treinamentos NR: guard — só avalia se houver tabela real
+        # Treinamentos NR (sst_treinamentos): 4º pilar — em dia = NR-1 válido.
+        # Guard mantido só para ambientes ainda sem a migração 2026-07-08.
         treino_tabela = (
-            await self.db.execute(
-                text(
-                    "SELECT coalesce(to_regclass('sst_treinamentos'), to_regclass('gp_treinamentos'), "
-                    "to_regclass('hr_trainings'))::text"
-                )
-            )
+            await self.db.execute(text("SELECT to_regclass('sst_treinamentos')::text"))
         ).scalar()
+        treino_por_emp: dict[str, dict[str, Any]] = {}
+        if treino_tabela:
+            treinos_rows = (
+                await self.db.execute(
+                    text(
+                        "SELECT employee_id::text AS eid, count(*) AS total, "
+                        "max(vencimento) FILTER (WHERE norma = 'NR-1') AS nr1_vencimento "
+                        "FROM sst_treinamentos GROUP BY employee_id"
+                    )
+                )
+            ).mappings().all()
+            treino_por_emp = {t["eid"]: dict(t) for t in treinos_rows}
 
         funcionarios: list[dict[str, Any]] = []
         calcados = 0
         asos_vencidos_func = 0
+        treinos_nr1_validos = 0
         for emp in employees:
             eid = str(emp["id"])
             checks: dict[str, Any] = {}
@@ -698,20 +954,39 @@ class SSTService:
                 "fonte": "gp_risks (mapa global — vínculo por posto não resolvível hoje)",
             }
 
-            # 4. Treinamentos NR (guard honesto)
+            # 4. Treinamentos NR — em dia = tem treinamento NR-1 com vencimento válido
             if treino_tabela:
-                treinos = (
-                    await self.db.execute(
-                        text(f"SELECT count(*) FROM {treino_tabela} WHERE employee_id::text = :eid"),  # noqa: S608
-                        {"eid": eid},
-                    )
-                ).scalar() or 0
-                checks["treinamentos"] = {"ok": treinos > 0, "situacao": f"{treinos} registro(s)"}
+                treino = treino_por_emp.get(eid)
+                nr1_venc = treino.get("nr1_vencimento") if treino else None
+                if nr1_venc and nr1_venc >= hoje:
+                    checks["treinamentos"] = {
+                        "ok": True, "situacao": "nr1_em_dia",
+                        "nr1_vencimento": str(nr1_venc), "registros": treino["total"],
+                    }
+                elif nr1_venc:
+                    checks["treinamentos"] = {
+                        "ok": False, "situacao": "nr1_vencido",
+                        "nr1_vencimento": str(nr1_venc), "registros": treino["total"],
+                    }
+                elif treino:
+                    checks["treinamentos"] = {
+                        "ok": False, "situacao": "sem_treinamento_nr1",
+                        "nr1_vencimento": None, "registros": treino["total"],
+                        "nota": "Há treinamentos registrados, mas nenhum NR-1",
+                    }
+                else:
+                    checks["treinamentos"] = {
+                        "ok": False, "situacao": "sem_treinamento",
+                        "nr1_vencimento": None, "registros": 0,
+                    }
             else:
                 checks["treinamentos"] = {
                     "ok": None, "situacao": "sem_fonte",
                     "nota": "Sem tabela de treinamentos NR no banco — item não avaliado (não entra no score)",
                 }
+
+            if checks["treinamentos"].get("ok") is True:
+                treinos_nr1_validos += 1
 
             aplicaveis = [c for c in checks.values() if c["ok"] is not None]
             ok_count = sum(1 for c in aplicaveis if c["ok"])
@@ -759,6 +1034,8 @@ class SSTService:
                 "entregas_epi_sem_ficha": entregas_sem_ficha,
                 "riscos_mapeados_vigentes": riscos_ativos,
                 "treinamentos_fonte": treino_tabela or "sem_tabela",
+                "funcionarios_nr1_treinamento_valido": treinos_nr1_validos,
+                "funcionarios_nr1_treinamento_pendente": len(employees) - treinos_nr1_validos,
             },
             "funcionarios": funcionarios,
         }

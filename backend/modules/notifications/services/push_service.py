@@ -5,7 +5,7 @@ Sprint: Módulo Operacional - Sistema de Notificações Push
 
 import logging
 from datetime import datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session
 
@@ -235,14 +235,15 @@ class PushNotificationService:
             # Cria item na fila de notificações
             queue_item = NotificationQueue(
                 tenant_id=self.tenant_id,
+                notification_id=f"push-{uuid4().hex[:20]}",
                 user_id=user_id,
                 channel_type="push",
                 priority=priority,
                 status=QueueStatus.PENDING,
                 recipient_address="push",  # Push não usa endereço real
                 subject=title,
-                content=body,
-                data={
+                body=body,
+                content_data={
                     "action_url": action_url,
                     "custom_data": data or {},
                     "device_tokens": device_tokens,
@@ -314,7 +315,7 @@ class PushNotificationService:
             )
 
             if unread_only:
-                query = query.filter(not NotificationQueue.opened)
+                query = query.filter(NotificationQueue.opened.is_(False))
 
             notifications = query.order_by(NotificationQueue.created_at.desc()).offset(offset).limit(limit).all()
 
@@ -322,12 +323,12 @@ class PushNotificationService:
                 {
                     "id": str(n.id),
                     "title": n.subject,
-                    "body": n.content,
-                    "data": n.data,
+                    "body": n.body,
+                    "data": n.content_data,
                     "read": n.opened or False,
                     "created_at": n.created_at.isoformat() if n.created_at else None,
                     "opened_at": n.opened_at.isoformat() if n.opened_at else None,
-                    "action_url": n.data.get("action_url") if n.data else None,
+                    "action_url": n.content_data.get("action_url") if n.content_data else None,
                 }
                 for n in notifications
             ]
@@ -404,7 +405,7 @@ class PushNotificationService:
                     NotificationQueue.tenant_id == self.tenant_id,
                     NotificationQueue.user_id == user_id,
                     NotificationQueue.channel_type == "push",
-                    not NotificationQueue.opened,
+                    NotificationQueue.opened.is_(False),
                 )
                 .update(
                     {
@@ -448,7 +449,7 @@ class PushNotificationService:
                     NotificationQueue.tenant_id == self.tenant_id,
                     NotificationQueue.user_id == user_id,
                     NotificationQueue.channel_type == "push",
-                    not NotificationQueue.opened,
+                    NotificationQueue.opened.is_(False),
                 )
                 .count()
             )

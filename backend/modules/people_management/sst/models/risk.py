@@ -19,7 +19,9 @@ class RiskModel(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     risk_id = Column(String(36), unique=True, nullable=False, index=True)
-    posto_id = Column(String(36), nullable=False, index=True)
+    # NULL honesto: PGR/LTCAT mapeiam riscos por FUNÇÃO (GES), não por posto
+    # (migration 2026-07-08_sst_missao1 — os posto_id antigos eram órfãos).
+    posto_id = Column(String(36), nullable=True, index=True)
 
     categoria = Column(String(20), nullable=False)  # fisico, quimico, biologico, ergonomico, acidente
     descricao = Column(Text, nullable=False)
@@ -30,6 +32,13 @@ class RiskModel(Base):
     epi_recomendado = Column(JSON, nullable=True, default=list)
 
     status = Column(String(20), nullable=False, default="identificado")
+
+    # eSocial S-2240 (migration 2026-07-08_sst_missao1 — fontes: LTCAT/laudos MB)
+    cod_agente_nocivo = Column(String(20), nullable=True)  # Tabela 24; NULL = não declarável/não enquadrado
+    utiliz_epc = Column(String(1), nullable=True)  # 0=não se aplica, 1=não implementa, 2=implementa
+    utiliz_epi = Column(String(1), nullable=True)  # 0=não se aplica, 1=não utilizado, 2=utilizado
+    medicao = Column(Text, nullable=True)  # medição/conclusão REAL do laudo, com fonte e data
+    funcoes_aplicaveis = Column(JSON, nullable=True)  # tokens AGP|LIDER|ASG|ARTIFICE|JARDINEIRO (PGR GES)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None))
     updated_at = Column(DateTime, nullable=True, onupdate=lambda: datetime.now(UTC).replace(tzinfo=None))
 
@@ -43,4 +52,9 @@ class RiskModel(Base):
             "nivel": self.nivel,
             "medidas_controle": self.medidas_controle,
             "status": self.status,
+            "cod_agente_nocivo": self.cod_agente_nocivo,
+            "utiliz_epc": self.utiliz_epc,
+            "utiliz_epi": self.utiliz_epi,
+            "medicao": self.medicao,
+            "funcoes_aplicaveis": self.funcoes_aplicaveis,
         }

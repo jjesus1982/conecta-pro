@@ -77,7 +77,13 @@ class NotificationQueue(Base):
     status = Column(
         Enum(QueueStatus, values_callable=lambda x: [e.value for e in x]), default=QueueStatus.PENDING, index=True
     )
-    priority = Column(Enum(QueuePriority), default=QueuePriority.NORMAL, index=True)
+    # DB enum queuepriority tem labels NUMÉRICOS ("1","2","5","8","10") — persistir
+    # str(e.value), nunca o NAME ("NORMAL"), senão insert/load quebram
+    priority = Column(
+        Enum(QueuePriority, values_callable=lambda x: [str(e.value) for e in x]),
+        default=QueuePriority.NORMAL,
+        index=True,
+    )
 
     # Agendamento
     scheduled_at = Column(DateTime, index=True)

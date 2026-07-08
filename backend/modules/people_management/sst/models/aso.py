@@ -63,6 +63,9 @@ class ASOModel(Base):
     esocial_status = Column(String(20), nullable=False, default="nao_transmitida")
     # nao_transmitida|transmitida|aceita|rejeitada|erro
     esocial_protocolo = Column(String(100), nullable=True)  # protocolo REAL do lote (pull de recibos)
+    # Procedimentos Tabela 27 do ASO: [{dt_exame, cod_procedimento, nome, fonte}]
+    # (migration 2026-07-08_sst_missao1 — exame clínico 0295 derivado de data_realizacao)
+    exames = Column(JSON, nullable=True)
 
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None))
     updated_at = Column(DateTime, nullable=True, onupdate=lambda: datetime.now(UTC).replace(tzinfo=None))

@@ -315,6 +315,9 @@ export interface NR1CheckTreinamentos {
   ok: boolean | null;
   situacao: string;
   nota?: string;
+  /** Vencimento do treinamento NR-1 mais recente (fonte: sst_treinamentos) */
+  nr1_vencimento?: string | null;
+  registros?: number;
 }
 
 export interface NR1Funcionario {
@@ -344,6 +347,110 @@ export interface NR1Compliance {
     treinamentos_fonte: string;
   };
   funcionarios: NR1Funcionario[];
+}
+
+// =============================================================================
+// TIPOS - TREINAMENTOS NR (4º pilar do compliance NR-1)
+// =============================================================================
+
+export type TreinamentoSituacao = 'em_dia' | 'vencendo' | 'vencido';
+
+export const TREINAMENTO_NORMAS: { value: string; label: string }[] = [
+  { value: 'NR-1', label: 'NR-1 (Disposições Gerais / GRO)' },
+  { value: 'NR-6', label: 'NR-6 (EPI)' },
+  { value: 'brigada', label: 'Brigada de Incêndio' },
+  { value: 'primeiros_socorros', label: 'Primeiros Socorros' },
+  { value: 'outro', label: 'Outro' },
+];
+
+export interface TreinamentoNR {
+  id: string;
+  employee_id: string;
+  employee_nome: string | null;
+  norma: string;
+  descricao: string | null;
+  data_realizacao: string;
+  validade_meses: number;
+  vencimento: string;
+  situacao: TreinamentoSituacao;
+  certificado_path: string | null;
+  created_by: string | null;
+}
+
+export interface TreinamentoNRList {
+  total: number;
+  em_dia: number;
+  vencendo_30d: number;
+  vencidos: number;
+  treinamentos: TreinamentoNR[];
+}
+
+export interface TreinamentoNRCreate {
+  employee_id: string;
+  norma: string;
+  descricao?: string;
+  data_realizacao: string;
+  validade_meses: number;
+  certificado_path?: string;
+}
+
+// =============================================================================
+// TIPOS - REGULARIZAÇÃO DE ASOs VENCIDAS
+// =============================================================================
+
+export interface ASORegularizacaoItem {
+  employee_id: string;
+  nome: string;
+  cargo: string | null;
+  aso_id: string;
+  tipo_ultimo_aso: string;
+  data_validade: string;
+  dias_vencido: number;
+  posto_id: string | null;
+  posto_nome: string;
+  ja_agendado: boolean;
+  proxima_data_agendada: string | null;
+}
+
+export interface ASORegularizacaoPostoResumo {
+  posto_nome: string;
+  posto_id: string | null;
+  pendentes: number;
+  mais_vencido_dias: number;
+}
+
+export interface ASORegularizacao {
+  gerado_em: string;
+  registros_aso_vencidos_total: number;
+  funcionarios_pendentes: number;
+  ja_agendados: number;
+  nota: string;
+  resumo_por_posto: ASORegularizacaoPostoResumo[];
+  pendentes: ASORegularizacaoItem[];
+}
+
+export interface ASOAgendarLoteItem {
+  employee_id: string;
+  data_agendamento: string;
+  clinica?: string;
+  tipo: string;
+}
+
+export interface ASOAgendarLoteResponse {
+  total_recebidos: number;
+  total_agendados: number;
+  total_erros: number;
+  agendados: {
+    aso_id: string;
+    employee_id: string;
+    employee_nome: string;
+    tipo: string;
+    data_agendamento: string;
+    clinica: string | null;
+    status: string;
+  }[];
+  erros: { employee_id: string; erro: string }[];
+  nota: string;
 }
 
 // =============================================================================
@@ -558,6 +665,31 @@ export const sstService = {
   // ASO (eSocial S-2220)
   listASOs: () => api.get<ASOList>(`${BASE}/aso`).then((r) => r.data),
 
+  // Regularização de ASOs vencidas
+  getASOsRegularizacao: () =>
+    api.get<ASORegularizacao>(`${BASE}/asos/regularizacao`).then((r) => r.data),
+
+  agendarASOsLote: (itens: ASOAgendarLoteItem[]) =>
+    api
+      .post<ASOAgendarLoteResponse>(`${BASE}/asos/agendar-lote`, itens)
+      .then((r) => r.data),
+
+  // Treinamentos NR (sst_treinamentos)
+  listTreinamentos: (filters?: {
+    employee_id?: string;
+    norma?: string;
+    vencendo_em_dias?: number;
+  }) =>
+    api
+      .get<TreinamentoNRList>(`${BASE}/treinamentos`, { params: filters ?? {} })
+      .then((r) => r.data),
+
+  criarTreinamento: (data: TreinamentoNRCreate) =>
+    api.post<TreinamentoNR>(`${BASE}/treinamentos`, data).then((r) => r.data),
+
+  excluirTreinamento: (id: string) =>
+    api.delete(`${BASE}/treinamentos/${id}`).then((r) => r.data),
+
   registrarResultadoASO: (asoId: string, data: ASOResultadoPayload) =>
     api
       .put<ASOResultadoResponse>(`${BASE}/aso/${asoId}/resultado`, data)
@@ -593,6 +725,18 @@ export const sstService = {
   // Compliance NR-1
   getNR1Compliance: () =>
     api.get<NR1Compliance>(`${BASE}/nr1/compliance`).then((r) => r.data),
+
+  /** Relatório de Compliance NR-1 em PDF padrão-ouro (p/ auditor fiscal) */
+  downloadNR1CompliancePdf: () =>
+    api
+      .get(`${BASE}/nr1/compliance/pdf`, { responseType: 'blob' })
+      .then((r) => r.data as Blob),
+
+  /** PPP (Perfil Profissiográfico Previdenciário) em PDF padrão-ouro */
+  downloadPPPPdf: (employeeId: string) =>
+    api
+      .get(`${BASE}/ppp/${employeeId}/pdf`, { responseType: 'blob' })
+      .then((r) => r.data as Blob),
 
   // Estabilidade
   listEstabilidade: () =>

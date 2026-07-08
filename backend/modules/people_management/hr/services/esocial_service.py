@@ -80,6 +80,98 @@ COD_MOT_AFAST = {  # S-2230 codMotAfast (Tabela 18)
 # Código Tabela 24 para "ausência de agente nocivo"
 COD_AUSENCIA_AGENTE_NOCIVO = "09.01.001"
 
+# ---------------------------------------------------------------------------
+# Fonte REAL: PGR CONECTA MAIS (MBS Engenharia, elaborado 28/05/2026, assinado
+# digitalmente 31/05/2026) — APRO GES 1-4 (descrição das atividades e setores
+# por função) e LTCAT 28/05/2026 (parecer conclusivo por função).
+# Tokens de função usados em gp_risks.funcoes_aplicaveis.
+# ---------------------------------------------------------------------------
+PGR_FUNCOES: dict[str, dict[str, str]] = {
+    "AGP": {
+        "setor": "PORTARIA",
+        "atividades": (
+            "Orienta a entrada e saída de pessoas, realiza monitoramento eletrônico, "
+            "encaminha as pessoas aos destinatários, abre e fecha as dependências do "
+            "condomínio, recebe a correspondência e encaminha ao protocolo, atende e "
+            "efetua ligações telefônicas."
+        ),
+    },
+    "LIDER": {
+        "setor": "PORTARIA",
+        "atividades": (
+            "Lidera e acompanha os serviços efetuados pela equipe na portaria, acompanha "
+            "e atende a portaria fazendo o controle de acesso de veículos, funcionários, "
+            "visitantes e elabora relatórios de portaria com as ocorrências diárias."
+        ),
+    },
+    "ASG": {
+        "setor": "CONSERVAÇÃO E LIMPEZA",
+        "atividades": (
+            "Responsável pela manutenção da limpeza do condomínio, faz o diagnóstico e a "
+            "solução de problemas no patrimônio do condomínio, retira lixos e faz a "
+            "limpeza em geral de áreas comuns e áreas externas."
+        ),
+    },
+    "ARTIFICE": {
+        "setor": "MANUTENÇÃO",
+        "atividades": (
+            "Manutenções simples mecânicas e elétricas no condomínio: substituindo, "
+            "trocando, limpando, reparando e instalando peças, componentes, equipamentos. "
+            "Conserva vidros e fachadas, seguindo normas de segurança, higiene, qualidade "
+            "e proteção ao ambiente."
+        ),
+    },
+    "JARDINEIRO": {
+        "setor": "CONSERVAÇÃO E LIMPEZA",
+        "atividades": (
+            "Realiza a capina com o uso da roçadeira, podagem de plantas, cultivo, forma "
+            "e conserva jardins, parques, pomares, hortas florestais e vasos ornamentais, "
+            "planta culturas diversas, realiza controle de pragas, aduba e cuida do solo."
+        ),
+    },
+}
+
+
+def _cargo_token(cargo: Any) -> str | None:
+    """Mapeia o cargo REAL de employees para o token de função do PGR/LTCAT.
+
+    Determinístico (sem chute): só os cargos que existem na base e no PGR.
+    Cargo não mapeado => None (o chamador segue honesto sem riscos p/ S-2240).
+    """
+    texto = str(cargo or "").upper()
+    # normalização mínima de acentos dos cargos reais da base
+    texto = (
+        texto.replace("Í", "I").replace("Ç", "C").replace("É", "E").replace("Ã", "A")
+    )
+    if "LIDER DE PORTARIA" in texto:
+        return "LIDER"
+    if "AGENTE DE PORTARIA" in texto:
+        return "AGP"
+    if "SERVICOS GERAIS" in texto:
+        return "ASG"
+    if "ARTIFICE" in texto:
+        return "ARTIFICE"
+    if "JARDINEIRO" in texto:
+        return "JARDINEIRO"
+    return None
+
+
+def _json_list(valor: Any) -> list:
+    """JSONB pode chegar como list (SQLAlchemy) ou str (asyncpg cru) — normaliza."""
+    if valor is None:
+        return []
+    if isinstance(valor, list):
+        return valor
+    if isinstance(valor, str):
+        import json
+
+        try:
+            parsed = json.loads(valor)
+            return parsed if isinstance(parsed, list) else []
+        except ValueError:
+            return []
+    return []
+
 
 def _tp_amb() -> str:
     """Resolve o tpAmb do eSocial a partir da configuração/ambiente.
@@ -395,16 +487,18 @@ class ESocialEventService:
         """Gera XML do evento S-2220 (Monitoramento da Saúde — ASO).
 
         Fonte: gp_asos. O leiaute EXIGE ao menos um exame com procedimento da
-        Tabela 27 (gp_asos não tem essa coluna — fornecer em aso['exames'] =
-        [{"dt_exame": ..., "cod_procedimento": ...}]) e o médico responsável
-        pelo PCMSO (aso['resp_monit_nome'/'resp_monit_crm'/'resp_monit_uf_crm']).
+        Tabela 27 (coluna gp_asos.exames, populada em 2026-07-08 — o exame
+        clínico 0295 é derivação determinística de data_realizacao) e o médico
+        responsável pelo PCMSO (aso['resp_monit_nome'/'resp_monit_crm'/
+        'resp_monit_uf_crm'] — preenchidos pelo montador a partir de sst_pcmso,
+        registro REAL do PCMSO MB: Dr. Pojucan Manoel Moraes, CRM/AM 467).
         """
         _exigir("S-2220", {"empregador.cnpj": empregador_cnpj})
 
         tipo = str(_field(aso, "tipo") or "").lower()
         tp_exame = TP_EXAME_OCUP.get(tipo)
         apto = _field(aso, "apto")
-        exames = _field(aso, "exames") or []
+        exames = _json_list(_field(aso, "exames"))
 
         obrigatorios = {
             "aso.tipo (admissional|periodico|retorno_trabalho|mudanca_funcao|demissional)": tp_exame,
@@ -537,10 +631,11 @@ class ESocialEventService:
         """Gera XML do evento S-2240 (Condições Ambientais do Trabalho).
 
         Fonte: employees + gp_risks. O leiaute EXIGE por agente nocivo o código
-        da Tabela 24 (gp_risks.cod_agente_nocivo — hoje inexistente na tabela;
-        fornecer por risco em risco['cod_agente_nocivo']); para agentes que não
+        da Tabela 24 (gp_risks.cod_agente_nocivo — populado em 2026-07-08 a
+        partir do LTCAT/laudos REAIS da MB Consultoria); para agentes que não
         sejam "09.01.001 — ausência de agente nocivo" exige também
-        utiliz_epc/utiliz_epi (0=não implementa, 1=não eficaz, 2=eficaz).
+        utiliz_epc (0=não se aplica, 1=não implementa, 2=implementa) e
+        utiliz_epi (0=não se aplica, 1=não utilizado, 2=utilizado).
         `dados` complementa: local_amb (1=estab. próprio, 2=terceiros),
         nr_insc_local (CNPJ do estabelecimento), dsc_setor, dsc_atividades,
         dt_ini_condicao (default: data_admissao REAL do funcionário).
@@ -608,7 +703,8 @@ class ESocialEventService:
             cod = str(_field(risco, "cod_agente_nocivo"))
             SubElement(ag, "codAgNoc").text = cod
             descricao = _field(risco, "descricao")
-            if descricao and cod.startswith("01.18"):  # "outros" exigem descrição
+            # códigos "outros" (01.18.xxx e *.999) exigem descrição do agente
+            if descricao and (cod.startswith("01.18") or cod.endswith(".999")):
                 SubElement(ag, "dscAgNoc").text = str(descricao)[:100]
             if cod != COD_AUSENCIA_AGENTE_NOCIVO:
                 epc_epi = SubElement(ag, "epcEpi")
@@ -717,19 +813,84 @@ async def _gravar_status_sst(
     await db.commit()
 
 
-async def transmitir_evento_sst(db: Any, tipo: str, ref_id: Any) -> dict[str, Any]:
-    """Carrega o registro, gera o XML, TRANSMITE de verdade e grava recibo/status.
+async def _carregar_pcmso_vigente(db: Any, data_ref: Any = None) -> dict[str, Any] | None:
+    """Busca o PCMSO REAL (sst_pcmso) vigente na data de referência (ou o mais recente).
 
-    Ver contrato completo no docstring do módulo. Nunca fabrica protocolo:
-    - dado obrigatório faltando  => ValueError descritivo (nada é transmitido)
-    - rejeição do governo        => {"status": "rejeitada", "erros": [...]}
-    - falha de infra (SSL/rede)  => RuntimeError (esocial_status='erro' gravado)
+    Fonte: PCMSO_CONECTA.pdf (MB/MBS) extraído em 2026-07-08 — nunca fabricado.
+    Prioridade: PCMSO vigente na data de referência; se nenhum cobre a data
+    (ex.: ASOs anteriores a 05/2026, antes da contratação da MB), usa o PCMSO
+    mais recente — o respMonit do S-2220 é o coordenador REAL do monitoramento,
+    e o único registro existente é real (nada é fabricado).
+    """
+    from sqlalchemy import text
+
+    row = (
+        await db.execute(
+            text(
+                "SELECT medico_coordenador, crm, uf FROM sst_pcmso "
+                "ORDER BY CASE WHEN CAST(:dt AS date) IS NOT NULL "
+                "              AND vigencia_inicio <= CAST(:dt AS date) "
+                "              AND vigencia_fim >= CAST(:dt AS date) THEN 0 ELSE 1 END, "
+                "         vigencia_inicio DESC LIMIT 1"
+            ),
+            {"dt": data_ref},
+        )
+    ).mappings().first()
+    return dict(row) if row else None
+
+
+async def _montar_dados_s2240(db: Any, employee: dict[str, Any]) -> dict[str, Any]:
+    """Monta o bloco `dados` do S-2240 a partir de fontes REAIS.
+
+    - local_amb='2' (estabelecimento de terceiros): a operação é em condomínios
+      (PGR: "atividades realizadas nos condomínios").
+    - nr_insc_local: CNPJ do condomínio da alocação ATIVA do funcionário
+      (allocations→posts→clients; match por client_id ou por nome normalizado).
+      Sem CNPJ real => campo fica ausente e o gerador lança ValueError honesto.
+    - dsc_setor/dsc_atividades: descrições REAIS do PGR (APRO GES 1-4) por função.
+    """
+    from sqlalchemy import text
+
+    dados: dict[str, Any] = {}
+    token = _cargo_token(employee.get("cargo"))
+    if token and token in PGR_FUNCOES:
+        dados["dsc_setor"] = PGR_FUNCOES[token]["setor"]
+        dados["dsc_atividades"] = PGR_FUNCOES[token]["atividades"]
+
+    row = (
+        await db.execute(
+            text(
+                "SELECT c.document_number AS cnpj, p.name AS posto "
+                "FROM allocations a "
+                "JOIN posts p ON p.id = a.post_id "
+                "LEFT JOIN clients c ON (c.id = p.client_id "
+                "     OR upper(unaccent(c.name)) = upper(unaccent(p.name))) "
+                "WHERE a.employee_id::text = :eid AND a.status = 'active' "
+                "ORDER BY a.is_primary DESC NULLS LAST, a.start_date DESC LIMIT 1"
+            ),
+            {"eid": str(employee.get("id"))},
+        )
+    ).mappings().first()
+    if row:
+        cnpj = _digits(row["cnpj"])
+        if len(cnpj) == 14 and cnpj != "0" * 14:
+            dados["local_amb"] = "2"  # estabelecimento de terceiros (condomínio)
+            dados["nr_insc_local"] = cnpj
+    return dados
+
+
+async def montar_xml_evento_sst(db: Any, tipo: str, ref_id: Any) -> dict[str, Any]:
+    """Carrega o registro REAL + enriquecimentos (PCMSO/PGR/LTCAT) e gera o XML.
+
+    NÃO transmite nada — usada pelo transmitir_evento_sst e por dry-runs.
+    Retorna {"xml", "employee", "registro", "riscos", "pk", "empregador"}.
+    ValueError descritivo se faltar dado obrigatório (nunca fabricado).
     """
     from sqlalchemy import text
 
     tipo = str(tipo).upper().strip()
     if tipo not in _TIPOS_SST:
-        raise ValueError(f"transmitir_evento_sst: tipo '{tipo}' inválido. Válidos: {', '.join(_TIPOS_SST)}")
+        raise ValueError(f"evento SST: tipo '{tipo}' inválido. Válidos: {', '.join(_TIPOS_SST)}")
 
     empregador = await _carregar_empregador(db)
 
@@ -762,6 +923,13 @@ async def transmitir_evento_sst(db: Any, tipo: str, ref_id: Any) -> dict[str, An
             raise ValueError(f"S-2220: ASO '{ref_id}' não encontrado em gp_asos.")
         registro = dict(registro)
         pk = registro["id"]
+        # médico responsável pelo monitoramento (respMonit) = coordenador REAL
+        # do PCMSO vigente na data do ASO (sst_pcmso, extraído do PDF da MB)
+        pcmso = await _carregar_pcmso_vigente(db, registro.get("data_realizacao"))
+        if pcmso:
+            registro.setdefault("resp_monit_nome", pcmso["medico_coordenador"])
+            registro.setdefault("resp_monit_crm", pcmso["crm"])
+            registro.setdefault("resp_monit_uf_crm", pcmso["uf"])
         employee = await _carregar_employee(db, str(registro["employee_id"]))
         xml = ESocialEventService.gerar_s2220(registro, employee, empregador["cnpj"])
 
@@ -781,15 +949,51 @@ async def transmitir_evento_sst(db: Any, tipo: str, ref_id: Any) -> dict[str, An
 
     else:  # S-2240 — ref_id é o employee_id
         employee = await _carregar_employee(db, str(ref_id))
-        # gp_risks é mapeado por posto (posto_id hoje sem FK resolvível) — usa o
-        # mapa de riscos vigente da operação de portaria como base do evento.
-        riscos = [
+        # Riscos por FUNÇÃO (PGR GES 1-4 / LTCAT 28-05-2026): só riscos com
+        # enquadramento REAL na Tabela 24 (cod_agente_nocivo preenchido pelo
+        # laudo) e aplicáveis à função do funcionário. Riscos ergonômicos/de
+        # acidente não são declaráveis na Tabela 24 (ficam fora, honesto).
+        token = _cargo_token(employee.get("cargo"))
+        todos = [
             dict(r)
             for r in (
-                await db.execute(text("SELECT * FROM gp_risks WHERE status <> 'encerrado'"))
+                await db.execute(
+                    text(
+                        "SELECT * FROM gp_risks "
+                        "WHERE COALESCE(status,'') <> 'encerrado' "
+                        "  AND cod_agente_nocivo IS NOT NULL"
+                    )
+                )
             ).mappings().all()
         ]
-        xml = ESocialEventService.gerar_s2240(employee, riscos, empregador["cnpj"])
+        riscos = [r for r in todos if token and token in _json_list(r.get("funcoes_aplicaveis"))]
+        dados = await _montar_dados_s2240(db, employee)
+        xml = ESocialEventService.gerar_s2240(employee, riscos, empregador["cnpj"], dados)
+
+    return {
+        "xml": xml,
+        "employee": employee,
+        "registro": registro,
+        "riscos": riscos,
+        "pk": pk,
+        "empregador": empregador,
+    }
+
+
+async def transmitir_evento_sst(db: Any, tipo: str, ref_id: Any) -> dict[str, Any]:
+    """Carrega o registro, gera o XML, TRANSMITE de verdade e grava recibo/status.
+
+    Ver contrato completo no docstring do módulo. Nunca fabrica protocolo:
+    - dado obrigatório faltando  => ValueError descritivo (nada é transmitido)
+    - rejeição do governo        => {"status": "rejeitada", "erros": [...]}
+    - falha de infra (SSL/rede)  => RuntimeError (esocial_status='erro' gravado)
+    """
+    tipo = str(tipo).upper().strip()
+    montado = await montar_xml_evento_sst(db, tipo, ref_id)
+    xml = montado["xml"]
+    employee = montado["employee"]
+    pk = montado["pk"]
+    empregador = montado["empregador"]
 
     # --- transmissão REAL (assinatura A1 + SOAP mTLS) ---
     from modules.government_integrations.core.esocial_transmitter import (

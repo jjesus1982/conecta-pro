@@ -111,6 +111,8 @@ app.conf.task_routes = {
     "sst.transmit_aso_to_esocial": {"queue": "gov.esocial"},
     "sst.transmit_afastamento_to_esocial": {"queue": "gov.esocial"},
     "sst.esocial_pull_recibos": {"queue": "gov.esocial"},
+    # SST - Alertas internos no sino (notification_queue) — usuários admin
+    "sst.alertas_diarios": {"queue": "operacional"},
     # SST - Saúde Ocupacional (health_occupational)
     "sst.verificar_asos_vencendo": {"queue": "operacional"},
     "sst.verificar_epis_vencendo": {"queue": "operacional"},
@@ -405,6 +407,14 @@ app.conf.beat_schedule = {
     # Verifica exames periódicos pendentes diariamente às 08:00
     "sst-verificar-exames-pendentes-daily": {
         "task": "sst.verificar_exames_pendentes",
+        "schedule": crontab(hour="8", minute="0"),
+        "options": {"queue": "operacional"},
+    },
+    # Alertas SST no sino INTERNO (notification_queue → GET /notifications/push)
+    # diário 08:00 America/Manaus: ASOs vencendo 30d, ASOs vencidas (semanal,
+    # segunda), CATs sem eSocial >4h (prazo legal 1 dia útil), fichas EPI 7+ dias
+    "sst-alertas-diarios-0800": {
+        "task": "sst.alertas_diarios",
         "schedule": crontab(hour="8", minute="0"),
         "options": {"queue": "operacional"},
     },

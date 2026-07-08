@@ -1,6 +1,16 @@
 'use client';
 
-import { ShieldCheck, ShieldAlert, AlertTriangle, RefreshCw, FileSignature, PackageX, Users } from 'lucide-react';
+import { useState } from 'react';
+import {
+  ShieldCheck,
+  ShieldAlert,
+  AlertTriangle,
+  RefreshCw,
+  FileSignature,
+  PackageX,
+  Users,
+  FileDown,
+} from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -14,7 +24,19 @@ import {
 } from '@/components/ui/table';
 import { toast } from 'sonner';
 import { useNR1Compliance } from '@/hooks/sst';
+import { sstService } from '@/lib/services/sst';
 import type { NR1Funcionario } from '@/lib/services/sst';
+
+function baixarBlob(blob: Blob, nomeArquivo: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nomeArquivo;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 
 function getASOBadge(check: NR1Funcionario['checks']['aso']) {
   const config: Record<string, { label: string; className: string }> = {
@@ -92,6 +114,8 @@ function getCalcadoBadge(calcado: boolean) {
 
 export default function ComplianceNR1Page() {
   const { data, isLoading, error, refetch } = useNR1Compliance();
+  const [exportando, setExportando] = useState(false);
+  const [pppBaixando, setPppBaixando] = useState<string | null>(null);
 
   const handleRefresh = async () => {
     try {
@@ -99,6 +123,33 @@ export default function ComplianceNR1Page() {
       toast.success('Dados atualizados', { duration: 4000 });
     } catch {
       toast.error('Erro ao atualizar dados', { duration: 5000 });
+    }
+  };
+
+  const handleExportarRelatorio = async () => {
+    setExportando(true);
+    try {
+      const blob = await sstService.downloadNR1CompliancePdf();
+      baixarBlob(blob, `compliance-nr1-${new Date().toISOString().slice(0, 10)}.pdf`);
+      toast.success('Relatório de Compliance NR-1 exportado', { duration: 4000 });
+    } catch {
+      toast.error('Erro ao exportar o relatório PDF', { duration: 5000 });
+    } finally {
+      setExportando(false);
+    }
+  };
+
+  const handleBaixarPPP = async (employeeId: string, nome: string) => {
+    setPppBaixando(employeeId);
+    try {
+      const blob = await sstService.downloadPPPPdf(employeeId);
+      const slug = nome.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
+      baixarBlob(blob, `ppp-${slug}.pdf`);
+      toast.success(`PPP de ${nome} baixado`, { duration: 4000 });
+    } catch {
+      toast.error('Erro ao gerar o PPP em PDF', { duration: 5000 });
+    } finally {
+      setPppBaixando(null);
     }
   };
 
@@ -119,10 +170,16 @@ export default function ComplianceNR1Page() {
             Painel calcado por funcionario — score honesto por fatos no banco
           </p>
         </div>
-        <Button variant="outline" onClick={handleRefresh} disabled={isLoading}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-          Atualizar
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button onClick={handleExportarRelatorio} disabled={exportando || isLoading}>
+            <FileDown className={`h-4 w-4 mr-2 ${exportando ? 'animate-pulse' : ''}`} />
+            {exportando ? 'Gerando PDF...' : 'Exportar relatório PDF'}
+          </Button>
+          <Button variant="outline" onClick={handleRefresh} disabled={isLoading}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            Atualizar
+          </Button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -246,6 +303,7 @@ export default function ComplianceNR1Page() {
                   <TableHead>Treinamentos</TableHead>
                   <TableHead>Score</TableHead>
                   <TableHead>Situacao</TableHead>
+                  <TableHead>PPP</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -259,6 +317,18 @@ export default function ComplianceNR1Page() {
                     <TableCell>{getTreinamentosBadge(f.checks.treinamentos)}</TableCell>
                     <TableCell>{getScoreCell(f.score)}</TableCell>
                     <TableCell>{getCalcadoBadge(f.calcado)}</TableCell>
+                    <TableCell>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleBaixarPPP(f.employee_id, f.nome)}
+                        disabled={pppBaixando === f.employee_id}
+                        title="Baixar PPP (Perfil Profissiográfico Previdenciário) em PDF"
+                      >
+                        <FileDown className={`h-3.5 w-3.5 mr-1 ${pppBaixando === f.employee_id ? 'animate-pulse' : ''}`} />
+                        PPP PDF
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

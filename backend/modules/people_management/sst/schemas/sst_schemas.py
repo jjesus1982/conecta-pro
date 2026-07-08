@@ -67,6 +67,44 @@ class CATResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+NORMAS_TREINAMENTO = ("NR-1", "NR-6", "brigada", "primeiros_socorros", "outro")
+
+ASO_TIPOS_VALIDOS = ("admissional", "periodico", "demissional", "retorno_trabalho", "mudanca_funcao")
+
+
+class TreinamentoNRCreate(BaseModel):
+    employee_id: str
+    norma: str = Field(..., description="NR-1|NR-6|brigada|primeiros_socorros|outro")
+    descricao: str | None = None
+    data_realizacao: str = Field(..., description="YYYY-MM-DD (data REAL do treinamento)")
+    validade_meses: int = Field(12, ge=1, le=120)
+    certificado_path: str | None = Field(None, description="Caminho/URL do certificado (opcional)")
+
+
+class TreinamentoNRResponse(BaseModel):
+    id: str
+    employee_id: str
+    employee_nome: str | None = None
+    norma: str
+    descricao: str | None = None
+    data_realizacao: str
+    validade_meses: int
+    vencimento: str
+    situacao: str
+    certificado_path: str | None = None
+    created_by: str | None = None
+    model_config = {"from_attributes": True}
+
+
+class ASOAgendarLoteItem(BaseModel):
+    """Item do agendamento em lote (regularização das ASOs vencidas)."""
+
+    employee_id: str
+    data_agendamento: str = Field(..., description="YYYY-MM-DD")
+    clinica: str | None = None
+    tipo: str = Field("periodico", description="admissional|periodico|demissional|retorno_trabalho|mudanca_funcao")
+
+
 class RiskCreate(BaseModel):
     posto_id: str
     categoria: str = Field(..., description="fisico|quimico|biologico|ergonomico|acidente")

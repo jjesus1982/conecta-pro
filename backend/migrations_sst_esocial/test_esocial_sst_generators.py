@@ -79,7 +79,8 @@ def t_s2210_incompleto():
         raise AssertionError("deveria lançar ValueError (CAT real está incompleta)")
     except ValueError as e:
         msg = str(e)
-        assert "hora_acidente" in msg and "cod_sit_geradora" in msg, f"faltas não listadas: {msg}"
+        # (2026-07-08: hora_acidente já existe na CAT real — só as faltas restantes)
+        assert "cod_sit_geradora" in msg, f"faltas não listadas: {msg}"
 
 
 def t_s2210_completo():
@@ -114,11 +115,15 @@ emp_aso = {"id": str(aso["employee_id"]), "cpf": aso["cpf"], "matricula": aso["m
 
 
 def t_s2220_incompleto():
+    # 2026-07-08 (Missão 1): gp_asos.exames foi populado (Tabela 27, 0295) —
+    # a única falta do registro CRU é o respMonit, que o montador resolve via
+    # sst_pcmso (médico REAL do PCMSO). Aqui provamos que SEM o montador o
+    # gerador segue honesto.
     try:
         Svc.gerar_s2220(aso, emp_aso, CNPJ)
-        raise AssertionError("deveria lançar ValueError (ASO real sem exames Tabela 27)")
+        raise AssertionError("deveria lançar ValueError (registro cru sem respMonit)")
     except ValueError as e:
-        assert "exames" in str(e), f"faltas não listadas: {e}"
+        assert "resp_monit_nome" in str(e), f"faltas não listadas: {e}"
 
 
 def t_s2220_completo():

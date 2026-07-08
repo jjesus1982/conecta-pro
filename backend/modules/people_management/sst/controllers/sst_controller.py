@@ -9,10 +9,16 @@ Endpoints:
 - GET  /sst/nr1/dashboard
 - GET  /sst/nr1/colaboradores-risco
 - GET  /sst/nr1/compliance                (painel "calçado NR-1" por funcionário)
+- GET  /sst/nr1/compliance/pdf            (relatório padrão-ouro p/ auditor fiscal)
 - GET  /sst/pcmso/status
 - GET  /sst/ppra/status
 - GET  /sst/asos/vencendo
 - GET  /sst/asos/sem-aso
+- GET  /sst/asos/regularizacao            (plano das ASOs vencidas, priorizado)
+- POST /sst/asos/agendar-lote             (agendamento em massa p/ regularização)
+- POST /sst/treinamentos                  (4º pilar NR-1 — treinamento realizado)
+- GET  /sst/treinamentos                  (filtros: employee_id, norma, vencendo_em_dias)
+- DELETE /sst/treinamentos/{id}
 - POST /sst/cat                           (gatilho eSocial S-2210 + prazo 1 dia útil)
 - POST /sst/cat/{cat_id}/transmitir       (botão Transmitir ao eSocial)
 - PUT  /sst/aso/{id}/resultado            (gatilho eSocial S-2220)
@@ -25,6 +31,7 @@ Endpoints:
 - GET  /sst/ltcat/status                  (fonte real: sst_ltcat)
 - PUT  /sst/ltcat
 - GET  /sst/ppp/{employee_id}?transmit=true (S-2240 real)
+- GET  /sst/ppp/{employee_id}/pdf         (PPP padrão-ouro — doc oficial p/ INSS)
 - GET  /sst/estabilidade/ativos
 - GET  /sst/ajuda-medicamento/ativos
 - GET  /sst/cipa/membros
@@ -46,11 +53,14 @@ from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
 from modules.people_management.employee_portal.auth import CurrentEmployeeId
 from modules.people_management.sst.schemas.sst_schemas import (
+    ASO_TIPOS_VALIDOS,
+    ASOAgendarLoteItem,
     ASOCreate,
     ASOResultUpdate,
     CATCreate,
     EPIDeliveryCreate,
     RiskCreate,
+    TreinamentoNRCreate,
 )
 from modules.people_management.sst.services.ficha_epi_service import FichaEPIService
 from modules.people_management.sst.services.sst_service import SSTService
@@ -255,6 +265,30 @@ async def get_nr1_compliance(
     return await service.get_nr1_compliance()
 
 
+@router.get("/nr1/compliance/pdf")
+async def get_nr1_compliance_pdf(
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Relatório de Compliance NR-1 em PDF padrão-ouro (marca Conecta Mais).
+
+    Snapshot do painel get_nr1_compliance (resumo geral + tabela por
+    funcionário: ASO/EPI/Riscos/Treinamentos/score/situação) com data/hora
+    de emissão — para entregar a auditor fiscal.
+    """
+    from modules.people_management.sst.services.nr1_compliance_pdf import montar_nr1_compliance_pdf
+
+    service = SSTService(db)
+    compliance = await service.get_nr1_compliance()
+    pdf = montar_nr1_compliance_pdf(compliance)
+    nome = f"compliance-nr1-{date.today().isoformat()}.pdf"
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
+    )
+
+
 # ================================================================
 # PCMSO / PPRA
 # ================================================================
@@ -306,6 +340,162 @@ async def listar_sem_aso(
     service = SSTService(db)
     items = await service.listar_sem_aso()
     return {"total": len(items), "colaboradores": items}
+
+
+# ================================================================
+# REGULARIZAÇÃO DE ASOs VENCIDAS
+# ================================================================
+
+
+@router.get("/asos/regularizacao")
+async def listar_asos_regularizacao(
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Plano de regularização das ASOs vencidas — lista priorizada.
+
+    Mais vencido primeiro, com dias_vencido, posto atual REAL (allocations →
+    posts, para logística das clínicas), flag ja_agendado e resumo por posto.
+    NADA aqui marca ASO como ok — regularizar = agendar + realizar de verdade.
+    """
+    service = SSTService(db)
+    return await service.listar_asos_regularizacao()
+
+
+@router.post("/asos/agendar-lote", status_code=201)
+async def agendar_asos_lote(
+    itens: list[ASOAgendarLoteItem],
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Agenda ASOs em massa (regularização) — reusa a lógica do POST /sst/aso.
+
+    Cada item vira um gp_asos status='agendado'. HONESTO: agendar NÃO
+    regulariza — o ASO só fica em dia após registrar o resultado (realizado).
+    """
+    from modules.people_management.sst.models.aso import ASOModel
+
+    if not itens:
+        raise HTTPException(status_code=422, detail="Lista de agendamentos vazia")
+
+    hoje = date.today()
+    agendados: list[dict[str, Any]] = []
+    erros: list[dict[str, Any]] = []
+    for item in itens:
+        if item.tipo not in ASO_TIPOS_VALIDOS:
+            erros.append({"employee_id": item.employee_id, "erro": f"tipo inválido '{item.tipo}'"})
+            continue
+        try:
+            dt = date.fromisoformat(item.data_agendamento[:10])
+        except ValueError:
+            erros.append({"employee_id": item.employee_id, "erro": "data_agendamento inválida (YYYY-MM-DD)"})
+            continue
+        if dt < hoje:
+            erros.append({"employee_id": item.employee_id, "erro": "data_agendamento no passado"})
+            continue
+        emp = (
+            await db.execute(
+                text("SELECT nome FROM employees WHERE id::text = :eid"),
+                {"eid": item.employee_id},
+            )
+        ).first()
+        if not emp:
+            erros.append({"employee_id": item.employee_id, "erro": "funcionário não encontrado"})
+            continue
+        aso = ASOModel(
+            aso_id=str(uuid4()),
+            employee_id=item.employee_id,
+            tipo=item.tipo,
+            data_agendamento=dt,
+            clinica=item.clinica,
+            status="agendado",
+        )
+        db.add(aso)
+        agendados.append(
+            {
+                "aso_id": aso.aso_id,
+                "employee_id": item.employee_id,
+                "employee_nome": emp[0],
+                "tipo": item.tipo,
+                "data_agendamento": item.data_agendamento,
+                "clinica": item.clinica,
+                "status": "agendado",
+            }
+        )
+    if agendados:
+        await db.flush()
+        await db.commit()
+
+    return {
+        "total_recebidos": len(itens),
+        "total_agendados": len(agendados),
+        "total_erros": len(erros),
+        "agendados": agendados,
+        "erros": erros,
+        "nota": "Agendamento em lote NÃO regulariza — registre o resultado (realizado) após o exame.",
+    }
+
+
+# ================================================================
+# TREINAMENTOS NR (sst_treinamentos) — 4º pilar do compliance NR-1
+# ================================================================
+
+
+@router.post("/treinamentos", status_code=201)
+async def registrar_treinamento(
+    data: TreinamentoNRCreate,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Registra treinamento NR REALIZADO (NR-1, NR-6, brigada, 1ºs socorros).
+
+    vencimento = data_realizacao + validade_meses (calculado, nunca digitado).
+    Dado real: só registre treinamentos que aconteceram (data futura é barrada).
+    """
+    service = SSTService(db)
+    try:
+        return await service.criar_treinamento(
+            data.model_dump(),
+            created_by=getattr(current_user, "email", None) or getattr(current_user, "username", None),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/treinamentos")
+async def listar_treinamentos(
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+    employee_id: str | None = Query(None),
+    norma: str | None = Query(None, description="NR-1|NR-6|brigada|primeiros_socorros|outro"),
+    vencendo_em_dias: int | None = Query(
+        None, ge=0, le=365,
+        description="Só vencidos + os que vencem nos próximos N dias",
+    ),
+) -> Any:
+    """Lista treinamentos NR (fonte real: sst_treinamentos) com situação calculada."""
+    service = SSTService(db)
+    items = await service.listar_treinamentos(employee_id, norma, vencendo_em_dias)
+    return {
+        "total": len(items),
+        "em_dia": sum(1 for t in items if t["situacao"] == "em_dia"),
+        "vencendo_30d": sum(1 for t in items if t["situacao"] == "vencendo"),
+        "vencidos": sum(1 for t in items if t["situacao"] == "vencido"),
+        "treinamentos": items,
+    }
+
+
+@router.delete("/treinamentos/{treinamento_id}")
+async def excluir_treinamento(
+    treinamento_id: str,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Exclui um registro de treinamento (correção de lançamento errado)."""
+    service = SSTService(db)
+    if not await service.excluir_treinamento(treinamento_id):
+        raise HTTPException(status_code=404, detail="Treinamento não encontrado")
+    return {"id": treinamento_id, "excluido": True}
 
 
 # ================================================================
@@ -1274,3 +1464,31 @@ async def gerar_ppp(
         },
         "observacoes": "PPP deve ser mantido atualizado e entregue ao funcionário na rescisão (Art. 58 § 4º Lei 8.213/91).",
     }
+
+
+@router.get("/ppp/{employee_id}/pdf")
+async def gerar_ppp_pdf(
+    employee_id: str,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """PPP em PDF padrão-ouro (marca Conecta Mais) — documento oficial p/ INSS.
+
+    Renderiza o mesmo dict do GET /sst/ppp/{employee_id} (sem transmitir ao
+    eSocial) nas seções clássicas do PPP: dados administrativos, lotação e
+    atribuições, exposição a fatores de risco, exames médicos e responsáveis.
+    Assinatura: só da EMPRESA (incluir_empresa=True — doc da empresa).
+    """
+    from modules.people_management.sst.services.ppp_pdf import montar_ppp_pdf
+
+    ppp = await gerar_ppp(employee_id, current_user, db, transmit=False)
+
+    # CBO: employees não tem coluna cbo hoje — _cbo mapeia pelo cargo (folha oficial)
+    pdf = montar_ppp_pdf(ppp, None)
+    nome_func = (ppp.get("funcionario") or {}).get("nome") or employee_id
+    slug = "".join(c if c.isalnum() else "-" for c in str(nome_func).lower()).strip("-")[:40]
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="ppp-{slug}.pdf"'},
+    )

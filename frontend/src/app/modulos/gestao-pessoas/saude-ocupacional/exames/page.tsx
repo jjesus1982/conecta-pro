@@ -36,8 +36,8 @@ import {
   useExpiringASOs,
   useScheduleExam,
 } from '@/hooks/health-occupational';
-import { useASOs, useRegistrarResultadoASO } from '@/hooks/sst';
-import { apiErrorDetail, type ASOItem } from '@/lib/services/sst';
+import { useASOs, useRegistrarResultadoASO, useASOsRegularizacao, useAgendarASOsLote } from '@/hooks/sst';
+import { apiErrorDetail, type ASOItem, type ASORegularizacaoItem } from '@/lib/services/sst';
 import { EmployeeSelect, useActiveEmployees } from '@/components/sst/EmployeeSelect';
 
 function getESocialBadge(esocialStatus: string) {
@@ -69,9 +69,73 @@ export default function ExamesPage() {
   const scheduleExam = useScheduleExam();
   const registrarResultado = useRegistrarResultadoASO();
   const { data: employees } = useActiveEmployees();
+  const { data: regularizacao, isLoading: regLoading } = useASOsRegularizacao();
+  const agendarLote = useAgendarASOsLote();
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [search, setSearch] = useState('');
+
+  // Regularização em lote (ASOs vencidas)
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
+  const [loteDialogOpen, setLoteDialogOpen] = useState(false);
+  const [loteForm, setLoteForm] = useState({
+    data_agendamento: '',
+    clinica: '',
+    tipo: 'periodico',
+  });
+
+  const pendentes = regularizacao?.pendentes ?? [];
+
+  const toggleSelecionado = (employeeId: string) => {
+    setSelecionados((prev) => {
+      const next = new Set(prev);
+      if (next.has(employeeId)) next.delete(employeeId);
+      else next.add(employeeId);
+      return next;
+    });
+  };
+
+  const toggleTodos = () => {
+    setSelecionados((prev) =>
+      prev.size === pendentes.length
+        ? new Set()
+        : new Set(pendentes.map((p: ASORegularizacaoItem) => p.employee_id))
+    );
+  };
+
+  const handleAgendarLote = async () => {
+    if (!loteForm.data_agendamento || selecionados.size === 0) return;
+    try {
+      const result = await agendarLote.mutateAsync(
+        pendentes
+          .filter((p: ASORegularizacaoItem) => selecionados.has(p.employee_id))
+          .map((p: ASORegularizacaoItem) => ({
+            employee_id: p.employee_id,
+            data_agendamento: loteForm.data_agendamento,
+            clinica: loteForm.clinica || undefined,
+            tipo: loteForm.tipo,
+          }))
+      );
+      if (result.total_erros > 0) {
+        toast.warning(
+          `${result.total_agendados} agendado(s); ${result.total_erros} com erro: ${result.erros
+            .map((e) => e.erro)
+            .join('; ')}`,
+          { duration: 8000 }
+        );
+      } else {
+        toast.success(
+          `${result.total_agendados} exame(s) agendado(s) — regularizacao conclui apos registrar o resultado`,
+          { duration: 6000 }
+        );
+      }
+      setLoteDialogOpen(false);
+      setSelecionados(new Set());
+      setLoteForm({ data_agendamento: '', clinica: '', tipo: 'periodico' });
+    } catch (error) {
+      toast.error(apiErrorDetail(error, 'Erro ao agendar em lote'), { duration: 6000 });
+    }
+  };
 
   // Form state para agendar exame
   const [formData, setFormData] = useState({
@@ -344,6 +408,187 @@ export default function ExamesPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Regularização de ASOs vencidas */}
+      {!regLoading && regularizacao && regularizacao.funcionarios_pendentes > 0 && (
+        <Card className="border-red-200">
+          <CardHeader>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <CardTitle className="text-base flex items-center gap-2 text-red-700">
+                  <AlertCircle className="h-5 w-5" />
+                  Regularizacao — {regularizacao.funcionarios_pendentes} funcionario(s) com ASO vencido
+                </CardTitle>
+                <CardDescription className="mt-1">
+                  {regularizacao.registros_aso_vencidos_total} registro(s) de ASO vencidos no total
+                  (inclui historicos). Fila priorizada: mais vencido primeiro.
+                  {regularizacao.ja_agendados > 0 &&
+                    ` ${regularizacao.ja_agendados} ja tem novo exame agendado.`}
+                </CardDescription>
+              </div>
+              <Button
+                onClick={() => setLoteDialogOpen(true)}
+                disabled={selecionados.size === 0}
+                className="shrink-0"
+              >
+                <Calendar className="h-4 w-4 mr-2" />
+                Agendar em lote ({selecionados.size})
+              </Button>
+            </div>
+            {/* Resumo por posto (logística) */}
+            {regularizacao.resumo_por_posto.length > 0 && (
+              <div className="flex flex-wrap gap-2 pt-3">
+                {regularizacao.resumo_por_posto.map((g) => (
+                  <Badge key={g.posto_nome} variant="outline" className="font-normal">
+                    {g.posto_nome}: <span className="font-semibold ml-1">{g.pendentes}</span>
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[44px]">
+                    <input
+                      type="checkbox"
+                      aria-label="Selecionar todos"
+                      className="h-4 w-4 accent-primary cursor-pointer"
+                      checked={pendentes.length > 0 && selecionados.size === pendentes.length}
+                      onChange={toggleTodos}
+                    />
+                  </TableHead>
+                  <TableHead>Funcionario</TableHead>
+                  <TableHead>Posto atual</TableHead>
+                  <TableHead>Ultimo ASO</TableHead>
+                  <TableHead>Venceu em</TableHead>
+                  <TableHead>Dias vencido</TableHead>
+                  <TableHead>Novo agendamento</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pendentes.map((p) => (
+                  <TableRow key={p.employee_id} className={p.ja_agendado ? 'opacity-60' : ''}>
+                    <TableCell>
+                      <input
+                        type="checkbox"
+                        aria-label={`Selecionar ${p.nome}`}
+                        className="h-4 w-4 accent-primary cursor-pointer"
+                        checked={selecionados.has(p.employee_id)}
+                        onChange={() => toggleSelecionado(p.employee_id)}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <div className="font-medium">{p.nome}</div>
+                      <div className="text-xs text-muted-foreground">{p.cargo || ''}</div>
+                    </TableCell>
+                    <TableCell className="text-sm">{p.posto_nome}</TableCell>
+                    <TableCell className="text-sm">{p.tipo_ultimo_aso || '—'}</TableCell>
+                    <TableCell className="text-sm">
+                      {new Date(`${p.data_validade}T12:00:00`).toLocaleDateString('pt-BR')}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        className={
+                          p.dias_vencido > 180
+                            ? 'bg-red-100 text-red-800'
+                            : p.dias_vencido > 90
+                              ? 'bg-orange-100 text-orange-800'
+                              : 'bg-yellow-100 text-yellow-800'
+                        }
+                      >
+                        {p.dias_vencido} dias
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {p.ja_agendado && p.proxima_data_agendada ? (
+                        <span className="text-green-700">
+                          {new Date(`${p.proxima_data_agendada}T12:00:00`).toLocaleDateString('pt-BR')}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">nao agendado</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Dialog - Agendar em lote */}
+      <Dialog open={loteDialogOpen} onOpenChange={setLoteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Agendar exames em lote</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+              <span className="font-medium">{selecionados.size} funcionario(s) selecionado(s)</span>
+              <span className="text-muted-foreground">
+                {' '}
+                — a data e a clinica abaixo valem para todos.
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="lote_data">Data do exame</Label>
+                <Input
+                  id="lote_data"
+                  type="date"
+                  min={new Date().toISOString().slice(0, 10)}
+                  value={loteForm.data_agendamento}
+                  onChange={(e) => setLoteForm({ ...loteForm, data_agendamento: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="lote_tipo">Tipo</Label>
+                <Select
+                  value={loteForm.tipo}
+                  onValueChange={(v) => setLoteForm({ ...loteForm, tipo: v })}
+                >
+                  <SelectTrigger id="lote_tipo">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="periodico">Periodico</SelectItem>
+                    <SelectItem value="retorno_trabalho">Retorno ao Trabalho</SelectItem>
+                    <SelectItem value="mudanca_funcao">Mudanca de Funcao</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="lote_clinica">Clinica</Label>
+              <Input
+                id="lote_clinica"
+                value={loteForm.clinica}
+                onChange={(e) => setLoteForm({ ...loteForm, clinica: e.target.value })}
+                placeholder="Nome da clinica (aplicada a todos os selecionados)"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Agendar NAO regulariza: o ASO so fica em dia depois de registrar o resultado
+              (realizado) apos o exame.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLoteDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleAgendarLote}
+              disabled={agendarLote.isPending || !loteForm.data_agendamento || selecionados.size === 0}
+            >
+              {agendarLote.isPending
+                ? 'Agendando...'
+                : `Agendar ${selecionados.size} exame(s)`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Alert - ASOs vencendo */}
       {!asosLoading && filteredASOs.length > 0 && (
