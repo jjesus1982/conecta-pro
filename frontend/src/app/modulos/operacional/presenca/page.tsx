@@ -76,6 +76,7 @@ interface ResumoPresenca {
 interface PresencaHoje {
   data?: string;
   atualizado_em?: string;
+  batidas_sincronizadas_ate?: string | null;
   resumo?: ResumoPresenca;
   postos?: PostoPresenca[];
   sem_posto?: FuncionarioPresenca[];
@@ -259,6 +260,13 @@ export default function PresencaPage() {
     : atualizadoLocal
       ? atualizadoLocal.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
       : '';
+  const horaSync = dados?.batidas_sincronizadas_ate ? formatarHora(dados.batidas_sincronizadas_ate) : null;
+  // Se a última batida sincronizada do Sólides for antiga, o quadro pode estar defasado
+  const syncDefasado = (() => {
+    if (!dados?.batidas_sincronizadas_ate) return false;
+    const t = new Date(dados.batidas_sincronizadas_ate).getTime();
+    return Number.isFinite(t) && Date.now() - t > 90 * 60 * 1000;
+  })();
   const totalExtras =
     resumo.extras ?? postos.reduce((acc, p) => acc + (p.extras?.length || 0), 0);
   const semTurnos = postos.length === 0 && semPosto.length === 0;
@@ -280,7 +288,14 @@ export default function PresencaPage() {
           <p className="text-sm text-muted-foreground">
             Quem está no posto agora, por batida de ponto ou marcação manual
             {horaAtualizacao && ` — atualizado às ${horaAtualizacao}`}
+            {horaSync && ` · batidas Sólides sincronizadas até ${horaSync}`}
           </p>
+          {syncDefasado && (
+            <p className="mt-1 text-xs font-medium text-amber-600">
+              ⚠ Sincronização de batidas defasada — atrasos/ausências podem ser apenas atraso do
+              sync, não do funcionário.
+            </p>
+          )}
         </div>
         <Button
           variant="ghost"

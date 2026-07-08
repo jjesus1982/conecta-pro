@@ -60,6 +60,9 @@ class QuadroPresenca(BaseModel):
 
     data: date
     atualizado_em: datetime = Field(description="Hora local de Manaus (America/Manaus) da geração do quadro")
+    batidas_sincronizadas_ate: datetime | None = Field(
+        None, description="Última batida sincronizada do Sólides (hora Manaus) — se anterior a agora, o quadro pode estar defasado"
+    )
     resumo: ResumoPresenca
     postos: list[PostoPresenca] = Field(default_factory=list)
     sem_posto: list[ExtraPresenca] = Field(

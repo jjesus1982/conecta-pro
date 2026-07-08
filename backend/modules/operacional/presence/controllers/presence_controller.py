@@ -15,7 +15,7 @@ FONTES (100% reais — NUNCA fabricar presença):
 
 DECISÃO DE TIMEZONE (America/Manaus):
 - A operação é em Manaus-AM. Tanto shifts.planned_start_time/planned_end_time
-  quanto gp_clock_punches.punch_timestamp (sincronizado do Sólides) são gravados
+  quanto gp_clock_punches.punch_timestamp é gravado em UTC (provado 2026-07-08: ASG 11:02 UTC = 07:02 Manaus); shifts são
   NAIVE em hora LOCAL de Manaus.
 - Por isso "agora" = datetime.now(America/Manaus) com tzinfo removido (naive
   local), comparado direto com planned_* combinados à data consultada.
@@ -103,13 +103,13 @@ async def _primeiras_batidas_do_dia(db: AsyncSession, dia: date) -> dict[str, di
             f"""
             SELECT DISTINCT ON (cp.employee_id)
                    cp.employee_id::text AS employee_id,
-                   cp.punch_timestamp,
+                   (cp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') AS punch_timestamp,
                    cp.facial_match,
                    cp.dentro_geofence
             FROM gp_clock_punches cp
-            WHERE cp.punch_timestamp::date = :dia
+            WHERE (cp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date = :dia
               AND {_PUNCH_VALIDO}
-            ORDER BY cp.employee_id, cp.punch_timestamp ASC
+            ORDER BY cp.employee_id, (cp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') ASC
             """
         ),
         {"dia": dia},
@@ -334,9 +334,16 @@ async def quadro_presenca_hoje(
         extras=resumo["extras"],
     )
 
+    ultima_sync = (
+        await db.execute(
+            text("SELECT max(punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') FROM gp_clock_punches")
+        )
+    ).scalar()
+
     return QuadroPresenca(
         data=dia,
         atualizado_em=agora,
+        batidas_sincronizadas_ate=ultima_sync,
         resumo=ResumoPresenca(**resumo),
         postos=postos_out,
         sem_posto=sem_posto,
@@ -417,10 +424,10 @@ async def checkin_manual(
         await db.execute(
             text(
                 f"""
-                SELECT MIN(cp.punch_timestamp)
+                SELECT MIN((cp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus'))
                 FROM gp_clock_punches cp
                 WHERE cp.employee_id = :emp
-                  AND cp.punch_timestamp::date = :hoje
+                  AND (cp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date = :hoje
                   AND {_PUNCH_VALIDO}
                 """
             ),

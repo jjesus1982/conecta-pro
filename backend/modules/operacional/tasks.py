@@ -350,7 +350,7 @@ def briefing_operacional_matinal(self):
                 # direto (sem importar o controller): gp_clock_punches + shifts.
                 # Batida válida = status fora de ('rejected','cancelado'); COALESCE
                 # protege status NULL. "Em andamento" = agora (hora LOCAL de
-                # Manaus — punch_timestamp e planned_* são naive em hora local)
+                # Manaus — punch_timestamp é UTC no banco (converter); planned_* é hora local Manaus)
                 # dentro da janela planejada, com braço específico p/ turno
                 # noturno (fim <= início atravessa a meia-noite). Check-in manual
                 # (actual_start_time) conta como presença. Vazio → linha honesta.
@@ -362,7 +362,7 @@ def briefing_operacional_matinal(self):
                                 """
                                 SELECT COUNT(*), COUNT(DISTINCT employee_id)
                                 FROM gp_clock_punches
-                                WHERE punch_timestamp::date = :hoje
+                                WHERE (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date = :hoje
                                   AND COALESCE(status, '') NOT IN ('rejected', 'cancelado')
                                 """
                             ),
@@ -412,7 +412,7 @@ def briefing_operacional_matinal(self):
                                   AND NOT EXISTS (
                                       SELECT 1 FROM gp_clock_punches cp
                                       WHERE cp.employee_id = sh.employee_id
-                                        AND cp.punch_timestamp::date = :hoje
+                                        AND (cp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date = :hoje
                                         AND COALESCE(cp.status, '') NOT IN ('rejected', 'cancelado')
                                   )
                                 ORDER BY p.name
@@ -678,7 +678,7 @@ def vigia_ausencia(self):
                           AND NOT EXISTS (
                             SELECT 1 FROM gp_clock_punches gp
                             WHERE gp.employee_id = s.employee_id
-                              AND gp.punch_timestamp::date = :hoje
+                              AND (gp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date = :hoje
                               AND COALESCE(gp.status, '') NOT IN ('rejected', 'cancelado')
                           )
                         """
