@@ -217,3 +217,27 @@ não-ativos (afastados/suspensos/demitidos)** → decisão do Jordan (encerrar a
 - AÇÕES DO JORDAN: 7 ativos SEM posto no DP (ADEILSON DINIZ — que bate ponto!, ANGELA, DANIEL SOUZA,
   EULER, JONATHAN MENDES, PAULO LAMEGO, RENE) — definir lotação no DP que eu replico; posto Gelain
   ativo com 0 funcionários — desativar posto ou realocar equipe?
+
+---
+
+# RODADA 5 (08/07) — Verdades do Jordan aplicadas (fonte da verdade = Jordan)
+
+Diretriz permanente registrada: dado organizacional divergente → PERGUNTAR ao Jordan e replicar em
+todos os módulos. Aplicado (auditoria/FORWARD_verdades_jordan_2026-07-08.sql; backup PRE_VERDADES):
+
+- Adeilson e Daniel Souza → IDEAL FLORES; Rene e Angela → VILLA DEI FIORI; Paulo → MIRANTE.
+- Euler → MIRANTE, alocação TEMPORÁRIA (cobre férias do Ediwilson). Jonathan → MIRANTE, TEMPORÁRIA
+  (cobre férias + afastamento por acidente da Elen Nunes).
+- Gelain: post_type=monitoramento — contrato de PORTARIA REMOTA, sem AGP presencial; quadro 0.
+- Alocações encerradas (não são mais funcionários): Lorinaldo, Marcelino, Marta, Thais, Fernanda,
+  Railson. Cintia e Elen (afastadas INSS) MANTÊM a vaga no Mirante. Kalel já estava ativo ✓.
+- **Resultado: 0 funcionários ativos sem posto (50/50 lotados).** DP (nome+FK) e Operacional alinhados.
+- Escalas de julho re-geradas: **1005 turnos / 50 pessoas** (30 AGPs 12x36 — 15 diurnos/15 noturnos;
+  20 comerciais 44h), fidelidade por posto == quadro, zero duplo-turno. 5 AGPs recém-lotados sem
+  histórico de batida entraram em slot de cobertura (nota no turno; refina com o ponto).
+
+## Pendências finais p/ Jordan (pequenas)
+1. DP das afastadas diverge da vaga: Elen (DP "LARANJEIRAS") e Cintia (DP "VILLA DEI FIORI") estão
+   com vaga no MIRANTE — mantive a vaga; me diga se o DP delas deve ser corrigido p/ MIRANTE.
+2. Férias do Ediwilson sem datas no DP — quando registrar (módulo DP → Férias), o quadro reflete.
+3. Aviso ao t1: commit 9759fbd3 levou junto o trabalho SST dele que estava staged (nada perdido).
