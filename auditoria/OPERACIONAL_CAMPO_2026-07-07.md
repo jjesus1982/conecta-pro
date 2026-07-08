@@ -270,3 +270,43 @@ todos os módulos. Aplicado (auditoria/FORWARD_verdades_jordan_2026-07-08.sql; b
    12x36 (como o Ediwilson) ou seguem 44h comercial? Hoje estão em 44h.
 4. Euler após 21/07 (fim da cobertura do Ediwilson): qual lotação?
 5. Alexandre Silva: quando a admissão concluir no DP, encaixo no noturno/dias pares do Mirante.
+
+---
+
+# RODADA 6 (08/07) — PENTE-FINO posto a posto com o Jordan + planilha oficial da folha
+
+Fonte dupla: entrevista posto-a-posto (Jordan = fonte da verdade) + planilha "ESCALAS JUNHO 2026
+ATUALIZADO.xlsx" (Drive; a mesma da folha de junho). Todas as respostas aplicadas na hora em
+DP + alocações + escalas + headcount, com backup antes de cada lote e FORWARD arquivado.
+
+## Grade final por posto (julho/2026)
+- **IDEAL FLORES (12: 11+vaga artífice em teste)** — AGP d: Daniel Souza, Livia, Walcicley (líder,
+  12x36 d/pares CONFIRMADO); AGP n: Adeilson+Jonhata (ímp) × Jonilson+Maiara (par); 44h: Celiane,
+  Larroque, Edilene, Geilson. Saídas: Antonio Diniz→Prime (estava lá há ~1 ano); Sebastião até 22/07.
+- **LARANJEIRAS (9=8 AGP+Elen afastada)** — d: Matheus+Erika(líder 12x36, ímp) × Bianca+Francisco(par);
+  n: Adailson+Andrea(ímp) × Anilson+Jonathan(par). Sem ASG (confirmado). Francisco: FÉRIAS 23/07→21/08
+  (FER-2026-FRAM-JUL; na volta 22/08 AVISO PRÉVIO→desligamento); Euler cobre d/pares de 23/07.
+- **MIRANTE (9+vaga Alexandre)** — d: Gama(ímp)+[vaga Alexandre ímp] × Mauricio+Ediwilson(par, volta
+  22/07 EXATO); n: Ailton(ímp) × Eduardo(par); 44h: Telma, Paulo, Vanderlice. Euler cobre d/ímp até 21/07.
+- **PRIME (6)** — d: Carlos Eduardo(ímp) × Keyson(par — planilha corrigiu, migrou do VDF); n: Antonio
+  Diniz(ímp) × Rilem(par); 44h: Graciene, Malaquias. GRADE COMPLETA.
+- **VILLA DEI FIORI (7: 6+Cintia afastada)** — d: Gernanes × Ruan; n: Rene × Eidy; 44h: Angela, Jaqueline.
+- **VILLA DOS PÁSSAROS (6)** — d: Jeovane × Meire; n: Edward × Fernando Simplicio; 44h: Ademir, Oscar
+  (planilha corrigiu: Oscar migrou do Michelangelo).
+- **MICHELANGELO (3→2)** — Antonio Vieira (FÉRIAS 14/06→14/07, retorno 15/07 — FER-2026-ACV-JUN) e
+  Kalel FICAM; Fernando Miguel até 22/07 (contrato vence 23/07). Sem portaria (confirmado).
+- **GELAIN (0)** — portaria remota (monitoramento).
+- **"PORTARIA PRINCIPAL - MIRANTE" — DESATIVADO** (mesmo condomínio, nome abreviado — Jordan).
+
+## Papéis especiais
+- **EULER = TIRADOR DE FÉRIAS volante** (role na alocação): Mirante→21/07, Laranjeiras 23/07→(férias
+  Francisco); "manter até que seja útil, depois demito" (Jordan).
+- Setor da planilha (PORTARIA×RONDISTA×INSALUBRIDADE) ainda não existe como campo — roadmap.
+
+## Automação nova
+- `gerar_escalas_proximo_mes` agora CANCELA turnos dentro de férias APROVADAS do DP
+  (hr_vacation_requests) — agosto nasce respeitando as férias do Francisco. Bakeado.
+
+## Provas
+- Zero duplo-turno no mês (validado após CADA lote); planilha × sistema = 100% reconciliado;
+  férias registradas no DP e visíveis em /operacional/vacations; posto duplicado desativado.

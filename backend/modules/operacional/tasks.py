@@ -741,6 +741,30 @@ def gerar_escalas_proximo_mes(self):
             service = AutoScaleService(db)
             result = await service.generate_scales_for_month(mes, ano, created_by=None)
 
+            # Respeitar FÉRIAS APROVADAS do DP: turnos gerados dentro de férias viram 'cancelled'
+            from sqlalchemy import text as _text
+
+            ferias_canceladas = (
+                await db.execute(
+                    _text(
+                        """
+                        UPDATE shifts s SET status='cancelled',
+                          notes=COALESCE(s.notes,'') || ' | FÉRIAS aprovadas no DP (auto-gen respeita férias).',
+                          updated_at=now()
+                        FROM scales sc, hr_vacation_requests v
+                        WHERE s.scale_id=sc.id AND sc.month=:mes AND sc.year=:ano
+                          AND s.status='scheduled'
+                          AND v.employee_id=s.employee_id
+                          AND upper(v.status) IN ('APPROVED','IN_PROGRESS','SCHEDULED')
+                          AND s.shift_date BETWEEN v.start_date AND v.end_date
+                        """
+                    ),
+                    {"mes": mes, "ano": ano},
+                )
+            ).rowcount
+            await db.commit()
+            result["turnos_cancelados_por_ferias"] = ferias_canceladas
+
         from modules.operacional.field_alerts import enviar_telegram  # lazy
 
         if result.get("scales_created", 0) > 0:
