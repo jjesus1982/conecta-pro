@@ -33,7 +33,7 @@ class CATModel(Base):
     testemunhas = Column(JSON, nullable=True, default=list)
 
     afastamento = Column(Integer, nullable=True, default=0)  # dias
-    numero_cat_inss = Column(String(20), nullable=True)
+    numero_cat_inss = Column(String(60), nullable=True)
 
     # eSocial S-2210 (transmissão real)
     numero_recibo_esocial = Column(String(60), nullable=True)

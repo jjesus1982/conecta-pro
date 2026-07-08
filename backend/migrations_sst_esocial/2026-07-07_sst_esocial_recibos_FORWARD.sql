@@ -48,3 +48,4 @@ COMMENT ON COLUMN sst_afastamentos.esocial_status IS
     'nao_transmitida|transmitida|aceita|rejeitada|erro';
 
 COMMIT;
+2026-07-07 20:55:05 ALTER gp_cats.numero_cat_inss varchar(20)->varchar(60) (recibo oficial=23 chars)
