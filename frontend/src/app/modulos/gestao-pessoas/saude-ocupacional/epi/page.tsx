@@ -40,8 +40,9 @@ import {
   useCreateEPI,
   useUpdateEPI,
 } from '@/hooks/health-occupational';
-import { useFichasEPI, useGerarFichaEPI } from '@/hooks/sst';
-import { sstService } from '@/lib/services/sst';
+import { useEntregasEPI, useFichasEPI, useGerarFichaEPI, useRegistrarEntregaEPI } from '@/hooks/sst';
+import { apiErrorDetail, sstService, type EPIEntregaItem } from '@/lib/services/sst';
+import { EmployeeSelect, useActiveEmployees } from '@/components/sst/EmployeeSelect';
 
 function getFichaStatusBadge(status: string) {
   const config: Record<string, { label: string; className: string }> = {
@@ -75,18 +76,65 @@ export default function EPIPage() {
   const [fichaDialogOpen, setFichaDialogOpen] = useState(false);
   const [fichaEmployeeId, setFichaEmployeeId] = useState('');
   const [downloadingFichaId, setDownloadingFichaId] = useState<string | null>(null);
+  const [gerandoFichaEmployeeId, setGerandoFichaEmployeeId] = useState<string | null>(null);
 
-  const handleGerarFicha = async () => {
-    if (!fichaEmployeeId.trim()) return;
+  // Entregas de EPI
+  const { data: entregasData, isLoading: entregasLoading, error: entregasError, refetch: refetchEntregas } = useEntregasEPI();
+  const registrarEntrega = useRegistrarEntregaEPI();
+  const { data: employees } = useActiveEmployees();
+  const [entregaForm, setEntregaForm] = useState({
+    employee_id: '',
+    epi_catalogo_id: '',
+    quantidade: '1',
+  });
+
+  const employeeNomeById = (id: string) =>
+    (employees ?? []).find((e) => e.id === id)?.nome ?? null;
+
+  const handleGerarFicha = async (employeeId?: string) => {
+    const targetId = (employeeId ?? fichaEmployeeId).trim();
+    if (!targetId) return;
+    setGerandoFichaEmployeeId(targetId);
     try {
-      await gerarFicha.mutateAsync({ employee_id: fichaEmployeeId.trim() });
+      await gerarFicha.mutateAsync({ employee_id: targetId });
       toast.success('Ficha de EPI gerada com sucesso', { duration: 4000 });
       setFichaDialogOpen(false);
       setFichaEmployeeId('');
       refetchFichas();
-    } catch (error: any) {
-      const detail = error?.response?.data?.detail;
-      toast.error(typeof detail === 'string' ? detail : 'Erro ao gerar ficha de EPI', { duration: 6000 });
+      refetchEntregas();
+    } catch (error) {
+      toast.error(apiErrorDetail(error, 'Erro ao gerar ficha de EPI'), { duration: 6000 });
+    } finally {
+      setGerandoFichaEmployeeId(null);
+    }
+  };
+
+  const handleRegistrarEntrega = async () => {
+    const epiSelecionado = epiList.find(
+      (epi: any) => String(epi.id) === entregaForm.epi_catalogo_id
+    );
+    const quantidade = parseInt(entregaForm.quantidade, 10);
+    if (!entregaForm.employee_id || !epiSelecionado || !quantidade || quantidade < 1) return;
+    try {
+      const result = await registrarEntrega.mutateAsync({
+        employee_id: entregaForm.employee_id,
+        epi_nome: epiSelecionado.nome,
+        quantidade,
+        epi_ca: epiSelecionado.ca_numero || undefined,
+      });
+      if (result.ficha_epi?.ficha_id) {
+        toast.success('Entrega registrada — ficha de EPI gerada (pendente de assinatura)', { duration: 5000 });
+      } else {
+        toast.success('Entrega registrada', { duration: 4000 });
+        if (result.ficha_epi?.erro) {
+          toast.warning(`Ficha nao gerada: ${result.ficha_epi.erro}`, { duration: 6000 });
+        }
+      }
+      setEntregaForm({ employee_id: '', epi_catalogo_id: '', quantidade: '1' });
+      refetchEntregas();
+      refetchFichas();
+    } catch (error) {
+      toast.error(apiErrorDetail(error, 'Erro ao registrar entrega de EPI'), { duration: 6000 });
     }
   };
 
@@ -284,7 +332,7 @@ export default function EPIPage() {
         <TabsList>
           <TabsTrigger value="catalogo">Catalogo de EPIs</TabsTrigger>
           <TabsTrigger value="estoque">Estoque</TabsTrigger>
-          <TabsTrigger value="fichas">Fichas de EPI</TabsTrigger>
+          <TabsTrigger value="fichas">Entregas &amp; Fichas</TabsTrigger>
         </TabsList>
 
         {/* Tab: Catalogo */}
@@ -456,8 +504,168 @@ export default function EPIPage() {
           </Card>
         </TabsContent>
 
-        {/* Tab: Fichas de EPI */}
+        {/* Tab: Entregas & Fichas */}
         <TabsContent value="fichas" className="space-y-4">
+          {/* Registrar entrega de EPI */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Truck className="h-4 w-4" />
+                Registrar Entrega de EPI
+              </CardTitle>
+              <CardDescription>
+                A entrega gera automaticamente a ficha de EPI (NR-6), pendente de assinatura do funcionario.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 md:grid-cols-[2fr_2fr_100px_150px_auto] md:items-end">
+                <div className="space-y-2">
+                  <Label htmlFor="entrega_funcionario">Funcionario</Label>
+                  <EmployeeSelect
+                    id="entrega_funcionario"
+                    value={entregaForm.employee_id}
+                    onChange={(employeeId) => setEntregaForm({ ...entregaForm, employee_id: employeeId })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="entrega_epi">EPI (catalogo)</Label>
+                  <Select
+                    value={entregaForm.epi_catalogo_id}
+                    onValueChange={(v) => setEntregaForm({ ...entregaForm, epi_catalogo_id: v })}
+                  >
+                    <SelectTrigger id="entrega_epi">
+                      <SelectValue placeholder="Selecione o EPI" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {epiList.length === 0 ? (
+                        <SelectItem value="__vazio__" disabled>
+                          Nenhum EPI no catalogo
+                        </SelectItem>
+                      ) : (
+                        epiList.map((epi: any) => (
+                          <SelectItem key={epi.id} value={String(epi.id)}>
+                            {epi.nome}{epi.ca_numero ? ` (CA ${epi.ca_numero})` : ''}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="entrega_qtd">Qtd.</Label>
+                  <Input
+                    id="entrega_qtd"
+                    type="number"
+                    min={1}
+                    value={entregaForm.quantidade}
+                    onChange={(e) => setEntregaForm({ ...entregaForm, quantidade: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="entrega_data">Data da entrega</Label>
+                  <Input
+                    id="entrega_data"
+                    type="date"
+                    value={new Date().toISOString().substring(0, 10)}
+                    disabled
+                    title="A data da entrega e registrada pelo servidor na data de hoje"
+                  />
+                </div>
+                <Button
+                  onClick={handleRegistrarEntrega}
+                  disabled={
+                    registrarEntrega.isPending ||
+                    !entregaForm.employee_id ||
+                    !entregaForm.epi_catalogo_id ||
+                    !(parseInt(entregaForm.quantidade, 10) >= 1)
+                  }
+                >
+                  {registrarEntrega.isPending ? 'Registrando...' : 'Registrar entrega'}
+                </Button>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                A data da entrega e gravada pelo servidor no dia do registro (hoje).
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* Entregas registradas */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Entregas de EPI</CardTitle>
+              <CardDescription>
+                Entregas registradas e a situacao da ficha de cada uma. Funcionarios com entregas sem ficha podem gerar a ficha aqui.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              {entregasLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+                </div>
+              ) : entregasError ? (
+                <div className="px-6 py-8 text-sm text-destructive flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4" />
+                  {apiErrorDetail(entregasError, 'Erro ao carregar entregas de EPI')}
+                  <Button variant="outline" size="sm" onClick={() => refetchEntregas()}>
+                    Tentar novamente
+                  </Button>
+                </div>
+              ) : (entregasData?.epis ?? []).length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Truck className="h-16 w-16 mx-auto mb-4 opacity-50" />
+                  <h3 className="text-lg font-medium">Nenhuma entrega registrada</h3>
+                  <p className="mt-2">Registre a primeira entrega de EPI no formulario acima.</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Funcionario</TableHead>
+                      <TableHead>EPI</TableHead>
+                      <TableHead>Qtd.</TableHead>
+                      <TableHead>CA</TableHead>
+                      <TableHead>Ficha</TableHead>
+                      <TableHead className="w-[160px]">Acoes</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(entregasData?.epis ?? []).map((entrega: EPIEntregaItem) => (
+                      <TableRow key={entrega.delivery_id}>
+                        <TableCell className="font-medium">
+                          {employeeNomeById(entrega.employee_id) || (
+                            <span className="font-mono text-xs text-muted-foreground">
+                              {entrega.employee_id.substring(0, 8)}...
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm">{entrega.epi}</TableCell>
+                        <TableCell className="text-sm tabular-nums">{entrega.quantidade}</TableCell>
+                        <TableCell className="text-sm font-mono">{entrega.ca || '—'}</TableCell>
+                        <TableCell>{getFichaStatusBadge(entrega.ficha_status)}</TableCell>
+                        <TableCell>
+                          {entrega.ficha_status === 'sem_ficha' ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleGerarFicha(entrega.employee_id)}
+                              disabled={gerarFicha.isPending}
+                              title="Gera a ficha consolidando as entregas sem ficha deste funcionario"
+                            >
+                              <FileSignature className="h-4 w-4 mr-2" />
+                              {gerandoFichaEmployeeId === entrega.employee_id ? 'Gerando...' : 'Gerar ficha'}
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Stats das fichas */}
           <div className="grid gap-4 md:grid-cols-2">
             <Card>
@@ -579,12 +787,12 @@ export default function EPIPage() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="ficha_employee_id">ID do Funcionario</Label>
-              <Input
+              <Label htmlFor="ficha_employee_id">Funcionario</Label>
+              <EmployeeSelect
                 id="ficha_employee_id"
                 value={fichaEmployeeId}
-                onChange={(e) => setFichaEmployeeId(e.target.value)}
-                placeholder="employee_id do funcionario"
+                onChange={(employeeId) => setFichaEmployeeId(employeeId)}
+                placeholder="Busque pelo nome do funcionario..."
               />
               <p className="text-xs text-muted-foreground">
                 Consolida as entregas de EPI ainda sem ficha para este funcionario.
@@ -595,7 +803,7 @@ export default function EPIPage() {
             <Button variant="outline" onClick={() => { setFichaDialogOpen(false); setFichaEmployeeId(''); }}>
               Cancelar
             </Button>
-            <Button onClick={handleGerarFicha} disabled={gerarFicha.isPending || !fichaEmployeeId.trim()}>
+            <Button onClick={() => handleGerarFicha()} disabled={gerarFicha.isPending || !fichaEmployeeId.trim()}>
               {gerarFicha.isPending ? 'Gerando...' : 'Gerar ficha'}
             </Button>
           </DialogFooter>

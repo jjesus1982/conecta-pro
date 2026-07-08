@@ -779,11 +779,17 @@ class SSTService:
             "dias_previstos": af.dias_previstos,
             "atestado": af.atestado,
             "cid": af.cid,
+            "medico": af.medico,
+            "crm": af.crm,
             "status": af.status,
             "ajuda_medicamento_ativa": af.ajuda_medicamento_ativa,
             "ajuda_medicamento_valor": (float(af.ajuda_medicamento_valor) if af.ajuda_medicamento_valor else None),
             "gera_estabilidade": af.gera_estabilidade,
             "estabilidade_ate": str(af.estabilidade_ate) if af.estabilidade_ate else None,
+            # eSocial S-2230 — status/recibo/protocolo REAIS (nunca fabricados)
+            "esocial_status": af.esocial_status,
+            "recibo_s2230": af.recibo_s2230,
+            "esocial_protocolo": af.esocial_protocolo,
         }
 
 

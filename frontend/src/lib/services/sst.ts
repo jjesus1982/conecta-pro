@@ -26,11 +26,17 @@ export interface Afastamento {
   dias_previstos: number | null;
   atestado: boolean;
   cid: string | null;
+  medico?: string | null;
+  crm?: string | null;
   status: string;
   ajuda_medicamento_ativa: boolean;
   ajuda_medicamento_valor: number | null;
   gera_estabilidade: boolean;
   estabilidade_ate: string | null;
+  // eSocial S-2230 — opcionais (expostos pelo backend após o bake)
+  esocial_status?: string;
+  recibo_s2230?: string | null;
+  esocial_protocolo?: string | null;
 }
 
 export interface AfastamentoList {
@@ -38,8 +44,20 @@ export interface AfastamentoList {
   afastamentos: Afastamento[];
 }
 
+/** Tipos aceitos pelo backend (Tabela 18 eSocial: os 4 primeiros auto-transmitem S-2230) */
+export const AFASTAMENTO_TIPOS: { value: string; label: string; autoS2230: boolean }[] = [
+  { value: 'doenca', label: 'Doença (atestado)', autoS2230: true },
+  { value: 'acidente_trabalho', label: 'Acidente de trabalho', autoS2230: true },
+  { value: 'acidente_trajeto', label: 'Acidente de trajeto', autoS2230: true },
+  { value: 'licenca_maternidade', label: 'Licença-maternidade', autoS2230: true },
+  { value: 'licenca_paternidade', label: 'Licença-paternidade', autoS2230: false },
+  { value: 'outro', label: 'Outro', autoS2230: false },
+];
+
 export interface AfastamentoCreate {
   employee_id: string;
+  employee_nome?: string;
+  employee_cargo?: string;
   tipo: string;
   motivo?: string;
   data_inicio: string;
@@ -47,6 +65,22 @@ export interface AfastamentoCreate {
   dias_previstos?: number;
   atestado?: boolean;
   cid?: string;
+  medico?: string;
+  crm?: string;
+}
+
+/** Resposta honesta do enfileiramento eSocial (recibo real vem depois, via pull) */
+export interface ESocialEnfileiramento {
+  evento?: string;
+  transmissao_enfileirada: boolean;
+  task_id?: string;
+  nota?: string;
+  motivo?: string;
+  erro?: string;
+}
+
+export interface AfastamentoCreateResponse extends Afastamento {
+  esocial?: ESocialEnfileiramento;
 }
 
 // =============================================================================
@@ -117,12 +151,23 @@ export interface TaxaAcidente {
 export interface CATTransmitirResponse {
   cat_id: string;
   esocial_status: ESocialStatus;
-  esocial: {
-    transmissao_enfileirada: boolean;
-    task_id?: string;
-    motivo?: string;
-    erro?: string;
-  };
+  recibo_esocial?: string | null;
+  esocial: ESocialEnfileiramento;
+}
+
+/** Resposta do POST /sst/cat — DESTAQUE: deadline_transmissao (1º dia útil, Lei 8.213/91) */
+export interface CATCreateResponse {
+  cat_id: string;
+  employee_id: string;
+  tipo: string;
+  data: string;
+  local: string;
+  gravidade: string;
+  status: string;
+  esocial_status: ESocialStatus;
+  deadline_transmissao: string | null;
+  prazo_legal: string;
+  esocial: ESocialEnfileiramento;
 }
 
 // =============================================================================
@@ -144,6 +189,22 @@ export interface ASOList {
   total?: number;
   asos?: ASOItem[];
   items?: ASOItem[];
+}
+
+/** PUT /sst/aso/{id}/resultado — gatilho eSocial S-2220 */
+export interface ASOResultadoPayload {
+  apto: boolean;
+  restricoes?: string[];
+  medico?: string;
+  crm?: string;
+  observacoes?: string;
+}
+
+export interface ASOResultadoResponse {
+  aso_id: string;
+  status: string;
+  apto: boolean;
+  esocial: ESocialEnfileiramento;
 }
 
 // =============================================================================
@@ -181,6 +242,50 @@ export interface FichaEPIList {
 export interface FichaEPIGerarPayload {
   employee_id: string;
   delivery_ids?: string[];
+}
+
+// =============================================================================
+// TIPOS - ENTREGAS DE EPI
+// =============================================================================
+
+/** POST /sst/epi — registra a entrega e gera a ficha (pendente de assinatura) */
+export interface EPIEntregaCreate {
+  employee_id: string;
+  epi_nome: string;
+  quantidade: number;
+  epi_ca?: string;
+}
+
+export interface EPIEntregaResponse {
+  delivery_id: string;
+  employee_id: string;
+  epi: string;
+  quantidade: number;
+  data_entrega: string | null;
+  status: string;
+  ficha_epi: {
+    ficha_id: string | null;
+    status: string;
+    pdf?: string;
+    erro?: string;
+  };
+}
+
+export interface EPIEntregaItem {
+  delivery_id: string;
+  employee_id: string;
+  epi: string;
+  quantidade: number;
+  ca: string | null;
+  /** Campo "status" do backend carrega a NR da entrega (drift histórico) */
+  status: string | null;
+  ficha_epi_id: string | null;
+  ficha_status: 'pendente_assinatura' | 'assinada' | 'sem_ficha' | string;
+}
+
+export interface EPIEntregaList {
+  total: number;
+  epis: EPIEntregaItem[];
 }
 
 // =============================================================================
@@ -327,6 +432,43 @@ export interface LTCATUpdatePayload {
 // LABELS
 // =============================================================================
 
+// Riscos Ocupacionais (PPRA/PGR — tabela gp_risks)
+export interface RiscoOcupacional {
+  risk_id: string;
+  posto_id: string;
+  /** Nome legível do posto (join posts/condominios); null = posto não vinculado */
+  posto_nome: string | null;
+  categoria: string;
+  descricao: string;
+  nivel: string;
+  status: string;
+  fonte_geradora: string | null;
+  medidas_controle: string[];
+  epi_recomendado: string[];
+}
+
+export interface RiscoList {
+  total: number;
+  riscos: RiscoOcupacional[];
+}
+
+export interface RiscoCreate {
+  posto_id: string;
+  categoria: string;
+  descricao: string;
+  nivel: string;
+  fonte_geradora?: string;
+  medidas_controle?: string[];
+  epi_recomendado?: string[];
+}
+
+export interface PostoOption {
+  id: string;
+  name: string;
+  code?: string | null;
+  status?: string | null;
+}
+
 export const AFASTAMENTO_STATUS_LABELS: Record<string, string> = {
   ativo: 'Ativo',
   encerrado: 'Encerrado',
@@ -339,6 +481,28 @@ export const GRAVIDADE_LABELS: Record<string, string> = {
   grave: 'Grave',
   critico: 'Critico',
 };
+
+// =============================================================================
+// HELPERS
+// =============================================================================
+
+/** Extrai o `detail` honesto de um erro da API (string ou lista Pydantic 422). */
+export function apiErrorDetail(error: unknown, fallback: string): string {
+  const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data
+    ?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    const msgs = detail
+      .map((d) =>
+        d && typeof d === 'object' && 'msg' in d
+          ? `${Array.isArray((d as { loc?: unknown[] }).loc) ? (d as { loc: unknown[] }).loc.join('.') + ': ' : ''}${String((d as { msg: unknown }).msg)}`
+          : String(d)
+      )
+      .filter(Boolean);
+    if (msgs.length > 0) return msgs.join('; ');
+  }
+  return fallback;
+}
 
 // =============================================================================
 // SERVICE - SST
@@ -363,11 +527,13 @@ export const sstService = {
     api.get<Afastamento>(`${BASE}/afastamentos/${id}`).then((r) => r.data),
 
   createAfastamento: (data: AfastamentoCreate) =>
-    api.post(`${BASE}/afastamentos`, data).then((r) => r.data),
+    api
+      .post<AfastamentoCreateResponse>(`${BASE}/afastamentos`, data)
+      .then((r) => r.data),
 
   registrarRetorno: (id: string, data_retorno: string) =>
     api
-      .put(`${BASE}/afastamentos/${id}/retorno`, { data_retorno })
+      .put<AfastamentoCreateResponse>(`${BASE}/afastamentos/${id}/retorno`, { data_retorno })
       .then((r) => r.data),
 
   // CAT
@@ -379,7 +545,7 @@ export const sstService = {
       .then((r) => r.data),
 
   createCAT: (data: CATCreate) =>
-    api.post(`${BASE}/cat`, data).then((r) => r.data),
+    api.post<CATCreateResponse>(`${BASE}/cat`, data).then((r) => r.data),
 
   transmitirCAT: (catId: string) =>
     api
@@ -391,6 +557,22 @@ export const sstService = {
 
   // ASO (eSocial S-2220)
   listASOs: () => api.get<ASOList>(`${BASE}/aso`).then((r) => r.data),
+
+  registrarResultadoASO: (asoId: string, data: ASOResultadoPayload) =>
+    api
+      .put<ASOResultadoResponse>(`${BASE}/aso/${asoId}/resultado`, data)
+      .then((r) => r.data),
+
+  // Entregas de EPI
+  listEntregasEPI: (employee_id?: string) =>
+    api
+      .get<EPIEntregaList>(`${BASE}/epi`, {
+        params: employee_id ? { employee_id } : {},
+      })
+      .then((r) => r.data),
+
+  registrarEntregaEPI: (data: EPIEntregaCreate) =>
+    api.post<EPIEntregaResponse>(`${BASE}/epi`, data).then((r) => r.data),
 
   // Fichas de EPI
   listFichasEPI: (status?: FichaEPIStatus) =>
@@ -433,6 +615,24 @@ export const sstService = {
 
   getPPRAStatus: () =>
     api.get(`${BASE}/ppra/status`).then((r) => r.data),
+
+  // Riscos Ocupacionais (gp_risks — fonte real)
+  listRiscos: (filters?: { posto_id?: string; nivel?: string; categoria?: string }) =>
+    api
+      .get<RiscoList>(`${BASE}/riscos`, { params: filters ?? {} })
+      .then((r) => r.data),
+
+  createRisco: (data: RiscoCreate) =>
+    api.post(`${BASE}/risco`, data).then((r) => r.data),
+
+  // Postos (para o seletor por nome no Novo Mapeamento)
+  listPostos: () =>
+    api
+      .get<{ items: PostoOption[]; total: number }>(
+        '/api/v1/operacional/posts/',
+        { params: { page: 1, page_size: 100 } },
+      )
+      .then((r) => r.data),
 
   // LTCAT
   getLTCATStatus: () =>

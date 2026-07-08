@@ -193,3 +193,27 @@ não-ativos (afastados/suspensos/demitidos)** → decisão do Jordan (encerrar a
 2. Gelain com 1 AGP: portaria descoberta em dias alternados e à noite — contratar/realocar?
 3. Frequência do sync de batidas do Sólides (últimas chegam com horas de atraso em certos períodos)
    — se quiser presença mais "ao vivo", aumentar a frequência do sync.
+
+---
+
+# RODADA 4 (08/07) — Replicação DP→Operacional por posto (ordem do Jordan)
+
+- Fonte da verdade: `employees.posto_atual_nome` do DP (preenchido p/ 43 ativos; a FK estava 100% vazia).
+- **RUAN é do VILLA DEI FIORI** (não Gelain) — **Gelain ficou com 0 funcionários** (confirmação do Jordan:
+  "Gelain não tem agente de portaria"); escala de julho do Gelain zerada honestamente.
+- Aplicado (auditoria/FORWARD_dp_replica_2026-07-08.sql; backup PRE_DP_REPLICA antes):
+  FK `posto_atual_id` semeada p/ 43 ativos; **12 alocações corrigidas** (Adailson/Andrea/Anilson→
+  Laranjeiras; Ailton/Gama/Malaquias/Mauricio→Mirante; Maiara→Ideal; Gernanes/Jaqueline→Villa Dei
+  Fiori; Carlos Eduardo→Prime; etc.); **6 alocações criadas** p/ quem tinha posto no DP e nenhuma
+  alocação (JONILSON, SEBASTIAO, MATHEUS, FERNANDO MIGUEL, JEOVANE, MEIRE); par Mirante preservado
+  (Telma/Vanderlice seguem na Portaria Principal). Exceção documentada: **Erika fica no LARANJEIRAS**
+  (palavra do Jordan 07/07 > texto velho do DP; DP dela corrigido p/ LARANJEIRAS).
+- Escalas de julho re-regeneradas: **872 turnos p/ 43 pessoas** (25 AGPs 12x36 — 13 noturnos/12
+  diurnos — turno+paridade das batidas; 18 comerciais 44h), zero duplo-turno, fidelidade por posto ==
+  DP. Headcount por posto recalculado (Ideal 11, Laranjeiras 7, Mirante 6, V.Pássaros 5, Michelangelo 4...).
+- Presença: `sem_posto` ZEROU (JONILSON agora aparece no Ideal). Refinamento anotado: batida de
+  madrugada (saída do noturno de ontem) hoje conta como "extra" do dia — atribuível ao turno anterior
+  numa próxima iteração.
+- AÇÕES DO JORDAN: 7 ativos SEM posto no DP (ADEILSON DINIZ — que bate ponto!, ANGELA, DANIEL SOUZA,
+  EULER, JONATHAN MENDES, PAULO LAMEGO, RENE) — definir lotação no DP que eu replico; posto Gelain
+  ativo com 0 funcionários — desativar posto ou realocar equipe?

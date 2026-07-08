@@ -36,8 +36,9 @@ import {
   useExpiringASOs,
   useScheduleExam,
 } from '@/hooks/health-occupational';
-import { useASOs } from '@/hooks/sst';
-import type { ASOItem } from '@/lib/services/sst';
+import { useASOs, useRegistrarResultadoASO } from '@/hooks/sst';
+import { apiErrorDetail, type ASOItem } from '@/lib/services/sst';
+import { EmployeeSelect, useActiveEmployees } from '@/components/sst/EmployeeSelect';
 
 function getESocialBadge(esocialStatus: string) {
   const styles: Record<string, string> = {
@@ -66,6 +67,8 @@ export default function ExamesPage() {
   const { data: expiringASOs, isLoading: asosLoading, error: asosError, refetch } = useExpiringASOs(30);
   const { data: esocialASOsData, isLoading: esocialASOsLoading, error: esocialASOsError } = useASOs();
   const scheduleExam = useScheduleExam();
+  const registrarResultado = useRegistrarResultadoASO();
+  const { data: employees } = useActiveEmployees();
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -78,6 +81,19 @@ export default function ExamesPage() {
     clinica: '',
     observacoes: '',
   });
+
+  // Registrar resultado de ASO (S-2220)
+  const [resultadoASO, setResultadoASO] = useState<ASOItem | null>(null);
+  const [resultadoForm, setResultadoForm] = useState({
+    apto: 'true',
+    restricoes: '',
+    medico: '',
+    crm: '',
+    observacoes: '',
+  });
+
+  const employeeNomeById = (id?: string) =>
+    (employees ?? []).find((e) => e.id === id)?.nome ?? null;
 
   const handleSchedule = async () => {
     if (!formData.funcionario_id || !formData.tipo_exame || !formData.data_agendamento) return;
@@ -94,7 +110,40 @@ export default function ExamesPage() {
       });
       refetch();
     } catch (error) {
-      toast.error('Erro ao agendar exame. Tente novamente.', { duration: 5000 });
+      toast.error(apiErrorDetail(error, 'Erro ao agendar exame. Tente novamente.'), { duration: 6000 });
+    }
+  };
+
+  const openResultado = (aso: ASOItem) => {
+    setResultadoForm({ apto: 'true', restricoes: '', medico: '', crm: '', observacoes: '' });
+    setResultadoASO(aso);
+  };
+
+  const handleRegistrarResultado = async () => {
+    if (!resultadoASO) return;
+    try {
+      const result = await registrarResultado.mutateAsync({
+        asoId: resultadoASO.aso_id,
+        data: {
+          apto: resultadoForm.apto === 'true',
+          restricoes: resultadoForm.restricoes
+            ? resultadoForm.restricoes.split(',').map((r) => r.trim()).filter(Boolean)
+            : [],
+          medico: resultadoForm.medico || undefined,
+          crm: resultadoForm.crm || undefined,
+          observacoes: resultadoForm.observacoes || undefined,
+        },
+      });
+      if (result?.esocial?.transmissao_enfileirada) {
+        toast.success('Resultado registrado — S-2220 enfileirado no eSocial (recibo real vem depois)', { duration: 6000 });
+      } else {
+        toast.success('Resultado registrado', { duration: 4000 });
+        const motivo = result?.esocial?.motivo || result?.esocial?.erro;
+        if (motivo) toast.warning(`eSocial: ${motivo}`, { duration: 6000 });
+      }
+      setResultadoASO(null);
+    } catch (error) {
+      toast.error(apiErrorDetail(error, 'Erro ao registrar resultado do ASO'), { duration: 6000 });
     }
   };
 
@@ -167,12 +216,12 @@ export default function ExamesPage() {
               </DialogHeader>
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
-                  <Label htmlFor="funcionario_id">ID do Funcionario</Label>
-                  <Input
+                  <Label htmlFor="funcionario_id">Funcionario</Label>
+                  <EmployeeSelect
                     id="funcionario_id"
                     value={formData.funcionario_id}
-                    onChange={(e) => setFormData({ ...formData, funcionario_id: e.target.value })}
-                    placeholder="ID do funcionario"
+                    onChange={(employeeId) => setFormData({ ...formData, funcionario_id: employeeId })}
+                    placeholder="Busque pelo nome do funcionario..."
                   />
                 </div>
                 <div className="space-y-2">
@@ -432,23 +481,45 @@ export default function ExamesPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>ASO ID</TableHead>
+                  <TableHead>Funcionario</TableHead>
                   <TableHead>Tipo</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>eSocial</TableHead>
                   <TableHead>Recibo S-2220</TableHead>
+                  <TableHead className="w-[190px]">Acoes</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {esocialASOs.map((aso) => (
                   <TableRow key={aso.aso_id}>
-                    <TableCell className="text-sm font-mono">
-                      {aso.aso_id.length > 8 ? `${aso.aso_id.substring(0, 8)}...` : aso.aso_id}
+                    <TableCell>
+                      <div className="font-medium">
+                        {aso.employee_nome || employeeNomeById(aso.employee_id) || (
+                          <span className="font-mono text-xs text-muted-foreground">
+                            {aso.aso_id.substring(0, 8)}...
+                          </span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-sm">{aso.tipo || '—'}</TableCell>
                     <TableCell className="text-sm">{aso.status || '—'}</TableCell>
                     <TableCell>{getESocialBadge(aso.esocial_status)}</TableCell>
                     <TableCell className="text-sm font-mono">{aso.recibo_s2220 || '—'}</TableCell>
+                    <TableCell>
+                      {aso.status !== 'realizado' ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openResultado(aso)}
+                          title="Registrar o resultado do exame (dispara o S-2220)"
+                        >
+                          <FileCheck className="h-4 w-4 mr-2" />
+                          Registrar resultado
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Resultado registrado</span>
+                      )}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -456,6 +527,90 @@ export default function ExamesPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Dialog - Registrar resultado de ASO (S-2220) */}
+      <Dialog open={!!resultadoASO} onOpenChange={(open) => { if (!open) setResultadoASO(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Registrar Resultado do ASO</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {resultadoASO && (
+              <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+                <span className="font-medium">
+                  {resultadoASO.employee_nome || employeeNomeById(resultadoASO.employee_id) || 'Funcionario nao identificado'}
+                </span>
+                <span className="text-muted-foreground"> — {resultadoASO.tipo || 'tipo nao informado'}</span>
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="resultado_apto">Resultado</Label>
+              <Select
+                value={resultadoForm.apto}
+                onValueChange={(v) => setResultadoForm({ ...resultadoForm, apto: v })}
+              >
+                <SelectTrigger id="resultado_apto">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="true">Apto</SelectItem>
+                  <SelectItem value="false">Inapto</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="resultado_restricoes">Restricoes (separadas por virgula)</Label>
+              <Input
+                id="resultado_restricoes"
+                value={resultadoForm.restricoes}
+                onChange={(e) => setResultadoForm({ ...resultadoForm, restricoes: e.target.value })}
+                placeholder="Ex: sem trabalho em altura, sem carga acima de 20kg"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="resultado_medico">Medico</Label>
+                <Input
+                  id="resultado_medico"
+                  value={resultadoForm.medico}
+                  onChange={(e) => setResultadoForm({ ...resultadoForm, medico: e.target.value })}
+                  placeholder="Nome do medico"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="resultado_crm">CRM</Label>
+                <Input
+                  id="resultado_crm"
+                  value={resultadoForm.crm}
+                  onChange={(e) => setResultadoForm({ ...resultadoForm, crm: e.target.value })}
+                  placeholder="CRM-AM 0000"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="resultado_obs">Observacoes</Label>
+              <Input
+                id="resultado_obs"
+                value={resultadoForm.observacoes}
+                onChange={(e) => setResultadoForm({ ...resultadoForm, observacoes: e.target.value })}
+                placeholder="Observacoes adicionais"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Ao salvar, o ASO vira &quot;realizado&quot; e o evento S-2220 e enfileirado ao eSocial
+              (recibo real chega depois, via pull automatico).
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResultadoASO(null)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleRegistrarResultado} disabled={registrarResultado.isPending}>
+              {registrarResultado.isPending ? 'Salvando...' : 'Registrar resultado'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

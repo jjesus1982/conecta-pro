@@ -72,6 +72,9 @@ class RiskCreate(BaseModel):
     categoria: str = Field(..., description="fisico|quimico|biologico|ergonomico|acidente")
     descricao: str
     nivel: str = "medio"
+    fonte_geradora: str | None = None
+    medidas_controle: list[str] | None = None
+    epi_recomendado: list[str] | None = None
 
 
 class RiskResponse(BaseModel):

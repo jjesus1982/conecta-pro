@@ -811,6 +811,9 @@ async def mapear_risco(
         categoria=data.categoria,
         descricao=data.descricao,
         nivel=data.nivel,
+        fonte_geradora=data.fonte_geradora,
+        medidas_controle=data.medidas_controle or [],
+        epi_recomendado=data.epi_recomendado or [],
         status="identificado",
     )
     db.add(risco)
@@ -821,8 +824,28 @@ async def mapear_risco(
         "categoria": data.categoria,
         "descricao": data.descricao,
         "nivel": data.nivel,
+        "fonte_geradora": data.fonte_geradora,
+        "medidas_controle": data.medidas_controle or [],
+        "epi_recomendado": data.epi_recomendado or [],
         "status": "identificado",
     }
+
+
+def _as_list(value: Any) -> list[Any]:
+    """jsonb pode voltar como str (asyncpg sem codec) ou lista."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        import json as _json
+
+        try:
+            parsed = _json.loads(value)
+            return parsed if isinstance(parsed, list) else [parsed]
+        except (ValueError, TypeError):
+            return [value]
+    if isinstance(value, list):
+        return value
+    return [value]
 
 
 @router.get("/riscos")
@@ -830,19 +853,55 @@ async def listar_riscos(
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
     posto_id: str | None = Query(None),
+    nivel: str | None = Query(None, description="baixo|medio|alto|critico"),
+    categoria: str | None = Query(None, description="fisico|quimico|biologico|ergonomico|acidente"),
 ) -> Any:
-    """Lista riscos ocupacionais."""
+    """Lista riscos ocupacionais (gp_risks) com nome legível do posto.
+
+    posto_nome vem por LEFT JOIN em posts/condominios; se o posto_id for
+    órfão (não existe em nenhuma das tabelas), posto_nome=None e o frontend
+    exibe o id truncado com aviso honesto — nunca fabricamos o local.
+    """
     from sqlalchemy import text as sql_text
 
     try:
-        query = "SELECT risk_id, posto_id, categoria, descricao, nivel, status FROM gp_risks"
+        query = (
+            "SELECT r.risk_id, r.posto_id, COALESCE(p.name, c.nome) AS posto_nome, "
+            "r.categoria, r.descricao, r.nivel, r.status, r.fonte_geradora, "
+            "r.medidas_controle, r.epi_recomendado "
+            "FROM gp_risks r "
+            "LEFT JOIN posts p ON p.id::text = r.posto_id "
+            "LEFT JOIN condominios c ON c.id::text = r.posto_id "
+            "WHERE 1=1"
+        )
         params: dict[str, Any] = {}
         if posto_id:
-            query += " WHERE posto_id = :pid"
+            query += " AND r.posto_id = :pid"
             params["pid"] = posto_id
+        if nivel:
+            query += " AND r.nivel = :nivel"
+            params["nivel"] = nivel
+        if categoria:
+            query += " AND r.categoria = :categoria"
+            params["categoria"] = categoria
+        query += (
+            " ORDER BY CASE r.nivel WHEN 'critico' THEN 0 WHEN 'alto' THEN 1 "
+            "WHEN 'medio' THEN 2 ELSE 3 END, r.created_at DESC"
+        )
         result = await db.execute(sql_text(query), params)
         riscos = [
-            {"risk_id": r[0], "posto_id": r[1], "categoria": r[2], "descricao": r[3], "nivel": r[4], "status": r[5]}
+            {
+                "risk_id": r[0],
+                "posto_id": r[1],
+                "posto_nome": r[2],
+                "categoria": r[3],
+                "descricao": r[4],
+                "nivel": r[5],
+                "status": r[6],
+                "fonte_geradora": r[7],
+                "medidas_controle": _as_list(r[8]),
+                "epi_recomendado": _as_list(r[9]),
+            }
             for r in result.fetchall()
         ]
     except Exception as exc:

@@ -11,7 +11,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   sstService,
   type AfastamentoCreate,
+  type ASOResultadoPayload,
   type CATCreate,
+  type EPIEntregaCreate,
   type FichaEPIGerarPayload,
   type FichaEPIStatus,
   type LTCATUpdatePayload,
@@ -32,6 +34,7 @@ export const sstKeys = {
   ajudaMedicamento: () => [...sstKeys.all, 'ajuda-medicamento'] as const,
   ltcat: () => [...sstKeys.all, 'ltcat'] as const,
   asos: () => [...sstKeys.all, 'asos'] as const,
+  entregasEPI: () => [...sstKeys.all, 'entregas-epi'] as const,
   fichasEPI: () => [...sstKeys.all, 'fichas-epi'] as const,
   nr1Compliance: () => [...sstKeys.all, 'nr1-compliance'] as const,
 };
@@ -190,6 +193,54 @@ export function useASOs() {
     queryKey: sstKeys.asos(),
     queryFn: () => sstService.listASOs(),
     staleTime: 2 * 60 * 1000,
+  });
+}
+
+/**
+ * Hook para registrar o resultado de um ASO realizado (gatilho eSocial S-2220)
+ */
+export function useRegistrarResultadoASO() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ asoId, data }: { asoId: string; data: ASOResultadoPayload }) =>
+      sstService.registrarResultadoASO(asoId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: sstKeys.asos() });
+      queryClient.invalidateQueries({ queryKey: sstKeys.dashboard() });
+      queryClient.invalidateQueries({ queryKey: sstKeys.nr1Compliance() });
+    },
+  });
+}
+
+// =============================================================================
+// ENTREGAS DE EPI
+// =============================================================================
+
+/**
+ * Hook para listar entregas de EPI (com status da ficha vinculada)
+ */
+export function useEntregasEPI(employee_id?: string) {
+  return useQuery({
+    queryKey: [...sstKeys.entregasEPI(), employee_id],
+    queryFn: () => sstService.listEntregasEPI(employee_id),
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+/**
+ * Hook para registrar entrega de EPI (gera a ficha pendente de assinatura)
+ */
+export function useRegistrarEntregaEPI() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: EPIEntregaCreate) => sstService.registrarEntregaEPI(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: sstKeys.entregasEPI() });
+      queryClient.invalidateQueries({ queryKey: sstKeys.fichasEPI() });
+      queryClient.invalidateQueries({ queryKey: sstKeys.nr1Compliance() });
+    },
   });
 }
 
