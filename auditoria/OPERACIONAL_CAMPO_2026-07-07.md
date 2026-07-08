@@ -241,3 +241,12 @@ todos os módulos. Aplicado (auditoria/FORWARD_verdades_jordan_2026-07-08.sql; b
    com vaga no MIRANTE — mantive a vaga; me diga se o DP delas deve ser corrigido p/ MIRANTE.
 2. Férias do Ediwilson sem datas no DP — quando registrar (módulo DP → Férias), o quadro reflete.
 3. Aviso ao t1: commit 9759fbd3 levou junto o trabalho SST dele que estava staged (nada perdido).
+
+## RODADA 5b (08/07) — Verdades parte 2 (Elen/Cintia/férias Ediwilson)
+- Elen → LARANJEIRAS e Cintia → VILLA DEI FIORI (vaga movida; DP FK semeada; afastadas mantêm vaga).
+- Jonathan (cobre a Elen) movido junto → Laranjeiras (alocação + 16 turnos de julho).
+- Ediwilson: FÉRIAS 03→21/07 (retorno 22/07 no Mirante) — registrada no DP (FER-2026-EDIW-JUL,
+  APPROVED, 19 dias), visível em /operacional/vacations; 16 turnos do período cancelados como férias;
+  cobertura do Euler com end_date 21/07 e turnos ≥22/07 cancelados (fim da cobertura).
+- Provado no quadro: Mirante hoje espera Malaquias/Mauricio/Paulo/Gama/Euler — Ediwilson fora ✓.
+- PENDÊNCIA: lotação do EULER após 22/07 (cobertura acaba) — perguntar ao Jordan perto da data.
