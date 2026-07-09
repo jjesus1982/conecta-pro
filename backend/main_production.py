@@ -497,6 +497,14 @@ try:
     api_router.include_router(shift_handover_router, prefix="/operacional", tags=["Operacional - Passagem de Turno"])
     api_router.include_router(team_evaluation_router, prefix="/operacional", tags=["Operacional - Avaliação de Equipe"])
     api_router.include_router(triage_router, prefix="/operacional", tags=["Operacional - Triagem"])
+    # Fase 2 do enxugamento (2026-07-09): rotas que só existiam no espelho /people-management/operations
+    from modules.operacional.controllers.dashboard_controller import router as dashboard_unificado_router
+    from modules.people_management.operations.controllers.scale_optimizer_controller import (
+        router as scale_optimizer_router,
+    )
+
+    api_router.include_router(dashboard_unificado_router, prefix="/operacional/unificado", tags=["Operacional - Visão Unificada"])
+    api_router.include_router(scale_optimizer_router, prefix="/operacional", tags=["Operacional - Otimização de Escalas"])
     api_router.include_router(presence_router, prefix="/operacional", tags=["Operacional - Presença"])
     api_router.include_router(post_orders_router, prefix="/operacional", tags=["Operacional - Instruções de Posto"])
     # AI

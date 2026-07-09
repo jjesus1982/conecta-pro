@@ -32,12 +32,9 @@ def register_routers() -> None:
     except Exception:
         pass
 
-    try:
-        from .operations.aggregator import router as operations_router
-
-        router.include_router(operations_router)
-    except Exception:
-        pass
+    # REMOVIDO 2026-07-09 (fase 2 do enxugamento): espelho /operations/* desativado.
+    # Rotas exclusivas migradas p/ /operacional/unificado/* e /operacional/scale-optimizer/*.
+    # Consumidor migrado (dashboardStatsService -> /operacional/*).
 
     try:
         from .employee_portal.aggregator import router as portal_router

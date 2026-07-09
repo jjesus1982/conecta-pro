@@ -48,11 +48,11 @@ async function fetchEmployeeCount(): Promise<number> {
  */
 async function fetchPostCount(): Promise<number> {
   try {
-    const { data } = await api.get('/api/v1/people-management/operations/postos/posts/stats');
+    const { data } = await api.get('/api/v1/operacional/posts/stats');
     return data.total ?? data.count ?? 0;
   } catch {
     try {
-      const { data } = await api.get('/api/v1/people-management/operations/postos/posts/', {
+      const { data } = await api.get('/api/v1/operacional/posts/', {
         params: { page: 1, page_size: 1 },
       });
       return data.total ?? data.count ?? 0;
@@ -86,11 +86,11 @@ async function fetchClientCount(): Promise<number> {
  */
 async function fetchScaleCount(): Promise<number> {
   try {
-    const { data } = await api.get('/api/v1/people-management/operations/escalas/scales/stats');
+    const { data } = await api.get('/api/v1/operacional/scales/stats');
     return data.total ?? data.count ?? 0;
   } catch {
     try {
-      const { data } = await api.get('/api/v1/people-management/operations/escalas/scales/', {
+      const { data } = await api.get('/api/v1/operacional/scales/', {
         params: { page: 1, page_size: 1 },
       });
       return data.total ?? data.count ?? 0;
