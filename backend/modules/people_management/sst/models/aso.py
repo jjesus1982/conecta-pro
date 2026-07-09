@@ -4,6 +4,7 @@ import enum
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy import JSON, Boolean, Column, Date, DateTime, Enum, Integer, String, Text
 from sqlalchemy.orm import declarative_base as _declarative_base
 
@@ -35,7 +36,7 @@ class ASOModel(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     aso_id = Column(String(36), unique=True, nullable=False, index=True)
-    employee_id = Column(String(36), nullable=False, index=True)
+    employee_id = Column(UUID(as_uuid=False), nullable=False, index=True)
 
     tipo = Column(Enum(ASOType, values_callable=lambda x: [e.value for e in x], name="aso_type_enum", native_enum=False), nullable=False)
     status = Column(
@@ -53,7 +54,7 @@ class ASOModel(Base):
     crm = Column(String(20), nullable=True)
 
     apto = Column(Boolean, nullable=True)
-    restricoes = Column(JSON, nullable=True, default=list)
+    restricoes = Column(JSONB, nullable=True, default=list)
     observacoes = Column(Text, nullable=True)
 
     documento_url = Column(String(500), nullable=True)
@@ -74,7 +75,7 @@ class ASOModel(Base):
     esocial_protocolo = Column(String(100), nullable=True)  # protocolo REAL do lote (pull de recibos)
     # Procedimentos Tabela 27 do ASO: [{dt_exame, cod_procedimento, nome, fonte}]
     # (migration 2026-07-08_sst_missao1 — exame clínico 0295 derivado de data_realizacao)
-    exames = Column(JSON, nullable=True)
+    exames = Column(JSONB, nullable=True)
 
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None))
     updated_at = Column(DateTime, nullable=True, onupdate=lambda: datetime.now(UTC).replace(tzinfo=None))
