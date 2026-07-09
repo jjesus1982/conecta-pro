@@ -14,6 +14,8 @@ services:
     stop_grace_period: 30s
     command: celery -A celery_app worker --hostname=priority@%h --queues=gov.esocial,gov.fgts --concurrency=2 --loglevel=INFO
     environment:
+      ESOCIAL_AMBIENTE: ${ESOCIAL_AMBIENTE:-producaorestrita}
+      TZ: ${TZ:-America/Manaus}
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:?Defina REDIS_PASSWORD no .env}@redis:6379/0
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:?Defina REDIS_PASSWORD no .env}@redis:6379/0
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}@postgres:5432/${POSTGRES_DB:-conecta_pro}
@@ -50,6 +52,8 @@ services:
     stop_grace_period: 30s
     command: celery -A celery_app worker --hostname=sefaz@%h --queues=gov.sefaz.nfe,gov.sefaz.cte,gov.sefaz.mdfe --concurrency=3 --loglevel=INFO
     environment:
+      ESOCIAL_AMBIENTE: ${ESOCIAL_AMBIENTE:-producaorestrita}
+      TZ: ${TZ:-America/Manaus}
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:?Defina REDIS_PASSWORD no .env}@redis:6379/0
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:?Defina REDIS_PASSWORD no .env}@redis:6379/0
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}@postgres:5432/${POSTGRES_DB:-conecta_pro}
@@ -86,6 +90,8 @@ services:
     stop_grace_period: 30s
     command: celery -A celery_app worker --hostname=nfse@%h --queues=gov.nfse --concurrency=2 --loglevel=INFO
     environment:
+      ESOCIAL_AMBIENTE: ${ESOCIAL_AMBIENTE:-producaorestrita}
+      TZ: ${TZ:-America/Manaus}
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:?Defina REDIS_PASSWORD no .env}@redis:6379/0
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:?Defina REDIS_PASSWORD no .env}@redis:6379/0
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}@postgres:5432/${POSTGRES_DB:-conecta_pro}
@@ -127,6 +133,8 @@ services:
     env_file:
       - .env
     environment:
+      ESOCIAL_AMBIENTE: ${ESOCIAL_AMBIENTE:-producaorestrita}
+      TZ: ${TZ:-America/Manaus}
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:?Defina REDIS_PASSWORD no .env}@redis:6379/0
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:?Defina REDIS_PASSWORD no .env}@redis:6379/0
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}@postgres:5432/${POSTGRES_DB:-conecta_pro}
@@ -163,6 +171,8 @@ services:
     stop_grace_period: 30s
     command: celery -A celery_app worker --hostname=integrations@%h --queues=integrations,webhooks,maintenance --concurrency=2 --loglevel=INFO
     environment:
+      ESOCIAL_AMBIENTE: ${ESOCIAL_AMBIENTE:-producaorestrita}
+      TZ: ${TZ:-America/Manaus}
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:?Defina REDIS_PASSWORD no .env}@redis:6379/0
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:?Defina REDIS_PASSWORD no .env}@redis:6379/0
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}@postgres:5432/${POSTGRES_DB:-conecta_pro}
@@ -201,6 +211,8 @@ services:
     stop_grace_period: 30s
     command: celery -A celery_app worker --hostname=operacional@%h --queues=operacional --concurrency=2 --loglevel=INFO
     environment:
+      ESOCIAL_AMBIENTE: ${ESOCIAL_AMBIENTE:-producaorestrita}
+      TZ: ${TZ:-America/Manaus}
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:?Defina REDIS_PASSWORD no .env}@redis:6379/0
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:?Defina REDIS_PASSWORD no .env}@redis:6379/0
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}@postgres:5432/${POSTGRES_DB:-conecta_pro}
@@ -237,6 +249,8 @@ services:
     command: celery -A celery_app beat --loglevel=INFO --schedule=/var/run/celery/celerybeat-schedule
     user: root
     environment:
+      ESOCIAL_AMBIENTE: ${ESOCIAL_AMBIENTE:-producaorestrita}
+      TZ: ${TZ:-America/Manaus}
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:?Defina REDIS_PASSWORD no .env}@redis:6379/0
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:?Defina REDIS_PASSWORD no .env}@redis:6379/0
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}@postgres:5432/${POSTGRES_DB:-conecta_pro}
@@ -284,6 +298,8 @@ services:
       --persistent=True
       --db=/tmp/flower.db
     environment:
+      ESOCIAL_AMBIENTE: ${ESOCIAL_AMBIENTE:-producaorestrita}
+      TZ: ${TZ:-America/Manaus}
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:?Defina REDIS_PASSWORD no .env}@redis:6379/0
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:?Defina REDIS_PASSWORD no .env}@redis:6379/0
     ports:
