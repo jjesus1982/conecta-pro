@@ -360,3 +360,10 @@ Diagnóstico com evidência (menu tinha 31 itens):
    /operacional/*) anotado como DEPRECIADO no aggregator — único consumidor é o
    dashboardStatsService (rotas do dashboard_controller que só existem lá); plano de fase 2:
    mount único e remoção do espelho. Sem remoção agora (zero risco de quebra).
+
+## RODADA 8b (09/07) — Fase 2: espelho backend REMOVIDO
+- `dashboardStatsService` migrado (4 rotas → gêmeas /operacional/*, provadas 200).
+- Rotas exclusivas preservadas com mount único: dashboard unificado → `/operacional/unificado/*`
+  (9 rotas, provado com dados reais) e otimizador → `/operacional/scale-optimizer/*` (3).
+- Include do espelho removido de people_management/__init__ (comentário de auditoria no lugar).
+- **Superfície de API: 458 → 291 rotas (-36%)**; sweep pós-remoção: 116×200, 17×404, 15×422, ZERO 500.
