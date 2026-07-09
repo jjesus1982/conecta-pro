@@ -9,6 +9,7 @@ Endpoints de autenticacao.
 import secrets
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
+from uuid import UUID, uuid4
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -26,7 +27,7 @@ from core.logging import logger
 from core.models import User
 from core.rate_limit import limiter
 from core.schemas.auth import ForgotPasswordRequest, ResetPasswordRequest, Token, TokenRefresh
-from core.schemas.user import UserCreate, UserResponse
+from core.schemas.user import UserCreate
 
 
 class LoginJSON(BaseModel):
@@ -46,16 +47,112 @@ GOOGLE_REDIRECT_URI = getattr(
 )
 FRONTEND_URL = getattr(settings, "FRONTEND_URL", "https://erp.conectamais.pro")
 
+# Tenant fallback do sino interno (users não tem tenant_id — o controller de
+# notificações consulta sempre este tenant; mesmo padrão de sst/alertas_tasks.py)
+_NOTIF_TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+
+async def _notificar_admins_novo_cadastro(db: AsyncSession, novo_usuario: User, origem: str) -> None:
+    """Notifica os admins no SINO interno sobre um novo cadastro pendente.
+
+    Segue o padrão de modules/people_management/sst/tasks/alertas_tasks.py:
+    channel_type='push', status=DELIVERED (nenhum worker despacha), tenant
+    fallback e dedupe por correlation_id (chave estável por usuário novo).
+    Falha aqui NUNCA quebra o cadastro (try/except com log).
+    """
+    try:
+        from modules.notifications.models import NotificationQueue, QueuePriority, QueueStatus
+
+        correlation_id = f"auth:novo_cadastro:{novo_usuario.id}"
+        titulo = f"Novo cadastro aguardando aprovação: {novo_usuario.name} ({novo_usuario.email})"
+        corpo = (
+            f"O usuário {novo_usuario.name} ({novo_usuario.email}) se cadastrou via {origem} "
+            "e está com perfil 'pending' (sem acesso). Aprove ou rejeite na tela de usuários."
+        )
+        content_data = {
+            "action_url": "/modulos/configuracoes/usuarios",
+            "custom_data": {"origem": f"auth.{origem}", "novo_usuario_id": str(novo_usuario.id)},
+        }
+
+        admins = (
+            (await db.execute(select(User).where(User.role == "admin", User.is_active.is_(True))))
+            .scalars()
+            .all()
+        )
+        if not admins:
+            return
+
+        # Dedupe: não empilhar notificação NÃO-LIDA igual para o mesmo admin
+        ja_notificados = set(
+            (
+                await db.execute(
+                    select(NotificationQueue.user_id).where(
+                        NotificationQueue.tenant_id == _NOTIF_TENANT_ID,
+                        NotificationQueue.correlation_id == correlation_id,
+                        NotificationQueue.channel_type == "push",
+                        NotificationQueue.opened.is_(False),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        criadas = 0
+        for adm in admins:
+            if adm.id in ja_notificados:
+                continue
+            db.add(
+                NotificationQueue(
+                    tenant_id=_NOTIF_TENANT_ID,
+                    notification_id=f"auth-{uuid4().hex[:20]}",
+                    correlation_id=correlation_id,
+                    user_id=adm.id,
+                    recipient_type="user",
+                    recipient_address="push",
+                    channel_type="push",
+                    subject=titulo,
+                    body=corpo,
+                    content_data=content_data,
+                    # DELIVERED: notificação interna do sino — nenhum worker de
+                    # envio deve tentar despachá-la para dispositivo/e-mail
+                    status=QueueStatus.DELIVERED,
+                    priority=QueuePriority.HIGH,
+                    trigger_type="event",
+                    category="auth",
+                    opened=False,
+                )
+            )
+            criadas += 1
+        if criadas:
+            await db.commit()
+            logger.info(
+                f"Sino: {criadas} admin(s) notificado(s) sobre cadastro pendente {novo_usuario.email}"
+            )
+    except Exception as e:
+        # Falha de notificação NUNCA quebra o cadastro
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        logger.error(f"Falha ao notificar admins sobre novo cadastro {novo_usuario.email}: {e}")
+
+
+@router.post("/register", status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
 async def register(
     request: Request,
     response: Response,
     user_data: UserCreate,
     db: AsyncSession = Depends(get_db),
-) -> UserResponse:
-    """Registra novo usuario."""
+) -> dict:
+    """Registra novo usuario — SEMPRE como 'pending' (aguardando aprovação).
+
+    HARDENING: role e permissions do payload são IGNORADOS server-side.
+    Todo autocadastro nasce role='pending' e permissions=[] — um admin
+    promove depois em /modulos/configuracoes/usuarios. is_active=True
+    (o gate de acesso é o próprio role 'pending').
+    """
     # Verificar se email ja existe
     result = await db.execute(select(User).where(User.email == user_data.email))
     existing_user = result.scalar_one_or_none()
@@ -67,21 +164,50 @@ async def register(
             detail="Email ja cadastrado",
         )
 
-    # Criar usuario
+    if "role" in user_data.model_fields_set:
+        logger.warning(
+            f"Registro de {user_data.email} enviou role '{user_data.role.value}' no payload — "
+            "IGNORADO (forçado 'pending')"
+        )
+
+    # Criar usuario — role/permissions do payload NUNCA são respeitados aqui
     user = User(
         email=user_data.email,
         password_hash=get_password_hash(user_data.password),
         name=user_data.name,
         phone=user_data.phone,
-        role=user_data.role,
+        role="pending",  # forçado server-side (aguardando aprovação do admin)
+        permissions=[],  # forçado server-side (nenhuma permissão extra)
+        is_active=True,  # 'pending' é o gate — login não dá acesso aos módulos
     )
 
     db.add(user)
     await db.commit()
     await db.refresh(user)
 
-    logger.info(f"Usuario registrado: {user.email}")
-    return UserResponse.model_validate(user)
+    logger.info(f"Usuario registrado (pending, aguardando aprovação): {user.email}")
+
+    # Sino dos admins — nunca quebra o cadastro
+    await _notificar_admins_novo_cadastro(db, user, origem="register")
+
+    # UserResponse não serve aqui: seu campo role é o enum UserRole, que NÃO
+    # tem 'pending' — montar o dict manualmente (mesma abordagem de users.py)
+    return {
+        "id": str(user.id),
+        "email": user.email,
+        "name": user.name,
+        "phone": user.phone,
+        "role": user.role,
+        "is_active": user.is_active,
+        "permissions": list(user.permissions or []),
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "updated_at": user.updated_at.isoformat() if user.updated_at else None,
+        "last_login": user.last_login,
+        "message": (
+            "Cadastro recebido. Sua conta aguarda aprovação de um administrador — "
+            "você será liberado assim que o acesso for aprovado."
+        ),
+    }
 
 
 @router.post("/login")
@@ -235,12 +361,28 @@ async def logout(
     return {"message": "Logout realizado com sucesso"}
 
 
-@router.get("/me", response_model=UserResponse)
+@router.get("/me")
 async def get_current_user_info(
     current_user: User = Depends(get_current_active_user),
-) -> UserResponse:
-    """Retorna informacoes do usuario atual."""
-    return UserResponse.model_validate(current_user)
+) -> dict:
+    """Retorna informacoes do usuario atual.
+
+    Não usa UserResponse: o enum UserRole não cobre roles reais do banco
+    ('pending', 'gestor', 'agente', ...) e a validação estourava 500 para
+    esses usuários — role sai como string crua (mesma abordagem de users.py).
+    """
+    return {
+        "id": str(current_user.id),
+        "email": current_user.email,
+        "name": current_user.name,
+        "phone": current_user.phone,
+        "role": current_user.role,
+        "is_active": current_user.is_active,
+        "permissions": list(current_user.permissions or []),
+        "created_at": current_user.created_at.isoformat() if current_user.created_at else None,
+        "updated_at": current_user.updated_at.isoformat() if current_user.updated_at else None,
+        "last_login": current_user.last_login,
+    }
 
 
 # =============================================================================
@@ -482,6 +624,9 @@ async def google_callback(
             await db.commit()
             await db.refresh(user)
             logger.info(f"Novo usuario criado via Google (pendente): {email}")
+
+            # Sino dos admins — nunca quebra o fluxo OAuth
+            await _notificar_admins_novo_cadastro(db, user, origem="google")
         else:
             # Atualizar google_id se necessario
             if not getattr(user, "google_id", None):

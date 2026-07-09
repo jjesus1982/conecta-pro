@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/hooks/useAuth';
 import { moduleCategories, modules } from '@/config/modules';
-import { hasPermission, UserRole } from '@/types/modules';
+import { canAccessModule } from '@/types/modules';
 import { cn } from '@/lib/utils';
 import {
   fetchAllDashboardStats,
@@ -91,11 +91,10 @@ export default function DashboardPage() {
         module.title.toLowerCase().includes(search.toLowerCase()) ||
         module.description.toLowerCase().includes(search.toLowerCase());
 
-      // Filtro de permissão (simulado - em produção viria do user.role)
-      const userRole = (user?.role || 'admin') as UserRole;
-      const hasAccess = hasPermission(userRole, module.permissions);
+      // Filtro de permissão REAL — user.permissions do backend ('all' | 'module:X')
+      const hasAccess = canAccessModule(user, module);
 
-      return matchesSearch && hasAccess && module.enabled;
+      return matchesSearch && hasAccess;
     }),
   })).filter(category => category.modules.length > 0);
 
@@ -438,15 +437,40 @@ export default function DashboardPage() {
 
         {/* Empty state */}
         {filteredCategories.length === 0 && (
-          <div className="text-center py-16">
-            <Search className="w-12 h-12 text-[hsl(var(--muted-foreground))] mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-[hsl(var(--foreground))]">
-              Nenhum módulo encontrado
-            </h3>
-            <p className="text-[hsl(var(--muted-foreground))] mt-1">
-              Tente buscar por outro termo
-            </p>
-          </div>
+          user?.role === 'pending' ? (
+            <div className="text-center py-16 max-w-md mx-auto">
+              <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-amber-500/10 flex items-center justify-center">
+                <AlertTriangle className="w-7 h-7 text-amber-500" />
+              </div>
+              <h3 className="text-lg font-semibold text-[hsl(var(--foreground))]">
+                Cadastro em análise
+              </h3>
+              <p className="text-[hsl(var(--muted-foreground))] mt-2 text-sm leading-relaxed">
+                Sua conta aguarda aprovação de um administrador. Os módulos aparecerão aqui
+                assim que o acesso for liberado.
+              </p>
+            </div>
+          ) : search ? (
+            <div className="text-center py-16">
+              <Search className="w-12 h-12 text-[hsl(var(--muted-foreground))] mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-[hsl(var(--foreground))]">
+                Nenhum módulo encontrado
+              </h3>
+              <p className="text-[hsl(var(--muted-foreground))] mt-1">
+                Tente buscar por outro termo
+              </p>
+            </div>
+          ) : (
+            <div className="text-center py-16 max-w-md mx-auto">
+              <Shield className="w-12 h-12 text-[hsl(var(--muted-foreground))] mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-[hsl(var(--foreground))]">
+                Nenhum módulo liberado
+              </h3>
+              <p className="text-[hsl(var(--muted-foreground))] mt-1 text-sm">
+                Seu perfil ainda não tem módulos liberados. Solicite acesso a um administrador.
+              </p>
+            </div>
+          )
         )}
       </main>
 

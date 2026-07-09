@@ -93,3 +93,12 @@ async def historico(
         raise HTTPException(status_code=422, detail=f"Área inválida '{area}'.")
     consultas = await svc.listar_consultas(db=db, area=area, limit=limit)
     return {"total": len(consultas), "consultas": consultas}
+
+
+# ── Gate module:dp (padrão modules/financeiro/__init__.py) ──────────────────
+# Consultor CHRO (/rh/consultor) montado DIRETO no main (fora do aggregator PM).
+from core.permissions import requer_modulo as _requer_modulo  # noqa: E402
+
+_dep_dp = _requer_modulo("dp")
+for _route in router.routes:
+    _route.dependencies.append(_dep_dp)

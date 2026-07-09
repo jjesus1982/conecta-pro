@@ -176,3 +176,12 @@ async def resumo_cct(current_user: CurrentActiveUser, db: AsyncSession = Depends
         "vigencia": "2026",
         "gerado_em": datetime.now().isoformat(),
     }
+
+
+# ── Gate module:dp (padrão modules/financeiro/__init__.py) ──────────────────
+# Router CCT montado DIRETO no main em /people-management/hr (fora do aggregator).
+from core.permissions import requer_modulo as _requer_modulo  # noqa: E402
+
+_dep_dp = _requer_modulo("dp")
+for _route in router.routes:
+    _route.dependencies.append(_dep_dp)

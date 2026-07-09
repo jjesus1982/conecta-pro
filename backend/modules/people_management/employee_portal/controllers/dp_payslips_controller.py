@@ -671,3 +671,14 @@ async def cadastrar_pix_key(
         "pix_key": row[2],
         "pix_key_type": row[3],
     }
+
+
+# ── Gate module:dp (padrão modules/financeiro/__init__.py) ──────────────────
+# Routers de DP (publicar contracheques + pagamento folha PIX) montados DIRETO
+# no main (fora do aggregator people_management). Audience = DP, não o portal
+# do funcionário (o portal usa /people-management/portal/*, sem gate).
+from core.permissions import requer_modulo as _requer_modulo  # noqa: E402
+
+_dep_dp = _requer_modulo("dp")
+for _route in list(router.routes) + list(payroll_router.routes):
+    _route.dependencies.append(_dep_dp)

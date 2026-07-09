@@ -232,3 +232,12 @@ async def invalidar_cache_cct(current_user: CurrentActiveUser, db: AsyncSession 
     service = CCTService(db)
     await service.invalidar_cache()
     return {"message": "Cache CCT invalidado com sucesso."}
+
+
+# ── Gate module:dp (padrão modules/financeiro/__init__.py) ──────────────────
+# Router admin CCT montado DIRETO no main (fora do aggregator people_management).
+from core.permissions import requer_modulo as _requer_modulo  # noqa: E402
+
+_dep_dp = _requer_modulo("dp")
+for _route in router.routes:
+    _route.dependencies.append(_dep_dp)

@@ -7,6 +7,7 @@ import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 import { getModuleByPath, modules } from '@/config/modules';
+import { canAccessModule, hasModuleAccess } from '@/types/modules';
 import { cn } from '@/lib/utils';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { SearchTrigger } from '@/components/SearchTrigger';
@@ -113,6 +114,73 @@ function AlertsBadge() {
 }
 
 // ---------------------------------------------------------------------------
+// PendingApprovalScreen — usuário role=pending: cadastro em análise
+// ---------------------------------------------------------------------------
+function PendingApprovalScreen({ userName, onLogout }: { userName?: string; onLogout: () => void }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-[hsl(var(--background))] p-4">
+      <div className="max-w-md w-full text-center">
+        <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl p-8 shadow-sm">
+          <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-amber-500/10 flex items-center justify-center">
+            <Clock className="w-8 h-8 text-amber-500" />
+          </div>
+          <h1 className="font-display text-xl font-bold text-[hsl(var(--foreground))] mb-2">
+            Cadastro em análise
+          </h1>
+          <p className="text-sm text-[hsl(var(--muted-foreground))] leading-relaxed mb-1">
+            {userName ? `Olá, ${userName.split(' ')[0]}! ` : ''}Sua conta foi criada e aguarda
+            aprovação de um administrador.
+          </p>
+          <p className="text-sm text-[hsl(var(--muted-foreground))] leading-relaxed mb-6">
+            Assim que o acesso for liberado, os módulos aparecerão aqui automaticamente no seu
+            próximo login.
+          </p>
+          <div className="flex items-center justify-center gap-2 mb-6">
+            <span className="inline-block w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+            <span className="text-xs font-semibold uppercase tracking-wider text-amber-600">
+              Aguardando aprovação
+            </span>
+          </div>
+          <Button variant="outline" onClick={onLogout} className="w-full">
+            Sair da conta
+          </Button>
+        </div>
+        <p className="mt-4 text-[11px] text-[hsl(var(--muted-foreground))]/60">
+          Conecta PRO — erp.conectamais.pro
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// NoAccessScreen — módulo sem permissão: tela honesta de acesso negado
+// ---------------------------------------------------------------------------
+function NoAccessScreen({ moduleTitle, onBack }: { moduleTitle: string; onBack: () => void }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-[hsl(var(--background))] p-4">
+      <div className="max-w-md w-full text-center">
+        <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl p-8 shadow-sm">
+          <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-red-500/10 flex items-center justify-center">
+            <Lock className="w-8 h-8 text-red-500" />
+          </div>
+          <h1 className="font-display text-xl font-bold text-[hsl(var(--foreground))] mb-2">
+            Sem acesso a este módulo
+          </h1>
+          <p className="text-sm text-[hsl(var(--muted-foreground))] leading-relaxed mb-6">
+            Seu perfil não tem permissão para acessar <strong>{moduleTitle}</strong>. Se você
+            precisa deste acesso, solicite a liberação a um administrador.
+          </p>
+          <Button onClick={onBack} className="w-full">
+            Voltar ao início
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // ModulosLayout
 // ---------------------------------------------------------------------------
 export default function ModulosLayout({
@@ -122,7 +190,7 @@ export default function ModulosLayout({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { isAuthenticated, isLoading, user } = useAuth();
+  const { isAuthenticated, isLoading, user, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [wsToken, setWsToken] = useState<string | null>(null);
@@ -131,6 +199,14 @@ export default function ModulosLayout({
   // Buscar módulo atual
   const currentModule = getModuleByPath(pathname);
 
+  // Gating por permissões (user.permissions: 'all' | 'module:X'; role admin = tudo)
+  const isPending = !isLoading && isAuthenticated && user?.role === 'pending';
+  const hasAccessToCurrent =
+    !currentModule || (!!user && canAccessModule(user, currentModule));
+  // Primeiro módulo que o usuário pode ver (para o redirect de /modulos)
+  const firstAccessibleModule =
+    user && !isPending ? modules.find((m) => canAccessModule(user, m)) : undefined;
+
   // Redirecionar se não autenticado
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -138,12 +214,13 @@ export default function ModulosLayout({
     }
   }, [isLoading, isAuthenticated, router]);
 
-  // Redirecionar /modulos → /modulos/dp (fallback client-side caso nginx intercepte o server redirect)
+  // Redirecionar /modulos → primeiro módulo acessível (fallback client-side
+  // caso nginx intercepte o server redirect)
   useEffect(() => {
-    if (!isLoading && isAuthenticated && pathname === '/modulos') {
-      router.replace('/modulos/dp');
+    if (!isLoading && isAuthenticated && pathname === '/modulos' && !isPending) {
+      router.replace(firstAccessibleModule?.href ?? '/dashboard');
     }
-  }, [isLoading, isAuthenticated, pathname, router]);
+  }, [isLoading, isAuthenticated, pathname, router, isPending, firstAccessibleModule]);
 
   // Sync WS token from localStorage whenever auth state changes
   useEffect(() => {
@@ -164,6 +241,11 @@ export default function ModulosLayout({
     );
   }
 
+  // Usuário pendente: TUDO bloqueado — cadastro em análise
+  if (isPending) {
+    return <PendingApprovalScreen userName={user?.name} onLogout={logout} />;
+  }
+
   // Se pathname === '/modulos' e ainda não foi redirecionado, mostrar spinner enquanto aguarda
   if (!currentModule) {
     return (
@@ -172,6 +254,21 @@ export default function ModulosLayout({
       </div>
     );
   }
+
+  // Rota direta para módulo sem permissão: tela honesta de acesso negado
+  if (isAuthenticated && user && !hasAccessToCurrent) {
+    return (
+      <NoAccessScreen
+        moduleTitle={currentModule.title}
+        onBack={() => router.push('/dashboard')}
+      />
+    );
+  }
+
+  // Submódulos visíveis para o usuário (ex.: itens 'role:admin' somem p/ não-admin)
+  const visibleSubModules = currentModule.subModules.filter((s) =>
+    hasModuleAccess(user, s.permissions),
+  );
 
   return (
     <WebSocketProvider token={wsToken} apiUrl={apiUrl}>
@@ -258,7 +355,7 @@ export default function ModulosLayout({
             <div className={cn('flex flex-col gap-1 px-2', sidebarOpen ? 'gap-1' : 'gap-3')}>
               {(() => {
                 let lastGroup: string | undefined;
-                return currentModule.subModules.map((subModule) => {
+                return visibleSubModules.map((subModule) => {
                   const Icon = iconMap[subModule.icon] || FileText;
                   const isActive = pathname === subModule.href;
                   const showGroupHeader = sidebarOpen && subModule.group && subModule.group !== lastGroup;
@@ -421,7 +518,7 @@ export default function ModulosLayout({
             <div className="flex flex-col gap-1 px-2">
               {(() => {
                 let lastGroup: string | undefined;
-                return currentModule.subModules.map((subModule) => {
+                return visibleSubModules.map((subModule) => {
                   const Icon = iconMap[subModule.icon] || FileText;
                   const isActive = pathname === subModule.href;
                   const showGroupHeader = subModule.group && subModule.group !== lastGroup;

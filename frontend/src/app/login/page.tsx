@@ -399,6 +399,14 @@ function LoginContent() {
             Entrar com Google
           </a>
 
+          {/* Criar conta */}
+          <p style={{ marginTop: 16, textAlign: 'center', fontSize: 13, color: '#6B7280' }}>
+            Ainda não tem conta?{' '}
+            <Link href="/cadastro" style={{ color: '#F97316', fontWeight: 600, textDecoration: 'none' }}>
+              Criar conta
+            </Link>
+          </p>
+
           {/* Footer */}
           <p style={{ marginTop: 18, textAlign: 'center', fontSize: 11.5, color: '#9CA3AF', lineHeight: 1.6 }}>
             Ao entrar, voce concorda com os{' '}

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Shield, ShieldCheck, Users, RefreshCw, X, Save, Lock } from 'lucide-react';
+import { Shield, ShieldCheck, Users, RefreshCw, X, Save, Lock, UserCheck, UserX, Clock, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -52,17 +52,21 @@ const MODULOS: ModuloConfig[] = [
 const JORDAN_EMAIL = 'jjesus@conectamais.pro';
 
 const ROLE_LABEL: Record<string, string> = {
-  admin: 'Admin', super_admin: 'Super Admin', manager: 'Gestor',
-  supervisor: 'Supervisor', operator: 'Operador', staff: 'Staff',
+  admin: 'Admin', super_admin: 'Super Admin', manager: 'Gestor', gestor: 'Gestor',
+  supervisor: 'Supervisor', operator: 'Operador', operador: 'Operador', staff: 'Staff',
   agente: 'Agente', developer: 'Dev', client: 'Cliente', viewer: 'Viewer',
+  funcionario: 'Funcionário', pending: 'Pendente',
+  administrador: 'Admin Operacional', gerente_operacional: 'Gerente Operacional',
+  inspetor: 'Inspetor', lider: 'Líder', lider_posto: 'Líder de Posto',
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function roleBadgeClass(role: string): string {
   if (role === 'admin' || role === 'super_admin') return 'bg-purple-100 text-purple-800 border-purple-200';
-  if (role === 'supervisor' || role === 'manager') return 'bg-blue-100 text-blue-800 border-blue-200';
+  if (role === 'supervisor' || role === 'manager' || role === 'gestor') return 'bg-blue-100 text-blue-800 border-blue-200';
   if (role === 'developer') return 'bg-amber-100 text-amber-800 border-amber-200';
+  if (role === 'pending') return 'bg-amber-100 text-amber-800 border-amber-300';
   return 'bg-gray-100 text-gray-700 border-gray-200';
 }
 
@@ -86,6 +90,320 @@ async function patchPermissions(userId: string, permissions: string[]): Promise<
     method: 'PATCH',
     data: { permissions },
   });
+}
+
+// ── Aprovação de cadastros pendentes ─────────────────────────────────────────
+
+interface PendingUser {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  phone?: string | null;
+  created_at?: string | null;
+}
+
+interface Perfil {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+interface EmployeeLite {
+  id: string;
+  nome: string;
+  cargo?: string | null;
+  matricula?: string | null;
+}
+
+async function fetchPending(): Promise<PendingUser[]> {
+  const res = await customInstance<PendingUser[] | { users?: PendingUser[] }>({
+    url: '/api/v1/users/pending',
+    method: 'GET',
+  });
+  return Array.isArray(res) ? res : res?.users ?? [];
+}
+
+// GET /users/perfis nasce no deploy do backend — parsing defensivo de formato
+async function fetchPerfis(): Promise<Perfil[]> {
+  const res = await customInstance<unknown>({ url: '/api/v1/users/perfis', method: 'GET' });
+  const raw = Array.isArray(res)
+    ? res
+    : (res as { perfis?: unknown[]; roles?: unknown[] })?.perfis ??
+      (res as { roles?: unknown[] })?.roles ??
+      [];
+  return (raw as unknown[])
+    .map((p): Perfil | null => {
+      if (typeof p === 'string') return { value: p, label: ROLE_LABEL[p] ?? p };
+      if (p && typeof p === 'object') {
+        const obj = p as Record<string, unknown>;
+        const value = (obj.value ?? obj.slug ?? obj.id ?? obj.perfil) as string | undefined;
+        if (!value) return null;
+        const label = (obj.label ?? obj.nome ?? obj.name) as string | undefined;
+        const description = (obj.description ?? obj.descricao) as string | undefined;
+        return { value, label: label ?? ROLE_LABEL[value] ?? value, description };
+      }
+      return null;
+    })
+    .filter((p): p is Perfil => p !== null && p.value !== 'pending');
+}
+
+async function fetchEmployeesLite(): Promise<EmployeeLite[]> {
+  const res = await customInstance<{ items?: EmployeeLite[] } | EmployeeLite[]>({
+    url: '/api/v1/people-management/hr/employees',
+    method: 'GET',
+    params: { page_size: 100 },
+  });
+  const items = Array.isArray(res) ? res : res?.items ?? [];
+  return items.filter((e) => e?.id && e?.nome);
+}
+
+async function aprovarUsuario(userId: string, perfil: string, employeeId?: string): Promise<unknown> {
+  return customInstance({
+    url: `/api/v1/users/${userId}/aprovar`,
+    method: 'POST',
+    data: { perfil, ...(employeeId ? { employee_id: employeeId } : {}) },
+  });
+}
+
+async function setUserActive(userId: string, active: boolean): Promise<unknown> {
+  return customInstance({
+    url: `/api/v1/users/${userId}/${active ? 'activate' : 'deactivate'}`,
+    method: 'PATCH',
+  });
+}
+
+function apiErrorDetail(err: unknown, fallback: string): string {
+  const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  const status = (err as { response?: { status?: number } })?.response?.status;
+  if (status === 404 || status === 405) {
+    return 'Endpoint ainda não disponível no backend (aguardando deploy da liberação).';
+  }
+  return fallback;
+}
+
+// Perfis que exigem vínculo com funcionário-líder
+function perfilExigeFuncionario(perfil: string): boolean {
+  return perfil === 'lider_posto' || perfil === 'lider';
+}
+
+// ── Card de usuário pendente ──────────────────────────────────────────────────
+
+interface PendingRowProps {
+  user: PendingUser;
+  perfis: Perfil[];
+  perfisError: boolean;
+  employees: EmployeeLite[];
+  employeesError: boolean;
+}
+
+function PendingRow({ user, perfis, perfisError, employees, employeesError }: PendingRowProps) {
+  const [perfil, setPerfil] = useState('');
+  const [employeeId, setEmployeeId] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['usuarios-pendentes'] });
+    queryClient.invalidateQueries({ queryKey: ['usuarios-admin'] });
+  };
+
+  const aprovar = useMutation({
+    mutationFn: () => aprovarUsuario(user.id, perfil, perfilExigeFuncionario(perfil) ? employeeId || undefined : undefined),
+    onSuccess: invalidate,
+    onError: (err: unknown) => setError(apiErrorDetail(err, 'Erro ao aprovar usuário.')),
+  });
+
+  const recusar = useMutation({
+    mutationFn: () => setUserActive(user.id, false),
+    onSuccess: invalidate,
+    onError: (err: unknown) => setError(apiErrorDetail(err, 'Erro ao recusar usuário.')),
+  });
+
+  const precisaFuncionario = perfilExigeFuncionario(perfil);
+  const podeAprovar =
+    !!perfil && !perfisError && (!precisaFuncionario || !!employeeId) && !aprovar.isPending && !recusar.isPending;
+
+  return (
+    <div className="rounded-lg border border-amber-200 bg-white px-4 py-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-[200px] flex-1">
+          <p className="text-sm font-semibold text-gray-800">{user.name}</p>
+          <p className="text-xs text-gray-500">{user.email}</p>
+          {user.created_at && (
+            <p className="text-[11px] text-gray-400">
+              Solicitado em {new Date(user.created_at).toLocaleDateString('pt-BR')}
+            </p>
+          )}
+        </div>
+
+        {/* Perfil */}
+        <select
+          value={perfil}
+          onChange={(e) => { setPerfil(e.target.value); setError(null); }}
+          disabled={perfisError || perfis.length === 0}
+          className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A5F] disabled:opacity-60"
+          aria-label="Perfil de acesso"
+        >
+          <option value="">
+            {perfisError ? 'Perfis indisponíveis' : 'Selecionar perfil…'}
+          </option>
+          {perfis.map((p) => (
+            <option key={p.value} value={p.value} title={p.description}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+
+        {/* Funcionário-líder (só p/ perfil líder de posto) */}
+        {precisaFuncionario && (
+          employeesError || employees.length === 0 ? (
+            <input
+              type="text"
+              value={employeeId}
+              onChange={(e) => setEmployeeId(e.target.value)}
+              placeholder="ID do funcionário-líder"
+              className="w-56 rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]"
+            />
+          ) : (
+            <select
+              value={employeeId}
+              onChange={(e) => setEmployeeId(e.target.value)}
+              className="max-w-[260px] rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]"
+              aria-label="Funcionário-líder"
+            >
+              <option value="">Funcionário-líder…</option>
+              {employees.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.nome}{e.cargo ? ` — ${e.cargo}` : ''}
+                </option>
+              ))}
+            </select>
+          )
+        )}
+
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            disabled={!podeAprovar}
+            onClick={() => { setError(null); aprovar.mutate(); }}
+            className="bg-green-600 hover:bg-green-700 text-white"
+          >
+            <UserCheck className="h-4 w-4 mr-1" />
+            {aprovar.isPending ? 'Aprovando…' : 'Aprovar'}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={aprovar.isPending || recusar.isPending}
+            onClick={() => {
+              if (window.confirm(`Recusar o cadastro de ${user.name}? A conta será desativada.`)) {
+                setError(null);
+                recusar.mutate();
+              }
+            }}
+            className="border-red-300 text-red-700 hover:bg-red-50"
+          >
+            <UserX className="h-4 w-4 mr-1" />
+            {recusar.isPending ? 'Recusando…' : 'Recusar'}
+          </Button>
+        </div>
+      </div>
+
+      {precisaFuncionario && (employeesError || employees.length === 0) && (
+        <p className="mt-2 text-xs text-amber-700">
+          Lista de funcionários indisponível — informe o ID do funcionário manualmente.
+        </p>
+      )}
+      {error && (
+        <div className="mt-2 rounded border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700">
+          {error}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Seção Pendentes ───────────────────────────────────────────────────────────
+
+function PendingSection() {
+  const { data: pending, isLoading, error } = useQuery<PendingUser[]>({
+    queryKey: ['usuarios-pendentes'],
+    queryFn: fetchPending,
+    staleTime: 15_000,
+    retry: 1,
+  });
+
+  const perfisQuery = useQuery<Perfil[]>({
+    queryKey: ['usuarios-perfis'],
+    queryFn: fetchPerfis,
+    staleTime: 5 * 60_000,
+    retry: 1,
+  });
+
+  const temPendentes = (pending?.length ?? 0) > 0;
+  const algumLider = temPendentes; // pré-carrega lista quando há pendentes (select de líder)
+
+  const employeesQuery = useQuery<EmployeeLite[]>({
+    queryKey: ['usuarios-employees-lite'],
+    queryFn: fetchEmployeesLite,
+    enabled: algumLider,
+    staleTime: 5 * 60_000,
+    retry: 1,
+  });
+
+  const count = pending?.length ?? 0;
+
+  return (
+    <Card className="border-amber-300">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Clock className="h-4 w-4 text-amber-600" />
+          Pendentes ({isLoading ? '…' : count})
+          {count > 0 && (
+            <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-xs">
+              aguardando aprovação
+            </Badge>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {error ? (
+          <div className="flex items-center gap-2 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+            Erro ao carregar cadastros pendentes. Verifique sua permissão de administrador.
+          </div>
+        ) : isLoading ? (
+          <div className="flex items-center justify-center py-6">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-amber-500" />
+          </div>
+        ) : count === 0 ? (
+          <p className="text-sm text-gray-400 py-2">Nenhum cadastro aguardando aprovação.</p>
+        ) : (
+          <>
+            {perfisQuery.isError && (
+              <div className="flex items-center gap-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                Não foi possível carregar os perfis (GET /users/perfis) — o endpoint pode ainda
+                não estar no ar. A aprovação fica bloqueada até o backend ser atualizado.
+              </div>
+            )}
+            {(pending ?? []).map((u) => (
+              <PendingRow
+                key={u.id}
+                user={u}
+                perfis={perfisQuery.data ?? []}
+                perfisError={perfisQuery.isError}
+                employees={employeesQuery.data ?? []}
+                employeesError={employeesQuery.isError}
+              />
+            ))}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 // ── Drawer de edição de permissões ────────────────────────────────────────────
@@ -229,11 +547,24 @@ export default function UsuariosPage() {
   const [page] = useState(1);
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<UserItem | null>(null);
+  const [activeError, setActiveError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const { data, isLoading, error, refetch } = useQuery<UsersResponse>({
     queryKey: ['usuarios-admin', page],
     queryFn: () => fetchUsers(page),
     staleTime: 30_000,
+  });
+
+  const toggleActive = useMutation({
+    mutationFn: ({ userId, active }: { userId: string; active: boolean }) =>
+      setUserActive(userId, active),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usuarios-admin'] });
+      setActiveError(null);
+    },
+    onError: (err: unknown) =>
+      setActiveError(apiErrorDetail(err, 'Erro ao alterar status do usuário.')),
   });
 
   const users = data?.users ?? [];
@@ -289,6 +620,9 @@ export default function UsuariosPage() {
         </Button>
       </div>
 
+      {/* Cadastros pendentes de aprovação */}
+      <PendingSection />
+
       {/* Search */}
       <div className="flex gap-3">
         <input
@@ -307,6 +641,11 @@ export default function UsuariosPage() {
       {error && (
         <div className="rounded border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
           Erro ao carregar usuários. Verifique se você tem permissão de administrador.
+        </div>
+      )}
+      {activeError && (
+        <div className="rounded border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {activeError}
         </div>
       )}
 
@@ -365,14 +704,36 @@ export default function UsuariosPage() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setSelected(u)}
-                        className="text-xs"
-                      >
-                        {isJordan(u) ? 'Ver' : 'Editar'}
-                      </Button>
+                      <div className="flex gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setSelected(u)}
+                          className="text-xs"
+                        >
+                          {isJordan(u) ? 'Ver' : 'Editar'}
+                        </Button>
+                        {!isJordan(u) && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={toggleActive.isPending}
+                            onClick={() => {
+                              const acao = u.is_active ? 'Desativar' : 'Ativar';
+                              if (window.confirm(`${acao} o usuário ${u.name}?`)) {
+                                toggleActive.mutate({ userId: u.id, active: !u.is_active });
+                              }
+                            }}
+                            className={`text-xs ${
+                              u.is_active
+                                ? 'border-red-300 text-red-700 hover:bg-red-50'
+                                : 'border-green-300 text-green-700 hover:bg-green-50'
+                            }`}
+                          >
+                            {u.is_active ? 'Desativar' : 'Ativar'}
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

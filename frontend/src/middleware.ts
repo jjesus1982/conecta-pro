@@ -12,6 +12,7 @@ const PROTECTED_PREFIXES = ['/modulos', '/dashboard'];
  */
 const PUBLIC_PATHS = [
   '/login',
+  '/cadastro',
   '/forgot-password',
   '/reset-password',
   '/offline',

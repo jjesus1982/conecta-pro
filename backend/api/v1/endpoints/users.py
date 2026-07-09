@@ -2,11 +2,12 @@
 Endpoints de gerenciamento de usuarios.
 """
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import get_current_active_user
@@ -25,7 +26,61 @@ MODULOS_VALIDOS = {
     "module:operacional",
     "module:crm",
     "module:ged",
+    "module:sst",
     "module:dev",
+}
+
+# Presets de aprovação por perfil (POST /users/{id}/aprovar).
+# Aprovação = 1 chamada: seta role + permissions + employee_id + is_active.
+PERFIS_APROVACAO: dict[str, dict] = {
+    "executivo": {
+        "label": "Executivo",
+        "descricao": "Acesso total ao ERP (wildcard 'all'). Concessão exclusiva do CEO.",
+        "role": "admin",
+        "permissions": ["all"],
+        "somente_ceo": True,
+        "requer_employee_id": False,
+    },
+    "gestao_operacional": {
+        "label": "Gestão Operacional",
+        "descricao": "Gerência do operacional + DP + GED + SST (Operacional, Pessoas, Kits, Saúde/Segurança).",
+        "role": "gerente_operacional",
+        "permissions": ["module:operacional", "module:dp", "module:ged", "module:sst"],
+        "somente_ceo": False,
+        "requer_employee_id": False,
+    },
+    "lider_posto": {
+        "label": "Líder de Posto",
+        "descricao": "Líder de equipe local: SST (fichas EPI/assinaturas) + escopo operacional restrito ao próprio posto (via posts.leader_id). Exige vínculo com funcionário (employee_id).",
+        "role": "lider",
+        "permissions": ["module:sst"],
+        "somente_ceo": False,
+        "requer_employee_id": True,
+    },
+    "sst": {
+        "label": "SST",
+        "descricao": "Saúde e Segurança do Trabalho: módulo SST + GED (documentos/kits).",
+        "role": "operator",
+        "permissions": ["module:sst", "module:ged"],
+        "somente_ceo": False,
+        "requer_employee_id": False,
+    },
+    "dp": {
+        "label": "Departamento Pessoal",
+        "descricao": "DP: folha, ponto, férias, admissões + GED (kits documentais).",
+        "role": "operator",
+        "permissions": ["module:dp", "module:ged"],
+        "somente_ceo": False,
+        "requer_employee_id": False,
+    },
+    "comercial": {
+        "label": "Comercial",
+        "descricao": "CRM: leads, oportunidades, propostas, contratos, comissões.",
+        "role": "operator",
+        "permissions": ["module:crm"],
+        "somente_ceo": False,
+        "requer_employee_id": False,
+    },
 }
 
 
@@ -84,6 +139,7 @@ VALID_ROLES = [
     "admin",  # Acesso total ao ERP
     "gestor",  # Dashboard, relatorios, operacoes
     "operador",  # Operacoes basicas
+    "operator",  # Operacoes basicas (nome usado nos presets de aprovacao e em contas existentes)
     "funcionario",  # Portal do Funcionario (ponto, escalas, docs)
     "pending",  # Aguardando aprovacao
     # Roles do modulo operacional
@@ -229,6 +285,117 @@ async def list_roles(
             {"value": "agente", "label": "Agente", "description": "Acesso à própria escala e check-in/out"},
         ]
     }
+
+
+class UserAprovarBody(BaseModel):
+    """Body do POST /users/{id}/aprovar."""
+
+    perfil: str
+    employee_id: UUID | None = None
+
+
+@router.get("/perfis")
+async def list_perfis(
+    current_user: User = Depends(require_admin),
+):
+    """Catálogo dos presets de aprovação por perfil (para o frontend)."""
+    return {
+        "perfis": [
+            {
+                "value": nome,
+                "label": p["label"],
+                "descricao": p["descricao"],
+                "role": p["role"],
+                "permissions": p["permissions"],
+                "somente_ceo": p["somente_ceo"],
+                "requer_employee_id": p["requer_employee_id"],
+            }
+            for nome, p in PERFIS_APROVACAO.items()
+        ]
+    }
+
+
+# Nota: retorna UserListItem (role como str) — UserRole (enum do UserResponse) não
+# contém os roles operacionais (gerente_operacional/lider) e quebraria a serialização.
+@router.post("/{user_id}/aprovar", response_model=UserListItem)
+async def aprovar_user(
+    user_id: str,
+    body: UserAprovarBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+) -> UserListItem:
+    """
+    Aprova um usuário aplicando um preset de perfil em 1 chamada:
+    seta role + permissions + employee_id (quando aplicável) + is_active=True.
+
+    Guard: admin. Preset 'executivo' só pode ser concedido pelo CEO (Jordan).
+    """
+    preset = PERFIS_APROVACAO.get(body.perfil)
+    if not preset:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Perfil inválido. Valores aceitos: {', '.join(PERFIS_APROVACAO)}",
+        )
+
+    if preset["somente_ceo"] and current_user.email != JORDAN_EMAIL:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas Jordan Jesus (CEO) pode conceder o perfil executivo.",
+        )
+
+    if preset["requer_employee_id"] and not body.employee_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"O perfil '{body.perfil}' exige employee_id (vínculo com funcionário).",
+        )
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario nao encontrado")
+
+    # Jordan não pode ter role/permissões alteradas por este endpoint
+    if user.email == JORDAN_EMAIL:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A conta de Jordan Jesus não pode ser alterada por aprovação de perfil.",
+        )
+
+    # Valida vínculo com funcionário quando informado (coluna sem FK — validar aqui)
+    if body.employee_id:
+        emp = await db.execute(
+            text("SELECT 1 FROM employees WHERE id = :eid"),
+            {"eid": str(body.employee_id)},
+        )
+        if emp.scalar() is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Funcionário {body.employee_id} não encontrado.",
+            )
+
+    user.role = preset["role"]
+    user.permissions = list(preset["permissions"])
+    if body.employee_id:
+        user.employee_id = body.employee_id
+    user.is_active = True
+
+    carimbo = (
+        f"[{datetime.now(UTC).isoformat(timespec='seconds')}] "
+        f"Aprovado por {current_user.email} — perfil '{body.perfil}' "
+        f"(role={preset['role']}, permissions={','.join(preset['permissions'])}"
+        + (f", employee_id={body.employee_id}" if body.employee_id else "")
+        + ")"
+    )
+    user.notes = f"{user.notes}\n{carimbo}" if user.notes else carimbo
+
+    await db.commit()
+    await db.refresh(user)
+
+    logger.info(
+        f"Aprovação de perfil: {user.email} → perfil={body.perfil} "
+        f"role={preset['role']} perms={preset['permissions']} (por {current_user.email})"
+    )
+    return UserListItem.from_user(user)
 
 
 @router.get("/{user_id}", response_model=UserResponse)

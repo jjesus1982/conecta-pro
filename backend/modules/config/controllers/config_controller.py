@@ -5,13 +5,15 @@ Sprint 35: Configurações e Multi-tenant
 # pylint: disable=unused-argument,too-many-locals,redefined-outer-name
 
 import logging
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth.dependencies import CurrentActiveUser
+from core.auth.dependencies import CurrentActiveUser, get_current_active_user
 from core.database import get_db
+from core.models import User
 from modules.config.schemas import (
     # Dashboard
     ConfigDashboard,
@@ -58,12 +60,30 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/config", tags=["Config"])
 
 
+def require_admin(current_user: User = Depends(get_current_active_user)) -> User:
+    """Verifica se usuario atual é admin (mesmo padrão de api/v1/endpoints/users.py).
+
+    HARDENING pré-autocadastro: TODA escrita em /config/* (POST/PUT/PATCH/DELETE)
+    e TODA leitura de tenants exigem admin — usuários 'pending'/comuns não podem
+    tocar em tenants, settings, system configs, feature flags ou templates.
+    """
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acesso restrito a administradores",
+        )
+    return current_user
+
+
+AdminUser = Annotated[User, Depends(require_admin)]
+
+
 # ==================== Tenant Endpoints ====================
 
 
 @router.get("/tenants", response_model=TenantList)
 async def list_tenants(
-    current_user: CurrentActiveUser,
+    current_user: AdminUser,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     status: str | None = None,
@@ -82,7 +102,7 @@ async def list_tenants(
 
 @router.post("/tenants", response_model=TenantResponse, status_code=status.HTTP_201_CREATED)
 async def create_tenant(
-    data: TenantCreate, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)
+    data: TenantCreate, current_user: AdminUser, db: AsyncSession = Depends(get_db)
 ) -> TenantResponse:
     """Cria novo tenant."""
     service = ConfigService(db)
@@ -91,7 +111,7 @@ async def create_tenant(
 
 @router.get("/tenants/{tenant_id}", response_model=TenantResponse)
 async def get_tenant(
-    tenant_id: UUID, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)
+    tenant_id: UUID, current_user: AdminUser, db: AsyncSession = Depends(get_db)
 ) -> TenantResponse:
     """Busca tenant por ID."""
     service = ConfigService(db)
@@ -103,7 +123,7 @@ async def get_tenant(
 
 @router.put("/tenants/{tenant_id}", response_model=TenantResponse)
 async def update_tenant(
-    tenant_id: UUID, data: TenantUpdate, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)
+    tenant_id: UUID, data: TenantUpdate, current_user: AdminUser, db: AsyncSession = Depends(get_db)
 ) -> TenantResponse:
     """Atualiza tenant."""
     service = ConfigService(db)
@@ -115,7 +135,7 @@ async def update_tenant(
 
 @router.put("/tenants/{tenant_id}/plan", response_model=TenantResponse)
 async def update_tenant_plan(
-    current_user: CurrentActiveUser, tenant_id: UUID, data: TenantPlanUpdate, db: AsyncSession = Depends(get_db)
+    current_user: AdminUser, tenant_id: UUID, data: TenantPlanUpdate, db: AsyncSession = Depends(get_db)
 ) -> TenantResponse:
     """Atualiza plano do tenant."""
     service = ConfigService(db)
@@ -127,7 +147,7 @@ async def update_tenant_plan(
 
 @router.put("/tenants/{tenant_id}/address", response_model=TenantResponse)
 async def update_tenant_address(
-    current_user: CurrentActiveUser, tenant_id: UUID, data: TenantAddressUpdate, db: AsyncSession = Depends(get_db)
+    current_user: AdminUser, tenant_id: UUID, data: TenantAddressUpdate, db: AsyncSession = Depends(get_db)
 ) -> TenantResponse:
     """Atualiza endereço do tenant."""
     service = ConfigService(db)
@@ -139,7 +159,7 @@ async def update_tenant_address(
 
 @router.post("/tenants/{tenant_id}/activate", response_model=TenantResponse, status_code=201)
 async def activate_tenant(
-    tenant_id: UUID, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)
+    tenant_id: UUID, current_user: AdminUser, db: AsyncSession = Depends(get_db)
 ) -> TenantResponse:
     """Ativa tenant."""
     service = ConfigService(db)
@@ -151,7 +171,7 @@ async def activate_tenant(
 
 @router.post("/tenants/{tenant_id}/suspend", response_model=TenantResponse, status_code=201)
 async def suspend_tenant(
-    current_user: CurrentActiveUser, tenant_id: UUID, reason: str | None = None, db: AsyncSession = Depends(get_db)
+    current_user: AdminUser, tenant_id: UUID, reason: str | None = None, db: AsyncSession = Depends(get_db)
 ) -> TenantResponse:
     """Suspende tenant."""
     service = ConfigService(db)
@@ -163,7 +183,7 @@ async def suspend_tenant(
 
 @router.post("/tenants/{tenant_id}/cancel", response_model=TenantResponse, status_code=201)
 async def cancel_tenant(
-    tenant_id: UUID, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)
+    tenant_id: UUID, current_user: AdminUser, db: AsyncSession = Depends(get_db)
 ) -> TenantResponse:
     """Cancela tenant."""
     service = ConfigService(db)
@@ -175,7 +195,7 @@ async def cancel_tenant(
 
 @router.post("/tenants/{tenant_id}/convert-trial", response_model=TenantResponse, status_code=201)
 async def convert_trial(
-    tenant_id: UUID, current_user: CurrentActiveUser, plan: str = "starter", db: AsyncSession = Depends(get_db)
+    tenant_id: UUID, current_user: AdminUser, plan: str = "starter", db: AsyncSession = Depends(get_db)
 ) -> TenantResponse:
     """Converte trial para plano pago."""
     service = ConfigService(db)
@@ -187,7 +207,7 @@ async def convert_trial(
 
 @router.post("/tenants/{tenant_id}/features/{feature}/enable", response_model=TenantResponse, status_code=201)
 async def enable_tenant_feature(
-    tenant_id: UUID, feature: str, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)
+    tenant_id: UUID, feature: str, current_user: AdminUser, db: AsyncSession = Depends(get_db)
 ) -> TenantResponse:
     """Habilita feature para tenant."""
     service = ConfigService(db)
@@ -199,7 +219,7 @@ async def enable_tenant_feature(
 
 @router.post("/tenants/{tenant_id}/features/{feature}/disable", response_model=TenantResponse, status_code=201)
 async def disable_tenant_feature(
-    tenant_id: UUID, feature: str, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)
+    tenant_id: UUID, feature: str, current_user: AdminUser, db: AsyncSession = Depends(get_db)
 ) -> TenantResponse:
     """Desabilita feature para tenant."""
     service = ConfigService(db)
@@ -210,7 +230,7 @@ async def disable_tenant_feature(
 
 
 @router.delete("/tenants/{tenant_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_tenant(tenant_id: UUID, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)) -> None:
+async def delete_tenant(tenant_id: UUID, current_user: AdminUser, db: AsyncSession = Depends(get_db)) -> None:
     """Remove tenant."""
     service = ConfigService(db)
     deleted = await service.delete_tenant(tenant_id)
@@ -224,7 +244,7 @@ async def delete_tenant(tenant_id: UUID, current_user: CurrentActiveUser, db: As
 @router.get("/tenants/{tenant_id}/settings", response_model=TenantSettingsList)
 async def list_tenant_settings(
     tenant_id: UUID,
-    current_user: CurrentActiveUser,
+    current_user: AdminUser,
     category: str | None = None,
     group: str | None = None,
     visible: bool | None = None,
@@ -242,7 +262,7 @@ async def list_tenant_settings(
     "/tenants/{tenant_id}/settings", response_model=TenantSettingsResponse, status_code=status.HTTP_201_CREATED
 )
 async def create_tenant_setting(
-    current_user: CurrentActiveUser, tenant_id: UUID, data: TenantSettingsCreate, db: AsyncSession = Depends(get_db)
+    current_user: AdminUser, tenant_id: UUID, data: TenantSettingsCreate, db: AsyncSession = Depends(get_db)
 ) -> TenantSettingsResponse:
     """Cria configuração do tenant."""
     data.tenant_id = tenant_id
@@ -264,7 +284,7 @@ async def get_setting(
 
 @router.put("/settings/{setting_id}", response_model=TenantSettingsResponse)
 async def update_setting(
-    current_user: CurrentActiveUser, setting_id: UUID, data: TenantSettingsUpdate, db: AsyncSession = Depends(get_db)
+    current_user: AdminUser, setting_id: UUID, data: TenantSettingsUpdate, db: AsyncSession = Depends(get_db)
 ) -> TenantSettingsResponse:
     """Atualiza configuração."""
     service = ConfigService(db)
@@ -276,7 +296,7 @@ async def update_setting(
 
 @router.put("/settings/{setting_id}/value", response_model=TenantSettingsResponse)
 async def update_setting_value(
-    current_user: CurrentActiveUser,
+    current_user: AdminUser,
     setting_id: UUID,
     data: TenantSettingsValueUpdate,
     db: AsyncSession = Depends(get_db),
@@ -292,7 +312,7 @@ async def update_setting_value(
 
 @router.post("/settings/{setting_id}/reset", response_model=TenantSettingsResponse, status_code=201)
 async def reset_setting(
-    setting_id: UUID, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)
+    setting_id: UUID, current_user: AdminUser, db: AsyncSession = Depends(get_db)
 ) -> TenantSettingsResponse:
     """Reseta configuração para valor padrão."""
     service = ConfigService(db)
@@ -303,7 +323,7 @@ async def reset_setting(
 
 
 @router.delete("/settings/{setting_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_setting(setting_id: UUID, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)) -> None:
+async def delete_setting(setting_id: UUID, current_user: AdminUser, db: AsyncSession = Depends(get_db)) -> None:
     """Remove configuração."""
     service = ConfigService(db)
     deleted = await service.delete_setting(setting_id)
@@ -334,7 +354,7 @@ async def list_system_configs(
 
 @router.post("/system", response_model=SystemConfigResponse, status_code=status.HTTP_201_CREATED)
 async def create_system_config(
-    data: SystemConfigCreate, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)
+    data: SystemConfigCreate, current_user: AdminUser, db: AsyncSession = Depends(get_db)
 ) -> SystemConfigResponse:
     """Cria configuração global."""
     service = ConfigService(db)
@@ -355,7 +375,7 @@ async def get_system_config(
 
 @router.put("/system/{config_id}", response_model=SystemConfigResponse)
 async def update_system_config(
-    current_user: CurrentActiveUser, config_id: UUID, data: SystemConfigUpdate, db: AsyncSession = Depends(get_db)
+    current_user: AdminUser, config_id: UUID, data: SystemConfigUpdate, db: AsyncSession = Depends(get_db)
 ) -> SystemConfigResponse:
     """Atualiza configuração global."""
     service = ConfigService(db)
@@ -367,7 +387,7 @@ async def update_system_config(
 
 @router.delete("/system/{config_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_system_config(
-    config_id: UUID, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)
+    config_id: UUID, current_user: AdminUser, db: AsyncSession = Depends(get_db)
 ) -> None:
     """Remove configuração global."""
     service = ConfigService(db)
@@ -400,7 +420,7 @@ async def list_feature_flags(
 
 @router.post("/flags", response_model=FeatureFlagResponse, status_code=status.HTTP_201_CREATED)
 async def create_feature_flag(
-    data: FeatureFlagCreate, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)
+    data: FeatureFlagCreate, current_user: AdminUser, db: AsyncSession = Depends(get_db)
 ) -> FeatureFlagResponse:
     """Cria feature flag."""
     service = ConfigService(db)
@@ -421,7 +441,7 @@ async def get_feature_flag(
 
 @router.put("/flags/{flag_id}", response_model=FeatureFlagResponse)
 async def update_feature_flag(
-    current_user: CurrentActiveUser, flag_id: UUID, data: FeatureFlagUpdate, db: AsyncSession = Depends(get_db)
+    current_user: AdminUser, flag_id: UUID, data: FeatureFlagUpdate, db: AsyncSession = Depends(get_db)
 ) -> FeatureFlagResponse:
     """Atualiza feature flag."""
     service = ConfigService(db)
@@ -433,7 +453,7 @@ async def update_feature_flag(
 
 @router.post("/flags/{flag_id}/enable", response_model=FeatureFlagResponse, status_code=201)
 async def enable_feature_flag(
-    flag_id: UUID, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)
+    flag_id: UUID, current_user: AdminUser, db: AsyncSession = Depends(get_db)
 ) -> FeatureFlagResponse:
     """Habilita feature flag."""
     service = ConfigService(db)
@@ -445,7 +465,7 @@ async def enable_feature_flag(
 
 @router.post("/flags/{flag_id}/disable", response_model=FeatureFlagResponse, status_code=201)
 async def disable_feature_flag(
-    flag_id: UUID, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)
+    flag_id: UUID, current_user: AdminUser, db: AsyncSession = Depends(get_db)
 ) -> FeatureFlagResponse:
     """Desabilita feature flag."""
     service = ConfigService(db)
@@ -457,7 +477,7 @@ async def disable_feature_flag(
 
 @router.post("/flags/{flag_id}/percentage", response_model=FeatureFlagResponse, status_code=201)
 async def set_flag_percentage(
-    current_user: CurrentActiveUser,
+    current_user: AdminUser,
     flag_id: UUID,
     percentage: float = Query(..., ge=0, le=100),
     db: AsyncSession = Depends(get_db),
@@ -472,7 +492,7 @@ async def set_flag_percentage(
 
 @router.post("/flags/{flag_id}/gradual-rollout", response_model=FeatureFlagResponse, status_code=201)
 async def start_gradual_rollout(
-    current_user: CurrentActiveUser, flag_id: UUID, data: FeatureFlagGradualRollout, db: AsyncSession = Depends(get_db)
+    current_user: AdminUser, flag_id: UUID, data: FeatureFlagGradualRollout, db: AsyncSession = Depends(get_db)
 ) -> FeatureFlagResponse:
     """Inicia rollout gradual."""
     service = ConfigService(db)
@@ -484,7 +504,7 @@ async def start_gradual_rollout(
 
 @router.post("/flags/{flag_id}/toggle-tenant", response_model=FeatureFlagResponse, status_code=201)
 async def toggle_flag_for_tenant(
-    current_user: CurrentActiveUser, flag_id: UUID, data: FeatureFlagTenantToggle, db: AsyncSession = Depends(get_db)
+    current_user: AdminUser, flag_id: UUID, data: FeatureFlagTenantToggle, db: AsyncSession = Depends(get_db)
 ) -> FeatureFlagResponse:
     """Toggle de flag para tenant."""
     service = ConfigService(db)
@@ -499,7 +519,7 @@ async def toggle_flag_for_tenant(
 
 @router.post("/flags/evaluate", response_model=FeatureFlagEvaluateResponse, status_code=201)
 async def evaluate_feature_flag(
-    current_user: CurrentActiveUser,
+    current_user: AdminUser,
     data: FeatureFlagEvaluate,
     codigo: str = Query(...),
     db: AsyncSession = Depends(get_db),
@@ -514,7 +534,7 @@ async def evaluate_feature_flag(
 
 @router.delete("/flags/{flag_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_feature_flag(
-    flag_id: UUID, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)
+    flag_id: UUID, current_user: AdminUser, db: AsyncSession = Depends(get_db)
 ) -> None:
     """Remove feature flag."""
     service = ConfigService(db)
@@ -564,7 +584,7 @@ async def list_notification_templates(
 
 @router.post("/templates", response_model=NotificationTemplateResponse, status_code=status.HTTP_201_CREATED)
 async def create_notification_template(
-    current_user: CurrentActiveUser, data: NotificationTemplateCreate, db: AsyncSession = Depends(get_db)
+    current_user: AdminUser, data: NotificationTemplateCreate, db: AsyncSession = Depends(get_db)
 ) -> NotificationTemplateResponse:
     """Cria template de notificação."""
     service = ConfigService(db)
@@ -585,7 +605,7 @@ async def get_notification_template(
 
 @router.put("/templates/{template_id}", response_model=NotificationTemplateResponse)
 async def update_notification_template(
-    current_user: CurrentActiveUser,
+    current_user: AdminUser,
     template_id: UUID,
     data: NotificationTemplateUpdate,
     db: AsyncSession = Depends(get_db),
@@ -600,7 +620,7 @@ async def update_notification_template(
 
 @router.post("/templates/{template_id}/activate", response_model=NotificationTemplateResponse, status_code=201)
 async def activate_notification_template(
-    current_user: CurrentActiveUser, template_id: UUID, db: AsyncSession = Depends(get_db)
+    current_user: AdminUser, template_id: UUID, db: AsyncSession = Depends(get_db)
 ) -> NotificationTemplateResponse:
     """Ativa template."""
     service = ConfigService(db)
@@ -612,7 +632,7 @@ async def activate_notification_template(
 
 @router.post("/templates/{template_id}/deactivate", response_model=NotificationTemplateResponse, status_code=201)
 async def deactivate_notification_template(
-    current_user: CurrentActiveUser, template_id: UUID, db: AsyncSession = Depends(get_db)
+    current_user: AdminUser, template_id: UUID, db: AsyncSession = Depends(get_db)
 ) -> NotificationTemplateResponse:
     """Desativa template."""
     service = ConfigService(db)
@@ -624,7 +644,7 @@ async def deactivate_notification_template(
 
 @router.post("/templates/{template_id}/render", response_model=NotificationTemplateRenderResponse, status_code=201)
 async def render_notification_template(
-    current_user: CurrentActiveUser,
+    current_user: AdminUser,
     template_id: UUID,
     data: NotificationTemplateRender,
     db: AsyncSession = Depends(get_db),
@@ -640,7 +660,7 @@ async def render_notification_template(
 
 @router.post("/templates/{template_id}/clone", response_model=NotificationTemplateResponse, status_code=201)
 async def clone_notification_template(
-    current_user: CurrentActiveUser,
+    current_user: AdminUser,
     template_id: UUID,
     new_codigo: str | None = None,
     db: AsyncSession = Depends(get_db),
@@ -655,7 +675,7 @@ async def clone_notification_template(
 
 @router.delete("/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_notification_template(
-    template_id: UUID, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)
+    template_id: UUID, current_user: AdminUser, db: AsyncSession = Depends(get_db)
 ) -> None:
     """Remove template."""
     service = ConfigService(db)
@@ -676,7 +696,7 @@ async def get_config_dashboard(current_user: CurrentActiveUser, db: AsyncSession
 
 @router.get("/tenants/{tenant_id}/dashboard", response_model=TenantDashboard)
 async def get_tenant_dashboard(
-    tenant_id: UUID, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)
+    tenant_id: UUID, current_user: AdminUser, db: AsyncSession = Depends(get_db)
 ) -> TenantDashboard:
     """Retorna dashboard do tenant."""
     service = ConfigService(db)

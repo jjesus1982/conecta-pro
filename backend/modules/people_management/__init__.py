@@ -103,3 +103,41 @@ def register_routers() -> None:
 
 
 register_routers()
+
+
+# ---------------------------------------------------------------------------
+# Controle de acesso por módulo (padrão modules/financeiro/__init__.py):
+# FastAPI não propaga router.dependencies no include_router — a dependency é
+# injetada em CADA ROTA individual, antes do include em main_production.py.
+#
+#   /people-management/portal/*  → SEM gate (audience própria do funcionário)
+#   /people-management/sst/*     → module:sst
+#   /people-management/ged/*     → module:ged
+#   demais rotas                 → module:dp
+#
+# requer_modulo já deixa passar 'all' e o CEO. Role admin NÃO bypassa (correto).
+# ---------------------------------------------------------------------------
+def _gatear_rotas_por_modulo() -> None:
+    from fastapi.routing import APIRoute
+
+    from core.permissions import requer_modulo
+
+    dep_dp = requer_modulo("dp")
+    dep_sst = requer_modulo("sst")
+    dep_ged = requer_modulo("ged")
+
+    for route in router.routes:
+        if not isinstance(route, APIRoute):
+            continue  # websockets (gp_ws_router) ficam fora do gate HTTP
+        path = route.path
+        if path.startswith("/people-management/portal"):
+            continue  # Portal do Funcionário: auth própria, não gatear
+        if path.startswith("/people-management/sst"):
+            route.dependencies.append(dep_sst)
+        elif path.startswith("/people-management/ged"):
+            route.dependencies.append(dep_ged)
+        else:
+            route.dependencies.append(dep_dp)
+
+
+_gatear_rotas_por_modulo()
