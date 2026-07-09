@@ -5,7 +5,7 @@ import {
   Users, ShieldCheck, TrendingUp, Stethoscope, Trophy, CalendarClock,
   AlertTriangle, Loader2, MapPin, Clock, Award, ArrowUpRight, ArrowDownRight,
 } from 'lucide-react';
-import { operacao, type OperacaoResumo, type Funcionario, type RankingItem, type Aso, type Movimentacao } from '@/services/portal/portalApi';
+import { operacao, type OperacaoResumo, type Funcionario, type RankingItem, type Aso, type Movimentacao, OcorrenciaPortal } from '@/services/portal/portalApi';
 
 function iniciais(nome: string) {
   const p = nome.trim().split(/\s+/);
@@ -30,17 +30,20 @@ export default function RaioXPage() {
   const [ranking, setRanking] = useState<RankingItem[]>([]);
   const [asos, setAsos] = useState<Aso[]>([]);
   const [mov, setMov] = useState<Movimentacao[]>([]);
+  const [ocorrencias, setOcorrencias] = useState<OcorrenciaPortal[]>([]);
   const [advTotal, setAdvTotal] = useState(0);
 
   useEffect(() => {
     (async () => {
       try {
-        const [r, e, rk, at, tv, ad] = await Promise.all([
+        const [r, e, rk, at, tv, ad, oc] = await Promise.all([
           operacao.resumo(), operacao.equipe(), operacao.ranking(),
           operacao.atestados(), operacao.turnover(), operacao.advertencias(),
+          operacao.ocorrencias().catch(() => null),
         ]);
         setResumo(r); setEquipe(e.equipe); setRanking(rk.ranking);
         setAsos(at.asos); setMov(tv.movimentacoes); setAdvTotal(ad.total);
+        if (oc) setOcorrencias(oc.ocorrencias);
       } catch { /* portalFetch trata 401 */ } finally { setLoading(false); }
     })();
   }, []);
@@ -162,6 +165,30 @@ export default function RaioXPage() {
 
       {/* Advertências (transparência) */}
       <section className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+        <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-2"><AlertTriangle className="w-5 h-5 text-sky-600" /> Ocorrências do condomínio</h2>
+        {ocorrencias.length === 0 ? (
+          <p className="text-sm text-gray-600">Nenhum incidente ou manutenção registrado.</p>
+        ) : (
+          <ul className="divide-y divide-gray-100">
+            {ocorrencias.slice(0, 10).map((o) => (
+              <li key={o.code} className="py-2 flex items-center justify-between gap-3 text-sm">
+                <div>
+                  <span className="font-medium text-gray-900">{o.tipo}</span>
+                  <span className="text-gray-500"> — {o.posto}</span>
+                  <div className="text-xs text-gray-500">
+                    {o.data ? new Date(o.data).toLocaleDateString('pt-BR') : ''} · severidade {o.severidade}
+                  </div>
+                </div>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${o.status === 'resolvida' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                  {o.status}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="bg-white rounded-xl border border-gray-200 p-5">
         <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-2"><AlertTriangle className="w-5 h-5 text-amber-500" /> Medidas disciplinares</h2>
         {advTotal === 0 ? (
           <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 rounded-lg p-3">

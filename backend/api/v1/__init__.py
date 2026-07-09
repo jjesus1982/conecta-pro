@@ -73,6 +73,7 @@ from modules.operacoes import (  # noqa: E402
     operacional_ai_router,
     operacional_ws_router,
     ordem_servico_router,
+    post_orders_router,
     post_router,
     presence_router,
     reports_router,
@@ -109,6 +110,7 @@ router.include_router(shift_handover_router, prefix="/operacional", tags=["Opera
 router.include_router(team_evaluation_router, prefix="/operacional", tags=["Operacional - Avaliação de Equipe"])
 router.include_router(triage_router, prefix="/operacional", tags=["Operacional - Triagem"])
 router.include_router(presence_router, prefix="/operacional", tags=["Operacional - Presença"])
+router.include_router(post_orders_router, prefix="/operacional", tags=["Operacional - Instruções de Posto"])
 router.include_router(diarist_router, prefix="/operacional/diaristas", tags=["Operacional - Diaristas"])
 router.include_router(
     diarist_fiscal_router, prefix="/operacional/diaristas/fiscal", tags=["Operacional - Diaristas Fiscal"]

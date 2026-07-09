@@ -84,6 +84,8 @@ class Allocation(Base):
     # Configurações
     is_primary: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_temporary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Setor da planilha oficial (PORTARIA/RONDISTA/SERVICOS GERAIS/INSALUBRIDADE) — base p/ adicional
+    setor: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
     # Valores
     hourly_rate: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)

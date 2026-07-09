@@ -35,6 +35,7 @@ interface FuncionarioPresenca {
   employee_id: string;
   nome: string;
   cargo?: string | null;
+  setor?: string | null;
   shift_id?: string | null;
   turno_inicio?: string | null;
   turno_fim?: string | null;
@@ -48,6 +49,7 @@ interface FuncionarioPresenca {
 interface ExtraPresenca {
   employee_id: string;
   nome: string;
+  setor?: string | null;
   presenca_em?: string | null;
   fonte?: string | null;
 }
@@ -71,6 +73,7 @@ interface ResumoPresenca {
   ausentes?: number;
   aguardando?: number;
   extras?: number;
+  saidas_noturno_ontem?: number;
 }
 
 interface PresencaHoje {
@@ -95,6 +98,24 @@ const STATUS_LABEL: Record<StatusPresenca, string> = {
   ausente: 'Ausente',
   aguardando: 'Aguardando',
 };
+
+// Chip de setor (allocations.setor) — cores por setor conhecido
+const SETOR_CHIP: Record<string, string> = {
+  RONDISTA: 'bg-amber-200 text-amber-900',
+  PORTARIA: 'bg-blue-100 text-blue-800',
+  'SERVICOS GERAIS': 'bg-gray-100 text-gray-700',
+  INSALUBRIDADE: 'bg-purple-100 text-purple-800',
+};
+
+function ChipSetor({ setor }: { setor?: string | null }) {
+  if (!setor) return null;
+  const classe = SETOR_CHIP[setor.toUpperCase()] || 'bg-gray-100 text-gray-700';
+  return (
+    <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase ${classe}`}>
+      {setor}
+    </span>
+  );
+}
 
 function formatarHora(raw?: string | null): string {
   if (!raw) return '';
@@ -151,6 +172,7 @@ function LinhaFuncionario({
         </Badge>
         <span className="min-w-0 truncate text-sm font-medium">{f.nome}</span>
         {f.cargo && <span className="text-xs text-muted-foreground">{f.cargo}</span>}
+        <ChipSetor setor={f.setor} />
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         {(f.turno_inicio || f.turno_fim) && (
@@ -310,13 +332,24 @@ export default function PresencaPage() {
 
       {/* Resumo */}
       {dados && (
-        <div className="flex flex-wrap gap-2">
-          <ChipResumo rotulo="esperados" valor={resumo.esperados ?? 0} classe="bg-slate-100 text-slate-800" />
-          <ChipResumo rotulo="presentes" valor={resumo.presentes ?? 0} classe="bg-green-100 text-green-800" />
-          <ChipResumo rotulo="atrasados" valor={resumo.atrasados ?? 0} classe="bg-amber-100 text-amber-800" />
-          <ChipResumo rotulo="ausentes" valor={resumo.ausentes ?? 0} classe="bg-red-100 text-red-800" />
-          <ChipResumo rotulo="aguardando" valor={resumo.aguardando ?? 0} classe="bg-gray-100 text-gray-700" />
-          <ChipResumo rotulo="extras" valor={totalExtras} classe="bg-blue-100 text-blue-800" />
+        <div className="space-y-1">
+          <div className="flex flex-wrap gap-2">
+            <ChipResumo rotulo="esperados" valor={resumo.esperados ?? 0} classe="bg-slate-100 text-slate-800" />
+            <ChipResumo rotulo="presentes" valor={resumo.presentes ?? 0} classe="bg-green-100 text-green-800" />
+            <ChipResumo rotulo="atrasados" valor={resumo.atrasados ?? 0} classe="bg-amber-100 text-amber-800" />
+            <ChipResumo rotulo="ausentes" valor={resumo.ausentes ?? 0} classe="bg-red-100 text-red-800" />
+            <ChipResumo rotulo="aguardando" valor={resumo.aguardando ?? 0} classe="bg-gray-100 text-gray-700" />
+            <ChipResumo rotulo="extras" valor={totalExtras} classe="bg-blue-100 text-blue-800" />
+          </div>
+          {(resumo.saidas_noturno_ontem ?? 0) > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {resumo.saidas_noturno_ontem}{' '}
+              {resumo.saidas_noturno_ontem === 1
+                ? 'batida da madrugada atribuída'
+                : 'batidas da madrugada atribuídas'}{' '}
+              ao turno noturno de ontem (saída, não presença de hoje).
+            </p>
+          )}
         </div>
       )}
 
@@ -382,6 +415,7 @@ export default function PresencaPage() {
                     <div key={ex.employee_id} className="flex flex-wrap items-center gap-2 text-sm">
                       <Badge className="bg-blue-100 text-blue-800">Extra</Badge>
                       <span className="font-medium">{ex.nome}</span>
+                      <ChipSetor setor={ex.setor} />
                       {ex.presenca_em && (
                         <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                           às {formatarHora(ex.presenca_em)} <FonteIcone fonte={ex.fonte} />

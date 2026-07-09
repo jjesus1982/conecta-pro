@@ -20,6 +20,7 @@ class AllocationBase(BaseModel):
     end_date: date | None = Field(None, description="Data de fim (null = indeterminado)")
     is_primary: bool = Field(default=True, description="É alocação principal")
     is_temporary: bool = Field(default=False, description="É temporária")
+    setor: str | None = Field(None, max_length=30, description="Setor (PORTARIA/RONDISTA/SERVICOS GERAIS/INSALUBRIDADE)")
     role: str | None = Field(None, max_length=100, description="Função")
     notes: str | None = Field(None, description="Observações")
 
@@ -98,6 +99,7 @@ class AllocationUpdate(BaseModel):
     end_date: date | None = None
     is_primary: bool | None = None
     is_temporary: bool | None = None
+    setor: str | None = None
     hourly_rate: float | None = Field(None, ge=0)
     monthly_salary: float | None = Field(None, ge=0)
     additional_benefits: float | None = Field(None, ge=0)
@@ -121,6 +123,7 @@ class AllocationResponse(BaseModel):
     end_date: date | None
     is_primary: bool
     is_temporary: bool
+    setor: str | None = None
     hourly_rate: float
     monthly_salary: float
     additional_benefits: float
@@ -165,6 +168,7 @@ class AllocationFilter(BaseModel):
     status: AllocationStatus | None = None
     is_primary: bool | None = None
     is_temporary: bool | None = None
+    setor: str | None = None
     is_current: bool | None = None
     start_date_from: date | None = None
     start_date_to: date | None = None

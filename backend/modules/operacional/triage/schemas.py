@@ -2,7 +2,7 @@
 Schemas Pydantic do módulo de Triagem (painel do gestor).
 """
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -70,6 +70,34 @@ class EscalasPainel(BaseModel):
     drafts: list[EscalaDraft] = Field(default_factory=list)
 
 
+class MovimentacaoProgramada(BaseModel):
+    """Evento programado (fim de alocação, férias, retorno, vaga aberta)."""
+
+    data: date
+    tipo: str  # fim_alocacao | inicio_ferias | retorno_ferias | vaga
+    descricao: str
+
+
+class PresencaPorPosto(BaseModel):
+    post_nome: str
+    dias_esperados: int
+    dias_presentes: int
+    taxa: float | None = Field(None, description="presentes/esperados; None quando 0 esperados")
+
+
+class PresencaGeral(BaseModel):
+    esperados: int
+    presentes: int
+    taxa: float | None = Field(None, description="presentes/esperados; None quando 0 esperados")
+
+
+class Presenca30d(BaseModel):
+    """Absenteísmo dos últimos 30 dias (turnos agendados × presença real)."""
+
+    por_posto: list[PresencaPorPosto] = Field(default_factory=list)
+    geral: PresencaGeral
+
+
 class PainelTriagem(BaseModel):
     """Painel consolidado de triagem operacional (só gestores)."""
 
@@ -77,3 +105,5 @@ class PainelTriagem(BaseModel):
     passagens_hoje: list[PassagemHoje] = Field(default_factory=list)
     avaliacoes_semana: AvaliacoesSemana
     escalas: EscalasPainel
+    movimentacoes: list[MovimentacaoProgramada] = Field(default_factory=list)
+    presenca_30d: Presenca30d

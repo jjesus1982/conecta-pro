@@ -278,7 +278,7 @@ app.conf.beat_schedule = {
     # Pull de batidas de ponto do Tangerino -> gp_clock_punches (de hora em hora)
     "solides-sync-punches": {
         "task": "solides.sync_punches",
-        "schedule": 3600.0,  # 1 hora
+        "schedule": 900.0,  # 15 min — presença ao vivo (era 1h; Jordan pediu quadro fiel, 2026-07-08)
         "kwargs": {"days_back": 2},
         "options": {"queue": "integrations"},
     },

@@ -7,11 +7,22 @@ Rotas (montadas sob /api/v1/operacional):
 
 FONTES (100% reais — NUNCA fabricar presença):
 - shifts: ESPERADOS do dia (employee_id preenchido, não folga, não cancelado).
-- gp_clock_punches: batidas sincronizadas do Sólides. A 1ª batida do dia do
-  funcionário = presença com fonte='ponto'. gp_clock_punches.posto_id é SEMPRE
-  NULL — o vínculo com posto sai do shift (esperados) ou da alocação (extras).
+- gp_clock_punches: batidas sincronizadas do Sólides. A 1ª batida DENTRO DA
+  JANELA DO TURNO = presença com fonte='ponto'. gp_clock_punches.posto_id é
+  SEMPRE NULL — o vínculo com posto sai do shift (esperados) ou da alocação (extras).
 - shifts.actual_start_time: check-in manual = presença com fonte='manual'.
-- allocations/posts: agrupam EXTRAS (batida sem turno) pelo posto da alocação ativa.
+- allocations/posts: agrupam EXTRAS (batida sem turno) pelo posto da alocação
+  ativa; allocations.setor identifica o setor do funcionário.
+
+JANELA DE PRESENÇA POR TURNO (batida fora da janela NÃO conta):
+- DIURNO (planned_start < 15:00): [planned_start − 2h, planned_end]. Evita que
+  a batida de ~05h (SAÍDA do noturno de ontem) marque presença do diurno.
+- NOTURNO (planned_start >= 15:00): [planned_start − 2h do dia D, D+1 07:00].
+  Evita que uma batida da madrugada de HOJE marque "presente" um noturno que
+  só começa às ~18h.
+- EXTRAS: batida do dia sem turno correspondente hoje. Batida antes das 07:00
+  de quem teve turno NOTURNO ontem (shift_date = D−1, is_night_shift) é a
+  SAÍDA do turno de ontem — não é extra; contada em resumo.saidas_noturno_ontem.
 
 DECISÃO DE TIMEZONE (America/Manaus):
 - A operação é em Manaus-AM. Tanto shifts.planned_start_time/planned_end_time
@@ -59,6 +70,11 @@ TZ_MANAUS = ZoneInfo("America/Manaus")
 # Janela de tolerância antes de marcar "atrasado" (regra do quadro, não da CCT)
 TOLERANCIA_ATRASO = timedelta(minutes=15)
 
+# Janelas de presença por turno (ver docstring do módulo)
+HORA_CORTE_NOTURNO = time(15, 0)   # planned_start >= 15:00 → turno noturno
+JANELA_PRE_TURNO = timedelta(hours=2)  # batida aceita até 2h antes do início
+FIM_JANELA_NOTURNO = time(7, 0)    # noturno aceita batida até D+1 07:00; madrugada < 07:00 pode ser saída do noturno de ontem
+
 # Batida válida = não rejeitada/cancelada; COALESCE protege status NULL
 # (NOT IN com NULL excluiria a linha silenciosamente).
 _PUNCH_VALIDO = "COALESCE(cp.status, '') NOT IN ('rejected', 'cancelado')"
@@ -81,6 +97,29 @@ def _janela_turno(dia: date, inicio: time, fim: time) -> tuple[datetime, datetim
     return dt_inicio, dt_fim
 
 
+def _janela_presenca(dia: date, inicio: time, fim: time) -> tuple[datetime, datetime]:
+    """
+    Janela de batidas que CONTAM como presença do turno (hora local de Manaus):
+    - DIURNO (início < 15:00): [início − 2h, fim planejado].
+    - NOTURNO (início >= 15:00): [início − 2h do dia D, D+1 07:00].
+    Batida fora da janela não marca presença deste turno.
+    """
+    dt_inicio, dt_fim = _janela_turno(dia, inicio, fim)
+    if inicio >= HORA_CORTE_NOTURNO:
+        dt_fim = datetime.combine(dia + timedelta(days=1), FIM_JANELA_NOTURNO)
+    return dt_inicio - JANELA_PRE_TURNO, dt_fim
+
+
+def _primeira_batida_na_janela(
+    batidas_emp: list[dict], ini: datetime, fim: datetime
+) -> dict | None:
+    """1ª batida do funcionário dentro da janela [ini, fim] (lista já vem em ordem cronológica)."""
+    for b in batidas_emp:
+        if ini <= b["punch_timestamp"] <= fim:
+            return b
+    return None
+
+
 def _status_turno(agora: datetime, dt_inicio: datetime, dt_fim: datetime) -> str:
     """
     Status HONESTO de um turno SEM presença registrada (hora local de Manaus):
@@ -96,25 +135,36 @@ def _status_turno(agora: datetime, dt_inicio: datetime, dt_fim: datetime) -> str
     return "atrasado"
 
 
-async def _primeiras_batidas_do_dia(db: AsyncSession, dia: date) -> dict[str, dict]:
-    """1ª batida válida do dia por funcionário: {employee_id: {punch_timestamp, facial_match, dentro_geofence}}."""
+async def _batidas_por_funcionario(db: AsyncSession, dia: date) -> dict[str, list[dict]]:
+    """
+    Batidas válidas por funcionário em [dia 00:00, dia+1 07:00), hora local de
+    Manaus, em ordem cronológica: {employee_id: [{punch_timestamp, facial_match,
+    dentro_geofence}, ...]}. A cauda de D+1 (até 07:00) existe porque a janela
+    de presença do turno NOTURNO de hoje atravessa a meia-noite.
+    """
     result = await db.execute(
         text(
             f"""
-            SELECT DISTINCT ON (cp.employee_id)
-                   cp.employee_id::text AS employee_id,
+            SELECT cp.employee_id::text AS employee_id,
                    (cp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') AS punch_timestamp,
                    cp.facial_match,
                    cp.dentro_geofence
             FROM gp_clock_punches cp
-            WHERE (cp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date = :dia
+            WHERE (cp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') >= :ini
+              AND (cp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') < :fim
               AND {_PUNCH_VALIDO}
             ORDER BY cp.employee_id, (cp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') ASC
             """
         ),
-        {"dia": dia},
+        {
+            "ini": datetime.combine(dia, time.min),
+            "fim": datetime.combine(dia + timedelta(days=1), FIM_JANELA_NOTURNO),
+        },
     )
-    return {row.employee_id: dict(row._mapping) for row in result.fetchall()}
+    batidas: dict[str, list[dict]] = {}
+    for row in result.fetchall():
+        batidas.setdefault(row.employee_id, []).append(dict(row._mapping))
+    return batidas
 
 
 @router.get("/hoje", response_model=QuadroPresenca)
@@ -181,10 +231,19 @@ async def quadro_presenca_hoje(
                    sh.employee_id::text AS employee_id,
                    e.nome, e.cargo,
                    sh.planned_start_time, sh.planned_end_time,
-                   sh.actual_start_time
+                   sh.actual_start_time,
+                   aloc.setor
             FROM shifts sh
             JOIN employees e ON e.id = sh.employee_id
             JOIN posts p ON p.id = sh.post_id
+            LEFT JOIN LATERAL (
+                SELECT a.setor
+                FROM allocations a
+                WHERE a.employee_id = sh.employee_id
+                  AND a.status = 'active' AND a.is_active = TRUE
+                ORDER BY (a.post_id = sh.post_id) DESC, a.is_primary DESC, a.created_at DESC
+                LIMIT 1
+            ) aloc ON TRUE
             WHERE sh.shift_date = :dia
               AND {_SHIFT_ESPERADO}{scope_filter_shifts}
             ORDER BY p.name, sh.planned_start_time, e.nome
@@ -194,9 +253,9 @@ async def quadro_presenca_hoje(
     )
     shift_rows = shifts_result.fetchall()
 
-    # ── Batidas do dia (1ª por funcionário) — sem filtro de posto:
+    # ── Batidas do dia (+ cauda D+1 até 07:00 p/ noturno) — sem filtro de posto:
     #    gp_clock_punches.posto_id é sempre NULL; escopo entra pelo shift/alocação
-    batidas = await _primeiras_batidas_do_dia(db, dia)
+    batidas = await _batidas_por_funcionario(db, dia)
 
     for row in shift_rows:
         # Posto do shift pode estar fora da base (ex.: posto inativado com escala publicada)
@@ -205,9 +264,11 @@ async def quadro_presenca_hoje(
             {"post_id": row.post_id, "post_nome": row.post_nome, "funcionarios": [], "extras": []},
         )
 
-        batida = batidas.get(row.employee_id)
+        # FIX A: só batida DENTRO da janela do turno conta como presença dele
+        janela_ini, janela_fim = _janela_presenca(dia, row.planned_start_time, row.planned_end_time)
+        batida = _primeira_batida_na_janela(batidas.get(row.employee_id, []), janela_ini, janela_fim)
         if batida is not None:
-            # (a) fonte primária: 1ª batida real do dia
+            # (a) fonte primária: 1ª batida real dentro da janela do turno
             presenca_em, fonte = batida["punch_timestamp"], "ponto"
             facial, geofence = batida["facial_match"], batida["dentro_geofence"]
             status_turno = "presente"
@@ -227,6 +288,7 @@ async def quadro_presenca_hoje(
                 employee_id=row.employee_id,
                 nome=row.nome,
                 cargo=row.cargo,
+                setor=row.setor,
                 shift_id=row.shift_id,
                 turno_inicio=row.planned_start_time,
                 turno_fim=row.planned_end_time,
@@ -251,7 +313,56 @@ async def quadro_presenca_hoje(
         {"dia": dia},
     )
     esperados_global = {r[0] for r in esperados_global_result.fetchall()}
-    extras_ids = [emp_id for emp_id in batidas if emp_id not in esperados_global]
+
+    # Candidatos a extra: batidas com data local = dia (a cauda de D+1 até 07:00
+    # pertence à janela do noturno de HOJE, nunca vira extra do dia)
+    candidatos_extras: dict[str, list[dict]] = {}
+    for emp_id, punches in batidas.items():
+        if emp_id in esperados_global:
+            continue
+        do_dia = [b for b in punches if b["punch_timestamp"].date() == dia]
+        if do_dia:
+            candidatos_extras[emp_id] = do_dia
+
+    # Quem teve turno NOTURNO ontem: batida antes das 07:00 é a SAÍDA do turno
+    # de ontem, não presença extra de hoje (só consulta se houver madrugada)
+    noturno_ontem: set[str] = set()
+    madrugada_ids = [
+        emp_id
+        for emp_id, punches in candidatos_extras.items()
+        if punches[0]["punch_timestamp"].time() < FIM_JANELA_NOTURNO
+    ]
+    if madrugada_ids:
+        noturno_ontem_result = await db.execute(
+            text(
+                f"""
+                SELECT DISTINCT sh.employee_id::text
+                FROM shifts sh
+                WHERE sh.shift_date = :ontem
+                  AND sh.is_night_shift = TRUE
+                  AND sh.employee_id IN :emp_ids
+                  AND {_SHIFT_ESPERADO}
+                """
+            ).bindparams(bindparam("emp_ids", expanding=True)),
+            {"ontem": dia - timedelta(days=1), "emp_ids": madrugada_ids},
+        )
+        noturno_ontem = {r[0] for r in noturno_ontem_result.fetchall()}
+
+    saidas_noturno_ontem = 0
+    extras_batida: dict[str, dict] = {}  # employee_id → batida que conta como extra
+    for emp_id, punches in candidatos_extras.items():
+        primeira = punches[0]
+        if primeira["punch_timestamp"].time() < FIM_JANELA_NOTURNO and emp_id in noturno_ontem:
+            # Madrugada de quem fez noturno ontem = saída do turno de ontem
+            saidas_noturno_ontem += 1
+            # Só é extra REAL se houver OUTRA batida a partir das 07:00
+            restantes = [b for b in punches if b["punch_timestamp"].time() >= FIM_JANELA_NOTURNO]
+            if not restantes:
+                continue
+            primeira = restantes[0]
+        extras_batida[emp_id] = primeira
+
+    extras_ids = list(extras_batida)
 
     sem_posto: list[ExtraPresenca] = []
     if extras_ids:
@@ -261,22 +372,24 @@ async def quadro_presenca_hoje(
                 SELECT DISTINCT ON (e.id)
                        e.id::text AS employee_id, e.nome,
                        a.post_id::text AS aloc_post_id,
-                       p.name AS aloc_post_nome
+                       p.name AS aloc_post_nome,
+                       a.setor
                 FROM employees e
                 LEFT JOIN allocations a
                        ON a.employee_id = e.id AND a.status = 'active' AND a.is_active = TRUE
                 LEFT JOIN posts p ON p.id = a.post_id
                 WHERE e.id IN :emp_ids
-                ORDER BY e.id
+                ORDER BY e.id, a.is_primary DESC, a.created_at DESC
                 """
             ).bindparams(bindparam("emp_ids", expanding=True)),
             {"emp_ids": extras_ids},
         )
         for row in extras_result.fetchall():
-            batida = batidas[row.employee_id]
+            batida = extras_batida[row.employee_id]
             extra = ExtraPresenca(
                 employee_id=row.employee_id,
                 nome=row.nome,
+                setor=row.setor,
                 presenca_em=batida["punch_timestamp"],
                 fonte="ponto",
             )
@@ -298,7 +411,15 @@ async def quadro_presenca_hoje(
 
     # ── Montagem final + resumo (contagens derivadas do que foi apurado, nunca inventadas)
     postos_out: list[PostoPresenca] = []
-    resumo = {"esperados": 0, "presentes": 0, "atrasados": 0, "ausentes": 0, "aguardando": 0, "extras": 0}
+    resumo = {
+        "esperados": 0,
+        "presentes": 0,
+        "atrasados": 0,
+        "ausentes": 0,
+        "aguardando": 0,
+        "extras": 0,
+        "saidas_noturno_ontem": saidas_noturno_ontem,
+    }
     for p in sorted(postos.values(), key=lambda x: (x["post_nome"] or "")):
         contagem = {"presente": 0, "atrasado": 0, "ausente": 0, "aguardando": 0}
         for f in p["funcionarios"]:
@@ -419,7 +540,10 @@ async def checkin_manual(
             detail="Turno de folga ou cancelado não recebe check-in.",
         )
 
-    # Já presente? (a) por batida real hoje, (b) por check-in manual anterior
+    # Já presente? (a) por batida real DENTRO da janela do turno (mesma regra do
+    # quadro — batida da madrugada = saída do noturno de ontem, não conflita),
+    # (b) por check-in manual anterior
+    janela_ini, janela_fim = _janela_presenca(hoje, row.planned_start_time, row.planned_end_time)
     batida = (
         await db.execute(
             text(
@@ -427,11 +551,12 @@ async def checkin_manual(
                 SELECT MIN((cp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus'))
                 FROM gp_clock_punches cp
                 WHERE cp.employee_id = :emp
-                  AND (cp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date = :hoje
+                  AND (cp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') >= :ini
+                  AND (cp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') <= :fim
                   AND {_PUNCH_VALIDO}
                 """
             ),
-            {"emp": row.employee_id, "hoje": hoje},
+            {"emp": row.employee_id, "ini": janela_ini, "fim": janela_fim},
         )
     ).scalar()
     if batida is not None:

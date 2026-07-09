@@ -359,3 +359,57 @@ async def resumo(db: AsyncSession, client_id: str) -> dict:
         "admissoes_12m": tov["resumo"].get("admissoes", 0),
         "demissoes_12m": tov["resumo"].get("demissoes", 0),
     }
+
+
+async def ocorrencias(db: AsyncSession, client_id: str) -> dict:
+    """Ocorrências NÃO-SENSÍVEIS do condomínio (allowlist dupla; sem pessoa/texto livre).
+
+    Segurança (auditoria 2026-07-08): expõe SOMENTE incidentes/manutenção/elogios de
+    natureza operacional dos postos do próprio cliente. NUNCA disciplinar/conduta/
+    assiduidade, NUNCA employee/inspetor/descrição/testemunhas/anexos/notas.
+    """
+    ctx = await _resolver(db, client_id)
+    if not ctx.get("post_ids"):
+        return {"condominio": ctx.get("cond_nome"), "total": 0, "ocorrencias": []}
+
+    rows = (
+        await db.execute(
+            text(
+                """
+                SELECT o.code, lower(trim(o.occurrence_type)) AS tipo,
+                       lower(trim(o.severity)) AS severidade,
+                       lower(trim(o.status)) AS status,
+                       o.occurred_at, o.resolved_at, p.name AS posto
+                FROM occurrences o
+                JOIN posts p ON p.id = o.post_id
+                WHERE o.post_id = ANY(CAST(:pids AS uuid[]))
+                  AND COALESCE(o.is_active, true) = true
+                  AND lower(trim(o.category)) IN ('operacional', 'seguranca_trabalho', 'outros')
+                  AND lower(trim(o.occurrence_type)) IN ('incidente', 'manutencao', 'outros', 'elogio')
+                ORDER BY o.occurred_at DESC
+                LIMIT 100
+                """
+            ),
+            {"pids": ctx["post_ids"]},
+        )
+    ).mappings().all()
+
+    rotulos = {
+        "incidente": "Incidente",
+        "manutencao": "Manutenção",
+        "elogio": "Elogio",
+        "outros": "Registro operacional",
+    }
+    itens = [
+        {
+            "code": r["code"],
+            "tipo": rotulos.get(r["tipo"], "Registro operacional"),
+            "severidade": r["severidade"],
+            "status": r["status"],
+            "posto": r["posto"],
+            "data": r["occurred_at"].isoformat() if r["occurred_at"] else None,
+            "resolvida_em": r["resolved_at"].isoformat() if r["resolved_at"] else None,
+        }
+        for r in rows
+    ]
+    return {"condominio": ctx.get("cond_nome"), "total": len(itens), "ocorrencias": itens}

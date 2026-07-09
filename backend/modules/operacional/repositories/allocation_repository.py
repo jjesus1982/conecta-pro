@@ -146,6 +146,7 @@ class AllocationRepository:
             end_date=data.end_date,
             is_primary=data.is_primary,
             is_temporary=data.is_temporary,
+            setor=getattr(data, "setor", None),
             hourly_rate=data.hourly_rate,
             monthly_salary=data.monthly_salary,
             additional_benefits=data.additional_benefits,

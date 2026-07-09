@@ -71,6 +71,16 @@ export const financeiro = {
   boletos: () => portalFetch<{ boletos: Boleto[]; total: number }>('/financeiro/boletos'),
 };
 
+export interface OcorrenciaPortal {
+  code: string;
+  tipo: string;
+  severidade: string;
+  status: string;
+  posto: string;
+  data: string | null;
+  resolvida_em: string | null;
+}
+
 export const operacao = {
   resumo: () => portalFetch<OperacaoResumo>('/operacao/resumo'),
   equipe: () => portalFetch<{ condominio: string; total: number; equipe: Funcionario[] }>('/operacao/equipe'),
@@ -80,4 +90,6 @@ export const operacao = {
   turnover: () => portalFetch<{ resumo: Record<string, number>; movimentacoes: Movimentacao[] }>('/operacao/turnover'),
   advertencias: () => portalFetch<{ advertencias: unknown[]; total: number }>('/operacao/advertencias'),
   escalas: () => portalFetch<{ tem_escala: boolean; turnos: unknown[]; padrao: unknown[] }>('/operacao/escalas'),
+  ocorrencias: () =>
+    portalFetch<{ condominio: string; total: number; ocorrencias: OcorrenciaPortal[] }>('/operacao/ocorrencias'),
 };

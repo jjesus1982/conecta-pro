@@ -234,7 +234,9 @@ export const modules: Module[] = [
       { id: 'banco-horas', title: 'Banco de Horas', href: '/modulos/operacional/banco-horas', icon: 'Clock', permissions: ['operacional:read'] },
       // --- Dia a dia do lider (mobile-first) ---
       { id: 'presenca-hoje', title: 'Presenca Hoje', href: '/modulos/operacional/presenca', icon: 'UserCheck', permissions: ['operacional:read'] },
+      { id: 'instrucoes-posto', title: 'Instrucoes do Posto', href: '/modulos/operacional/instrucoes-posto', icon: 'FileText', permissions: ['operacional:read'] },
       { id: 'ocorrencia-rapida', title: 'Ocorrencia Rapida', href: '/modulos/operacional/ocorrencia-rapida', icon: 'Zap', permissions: ['operacional:read'] },
+      { id: 'ronda-mobile', title: 'Ronda (mobile)', href: '/modulos/operacional/ronda-mobile', icon: 'MapPin', permissions: ['operacional:read'] },
       { id: 'passagem-turno', title: 'Passagem de Turno', href: '/modulos/operacional/passagem-turno', icon: 'RefreshCw', permissions: ['operacional:read'] },
       { id: 'avaliacao-equipe', title: 'Avaliacao de Equipe', href: '/modulos/operacional/avaliacao-equipe', icon: 'Users', permissions: ['operacional:read'] },
       { id: 'triagem', title: 'Triagem (Gestao)', href: '/modulos/operacional/triagem', icon: 'Activity', permissions: ['operacional:read'] },

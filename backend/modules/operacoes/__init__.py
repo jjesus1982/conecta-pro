@@ -73,6 +73,9 @@ from modules.operacional.triage import triage_router
 # --- Operacional Presença (quadro ao vivo escala × ponto) ---
 from modules.operacional.presence import presence_router
 
+# --- Operacional Instruções de Posto (gestor edita, líder lê) ---
+from modules.operacional.post_orders import post_orders_router
+
 # --- Operacional Vacations ---
 from modules.operacional.vacations import vacation_router
 
@@ -95,6 +98,7 @@ __all__ = [
     "team_evaluation_router",
     "triage_router",
     "presence_router",
+    "post_orders_router",
     "diarist_router",
     "diarist_fiscal_router",
     "disciplinary_router",

@@ -25,12 +25,16 @@ from modules.operacional.triage.schemas import (
     AvaliacoesSemana,
     EscalaDraft,
     EscalasPainel,
+    MovimentacaoProgramada,
     OcorrenciaItem,
     OcorrenciaPorPosto,
     OcorrenciasPainel,
     PainelTriagem,
     PassagemHoje,
     PostoSemVigencia,
+    Presenca30d,
+    PresencaGeral,
+    PresencaPorPosto,
 )
 
 router = APIRouter(prefix="/triagem", tags=["Operacional - Triagem"])
@@ -188,6 +192,175 @@ async def _escalas(db: AsyncSession) -> EscalasPainel:
     return EscalasPainel(sem_vigencia=sem_vigencia, drafts=drafts)
 
 
+async def _movimentacoes(db: AsyncSession) -> list[MovimentacaoProgramada]:
+    """
+    Movimentações programadas dos próximos 45 dias — 100% do banco:
+    fins de alocação (allocations), férias (hr_vacation_requests, fonte
+    canônica do DP) e vagas em aberto (posts). Tabelas vazias → lista vazia.
+    """
+    eventos: list[MovimentacaoProgramada] = []
+
+    # Hoje/limite pelo relógio do banco (mesma referência das outras queries)
+    hoje = (await db.execute(text("SELECT CURRENT_DATE"))).scalar()
+    limite = (await db.execute(text("SELECT CURRENT_DATE + 45"))).scalar()
+
+    # 1) Fins de alocação programados (allocations ativas com end_date futura)
+    fins_result = await db.execute(
+        text(
+            """
+            SELECT a.end_date AS data,
+                   COALESCE(e.nome, a.employee_id::text) AS nome,
+                   p.name AS post_nome,
+                   a.notes
+            FROM allocations a
+            LEFT JOIN employees e ON e.id = a.employee_id
+            JOIN posts p ON p.id = a.post_id
+            WHERE a.status = 'active'
+              AND a.is_active = true
+              AND a.end_date IS NOT NULL
+              AND a.end_date >= CURRENT_DATE
+              AND a.end_date <= CURRENT_DATE + 45
+            """
+        )
+    )
+    for row in fins_result.fetchall():
+        descricao = f"Fim: {row.nome} — {row.post_nome}"
+        notes = (row.notes or "").strip()
+        if notes and ("dispensa" in notes.lower() or "cobertura" in notes.lower()):
+            linhas_notes = [ln.strip() for ln in notes.splitlines() if ln.strip()]
+            if linhas_notes:
+                descricao = f"{descricao} — {linhas_notes[-1]}"
+        eventos.append(
+            MovimentacaoProgramada(data=row.data, tipo="fim_alocacao", descricao=descricao[:120])
+        )
+
+    # 2) Férias (início e retorno) — fonte canônica hr_vacation_requests
+    ferias_result = await db.execute(
+        text(
+            """
+            SELECT v.start_date, v.end_date, v.return_date, v.internal_notes,
+                   COALESCE(e.nome, v.employee_id::text) AS nome
+            FROM hr_vacation_requests v
+            LEFT JOIN employees e ON e.id = v.employee_id
+            WHERE upper(v.status) IN ('APPROVED', 'IN_PROGRESS', 'SCHEDULED')
+              AND (v.start_date >= CURRENT_DATE OR v.return_date >= CURRENT_DATE)
+            """
+        )
+    )
+    for row in ferias_result.fetchall():
+        if row.start_date is not None and hoje <= row.start_date <= limite:
+            eventos.append(
+                MovimentacaoProgramada(
+                    data=row.start_date,
+                    tipo="inicio_ferias",
+                    descricao=f"Férias: {row.nome} até {row.end_date.strftime('%d/%m/%Y')}",
+                )
+            )
+        if row.return_date is not None and hoje <= row.return_date <= limite:
+            descricao = f"Retorno de férias: {row.nome}"
+            notas = (row.internal_notes or "").upper()
+            if "AVISO PRÉVIO" in notas or "AVISO PREVIO" in notas:
+                descricao += " — entra de AVISO PRÉVIO"
+            eventos.append(
+                MovimentacaoProgramada(data=row.return_date, tipo="retorno_ferias", descricao=descricao)
+            )
+
+    # 3) Vagas em aberto (posts ativos com headcount abaixo do requerido)
+    vagas_result = await db.execute(
+        text(
+            """
+            SELECT p.name AS post_nome,
+                   (p.required_headcount - p.current_headcount) AS faltam
+            FROM posts p
+            WHERE p.is_active = true
+              AND p.required_headcount > p.current_headcount
+            ORDER BY p.name
+            """
+        )
+    )
+    for row in vagas_result.fetchall():
+        eventos.append(
+            MovimentacaoProgramada(
+                data=hoje,
+                tipo="vaga",
+                descricao=f"Vaga aberta: {row.post_nome} ({int(row.faltam)})",
+            )
+        )
+
+    eventos.sort(key=lambda ev: (ev.data, ev.tipo, ev.descricao))
+    return eventos
+
+
+async def _presenca_30d(db: AsyncSession) -> Presenca30d:
+    """
+    Absenteísmo dos últimos 30 dias (hoje-30 até ontem), por posto e geral.
+
+    - esperados = shifts com status='scheduled' no período (cancelados/férias
+      NÃO contam; folgas e turnos sem funcionário também não).
+    - presentes = turno com batida real do funcionário no dia (gp_clock_punches,
+      convertida p/ hora de Manaus) OU check-in manual (actual_start_time).
+    - taxa = presentes/esperados (1 casa); 0 esperados → None (honesto).
+    NOTA: escalas reais só existem desde 08/07 — poucos esperados no início
+    da janela é o dado honesto, não inventar.
+    """
+    result = await db.execute(
+        text(
+            """
+            SELECT COALESCE(p.name, 'posto não identificado') AS post_nome,
+                   COUNT(*) AS dias_esperados,
+                   SUM(
+                       CASE
+                           WHEN sh.actual_start_time IS NOT NULL
+                             OR EXISTS (
+                                 SELECT 1
+                                 FROM gp_clock_punches cp
+                                 WHERE cp.employee_id = sh.employee_id
+                                   AND (cp.punch_timestamp AT TIME ZONE 'UTC'
+                                        AT TIME ZONE 'America/Manaus')::date = sh.shift_date
+                                   AND COALESCE(cp.status, '') NOT IN ('rejected', 'cancelado')
+                             )
+                           THEN 1 ELSE 0
+                       END
+                   ) AS dias_presentes
+            FROM shifts sh
+            LEFT JOIN posts p ON p.id = sh.post_id
+            WHERE sh.shift_date >= CURRENT_DATE - 30
+              AND sh.shift_date <= CURRENT_DATE - 1
+              AND sh.status = 'scheduled'
+              AND sh.is_active = true
+              AND sh.is_off_day = false
+              AND sh.employee_id IS NOT NULL
+            GROUP BY COALESCE(p.name, 'posto não identificado')
+            ORDER BY 1
+            """
+        )
+    )
+
+    por_posto: list[PresencaPorPosto] = []
+    total_esperados = 0
+    total_presentes = 0
+    for row in result.fetchall():
+        esperados = int(row.dias_esperados or 0)
+        presentes = int(row.dias_presentes or 0)
+        por_posto.append(
+            PresencaPorPosto(
+                post_nome=row.post_nome,
+                dias_esperados=esperados,
+                dias_presentes=presentes,
+                taxa=round(presentes * 100.0 / esperados, 1) if esperados else None,
+            )
+        )
+        total_esperados += esperados
+        total_presentes += presentes
+
+    geral = PresencaGeral(
+        esperados=total_esperados,
+        presentes=total_presentes,
+        taxa=round(total_presentes * 100.0 / total_esperados, 1) if total_esperados else None,
+    )
+    return Presenca30d(por_posto=por_posto, geral=geral)
+
+
 @router.get("/painel", response_model=PainelTriagem)
 async def painel_triagem(
     scope: OperationalScope = Depends(get_operational_scope),
@@ -197,7 +370,8 @@ async def painel_triagem(
     Painel consolidado de triagem operacional — SÓ gestores.
 
     Agrega: ocorrências abertas, passagens de turno de hoje,
-    avaliações da última semana e situação das escalas.
+    avaliações da última semana, situação das escalas, movimentações
+    programadas (45 dias) e absenteísmo dos últimos 30 dias.
     """
     if not scope.is_manager:
         raise HTTPException(
@@ -209,6 +383,8 @@ async def painel_triagem(
     passagens_hoje = await _passagens_hoje(db)
     avaliacoes_semana = await _avaliacoes_semana(db)
     escalas = await _escalas(db)
+    movimentacoes = await _movimentacoes(db)
+    presenca_30d = await _presenca_30d(db)
 
     logger.info(
         "Painel de triagem consultado",
@@ -223,4 +399,6 @@ async def painel_triagem(
         passagens_hoje=passagens_hoje,
         avaliacoes_semana=avaliacoes_semana,
         escalas=escalas,
+        movimentacoes=movimentacoes,
+        presenca_30d=presenca_30d,
     )

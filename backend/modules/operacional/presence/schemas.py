@@ -13,6 +13,9 @@ class FuncionarioTurno(BaseModel):
     employee_id: str
     nome: str
     cargo: str | None = None
+    setor: str | None = Field(
+        None, description="Setor da alocação ativa (PORTARIA | RONDISTA | SERVICOS GERAIS | INSALUBRIDADE); null sem alocação"
+    )
     shift_id: str
     turno_inicio: time
     turno_fim: time
@@ -30,6 +33,9 @@ class ExtraPresenca(BaseModel):
 
     employee_id: str
     nome: str
+    setor: str | None = Field(
+        None, description="Setor da alocação ativa (PORTARIA | RONDISTA | SERVICOS GERAIS | INSALUBRIDADE); null sem alocação"
+    )
     presenca_em: datetime
     fonte: str = Field("ponto", description="Extra só existe por batida real")
 
@@ -53,6 +59,13 @@ class ResumoPresenca(BaseModel):
     ausentes: int
     aguardando: int
     extras: int
+    saidas_noturno_ontem: int = Field(
+        0,
+        description=(
+            "Batidas da madrugada (antes das 07:00) de quem teve turno NOTURNO ontem — "
+            "são a SAÍDA do turno de ontem, excluídas dos extras (nunca viram presença de hoje)"
+        ),
+    )
 
 
 class QuadroPresenca(BaseModel):

@@ -3,18 +3,23 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
+  AlertCircle,
   AlertTriangle,
   ArrowLeft,
   Bot,
+  CalendarDays,
   CalendarX,
   CheckCircle2,
   MessageSquare,
+  Plane,
   RefreshCw,
   ShieldAlert,
   Star,
   UserCheck,
+  UserMinus,
   Wrench,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
@@ -48,6 +53,30 @@ interface OcorrenciaItem {
   funcionario_nome?: string | null;
 }
 
+// ── Movimentações programadas (chave nova do painel — pode faltar) ──────────
+interface MovimentacaoItem {
+  data?: string; // 'YYYY-MM-DD'
+  tipo?: string; // fim_alocacao | inicio_ferias | retorno_ferias | vaga
+  descricao?: string;
+}
+
+// ── Presença 30 dias (chave nova do painel — pode faltar; taxa pode ser null)
+interface Presenca30dPosto {
+  post_nome?: string;
+  dias_esperados?: number;
+  dias_presentes?: number;
+  taxa?: number | null;
+}
+
+interface Presenca30d {
+  geral?: {
+    esperados?: number;
+    presentes?: number;
+    taxa?: number | null;
+  };
+  por_posto?: Presenca30dPosto[];
+}
+
 interface PainelTriagem {
   ocorrencias?: {
     abertas_total?: number;
@@ -65,6 +94,8 @@ interface PainelTriagem {
     sem_vigencia?: Array<Record<string, unknown>>;
     drafts?: Array<Record<string, unknown>>;
   };
+  movimentacoes?: MovimentacaoItem[];
+  presenca_30d?: Presenca30d;
 }
 
 // ── Presença agora (contrato /operacional/presenca/hoje) ─────────────────────
@@ -151,6 +182,43 @@ const SEVERIDADE_LABEL: Record<string, string> = {
 };
 
 const MIN_ACAO = 10;
+
+// Ícone/cor por tipo de movimentação programada
+const MOVIMENTACAO_TIPO: Record<string, { rotulo: string; Icone: LucideIcon; texto: string }> = {
+  fim_alocacao: { rotulo: 'Fim de alocação', Icone: UserMinus, texto: 'text-red-600' },
+  inicio_ferias: { rotulo: 'Início de férias', Icone: Plane, texto: 'text-blue-600' },
+  retorno_ferias: { rotulo: 'Retorno de férias', Icone: UserCheck, texto: 'text-green-600' },
+  vaga: { rotulo: 'Vaga em aberto', Icone: AlertCircle, texto: 'text-amber-600' },
+};
+
+function dataLocalISO(offsetDias = 0): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDias);
+  const mes = String(d.getMonth() + 1).padStart(2, '0');
+  const dia = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mes}-${dia}`;
+}
+
+function rotuloDataMovimentacao(iso: string): string {
+  if (iso === dataLocalISO(0)) return 'Hoje';
+  if (iso === dataLocalISO(1)) return 'Amanhã';
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+}
+
+// Cor da taxa de presença: ≥90% verde, 75–89% âmbar, <75% vermelho
+function corTaxaPresenca(taxa?: number | null): string {
+  if (typeof taxa !== 'number') return 'text-muted-foreground';
+  if (taxa >= 90) return 'text-green-600';
+  if (taxa >= 75) return 'text-amber-600';
+  return 'text-red-600';
+}
+
+function formatarTaxa(taxa?: number | null): string {
+  if (typeof taxa !== 'number') return '—';
+  return `${Math.round(taxa)}%`;
+}
 
 function str(obj: Record<string, unknown>, ...keys: string[]): string {
   for (const k of keys) {
@@ -350,6 +418,22 @@ export default function TriagemPage() {
   const drafts = painel?.escalas?.drafts || [];
   const passagensHoje = painel?.passagens_hoje || [];
   const avaliacoes = painel?.avaliacoes_semana;
+  // Chaves novas do painel — defensivo: se faltarem, a seção não renderiza
+  const movimentacoes = Array.isArray(painel?.movimentacoes) ? painel.movimentacoes : null;
+  const presenca30d =
+    painel?.presenca_30d && typeof painel.presenca_30d === 'object' ? painel.presenca_30d : null;
+
+  const movimentacoesPorData = useMemo(() => {
+    // Backend entrega ordenado por data — preservar a ordem ao agrupar
+    const grupos: Array<{ data: string; itens: MovimentacaoItem[] }> = [];
+    for (const m of movimentacoes || []) {
+      if (!m || typeof m.data !== 'string' || !m.data) continue;
+      const grupo = grupos.find((g) => g.data === m.data);
+      if (grupo) grupo.itens.push(m);
+      else grupos.push({ data: m.data, itens: [m] });
+    }
+    return grupos;
+  }, [movimentacoes]);
 
   const severidadesOrdenadas = useMemo(
     () =>
@@ -492,6 +576,65 @@ export default function TriagemPage() {
             </CardContent>
           </Card>
 
+          {/* Presença — últimos 30 dias (só renderiza se o backend já enviar a chave) */}
+          {presenca30d && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <UserCheck className="h-4 w-4 text-blue-600" /> Presença — últimos 30 dias
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-baseline gap-2">
+                  <p
+                    className={`font-data text-3xl font-bold tabular-nums ${corTaxaPresenca(presenca30d.geral?.taxa)}`}
+                  >
+                    {formatarTaxa(presenca30d.geral?.taxa)}
+                  </p>
+                  {typeof presenca30d.geral?.taxa === 'number' ? (
+                    <span className="text-xs text-muted-foreground">
+                      {presenca30d.geral?.presentes ?? 0}/{presenca30d.geral?.esperados ?? 0} presenças
+                      esperadas
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">sem histórico suficiente</span>
+                  )}
+                </div>
+                {(presenca30d.por_posto || []).length > 0 && (
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-left text-xs text-muted-foreground">
+                          <th className="py-2 pr-2 font-medium">Posto</th>
+                          <th className="py-2 pr-2 text-center font-medium">Presentes/Esperados</th>
+                          <th className="py-2 text-center font-medium">Taxa</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(presenca30d.por_posto || []).map((p, i) => (
+                          <tr key={i} className="border-b last:border-0">
+                            <td className="py-2 pr-2">{p.post_nome || '—'}</td>
+                            <td className="py-2 pr-2 text-center tabular-nums">
+                              {p.dias_presentes ?? 0}/{p.dias_esperados ?? 0}
+                            </td>
+                            <td
+                              className={`py-2 text-center font-semibold tabular-nums ${corTaxaPresenca(p.taxa)}`}
+                            >
+                              {formatarTaxa(p.taxa)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  histórico conta a partir das escalas reais (08/07)
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Cards de topo */}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <Card>
@@ -560,6 +703,68 @@ export default function TriagemPage() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Movimentações programadas (só renderiza se o backend já enviar a chave) */}
+          {movimentacoes !== null && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <CalendarDays className="h-4 w-4 text-blue-600" /> Movimentações programadas
+                  <span className="text-xs font-normal text-muted-foreground">próximos 45 dias</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {movimentacoesPorData.length === 0 ? (
+                  <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <CheckCircle2 className="h-4 w-4 text-green-600" /> Nenhuma movimentação programada
+                    nos próximos 45 dias.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {movimentacoesPorData.map((grupo) => {
+                      const destaque =
+                        grupo.data === dataLocalISO(0) || grupo.data === dataLocalISO(1);
+                      return (
+                        <div key={grupo.data} className="flex gap-3">
+                          <div className="w-24 shrink-0 pt-0.5">
+                            <Badge
+                              className={
+                                destaque
+                                  ? 'bg-blue-600 text-white hover:bg-blue-600'
+                                  : 'bg-slate-100 text-slate-700 hover:bg-slate-100'
+                              }
+                            >
+                              {rotuloDataMovimentacao(grupo.data)}
+                            </Badge>
+                          </div>
+                          <ul
+                            className={`flex-1 space-y-1 border-l pl-3 ${
+                              destaque ? 'border-blue-300' : 'border-[hsl(var(--border))]'
+                            }`}
+                          >
+                            {grupo.itens.map((m, i) => {
+                              const cfg = MOVIMENTACAO_TIPO[m.tipo || ''];
+                              const Icone = cfg?.Icone || AlertCircle;
+                              return (
+                                <li key={i} className="flex items-start gap-2 text-sm">
+                                  <Icone
+                                    className={`mt-0.5 h-4 w-4 shrink-0 ${cfg?.texto || 'text-muted-foreground'}`}
+                                  />
+                                  <span className={destaque ? 'font-medium' : ''}>
+                                    {m.descricao || cfg?.rotulo || m.tipo || 'Movimentação'}
+                                  </span>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Ocorrências abertas */}
           <Card>

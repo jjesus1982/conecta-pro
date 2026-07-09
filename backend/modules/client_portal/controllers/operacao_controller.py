@@ -21,6 +21,12 @@ async def resumo(client_id: str = Depends(get_current_portal_client), db: AsyncS
     return await svc.resumo(db, client_id)
 
 
+@router.get("/ocorrencias")
+async def ocorrencias(client_id: str = Depends(get_current_portal_client), db: AsyncSession = Depends(get_db)) -> Any:
+    """Ocorrências não-sensíveis do condomínio (incidentes/manutenção/elogios)."""
+    return await svc.ocorrencias(db, client_id)
+
+
 @router.get("/equipe")
 async def equipe(client_id: str = Depends(get_current_portal_client), db: AsyncSession = Depends(get_db)) -> Any:
     return await svc.equipe(db, client_id)

@@ -447,6 +447,105 @@ def briefing_operacional_matinal(self):
                     resumo["batidas_hoje"] = None
                 linhas.append("")
 
+                # ── b3) MOVIMENTAÇÕES PROGRAMADAS (hoje/amanhã) ───────────────
+                # Mesmas fontes do painel de triagem (fins de alocação em
+                # allocations, férias em hr_vacation_requests — fonte canônica
+                # do DP — e vagas em posts), reimplementadas em SQL direto
+                # (sem importar o módulo triage). Vazio → linha honesta.
+                linhas.append("*Movimentações (hoje/amanhã)*")
+                try:
+                    amanha = hoje + timedelta(days=1)
+                    eventos: list[tuple] = []  # (data, descricao)
+
+                    fins = (
+                        await db.execute(
+                            text(
+                                """
+                                SELECT a.end_date AS data,
+                                       COALESCE(e.nome, a.employee_id::text) AS nome,
+                                       p.name AS post_nome,
+                                       a.notes
+                                FROM allocations a
+                                LEFT JOIN employees e ON e.id = a.employee_id
+                                JOIN posts p ON p.id = a.post_id
+                                WHERE a.status = 'active'
+                                  AND a.is_active = TRUE
+                                  AND a.end_date IS NOT NULL
+                                  AND a.end_date IN (:hoje, :amanha)
+                                """
+                            ),
+                            {"hoje": hoje, "amanha": amanha},
+                        )
+                    ).all()
+                    for r in fins:
+                        desc = f"Fim: {r.nome} — {r.post_nome}"
+                        notes = (r.notes or "").strip()
+                        if notes and ("dispensa" in notes.lower() or "cobertura" in notes.lower()):
+                            linhas_notes = [ln.strip() for ln in notes.splitlines() if ln.strip()]
+                            if linhas_notes:
+                                desc = f"{desc} — {linhas_notes[-1]}"
+                        eventos.append((r.data, desc[:120]))
+
+                    ferias_mov = (
+                        await db.execute(
+                            text(
+                                """
+                                SELECT v.start_date, v.end_date, v.return_date,
+                                       v.internal_notes,
+                                       COALESCE(e.nome, v.employee_id::text) AS nome
+                                FROM hr_vacation_requests v
+                                LEFT JOIN employees e ON e.id = v.employee_id
+                                WHERE upper(v.status) IN ('APPROVED', 'IN_PROGRESS', 'SCHEDULED')
+                                  AND (v.start_date IN (:hoje, :amanha)
+                                       OR v.return_date IN (:hoje, :amanha))
+                                """
+                            ),
+                            {"hoje": hoje, "amanha": amanha},
+                        )
+                    ).all()
+                    for r in ferias_mov:
+                        if r.start_date in (hoje, amanha):
+                            eventos.append(
+                                (r.start_date,
+                                 f"Férias: {r.nome} até {r.end_date.strftime('%d/%m/%Y')}")
+                            )
+                        if r.return_date is not None and r.return_date in (hoje, amanha):
+                            desc = f"Retorno de férias: {r.nome}"
+                            notas_int = (r.internal_notes or "").upper()
+                            if "AVISO PRÉVIO" in notas_int or "AVISO PREVIO" in notas_int:
+                                desc += " — entra de AVISO PRÉVIO"
+                            eventos.append((r.return_date, desc))
+
+                    vagas_mov = (
+                        await db.execute(
+                            text(
+                                """
+                                SELECT p.name AS post_nome,
+                                       (p.required_headcount - p.current_headcount) AS faltam
+                                FROM posts p
+                                WHERE p.is_active = TRUE
+                                  AND p.required_headcount > p.current_headcount
+                                ORDER BY p.name
+                                """
+                            )
+                        )
+                    ).all()
+                    for r in vagas_mov:
+                        eventos.append((hoje, f"Vaga aberta: {r.post_nome} ({int(r.faltam)})"))
+
+                    if eventos:
+                        eventos.sort(key=lambda ev: (ev[0], ev[1]))
+                        for data_ev, desc in eventos:
+                            linhas.append(f"• {data_ev.strftime('%d/%m')} — {desc}")
+                    else:
+                        linhas.append("• sem movimentações programadas p/ hoje/amanhã")
+                    resumo["movimentacoes_hoje_amanha"] = len(eventos)
+                except Exception as e:
+                    logger.warning(f"[Briefing] movimentações indisponíveis: {e}")
+                    linhas.append("• sem registros (fontes de movimentações indisponíveis)")
+                    resumo["movimentacoes_hoje_amanha"] = None
+                linhas.append("")
+
                 # ── c) OCORRÊNCIAS ABERTAS por severidade ─────────────────────
                 por_sev = (
                     await db.execute(
@@ -729,7 +828,7 @@ def gerar_escalas_proximo_mes(self):
     e avisa a gestão no Telegram para revisar e publicar. Nunca publica sozinho."""
 
     async def _run() -> dict:
-        from datetime import date
+        from datetime import date, datetime, timedelta
 
         from modules.operacional.services.auto_scale_service import AutoScaleService
 
@@ -737,9 +836,134 @@ def gerar_escalas_proximo_mes(self):
         mes = 1 if hoje.month == 12 else hoje.month + 1
         ano = hoje.year + 1 if hoje.month == 12 else hoje.year
 
+        import calendar
+        import uuid as _uuid
+
+        from sqlalchemy import text as _text
+
+        dias_prox = calendar.monthrange(ano, mes)[1]
+        # Julho→agosto etc.: se o mês ATUAL tem 31 dias, a alternância 12x36 INVERTE a
+        # paridade no mês seguinte (quem trabalhou dia 31 folga dia 1). Mês de 30 dias mantém.
+        dias_atual = calendar.monthrange(hoje.year, hoje.month)[1]
+        inverte_paridade = dias_atual % 2 == 1
+
         async with get_async_db_session() as db:
-            service = AutoScaleService(db)
-            result = await service.generate_scales_for_month(mes, ano, created_by=None)
+            # Padrão REAL vigente: por funcionário/posto, a partir dos turnos NÃO-cancelados
+            # do mês atual, só para alocações que continuam valendo no mês seguinte.
+            padroes = (
+                await db.execute(
+                    _text(
+                        """
+                        SELECT s.post_id::text, s.employee_id::text,
+                               max(s.planned_hours) AS horas,
+                               bool_or(s.is_night_shift) AS noturno,
+                               mode() WITHIN GROUP (ORDER BY s.planned_start_time) AS inicio,
+                               mode() WITHIN GROUP (ORDER BY s.planned_end_time) AS fim,
+                               mode() WITHIN GROUP (ORDER BY (EXTRACT(DAY FROM s.shift_date)::int % 2)) AS paridade
+                        FROM shifts s
+                        JOIN scales sc ON sc.id = s.scale_id AND sc.month = :mes_atual AND sc.year = :ano_atual
+                        JOIN allocations a ON a.employee_id = s.employee_id AND a.post_id = s.post_id
+                             AND a.status = 'active' AND a.is_active
+                             AND (a.end_date IS NULL OR a.end_date >= :prim_prox)
+                        JOIN employees e ON e.id = s.employee_id AND e.status = 'ativo'
+                        WHERE s.status = 'scheduled' AND s.is_active
+                        GROUP BY s.post_id, s.employee_id
+                        """
+                    ),
+                    {"mes_atual": hoje.month, "ano_atual": hoje.year, "prim_prox": date(ano, mes, 1)},
+                )
+            ).all()
+
+            criadas, turnos_criados = 0, 0
+            postos_padroes: dict[str, list] = {}
+            for post_id, emp_id, horas, noturno, inicio, fim, paridade in padroes:
+                postos_padroes.setdefault(post_id, []).append((emp_id, horas, noturno, inicio, fim, int(paridade)))
+
+            for post_id, pessoas in postos_padroes.items():
+                ja_tem = (
+                    await db.execute(
+                        _text("SELECT 1 FROM scales WHERE post_id=CAST(:p AS uuid) AND month=:m AND year=:a"),
+                        {"p": post_id, "m": mes, "a": ano},
+                    )
+                ).first()
+                if ja_tem:
+                    continue
+                scale_id = str(_uuid.uuid4())
+                await db.execute(
+                    _text(
+                        """
+                        INSERT INTO scales (id, post_id, scale_type, status, month, year, name,
+                            start_date, end_date, total_shifts, filled_shifts, total_hours,
+                            overtime_hours, is_active, created_at, updated_at, notes)
+                        VALUES (CAST(:id AS uuid), CAST(:post AS uuid), '12x36', 'draft', :m, :a,
+                            :nome,
+                            :ini, :fim, 0, 0, 0, 0, true, now(), now(),
+                            'Gerada automaticamente copiando a grade REAL do mês anterior (turno+alternância por pessoa; paridade 12x36 ajustada pela virada do mês). Revisar e publicar.')
+                        """
+                    ),
+                    {"id": scale_id, "post": post_id, "m": mes, "a": ano,
+                     "nome": f"Escala {mes:02d}/{ano} (herdada da grade real)",
+                     "ini": date(ano, mes, 1), "fim": date(ano, mes, dias_prox)},
+                )
+                criadas += 1
+                for emp_id, horas, noturno, inicio, fim, paridade in pessoas:
+                    eh_12x36 = float(horas) >= 12
+                    par_prox = (1 - paridade) if (eh_12x36 and inverte_paridade) else paridade
+                    for d in range(1, dias_prox + 1):
+                        dia = date(ano, mes, d)
+                        if eh_12x36:
+                            if d % 2 != par_prox:
+                                continue
+                            h, pausa, ini_d, fim_d, is_n = 12.0, 60, inicio, fim, bool(noturno)
+                        else:
+                            dow = dia.weekday()
+                            if dow == 6:
+                                continue
+                            if dow == 5:
+                                h, pausa = 4.0, 0
+                                fim_d = (datetime.combine(dia, inicio) + timedelta(hours=4)).time()
+                            else:
+                                h, pausa = 8.0, 60
+                                fim_d = (datetime.combine(dia, inicio) + timedelta(hours=9)).time()
+                            ini_d, is_n = inicio, False
+                        await db.execute(
+                            _text(
+                                """
+                                INSERT INTO shifts (id, scale_id, employee_id, post_id, shift_date,
+                                    planned_start_time, planned_end_time, planned_break_minutes, status,
+                                    is_holiday, is_night_shift, is_overtime, is_off_day, needs_substitution,
+                                    planned_hours, actual_hours, overtime_hours, night_hours, base_pay,
+                                    overtime_pay, night_bonus, holiday_bonus, total_pay, notes, is_active,
+                                    created_at, updated_at)
+                                VALUES (CAST(:id AS uuid), CAST(:sc AS uuid), CAST(:emp AS uuid),
+                                    CAST(:post AS uuid), :dia, :ini, :fim, :pausa, 'scheduled',
+                                    false, :noturno, false, false, false, :h, 0,0,0,0,0,0,0,0,
+                                    'Herdado da grade real do mês anterior.', true, now(), now())
+                                """
+                            ),
+                            {"id": str(_uuid.uuid4()), "sc": scale_id, "emp": emp_id, "post": post_id,
+                             "dia": dia, "ini": ini_d, "fim": fim_d, "pausa": pausa,
+                             "noturno": is_n, "h": h},
+                        )
+                        turnos_criados += 1
+                await db.execute(
+                    _text(
+                        """
+                        UPDATE scales s SET total_shifts=q.n, filled_shifts=q.n, total_hours=q.h
+                        FROM (SELECT count(*) n, COALESCE(sum(planned_hours),0) h FROM shifts
+                              WHERE scale_id=CAST(:sc AS uuid) AND is_active) q
+                        WHERE s.id=CAST(:sc AS uuid)
+                        """
+                    ),
+                    {"sc": scale_id},
+                )
+            result = {
+                "success": True,
+                "message": f"Geradas {criadas} escalas com {turnos_criados} turnos (grade real herdada)",
+                "scales_created": criadas,
+                "shifts_created": turnos_criados,
+                "errors": [],
+            }
 
             # Respeitar FÉRIAS APROVADAS do DP: turnos gerados dentro de férias viram 'cancelled'
             from sqlalchemy import text as _text
