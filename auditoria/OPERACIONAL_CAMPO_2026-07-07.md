@@ -338,3 +338,25 @@ DP + alocações + escalas + headcount, com backup antes de cada lote e FORWARD 
    tipo; sem funcionário/descrição/anexos — risco de vazamento tratado por design).
 
 Portão final: sweep 219 rotas GET → 173×200, 28×404 honestos, 18×422 de parâmetro, ZERO 500.
+
+---
+
+# RODADA 8 (09/07) — Enxugamento: unificar duplicados sem perder qualidade (ordem do Jordan)
+
+Diagnóstico com evidência (menu tinha 31 itens):
+1. **Processos Disciplinares ≡ Medidas Administrativas** — mesma tela (endpoints e hooks idênticos,
+   573 linhas cada, 42 linhas de diff). MANTIDA: Medidas Administrativas (padrão mais novo).
+   /disciplinar virou redirect (URL preservada).
+2. **"Agentes IA" era a lista de funcionários** (useEmployees) — nome enganoso e duplicava
+   Colaboradores (707 linhas, com detalhe por pessoa + abas turnos/ocorrências/banco). MANTIDA:
+   Colaboradores; /agentes virou redirect; menu renomeado "Colaboradores (Operacional)".
+3. **Mapa ao Vivo ≡ Cobertura ao Vivo** — mesmas fontes (useCoverageReport+usePosts). MANTIDA:
+   Cobertura (tabela completa); /mapa virou redirect. (Se sentir falta do agrupamento por região
+   do antigo Mapa, reintroduzo como aba da Cobertura.)
+4. **Editor Visual saiu do menu** — agora é botão dentro de Escalas (onde pertence).
+5. Menu: 31 → 28 itens, todos com destino único. Links do módulo Campo mantidos (Campo não tem
+   menu próprio — são a única porta; candidato a módulo próprio numa próxima fase).
+6. **Backend**: mount espelhado /people-management/operations/* (≈100 rotas duplicadas de
+   /operacional/*) anotado como DEPRECIADO no aggregator — único consumidor é o
+   dashboardStatsService (rotas do dashboard_controller que só existem lá); plano de fase 2:
+   mount único e remoção do espelho. Sem remoção agora (zero risco de quebra).

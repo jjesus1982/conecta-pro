@@ -1,3 +1,7 @@
+# DEPRECIACAO 2026-07-09 (auditoria de redundancia): este mount espelha ~100 rotas de
+# /operacional/* sob /people-management/operations/*. Unico consumidor conhecido:
+# frontend dashboardStatsService.ts (rotas do dashboard_controller, que so existem aqui).
+# Plano: migrar o dashboard_controller p/ mount unico e remover o espelho numa proxima fase.
 """
 Operations Aggregator — Router que re-exporta routers do modulo operacional.
 

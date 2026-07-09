@@ -226,7 +226,6 @@ export const modules: Module[] = [
       // --- Postos e Escalas ---
       { id: 'postos', title: 'Postos', href: '/modulos/operacional/postos', icon: 'MapPin', permissions: ['operacional:postos'] },
       { id: 'escalas', title: 'Escalas', href: '/modulos/operacional/escalas', icon: 'CalendarDays', permissions: ['operacional:escalas'] },
-      { id: 'escalas-visual', title: 'Editor Visual', href: '/modulos/operacional/escalas/visual', icon: 'CalendarDays', permissions: ['operacional:escalas'] },
       { id: 'alocacoes', title: 'Alocacoes', href: '/modulos/operacional/alocacoes', icon: 'Users', permissions: ['operacional:alocacoes'] },
       { id: 'turnos', title: 'Turnos', href: '/modulos/operacional/turnos', icon: 'Clock', permissions: ['operacional:turnos'] },
       { id: 'substituicoes', title: 'Substituicoes', href: '/modulos/operacional/substituicoes', icon: 'RefreshCw', permissions: ['operacional:read'] },
@@ -242,7 +241,6 @@ export const modules: Module[] = [
       { id: 'triagem', title: 'Triagem (Gestao)', href: '/modulos/operacional/triagem', icon: 'Activity', permissions: ['operacional:read'] },
       // --- Ocorrencias e Disciplinar ---
       { id: 'ocorrencias', title: 'Ocorrencias', href: '/modulos/operacional/ocorrencias', icon: 'AlertTriangle', permissions: ['operacional:ocorrencias'] },
-      { id: 'disciplinar', title: 'Processos Disciplinares', href: '/modulos/operacional/disciplinar', icon: 'FileText', permissions: ['operacional:disciplinar'] },
       { id: 'medidas-administrativas', title: 'Medidas Administrativas', href: '/modulos/operacional/medidas-administrativas', icon: 'AlertTriangle', permissions: ['operacional:disciplinar'] },
       // --- Campo e Rondas ---
       { id: 'ordens-servico-campo', title: 'Ordens de Servico', href: '/modulos/campo/ordens-servico', icon: 'ClipboardList', permissions: ['campo:checkin'] },
@@ -252,14 +250,13 @@ export const modules: Module[] = [
       { id: 'comunicados-campo', title: 'Comunicados Campo', href: '/modulos/campo/comunicados', icon: 'Megaphone', permissions: ['campo:comunicados'] },
       // --- Tempo Real ---
       { id: 'cobertura', title: 'Cobertura ao Vivo', href: '/modulos/operacional/cobertura', icon: 'Activity', permissions: ['operacional:postos'] },
-      { id: 'mapa', title: 'Mapa ao Vivo', href: '/modulos/operacional/mapa', icon: 'MapPin', permissions: ['operacional:postos'] },
       { id: 'kpi', title: 'KPI & Tendencias', href: '/modulos/operacional/kpi', icon: 'TrendingUp', permissions: ['operacional:read'] },
       // --- Comunicacao ---
       { id: 'comunicados', title: 'Comunicados', href: '/modulos/operacional/comunicados', icon: 'Bell', permissions: ['operacional:comunicados'] },
       { id: 'notificacoes', title: 'Notificacoes', href: '/modulos/operacional/notificacoes', icon: 'Bell', permissions: ['operacional:notificacoes'] },
       // --- IA Operacional ---
       { id: 'ai-command-center', title: 'Central IA', href: '/modulos/operacional/ai-command-center', icon: 'Zap', permissions: ['operacional:read'] },
-      { id: 'agentes-ia', title: 'Agentes IA', href: '/modulos/operacional/agentes', icon: 'Bot', permissions: ['operacional:read'] },
+      { id: 'agentes-ia', title: 'Colaboradores (Operacional)', href: '/modulos/operacional/colaboradores', icon: 'Bot', permissions: ['operacional:read'] },
     ],
   },
 

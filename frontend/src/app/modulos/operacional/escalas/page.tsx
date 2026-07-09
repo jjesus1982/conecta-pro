@@ -224,6 +224,12 @@ export default function EscalasPage() {
                   Voltar
                 </Button>
               </Link>
+              <Link href="/modulos/operacional/escalas/visual">
+                <Button variant="outline" size="sm">
+                  <Calendar className="w-4 h-4 mr-2" />
+                  Editor Visual
+                </Button>
+              </Link>
               <ExportButton
                 data={exportData}
                 filename="escalas"
