@@ -310,3 +310,31 @@ DP + alocações + escalas + headcount, com backup antes de cada lote e FORWARD 
 ## Provas
 - Zero duplo-turno no mês (validado após CADA lote); planilha × sistema = 100% reconciliado;
   férias registradas no DP e visíveis em /operacional/vacations; posto duplicado desativado.
+
+---
+
+# RODADA 7 (08-09/07) — Lapidação total: 6 frentes (ordem: "implemente todas, em loop")
+
+1. **Escala do mês seguinte herda a grade REAL** — a task do dia 25 deixou de usar o gerador
+   genérico: copia turno+alternância vigentes de cada pessoa, com FLIP de paridade na virada de
+   mês de 31 dias (12x36 contínuo) e cancelamento automático de férias aprovadas do DP.
+   PROVADO: agosto gerado em rascunho — 7 escalas, 903 turnos, 11 cancelados pelas férias do
+   Francisco, aviso no Telegram. (Revisar: Euler×Francisco pós-22/08 depende da decisão do Jordan.)
+2. **SETOR por alocação** (PORTARIA/RONDISTA/SERVICOS GERAIS/INSALUBRIDADE): coluna nova seedada
+   da planilha oficial (52/52), exposta na API de alocações e como chips no quadro de presença.
+   É a base para o adicional de insalubridade no DP/folha (integração futura).
+3. **Movimentações programadas**: painel de triagem com timeline 45 dias (fim de alocação, início/
+   retorno de férias c/ aviso-prévio, vagas abertas) + seção "hoje/amanhã" no briefing 07:30.
+   PROVADO com a linha do tempo real (retorno Vieira 15/07 → fim Euler 21 → Fernando 22 →
+   Ediwilson 22 → férias Francisco 23).
+4. **Presença v2**: janelas por turno (diurno [início-2h, fim]; noturno até 07:00 do dia seguinte)
+   — batida da madrugada é SAÍDA do noturno de ontem (contador honesto `saidas_noturno_ontem`,
+   provado =2); check-in manual respeita a mesma janela; **sync Sólides 1h→15min** (quase ao vivo).
+5. **Instruções de posto (post orders)** versionadas (histórico 10 versões): gestor edita (PUT,
+   líder→403 provado), líder lê no celular; tela + menu. Seed real: instruções do Ideal Flores v1.
+6. **Ronda mobile** com checkpoint georreferenciado (GPS negado → registra SEM coordenadas com
+   aviso, nunca inventa) + **absenteísmo 30d** no painel (215+ turnos avaliados, taxa % por posto)
+   + **portal do cliente**: ocorrências NÃO-sensíveis do condomínio (allowlist dupla categoria+
+   tipo; sem funcionário/descrição/anexos — risco de vazamento tratado por design).
+
+Portão final: sweep 219 rotas GET → 173×200, 28×404 honestos, 18×422 de parâmetro, ZERO 500.
