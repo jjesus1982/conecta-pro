@@ -51,10 +51,18 @@ def run_async(coro):
 
 
 # Config por tipo: tabela de origem, coluna-chave, coluna de recibo
+# S-2240 usa a tabela de rastreio própria (sst_s2240_transmissoes — Missão M2):
+# o evento não tem coluna de recibo na origem (employees) e sem rastreio a
+# Central de Transmissão não teria como impedir dupla transmissão.
 _FONTES = {
     "S-2210": {"tabela": "gp_cats", "chave": "cat_id", "col_recibo": "numero_recibo_esocial"},
     "S-2220": {"tabela": "gp_asos", "chave": "aso_id", "col_recibo": "recibo_s2220"},
     "S-2230": {"tabela": "sst_afastamentos", "chave": "id::text", "col_recibo": "recibo_s2230"},
+    "S-2240": {
+        "tabela": "sst_s2240_transmissoes",
+        "chave": "employee_id::text",
+        "col_recibo": "recibo_s2240",
+    },
 }
 
 
@@ -64,6 +72,18 @@ async def _transmitir(tipo: str, ref_id: str) -> dict[str, Any]:
 
     fonte = _FONTES[tipo]
     async with async_session_factory() as db:
+        if tipo == "S-2240":
+            # garante a linha de rastreio (o transmitir_evento_sst não persiste
+            # status para S-2240 — a origem employees não tem colunas eSocial)
+            await db.execute(
+                text(
+                    "INSERT INTO sst_s2240_transmissoes (employee_id, esocial_status) "
+                    "VALUES (CAST(:r AS uuid), 'enfileirada') "
+                    "ON CONFLICT (employee_id) DO NOTHING"
+                ),
+                {"r": str(ref_id)},
+            )
+            await db.commit()
         try:
             resultado = await transmitir_evento_sst(db, tipo, ref_id)
         except ValueError as exc:
@@ -99,6 +119,19 @@ async def _transmitir(tipo: str, ref_id: str) -> dict[str, Any]:
                 text(f"UPDATE {fonte['tabela']} SET {sets} WHERE {fonte['chave']} = :r"), params
             )
             await db.commit()
+        if tipo == "S-2240":
+            # espelha o status honesto no rastreio (aceita|transmitida|rejeitada) —
+            # para os demais tipos o próprio transmitir_evento_sst grava na origem
+            await db.execute(
+                text(
+                    "UPDATE sst_s2240_transmissoes SET esocial_status = :st, "
+                    "transmitida_em = CASE WHEN :st IN ('transmitida', 'aceita') "
+                    "  THEN COALESCE(transmitida_em, now()) ELSE transmitida_em END, "
+                    "atualizado_em = now() WHERE employee_id::text = :r"
+                ),
+                {"st": resultado.get("status") or "erro", "r": str(ref_id)},
+            )
+            await db.commit()
         return resultado
 
 
@@ -132,6 +165,17 @@ def transmit_aso_to_esocial(self, aso_id: str):
 def transmit_afastamento_to_esocial(self, afastamento_id: str):
     """Transmite afastamento (S-2230) ao eSocial (início e, no retorno, o término)."""
     return _task_transmit(self, "S-2230", afastamento_id)
+
+
+@shared_task(bind=True, name="sst.transmit_s2240_to_esocial", queue="gov.esocial", max_retries=3)
+def transmit_s2240_to_esocial(self, employee_id: str):
+    """Transmite S-2240 (Condições Ambientais) ao eSocial — ref = employees.id.
+
+    Disparada SOMENTE pela Central de Transmissão (lote assistido, gate humano):
+    a Central já barra ASG (gate MB) e itens já existentes no governo (espelho).
+    Rastreio de protocolo/recibo: sst_s2240_transmissoes (pull 2h casa o recibo).
+    """
+    return _task_transmit(self, "S-2240", employee_id)
 
 
 # ============================================================================

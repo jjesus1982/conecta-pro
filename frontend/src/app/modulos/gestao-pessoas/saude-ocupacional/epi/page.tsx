@@ -43,6 +43,7 @@ import {
 import { useEntregasEPI, useFichasEPI, useGerarFichaEPI, useRegistrarEntregaEPI } from '@/hooks/sst';
 import { apiErrorDetail, sstService, type EPIEntregaItem } from '@/lib/services/sst';
 import { EmployeeSelect, useActiveEmployees } from '@/components/sst/EmployeeSelect';
+import { RolloutAssinaturasSection } from './rollout-assinaturas';
 
 function getFichaStatusBadge(status: string) {
   const config: Record<string, { label: string; className: string }> = {
@@ -784,6 +785,9 @@ export default function EPIPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Rollout de Assinaturas — acesso ao Portal do Funcionario */}
+          <RolloutAssinaturasSection />
         </TabsContent>
       </Tabs>
 

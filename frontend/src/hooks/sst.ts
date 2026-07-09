@@ -39,6 +39,7 @@ export const sstKeys = {
   asos: () => [...sstKeys.all, 'asos'] as const,
   entregasEPI: () => [...sstKeys.all, 'entregas-epi'] as const,
   fichasEPI: () => [...sstKeys.all, 'fichas-epi'] as const,
+  rolloutAssinaturas: () => [...sstKeys.all, 'rollout-assinaturas'] as const,
   nr1Compliance: () => [...sstKeys.all, 'nr1-compliance'] as const,
   regularizacao: () => [...sstKeys.all, 'asos-regularizacao'] as const,
   semAso: () => [...sstKeys.all, 'sem-aso'] as const,
@@ -422,6 +423,37 @@ export function useGerarFichaEPI() {
     mutationFn: (data: FichaEPIGerarPayload) => sstService.gerarFichaEPI(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: sstKeys.fichasEPI() });
+    },
+  });
+}
+
+// =============================================================================
+// ROLLOUT DE ASSINATURAS (acesso ao Portal do Funcionario)
+// =============================================================================
+
+/**
+ * Hook para o rollout das assinaturas de fichas de EPI
+ * (acesso ao Portal por funcionario ativo, fichas pendentes, prontidao)
+ */
+export function useRolloutAssinaturas() {
+  return useQuery({
+    queryKey: sstKeys.rolloutAssinaturas(),
+    queryFn: () => sstService.getRolloutAssinaturas(),
+    staleTime: 60 * 1000,
+  });
+}
+
+/**
+ * Hook para ativar acessos ao Portal em massa (fluxo existente de
+ * primeiro acesso: CPF + data de nascimento -> funcionario cria a senha)
+ */
+export function useAtivarAcessosPortal() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (employee_ids: string[]) => sstService.ativarAcessosPortal(employee_ids),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: sstKeys.rolloutAssinaturas() });
     },
   });
 }

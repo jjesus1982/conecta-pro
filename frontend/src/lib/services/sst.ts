@@ -293,6 +293,68 @@ export interface FichaEPIGerarPayload {
 }
 
 // =============================================================================
+// TIPOS - ROLLOUT DE ASSINATURAS (acesso ao Portal do Funcionario)
+// =============================================================================
+
+/** GET /sst/assinaturas/rollout — situacao por funcionario ativo */
+export interface RolloutFuncionario {
+  employee_id: string;
+  nome: string;
+  cargo: string | null;
+  posto: string | null;
+  cpf_mascarado: string | null;
+  tem_acesso_portal: boolean;
+  ja_logou: boolean;
+  logins_registrados: number;
+  ultimo_login: string | null;
+  acesso_liberado_em: string | null;
+  senha_definida_em: string | null;
+  pre_requisitos_ok: boolean;
+  fichas_pendentes: number;
+  fichas_assinadas: number;
+  entregas_sem_ficha: number;
+  pronto_para_assinar: boolean;
+}
+
+export interface RolloutResumo {
+  total_ativos: number;
+  com_acesso_portal: number;
+  sem_acesso_portal: number;
+  ja_logaram: number;
+  com_fichas_pendentes: number;
+  prontos_para_assinar: number;
+  total_fichas_pendentes: number;
+  total_entregas_sem_ficha: number;
+}
+
+export interface RolloutAssinaturas {
+  resumo: RolloutResumo;
+  notas: string[];
+  funcionarios: RolloutFuncionario[];
+}
+
+/** POST /sst/assinaturas/ativar-acessos — resultado por funcionario */
+export interface AtivarAcessoResultado {
+  employee_id: string;
+  nome: string | null;
+  cargo?: string | null;
+  cpf_mascarado?: string | null;
+  situacao: 'ativado' | 'ja_tinha_senha' | 'pendencia_cadastro' | 'erro';
+  detalhe?: string;
+  credencial_inicial?: string;
+  link_primeiro_acesso?: string;
+  link_login?: string;
+  instrucoes_funcionario?: string;
+}
+
+export interface AtivarAcessosResponse {
+  solicitados: number;
+  ativados: number;
+  resultados: AtivarAcessoResultado[];
+  nota: string;
+}
+
+// =============================================================================
 // TIPOS - ENTREGAS DE EPI
 // =============================================================================
 
@@ -1101,6 +1163,15 @@ export const sstService = {
     api
       .get(`${BASE}/epi/fichas/${fichaId}/pdf`, { responseType: 'blob' })
       .then((r) => r.data as Blob),
+
+  // Rollout de Assinaturas (acesso ao Portal do Funcionario p/ assinar fichas)
+  getRolloutAssinaturas: () =>
+    api.get<RolloutAssinaturas>(`${BASE}/assinaturas/rollout`).then((r) => r.data),
+
+  ativarAcessosPortal: (employee_ids: string[]) =>
+    api
+      .post<AtivarAcessosResponse>(`${BASE}/assinaturas/ativar-acessos`, { employee_ids })
+      .then((r) => r.data),
 
   // Prontuário SST 360 (dossiê completo por funcionário)
   getProntuario: (employeeId: string) =>

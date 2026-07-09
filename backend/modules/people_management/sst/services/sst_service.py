@@ -340,22 +340,30 @@ class SSTService:
         return vencendo
 
     async def listar_sem_aso(self) -> list[dict]:
-        """Colaboradores sem ASO periodico vigente."""
+        """Colaboradores ativos sem NENHUM ASO realizado digitalizado.
+
+        Semântica alinhada à carga retroativa (fato Jordan 2026-07-08: todos
+        fizeram admissional em papel — 'sem ASO' = documento não digitalizado).
+        Cast ::text dos DOIS lados: uuid=text quebrava a query e o except
+        engolia o erro, devolvendo total=0 falso.
+        """
         sem_aso = []
         try:
             result = await self.db.execute(
                 text(
                     "SELECT e.id, e.nome, e.cargo FROM employees e "
                     "WHERE e.status = 'ativo' "
-                    "AND NOT EXISTS (SELECT 1 FROM gp_asos a WHERE a.employee_id = e.id::text "
-                    "AND a.tipo = 'periodico' AND a.status = 'realizado') "
+                    "AND NOT EXISTS (SELECT 1 FROM gp_asos a "
+                    "WHERE a.employee_id::text = e.id::text "
+                    "AND a.status = 'realizado') "
                     "ORDER BY e.nome"
                 )
             )
             for row in result.fetchall():
                 sem_aso.append({"employee_id": str(row[0]), "nome": row[1], "cargo": row[2]})
         except Exception as exc:
-            logger.debug("Consulta sem ASO: %s", exc)
+            await self.db.rollback()
+            logger.warning("Consulta sem ASO falhou (retornando vazio): %s", exc)
         return sem_aso
 
     # ================================================================

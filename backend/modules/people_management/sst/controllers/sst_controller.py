@@ -1794,3 +1794,121 @@ async def gerar_ppp_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="ppp-{slug}.pdf"'},
     )
+
+
+# ================================================================
+# CENTRAL DE TRANSMISSÃO eSocial (Missão M2) — backlog em lotes assistidos
+# ================================================================
+
+
+@router.get("/esocial/fila")
+async def esocial_fila_transmissao(
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+    tipo: str | None = Query(None, description="Filtra um tipo: S-2220 | S-2230 | S-2240"),
+) -> Any:
+    """Fila do backlog eSocial (S-2220/S-2230/S-2240) com dry-run honesto por item.
+
+    LEITURA PURA — nada é transmitido. Cada item traz situacao_espelho
+    (ja_no_governo nunca entra na fila), dry_run_ok (XML gerado SEM transmitir;
+    ValueError = dado faltante, literal) e pronto. S-2240 de ASG fica BLOQUEADO
+    no gate humano MB (código biológico 03.01.999 vs 03.01.007 em confirmação).
+    """
+    from modules.people_management.sst.services.transmissao_central_service import (
+        fila_transmissao,
+    )
+
+    return await fila_transmissao(db, [tipo] if tipo else None)
+
+
+@router.post("/esocial/transmitir-lote")
+async def esocial_transmitir_lote(
+    payload: dict,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Transmite um LOTE assistido ao eSocial: {tipo, ref_ids[], max_itens<=20}.
+
+    ATENÇÃO: eventos LEGAIS REAIS (ESOCIAL_AMBIENTE=producao). Cada ref é
+    REVALIDADA contra a fila atual (anti-duplicidade pelo espelho + gate MB +
+    dry-run) — reprovados voltam em 'pulados' com motivo. Os aprovados são
+    enfileirados nas tasks Celery (fila gov.esocial) com 2s entre elas (rate
+    suave). HONESTO: enfileirado ≠ aceito — protocolo/recibo reais são gravados
+    pela task e pelo beat esocial-pull-recibos (2h).
+    """
+    from modules.people_management.sst.services.transmissao_central_service import (
+        validar_lote,
+    )
+    from modules.people_management.sst.tasks.esocial_tasks import (
+        transmit_afastamento_to_esocial,
+        transmit_aso_to_esocial,
+        transmit_s2240_to_esocial,
+    )
+
+    tipo = str(payload.get("tipo") or "").upper().strip()
+    ref_ids = payload.get("ref_ids") or []
+    if not isinstance(ref_ids, list) or not ref_ids:
+        raise HTTPException(status_code=422, detail="ref_ids: lista não vazia obrigatória.")
+    try:
+        max_itens = min(int(payload.get("max_itens") or 20), 20)
+        lote = await validar_lote(db, tipo, [str(r) for r in ref_ids], max_itens)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    tasks = {
+        "S-2220": transmit_aso_to_esocial,
+        "S-2230": transmit_afastamento_to_esocial,
+        "S-2240": transmit_s2240_to_esocial,
+    }
+    task = tasks[tipo]
+
+    enfileirados: list[dict[str, Any]] = []
+    pulados = list(lote["pulados"])
+    for i, item in enumerate(lote["aprovados"]):
+        try:
+            # countdown escalonado = 2s entre transmissões (rate assistido)
+            r = task.apply_async(args=[item["ref_id"]], countdown=i * 2)
+            enfileirados.append(
+                {
+                    "ref_id": item["ref_id"],
+                    "funcionario": item["funcionario"],
+                    "task_id": str(r.id),
+                    "inicio_em_s": i * 2,
+                }
+            )
+        except Exception as exc:  # broker indisponível — nunca fingir sucesso
+            logger.error("Lote %s: enfileiramento de %s falhou: %s", tipo, item["ref_id"], exc)
+            pulados.append({"ref_id": item["ref_id"], "motivo": f"falha ao enfileirar: {exc}"})
+
+    return {
+        "tipo": tipo,
+        "solicitados": len(ref_ids),
+        "enfileirados": enfileirados,
+        "total_enfileirados": len(enfileirados),
+        "pulados": pulados,
+        "total_pulados": len(pulados),
+        "nota": (
+            "Transmissões ENFILEIRADAS (fila gov.esocial, 2s entre elas). Enfileirado "
+            "≠ aceito: protocolo/recibo REAIS são gravados pela task e pelo beat "
+            "esocial-pull-recibos (2h). Acompanhe em GET /sst/esocial/acompanhamento."
+        ),
+    }
+
+
+@router.get("/esocial/acompanhamento")
+async def esocial_acompanhamento(
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+    limite: int = Query(50, ge=1, le=200),
+) -> Any:
+    """Acompanhamento das transmissões PRÓPRIAS (últimos 50 por padrão).
+
+    Fonte: colunas esocial_* de gp_asos/sst_afastamentos/gp_cats (+ rastreio
+    S-2240). Grupos: aguardando_recibo (protocolo real, pull 2h pendente),
+    recibo_casado (recibo real do governo) e rejeitado_ou_erro.
+    """
+    from modules.people_management.sst.services.transmissao_central_service import (
+        acompanhamento,
+    )
+
+    return await acompanhamento(db, limite)

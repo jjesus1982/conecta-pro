@@ -286,6 +286,7 @@ export const modules: Module[] = [
       { id: 'sst-riscos', title: 'Riscos (PPRA/PGR)', href: '/modulos/gestao-pessoas/saude-ocupacional/riscos', icon: 'AlertTriangle', permissions: ['operacional:read'] },
       { id: 'sst-afastamentos', title: 'Afastamentos', href: '/modulos/gestao-pessoas/saude-ocupacional/afastamentos', icon: 'UserMinus', permissions: ['operacional:read'] },
       { id: 'sst-cat', title: 'CAT', href: '/modulos/gestao-pessoas/saude-ocupacional/cat', icon: 'FileWarning', permissions: ['operacional:read'] },
+      { id: 'sst-transmissao-esocial', title: 'Transmissão eSocial', href: '/modulos/gestao-pessoas/saude-ocupacional/transmissao', icon: 'Send', permissions: ['operacional:read'] },
     ],
   },
 

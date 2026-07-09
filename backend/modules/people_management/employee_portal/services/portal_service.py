@@ -91,7 +91,25 @@ class PortalService:
             if not self._validate_credentials(employee, password, data_nascimento, portal_hash):
                 return None
 
-            # log_access desabilitado temporariamente (enum mismatch no DB)
+            # Log de login RELIGADO via SQL cru: o Enum do SQLAlchemy grava o
+            # NAME ('LOGIN') e o enum nativo do PG tem labels minúsculos
+            # ('login') — por isso o ORM dava mismatch. Não-fatal: login nunca
+            # falha por causa do log.
+            try:
+                await self.db.execute(
+                    text(
+                        "INSERT INTO portal_access_logs "
+                        "(employee_id, action, ip_address, user_agent, created_at) "
+                        "VALUES (CAST(:eid AS uuid), "
+                        "CAST('login' AS portal_access_action_enum), :ip, :ua, now())"
+                    ),
+                    {"eid": str(employee.id), "ip": ip_address, "ua": user_agent},
+                )
+                await self.db.commit()
+            except Exception as log_exc:  # noqa: BLE001
+                logger.warning("Falha ao registrar log de login (não-fatal): %s", log_exc)
+                await self.db.rollback()
+
             logger.info("Portal login OK: employee_id=%s", employee.id)
 
             return {
