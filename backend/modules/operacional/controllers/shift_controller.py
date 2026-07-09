@@ -7,7 +7,7 @@ from datetime import date
 from typing import Any
 from uuid import UUID  # [Operacoes] tipar path id -> 500 (uuid cast) vira 422
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import Response, APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
@@ -385,6 +385,7 @@ async def delete_shift(
 @limiter.limit(BULK_LIMIT)
 async def bulk_update_shifts(
     request: Request,
+    response: Response,  # exigido pelo slowapi
     data: ShiftBulkUpdate,
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),

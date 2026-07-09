@@ -6,7 +6,7 @@ import asyncio
 from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import Response, APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -385,6 +385,7 @@ async def delete_allocation(
 @limiter.limit(BULK_LIMIT)
 async def bulk_delete_allocations(
     request: Request,
+    response: Response,  # exigido pelo slowapi
     data: AllocationBulkDelete,
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
@@ -418,6 +419,7 @@ async def bulk_delete_allocations(
 @limiter.limit(BULK_LIMIT)
 async def bulk_update_allocations(
     request: Request,
+    response: Response,  # exigido pelo slowapi
     data: AllocationBulkUpdate,
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),

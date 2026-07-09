@@ -91,6 +91,7 @@ async def create_scale(
 @limiter.limit(CRITICAL_LIMIT)
 async def generate_scale(
     request: Request,
+    response: Response,  # exigido pelo slowapi
     data: ScaleGenerateRequest,
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
