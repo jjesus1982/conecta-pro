@@ -67,6 +67,8 @@ interface TerminationItem {
   created_by_id: string | null;
   created_at: string;
   updated_at: string;
+  // Nome real resolvido pelo backend (JOIN autoritativo em employees.nome)
+  employee_name?: string | null;
   // Enriched on frontend
   _employee_name?: string;
 }
@@ -181,11 +183,24 @@ export default function RescisaoPage() {
     return map;
   }, [employees]);
 
+  // Resolve nome do colaborador SEM cair no literal "Funcionário".
+  // Prioridade: employee_name do backend (JOIN autoritativo, sempre preenchido
+  // quando o colaborador existe, inclusive demitidos/afastados que não vêm na
+  // lista de ativos) → mapa de ativos → fallback honesto p/ removido.
+  const resolveEmployeeName = (t: { employee_name?: string | null; employee_id?: string }): string => {
+    const backendName = t?.employee_name;
+    if (backendName && String(backendName).trim()) return String(backendName);
+    const mapped = t?.employee_id ? employeeMap[t.employee_id] : undefined;
+    if (mapped && mapped.trim()) return mapped;
+    const id = t?.employee_id ? String(t.employee_id) : '';
+    return id ? `(colaborador removido) #${id.slice(0, 8)}` : '(colaborador removido)';
+  };
+
   // ---------- Filtered + searched + sorted data ----------
   const filteredData = useMemo(() => {
     let items = rescisoes.map(r => ({
       ...r,
-      _employee_name: employeeMap[r.employee_id] || 'Funcionário',
+      _employee_name: resolveEmployeeName(r),
     }));
 
     if (searchTerm.trim()) {
@@ -294,12 +309,12 @@ export default function RescisaoPage() {
       const res = await fetch(`${API_BASE}/terminations/${item.id}`, { headers: getAuthHeaders() });
       if (res.ok) {
         const detail = await res.json();
-        setSelectedItem({ ...detail, _employee_name: employeeMap[detail.employee_id] || 'Funcionário' });
+        setSelectedItem({ ...detail, _employee_name: resolveEmployeeName(detail) });
       } else {
-        setSelectedItem({ ...item, _employee_name: employeeMap[item.employee_id] || 'Funcionário' });
+        setSelectedItem({ ...item, _employee_name: resolveEmployeeName(item) });
       }
     } catch {
-      setSelectedItem({ ...item, _employee_name: employeeMap[item.employee_id] || 'Funcionário' });
+      setSelectedItem({ ...item, _employee_name: resolveEmployeeName(item) });
     }
     setCalcResult(null);
     setShowDetail(true);

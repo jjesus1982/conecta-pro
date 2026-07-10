@@ -141,7 +141,22 @@ async def get_termination(
     termination = await service.get_by_id(termination_id)
     if not termination:
         raise HTTPException(status_code=404, detail="Rescisão não encontrada")
-    return termination
+
+    # Popula o NOME real do colaborador (JOIN por employee_id em employees.nome),
+    # espelhando o endpoint de lista. Sem isso a tela de detalhe cai no fallback
+    # "(colaborador removido)" mesmo quando o colaborador existe (ex.: demitido).
+    from modules.operacional.models.employee import Employee
+
+    employee_name: str | None = None
+    if termination.employee_id:
+        row = await db.execute(
+            select(Employee.nome).where(Employee.id == str(termination.employee_id))
+        )
+        employee_name = row.scalar_one_or_none()
+
+    data = TerminationResponse.model_validate(termination).model_dump(mode="json")
+    data["employee_name"] = employee_name
+    return data
 
 
 @router.patch(

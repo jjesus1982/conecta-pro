@@ -80,6 +80,10 @@ class TerminationResponse(BaseModel):
 
     id: UUID
     employee_id: UUID
+    # Nome real do colaborador (JOIN em employees.nome). Preenchido pelo
+    # controller; sempre presente quando o colaborador existe, inclusive
+    # demitidos/afastados que não aparecem na lista de ativos.
+    employee_name: str | None = None
     type: str
     reason: str | None = None
     notice_period_days: int | None = None

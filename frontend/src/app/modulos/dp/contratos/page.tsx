@@ -150,7 +150,7 @@ export default function ContratosPage() {
     load();
   }, [refreshKey]);
 
-  // Employee name lookup map
+  // Employee name lookup map (colaboradores ativos)
   const employeeMap = useMemo(() => {
     const map: Record<string, string> = {};
     employees.forEach((emp: any) => {
@@ -158,6 +158,18 @@ export default function ContratosPage() {
     });
     return map;
   }, [employees]);
+
+  // Resolve nome do colaborador SEM cair no UUID cru.
+  // Prioridade: employee_name do backend (JOIN autoritativo, sempre preenchido
+  // quando o colaborador existe) → mapa de ativos → fallback honesto p/ removido.
+  const resolveEmployeeName = (contract: any): string => {
+    const backendName = contract?.employee_name;
+    if (backendName && String(backendName).trim()) return String(backendName);
+    const mapped = employeeMap[contract?.employee_id];
+    if (mapped && mapped !== 'N/A') return mapped;
+    const id = contract?.employee_id ? String(contract.employee_id) : '';
+    return id ? `(colaborador removido) #${id.slice(0, 8)}` : '(colaborador removido)';
+  };
 
   // Reset page when filter/search changes
   useEffect(() => { setCurrentPage(1); }, [filtroStatus, searchTerm]);
@@ -180,7 +192,7 @@ export default function ContratosPage() {
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
       items = items.filter(c => {
-        const empName = (employeeMap[c.employee_id] || '').toLowerCase();
+        const empName = resolveEmployeeName(c).toLowerCase();
         const contractType = (contractTypeLabels[c.type] || c.type || '').toLowerCase();
         const jobTitle = (c.job_title || '').toLowerCase();
         const dept = (c.department || '').toLowerCase();
@@ -193,8 +205,8 @@ export default function ContratosPage() {
       items = [...items].sort((a, b) => {
         let va: string, vb: string;
         if (sortField === 'employee_name') {
-          va = (employeeMap[a.employee_id] || '').toLowerCase();
-          vb = (employeeMap[b.employee_id] || '').toLowerCase();
+          va = resolveEmployeeName(a).toLowerCase();
+          vb = resolveEmployeeName(b).toLowerCase();
         } else if (sortField === 'base_salary') {
           const na = Number(a.base_salary || 0);
           const nb = Number(b.base_salary || 0);
@@ -372,7 +384,7 @@ export default function ContratosPage() {
         a.href = url;
         const cd = res.headers.get('Content-Disposition') || '';
         const match = cd.match(/filename="([^"]+)"/);
-        a.download = match ? match[1] : `contrato_trabalho_${employeeId.slice(0, 8)}.html`;
+        a.download = match?.[1] ?? `contrato_trabalho_${employeeId.slice(0, 8)}.html`;
         document.body.appendChild(a);
         a.click();
         a.remove();
@@ -476,7 +488,7 @@ export default function ContratosPage() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                <div><span className="font-medium text-muted-foreground">Colaborador:</span><br />{employeeMap[detailContract.employee_id] || detailContract.employee_id}</div>
+                <div><span className="font-medium text-muted-foreground">Colaborador:</span><br />{resolveEmployeeName(detailContract)}</div>
                 <div><span className="font-medium text-muted-foreground">Tipo:</span><br />{contractTypeLabels[detailContract.type] || detailContract.type}</div>
                 <div><span className="font-medium text-muted-foreground">Status:</span><br /><Badge className={statusConfig[deriveStatus(detailContract)]?.className || 'bg-gray-500 text-white'}>{statusConfig[deriveStatus(detailContract)]?.label || 'N/A'}</Badge></div>
                 <div><span className="font-medium text-muted-foreground">Data Início:</span><br />{formatDate(detailContract.start_date)}</div>
@@ -722,7 +734,7 @@ export default function ContratosPage() {
                     const st = statusConfig[status] || { label: status, className: 'bg-gray-500 text-white' };
                     return (
                       <TableRow key={item.id}>
-                        <TableCell className="font-medium">{employeeMap[item.employee_id] || item.employee_id}</TableCell>
+                        <TableCell className="font-medium">{resolveEmployeeName(item)}</TableCell>
                         <TableCell>{contractTypeLabels[item.type] || item.type}</TableCell>
                         <TableCell>{formatDate(item.start_date)}</TableCell>
                         <TableCell>{item.end_date ? formatDate(item.end_date) : 'Indeterminado'}</TableCell>
