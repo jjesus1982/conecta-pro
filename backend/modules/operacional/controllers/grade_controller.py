@@ -81,6 +81,12 @@ class GradeColaboradorBody(BaseModel):
         default=None,
         description="HH:MM do dia de fim de semana quando difere da semana (ex.: Vanderlice abre o sábado 12:00–16:00). Default: mesmo início da semana.",
     )
+    pausa_minutos: int | None = Field(
+        default=None,
+        ge=0,
+        le=120,
+        description="Intervalo do turno 12x36 em minutos. 0 = intrajornada paga/suprimida (ex.: Mirante); default 60 (ex.: Laranjeiras tem 1h de intervalo).",
+    )
     criar_alocacao: bool = False
     setor: str | None = None
 
@@ -439,7 +445,8 @@ async def _aplicar_grade(
                 continue
             ini_d = ini_pad
             if body.padrao == "12x36":
-                h, pausa, fim_d, is_n = 12.0, 60, fim_pad, body.turno == "noturno"
+                pausa_12 = 60 if body.pausa_minutos is None else body.pausa_minutos
+                h, pausa, fim_d, is_n = 12.0, pausa_12, fim_pad, body.turno == "noturno"
             else:
                 if dia.weekday() >= 5:  # dia de fim de semana coberto (sáb OU dom): 4h
                     h, pausa, ini_d = 4.0, 0, ini_fds

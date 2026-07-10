@@ -127,3 +127,18 @@ pares Bianca+Francisco(→Euler 24/07) 06h + Anilson/Jonathan 18h. Férias do Fr
 - FLAGS: Daniel Souza dos Santos (Ideal, diurno ímpares) ZERO batidas 90d — 3º caso
   (Euler, Jonathan, Daniel). Domingos esporádicos (1-2 em 90d) de alguns ASG = extras
   pontuais, não padrão de escala.
+
+---
+## Correção CONTRATUAL — Mirante e Laranjeiras (2026-07-10, noite)
+Jordan corrigiu: batidas mostram chegada REAL (antecipada), mas a ESCALA usa o horário
+CONTRATUAL. Editor ganhou `pausa_minutos` (0 = intrajornada paga; default 60).
+- MIRANTE (intrajornada PAGA, pausa 0): P1 fixo portaria 07:00-19:00 = Chagas/pares
+  (setor PORTARIA; par ímpar = vaga Alexandre); RONDAS 10:00-22:00 = Gama/ímpares,
+  Ediwilson/pares 22/07+ (Euler cobre 12-20/07); noturnos 19:00-07:00 = Ailton/pares,
+  Eduardo/ímpares. (Setor RONDISTA nas alocações confirmou quem é ronda.)
+- LARANJEIRAS (SEM intrajornada, 1h intervalo, pausa 60): diurnos 07:00-19:00
+  (Matheus+Erika ímpares; Bianca+Francisco pares; Euler cobre Francisco 24/07+);
+  noturnos 19:00-07:00 (Andrea+Adailson ímpares; Anilson+Jonathan pares).
+- Paridades das batidas MANTIDAS (só horários mudaram). Prova SQL: pausas p0/p60 corretas.
+- Regra refinada: batidas = QUEM/paridade/diurno-vs-noturno; horário nominal = contrato.
+  Chegada antecipada (Chagas ~05:42 p/ turno 07:00) continua contando presença (janela -2h).
