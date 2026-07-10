@@ -243,16 +243,20 @@ async def update_user_permissions(
     return UserListItem.from_user(user)
 
 
-@router.get("/pending", response_model=list[UserResponse])
+@router.get("/pending")
 async def list_pending_users(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
-) -> list[UserResponse]:
-    """Lista usuarios aguardando aprovacao (admin only)."""
+):
+    """Lista usuarios aguardando aprovacao (admin only).
+
+    UserListItem (role como str): UserResponse usa o enum UserRole, que nao
+    contem 'pending' — model_validate estourava 500 aqui.
+    """
     result = await db.execute(select(User).where(User.role == "pending").order_by(User.created_at.desc()))
     users = result.scalars().all()
     logger.info(f"Admin {current_user.email} listou {len(users)} usuarios pendentes")
-    return [UserResponse.model_validate(u) for u in users]
+    return [UserListItem.from_user(u) for u in users]
 
 
 @router.get("/roles")

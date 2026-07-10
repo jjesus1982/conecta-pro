@@ -22,7 +22,7 @@ function getAuthHeaders() {
 
 export default function DPDashboardPage() {
   const router = useRouter();
-  const [stats, setStats] = useState({ employees: 0, admissions: 0, vacations: 0, payroll: '0,00' });
+  const [stats, setStats] = useState({ employees: 0, admissions: 0, vacations: 0, payroll: '0,00', payrollCompetencia: '' });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -41,16 +41,30 @@ export default function DPDashboardPage() {
           const d = await admRes.json();
           admCount = d.total || (d.items || d || []).length;
         }
-        // Buscar contagem de ferias e folha via endpoint de employees completo
+        // Férias em andamento: solicitações APROVADAS cujo período cobre hoje (hr_vacation_requests)
         let vacCount = 0;
-        let payrollTotal = 0;
         try {
-          const allRes = await fetch(`${API_BASE}/employees?page_size=100`, { headers: getAuthHeaders() });
-          if (allRes.ok) {
-            const allData = await allRes.json();
-            const items = allData.items || allData || [];
-            vacCount = items.filter((e: any) => e.status === 'ferias' || e.status === 'Férias' || e.status === 'Férias').length;
-            payrollTotal = items.reduce((sum: number, e: any) => sum + (parseFloat(e.salario_base) || 0), 0);
+          const vacRes = await fetch(`${API_BASE}/vacations?status=APPROVED&page_size=100`, { headers: getAuthHeaders() });
+          if (vacRes.ok) {
+            const vacData = await vacRes.json();
+            const today = new Date().toISOString().slice(0, 10);
+            vacCount = (vacData.items || []).filter(
+              (v: any) => v.start_date && v.end_date && v.start_date <= today && v.end_date >= today
+            ).length;
+          }
+        } catch { /* ignore */ }
+        // Folha: LÍQUIDO real da última competência importada (hr_payslips) —
+        // NUNCA somar salario_base como se fosse folha (dado incompleto, não é folha).
+        let payrollTotal = 0;
+        let payrollCompetencia = '';
+        try {
+          const folhaRes = await fetch(`${API_BASE}/payroll/summary`, { headers: getAuthHeaders() });
+          if (folhaRes.ok) {
+            const f = await folhaRes.json();
+            if (f.fonte === 'hr_payslips') {
+              payrollTotal = f.total_liquido || 0;
+              payrollCompetencia = f.competencia || '';
+            }
           }
         } catch { /* ignore */ }
         setStats({
@@ -58,6 +72,7 @@ export default function DPDashboardPage() {
           admissions: admCount,
           vacations: vacCount,
           payroll: payrollTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+          payrollCompetencia,
         });
       } catch { /* fallback */ } finally { setLoading(false); }
     }
@@ -65,10 +80,15 @@ export default function DPDashboardPage() {
   }, []);
 
   const statCards = [
-    { title: 'Colaboradores Ativos', value: loading ? '...' : stats.employees, subtitle: 'Total no sistema', icon: Users, color: '#2563eb' },
+    { title: 'Colaboradores Ativos', value: loading ? '...' : stats.employees, subtitle: 'Status ativo no sistema', icon: Users, color: '#2563eb' },
     { title: 'Admissões Pendentes', value: loading ? '...' : stats.admissions, subtitle: 'Processos em aberto', icon: UserPlus, color: '#16a34a' },
     { title: 'Férias em Andamento', value: loading ? '...' : stats.vacations, subtitle: 'Colaboradores em férias', icon: Sun, color: '#ea580c' },
-    { title: 'Folha Bruta Est. (R$)', value: loading ? '...' : stats.payroll, subtitle: 'Soma salários base — estimado', icon: DollarSign, color: '#9333ea' },
+    {
+      title: stats.payrollCompetencia ? `Folha líquida (${stats.payrollCompetencia})` : 'Folha líquida (R$)',
+      value: loading ? '...' : stats.payroll,
+      subtitle: stats.payrollCompetencia ? 'Líquido real — holerites importados' : 'Aguardando folha importada',
+      icon: DollarSign, color: '#9333ea',
+    },
   ];
 
   const navCards = [

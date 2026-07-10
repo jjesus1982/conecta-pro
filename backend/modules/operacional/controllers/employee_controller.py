@@ -87,10 +87,14 @@ async def list_employees(
     """
     Lista funcionarios com paginacao e filtros.
     """
-    filters: list[Any] = [Employee.is_active.is_(True)]
+    # Criterio canonico de "ativo" e employees.status='ativo' (a flag is_active e
+    # inconsistente no banco e NAO deve ser usada para contagem/listagem).
+    filters: list[Any] = []
 
     if status:
         filters.append(Employee.status == status)
+    else:
+        filters.append(Employee.status == "ativo")
 
     if search:
         like_term = f"%{search}%"

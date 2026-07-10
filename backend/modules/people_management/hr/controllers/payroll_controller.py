@@ -53,6 +53,25 @@ async def get_payroll_summary(
 
     from sqlalchemy import text as _text
 
+    # [Veracidade] Sem mes/ano explicitos, usar a ULTIMA competencia REAL de hr_payslips
+    # (mes corrente pode nao ter folha importada ainda -> caia no fallback estimado com
+    # salario_base rotulado como liquido, o que gerava numero falso nos cards).
+    if not mes or not ano:
+        try:
+            _last = (
+                await db.execute(
+                    _text(
+                        "SELECT reference_month, reference_year FROM hr_payslips "
+                        "ORDER BY reference_year DESC, reference_month DESC LIMIT 1"
+                    )
+                )
+            ).first()
+        except Exception:
+            await db.rollback()
+            _last = None
+        if _last:
+            mes = mes or int(_last[0])
+            ano = ano or int(_last[1])
     mes = mes or datetime.now().month
     ano = ano or datetime.now().year
 
@@ -92,33 +111,22 @@ async def get_payroll_summary(
     except Exception:
         await db.rollback()
 
-    # Fallback: calcular direto dos funcionários ativos
-    result2 = await db.execute(
-        _text(
-            "SELECT "
-            "COUNT(*) as funcionarios, "
-            "COALESCE(SUM(salario_base), 0) as total_proventos, "
-            "0 as total_descontos, "
-            "COALESCE(SUM(salario_base), 0) as total_liquido, "
-            "0 as total_inss, "
-            "0 as total_irrf, "
-            "COALESCE(SUM(salario_base * 0.08), 0) as total_fgts "
-            "FROM employees "
-            "WHERE status = 'ativo'"
-        )
-    )
-    row2 = result2.mappings().first() or {}
+    # Fallback honesto: competencia sem folha importada -> NAO estimar liquido a partir
+    # de salario_base (dado incompleto, NULLs, e nao e "folha"). Retorna zeros marcados.
+    result2 = await db.execute(_text("SELECT COUNT(*) FROM employees WHERE status = 'ativo'"))
+    _ativos = int(result2.scalar() or 0)
     return {
         "competencia": f"{mes:02d}/{ano}",
-        "funcionarios": int(row2.get("funcionarios") or 0),
-        "total_proventos": float(row2.get("total_proventos") or 0),
-        "total_bruto": float(row2.get("total_proventos") or 0),
-        "total_descontos": float(row2.get("total_descontos") or 0),
-        "total_liquido": float(row2.get("total_liquido") or 0),
-        "total_inss": float(row2.get("total_inss") or 0),
-        "total_irrf": float(row2.get("total_irrf") or 0),
-        "total_fgts": float(row2.get("total_fgts") or 0),
-        "fonte": "estimado_salario_base",
+        "funcionarios": _ativos,
+        "total_proventos": 0.0,
+        "total_bruto": 0.0,
+        "total_descontos": 0.0,
+        "total_liquido": 0.0,
+        "total_inss": 0.0,
+        "total_irrf": 0.0,
+        "total_fgts": 0.0,
+        "fonte": "sem_folha_importada",
+        "aviso": "Sem holerites em hr_payslips para esta competência — aguardando dado real.",
     }
 
 

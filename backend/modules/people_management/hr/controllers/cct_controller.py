@@ -72,7 +72,7 @@ async def listar_funcionarios_cct(current_user: CurrentActiveUser, db: AsyncSess
             CASE WHEN e.salario_base >= c.piso_salarial THEN 'conforme' ELSE 'abaixo_piso' END as status
         FROM employees e
         JOIN cct_cargos c ON e.cct_cargo_id::text = c.id::text
-        WHERE e.is_active = true
+        WHERE e.status = 'ativo'
         ORDER BY e.cargo, e.nome
     """)
     )
@@ -111,7 +111,7 @@ async def verificar_conformidade(current_user: CurrentActiveUser, db: AsyncSessi
             c.piso_salarial - e.salario_base as diferenca
         FROM employees e
         JOIN cct_cargos c ON e.cct_cargo_id::text = c.id::text
-        WHERE e.is_active = true AND e.salario_base < c.piso_salarial
+        WHERE e.status = 'ativo' AND e.salario_base < c.piso_salarial
         ORDER BY (c.piso_salarial - e.salario_base) DESC
     """)
     )
@@ -154,7 +154,7 @@ async def resumo_cct(current_user: CurrentActiveUser, db: AsyncSession = Depends
             SUM(CASE WHEN e.salario_base < c.piso_salarial THEN c.piso_salarial - e.salario_base ELSE 0 END) as custo_adequacao
         FROM employees e
         LEFT JOIN cct_cargos c ON e.cct_cargo_id::text = c.id::text
-        WHERE e.is_active = true
+        WHERE e.status = 'ativo'
     """)
     )
     row = result.fetchone()
