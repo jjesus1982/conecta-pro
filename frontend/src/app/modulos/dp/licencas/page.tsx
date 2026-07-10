@@ -20,14 +20,26 @@ function getAuthHeaders() {
   };
 }
 
+// [Causa-raiz nº1] Vocabulário do BANCO (sst_afastamentos.status): ativo, em_andamento, encerrado.
+// Os chips/filtros usam ESSAS chaves (o filtro é client-side: l.status === filtroStatus).
 const statusConfig: Record<string, { label: string; className: string }> = {
-  pending: { label: 'Pendente', className: 'bg-yellow-500 text-white' },
-  approved: { label: 'Aprovada', className: 'bg-green-500 text-white' },
-  active: { label: 'Ativa', className: 'bg-blue-500 text-white' },
-  ended: { label: 'Encerrada', className: 'bg-gray-500 text-white' },
-  rejected: { label: 'Rejeitada', className: 'bg-red-500 text-white' },
-  cancelled: { label: 'Cancelada', className: 'bg-red-400 text-white' },
+  ativo: { label: 'Ativo', className: 'bg-blue-500 text-white' },
+  em_andamento: { label: 'Em Andamento', className: 'bg-yellow-500 text-white' },
+  encerrado: { label: 'Encerrado', className: 'bg-gray-500 text-white' },
+  cancelado: { label: 'Cancelado', className: 'bg-red-400 text-white' },
 };
+
+// Normaliza status vindo do banco (case-insensitive + sinônimos EN↔PT legados) p/ o bucket de exibição.
+const _leaveStatusSynonyms: Record<string, string> = {
+  active: 'ativo', ativo: 'ativo', ativa: 'ativo',
+  in_progress: 'em_andamento', em_andamento: 'em_andamento', ongoing: 'em_andamento',
+  ended: 'encerrado', encerrado: 'encerrado', encerrada: 'encerrado', closed: 'encerrado',
+  cancelled: 'cancelado', canceled: 'cancelado', cancelado: 'cancelado', cancelada: 'cancelado',
+};
+function normLeaveStatus(raw: string | null | undefined): string {
+  const k = String(raw || '').trim().toLowerCase();
+  return _leaveStatusSynonyms[k] || k || 'ativo';
+}
 
 const typeConfig: Record<string, string> = {
   medical_leave: 'Licença Médica',
@@ -130,7 +142,7 @@ export default function LicencasPage() {
   const filteredData = useMemo(() => {
     let items = [...licencas];
     if (filtroStatus !== 'todos') {
-      items = items.filter(l => l.status === filtroStatus);
+      items = items.filter(l => normLeaveStatus(l.status) === filtroStatus);
     }
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
@@ -156,7 +168,7 @@ export default function LicencasPage() {
   // Summary by status
   const statusSummary = useMemo(() => {
     return licencas.reduce((acc, l) => {
-      const st = l.status || 'pending';
+      const st = normLeaveStatus(l.status);
       acc[st] = (acc[st] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
@@ -344,13 +356,17 @@ export default function LicencasPage() {
                 </TableHeader>
                 <TableBody>
                   {filteredData.map((item, i) => {
-                    const st = statusConfig[item.status] || { label: item.status || 'N/A', className: 'bg-gray-500 text-white' };
+                    const normSt = normLeaveStatus(item.status);
+                    const st = statusConfig[normSt] || { label: item.status || 'N/A', className: 'bg-gray-500 text-white' };
+                    // Backend (sst_afastamentos) devolve data_inicio/data_fim_prevista; aceita start_date/end_date como fallback.
+                    const inicio = item.data_inicio || item.start_date;
+                    const fim = item.data_fim_prevista || item.end_date;
                     return (
                       <TableRow key={item.id || i}>
-                        <TableCell className="font-medium text-xs">{item.employee_id ? item.employee_id.slice(0, 8) + '...' : '-'}</TableCell>
+                        <TableCell className="font-medium text-xs">{item.employee_nome || (item.employee_id ? item.employee_id.slice(0, 8) + '...' : '-')}</TableCell>
                         <TableCell>{typeConfig[item.type] || item.type || '-'}</TableCell>
-                        <TableCell>{formatDate(item.start_date)}</TableCell>
-                        <TableCell>{formatDate(item.end_date)}</TableCell>
+                        <TableCell>{formatDate(inicio)}</TableCell>
+                        <TableCell>{formatDate(fim)}</TableCell>
                         <TableCell><Badge className={st.className}>{st.label}</Badge></TableCell>
                         <TableCell className="text-xs text-muted-foreground">{item.id ? item.id.slice(0, 8) + '...' : '-'}</TableCell>
                       </TableRow>

@@ -21,17 +21,24 @@ function getAuthHeaders() {
   };
 }
 
+// Mapa de exibição alinhado ao vocabulário REAL de reimbursement_requests.status:
+// rascunho / pendente / aprovado / rejeitado / pago (PT minúsculo). Chips comparam esses valores.
 const statusConfig: Record<string, { label: string; className: string }> = {
   rascunho:  { label: 'Rascunho',  className: 'bg-gray-500 text-white' },
-  submetido: { label: 'Submetido', className: 'bg-yellow-500 text-white' },
+  pendente:  { label: 'Pendente',  className: 'bg-yellow-500 text-white' },
   aprovado:  { label: 'Aprovado',  className: 'bg-green-500 text-white' },
   rejeitado: { label: 'Rejeitado', className: 'bg-red-500 text-white' },
   pago:      { label: 'Pago',      className: 'bg-blue-500 text-white' },
-  cancelado: { label: 'Cancelado', className: 'bg-red-400 text-white' },
+  // Sinônimos EN tolerados na exibição (não geram chip):
+  submitted: { label: 'Pendente',  className: 'bg-yellow-500 text-white' },
   pending:   { label: 'Pendente',  className: 'bg-yellow-500 text-white' },
   approved:  { label: 'Aprovado',  className: 'bg-green-500 text-white' },
   rejected:  { label: 'Rejeitado', className: 'bg-red-500 text-white' },
+  paid:      { label: 'Pago',      className: 'bg-blue-500 text-white' },
 };
+
+// Chips de filtro — apenas os status que REALMENTE ocorrem no banco.
+const STATUS_CHIPS = ['rascunho', 'pendente', 'aprovado', 'rejeitado', 'pago'];
 
 const categoryOptions = [
   { value: 'transporte',    label: 'Transporte' },
@@ -108,7 +115,7 @@ export default function ReembolsosPage() {
 
   const filteredData = useMemo(() => {
     let items = [...reembolsos];
-    if (filtroStatus !== 'todos') items = items.filter(r => r.status === filtroStatus);
+    if (filtroStatus !== 'todos') items = items.filter(r => String(r.status || '').toLowerCase() === filtroStatus.toLowerCase());
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
       items = items.filter(r =>
@@ -194,15 +201,18 @@ export default function ReembolsosPage() {
       />
 
       <div className="flex gap-2 flex-wrap">
-        {Object.entries(statusConfig).filter(([k]) => !['pending','approved','rejected'].includes(k)).map(([key, val]) => (
-          <Badge
-            key={key}
-            className={`cursor-pointer ${filtroStatus === key ? val.className : 'bg-muted text-muted-foreground'}`}
-            onClick={() => setFiltroStatus(filtroStatus === key ? 'todos' : key)}
-          >
-            {val.label}
-          </Badge>
-        ))}
+        {STATUS_CHIPS.map((key) => {
+          const val = statusConfig[key]!;
+          return (
+            <Badge
+              key={key}
+              className={`cursor-pointer ${filtroStatus === key ? val.className : 'bg-muted text-muted-foreground'}`}
+              onClick={() => setFiltroStatus(filtroStatus === key ? 'todos' : key)}
+            >
+              {val.label}
+            </Badge>
+          );
+        })}
       </div>
 
       {showForm && (
@@ -331,7 +341,7 @@ export default function ReembolsosPage() {
               </TableHeader>
               <TableBody>
                 {filteredData.map((r: any) => {
-                  const st = statusConfig[r.status] || { label: r.status || '-', className: 'bg-gray-500 text-white' };
+                  const st = statusConfig[String(r.status || '').toLowerCase()] || { label: r.status || '-', className: 'bg-gray-500 text-white' };
                   return (
                     <TableRow key={r.id}>
                       <TableCell className="font-mono text-xs">{r.code || '-'}</TableCell>

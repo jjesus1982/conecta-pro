@@ -121,12 +121,15 @@ export default function FeriasPage() {
           const data = await res.json();
           const items: VacationItem[] = data.items || data || [];
           setFerias(items);
+          // Cards contam a partir dos buckets GLOBAIS do banco (PT minúsculo) devolvidos pela API,
+          // independentes do filtro aplicado — assim o card não zera ao filtrar.
+          const counts = data.counts || {};
           setStatusCounts({
-            pendente: data.pendente ?? 0,
-            aprovado: data.aprovado ?? 0,
-            rejeitado: data.rejeitado ?? 0,
-            cancelado: items.filter((i: VacationItem) => i.status === 'cancelado').length,
-            total: data.total ?? items.length,
+            pendente: data.pendente ?? counts.pendente ?? 0,
+            aprovado: data.aprovado ?? counts.aprovado ?? 0,
+            rejeitado: data.rejeitado ?? counts.rejeitado ?? 0,
+            cancelado: data.cancelado ?? counts.cancelado ?? 0,
+            total: data.total_all ?? data.total ?? items.length,
           });
         } else {
           setFerias([]);

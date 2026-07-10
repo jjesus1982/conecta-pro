@@ -20,9 +20,11 @@ function getAuthHeaders() {
   };
 }
 
+// Mapa de exibição alinhado ao vocabulário REAL gravado no banco (employee_benefits.status):
+// active / inactive / cancelled (inglês minúsculo). Chips enviam/comparam esses valores.
 const statusConfig: Record<string, { label: string; className: string }> = {
   active: { label: 'Ativo', className: 'bg-green-500 text-white' },
-  suspended: { label: 'Suspenso', className: 'bg-yellow-500 text-white' },
+  inactive: { label: 'Inativo', className: 'bg-yellow-500 text-white' },
   cancelled: { label: 'Cancelado', className: 'bg-red-500 text-white' },
 };
 
@@ -58,7 +60,6 @@ export default function BeneficiosPage() {
   const router = useRouter();
   const [beneficios, setBeneficios] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [totalItems, setTotalItems] = useState(0);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -87,31 +88,36 @@ export default function BeneficiosPage() {
   const [employeeTotal, setEmployeeTotal] = useState<Record<string, any> | null>(null);
   const [totalLoading, setTotalLoading] = useState(false);
 
-  // Load benefits from API
+  // Carrega o dataset COMPLETO para que cards, filtro por tipo e busca enxerguem TODOS os
+  // registros — não apenas a página atual. O backend limita page_size<=100, então paginamos
+  // no servidor (loop) e acumulamos tudo; a paginação exibida é client-side.
   useEffect(() => {
     async function load() {
       setLoading(true);
       try {
-        let url = `${API_BASE}/benefits?page=${currentPage}&page_size=${PAGE_SIZE}`;
-        if (filtroStatus !== 'todos') url += `&status=${filtroStatus}`;
-        const res = await fetch(url, { headers: getAuthHeaders() });
-        if (res.ok) {
+        const SERVER_PAGE = 100;
+        const all: any[] = [];
+        let page = 1;
+        // Primeira página traz o total; seguimos até cobri-lo (guarda de segurança em 50 páginas).
+        for (let guard = 0; guard < 50; guard++) {
+          const res = await fetch(`${API_BASE}/benefits?page=${page}&page_size=${SERVER_PAGE}`, { headers: getAuthHeaders() });
+          if (!res.ok) break;
           const data = await res.json();
-          setBeneficios(data.items || []);
-          setTotalItems(data.total || 0);
-        } else {
-          setBeneficios([]);
-          setTotalItems(0);
+          const items = data.items || [];
+          all.push(...items);
+          const total = data.total ?? all.length;
+          if (all.length >= total || items.length === 0) break;
+          page += 1;
         }
+        setBeneficios(all);
       } catch {
         setBeneficios([]);
-        setTotalItems(0);
       } finally {
         setLoading(false);
       }
     }
     load();
-  }, [currentPage, filtroStatus, refreshKey]);
+  }, [refreshKey]);
 
   // Load employees for the form
   useEffect(() => {
@@ -130,15 +136,20 @@ export default function BeneficiosPage() {
   // Reset page on filter/search change
   useEffect(() => { setCurrentPage(1); }, [searchTerm, filtroStatus, filtroType]);
 
-  // Filtered + searched + sorted (client-side on already-fetched page)
+  // Filtro + busca + ordenação sobre o dataset COMPLETO (client-side).
+  // Status comparado case-insensitive contra o valor real do banco.
   const filteredData = useMemo(() => {
     let items = [...beneficios];
+    if (filtroStatus !== 'todos') {
+      items = items.filter(b => String(b.status || '').toLowerCase() === filtroStatus.toLowerCase());
+    }
     if (filtroType !== 'todos') {
       items = items.filter(b => b.type === filtroType);
     }
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
       items = items.filter(b =>
+        (b.employee_name || '').toLowerCase().includes(term) ||
         (b.type || '').toLowerCase().includes(term) ||
         (b.provider || '').toLowerCase().includes(term) ||
         (b.plan_name || '').toLowerCase().includes(term) ||
@@ -154,9 +165,15 @@ export default function BeneficiosPage() {
       });
     }
     return items;
-  }, [beneficios, filtroType, searchTerm, sortField, sortDir]);
+  }, [beneficios, filtroStatus, filtroType, searchTerm, sortField, sortDir]);
 
+  // Paginação client-side sobre a lista já filtrada.
+  const totalItems = filteredData.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
+  const pagedData = useMemo(
+    () => filteredData.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
+    [filteredData, currentPage],
+  );
 
   // Summary by type
   const tipoSummary = useMemo(() => {
@@ -305,7 +322,7 @@ export default function BeneficiosPage() {
           <Badge
             key={key}
             className={`cursor-pointer ${filtroStatus === key ? val.className : 'bg-muted text-muted-foreground'}`}
-            onClick={() => setFiltroStatus(key)}
+            onClick={() => setFiltroStatus(filtroStatus === key ? 'todos' : key)}
           >
             {val.label}
           </Badge>
@@ -473,6 +490,7 @@ export default function BeneficiosPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="cursor-pointer select-none" onClick={() => handleSort('employee_name')}>Colaborador{sortIcon('employee_name')}</TableHead>
                         <TableHead className="cursor-pointer select-none" onClick={() => handleSort('type')}>Tipo{sortIcon('type')}</TableHead>
                         <TableHead className="cursor-pointer select-none" onClick={() => handleSort('provider')}>Operadora{sortIcon('provider')}</TableHead>
                         <TableHead>Plano</TableHead>
@@ -484,13 +502,14 @@ export default function BeneficiosPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredData.map((item, i) => {
-                        const st = statusConfig[item.status] || { label: item.status || 'N/A', className: 'bg-gray-500 text-white' };
+                      {pagedData.map((item, i) => {
+                        const st = statusConfig[String(item.status || '').toLowerCase()] || { label: item.status || 'N/A', className: 'bg-gray-500 text-white' };
                         const startStr = item.start_date ? (() => { const p = String(item.start_date).split('-'); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : '-'; })() : '-';
                         const endStr = item.end_date ? (() => { const p = String(item.end_date).split('-'); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : '-'; })() : 'Indeterminado';
                         return (
                           <TableRow key={item.id || i}>
-                            <TableCell className="font-medium">{typeLabels[item.type] || item.type || '-'}</TableCell>
+                            <TableCell className="font-medium">{item.employee_name || '-'}</TableCell>
+                            <TableCell>{typeLabels[item.type] || item.type || '-'}</TableCell>
                             <TableCell>{item.provider || '-'}</TableCell>
                             <TableCell>{item.plan_name || '-'}</TableCell>
                             <TableCell>{fmt(item.company_contribution)}</TableCell>

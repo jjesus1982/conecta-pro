@@ -28,6 +28,33 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/vacations", tags=["DP - Férias"])
 
 
+# Mapa de sinônimos EN↔PT para o filtro de status (causa-raiz nº1: pt×EN).
+# O banco grava PT minúsculo (aprovado/pendente/rejeitado/cancelado); telas/integrações
+# antigas mandam EN maiúsculo (APPROVED/PENDING/...). Normaliza ANTES da query.
+_VAC_STATUS_SYNONYMS = {
+    "approved": "aprovado",
+    "aprovado": "aprovado",
+    "pending": "pendente",
+    "pendente": "pendente",
+    "rejected": "rejeitado",
+    "rejeitado": "rejeitado",
+    "cancelled": "cancelado",
+    "canceled": "cancelado",
+    "cancelado": "cancelado",
+}
+
+
+def _normalize_vacation_status(raw: str | None) -> str | None:
+    """Normaliza o parâmetro ?status= para o vocabulário do banco (PT minúsculo),
+    aceitando sinônimos EN↔PT e case-insensitive. Retorna None p/ 'todos'/vazio."""
+    if not raw:
+        return None
+    key = str(raw).strip().lower()
+    if key in ("", "todos", "all"):
+        return None
+    return _VAC_STATUS_SYNONYMS.get(key, key)
+
+
 def _normalize_days(raw: Any) -> str | None:
     """[Achado 6] Normaliza o campo `days` para inteiro puro em string ('30').
 
@@ -66,19 +93,41 @@ async def list_vacations(
 
         from modules.operacional.vacations.models import VacationRequest
 
+        # [Causa-raiz nº1] normaliza o filtro EN↔PT antes de comparar com o banco (PT minúsculo)
+        norm_status = _normalize_vacation_status(status)
+
         count_q = sa_select(func.count()).select_from(VacationRequest)
         query = (
             sa_select(VacationRequest)
             .order_by(VacationRequest.created_at.desc())
         )
-        if status and status != "todos":
-            count_q = count_q.where(VacationRequest.status == status)
-            query = query.where(VacationRequest.status == status)
+        if norm_status:
+            count_q = count_q.where(VacationRequest.status == norm_status)
+            query = query.where(VacationRequest.status == norm_status)
         total = (await db.execute(count_q)).scalar() or 0
+
+        # Contagem por status (buckets do banco) para os CARDS da tela — SEMPRE global,
+        # independente do filtro aplicado, para o card não zerar ao filtrar.
+        counts_rows = (
+            await db.execute(
+                sa_select(VacationRequest.status, func.count()).group_by(VacationRequest.status)
+            )
+        ).all()
+        by_status: dict[str, int] = {}
+        for st_val, cnt in counts_rows:
+            by_status[_normalize_vacation_status(st_val) or (str(st_val) if st_val else "")] = int(cnt or 0)
+        total_all = sum(by_status.values())
+
         query = query.offset((page - 1) * page_size).limit(page_size)
         result = await db.execute(query)
         items = result.scalars().all()
         return {
+            "pendente": by_status.get("pendente", 0),
+            "aprovado": by_status.get("aprovado", 0),
+            "rejeitado": by_status.get("rejeitado", 0),
+            "cancelado": by_status.get("cancelado", 0),
+            "counts": by_status,
+            "total_all": total_all,
             "items": [
                 {
                     "id": str(v.id),
@@ -100,7 +149,19 @@ async def list_vacations(
             "total_pages": max(1, (total + page_size - 1) // page_size),
         }
     except Exception:
-        return {"items": [], "total": 0, "page": 1, "page_size": 20, "total_pages": 1}
+        return {
+            "items": [],
+            "total": 0,
+            "page": 1,
+            "page_size": 20,
+            "total_pages": 1,
+            "pendente": 0,
+            "aprovado": 0,
+            "rejeitado": 0,
+            "cancelado": 0,
+            "counts": {},
+            "total_all": 0,
+        }
 
 
 @router.get(

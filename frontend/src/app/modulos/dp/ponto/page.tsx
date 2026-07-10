@@ -91,8 +91,8 @@ export default function PontoPage() {
             const data = await dailyRes.json();
             allRecords = Array.isArray(data) ? data : data.items || data.records || data.registros || [];
           } else {
-            // Fallback: fetch all time-records with date filter
-            const allRes = await fetch(`${API_BASE}/hr/time-records?date=${selectedDate}&page_size=100`, { headers: getAuthHeaders() }).catch(() => null);
+            // Fallback: fetch all time-records with date filter (param correto: date_from/date_to)
+            const allRes = await fetch(`${API_BASE}/hr/time-records?date_from=${selectedDate}&date_to=${selectedDate}&page_size=100`, { headers: getAuthHeaders() }).catch(() => null);
             if (allRes?.ok) {
               const data = await allRes.json();
               allRecords = Array.isArray(data) ? data : data.items || data.records || [];
@@ -105,10 +105,19 @@ export default function PontoPage() {
           const lastDay = new Date(parseInt(year || '2026'), parseInt(month || '1'), 0).getDate();
           const endDate = `${year}-${month}-${String(lastDay).padStart(2, '0')}`;
 
-          const res = await fetch(`${API_BASE}/hr/time-records?start_date=${startDate}&end_date=${endDate}&page_size=1000`, { headers: getAuthHeaders() }).catch(() => null);
-          if (res?.ok) {
+          // [Causa-raiz nº1] o endpoint usa date_from/date_to (não start_date/end_date) e limita
+          // page_size a 100 (page_size>100 → 422). Paginamos até 100/página para a visão mensal.
+          let pg = 1;
+          const MAX_PAGES = 30; // teto de segurança (30*100 = 3000 registros/mês)
+          while (pg <= MAX_PAGES) {
+            const res = await fetch(`${API_BASE}/hr/time-records?date_from=${startDate}&date_to=${endDate}&page=${pg}&page_size=100`, { headers: getAuthHeaders() }).catch(() => null);
+            if (!res?.ok) break;
             const data = await res.json();
-            allRecords = Array.isArray(data) ? data : data.items || data.records || [];
+            const batch = Array.isArray(data) ? data : data.items || data.records || [];
+            allRecords = allRecords.concat(batch);
+            const totalPages = (!Array.isArray(data) && data.total_pages) ? data.total_pages : (batch.length < 100 ? pg : pg + 1);
+            if (batch.length < 100 || pg >= totalPages) break;
+            pg += 1;
           }
         }
 

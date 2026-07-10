@@ -24,7 +24,10 @@ function getAuthHeaders() {
   };
 }
 
+// Mapa de exibição alinhado ao vocabulário REAL de hr_employee_documents.status.
+// Hoje o banco grava 'draft' (→ Rascunho). Demais chaves cobrem estados futuros.
 const statusConfig: Record<string, { label: string; className: string }> = {
+  draft: { label: 'Rascunho', className: 'bg-yellow-500 text-white' },
   active: { label: 'Ativo', className: 'bg-green-500 text-white' },
   valid: { label: 'Valido', className: 'bg-green-500 text-white' },
   valido: { label: 'Valido', className: 'bg-green-500 text-white' },
@@ -34,6 +37,9 @@ const statusConfig: Record<string, { label: string; className: string }> = {
   pendente: { label: 'Pendente', className: 'bg-yellow-500 text-white' },
   archived: { label: 'Arquivado', className: 'bg-gray-500 text-white' },
 };
+
+// Chaves exibidas como chips de filtro — refletem os status que REALMENTE ocorrem no banco.
+const STATUS_CHIPS = ['draft', 'active', 'expired', 'archived'];
 
 const PAGE_SIZE = 15;
 
@@ -102,13 +108,15 @@ export default function DocumentosPage() {
   const filteredData = useMemo(() => {
     let items = [...documentos];
     if (filtroStatus !== 'todos') {
-      items = items.filter(d => d.status === filtroStatus);
+      items = items.filter(d => String(d.status || '').toLowerCase() === filtroStatus.toLowerCase());
     }
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
       items = items.filter(d =>
         (d.title || '').toLowerCase().includes(term) ||
         (d.type || '').toLowerCase().includes(term) ||
+        (d.employee_name || '').toLowerCase().includes(term) ||
+        (d.file_name || '').toLowerCase().includes(term) ||
         (d.id || '').toLowerCase().includes(term)
       );
     }
@@ -177,15 +185,18 @@ export default function DocumentosPage() {
 
       {/* Status filter badges */}
       <div className="flex gap-2 flex-wrap">
-        {Object.entries(statusConfig).filter(([key]) => ['active', 'pending', 'expired', 'archived'].includes(key)).map(([key, val]) => (
-          <Badge
-            key={key}
-            className={`cursor-pointer ${filtroStatus === key ? val.className : 'bg-muted text-muted-foreground'}`}
-            onClick={() => setFiltroStatus(key)}
-          >
-            {val.label}
-          </Badge>
-        ))}
+        {STATUS_CHIPS.map((key) => {
+          const val = statusConfig[key]!;
+          return (
+            <Badge
+              key={key}
+              className={`cursor-pointer ${filtroStatus === key ? val.className : 'bg-muted text-muted-foreground'}`}
+              onClick={() => setFiltroStatus(filtroStatus === key ? 'todos' : key)}
+            >
+              {val.label}
+            </Badge>
+          );
+        })}
       </div>
 
       {showForm && (
@@ -343,7 +354,7 @@ export default function DocumentosPage() {
                 </TableHeader>
                 <TableBody>
                   {filteredData.map((item, i) => {
-                    const st = statusConfig[item.status] || { label: item.status || 'N/A', className: 'bg-gray-500 text-white' };
+                    const st = statusConfig[String(item.status || '').toLowerCase()] || { label: item.status || 'N/A', className: 'bg-gray-500 text-white' };
                     return (
                       <TableRow key={item.id || i}>
                         <TableCell className="font-medium">{item.title || '-'}</TableCell>
