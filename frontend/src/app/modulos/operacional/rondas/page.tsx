@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { Shield, Search, Plus, Eye, Edit2, Trash2, ArrowLeft, ChevronLeft, ChevronRight, AlertCircle, CheckCircle, RefreshCw, Clock, Play, Pause, CheckSquare, XCircle, MapPin, Users } from 'lucide-react';
+import { Shield, Search, Plus, Eye, Edit2, Trash2, ArrowLeft, ChevronLeft, ChevronRight, AlertCircle, CheckCircle, RefreshCw, Clock, Play, Pause, CheckSquare, XCircle, MapPin, Users, Camera } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -169,6 +169,13 @@ export default function RondasPage() {
 
   const activeRounds = patrolRounds.filter(r => r.status === 'em_andamento' || r.status === 'pausada');
 
+  // Total de fotos da ronda (soma dos photos dos checkpoints). A listagem pode
+  // vir SEM checkpoints — nesse caso retorna null e o detalhe mostra as fotos.
+  const contarFotos = (round: PatrolRound): number | null => {
+    if (!round.checkpoints) return null;
+    return round.checkpoints.reduce((acc, cp) => acc + (cp.photos?.length ?? 0), 0);
+  };
+
   // Preparar dados para exportação
   const exportData = patrolRounds.map((round) => ({
     'Código': round.code || '-',
@@ -180,6 +187,7 @@ export default function RondasPage() {
     'Conclusão': round.completed_at ? new Date(round.completed_at).toLocaleString('pt-BR') : '-',
     'Duração (min)': round.duration_minutes || '-',
     'Checkpoints': round.total_checkpoints,
+    'Fotos': contarFotos(round) ?? '-',
     'Ocorrências': round.total_occurrences,
     'Ações Disciplinares': round.total_disciplinary_actions,
     'Colaboradores': round.total_employees_checked,
@@ -464,9 +472,24 @@ export default function RondasPage() {
                           </span>
                         </td>
                         <td className="px-4 py-3">
-                          <span className="text-sm text-[hsl(var(--foreground))]">
-                            {round.total_checkpoints}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-[hsl(var(--foreground))]">
+                              {round.total_checkpoints}
+                            </span>
+                            {(() => {
+                              const fotos = contarFotos(round);
+                              if (fotos === null || fotos === 0) return null;
+                              return (
+                                <span
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-500/10 text-purple-500"
+                                  title={`${fotos} foto(s) anexada(s) nos checkpoints`}
+                                >
+                                  <Camera className="w-3 h-3" />
+                                  Fotos: {fotos}
+                                </span>
+                              );
+                            })()}
+                          </div>
                         </td>
                         <td className="px-4 py-3">
                           <span className="text-sm text-[hsl(var(--foreground))]">

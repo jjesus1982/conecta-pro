@@ -776,7 +776,26 @@ export type CheckpointType =
   | 'registro_ocorrencia'
   | 'medida_disciplinar'
   | 'observacao_geral'
-  | 'foto_evidencia';
+  | 'foto_evidencia'
+  | 'checkin_condominio'
+  | 'checkout_condominio'
+  | 'reuniao'
+  | 'alteracao_operacional';
+
+/**
+ * Foto anexada a um checkpoint (upload via POST /{round}/checkpoints/{cp}/fotos).
+ * Type alias (não interface) para manter compatibilidade estrutural com o
+ * schema gerado `{ [key: string]: unknown }`.
+ */
+export type CheckpointPhoto = {
+  arquivo?: string;
+  url?: string;
+  tamanho_bytes?: number;
+  enviada_em?: string;
+  // Campos legados (fotos antigas gravadas como metadado livre)
+  type?: string;
+  name?: string;
+};
 
 export type CheckpointStatus =
   | 'conforme'
@@ -807,7 +826,7 @@ export interface PatrolCheckpoint {
   observations: string | null;
   infraction_category: string | null;
   infraction_severity: string | null;
-  photos: Array<{ type: string; url: string; name?: string }> | null;
+  photos: CheckpointPhoto[] | null;
   latitude: number | null;
   longitude: number | null;
   sequence: number;
@@ -906,7 +925,7 @@ export interface CheckpointCreate {
   observations?: string | null;
   infraction_category?: string | null;
   infraction_severity?: string | null;
-  photos?: Array<{ type: string; url: string; name?: string }> | null;
+  photos?: CheckpointPhoto[] | null;
   latitude?: number | null;
   longitude?: number | null;
 }
@@ -934,6 +953,10 @@ export const CHECKPOINT_TYPE_LABELS: Record<CheckpointType, string> = {
   medida_disciplinar: 'Medida Disciplinar',
   observacao_geral: 'Observação Geral',
   foto_evidencia: 'Foto/Evidência',
+  checkin_condominio: 'Check-in no condomínio',
+  checkout_condominio: 'Check-out do condomínio',
+  reuniao: 'Reunião',
+  alteracao_operacional: 'Alteração operacional',
 };
 
 export const CHECKPOINT_STATUS_LABELS: Record<CheckpointStatus, string> = {

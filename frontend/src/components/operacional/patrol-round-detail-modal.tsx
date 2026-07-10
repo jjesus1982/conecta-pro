@@ -1,8 +1,32 @@
 'use client';
 
-import { Shield, User, MapPin, Calendar, Clock, CheckSquare, AlertCircle, XCircle, Play, Pause, FileText, List } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+import {
+  User,
+  MapPin,
+  Calendar,
+  Clock,
+  CheckSquare,
+  AlertCircle,
+  XCircle,
+  Play,
+  Pause,
+  FileText,
+  List,
+  LogIn,
+  LogOut,
+  Users,
+  Wrench,
+  Eye,
+  Camera,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 import { Modal, ModalFooter } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
+import { api } from '@/lib/api';
+import { CheckpointFoto } from '@/components/operacional/checkpoint-photo';
 import {
   PATROL_ROUND_STATUS_LABELS,
   INSPECTOR_ROLE_LABELS,
@@ -11,8 +35,11 @@ import {
   type PatrolRound,
   type PatrolRoundStatus,
   type CheckpointStatus,
+  type CheckpointType,
 } from '@/types/operacional';
 ;
+
+const RONDAS_URL = '/api/v1/operacional/rondas';
 
 interface PatrolRoundDetailModalProps {
   isOpen: boolean;
@@ -53,12 +80,75 @@ const getStatusIcon = (status: PatrolRoundStatus) => {
   }
 };
 
+// Ícone por tipo de checkpoint (linha do tempo da visita)
+const CHECKPOINT_TYPE_ICONS: Partial<Record<CheckpointType, LucideIcon>> = {
+  checkin_condominio: LogIn,
+  checkout_condominio: LogOut,
+  reuniao: Users,
+  alteracao_operacional: Wrench,
+  verificacao_posto: CheckSquare,
+  verificacao_funcionario: User,
+  observacao_geral: Eye,
+  foto_evidencia: Camera,
+};
+
+/**
+ * Data/hora do checkpoint: created_at vem do now() do Postgres em UTC naive —
+ * interpretar como UTC e exibir em America/Manaus.
+ */
+const formatDataHoraCheckpoint = (iso: string | null): string => {
+  if (!iso) return '-';
+  const d = new Date(iso.endsWith('Z') || iso.includes('+') ? iso : `${iso}Z`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', timeZone: 'America/Manaus',
+  });
+};
+
 export function PatrolRoundDetailModal({
   isOpen,
   onClose,
   patrolRound,
 }: PatrolRoundDetailModalProps) {
+  // Detalhe completo (GET /{id} traz checkpoints com fotos, coordenadas etc.
+  // — a listagem pode vir sem checkpoints)
+  const [detalhe, setDetalhe] = useState<PatrolRound | null>(null);
+  const [fotoAmpliada, setFotoAmpliada] = useState<{
+    checkpointId: string;
+    arquivo: string;
+  } | null>(null);
+
+  useEffect(() => {
+    setFotoAmpliada(null);
+    if (!isOpen || !patrolRound?.id) {
+      setDetalhe(null);
+      return;
+    }
+    let ativo = true;
+    api
+      .get(`${RONDAS_URL}/${patrolRound.id}`)
+      .then((res) => {
+        if (ativo) setDetalhe(res.data as PatrolRound);
+      })
+      .catch(() => {
+        // Sem detalhe, seguimos com os dados da listagem
+        if (ativo) setDetalhe(null);
+      });
+    return () => {
+      ativo = false;
+    };
+  }, [isOpen, patrolRound?.id]);
+
   if (!patrolRound) return null;
+
+  const rd: PatrolRound =
+    detalhe && detalhe.id === patrolRound.id ? detalhe : patrolRound;
+  const checkpoints = rd.checkpoints ?? [];
+  const totalFotos = checkpoints.reduce(
+    (acc, cp) => acc + (cp.photos?.length ?? 0),
+    0
+  );
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return '-';
@@ -235,65 +325,124 @@ export function PatrolRoundDetailModal({
           </div>
         )}
 
-        {/* Checkpoints */}
-        {patrolRound.checkpoints && patrolRound.checkpoints.length > 0 && (
+        {/* Linha do tempo da visita (checkpoints com fotos) */}
+        {checkpoints.length > 0 && (
           <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-lg p-4">
-            <div className="flex items-center gap-2 mb-4">
+            <div className="flex flex-wrap items-center gap-2 mb-4">
               <List className="w-4 h-4 text-[hsl(var(--muted-foreground))]" />
               <span className="text-sm font-medium text-[hsl(var(--foreground))]">
-                Checkpoints ({patrolRound.checkpoints.length})
+                Linha do tempo da visita ({checkpoints.length})
               </span>
+              {totalFotos > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-500/10 text-purple-500">
+                  <Camera className="w-3 h-3" />
+                  Fotos: {totalFotos}
+                </span>
+              )}
             </div>
             <div className="space-y-3">
-              {patrolRound.checkpoints.map((checkpoint) => (
-                <div
-                  key={checkpoint.id}
-                  className="bg-[hsl(var(--muted))] rounded-lg p-3"
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-mono text-[hsl(var(--muted-foreground))]">
-                          #{checkpoint.sequence}
-                        </span>
-                        <span className="text-sm font-medium text-[hsl(var(--foreground))]">
-                          {CHECKPOINT_TYPE_LABELS[checkpoint.checkpoint_type]}
-                        </span>
+              {checkpoints.map((checkpoint) => {
+                const TipoIcone =
+                  CHECKPOINT_TYPE_ICONS[checkpoint.checkpoint_type] ?? MapPin;
+                const fotos = (checkpoint.photos ?? []).filter(
+                  (f): f is typeof f & { arquivo: string } => Boolean(f.arquivo)
+                );
+                return (
+                  <div
+                    key={checkpoint.id}
+                    className="bg-[hsl(var(--muted))] rounded-lg p-3"
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                          <span className="text-xs font-mono text-[hsl(var(--muted-foreground))]">
+                            #{checkpoint.sequence}
+                          </span>
+                          <TipoIcone className="w-4 h-4 text-[hsl(var(--muted-foreground))]" />
+                          <span className="text-sm font-medium text-[hsl(var(--foreground))]">
+                            {CHECKPOINT_TYPE_LABELS[checkpoint.checkpoint_type] ??
+                              checkpoint.checkpoint_type}
+                          </span>
+                          <span className="text-xs font-mono text-[hsl(var(--muted-foreground))]">
+                            {formatDataHoraCheckpoint(checkpoint.created_at)}
+                          </span>
+                        </div>
+                        {checkpoint.title && (
+                          <p className="text-sm text-[hsl(var(--foreground))]">
+                            {checkpoint.title}
+                          </p>
+                        )}
+                        {checkpoint.post_name && (
+                          <div className="flex items-center gap-1 text-xs text-[hsl(var(--muted-foreground))]">
+                            <MapPin className="w-3 h-3" />
+                            {checkpoint.post_name}
+                          </div>
+                        )}
+                        {checkpoint.employee_name && (
+                          <div className="flex items-center gap-1 text-xs text-[hsl(var(--muted-foreground))]">
+                            <User className="w-3 h-3" />
+                            {checkpoint.employee_name}
+                          </div>
+                        )}
                       </div>
-                      {checkpoint.post_name && (
-                        <div className="flex items-center gap-1 text-xs text-[hsl(var(--muted-foreground))]">
-                          <MapPin className="w-3 h-3" />
-                          {checkpoint.post_name}
-                        </div>
-                      )}
-                      {checkpoint.employee_name && (
-                        <div className="flex items-center gap-1 text-xs text-[hsl(var(--muted-foreground))]">
-                          <User className="w-3 h-3" />
-                          {checkpoint.employee_name}
-                        </div>
-                      )}
+                      <span
+                        className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${
+                          CHECKPOINT_STATUS_COLORS[checkpoint.status] ||
+                          'bg-gray-500/10 text-gray-500 border-gray-500/20'
+                        }`}
+                      >
+                        {CHECKPOINT_STATUS_LABELS[checkpoint.status]}
+                      </span>
                     </div>
-                    <span
-                      className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${
-                        CHECKPOINT_STATUS_COLORS[checkpoint.status] ||
-                        'bg-gray-500/10 text-gray-500 border-gray-500/20'
-                      }`}
-                    >
-                      {CHECKPOINT_STATUS_LABELS[checkpoint.status]}
-                    </span>
+                    {checkpoint.description && (
+                      <p className="text-sm text-[hsl(var(--foreground))] mt-2 whitespace-pre-wrap">
+                        {checkpoint.description}
+                      </p>
+                    )}
+                    {checkpoint.observations && (
+                      <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1 whitespace-pre-wrap">
+                        Obs.: {checkpoint.observations}
+                      </p>
+                    )}
+                    {checkpoint.latitude != null && checkpoint.longitude != null && (
+                      <a
+                        href={`https://maps.google.com/?q=${checkpoint.latitude},${checkpoint.longitude}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 inline-flex items-center gap-1 text-xs text-blue-500 hover:underline"
+                      >
+                        <MapPin className="w-3 h-3" />
+                        {checkpoint.latitude.toFixed(5)}, {checkpoint.longitude.toFixed(5)} — ver no mapa
+                      </a>
+                    )}
+                    {checkpoint.occurrence_code && (
+                      <div className="mt-2 text-xs text-orange-500">
+                        Ocorrência: {checkpoint.occurrence_code}
+                      </div>
+                    )}
+                    {fotos.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {fotos.map((foto) => (
+                          <CheckpointFoto
+                            key={foto.arquivo}
+                            roundId={rd.id}
+                            checkpointId={checkpoint.id}
+                            arquivo={foto.arquivo}
+                            alt={`Foto do checkpoint #${checkpoint.sequence}`}
+                            className="w-16 h-16 rounded-md object-cover cursor-pointer transition-opacity hover:opacity-80"
+                            onClick={() =>
+                              setFotoAmpliada({
+                                checkpointId: checkpoint.id,
+                                arquivo: foto.arquivo,
+                              })
+                            }
+                          />
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  {checkpoint.description && (
-                    <p className="text-sm text-[hsl(var(--foreground))] mt-2">
-                      {checkpoint.description}
-                    </p>
-                  )}
-                  {checkpoint.occurrence_code && (
-                    <div className="mt-2 text-xs text-orange-500">
-                      Ocorrência: {checkpoint.occurrence_code}
-                    </div>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -354,6 +503,33 @@ export function PatrolRoundDetailModal({
           Fechar
         </Button>
       </ModalFooter>
+
+      {/* Lightbox de foto ampliada (portal para escapar do overflow do modal) */}
+      {fotoAmpliada &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4"
+            onClick={() => setFotoAmpliada(null)}
+          >
+            <button
+              type="button"
+              className="absolute top-4 right-4 text-white/80 hover:text-white"
+              onClick={() => setFotoAmpliada(null)}
+              aria-label="Fechar foto"
+            >
+              <X className="w-8 h-8" />
+            </button>
+            <CheckpointFoto
+              roundId={rd.id}
+              checkpointId={fotoAmpliada.checkpointId}
+              arquivo={fotoAmpliada.arquivo}
+              alt="Foto da visita ampliada"
+              className="max-h-[85vh] max-w-full rounded-lg object-contain"
+            />
+          </div>,
+          document.body
+        )}
     </Modal>
   );
 }
