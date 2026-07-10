@@ -176,3 +176,27 @@ Prova amostral 11-14/07: emenda 06→18→06 nos 4 postos. QUADRO CONTRATUAL COM
   desativados; rondas de teste do E2E deletadas. Base zerada p/ uso real.
 - Proposta pendente de "vai": ronda do RONDISTA por condomínio (checkpoints QR/NFC fixos,
   giro registrado no celular, visível no quadro/portal do cliente).
+
+---
+## Visitas de gestão a condomínios — controle da rotina PJ (2026-07-10, tarde)
+Motivação do Jordan: gerente operacional PJ sem relatório/rastro; carro e moto da empresa;
+"tudo registrado no sistema, nada em grupo de WhatsApp".
+### Construído e PROVADO (API por curl + fluxo CLICADO no navegador):
+- Check-in/check-out por CONDOMÍNIO com GPS (tipos checkin/checkout_condominio).
+- Atividade com tipo (reunião/alteração operacional/verificação/observação), relato
+  obrigatório (min 10 chars) e até 5 FOTOS (10MB, jpeg/png/webp) — upload multipart,
+  storage bind /opt/conecta-pro/uploads/rondas (persistente), download autenticado
+  path-safe; miniaturas na timeline e galeria+lightbox no modal de gestão.
+- GET /rondas/gestao/resumo-inspetores?dias=N: rondas, planejado×realizado (% cumprimento),
+  duração média, condomínios, reuniões, fotos, dias COM e SEM registro (silêncio = sinal).
+- Briefing 07:30: seção "Visitas de gestão (ontem)" + ⚠ gestor sem nenhum registro.
+### Bugs achados na trilha e corrigidos:
+1. Criar ronda 500: datetime aware do navegador × coluna naive (validator → Manaus naive).
+2. Permissão /app/uploads (root) → mkdir rondas com dono erp (bind mount, durável).
+3. Timeline exibia UTC (18:22 p/ 14:22): created_at do Postgres é UTC → conversão na exibição.
+4. Upload de foto silenciosamente quebrado: axios global força Content-Type: application/json
+   → multipart sem boundary; override por chamada (mesmo padrão do GED). Provado 201 + thumb.
+### Enquadramento PJ (registrado p/ Jordan): controle por AGENDA e ENTREGÁVEL (agendar rondas
+no sistema; % cumprimento), nunca por ponto/horário — evita caracterizar vínculo (caso Ermeson).
+Veículos da empresa: rastreador veicular é o caminho legítimo (fora do escopo do ERP hoje).
+Todos os dados de teste (rondas/checkpoints/fotos) removidos após as provas.
