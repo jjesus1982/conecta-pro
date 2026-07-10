@@ -178,3 +178,21 @@ Todas as correções das 3 ondas aplicadas, commitadas e BAKEADAS (blue/green ze
 | Portal cliente (não testado pelo CIC) | ✅ coberto pela frente privilegiada (sem campos sensíveis) |
 
 Pendente de validação visual: 2ª passada do CIC (opcional) para confirmar os fixes no navegador.
+
+---
+
+# ONDA 4 — pendentes da 2ª passada do CIC (fechados 2026-07-10)
+
+| Pendente | Causa-raiz | Status pós-bake |
+|---|---|---|
+| Item 6 grade visual vazia | DUPLA: params `date_from` inexistentes (backend usa start/end_date) + campo `shift.date` inexistente (real: shift_date) | ✅ oráculo 206/206 turnos na grade; API semana=242 |
+| Item 6 React #418 | PROVADO ausente do código (Playwright headless, TZ Manaus, console limpo em /instrucoes-posto e /visual) — resíduo de cache/service-worker do navegador do QA | ✅ orientar hard-refresh/aba anônima na 3ª passada |
+| Item 7 Afastados=0 | GET /employees só devolvia status='ativo' | ✅ status=todos → 71 (Afastados 2); default preservado |
+| Item 7 vagas 11/11 | telas usavam total_allocations como denominador | ✅ Efetivo/Ideal = 11/12 (92%) em cobertura+relatórios |
+| Item 7 card "Com vagas 0" | tela de postos nunca chamava /posts/stats (conta local errada) | ✅ usa stats (filled=7, with_vacancy=1) |
+| Item 7 vigentes 8×9 | série do KPI sem filtro is_active (contava escala desativada) | ✅ 8 == home |
+| Item 2 IA zeros | bindings esperavam chaves inexistentes; backend contava 12 postos | ✅ chaves reais + postos ativos (8, 87.5%) |
+| Persistente: horas 0.0 | actual_hours nunca preenchido (checkout raro) | ✅ fonte trocada: pares entrada→saída das BATIDAS (43/50 c/ horas reais) |
+
+Deploy final: blue/green zero-downtime + 7/7 workers + frontend BUILD conecta-pro-1783653325373.
+Pronto para a 3ª passada de carimbo do CIC (com hard-refresh).
