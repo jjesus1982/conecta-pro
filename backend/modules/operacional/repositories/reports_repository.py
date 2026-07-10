@@ -4,7 +4,7 @@ Repository para relatorios operacionais.
 
 from datetime import date
 
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.operacional.models.allocation import Allocation, AllocationStatus
@@ -128,15 +128,52 @@ class ReportsRepository:
             query = query.where(Shift.employee_id == employee_id)
 
         result = await self.db.execute(query)
+
+        # Horas REAIS por batidas do ponto (pares entrada→saída, UTC→Manaus).
+        # shifts.actual_hours fica sempre 0 (checkout via sistema é raro) — a fonte
+        # honesta de horas trabalhadas é gp_clock_punches (sync Sólides).
+        punch_rows = (
+            await self.db.execute(
+                text(
+                    """
+                    WITH p AS (
+                      SELECT employee_id,
+                             (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') AS ts,
+                             punch_type,
+                             ROW_NUMBER() OVER (PARTITION BY employee_id ORDER BY punch_timestamp) AS rn
+                      FROM gp_clock_punches
+                      WHERE COALESCE(status,'') NOT IN ('rejected','cancelado')
+                        AND (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date
+                            BETWEEN :ini AND :fim
+                    ),
+                    pares AS (
+                      SELECT e.employee_id, e.ts AS entrada, s.ts AS saida
+                      FROM p e
+                      JOIN p s ON s.employee_id = e.employee_id AND s.rn = e.rn + 1
+                      WHERE e.punch_type = 'entrada' AND s.punch_type = 'saida'
+                        AND s.ts - e.ts BETWEEN interval '1 minute' AND interval '16 hours'
+                    )
+                    SELECT employee_id::text AS emp,
+                           ROUND(SUM(EXTRACT(EPOCH FROM (saida - entrada)) / 3600.0)::numeric, 1) AS horas
+                    FROM pares GROUP BY employee_id
+                    """
+                ),
+                {"ini": start_date, "fim": end_date},
+            )
+        ).all()
+        horas_ponto = {r.emp: float(r.horas or 0) for r in punch_rows}
+
         items = []
         for row in result.all():
+            emp = str(row.employee_id)
             items.append(
                 {
-                    "employee_id": str(row.employee_id),
+                    "employee_id": emp,
                     "employee_name": row.employee_name or "—",
                     "total_shifts": int(row.total_shifts or 0),
-                    "total_hours": float(row.total_hours or 0.0),
+                    "total_hours": horas_ponto.get(emp, 0.0),
                     "overtime_hours": float(row.overtime_hours or 0.0),
+                    "fonte_horas": "batidas de ponto (pares entrada→saída)",
                 }
             )
         return items

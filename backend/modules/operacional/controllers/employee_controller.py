@@ -82,16 +82,22 @@ async def list_employees(
     page: int = Query(1, ge=1, description="Pagina atual"),
     page_size: int = Query(100, ge=1, le=500, description="Itens por pagina"),
     search: str | None = Query(None, description="Buscar por nome, email ou matricula"),
-    status: str | None = Query(None, description="Filtrar por status"),
+    status: str | None = Query(
+        None, description="Filtrar por status ('todos' devolve todos os status; default: ativo)"
+    ),
 ) -> EmployeeListResponse:
     """
     Lista funcionarios com paginacao e filtros.
     """
     # Criterio canonico de "ativo" e employees.status='ativo' (a flag is_active e
     # inconsistente no banco e NAO deve ser usada para contagem/listagem).
+    # Default MANTIDO em 'ativo' para nao quebrar dropdowns que esperam so ativos;
+    # status='todos' devolve todos os funcionarios com o status real de cada um.
     filters: list[Any] = []
 
-    if status:
+    if status and status.strip().lower() in {"todos", "all"}:
+        pass  # sem filtro de status — devolve ativos + afastados + inativos etc.
+    elif status:
         filters.append(Employee.status == status)
     else:
         filters.append(Employee.status == "ativo")

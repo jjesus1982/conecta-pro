@@ -16,9 +16,20 @@ _SEMANA = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sab", "Dom"]
 
 
 async def _coverage(db: AsyncSession) -> dict:
-    total = (await db.execute(text("SELECT count(*) FROM posts"))).scalar() or 0
+    # Semantica padronizada (mesma regra de posts/stats e da home operacional):
+    # total = postos ATIVOS (status='active' AND is_active) e cobertura = cobertos/ativos.
+    total = (
+        await db.execute(text("SELECT count(*) FROM posts WHERE status = 'active' AND is_active = true"))
+    ).scalar() or 0
     cobertos = (
-        await db.execute(text("SELECT count(DISTINCT post_id) FROM allocations WHERE status='active'"))
+        await db.execute(
+            text(
+                "SELECT count(DISTINCT a.post_id) FROM allocations a "
+                "JOIN posts p ON p.id = a.post_id "
+                "WHERE a.status = 'active' AND a.is_active = true "
+                "AND p.status = 'active' AND p.is_active = true"
+            )
+        )
     ).scalar() or 0
     cobertura = round((cobertos / total * 100) if total else 0.0, 1)
     nivel = "baixo" if cobertura >= 90 else "medio" if cobertura >= 70 else "alto"

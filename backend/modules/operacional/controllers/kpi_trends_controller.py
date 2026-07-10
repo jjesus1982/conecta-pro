@@ -99,9 +99,12 @@ async def get_kpi_trends(  # pylint: disable=too-many-locals
             # Escalas em andamento — 'active' NÃO é status válido de scales
             # (valores reais: draft, pending_approval, approved, published,
             # in_progress, completed, cancelled). Mesmo mapeamento do dashboard.
+            # Filtra is_active para excluir escalas desativadas (soft-delete) —
+            # mesma conta de scales/stats usada na home.
             result = await db.execute(
                 select(func.count(Scale.id))
                 .where(Scale.status.in_(["approved", "published", "in_progress"]))
+                .where(Scale.is_active.is_(True))
                 .where(Scale.created_at <= current_date)
             )
             escalas_count = result.scalar() or 0
