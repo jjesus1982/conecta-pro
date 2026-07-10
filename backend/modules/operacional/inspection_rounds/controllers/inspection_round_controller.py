@@ -48,6 +48,8 @@ from ..services import (
 
 logger = logging.getLogger(__name__)
 
+_TZ_MANAUS_RESUMO = ZoneInfo("America/Manaus")
+
 router = APIRouter(dependencies=[Depends(get_current_active_user)])
 
 
@@ -191,6 +193,80 @@ async def get_my_rounds(
     """Lista rondas do inspetor."""
     rounds = await service.get_rounds_by_inspector(str(inspector_id), str(tenant_id), limit)
     return [InspectionRoundSummary.model_validate(r) for r in rounds]
+
+
+@router.get(
+    "/gestao/resumo-inspetores",
+    summary="Resumo de atividade por inspetor",
+    description="Prestação de contas da gestão de campo: rondas, condomínios visitados, fotos e dias SEM registro por inspetor (janela em dias).",
+)
+async def resumo_inspetores(
+    current_user: CurrentActiveUser,
+    dias: int = Query(7, ge=1, le=90),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """O silêncio também é sinal: dias sem NENHUM registro aparecem por inspetor."""
+    rows = (
+        await db.execute(
+            text(
+                """
+                SELECT r.inspector_id::text, max(r.inspector_name) AS nome,
+                       max(r.inspector_role) AS papel,
+                       count(DISTINCT r.id) AS rondas,
+                       count(DISTINCT r.id) FILTER (WHERE r.status='concluida') AS concluidas,
+                       count(c.id) AS checkpoints,
+                       count(DISTINCT c.post_id) AS condominios_distintos,
+                       COALESCE(sum(jsonb_array_length(COALESCE(c.photos,'[]'::jsonb))),0) AS fotos,
+                       count(DISTINCT c.created_at::date) AS dias_com_registro,
+                       min(c.created_at) AS primeira_atividade,
+                       max(c.created_at) AS ultima_atividade,
+                       count(c.id) FILTER (WHERE c.checkpoint_type='checkin_condominio') AS checkins,
+                       count(c.id) FILTER (WHERE c.checkpoint_type='reuniao') AS reunioes
+                FROM inspection_rounds r
+                LEFT JOIN inspection_checkpoints c ON c.inspection_round_id = r.id
+                WHERE r.is_active AND r.created_at >= now() - make_interval(days => :dias)
+                GROUP BY r.inspector_id
+                ORDER BY 2
+                """
+            ),
+            {"dias": dias},
+        )
+    ).all()
+    condominios = {
+        r[0]: [x[0] for x in (
+            await db.execute(
+                text(
+                    """SELECT DISTINCT c.post_name FROM inspection_checkpoints c
+                       JOIN inspection_rounds r2 ON r2.id=c.inspection_round_id
+                       WHERE r2.inspector_id=CAST(:i AS uuid) AND r2.is_active
+                         AND r2.created_at >= now() - make_interval(days => :dias)
+                         AND c.post_name IS NOT NULL"""
+                ),
+                {"i": r[0], "dias": dias},
+            )
+        ).all()]
+        for r in rows
+    }
+    return {
+        "janela_dias": dias,
+        "gerado_em": datetime.now(_TZ_MANAUS_RESUMO).replace(tzinfo=None).isoformat(timespec="seconds"),
+        "inspetores": [
+            {
+                "inspector_id": r[0], "nome": r[1], "papel": r[2],
+                "rondas": int(r[3]), "concluidas": int(r[4]),
+                "checkpoints": int(r[5]), "condominios_distintos": int(r[6]),
+                "condominios": condominios.get(r[0], []),
+                "fotos": int(r[7]),
+                "dias_com_registro": int(r[8]),
+                "dias_sem_registro": max(0, dias - int(r[8])),
+                "primeira_atividade": str(r[9]) if r[9] else None,
+                "ultima_atividade": str(r[10]) if r[10] else None,
+                "checkins_condominio": int(r[11]), "reunioes": int(r[12]),
+            }
+            for r in rows
+        ],
+        "aviso": "Sem registro aqui = sem visita registrada no sistema. Combine a política: visita só conta se registrada.",
+    }
 
 
 @router.get(

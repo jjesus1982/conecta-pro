@@ -574,6 +574,55 @@ def briefing_operacional_matinal(self):
                         )
                     )
                 ).all()
+                # ── Visitas de gestão de ONTEM (rondas de inspeção) — prestação de contas ──
+                try:
+                    visitas_ontem = (
+                        await db.execute(
+                            _text(
+                                """
+                                SELECT r.inspector_name,
+                                       count(DISTINCT c.post_id) FILTER (WHERE c.post_id IS NOT NULL) AS condominios,
+                                       count(c.id) FILTER (WHERE c.checkpoint_type='reuniao') AS reunioes,
+                                       COALESCE(sum(jsonb_array_length(COALESCE(c.photos,'[]'::jsonb))),0) AS fotos,
+                                       string_agg(DISTINCT c.post_name, ', ') AS onde
+                                FROM inspection_rounds r
+                                LEFT JOIN inspection_checkpoints c ON c.inspection_round_id=r.id
+                                     AND c.created_at::date = (now() AT TIME ZONE 'America/Manaus')::date - 1
+                                WHERE r.is_active
+                                  AND r.created_at::date = (now() AT TIME ZONE 'America/Manaus')::date - 1
+                                GROUP BY r.inspector_name ORDER BY 1
+                                """
+                            )
+                        )
+                    ).all()
+                    gestores_esperados = (
+                        await db.execute(
+                            _text(
+                                """SELECT DISTINCT u.name FROM users u
+                                   WHERE u.role IN ('gerente_operacional','supervisor','inspetor')
+                                     AND u.is_active"""
+                            )
+                        )
+                    ).all()
+                    linhas.append("*Visitas de gestão (ontem)*")
+                    if visitas_ontem:
+                        for nome_i, cond, reun, fot, onde in visitas_ontem:
+                            linhas.append(
+                                f"• {nome_i}: {int(cond)} condomínio(s), {int(reun)} reunião(ões), {int(fot)} foto(s)"
+                                + (f" — {onde}" if onde else "")
+                            )
+                    else:
+                        linhas.append("• NENHUMA visita registrada ontem")
+                    registraram = {v[0] for v in visitas_ontem}
+                    sem_registro = [g[0] for g in gestores_esperados if g[0] and g[0] not in registraram]
+                    if sem_registro:
+                        linhas.append("• ⚠ Sem registro ontem: " + ", ".join(sem_registro))
+                    linhas.append("")
+                except Exception:
+                    linhas.append("*Visitas de gestão (ontem)*")
+                    linhas.append("• sem registros (fonte indisponível)")
+                    linhas.append("")
+
                 linhas.append("*Ocorrências abertas*")
                 if por_sev:
                     ordem = {"gravissima": 0, "grave": 1, "moderada": 2, "leve": 3}
