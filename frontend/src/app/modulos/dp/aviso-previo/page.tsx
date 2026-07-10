@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   ArrowLeft, CalendarClock, AlertTriangle,
-  CheckCircle, Clock, Inbox, Loader2,
+  CheckCircle, Clock, Inbox, Loader2, Download,
 } from 'lucide-react';
+import { baixarArquivoAutenticado } from '@/utils/baixarArquivoAutenticado';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -162,6 +163,23 @@ export default function AvisoPrevioPage() {
   });
 
   const [diasCalculados, setDias] = useState(30);
+  const [baixandoId, setBaixandoId] = useState<string | null>(null);
+
+  // Baixa o PDF do aviso prévio (padrão-ouro) — cria a solicitação de assinatura no backend.
+  const baixarAvisoPdf = async (id: string) => {
+    setBaixandoId(id);
+    try {
+      await baixarArquivoAutenticado(
+        `${API_BASE}/terminations/${id}/aviso-previo/pdf`,
+        `aviso_previo_${id.slice(0, 8)}.pdf`,
+      );
+      toast.success('Aviso prévio gerado!');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao baixar PDF');
+    } finally {
+      setBaixandoId(null);
+    }
+  };
 
   // ── Fetch avisos ──────────────────────────────────────────────────────────
 
@@ -432,16 +450,30 @@ export default function AvisoPrevioPage() {
                     </TableCell>
                     <TableCell><StatusBadge status={aviso.status} vencido={(aviso.dias_restantes ?? 1) <= 0} /></TableCell>
                     <TableCell className="text-right">
-                      {aviso.status === 'ativo' && (
+                      <div className="flex items-center justify-end gap-1">
                         <Button
                           size="sm"
                           variant="outline"
                           className="h-7 px-2 text-xs"
-                          onClick={() => concluirAviso(aviso.id)}
+                          disabled={baixandoId === aviso.id}
+                          onClick={() => baixarAvisoPdf(aviso.id)}
                         >
-                          Concluir
+                          {baixandoId === aviso.id
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <><Download className="h-3.5 w-3.5 mr-1" /> PDF</>
+                          }
                         </Button>
-                      )}
+                        {aviso.status === 'ativo' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => concluirAviso(aviso.id)}
+                          >
+                            Concluir
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))

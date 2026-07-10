@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   UserMinus, ArrowLeft, Inbox, Loader2, Plus, X, Save, Search,
   ChevronLeft, ChevronRight as ChevronRightIcon, Eye, Calculator,
-  CheckCircle2, AlertCircle, Clock, Ban, FileText, Calendar,
+  CheckCircle2, AlertCircle, Clock, Ban, FileText, Calendar, Download, PenLine,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
@@ -13,8 +13,17 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { PageHeader } from '@/components/ui/page-header';
+import { baixarArquivoAutenticado } from '@/utils/baixarArquivoAutenticado';
 
 const API_BASE = '/api/v1/people-management/hr';
+
+// Rótulos do status de assinatura universal (svc.status_geral)
+const SIG_STATUS: Record<string, { label: string; className: string }> = {
+  none: { label: 'Sem assinatura', className: 'bg-gray-400 text-white' },
+  pending: { label: 'Aguardando assinatura', className: 'bg-yellow-500 text-white' },
+  partial: { label: 'Parcialmente assinado', className: 'bg-orange-500 text-white' },
+  completed: { label: 'Assinado', className: 'bg-green-600 text-white' },
+};
 
 function getAuthHeaders() {
   const token = typeof window !== 'undefined' ? (localStorage.getItem('access_token') || localStorage.getItem('token')) : null;
@@ -149,6 +158,10 @@ export default function RescisaoPage() {
 
   // Completing state
   const [completing, setCompleting] = useState(false);
+
+  // PDF/assinatura state
+  const [baixando, setBaixando] = useState<'aviso' | 'trct' | null>(null);
+  const [sigStatus, setSigStatus] = useState<Record<string, { status_geral: string; signed_count: number; total_signers: number }>>({});
 
   // ---------- Data loading ----------
   useEffect(() => {
@@ -328,6 +341,51 @@ export default function RescisaoPage() {
     }
     setCalcResult(null);
     setShowDetail(true);
+    carregarStatusAssinatura(item.id);
+  };
+
+  // Busca o status de assinatura de aviso_previo + rescisao (para os badges).
+  const carregarStatusAssinatura = async (terminationId: string) => {
+    const tipos: Array<'aviso_previo' | 'rescisao'> = ['aviso_previo', 'rescisao'];
+    for (const tipo of tipos) {
+      try {
+        const res = await fetch(`/api/v1/signatures/document/${tipo}/${terminationId}`, { headers: getAuthHeaders() });
+        if (res.ok) {
+          const data = await res.json();
+          setSigStatus(prev => ({
+            ...prev,
+            [`${terminationId}:${tipo}`]: {
+              status_geral: data.status_geral || 'none',
+              signed_count: data.signed_count || 0,
+              total_signers: data.total_signers || 0,
+            },
+          }));
+        }
+      } catch {
+        /* status é informativo; não bloqueia a tela */
+      }
+    }
+  };
+
+  // Baixa o PDF do aviso prévio ou do TRCT (endpoint autenticado) e atualiza o badge.
+  const baixarPdf = async (terminationId: string, tipo: 'aviso' | 'trct') => {
+    setBaixando(tipo);
+    try {
+      const url = tipo === 'aviso'
+        ? `${API_BASE}/terminations/${terminationId}/aviso-previo/pdf`
+        : `${API_BASE}/terminations/${terminationId}/trct/pdf`;
+      const nome = tipo === 'aviso'
+        ? `aviso_previo_${terminationId.slice(0, 8)}.pdf`
+        : `trct_${terminationId.slice(0, 8)}.pdf`;
+      await baixarArquivoAutenticado(url, nome);
+      toast.success(tipo === 'aviso' ? 'Aviso prévio gerado!' : 'TRCT gerado!', { duration: 3000 });
+      // Gerar o PDF cria a solicitação de assinatura → recarrega os badges.
+      carregarStatusAssinatura(terminationId);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao baixar PDF', { duration: 5000 });
+    } finally {
+      setBaixando(null);
+    }
   };
 
   const handleCalculate = async (terminationId: string) => {
@@ -829,6 +887,44 @@ export default function RescisaoPage() {
                     : <AlertCircle className="h-4 w-4 text-muted-foreground" />
                   }
                   <span>Evento eSocial Enviado</span>
+                </div>
+              </div>
+
+              {/* Documentos (PDF padrão-ouro + status de assinatura) */}
+              <div className="pt-2 border-t">
+                <p className="text-sm font-medium mb-2 flex items-center gap-2">
+                  <FileText className="h-4 w-4" /> Documentos
+                </p>
+                <div className="space-y-2">
+                  {([
+                    { tipo: 'aviso' as const, doc: 'aviso_previo', label: 'Baixar aviso prévio (PDF)' },
+                    { tipo: 'trct' as const, doc: 'rescisao', label: 'Baixar TRCT (PDF)' },
+                  ]).map(({ tipo, doc, label }) => {
+                    const svc = sigStatus[`${selectedItem.id}:${doc}`];
+                    const sig = SIG_STATUS[svc?.status_geral || 'none'] ?? SIG_STATUS.none!;
+                    return (
+                      <div key={tipo} className="flex items-center justify-between gap-2 bg-muted/40 p-2 rounded">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={baixando !== null}
+                          onClick={() => baixarPdf(selectedItem.id, tipo)}
+                        >
+                          {baixando === tipo
+                            ? <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                            : <Download className="h-4 w-4 mr-1" />
+                          }
+                          {label}
+                        </Button>
+                        <Badge className={`flex items-center gap-1 ${sig.className}`}>
+                          <PenLine className="h-3 w-3" />
+                          {sig.label}
+                          {svc && svc.total_signers > 0 ? ` (${svc.signed_count}/${svc.total_signers})` : ''}
+                        </Badge>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 

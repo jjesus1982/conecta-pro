@@ -8,8 +8,8 @@ import asyncio
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy import select, text as _sqltext
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
@@ -260,3 +260,214 @@ async def complete_termination(
         )
     )
     return termination
+
+
+async def _dados_funcionario(db: AsyncSession, employee_id: str) -> dict:
+    """Busca cpf/cargo/data_admissao do funcionário (dado real, sem inventar)."""
+    row = (
+        await db.execute(
+            _sqltext(
+                "SELECT nome, cpf, cargo, data_admissao FROM employees "
+                "WHERE CAST(id AS TEXT) = :i LIMIT 1"
+            ),
+            {"i": str(employee_id)},
+        )
+    ).first()
+    if not row:
+        return {}
+    adm = row[3]
+    return {
+        "nome": row[0],
+        "cpf": row[1],
+        "cargo": row[2],
+        "data_admissao": adm.isoformat() if hasattr(adm, "isoformat") else (adm or None),
+    }
+
+
+def _notice_type_from_reason(reason: str | None) -> str | None:
+    """Extrai a modalidade do aviso ('trabalhado'/'indenizado') do campo reason."""
+    if reason and reason.startswith("notice_type:"):
+        return reason.split("notice_type:", 1)[1].strip() or None
+    return None
+
+
+@router.get(
+    "/{termination_id}/aviso-previo/pdf",
+    summary="Download PDF do Aviso Prévio",
+    description=(
+        "Gera e retorna o PDF do Aviso Prévio (Lei 12.506/2011) no padrão-ouro Conecta Mais. "
+        "Plugado na assinatura universal (EMPLOYEE + COMPANY)."
+    ),
+)
+async def download_aviso_previo_pdf(
+    termination_id: str,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Gera o PDF do Aviso Prévio e garante a solicitação de assinatura (idempotente)."""
+    service = TerminationService(db)
+    termination = await service.get_by_id(termination_id)
+    if not termination:
+        raise HTTPException(status_code=404, detail="Rescisão não encontrada")
+
+    func = await _dados_funcionario(db, termination.employee_id)
+    nome = func.get("nome")
+
+    # Status atual das assinaturas → alimenta o bloco de autenticidade se já assinado.
+    assinaturas: list = []
+    try:
+        from modules.signatures.services.universal_signature_service import (
+            UniversalSignatureService,
+        )
+
+        stt = await UniversalSignatureService(db).status(
+            document_type="aviso_previo", document_id=termination_id
+        )
+        assinaturas = stt.get("signatarios") or stt.get("signers") or []
+    except Exception:  # noqa: BLE001
+        assinaturas = []
+
+    from modules.people_management.hr.services.aviso_previo_pdf import montar_aviso_previo_pdf
+
+    dados = {
+        "termination_id": termination_id,
+        "employee_nome": nome,
+        "modalidade": _notice_type_from_reason(termination.reason),
+        "notice_start_date": termination.notice_start_date,
+        "notice_period_days": termination.notice_period_days,
+        "last_working_day": termination.last_working_day,
+        "assinaturas": assinaturas,
+    }
+    try:
+        pdf_bytes = montar_aviso_previo_pdf(dados, func)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Erro ao gerar PDF do aviso prévio %s: %s", termination_id, exc)
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar PDF: {exc}") from exc
+
+    # Camada de assinatura universal: aviso_previo → EMPLOYEE + COMPANY (idempotente).
+    try:
+        from modules.signatures.helpers import (
+            document_hash_sha256,
+            garantir_solicitacao_assinatura,
+        )
+
+        await garantir_solicitacao_assinatura(
+            db,
+            document_type="aviso_previo",
+            document_id=termination_id,
+            title=f"Aviso Prévio - {nome or termination_id[:8]}",
+            document_hash=document_hash_sha256(pdf_bytes),
+            employee_id=str(termination.employee_id),
+            employee_name=nome,
+            employee_document=func.get("cpf"),
+            requested_by=current_user.id,
+        )
+        await db.commit()
+    except Exception as _sig_exc:  # noqa: BLE001
+        logger.warning("Assinatura do aviso prévio %s não criada: %s", termination_id, _sig_exc)
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="aviso_previo_{termination_id[:8]}.pdf"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.get(
+    "/{termination_id}/trct/pdf",
+    summary="Download PDF do TRCT",
+    description=(
+        "Gera e retorna o PDF do Termo de Rescisão do Contrato de Trabalho (TRCT) no padrão-ouro "
+        "Conecta Mais, com as verbas JÁ calculadas pelo motor. Plugado na assinatura universal "
+        "(EMPLOYEE + COMPANY)."
+    ),
+)
+async def download_trct_pdf(
+    termination_id: str,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Gera o PDF do TRCT (verbas do cálculo existente) e garante a assinatura (idempotente)."""
+    service = TerminationService(db)
+    termination = await service.get_by_id(termination_id)
+    if not termination:
+        raise HTTPException(status_code=404, detail="Rescisão não encontrada")
+    if not termination.last_working_day:
+        raise HTTPException(status_code=400, detail="Último dia de trabalho não informado")
+
+    # Verbas: usa EXATAMENTE o cálculo existente (mesmo que a tela mostra).
+    try:
+        calc = await service.calculate_severance(
+            termination.employee_id,
+            TerminationType(termination.type),
+            termination.last_working_day,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    func = await _dados_funcionario(db, termination.employee_id)
+    nome = func.get("nome") or calc.get("employee_name")
+
+    assinaturas: list = []
+    try:
+        from modules.signatures.services.universal_signature_service import (
+            UniversalSignatureService,
+        )
+
+        stt = await UniversalSignatureService(db).status(
+            document_type="rescisao", document_id=termination_id
+        )
+        assinaturas = stt.get("signatarios") or stt.get("signers") or []
+    except Exception:  # noqa: BLE001
+        assinaturas = []
+
+    from modules.people_management.hr.services.trct_pdf import montar_trct_pdf
+
+    try:
+        pdf_bytes = montar_trct_pdf(
+            calc,
+            func,
+            meta={
+                "termination_id": termination_id,
+                "notice_type": _notice_type_from_reason(termination.reason),
+                "termination_type": termination.type,
+                "assinaturas": assinaturas,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Erro ao gerar PDF do TRCT %s: %s", termination_id, exc)
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar PDF: {exc}") from exc
+
+    # Camada de assinatura universal: rescisao → EMPLOYEE + COMPANY (idempotente).
+    try:
+        from modules.signatures.helpers import (
+            document_hash_sha256,
+            garantir_solicitacao_assinatura,
+        )
+
+        await garantir_solicitacao_assinatura(
+            db,
+            document_type="rescisao",
+            document_id=termination_id,
+            title=f"TRCT - {nome or termination_id[:8]}",
+            document_hash=document_hash_sha256(pdf_bytes),
+            employee_id=str(termination.employee_id),
+            employee_name=nome,
+            employee_document=func.get("cpf"),
+            requested_by=current_user.id,
+        )
+        await db.commit()
+    except Exception as _sig_exc:  # noqa: BLE001
+        logger.warning("Assinatura do TRCT %s não criada: %s", termination_id, _sig_exc)
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="trct_{termination_id[:8]}.pdf"',
+            "Cache-Control": "no-store",
+        },
+    )
