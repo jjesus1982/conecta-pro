@@ -142,3 +142,14 @@ CONTRATUAL. Editor ganhou `pausa_minutos` (0 = intrajornada paga; default 60).
 - Paridades das batidas MANTIDAS (só horários mudaram). Prova SQL: pausas p0/p60 corretas.
 - Regra refinada: batidas = QUEM/paridade/diurno-vs-noturno; horário nominal = contrato.
   Chegada antecipada (Chagas ~05:42 p/ turno 07:00) continua contando presença (janela -2h).
+
+---
+## Padrão contratual dos demais condomínios (2026-07-10, fechamento)
+Jordan: troca de turno às 06:00 e às 18:00 nos demais postos → AGPs de Prime, Ideal,
+Villa Dei Fiori e V. Pássaros ajustados para diurno 06:00-18:00 / noturno 18:00-06:00
+(19 pessoas, paridades das batidas mantidas, pausa default 60, a partir de 11/07).
+Prova amostral 11-14/07: emenda 06→18→06 nos 4 postos. QUADRO CONTRATUAL COMPLETO:
+- Mirante: P1 07-19 + rondas 10-22 + noturno 19-07 (intrajornada paga, p0)
+- Laranjeiras: 07-19 / 19-07 (1h intervalo, p60)
+- Demais: 06-18 / 18-06 (p60)
+- ASGs: 07-16 seg-sex (+fds conforme posto); Mirante ASG almoço 11-12
