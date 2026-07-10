@@ -150,3 +150,31 @@ turnos hoje 39 vs nenhum vs 31; posts/ 200 vs posts?status 404.
 
 ### Dados de teste: frente 100% read-only; nada criado. Resíduos observados eram da frente de
 escrita em andamento (confirmado limpo pós-fase 3).
+
+---
+
+# VEREDITO FINAL PÓS-CORREÇÕES (2026-07-10)
+
+Todas as correções das 3 ondas aplicadas, commitadas e BAKEADAS (blue/green zero-downtime,
+7/7 workers, frontend publicado). Revalidação API pós-bake: 7/7 PASS.
+
+| Achado do CIC | Status |
+|---|---|
+| B1 /diaristas crash (toFixed) | ✅ corrigido (guards em todos os campos numéricos) |
+| B2 /ai-command-center crash (Object.entries) | ✅ corrigido (guards + estados honestos) |
+| B3 detalhe de escala 422 | ✅ corrigido (le→2000) e provado 200 |
+| B4 ronda-mobile 404 | ✅ corrigido (barra final) |
+| B5 menu Campo morto + /campo spinner + OS "404" | ✅ raiz corrigida (sidebar <Link>; getModuleByPath; healthcheck não bloqueia; as 4 telas existem e respondem 200) |
+| B6 contadores divergentes | ✅ semântica única: postos ativos=8, colaboradores=50, alocações=52, escalas VIGENTES, cobertura=fórmula única em 6 pontos |
+| B7 /turnos só dias 1-2 | ✅ mês visível completo (921 agendados de julho) |
+| B8 relatórios PII + horas | ✅ nome real (0 e-mails/UUIDs no payload); horas/custos rotulados pelo que são |
+| B9 ficha›Turnos UUID/inglês | ✅ nome do posto + chaves reais + status traduzidos |
+| B10 visual vazia + #418 | ✅ 422 resolvido + bug de fuso (turno caía no dia anterior) + hydration |
+| B11 /campo loading | ✅ (mesma raiz do B5) |
+| B12 triagem posto "—" | ✅ chave post_nome |
+| Sino, comunicados, título, cancelled | ✅ ondas 1 |
+| /diarias postos texto-livre; 32 sem PIX | 📋 design do Fluxo-2 + pendência de DADO (Jordan) |
+| Resíduos observados | ✅ eram a bateria de escrita ao vivo; pós-limpeza = 0 |
+| Portal cliente (não testado pelo CIC) | ✅ coberto pela frente privilegiada (sem campos sensíveis) |
+
+Pendente de validação visual: 2ª passada do CIC (opcional) para confirmar os fixes no navegador.
