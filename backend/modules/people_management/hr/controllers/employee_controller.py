@@ -255,6 +255,21 @@ class DeductionCreate(BaseModel):
     data_fim: str | None = None
 
 
+class DeductionUpdate(BaseModel):
+    """Schema para editar dedução — todos os campos são opcionais (PATCH parcial)."""
+
+    tipo: str | None = Field(None, pattern="^(consignado|pensao_alimenticia|emprestimo|outros)$")
+    descricao: str | None = Field(None, min_length=3, max_length=200)
+    valor: float | None = Field(None, ge=0)
+    percentual: float | None = Field(None, ge=0, le=100)
+    base_calculo: str | None = Field(None, pattern="^(bruto|liquido|fixo)$")
+    parcela_atual: int | None = Field(None, ge=0)
+    total_parcelas: int | None = Field(None, ge=1)
+    data_inicio: str | None = None
+    data_fim: str | None = None
+    ativo: bool | None = None
+
+
 @router.get(
     "/{employee_id}/deductions",
     summary="Listar Deduções do Funcionário",
@@ -316,3 +331,106 @@ async def create_deduction(
     new_id = result.scalar_one()
     await db.commit()
     return {"id": str(new_id), "employee_id": employee_id, "tipo": data.tipo, "descricao": data.descricao}
+
+
+# Campos que podem ser atualizados diretamente (nome_campo -> conversor opcional).
+_DEDUCTION_DATE_FIELDS = {"data_inicio", "data_fim"}
+_DEDUCTION_UPDATABLE = {
+    "tipo",
+    "descricao",
+    "valor",
+    "percentual",
+    "base_calculo",
+    "parcela_atual",
+    "total_parcelas",
+    "data_inicio",
+    "data_fim",
+    "ativo",
+}
+
+
+@router.patch(
+    "/{employee_id}/deductions/{deduction_id}",
+    summary="Editar Dedução",
+    description=(
+        "Edita uma dedução (consignado, pensão, empréstimo) do funcionário. "
+        "PATCH parcial — envie apenas os campos a alterar. Corrige erros de digitação "
+        "sem perder a dedução. Preserva o created_at (trilha de auditoria)."
+    ),
+)
+async def update_deduction(
+    employee_id: str,
+    deduction_id: str,
+    data: DeductionUpdate,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Atualiza uma dedução existente do funcionário (edição parcial)."""
+    # Só considera campos realmente enviados (PATCH parcial de verdade)
+    changes = data.model_dump(exclude_unset=True)
+    changes = {k: v for k, v in changes.items() if k in _DEDUCTION_UPDATABLE}
+    if not changes:
+        raise HTTPException(status_code=400, detail="Nenhum campo para atualizar.")
+
+    set_clauses = []
+    params: dict[str, Any] = {"did": deduction_id, "eid": employee_id}
+    for field, value in changes.items():
+        if field in _DEDUCTION_DATE_FIELDS:
+            params[field] = date.fromisoformat(str(value)[:10]) if value else None
+        else:
+            params[field] = value
+        set_clauses.append(f"{field} = :{field}")
+    set_clauses.append("updated_at = now()")
+
+    sql = (
+        f"UPDATE employee_deductions SET {', '.join(set_clauses)} "  # noqa: S608 — campos vêm de whitelist
+        "WHERE id = :did AND employee_id = :eid RETURNING id"
+    )
+    result = await db.execute(text(sql), params)
+    updated = result.scalar()
+    if not updated:
+        await db.rollback()
+        raise HTTPException(status_code=404, detail="Dedução não encontrada para este funcionário.")
+    await db.commit()
+    return {"id": str(updated), "employee_id": employee_id, "atualizado": list(changes.keys())}
+
+
+@router.delete(
+    "/{employee_id}/deductions/{deduction_id}",
+    summary="Excluir Dedução (soft-delete)",
+    description=(
+        "Exclui uma dedução do funcionário. Por padrão faz SOFT-DELETE "
+        "(marca ativo=false) para preservar a trilha de auditoria de consignados/pensões. "
+        "Use ?hard=true para remover fisicamente (apenas erro de digitação criado por engano)."
+    ),
+)
+async def delete_deduction(
+    employee_id: str,
+    deduction_id: str,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+    hard: bool = Query(False, description="True = remoção física; False (padrão) = soft-delete (ativo=false)"),
+) -> Any:
+    """Desativa (soft-delete) ou remove uma dedução do funcionário."""
+    if hard:
+        result = await db.execute(
+            text(
+                "DELETE FROM employee_deductions "
+                "WHERE id = :did AND employee_id = :eid RETURNING id"
+            ),
+            {"did": deduction_id, "eid": employee_id},
+        )
+    else:
+        result = await db.execute(
+            text(
+                "UPDATE employee_deductions SET ativo = false, updated_at = now() "
+                "WHERE id = :did AND employee_id = :eid RETURNING id"
+            ),
+            {"did": deduction_id, "eid": employee_id},
+        )
+    affected = result.scalar()
+    if not affected:
+        await db.rollback()
+        raise HTTPException(status_code=404, detail="Dedução não encontrada para este funcionário.")
+    await db.commit()
+    return {"id": str(affected), "employee_id": employee_id, "modo": "removida" if hard else "desativada"}

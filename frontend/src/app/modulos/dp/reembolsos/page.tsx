@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
-import { Receipt, ArrowLeft, Inbox, Plus, X, Save, Search, Filter, Loader2 } from 'lucide-react';
+import { Receipt, ArrowLeft, Inbox, Plus, X, Save, Search, Filter, Loader2, Pencil, Trash2, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -73,6 +73,11 @@ export default function ReembolsosPage() {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  // Edição/exclusão só liberadas para rascunho (regra do backend: can_edit)
+  const [editingReimb, setEditingReimb] = useState<any | null>(null);
+  const [editForm, setEditForm] = useState({ title: '', description: '', expense_date_start: '', expense_date_end: '' });
+  const [editSaving, setEditSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     employee_id: '',
     category: 'transporte',
@@ -177,6 +182,70 @@ export default function ReembolsosPage() {
         toast.error(err?.detail || 'Erro ao criar reembolso', { duration: 5000 });
       }
     } catch { toast.error('Erro de conexão', { duration: 5000 }); } finally { setSaving(false); }
+  };
+
+  // Apenas rascunho pode ser editado/excluído (o backend also bloqueia via can_edit)
+  const isEditable = (r: any) => String(r.status || '').toLowerCase() === 'rascunho';
+
+  const openEdit = (r: any) => {
+    if (!isEditable(r)) {
+      toast.error('Só é possível editar reembolsos em rascunho. Itens já submetidos/aprovados/pagos são imutáveis.', { duration: 5000 });
+      return;
+    }
+    setEditingReimb(r);
+    setEditForm({
+      title: r.title || '',
+      description: r.description || '',
+      expense_date_start: (r.expense_date_start || '').split('T')[0] || '',
+      expense_date_end: (r.expense_date_end || '').split('T')[0] || '',
+    });
+  };
+
+  const handleUpdate = async () => {
+    if (!editingReimb) return;
+    if (!editForm.title.trim() || editForm.title.trim().length < 3) {
+      toast.error('Título deve ter ao menos 3 caracteres', { duration: 4000 });
+      return;
+    }
+    setEditSaving(true);
+    try {
+      const payload = {
+        title: editForm.title,
+        description: editForm.description,
+        expense_date_start: editForm.expense_date_start,
+        expense_date_end: editForm.expense_date_end || editForm.expense_date_start,
+      };
+      const res = await fetch(`${API_REIMB}${editingReimb.id}`, {
+        method: 'PUT', headers: getAuthHeaders(), body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        toast.success('Reembolso atualizado!', { duration: 4000 });
+        setEditingReimb(null);
+        setRefreshKey(k => k + 1);
+      } else {
+        const err = await res.json().catch(() => null);
+        toast.error(err?.detail || 'Erro ao atualizar reembolso', { duration: 5000 });
+      }
+    } catch { toast.error('Erro de conexão', { duration: 5000 }); } finally { setEditSaving(false); }
+  };
+
+  const handleDelete = async (r: any) => {
+    if (!isEditable(r)) {
+      toast.error('Reembolso aprovado/pago/pendente não pode ser excluído (trilha financeira preservada).', { duration: 5000 });
+      return;
+    }
+    if (!confirm(`Excluir o reembolso ${r.code || ''}?\n\nSó rascunhos podem ser excluídos. Esta ação é definitiva.`)) return;
+    setDeletingId(r.id);
+    try {
+      const res = await fetch(`${API_REIMB}${r.id}`, { method: 'DELETE', headers: getAuthHeaders() });
+      if (res.status === 204 || res.ok) {
+        toast.success('Reembolso excluído.', { duration: 4000 });
+        setRefreshKey(k => k + 1);
+      } else {
+        const err = await res.json().catch(() => null);
+        toast.error(err?.detail || 'Erro ao excluir reembolso', { duration: 5000 });
+      }
+    } catch { toast.error('Erro de conexão', { duration: 5000 }); } finally { setDeletingId(null); }
   };
 
   return (
@@ -337,6 +406,7 @@ export default function ReembolsosPage() {
                   <TableHead>Valor</TableHead>
                   <TableHead>Data</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -349,6 +419,22 @@ export default function ReembolsosPage() {
                       <TableCell>{fmt(r.total_amount)}</TableCell>
                       <TableCell>{formatDate(r.expense_date_start)}</TableCell>
                       <TableCell><Badge className={st.className}>{st.label}</Badge></TableCell>
+                      <TableCell className="text-right whitespace-nowrap">
+                        {isEditable(r) ? (
+                          <>
+                            <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" title="Editar (rascunho)" onClick={() => openEdit(r)}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500 hover:text-red-600" title="Excluir (rascunho)" disabled={deletingId === r.id} onClick={() => handleDelete(r)}>
+                              {deletingId === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                            </Button>
+                          </>
+                        ) : (
+                          <span title="Reembolso submetido/aprovado/pago — imutável" className="inline-flex items-center text-muted-foreground text-xs">
+                            <Lock className="h-3.5 w-3.5 mr-1" /> Bloqueado
+                          </span>
+                        )}
+                      </TableCell>
                     </TableRow>
                   );
                 })}
@@ -357,6 +443,72 @@ export default function ReembolsosPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Modal de edição — apenas rascunho */}
+      {editingReimb && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setEditingReimb(null)}>
+          <Card className="w-full max-w-lg" onClick={e => e.stopPropagation()}>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>Editar Reembolso {editingReimb.code || ''}</CardTitle>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setEditingReimb(null)}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Título *</label>
+                  <input
+                    type="text"
+                    value={editForm.title}
+                    onChange={e => setEditForm(p => ({ ...p, title: e.target.value }))}
+                    className="w-full px-3 py-2 border rounded-md text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Descrição</label>
+                  <textarea
+                    value={editForm.description}
+                    onChange={e => setEditForm(p => ({ ...p, description: e.target.value }))}
+                    className="w-full px-3 py-2 border rounded-md text-sm"
+                    rows={2}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">Data início</label>
+                    <input
+                      type="date"
+                      value={editForm.expense_date_start}
+                      onChange={e => setEditForm(p => ({ ...p, expense_date_start: e.target.value }))}
+                      className="w-full px-3 py-2 border rounded-md text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">Data fim</label>
+                    <input
+                      type="date"
+                      value={editForm.expense_date_end}
+                      onChange={e => setEditForm(p => ({ ...p, expense_date_end: e.target.value }))}
+                      className="w-full px-3 py-2 border rounded-md text-sm"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">O valor está nos itens do reembolso; para alterá-lo, exclua o rascunho e crie de novo.</p>
+              </div>
+              <div className="flex gap-2 mt-4">
+                <Button type="button" size="sm" disabled={editSaving} onClick={handleUpdate}>
+                  {editSaving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
+                  {editSaving ? 'Salvando...' : 'Salvar Alterações'}
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setEditingReimb(null)}>Cancelar</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

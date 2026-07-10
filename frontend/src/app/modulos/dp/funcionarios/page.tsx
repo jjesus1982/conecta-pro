@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Users, ArrowLeft, Search, Loader2, AlertTriangle, CheckCircle2, XCircle, Edit, Save, X,
   ChevronLeft, ChevronRight, User, FileText, MapPin, Building2, CreditCard, Shield, RefreshCw,
-  Minus, Plus,
+  Minus, Plus, Trash2, Pencil,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { validateCPF } from '@/utils/validators';
@@ -89,6 +89,9 @@ export default function FuncionariosPage() {
   const [deductionsLoading, setDeductionsLoading] = useState(false);
   const [showDeductionForm, setShowDeductionForm] = useState(false);
   const [deductionSaving, setDeductionSaving] = useState(false);
+  // ID da dedução em edição (null = criando nova); deductionDeletingId trava o botão excluir
+  const [deductionEditingId, setDeductionEditingId] = useState<string | null>(null);
+  const [deductionDeletingId, setDeductionDeletingId] = useState<string | null>(null);
   const [deductionForm, setDeductionForm] = useState({ tipo: 'consignado', descricao: '', valor: '', percentual: '', base_calculo: 'fixo', total_parcelas: '', data_inicio: '', data_fim: '' });
   // Gap 6: Full profile
   const [profileData, setProfileData] = useState<Record<string, any> | null>(null);
@@ -107,6 +110,29 @@ export default function FuncionariosPage() {
     finally { setDeductionsLoading(false); }
   };
 
+  const resetDeductionForm = () => {
+    setDeductionForm({ tipo: 'consignado', descricao: '', valor: '', percentual: '', base_calculo: 'fixo', total_parcelas: '', data_inicio: '', data_fim: '' });
+    setDeductionEditingId(null);
+    setShowDeductionForm(false);
+  };
+
+  // Abre o formulário preenchido para editar uma dedução existente
+  const openEditDeduction = (d: any) => {
+    setDeductionForm({
+      tipo: d.tipo || 'consignado',
+      descricao: d.descricao || '',
+      valor: d.valor != null ? String(d.valor) : '',
+      percentual: d.percentual != null ? String(d.percentual) : '',
+      base_calculo: d.base_calculo || 'fixo',
+      total_parcelas: d.total_parcelas != null ? String(d.total_parcelas) : '',
+      data_inicio: d.data_inicio || '',
+      data_fim: d.data_fim || '',
+    });
+    setDeductionEditingId(d.id);
+    setShowDeductionForm(true);
+  };
+
+  // Cria (POST) ou edita (PATCH) conforme deductionEditingId
   const handleCreateDeduction = async () => {
     if (!editingId) return;
     if (!deductionForm.descricao || !deductionForm.data_inicio) {
@@ -120,25 +146,55 @@ export default function FuncionariosPage() {
         descricao: deductionForm.descricao,
         base_calculo: deductionForm.base_calculo,
         data_inicio: deductionForm.data_inicio,
+        // Enviados explicitamente (inclusive limpando) — PATCH aceita null
+        valor: deductionForm.valor ? parseFloat(deductionForm.valor) : null,
+        percentual: deductionForm.percentual ? parseFloat(deductionForm.percentual) : null,
+        total_parcelas: deductionForm.total_parcelas ? parseInt(deductionForm.total_parcelas) : null,
+        data_fim: deductionForm.data_fim || null,
       };
-      if (deductionForm.valor) payload.valor = parseFloat(deductionForm.valor);
-      if (deductionForm.percentual) payload.percentual = parseFloat(deductionForm.percentual);
-      if (deductionForm.total_parcelas) payload.total_parcelas = parseInt(deductionForm.total_parcelas);
-      if (deductionForm.data_fim) payload.data_fim = deductionForm.data_fim;
-      const res = await fetch(`${API_BASE}/employees/${editingId}/deductions`, {
-        method: 'POST', headers: getAuthHeaders(), body: JSON.stringify(payload),
+      const isEdit = !!deductionEditingId;
+      const url = isEdit
+        ? `${API_BASE}/employees/${editingId}/deductions/${deductionEditingId}`
+        : `${API_BASE}/employees/${editingId}/deductions`;
+      // No POST não mandamos nulls (o schema de criação não exige); no PATCH mandamos tudo
+      if (!isEdit) {
+        for (const k of ['valor', 'percentual', 'total_parcelas', 'data_fim']) {
+          if (payload[k] == null) delete payload[k];
+        }
+      }
+      const res = await fetch(url, {
+        method: isEdit ? 'PATCH' : 'POST', headers: getAuthHeaders(), body: JSON.stringify(payload),
       });
       if (res.ok) {
-        toast.success('Dedução criada com sucesso!', { duration: 4000 });
-        setShowDeductionForm(false);
-        setDeductionForm({ tipo: 'consignado', descricao: '', valor: '', percentual: '', base_calculo: 'fixo', total_parcelas: '', data_inicio: '', data_fim: '' });
+        toast.success(isEdit ? 'Dedução atualizada com sucesso!' : 'Dedução criada com sucesso!', { duration: 4000 });
+        resetDeductionForm();
         await loadDeductions(editingId);
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao criar dedução', { duration: 5000 });
+        toast.error(err?.detail || (isEdit ? 'Erro ao editar dedução' : 'Erro ao criar dedução'), { duration: 5000 });
       }
     } catch { toast.error('Erro de conexão', { duration: 5000 }); }
     finally { setDeductionSaving(false); }
+  };
+
+  // Soft-delete (marca ativo=false) preservando a trilha de auditoria
+  const handleDeleteDeduction = async (d: any) => {
+    if (!editingId) return;
+    if (!confirm(`Excluir a dedução "${d.descricao || d.tipo}"?\n\nA dedução será desativada (não some da trilha de auditoria) e deixará de descontar na folha.`)) return;
+    setDeductionDeletingId(d.id);
+    try {
+      const res = await fetch(`${API_BASE}/employees/${editingId}/deductions/${d.id}`, {
+        method: 'DELETE', headers: getAuthHeaders(),
+      });
+      if (res.ok) {
+        toast.success('Dedução excluída (desativada).', { duration: 4000 });
+        await loadDeductions(editingId);
+      } else {
+        const err = await res.json().catch(() => null);
+        toast.error(err?.detail || 'Erro ao excluir dedução', { duration: 5000 });
+      }
+    } catch { toast.error('Erro de conexão', { duration: 5000 }); }
+    finally { setDeductionDeletingId(null); }
   };
 
   const loadProfile = async (empId: string) => {
@@ -535,12 +591,13 @@ export default function FuncionariosPage() {
                 <div className="col-span-full space-y-4">
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-medium">Deduções do funcionário (consignados, pensões, empréstimos)</p>
-                    <Button size="sm" variant="outline" onClick={() => setShowDeductionForm(true)}>
+                    <Button size="sm" variant="outline" onClick={() => { setDeductionEditingId(null); setDeductionForm({ tipo: 'consignado', descricao: '', valor: '', percentual: '', base_calculo: 'fixo', total_parcelas: '', data_inicio: '', data_fim: '' }); setShowDeductionForm(true); }}>
                       <Plus className="h-4 w-4 mr-1" /> Nova Dedução
                     </Button>
                   </div>
                   {showDeductionForm && (
                     <div className="border rounded-md p-4 bg-muted/30 space-y-3">
+                      <p className="text-sm font-semibold">{deductionEditingId ? 'Editar Dedução' : 'Nova Dedução'}</p>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                         <div>
                           <label className="text-sm font-medium mb-1 block">Tipo *</label>
@@ -587,9 +644,9 @@ export default function FuncionariosPage() {
                       <div className="flex gap-2">
                         <Button size="sm" disabled={deductionSaving} onClick={handleCreateDeduction}>
                           {deductionSaving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
-                          {deductionSaving ? 'Salvando...' : 'Criar Dedução'}
+                          {deductionSaving ? 'Salvando...' : (deductionEditingId ? 'Salvar Alterações' : 'Criar Dedução')}
                         </Button>
-                        <Button variant="outline" size="sm" onClick={() => setShowDeductionForm(false)}>Cancelar</Button>
+                        <Button variant="outline" size="sm" onClick={resetDeductionForm}>Cancelar</Button>
                       </div>
                     </div>
                   )}
@@ -609,6 +666,7 @@ export default function FuncionariosPage() {
                             <th className="text-center px-3 py-2 font-medium">Parcelas</th>
                             <th className="text-left px-3 py-2 font-medium">Periodo</th>
                             <th className="text-center px-3 py-2 font-medium">Ativo</th>
+                            <th className="text-right px-3 py-2 font-medium">Ações</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -621,6 +679,14 @@ export default function FuncionariosPage() {
                               <td className="px-3 py-2 text-center">{d.parcela_atual && d.total_parcelas ? `${d.parcela_atual}/${d.total_parcelas}` : d.total_parcelas || '-'}</td>
                               <td className="px-3 py-2">{d.data_inicio || '-'} {d.data_fim ? `a ${d.data_fim}` : ''}</td>
                               <td className="px-3 py-2 text-center">{d.ativo ? <CheckCircle2 className="h-4 w-4 text-green-600 inline" /> : <XCircle className="h-4 w-4 text-red-500 inline" />}</td>
+                              <td className="px-3 py-2 text-right whitespace-nowrap">
+                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Editar dedução" onClick={() => openEditDeduction(d)}>
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500 hover:text-red-600" title="Excluir dedução" disabled={deductionDeletingId === d.id} onClick={() => handleDeleteDeduction(d)}>
+                                  {deductionDeletingId === d.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                                </Button>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
