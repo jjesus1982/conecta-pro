@@ -11,7 +11,7 @@ import { ConfirmModal } from '@/components/ui/modal';
 import { PageHeader } from '@/components/ui/page-header';
 import { StatCard } from '@/components/ui/stat-card';
 import { useAuth } from '@/hooks/useAuth';
-import { usePosts, useDeletePost } from '@/hooks/operacional/usePosts';
+import { usePosts, usePostStats, useDeletePost } from '@/hooks/operacional/usePosts';
 import { getErrorMessage } from '@/lib/api';
 
 const PostDetailModal = dynamic(() => import('@/components/operacional/post-detail-modal').then(m => m.PostDetailModal), { ssr: false });
@@ -65,12 +65,26 @@ export default function PostosPage() {
   const totalPages = Math.ceil(total / pageSize);
   const [filters, setFilters] = useState<PostFilters>({});
 
-  const stats: PostStats | null = posts.length > 0 ? {
-    total: total,
-    filled: posts.filter((p: Post) => p.status === 'active').length,
-    with_vacancy: posts.filter((p: Post) => p.status !== 'active').length,
-    total_headcount: posts.reduce((sum: number, p: Post) => sum + (p.required_headcount || 0), 0),
-  } : null;
+  // Stats REAIS do backend (GET /operacional/posts/stats): filled/with_vacancy
+  // vêm da comparação alocações×quadro por posto — o cálculo local por status
+  // ('active' = preenchido) era semanticamente errado e mostrava "Com vagas: 0".
+  const { data: statsData } = usePostStats();
+  const stats: PostStats | null = statsData
+    ? {
+        total: (statsData as any).total ?? total,
+        filled: (statsData as any).filled ?? 0,
+        with_vacancy: (statsData as any).with_vacancy ?? 0,
+        total_headcount: (statsData as any).total_headcount ?? 0,
+      }
+    : posts.length > 0
+    ? {
+        // Fallback local só enquanto /posts/stats não responde
+        total: total,
+        filled: posts.filter((p: Post) => p.status === 'active').length,
+        with_vacancy: posts.filter((p: Post) => p.status !== 'active').length,
+        total_headcount: posts.reduce((sum: number, p: Post) => sum + (p.required_headcount || 0), 0),
+      }
+    : null;
   const deletePostMutation = useDeletePost();
 
   const [searchTerm, setSearchTerm] = useState('');

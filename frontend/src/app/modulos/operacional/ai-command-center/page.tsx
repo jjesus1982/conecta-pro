@@ -1,10 +1,9 @@
 'use client';
 
 import {
-  Brain, Activity, Shield, TrendingUp, TrendingDown, AlertTriangle,
+  Brain, Activity, Shield, TrendingUp,
   CheckCircle, Users, MapPin, Clock, Target, Zap, RefreshCw,
-  BarChart2, ArrowLeft, ChevronRight, Eye, Wifi, WifiOff, Bell,
-  Calendar, Sparkles, type LucideIcon
+  BarChart2, ArrowLeft, ChevronRight, Wifi, WifiOff, Bell,
 } from 'lucide-react';
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
@@ -14,14 +13,6 @@ import { useAuth } from '@/hooks/useAuth';
 import { useOperacionalWebSocket, type OperacionalEvent } from '@/hooks/operacional/useOperacionalWebSocket';
 import api from '@/lib/api';
 
-interface RiskItem {
-  post_name: string;
-  shift_type: string;
-  risk_percentage: number;
-  risk_level: string;
-  risk_factors: string[];
-}
-
 interface TopPerformer {
   employee_name: string;
   score: number;
@@ -30,65 +21,69 @@ interface TopPerformer {
   eligible_for_promotion: boolean;
 }
 
+// Chaves REAIS de GET /operacional/ai/command-center (provado por curl):
+// overview.{agentes_ativos,agentes_presentes,agentes_ausentes,total_postos,cobertura_atual}
+// coverage_prediction.{total_postos,postos_cobertos,cobertura_atual,nivel_risco}
+// weekly_risk_map: ARRAY de {dia,nivel_risco,cobertura}
+// agents_status: contagens {total,presentes,ausentes} — NÃO é mapa agente→status
 interface CommandCenterData {
-  status: string;
-  generated_at: string;
-  overview: {
-    posts_active: number;
-    coverage_score: number;
-    active_alerts: number;
-    high_risk_shifts_tomorrow: number;
-  };
-  coverage_prediction: {
-    date: string;
-    risks: RiskItem[];
-  };
-  weekly_risk_map: {
-    coverage_probability: number;
-    high_risk_count: number;
-    recommended_actions: string[];
-    summary: string;
-  };
-  agents_status: Record<string, string>;
+  overview?: {
+    agentes_ativos?: number;
+    agentes_presentes?: number;
+    agentes_ausentes?: number;
+    total_postos?: number;
+    cobertura_atual?: number;
+  } | null;
+  coverage_prediction?: {
+    total_postos?: number;
+    postos_cobertos?: number;
+    cobertura_atual?: number;
+    nivel_risco?: string;
+  } | null;
+  weekly_risk_map?: Array<{
+    dia?: string;
+    nivel_risco?: string;
+    cobertura?: number;
+  }> | null;
+  agents_status?: {
+    total?: number;
+    presentes?: number;
+    ausentes?: number;
+  } | null;
 }
 
 interface PerformanceData {
-  team_average_score: number;
-  total_analyzed: number;
-  top_performers: TopPerformer[];
-  score_distribution: Record<string, number>;
+  team_average_score?: number;
+  total_analyzed?: number;
+  top_performers?: TopPerformer[];
+  score_distribution?: Record<string, number>;
 }
 
 const RISK_COLORS: Record<string, string> = {
+  baixo: 'text-green-400 bg-green-900/30',
   confiavel: 'text-green-400 bg-green-900/30',
+  medio: 'text-yellow-400 bg-yellow-900/30',
   atencao: 'text-yellow-400 bg-yellow-900/30',
+  alto: 'text-orange-400 bg-orange-900/30',
   alto_risco: 'text-orange-400 bg-orange-900/30',
   critico: 'text-red-400 bg-red-900/30',
 };
 
 const RISK_LABELS: Record<string, string> = {
+  baixo: 'Baixo',
   confiavel: 'Confiável',
+  medio: 'Médio',
   atencao: 'Atenção',
+  alto: 'Alto Risco',
   alto_risco: 'Alto Risco',
   critico: 'Crítico',
 };
 
-const AGENT_NAMES: Record<string, string> = {
-  scale_optimizer: 'Otimizador de Escalas',
-  coverage_predictor: 'Preditor de Cobertura',
-  performance_analyzer: 'Analisador de Performance',
-  substitution_optimizer: 'Otimizador de Substituições',
-  occurrence_analyzer: 'Classificador de Ocorrências',
-  predictive_analyzer: 'Analisador Preditivo',
-};
-
-const AGENT_ICONS: Record<string, LucideIcon> = {
-  scale_optimizer: Calendar,
-  coverage_predictor: Target,
-  performance_analyzer: BarChart2,
-  substitution_optimizer: RefreshCw,
-  occurrence_analyzer: AlertTriangle,
-  predictive_analyzer: Sparkles,
+const RISK_DOT: Record<string, string> = {
+  baixo: 'bg-green-400',
+  medio: 'bg-yellow-400',
+  alto: 'bg-orange-400',
+  critico: 'bg-red-400',
 };
 
 export default function AICommandCenterOperacionalPage() {
@@ -133,7 +128,13 @@ export default function AICommandCenterOperacionalPage() {
   }, [isAuthenticated, loadData]);
 
   const overview = commandData?.overview;
-  const coverageScore = overview?.coverage_score ?? 0;
+  const coveragePrediction = commandData?.coverage_prediction;
+  const weeklyRiskMap = Array.isArray(commandData?.weekly_risk_map)
+    ? commandData!.weekly_risk_map!
+    : [];
+  // Cobertura real vem de overview.cobertura_atual (fallback coverage_prediction)
+  const coverageScore = overview?.cobertura_atual ?? coveragePrediction?.cobertura_atual ?? 0;
+  const teamScore = performanceData?.team_average_score;
 
   // WebSocket em tempo real
   const { isConnected: wsConnected, events: wsEvents, clearEvents } = useOperacionalWebSocket({
@@ -203,34 +204,46 @@ export default function AICommandCenterOperacionalPage() {
           <div className="bg-white/5 border border-white/10 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-2">
               <MapPin className="w-4 h-4 text-cyan-400" />
-              <span className="text-xs text-white/60">Postos Ativos</span>
+              <span className="text-xs text-white/60">Postos</span>
             </div>
             <div className="font-data text-2xl font-semibold tabular-nums text-white">
-              {isLoading ? '—' : overview?.posts_active ?? 0}
+              {isLoading ? '—' : overview?.total_postos ?? coveragePrediction?.total_postos ?? '—'}
             </div>
-            <div className="text-xs text-green-400 mt-1">Operacionais</div>
+            <div className="text-xs text-green-400 mt-1">
+              {coveragePrediction?.postos_cobertos != null
+                ? `${coveragePrediction.postos_cobertos} cobertos`
+                : 'Operacionais'}
+            </div>
           </div>
 
           <div className="bg-white/5 border border-white/10 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-2">
               <Shield className="w-4 h-4 text-blue-400" />
-              <span className="text-xs text-white/60">Cobertura Prevista</span>
+              <span className="text-xs text-white/60">Cobertura Atual</span>
             </div>
             <div className={`font-data text-2xl font-semibold tabular-nums ${coverageScore >= 90 ? 'text-green-400' : coverageScore >= 75 ? 'text-yellow-400' : 'text-red-400'}`}>
               {isLoading ? '—' : `${coverageScore}%`}
             </div>
-            <div className="text-xs text-white/40 mt-1">Próxima semana</div>
+            <div className="text-xs text-white/40 mt-1">
+              {coveragePrediction?.nivel_risco
+                ? `Risco ${RISK_LABELS[coveragePrediction.nivel_risco] ?? coveragePrediction.nivel_risco}`
+                : 'Dos postos ativos'}
+            </div>
           </div>
 
           <div className="bg-white/5 border border-white/10 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-2">
-              <AlertTriangle className="w-4 h-4 text-orange-400" />
-              <span className="text-xs text-white/60">Alertas Ativos</span>
+              <Users className="w-4 h-4 text-orange-400" />
+              <span className="text-xs text-white/60">Agentes Ativos</span>
             </div>
-            <div className={`font-data text-2xl font-semibold tabular-nums ${(overview?.active_alerts ?? 0) > 0 ? 'text-orange-400' : 'text-green-400'}`}>
-              {isLoading ? '—' : overview?.active_alerts ?? 0}
+            <div className="font-data text-2xl font-semibold tabular-nums text-white">
+              {isLoading ? '—' : overview?.agentes_ativos ?? '—'}
             </div>
-            <div className="text-xs text-white/40 mt-1">Requerem atenção</div>
+            <div className="text-xs text-white/40 mt-1">
+              {overview?.agentes_presentes != null
+                ? `${overview.agentes_presentes} presentes · ${overview.agentes_ausentes ?? 0} ausentes`
+                : 'Colaboradores em operação'}
+            </div>
           </div>
 
           <div className="bg-white/5 border border-white/10 rounded-xl p-4">
@@ -239,9 +252,11 @@ export default function AICommandCenterOperacionalPage() {
               <span className="text-xs text-white/60">Score da Equipe</span>
             </div>
             <div className="font-data text-2xl font-semibold tabular-nums text-purple-400">
-              {isLoading ? '—' : performanceData?.team_average_score ?? 0}
+              {isLoading ? '—' : teamScore ?? '—'}
             </div>
-            <div className="text-xs text-white/40 mt-1">Performance média</div>
+            <div className="text-xs text-white/40 mt-1">
+              {teamScore != null ? 'Performance média' : 'Sem dados no momento'}
+            </div>
           </div>
         </div>
 
@@ -255,7 +270,7 @@ export default function AICommandCenterOperacionalPage() {
                 <h2 className="font-semibold">Previsão de Cobertura</h2>
               </div>
               <span className="text-xs text-white/40 bg-blue-900/30 px-2 py-1 rounded">
-                Amanhã
+                Semana
               </span>
             </div>
 
@@ -265,44 +280,51 @@ export default function AICommandCenterOperacionalPage() {
                   <div key={i} className="h-12 bg-white/5 rounded-lg animate-pulse" />
                 ))}
               </div>
-            ) : commandData?.coverage_prediction?.risks?.length ? (
+            ) : coveragePrediction ? (
               <div className="space-y-3">
-                {commandData.coverage_prediction.risks.map((risk, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
-                    <div>
-                      <div className="text-sm font-medium">{risk.post_name}</div>
-                      <div className="text-xs text-white/50">{risk.shift_type}</div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="text-right">
-                        <div className="text-sm font-bold">{risk.risk_percentage}%</div>
-                        <div className="text-xs text-white/40">risco</div>
-                      </div>
-                      <span className={`text-xs px-2 py-1 rounded-full ${RISK_COLORS[risk.risk_level] || 'text-gray-400 bg-gray-800'}`}>
-                        {RISK_LABELS[risk.risk_level] || risk.risk_level}
-                      </span>
-                    </div>
+                <div className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
+                  <div>
+                    <div className="text-sm font-medium">Postos cobertos</div>
+                    <div className="text-xs text-white/50">Alocações vigentes nos postos ativos</div>
                   </div>
-                ))}
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      <div className="text-sm font-bold">
+                        {coveragePrediction.postos_cobertos ?? '—'}/{coveragePrediction.total_postos ?? '—'}
+                      </div>
+                      <div className="text-xs text-white/40">
+                        {coveragePrediction.cobertura_atual != null ? `${coveragePrediction.cobertura_atual}%` : 'cobertura'}
+                      </div>
+                    </div>
+                    {coveragePrediction.nivel_risco && (
+                      <span className={`text-xs px-2 py-1 rounded-full ${RISK_COLORS[coveragePrediction.nivel_risco] || 'text-gray-400 bg-gray-800'}`}>
+                        {RISK_LABELS[coveragePrediction.nivel_risco] || coveragePrediction.nivel_risco}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Mapa de risco semanal (weekly_risk_map é ARRAY de dias) */}
+                {weeklyRiskMap.length > 0 && (
+                  <div className="grid grid-cols-7 gap-1.5">
+                    {weeklyRiskMap.map((day, idx) => (
+                      <div key={idx} className="flex flex-col items-center p-2 bg-white/5 rounded-lg text-center">
+                        <span className="text-[10px] uppercase tracking-wider text-white/50">{day.dia ?? '—'}</span>
+                        <span className={`my-1.5 w-2 h-2 rounded-full ${RISK_DOT[day.nivel_risco ?? ''] || 'bg-gray-500'}`} />
+                        <span className="text-xs font-medium tabular-nums text-white/80">
+                          {day.cobertura != null ? `${day.cobertura}%` : '—'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex items-center justify-center h-32 text-white/40">
                 <CheckCircle className="w-6 h-6 mr-2 text-green-400" />
-                Cobertura OK para amanhã
+                Sem dados de cobertura no momento
               </div>
             )}
-
-            {commandData?.weekly_risk_map?.recommended_actions?.length ? (
-              <div className="mt-4 p-3 bg-blue-900/20 border border-blue-500/20 rounded-lg">
-                <div className="text-xs font-medium text-blue-400 mb-2">Ações Recomendadas:</div>
-                {commandData.weekly_risk_map.recommended_actions.slice(0, 2).map((action, idx) => (
-                  <div key={idx} className="text-xs text-white/60 flex items-start gap-1 mb-1">
-                    <ChevronRight className="w-3 h-3 mt-0.5 flex-shrink-0 text-blue-400" />
-                    {action}
-                  </div>
-                ))}
-              </div>
-            ) : null}
           </div>
 
           {/* Top Performers */}
@@ -395,44 +417,42 @@ export default function AICommandCenterOperacionalPage() {
                 <div key={i} className="h-20 bg-white/5 rounded-lg animate-pulse" />
               ))}
             </div>
-          ) : Object.keys(commandData?.agents_status ?? {}).length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-              {Object.entries(commandData?.agents_status ?? {}).map(([key, status]) => {
-                const AgentIcon = AGENT_ICONS[key] || Brain;
-                return (
-                <div key={key} className="flex flex-col items-center p-3 bg-white/5 rounded-lg text-center">
-                  <AgentIcon className="w-5 h-5 mb-1 text-white/70" />
-                  <div className="text-xs text-white/70 mb-1">
-                    {AGENT_NAMES[key] || key}
-                  </div>
-                  <div className={`text-xs px-2 py-0.5 rounded-full ${
-                    status === 'active' ? 'bg-green-900/40 text-green-400' : 'bg-red-900/40 text-red-400'
-                  }`}>
-                    {status === 'active' ? 'Ativo' : 'Inativo'}
-                  </div>
-                </div>
-                );
-              })}
-            </div>
           ) : (
+            // A API não expõe status por agente de IA (agents_status traz contagens
+            // de COLABORADORES: total/presentes/ausentes) — seção honesta "sem dados"
             <div className="flex items-center justify-center h-20 text-white/40 text-sm">
               <Brain className="w-4 h-4 mr-2" />
-              Agentes sem dados no momento
+              Telemetria por agente de IA indisponível no momento — aguardando dado
             </div>
           )}
         </div>
 
-        {/* Resumo Semanal */}
-        {commandData?.weekly_risk_map?.summary && (
+        {/* Presença da equipe (agents_status real: contagens) */}
+        {commandData?.agents_status && commandData.agents_status.total != null && (
           <div className="bg-gradient-to-r from-purple-900/30 to-blue-900/30 border border-purple-500/20 rounded-xl p-5">
             <div className="flex items-center gap-2 mb-3">
               <Activity className="w-5 h-5 text-purple-400" />
-              <h2 className="font-semibold">Resumo Semanal da IA</h2>
+              <h2 className="font-semibold">Presença da Equipe</h2>
             </div>
-            <p className="text-sm text-white/70">{commandData.weekly_risk_map.summary}</p>
-            <div className="mt-3 flex items-center gap-2 text-xs text-white/40">
-              <Brain className="w-3 h-3" />
-              Análise gerada pelos agentes de IA Conecta PRO
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <div className="font-data text-xl font-semibold tabular-nums text-white">
+                  {commandData.agents_status.total}
+                </div>
+                <div className="text-xs text-white/50">Agentes no efetivo</div>
+              </div>
+              <div>
+                <div className="font-data text-xl font-semibold tabular-nums text-green-400">
+                  {commandData.agents_status.presentes ?? 0}
+                </div>
+                <div className="text-xs text-white/50">Presentes agora</div>
+              </div>
+              <div>
+                <div className="font-data text-xl font-semibold tabular-nums text-orange-400">
+                  {commandData.agents_status.ausentes ?? 0}
+                </div>
+                <div className="text-xs text-white/50">Ausentes</div>
+              </div>
             </div>
           </div>
         )}

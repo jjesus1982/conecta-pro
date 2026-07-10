@@ -78,19 +78,28 @@ export default function EscalasVisualPage() {
     setCurrentWeekStart(d);
   };
 
-  const weekStartStr = weekDays[0]?.toISOString().split('T')[0];
-  const weekEndStr = weekDays[6]?.toISOString().split('T')[0];
+  // Formata em YYYY-MM-DD no fuso LOCAL (toISOString é UTC e desloca o dia)
+  const toLocalYMD = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const weekStartStr = weekDays[0] ? toLocalYMD(weekDays[0]) : undefined;
+  const weekEndStr = weekDays[6] ? toLocalYMD(weekDays[6]) : undefined;
 
   const { data: postsData } = usePosts({ page: 1, page_size: 100 });
   const posts = useMemo(() => (postsData as any)?.items ?? [], [postsData]);
 
-  // Backend aceita page_size até 500 (semana inteira numa página)
+  // Params REAIS do GET /operacional/shifts/: start_date/end_date (controller).
+  // Sem esse filtro o backend devolve os primeiros N turnos ordenados (antigos)
+  // e a semana visível fica vazia. page_size aceito até 2000 no backend.
   const { data: shiftsData, isLoading, isError, error, refetch } = useShifts({
-    date_from: weekStartStr,
-    date_to: weekEndStr,
-    page_size: 500,
+    start_date: weekStartStr,
+    end_date: weekEndStr,
+    page_size: 1000,
   } as any);
-  const shifts = useMemo(() => (shiftsData as any)?.items ?? (Array.isArray(shiftsData) ? shiftsData : []), [shiftsData]);
+  const shifts = useMemo(() => {
+    const raw = (shiftsData as any)?.items ?? (Array.isArray(shiftsData) ? shiftsData : []);
+    // Turnos cancelados não entram na grade nem nos totais
+    return raw.filter((s: any) => s?.status !== 'cancelled');
+  }, [shiftsData]);
 
   // Map: postId -> dayIndex (0-6) -> shifts[]
   const shiftsGrid = useMemo(() => {
@@ -98,7 +107,10 @@ export default function EscalasVisualPage() {
     shifts.forEach((shift: any) => {
       const postId = shift.post_id || 'unknown';
       if (!grid[postId]) grid[postId] = {};
-      const shiftDate = parseShiftDate(shift.date || shift.start_time || shift.scheduled_date || '');
+      // Campo REAL do GET /operacional/shifts/: shift_date ('YYYY-MM-DD').
+      // As chaves antigas (date/start_time/scheduled_date) não existem no payload
+      // → Invalid Date → dayIdx -1 → grade vazia mesmo com turnos carregados.
+      const shiftDate = parseShiftDate(shift.shift_date || shift.date || shift.start_time || shift.scheduled_date || '');
       const dayIdx = weekDays.findIndex(d =>
         d.toDateString() === shiftDate.toDateString()
       );
@@ -121,7 +133,10 @@ export default function EscalasVisualPage() {
   const totalHours = useMemo(() => {
     let hours = 0;
     shifts.forEach((s: any) => {
-      if (s.start_time && s.end_time) {
+      // Payload real: planned_hours (ex.: 12.0) / actual_hours
+      if (typeof s.planned_hours === 'number' && s.planned_hours > 0) {
+        hours += s.planned_hours;
+      } else if (s.start_time && s.end_time) {
         const start = new Date(s.start_time);
         const end = new Date(s.end_time);
         const diff = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
@@ -277,13 +292,19 @@ export default function EscalasVisualPage() {
                             : shift.status === 'absent'
                             ? 'bg-red-500/20 text-red-700 border-red-300'
                             : 'bg-blue-500/20 text-blue-700 border-blue-300';
+                        // Horário real do payload: planned_start_time 'HH:MM:SS'
+                        const cellLabel =
+                          shift.employee_name ||
+                          shift.planned_start_time?.slice(0, 5) ||
+                          shift.start_time?.slice(11, 16) ||
+                          'Turno';
                         return (
                           <div
                             key={si}
                             className={`mb-1 px-1.5 py-1 rounded text-xs border ${statusColor} truncate`}
-                            title={shift.employee_name || shift.start_time || 'Turno'}
+                            title={cellLabel}
                           >
-                            {shift.employee_name || shift.start_time?.slice(11, 16) || 'Turno'}
+                            {cellLabel}
                           </div>
                         );
                       })}

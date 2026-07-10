@@ -288,6 +288,7 @@ export default function CoberturaPage() {
                   postCode={postCode}
                   activeAllocations={item.active_allocations}
                   totalAllocations={item.total_allocations}
+                  requiredHeadcount={item.required_headcount}
                   coverageRate={item.coverage_rate}
                 />
               );

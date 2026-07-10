@@ -6,7 +6,10 @@ interface PostCoverageCardProps {
   postName: string;
   postCode?: string;
   activeAllocations: number;
+  /** @deprecated usar requiredHeadcount — mantido p/ compatibilidade */
   totalAllocations: number;
+  /** Quadro ideal do posto (required_headcount do backend) — denominador honesto */
+  requiredHeadcount?: number;
   coverageRate: number; // 0-100
   onClick?: () => void;
 }
@@ -22,6 +25,7 @@ export function PostCoverageCard({
   postCode,
   activeAllocations,
   totalAllocations,
+  requiredHeadcount,
   coverageRate,
   onClick,
 }: PostCoverageCardProps) {
@@ -110,12 +114,15 @@ export function PostCoverageCard({
         </div>
       </div>
 
-      {/* Allocations text */}
+      {/* Efetivo vs quadro ideal: ativos/required_headcount (não ativos/alocações) */}
       <div className="flex items-center gap-1.5 text-xs text-[hsl(var(--muted-foreground))]">
         <Users className="w-3.5 h-3.5" />
         <span>
           <span className={`font-medium ${c.text}`}>{activeAllocations}</span>
-          <span>/{totalAllocations} alocações</span>
+          <span>
+            /{requiredHeadcount ?? totalAllocations}
+            {requiredHeadcount != null ? ' do quadro ideal' : ' alocações'}
+          </span>
         </span>
       </div>
     </div>

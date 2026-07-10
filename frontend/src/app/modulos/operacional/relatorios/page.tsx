@@ -136,9 +136,9 @@ export default function RelatoriosPage() {
     // Cobertura
     if (coverageReport) {
       lines.push('COBERTURA POR POSTO');
-      lines.push('Posto,Alocacoes Ativas,Total Alocacoes,Taxa Cobertura');
+      lines.push('Posto,Alocacoes Ativas,Quadro Ideal,Taxa Cobertura');
       coverageReport.items.forEach(item => {
-        lines.push(`"${postMap[item.post_id]?.name || item.post_name}",${item.active_allocations},${item.total_allocations},${item.coverage_rate.toFixed(1)}%`);
+        lines.push(`"${postMap[item.post_id]?.name || item.post_name}",${item.active_allocations},${(item as any).required_headcount ?? item.total_allocations},${item.coverage_rate.toFixed(1)}%`);
       });
       lines.push('');
     }
@@ -615,7 +615,7 @@ export default function RelatoriosPage() {
                 <thead>
                   <tr className="text-left text-[hsl(var(--muted-foreground))]">
                     <th className="pb-2">Posto</th>
-                    <th className="pb-2">Alocacoes</th>
+                    <th className="pb-2">Efetivo/Ideal</th>
                     <th className="pb-2 w-48">Cobertura</th>
                   </tr>
                 </thead>
@@ -624,7 +624,8 @@ export default function RelatoriosPage() {
                     <tr key={item.post_id} className="border-t border-[hsl(var(--border))]">
                       <td className="py-2">{postMap[item.post_id]?.name || item.post_name}</td>
                       <td className="py-2">
-                        {item.active_allocations}/{item.total_allocations}
+                        {/* ativos/quadro ideal (required_headcount do backend), não ativos/alocações */}
+                        {item.active_allocations}/{(item as any).required_headcount ?? item.total_allocations}
                       </td>
                       <td className="py-2">
                         <div className="flex items-center gap-2">

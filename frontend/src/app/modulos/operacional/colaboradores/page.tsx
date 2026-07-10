@@ -63,7 +63,9 @@ interface Employee {
 
 export default function ColaboradoresPage() {
   const router = useRouter();
-  const { data: localData, isLoading: localLoading, error: localError, refetch: refetchLocal } = useEmployees();
+  // Tela de gestão de pessoas: busca TODOS os status (ativos + afastados + inativos...)
+  // via status='todos' — o default do backend segue 'ativo' p/ não quebrar dropdowns.
+  const { data: localData, isLoading: localLoading, error: localError, refetch: refetchLocal } = useEmployees({ status: 'todos', page_size: 500 });
   const { data: solidesData, isLoading: solidesLoading, refetch: refetchSolides } = useEmployeesFromSolides(
     undefined,
     { query: { retry: 1 } }
