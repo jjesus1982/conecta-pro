@@ -618,8 +618,22 @@ export function getModuleByPath(path: string): Module | undefined {
   // 2. Fallback: buscar pelo href dos submodules
   for (const m of modules) {
     for (const sub of m.subModules) {
-      if (path.startsWith(sub.href)) {
+      if (path === sub.href || path.startsWith(sub.href + '/')) {
         return m;
+      }
+    }
+  }
+
+  // 3. Fallback cross-módulo: o path é PAI de um submodule conhecido.
+  //    Ex.: '/modulos/campo' não é href de nenhum módulo, mas
+  //    '/modulos/campo/checkin' pertence a Operacoes → devolve Operacoes.
+  //    (sem isso o layout ficava em spinner infinito nessas rotas)
+  if (path !== '/modulos') {
+    for (const m of modules) {
+      for (const sub of m.subModules) {
+        if (sub.href.startsWith(path + '/')) {
+          return m;
+        }
       }
     }
   }

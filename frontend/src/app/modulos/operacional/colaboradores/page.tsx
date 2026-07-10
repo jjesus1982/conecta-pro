@@ -217,16 +217,30 @@ export default function ColaboradoresPage() {
       (emp.cargo || '').toLowerCase().includes(debouncedSearch.toLowerCase()) ||
       (emp.departamento || '').toLowerCase().includes(debouncedSearch.toLowerCase())
     );
-    const matchStatus = statusFilter === 'all' || (emp.status || '').toLowerCase() === statusFilter;
+    const empStatus = (emp.status || '').toLowerCase();
+    const matchStatus =
+      statusFilter === 'all' ||
+      empStatus === statusFilter ||
+      // 'afastado' cobre também o status real do banco 'afastado_inss'
+      (statusFilter === 'afastado' && empStatus.startsWith('afastado'));
     return matchSearch && matchStatus;
   });
+
+  // Contadores derivados do campo STATUS real dos employees (ativo/afastado_inss/inativo/demitido)
+  // — nunca da flag is_active (podre no banco).
+  const activeCount = employees.filter((e) => (e.status || '').toLowerCase() === 'ativo').length;
+  const afastadosCount = employees.filter((e) =>
+    (e.status || '').toLowerCase().startsWith('afastado')
+  ).length;
 
   const getStatusBadge = (status?: string | null) => {
     if (!status) return <Badge variant="outline">-</Badge>;
     const s = status.toLowerCase();
     if (s === 'ativo' || s === 'active') return <Badge className="bg-green-100 text-green-800">Ativo</Badge>;
     if (s === 'inativo' || s === 'inactive') return <Badge variant="secondary">Inativo</Badge>;
+    if (s === 'afastado_inss') return <Badge className="bg-yellow-100 text-yellow-800">Afastado (INSS)</Badge>;
     if (s === 'afastado' || s === 'on_leave') return <Badge className="bg-yellow-100 text-yellow-800">Afastado</Badge>;
+    if (s === 'demitido') return <Badge className="bg-red-100 text-red-800">Demitido</Badge>;
     if (s === 'ferias') return <Badge className="bg-blue-100 text-blue-800">Férias</Badge>;
     return <Badge variant="outline">{status}</Badge>;
   };
@@ -303,7 +317,8 @@ export default function ColaboradoresPage() {
                 <SelectItem value="all">Todos os status</SelectItem>
                 <SelectItem value="ativo">Ativos</SelectItem>
                 <SelectItem value="inativo">Inativos</SelectItem>
-                <SelectItem value="afastado">Afastados</SelectItem>
+                <SelectItem value="afastado">Afastados (INSS)</SelectItem>
+                <SelectItem value="demitido">Demitidos</SelectItem>
                 <SelectItem value="ferias">Férias</SelectItem>
               </SelectContent>
             </Select>
@@ -336,9 +351,7 @@ export default function ColaboradoresPage() {
             <User className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="font-data text-2xl font-semibold tabular-nums">
-              {employees.filter((e) => ['ativo', 'active'].includes((e.status || '').toLowerCase())).length}
-            </div>
+            <div className="font-data text-2xl font-semibold tabular-nums">{activeCount}</div>
           </CardContent>
         </Card>
         <Card>
@@ -347,9 +360,7 @@ export default function ColaboradoresPage() {
             <User className="h-4 w-4 text-yellow-600" />
           </CardHeader>
           <CardContent>
-            <div className="font-data text-2xl font-semibold tabular-nums">
-              {employees.filter((e) => ['afastado', 'on_leave'].includes((e.status || '').toLowerCase())).length}
-            </div>
+            <div className="font-data text-2xl font-semibold tabular-nums">{afastadosCount}</div>
           </CardContent>
         </Card>
         <Card>

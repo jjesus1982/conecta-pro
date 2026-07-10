@@ -21,7 +21,8 @@ export function NotificationBell() {
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="relative p-2 text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white transition-colors"
-        aria-label="Notificações"
+        aria-label="Notificações push do app"
+        title={`Notificações push do app: ${unreadCount} não lida${unreadCount === 1 ? '' : 's'} — contagem independente da tela Notificações do Operacional`}
       >
         <Bell className="w-6 h-6" />
         {unreadCount > 0 && (

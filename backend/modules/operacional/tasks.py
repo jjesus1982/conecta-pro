@@ -710,12 +710,21 @@ def daily_coverage_report(self):
 
                 total_allocations = sum(item["total_allocations"] for item in items)
                 active_allocations = sum(item["active_allocations"] for item in items)
-                coverage_rate = (
-                    round(active_allocations / total_allocations * 100, 2) if total_allocations else 0.0
+                # Formula padronizada (mesma de /reports/coverage): postos ativos
+                # cobertos / postos ativos. Posto com required_headcount=0 (sem
+                # quadro presencial) conta como coberto e NUNCA como critico.
+                covered_posts = sum(
+                    1
+                    for item in items
+                    if item.get("required_headcount", 0) == 0
+                    or item["active_allocations"] >= item["required_headcount"]
                 )
+                coverage_rate = round(covered_posts / len(items) * 100, 2) if items else 0.0
 
                 critical_posts = [
-                    item["post_name"] for item in items if item["total_allocations"] and item["coverage_rate"] < 90.0
+                    item["post_name"]
+                    for item in items
+                    if item.get("required_headcount", 0) > 0 and item["coverage_rate"] < 90.0
                 ]
 
                 return {
@@ -723,6 +732,7 @@ def daily_coverage_report(self):
                     "date": today.isoformat(),
                     "period_start": period_start.isoformat(),
                     "total_posts": len(items),
+                    "covered_posts": covered_posts,
                     "total_allocations": total_allocations,
                     "active_allocations": active_allocations,
                     "coverage_rate": coverage_rate,

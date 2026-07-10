@@ -4,6 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useState, useMemo, useEffect } from 'react';
 import { useEmployees } from '@/hooks/operacional/useEmployees';
 import { useShifts } from '@/hooks/operacional/useShifts';
+import { usePosts } from '@/hooks/operacional/usePosts';
 import { useOccurrences } from '@/hooks/useOccurrences';
 import { useTimeBankEntries } from '@/hooks/operacional/useTimeBank';
 import { useSubstitutions } from '@/hooks/operacional/useSubstitutions';
@@ -87,6 +88,28 @@ function formatDate(dateStr?: string | null): string {
   }
 }
 
+// Aceita hora pura da API ("08:00:00") ou datetime ISO; vazio/inválido → "—"
+function formatShiftTime(value?: string | null): string {
+  if (!value) return '—';
+  const timeMatch = /^(\d{2}):(\d{2})/.exec(value);
+  if (timeMatch) return `${timeMatch[1]}:${timeMatch[2]}`;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+const SHIFT_STATUS_LABELS: Record<string, string> = {
+  scheduled: 'Agendado',
+  confirmed: 'Confirmado',
+  in_progress: 'Em andamento',
+  completed: 'Concluído',
+  missed: 'Falta',
+  partial: 'Parcial',
+  substituted: 'Substituído',
+  cancelled: 'Cancelado',
+  off_day: 'Folga',
+};
+
 function maskCPF(cpf?: string | null): string {
   if (!cpf) return '-';
   const digits = cpf.replace(/\D/g, '');
@@ -124,6 +147,17 @@ export default function ColaboradorPerfilPage() {
 
   const { data: shiftsData, isLoading: shiftsLoading } = useShifts({ employee_id: id, page_size: 50 } as any);
   const shifts: any[] = useMemo(() => (shiftsData as any)?.items ?? (Array.isArray(shiftsData) ? shiftsData : []), [shiftsData]);
+
+  // Postos: mapa id → nome para a aba Turnos (posto desconhecido → "—")
+  const { data: postsData } = usePosts();
+  const postNameById = useMemo(() => {
+    const items: any[] = (postsData as any)?.items ?? (Array.isArray(postsData) ? (postsData as any) : []);
+    const map: Record<string, string> = {};
+    for (const p of items) {
+      if (p?.id != null && p?.name) map[String(p.id)] = p.name;
+    }
+    return map;
+  }, [postsData]);
 
   const { occurrences: allOccurrences, isLoading: occLoading } = useOccurrences({ initialPageSize: 100 });
   const occurrences = useMemo(() => allOccurrences.filter((o: any) =>
@@ -469,14 +503,14 @@ export default function ColaboradorPerfilPage() {
               <TableBody>
                 {(shifts as any[]).map((shift: any, idx: number) => (
                   <TableRow key={shift.id ?? idx}>
-                    <TableCell>{formatDate(shift.date ?? shift.data ?? shift.start_time)}</TableCell>
-                    <TableCell>{shift.start_time ? new Date(shift.start_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : (shift.inicio ?? '-')}</TableCell>
-                    <TableCell>{shift.end_time ? new Date(shift.end_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : (shift.fim ?? '-')}</TableCell>
-                    <TableCell>{shift.hours ?? shift.horas ?? '-'}</TableCell>
-                    <TableCell>{shift.post_name ?? shift.posto ?? shift.post_id ?? '-'}</TableCell>
+                    <TableCell>{formatDate(shift.shift_date ?? shift.date ?? shift.data ?? shift.start_time)}</TableCell>
+                    <TableCell>{formatShiftTime(shift.planned_start_time ?? shift.actual_start_time ?? shift.start_time ?? shift.inicio)}</TableCell>
+                    <TableCell>{formatShiftTime(shift.planned_end_time ?? shift.actual_end_time ?? shift.end_time ?? shift.fim)}</TableCell>
+                    <TableCell>{shift.planned_hours ?? shift.actual_hours ?? shift.hours ?? shift.horas ?? '—'}</TableCell>
+                    <TableCell>{(shift.post_id != null ? postNameById[String(shift.post_id)] : undefined) ?? shift.post_name ?? shift.posto ?? '—'}</TableCell>
                     <TableCell>
                       {shift.status ? (
-                        <Badge variant="outline" className="text-xs">{shift.status}</Badge>
+                        <Badge variant="outline" className="text-xs">{SHIFT_STATUS_LABELS[shift.status] ?? shift.status}</Badge>
                       ) : '-'}
                     </TableCell>
                   </TableRow>

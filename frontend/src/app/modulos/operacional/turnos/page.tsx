@@ -77,6 +77,10 @@ export default function TurnosPage() {
       ...filters,
       start_date: hasCustomRange ? filters.start_date : dateRange.start,
       end_date: hasCustomRange ? filters.end_date : dateRange.end,
+      // Sem page_size o backend pagina em 50 e o calendário só mostrava os
+      // primeiros dias do mês. 500 é o máximo aceito pelo endpoint.
+      page: 1,
+      page_size: 2000,
     };
   }, [dateRange, filters]);
 
@@ -242,7 +246,7 @@ export default function TurnosPage() {
         <PageHeader
           eyebrow="OPERACIONAL"
           title="Turnos"
-          subtitle={`${shifts.length} turnos no periodo selecionado`}
+          subtitle={`${shiftsData?.total ?? shifts.length} turnos programados no periodo selecionado`}
           icon={<Clock className="w-5 h-5" />}
           actions={
             <>

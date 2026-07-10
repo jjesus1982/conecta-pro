@@ -114,10 +114,13 @@ async def get_kpi_trends(  # pylint: disable=too-many-locals
             occ_count = result.scalar() or 0
             ocorrencias_mes.append(int(occ_count))
 
-            # Cobertura percentual: postos cobertos / total de postos (metrica por POSTO,
-            # igual a /coverage-prediction). Snapshot historico: postos existentes ate o dia
-            # e alocacoes vigentes naquele dia (start<=dia AND (end IS NULL OR end>=dia)).
-            total_posts_result = await db.execute(select(func.count(Post.id)).where(Post.created_at <= current_date))
+            # Cobertura percentual: postos ATIVOS cobertos / postos ATIVOS (formula
+            # padronizada — mesma conta de /reports/coverage e da home operacional).
+            # Snapshot historico: postos existentes ate o dia e alocacoes vigentes
+            # naquele dia (start<=dia AND (end IS NULL OR end>=dia)).
+            total_posts_result = await db.execute(
+                select(func.count(Post.id)).where(Post.status == "active").where(Post.created_at <= current_date)
+            )
             total_posts = total_posts_result.scalar() or 0
 
             covered_result = await db.execute(
@@ -282,16 +285,24 @@ async def get_performance_scores(
 @router.get("/coverage-prediction")
 @router.get("/coverage-prediction/", include_in_schema=False)
 async def get_coverage_prediction(_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)):
-    """Previsao de cobertura de postos (deriva de posts + alocacoes ativas)."""
+    """Previsao de cobertura de postos (deriva de posts ATIVOS + alocacoes ativas).
+
+    Formula padronizada: postos ativos com alocacao / postos ativos — a mesma
+    conta de /reports/coverage e da home operacional (total_postos aqui = 8, nao 12).
+    """
     from sqlalchemy import text
 
-    total = (await db.execute(text("SELECT count(*) FROM posts"))).scalar() or 0
+    total = (await db.execute(text("SELECT count(*) FROM posts WHERE status = 'active'"))).scalar() or 0
     cobertos = (
         await db.execute(
-            text("SELECT count(DISTINCT post_id) FROM allocations WHERE status='active' AND is_active = true")
+            text(
+                "SELECT count(DISTINCT a.post_id) FROM allocations a "
+                "JOIN posts p ON p.id = a.post_id AND p.status = 'active' "
+                "WHERE a.status='active' AND a.is_active = true"
+            )
         )
     ).scalar() or 0
-    cobertura = round((cobertos / total * 100) if total else 0.0, 1)
+    cobertura = round(min(100.0, (cobertos / total * 100) if total else 0.0), 1)
     nivel = "baixo" if cobertura >= 90 else "medio" if cobertura >= 70 else "alto"
     return {
         "total_postos": int(total),

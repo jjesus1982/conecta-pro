@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import { AlertTriangle, Search, Plus, Eye, Edit2, Trash2, ArrowLeft, ChevronLeft, ChevronRight, AlertCircle, CheckCircle, RefreshCw, Clock, Shield, XCircle, CheckSquare } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 ;
@@ -12,6 +12,7 @@ import { ConfirmModal } from '@/components/ui/modal';
 import { PageHeader } from '@/components/ui/page-header';
 import { useAuth } from '@/hooks/useAuth';
 import { useOccurrences, useOccurrenceStats, useOccurrenceMutations } from '@/hooks/useOccurrences';
+import { useEmployees } from '@/hooks/operacional/useEmployees';
 import type {
   Occurrence,
   OccurrenceStatus,
@@ -75,6 +76,32 @@ export default function OcorrenciasPage() {
   } = useOccurrences({ initialPageSize: 10 });
   const { stats, refresh: refreshStats } = useOccurrenceStats();
   const { deleteOccurrence, isLoading: isMutating } = useOccurrenceMutations();
+
+  // A API /occurrences/stats retorna open/in_analysis/resolved (totais) —
+  // não existe "resolvidas no mês" no backend; os cards usam os campos reais.
+  const statsApi = stats as unknown as {
+    open?: number;
+    in_analysis?: number;
+    resolved?: number;
+  } | null;
+
+  // Mapa employee_id → nome para resolver o funcionário quando a API
+  // não envia employee_name (mesma fonte usada nas outras telas)
+  const { data: employeesData } = useEmployees({ page: 1, page_size: 500 } as any);
+  const employeeNameById = useMemo(() => {
+    const items: any[] = (employeesData as any)?.items ?? [];
+    const map: Record<string, string> = {};
+    for (const e of items) {
+      if (e?.id != null && e?.nome) map[String(e.id)] = e.nome;
+    }
+    return map;
+  }, [employeesData]);
+
+  const resolveEmployeeName = (occ: Occurrence): string => {
+    if (occ.employee_name) return occ.employee_name;
+    if (occ.employee_id) return employeeNameById[String(occ.employee_id)] ?? '—';
+    return '—';
+  };
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<OccurrenceStatus | ''>('');
@@ -199,7 +226,7 @@ export default function OcorrenciasPage() {
     'Status': OCCURRENCE_STATUS_LABELS[occ.status as OccurrenceStatus] || occ.status,
     'Título': occ.title,
     'Descrição': occ.description?.substring(0, 100) || '-',
-    'Colaborador': occ.employee_name || '-',
+    'Colaborador': resolveEmployeeName(occ),
     'Inspetor': occ.inspector_name || '-',
     'Posto': occ.post_name || '-',
     'Data Ocorrência': new Date(occ.occurred_at).toLocaleDateString('pt-BR'),
@@ -222,7 +249,7 @@ export default function OcorrenciasPage() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <PageHeader
           eyebrow="OPERACIONAL"
-          title="Ocorrencias Disciplinares"
+          title="Ocorrências"
           subtitle={`${total} registros`}
           icon={<AlertTriangle className="w-5 h-5" />}
           actions={
@@ -279,7 +306,7 @@ export default function OcorrenciasPage() {
                   </div>
                   <div>
                     <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
-                      {stats?.pending_resolution || 0}
+                      {(statsApi?.open ?? 0) + (statsApi?.in_analysis ?? 0)}
                     </p>
                     <p className="text-xs text-[hsl(var(--muted-foreground))]">Pendentes</p>
                   </div>
@@ -293,9 +320,9 @@ export default function OcorrenciasPage() {
                   </div>
                   <div>
                     <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
-                      {stats?.resolved_this_month || 0}
+                      {statsApi?.resolved ?? 0}
                     </p>
-                    <p className="text-xs text-[hsl(var(--muted-foreground))]">Resolvidas (mes)</p>
+                    <p className="text-xs text-[hsl(var(--muted-foreground))]">Resolvidas (total)</p>
                   </div>
                 </div>
               </div>
@@ -448,7 +475,7 @@ export default function OcorrenciasPage() {
                             <td className="px-4 py-3">
                               <div>
                                 <p className="text-sm font-medium text-[hsl(var(--foreground))]">
-                                  {occurrence.employee_name || 'N/A'}
+                                  {resolveEmployeeName(occurrence)}
                                 </p>
                                 {occurrence.post_name && (
                                   <p className="text-xs text-[hsl(var(--muted-foreground))]">

@@ -894,7 +894,7 @@ export default function TriagemPage() {
                         const total = p['total'] ?? p['total_avaliacoes'];
                         return (
                           <tr key={i} className="border-b last:border-0">
-                            <td className="py-2 pr-2">{str(p, 'posto', 'post_name', 'posto_nome', 'nome') || '—'}</td>
+                            <td className="py-2 pr-2">{str(p, 'post_nome', 'posto', 'post_name', 'posto_nome', 'nome') || '—'}</td>
                             <td className="py-2 pr-2 text-center font-semibold">
                               {typeof media === 'number' ? media.toFixed(1) : '—'}
                             </td>

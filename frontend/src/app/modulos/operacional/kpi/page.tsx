@@ -99,7 +99,7 @@ export default function KPITendenciasPage() {
   // Summary card values from latest data point
   const summaryData = useMemo(() => {
     const data = (kpiData as any)?.data;
-    if (!data) return { cobertura: null, colaboradores: null, escalas: null, ocorrencias: null };
+    if (!data) return { cobertura: null, colaboradores: null, escalas: null, ocorrencias: null, postos: null };
     const last = (arr: number[] | undefined) =>
       arr && arr.length > 0 ? arr[arr.length - 1] : null;
     return {
@@ -107,6 +107,8 @@ export default function KPITendenciasPage() {
       colaboradores: last(data.colaboradores_ativos),
       escalas: last(data.escalas_em_andamento),
       ocorrencias: last(data.ocorrencias_mes),
+      // Postos ATIVOS (by_status.active) — série kpi-trends é a fonte correta (8, não 12)
+      postos: last(data.postos_ativos),
     };
   }, [kpiData]);
 
@@ -256,7 +258,7 @@ export default function KPITendenciasPage() {
               {summaryData.escalas !== null ? summaryData.escalas : '—'}
             </div>
           )}
-          <p className="text-xs text-muted-foreground">Em andamento</p>
+          <p className="text-xs text-muted-foreground">Vigentes</p>
         </div>
 
         {/* Ocorrências */}
@@ -394,7 +396,7 @@ export default function KPITendenciasPage() {
         <div className="rounded-xl border bg-card p-4">
           <div className="flex items-center gap-2 mb-4">
             <Calendar className="h-4 w-4 text-[#f97707]" />
-            <h2 className="text-sm font-semibold">Escalas em Andamento</h2>
+            <h2 className="text-sm font-semibold">Escalas Vigentes</h2>
           </div>
           {isLoading ? (
             <Skeleton className="h-[250px] w-full" />
@@ -526,7 +528,8 @@ export default function KPITendenciasPage() {
                   <p className="text-xs text-zinc-500 mt-1">Cobertura atual</p>
                 </div>
                 <div className="bg-zinc-800 rounded-lg p-4 text-center">
-                  <p className="font-data text-2xl font-semibold tabular-nums text-white">{coveragePrediction.total_postos}</p>
+                  {/* Postos ATIVOS — série kpi-trends (by_status.active); fallback: prediction (já filtra status='active') */}
+                  <p className="font-data text-2xl font-semibold tabular-nums text-white">{summaryData.postos ?? coveragePrediction.total_postos}</p>
                   <p className="text-xs text-zinc-500 mt-1">Postos ativos</p>
                 </div>
                 <div className="bg-zinc-800 rounded-lg p-4 text-center">

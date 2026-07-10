@@ -71,7 +71,7 @@ async def list_shifts(  # pylint: disable=too-many-locals
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
     page: int = Query(1, ge=1, description="Página atual"),
-    page_size: int = Query(50, ge=1, le=200, description="Itens por página"),
+    page_size: int = Query(50, ge=1, le=2000, description="Itens por página"),
     scale_id: str | None = None,
     employee_id: str | None = None,
     post_id: str | None = None,

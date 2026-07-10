@@ -117,9 +117,10 @@ export default function RelatoriosPage() {
     }, {});
   }, [employees]);
 
+  // Privacidade: exibir sempre o NOME do funcionario — nunca e-mail nem UUID.
   const getEmployeeLabel = useCallback((id: string) => {
-    const employee = employeeMap[id];
-    return employee?.full_name || employee?.name || employee?.email || employee?.registration || id;
+    const employee = employeeMap[id] as (Employee & { nome?: string; matricula?: string }) | undefined;
+    return employee?.nome || employee?.full_name || employee?.name || employee?.matricula || employee?.registration || '\u2014';
   }, [employeeMap]);
 
   // Export to CSV/Excel
@@ -147,7 +148,7 @@ export default function RelatoriosPage() {
       lines.push('HORAS POR FUNCIONARIO');
       lines.push('Funcionario,Turnos,Horas,Horas Extras');
       hoursReport.items.forEach(item => {
-        lines.push(`"${getEmployeeLabel(item.employee_id)}",${item.total_shifts},${item.total_hours.toFixed(1)},${item.overtime_hours?.toFixed(1) || 0}`);
+        lines.push(`"${(item as any).employee_name || getEmployeeLabel(item.employee_id)}",${item.total_shifts},${item.total_hours.toFixed(1)},${item.overtime_hours?.toFixed(1) || 0}`);
       });
       lines.push('');
     }
@@ -229,7 +230,7 @@ export default function RelatoriosPage() {
   const hoursChartData = useMemo(() => {
     if (!hoursReport?.items?.length) return [];
     return hoursReport.items.map((item) => ({
-      name: getEmployeeLabel(item.employee_id).slice(0, 10),
+      name: ((item as any).employee_name || getEmployeeLabel(item.employee_id)).slice(0, 10),
       total_hours: item.total_hours,
     }));
   }, [hoursReport, getEmployeeLabel]);
@@ -667,7 +668,7 @@ export default function RelatoriosPage() {
                 <tbody>
                   {hoursReport?.items.map((item) => (
                     <tr key={item.employee_id} className="border-t border-[hsl(var(--border))]">
-                      <td className="py-2">{getEmployeeLabel(item.employee_id)}</td>
+                      <td className="py-2">{(item as any).employee_name || getEmployeeLabel(item.employee_id)}</td>
                       <td className="py-2">{item.total_shifts}</td>
                       <td className="py-2">
                         <div className="flex items-center gap-2">

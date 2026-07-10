@@ -238,8 +238,16 @@ async def get_allocations_by_employee(
 async def allocation_stats(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Estatísticas de alocações (contagem por status)."""
-    rows = (await db.execute(text("SELECT status, COUNT(*) AS qtd FROM allocations GROUP BY status"))).mappings().all()
+    """Estatísticas de alocações (contagem por status).
+
+    Semantica padronizada: só alocações is_active=true (soft-delete fora) —
+    mesma conta do restante do módulo (52, não 53 com a linha lixo).
+    """
+    rows = (
+        (await db.execute(text("SELECT status, COUNT(*) AS qtd FROM allocations WHERE is_active = true GROUP BY status")))
+        .mappings()
+        .all()
+    )
     by_status = {str(r["status"]): r["qtd"] for r in rows}
     return {
         "total": sum(by_status.values()),

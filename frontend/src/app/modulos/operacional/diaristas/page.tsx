@@ -76,17 +76,19 @@ export default function DiaristasPage() {
     return () => clearTimeout(timer);
   }, [searchTerm, selectedStatus, selectedType, isAuthenticated]);
 
-  const formatCurrency = (value: number) => {
+  const formatCurrency = (value: number | null | undefined) => {
+    if (value == null || Number.isNaN(Number(value))) return '—';
     return new Intl.NumberFormat('pt-BR', {
       style: 'currency',
       currency: 'BRL',
-    }).format(value);
+    }).format(Number(value));
   };
 
-  const renderStars = (rating: number) => {
+  const renderStars = (rating: number | null | undefined) => {
+    const safeRating = Number(rating ?? 0) || 0;
     const stars = [];
-    const fullStars = Math.floor(rating);
-    const hasHalf = rating - fullStars >= 0.5;
+    const fullStars = Math.floor(safeRating);
+    const hasHalf = safeRating - fullStars >= 0.5;
 
     for (let i = 0; i < 5; i++) {
       if (i < fullStars) {
@@ -193,7 +195,7 @@ export default function DiaristasPage() {
               <div>
                 <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
                   {diarists.length > 0
-                    ? (diarists.reduce((acc, d) => acc + d.media_avaliacao, 0) / diarists.length).toFixed(1)
+                    ? (diarists.reduce((acc, d) => acc + (Number(d.media_avaliacao ?? 0) || 0), 0) / diarists.length).toFixed(1)
                     : '0.0'}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Media Avaliacao</p>
@@ -208,7 +210,7 @@ export default function DiaristasPage() {
               </div>
               <div>
                 <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
-                  {diarists.reduce((acc, d) => acc + d.total_diarias, 0)}
+                  {diarists.reduce((acc, d) => acc + (Number(d.total_diarias ?? 0) || 0), 0)}
                 </p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Diarias Realizadas</p>
               </div>
@@ -285,28 +287,28 @@ export default function DiaristasPage() {
                   <div className="flex items-start gap-4">
                     {/* Avatar */}
                     <div className="w-14 h-14 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white font-semibold text-lg flex-shrink-0">
-                      {diarist.nome.charAt(0).toUpperCase()}
+                      {(diarist.nome ?? '?').charAt(0).toUpperCase()}
                     </div>
 
                     <div className="flex-1 min-w-0">
                       {/* Nome e Status */}
                       <div className="flex items-start justify-between gap-2 mb-1">
                         <h3 className="font-semibold text-[hsl(var(--foreground))] truncate">
-                          {diarist.nome}
+                          {diarist.nome ?? '—'}
                         </h3>
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium flex-shrink-0 ${STATUS_COLORS[diarist.status]}`}>
-                          {DIARIST_STATUS_LABELS[diarist.status]}
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium flex-shrink-0 ${STATUS_COLORS[diarist.status] ?? 'bg-gray-500/10 text-gray-500'}`}>
+                          {DIARIST_STATUS_LABELS[diarist.status] ?? diarist.status ?? '—'}
                         </span>
                       </div>
 
                       {/* Tipo e Especialidades */}
                       <div className="flex items-center gap-2 mb-2">
-                        <span className={`px-2 py-0.5 rounded-full text-xs ${TYPE_COLORS[diarist.tipo]}`}>
-                          {DIARIST_TYPE_LABELS[diarist.tipo]}
+                        <span className={`px-2 py-0.5 rounded-full text-xs ${TYPE_COLORS[diarist.tipo] ?? 'bg-gray-500/10 text-gray-500'}`}>
+                          {DIARIST_TYPE_LABELS[diarist.tipo] ?? diarist.tipo ?? '—'}
                         </span>
-                        {diarist.especialidades?.length > 0 && (
+                        {(diarist.especialidades?.length ?? 0) > 0 && (
                           <span className="text-xs text-[hsl(var(--muted-foreground))]">
-                            +{diarist.especialidades.length} especialidades
+                            +{diarist.especialidades?.length ?? 0} especialidades
                           </span>
                         )}
                       </div>
@@ -317,7 +319,7 @@ export default function DiaristasPage() {
                           {renderStars(diarist.media_avaliacao)}
                         </div>
                         <span className="text-sm text-[hsl(var(--muted-foreground))]">
-                          ({diarist.total_avaliacoes})
+                          ({diarist.total_avaliacoes ?? 0})
                         </span>
                       </div>
 
@@ -341,13 +343,13 @@ export default function DiaristasPage() {
                       <div className="grid grid-cols-3 gap-2 pt-3 border-t border-[hsl(var(--border))]">
                         <div className="text-center">
                           <p className="text-sm font-semibold text-[hsl(var(--foreground))]">
-                            {diarist.total_diarias}
+                            {diarist.total_diarias ?? 0}
                           </p>
                           <p className="text-xs text-[hsl(var(--muted-foreground))]">Diarias</p>
                         </div>
                         <div className="text-center">
                           <p className="text-sm font-semibold text-[hsl(var(--foreground))]">
-                            {diarist.taxa_comparecimento.toFixed(0)}%
+                            {diarist.taxa_comparecimento != null ? `${Number(diarist.taxa_comparecimento).toFixed(0)}%` : '—'}
                           </p>
                           <p className="text-xs text-[hsl(var(--muted-foreground))]">Presenca</p>
                         </div>

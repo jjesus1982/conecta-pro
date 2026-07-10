@@ -4,6 +4,7 @@ import { Shield, ShieldCheck, ChevronLeft, ChevronRight, Menu, X, UserPlus, Targ
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 import { getModuleByPath, modules } from '@/config/modules';
@@ -230,8 +231,8 @@ export default function ModulosLayout({
   // Icone dinamico do modulo atual
   const ModuleIcon = currentModule ? (iconMap[currentModule.icon] || Shield) : Shield;
 
-  // /modulos sem submodulo: aguardar redirect do useEffect acima
-  if (isLoading || (!currentModule && pathname !== '/modulos')) {
+  // Auth ainda carregando: spinner
+  if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-pulse-slow text-[hsl(var(--primary))]">
@@ -246,11 +247,35 @@ export default function ModulosLayout({
     return <PendingApprovalScreen userName={user?.name} onLogout={logout} />;
   }
 
-  // Se pathname === '/modulos' e ainda não foi redirecionado, mostrar spinner enquanto aguarda
   if (!currentModule) {
+    // /modulos sem submodulo: aguardar redirect do useEffect acima
+    if (pathname === '/modulos') {
+      return (
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+        </div>
+      );
+    }
+    // Rota sem módulo mapeado no menu: erro honesto em vez de spinner infinito
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+      <div className="min-h-screen flex items-center justify-center bg-[hsl(var(--background))] p-4">
+        <div className="max-w-md w-full text-center">
+          <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl p-8 shadow-sm">
+            <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-amber-500/10 flex items-center justify-center">
+              <AlertTriangle className="w-8 h-8 text-amber-500" />
+            </div>
+            <h1 className="font-display text-xl font-bold text-[hsl(var(--foreground))] mb-2">
+              Página fora do menu
+            </h1>
+            <p className="text-sm text-[hsl(var(--muted-foreground))] leading-relaxed mb-6">
+              A rota <code className="text-xs">{pathname}</code> não está mapeada em nenhum
+              módulo do menu. Volte ao início ou acesse pelo menu de módulos.
+            </p>
+            <Button onClick={() => router.push('/dashboard')} className="w-full">
+              Voltar ao início
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -370,9 +395,12 @@ export default function ModulosLayout({
                           </span>
                         </div>
                       )}
+                      {/* Link (não button+router.push): navegação nativa que
+                          funciona para qualquer href, inclusive cross-módulo
+                          (ex.: /modulos/campo/* a partir do Operacional) */}
                       {sidebarOpen ? (
-                        <button
-                          onClick={() => router.push(subModule.href)}
+                        <Link
+                          href={subModule.href}
                           className={cn(
                             'relative w-full flex items-center gap-3 px-3 py-2.5 rounded-xl',
                             'text-sm font-medium transition-all duration-200',
@@ -394,10 +422,10 @@ export default function ModulosLayout({
                               {subModule.badge}
                             </span>
                           )}
-                        </button>
+                        </Link>
                       ) : (
-                        <button
-                          onClick={() => router.push(subModule.href)}
+                        <Link
+                          href={subModule.href}
                           className={cn(
                             'relative w-full flex flex-col items-center justify-center py-2.5 rounded-xl',
                             'transition-all duration-200',
@@ -411,7 +439,7 @@ export default function ModulosLayout({
                           {isActive && (
                             <span className="absolute bottom-1 w-1 h-1 rounded-full bg-brand-500" />
                           )}
-                        </button>
+                        </Link>
                       )}
                     </div>
                   );
@@ -533,11 +561,9 @@ export default function ModulosLayout({
                           </span>
                         </div>
                       )}
-                      <button
-                        onClick={() => {
-                          router.push(subModule.href);
-                          setMobileMenuOpen(false);
-                        }}
+                      <Link
+                        href={subModule.href}
+                        onClick={() => setMobileMenuOpen(false)}
                         className={cn(
                           'relative w-full flex items-center gap-3 px-3 py-2.5 rounded-xl',
                           'text-sm font-medium transition-all duration-200',
@@ -554,7 +580,7 @@ export default function ModulosLayout({
                         )}
                         <Icon className="w-[18px] h-[18px] flex-shrink-0" />
                         <span>{subModule.title}</span>
-                      </button>
+                      </Link>
                     </div>
                   );
                 });

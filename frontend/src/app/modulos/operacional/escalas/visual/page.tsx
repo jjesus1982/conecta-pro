@@ -9,9 +9,24 @@ import { useAuth } from '@/hooks/useAuth';
 import { usePosts } from '@/hooks/operacional/usePosts';
 import { useShifts } from '@/hooks/operacional/useShifts';
 
+/**
+ * Datas vindas do backend como 'YYYY-MM-DD' precisam ser interpretadas no
+ * fuso LOCAL. `new Date('YYYY-MM-DD')` parseia como UTC-meia-noite e, em
+ * Manaus (UTC-4), o turno cai no dia ANTERIOR (grade errada/vazia).
+ */
+function parseShiftDate(value: string): Date {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00`) : new Date(value);
+}
+
 export default function EscalasVisualPage() {
   const router = useRouter();
   const { isLoading: authLoading, isAuthenticated } = useAuth();
+
+  // Toda a grade depende de new Date()/toLocaleDateString, que divergem entre
+  // SSR e client (React #418 — hydration mismatch). Renderizamos o conteúdo
+  // datado só depois do mount (client-only).
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   const [currentWeekStart, setCurrentWeekStart] = useState(() => {
     const d = new Date();
@@ -69,7 +84,8 @@ export default function EscalasVisualPage() {
   const { data: postsData } = usePosts({ page: 1, page_size: 100 });
   const posts = useMemo(() => (postsData as any)?.items ?? [], [postsData]);
 
-  const { data: shiftsData, isLoading, refetch } = useShifts({
+  // Backend aceita page_size até 500 (semana inteira numa página)
+  const { data: shiftsData, isLoading, isError, error, refetch } = useShifts({
     date_from: weekStartStr,
     date_to: weekEndStr,
     page_size: 500,
@@ -82,7 +98,7 @@ export default function EscalasVisualPage() {
     shifts.forEach((shift: any) => {
       const postId = shift.post_id || 'unknown';
       if (!grid[postId]) grid[postId] = {};
-      const shiftDate = new Date(shift.date || shift.start_time || shift.scheduled_date);
+      const shiftDate = parseShiftDate(shift.date || shift.start_time || shift.scheduled_date || '');
       const dayIdx = weekDays.findIndex(d =>
         d.toDateString() === shiftDate.toDateString()
       );
@@ -117,7 +133,8 @@ export default function EscalasVisualPage() {
     return Math.round(hours);
   }, [shifts]);
 
-  if (authLoading) {
+  // !mounted: mesmo placeholder no SSR e no 1º render do client → sem #418
+  if (authLoading || !mounted) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[hsl(var(--background))]">
         <div className="animate-pulse-slow text-[hsl(var(--primary))]">
@@ -166,6 +183,25 @@ export default function EscalasVisualPage() {
         <p className="text-sm font-medium text-center text-[hsl(var(--foreground))] mb-4 sm:hidden">
           {weekLabel}
         </p>
+
+        {/* Erro honesto ao buscar turnos — nunca deixar a grade "vazia em silêncio" */}
+        {isError && (
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-300 bg-red-500/10 px-4 py-3">
+            <div className="flex items-center gap-2 text-sm text-red-700 dark:text-red-400">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <span>
+                Erro ao carregar os turnos da semana:{' '}
+                {(error as any)?.response?.data?.detail
+                  ? String((error as any).response.data.detail)
+                  : (error as Error | undefined)?.message || 'falha de conexão com o servidor'}
+              </span>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => refetch()}>
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Tentar novamente
+            </Button>
+          </div>
+        )}
 
         {/* Legenda */}
         <div className="flex flex-wrap items-center gap-3 mb-6">

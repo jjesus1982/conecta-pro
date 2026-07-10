@@ -29,9 +29,16 @@ interface HealthDataWithAlerts {
 
 export default function CampoPage() {
   const router = useRouter();
-  const { data: dashboardRaw, isLoading: dashLoading, refetch: refetchDash } = useCampoDashboard();
-  const { data: healthRaw, isLoading: healthLoading } = useMonitoringHealth();
-  const isLoading = dashLoading || healthLoading;
+  const {
+    data: dashboardRaw,
+    isLoading: dashLoading,
+    isError: dashError,
+    error: dashErrorObj,
+    refetch: refetchDash,
+  } = useCampoDashboard();
+  // health tem refetchInterval e NÃO deve segurar a primeira renderização
+  const { data: healthRaw } = useMonitoringHealth();
+  const isLoading = dashLoading;
 
   // Cast para interfaces que refletem os dados reais do backend
   const dashboard = dashboardRaw as CampoDashboardData | undefined;
@@ -68,7 +75,7 @@ export default function CampoPage() {
     },
   ];
 
-  if (isLoading) {
+  if (isLoading && !dashError) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
@@ -91,6 +98,23 @@ export default function CampoPage() {
             </Button>
           }
         />
+
+        {/* Erro honesto ao carregar o dashboard (cards de navegação seguem funcionando) */}
+        {dashError && (
+          <div className="mb-6 flex items-center justify-between gap-3 rounded-xl border border-red-300 bg-red-500/10 px-4 py-3">
+            <div className="flex items-center gap-2 text-sm text-red-700 dark:text-red-400">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              <span>
+                Erro ao carregar os indicadores do campo:{' '}
+                {(dashErrorObj as Error | undefined)?.message || 'falha de conexão com o servidor'}
+              </span>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => refetchDash()}>
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Tentar novamente
+            </Button>
+          </div>
+        )}
 
         {/* Stats Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">

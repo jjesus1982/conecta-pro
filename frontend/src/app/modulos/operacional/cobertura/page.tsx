@@ -11,7 +11,11 @@ import { useCoverageReport } from '@/hooks/operacional/useReports';
 import { usePosts } from '@/hooks/operacional/usePosts';
 import { PostCoverageCard } from '@/components/operacional/PostCoverageCard';
 
-type FilterType = 'all' | 'risk' | 'partial' | 'full';
+type FilterType = 'all' | 'risk' | 'partial' | 'full' | 'remote';
+
+// Posto sem quadro presencial (required_headcount=0, ex. portaria remota):
+// estado NEUTRO — nunca entra em "Em Risco".
+const isRemotePost = (item: any) => (item.required_headcount ?? 0) === 0;
 
 export default function CoberturaPage() {
   const router = useRouter();
@@ -63,23 +67,29 @@ export default function CoberturaPage() {
   const filteredItems = useMemo(() => {
     if (!allItems.length) return [];
     return allItems.filter((item: any) => {
-      if (filter === 'risk') return item.coverage_rate < 80;
-      if (filter === 'partial') return item.coverage_rate >= 80 && item.coverage_rate < 100;
-      if (filter === 'full') return item.coverage_rate >= 100;
+      if (filter === 'remote') return isRemotePost(item);
+      if (filter === 'risk') return !isRemotePost(item) && item.coverage_rate < 80;
+      if (filter === 'partial') return !isRemotePost(item) && item.coverage_rate >= 80 && item.coverage_rate < 100;
+      if (filter === 'full') return !isRemotePost(item) && item.coverage_rate >= 100;
       return true;
     });
   }, [allItems, filter]);
 
-  // Summary stats
+  // Summary stats — só postos ATIVOS (o backend já filtra status='active')
   const totalPosts = allItems.length;
+  const remotePosts = useMemo(
+    () => allItems.filter((item: any) => isRemotePost(item)).length,
+    [allItems]
+  );
   const fullCoveragePosts = useMemo(
-    () => allItems.filter((item: any) => item.coverage_rate >= 100).length,
+    () => allItems.filter((item: any) => !isRemotePost(item) && item.coverage_rate >= 100).length,
     [allItems]
   );
   const atRiskPosts = useMemo(
-    () => allItems.filter((item: any) => item.coverage_rate < 80).length,
+    () => allItems.filter((item: any) => !isRemotePost(item) && item.coverage_rate < 80).length,
     [allItems]
   );
+  // Fórmula padronizada (backend): postos ativos cobertos / postos ativos × 100
   const overallCoverage = useMemo(() => {
     return (coverageReport as any)?.coverage_rate ?? 0;
   }, [coverageReport]);
@@ -87,8 +97,9 @@ export default function CoberturaPage() {
   const filterButtons: { id: FilterType; label: string; count?: number }[] = [
     { id: 'all', label: 'Todos', count: totalPosts },
     { id: 'risk', label: 'Em Risco', count: atRiskPosts },
-    { id: 'partial', label: 'Parcial', count: totalPosts - fullCoveragePosts - atRiskPosts },
+    { id: 'partial', label: 'Parcial', count: totalPosts - fullCoveragePosts - atRiskPosts - remotePosts },
     { id: 'full', label: 'Completo', count: fullCoveragePosts },
+    { id: 'remote', label: 'Sem quadro presencial', count: remotePosts },
   ];
 
   if (authLoading) {
@@ -152,7 +163,7 @@ export default function CoberturaPage() {
           <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
             <div className="flex items-center gap-2 mb-1">
               <Activity className="w-4 h-4 text-[hsl(var(--muted-foreground))]" />
-              <p className="text-xs text-[hsl(var(--muted-foreground))]">Total de Postos</p>
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">Postos Ativos</p>
             </div>
             <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">{totalPosts}</p>
           </div>
@@ -239,6 +250,36 @@ export default function CoberturaPage() {
                 postMap[item.post_id]?.name ||
                 'Posto ' + String(item.post_id).slice(0, 8);
               const postCode = postMap[item.post_id]?.code;
+
+              if (isRemotePost(item)) {
+                // Sem quadro presencial (ex. portaria remota): estado neutro, sem % nem risco
+                return (
+                  <div
+                    key={item.post_id}
+                    className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4"
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-[hsl(var(--muted-foreground))]" />
+                        <div className="min-w-0">
+                          <p className="font-semibold text-[hsl(var(--foreground))] text-sm leading-tight truncate">
+                            {postName}
+                          </p>
+                          {postCode && (
+                            <p className="text-xs text-[hsl(var(--muted-foreground))] truncate">{postCode}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-lg font-semibold text-[hsl(var(--muted-foreground))] mb-2">
+                      Sem quadro presencial
+                    </p>
+                    <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                      Posto sem efetivo presencial requerido (ex. portaria remota) — não entra na conta de risco.
+                    </p>
+                  </div>
+                );
+              }
 
               return (
                 <PostCoverageCard

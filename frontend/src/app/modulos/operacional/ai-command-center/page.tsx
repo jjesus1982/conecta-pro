@@ -337,7 +337,7 @@ export default function AICommandCenterOperacionalPage() {
                     <div className="flex-1">
                       <div className="text-sm font-medium">{performer.employee_name}</div>
                       <div className="text-xs text-white/40">
-                        {performer.highlights[0] || 'Excelente performance'}
+                        {performer.highlights?.[0] || 'Excelente performance'}
                       </div>
                     </div>
                     <div className="text-right">
@@ -360,19 +360,25 @@ export default function AICommandCenterOperacionalPage() {
             )}
 
             {performanceData && (
-              <div className="mt-4 grid grid-cols-5 gap-1">
-                {Object.entries(performanceData.score_distribution).map(([key, val]) => (
-                  <div key={key} className="text-center">
-                    <div className={`text-lg font-bold ${
-                      key === 'excelente' ? 'text-green-400' :
-                      key === 'bom' ? 'text-blue-400' :
-                      key === 'satisfatorio' ? 'text-yellow-400' :
-                      key === 'atencao' ? 'text-orange-400' : 'text-red-400'
-                    }`}>{val}</div>
-                    <div className="text-xs text-white/30 capitalize">{key.replace('_', ' ')}</div>
-                  </div>
-                ))}
-              </div>
+              Object.keys(performanceData.score_distribution ?? {}).length > 0 ? (
+                <div className="mt-4 grid grid-cols-5 gap-1">
+                  {Object.entries(performanceData.score_distribution ?? {}).map(([key, val]) => (
+                    <div key={key} className="text-center">
+                      <div className={`text-lg font-bold ${
+                        key === 'excelente' ? 'text-green-400' :
+                        key === 'bom' ? 'text-blue-400' :
+                        key === 'satisfatorio' ? 'text-yellow-400' :
+                        key === 'atencao' ? 'text-orange-400' : 'text-red-400'
+                      }`}>{val ?? 0}</div>
+                      <div className="text-xs text-white/30 capitalize">{key.replace('_', ' ')}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-4 text-xs text-white/40 text-center">
+                  Distribuição de scores sem dados no momento
+                </div>
+              )
             )}
           </div>
         </div>
@@ -383,9 +389,15 @@ export default function AICommandCenterOperacionalPage() {
             <Zap className="w-5 h-5 text-yellow-400" />
             <h2 className="font-semibold">Agentes de IA Ativos</h2>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-            {commandData?.agents_status ? (
-              Object.entries(commandData.agents_status).map(([key, status]) => {
+          {isLoading ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+              {[1, 2, 3, 4, 5, 6].map(i => (
+                <div key={i} className="h-20 bg-white/5 rounded-lg animate-pulse" />
+              ))}
+            </div>
+          ) : Object.keys(commandData?.agents_status ?? {}).length > 0 ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+              {Object.entries(commandData?.agents_status ?? {}).map(([key, status]) => {
                 const AgentIcon = AGENT_ICONS[key] || Brain;
                 return (
                 <div key={key} className="flex flex-col items-center p-3 bg-white/5 rounded-lg text-center">
@@ -400,13 +412,14 @@ export default function AICommandCenterOperacionalPage() {
                   </div>
                 </div>
                 );
-              })
-            ) : (
-              [1, 2, 3, 4, 5, 6].map(i => (
-                <div key={i} className="h-20 bg-white/5 rounded-lg animate-pulse" />
-              ))
-            )}
-          </div>
+              })}
+            </div>
+          ) : (
+            <div className="flex items-center justify-center h-20 text-white/40 text-sm">
+              <Brain className="w-4 h-4 mr-2" />
+              Agentes sem dados no momento
+            </div>
+          )}
         </div>
 
         {/* Resumo Semanal */}
@@ -477,7 +490,7 @@ export default function AICommandCenterOperacionalPage() {
                   }`} />
                   <div className="flex-1 min-w-0">
                     <span className="text-white/70 capitalize">
-                      {ev.type.replace(/_/g, ' ')}
+                      {(ev.type ?? 'evento').replace(/_/g, ' ')}
                     </span>
                     {ev.data?.message ? (
                       <span className="text-white/40 ml-1">— {String(ev.data.message)}</span>

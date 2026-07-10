@@ -58,7 +58,15 @@ async def coverage_report(
 
     total_allocations = sum(item["total_allocations"] for item in items)
     active_allocations = sum(item["active_allocations"] for item in items)
-    coverage_rate = (active_allocations / total_allocations * 100) if total_allocations else 0.0
+    # Formula padronizada de cobertura: postos ativos cobertos / postos ativos.
+    # Posto com required_headcount=0 (sem quadro presencial) conta como coberto
+    # (nada a preencher) — mesma semantica do "filled" em /posts/stats.
+    covered_posts = sum(
+        1
+        for item in items
+        if item["required_headcount"] == 0 or item["active_allocations"] >= item["required_headcount"]
+    )
+    coverage_rate = (covered_posts / len(items) * 100) if items else 0.0
 
     logger.info(
         "Relatorio cobertura gerado: %s a %s (postos=%s)",
@@ -71,6 +79,7 @@ async def coverage_report(
         start_date=start,
         end_date=end,
         total_posts=len(items),
+        covered_posts=covered_posts,
         total_allocations=total_allocations,
         active_allocations=active_allocations,
         coverage_rate=round(coverage_rate, 2),

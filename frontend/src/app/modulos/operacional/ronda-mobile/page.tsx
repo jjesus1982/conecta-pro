@@ -238,7 +238,8 @@ export default function RondaMobilePage() {
   // ── Carregamento inicial ───────────────────────────────────────────────────
   const carregarPostos = useCallback(async () => {
     try {
-      const res = await api.get(`${POSTS_URL}?status=active&page=1&page_size=100`);
+      // Rota de coleção do backend exige barra final: /posts/ (sem barra → 404)
+      const res = await api.get(`${POSTS_URL}/?status=active&page=1&page_size=100`);
       const items: PostoAtivo[] = res.data?.items ?? (Array.isArray(res.data) ? res.data : []);
       setPostos(items);
     } catch (error) {

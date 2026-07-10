@@ -8,6 +8,7 @@ from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.operacional.models.allocation import Allocation, AllocationStatus
+from modules.operacional.models.employee import Employee
 from modules.operacional.models.post import Post
 from modules.operacional.models.shift import Shift
 
@@ -24,8 +25,19 @@ class ReportsRepository:
         end_date: date,
         post_id: str | None = None,
     ) -> list[dict]:
-        """Retorna cobertura por posto (alocacoes)."""
-        posts_query = select(Post.id, Post.name).where(Post.is_active.is_(True))
+        """Retorna cobertura por posto (alocacoes ativas vs quadro requerido).
+
+        Semantica padronizada (coerente com /postos):
+        - Postos considerados: status='active' (mesma conta de "postos ativos"
+          em todas as telas — nao a flag is_active, que diverge do status).
+        - Vagas: required_headcount REAL do posto (nao a coluna desnormalizada
+          current_headcount, que esta podre no banco).
+        - coverage_rate = alocacoes ativas / required_headcount (cap em 100).
+          Posto com required_headcount=0 (ex. portaria remota) nao tem quadro
+          presencial a preencher: coverage_rate=100 e o frontend rotula como
+          "sem quadro presencial" (neutro, nunca "em risco").
+        """
+        posts_query = select(Post.id, Post.name, Post.required_headcount).where(Post.status == "active")
         if post_id:
             posts_query = posts_query.where(Post.id == post_id)
 
@@ -66,11 +78,17 @@ class ReportsRepository:
             counts = alloc_map.get(post.id, {"total_allocations": 0, "active_allocations": 0})
             total_allocations = counts["total_allocations"]
             active_allocations = counts["active_allocations"]
-            coverage_rate = (active_allocations / total_allocations * 100) if total_allocations else 0.0
+            required_headcount = int(post.required_headcount or 0)
+            if required_headcount > 0:
+                coverage_rate = min(100.0, active_allocations / required_headcount * 100)
+            else:
+                # Sem quadro presencial requerido: nada a preencher
+                coverage_rate = 100.0
             items.append(
                 {
                     "post_id": str(post.id),
                     "post_name": post.name,
+                    "required_headcount": required_headcount,
                     "total_allocations": total_allocations,
                     "active_allocations": active_allocations,
                     "coverage_rate": round(coverage_rate, 2),
@@ -85,19 +103,25 @@ class ReportsRepository:
         end_date: date,
         employee_id: str | None = None,
     ) -> list[dict]:
-        """Retorna horas trabalhadas por funcionario."""
+        """Retorna horas trabalhadas por funcionario.
+
+        Privacidade: o item carrega employee_name = employees.nome (JOIN).
+        Sem nome cadastrado, exibe '—' — NUNCA e-mail nem UUID.
+        """
         query = (
             select(
                 Shift.employee_id,
+                Employee.nome.label("employee_name"),
                 func.count(Shift.id).label("total_shifts"),
                 func.sum(Shift.actual_hours).label("total_hours"),
                 func.sum(Shift.overtime_hours).label("overtime_hours"),
             )
+            .join(Employee, Employee.id == Shift.employee_id, isouter=True)
             .where(Shift.is_active.is_(True))
             .where(Shift.employee_id.isnot(None))
             .where(Shift.shift_date >= start_date)
             .where(Shift.shift_date <= end_date)
-            .group_by(Shift.employee_id)
+            .group_by(Shift.employee_id, Employee.nome)
         )
 
         if employee_id:
@@ -109,6 +133,7 @@ class ReportsRepository:
             items.append(
                 {
                     "employee_id": str(row.employee_id),
+                    "employee_name": row.employee_name or "—",
                     "total_shifts": int(row.total_shifts or 0),
                     "total_hours": float(row.total_hours or 0.0),
                     "overtime_hours": float(row.overtime_hours or 0.0),

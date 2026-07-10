@@ -410,7 +410,7 @@ export default function ComunicadosPage() {
                         Status
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">
-                        Confirmacoes
+                        Leituras
                       </th>
                       <th className="px-4 py-3 text-right text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase">
                         Ações
@@ -488,19 +488,16 @@ export default function ComunicadosPage() {
                                 Marcar lido
                               </button>
                             )}
-                            {announcement.requires_acknowledgment ? (
-                              <span className="text-xs text-zinc-400">{announcement.read_count ?? 0} confirmacoes</span>
-                            ) : (
-                              <div className="flex items-center gap-1">
-                                <CheckCircle className="w-3 h-3 text-green-500" />
-                                <span className="text-xs text-[hsl(var(--muted-foreground))]">
-                                  {announcement.read_count ?? 0}
-                                  {(announcement as any).target_count != null
-                                    ? `/${(announcement as any).target_count}`
-                                    : ' leituras'}
-                                </span>
-                              </div>
-                            )}
+                            {/* Rótulo único: read_count é sempre contagem de LEITURAS */}
+                            <div className="flex items-center gap-1">
+                              <CheckCircle className="w-3 h-3 text-green-500" />
+                              <span className="text-xs text-[hsl(var(--muted-foreground))]">
+                                {announcement.read_count ?? 0}
+                                {(announcement as any).target_count != null
+                                  ? `/${(announcement as any).target_count}`
+                                  : ''} leituras
+                              </span>
+                            </div>
                           </div>
                         </td>
                         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>

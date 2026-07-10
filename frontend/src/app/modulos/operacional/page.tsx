@@ -37,7 +37,7 @@ const subModules = [
     icon: MapPin,
     href: '/modulos/operacional/postos',
     color: 'cyan',
-    stats: { label: 'postos ativos', key: 'total' },
+    stats: { label: 'postos ativos', key: 'postos' },
   },
   {
     id: 'colaboradores',
@@ -55,7 +55,7 @@ const subModules = [
     icon: Calendar,
     href: '/modulos/operacional/escalas',
     color: 'blue',
-    stats: { label: 'escalas', key: 'scales' },
+    stats: { label: 'escalas cadastradas', key: 'escalas' },
   },
   {
     id: 'alocacoes',
@@ -64,7 +64,7 @@ const subModules = [
     icon: Users,
     href: '/modulos/operacional/alocacoes',
     color: 'green',
-    stats: { label: 'alocados', key: 'total_allocated' },
+    stats: { label: 'alocações ativas', key: 'alocacoes' },
   },
   {
     id: 'turnos',
@@ -73,7 +73,7 @@ const subModules = [
     icon: Clock,
     href: '/modulos/operacional/turnos',
     color: 'orange',
-    stats: { label: 'turnos hoje', key: 'shifts' },
+    stats: { label: 'turnos programados hoje', key: 'turnos' },
   },
   {
     id: 'ocorrencias',
@@ -131,19 +131,36 @@ export default function OperacionalPage() {
   const { shifts: todayShifts, isLoading: shiftsLoading } = useTodayShifts();
   const { data: trendsData, isLoading: trendsLoading } = useKPITrends({ period: '7d' });
 
+  // Semântica padronizada:
+  // - "Postos ativos" = by_status.active (total cadastrado só com rótulo "cadastrados")
+  // - Turnos hoje = programados (exclui cancelados)
+  const activePosts = stats?.by_status?.active ?? 0;
+  const todayScheduledShifts = todayShifts.filter(
+    (shift) => (shift.status || '').toLowerCase() !== 'cancelled'
+  ).length;
+
   const moduleStats = {
-    postos: stats?.total,
+    postos: statsLoading ? null : activePosts,
     escalas: scaleStats?.total,
     alocacoes: stats?.total_allocated,
-    turnos: shiftsLoading ? null : todayShifts.length,
+    turnos: shiftsLoading ? null : todayScheduledShifts,
   } as const;
 
   // KPIs Estratégicos
-  const coverageRate = stats?.total && stats.filled
-    ? Math.round((stats.filled / stats.total) * 100)
+  // Cobertura padronizada: postos ativos preenchidos / postos ativos (mesma conta do /cobertura)
+  const coverageRate = activePosts > 0
+    ? Math.min(100, Math.round(((stats?.filled ?? 0) / activePosts) * 100))
     : 0;
 
   const monthlyHours = scaleStats?.total_hours || 0;
+
+  // Colaboradores ativos = employees com status='ativo' (série kpi-trends, último ponto).
+  // Sem a série, cai para alocações ativas — e o card é ROTULADO "Alocações Ativas".
+  const colaboradoresSeries = trendsData?.colaboradores_ativos;
+  const colaboradoresAtivos =
+    Array.isArray(colaboradoresSeries) && colaboradoresSeries.length > 0
+      ? colaboradoresSeries[colaboradoresSeries.length - 1]
+      : null;
 
   // Delta REAL da cobertura no período (último − primeiro ponto da série de trends).
   // Sem série suficiente → sem tendência (nada de percentual inventado).
@@ -159,7 +176,9 @@ export default function OperacionalPage() {
 
   const pendingOccurrences = occurrenceStats?.pending_resolution || 0;
 
-  const activeScales = scaleStats?.by_status?.in_progress || 0;
+  // Escalas VIGENTES = published + in_progress (não só "em andamento" estrito)
+  const activeScales =
+    (scaleStats?.by_status?.published || 0) + (scaleStats?.by_status?.in_progress || 0);
 
   const shiftsNeedingSubstitution = todayShifts.filter(
     (shift) => shift.needs_substitution
@@ -216,7 +235,7 @@ export default function OperacionalPage() {
             ) : (
               <KPIWidget
                 title="Postos Ativos"
-                value={stats?.total || 0}
+                value={activePosts}
                 icon={MapPin}
                 iconColor="text-cyan-500"
                 iconBgColor="bg-cyan-500/10"
@@ -231,8 +250,8 @@ export default function OperacionalPage() {
               <KPIWidgetSkeleton />
             ) : (
               <KPIWidget
-                title="Colaboradores Ativos"
-                value={stats?.total_allocated || 0}
+                title={colaboradoresAtivos !== null ? 'Colaboradores Ativos' : 'Alocações Ativas'}
+                value={colaboradoresAtivos ?? stats?.total_allocated ?? 0}
                 icon={UserCheck}
                 iconColor="text-purple-500"
                 iconBgColor="bg-purple-500/10"
@@ -247,7 +266,7 @@ export default function OperacionalPage() {
               <KPIWidgetSkeleton />
             ) : (
               <KPIWidget
-                title="Escalas em Andamento"
+                title="Escalas Vigentes"
                 value={activeScales}
                 icon={CalendarCheck}
                 iconColor="text-blue-500"
@@ -345,7 +364,7 @@ export default function OperacionalPage() {
             <StatCard
               icon={<MapPin className="w-4 h-4" />}
               color="#06b6d4"
-              label="Postos"
+              label="Postos cadastrados"
               value={stats?.total || 0}
               onClick={() => router.push('/modulos/operacional/postos')}
             />
@@ -366,7 +385,7 @@ export default function OperacionalPage() {
             <StatCard
               icon={<Users className="w-4 h-4" />}
               color="#3b82f6"
-              label="Alocados"
+              label="Alocações ativas"
               value={stats?.total_allocated || 0}
               onClick={() => router.push('/modulos/operacional/alocacoes')}
             />

@@ -12,9 +12,10 @@ class CoverageReportItem(BaseModel):
 
     post_id: str
     post_name: str
+    required_headcount: int = Field(0, description="Quadro requerido do posto (0 = sem quadro presencial)")
     total_allocations: int
     active_allocations: int
-    coverage_rate: float = Field(..., description="Percentual de cobertura")
+    coverage_rate: float = Field(..., description="Percentual de cobertura (alocacoes ativas / quadro requerido)")
 
 
 class CoverageReportResponse(BaseModel):
@@ -22,10 +23,11 @@ class CoverageReportResponse(BaseModel):
 
     start_date: date
     end_date: date
-    total_posts: int
+    total_posts: int = Field(..., description="Postos ativos (status='active')")
+    covered_posts: int = Field(0, description="Postos ativos com quadro preenchido")
     total_allocations: int
     active_allocations: int
-    coverage_rate: float
+    coverage_rate: float = Field(..., description="Postos ativos cobertos / postos ativos x 100")
     items: list[CoverageReportItem]
 
 
@@ -33,6 +35,7 @@ class HoursReportItem(BaseModel):
     """Item de horas por funcionario."""
 
     employee_id: str
+    employee_name: str = Field("—", description="Nome do funcionario (nunca e-mail/UUID)")
     total_shifts: int
     total_hours: float
     overtime_hours: float
