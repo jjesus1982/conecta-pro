@@ -80,6 +80,18 @@ class AdmissionService:
         Returns:
             Instância de AdmissionProcess criada.
         """
+        # PIS/PASEP e data de nascimento não têm colunas próprias em admission_processes.
+        # Persistimos em documents_received._dados_candidato (JSONB) para NÃO descartar
+        # o que o form coletou; migram p/ o Employee (pis/data_nascimento) na conclusão.
+        dados_candidato: dict = {}
+        _pis = (data.get("pis_pasep") or "").strip() if isinstance(data.get("pis_pasep"), str) else data.get("pis_pasep")
+        if _pis:
+            dados_candidato["pis_pasep"] = _pis
+        _birth = data.get("birth_date")
+        if _birth:
+            dados_candidato["birth_date"] = _birth.isoformat() if hasattr(_birth, "isoformat") else str(_birth)
+        documents_received = {"_dados_candidato": dados_candidato} if dados_candidato else None
+
         admission = AdmissionProcess(
             id=uuid4(),
             candidate_name=data.get("candidate_name"),
@@ -93,6 +105,7 @@ class AdmissionService:
             salary_proposed=data.get("salary_proposed"),
             workplace_id=data.get("workplace_id"),
             checklist=data.get("checklist") or DEFAULT_ADMISSION_CHECKLIST,
+            documents_received=documents_received,
             notes=data.get("notes"),
             status=AdmissionStatus.DOCUMENTS_PENDING,
             created_by_id=str(created_by_id) if created_by_id else None,
@@ -262,6 +275,13 @@ class AdmissionService:
         except Exception as _e:  # noqa: BLE001
             logger.warning("Admissão: falha ao resolver cargo CCT: %s", _e)
 
+        # Recuperar dados do candidato coletados na criação (PIS/nascimento) — persistidos
+        # em documents_received._dados_candidato porque admission_processes não tem colunas
+        # próprias. employee_data (payload da conclusão) tem precedência; senão usa o guardado.
+        _dados_cand = (admission.documents_received or {}).get("_dados_candidato") or {}
+        _pis = employee_data.get("pis") or _dados_cand.get("pis_pasep")
+        _nasc = employee_data.get("data_nascimento") or _dados_cand.get("birth_date")
+
         # Criar Employee
         employee = Employee(
             id=uuid4(),
@@ -273,6 +293,8 @@ class AdmissionService:
             cct_cargo_id=_cct_id,
             departamento=employee_data.get("departamento"),
             telefone=employee_data.get("telefone"),
+            pis=_pis,
+            data_nascimento=_nasc,
             data_admissao=admission.actual_start_date or admission.expected_start_date,
             salario_base=admission.salary_proposed or _piso,
             status="Ativo",

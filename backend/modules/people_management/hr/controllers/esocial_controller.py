@@ -32,8 +32,8 @@ class AdmissaoESocialRequest(BaseModel):
 
     cpf: str = Field(..., description="CPF do trabalhador")
     nome: str = Field(..., description="Nome completo")
-    data_nascimento: str | None = Field(None, description="Data de nascimento YYYY-MM-DD")
-    sexo: str = Field("M", description="M ou F")
+    data_nascimento: str | None = Field(None, description="Data de nascimento YYYY-MM-DD (do cadastro; obrigatório p/ eSocial)")
+    sexo: str | None = Field(None, description="M ou F (do cadastro; obrigatório p/ eSocial, não fabricado)")
     data_admissao: str = Field(..., description="Data de admissão YYYY-MM-DD")
     cargo: str = Field("", description="Cargo")
     salario: float = Field(..., description="Salário base")
@@ -86,12 +86,16 @@ async def gerar_s2200(
         "tipo_contrato": request.tipo_contrato,
     }
 
-    xml = ESocialEventService.gerar_s2200(
-        empregador_cnpj=EMPRESA_CNPJ,
-        empregador_razao=EMPRESA_RAZAO,
-        trabalhador=trabalhador,
-        contrato=contrato,
-    )
+    try:
+        xml = ESocialEventService.gerar_s2200(
+            empregador_cnpj=EMPRESA_CNPJ,
+            empregador_razao=EMPRESA_RAZAO,
+            trabalhador=trabalhador,
+            contrato=contrato,
+        )
+    except ValueError as e:
+        # Dado eSocial (sexo/nascimento) ausente no cadastro: falha honesta, não fabrica.
+        raise HTTPException(400, str(e))
 
     # Validar
     validacao = ESocialEventService.validar_xml(xml)

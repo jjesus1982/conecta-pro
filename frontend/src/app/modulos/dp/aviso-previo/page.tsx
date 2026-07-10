@@ -95,9 +95,28 @@ function somarDias(dataISO: string, dias: number): string {
   }
 }
 
+/** Deriva a data de início do aviso quando o banco não a registrou (último dia − dias de aviso). */
+function derivarInicio(
+  startDate: string | null | undefined,
+  lastDay: string | null | undefined,
+  dias: number | null | undefined,
+): string {
+  if (startDate) return startDate;
+  if (lastDay && dias && dias > 0) return somarDias(lastDay, -dias);
+  return '';
+}
+
 // ─── Sub-componentes ──────────────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: AvisoPrevio['status'] }) {
+function StatusBadge({ status, vencido }: { status: AvisoPrevio['status']; vencido?: boolean }) {
+  // Aviso ainda "ativo" mas cujo último dia já passou = prazo vencido (aguardando conclusão).
+  if (status === 'ativo' && vencido) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border bg-red-100 text-red-700 border-red-200">
+        Prazo vencido
+      </span>
+    );
+  }
   const cfg = {
     ativo:     { label: 'Em andamento', cls: 'bg-blue-100 text-blue-800 border-blue-200'    },
     concluido: { label: 'Concluído',    cls: 'bg-green-100 text-green-800 border-green-200' },
@@ -164,7 +183,7 @@ export default function AvisoPrevioPage() {
           employee_name:      t.employee_name ?? t.employee?.nome ?? 'Desconhecido',
           tipo:               (t.notice_type === 'indenizado' ? 'indenizado' : 'trabalhado') as 'trabalhado' | 'indenizado',
           notice_period_days: t.notice_period_days ?? 30,
-          notice_start_date:  t.notice_start_date ?? '',
+          notice_start_date:  derivarInicio(t.notice_start_date, t.last_working_day, t.notice_period_days ?? 30),
           last_working_day:   t.last_working_day ?? '',
           status:             (
             ['completed', 'concluido'].includes(t.status)
@@ -290,8 +309,12 @@ export default function AvisoPrevioPage() {
   // ── Stats ─────────────────────────────────────────────────────────────────
 
   const ativos     = avisos.filter((a) => a.status === 'ativo').length;
+  // "Vencendo em 7 dias": só os que ainda NÃO venceram (dias_restantes > 0) e vencem em ≤7.
   const vencendo   = avisos.filter(
-    (a) => a.status === 'ativo' && (a.dias_restantes ?? 99) <= 7,
+    (a) => a.status === 'ativo'
+      && a.dias_restantes !== undefined
+      && a.dias_restantes > 0
+      && a.dias_restantes <= 7,
   ).length;
   const concluidos = avisos.filter((a) => a.status === 'concluido').length;
 
@@ -407,7 +430,7 @@ export default function AvisoPrevioPage() {
                         </span>
                       ) : '—'}
                     </TableCell>
-                    <TableCell><StatusBadge status={aviso.status} /></TableCell>
+                    <TableCell><StatusBadge status={aviso.status} vencido={(aviso.dias_restantes ?? 1) <= 0} /></TableCell>
                     <TableCell className="text-right">
                       {aviso.status === 'ativo' && (
                         <Button

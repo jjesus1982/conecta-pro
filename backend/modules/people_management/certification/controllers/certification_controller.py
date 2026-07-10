@@ -45,12 +45,16 @@ async def criar_certificacao(
 async def listar_certificacoes(
     current_user: CurrentActiveUser,
     status: str | None = Query(None, description="pendente|certificado|rejeitado"),
+    competencia: str | None = Query(None, description="YYYY-MM — filtra pela competencia da folha"),
     limit: int = Query(100, le=500),
     db: AsyncSession = Depends(get_db),
 ) -> list[CertificationResponse]:
-    """Fila de certificacoes (default: todas; filtra por status)."""
+    """Fila de certificacoes (default: todas; filtra por status e/ou competencia)."""
     svc = CertificationService(db)
-    return [_to_response(c) for c in await svc.list(status=status, limit=limit)]
+    return [
+        _to_response(c)
+        for c in await svc.list(status=status, competencia=competencia, limit=limit)
+    ]
 
 
 @router.post(

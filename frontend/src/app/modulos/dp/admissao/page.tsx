@@ -272,6 +272,8 @@ export default function AdmissaoPage() {
                         expected_start_date: formData.expected_date || undefined,
                         salary_proposed: formData.salary ? parseFloat(formData.salary) : undefined,
                         contract_type: formData.contract_type || 'CLT',
+                        pis_pasep: formData.pis_pasep ? formData.pis_pasep.replace(/\D/g, '') : undefined,
+                        birth_date: formData.birth_date || undefined,
                       };
                       const res = await fetch(`${API_BASE}/admissions`, { method: 'POST', headers: getAuthHeaders(), body: JSON.stringify(payload) });
                       if (res.ok) {

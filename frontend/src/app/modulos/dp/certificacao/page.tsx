@@ -51,7 +51,8 @@ export default function CertificacaoPage() {
   const [filter, setFilter] = useState<string>('pendente');
   const [acting, setActing] = useState<string | null>(null);
   const now = new Date();
-  const [competencia, setCompetencia] = useState(`${now.getFullYear()}-${String(now.getMonth()).padStart(2, '0')}`);
+  // getMonth() é 0-indexado (jan=0) — soma 1 para a competência YYYY-MM correta.
+  const [competencia, setCompetencia] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
   const [gerando, setGerando] = useState(false);
 
   const gerarFolha = async () => {
@@ -68,7 +69,10 @@ export default function CertificacaoPage() {
   const fetchCerts = useCallback(async () => {
     setLoading(true);
     try {
-      const q = filter ? `?status=${filter}` : '';
+      const params = new URLSearchParams();
+      if (filter) params.set('status', filter);
+      if (competencia) params.set('competencia', competencia);
+      const q = params.toString() ? `?${params.toString()}` : '';
       const res = await fetch(`${API_BASE}/certifications${q}`, { headers: getAuthHeaders() });
       const data = res.ok ? await res.json() : [];
       setCerts(Array.isArray(data) ? data : []);
@@ -77,7 +81,7 @@ export default function CertificacaoPage() {
     } finally {
       setLoading(false);
     }
-  }, [filter]);
+  }, [filter, competencia]);
 
   useEffect(() => { fetchCerts(); }, [fetchCerts]);
 
@@ -147,7 +151,7 @@ export default function CertificacaoPage() {
           {loading ? (
             <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
           ) : certs.length === 0 ? (
-            <div className="flex flex-col items-center py-10 text-muted-foreground"><Inbox className="h-8 w-8 mb-2" />Nada nesta fila</div>
+            <div className="flex flex-col items-center py-10 text-muted-foreground"><Inbox className="h-8 w-8 mb-2" />Sem fila para {competencia}{filter ? ` (${statusBadge[filter]?.label ?? filter})` : ''} — gere a fila da folha desta competência.</div>
           ) : (
             <Table>
               <TableHeader>
@@ -166,9 +170,14 @@ export default function CertificacaoPage() {
                     <TableCell className={c.divergencia ? 'text-amber-600 font-semibold' : ''}>{fmt(c.esperado_valor)}</TableCell>
                     <TableCell><Badge className={statusBadge[c.status]?.className}>{statusBadge[c.status]?.label || c.status}</Badge></TableCell>
                     <TableCell>
-                      {c.status === 'certificado' && (c.valida
+                      {c.status === 'certificado' ? (c.valida
                         ? <Badge className="bg-green-600 text-white">Válida</Badge>
-                        : <Badge className="bg-red-500 text-white" title="O cálculo mudou após a assinatura — expirou">Expirada</Badge>)}
+                        : <Badge className="bg-red-500 text-white" title="O cálculo mudou após a assinatura — expirou">Expirada</Badge>)
+                        : (c.calculado_valor != null && c.esperado_valor != null
+                            ? (Math.abs((c.calculado_valor || 0) - (c.esperado_valor || 0)) < 0.005
+                                ? <Badge className="bg-emerald-100 text-emerald-800 border border-emerald-200" title="Calculado bate com o esperado (Domínio)">Válida</Badge>
+                                : <Badge className="bg-amber-100 text-amber-800 border border-amber-200" title="Calculado diverge do esperado (Domínio)">Divergente</Badge>)
+                            : <span className="text-muted-foreground">—</span>)}
                     </TableCell>
                     <TableCell className="text-right">
                       {c.status === 'pendente' && (

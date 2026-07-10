@@ -294,12 +294,27 @@ class ESocialEventService:
         SubElement(emp, "nrInsc").text = empregador_cnpj
 
         # trabalhador
+        # Sexo e nascimento vêm do CADASTRO real do employee — NUNCA fabricados.
+        # Se ausentes, falha honesta (dado eSocial não se inventa).
+        sexo_raw = trabalhador.get("sexo")
+        sexo = str(sexo_raw).strip().upper() if sexo_raw is not None else ""
+        nascimento = trabalhador.get("data_nascimento")
+        _exigir(
+            "S-2200",
+            {
+                "trabalhador.sexo (M/F no cadastro)": sexo or None,
+                "trabalhador.data_nascimento": _data_iso(nascimento) if nascimento else None,
+            },
+        )
+        if sexo not in ("M", "F"):
+            raise ValueError(
+                f"S-2200: sexo inválido no cadastro ('{sexo_raw}'); eSocial aceita apenas 'M' ou 'F'."
+            )
         trab = SubElement(evt, "trabalhador")
         SubElement(trab, "cpfTrab").text = trabalhador.get("cpf", "")
         SubElement(trab, "nmTrab").text = trabalhador.get("nome", "")
-        SubElement(trab, "sexo").text = trabalhador.get("sexo", "M")
-        if trabalhador.get("data_nascimento"):
-            SubElement(trab, "dtNascto").text = trabalhador["data_nascimento"]
+        SubElement(trab, "sexo").text = sexo
+        SubElement(trab, "dtNascto").text = _data_iso(nascimento)
 
         # vinculo
         vinc = SubElement(evt, "vinculo")

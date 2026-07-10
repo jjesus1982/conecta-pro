@@ -26,6 +26,11 @@ class AdmissionProcessCreate(BaseModel):
     workplace_id: str | None = None
     checklist: dict | None = None
     notes: str | None = None
+    # Dados do candidato coletados no form. admission_processes NÃO tem colunas
+    # próprias p/ estes campos, então são persistidos em documents_received._dados_candidato
+    # (JSONB) — não são descartados. Migram p/ o Employee (pis, data_nascimento) na conclusão.
+    pis_pasep: str | None = Field(None, max_length=20, description="PIS/PASEP/NIS do candidato")
+    birth_date: date | None = Field(None, description="Data de nascimento do candidato")
 
 
 class AdmissionProcessUpdate(BaseModel):

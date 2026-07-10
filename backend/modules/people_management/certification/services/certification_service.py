@@ -74,10 +74,17 @@ class CertificationService:
         await self.db.refresh(cert)
         return cert
 
-    async def list(self, status: str | None = None, limit: int = 100) -> list[HRCertification]:
+    async def list(
+        self,
+        status: str | None = None,
+        competencia: str | None = None,
+        limit: int = 100,
+    ) -> list[HRCertification]:
         stmt = select(HRCertification).order_by(HRCertification.created_at.desc()).limit(limit)
         if status:
             stmt = stmt.where(HRCertification.status == status)
+        if competencia:
+            stmt = stmt.where(HRCertification.competencia == competencia)
         res = await self.db.execute(stmt)
         return list(res.scalars().all())
 
