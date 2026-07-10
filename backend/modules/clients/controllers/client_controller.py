@@ -61,6 +61,9 @@ def get_ai_service(db: Session = Depends(get_db)) -> ClientAIService:
 
 
 @router.post("", response_model=ClientResponse, status_code=status.HTTP_201_CREATED)
+# Alias com barra final: o frontend chama POST /api/v1/clients/ e o app roda com
+# redirect_slashes=False — sem o alias vira 404 (bug do cadastro de cliente, 10/07).
+@router.post("/", response_model=ClientResponse, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 async def create_client(
     data: ClientCreate, current_user: CurrentActiveUser, service: ClientService = Depends(get_service)
 ) -> ClientResponse:
@@ -73,7 +76,7 @@ async def create_client(
 
 
 @router.get("")
-@router.get("", include_in_schema=False)
+@router.get("/", include_in_schema=False)
 async def list_clients(  # pylint: disable=too-many-locals
     current_user: CurrentActiveUser,
     skip: int = Query(0, ge=0),
