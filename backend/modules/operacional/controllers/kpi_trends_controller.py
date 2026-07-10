@@ -215,7 +215,23 @@ async def get_performance_scores(
                              WHERE o.employee_id = e.id
                                AND o.created_at >= NOW() - INTERVAL '90 days'),
                             0
-                        ) AS recent_occurrences
+                        ) AS recent_occurrences,
+                        -- Presença 30d REAL: turnos passados com batida (ponto) ou check-in manual
+                        (SELECT COUNT(*) FROM shifts s
+                          WHERE s.employee_id = e.id AND s.is_active AND s.status = 'scheduled'
+                            AND NOT s.is_off_day
+                            AND s.shift_date BETWEEN CURRENT_DATE - 30 AND CURRENT_DATE - 1
+                        ) AS turnos_30d,
+                        (SELECT COUNT(*) FROM shifts s
+                          WHERE s.employee_id = e.id AND s.is_active AND s.status = 'scheduled'
+                            AND NOT s.is_off_day
+                            AND s.shift_date BETWEEN CURRENT_DATE - 30 AND CURRENT_DATE - 1
+                            AND (s.actual_start_time IS NOT NULL OR EXISTS (
+                              SELECT 1 FROM gp_clock_punches gp
+                              WHERE gp.employee_id = s.employee_id
+                                AND (gp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date = s.shift_date
+                                AND COALESCE(gp.status,'') NOT IN ('rejected','cancelado')))
+                        ) AS presentes_30d
                     FROM employees e
                     WHERE e.status = 'ativo'
                 )
@@ -225,14 +241,21 @@ async def get_performance_scores(
                     role,
                     time_bank_balance,
                     recent_occurrences,
-                    -- Score formula: base 70 + time_bank bonus - occurrence penalty
-                    GREATEST(0, LEAST(100,
-                        70
-                        + LEAST(20, GREATEST(-20, time_bank_balance * 1.5))
-                        - LEAST(30, recent_occurrences * 5)
-                    )) AS score
+                    turnos_30d,
+                    presentes_30d,
+                    -- Score composto REAL: 60% presença 30d (quando há turnos) + base 40
+                    -- + bônus banco de horas - penalidade de ocorrências.
+                    -- Sem turnos no período → score NULL (sem dados; front exibe "—").
+                    CASE WHEN turnos_30d > 0 THEN
+                      GREATEST(0, LEAST(100,
+                          40
+                          + (presentes_30d::numeric / turnos_30d) * 60
+                          + LEAST(10, GREATEST(-10, time_bank_balance * 1.5))
+                          - LEAST(30, recent_occurrences * 5)
+                      ))
+                    ELSE NULL END AS score
                 FROM employee_scores
-                ORDER BY score DESC
+                ORDER BY score DESC NULLS LAST
             """)
         )
 
@@ -251,7 +274,7 @@ async def get_performance_scores(
                 "id": str(row.id),
                 "name": row.name,
                 "role": row.role or "Porteiro",
-                "score": float(row.score),
+                "score": round(float(row.score), 1) if row.score is not None else None,
                 "time_bank_balance": float(row.time_bank_balance),
                 "recent_occurrences": int(row.recent_occurrences),
                 # trend omitido: sem base de periodo anterior para derivar tendencia real
@@ -259,17 +282,18 @@ async def get_performance_scores(
             for row in rows
         ]
 
-        avg_score = sum(e["score"] for e in employees) / len(employees) if employees else 0
+        com_score = [e for e in employees if e["score"] is not None]
+        avg_score = sum(e["score"] for e in com_score) / len(com_score) if com_score else 0
 
         return {
             "top_performers": employees[:10],
-            "needs_attention": [e for e in reversed(employees) if e["score"] < 60][:5],
+            "needs_attention": [e for e in reversed(employees) if e["score"] is not None and e["score"] < 60][:5],
             "average_score": round(avg_score, 1),
             "total_evaluated": len(employees),
             "distribution": {
-                "excelente": len([e for e in employees if e["score"] >= 85]),
-                "bom": len([e for e in employees if 70 <= e["score"] < 85]),
-                "regular": len([e for e in employees if 50 <= e["score"] < 70]),
+                "excelente": len([e for e in employees if e["score"] is not None and e["score"] >= 85]),
+                "bom": len([e for e in employees if e["score"] is not None and 70 <= e["score"] < 85]),
+                "regular": len([e for e in employees if e["score"] is not None and 50 <= e["score"] < 70]),
                 "critico": len([e for e in employees if e["score"] < 50]),
             },
         }

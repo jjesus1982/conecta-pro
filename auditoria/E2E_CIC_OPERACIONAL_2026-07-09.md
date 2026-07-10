@@ -196,3 +196,22 @@ Pendente de validação visual: 2ª passada do CIC (opcional) para confirmar os 
 
 Deploy final: blue/green zero-downtime + 7/7 workers + frontend BUILD conecta-pro-1783653325373.
 Pronto para a 3ª passada de carimbo do CIC (com hard-refresh).
+
+---
+
+# 3ª PASSADA DO CIC (2026-07-10) — CARIMBO FINAL
+
+**ZERO reprovados · 8/8 fixes da onda 4 CONFIRMADOS · Veredito: "pronto para uso diário —
+liberar para operação" · Média 8,7/10** (Dia a dia do líder 9,5 · Gestão 9,0 · Navegação 9,5 ·
+IA 8,5 · Relatórios 7,0). #418 confirmado como resíduo de cache (console limpo pós hard-refresh).
+
+## Backlog de polimento apontado → tratado na mesma sessão
+| Ressalva | Tratamento |
+|---|---|
+| Custos R$0 em /relatorios (média) | ✅ custo REAL: horas de ponto × salário-base/220 (CLT) — salario_base 50/50 preenchido; posto via turno do dia; legenda de fonte na tela |
+| "0.0h" de Ailton/Walcicley | ✅ HONESTO — zero batidas no período (provado por SQL); é exatamente o que o quadro deve expor |
+| Scores todos 70 no /kpi | ✅ score composto REAL: 60% presença 30d (turnos×batidas) + banco de horas − ocorrências; sem turnos → "sem dados" (null), não 70 |
+| Card "Total de Postos" ambíguo | ✅ renomeado "Postos cadastrados" + Ativos ao lado |
+| Sino 3 × central 0 | ✅ central passa a exibir a contagem push do sino com explicação |
+| Capitalização de status | ✅ helper de exibição normalizado |
+| Diaristas de teste | ✅ 10 registros desativados (Audit/Teste/Ana Silva, CPF 12345678901) com backup prévio |

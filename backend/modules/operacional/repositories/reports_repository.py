@@ -185,6 +185,60 @@ class ReportsRepository:
         post_id: str | None = None,
     ) -> list[dict]:
         """Retorna custos estimados por posto."""
+        # Custo REAL estimado: horas de PONTO (pares entrada→saída) × salário-base/220 (divisor CLT).
+        # shifts.total_pay nunca é preenchido (sempre 0) — a fonte honesta é batidas + salario_base
+        # (50/50 employees ativos têm salário-base CCT cadastrado). O posto da hora vem do turno
+        # agendado do funcionário no dia da batida.
+        cost_sql = text(
+            """
+            WITH p AS (
+              SELECT employee_id,
+                     (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') AS ts,
+                     punch_type,
+                     ROW_NUMBER() OVER (PARTITION BY employee_id ORDER BY punch_timestamp) AS rn
+              FROM gp_clock_punches
+              WHERE COALESCE(status,'') NOT IN ('rejected','cancelado')
+                AND (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date
+                    BETWEEN :ini AND :fim
+            ),
+            pares AS (
+              SELECT e.employee_id, e.ts::date AS dia,
+                     EXTRACT(EPOCH FROM (s.ts - e.ts)) / 3600.0 AS horas
+              FROM p e
+              JOIN p s ON s.employee_id = e.employee_id AND s.rn = e.rn + 1
+              WHERE e.punch_type = 'entrada' AND s.punch_type = 'saida'
+                AND s.ts - e.ts BETWEEN interval '1 minute' AND interval '16 hours'
+            ),
+            horas_posto AS (
+              SELECT COALESCE(sh.post_id, a.post_id) AS post_id, pr.employee_id,
+                     SUM(pr.horas) AS horas
+              FROM pares pr
+              LEFT JOIN LATERAL (
+                SELECT post_id FROM shifts s
+                WHERE s.employee_id = pr.employee_id AND s.shift_date = pr.dia
+                  AND s.is_active AND s.status <> 'cancelled'
+                LIMIT 1
+              ) sh ON true
+              LEFT JOIN LATERAL (
+                SELECT post_id FROM allocations a2
+                WHERE a2.employee_id = pr.employee_id AND a2.status = 'active' AND a2.is_active
+                ORDER BY a2.is_primary DESC LIMIT 1
+              ) a ON true
+              GROUP BY 1, 2
+            )
+            SELECT hp.post_id,
+                   COUNT(DISTINCT hp.employee_id) AS funcionarios,
+                   ROUND(SUM(hp.horas)::numeric, 1) AS total_horas,
+                   ROUND(SUM(hp.horas * COALESCE(e.salario_base, 0) / 220.0)::numeric, 2) AS custo
+            FROM horas_posto hp
+            JOIN employees e ON e.id = hp.employee_id
+            WHERE hp.post_id IS NOT NULL
+            GROUP BY hp.post_id
+            """
+        )
+        cost_rows = (await self.db.execute(cost_sql, {"ini": start_date, "fim": end_date})).all()
+        custo_por_posto = {str(r.post_id): (float(r.custo or 0), float(r.total_horas or 0)) for r in cost_rows}
+
         query = (
             select(
                 Shift.post_id,
@@ -211,12 +265,16 @@ class ReportsRepository:
 
         items: list[dict] = []
         for row in raw_items:
+            pid = str(row.post_id)
+            custo, horas = custo_por_posto.get(pid, (0.0, 0.0))
             items.append(
                 {
-                    "post_id": str(row.post_id),
-                    "post_name": post_names.get(str(row.post_id), "Posto"),
+                    "post_id": pid,
+                    "post_name": post_names.get(pid, "Posto"),
                     "total_shifts": int(row.total_shifts or 0),
-                    "total_cost": float(row.total_cost or 0.0),
+                    "total_cost": custo,
+                    "total_hours_ponto": horas,
+                    "fonte_custo": "horas de ponto × salário-base/220 (CLT)",
                 }
             )
         return items
