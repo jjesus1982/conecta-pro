@@ -81,10 +81,16 @@ async def upload_document(
     category: str = Form(default="outro"),
     confidentiality: str = Form(default="interno"),
     description: str | None = Form(None),
+    employee_id: str | None = Form(None),
+    valid_until: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ) -> DocumentResponse:
-    """Upload de documento com arquivo."""
+    """Upload de documento com arquivo.
+
+    ``employee_id`` e ``valid_until`` são opcionais e persistidos quando enviados
+    (usados pela tela dp/documentos p/ vincular o colaborador e a data de validade).
+    """
     try:
         # Validar arquivo (tamanho, tipo MIME, magic number)
         content = await ged_file_validator.validate_file(file)
@@ -113,6 +119,8 @@ async def upload_document(
             title=title,
             description=description,
             folder_id=folder_id,
+            employee_id=employee_id or None,
+            valid_until=(valid_until or None),
             document_type=DocumentType(document_type),
             category=DocumentCategory(category),
             confidentiality=DocumentConfidentiality(confidentiality),

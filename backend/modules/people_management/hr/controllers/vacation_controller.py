@@ -86,41 +86,43 @@ async def list_vacations(
     page_size: int = Query(20, ge=1, le=100),
     status: str | None = Query(None, description="Filtrar por status: pendente, aprovado, rejeitado, cancelado"),
 ) -> Any:
-    """Lista solicitações de férias."""
+    """Lista solicitações de férias (FONTE DA VERDADE: hr_vacation_requests).
+
+    O banco grava status EN maiúsculo (SUBMITTED/APPROVED/...); a tela e os cards
+    trabalham em PT minúsculo. O mapa PT↔EN é aplicado ANTES do filtro e nos buckets.
+    """
     try:
-        from sqlalchemy import func
-        from sqlalchemy import select as sa_select
+        from sqlalchemy import text as _text
 
-        from modules.operacional.vacations.models import VacationRequest
+        from modules.people_management.hr.services.vacation_service import (
+            _HVR_BASE_SELECT,
+            _hvr_row_to_ns,
+            _hvr_status_to_pt,
+        )
 
-        # [Causa-raiz nº1] normaliza o filtro EN↔PT antes de comparar com o banco (PT minúsculo)
+        # [Causa-raiz nº1] normaliza o filtro (?status=) para PT (bucket do front)
         norm_status = _normalize_vacation_status(status)
 
-        count_q = sa_select(func.count()).select_from(VacationRequest)
-        query = (
-            sa_select(VacationRequest)
-            .order_by(VacationRequest.created_at.desc())
-        )
-        if norm_status:
-            count_q = count_q.where(VacationRequest.status == norm_status)
-            query = query.where(VacationRequest.status == norm_status)
-        total = (await db.execute(count_q)).scalar() or 0
-
-        # Contagem por status (buckets do banco) para os CARDS da tela — SEMPRE global,
-        # independente do filtro aplicado, para o card não zerar ao filtrar.
+        # Contagem por status (buckets do banco → PT) para os CARDS — SEMPRE global,
+        # independente do filtro, para o card não zerar ao filtrar.
         counts_rows = (
-            await db.execute(
-                sa_select(VacationRequest.status, func.count()).group_by(VacationRequest.status)
-            )
+            await db.execute(_text("SELECT status, COUNT(*) FROM hr_vacation_requests GROUP BY status"))
         ).all()
         by_status: dict[str, int] = {}
-        for st_val, cnt in counts_rows:
-            by_status[_normalize_vacation_status(st_val) or (str(st_val) if st_val else "")] = int(cnt or 0)
+        for raw_st, cnt in counts_rows:
+            bucket = _hvr_status_to_pt(raw_st)
+            by_status[bucket] = by_status.get(bucket, 0) + int(cnt or 0)
         total_all = sum(by_status.values())
 
-        query = query.offset((page - 1) * page_size).limit(page_size)
-        result = await db.execute(query)
-        items = result.scalars().all()
+        # Lista completa (filtro de status aplicado em PT, sobre o bucket mapeado)
+        rows = (await db.execute(_text(_HVR_BASE_SELECT + " ORDER BY h.created_at DESC"))).fetchall()
+        all_items = [_hvr_row_to_ns(r) for r in rows]
+        if norm_status:
+            all_items = [v for v in all_items if v.status == norm_status]
+
+        total = len(all_items)
+        page_items = all_items[(page - 1) * page_size : (page - 1) * page_size + page_size]
+
         return {
             "pendente": by_status.get("pendente", 0),
             "aprovado": by_status.get("aprovado", 0),
@@ -132,16 +134,17 @@ async def list_vacations(
                 {
                     "id": str(v.id),
                     "employee_id": str(v.employee_id) if v.employee_id else None,
-                    "employee_name": getattr(v, "employee_name", None),
-                    "type": getattr(v, "type", None),
+                    "employee_name": v.employee_name,
+                    "type": v.type,
                     "status": v.status,
-                    "start_date": str(v.start_date) if getattr(v, "start_date", None) else None,
-                    "end_date": str(v.end_date) if getattr(v, "end_date", None) else None,
-                    "days": _normalize_days(getattr(v, "days", None)),
-                    "reason": getattr(v, "reason", None),
-                    "created_at": v.created_at.isoformat() if getattr(v, "created_at", None) else None,
+                    "start_date": str(v.start_date) if v.start_date else None,
+                    "end_date": str(v.end_date) if v.end_date else None,
+                    "days": _normalize_days(v.days),
+                    "reason": v.reason,
+                    "notes": v.notes,
+                    "created_at": v.created_at.isoformat() if v.created_at else None,
                 }
-                for v in items
+                for v in page_items
             ],
             "total": total,
             "page": page,
@@ -483,9 +486,19 @@ async def gerar_aviso_previo_ferias(
 @router.post("", status_code=201, summary="Criar solicitação de férias")
 @router.post("/", include_in_schema=False, status_code=201)
 async def criar_vacation(data: dict, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)) -> Any:
-    """Cria solicitação de férias (tela dp/ferias)."""
+    """Cria solicitação de férias na FONTE DA VERDADE (hr_vacation_requests).
+
+    Gera request_code único por condomínio e preenche os campos NOT NULL exigidos
+    (condominio_id, request_code, return_date, days_requested, status EN 'SUBMITTED').
+    NUNCA perde uma solicitação: grava direto no superset canônico.
+    """
     import uuid as _uuid
     from datetime import date as _date
+    from datetime import timedelta as _td
+
+    from modules.people_management.hr.services.vacation_service import (
+        _HVR_DEFAULT_CONDOMINIO_ID,
+    )
 
     emp = str(data.get("employee_id") or "").strip()
     if not emp:
@@ -498,37 +511,84 @@ async def criar_vacation(data: dict, current_user: CurrentActiveUser, db: AsyncS
             return None
 
     sd, ed = _d(data.get("start_date")), _d(data.get("end_date"))
+    if not sd or not ed:
+        raise HTTPException(status_code=422, detail="start_date e end_date são obrigatórios")
+
     days = data.get("days")
-    if days is None and sd and ed:
+    if days is None:
         days = (ed - sd).days + 1
+    try:
+        days_int = int(str(days).split()[0]) if days is not None else (ed - sd).days + 1
+    except (ValueError, IndexError):
+        days_int = (ed - sd).days + 1
+    return_date = ed + _td(days=1)
+
+    # condominio_id é NOT NULL na fonte canônica; employees não tem esse vínculo,
+    # e todas as 18 solicitações existentes usam o condomínio canônico. Usa-o.
+    condominio_id = _HVR_DEFAULT_CONDOMINIO_ID
+
+    # request_code único por condomínio (uq_hr_vacation_requests_code)
+    request_code = f"FER-DP-{_uuid.uuid4().hex[:8].upper()}"
+
     vid = str(_uuid.uuid4())
     await db.execute(
         _sqltext(
-            "INSERT INTO vacation_requests (id, employee_id, employee_name, type, status, start_date, end_date, "
-            "days, reason, notes, is_active, created_at, updated_at) VALUES "
-            "(:id, :emp, :nome, :type, 'pendente', :sd, :ed, :days, :reason, :notes, true, NOW(), NOW())"
+            "INSERT INTO hr_vacation_requests "
+            "(id, condominio_id, employee_id, status, request_code, start_date, end_date, "
+            " return_date, days_requested, sell_days, advance_13th, employee_notes, hr_notes, "
+            " created_by, created_at, updated_at) VALUES "
+            "(CAST(:id AS uuid), CAST(:cond AS uuid), CAST(:emp AS uuid), 'SUBMITTED', :code, "
+            " :sd, :ed, :rd, :days, 0, false, :reason, :notes, CAST(:cby AS uuid), NOW(), NOW())"
         ),
         {
             "id": vid,
+            "cond": condominio_id,
             "emp": emp,
-            "nome": data.get("employee_name"),
-            "type": data.get("type") or "ferias",
+            "code": request_code,
             "sd": sd,
             "ed": ed,
-            "days": str(days) if days is not None else None,
+            "rd": return_date,
+            "days": days_int,
             "reason": data.get("reason"),
             "notes": data.get("notes"),
+            "cby": str(current_user.id) if getattr(current_user, "id", None) else None,
         },
     )
     await db.commit()
-    return {"id": vid, "message": "Solicitação de férias criada", "status": "pendente"}
+    return {"id": vid, "request_code": request_code, "message": "Solicitação de férias criada", "status": "pendente"}
 
 
-@router.delete("/{vacation_id}", summary="Excluir solicitação de férias")
+@router.post("/{vacation_id}/reject", status_code=201, summary="Rejeitar solicitação de férias")
+async def rejeitar_vacation(
+    vacation_id: str,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+    reason: str | None = Query(None, description="Motivo da rejeição"),
+) -> Any:
+    """Rejeita uma solicitação de férias (status EN 'REJECTED' na fonte canônica)."""
+    service = VacationService(db)
+    try:
+        result = await service.reject_vacation(vacation_id, rejected_by_id=current_user.id, reason=reason)
+        await db.commit()
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/{vacation_id}", summary="Cancelar solicitação de férias")
 @router.delete("/{vacation_id}/", include_in_schema=False)
 async def deletar_vacation(
     vacation_id: str, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)
 ) -> Any:
-    r = await db.execute(_sqltext("DELETE FROM vacation_requests WHERE id::text = :id"), {"id": str(vacation_id)})
-    await db.commit()
-    return {"message": "Solicitação removida", "deleted": int(r.rowcount or 0)}
+    """Cancela (soft-delete) a solicitação na fonte canônica — NUNCA hard-delete.
+
+    A solicitação passa a contar no bucket 'cancelado' (status EN 'CANCELLED') e sai
+    da lista ativa da tela. Preserva o dado trabalhista (NUNCA perde uma solicitação).
+    """
+    service = VacationService(db)
+    try:
+        result = await service.cancel_vacation(vacation_id, cancelled_by_id=current_user.id)
+        await db.commit()
+        return {"message": "Solicitação removida", "deleted": 1, **result}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))

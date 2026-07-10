@@ -68,18 +68,19 @@ export default function ESocialPage() {
   const [filtroStatus, setFiltroStatus] = useState<string>('todos');
   const [filtroTipo, setFiltroTipo] = useState<string>('todos');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [resumoBackend, setResumoBackend] = useState<{ pendentes: number; enviados: number; aceitos: number; rejeitados: number } | null>(null);
 
   useEffect(() => {
     async function load() {
       setLoading(true);
       try {
-        // Try the real eSocial eventos endpoint first
-        const res = await fetch(`${API_BASE_GOV}/esocial/eventos?page_size=500`, { headers: getAuthHeaders() });
+        // Fonte REAL unificada: transmissões próprias (gp_asos/sst_afastamentos/
+        // gp_cats/sst_s2240 — protocolo/recibo do governo) + espelho oficial.
+        const res = await fetch(`${API_BASE_HR}/esocial/events?limit=2000`, { headers: getAuthHeaders() });
         if (res.ok) {
           const data = await res.json();
           const items = Array.isArray(data) ? data : data.items || data.eventos || data.events || [];
 
-          // Normalize
           const normalized = items.map((e: any) => ({
             id: e.id,
             evento: e.evento || e.event_name || e.descricao || e.description || 'N/A',
@@ -89,61 +90,25 @@ export default function ESocialPage() {
             status: e.status || 'pendente',
             data: e.data || e.date || e.created_at || e.event_date,
             protocolo: e.protocolo || e.protocol || e.receipt || '',
+            recibo: e.recibo || '',
+            origem: e.origem || '',
             lote: e.lote || e.batch_id || '',
             mensagem_retorno: e.mensagem_retorno || e.return_message || e.error_message || '',
           }));
 
           setEventos(normalized);
-          toast.info(`${normalized.length} evento${normalized.length !== 1 ? 's' : ''} eSocial carregado${normalized.length !== 1 ? 's' : ''}`, { duration: 3000 });
+          setResumoBackend(data.resumo || null);
+          if (normalized.length > 0) {
+            toast.info(`${normalized.length} evento${normalized.length !== 1 ? 's' : ''} eSocial carregado${normalized.length !== 1 ? 's' : ''}`, { duration: 3000 });
+          }
         } else {
-          // Fallback: build events from admissions and terminations
-          const [admRes, termRes] = await Promise.all([
-            fetch(`${API_BASE_HR}/admissions?page_size=100`, { headers: getAuthHeaders() }),
-            fetch(`${API_BASE_HR}/terminations?page_size=100`, { headers: getAuthHeaders() }),
-          ]);
-          const evts: any[] = [];
-          if (admRes.ok) {
-            const admData = await admRes.json();
-            (admData.items || admData || []).forEach((a: any) => {
-              evts.push({
-                id: a.id,
-                evento: `Admissão - ${a.nome || a.candidate_name || 'N/A'}`,
-                tipo: 'S-2200',
-                colaborador: a.nome || a.candidate_name,
-                cpf: a.cpf || '',
-                status: a.status === 'completed' || a.status === 'concluida' ? 'aceito' : 'pendente',
-                data: a.created_at || a.expected_date || a.expected_start_date,
-                protocolo: '',
-                lote: '',
-                mensagem_retorno: '',
-              });
-            });
-          }
-          if (termRes.ok) {
-            const termData = await termRes.json();
-            (termData.items || termData || []).forEach((t: any) => {
-              evts.push({
-                id: t.id,
-                evento: `Desligamento - ${t.nome || t.employee_name || 'N/A'}`,
-                tipo: 'S-2299',
-                colaborador: t.nome || t.employee_name,
-                cpf: t.cpf || '',
-                status: t.status === 'completed' || t.status === 'concluida' ? 'aceito' : 'pendente',
-                data: t.created_at || t.last_day,
-                protocolo: '',
-                lote: '',
-                mensagem_retorno: '',
-              });
-            });
-          }
-          setEventos(evts);
-          if (evts.length > 0) {
-            toast.info(`${evts.length} evento${evts.length !== 1 ? 's' : ''} reconstruído${evts.length !== 1 ? 's' : ''} a partir de admissões/desligamentos`, { duration: 3000 });
-          }
+          setEventos([]);
+          setResumoBackend(null);
         }
       } catch {
         toast.error('Erro ao carregar eventos eSocial', { duration: 5000 });
         setEventos([]);
+        setResumoBackend(null);
       } finally {
         setLoading(false);
       }
@@ -234,12 +199,13 @@ export default function ESocialPage() {
     return sortDir === 'asc' ? ' ↑' : ' ↓';
   };
 
-  // Counts by status
+  // Counts by status — usa o resumo do backend quando disponível (fonte real),
+  // com fallback para a contagem local dos eventos carregados.
   const countByStatus = (s: string) => eventos.filter(e => e.status === s).length;
-  const pendentes = countByStatus('pendente') + countByStatus('pending');
-  const enviados = countByStatus('enviado') + countByStatus('sent') + countByStatus('processando') + countByStatus('processing');
-  const aceitos = countByStatus('aceito') + countByStatus('accepted');
-  const rejeitados = countByStatus('rejeitado') + countByStatus('rejected') + countByStatus('erro') + countByStatus('error');
+  const pendentes = resumoBackend?.pendentes ?? (countByStatus('pendente') + countByStatus('pending'));
+  const enviados = resumoBackend?.enviados ?? (countByStatus('enviado') + countByStatus('sent') + countByStatus('processando') + countByStatus('processing'));
+  const aceitos = resumoBackend?.aceitos ?? (countByStatus('aceito') + countByStatus('accepted'));
+  const rejeitados = resumoBackend?.rejeitados ?? (countByStatus('rejeitado') + countByStatus('rejected') + countByStatus('erro') + countByStatus('error'));
 
   return (
     <div className="space-y-6 pb-28">

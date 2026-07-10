@@ -1,14 +1,19 @@
 """
 Serviço de Férias — Departamento Pessoal.
 
-Re-exporta funcionalidades do employee_portal e módulo operacional de férias,
-adicionando cálculo de saldo de férias com valores CLT reais (Decimal).
+FONTE DA VERDADE: a tabela canônica é `hr_vacation_requests` (superset da antiga
+`vacation_requests`, que permanece INTACTA apenas como backup). O banco grava o
+status em INGLÊS MAIÚSCULO (SUBMITTED/APPROVED/REJECTED/CANCELLED...); a tela e os
+cards do DP trabalham em PT minúsculo, por isso o mapa PT↔EN é obrigatório.
+
+Adiciona cálculo de saldo de férias com valores CLT reais (Decimal).
 """
 
 import contextlib
 import logging
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import UUID
 
 from sqlalchemy import select, text
@@ -31,8 +36,104 @@ except ImportError:
     VacationRequest = None  # type: ignore[assignment, misc]
 
 
+# ---------------------------------------------------------------------------
+# Mapa PT↔EN (fonte canônica grava EN maiúsculo; tela/cards trabalham em PT).
+# ---------------------------------------------------------------------------
+# EN (banco) → PT (bucket exibido)
+_HVR_STATUS_EN_TO_PT = {
+    "SUBMITTED": "pendente",
+    "PENDING": "pendente",
+    "APPROVED": "aprovado",
+    "REJECTED": "rejeitado",
+    "DRAFT": "rascunho",
+    "CANCELLED": "cancelado",
+    "SCHEDULED": "programado",
+    "IN_PROGRESS": "em_andamento",
+    "COMPLETED": "concluido",
+    "INTERRUPTED": "interrompido",
+    "PAID": "pago",
+}
+
+# PT (criação/aprovação) → EN (valor gravado na fonte canônica)
+_HVR_STATUS_PT_TO_EN = {
+    "pendente": "SUBMITTED",
+    "submetido": "SUBMITTED",
+    "aprovado": "APPROVED",
+    "rejeitado": "REJECTED",
+    "cancelado": "CANCELLED",
+}
+
+# condomínio canônico usado pela fonte da verdade (NOT NULL na tabela)
+_HVR_DEFAULT_CONDOMINIO_ID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+
+
+def _hvr_status_to_pt(raw: str | None) -> str:
+    """Mapeia status EN (banco) → PT (bucket exibido)."""
+    if not raw:
+        return "desconhecido"
+    return _HVR_STATUS_EN_TO_PT.get(str(raw).upper(), str(raw).lower())
+
+
+def _hvr_days_str(days_requested) -> str | None:
+    """Formata days_requested (int) no shape 'N dia(s)' que o front já espera."""
+    if days_requested is None:
+        return None
+    try:
+        n = int(days_requested)
+    except (TypeError, ValueError):
+        return str(days_requested)
+    return f"{n} dia{'s' if n != 1 else ''}"
+
+
+# SELECT canônico com JOIN em employees para o employee_name (a tabela
+# hr_vacation_requests NÃO tem coluna employee_name — vem do JOIN).
+_HVR_BASE_SELECT = """
+    SELECT
+        CAST(h.id AS TEXT) AS id,
+        CAST(h.employee_id AS TEXT) AS employee_id,
+        e.nome AS employee_name,
+        h.status AS raw_status,
+        h.request_code,
+        h.start_date,
+        h.end_date,
+        h.days_requested,
+        h.employee_notes,
+        h.hr_notes,
+        h.rejection_reason,
+        CAST(h.hr_approved_by AS TEXT) AS approved_by,
+        h.hr_approved_at AS approved_at,
+        h.created_at,
+        COALESCE(h.updated_at, h.created_at) AS updated_at
+    FROM hr_vacation_requests h
+    LEFT JOIN employees e ON e.id = h.employee_id
+"""
+
+
+def _hvr_row_to_ns(row) -> SimpleNamespace:
+    """Converte uma linha canônica no objeto que o controller/schema espera
+    (mesmos atributos do VacationRequestResponse: employee_name, status PT,
+    days como string 'N dias', etc.)."""
+    return SimpleNamespace(
+        id=row.id,
+        employee_id=row.employee_id,
+        employee_name=row.employee_name,
+        type="ferias",
+        status=_hvr_status_to_pt(row.raw_status),
+        start_date=row.start_date,
+        end_date=row.end_date,
+        days=_hvr_days_str(row.days_requested),
+        reason=row.employee_notes,
+        notes=row.hr_notes,
+        approved_by=row.approved_by,
+        approved_at=row.approved_at,
+        rejected_reason=row.rejection_reason,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
 class VacationService:
-    """Serviço de Férias — visão DP."""
+    """Serviço de Férias — visão DP (lê/grava em hr_vacation_requests)."""
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
@@ -41,22 +142,26 @@ class VacationService:
             with contextlib.suppress(Exception):
                 self._portal_service = PortalVacationService(db)
 
-    async def get_by_id(self, vacation_id: str | UUID) -> "VacationRequest | None":
-        """Busca uma solicitação de férias pelo ID.
+    async def get_by_id(self, vacation_id: str | UUID) -> "SimpleNamespace | None":
+        """Busca uma solicitação de férias pelo ID na fonte canônica.
 
         Args:
             vacation_id: ID da solicitação de férias.
 
         Returns:
-            Instância de VacationRequest ou None se não encontrada.
+            Objeto (SimpleNamespace) no shape do VacationRequestResponse, ou None.
         """
-        if not VacationRequest:
+        result = await self.db.execute(
+            text(_HVR_BASE_SELECT + " WHERE CAST(h.id AS TEXT) = :rid"),
+            {"rid": str(vacation_id)},
+        )
+        row = result.fetchone()
+        if not row:
             return None
-        result = await self.db.execute(select(VacationRequest).where(VacationRequest.id == str(vacation_id)))
-        return result.scalar_one_or_none()
+        return _hvr_row_to_ns(row)
 
     async def list_by_employee(self, employee_id: str | UUID, page: int = 1, page_size: int = 20) -> dict:
-        """Lista solicitações de férias de um funcionário específico.
+        """Lista solicitações de férias de um funcionário específico (fonte canônica).
 
         Args:
             employee_id: ID do funcionário.
@@ -66,24 +171,24 @@ class VacationService:
         Returns:
             Dicionário com items, total e paginação.
         """
-        if not VacationRequest:
-            return {"items": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 1}
-
-        from sqlalchemy import func
-
         emp_id = str(employee_id)
-        count_q = select(func.count()).select_from(VacationRequest).where(VacationRequest.employee_id == emp_id)
-        total = (await self.db.execute(count_q)).scalar() or 0
 
-        query = (
-            select(VacationRequest)
-            .where(VacationRequest.employee_id == emp_id)
-            .order_by(VacationRequest.created_at.desc())
-            .offset((page - 1) * page_size)
-            .limit(page_size)
+        total = (
+            await self.db.execute(
+                text("SELECT COUNT(*) FROM hr_vacation_requests WHERE CAST(employee_id AS TEXT) = :eid"),
+                {"eid": emp_id},
+            )
+        ).scalar() or 0
+
+        result = await self.db.execute(
+            text(
+                _HVR_BASE_SELECT
+                + " WHERE CAST(h.employee_id AS TEXT) = :eid"
+                + " ORDER BY h.created_at DESC OFFSET :off LIMIT :lim"
+            ),
+            {"eid": emp_id, "off": (page - 1) * page_size, "lim": page_size},
         )
-        result = await self.db.execute(query)
-        items = result.scalars().all()
+        items = [_hvr_row_to_ns(r) for r in result.fetchall()]
 
         return {
             "items": items,
@@ -131,29 +236,24 @@ class VacationService:
         dias_proporcional = int((30 / 12) * meses_periodo_atual)
         dias_direito_total = (periodos_completos * 30) + dias_proporcional
 
-        # Buscar férias gozadas
+        # Buscar férias gozadas — fonte canônica hr_vacation_requests (status EN APPROVED).
         dias_gozados = 0
-        if VacationRequest:
-            try:
-                # O banco grava status em português ('aprovado'/'aprovada'); manter
-                # também os valores em inglês por compatibilidade histórica.
-                status_aprovado = ["aprovado", "aprovada", "approved", "APPROVED"]
-                vac_result = await self.db.execute(
-                    select(VacationRequest).where(
-                        VacationRequest.employee_id == str(employee_id),
-                        VacationRequest.status.in_(status_aprovado),
-                    )
-                )
-                vacations = vac_result.scalars().all()
-                for v in vacations:
-                    if hasattr(v, "days_count") and v.days_count:
-                        dias_gozados += v.days_count
-                    elif hasattr(v, "start_date") and hasattr(v, "end_date"):
-                        if v.start_date and v.end_date:
-                            # +1: intervalo inclusivo (o registro de criação grava days com +1)
-                            dias_gozados += (v.end_date - v.start_date).days + 1
-            except Exception as e:
-                logger.warning("Erro ao buscar férias gozadas: %s", e)
+        try:
+            gozadas = await self.db.execute(
+                text(
+                    "SELECT days_requested, start_date, end_date FROM hr_vacation_requests "
+                    "WHERE CAST(employee_id AS TEXT) = :eid AND UPPER(status) = 'APPROVED'"
+                ),
+                {"eid": str(employee_id)},
+            )
+            for row in gozadas.fetchall():
+                if row.days_requested:
+                    dias_gozados += int(row.days_requested)
+                elif row.start_date and row.end_date:
+                    # +1: intervalo inclusivo
+                    dias_gozados += (row.end_date - row.start_date).days + 1
+        except Exception as e:
+            logger.warning("Erro ao buscar férias gozadas: %s", e)
 
         dias_saldo = max(0, dias_direito_total - dias_gozados)
 
@@ -229,22 +329,36 @@ class VacationService:
         Returns:
             Dicionário com resultado da aprovação.
         """
-        if not VacationRequest:
-            raise ValueError("Módulo de férias não disponível")
-
-        result = await self.db.execute(select(VacationRequest).where(VacationRequest.id == str(vacation_id)))
-        vacation = result.scalar_one_or_none()
-        if not vacation:
+        # Fonte canônica: hr_vacation_requests. Busca via SELECT canônico para obter
+        # employee_id/nome/datas (usados na notificação e no evento).
+        result = await self.db.execute(
+            text(_HVR_BASE_SELECT + " WHERE CAST(h.id AS TEXT) = :rid"),
+            {"rid": str(vacation_id)},
+        )
+        row = result.fetchone()
+        if not row:
             raise ValueError(f"Solicitação de férias {vacation_id} não encontrada")
 
-        # Grava status em PT-BR ('aprovado'), consistente com o banco, com o filtro
-        # ?status=aprovado e com o frontend (badge/contadores). NÃO produzir 'approved' (inglês).
-        vacation.status = "aprovado"
-        if hasattr(vacation, "approved_by_id"):
-            vacation.approved_by_id = str(approved_by_id) if approved_by_id else None
-
+        # Grava status EN 'APPROVED' (vocabulário da fonte canônica) + trilha de
+        # aprovação do DP (hr_approved / hr_approved_by / hr_approved_at). O mapa PT↔EN
+        # devolve 'aprovado' para a tela; aqui persistimos EN.
+        await self.db.execute(
+            text(
+                "UPDATE hr_vacation_requests SET status = 'APPROVED', hr_approved = true, "
+                "hr_approved_by = CAST(:by AS uuid), hr_approved_at = :at, updated_at = :at "
+                "WHERE CAST(id AS TEXT) = :rid"
+            ),
+            {
+                "by": str(approved_by_id) if approved_by_id else None,
+                "at": datetime.now(timezone.utc),
+                "rid": str(vacation_id),
+            },
+        )
         await self.db.flush()
-        await self.db.refresh(vacation)
+
+        # objeto para notificação/evento (shape estável, status já em PT 'aprovado')
+        vacation = _hvr_row_to_ns(row)
+        vacation.status = "aprovado"
 
         # Notificar operações (async, não bloqueia)
         try:
@@ -279,7 +393,77 @@ class VacationService:
             "vacation_id": str(vacation_id),
             "status": "aprovado",
             "message": "Férias aprovadas com sucesso",
+            # campos usados pelo controller p/ publicar ferias_aprovadas (GEDEON)
+            "employee_id": str(getattr(vacation, "employee_id", "") or ""),
+            "employee_name": str(getattr(vacation, "employee_name", "") or ""),
+            "start_date": str(getattr(vacation, "start_date", "") or ""),
+            "end_date": str(getattr(vacation, "end_date", "") or ""),
         }
+
+    async def reject_vacation(
+        self,
+        vacation_id: str | UUID,
+        rejected_by_id: str | UUID | None = None,
+        reason: str | None = None,
+    ) -> dict:
+        """Rejeita uma solicitação de férias na fonte canônica (status EN 'REJECTED')."""
+        exists = await self.db.execute(
+            text("SELECT 1 FROM hr_vacation_requests WHERE CAST(id AS TEXT) = :rid"),
+            {"rid": str(vacation_id)},
+        )
+        if not exists.fetchone():
+            raise ValueError(f"Solicitação de férias {vacation_id} não encontrada")
+
+        await self.db.execute(
+            text(
+                "UPDATE hr_vacation_requests SET status = 'REJECTED', "
+                "rejected_by = CAST(:by AS uuid), rejected_at = :at, "
+                "rejection_reason = :reason, updated_at = :at WHERE CAST(id AS TEXT) = :rid"
+            ),
+            {
+                "by": str(rejected_by_id) if rejected_by_id else None,
+                "at": datetime.now(timezone.utc),
+                "reason": reason,
+                "rid": str(vacation_id),
+            },
+        )
+        await self.db.flush()
+        return {"vacation_id": str(vacation_id), "status": "rejeitado", "message": "Férias rejeitadas"}
+
+    async def cancel_vacation(
+        self,
+        vacation_id: str | UUID,
+        cancelled_by_id: str | UUID | None = None,
+        reason: str | None = None,
+    ) -> dict:
+        """Cancela (soft-delete) uma solicitação na fonte canônica (status EN 'CANCELLED').
+
+        NUNCA hard-delete: preserva a solicitação (dado trabalhista). O front trata
+        HTTP 200/204 como remoção da lista e a solicitação passa a contar no bucket
+        'cancelado'.
+        """
+        exists = await self.db.execute(
+            text("SELECT 1 FROM hr_vacation_requests WHERE CAST(id AS TEXT) = :rid"),
+            {"rid": str(vacation_id)},
+        )
+        if not exists.fetchone():
+            raise ValueError(f"Solicitação de férias {vacation_id} não encontrada")
+
+        await self.db.execute(
+            text(
+                "UPDATE hr_vacation_requests SET status = 'CANCELLED', "
+                "cancelled_by = CAST(:by AS uuid), cancelled_at = :at, "
+                "cancellation_reason = :reason, updated_at = :at WHERE CAST(id AS TEXT) = :rid"
+            ),
+            {
+                "by": str(cancelled_by_id) if cancelled_by_id else None,
+                "at": datetime.now(timezone.utc),
+                "reason": reason,
+                "rid": str(vacation_id),
+            },
+        )
+        await self.db.flush()
+        return {"vacation_id": str(vacation_id), "status": "cancelado", "message": "Solicitação cancelada"}
 
     async def sync_vacations_from_solides(
         self,

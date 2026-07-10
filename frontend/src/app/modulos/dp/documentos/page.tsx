@@ -287,6 +287,8 @@ export default function DocumentosPage() {
                   fd.append('folder_id', GED_FUNCIONARIOS_FOLDER);
                   fd.append('category', 'rh');
                   fd.append('document_type', formData.document_type.toLowerCase());
+                  if (formData.employee_id) fd.append('employee_id', formData.employee_id);
+                  if (formData.expiry_date) fd.append('valid_until', formData.expiry_date);
                   if (formData.notes) fd.append('description', formData.notes);
                   const res = await fetch(GED_UPLOAD_URL, {
                     method: 'POST',
