@@ -215,3 +215,14 @@ IA 8,5 · Relatórios 7,0). #418 confirmado como resíduo de cache (console limp
 | Sino 3 × central 0 | ✅ central passa a exibir a contagem push do sino com explicação |
 | Capitalização de status | ✅ helper de exibição normalizado |
 | Diaristas de teste | ✅ 10 registros desativados (Audit/Teste/Ana Silva, CPF 12345678901) com backup prévio |
+
+---
+## Pós-carimbo (2026-07-10) — polimento das 5 ressalvas "baixas" do CIC
+| ressalva CIC | correção | prova |
+|---|---|---|
+| Custos: R$0 e "média por turno" enganosa | custo REAL = horas de ponto × salário-base/220 (CLT) | Prime Arena R$1.216,32 / 160,2h ponto; 7 postos com custo>0 |
+| KPI: scores uniformes 70 | score = 40 + 60×presença real 30d + banco de horas − ocorrências; NULL sem turnos | top 88.0, média 73.9 (dispersão real); crítico null-safe |
+| Card "Postos" ambíguo (12 vs 8) | "Postos cadastrados" + card Ativos separado | tela postos |
+| Sino sem badge real | contagem push real na tela de notificações | tela notificacoes |
+| Diaristas de teste poluindo | 10 diaristas-teste desativados (backup em auditoria/) | statistics=5 reais |
+Deploy: frontend container (BUILD_ID conferido) + backend blue/green zero-downtime + 7/7 workers na imagem nova. Commit polish: 8 arquivos.
