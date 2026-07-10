@@ -7,8 +7,19 @@ Date: 2026-01-23
 
 from datetime import datetime
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+_TZ_MANAUS = ZoneInfo("America/Manaus")
+
+
+def _naive_manaus(v: datetime | None) -> datetime | None:
+    """Navegador manda ISO com 'Z' (aware); colunas são TIMESTAMP naive em hora de
+    Manaus (doutrina do módulo). Sem isso o asyncpg estoura DataError → 500."""
+    if isinstance(v, datetime) and v.tzinfo is not None:
+        return v.astimezone(_TZ_MANAUS).replace(tzinfo=None)
+    return v
 
 # =============================================================================
 # ENUMS PARA SCHEMAS
@@ -143,6 +154,8 @@ class InspectionRoundCreate(BaseModel):
     posts_to_visit: list[UUID] | None = None
     observations: str | None = None
 
+    _tz = field_validator("scheduled_date")(_naive_manaus)
+
 
 class InspectionRoundUpdate(BaseModel):
     """Schema para atualizacao de ronda."""
@@ -151,6 +164,8 @@ class InspectionRoundUpdate(BaseModel):
     posts_to_visit: list[UUID] | None = None
     observations: str | None = None
     summary: str | None = None
+
+    _tz = field_validator("scheduled_date")(_naive_manaus)
 
 
 class InspectionRoundResponse(BaseModel):
