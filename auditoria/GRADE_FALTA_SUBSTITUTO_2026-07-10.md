@@ -101,3 +101,14 @@ Cobertura provada 11-31/07: ímpares Euler+Gama+Eduardo; pares Chagas+Ailton (+E
 vaga diurno-ímpares pós-21/07 = slot do Alexandre; ASG cobre TODOS os dias (sáb 2, dom 1).
 Commit: feat grade Mirante pela verdade das batidas.
 PENDENTE: bake blue/green p/ workers herdarem tasks.py (antes do dia 25) — fazer após Prime Arena.
+
+---
+## Laranjeiras Village — raio-x e adequação pelas batidas (2026-07-10)
+Posto de 8 AGPs, 4/dia (2 diurnos + 2 noturnos), sem ASG. Batidas 90d confirmaram Andrea,
+Anilson, Bianca e Francisco; corrigidos: **Adailson 17-05 → 18:00-06:00 ímpares**;
+**Erika (líder) 07-19 → 06:00-18:00 ímpares**; **Matheus 06-18 → 05:00-17:00 ímpares**;
+**Euler (cobre férias do Francisco 24/07+) 07-19 → 06:00-18:00 pares** (slot real do coberto).
+Cobertura provada 11-31/07: ímpares Matheus 05h + Erika 06h + Andrea/Adailson 18h;
+pares Bianca+Francisco(→Euler 24/07) 06h + Anilson/Jonathan 18h. Férias do Francisco
+(23/07-21/08) respeitadas, Euler emenda certinho. FLAG: **Jonathan Mendes ZERO batidas 90d**
+(cobre a Elen — mesma situação do Euler: sem badge Sólides).
