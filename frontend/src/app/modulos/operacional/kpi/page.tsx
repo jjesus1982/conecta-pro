@@ -140,6 +140,13 @@ export default function KPITendenciasPage() {
 
   const periodLabels: Record<string, string> = { '7d': '7 dias', '30d': '30 dias', '90d': '90 dias' };
 
+  // Score pode vir NULL do /performance-scores (colaborador sem turnos nos últimos 30d)
+  // — exibir "—/sem dados", NUNCA 0. Decimais reais são preservados (ex.: 92.5).
+  const formatScore = (score: number | null | undefined) => {
+    if (score == null) return '—';
+    return Number.isInteger(score) ? String(score) : score.toFixed(1);
+  };
+
   const Skeleton = ({ className }: { className?: string }) => (
     <div className={`animate-pulse bg-muted rounded ${className ?? ''}`} />
   );
@@ -604,7 +611,7 @@ export default function KPITendenciasPage() {
             </div>
             {performanceData && (
               <div className="ml-auto text-right">
-                <p className="text-lg font-bold text-white">{performanceData.average_score}</p>
+                <p className="text-lg font-bold text-white">{formatScore(performanceData.average_score)}</p>
                 <p className="text-xs text-zinc-500">Média geral</p>
               </div>
             )}
@@ -646,17 +653,20 @@ export default function KPITendenciasPage() {
                       <div className="flex-1">
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-xs text-zinc-300">{emp.name?.split(' ').slice(0, 2).join(' ')}</span>
-                          <span className="text-xs font-semibold text-white">{emp.score.toFixed(0)}</span>
+                          <span className={`text-xs font-semibold ${emp.score == null ? 'text-zinc-500' : 'text-white'}`}>
+                            {emp.score == null ? 'sem dados' : formatScore(emp.score)}
+                          </span>
                         </div>
                         <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
                           <div
                             className={`h-full rounded-full ${
+                              emp.score == null ? 'bg-zinc-700' :
                               emp.score >= 85 ? 'bg-green-500' :
                               emp.score >= 70 ? 'bg-blue-500' :
                               emp.score >= 50 ? 'bg-yellow-500' :
                               'bg-red-500'
                             }`}
-                            style={{ width: `${emp.score}%` }}
+                            style={{ width: `${emp.score ?? 0}%` }}
                           />
                         </div>
                       </div>
@@ -675,7 +685,9 @@ export default function KPITendenciasPage() {
                     {performanceData.needs_attention.slice(0, 3).map((emp: any) => (
                       <div key={emp.id} className="flex items-center justify-between bg-red-500/5 rounded px-3 py-2">
                         <span className="text-xs text-zinc-300">{emp.name?.split(' ').slice(0, 2).join(' ')}</span>
-                        <span className="text-xs font-bold text-red-400">{emp.score.toFixed(0)} pts</span>
+                        <span className={`text-xs font-bold ${emp.score == null ? 'text-zinc-500' : 'text-red-400'}`}>
+                          {emp.score == null ? 'sem dados' : `${formatScore(emp.score)} pts`}
+                        </span>
                       </div>
                     ))}
                   </div>

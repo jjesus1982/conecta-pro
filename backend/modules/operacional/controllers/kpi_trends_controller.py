@@ -294,7 +294,7 @@ async def get_performance_scores(
                 "excelente": len([e for e in employees if e["score"] is not None and e["score"] >= 85]),
                 "bom": len([e for e in employees if e["score"] is not None and 70 <= e["score"] < 85]),
                 "regular": len([e for e in employees if e["score"] is not None and 50 <= e["score"] < 70]),
-                "critico": len([e for e in employees if e["score"] < 50]),
+                "critico": len([e for e in employees if e["score"] is not None and e["score"] < 50]),
             },
         }
 

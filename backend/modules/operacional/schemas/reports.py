@@ -59,6 +59,8 @@ class CostsReportItem(BaseModel):
     post_name: str
     total_shifts: int
     total_cost: float
+    total_hours_ponto: float | None = None
+    fonte_custo: str | None = None
 
 
 class CostsReportResponse(BaseModel):

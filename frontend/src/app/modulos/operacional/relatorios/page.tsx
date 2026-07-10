@@ -153,12 +153,12 @@ export default function RelatoriosPage() {
       lines.push('');
     }
 
-    // Custos
+    // Custos (REAIS: horas de ponto × salário-base ÷ 220)
     if (costsReport) {
-      lines.push('CUSTOS POR POSTO');
-      lines.push('Posto,Turnos,Custo Total');
+      lines.push('CUSTOS POR POSTO (custo estimado: horas de ponto x salario-base / 220)');
+      lines.push('Posto,Turnos,Horas de Ponto,Custo Total');
       costsReport.items.forEach(item => {
-        lines.push(`"${postMap[item.post_id]?.name || item.post_name}",${item.total_shifts},${item.total_cost.toFixed(2)}`);
+        lines.push(`"${postMap[item.post_id]?.name || item.post_name}",${item.total_shifts},${((item as any).total_hours_ponto ?? 0).toFixed(1)},${item.total_cost.toFixed(2)}`);
       });
     }
 
@@ -418,6 +418,11 @@ export default function RelatoriosPage() {
             <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
               {costsReport ? `${costsReport.total_posts} postos` : 'Sem dados'}
             </p>
+            {costsReport && (
+              <p className="text-[10px] text-[hsl(var(--muted-foreground))] mt-1">
+                custo estimado: horas de ponto × salário-base ÷ 220
+              </p>
+            )}
           </div>
         </div>
 
@@ -696,15 +701,21 @@ export default function RelatoriosPage() {
         </div>
 
         <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
-          <h2 className="text-sm font-semibold text-[hsl(var(--foreground))] mb-3">
+          <h2 className="text-sm font-semibold text-[hsl(var(--foreground))] mb-1">
             Custos estimados por posto
           </h2>
+          {/* Fonte do custo REAL (backend: total_cost = horas de ponto × salário-base ÷ 220).
+              0.0h / R$ 0,00 são honestos: funcionário/posto sem batidas de ponto no período. */}
+          <p className="text-[10px] text-[hsl(var(--muted-foreground))] mb-3">
+            custo estimado: horas de ponto × salário-base ÷ 220 — 0,0h/R$ 0,00 indica ausência de batidas no período
+          </p>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-[hsl(var(--muted-foreground))]">
                   <th className="pb-2">Posto</th>
                   <th className="pb-2">Turnos</th>
+                  <th className="pb-2">Horas (ponto)</th>
                   <th className="pb-2 w-64">Custo</th>
                 </tr>
               </thead>
@@ -713,6 +724,9 @@ export default function RelatoriosPage() {
                   <tr key={item.post_id} className="border-t border-[hsl(var(--border))]">
                     <td className="py-2">{postMap[item.post_id]?.name || item.post_name}</td>
                     <td className="py-2">{item.total_shifts}</td>
+                    <td className="py-2" title={(item as any).fonte_custo || undefined}>
+                      {((item as any).total_hours_ponto ?? 0).toFixed(1)}h
+                    </td>
                     <td className="py-2">
                       <div className="flex items-center gap-2">
                         <div className="flex-1 h-2 bg-[hsl(var(--muted))] rounded-full overflow-hidden">

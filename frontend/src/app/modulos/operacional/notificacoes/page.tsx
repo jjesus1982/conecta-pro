@@ -86,6 +86,27 @@ export default function NotificacoesPage() {
   const [showOnlyUnread, setShowOnlyUnread] = useState(false);
   const [activeTab, setActiveTab] = useState<'notifications' | 'alerts'>('notifications');
 
+  // Contagem do SINO no topo — MESMA fonte do NotificationBell (/api/v1/notifications/push).
+  // Exibida como linha discreta abaixo do contador desta central para explicar as duas
+  // contagens lado a lado. Se o fetch falhar, a linha simplesmente não aparece (null).
+  const [pushUnread, setPushUnread] = useState<number | null>(null);
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_ENABLE_PUSH_NOTIFICATIONS === 'false') return;
+    const headers: Record<string, string> = {};
+    if (typeof window !== 'undefined') {
+      const token = localStorage.getItem('access_token');
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+    }
+    fetch('/api/v1/notifications/push', { headers, credentials: 'include' })
+      .then((resp) => (resp.ok ? resp.json() : null))
+      .then((data) => {
+        if (data) setPushUnread(data.unread_count ?? 0);
+      })
+      .catch(() => {
+        /* falha silenciosa — linha não é exibida */
+      });
+  }, []);
+
   // Redirecionar se nao autenticado
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -203,6 +224,13 @@ export default function NotificacoesPage() {
             </>
           }
         />
+
+        {/* Coerência sino × central: contagem do sino do topo, mesma fonte do NotificationBell */}
+        {pushUnread !== null && (
+          <p className="text-xs text-[hsl(var(--muted-foreground))] mb-6">
+            Notificações push do app: {pushUnread} (a contagem do sino no topo)
+          </p>
+        )}
 
         {/* Alertas Ativos */}
         {alerts.length > 0 && (

@@ -305,14 +305,25 @@ export default function ColaboradorPerfilPage() {
 
   // ===== STATUS BADGE =====
 
+  // Exibição normalizada (primeira letra maiúscula; 'afastado_inss' → 'Afastado (INSS)')
+  // — nunca altera o valor real enviado/filtrado.
+  const formatStatusLabel = (status: string) => {
+    const s = status.toLowerCase();
+    if (s === 'afastado_inss') return 'Afastado (INSS)';
+    return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
+  };
+
   const renderStatusBadge = (status?: string | null) => {
     if (!status) return <Badge variant="outline">-</Badge>;
     const s = status.toLowerCase();
     if (s === 'ativo' || s === 'active') return <Badge className="bg-green-100 text-green-800 border-0">Ativo</Badge>;
     if (s === 'inativo' || s === 'inactive') return <Badge variant="secondary">Inativo</Badge>;
+    if (s === 'afastado_inss') return <Badge className="bg-yellow-100 text-yellow-800 border-0">Afastado (INSS)</Badge>;
     if (s === 'afastado' || s === 'on_leave') return <Badge className="bg-yellow-100 text-yellow-800 border-0">Afastado</Badge>;
     if (s === 'ferias') return <Badge className="bg-blue-100 text-blue-800 border-0">Férias</Badge>;
-    return <Badge variant="outline">{status}</Badge>;
+    if (s === 'demitido') return <Badge className="bg-red-100 text-red-800 border-0">Demitido</Badge>;
+    if (s === 'suspenso') return <Badge className="bg-orange-100 text-orange-800 border-0">Suspenso</Badge>;
+    return <Badge variant="outline">{formatStatusLabel(status)}</Badge>;
   };
 
   // ===== SEVERITY BADGE =====

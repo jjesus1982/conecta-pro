@@ -61,6 +61,14 @@ interface Employee {
   fonte: 'local' | 'solides';
 }
 
+// Normaliza APENAS a exibição do status (primeira letra maiúscula;
+// 'afastado_inss' → 'Afastado (INSS)') — nunca altera o valor enviado/filtrado.
+const formatStatusLabel = (status: string) => {
+  const s = status.toLowerCase();
+  if (s === 'afastado_inss') return 'Afastado (INSS)';
+  return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
+};
+
 export default function ColaboradoresPage() {
   const router = useRouter();
   // Tela de gestão de pessoas: busca TODOS os status (ativos + afastados + inativos...)
@@ -244,7 +252,8 @@ export default function ColaboradoresPage() {
     if (s === 'afastado' || s === 'on_leave') return <Badge className="bg-yellow-100 text-yellow-800">Afastado</Badge>;
     if (s === 'demitido') return <Badge className="bg-red-100 text-red-800">Demitido</Badge>;
     if (s === 'ferias') return <Badge className="bg-blue-100 text-blue-800">Férias</Badge>;
-    return <Badge variant="outline">{status}</Badge>;
+    if (s === 'suspenso') return <Badge className="bg-orange-100 text-orange-800">Suspenso</Badge>;
+    return <Badge variant="outline">{formatStatusLabel(status)}</Badge>;
   };
 
   const formatDate = (dateStr?: string | null) => {

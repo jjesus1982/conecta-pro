@@ -37,6 +37,7 @@ interface PostFilters {
 
 interface PostStats {
   total: number;
+  active: number;
   filled: number;
   with_vacancy: number;
   total_headcount: number;
@@ -72,6 +73,8 @@ export default function PostosPage() {
   const stats: PostStats | null = statsData
     ? {
         total: (statsData as any).total ?? total,
+        // Ativos = by_status.active do backend (ex.: 8 de 12 cadastrados)
+        active: (statsData as any).by_status?.active ?? posts.filter((p: Post) => p.status === 'active').length,
         filled: (statsData as any).filled ?? 0,
         with_vacancy: (statsData as any).with_vacancy ?? 0,
         total_headcount: (statsData as any).total_headcount ?? 0,
@@ -80,6 +83,7 @@ export default function PostosPage() {
     ? {
         // Fallback local só enquanto /posts/stats não responde
         total: total,
+        active: posts.filter((p: Post) => p.status === 'active').length,
         filled: posts.filter((p: Post) => p.status === 'active').length,
         with_vacancy: posts.filter((p: Post) => p.status !== 'active').length,
         total_headcount: posts.reduce((sum: number, p: Post) => sum + (p.required_headcount || 0), 0),
@@ -226,12 +230,18 @@ export default function PostosPage() {
         />
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
           <StatCard
             icon={<MapPin className="w-4 h-4" />}
             color="#06b6d4"
-            label="Total de Postos"
+            label="Postos cadastrados"
             value={stats?.total || 0}
+          />
+          <StatCard
+            icon={<CheckCircle className="w-4 h-4" />}
+            color="#10b981"
+            label="Ativos"
+            value={stats?.active || 0}
           />
           <StatCard
             icon={<CheckCircle className="w-4 h-4" />}
