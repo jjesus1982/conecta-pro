@@ -32,6 +32,9 @@ const statusConfig: Record<string, { label: string; className: string }> = {
   pending: { label: 'Pendente', className: 'bg-yellow-500 text-white' },
   processing: { label: 'Processando', className: 'bg-blue-500 text-white' },
   error: { label: 'Erro', className: 'bg-red-500 text-white' },
+  published: { label: 'Calculada', className: 'bg-green-500 text-white' },
+  paid: { label: 'Pago', className: 'bg-emerald-600 text-white' },
+  sem_folha: { label: 'Sem folha', className: 'bg-slate-400 text-white' },
 };
 
 const PAGE_SIZE = 12;
@@ -58,7 +61,18 @@ export default function FolhaPage() {
   const [pixModalOpen, setPixModalOpen] = useState(false);
   const [pixLoading, setPixLoading] = useState(false);
   const [pixConfirming, setPixConfirming] = useState(false);
-  const [pixSimulacao, setPixSimulacao] = useState<{ total_funcionarios: number; total_valor: number; prontos_para_pagar: number; sem_chave_pix: string[] } | null>(null);
+  const [pixSimulacao, setPixSimulacao] = useState<{
+    total_funcionarios: number;
+    total_valor: number;
+    prontos_para_pagar: number;
+    sem_chave_pix: string[];
+    excluidos?: { nome: string; valor_liquido: number; motivo: string }[];
+    total_excluidos_qtd?: number;
+    total_excluidos_valor?: number;
+    total_folha_qtd?: number;
+    total_folha_valor?: number;
+    reconcilia?: boolean;
+  } | null>(null);
 
   const [mes, ano] = useMemo(() => {
     const [y, m] = periodo.split('-');
@@ -75,13 +89,19 @@ export default function FolhaPage() {
           fetch(`${API_BASE}/folha/resumo/${mes}/${ano}`, { headers: getAuthHeaders() }).catch(() => null),
         ]);
 
+        // A tabela de "Detalhamento por Colaborador" DEVE ler os holerites reais
+        // (dashboard/resumo.funcionarios trazem inss_value/fgts_value/total_descontos/
+        // salario_liquido por pessoa). Só cai no fallback /hr/employees (cadastro, SEM
+        // valores de folha) quando NÃO existe folha para o período — nunca sobrescrevendo
+        // os holerites reais por 50 linhas zeradas (bug da reconciliação cabeçalho×tabela).
+        let payrollEmployees: any[] = [];
+
         if (dashRes?.ok) {
           const d = await dashRes.json();
           setDashboard(d);
-          // Extract employees from dashboard if available
           const emps = d.funcionarios || d.employees || d.items || [];
           if (Array.isArray(emps) && emps.length > 0) {
-            setEmployees(emps);
+            payrollEmployees = emps;
           }
         }
 
@@ -93,20 +113,26 @@ export default function FolhaPage() {
         if (resumoRes?.ok) {
           const s = await resumoRes.json();
           setResumo(s);
-          // If employees came from resumo
+          // Resumo é a fonte canônica dos cards; usa suas linhas se o dashboard não trouxe.
           const resumoEmps = s.funcionarios || s.employees || s.detalhes || s.items || [];
-          if (Array.isArray(resumoEmps) && resumoEmps.length > 0) {
-            setEmployees(resumoEmps);
+          if (payrollEmployees.length === 0 && Array.isArray(resumoEmps) && resumoEmps.length > 0) {
+            payrollEmployees = resumoEmps;
           }
         }
 
-        // If no employees yet, try employees endpoint as fallback
-        if (employees.length === 0) {
+        if (payrollEmployees.length > 0) {
+          // Folha real do período → tabela reconcilia com os cards.
+          setEmployees(payrollEmployees);
+        } else {
+          // Sem folha no período: fallback ao cadastro (SEM valores de folha).
+          // Marcado com _sem_folha para a tabela rotular honestamente ("aguardando folha").
           const empRes = await fetch(`${API_BASE}/hr/employees?page_size=100`, { headers: getAuthHeaders() }).catch(() => null);
           if (empRes?.ok) {
             const empData = await empRes.json();
-            const emps = empData.items || empData || [];
-            setEmployees(emps);
+            const emps = (empData.items || empData || []).map((e: any) => ({ ...e, _sem_folha: true }));
+            setEmployees(Array.isArray(emps) ? emps : []);
+          } else {
+            setEmployees([]);
           }
         }
       } catch {
@@ -215,11 +241,29 @@ export default function FolhaPage() {
     return items;
   }, [employees, searchTerm, sortField, sortDir]);
 
-  // Mostrar botão PIX apenas quando há holerites published
-  const hasPublishedPayslips = employees.some(e =>
+  // Fonte da folha (dashboard/resumo): distingue REAL importada × ESTIMATIVA da engine.
+  // portte_contabil / dominio_sistemas / importada = REAL (hr_payslips);
+  // folha_propria_cct_a_conciliar = ESTIMATIVA (motor CCT interno).
+  const fonteFolha: string = resumo?.fonte || dashboard?.fonte || '';
+  const fonteInfo = useMemo(() => {
+    const f = (fonteFolha || '').toLowerCase();
+    if (!f) return null;
+    if (f.includes('portte')) return { real: true, label: 'REAL · Portte Contábil', className: 'bg-green-600 text-white' };
+    if (f.includes('dominio')) return { real: true, label: 'REAL · Domínio Sistemas', className: 'bg-green-600 text-white' };
+    if (f === 'importada') return { real: true, label: 'REAL · Folha importada', className: 'bg-green-600 text-white' };
+    if (f.includes('propria') || f.includes('cct') || f.includes('estimativa'))
+      return { real: false, label: 'ESTIMATIVA · Motor CCT (a conciliar)', className: 'bg-amber-500 text-white' };
+    return { real: true, label: `Fonte: ${fonteFolha}`, className: 'bg-slate-600 text-white' };
+  }, [fonteFolha]);
+
+  // Mostrar botão PIX apenas quando há holerites REAIS published (não estimativa).
+  const hasPublishedPayslips = (fonteInfo?.real ?? false) && employees.some(e =>
     e.payslip_status === 'published' ||
+    e.status === 'published' ||
     e.status_folha === 'calculada' ||
-    e.payroll_status === 'calculated'
+    e.payroll_status === 'calculated' ||
+    e.net_salary != null ||
+    e.salario_liquido != null
   );
 
   const totalPages = Math.max(1, Math.ceil(filteredData.length / PAGE_SIZE));
@@ -310,6 +354,19 @@ export default function FolhaPage() {
         </div>
       ) : (
         <>
+          {/* Badge de fonte: REAL (Portte/hr_payslips) × ESTIMATIVA (motor CCT) */}
+          {fonteInfo && (
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground">Fonte da folha:</span>
+              <Badge className={fonteInfo.className}>{fonteInfo.label}</Badge>
+              {!fonteInfo.real && (
+                <span className="text-xs text-amber-600">
+                  Valores calculados pela engine — ainda não conciliados com a contabilidade.
+                </span>
+              )}
+            </div>
+          )}
+
           {/* Summary Cards */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             {summaryCards.map((card) => (
@@ -391,7 +448,10 @@ export default function FolhaPage() {
                         const fgtsVal = item.fgts_value ?? item.fgts_8_pct ?? item.fgts ?? 0;
                         const descVal = item.total_descontos || 0;
                         const liqVal = item.salario_liquido || item.net_salary || (salBase - descVal);
-                        const status = item.status_folha || item.payroll_status || (item.salario_liquido ? 'calculada' : 'pendente');
+                        // Linha de fallback (cadastro, sem folha do período) → rótulo honesto.
+                        const status = item._sem_folha
+                          ? 'sem_folha'
+                          : (item.status_folha || item.payroll_status || item.status || (liqVal ? 'calculada' : 'pendente'));
                         const st = statusConfig[status] || { label: status || 'N/A', className: 'bg-gray-500 text-white' };
                         return (
                           <TableRow key={item.id || i}>
@@ -441,7 +501,7 @@ export default function FolhaPage() {
       {/* Modal PIX Lote */}
       {pixModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-background rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
+          <div className="bg-background rounded-xl shadow-xl w-full max-w-lg mx-4 p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold flex items-center gap-2">
                 <Banknote className="h-5 w-5 text-blue-600" />
@@ -479,17 +539,44 @@ export default function FolhaPage() {
                   </div>
                 </div>
 
-                {pixSimulacao.sem_chave_pix && pixSimulacao.sem_chave_pix.length > 0 && (
-                  <div className="flex items-start gap-2 bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 rounded-lg p-3 mb-4">
-                    <AlertTriangle className="h-4 w-4 text-yellow-600 mt-0.5 flex-shrink-0" />
-                    <p className="text-xs text-yellow-700 dark:text-yellow-400">
-                      {pixSimulacao.sem_chave_pix.length} funcionário(s) sem chave PIX serão ignorados.
-                    </p>
+                {/* Excluídos do lote — NUNCA silencioso: lista nome, valor e motivo */}
+                {pixSimulacao.excluidos && pixSimulacao.excluidos.length > 0 && (
+                  <div className="bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 rounded-lg p-3 mb-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <AlertTriangle className="h-4 w-4 text-yellow-600 flex-shrink-0" />
+                      <p className="text-sm font-medium text-yellow-700 dark:text-yellow-400">
+                        {pixSimulacao.excluidos.length} fora do lote — {fmt(pixSimulacao.total_excluidos_valor || 0)}
+                      </p>
+                    </div>
+                    <ul className="space-y-1 max-h-40 overflow-y-auto">
+                      {pixSimulacao.excluidos.map((e, i) => (
+                        <li key={i} className="flex items-center justify-between text-xs gap-2 border-b border-yellow-200/50 dark:border-yellow-900/30 pb-1 last:border-0">
+                          <span className="truncate flex-1">{e.nome}</span>
+                          <span className="tabular-nums text-muted-foreground">{fmt(e.valor_liquido)}</span>
+                          <Badge variant="outline" className="text-[10px] whitespace-nowrap">{e.motivo}</Badge>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Reconciliação: lote + excluídos = folha integral do período */}
+                {typeof pixSimulacao.total_folha_valor === 'number' && (
+                  <div className={`rounded-lg p-3 mb-4 text-xs border ${pixSimulacao.reconcilia === false ? 'bg-red-50 border-red-200 text-red-700' : 'bg-slate-50 dark:bg-slate-900/30 border-slate-200'}`}>
+                    <div className="flex justify-between"><span>Lote PIX ({pixSimulacao.prontos_para_pagar})</span><span className="tabular-nums font-medium">{fmt(pixSimulacao.total_valor)}</span></div>
+                    <div className="flex justify-between"><span>Excluídos ({pixSimulacao.total_excluidos_qtd ?? 0})</span><span className="tabular-nums font-medium">{fmt(pixSimulacao.total_excluidos_valor || 0)}</span></div>
+                    <div className="flex justify-between border-t border-slate-300 dark:border-slate-700 mt-1 pt-1 font-semibold">
+                      <span>Folha do período ({pixSimulacao.total_folha_qtd ?? 0})</span>
+                      <span className="tabular-nums">{fmt(pixSimulacao.total_folha_valor)}</span>
+                    </div>
+                    {pixSimulacao.reconcilia === false && (
+                      <p className="mt-1 font-medium">Atenção: lote + excluídos não fecha com a folha.</p>
+                    )}
                   </div>
                 )}
 
                 <p className="text-xs text-muted-foreground mb-4">
-                  Ao confirmar, os pagamentos PIX serão agendados para todos os funcionários com holerite publicado e chave PIX cadastrada.
+                  Ao confirmar, os pagamentos PIX serão registrados como pendente_pagamento (aguardando aprovação manual) para os funcionários ativos, com holerite publicado, chave PIX e líquido maior que zero.
                 </p>
 
                 <div className="flex gap-2">

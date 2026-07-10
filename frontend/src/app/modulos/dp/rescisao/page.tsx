@@ -86,14 +86,24 @@ interface CalculationResult {
   termination_type: string;
   last_working_day: string | null;
   months_worked: number;
+  avos_decimo_terceiro?: number;
+  avos_ferias_proporcionais?: number;
   saldo_salario: number;
   aviso_previo_indenizado: number;
+  aviso_previo_dias?: number;
   ferias_vencidas: number;
+  terco_ferias_vencidas?: number;
   ferias_proporcionais: number;
+  terco_ferias_proporcionais?: number;
   terco_constitucional: number;
   decimo_terceiro_proporcional: number;
   multa_fgts_40: number;
+  saldo_fgts_estimado?: number;
+  fgts_estimado?: boolean;
   total_proventos: number;
+  soma_verbas_proventos?: number;
+  total_indenizatorio_fgts?: number;
+  total_bruto?: number;
   total_descontos: number;
   total_liquido: number;
   inss?: number;
@@ -726,13 +736,15 @@ export default function RescisaoPage() {
               {calcResult && (
                 <div>
                   <p className="text-sm font-medium mb-2">Cálculo Rescisório Detalhado</p>
+
+                  {/* Proventos — cada linha SOMA no Total Proventos */}
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div className="flex justify-between bg-green-50 dark:bg-green-950/30 p-2 rounded">
                       <span>Saldo de Salário</span>
                       <span className="font-medium">{formatCurrency(calcResult.saldo_salario)}</span>
                     </div>
                     <div className="flex justify-between bg-green-50 dark:bg-green-950/30 p-2 rounded">
-                      <span>Aviso Prévio Ind.</span>
+                      <span>Aviso Prévio Ind.{calcResult.aviso_previo_dias ? ` (${calcResult.aviso_previo_dias} dias)` : ''}</span>
                       <span className="font-medium">{formatCurrency(calcResult.aviso_previo_indenizado)}</span>
                     </div>
                     <div className="flex justify-between bg-green-50 dark:bg-green-950/30 p-2 rounded">
@@ -740,38 +752,63 @@ export default function RescisaoPage() {
                       <span className="font-medium">{formatCurrency(calcResult.ferias_vencidas)}</span>
                     </div>
                     <div className="flex justify-between bg-green-50 dark:bg-green-950/30 p-2 rounded">
-                      <span>Férias Proporcionais</span>
+                      <span>+ 1/3 Férias Vencidas</span>
+                      <span className="font-medium">{formatCurrency(calcResult.terco_ferias_vencidas ?? 0)}</span>
+                    </div>
+                    <div className="flex justify-between bg-green-50 dark:bg-green-950/30 p-2 rounded">
+                      <span>Férias Prop.{calcResult.avos_ferias_proporcionais != null ? ` (${calcResult.avos_ferias_proporcionais}/12)` : ''}</span>
                       <span className="font-medium">{formatCurrency(calcResult.ferias_proporcionais)}</span>
                     </div>
                     <div className="flex justify-between bg-green-50 dark:bg-green-950/30 p-2 rounded">
-                      <span>1/3 Constitucional</span>
-                      <span className="font-medium">{formatCurrency(calcResult.terco_constitucional)}</span>
+                      <span>+ 1/3 Férias Prop.</span>
+                      <span className="font-medium">{formatCurrency(calcResult.terco_ferias_proporcionais ?? 0)}</span>
                     </div>
                     <div className="flex justify-between bg-green-50 dark:bg-green-950/30 p-2 rounded">
-                      <span>13º Proporcional</span>
+                      <span>13º Prop.{calcResult.avos_decimo_terceiro != null ? ` (${calcResult.avos_decimo_terceiro}/12)` : ''}</span>
                       <span className="font-medium">{formatCurrency(calcResult.decimo_terceiro_proporcional)}</span>
                     </div>
-                    <div className="flex justify-between bg-green-50 dark:bg-green-950/30 p-2 rounded">
-                      <span>Multa FGTS 40%</span>
-                      <span className="font-medium">{formatCurrency(calcResult.multa_fgts_40)}</span>
-                    </div>
-                    <div className="flex justify-between bg-green-50 dark:bg-green-950/30 p-2 rounded">
-                      <span>Meses Trabalhados</span>
+                    <div className="flex justify-between bg-muted/40 p-2 rounded">
+                      <span className="text-muted-foreground">Meses trabalhados (ref.)</span>
                       <span className="font-medium">{calcResult.months_worked}</span>
                     </div>
-                    <div className="col-span-2 border-t pt-2 mt-1 space-y-1">
-                      <div className="flex justify-between">
-                        <span>Total Proventos</span>
-                        <span className="font-medium text-green-600">{formatCurrency(calcResult.total_proventos)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Total Descontos</span>
-                        <span className="font-medium text-red-600">- {formatCurrency(calcResult.total_descontos)}</span>
-                      </div>
-                      <div className="flex justify-between font-semibold text-base pt-1 border-t">
-                        <span>Total Líquido</span>
-                        <span className="text-primary">{formatCurrency(calcResult.total_liquido)}</span>
-                      </div>
+                    <div className="col-span-2 flex justify-between bg-green-100 dark:bg-green-900/40 p-2 rounded font-semibold">
+                      <span>Total Proventos</span>
+                      <span className="text-green-700 dark:text-green-400">{formatCurrency(calcResult.total_proventos)}</span>
+                    </div>
+                  </div>
+
+                  {/* Parcela indenizatória do FGTS — FORA dos proventos, sem INSS/IRRF */}
+                  <div className="grid grid-cols-2 gap-2 text-sm mt-3">
+                    <div className="col-span-2 flex justify-between bg-blue-50 dark:bg-blue-950/30 p-2 rounded">
+                      <span>
+                        Multa FGTS 40% (indenizatória)
+                        {calcResult.fgts_estimado ? (
+                          <span className="block text-[11px] text-amber-600 dark:text-amber-400">
+                            ⚠ estimada sobre saldo FGTS de {formatCurrency(calcResult.saldo_fgts_estimado ?? 0)} — confirmar extrato real
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="font-medium">{formatCurrency(calcResult.multa_fgts_40)}</span>
+                    </div>
+                  </div>
+
+                  {/* Totais que fecham */}
+                  <div className="grid grid-cols-1 gap-1 text-sm mt-3 border-t pt-2">
+                    <div className="flex justify-between">
+                      <span>Total Proventos</span>
+                      <span className="font-medium text-green-600">{formatCurrency(calcResult.total_proventos)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Total Descontos (INSS + IRRF)</span>
+                      <span className="font-medium text-red-600">- {formatCurrency(calcResult.total_descontos)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>+ Multa FGTS (indenizatória)</span>
+                      <span className="font-medium text-blue-600">{formatCurrency(calcResult.multa_fgts_40)}</span>
+                    </div>
+                    <div className="flex justify-between font-semibold text-base pt-1 border-t">
+                      <span>Total Líquido a Receber</span>
+                      <span className="text-primary">{formatCurrency(calcResult.total_liquido)}</span>
                     </div>
                   </div>
                 </div>

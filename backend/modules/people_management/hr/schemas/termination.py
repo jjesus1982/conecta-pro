@@ -56,19 +56,34 @@ class TerminationCalculation(BaseModel):
     termination_type: str
     last_working_day: date | None = None
     months_worked: int = 0
+    # Avos por verba — bases DISTINTAS (13º = ano civil; férias = período aquisitivo).
+    avos_decimo_terceiro: int = 0
+    avos_ferias_proporcionais: int = 0
 
-    # Verbas rescisórias
+    # Verbas rescisórias (proventos)
     saldo_salario: float = 0.0
     aviso_previo_indenizado: float = 0.0
+    aviso_previo_dias: int = 0
     ferias_vencidas: float = 0.0
+    terco_ferias_vencidas: float = 0.0
     ferias_proporcionais: float = 0.0
+    terco_ferias_proporcionais: float = 0.0
     terco_constitucional: float = 0.0
     decimo_terceiro_proporcional: float = 0.0
     fgts_mes_rescisao: float = 0.0
-    multa_fgts_40: float = 0.0
 
-    # Totais
+    # Parcela indenizatória do FGTS (fora dos proventos, sem INSS/IRRF)
+    multa_fgts_40: float = 0.0
+    saldo_fgts_estimado: float = 0.0
+    fgts_estimado: bool = False
+
+    # Totais — total_proventos reconcilia com a soma das verbas de provento
     total_proventos: float = 0.0
+    soma_verbas_proventos: float = 0.0
+    total_indenizatorio_fgts: float = 0.0
+    total_bruto: float = 0.0
+    inss: float = 0.0
+    irrf: float = 0.0
     total_descontos: float = 0.0
     total_liquido: float = 0.0
 

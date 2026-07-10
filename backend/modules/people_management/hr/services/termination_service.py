@@ -190,12 +190,35 @@ class TerminationService:
             dias_trabalhados_mes=dias_trabalhados_mes,
         )
 
+        # months_worked exibido = maior avo entre 13º e férias (evita mostrar um
+        # número que contradiz as verbas pagas). A contagem própria acima
+        # (regra dos 15 dias no mês de admissão/demissão) fica como referência
+        # de tempo total de casa em months_worked_calendario.
+        avos_13 = int(calc["avos_13"])
+        avos_ferias = int(calc["avos_ferias"])
+
+        # Reconciliação: total_proventos DEVE bater com a soma das linhas.
+        terco_total = calc["terco_ferias_vencidas"] + calc["terco_ferias_proporcionais"]
+        soma_verbas = (
+            calc["saldo_salario"]
+            + calc["aviso_previo_indenizado"]
+            + calc["ferias_vencidas"]
+            + calc["ferias_proporcionais"]
+            + terco_total
+            + calc["decimo_terceiro_proporcional"]
+        )
+
         return {
             "employee_id": str(employee_id),
             "employee_name": employee.nome,
             "termination_type": termination_type,
             "last_working_day": last_working_day,
-            "months_worked": months_worked,
+            # Avos exibido: usa o maior entre 13º e férias como "meses trabalhados"
+            # de referência; os avos exatos por verba vão em campos próprios.
+            "months_worked": max(avos_13, avos_ferias, months_worked),
+            "months_worked_calendario": months_worked,
+            "avos_decimo_terceiro": avos_13,
+            "avos_ferias_proporcionais": avos_ferias,
             "salario_base": float(salario_base),
             "adicional_insalubridade": float(adic_insalubridade),
             "adicional_periculosidade": float(adic_periculosidade),
@@ -205,11 +228,20 @@ class TerminationService:
             "aviso_previo_indenizado": float(calc["aviso_previo_indenizado"]),
             "aviso_previo_dias": calc["aviso_previo_dias"],
             "ferias_vencidas": float(calc["ferias_vencidas"]),
+            "terco_ferias_vencidas": float(calc["terco_ferias_vencidas"]),
             "ferias_proporcionais": float(calc["ferias_proporcionais"]),
-            "terco_constitucional": float(calc["terco_ferias_vencidas"] + calc["terco_ferias_proporcionais"]),
+            "terco_ferias_proporcionais": float(calc["terco_ferias_proporcionais"]),
+            "terco_constitucional": float(terco_total),
             "decimo_terceiro_proporcional": float(calc["decimo_terceiro_proporcional"]),
+            # Multa FGTS é INDENIZATÓRIA — fora do total de proventos, sem INSS/IRRF.
             "multa_fgts_40": float(calc["multa_fgts"]),
-            "total_proventos": float(calc["total_bruto"]),
+            "saldo_fgts_estimado": float(saldo_fgts),
+            "fgts_estimado": True,
+            # total_proventos = soma EXATA das verbas de provento (sem multa FGTS).
+            "total_proventos": float(calc["total_proventos"]),
+            "soma_verbas_proventos": float(soma_verbas),
+            "total_indenizatorio_fgts": float(calc["multa_fgts"]),
+            "total_bruto": float(calc["total_bruto"]),
             "inss": float(calc["inss"]),
             "irrf": float(calc["irrf"]),
             "total_descontos": float(calc["total_descontos"]),

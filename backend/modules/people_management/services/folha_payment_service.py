@@ -53,11 +53,25 @@ def preparar_lote_folha(mes: int, ano: int) -> dict:
     """
     Prepara lote de pagamentos para todos os funcionários
     com holerite publicado no período.
-    Retorna: lista com PIX key, nome e valor líquido.
+
+    TRANSPARÊNCIA (nunca exclusão silenciosa): lê TODOS os holerites do período,
+    classifica em PAGÁVEIS (status ativo + chave PIX + líquido > 0) e EXCLUÍDOS,
+    e para cada excluído registra o MOTIVO (afastado/demitido/suspenso, sem chave
+    PIX, líquido zero). O total do lote + o total dos excluídos reconcilia com o
+    total integral da folha do período.
+
+    Retorna:
+      funcionarios       — pagáveis (compat. legado: lista com PIX/nome/líquido)
+      excluidos          — [{nome, cpf, valor_liquido, motivo, status, tem_pix}]
+      total_valor        — soma dos pagáveis
+      total_excluidos    — soma dos excluídos
+      total_folha        — soma integral do período (lote + excluídos)
     """
     conn = _get_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
+        # Lê TODOS os holerites do período (sem filtrar por status na query),
+        # para poder mostrar e explicar cada exclusão.
         cur.execute(
             """
             SELECT
@@ -66,6 +80,7 @@ def preparar_lote_folha(mes: int, ano: int) -> dict:
                 e.cpf,
                 e.pix_key,
                 e.pix_key_type,
+                e.status    AS employee_status,
                 p.id::text  AS payslip_id,
                 p.net_salary AS valor_liquido,
                 p.status    AS payslip_status
@@ -73,24 +88,75 @@ def preparar_lote_folha(mes: int, ano: int) -> dict:
             JOIN employees e ON e.id = p.employee_id
             WHERE p.reference_month = %s
               AND p.reference_year  = %s
-              AND e.status = 'ativo'
             ORDER BY e.nome
             """,
             (mes, ano),
         )
-        rows = [dict(r) for r in cur.fetchall()]
+        todos = [dict(r) for r in cur.fetchall()]
 
-        total = sum(float(f["valor_liquido"] or 0) for f in rows)
-        sem_pix = [f["nome"] for f in rows if not f.get("pix_key")]
+        pagaveis: list[dict] = []
+        excluidos: list[dict] = []
+
+        for f in todos:
+            liquido = float(f.get("valor_liquido") or 0)
+            status_emp = (f.get("employee_status") or "").strip().lower()
+            tem_pix = bool(f.get("pix_key"))
+
+            motivos: list[str] = []
+            if status_emp and status_emp != "ativo":
+                # afastado_inss, demitido, suspenso, etc. → rótulo legível
+                rotulo = {
+                    "afastado_inss": "Afastado (INSS)",
+                    "demitido": "Demitido",
+                    "suspenso": "Suspenso",
+                    "ferias": "Em férias",
+                    "afastado": "Afastado",
+                }.get(status_emp, f"Status: {status_emp}")
+                motivos.append(rotulo)
+            if not tem_pix:
+                motivos.append("Sem chave PIX cadastrada")
+            if liquido <= 0:
+                motivos.append("Líquido zero")
+
+            if motivos:
+                excluidos.append(
+                    {
+                        "employee_id": f["employee_id"],
+                        "nome": f["nome"],
+                        "cpf": f.get("cpf"),
+                        "valor_liquido": round(liquido, 2),
+                        "employee_status": status_emp,
+                        "tem_pix": tem_pix,
+                        "motivo": " · ".join(motivos),
+                        "motivos": motivos,
+                    }
+                )
+            else:
+                pagaveis.append(f)
+
+        total_lote = sum(float(f["valor_liquido"] or 0) for f in pagaveis)
+        total_excluidos = sum(e["valor_liquido"] for e in excluidos)
+        total_folha = round(total_lote + total_excluidos, 2)
+
+        # Compat legado: sem_chave_pix (lista de nomes) permanece disponível.
+        sem_pix = [e["nome"] for e in excluidos if not e["tem_pix"]]
 
         return {
             "mes": mes,
             "ano": ano,
-            "total_funcionarios": len(rows),
-            "total_valor": round(total, 2),
+            "total_funcionarios": len(pagaveis),
+            "total_valor": round(total_lote, 2),
             "sem_chave_pix": sem_pix,
-            "prontos_para_pagar": len(rows) - len(sem_pix),
-            "funcionarios": rows,
+            "prontos_para_pagar": len(pagaveis),
+            "funcionarios": pagaveis,
+            # ── Transparência: quem NÃO entra no lote e por quê ──
+            "excluidos": excluidos,
+            "total_excluidos_qtd": len(excluidos),
+            "total_excluidos_valor": round(total_excluidos, 2),
+            # ── Reconciliação: lote + excluídos = folha integral do período ──
+            "total_folha_qtd": len(todos),
+            "total_folha_valor": total_folha,
+            "reconcilia": abs((round(total_lote, 2) + round(total_excluidos, 2)) - total_folha) < 0.01,
         }
     finally:
         cur.close()

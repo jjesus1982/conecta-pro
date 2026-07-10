@@ -275,6 +275,62 @@ def calcular_13_proporcional(salario_base: Decimal, meses_trabalhados: int) -> D
     return (salario_base * meses / 12).quantize(_TWO, ROUND_HALF_UP)
 
 
+def _avos_ano_civil(data_demissao: date) -> int:
+    """Avos do 13º proporcional: meses do ANO CIVIL da demissão (jan→demissão).
+
+    Regra CLT/Súmula 461 TST: cada mês com fração >= 15 dias trabalhados conta 1 avo.
+    A base do 13º é sempre o ano civil (jan a dez), independente da data de admissão.
+    O mês da demissão só conta se o último dia de trabalho for >= dia 15.
+
+    Args:
+        data_demissao: Último dia de trabalho.
+
+    Returns:
+        Número de avos (0..12).
+    """
+    avos = data_demissao.month - 1  # meses cheios de janeiro até o mês anterior
+    if data_demissao.day >= 15:
+        avos += 1
+    return max(0, min(avos, 12))
+
+
+def _avos_periodo_aquisitivo(data_admissao: date, data_demissao: date) -> int:
+    """Avos das férias proporcionais: meses do PERÍODO AQUISITIVO em curso.
+
+    O período aquisitivo é o ciclo de 12 meses contado a partir do último
+    aniversário de admissão. Cada mês com fração >= 15 dias conta 1 avo
+    (art. 146 §único CLT / Súmula 171 TST).
+
+    Args:
+        data_admissao: Data de admissão.
+        data_demissao: Último dia de trabalho.
+
+    Returns:
+        Número de avos (0..12).
+    """
+    # Meses completos de calendário desde a admissão até a demissão.
+    meses = (data_demissao.year - data_admissao.year) * 12 + (
+        data_demissao.month - data_admissao.month
+    )
+    # Ajuste pelo dia: se ainda não completou o dia do aniversário no mês da
+    # demissão, o mês corrente não fechou — mas conta como avo se >= 15 dias
+    # decorridos desde o aniversário do mês.
+    if data_demissao.day < data_admissao.day:
+        meses -= 1
+        dias_no_mes_corrente = data_demissao.day + (30 - data_admissao.day)
+    else:
+        dias_no_mes_corrente = data_demissao.day - data_admissao.day
+    if dias_no_mes_corrente >= 15:
+        meses += 1
+    # Reduz ao período aquisitivo em curso (0..12).
+    resto = meses % 12
+    # Se completou exatamente múltiplo de 12 e há fração, resto=0 mas há período novo.
+    if resto == 0 and meses > 0 and dias_no_mes_corrente > 0 and meses % 12 == 0:
+        # período aquisitivo recém-iniciado sem avos completos além do fechado
+        resto = 0
+    return max(0, min(resto, 12))
+
+
 def calcular_aviso_previo_dias(anos_servico: int) -> int:
     """Aviso prévio proporcional ao tempo de serviço.
 
@@ -377,13 +433,19 @@ def calcular_rescisao(
     Returns:
         Dict com detalhamento completo da rescisão.
     """
-    # Tempo de serviço
+    # Tempo de serviço (anos completos, para o aviso prévio proporcional).
     delta = data_demissao - data_admissao
     anos_servico = delta.days // 365
-    meses_ano = (data_demissao.month - data_admissao.month) % 12
-    if data_demissao.day >= 15:
-        meses_ano += 1
-    meses_ano = min(meses_ano, 12)
+
+    # ------------------------------------------------------------------
+    # AVOS — bases DISTINTAS por verba (não usar um único "meses_ano"):
+    #  • 13º proporcional  → avos do ANO CIVIL (jan→demissão), Súmula 461 TST.
+    #  • Férias proporc.   → avos do PERÍODO AQUISITIVO em curso (desde o
+    #    último aniversário de admissão), art. 146 CLT / Súmula 171 TST.
+    # É por isso que 13º e férias proporcionais podem (e costumam) diferir.
+    # ------------------------------------------------------------------
+    avos_13 = _avos_ano_civil(data_demissao)
+    avos_ferias = _avos_periodo_aquisitivo(data_admissao, data_demissao)
 
     valor_dia = salario_base / 30
 
@@ -403,23 +465,31 @@ def calcular_rescisao(
     ferias_venc = (valor_dia * ferias_vencidas_dias).quantize(_TWO, ROUND_HALF_UP)
     terco_venc = (ferias_venc / 3).quantize(_TWO, ROUND_HALF_UP)
 
-    # Férias proporcionais + 1/3 (não paga em justa causa)
+    # Férias proporcionais + 1/3 (não paga em justa causa) — base = avos do
+    # período aquisitivo.
     ferias_prop = Decimal("0")
     terco_prop = Decimal("0")
     if tipo_rescisao not in ("just_cause", "justa_causa"):
-        ferias_prop = (salario_base * meses_ano / 12).quantize(_TWO, ROUND_HALF_UP)
+        ferias_prop = (salario_base * avos_ferias / 12).quantize(_TWO, ROUND_HALF_UP)
         terco_prop = (ferias_prop / 3).quantize(_TWO, ROUND_HALF_UP)
 
-    # 13o proporcional (não paga em justa causa)
+    # 13o proporcional (não paga em justa causa) — base = avos do ano civil.
     decimo_terceiro = Decimal("0")
     if tipo_rescisao not in ("just_cause", "justa_causa"):
-        decimo_terceiro = calcular_13_proporcional(salario_base, meses_ano)
+        decimo_terceiro = calcular_13_proporcional(salario_base, avos_13)
 
-    # Multa FGTS
+    # Multa FGTS — NÃO é provento/remuneração: é indenização depositada na
+    # conta vinculada do FGTS. Fica FORA do "total de proventos" e não sofre
+    # INSS/IRRF. É totalizada em separado (total_indenizatorio_fgts).
     multa_fgts = calcular_multa_fgts(saldo_fgts, tipo_rescisao)
 
-    # Total bruto
-    total_bruto = (
+    # -------------------------------------------------------------------
+    # TOTAL DE PROVENTOS = soma EXATA das verbas de provento listadas.
+    # (saldo + aviso + férias venc + 1/3 venc + férias prop + 1/3 prop + 13º)
+    # A multa FGTS NÃO entra aqui — por isso o antigo total_bruto (que a
+    # incluía) não reconciliava com as linhas exibidas na tela.
+    # -------------------------------------------------------------------
+    total_proventos = (
         saldo_sal
         + aviso_indenizado
         + ferias_venc
@@ -427,8 +497,11 @@ def calcular_rescisao(
         + ferias_prop
         + terco_prop
         + decimo_terceiro
-        + multa_fgts
     )
+
+    # Total bruto (proventos + parcela indenizatória do FGTS), mantido por
+    # compatibilidade com chamadores que somavam tudo.
+    total_bruto = total_proventos + multa_fgts
 
     # Descontos (INSS + IRRF sobre saldo salário + 13o)
     base_inss = saldo_sal + decimo_terceiro
@@ -437,7 +510,9 @@ def calcular_rescisao(
     irrf = calcular_irrf(base_irrf)
     total_descontos = inss + irrf
 
-    total_liquido = total_bruto - total_descontos
+    # Líquido a receber pelo trabalhador = proventos - descontos + multa FGTS.
+    # A multa é indenizatória e não sofre descontos, então entra "cheia".
+    total_liquido = total_proventos - total_descontos + multa_fgts
 
     return {
         "saldo_salario": saldo_sal,
@@ -448,7 +523,11 @@ def calcular_rescisao(
         "ferias_proporcionais": ferias_prop,
         "terco_ferias_proporcionais": terco_prop,
         "decimo_terceiro_proporcional": decimo_terceiro,
+        "avos_13": avos_13,
+        "avos_ferias": avos_ferias,
         "multa_fgts": multa_fgts,
+        "total_proventos": total_proventos,
+        "total_indenizatorio_fgts": multa_fgts,
         "total_bruto": total_bruto,
         "inss": inss,
         "irrf": irrf,
