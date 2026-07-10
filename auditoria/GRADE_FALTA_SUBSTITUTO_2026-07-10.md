@@ -112,3 +112,18 @@ Cobertura provada 11-31/07: ímpares Matheus 05h + Erika 06h + Andrea/Adailson 1
 pares Bianca+Francisco(→Euler 24/07) 06h + Anilson/Jonathan 18h. Férias do Francisco
 (23/07-21/08) respeitadas, Euler emenda certinho. FLAG: **Jonathan Mendes ZERO batidas 90d**
 (cobre a Elen — mesma situação do Euler: sem badge Sólides).
+
+---
+## Raio-x em lote: Ideal, Villa Dei Fiori, V. Pássaros, Michelangelo, Gelain (2026-07-10)
+27 pessoas comparadas (sistema × batidas 90d): 19 OK, 8 corrigidas, 2 flags.
+- Padrão confirmado: diurnos 12x36 entram ~05:00 (04:52-05:01) também nesses postos:
+  Ideal Walcicley+Livia (pares), VDF Gernanes (pares)+Ruan (ímpares), V.Pássaros
+  Jeovane (pares)+Meire (ímpares) — todos 07-19 → **05:00-17:00**.
+- Adeilson (Ideal) e Rene (VDF): batidas só de ~05:00 manhã = SAÍDA de noturno (P1);
+  18-06/19-07 → **17:00-05:00** (padrão noturno do posto), paridades mantidas (ímpares).
+- Noturnos confirmados: Jonhata/Jonilson/Maiara (Ideal), Eidy (VDF, 40d), Edward+Fernando
+  Simplicio (V.Pássaros) — todos 17-05 ✓. ASGs todos OK (07-16 + sáb 07-11); Michelangelo
+  100% OK (3 ASG comercial). Gelain: portaria remota, 0 escalados ✓.
+- FLAGS: Daniel Souza dos Santos (Ideal, diurno ímpares) ZERO batidas 90d — 3º caso
+  (Euler, Jonathan, Daniel). Domingos esporádicos (1-2 em 90d) de alguns ASG = extras
+  pontuais, não padrão de escala.
