@@ -213,7 +213,42 @@ def baixar_recibo_vt_vr_pdf(
     except Exception:
         pass
 
-    pdf = montar_recibo_vt_vr_pdf(result, fdad, vt_concedido=vt_concedido)
+    _doc_id_recibo = f"{employee_id}:{ano}-{mes:02d}"
+
+    # Assinatura universal (recibo VT/VR → só EMPLOYEE). Consulta status p/ carimbar
+    # o bloco branded de autenticidade, e garante a solicitação. À prova de falha.
+    _signatarios = None
+    try:
+        import logging as _logging
+
+        from modules.signatures.helpers import (
+            document_hash_sha256 as _dhash,
+            garantir_solicitacao_assinatura_sync,
+            status_documento_sync,
+        )
+
+        _st = status_documento_sync("recibo_vt_vr", _doc_id_recibo)
+        _signatarios = (_st or {}).get("signatarios")
+    except Exception:  # noqa: BLE001
+        _signatarios = None
+
+    pdf = montar_recibo_vt_vr_pdf(result, fdad, vt_concedido=vt_concedido, signatarios=_signatarios)
+
+    try:
+        garantir_solicitacao_assinatura_sync(
+            document_type="recibo_vt_vr",
+            document_id=_doc_id_recibo,
+            title=f"Recibo VT/VR {mes:02d}/{ano} - {result.get('employee_nome') or 'colaborador'}",
+            document_hash=_dhash(pdf),
+            employee_id=employee_id,
+            employee_name=result.get("employee_nome"),
+            employee_document=fdad.get("cpf"),
+        )
+    except Exception as _sig_exc:  # noqa: BLE001
+        _logging.getLogger(__name__).warning(
+            "Assinatura do recibo VT/VR não criada: %s", _sig_exc
+        )
+
     nome = (result.get("employee_nome") or "colaborador").split()[0].lower()
     return Response(
         content=pdf,

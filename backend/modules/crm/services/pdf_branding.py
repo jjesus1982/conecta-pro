@@ -384,6 +384,68 @@ def campos_assinatura(
     return out
 
 
+def bloco_autenticidade_assinaturas(st: dict | None = None, *, signatarios: list | None = None) -> list:
+    """Bloco branded de AUTENTICIDADE das assinaturas eletrônicas (padrão-ouro).
+
+    Mesmo padrão visual da ficha de EPI: para cada assinatura já coletada,
+    imprime "ASSINADO ELETRONICAMENTE" com nome, papel, data/hora America/Manaus
+    e o hash SHA-256. Deixa de imprimir os que ainda estão pendentes.
+
+    Consome a lista `signatarios` do UniversalSignatureService.status():
+      [{signer_name, signer_type, status, signed_at, signature_hash}, ...]
+
+    Não altera o layout dos campos de assinatura — é um complemento branded que
+    dá não-repúdio visual ao documento, alinhado à identidade Conecta Mais.
+    """
+    st = st or styles()
+    assinados = [
+        s for s in (signatarios or [])
+        if (s.get("status") in ("signed", "completed") or s.get("signed_at"))
+        and s.get("signature_hash")
+    ]
+    if not assinados:
+        return []
+
+    papel = {"employee": "Funcionário", "company": EMPRESA["nome"], "customer": "Cliente"}
+    small = st.get("small", getSampleStyleSheet()["Normal"])
+    out: list = [Spacer(1, 4 * mm)]
+    out.append(
+        Paragraph(
+            '<font color="#1E3A5F"><b>AUTENTICIDADE DAS ASSINATURAS ELETRÔNICAS</b></font>',
+            ParagraphStyle("aut_tit", parent=small, fontName=FONTE_B, fontSize=8.5),
+        )
+    )
+    for s in assinados:
+        nome = s.get("signer_name") or "—"
+        pp = papel.get(str(s.get("signer_type")), str(s.get("signer_type") or ""))
+        quando = _fmt_dt_manaus(s.get("signed_at"))
+        h = s.get("signature_hash") or ""
+        out.append(
+            Paragraph(
+                f"<b>ASSINADO ELETRONICAMENTE</b> por <b>{nome}</b> ({pp}) via Conecta PRO"
+                + (f" em {quando}" if quando else "")
+                + f' · Hash SHA-256: <font size="6.5">{h}</font>'
+                + f'<br/><font color="#2D5F8B" size="7">Verifique em '
+                + f"{EMPRESA['site']}/verificar · /signatures/verify/{h[:16]}…</font>",
+                ParagraphStyle("aut_lin", parent=small, fontSize=7.5, leading=11),
+            )
+        )
+    return out
+
+
+def _fmt_dt_manaus(v) -> str:
+    """Formata um datetime/ISO para dd/mm/aaaa HH:MM (já em horário de Manaus)."""
+    if not v:
+        return ""
+    try:
+        from datetime import datetime as _dt
+
+        d = v if hasattr(v, "strftime") else _dt.fromisoformat(str(v).replace("Z", ""))
+        return d.strftime("%d/%m/%Y %H:%M")
+    except Exception:  # noqa: BLE001
+        return str(v)
+
+
 def styles() -> dict:
     ss = getSampleStyleSheet()
     return {

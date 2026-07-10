@@ -87,23 +87,25 @@ class Signature(Base):
     owner_document = Column(String(50), nullable=True)  # CPF/CNPJ
 
     # Signature type and format
+    # native_enum=False -> armazena como VARCHAR (colunas criadas como String(50)
+    # no banco, sem tipos ENUM nativos). Mantém StrEnum na leitura.
     signature_type = Column(
-        Enum(SignatureType),
+        Enum(SignatureType, native_enum=False, length=50),
         nullable=False,
         default=SignatureType.HANDWRITTEN,
     )
     signature_format = Column(
-        Enum(SignatureFormat),
+        Enum(SignatureFormat, native_enum=False, length=50),
         nullable=False,
         default=SignatureFormat.PNG,
     )
     status = Column(
-        Enum(SignatureStatus),
+        Enum(SignatureStatus, native_enum=False, length=50),
         nullable=False,
         default=SignatureStatus.PENDING,
     )
     source = Column(
-        Enum(SignatureSource),
+        Enum(SignatureSource, native_enum=False, length=50),
         nullable=False,
         default=SignatureSource.UPLOAD,
     )

@@ -93,6 +93,8 @@ export default function ContratosPage() {
   // Data state
   const [contratos, setContratos] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
+  // Assinatura universal: status geral por contrato (EMPLOYEE + COMPANY).
+  const [sigStatus, setSigStatus] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -417,6 +419,7 @@ export default function ContratosPage() {
         a.remove();
         URL.revokeObjectURL(url);
         toast.success('PDF gerado e baixado com sucesso!', { duration: 4000 });
+        loadSigStatus(contractId);  // gerar o PDF cria a solicitação de assinatura
       } else {
         const err = await res.json().catch(() => null);
         toast.error(err?.detail || 'Erro ao gerar PDF', { duration: 5000 });
@@ -425,6 +428,31 @@ export default function ContratosPage() {
       toast.error('Erro de conexão', { duration: 5000 });
     }
   };
+
+  // Consulta o status de assinatura (motor universal) de um contrato de trabalho.
+  const loadSigStatus = async (contractId: string) => {
+    try {
+      const res = await fetch(`/api/v1/signatures/document/contract/${contractId}`, { headers: getAuthHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setSigStatus((prev) => ({ ...prev, [contractId]: data?.status_geral || 'none' }));
+      }
+    } catch { /* silencioso */ }
+  };
+
+  const sigBadge = (contractId: string) => {
+    const s = sigStatus[contractId];
+    if (!s || s === 'none') return null;
+    const cls: Record<string, string> = { pending: 'bg-yellow-100 text-yellow-800', partial: 'bg-blue-100 text-blue-800', completed: 'bg-green-100 text-green-800' };
+    const label: Record<string, string> = { pending: 'Assinatura pendente', partial: 'Assinatura parcial', completed: 'Assinado' };
+    return <Badge className={`ml-1 ${cls[s] || 'bg-gray-100 text-gray-800'}`}>{label[s] || s}</Badge>;
+  };
+
+  // Carrega o status de assinatura dos contratos visíveis (uma vez cada).
+  useEffect(() => {
+    paginatedData.forEach((c: any) => { if (c?.id && sigStatus[c.id] === undefined) loadSigStatus(c.id); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paginatedData]);
 
   return (
     <div className="space-y-6 pb-28">
@@ -740,7 +768,7 @@ export default function ContratosPage() {
                         <TableCell>{item.end_date ? formatDate(item.end_date) : 'Indeterminado'}</TableCell>
                         <TableCell>{formatCurrency(item.base_salary)}</TableCell>
                         <TableCell>{item.job_title || '-'}</TableCell>
-                        <TableCell><Badge className={st.className}>{st.label}</Badge></TableCell>
+                        <TableCell><Badge className={st.className}>{st.label}</Badge>{sigBadge(item.id)}</TableCell>
                         <TableCell>
                           <div className="flex gap-1">
                             <Button variant="outline" size="sm" onClick={() => openDetail(item.id)}>

@@ -51,16 +51,54 @@ async def gerar_pdf_proposta(
 
     from modules.crm.services.proposal_pdf import build_proposal_pdf
 
+    # Assinaturas já coletadas (motor universal) → carimbo branded de autenticidade no PDF.
+    _signatarios = None
     try:
-        pdf_bytes = build_proposal_pdf(proposal)
+        from modules.signatures.services.universal_signature_service import (
+            UniversalSignatureService,
+        )
+
+        _st = await UniversalSignatureService(db).status(
+            document_type="proposal", document_id=str(proposal_id)
+        )
+        _signatarios = _st.get("signatarios")
+    except Exception:  # noqa: BLE001
+        _signatarios = None
+
+    try:
+        pdf_bytes = build_proposal_pdf(proposal, _signatarios)
     except Exception as e:  # noqa: BLE001
         logger.exception("Erro ao gerar PDF da proposta %s", proposal_id)
         raise HTTPException(status_code=500, detail=f"Erro ao gerar PDF: {e}") from e
 
+    # Camada de assinatura universal: proposta comercial → COMPANY + CUSTOMER.
+    # Devolve o public_token do link do cliente. Idempotente e à prova de falha.
+    public_token = None
+    try:
+        from modules.signatures.helpers import (
+            document_hash_sha256,
+            garantir_solicitacao_assinatura,
+        )
+
+        sig = await garantir_solicitacao_assinatura(
+            db,
+            document_type="proposal",
+            document_id=proposal_id,
+            title=f"Proposta {getattr(proposal, 'number', '')} - {getattr(proposal, 'client_name', '')}",
+            document_hash=document_hash_sha256(pdf_bytes),
+            customer_name=getattr(proposal, "client_name", None),
+            customer_email=getattr(proposal, "client_email", None),
+            customer_document=getattr(proposal, "client_document", None),
+        )
+        if sig:
+            public_token = sig.get("public_token")
+    except Exception as _sig_exc:  # noqa: BLE001
+        logger.warning("Assinatura da proposta %s não criada: %s", proposal_id, _sig_exc)
+
     if salvar:
         from modules.crm.services.docs_registry import salvar_pdf
 
-        return await salvar_pdf(
+        result = await salvar_pdf(
             db,
             "proposta",
             f"Proposta {getattr(proposal, 'number', '')} - {getattr(proposal, 'client_name', '')}",
@@ -69,13 +107,19 @@ async def gerar_pdf_proposta(
             ref_id=proposal_id,
             teste=teste,
         )
+        if isinstance(result, dict) and public_token:
+            result["signature_public_token"] = public_token
+        return result
 
     number = (getattr(proposal, "number", None) or proposal_id).replace("/", "-")
     filename = f"orcamento_{number}.pdf"
+    headers = {"Content-Disposition": f'inline; filename="{filename}"'}
+    if public_token:
+        headers["X-Signature-Public-Token"] = public_token
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        headers=headers,
     )
 
 

@@ -348,6 +348,40 @@ async def download_contrato_pdf(
     """Gera PDF real do contrato usando reportlab + contract_templates."""
     try:
         pdf_bytes = await gerar_pdf_contrato(db, contract_id)
+
+        # Camada de assinatura universal: contrato de trabalho → EMPLOYEE + COMPANY.
+        # Idempotente e à prova de falha (não quebra o download do PDF).
+        try:
+            from sqlalchemy import text as _text
+
+            from modules.signatures.helpers import (
+                document_hash_sha256,
+                garantir_solicitacao_assinatura,
+            )
+
+            emp = (
+                await db.execute(
+                    _text(
+                        "SELECT ec.employee_id::text, e.nome, e.cpf "
+                        "FROM employment_contracts ec JOIN employees e ON e.id = ec.employee_id "
+                        "WHERE ec.id = CAST(:cid AS uuid) LIMIT 1"
+                    ),
+                    {"cid": contract_id},
+                )
+            ).first()
+            await garantir_solicitacao_assinatura(
+                db,
+                document_type="contract",
+                document_id=contract_id,
+                title=f"Contrato de Trabalho - {emp[1] if emp else contract_id[:8]}",
+                document_hash=document_hash_sha256(pdf_bytes),
+                employee_id=emp[0] if emp else None,
+                employee_name=emp[1] if emp else None,
+                employee_document=emp[2] if emp else None,
+            )
+        except Exception as _sig_exc:  # noqa: BLE001
+            logger.warning("Assinatura do contrato %s não criada: %s", contract_id, _sig_exc)
+
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",

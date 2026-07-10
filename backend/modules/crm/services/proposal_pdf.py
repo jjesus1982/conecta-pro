@@ -87,7 +87,7 @@ def _secao(titulo: str, st) -> list:
 
 
 # ---------------------------------------------------------------- documento
-def build_proposal_pdf(p) -> bytes:
+def build_proposal_pdf(p, signatarios: list | None = None) -> bytes:
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf,
@@ -339,6 +339,9 @@ def build_proposal_pdf(p) -> bytes:
         data_str=B.br_date(emitido),
         espaco_antes=6,
     )
+
+    # Autenticidade branded: assinaturas já coletadas (motor universal) → bloco padrão-ouro.
+    el += B.bloco_autenticidade_assinaturas(st, signatarios=signatarios)
 
     doc.build(el, onFirstPage=_header_footer, onLaterPages=_header_footer)
     return buf.getvalue()

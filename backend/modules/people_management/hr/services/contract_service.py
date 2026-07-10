@@ -485,6 +485,20 @@ async def gerar_pdf_contrato(db: AsyncSession, contract_id: str) -> bytes:
         espaco_antes=14,
     )
 
+    # Autenticidade branded: se já houver assinaturas coletadas (motor universal),
+    # imprime o bloco padrão-ouro com nome/hash/data (não-repúdio visual).
+    try:
+        from modules.signatures.services.universal_signature_service import (
+            UniversalSignatureService,
+        )
+
+        _sig = await UniversalSignatureService(db).status(
+            document_type="contract", document_id=str(contract_id)
+        )
+        story += B.bloco_autenticidade_assinaturas(st, signatarios=_sig.get("signatarios"))
+    except Exception:  # noqa: BLE001
+        pass
+
     doc.build(
         story,
         onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo="CONTRATO DE TRABALHO"),

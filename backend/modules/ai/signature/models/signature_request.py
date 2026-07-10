@@ -83,18 +83,20 @@ class SignatureRequest(Base):
     reference_code = Column(String(50), nullable=True, index=True)
 
     # Status and priority
+    # native_enum=False -> armazena como VARCHAR (o banco criou estas colunas como
+    # String(50), sem tipos ENUM nativos). Mantém os objetos StrEnum na leitura.
     status = Column(
-        Enum(RequestStatus),
+        Enum(RequestStatus, native_enum=False, length=50),
         nullable=False,
         default=RequestStatus.DRAFT,
     )
     priority = Column(
-        Enum(RequestPriority),
+        Enum(RequestPriority, native_enum=False, length=50),
         nullable=False,
         default=RequestPriority.NORMAL,
     )
     purpose = Column(
-        Enum(SignaturePurpose),
+        Enum(SignaturePurpose, native_enum=False, length=50),
         nullable=False,
         default=SignaturePurpose.APPROVAL,
     )
@@ -147,7 +149,7 @@ class SignatureRequest(Base):
 
     # Reminders
     reminder_frequency = Column(
-        Enum(ReminderFrequency),
+        Enum(ReminderFrequency, native_enum=False, length=50),
         nullable=False,
         default=ReminderFrequency.NONE,
     )

@@ -33,7 +33,10 @@ def _brl_num(v) -> str:
 
 
 def montar_recibo_vt_vr_pdf(
-    holerite: dict, funcionario: dict | None = None, vt_concedido: float | None = None
+    holerite: dict,
+    funcionario: dict | None = None,
+    vt_concedido: float | None = None,
+    signatarios: list | None = None,
 ) -> bytes:
     """Gera o PDF do recibo de VT e VR a partir do dict de calcular_folha_colaborador.
 
@@ -231,6 +234,9 @@ def montar_recibo_vt_vr_pdf(
         espaco_antes=8,
         incluir_empresa=False,  # Recibo VT/VR: comprovante de recebimento — só o FUNCIONÁRIO assina
     )
+
+    # Autenticidade branded: assinatura já coletada (motor universal) → bloco padrão-ouro.
+    story += B.bloco_autenticidade_assinaturas(st, signatarios=signatarios)
 
     doc.build(
         story,

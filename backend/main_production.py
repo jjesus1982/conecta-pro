@@ -1284,6 +1284,15 @@ try:
 except Exception as _e:
     logger.warning("scheduler_router nao montado: %s", _e)
 
+# Assinatura Universal — motor central de assinatura eletrônica (funcionário/empresa/cliente)
+try:
+    from modules.signatures.controllers import signature_router as _universal_signature_router
+
+    api_router.include_router(_universal_signature_router)  # router já tem prefix /signatures
+    logger.info("Módulo Assinatura Universal: OK")
+except Exception as _e:  # noqa: BLE001
+    logger.warning("Assinatura Universal nao montado: %s", _e)
+
 app.include_router(api_router)
 
 logger.info("=== API CONECTA PRO INICIADA (14 módulos) ===")

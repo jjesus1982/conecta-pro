@@ -1,9 +1,10 @@
 'use client';
 
-import { FileText, Search, RefreshCw, Plus, MoreHorizontal, Eye, Edit, Trash2, AlertCircle, DollarSign, Clock, CheckCircle, XCircle, Send, ThumbsUp, FileDown } from 'lucide-react';
-import { useState, useMemo } from 'react';
+import { FileText, Search, RefreshCw, Plus, MoreHorizontal, Eye, Edit, Trash2, AlertCircle, DollarSign, Clock, CheckCircle, XCircle, Send, ThumbsUp, FileDown, Link2 } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { customInstance } from '@/lib/api-client';
+import { api } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -232,10 +233,40 @@ export default function PropostasPage() {
   };
 
   const [pdfLoading, setPdfLoading] = useState<string | null>(null);
+  // Assinatura universal: status geral e token do link do cliente por proposta.
+  const [sigStatus, setSigStatus] = useState<Record<string, string>>({});
+  const [sigToken, setSigToken] = useState<Record<string, string>>({});
+
+  const loadSigStatus = async (id: string) => {
+    try {
+      const res: any = await customInstance({ url: `/api/v1/signatures/document/proposal/${id}`, method: 'GET' });
+      setSigStatus((prev) => ({ ...prev, [id]: res?.status_geral || 'none' }));
+    } catch { /* silencioso */ }
+  };
+
+  const publicBase = (): string => (process.env.NEXT_PUBLIC_API_URL || 'https://erp.conectamais.pro').replace(/\/$/, '');
+
+  const copiarLinkCliente = async (p: any) => {
+    let token = sigToken[p.id];
+    if (!token) { await gerarPdf(p); token = sigToken[p.id]; }
+    if (!token) { toast.error('Link do cliente indisponível (gere o PDF primeiro)'); return; }
+    const link = `${publicBase()}/api/v1/signatures/public/${token}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success('Link de assinatura do cliente copiado');
+    } catch {
+      window.prompt('Copie o link de assinatura do cliente:', link);
+    }
+  };
+
   const gerarPdf = async (p: any) => {
     setPdfLoading(p.id);
     try {
-      const blob = await customInstance<Blob>({ url: `/api/v1/crm/proposals/${p.id}/pdf`, method: 'GET', responseType: 'blob' });
+      // Usa axios direto p/ ler o header X-Signature-Public-Token (token do cliente).
+      const resp = await api.get(`/api/v1/crm/proposals/${p.id}/pdf`, { responseType: 'blob' });
+      const blob = resp.data as Blob;
+      const token = resp.headers?.['x-signature-public-token'];
+      if (token) setSigToken((prev) => ({ ...prev, [p.id]: token }));
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -243,6 +274,7 @@ export default function PropostasPage() {
       document.body.appendChild(a); a.click(); a.remove();
       window.open(url, '_blank');
       setTimeout(() => window.URL.revokeObjectURL(url), 15000);
+      loadSigStatus(p.id);
       toast.success('PDF gerado');
     } catch {
       toast.error('Erro ao gerar PDF');
@@ -250,6 +282,21 @@ export default function PropostasPage() {
       setPdfLoading(null);
     }
   };
+
+  const sigBadge = (id: string) => {
+    const s = sigStatus[id];
+    if (!s || s === 'none') return null;
+    const map: Record<string, string> = { pending: 'bg-yellow-100 text-yellow-800', partial: 'bg-blue-100 text-blue-800', completed: 'bg-green-100 text-green-800' };
+    const label: Record<string, string> = { pending: 'Assinatura pendente', partial: 'Assinatura parcial', completed: 'Assinado' };
+    return <Badge className={`ml-2 ${map[s] || 'bg-gray-100 text-gray-800'}`}>{label[s] || s}</Badge>;
+  };
+
+  // Carrega o status de assinatura das propostas visíveis (uma vez por lista).
+  useEffect(() => {
+    const ids: string[] = (propostas || []).map((p: any) => p.id).filter(Boolean);
+    ids.forEach((id) => { if (sigStatus[id] === undefined) loadSigStatus(id); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propostas]);
 
   const getStatusBadge = (status: string) => {
     const map: Record<string, string> = { draft: 'bg-gray-100 text-gray-800', pending_approval: 'bg-yellow-100 text-yellow-800', approved: 'bg-emerald-100 text-emerald-800', sent: 'bg-blue-100 text-blue-800', accepted: 'bg-green-100 text-green-800', rejected: 'bg-red-100 text-red-800' };
@@ -467,7 +514,7 @@ export default function PropostasPage() {
                   <TableCell className="text-sm text-muted-foreground">{p.client_name || '-'}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{p.item_count ?? (p.items?.length ?? 0)}</TableCell>
                   <TableCell className="text-sm font-medium">{formatCurrency(p.total ?? 0)}</TableCell>
-                  <TableCell>{getStatusBadge(p.status)}</TableCell>
+                  <TableCell>{getStatusBadge(p.status)}{sigBadge(p.id)}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{formatDate(p.created_at)}</TableCell>
                   <TableCell>
                     <DropdownMenu>
@@ -475,6 +522,7 @@ export default function PropostasPage() {
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => { setSelectedItem(p); setDetailOpen(true); }}><Eye className="h-4 w-4 mr-2" />Ver detalhes</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => gerarPdf(p)} disabled={pdfLoading === p.id}><FileDown className="h-4 w-4 mr-2" />Gerar PDF</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => copiarLinkCliente(p)}><Link2 className="h-4 w-4 mr-2" />Copiar link do cliente</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => openEdit(p)}><Edit className="h-4 w-4 mr-2" />Editar</DropdownMenuItem>
                         <DropdownMenuSeparator />
                         {p.status === 'pending_approval' && (<>
