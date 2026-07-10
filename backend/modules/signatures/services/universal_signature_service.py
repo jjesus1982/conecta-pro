@@ -16,9 +16,12 @@ art. 10 §2º — validade por acordo entre partes):
 As evidências (IP, user-agent, timestamp em America/Manaus, PIN/token) compõem a
 trilha de auditoria (`audit_log`) que confere não-repúdio.
 
-GANCHO ICP-Brasil (assinatura QUALIFICADA com certificado A1): ver
-`_apply_qualified_signature`. Hoje levanta NotImplementedError de propósito —
-o nível eletrônico simples é o implementado agora, conforme escopo.
+Assinatura QUALIFICADA ICP-Brasil (certificado A1): ver
+`_apply_qualified_signature`. Assina o PDF do contrato em PAdES com o A1 da
+empresa (CNPJ 35.710.481/0001-03, AC SOLUTI/ICP-Brasil) — fé pública. Só a
+EMPRESA (COMPANY) assina em nível QUALIFIED; funcionário/cliente seguem SIMPLE.
+A mecânica criptográfica fica em `qualified_signer.py` (pyhanko/PAdES); a senha
+do .p12 vem só da env CERT_A1_PASSWORD.
 
 TZ: todos os timestamps de evidência são gravados no fuso America/Manaus
 (o servidor roda nesse fuso); as colunas DateTime armazenam naive local Manaus,
@@ -314,6 +317,7 @@ class UniversalSignatureService:
         evidence: SignatureEvidence | None = None,
         level: SignatureLevel = SignatureLevel.SIMPLE,
         certificate_ref: dict[str, Any] | None = None,
+        pdf_bytes: bytes | None = None,
     ) -> dict[str, Any]:
         """Coleta a assinatura de um signatário numa solicitação.
 
@@ -327,17 +331,22 @@ class UniversalSignatureService:
             signer_name: Nome (fallback ao da request).
             signer_document: CPF/CNPJ (evidência; fallback ao da request).
             evidence: IP, user-agent, device, location.
-            level: SIMPLE (implementado) ou QUALIFIED (gancho ICP-Brasil).
-            certificate_ref: Metadados do certificado A1 (só p/ QUALIFIED).
+            level: SIMPLE (eletrônica simples) ou QUALIFIED (ICP-Brasil A1).
+                QUALIFIED só é aceito para signer_type=COMPANY (titular do cert).
+            certificate_ref: Referências p/ QUALIFIED (ex.: {"pdf_path": "..."}).
+            pdf_bytes: Bytes do PDF do contrato (obrigatório p/ QUALIFIED quando não
+                houver document_path/pdf_path). Ignorado em nível SIMPLE.
 
         Returns:
             Dict com signature_id, signature_hash, signed_at (ISO Manaus),
-            request_status, group_completed (bool).
+            request_status, group_completed (bool). Em QUALIFIED, inclui ainda
+            level, icp_brasil, signed_document_path e certificate{...}.
 
         Raises:
-            ValueError: request inexistente, já assinada, tipo divergente ou
-                solicitação expirada.
-            NotImplementedError: se level=QUALIFIED (gancho ainda não ativo).
+            ValueError: request inexistente, já assinada, tipo divergente,
+                solicitação expirada, ou QUALIFIED por não-COMPANY / sem PDF.
+            QualifiedSignatureError: cert vencido, CERT_A1_PASSWORD ausente ou
+                .p12 indisponível (assinatura qualificada).
         """
         req = await self._get_request(request_id)
         if req is None:
@@ -363,7 +372,8 @@ class UniversalSignatureService:
         eff_doc = signer_document or req.signer_document
 
         if level == SignatureLevel.QUALIFIED:
-            # Gancho ICP-Brasil — deliberadamente não implementado agora.
+            # Assinatura QUALIFICADA ICP-Brasil (A1) — PAdES embutido no PDF.
+            # Exclusiva da EMPRESA (COMPANY), titular do certificado.
             return await self._apply_qualified_signature(
                 req=req,
                 signer_type=signer_type,
@@ -371,6 +381,8 @@ class UniversalSignatureService:
                 signer_name=eff_name,
                 certificate_ref=certificate_ref,
                 signed_at=signed_at,
+                evidence=evidence,
+                pdf_bytes=pdf_bytes,
             )
 
         # Assinatura eletrônica SIMPLES
@@ -662,20 +674,190 @@ class UniversalSignatureService:
         )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
-    async def _apply_qualified_signature(self, **_: Any) -> dict[str, Any]:
-        """GANCHO ICP-Brasil (A1/A3). Não implementado no escopo atual.
+    async def _apply_qualified_signature(
+        self,
+        *,
+        req: SignatureRequest,
+        signer_type: SignerType,
+        signer_id: uuid.UUID | None,
+        signer_name: str | None,
+        certificate_ref: dict[str, Any] | None,
+        signed_at: datetime,
+        evidence: SignatureEvidence | None = None,
+        pdf_bytes: bytes | None = None,
+    ) -> dict[str, Any]:
+        """Assinatura QUALIFICADA ICP-Brasil (certificado A1) — PAdES no PDF.
 
-        Quando ativado, deverá:
-          1. Carregar o .pfx (A1) da empresa (senha do cofre/env).
-          2. Assinar o PDF (PAdES) ou o hash do documento (CAdES) via cryptography
-             / pyhanko, embutindo o certificado e o carimbo de tempo.
-          3. Persistir certificate_issuer/serial/valid_from/valid_to em
-             sig_signatures e marcar signature_type=DIGITAL.
+        Só a EMPRESA (COMPANY) assina em nível QUALIFIED: é a titular do
+        certificado A1 (CNPJ 35.710.481/0001-03). Funcionário e cliente NÃO têm
+        certificado próprio — assinam sempre em nível SIMPLE.
+
+        Fluxo:
+          1. Obtém os bytes do PDF do contrato (parâmetro `pdf_bytes`, ou lê de
+             `req.document_path`, ou de `certificate_ref['pdf_path']`).
+          2. Assina o PDF com o A1 (pyhanko/PAdES) — assinatura ICP-Brasil
+             embutida, com a cadeia completa. Valida validade antes.
+          3. Grava o PDF assinado em uploads/signed/ e aponta
+             `req.signed_document_path`.
+          4. Persiste uma linha `sig_signatures` com signature_type=DIGITAL e os
+             metadados do certificado (issuer/serial/valid_from/valid_to).
+          5. Marca a request SIGNED e, se todos assinaram, completa o grupo.
+
+        Raises:
+            ValueError: se o assinante não for COMPANY (política) ou faltar o PDF.
+            QualifiedSignatureError: falha no motor PAdES (cert vencido, senha
+                ausente, .p12 indisponível) — mensagem honesta, sem vazar segredo.
         """
-        raise NotImplementedError(
-            "Assinatura QUALIFICADA (ICP-Brasil A1) ainda não implementada. "
-            "Use level=SIMPLE (eletrônica simples) por enquanto."
+        from modules.signatures.services.qualified_signer import (
+            assinar_pdf_icp_brasil,
         )
+
+        if signer_type != SignerType.COMPANY:
+            raise ValueError(
+                "Assinatura QUALIFICADA (ICP-Brasil A1) é exclusiva da EMPRESA "
+                "(titular do certificado). Funcionário/cliente assinam em nível "
+                "SIMPLE."
+            )
+
+        # 1) Bytes do PDF a assinar.
+        source = pdf_bytes
+        if source is None and certificate_ref and certificate_ref.get("pdf_path"):
+            source = self._read_pdf(certificate_ref["pdf_path"])
+        if source is None and req.document_path:
+            source = self._read_pdf(req.document_path)
+        if not source:
+            raise ValueError(
+                "PDF do contrato não disponível para assinatura qualificada. "
+                "Forneça pdf_bytes, req.document_path ou certificate_ref['pdf_path']."
+            )
+
+        # 2) Assina (valida validade do cert dentro; senha só via env).
+        result = assinar_pdf_icp_brasil(
+            source,
+            reason=f"Assinatura qualificada ICP-Brasil — {req.document_type or 'contrato'}",
+            location="Manaus/AM",
+            contact_info=signer_name,
+        )
+
+        # 3) Grava o PDF assinado.
+        signed_path = self._save_signed_pdf(
+            result.signed_pdf,
+            document_type=req.document_type or "contract",
+            request_id=req.id,
+        )
+        signed_hash = hashlib.sha256(result.signed_pdf).hexdigest()
+
+        # 4) Persiste a assinatura DIGITAL com metadados do certificado.
+        ev = evidence or SignatureEvidence()
+        sig = Signature(
+            id=uuid.uuid4(),
+            tenant_id=DEFAULT_TENANT_ID,
+            owner_id=signer_id,
+            owner_type=str(signer_type),
+            owner_name=signer_name,
+            owner_document=req.signer_document,
+            signature_type=SignatureType.DIGITAL,
+            status=SignatureStatus.VERIFIED,
+            source=SignatureSource.CERTIFICATE,
+            hash_algorithm="SHA-256",
+            signature_hash=signed_hash,
+            is_verified=True,
+            verified_at=signed_at,
+            is_active=True,
+            certificate_issuer=result.certificate_issuer_cn[:255],
+            certificate_serial=result.certificate_serial[:100],
+            certificate_valid_from=result.certificate_valid_from,
+            certificate_valid_to=result.certificate_valid_to,
+            capture_ip=ev.ip_address,
+            capture_device=ev.device,
+            capture_user_agent=ev.user_agent,
+            capture_location=ev.location,
+            created_at=signed_at,
+            updated_at=signed_at,
+            created_by=signer_id,
+            extra_data={
+                "level": str(SignatureLevel.QUALIFIED),
+                "icp_brasil": True,
+                "pades": True,
+                "certificate_subject": result.certificate_subject_cn,
+                "signed_document_path": signed_path,
+                **(ev.extra or {}),
+            },
+        )
+        self.db.add(sig)
+        await self.db.flush()
+
+        req.signature_id = sig.id
+        req.signed_at = signed_at
+        req.status = RequestStatus.SIGNED
+        req.signed_document_path = signed_path
+        req.signed_document_hash = signed_hash
+        req.signing_ip = ev.ip_address
+        req.signing_user_agent = ev.user_agent
+        req.updated_at = signed_at
+        req.last_activity_at = signed_at
+        req.audit_log = self._append_audit(
+            req.audit_log,
+            action="signed_qualified",
+            at=signed_at,
+            signer_type=str(signer_type),
+            signer_name=signer_name,
+            level="qualified",
+            certificate_issuer=result.certificate_issuer_cn,
+            certificate_serial=result.certificate_serial,
+            signed_document_hash=signed_hash,
+        )
+
+        group_completed = await self._maybe_complete_group(req)
+        await self.db.commit()
+
+        logger.info(
+            "Contrato assinado QUALIFICADO (ICP-Brasil): request=%s issuer=%s serial=%s group_completed=%s",
+            req.id,
+            result.certificate_issuer_cn,
+            result.certificate_serial,
+            group_completed,
+        )
+
+        return {
+            "signature_id": str(sig.id),
+            "signature_hash": signed_hash,
+            "signed_at": signed_at.isoformat(),
+            "request_status": str(req.status),
+            "group_completed": group_completed,
+            "level": str(SignatureLevel.QUALIFIED),
+            "icp_brasil": True,
+            "signed_document_path": signed_path,
+            "certificate": {
+                "subject": result.certificate_subject_cn,
+                "issuer": result.certificate_issuer_cn,
+                "serial": result.certificate_serial,
+                "valid_from": result.certificate_valid_from.isoformat(),
+                "valid_to": result.certificate_valid_to.isoformat(),
+            },
+        }
+
+    @staticmethod
+    def _read_pdf(path: str) -> bytes | None:
+        """Lê os bytes de um PDF do disco; None se ausente."""
+        try:
+            with open(path, "rb") as fh:
+                return fh.read()
+        except OSError:
+            return None
+
+    @staticmethod
+    def _save_signed_pdf(
+        signed_pdf: bytes, *, document_type: str, request_id: uuid.UUID
+    ) -> str:
+        """Grava o PDF assinado (PAdES) em uploads/signed/ e devolve o caminho."""
+        base = os.getenv("SIGNED_DOCS_DIR", "/app/uploads/signed")
+        os.makedirs(base, exist_ok=True)
+        fname = f"{document_type}_{request_id}_assinado_icp.pdf"
+        path = os.path.join(base, fname)
+        with open(path, "wb") as fh:
+            fh.write(signed_pdf)
+        return path
 
     @staticmethod
     def _coerce_doc_uuid(document_id: str) -> uuid.UUID | None:

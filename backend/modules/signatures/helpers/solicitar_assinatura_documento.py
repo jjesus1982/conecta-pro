@@ -39,6 +39,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.signatures.services.universal_signature_service import (
+    SignatureLevel,
     SignerInput,
     SignerType,
     UniversalSignatureService,
@@ -52,8 +53,11 @@ EMPRESA_CNPJ = "35.710.481/0001-03"
 EMPRESA_REPRESENTANTE = "JORDAN JESUS"
 
 # Política: quais tipos de assinante cada tipo de documento exige, na ordem.
+#   contract          → contrato de TRABALHO (funcionário + empresa)
+#   service_contract  → contrato de SERVIÇO com cliente (cliente + empresa)
 POLITICA_ASSINANTES: dict[str, list[SignerType]] = {
     "contract": [SignerType.EMPLOYEE, SignerType.COMPANY],
+    "service_contract": [SignerType.CUSTOMER, SignerType.COMPANY],
     "proposal": [SignerType.COMPANY, SignerType.CUSTOMER],
     "recibo_vt_vr": [SignerType.EMPLOYEE],
     "payslip": [SignerType.EMPLOYEE],
@@ -61,6 +65,32 @@ POLITICA_ASSINANTES: dict[str, list[SignerType]] = {
     "rescisao": [SignerType.EMPLOYEE, SignerType.COMPANY],
     "licitacao": [SignerType.COMPANY],
 }
+
+# Política de NÍVEL legal por (document_type). Decisão do Jordan:
+#   Assinatura QUALIFICADA ICP-Brasil (A1) SÓ para CONTRATOS — e somente do lado
+#   da EMPRESA (COMPANY), que é a titular do certificado. Funcionário e cliente
+#   não têm certificado próprio: assinam sempre em nível SIMPLE (SHA-256).
+#   Todos os demais document_types usam SIMPLE para todos os signatários.
+DOCUMENTOS_QUALIFICADOS: frozenset[str] = frozenset({"contract", "service_contract"})
+
+
+def nivel_assinatura(document_type: str, signer_type: SignerType) -> SignatureLevel:
+    """Nível legal exigido para (document_type × signer_type).
+
+    Regra única e testável:
+      - COMPANY assinando um CONTRATO (contract | service_contract) → QUALIFIED (A1).
+      - Qualquer outro caso (outros tipos de doc, ou EMPLOYEE/CUSTOMER) → SIMPLE.
+
+    Args:
+        document_type: Tipo do documento.
+        signer_type: Tipo do assinante.
+
+    Returns:
+        SignatureLevel.QUALIFIED ou SignatureLevel.SIMPLE.
+    """
+    if signer_type == SignerType.COMPANY and document_type in DOCUMENTOS_QUALIFICADOS:
+        return SignatureLevel.QUALIFIED
+    return SignatureLevel.SIMPLE
 
 
 def document_hash_sha256(pdf_bytes: bytes | None) -> str | None:

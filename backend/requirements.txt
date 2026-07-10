@@ -64,6 +64,11 @@ sentry-sdk[fastapi,celery]==2.19.2
 cryptography>=42.0.0
 pyOpenSSL>=24.0.0
 hvac>=2.1.0
+# Assinatura digital QUALIFICADA ICP-Brasil (PAdES) com certificado A1 (.p12) —
+# usada só em CONTRATOS, lado empresa. Puro-Python (asn1crypto/oscrypto), sem
+# pykcs11 (que exige toolchain de build e é só p/ token A3). Ver
+# modules/signatures/services/qualified_signer.py.
+pyhanko>=0.25.0
 
 # XML Processing (Government Integrations - eSocial, SEFAZ)
 lxml>=5.0.0
