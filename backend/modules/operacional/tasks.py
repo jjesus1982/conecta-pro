@@ -869,7 +869,11 @@ def gerar_escalas_proximo_mes(self):
                                bool_or(s.is_night_shift) AS noturno,
                                mode() WITHIN GROUP (ORDER BY s.planned_start_time) AS inicio,
                                mode() WITHIN GROUP (ORDER BY s.planned_end_time) AS fim,
-                               mode() WITHIN GROUP (ORDER BY (EXTRACT(DAY FROM s.shift_date)::int % 2)) AS paridade
+                               mode() WITHIN GROUP (ORDER BY (EXTRACT(DAY FROM s.shift_date)::int % 2)) AS paridade,
+                               bool_or(EXTRACT(DOW FROM s.shift_date) = 6) AS trabalha_sab,
+                               bool_or(EXTRACT(DOW FROM s.shift_date) = 0) AS trabalha_dom,
+                               mode() WITHIN GROUP (ORDER BY s.planned_start_time)
+                                 FILTER (WHERE EXTRACT(DOW FROM s.shift_date) IN (0, 6)) AS inicio_fds
                         FROM shifts s
                         JOIN scales sc ON sc.id = s.scale_id AND sc.month = :mes_atual AND sc.year = :ano_atual
                         JOIN allocations a ON a.employee_id = s.employee_id AND a.post_id = s.post_id
@@ -886,8 +890,10 @@ def gerar_escalas_proximo_mes(self):
 
             criadas, turnos_criados = 0, 0
             postos_padroes: dict[str, list] = {}
-            for post_id, emp_id, horas, noturno, inicio, fim, paridade in padroes:
-                postos_padroes.setdefault(post_id, []).append((emp_id, horas, noturno, inicio, fim, int(paridade)))
+            for post_id, emp_id, horas, noturno, inicio, fim, paridade, tsab, tdom, ini_fds in padroes:
+                postos_padroes.setdefault(post_id, []).append(
+                    (emp_id, horas, noturno, inicio, fim, int(paridade), bool(tsab), bool(tdom), ini_fds or inicio)
+                )
 
             for post_id, pessoas in postos_padroes.items():
                 ja_tem = (
@@ -916,7 +922,7 @@ def gerar_escalas_proximo_mes(self):
                      "ini": date(ano, mes, 1), "fim": date(ano, mes, dias_prox)},
                 )
                 criadas += 1
-                for emp_id, horas, noturno, inicio, fim, paridade in pessoas:
+                for emp_id, horas, noturno, inicio, fim, paridade, tsab, tdom, ini_fds in pessoas:
                     eh_12x36 = float(horas) >= 12
                     par_prox = (1 - paridade) if (eh_12x36 and inverte_paridade) else paridade
                     for d in range(1, dias_prox + 1):
@@ -926,16 +932,20 @@ def gerar_escalas_proximo_mes(self):
                                 continue
                             h, pausa, ini_d, fim_d, is_n = 12.0, 60, inicio, fim, bool(noturno)
                         else:
+                            # Comercial 44h: herda O DIA e O HORÁRIO de fim de semana REAIS
+                            # (Mirante: Telma sáb 07-11, Vanderlice sáb 12-16, Paulo dom 07-11)
                             dow = dia.weekday()
-                            if dow == 6:
+                            if dow == 6 and not tdom:
                                 continue
-                            if dow == 5:
-                                h, pausa = 4.0, 0
-                                fim_d = (datetime.combine(dia, inicio) + timedelta(hours=4)).time()
+                            if dow == 5 and not tsab:
+                                continue
+                            if dow >= 5:
+                                h, pausa, ini_d = 4.0, 0, ini_fds
+                                fim_d = (datetime.combine(dia, ini_fds) + timedelta(hours=4)).time()
                             else:
-                                h, pausa = 8.0, 60
+                                h, pausa, ini_d = 8.0, 60, inicio
                                 fim_d = (datetime.combine(dia, inicio) + timedelta(hours=9)).time()
-                            ini_d, is_n = inicio, False
+                            is_n = False
                         await db.execute(
                             _text(
                                 """

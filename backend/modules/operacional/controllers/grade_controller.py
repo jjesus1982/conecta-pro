@@ -72,6 +72,15 @@ class GradeColaboradorBody(BaseModel):
     turno: str = Field(default="diurno", pattern="^(diurno|noturno)$")
     paridade: str | None = Field(default=None, pattern="^(pares|impares)$")
     inicio: str | None = Field(default=None, description="HH:MM opcional; senão padrão do turno")
+    fim_de_semana: str = Field(
+        default="sabado",
+        pattern="^(sabado|domingo|nenhum)$",
+        description="Comercial 44h: qual dia de fim de semana a pessoa cobre (4h). Ex.: Mirante tem 2 ASG no sábado e 1 no domingo.",
+    )
+    inicio_fds: str | None = Field(
+        default=None,
+        description="HH:MM do dia de fim de semana quando difere da semana (ex.: Vanderlice abre o sábado 12:00–16:00). Default: mesmo início da semana.",
+    )
     criar_alocacao: bool = False
     setor: str | None = None
 
@@ -162,7 +171,9 @@ async def grade_do_posto(
                        mode() WITHIN GROUP (ORDER BY s.planned_end_time) AS fim,
                        mode() WITHIN GROUP (ORDER BY (EXTRACT(DAY FROM s.shift_date)::int % 2)) AS paridade,
                        count(*) AS n_turnos,
-                       array_agg(EXTRACT(DAY FROM s.shift_date)::int ORDER BY s.shift_date) AS dias
+                       array_agg(EXTRACT(DAY FROM s.shift_date)::int ORDER BY s.shift_date) AS dias,
+                       bool_or(EXTRACT(DOW FROM s.shift_date) = 6) AS trabalha_sab,
+                       bool_or(EXTRACT(DOW FROM s.shift_date) = 0) AS trabalha_dom
                 FROM shifts s
                 JOIN scales sc ON sc.id = s.scale_id AND sc.month=:m AND sc.year=:a
                 JOIN employees e ON e.id = s.employee_id
@@ -237,6 +248,10 @@ async def grade_do_posto(
                 "inicio": str(r[5])[:5],
                 "fim": str(r[6])[:5],
                 "paridade": ("impares" if int(r[7]) == 1 else "pares") if float(r[3]) >= 12 else None,
+                "fim_de_semana": (
+                    None if float(r[3]) >= 12
+                    else "domingo" if r[11] else "sabado" if r[10] else "nenhum"
+                ),
                 "turnos_no_mes": int(r[8]),
                 "dias": list(r[9]),
                 "ferias": ferias_map.get(r[0], []),
@@ -247,8 +262,13 @@ async def grade_do_posto(
     }
 
 
-def _dias_de_trabalho(ano: int, mes: int, desde: date | None, padrao: str, paridade_alvo: int | None) -> list[date]:
-    """Dias em que a pessoa trabalha no mês, pela mesma matemática da geração automática."""
+def _dias_de_trabalho(
+    ano: int, mes: int, desde: date | None, padrao: str, paridade_alvo: int | None,
+    fim_de_semana: str = "sabado",
+) -> list[date]:
+    """Dias em que a pessoa trabalha no mês, pela mesma matemática da geração automática.
+    Comercial 44h: seg-sex sempre; do fim de semana, só o dia que a pessoa cobre
+    (sábado OU domingo, 4h) — ex.: Mirante tem 2 ASG no sábado e 1 no domingo."""
     dias = []
     for d in range(1, calendar.monthrange(ano, mes)[1] + 1):
         dia = date(ano, mes, d)
@@ -257,8 +277,13 @@ def _dias_de_trabalho(ano: int, mes: int, desde: date | None, padrao: str, parid
         if padrao == "12x36":
             if d % 2 == paridade_alvo:
                 dias.append(dia)
-        else:  # comercial 44h: dom folga
-            if dia.weekday() != 6:
+        else:  # comercial 44h
+            dow = dia.weekday()
+            if dow < 5:
+                dias.append(dia)
+            elif dow == 5 and fim_de_semana == "sabado":
+                dias.append(dia)
+            elif dow == 6 and fim_de_semana == "domingo":
                 dias.append(dia)
     return dias
 
@@ -295,6 +320,13 @@ async def _aplicar_grade(
             raise HTTPException(status_code=422, detail="inicio inválido — use HH:MM.")
         if body.padrao == "12x36":
             fim_pad = (datetime.combine(hoje, ini_pad) + timedelta(hours=12)).time()
+    ini_fds = ini_pad
+    if body.inicio_fds:
+        try:
+            h, m = body.inicio_fds.split(":")
+            ini_fds = time(int(h), int(m))
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=422, detail="inicio_fds inválido — use HH:MM.")
 
     # Meses do horizonte: o mês de a_partir_de + meses FUTUROS que já têm escala no posto
     m0, a0 = body.a_partir_de.month, body.a_partir_de.year
@@ -334,7 +366,7 @@ async def _aplicar_grade(
                 mes_ant = 1 if mes_ant == 12 else mes_ant + 1
                 ano_ant = ano_ant + 1 if mes_ant == 1 else ano_ant
         desde = body.a_partir_de if (mm, aa) == (m0, a0) else None
-        plano.append((scale_id, _dias_de_trabalho(aa, mm, desde, body.padrao, par)))
+        plano.append((scale_id, _dias_de_trabalho(aa, mm, desde, body.padrao, par, body.fim_de_semana)))
 
     todos_dias = [d for _, dias in plano for d in dias]
     fim_horizonte = max(todos_dias) if todos_dias else body.a_partir_de
@@ -405,12 +437,13 @@ async def _aplicar_grade(
         for dia in dias:
             if dia in em_ferias:
                 continue
+            ini_d = ini_pad
             if body.padrao == "12x36":
                 h, pausa, fim_d, is_n = 12.0, 60, fim_pad, body.turno == "noturno"
             else:
-                if dia.weekday() == 5:  # sábado 4h
-                    h, pausa = 4.0, 0
-                    fim_d = (datetime.combine(dia, ini_pad) + timedelta(hours=4)).time()
+                if dia.weekday() >= 5:  # dia de fim de semana coberto (sáb OU dom): 4h
+                    h, pausa, ini_d = 4.0, 0, ini_fds
+                    fim_d = (datetime.combine(dia, ini_fds) + timedelta(hours=4)).time()
                 else:  # seg-sex 8h, span 9h com almoço
                     h, pausa = 8.0, 60
                     fim_d = (datetime.combine(dia, ini_pad) + timedelta(hours=9)).time()
@@ -431,7 +464,7 @@ async def _aplicar_grade(
                     """
                 ),
                 {"id": str(uuid.uuid4()), "sc": scale_id, "emp": body.employee_id,
-                 "post": post["id"], "dia": dia, "ini": ini_pad, "fim": fim_d,
+                 "post": post["id"], "dia": dia, "ini": ini_d, "fim": fim_d,
                  "pausa": pausa, "noturno": is_n, "h": h, "nota": autoria},
             )
             criados += 1
