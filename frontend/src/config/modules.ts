@@ -226,6 +226,7 @@ export const modules: Module[] = [
       // --- Postos e Escalas ---
       { id: 'postos', title: 'Postos', href: '/modulos/operacional/postos', icon: 'MapPin', permissions: ['module:operacional'] },
       { id: 'escalas', title: 'Escalas', href: '/modulos/operacional/escalas', icon: 'CalendarDays', permissions: ['module:operacional'] },
+      { id: 'grade-pessoa', title: 'Grade por pessoa', href: '/modulos/operacional/escalas/grade', icon: 'CalendarCog', permissions: ['module:operacional'] },
       { id: 'alocacoes', title: 'Alocacoes', href: '/modulos/operacional/alocacoes', icon: 'Users', permissions: ['module:operacional'] },
       { id: 'turnos', title: 'Turnos', href: '/modulos/operacional/turnos', icon: 'Clock', permissions: ['module:operacional'] },
       { id: 'substituicoes', title: 'Substituicoes', href: '/modulos/operacional/substituicoes', icon: 'RefreshCw', permissions: ['module:operacional'] },
