@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { DollarSign, ArrowLeft, Inbox, Loader2, Search, ChevronLeft, ChevronRight as ChevronRightIcon, Calculator, RefreshCw, Banknote, X, AlertTriangle } from 'lucide-react';
+import { DollarSign, ArrowLeft, Inbox, Loader2, Search, ChevronLeft, ChevronRight as ChevronRightIcon, Calculator, RefreshCw, Banknote, X, AlertTriangle, FileText, FileDown } from 'lucide-react';
 import { toast } from 'sonner';
+import { baixarArquivoAutenticado } from '@/utils/baixarArquivoAutenticado';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -57,6 +58,11 @@ export default function FolhaPage() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [refreshKey, setRefreshKey] = useState(0);
 
+  // Mapa employee_id -> payslip_id (contracheque publicado) do período, para o botão de download por linha.
+  const [payslipMap, setPayslipMap] = useState<Record<string, string>>({});
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [exportandoFolha, setExportandoFolha] = useState(false);
+
   // PIX Lote
   const [pixModalOpen, setPixModalOpen] = useState(false);
   const [pixLoading, setPixLoading] = useState(false);
@@ -83,11 +89,31 @@ export default function FolhaPage() {
     async function load() {
       setLoading(true);
       try {
-        const [dashRes, rubRes, resumoRes] = await Promise.all([
+        const [dashRes, rubRes, resumoRes, payslipsRes] = await Promise.all([
           fetch(`${API_BASE}/folha/dashboard?mes=${mes}&ano=${ano}`, { headers: getAuthHeaders() }).catch(() => null),
           fetch(`${API_BASE}/folha/rubricas`, { headers: getAuthHeaders() }).catch(() => null),
           fetch(`${API_BASE}/folha/resumo/${mes}/${ano}`, { headers: getAuthHeaders() }).catch(() => null),
+          // Lista de contracheques do período → mapa employee_id -> payslip_id (botão Contracheque por linha).
+          fetch(`${API_BASE}/dp/payslips/?mes=${mes}&ano=${ano}&page_size=100`, { headers: getAuthHeaders() }).catch(() => null),
         ]);
+
+        // Constrói o mapa employee_id -> payslip_id (último contracheque do período por colaborador).
+        if (payslipsRes?.ok) {
+          try {
+            const pd = await payslipsRes.json();
+            const list: any[] = pd.payslips || pd.items || (Array.isArray(pd) ? pd : []);
+            const map: Record<string, string> = {};
+            for (const p of list) {
+              const eid = p.employee_id;
+              if (eid && p.id && !map[eid]) map[eid] = p.id;
+            }
+            setPayslipMap(map);
+          } catch {
+            setPayslipMap({});
+          }
+        } else {
+          setPayslipMap({});
+        }
 
         // A tabela de "Detalhamento por Colaborador" DEVE ler os holerites reais
         // (dashboard/resumo.funcionarios trazem inss_value/fgts_value/total_descontos/
@@ -195,6 +221,36 @@ export default function FolhaPage() {
       toast.error('Erro de conexão ao processar PIX', { duration: 5000 });
     } finally {
       setPixConfirming(false);
+    }
+  };
+
+  const handleBaixarContracheque = async (payslipId: string, nome: string) => {
+    setDownloadingId(payslipId);
+    try {
+      await baixarArquivoAutenticado(
+        `/api/v1/people-management/dp/payslips/${payslipId}/pdf`,
+        `contracheque_${((nome || 'colaborador').split(' ')[0] || 'colaborador').toLowerCase()}_${String(mes).padStart(2, '0')}_${ano}.pdf`,
+      );
+      toast.success('Contracheque baixado', { duration: 3000 });
+    } catch (e: any) {
+      toast.error(e?.message || 'Erro ao baixar contracheque', { duration: 5000 });
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const handleExportarFolha = async () => {
+    setExportandoFolha(true);
+    try {
+      await baixarArquivoAutenticado(
+        `/api/v1/people-management/folha/${mes}/${ano}/pdf`,
+        `folha_${ano}_${String(mes).padStart(2, '0')}.pdf`,
+      );
+      toast.success('Folha exportada em PDF', { duration: 3000 });
+    } catch (e: any) {
+      toast.error(e?.message || 'Erro ao exportar folha', { duration: 5000 });
+    } finally {
+      setExportandoFolha(false);
     }
   };
 
@@ -329,6 +385,17 @@ export default function FolhaPage() {
               {calculating ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Calculator className="h-4 w-4 mr-1" />}
               {calculating ? 'Calculando...' : 'Calcular Folha'}
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={exportandoFolha || loading}
+              onClick={handleExportarFolha}
+              title="Exportar a folha inteira do período em PDF"
+            >
+              {exportandoFolha ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <FileDown className="h-4 w-4 mr-1" />}
+              {exportandoFolha ? 'Exportando...' : 'Exportar folha (PDF)'}
+            </Button>
             {hasPublishedPayslips && (
               <Button
                 type="button"
@@ -437,6 +504,7 @@ export default function FolhaPage() {
                         <TableHead className="cursor-pointer select-none" onClick={() => handleSort('total_descontos')}>Descontos{sortIcon('total_descontos')}</TableHead>
                         <TableHead className="cursor-pointer select-none" onClick={() => handleSort('salario_liquido')}>Liquido{sortIcon('salario_liquido')}</TableHead>
                         <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Contracheque</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -453,8 +521,10 @@ export default function FolhaPage() {
                           ? 'sem_folha'
                           : (item.status_folha || item.payroll_status || item.status || (liqVal ? 'calculada' : 'pendente'));
                         const st = statusConfig[status] || { label: status || 'N/A', className: 'bg-gray-500 text-white' };
+                        const empId = item.employee_id || item.id || '';
+                        const payslipId = payslipMap[empId];
                         return (
-                          <TableRow key={item.id || i}>
+                          <TableRow key={item.id || empId || i}>
                             <TableCell className="font-medium">{nome}</TableCell>
                             <TableCell>{cargo}</TableCell>
                             <TableCell>{fmt(salBase)}</TableCell>
@@ -463,6 +533,25 @@ export default function FolhaPage() {
                             <TableCell className="text-red-500">{fmt(descVal)}</TableCell>
                             <TableCell className="font-bold">{fmt(liqVal)}</TableCell>
                             <TableCell><Badge className={st.className}>{st.label}</Badge></TableCell>
+                            <TableCell className="text-right">
+                              {payslipId ? (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={downloadingId === payslipId}
+                                  onClick={() => handleBaixarContracheque(payslipId, nome)}
+                                  title="Baixar contracheque em PDF"
+                                >
+                                  {downloadingId === payslipId
+                                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                                    : <FileText className="h-4 w-4" />}
+                                  <span className="ml-1 hidden sm:inline">Contracheque</span>
+                                </Button>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
                           </TableRow>
                         );
                       })}

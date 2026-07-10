@@ -127,6 +127,41 @@ def baixar_holerite_pdf(
 
 
 @router.get(
+    "/{mes:int}/{ano:int}/pdf",
+    summary="Exportar FOLHA CONSOLIDADA em PDF (resumo + detalhamento por colaborador)",
+)
+def exportar_folha_pdf(
+    mes: int,
+    ano: int,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_sync_db_dependency),
+):
+    """Gera o PDF da folha inteira do período (padrão-ouro Conecta Mais).
+
+    Mesmos números da tela dp/folha (fonte: ``get_resumo_folha``): resumo com
+    totais (bruto/descontos/líquido/INSS/FGTS/IRRF/custo) + tabela de
+    detalhamento por colaborador. Não recalcula: só formata em PDF.
+    """
+    from fastapi.responses import Response
+
+    from ..services.folha_pdf import montar_folha_pdf
+
+    if not (1 <= mes <= 12):
+        raise HTTPException(status_code=422, detail="Mês inválido (1-12).")
+
+    resumo = calculo_service.get_resumo_folha(db, mes, ano)
+    pdf = montar_folha_pdf(resumo)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="folha_{ano}_{mes:02d}.pdf"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.get(
     "/recibo-vt-vr/{employee_id}/{mes}/{ano}/pdf",
     summary="Baixar Recibo de VT e VR em PDF (padrão-ouro Conecta Mais)",
 )

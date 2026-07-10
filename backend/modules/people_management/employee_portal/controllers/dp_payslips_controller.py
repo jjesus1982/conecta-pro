@@ -58,6 +58,7 @@ class PayslipLoteItem(PayslipCreateBody):
 # ─────────────────────────── ENDPOINTS ────────────────────────────
 
 
+@router.get("")  # alias sem barra final: GET /dp/payslips?mes=&ano= (evita 404 do redirect com query)
 @router.get("/")
 async def listar_payslips(
     current_user: CurrentActiveUser,
