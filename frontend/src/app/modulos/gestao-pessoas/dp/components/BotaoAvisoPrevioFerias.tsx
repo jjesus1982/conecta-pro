@@ -14,6 +14,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useGerarAvisoPrevioFerias } from '@/hooks/useGerarAvisoPrevioFerias';
+import { baixarArquivoAutenticado } from '@/utils/baixarArquivoAutenticado';
 
 interface BotaoAvisoPrevioFeriasProps {
   employeeId: string;
@@ -45,7 +46,7 @@ export function BotaoAvisoPrevioFerias({
       });
       toast.success(`Aviso gerado para ${result.employee_name}`, { duration: 4000 });
       setOpen(false);
-      window.open(result.file_url, '_blank');
+      await baixarArquivoAutenticado(result.file_url);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Erro ao gerar aviso', {
         duration: 5000,

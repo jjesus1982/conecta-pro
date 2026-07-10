@@ -4,6 +4,7 @@ import { FileDown, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useGerarContratoTrabalho } from '@/hooks/useGerarContratoTrabalho';
+import { baixarArquivoAutenticado } from '@/utils/baixarArquivoAutenticado';
 
 interface BotaoGerarContratoProps {
   employeeId: string;
@@ -18,7 +19,7 @@ export function BotaoGerarContrato({ employeeId, employeeName, className }: Bota
     try {
       const result = await mutation.mutateAsync({ employee_id: employeeId });
       toast.success(`Contrato gerado para ${result.employee_name}`, { duration: 4000 });
-      window.open(result.file_url, '_blank');
+      await baixarArquivoAutenticado(result.file_url);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Erro ao gerar contrato';
       toast.error(msg, { duration: 5000 });
