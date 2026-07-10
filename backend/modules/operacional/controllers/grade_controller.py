@@ -375,7 +375,11 @@ async def _aplicar_grade(
         plano.append((scale_id, _dias_de_trabalho(aa, mm, desde, body.padrao, par, body.fim_de_semana)))
 
     todos_dias = [d for _, dias in plano for d in dias]
-    fim_horizonte = max(todos_dias) if todos_dias else body.a_partir_de
+    # Horizonte de CANCELAMENTO = fim do último mês com escala (não o último dia do novo
+    # plano): quando a paridade vira para 'pares', o plano termina dia 30 e um turno antigo
+    # de dia 31 sobreviveria órfão (bug corrigido em 10/07 — caso Eduardo 31/08).
+    _, ult_m, ult_a = escalas[-1]
+    fim_horizonte = date(ult_a, ult_m, calendar.monthrange(ult_a, ult_m)[1])
 
     # Férias aprovadas → dias pulados (nunca sobrepor férias do DP)
     ferias = (

@@ -153,3 +153,13 @@ Prova amostral 11-14/07: emenda 06→18→06 nos 4 postos. QUADRO CONTRATUAL COM
 - Laranjeiras: 07-19 / 19-07 (1h intervalo, p60)
 - Demais: 06-18 / 18-06 (p60)
 - ASGs: 07-16 seg-sex (+fds conforme posto); Mirante ASG almoço 11-12
+
+---
+## Intrajornada paga também em Prime/VDF/V.Pássaros + bug de horizonte (2026-07-10)
+- AGPs de Prime, Villa Dei Fiori e V. Pássaros: intrajornada PAGA → pausa 0 em 312 turnos
+  futuros (UPDATE cirúrgico, dias/horários intactos). Ideal permanece 1h (não citado).
+- Bug achado e corrigido no editor: cancelamento usava max(dias do novo plano) — plano
+  'pares' termina dia 30 e deixava órfão um turno antigo de dia 31 (caso Eduardo 31/08).
+  Agora cancela até o fim do último mês com escala. Varredura global: zero duplicatas,
+  zero quebras de paridade após o conserto.
+- Quadro de intervalos final: Mirante p0 | Laranjeiras p60 | Prime/VDF/VP p0 | Ideal p60.
