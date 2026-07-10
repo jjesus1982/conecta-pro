@@ -26,6 +26,10 @@ class FuncionarioTurno(BaseModel):
     fonte: str | None = Field(None, description="'ponto' | 'manual' | null (sem presença)")
     facial_match: bool | None = Field(None, description="Só quando fonte='ponto'")
     dentro_geofence: bool | None = Field(None, description="Só quando fonte='ponto'")
+    falta_registrada: bool = Field(False, description="True quando a falta do turno já foi registrada (shift 'missed')")
+    substituicao: str | None = Field(
+        None, description="Status da substituição aberta para o turno: 'pending' | 'confirmed' | null"
+    )
 
 
 class ExtraPresenca(BaseModel):

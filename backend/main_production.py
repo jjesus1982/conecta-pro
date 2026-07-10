@@ -506,6 +506,11 @@ try:
     api_router.include_router(dashboard_unificado_router, prefix="/operacional/unificado", tags=["Operacional - Visão Unificada"])
     api_router.include_router(scale_optimizer_router, prefix="/operacional", tags=["Operacional - Otimização de Escalas"])
     api_router.include_router(presence_router, prefix="/operacional", tags=["Operacional - Presença"])
+    # Grade por pessoa + fluxo falta→substituto (2026-07-10)
+    from modules.operacional.controllers.falta_substituto_controller import router as falta_substituto_router
+    from modules.operacional.controllers.grade_controller import router as grade_router
+    api_router.include_router(falta_substituto_router, prefix="/operacional", tags=["Operacional - Falta e Substituto"])
+    api_router.include_router(grade_router, prefix="/operacional", tags=["Operacional - Grade por pessoa"])
     api_router.include_router(post_orders_router, prefix="/operacional", tags=["Operacional - Instruções de Posto"])
     # AI
     api_router.include_router(operacional_ai_router, prefix="/operacional", tags=["Operacional - AI"])

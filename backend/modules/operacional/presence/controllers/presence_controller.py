@@ -232,7 +232,9 @@ async def quadro_presenca_hoje(
                    e.nome, e.cargo,
                    sh.planned_start_time, sh.planned_end_time,
                    sh.actual_start_time,
-                   aloc.setor
+                   sh.status AS shift_status,
+                   aloc.setor,
+                   sub.status AS substituicao
             FROM shifts sh
             JOIN employees e ON e.id = sh.employee_id
             JOIN posts p ON p.id = sh.post_id
@@ -244,6 +246,14 @@ async def quadro_presenca_hoje(
                 ORDER BY (a.post_id = sh.post_id) DESC, a.is_primary DESC, a.created_at DESC
                 LIMIT 1
             ) aloc ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT su.status
+                FROM substitutions su
+                WHERE su.shift_id = sh.id AND su.is_active
+                  AND su.status IN ('pending', 'confirmed')
+                ORDER BY su.requested_at DESC
+                LIMIT 1
+            ) sub ON TRUE
             WHERE sh.shift_date = :dia
               AND {_SHIFT_ESPERADO}{scope_filter_shifts}
             ORDER BY p.name, sh.planned_start_time, e.nome
@@ -283,6 +293,12 @@ async def quadro_presenca_hoje(
             dt_inicio, dt_fim = _janela_turno(dia, row.planned_start_time, row.planned_end_time)
             status_turno = _status_turno(agora, dt_inicio, dt_fim)
 
+        # Falta registrada pelo líder/gestor (shift 'missed') e sem presença que a
+        # contradiga → o quadro mostra 'ausente' já, sem esperar a janela vencer
+        falta_registrada = row.shift_status == "missed"
+        if falta_registrada and status_turno != "presente":
+            status_turno = "ausente"
+
         posto["funcionarios"].append(
             FuncionarioTurno(
                 employee_id=row.employee_id,
@@ -297,6 +313,8 @@ async def quadro_presenca_hoje(
                 fonte=fonte,
                 facial_match=facial,
                 dentro_geofence=geofence,
+                falta_registrada=falta_registrada,
+                substituicao=row.substituicao,
             )
         )
 
