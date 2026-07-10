@@ -34,6 +34,11 @@ class CheckpointType(StrEnum):
     MEDIDA_DISCIPLINAR = "medida_disciplinar"
     OBSERVACAO_GERAL = "observacao_geral"
     FOTO_EVIDENCIA = "foto_evidencia"
+    # Visita de gestão ao condomínio (check-in/out georreferenciado + atividades)
+    CHECKIN_CONDOMINIO = "checkin_condominio"
+    CHECKOUT_CONDOMINIO = "checkout_condominio"
+    REUNIAO = "reuniao"
+    ALTERACAO_OPERACIONAL = "alteracao_operacional"
 
 
 class CheckpointStatus(StrEnum):

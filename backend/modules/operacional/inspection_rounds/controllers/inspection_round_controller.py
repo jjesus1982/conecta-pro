@@ -6,11 +6,18 @@ Date: 2026-01-23
 """
 
 import asyncio
+import json
 import logging
+import re
+import unicodedata
 from datetime import datetime
-from uuid import UUID
+from pathlib import Path
+from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser, get_current_active_user
@@ -581,3 +588,101 @@ async def apply_disciplinary_action(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Erro interno ao aplicar medida disciplinar",
         )
+
+
+# =============================================================================
+# FOTOS DE CHECKPOINT — evidências REAIS no sistema (nada em grupo de WhatsApp)
+# =============================================================================
+
+FOTOS_DIR = Path("/app/uploads/rondas")
+_MIME_EXT = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+_MAX_FOTO_BYTES = 10 * 1024 * 1024  # 10 MB
+_TZ_MANAUS = ZoneInfo("America/Manaus")
+
+
+async def _checkpoint_da_ronda(db: AsyncSession, round_id: UUID, checkpoint_id: UUID):
+    row = (
+        await db.execute(
+            text(
+                """SELECT id::text FROM inspection_checkpoints
+                   WHERE id=CAST(:c AS uuid) AND inspection_round_id=CAST(:r AS uuid)"""
+            ),
+            {"c": str(checkpoint_id), "r": str(round_id)},
+        )
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Checkpoint não encontrado nesta ronda.")
+
+
+@router.post(
+    "/{round_id}/checkpoints/{checkpoint_id}/fotos",
+    status_code=status.HTTP_201_CREATED,
+    summary="Anexar foto ao checkpoint",
+    description="Sobe uma foto (jpeg/png/webp, máx. 10MB) como evidência do checkpoint.",
+)
+async def anexar_foto_checkpoint(
+    round_id: UUID,
+    checkpoint_id: UUID,
+    current_user: CurrentActiveUser,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    await _checkpoint_da_ronda(db, round_id, checkpoint_id)
+    ext = _MIME_EXT.get((file.content_type or "").lower())
+    if not ext:
+        raise HTTPException(status_code=422, detail="Formato inválido — envie JPEG, PNG ou WebP.")
+    conteudo = await file.read()
+    if len(conteudo) > _MAX_FOTO_BYTES:
+        raise HTTPException(status_code=422, detail="Foto acima de 10MB.")
+    if not conteudo:
+        raise HTTPException(status_code=422, detail="Arquivo vazio.")
+
+    base = unicodedata.normalize("NFKD", Path(file.filename or "foto").stem)
+    base = re.sub(r"[^A-Za-z0-9_-]+", "_", base.encode("ascii", "ignore").decode())[:40] or "foto"
+    nome = f"{uuid4().hex[:8]}_{base}{ext}"
+    destino = FOTOS_DIR / str(round_id) / str(checkpoint_id)
+    destino.mkdir(parents=True, exist_ok=True)
+    (destino / nome).write_bytes(conteudo)
+
+    foto = {
+        "arquivo": nome,
+        "tamanho_bytes": len(conteudo),
+        "content_type": file.content_type,
+        "enviada_em": datetime.now(_TZ_MANAUS).replace(tzinfo=None).isoformat(timespec="seconds"),
+        "enviada_por": getattr(current_user, "email", None) or str(getattr(current_user, "id", "")),
+        "url": f"/api/v1/operacional/rondas/{round_id}/checkpoints/{checkpoint_id}/fotos/{nome}",
+    }
+    total = (
+        await db.execute(
+            text(
+                """UPDATE inspection_checkpoints
+                   SET photos = COALESCE(photos, '[]'::jsonb) || CAST(:foto AS jsonb),
+                       updated_at = now()
+                   WHERE id = CAST(:c AS uuid)
+                   RETURNING jsonb_array_length(photos)"""
+            ),
+            {"foto": json.dumps([foto]), "c": str(checkpoint_id)},
+        )
+    ).scalar()
+    await db.commit()
+    logger.info(f"[rondas] foto anexada ao checkpoint {checkpoint_id} ({nome}, {len(conteudo)}b)")
+    return {"ok": True, "foto": foto, "total_fotos": int(total or 1)}
+
+
+@router.get(
+    "/{round_id}/checkpoints/{checkpoint_id}/fotos/{nome}",
+    summary="Baixar foto do checkpoint",
+)
+async def baixar_foto_checkpoint(
+    round_id: UUID,
+    checkpoint_id: UUID,
+    nome: str,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    await _checkpoint_da_ronda(db, round_id, checkpoint_id)
+    base = (FOTOS_DIR / str(round_id) / str(checkpoint_id)).resolve()
+    alvo = (base / nome).resolve()
+    if not str(alvo).startswith(str(base)) or not alvo.is_file():
+        raise HTTPException(status_code=404, detail="Foto não encontrada.")
+    return FileResponse(alvo)
