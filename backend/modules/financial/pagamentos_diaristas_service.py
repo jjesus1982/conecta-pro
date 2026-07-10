@@ -50,14 +50,29 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_pag_diarista_dia
 """
 
 
+# Guard de processo: DDL (CREATE TABLE IF NOT EXISTS / ALTER) pega AccessExclusiveLock
+# mesmo com a tabela existente — rodar por request causava DEADLOCK sob concorrência
+# (crash do worker, 502). Roda uma vez por processo; se falhar, rollback e re-tenta depois.
+_SCHEMA_READY = False
+
+
 async def _ensure(db: AsyncSession) -> None:
-    for stmt in _DDL.strip().split(";\n"):
-        s = stmt.strip()
-        if s:
-            await db.execute(text(s))
-    # competência (MM/AAAA) para o pagamento mensal de diárias (FLUXO 2, dia 15)
-    await db.execute(text(
-        "ALTER TABLE financial_pagamentos_diaristas ADD COLUMN IF NOT EXISTS competencia VARCHAR(7)"))
+    global _SCHEMA_READY  # noqa: PLW0603
+    if _SCHEMA_READY:
+        return
+    try:
+        for stmt in _DDL.strip().split(";\n"):
+            s = stmt.strip()
+            if s:
+                await db.execute(text(s))
+        # competência (MM/AAAA) para o pagamento mensal de diárias (FLUXO 2, dia 15)
+        await db.execute(text(
+            "ALTER TABLE financial_pagamentos_diaristas ADD COLUMN IF NOT EXISTS competencia VARCHAR(7)"))
+        await db.commit()
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+        raise
+    _SCHEMA_READY = True
 
 
 async def programar_diarias_mensais(db: AsyncSession, mes: int, ano: int,

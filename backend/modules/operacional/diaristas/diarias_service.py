@@ -130,10 +130,29 @@ _DDL = [
 ]
 
 
+# Guard de processo: o DDL (CREATE TABLE IF NOT EXISTS) pega AccessExclusiveLock
+# mesmo com a tabela já existente — rodar a CADA request causa DEADLOCK sob
+# concorrência e derrubava o worker (502 no site inteiro). Roda uma vez por processo.
+_SCHEMA_READY = False
+
+
 async def ensure_e_seed(db: AsyncSession) -> None:
-    """Cria as tabelas e SEMEIA os cadastros da planilha (idempotente — só se vazio)."""
-    for ddl in _DDL:
-        await db.execute(text(ddl))
+    """Cria as tabelas e SEMEIA os cadastros da planilha (idempotente — só se vazio).
+
+    Idempotente por PROCESSO: após a 1ª execução bem-sucedida, vira no-op (as
+    tabelas já existem e estão semeadas). Evita o AccessExclusiveLock por request
+    que causava deadlock. Se o DDL falhar (ex.: deadlock na 1ª corrida concorrente),
+    faz rollback e não marca pronto — a próxima chamada tenta de novo, sem crashar.
+    """
+    global _SCHEMA_READY  # noqa: PLW0603
+    if _SCHEMA_READY:
+        return
+    try:
+        for ddl in _DDL:
+            await db.execute(text(ddl))
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+        raise
     # seeds (só quando a tabela está vazia)
     if not (await db.execute(text("SELECT 1 FROM diaria_funcoes LIMIT 1"))).first():
         for f in _FUNCOES:
@@ -152,6 +171,7 @@ async def ensure_e_seed(db: AsyncSession) -> None:
         for nome in _DIARISTAS:
             await db.execute(text("INSERT INTO diaria_diaristas (nome) VALUES (:n) ON CONFLICT DO NOTHING"), {"n": nome})
     await db.commit()
+    _SCHEMA_READY = True
 
 
 # ── Cadastros (para as listas suspensas) ─────────────────────────────────────
