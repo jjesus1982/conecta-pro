@@ -78,10 +78,30 @@ SyncDirectionValues = Literal["push", "pull", "bidirectional"]
 # =============================================================================
 
 
+# A tela do CRM envia o vocabulário PT (empresa/condominio/residencial/pessoa_fisica);
+# a API fala EN (pj/condominium/pf). Traduzimos ANTES da validação para os dois conviverem.
+_TIPO_PT_PARA_EN = {
+    "empresa": "pj",
+    "condominio": "condominium",
+    "condomínio": "condominium",
+    "residencial": "condominium",
+    "pessoa_fisica": "pf",
+    "orgao_publico": "government",
+}
+
+
+def _traduz_tipo_cliente(v):
+    if isinstance(v, str):
+        return _TIPO_PT_PARA_EN.get(v.strip().lower(), v)
+    return v
+
+
 class ClientBase(BaseModel):
     """Base schema for Client."""
 
     client_type: ClientTypeValues = Field(default="pj", alias="type")
+
+    _trad_tipo = field_validator("client_type", mode="before")(_traduz_tipo_cliente)
     segment: ClientSegmentValues | None = None
     name: str = Field(..., min_length=2, max_length=200, alias="legal_name")
     trading_name: str | None = Field(None, max_length=200, alias="trade_name")
@@ -153,6 +173,8 @@ class ClientUpdate(BaseModel):
     """Schema for updating a client."""
 
     client_type: ClientTypeValues | None = Field(None, alias="type")
+
+    _trad_tipo_upd = field_validator("client_type", mode="before")(_traduz_tipo_cliente)
     status: ClientStatusValues | None = None
     segment: ClientSegmentValues | None = None
     name: str | None = Field(None, min_length=2, max_length=200, alias="legal_name")
