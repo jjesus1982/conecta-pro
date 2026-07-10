@@ -163,3 +163,16 @@ Prova amostral 11-14/07: emenda 06→18→06 nos 4 postos. QUADRO CONTRATUAL COM
   Agora cancela até o fim do último mês com escala. Varredura global: zero duplicatas,
   zero quebras de paridade após o conserto.
 - Quadro de intervalos final: Mirante p0 | Laranjeiras p60 | Prime/VDF/VP p0 | Ideal p60.
+
+---
+## Rondas: bug "erro interno ao criar" + esclarecimento (2026-07-10)
+- Conceito: /rondas = GESTÃO das rondas de inspeção (supervisor percorre postos, checkpoints,
+  gera ocorrências/medidas); /ronda-mobile = execução no campo. NÃO é a ronda do AGP rondista.
+- Bug REPRODUZIDO e corrigido: navegador manda scheduled_date ISO com 'Z' (aware) → coluna
+  TIMESTAMP naive → asyncpg DataError → 500 "Erro interno ao criar ronda". Fix: field_validator
+  normaliza aware → America/Manaus naive (InspectionRoundCreate/Update). E2E provado: criar
+  (Z) → iniciar → checkpoint → concluir, tudo 2xx, status concluida.
+- Dados falsos removidos: 3 seeds de abril com AGPs como "inspetor" (nunca executadas)
+  desativados; rondas de teste do E2E deletadas. Base zerada p/ uso real.
+- Proposta pendente de "vai": ronda do RONDISTA por condomínio (checkpoints QR/NFC fixos,
+  giro registrado no celular, visível no quadro/portal do cliente).
