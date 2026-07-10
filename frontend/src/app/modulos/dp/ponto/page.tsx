@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { StatCard } from '@/components/ui/stat-card';
+import { EmployeeSelect } from '@/components/sst/EmployeeSelect';
 
 const API_BASE = '/api/v1/people-management';
 
@@ -132,6 +133,9 @@ export default function PontoPage() {
           total: r.total_hours || r.total || r.hours_worked || r.horas_trabalhadas,
           status: r.status || 'normal',
           observation: r.observation || r.observacao || r.notes || '',
+          // origem da linha: 'tangerino' (agregado Solides), 'manual' ou 'portal' (batida nativa).
+          // O clock-out so opera sobre batida nativa; linha Solides tem id sintetico.
+          source: r.source || r.registered_by || null,
         }));
 
         setRegistros(normalized);
@@ -149,24 +153,12 @@ export default function PontoPage() {
 
   useEffect(() => { setCurrentPage(1); }, [searchTerm, filtroStatus]);
 
-  const handleClockIn = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/hr/time-records/clock-in`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ date: selectedDate }),
-      });
-      if (res.ok) {
-        toast.success('Entrada registrada com sucesso!', { duration: 4000 });
-        setRefreshKey(k => k + 1);
-      } else {
-        const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao registrar entrada', { duration: 5000 });
-      }
-    } catch (err) {
-      console.error('handleClockIn:', err);
-      toast.error('Erro de conexão', { duration: 5000 });
-    }
+  // "Registrar Entrada" nao pode disparar clock-in sem funcionario (ClockInRequest exige
+  // employee_id + coords -> 422 garantido). Abre o formulario manual ja com a data selecionada,
+  // onde o operador escolhe o colaborador. Sem botao que so da 422.
+  const handleOpenClockIn = () => {
+    setManualEntry(p => ({ ...p, date: selectedDate }));
+    setShowForm(true);
   };
 
   const handleClockOut = async (recordId: string) => {
@@ -189,8 +181,14 @@ export default function PontoPage() {
   };
 
   const handleManualEntry = async () => {
-    if (!manualEntry.employee_id && !manualEntry.employee_name) {
-      toast.error('Informe o colaborador', { duration: 5000 });
+    // O registro manual EXIGE o UUID do funcionario — o backend grava por employee_id,
+    // nao por nome. Sem o UUID nao ha como lancar a batida no funcionario correto.
+    if (!manualEntry.employee_id) {
+      toast.error('Selecione o colaborador (UUID) — o nome sozinho nao identifica o funcionario', { duration: 6000 });
+      return;
+    }
+    if (!manualEntry.date) {
+      toast.error('Informe a data', { duration: 5000 });
       return;
     }
     if (!manualEntry.clock_in) {
@@ -199,20 +197,36 @@ export default function PontoPage() {
     }
     setSaving(true);
     try {
-      const res = await fetch(`${API_BASE}/hr/time-records/clock-in`, {
+      // CORRECAO CRITICA: usar o endpoint de LANCAMENTO MANUAL (POST "") que grava a
+      // data/hora INFORMADA pelo operador e marca a batida como device_type='manual'.
+      // Antes chamava /clock-in, que IGNORA a data/hora e carimba NOW() (adulteracao de jornada).
+      // Enviamos record_date + clock_in/clock_out como datetime NAIVE em horario LOCAL
+      // (America/Manaus) — o banco guarda wall-clock local, sem conversao UTC.
+      const toLocalDateTime = (dateStr: string, timeStr: string): string => {
+        // timeStr = "HH:MM" -> "YYYY-MM-DDTHH:MM:00" (sem timezone, hora local exata digitada)
+        const hhmm = timeStr.length === 5 ? `${timeStr}:00` : timeStr;
+        return `${dateStr}T${hhmm}`;
+      };
+      const payload: Record<string, unknown> = {
+        employee_id: manualEntry.employee_id,
+        record_date: manualEntry.date,
+        clock_in: toLocalDateTime(manualEntry.date, manualEntry.clock_in),
+        registered_by: 'manual',
+        status: 'regular',
+      };
+      if (manualEntry.clock_out) {
+        payload.clock_out = toLocalDateTime(manualEntry.date, manualEntry.clock_out);
+      }
+      if (manualEntry.observation) {
+        payload.justification = manualEntry.observation;
+      }
+      const res = await fetch(`${API_BASE}/hr/time-records`, {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({
-          employee_id: manualEntry.employee_id || undefined,
-          employee_name: manualEntry.employee_name || undefined,
-          date: manualEntry.date,
-          clock_in: manualEntry.clock_in,
-          clock_out: manualEntry.clock_out || undefined,
-          observation: manualEntry.observation || undefined,
-        }),
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
-        toast.success('Registro manual criado com sucesso!', { duration: 4000 });
+        toast.success('Registro manual criado com a data/hora informada!', { duration: 4000 });
         setShowForm(false);
         setManualEntry({ employee_id: '', employee_name: '', date: today, clock_in: '', clock_out: '', observation: '' });
         setRefreshKey(k => k + 1);
@@ -370,12 +384,10 @@ export default function PontoPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="text-sm font-medium mb-1 block">Colaborador *</label>
-                <input
-                  type="text"
-                  value={manualEntry.employee_name}
-                  onChange={e => setManualEntry(p => ({ ...p, employee_name: e.target.value }))}
-                  className="w-full px-3 py-2 border rounded-md text-sm"
-                  placeholder="Nome do colaborador"
+                <EmployeeSelect
+                  value={manualEntry.employee_id}
+                  onChange={(id, emp) => setManualEntry(p => ({ ...p, employee_id: id, employee_name: emp?.nome || '' }))}
+                  placeholder="Selecione o colaborador..."
                 />
               </div>
               <div>
@@ -461,7 +473,7 @@ export default function PontoPage() {
                     />
                   </div>
                   {viewMode === 'daily' && (
-                    <Button type="button" size="sm" variant="outline" onClick={handleClockIn}>
+                    <Button type="button" size="sm" variant="outline" onClick={handleOpenClockIn}>
                       <LogIn className="h-4 w-4 mr-1" /> Registrar Entrada
                     </Button>
                   )}
@@ -494,7 +506,11 @@ export default function PontoPage() {
                     <TableBody>
                       {paginatedData.map((item, i) => {
                         const st = statusConfig[item.status] || { label: item.status || 'N/A', className: 'bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]' };
-                        const hasNoClockOut = !item.saida;
+                        // Linha agregada do Solides (tangerino) tem id sintetico (tang-...-saida) que
+                        // NAO referencia batida nativa: clock-out nela criaria uma saida duplicada/orfa.
+                        // So oferecemos "Saida" em batida NATIVA (portal/manual) sem saida registrada.
+                        const isAggregate = item.source === 'tangerino';
+                        const hasNoClockOut = !item.saida && !isAggregate;
                         return (
                           <TableRow key={item.id || i}>
                             <TableCell className="font-medium">{item.colaborador}</TableCell>
@@ -508,6 +524,8 @@ export default function PontoPage() {
                                 <Button type="button" variant="outline" size="sm" onClick={() => handleClockOut(item.id)}>
                                   <LogOut className="h-3 w-3 mr-1" /> Saida
                                 </Button>
+                              ) : isAggregate && !item.saida ? (
+                                <span className="text-xs text-muted-foreground" title="Batida importada do Sólides — ajuste pela origem">Sólides</span>
                               ) : (
                                 <span className="text-xs text-muted-foreground">-</span>
                               )}

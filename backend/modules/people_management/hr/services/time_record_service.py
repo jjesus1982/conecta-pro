@@ -199,8 +199,10 @@ class TimeRecordService:
 
         Verifica se ja existe entrada aberta no dia.
         """
-        today = date.today()
-        now = datetime.utcnow()
+        # Servidor roda em America/Manaus; gp_clock_punches guarda wall-clock LOCAL
+        # (batidas Tangerino/manuais estao em hora local). utcnow() carimbaria +4h.
+        now = datetime.now()
+        today = now.date()
         punch_id = str(uuid4())
 
         # Verificar se ja existe entrada sem saida hoje
@@ -324,7 +326,16 @@ class TimeRecordService:
         if not entry:
             raise ValueError(f"Registro de ponto {record_id} nao encontrado")
 
-        now = datetime.utcnow()
+        # Batida agregada do Solides (Tangerino) tem id sintetico e ja vem fechada la;
+        # registrar uma saida nativa aqui criaria uma batida orfa/duplicada. Recusa honesta.
+        if str(entry.get("device_type") or "").lower() == "tangerino":
+            raise ValueError(
+                "Batida importada do Solides (Tangerino) nao aceita clock-out nativo — "
+                "ajuste pela origem ou use lancamento manual."
+            )
+
+        # Wall-clock LOCAL (America/Manaus), consistente com as demais batidas.
+        now = datetime.now()
         punch_id = str(uuid4())
 
         await self.db.execute(
@@ -402,7 +413,9 @@ class TimeRecordService:
         """
         employee_id = str(data["employee_id"])
         record_date = data["record_date"]
-        now = datetime.utcnow()
+        # server_timestamp/created_at = momento do LANCAMENTO (metadado de auditoria), hora local.
+        # O punch_timestamp em si vem da data/hora INFORMADA pelo operador (ts_dt abaixo).
+        now = datetime.now()
 
         punches_to_insert = []
         if data.get("clock_in"):
