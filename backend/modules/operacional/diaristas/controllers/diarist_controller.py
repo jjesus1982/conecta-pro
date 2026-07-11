@@ -153,7 +153,7 @@ async def consulta_cpf(
     "/",
     response_model=DiaristResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_roles("admin", "sindico"))],
+    dependencies=[Depends(require_roles("admin", "super_admin", "administrador", "sindico", "gerente_operacional", "supervisor"))],
 )
 async def create_diarist(
     data: DiaristCreate,
@@ -233,7 +233,7 @@ async def get_available_diarists(
     "/assignments",
     response_model=DiaristAssignmentResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_roles("admin", "sindico"))],
+    dependencies=[Depends(require_roles("admin", "super_admin", "administrador", "sindico", "gerente_operacional", "supervisor"))],
 )
 async def create_assignment(
     data: DiaristAssignmentCreate,
@@ -290,7 +290,7 @@ async def get_assignment(
 
 @router.post(
     "/assignments/{assignment_id}/cancel",
-    dependencies=[Depends(require_roles("admin", "sindico"))],
+    dependencies=[Depends(require_roles("admin", "super_admin", "administrador", "sindico", "gerente_operacional", "supervisor"))],
 )
 async def cancel_assignment(
     assignment_id: UUID,
@@ -312,7 +312,7 @@ async def cancel_assignment(
     "/schedules/batch",
     response_model=BatchScheduleResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_roles("admin", "sindico"))],
+    dependencies=[Depends(require_roles("admin", "super_admin", "administrador", "sindico", "gerente_operacional", "supervisor"))],
 )
 async def create_batch_schedules(
     data: BatchScheduleCreate,
@@ -339,7 +339,7 @@ async def create_batch_schedules(
     "/schedules",
     response_model=DiaristScheduleResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_roles("admin", "sindico", "porteiro"))],
+    dependencies=[Depends(require_roles("admin", "super_admin", "administrador", "sindico", "gerente_operacional", "supervisor", "porteiro"))],
 )
 async def create_schedule(
     data: DiaristScheduleCreate,
@@ -411,7 +411,7 @@ async def get_schedule(
 @router.post(
     "/schedules/{schedule_id}/confirm",
     response_model=DiaristScheduleResponse,
-    dependencies=[Depends(require_roles("admin", "sindico", "porteiro"))],
+    dependencies=[Depends(require_roles("admin", "super_admin", "administrador", "sindico", "gerente_operacional", "supervisor", "porteiro"))],
 )
 async def confirm_schedule(
     schedule_id: UUID,
@@ -430,7 +430,7 @@ async def confirm_schedule(
 @router.post(
     "/schedules/{schedule_id}/cancel",
     response_model=DiaristScheduleResponse,
-    dependencies=[Depends(require_roles("admin", "sindico"))],
+    dependencies=[Depends(require_roles("admin", "super_admin", "administrador", "sindico", "gerente_operacional", "supervisor"))],
 )
 async def cancel_schedule(
     schedule_id: UUID,
@@ -456,7 +456,7 @@ async def cancel_schedule(
 @router.post(
     "/schedules/checkin",
     response_model=DiaristScheduleResponse,
-    dependencies=[Depends(require_roles("admin", "sindico", "porteiro"))],
+    dependencies=[Depends(require_roles("admin", "super_admin", "administrador", "sindico", "gerente_operacional", "supervisor", "porteiro"))],
 )
 async def register_checkin(
     data: CheckinRequest,
@@ -481,7 +481,7 @@ async def register_checkin(
 @router.post(
     "/schedules/checkout",
     response_model=DiaristScheduleResponse,
-    dependencies=[Depends(require_roles("admin", "sindico", "porteiro"))],
+    dependencies=[Depends(require_roles("admin", "super_admin", "administrador", "sindico", "gerente_operacional", "supervisor", "porteiro"))],
 )
 async def register_checkout(
     data: CheckoutRequest,
@@ -509,7 +509,7 @@ async def register_checkout(
 @router.get(
     "/payments/payroll-report",
     response_model=PayrollReportResponse,
-    dependencies=[Depends(require_roles("admin", "sindico"))],
+    dependencies=[Depends(require_roles("admin", "super_admin", "administrador", "sindico", "gerente_operacional", "supervisor"))],
 )
 async def get_payroll_report(
     competencia: str = Query(..., min_length=7, max_length=7, description="YYYY-MM"),
@@ -534,7 +534,7 @@ async def get_payroll_report(
 
 @router.post(
     "/payments/payroll-generate",
-    dependencies=[Depends(require_roles("admin", "sindico"))],
+    dependencies=[Depends(require_roles("admin", "super_admin", "administrador", "sindico", "gerente_operacional", "supervisor"))],
 )
 async def generate_payroll_payments(
     data: PayrollGenerateRequest,
@@ -561,7 +561,7 @@ async def generate_payroll_payments(
     "/payments",
     response_model=DiaristPaymentResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_roles("admin", "sindico"))],
+    dependencies=[Depends(require_roles("admin", "super_admin", "administrador", "sindico", "gerente_operacional", "supervisor"))],
 )
 async def create_payment(
     data: DiaristPaymentCreate,
@@ -633,7 +633,7 @@ async def get_payment(
 @router.post(
     "/payments/{payment_id}/process",
     response_model=DiaristPaymentResponse,
-    dependencies=[Depends(require_roles("admin", "sindico"))],
+    dependencies=[Depends(require_roles("admin", "super_admin", "administrador", "sindico", "gerente_operacional", "supervisor"))],
 )
 async def process_payment(
     payment_id: UUID,
@@ -665,7 +665,7 @@ async def process_payment(
 @router.post(
     "/payments/generate",
     response_model=DiaristPaymentResponse,
-    dependencies=[Depends(require_roles("admin", "sindico"))],
+    dependencies=[Depends(require_roles("admin", "super_admin", "administrador", "sindico", "gerente_operacional", "supervisor"))],
 )
 async def generate_payment(
     diarist_id: UUID,
@@ -887,7 +887,7 @@ async def get_diarist(
 @router.put(
     "/{diarist_id}",
     response_model=DiaristResponse,
-    dependencies=[Depends(require_roles("admin", "sindico"))],
+    dependencies=[Depends(require_roles("admin", "super_admin", "administrador", "sindico", "gerente_operacional", "supervisor"))],
 )
 async def update_diarist(
     diarist_id: UUID,
@@ -907,7 +907,7 @@ async def update_diarist(
 @router.post(
     "/{diarist_id}/activate",
     response_model=DiaristResponse,
-    dependencies=[Depends(require_roles("admin", "sindico"))],
+    dependencies=[Depends(require_roles("admin", "super_admin", "administrador", "sindico", "gerente_operacional", "supervisor"))],
 )
 async def activate_diarist(
     diarist_id: UUID,
@@ -926,7 +926,7 @@ async def activate_diarist(
 @router.post(
     "/{diarist_id}/deactivate",
     response_model=DiaristResponse,
-    dependencies=[Depends(require_roles("admin", "sindico"))],
+    dependencies=[Depends(require_roles("admin", "super_admin", "administrador", "sindico", "gerente_operacional", "supervisor"))],
 )
 async def deactivate_diarist(
     diarist_id: UUID,
