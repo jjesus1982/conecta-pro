@@ -226,3 +226,41 @@ IA 8,5 · Relatórios 7,0). #418 confirmado como resíduo de cache (console limp
 | Sino sem badge real | contagem push real na tela de notificações | tela notificacoes |
 | Diaristas de teste poluindo | 10 diaristas-teste desativados (backup em auditoria/) | statistics=5 reais |
 Deploy: frontend container (BUILD_ID conferido) + backend blue/green zero-downtime + 7/7 workers na imagem nova. Commit polish: 8 arquivos.
+
+═══════════════════════════════════════════════════════════════════
+# MEGA E2E CIC — 2ª RODADA (2026-07-10/11) + ONDA DE CORREÇÃO
+Nota do CIC: 6,5/10 "liberar com ressalvas" (3 bloqueadores). TODOS resolvidos:
+
+## Bloqueadores — diagnóstico e desfecho
+1. "Substituições não mostra a substituição" → FALSO no dado, VERDADEIRO na tela:
+   a API devolvia tudo; a tela exibia data -1 dia (parse UTC de YYYY-MM-DD), posto
+   sem nome (payload só tem ids) e "Não definido" p/ diarista. Corrigido: parse
+   local + lookup de nomes + chip "Diarista: {nome}" das notes. PROVADO visual:
+   10/07/2026 · Celiane · Ideal Flores · Diarista: ADAILSON SERRA.
+2. "Diárias Realizadas: 0 e R$70↔90" → card lia subsistema morto (diarists ORM);
+   agora lê /operacional/diarias/lancamentos (qtd · R$ do mês). R$90 era o preço
+   AGENTE DIURNO exibido em outra tela; o lançamento real foi R$70 (AUX SG) ✓.
+   Botão "Agendar" morto → link "Lançar diária".
+3. Fuso metadados ronda (+4h) e duração "-" → formatDate UTC→Manaus + duração
+   lida do detalhe (52 min existia no banco).
+
+## Demais correções da onda (9 itens, 13 arquivos, commit único)
+alocações (filtros NUNCA eram enviados; Apenas vigentes default=52), postos
+("ativos" + "não informado" p/ R$0), WS (nginx upgrade block + URL certa +
+health-check 404 removido — handshake 101 provado via nginx), grade c/ campo
+intrajornada 0/60, React #418 (mounted em fechamento+medidas), passagem de turno
+(pendências visíveis), 403 diarista traduzido.
+
+## Bugs extra achados DURANTE o monitoramento ao vivo
+- POST /clients/ 404 (barra final × redirect_slashes) + vocabulário PT do tipo →
+  corrigidos; cliente CONECTAMAIS PATRIMONIAL LTDA cadastrado.
+- Cadastro de diarista 403 p/ Gonzaga (roles legadas admin/sindico) → gestão
+  operacional liberada (17 endpoints), provado com token do Gonzaga.
+- Webhook boleto Inter: lista de eventos quebrava handler E qualquer evento
+  marcaria fatura como recebida → corrigido + replay do payload real provado.
+  (0 faturas afetadas — o crash impedia o UPDATE.)
+- Crédito da API Anthropic ESGOTADO (SOPHIA em fallback) — ação do Jordan.
+
+## Reversão dos dados de teste do CIC — zero resíduo provado
+falta Celiane restaurada, substituição/diária #9 deletadas, ronda Gelain+foto
+removidas: subs=0, rondas ativas=0, faltas=0.
