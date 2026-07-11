@@ -254,3 +254,23 @@ async def generate_preview_token(
         "expira_em": "30 minutos",
         "aviso": "MODO PREVIEW — Você está visualizando como cliente",
     }
+
+
+@router.post("/resumo-mensal/disparar", summary="Disparar resumo mensal (admin)")
+async def disparar_resumo_mensal(
+    current_user: CurrentActiveUser,
+    client_id: str | None = None,
+    competencia: str | None = None,
+    enviar_email: bool = False,
+    email_override: str | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Dispara o resumo mensal sob demanda: um cliente (com override de e-mail p/
+    teste) ou todos. A caixa do portal recebe sempre; e-mail conforme flags."""
+    from modules.client_portal.services import portal_resumo_service as rs
+
+    if client_id:
+        return await rs.enviar_resumo_cliente(
+            db, client_id, competencia, enviar_email=enviar_email, email_override=email_override
+        )
+    return await rs.enviar_resumo_todos(db, competencia)

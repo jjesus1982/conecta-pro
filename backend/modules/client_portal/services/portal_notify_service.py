@@ -48,6 +48,7 @@ async def notificar(
     mensagem: str,
     link: str | None = None,
     forcar_email: bool = False,
+    email_override: str | None = None,
 ) -> dict:
     """Cria o aviso na caixa do portal + envia e-mail/WhatsApp conforme preferências."""
     prefs = _prefs(client_id)
@@ -58,10 +59,11 @@ async def notificar(
             {"cid": client_id},
         )
     ).mappings().first()
-    email = contato["contact_email"] if contato else None
+    email = email_override or (contato["contact_email"] if contato else None)
 
     enviou_email = False
-    if _ENVIO_EXTERNO_ATIVO and email and (prefs.get("email_notifications") or forcar_email):
+    # email_override (teste do admin) envia mesmo com o envio externo desligado
+    if email and ((_ENVIO_EXTERNO_ATIVO and (prefs.get("email_notifications") or forcar_email)) or email_override):
         try:
             from core.mailer import send_email
 

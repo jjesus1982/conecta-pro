@@ -192,6 +192,12 @@ app.conf.beat_schedule = {
     # TZ do Celery = America/Sao_Paulo (BRT): 07:30 BRT = hour=7, minute=30 (sem
     # conversão para UTC — o beat agenda no timezone configurado acima).
     # Fila gov.batch: worker celery-batch tem TELEGRAM_* no env_file .env.
+    # Portal do Cliente — resumo mensal de reengajamento (dia 1º, 08:00 Manaus)
+    "portal-resumo-mensal": {
+        "task": "portal.resumo_mensal_clientes",
+        "schedule": crontab(minute=0, hour=9, day_of_month="1"),
+        "options": {"queue": "gov.batch"},
+    },
     "operacional-briefing-matinal": {
         "task": "operacional.briefing_operacional_matinal",
         "schedule": crontab(minute=30, hour=7, day_of_week="1-5"),

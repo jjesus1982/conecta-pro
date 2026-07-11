@@ -479,6 +479,19 @@ async def enviar_kit(
 
     logger.info("Kit %s enviado via email+gdrive para %s (%s)", kit_id, client.name, client.contact_email)
 
+    # Aviso na caixa do PORTAL (reengajamento) — best-effort, nunca bloqueia o envio
+    try:
+        from modules.client_portal.services.portal_notify_service import notificar
+
+        await notificar(
+            db, str(kit.client_id), tipo="kit",
+            titulo=f"Kit documental {competencia} disponível",
+            mensagem="Seu kit de documentos do mês já está no portal, com aprovação digital disponível.",
+            link=f"/area-cliente/kits/{kit_id}",
+        )
+    except Exception as _exc_portal:
+        logger.warning("Aviso de kit no portal falhou (não bloqueante): %s", _exc_portal)
+
     return {
         "sucesso": True,
         "email_enviado": client.contact_email,
