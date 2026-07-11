@@ -89,7 +89,7 @@ _MODEL_OPENAI = "gpt-5"  # análise jurídica pesada
 _MODEL_ANTHROPIC = "claude-sonnet-4-6"  # fallback opcional (só se ANTHROPIC_API_KEY definida)
 
 
-async def _chamar_llm(system_prompt: str, user_content: str, max_tokens: int = 3000) -> dict[str, Any] | None:
+async def _chamar_llm(system_prompt: str, user_content: str, max_tokens: int = 8192) -> dict[str, Any] | None:
     """Cascata OpenAI → Anthropic. Retorna None se a IA estiver indisponível (sem fabricar)."""
     try:
         from core.llm_cascade import achat_ex

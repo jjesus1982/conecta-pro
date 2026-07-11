@@ -11,7 +11,7 @@ import logging
 import os
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, model_validator, Field
 
 from modules.bidding.agents.base_agent import AgentConfig, AgentStatus, BaseAgent
 
@@ -46,13 +46,31 @@ class RequisitoHabilitacao(BaseModel):
 
 
 class DocumentoNecessario(BaseModel):
-    """Documento necessario para participacao."""
+    """Documento necessario para participacao.
 
-    nome: str
+    Tolerante a variações do LLM: aceita chaves em inglês (name/description/type/
+    required) via validator e aplica defaults — modelo nenhum derruba a análise
+    por causa do nome de uma chave."""
+
+    nome: str = ""
     descricao: str | None = None
-    tipo: str  # habilitacao, proposta, declaracao, atestado
+    tipo: str = "habilitacao"  # habilitacao, proposta, declaracao, atestado
     obrigatorio: bool = True
     prazo_validade_dias: int | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _aliases_llm(cls, data):
+        if isinstance(data, dict):
+            mapa = {"name": "nome", "description": "descricao", "type": "tipo",
+                    "required": "obrigatorio", "mandatory": "obrigatorio",
+                    "validity_days": "prazo_validade_dias"}
+            for en, pt in mapa.items():
+                if en in data and pt not in data:
+                    data[pt] = data.pop(en)
+            if not data.get("nome") and data.get("descricao"):
+                data["nome"] = str(data["descricao"])[:120]
+        return data
 
 
 class AnalysisResponse(BaseModel):
