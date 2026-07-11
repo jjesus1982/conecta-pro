@@ -34,6 +34,26 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Portal - Auth"])
 
+# ---------------------------------------------------------------------------
+# PORTAL ANTIGO DESCONTINUADO (login por CPF).
+# A entrada oficial agora e o login Google -> aprovacao -> Meu Espaco.
+# As rotas de AUTENTICACAO abaixo estao BLOQUEADAS (HTTP 410 Gone), mas o
+# corpo original foi PRESERVADO para reversao futura — basta remover o guard.
+# NAO afeta as rotas self-service (/portal/self-service/*) nem os my_* — esses
+# sao o backend do Meu Espaco novo e continuam funcionando.
+# ---------------------------------------------------------------------------
+PORTAL_DESCONTINUADO_MSG = (
+    "Portal descontinuado. Acesse erp.conectamais.pro e entre com sua conta Google."
+)
+
+
+def _portal_descontinuado() -> None:
+    """Guard: bloqueia rotas de auth do portal antigo com HTTP 410 Gone."""
+    raise HTTPException(
+        status_code=http_status.HTTP_410_GONE,
+        detail=PORTAL_DESCONTINUADO_MSG,
+    )
+
 
 @router.post("/auth/login", response_model=PortalLoginResponse, status_code=201)
 async def portal_login(
@@ -41,7 +61,12 @@ async def portal_login(
     login_data: PortalLoginRequest,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Autentica funcionario por CPF + senha ou CPF + data de nascimento."""
+    """Autentica funcionario por CPF + senha ou CPF + data de nascimento.
+
+    DESCONTINUADO — retorna HTTP 410. Use o login Google -> Meu Espaco.
+    """
+    _portal_descontinuado()
+
     if not login_data.password and not login_data.data_nascimento:
         raise HTTPException(
             status_code=http_status.HTTP_400_BAD_REQUEST,
@@ -91,7 +116,12 @@ async def portal_primeiro_acesso(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Primeiro acesso ao portal: define senha usando CPF + data de nascimento."""
+    """Primeiro acesso ao portal: define senha usando CPF + data de nascimento.
+
+    DESCONTINUADO — retorna HTTP 410. Use o login Google -> Meu Espaco.
+    """
+    _portal_descontinuado()
+
     from passlib.hash import bcrypt
     from sqlalchemy import select, text
 
@@ -169,7 +199,12 @@ async def portal_reset_senha(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Reset de senha do portal: redefine senha usando CPF + data de nascimento."""
+    """Reset de senha do portal: redefine senha usando CPF + data de nascimento.
+
+    DESCONTINUADO — retorna HTTP 410. Use o login Google -> Meu Espaco.
+    """
+    _portal_descontinuado()
+
     from passlib.hash import bcrypt
     from sqlalchemy import select, text
 
@@ -212,7 +247,12 @@ async def portal_reset_senha(
 
 @router.post("/auth/refresh", status_code=201)
 async def portal_refresh(request: Request) -> Any:
-    """Renova token de acesso usando refresh token."""
+    """Renova token de acesso usando refresh token.
+
+    DESCONTINUADO — retorna HTTP 410. Use o login Google -> Meu Espaco.
+    """
+    _portal_descontinuado()
+
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         raise HTTPException(

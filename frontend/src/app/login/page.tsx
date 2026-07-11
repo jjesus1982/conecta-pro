@@ -46,6 +46,13 @@ function LoginContent() {
 
   const displayError = error || oauthError;
 
+  const notice = useMemo(() => {
+    if (searchParams.get('notice') === 'portal') {
+      return 'Portal atualizado — entre com sua conta Google.';
+    }
+    return '';
+  }, [searchParams]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -236,6 +243,14 @@ function LoginContent() {
             </h2>
             <p style={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.5 }}>Entre com suas credenciais para acessar o sistema</p>
           </div>
+
+          {/* Aviso — portal do funcionario atualizado */}
+          {notice && (
+            <div className="flex items-center gap-2 p-3 rounded-xl mb-4" style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)' }}>
+              <AlertCircle className="w-4 h-4 flex-shrink-0 text-blue-500" />
+              <span className="text-sm text-blue-600">{notice}</span>
+            </div>
+          )}
 
           {/* Erro */}
           {displayError && (
