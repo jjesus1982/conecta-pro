@@ -11,7 +11,7 @@ Uso:
 
     texto = chat(
         messages=[{"role": "system", "content": "..."}, {"role": "user", "content": "..."}],
-        model_openai="gpt-5-mini",
+        model_openai="gpt-5",  # diretriz do dono: melhor modelo da OpenAI em todos os call sites
         model_anthropic="claude-sonnet-4-6",   # opcional; None = sem fallback Anthropic
         max_tokens=1024,
     )
