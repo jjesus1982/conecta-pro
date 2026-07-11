@@ -23,19 +23,25 @@ import { ALLOCATION_STATUS_LABELS } from '@/types/operacional';
 export default function AlocacoesPage() {
   const router = useRouter();
   const { isLoading: authLoading, isAuthenticated } = useAuth();
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(10);
+  // Default LIGADO: "Apenas vigentes" (status=active) — coerente com a Home
+  const [filters, setFilters] = useState<AllocationFilter>({ status: 'active' });
   const {
     data: allocationsData,
     isLoading,
     error,
     refetch,
-  } = useAllocations();
+  } = useAllocations({ page, page_size: pageSize, ...filters });
   const allocations = (allocationsData?.items ?? []) as Allocation[];
   const total = allocationsData?.total ?? allocations.length;
   const refresh = () => { refetch(); };
-  const [page, setPage] = useState(1);
-  const [pageSize] = useState(10);
   const totalPages = Math.ceil(total / pageSize);
-  const [filters, setFilters] = useState<AllocationFilter>({});
+
+  // Voltar para a página 1 quando os filtros mudam
+  useEffect(() => {
+    setPage(1);
+  }, [filters]);
   const { data: postsData } = usePosts();
   const posts = useMemo(() => (postsData?.items ?? []) as Post[], [postsData?.items]);
   const { data: employeesData } = useEmployees();
@@ -117,6 +123,13 @@ export default function AlocacoesPage() {
   // Helper para dropdown de funcionários (sem objeto Allocation)
   const getEmployeeName = (employee: Employee) => {
     return employee?.full_name || employee?.name || employee?.email || employee?.registration || employee.id.substring(0, 8) + '...';
+  };
+
+  // Datas YYYY-MM-DD: parse LOCAL (new Date('YYYY-MM-DD') é UTC e recua 1 dia em Manaus UTC-4)
+  const formatDateLocal = (v?: string | null) => {
+    if (!v) return '—';
+    const d = /^\d{4}-\d{2}-\d{2}$/.test(v) ? new Date(`${v}T00:00:00`) : new Date(v);
+    return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleDateString('pt-BR');
   };
 
   const getStatusBadge = (status: AllocationStatus) => {
@@ -267,9 +280,9 @@ export default function AlocacoesPage() {
     'Colaborador': alloc.employee_name || '-',
     'Posto': alloc.post_name || '-',
     'Status': ALLOCATION_STATUS_LABELS[alloc.status as AllocationStatus] || alloc.status,
-    'Data Início': new Date(alloc.start_date).toLocaleDateString('pt-BR'),
-    'Data Fim': alloc.end_date ? new Date(alloc.end_date).toLocaleDateString('pt-BR') : 'Indeterminado',
-    'Criado em': new Date(alloc.created_at).toLocaleDateString('pt-BR'),
+    'Data Início': formatDateLocal(alloc.start_date),
+    'Data Fim': alloc.end_date ? formatDateLocal(alloc.end_date) : 'Indeterminado',
+    'Criado em': formatDateLocal(alloc.created_at),
   }));
 
   if (authLoading) {
@@ -409,11 +422,11 @@ export default function AlocacoesPage() {
                 <div className="flex items-center gap-2 h-10">
                   <input
                     type="checkbox"
-                    checked={filters.is_current === true}
+                    checked={filters.status === 'active'}
                     onChange={(e) =>
                       setFilters({
                         ...filters,
-                        is_current: e.target.checked ? true : undefined,
+                        status: e.target.checked ? 'active' : undefined,
                       })
                     }
                     className="rounded border-[hsl(var(--border))]"
@@ -497,7 +510,7 @@ export default function AlocacoesPage() {
                   {conflicts.map(c => (
                     <div key={c.key} className="bg-[hsl(var(--background))]/60 rounded-lg px-3 py-2 text-sm">
                       <span className="font-medium text-[hsl(var(--foreground))]">{c.employeeName}</span>
-                      <span className="text-[hsl(var(--muted-foreground))]"> alocado {c.count}× em {c.date ? new Date(c.date).toLocaleDateString('pt-BR') : '—'}: </span>
+                      <span className="text-[hsl(var(--muted-foreground))]"> alocado {c.count}× em {formatDateLocal(c.date)}: </span>
                       <span className="text-red-500">{c.posts}</span>
                     </div>
                   ))}
@@ -560,7 +573,7 @@ export default function AlocacoesPage() {
                           <div className="flex items-center gap-2">
                             <Calendar className="w-4 h-4 text-[hsl(var(--muted-foreground))]" />
                             <span className="text-sm text-[hsl(var(--foreground))]">
-                              {new Date(allocation.start_date).toLocaleDateString('pt-BR')}
+                              {formatDateLocal(allocation.start_date)}
                             </span>
                           </div>
                         </td>

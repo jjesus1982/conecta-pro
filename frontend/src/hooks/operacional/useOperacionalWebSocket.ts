@@ -74,7 +74,8 @@ export function useOperacionalWebSocket(
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin;
     const parsed = new URL(apiUrl);
     const proto = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${proto}//${parsed.host}/ws/notifications/${room}`;
+    // Endpoint real do backend (o caminho sem /api/v1/operacional não existe)
+    return `${proto}//${parsed.host}/api/v1/operacional/ws/notifications/${room}`;
   }, [room]);
 
   const connect = useCallback(() => {

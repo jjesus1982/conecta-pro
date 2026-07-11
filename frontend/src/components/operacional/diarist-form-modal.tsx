@@ -212,7 +212,14 @@ export function DiaristFormModal({ isOpen, onClose, onSuccess }: DiaristFormModa
       onSuccess();
       onClose();
     } catch (err) {
-      setError(getErrorMessage(err));
+      const msg = getErrorMessage(err);
+      // O 403 do backend vinha como "Role requerida: admin, sindico" (desatualizado —
+      // o backend hoje aceita gestão operacional). Exibir mensagem honesta e atual.
+      setError(
+        /role requerida/i.test(msg)
+          ? 'Sem permissão para cadastrar diarista. Disponível para gestão operacional e administradores.'
+          : msg
+      );
     } finally {
       setIsLoading(false);
     }

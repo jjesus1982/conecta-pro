@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/ui/page-header';
 import { Input } from '@/components/ui/input';
 import { Modal, ModalFooter } from '@/components/ui/modal';
+import { api } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
 import {
   useSubstitutions,
@@ -70,6 +71,62 @@ export default function SubstituicoesPage() {
   const [rejectTarget, setRejectTarget] = useState<SubstitutionWithDenormalized | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [isRejecting, setIsRejecting] = useState(false);
+
+  // A API de substituições só traz post_id/original_employee_id — resolver nomes client-side
+  const [postNames, setPostNames] = useState<Record<string, string>>({});
+  const [employeeNames, setEmployeeNames] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let ativo = true;
+    api
+      .get('/api/v1/operacional/posts/?page=1&page_size=100')
+      .then((res) => {
+        if (!ativo) return;
+        const map: Record<string, string> = {};
+        ((res.data?.items ?? []) as Array<{ id?: string; name?: string }>).forEach((p) => {
+          if (p.id && p.name) map[p.id] = p.name;
+        });
+        setPostNames(map);
+      })
+      .catch(() => {
+        // silencioso — mantém fallback 'Posto N/A'
+      });
+    api
+      .get('/api/v1/operacional/employees/?page=1&page_size=200&status=todos')
+      .then((res) => {
+        if (!ativo) return;
+        const map: Record<string, string> = {};
+        ((res.data?.items ?? []) as Array<{ id?: string; nome?: string }>).forEach((e) => {
+          if (e.id && e.nome) map[e.id] = e.nome;
+        });
+        setEmployeeNames(map);
+      })
+      .catch(() => {
+        // silencioso — mantém fallback 'N/A'
+      });
+    return () => {
+      ativo = false;
+    };
+  }, [isAuthenticated]);
+
+  const getPostName = (sub: SubstitutionWithDenormalized) =>
+    sub.post_name || postNames[sub.post_id] || 'Posto N/A';
+
+  const getOriginalEmployeeName = (sub: SubstitutionWithDenormalized) =>
+    sub.original_employee_name || employeeNames[sub.original_employee_id] || 'N/A';
+
+  const getSubstituteName = (sub: SubstitutionWithDenormalized) =>
+    sub.substitute_employee_name ||
+    (sub.substitute_employee_id ? employeeNames[sub.substitute_employee_id] : undefined) ||
+    'Definido';
+
+  /** Nome do diarista quando a cobertura foi por DIARISTA (notes: "Coberto por DIARISTA NOME (#id)") */
+  const getDiaristaName = (sub: SubstitutionWithDenormalized): string | null => {
+    if (sub.substitute_employee_id || !sub.notes) return null;
+    const match = sub.notes.match(/Coberto por DIARISTA ([^(]+)\(/);
+    return match?.[1]?.trim() || null;
+  };
 
   const loadPending = useCallback(() => {
     // Dados pendentes agora vêm do hook usePendingSubstitutions
@@ -156,8 +213,12 @@ export default function SubstituicoesPage() {
     }
   };
 
+  // Data YYYY-MM-DD: parse LOCAL (new Date('YYYY-MM-DD') é UTC e recua 1 dia em Manaus UTC-4)
   const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString('pt-BR', {
+    const d = /^\d{4}-\d{2}-\d{2}$/.test(dateStr)
+      ? new Date(`${dateStr}T00:00:00`)
+      : new Date(dateStr);
+    return d.toLocaleDateString('pt-BR', {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
@@ -196,9 +257,10 @@ export default function SubstituicoesPage() {
     if (debouncedSearchTerm) {
       const searchLower = debouncedSearchTerm.toLowerCase();
       const matchesSearch =
-        sub.original_employee_name?.toLowerCase().includes(searchLower) ||
-        sub.substitute_employee_name?.toLowerCase().includes(searchLower) ||
-        sub.post_name?.toLowerCase().includes(searchLower);
+        getOriginalEmployeeName(sub).toLowerCase().includes(searchLower) ||
+        getSubstituteName(sub).toLowerCase().includes(searchLower) ||
+        (getDiaristaName(sub) ?? '').toLowerCase().includes(searchLower) ||
+        getPostName(sub).toLowerCase().includes(searchLower);
       if (!matchesSearch) return false;
     }
     // Filtro de status
@@ -262,7 +324,7 @@ export default function SubstituicoesPage() {
                   {pendingSubstitutions.length} substituicoes pendentes
                 </p>
                 <p className="text-sm text-yellow-500/80">
-                  {pendingSubstitutions.slice(0, 3).map((s: any) => s.original_employee_name || 'N/A').join(', ')}
+                  {pendingSubstitutions.slice(0, 3).map((s: any) => s.original_employee_name || employeeNames[s.original_employee_id] || 'N/A').join(', ')}
                   {pendingSubstitutions.length > 3 ? ` e mais ${pendingSubstitutions.length - 3}` : ''}
                   {' '}— Clique em &quot;Sugerir IA&quot; para obter recomendacoes
                 </p>
@@ -457,10 +519,10 @@ export default function SubstituicoesPage() {
                             </div>
                             <div>
                               <p className="text-sm font-medium text-[hsl(var(--foreground))]">
-                                {sub.original_employee_name || 'N/A'}
+                                {getOriginalEmployeeName(sub)}
                               </p>
                               <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                                {sub.post_name || 'Posto N/A'}
+                                {getPostName(sub)}
                               </p>
                             </div>
                           </div>
@@ -472,9 +534,14 @@ export default function SubstituicoesPage() {
                                 <User className="w-4 h-4 text-green-500" />
                               </div>
                               <span className="text-sm text-[hsl(var(--foreground))]">
-                                {sub.substitute_employee_name || 'Definido'}
+                                {getSubstituteName(sub)}
                               </span>
                             </div>
+                          ) : getDiaristaName(sub) ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-purple-500/10 text-purple-500">
+                              <User className="w-3 h-3" />
+                              Diarista: {getDiaristaName(sub)}
+                            </span>
                           ) : (
                             <span className="text-sm text-[hsl(var(--muted-foreground))] italic">
                               Nao definido
@@ -701,7 +768,7 @@ export default function SubstituicoesPage() {
               Funcionário original
             </label>
             <p className="text-sm text-[hsl(var(--muted-foreground))]">
-              {rejectTarget?.original_employee_name || 'N/A'} — {rejectTarget?.post_name || 'Posto N/A'}
+              {rejectTarget ? `${getOriginalEmployeeName(rejectTarget)} — ${getPostName(rejectTarget)}` : 'N/A'}
             </p>
           </div>
           <div>

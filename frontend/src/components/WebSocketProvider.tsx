@@ -151,26 +151,14 @@ export function WebSocketProvider({ children, token, apiUrl }: WebSocketProvider
     cancelledRef.current = false;
     backoffRef.current = 1_000;
 
-    // Verificar se o endpoint WS existe antes de tentar conectar
-    const healthUrl = apiUrl + '/api/v1/operacional/comunicacao/ws/operacional/alertas';
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
-    fetch(healthUrl, { method: 'HEAD', signal: controller.signal }).then((res) => {
-      clearTimeout(timeoutId);
-      if (res.status !== 101 && res.status !== 200 && res.status !== 426) {
-        // Endpoint WebSocket não implementado — não tentar conectar
-        console.debug(`[WS] Endpoint indisponível (${res.status}). WebSocket desabilitado.`);
-        return;
-      }
-      const wsUrl =
-        apiUrl.replace(/^http/, 'ws') +
-        '/api/v1/operacional/comunicacao/ws/operacional/alertas?token=' +
-        token;
-      connect(token, wsUrl);
-    }).catch(() => {
-      clearTimeout(timeoutId);
-      // Rede indisponível — silenciar
-    });
+    // Conectar direto o WebSocket — sem "health check" HTTP: GET/HEAD numa rota
+    // WS sempre responde 404 e só polui o console. O connect() já faz retry com
+    // backoff exponencial (1s → 2s → 4s … máx 30s) e reseta ao conectar.
+    const wsUrl =
+      apiUrl.replace(/^http/, 'ws') +
+      '/api/v1/operacional/comunicacao/ws/operacional/alertas?token=' +
+      token;
+    connect(token, wsUrl);
 
     return () => {
       cancelledRef.current = true;

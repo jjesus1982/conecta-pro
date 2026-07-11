@@ -211,7 +211,7 @@ export default function PostosPage() {
         <PageHeader
           eyebrow="OPERACIONAL"
           title="Postos de Trabalho"
-          subtitle={`${total} postos cadastrados`}
+          subtitle={`${total} postos ativos`}
           icon={<MapPin className="w-5 h-5" />}
           actions={
             <>

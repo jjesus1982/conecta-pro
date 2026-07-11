@@ -133,12 +133,14 @@ interface GradeForm {
   padrao: '12x36' | 'comercial';
   turno: 'diurno' | 'noturno';
   paridade: 'pares' | 'impares';
+  /** Intervalo intrajornada em minutos (12x36): 0 = intrajornada paga, 60 = 1h */
+  pausa: 0 | 60;
   inicio: string;
   aPartirDe: string;
 }
 
 function formPadrao(amanha: string): GradeForm {
-  return { padrao: '12x36', turno: 'diurno', paridade: 'pares', inicio: '', aPartirDe: amanha };
+  return { padrao: '12x36', turno: 'diurno', paridade: 'pares', pausa: 60, inicio: '', aPartirDe: amanha };
 }
 
 function placeholderInicio(form: GradeForm): string {
@@ -249,6 +251,34 @@ function CamposGrade({
                 Dias ímpares
               </label>
             </div>
+          </div>
+          <div>
+            <p className="mb-1.5 block text-sm font-medium text-[hsl(var(--muted-foreground))]">Intervalo (intrajornada)</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <label className={radioClasse(form.pausa === 0)}>
+                <input
+                  type="radio"
+                  name="pausa"
+                  className="accent-[hsl(var(--primary))]"
+                  checked={form.pausa === 0}
+                  onChange={() => setForm({ ...form, pausa: 0 })}
+                />
+                Intrajornada paga — sem intervalo (0 min)
+              </label>
+              <label className={radioClasse(form.pausa === 60)}>
+                <input
+                  type="radio"
+                  name="pausa"
+                  className="accent-[hsl(var(--primary))]"
+                  checked={form.pausa === 60}
+                  onChange={() => setForm({ ...form, pausa: 60 })}
+                />
+                1h de intervalo (60 min)
+              </label>
+            </div>
+            <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
+              Mirante/Prime/VDF/V.Pássaros: intrajornada paga · Laranjeiras/Ideal: 1h
+            </p>
           </div>
         </>
       )}
@@ -413,6 +443,7 @@ export default function GradePorPessoaPage() {
       padrao: pessoa.padrao || '12x36',
       turno: pessoa.turno || 'diurno',
       paridade: pessoa.paridade === 'impares' ? 'impares' : 'pares',
+      pausa: 60,
       inicio: '',
       aPartirDe: amanha,
     });
@@ -426,6 +457,7 @@ export default function GradePorPessoaPage() {
     padrao: form.padrao,
     turno: form.padrao === '12x36' ? form.turno : 'diurno',
     paridade: form.padrao === '12x36' ? form.paridade : null,
+    pausa_minutos: form.pausa,
     inicio: form.inicio.trim() || null,
   });
 

@@ -245,14 +245,15 @@ export function PostDetailModal({
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-[hsl(var(--muted-foreground))]">Valor Hora</span>
-                <span className="text-[hsl(var(--foreground))]">
-                  {formatCurrency(post.hourly_rate)}
+                {/* Honestidade > zero enganoso: 0/null = valor ainda não cadastrado */}
+                <span className={post.hourly_rate ? 'text-[hsl(var(--foreground))]' : 'text-[hsl(var(--muted-foreground))] italic'}>
+                  {post.hourly_rate ? formatCurrency(post.hourly_rate) : 'não informado'}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-[hsl(var(--muted-foreground))]">Custo Mensal</span>
-                <span className="text-[hsl(var(--foreground))] font-medium">
-                  {formatCurrency(post.monthly_cost)}
+                <span className={post.monthly_cost ? 'text-[hsl(var(--foreground))] font-medium' : 'text-[hsl(var(--muted-foreground))] italic'}>
+                  {post.monthly_cost ? formatCurrency(post.monthly_cost) : 'não informado'}
                 </span>
               </div>
               {post.night_shift_bonus_percent > 0 && (

@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/ui/page-header';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/hooks/useAuth';
 import { useDiarists } from '@/hooks/operacional/useDiarists';
+import { api } from '@/lib/api';
 const DiaristFormModal = dynamic(() => import('@/components/operacional/diarist-form-modal').then(m => m.DiaristFormModal), { ssr: false });
 import {
   type Diarist,
@@ -50,13 +51,34 @@ export default function DiaristasPage() {
   const [selectedType, setSelectedType] = useState<DiaristType | ''>('');
   const [showFormModal, setShowFormModal] = useState(false);
 
-  // Stats
-  const [stats, setStats] = useState<{
-    total: number;
-    ativos: number;
-    media_avaliacao: number;
-    total_diarias_mes: number;
-  } | null>(null);
+  // Diárias do mês — fonte REAL: módulo Diárias (/operacional/diarias/lancamentos)
+  const [diariasMes, setDiariasMes] = useState<{ qtd: number; valor: number } | null>(null);
+  const [diariasMesErro, setDiariasMesErro] = useState(false);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let ativo = true;
+    const agora = new Date();
+    api
+      .get('/api/v1/operacional/diarias/lancamentos', {
+        params: { mes: agora.getMonth() + 1, ano: agora.getFullYear() },
+      })
+      .then((res) => {
+        if (!ativo) return;
+        const d = res.data || {};
+        setDiariasMes({
+          qtd: Number(d.total_lancamentos ?? d.itens?.length ?? 0),
+          valor: Number(d.total_valor ?? 0),
+        });
+        setDiariasMesErro(false);
+      })
+      .catch(() => {
+        if (ativo) setDiariasMesErro(true);
+      });
+    return () => {
+      ativo = false;
+    };
+  }, [isAuthenticated]);
 
   // Dados agora vêm do hook useDiarists via React Query
 
@@ -209,10 +231,14 @@ export default function DiaristasPage() {
                 <Sparkles className="w-5 h-5 text-purple-500" />
               </div>
               <div>
-                <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
-                  {diarists.reduce((acc, d) => acc + (Number(d.total_diarias ?? 0) || 0), 0)}
+                <p className="font-data text-lg font-semibold tabular-nums text-[hsl(var(--foreground))]">
+                  {diariasMes && !diariasMesErro
+                    ? `${diariasMes.qtd} · ${formatCurrency(diariasMes.valor)}`
+                    : '—'}
                 </p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">Diarias Realizadas</p>
+                <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                  lançamentos do mês (módulo Diárias)
+                </p>
               </div>
             </div>
           </div>
@@ -369,10 +395,12 @@ export default function DiaristasPage() {
                       <Eye className="w-4 h-4 mr-1" />
                       Ver
                     </Button>
-                    <Button variant="ghost" size="sm">
-                      <Calendar className="w-4 h-4 mr-1" />
-                      Agendar
-                    </Button>
+                    <Link href="/modulos/operacional/diarias" title="Lançar diária">
+                      <Button variant="ghost" size="sm">
+                        <Calendar className="w-4 h-4 mr-1" />
+                        Lançar diária
+                      </Button>
+                    </Link>
                     <Button variant="ghost" size="sm">
                       <Edit2 className="w-4 h-4" />
                     </Button>

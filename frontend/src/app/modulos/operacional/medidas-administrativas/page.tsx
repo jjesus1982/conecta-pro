@@ -53,6 +53,11 @@ export default function MedidasAdministrativasPage() {
   const [selectedStatus, setSelectedStatus] = useState<DisciplinaryActionStatus | ''>('');
   const [selectedType, setSelectedType] = useState<DisciplinaryActionType | ''>('');
 
+  // Datas/números formatados por locale divergem entre SSR e client (React #418)
+  // — renderizar a página só após mount (padrão escalas/visual)
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   // Modal states
   const [selectedAction, setSelectedAction] = useState<DisciplinaryAction | null>(null);
   const [showFormModal, setShowFormModal] = useState(false);
@@ -133,8 +138,12 @@ export default function MedidasAdministrativasPage() {
     refreshStats();
   };
 
+  // Data YYYY-MM-DD: parse LOCAL (new Date('YYYY-MM-DD') é UTC e recua 1 dia em Manaus UTC-4)
   const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString('pt-BR');
+    const d = /^\d{4}-\d{2}-\d{2}$/.test(dateStr)
+      ? new Date(`${dateStr}T00:00:00`)
+      : new Date(dateStr);
+    return d.toLocaleDateString('pt-BR');
   };
 
   const getStatusIcon = (status: DisciplinaryActionStatus) => {
@@ -160,7 +169,7 @@ export default function MedidasAdministrativasPage() {
     }
   };
 
-  if (authLoading) {
+  if (authLoading || !mounted) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[hsl(var(--background))]">
         <div className="animate-pulse-slow text-[hsl(var(--primary))]">

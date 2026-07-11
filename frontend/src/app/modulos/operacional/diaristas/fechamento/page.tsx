@@ -1,7 +1,7 @@
 'use client';
 
 import { ArrowLeft, FileText, DollarSign, Users, Calendar, RefreshCw, CheckCircle, AlertTriangle, CreditCard } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 ;
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,10 @@ import type {
 export default function FechamentoFolhaPage() {
   const { isLoading: authLoading } = useAuth();
   const { condominioId } = useCondominio();
+
+  // Datas divergem entre SSR e client (React #418) — renderizar só após mount
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   // Default = mes anterior
   const now = new Date();
@@ -96,7 +100,7 @@ export default function FechamentoFolhaPage() {
     return cpf;
   };
 
-  if (authLoading) {
+  if (authLoading || !mounted) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[hsl(var(--background))]">
         <div className="animate-pulse-slow text-[hsl(var(--primary))]">

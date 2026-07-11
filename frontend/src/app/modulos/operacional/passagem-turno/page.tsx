@@ -204,6 +204,11 @@ export default function PassagemTurnoPage() {
           <CardTitle className="text-base">Registrar minha passagem</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
+          <div>
+            <label className="mb-1 block text-sm font-medium">
+              Turno <span className="text-red-500">*</span>
+            </label>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
@@ -252,6 +257,14 @@ export default function PassagemTurnoPage() {
               className="text-base"
             />
           </div>
+
+          {/* Requisitos visíveis (mesmo padrão da Ocorrência Rápida) — a validação não muda */}
+          {(!turno || !resumo.trim()) && (
+            <ul className="space-y-0.5 text-xs text-amber-600">
+              {!turno && <li>Falta: escolher o turno (Diurno ou Noturno)</li>}
+              {!resumo.trim() && <li>Falta: escrever o resumo do turno</li>}
+            </ul>
+          )}
 
           <Button
             onClick={enviar}

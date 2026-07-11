@@ -150,14 +150,32 @@ export function PatrolRoundDetailModal({
     0
   );
 
+  /**
+   * Timestamps do banco (started_at/created_at etc.) vêm em UTC naive —
+   * interpretar como UTC e exibir em America/Manaus (mesmo padrão do
+   * formatDataHoraCheckpoint). Data pura YYYY-MM-DD: parse local para
+   * não recuar 1 dia no fuso de Manaus (UTC-4).
+   */
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return '-';
-    return new Date(dateStr).toLocaleDateString('pt-BR', {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      return new Date(`${dateStr}T00:00:00`).toLocaleDateString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      });
+    }
+    const d = new Date(
+      dateStr.endsWith('Z') || dateStr.includes('+') ? dateStr : `${dateStr}Z`
+    );
+    if (Number.isNaN(d.getTime())) return dateStr;
+    return d.toLocaleString('pt-BR', {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
+      timeZone: 'America/Manaus',
     });
   };
 
@@ -190,6 +208,12 @@ export function PatrolRoundDetailModal({
           {patrolRound.progress_percentage > 0 && (
             <span className="text-sm text-[hsl(var(--muted-foreground))]">
               Progresso: {patrolRound.progress_percentage}%
+            </span>
+          )}
+          {rd.duration_minutes != null && rd.duration_minutes > 0 && (
+            <span className="inline-flex items-center gap-1 text-sm text-[hsl(var(--muted-foreground))]">
+              <Clock className="w-4 h-4" />
+              Duração: {formatDuration(rd.duration_minutes)}
             </span>
           )}
         </div>
@@ -232,7 +256,7 @@ export function PatrolRoundDetailModal({
               </span>
             </div>
             <p className="text-[hsl(var(--foreground))]">
-              {formatDate(patrolRound.started_at)}
+              {formatDate(rd.started_at)}
             </p>
           </div>
 
@@ -244,7 +268,7 @@ export function PatrolRoundDetailModal({
               </span>
             </div>
             <p className="text-[hsl(var(--foreground))]">
-              {formatDuration(patrolRound.duration_minutes)}
+              {formatDuration(rd.duration_minutes)}
             </p>
           </div>
         </div>
