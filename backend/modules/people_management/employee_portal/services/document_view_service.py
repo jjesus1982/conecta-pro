@@ -181,10 +181,64 @@ class DocumentViewService:
                 if not carga and escala_padrao:
                     carga = _carga_from_escala(escala_padrao)
                 schedule["carga_horaria_semanal"] = carga
-                schedule["total_hours"] = float(carga * 4.33)
+
+            # [Veracidade] Turnos REAIS do funcionario vivem em `shifts`
+            # (employee_id, shift_date, planned_start/end_time, status, post_id).
+            # Antes o array `shifts` vinha sempre vazio (so escala_padrao) — a
+            # tela do funcionario mostrava "sem turnos" mesmo com 61 turnos no mes.
+            # Excluir turnos cancelados/folga; nomear o posto via join em `posts`.
+            from sqlalchemy import text as _sqltext
+
+            shift_rows = (
+                await self.db.execute(
+                    _sqltext(
+                        "SELECT s.shift_date, s.planned_start_time, s.planned_end_time, "
+                        "s.status, p.name AS post_name, s.planned_hours "
+                        "FROM shifts s "
+                        "LEFT JOIN posts p ON p.id = s.post_id "
+                        "WHERE CAST(s.employee_id AS TEXT) = :e "
+                        "AND EXTRACT(MONTH FROM s.shift_date) = :m "
+                        "AND EXTRACT(YEAR FROM s.shift_date) = :y "
+                        "AND COALESCE(s.status, '') NOT IN ('cancelled', 'canceled') "
+                        "AND COALESCE(s.is_off_day, false) = false "
+                        "ORDER BY s.shift_date, s.planned_start_time"
+                    ),
+                    {
+                        "e": str(employee_id),
+                        "m": target_month,
+                        "y": target_year,
+                    },
+                )
+            ).mappings().all()
+
+            total_hours = 0.0
+            for row in shift_rows:
+                if row["planned_start_time"] is None or row["planned_end_time"] is None:
+                    continue
+                schedule["shifts"].append(
+                    {
+                        "date": row["shift_date"],
+                        "start_time": row["planned_start_time"],
+                        "end_time": row["planned_end_time"],
+                        "workplace": row["post_name"],
+                        "status": row["status"] or "agendado",
+                    }
+                )
+                total_hours += float(row["planned_hours"] or 0)
+
+            # total_hours reflete os turnos reais do mes quando existirem;
+            # caso contrario, cai no fallback coerente com o perfil (carga*4.33).
+            if schedule["shifts"]:
+                schedule["total_hours"] = round(total_hours, 2)
+            else:
+                schedule["total_hours"] = float(
+                    (schedule.get("carga_horaria_semanal") or 0) * 4.33
+                )
 
         except ImportError:
             logger.warning("Modelos operacionais nao disponiveis para escalas.")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Erro ao montar escala do funcionario: %s", exc)
 
         return schedule
 

@@ -46,7 +46,16 @@ class PortalNotification(Base):
         index=True,
     )
     notification_type = Column(
-        Enum(PortalNotificationType, name="portal_notification_type_enum"),
+        # values_callable força o SQLAlchemy a usar os VALORES (lowercase:
+        # 'schedule_update', ...) do StrEnum ao ler/gravar, e não os NOMES
+        # uppercase. Sem isso, carregar uma linha real do banco (valor lowercase)
+        # lança "'schedule_update' is not among the defined enum values" e a
+        # consulta inteira de notificações falha.
+        Enum(
+            PortalNotificationType,
+            name="portal_notification_type_enum",
+            values_callable=lambda e: [m.value for m in e],
+        ),
         nullable=False,
         default=PortalNotificationType.GENERAL,
     )
