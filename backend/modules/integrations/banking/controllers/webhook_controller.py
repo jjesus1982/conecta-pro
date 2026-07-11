@@ -226,7 +226,14 @@ async def _processar_boleto_pago(boleto_data: dict) -> dict:
 
     try:
         boleto_id = boleto_data.get("codigoSolicitacao", "")
-        valor = float(boleto_data.get("valorTotal", 0))
+        valor = float(boleto_data.get("valorTotal", 0) or 0)
+        situacao = str(boleto_data.get("situacao", "")).upper()
+
+        # Só PAGAMENTO concilia. EXPIRADO/CANCELADO/A_RECEBER etc. são registrados e
+        # ignorados — antes deste guard, QUALQUER evento marcaria a fatura como recebida.
+        if situacao not in ("PAGO", "RECEBIDO", "MARCADO_RECEBIDO"):
+            return {"boleto_id": boleto_id, "situacao": situacao, "conciliado": False,
+                    "ignorado": "evento não é de pagamento"}
 
         cur.execute(
             """
@@ -305,8 +312,16 @@ async def webhook_boleto(request: Request):
         payload = json.loads(body)
         logger.info("Webhook Boleto Inter: %s", str(payload)[:200])
         _log_webhook(payload, "boleto", "/webhooks/inter/boleto")
-        resultado = await _processar_boleto_pago(payload)
-        return {"status": "ok", "resultado": resultado}
+        # O Inter envia LISTA de eventos ([{...}, ...]); aceitar também dict único
+        # e envelope {"boletos": [...]}. Antes: lista crua estourava 'list' has no .get.
+        if isinstance(payload, list):
+            eventos = payload
+        elif isinstance(payload, dict):
+            eventos = payload.get("boletos", [payload])
+        else:
+            eventos = []
+        resultados = [await _processar_boleto_pago(ev) for ev in eventos if isinstance(ev, dict)]
+        return {"status": "ok", "processados": len(resultados), "resultados": resultados}
     except Exception as e:
         logger.error("Webhook Boleto erro: %s", e)
         return {"status": "erro", "detalhe": str(e)}
