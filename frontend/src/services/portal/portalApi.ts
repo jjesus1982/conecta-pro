@@ -71,6 +71,22 @@ export const financeiro = {
   boletos: () => portalFetch<{ boletos: Boleto[]; total: number }>('/financeiro/boletos'),
 };
 
+// ── Visitas da gestão (rondas de supervisão) ─────────────────────────────────
+export interface VisitaAtividade { tipo: string; tipo_label: string; hora: string | null }
+export interface VisitaFoto { checkpoint_id: string; arquivo: string; url: string }
+export interface Visita {
+  round_id: string;
+  status: string;
+  responsavel: string;
+  duracao_minutos: number | null;
+  checkin: string | null;
+  checkout: string | null;
+  data: string;
+  inicio: string | null;
+  atividades: VisitaAtividade[];
+  fotos: VisitaFoto[];
+}
+
 export interface OcorrenciaPortal {
   code: string;
   tipo: string;
@@ -92,4 +108,6 @@ export const operacao = {
   escalas: () => portalFetch<{ tem_escala: boolean; turnos: unknown[]; padrao: unknown[] }>('/operacao/escalas'),
   ocorrencias: () =>
     portalFetch<{ condominio: string; total: number; ocorrencias: OcorrenciaPortal[] }>('/operacao/ocorrencias'),
+  visitas: (limite = 10) =>
+    portalFetch<{ condominio: string; total_visitas: number; visitas: Visita[] }>(`/operacao/visitas?limite=${limite}`),
 };

@@ -6,10 +6,11 @@ import {
   FolderOpen, Clock, MessageSquare, ArrowRight, Loader2, RefreshCw,
   AlertTriangle, CheckCircle2, Users, TrendingUp, Shield, Bell,
   FileText, ChevronRight, Activity, CalendarDays, AlertCircle,
-  HelpCircle, Star, Zap,
+  HelpCircle, Star, Zap, Route,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePortalAuth } from './hooks/usePortalAuth';
+import type { Visita } from '@/services/portal/portalApi';
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || '') + '/api/v1/portal';
 
@@ -100,6 +101,13 @@ function formatDate(dateStr: string): string {
   } catch { return dateStr; }
 }
 
+// data da visita vem como "YYYY-MM-DD" — parse manual (nunca new Date('YYYY-MM-DD'), que vira UTC).
+function dataVisitaDDMM(d: string | null | undefined): string {
+  if (!d) return '—';
+  const [, mes, dia] = d.split('-');
+  return dia && mes ? `${dia}/${mes}` : d;
+}
+
 function timeAgo(dateStr: string): string {
   try {
     const diff = Date.now() - new Date(dateStr).getTime();
@@ -138,6 +146,7 @@ export default function DashboardPage() {
   const [tickets, setTickets] = useState<PortalTicket[]>([]);
   const [overview, setOverview] = useState<AnalyticsOverview | null>(null);
   const [opResumo, setOpResumo] = useState<{ equipe_total: number; assiduidade_local_pct: number; condominio: string } | null>(null);
+  const [ultimaVisita, setUltimaVisita] = useState<Visita | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -145,13 +154,18 @@ export default function DashboardPage() {
     setLoading(true);
     setError('');
     try {
-      const [kitsRes, ticketsRes, overviewRes, opRes] = await Promise.all([
+      const [kitsRes, ticketsRes, overviewRes, opRes, visitasRes] = await Promise.all([
         fetch(`${API_BASE}/kits?limit=6`, { headers: getPortalHeaders() }),
         fetch(`${API_BASE}/tickets?limit=5`, { headers: getPortalHeaders() }),
         fetch(`${API_BASE}/analytics/overview`, { headers: getPortalHeaders() }),
         fetch(`${API_BASE}/operacao/resumo`, { headers: getPortalHeaders() }),
+        fetch(`${API_BASE}/operacao/visitas?limite=1`, { headers: getPortalHeaders() }),
       ]);
       if (opRes.ok) setOpResumo(await opRes.json());
+      if (visitasRes.ok) {
+        const vData = await visitasRes.json();
+        setUltimaVisita(vData.visitas?.[0] ?? null);
+      }
 
       if (kitsRes.status === 401) {
         toast.error('Sessão expirada. Faça login novamente.', { duration: 5000 });
@@ -489,7 +503,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Linha 3: Status do serviço ─────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 bg-emerald-50 rounded-lg">
@@ -530,6 +544,31 @@ export default function DashboardPage() {
           </div>
           <p className="text-xs text-gray-400 mt-1">Ponto batido dentro do condomínio</p>
         </div>
+
+        <Link
+          href="/area-cliente/operacao"
+          className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 block hover:border-indigo-200 transition-colors group"
+        >
+          <div className="flex items-center gap-3 mb-3">
+            <div className="p-2 bg-indigo-50 rounded-lg">
+              <Route className="h-4 w-4 text-indigo-600" />
+            </div>
+            <span className="text-sm font-semibold text-gray-700">Última visita da gestão</span>
+          </div>
+          {ultimaVisita ? (
+            <>
+              <p className="text-sm font-medium text-gray-900">
+                <span className="font-data tabular-nums">{dataVisitaDDMM(ultimaVisita.data)}</span>
+                {' · '}{ultimaVisita.responsavel}
+              </p>
+              <p className="text-xs text-gray-400 mt-1 group-hover:text-indigo-500 transition-colors">
+                {ultimaVisita.fotos.length} foto{ultimaVisita.fotos.length === 1 ? '' : 's'} · ver detalhes →
+              </p>
+            </>
+          ) : (
+            <p className="text-xs text-gray-400">Sem visitas registradas</p>
+          )}
+        </Link>
       </div>
 
       {/* ── Precisa de ajuda? ─────────────────────── */}

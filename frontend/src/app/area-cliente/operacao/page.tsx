@@ -4,8 +4,10 @@ import { useEffect, useState } from 'react';
 import {
   Users, ShieldCheck, TrendingUp, Stethoscope, Trophy, CalendarClock,
   AlertTriangle, Loader2, MapPin, Clock, Award, ArrowUpRight, ArrowDownRight,
+  Route,
 } from 'lucide-react';
-import { operacao, type OperacaoResumo, type Funcionario, type RankingItem, type Aso, type Movimentacao, OcorrenciaPortal } from '@/services/portal/portalApi';
+import { operacao, type OperacaoResumo, type Funcionario, type RankingItem, type Aso, type Movimentacao, type Visita, OcorrenciaPortal } from '@/services/portal/portalApi';
+import FotoVisita from '../components/FotoVisita';
 
 function iniciais(nome: string) {
   const p = nome.trim().split(/\s+/);
@@ -22,6 +24,25 @@ function tempoCasa(meses: number | null) {
   const a = Math.floor(meses / 12), m = meses % 12;
   return m ? `${a}a ${m}m` : `${a} ${a === 1 ? 'ano' : 'anos'}`;
 }
+// Horários vêm como ISO local de Manaus (ex.: "2026-07-11T10:23") — extrair HH:MM
+// da string, SEM new Date (que converteria de fuso).
+function horaHM(iso: string | null | undefined) {
+  if (!iso) return '';
+  const t = iso.split('T')[1];
+  return t ? t.slice(0, 5) : '';
+}
+// data vem como "YYYY-MM-DD" — parse manual (nunca new Date('YYYY-MM-DD'), que vira UTC).
+function dataDDMM(d: string | null | undefined) {
+  if (!d) return '—';
+  const [, mes, dia] = d.split('-');
+  return dia && mes ? `${dia}/${mes}` : d;
+}
+function duracaoLabel(min: number | null | undefined) {
+  if (min == null) return null;
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60), m = min % 60;
+  return m ? `${h}h ${m}min` : `${h}h`;
+}
 
 export default function RaioXPage() {
   const [loading, setLoading] = useState(true);
@@ -32,18 +53,22 @@ export default function RaioXPage() {
   const [mov, setMov] = useState<Movimentacao[]>([]);
   const [ocorrencias, setOcorrencias] = useState<OcorrenciaPortal[]>([]);
   const [advTotal, setAdvTotal] = useState(0);
+  const [visitas, setVisitas] = useState<Visita[]>([]);
+  const [fotoAmpliada, setFotoAmpliada] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
-        const [r, e, rk, at, tv, ad, oc] = await Promise.all([
+        const [r, e, rk, at, tv, ad, oc, vi] = await Promise.all([
           operacao.resumo(), operacao.equipe(), operacao.ranking(),
           operacao.atestados(), operacao.turnover(), operacao.advertencias(),
           operacao.ocorrencias().catch(() => null),
+          operacao.visitas(10).catch(() => null),
         ]);
         setResumo(r); setEquipe(e.equipe); setRanking(rk.ranking);
         setAsos(at.asos); setMov(tv.movimentacoes); setAdvTotal(ad.total);
         if (oc) setOcorrencias(oc.ocorrencias);
+        if (vi) setVisitas(vi.visitas);
       } catch { /* portalFetch trata 401 */ } finally { setLoading(false); }
     })();
   }, []);
@@ -162,6 +187,79 @@ export default function RaioXPage() {
           </div>
         </section>
       </div>
+
+      {/* Visitas da gestão */}
+      <section className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+        <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-1">
+          <Route className="w-5 h-5 text-indigo-600" /> Visitas da gestão
+        </h2>
+        <p className="text-xs text-gray-400 mb-4">Presença da gestão Conecta no seu condomínio, com horários, atividades e fotos</p>
+        {visitas.length === 0 ? (
+          <p className="text-sm text-gray-400">
+            Nenhuma visita registrada ainda — as visitas da gestão Conecta aparecem aqui com fotos e horários.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            {visitas.map((v) => (
+              <div key={v.round_id} className="border border-gray-100 rounded-lg p-4">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="font-data text-sm font-semibold tabular-nums text-indigo-700 bg-indigo-50 rounded-md px-2 py-0.5">
+                    {dataDDMM(v.data)}
+                  </span>
+                  <span className="text-sm font-medium text-gray-900">{v.responsavel}</span>
+                  {v.checkin && (
+                    <span className="text-xs text-gray-500 flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      {v.checkout ? `${horaHM(v.checkin)} → ${horaHM(v.checkout)}` : `chegada ${horaHM(v.checkin)}`}
+                    </span>
+                  )}
+                  {duracaoLabel(v.duracao_minutos) && (
+                    <span className="text-xs text-gray-400">· {duracaoLabel(v.duracao_minutos)} no condomínio</span>
+                  )}
+                </div>
+                {v.atividades.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    {v.atividades.map((a, i) => (
+                      <span key={i} className="text-xs font-medium text-gray-600 bg-gray-100 rounded-full px-2.5 py-0.5">
+                        {a.tipo_label}{a.hora ? ` · ${horaHM(a.hora)}` : ''}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {v.fotos.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    {v.fotos.map((f) => (
+                      <FotoVisita
+                        key={`${f.checkpoint_id}-${f.arquivo}`}
+                        url={f.url}
+                        alt={`Foto da visita de ${dataDDMM(v.data)}`}
+                        className="w-16 h-16 rounded-lg object-cover cursor-zoom-in border border-gray-200 hover:opacity-80 transition-opacity"
+                        onClick={() => setFotoAmpliada(f.url)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Lightbox da foto de visita */}
+      {fotoAmpliada && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 cursor-zoom-out"
+          onClick={() => setFotoAmpliada(null)}
+          role="dialog"
+          aria-label="Foto ampliada da visita"
+        >
+          <FotoVisita
+            url={fotoAmpliada}
+            alt="Foto ampliada da visita"
+            className="max-w-full max-h-full rounded-lg object-contain shadow-2xl"
+          />
+        </div>
+      )}
 
       {/* Advertências (transparência) */}
       <section className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
