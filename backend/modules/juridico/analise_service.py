@@ -100,21 +100,32 @@ def _system_prompt() -> str:
     )
 
 
-async def _chamar_llm(system_prompt: str, user_content: str, max_tokens: int = 4000) -> dict[str, Any] | None:
-    try:
-        from modules.ai.conversation.services.llm_provider import ClaudeProvider
+_MODEL_OPENAI = "gpt-5"  # análise pesada
+_MODEL_ANTHROPIC = "claude-sonnet-4-6"  # fallback opcional (só se ANTHROPIC_API_KEY definida)
 
-        provider = ClaudeProvider()
-        if not provider.api_key:
-            logger.warning("Análise contrato: ANTHROPIC_API_KEY ausente — IA indisponível")
-            return None
-        resp = await provider.generate(
-            messages=[{"role": "user", "content": user_content}],
-            system_prompt=system_prompt,
+
+async def _chamar_llm(system_prompt: str, user_content: str, max_tokens: int = 4000) -> dict[str, Any] | None:
+    """Cascata OpenAI → Anthropic. Retorna None se nenhum provedor disponível (sem fabricar)."""
+    try:
+        from core.llm_cascade import achat_ex
+
+        result = await achat_ex(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            model_openai=_MODEL_OPENAI,
+            model_anthropic=_MODEL_ANTHROPIC,
             max_tokens=max_tokens,
             temperature=0.2,
+            json_mode=True,
         )
-        return {"content": resp.content, "model": resp.model}
+        if result is None:
+            logger.warning("Análise contrato: nenhum provedor LLM disponível — IA indisponível")
+            return None
+        content, provider, model = result
+        logger.info("Análise contrato: resposta via %s (%s)", provider, model)
+        return {"content": content, "model": model}
     except Exception as e:  # noqa: BLE001
         logger.error(f"Análise contrato: falha ao chamar LLM: {e}")
         return None

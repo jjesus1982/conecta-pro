@@ -1,15 +1,15 @@
 """
 Serviço de Parsing de Currículos — PDF/DOCX + IA.
 
-Extrai texto de currículos em PDF e DOCX, analisa com Claude API
-para extrair dados estruturados (dados pessoais, experiência, formação, etc).
+Extrai texto de currículos em PDF e DOCX, analisa com cascata LLM
+(OpenAI gpt-5 primário → Anthropic fallback opcional) para extrair
+dados estruturados (dados pessoais, experiência, formação, etc).
 
-Fallback: regex parsing quando a API Claude não está disponível.
+Fallback final: regex parsing quando nenhum provedor LLM está disponível.
 """
 
 import io
 import logging
-import os
 import re
 from typing import Any
 
@@ -30,19 +30,13 @@ try:
 except ImportError:
     HAS_DOCX = False
 
-try:
-    import anthropic
-
-    HAS_ANTHROPIC = True
-except ImportError:
-    HAS_ANTHROPIC = False
-
-
 class ResumeParserService:
-    """Parser de currículos com extração por IA e fallback regex."""
+    """Parser de currículos com extração por IA (cascata OpenAI→Anthropic) e fallback regex."""
 
-    CLAUDE_MODEL = "claude-sonnet-4-20250514"
-    CLAUDE_MAX_TOKENS = 2048
+    OPENAI_MODEL = "gpt-5"
+    CLAUDE_MODEL = "claude-sonnet-4-20250514"  # fallback opcional da cascata
+    LLM_MAX_TOKENS = 2048
+    CLAUDE_MAX_TOKENS = 2048  # legado (mantido por compatibilidade)
 
     # === EXTRAÇÃO DE TEXTO ===
 
@@ -115,14 +109,16 @@ class ResumeParserService:
         else:
             raise ValueError(f"Formato não suportado: .{ext}. Use PDF, DOCX ou TXT.")
 
-    # === ANÁLISE COM CLAUDE API ===
+    # === ANÁLISE COM IA (cascata OpenAI → Anthropic) ===
 
     @staticmethod
     def analyze_with_claude(text: str) -> dict[str, Any]:
-        """Analisa texto do currículo usando Claude API.
+        """Analisa texto do currículo usando cascata LLM (OpenAI → Anthropic).
 
         Extrai dados estruturados: dados pessoais, experiência profissional,
         formação acadêmica, habilidades e idiomas.
+
+        Nome mantido por compatibilidade (contrato público chamado pelos controllers).
 
         Args:
             text: Texto do currículo.
@@ -130,17 +126,8 @@ class ResumeParserService:
         Returns:
             Dicionário com dados estruturados extraídos.
         """
-        if not HAS_ANTHROPIC:
-            logger.warning("Anthropic SDK não disponível, usando fallback regex")
-            return ResumeParserService._fallback_regex_parse(text)
-
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-        if not api_key:
-            logger.warning("ANTHROPIC_API_KEY não configurada, usando fallback regex")
-            return ResumeParserService._fallback_regex_parse(text)
-
         try:
-            client = anthropic.Anthropic(api_key=api_key)
+            from core.llm_cascade import chat_ex
 
             prompt = f"""Analise o currículo abaixo e extraia dados estruturados em JSON.
 
@@ -188,13 +175,20 @@ Retorne EXATAMENTE este formato JSON (sem markdown, sem backticks):
 CURRÍCULO:
 {text[:6000]}"""
 
-            response = client.messages.create(
-                model=ResumeParserService.CLAUDE_MODEL,
-                max_tokens=ResumeParserService.CLAUDE_MAX_TOKENS,
+            result = chat_ex(
                 messages=[{"role": "user", "content": prompt}],
+                model_openai=ResumeParserService.OPENAI_MODEL,
+                model_anthropic=ResumeParserService.CLAUDE_MODEL,
+                max_tokens=ResumeParserService.LLM_MAX_TOKENS,
+                json_mode=True,
             )
 
-            result_text = response.content[0].text.strip()
+            if result is None:
+                logger.warning("Nenhum provedor LLM disponível, usando fallback regex")
+                return ResumeParserService._fallback_regex_parse(text)
+
+            result_text, provider, model = result
+            result_text = result_text.strip()
 
             # Tentar extrair JSON da resposta
             import json
@@ -206,13 +200,18 @@ CURRÍCULO:
                     result_text = result_text[4:]
 
             parsed = json.loads(result_text)
-            parsed["_source"] = "claude_api"
-            parsed["_model"] = ResumeParserService.CLAUDE_MODEL
-            logger.info("Currículo analisado via Claude API: %s", parsed.get("dados_pessoais", {}).get("nome", "?"))
+            parsed["_source"] = f"{provider}_api"
+            parsed["_model"] = model
+            logger.info(
+                "Currículo analisado via %s (%s): %s",
+                provider,
+                model,
+                parsed.get("dados_pessoais", {}).get("nome", "?"),
+            )
             return parsed
 
         except Exception as e:
-            logger.error("Erro na análise via Claude API: %s. Usando fallback.", e)
+            logger.error("Erro na análise via LLM: %s. Usando fallback.", e)
             return ResumeParserService._fallback_regex_parse(text)
 
     # === FALLBACK REGEX ===
@@ -289,7 +288,7 @@ CURRÍCULO:
         Pipeline completo:
         1. Detecta formato (PDF/DOCX/TXT)
         2. Extrai texto
-        3. Analisa com Claude API (ou fallback regex)
+        3. Analisa com cascata LLM OpenAI→Anthropic (ou fallback regex)
 
         Args:
             file_bytes: Bytes do arquivo.

@@ -1,8 +1,9 @@
 """
 ANALYST Agent - Analise de editais com IA
 ==========================================
-Usa Claude API para extrair informacoes estruturadas de editais,
-identificar red flags e documentos necessarios.
+Usa cascata LLM (OpenAI gpt-5 primario -> Anthropic fallback opcional) para
+extrair informacoes estruturadas de editais, identificar red flags e
+documentos necessarios.
 """
 
 import json
@@ -10,7 +11,6 @@ import logging
 import os
 from datetime import datetime
 
-import httpx
 from pydantic import BaseModel, Field
 
 from modules.bidding.agents.base_agent import AgentConfig, AgentStatus, BaseAgent
@@ -18,8 +18,8 @@ from modules.bidding.agents.base_agent import AgentConfig, AgentStatus, BaseAgen
 logger = logging.getLogger(__name__)
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-CLAUDE_MODEL = "claude-sonnet-4-20250514"
-ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
+OPENAI_MODEL = "gpt-5"  # analise de edital e pesada
+CLAUDE_MODEL = "claude-sonnet-4-20250514"  # fallback opcional da cascata
 
 
 # ──────────────────────────────────────────────
@@ -176,21 +176,22 @@ valores incompativeis com mercado, clausulas abusivas.
 
 class AnalystAgent(BaseAgent):
     """
-    Agente ANALYST - Analisa editais de licitacao com Claude AI.
+    Agente ANALYST - Analisa editais de licitacao com IA.
 
     Responsabilidades:
     - Receber texto do edital (ou URL para download)
-    - Enviar para Claude API para analise estruturada
+    - Enviar para cascata LLM (OpenAI gpt-5 -> Anthropic fallback) para analise estruturada
     - Extrair: objeto, modalidade, requisitos, red flags, documentos
     - Retornar AnalysisResponse formatado
     """
 
     AGENT_NAME = "analyst"
-    AGENT_DESCRIPTION = "Analisa editais de licitacao com IA (Claude)"
+    AGENT_DESCRIPTION = "Analisa editais de licitacao com IA (OpenAI -> Anthropic)"
     AGENT_STATUS = AgentStatus.DEVELOPMENT
 
     def __init__(self, config: AgentConfig | None = None, api_key: str | None = None):
         super().__init__(config or AgentConfig(timeout_seconds=180.0))
+        # api_key: legado — chave Anthropic explicita (a cascata le as chaves do ambiente)
         self.api_key = api_key or ANTHROPIC_API_KEY
 
     async def execute(
@@ -216,16 +217,19 @@ class AnalystAgent(BaseAgent):
         if not edital_text:
             raise ValueError("edital_text e obrigatorio para analise")
 
-        if not self.api_key:
-            raise ValueError("ANTHROPIC_API_KEY nao configurada. Defina a variavel de ambiente ANTHROPIC_API_KEY.")
+        if not (os.getenv("OPENAI_API_KEY", "").strip() or self.api_key):
+            raise ValueError(
+                "Nenhum provedor LLM configurado. Defina OPENAI_API_KEY (primario) "
+                "e/ou ANTHROPIC_API_KEY (fallback)."
+            )
 
-        # Truncar texto se muito longo (Claude tem limite de contexto)
+        # Truncar texto se muito longo (limite de contexto do LLM)
         max_chars = 150_000
         if len(edital_text) > max_chars:
             self.logger.warning(f"Edital truncado de {len(edital_text)} para {max_chars} caracteres")
             edital_text = edital_text[:max_chars]
 
-        # Chamar Claude API
+        # Chamar cascata LLM (OpenAI -> Anthropic)
         raw_analysis = await self._call_claude(edital_text)
 
         # Montar resposta
@@ -248,51 +252,34 @@ class AnalystAgent(BaseAgent):
 
     async def _call_claude(self, edital_text: str) -> dict:
         """
-        Chama a API do Claude para analise do edital.
+        Chama a cascata LLM (OpenAI gpt-5 -> Anthropic fallback) para analise do edital.
+
+        Nome mantido por compatibilidade interna.
 
         Returns:
             Dict com campos da AnalysisResponse.
         """
+        from core.llm_cascade import achat
+
         user_message = (
             f"Analise o seguinte edital de licitacao e retorne o JSON estruturado "
             f"conforme as instrucoes:\n\n"
             f"---INICIO DO EDITAL---\n{edital_text}\n---FIM DO EDITAL---"
         )
 
-        headers = {
-            "x-api-key": self.api_key,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        }
-
-        payload = {
-            "model": CLAUDE_MODEL,
-            "max_tokens": 8192,
-            "system": ANALYSIS_SYSTEM_PROMPT,
-            "messages": [
+        text_content = await achat(
+            messages=[
+                {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
                 {"role": "user", "content": user_message},
             ],
-        }
+            model_openai=OPENAI_MODEL,
+            model_anthropic=CLAUDE_MODEL,
+            max_tokens=8192,
+            json_mode=True,
+        )
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                ANTHROPIC_API_URL,
-                headers=headers,
-                json=payload,
-            )
-            response.raise_for_status()
-
-        result = response.json()
-
-        # Extrair texto da resposta
-        content_blocks = result.get("content", [])
-        text_content = ""
-        for block in content_blocks:
-            if block.get("type") == "text":
-                text_content += block.get("text", "")
-
-        if not text_content.strip():
-            raise ValueError("Claude retornou resposta vazia")
+        if not text_content or not text_content.strip():
+            raise ValueError("Nenhum provedor LLM respondeu (OpenAI/Anthropic indisponiveis ou resposta vazia)")
 
         # Parse JSON da resposta
         try:
@@ -326,4 +313,4 @@ class AnalystAgent(BaseAgent):
             except json.JSONDecodeError:
                 pass
 
-        raise ValueError(f"Nao foi possivel extrair JSON da resposta do Claude: {text[:200]}")
+        raise ValueError(f"Nao foi possivel extrair JSON da resposta do LLM: {text[:200]}")

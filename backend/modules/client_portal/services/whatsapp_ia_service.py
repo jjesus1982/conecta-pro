@@ -1,12 +1,14 @@
 """
 WhatsApp IA Service — Conecta Mais
-Primeiro atendente automático via Claude API.
+Primeiro atendente automático via cascata LLM (OpenAI gpt-5 → Anthropic → frases prontas).
 """
 
 import logging
-import os
 
 logger = logging.getLogger(__name__)
+
+MODEL_OPENAI = "gpt-5"
+MODEL_ANTHROPIC = "claude-sonnet-4-6"  # fallback opcional (só se ANTHROPIC_API_KEY definida)
 
 # Palavras que disparam escalada para humano (INV-6)
 PALAVRAS_ESCALADA = [
@@ -70,7 +72,7 @@ def responder_com_ia(
     cliente_nome: str = "Cliente",
 ) -> dict:
     """
-    Gera resposta automática via Claude API.
+    Gera resposta automática via cascata LLM (OpenAI → Anthropic → frases prontas).
 
     Returns:
         dict com keys: resposta (str), escalar (bool), motivo_escalada (str|None)
@@ -90,17 +92,10 @@ def responder_com_ia(
         }
 
     try:
-        import anthropic
-
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            logger.warning("WhatsApp IA: ANTHROPIC_API_KEY não configurada — usando fallback")
-            return _fallback()
-
-        client = anthropic.Anthropic(api_key=api_key)
+        from core.llm_cascade import chat as llm_chat
 
         # Montar histórico (últimas 10 mensagens — INV-7)
-        messages: list[dict] = []
+        messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
         if historico:
             for msg in historico[-10:]:
                 messages.append(
@@ -111,19 +106,21 @@ def responder_com_ia(
                 )
         messages.append({"role": "user", "content": mensagem})
 
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=400,
-            system=SYSTEM_PROMPT,
+        resposta = llm_chat(
             messages=messages,
+            model_openai=MODEL_OPENAI,
+            model_anthropic=MODEL_ANTHROPIC,
+            max_tokens=400,
         )
 
-        resposta = response.content[0].text if response.content else _fallback()["resposta"]
+        if not resposta:
+            logger.warning("WhatsApp IA: nenhum provedor LLM disponível — usando fallback")
+            return _fallback()
 
         return {"resposta": resposta, "escalar": False, "motivo_escalada": None}
 
     except Exception as exc:
-        logger.error("WhatsApp IA: erro na chamada Claude: %s", exc)
+        logger.error("WhatsApp IA: erro na cascata LLM: %s", exc)
         return _fallback()
 
 

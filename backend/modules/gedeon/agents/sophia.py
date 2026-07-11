@@ -5,7 +5,8 @@ SOPHIA v2.0 — Busca Semântica Cross-Módulo do GEDEON
 Versão: 2.0
 Escopo: DP · RH · GED · Operacional · Fiscal · Contratos · Licitações · Financeiro
 
-Motor: Anthropic API (claude-haiku-4-5) + fallback dense 1536 dims
+Motor: OpenAI embeddings (text-embedding-3-large, dimensions=1536) + fallback dense 1536 dims
+Síntese/rerank LLM: cascata OpenAI (gpt-5) → Anthropic (fallback) → síntese local
 Capacidades:
 - busca_semantica com filtros cross-módulo
 - perguntar_linguagem_natural
@@ -35,8 +36,11 @@ logger = logging.getLogger(__name__)
 # ── Constantes ────────────────────────────────────────────────────────────────
 
 EMBEDDING_DIM = 1536
-ANTHROPIC_MODEL = os.getenv("LLM_MODEL", "claude-haiku-4-5-20251001")
-EMBEDDING_MODEL_NAME_ANTHROPIC = "anthropic_haiku_1536"
+OPENAI_EMBEDDING_MODEL = "text-embedding-3-large"  # chamado com dimensions=1536 (compat. índice dense)
+OPENAI_LLM_MODEL = "gpt-5"  # síntese/rerank (diretriz do dono: melhor modelo em tudo)
+ANTHROPIC_MODEL = os.getenv("LLM_MODEL", "claude-haiku-4-5-20251001")  # fallback da cascata LLM
+EMBEDDING_MODEL_NAME_OPENAI = "openai_text-embedding-3-large_1536"
+EMBEDDING_MODEL_NAME_ANTHROPIC = "anthropic_haiku_1536"  # legado (linhas antigas no índice)
 EMBEDDING_MODEL_NAME_FALLBACK = "sophia_dense_1536"
 SIMILARITY_THRESH = 0.60
 
@@ -422,32 +426,29 @@ def _texto_para_vetor(texto: str) -> list[float]:
 
 def _gerar_embedding(texto: str, client: Any | None) -> tuple[list[float], str]:
     """
-    Gera embedding via Anthropic (primário) ou dense fallback.
+    Gera embedding via OpenAI text-embedding-3-large com dimensions=1536 (primário)
+    ou dense fallback (mesma dimensão — índice existente continua compatível).
     Retorna (vetor, model_name).
 
-    Nota: Anthropic não fornece endpoint de embeddings direto, então usamos
-    o modelo de linguagem para gerar uma representação semântica comprimida
-    que é expandida para 1536 dims via hash determinístico.
+    `client` é um cliente OpenAI (openai.OpenAI) ou None.
     """
     if client is not None:
         try:
-            # Usar Anthropic para extrair termos semânticos chave do texto
-            prompt = (
-                f"Extraia os 20 termos mais importantes e semanticamente ricos do texto abaixo. "
-                f"Retorne apenas os termos separados por espaço, sem pontuação:\n\n{texto[:500]}"
+            response = client.embeddings.create(
+                model=OPENAI_EMBEDDING_MODEL,
+                input=texto[:8000],
+                # 3-large nativo é 3072 dims; travamos em 1536 p/ manter o índice
+                dimensions=EMBEDDING_DIM,
             )
-            response = client.messages.create(
-                model=ANTHROPIC_MODEL,
-                max_tokens=100,
-                messages=[{"role": "user", "content": prompt}],
+            vetor = list(response.data[0].embedding)
+            if len(vetor) == EMBEDDING_DIM:
+                return vetor, EMBEDDING_MODEL_NAME_OPENAI
+            logger.warning(
+                "SOPHIA: embedding OpenAI com dimensão inesperada (%d) — usando dense fallback",
+                len(vetor),
             )
-            termos_semanticos = response.content[0].text.strip()
-            # Combina texto original com termos semânticos extraídos (amplifica sinal semântico)
-            texto_enriquecido = texto + " " + termos_semanticos
-            vetor = _texto_para_vetor(texto_enriquecido)
-            return vetor, EMBEDDING_MODEL_NAME_ANTHROPIC
         except Exception as e:
-            logger.debug("SOPHIA: Anthropic embedding fallback: %s", e)
+            logger.debug("SOPHIA: OpenAI embedding fallback: %s", e)
 
     # Fallback: dense 1536
     vetor = _texto_para_vetor(texto)
@@ -571,37 +572,37 @@ class Sophia:
     """
     SOPHIA v2.0 — Busca Semântica Cross-Módulo.
 
-    Motor: Anthropic claude-haiku-4-5 (primário) + dense 1536 fallback.
+    Motor: OpenAI text-embedding-3-large (primário, 1536 dims) + dense 1536 fallback.
+    Síntese LLM: cascata OpenAI (gpt-5) → Anthropic → síntese local.
     Escopo: dp, rh, ged, operacional, fiscal, contratos, licitacoes, financeiro.
     """
 
     def __init__(self) -> None:
-        self._client: Any = None
-        self._usando_anthropic: bool = False
+        self._client: Any = None  # cliente OpenAI (embeddings)
+        self._usando_openai: bool = False
+        self._usando_anthropic: bool = False  # legado — Anthropic saiu do caminho de embeddings
         self._inicializar()
 
     def _inicializar(self) -> None:
-        """Inicializa cliente Anthropic se API key disponível."""
-        api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        """Inicializa cliente OpenAI (embeddings) se API key disponível."""
+        api_key = os.getenv("OPENAI_API_KEY", "")
         if not api_key:
-            logger.info("SOPHIA v2.0: ANTHROPIC_API_KEY não configurada — usando dense fallback")
+            logger.info("SOPHIA v2.0: OPENAI_API_KEY não configurada — usando dense fallback")
             return
         try:
-            import anthropic
+            from openai import OpenAI
 
-            self._client = anthropic.Anthropic(api_key=api_key)
-            # Teste rápido
-            self._client.messages.create(
-                model=ANTHROPIC_MODEL,
-                max_tokens=5,
-                messages=[{"role": "user", "content": "ok"}],
+            self._client = OpenAI(api_key=api_key)
+            # Teste rápido do endpoint de embeddings (com dimensions=1536, como no uso real)
+            self._client.embeddings.create(
+                model=OPENAI_EMBEDDING_MODEL, input="ok", dimensions=EMBEDDING_DIM
             )
-            self._usando_anthropic = True
-            logger.info("SOPHIA v2.0: Anthropic API conectada — motor premium ativo")
+            self._usando_openai = True
+            logger.info("SOPHIA v2.0: OpenAI embeddings conectado — motor premium ativo")
         except Exception as e:
-            logger.warning("SOPHIA v2.0: Anthropic indisponível (%s) — usando dense fallback", e)
+            logger.warning("SOPHIA v2.0: OpenAI indisponível (%s) — usando dense fallback", e)
             self._client = None
-            self._usando_anthropic = False
+            self._usando_openai = False
 
     # ── Indexação ─────────────────────────────────────────────────────────────
 
@@ -722,8 +723,8 @@ ON CONFLICT (doc_id) DO UPDATE SET
         # Módulo implícito detectado (usado para logs/debug)
         _modulo_implicito = self._detectar_modulo(query)
 
-        # Gerar vetor da query
-        query_vetor, _ = _gerar_embedding(query, self._client)
+        # Gerar vetor da query (OpenAI se disponível; senão dense)
+        query_vetor, query_model = _gerar_embedding(query, self._client)
 
         # Construir cláusula WHERE
         where_clauses = ["1=1"]
@@ -763,7 +764,7 @@ ON CONFLICT (doc_id) DO UPDATE SET
         # Buscar candidatos do banco (limitamos a 500 para calcular similaridade)
         sql = f"""
 SELECT doc_id, texto_preview, metadados, embedding_anthropic, embedding,
-       modulo, vencimento::text, impacto_folha
+       embedding_model, modulo, vencimento::text, impacto_folha
 FROM gedeon_document_index
 WHERE {where_sql}
   AND (embedding_anthropic IS NOT NULL OR embedding IS NOT NULL)
@@ -772,7 +773,7 @@ LIMIT 500
 """
         rows = _psql_rows(sql)
 
-        # Também gerar vetor direto da query (sem Anthropic) para scoring híbrido
+        # Também gerar vetor direto da query (dense, sem API) para docs indexados no espaço dense
         query_vetor_direto = _texto_para_vetor(query)
 
         resultados = []
@@ -788,10 +789,14 @@ LIMIT 500
                         emb_str = emb_raw.strip("{}")
                         doc_vetor = [float(x) for x in emb_str.split(",") if x.strip()]
                         if len(doc_vetor) == EMBEDDING_DIM:
-                            # Similarity com vetor enriquecido E com vetor direto
-                            sim_enriquecido = _similaridade_coseno(query_vetor, doc_vetor)
-                            sim_direto = _similaridade_coseno(query_vetor_direto, doc_vetor)
-                            score_cosine = max(sim_enriquecido, sim_direto)
+                            # Comparar vetores no MESMO espaço: docs indexados via OpenAI
+                            # usam o vetor OpenAI da query; docs legados (dense/anthropic-
+                            # enriquecido) usam o vetor dense direto da query.
+                            doc_model = row.get("embedding_model") or ""
+                            if doc_model == EMBEDDING_MODEL_NAME_OPENAI and query_model == EMBEDDING_MODEL_NAME_OPENAI:
+                                score_cosine = _similaridade_coseno(query_vetor, doc_vetor)
+                            else:
+                                score_cosine = _similaridade_coseno(query_vetor_direto, doc_vetor)
                     except Exception:
                         pass
 
@@ -914,11 +919,8 @@ LIMIT 500
                 "motor": "sophia_v2",
             }
 
-        # Sintetizar resposta
-        if self._client is not None and self._usando_anthropic:
-            resposta = self._sintetizar_com_anthropic(pergunta, docs)
-        else:
-            resposta = self._sintetizar_local(pergunta, docs)
+        # Sintetizar resposta: cascata LLM (OpenAI → Anthropic) → síntese local
+        resposta = self._sintetizar_llm(pergunta, docs)
 
         confianca = round(sum(d["score"] for d in docs[:3]) / min(3, len(docs)), 3)
 
@@ -929,11 +931,11 @@ LIMIT 500
             "documentos": docs[:5],
             "modulo_detectado": modulo_detectado,
             "confianca": confianca,
-            "motor": "sophia_v2_anthropic" if self._usando_anthropic else "sophia_v2_dense",
+            "motor": "sophia_v2_openai" if self._usando_openai else "sophia_v2_dense",
         }
 
-    def _sintetizar_com_anthropic(self, pergunta: str, docs: list[dict]) -> str:
-        """Usa Anthropic para sintetizar resposta com base nos documentos."""
+    def _sintetizar_llm(self, pergunta: str, docs: list[dict]) -> str:
+        """Sintetiza resposta via cascata LLM (OpenAI gpt-5 → Anthropic → local)."""
         context = "\n".join(
             f"[{i + 1}] ({d.get('modulo', '?')}) {d.get('preview', '')[:150]}" for i, d in enumerate(docs[:5])
         )
@@ -943,18 +945,22 @@ LIMIT 500
             f"Seja conciso (máx 3 frases). Cite o tipo de documento quando relevante."
         )
         try:
-            response = self._client.messages.create(
-                model=ANTHROPIC_MODEL,
-                max_tokens=200,
+            from core.llm_cascade import chat as llm_chat
+
+            resposta = llm_chat(
                 messages=[{"role": "user", "content": prompt}],
+                model_openai=OPENAI_LLM_MODEL,
+                model_anthropic=ANTHROPIC_MODEL,
+                max_tokens=200,
             )
-            return response.content[0].text.strip()
+            if resposta:
+                return resposta.strip()
         except Exception as e:
-            logger.warning("SOPHIA sintetizar Anthropic erro: %s", e)
-            return self._sintetizar_local(pergunta, docs)
+            logger.warning("SOPHIA sintetizar LLM erro: %s", e)
+        return self._sintetizar_local(pergunta, docs)
 
     def _sintetizar_local(self, pergunta: str, docs: list[dict]) -> str:
-        """Síntese local sem Anthropic."""
+        """Síntese local sem LLM (fallback honesto)."""
         p = pergunta.lower()
 
         if any(x in p for x in ["quantos", "total", "count", "número", "numero"]):
@@ -1113,7 +1119,7 @@ LIMIT 100
 SELECT doc_id, texto_preview, metadados, modulo
 FROM gedeon_document_index
 WHERE {where}
-  AND (embedding_anthropic IS NULL OR embedding_model != '{EMBEDDING_MODEL_NAME_ANTHROPIC}')
+  AND (embedding_anthropic IS NULL OR embedding_model != '{EMBEDDING_MODEL_NAME_OPENAI}')
 ORDER BY created_at ASC
 LIMIT {batch_size}
 """
@@ -1149,7 +1155,7 @@ LIMIT {batch_size}
         return {
             "total_processados": total,
             "reindexados": reindexados,
-            "modelo": EMBEDDING_MODEL_NAME_ANTHROPIC if self._usando_anthropic else EMBEDDING_MODEL_NAME_FALLBACK,
+            "modelo": EMBEDDING_MODEL_NAME_OPENAI if self._usando_openai else EMBEDDING_MODEL_NAME_FALLBACK,
             "modulo_filter": modulo_filter,
             "batch_size": batch_size,
         }
@@ -1180,7 +1186,7 @@ LIMIT {batch_size}
         return {
             "indexados": indexados,
             "total": len(documentos),
-            "modelo": EMBEDDING_MODEL_NAME_ANTHROPIC if self._usando_anthropic else EMBEDDING_MODEL_NAME_FALLBACK,
+            "modelo": EMBEDDING_MODEL_NAME_OPENAI if self._usando_openai else EMBEDDING_MODEL_NAME_FALLBACK,
         }
 
     # ── Status ────────────────────────────────────────────────────────────────
@@ -1215,16 +1221,17 @@ LIMIT {batch_size}
 
         return {
             "versao": "2.0",
-            "motor_ativo": EMBEDDING_MODEL_NAME_ANTHROPIC if self._usando_anthropic else EMBEDDING_MODEL_NAME_FALLBACK,
-            "using_anthropic": self._usando_anthropic,
+            "motor_ativo": EMBEDDING_MODEL_NAME_OPENAI if self._usando_openai else EMBEDDING_MODEL_NAME_FALLBACK,
+            "using_openai": self._usando_openai,
+            "using_anthropic": self._usando_anthropic,  # legado — sempre False (embeddings via OpenAI)
             "dimensao_embedding": EMBEDDING_DIM,
             "modulos_escopo": list(MODULOS_ESCOPO.keys()),
             "modulos_descricao": MODULOS_ESCOPO,
             "total_documentos": total,
             "documentos_com_embedding_v2": com_embedding,
             "distribuicao_modulos": por_modulo,
-            "modelo_embedding": EMBEDDING_MODEL_NAME_ANTHROPIC
-            if self._usando_anthropic
+            "modelo_embedding": EMBEDDING_MODEL_NAME_OPENAI
+            if self._usando_openai
             else EMBEDDING_MODEL_NAME_FALLBACK,
             "status": "operacional",
         }
