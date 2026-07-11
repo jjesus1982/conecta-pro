@@ -1226,6 +1226,17 @@ async def montar_kit_guiado(
     # Gerar PDFs reais
     result = await _gerar_kit_real(db, kit_id)
 
+    # Solicitar assinatura do FUNCIONÁRIO nos documentos assináveis do kit (motor
+    # universal, idempotente). Efeito colateral — nunca aborta a montagem.
+    try:
+        from modules.ged.services.kit_signature_service import solicitar_assinaturas_kit
+
+        req_by = str(current_user.id) if current_user else None
+        result["assinaturas"] = await solicitar_assinaturas_kit(db, kit_id, requested_by=req_by)
+        await db.commit()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("montar_kit_guiado: falha ao solicitar assinaturas do kit %s: %s", kit_id, exc)
+
     # Adicionar info de retencoes
     result["retencoes"] = {
         "iss": ct["retencao_iss"] or False,

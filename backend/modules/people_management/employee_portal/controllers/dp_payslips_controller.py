@@ -169,20 +169,61 @@ async def download_pdf_holerite(
             detail=f"Erro ao gerar PDF: {exc}",
         ) from exc
 
-    # Registra download
+    # Registra download + assinatura universal do holerite
+    payslip_row = None
     try:
         from sqlalchemy import select as sa_select
 
         from modules.hr.employee_portal.models.payslip import PaySlip
 
         result = await db.execute(sa_select(PaySlip).where(PaySlip.id == payslip_id))
-        payslip = result.scalar_one_or_none()
-        if payslip:
-            payslip.record_download()
-            payslip.updated_at = datetime.utcnow()
+        payslip_row = result.scalar_one_or_none()
+        if payslip_row:
+            payslip_row.record_download()
+            payslip_row.updated_at = datetime.utcnow()
             await db.commit()
     except Exception as reg_exc:
         logger.debug("Falha ao registrar download: %s", reg_exc)
+
+    # Assinatura universal do HOLERITE → só EMPLOYEE (recibo de salário; memória do
+    # Jordan: incluir_empresa=False). Idempotente por (employee_id × competência) —
+    # MESMA chave do endpoint da folha, para não duplicar a solicitação quando o
+    # mesmo holerite é baixado por caminhos diferentes. À prova de falha.
+    if payslip_row is not None:
+        try:
+            from sqlalchemy import text as _text
+
+            from modules.signatures.helpers import (
+                document_hash_sha256,
+                garantir_solicitacao_assinatura,
+            )
+
+            emp_id = str(payslip_row.employee_id)
+            mes = int(payslip_row.reference_month)
+            ano = int(payslip_row.reference_year)
+            doc_id = f"{emp_id}:{ano}-{mes:02d}"
+            row = (
+                await db.execute(
+                    _text("SELECT nome, cpf FROM employees WHERE CAST(id AS TEXT) = :e"),
+                    {"e": emp_id},
+                )
+            ).first()
+            emp_nome = row[0] if row else None
+            emp_cpf = row[1] if row else None
+            await garantir_solicitacao_assinatura(
+                db,
+                document_type="payslip",
+                document_id=doc_id,
+                title=f"Holerite {mes:02d}/{ano} - {emp_nome or emp_id[:8]}",
+                document_hash=document_hash_sha256(pdf_bytes),
+                employee_id=emp_id,
+                employee_name=emp_nome,
+                employee_document=emp_cpf,
+                requested_by=current_user.id,
+            )
+            await db.commit()
+        except Exception as sig_exc:
+            logger.warning("Assinatura do holerite (dp) não criada: %s", sig_exc)
 
     filename = f"holerite_{payslip_id!s:.8}.pdf"
     return Response(

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   Loader2, ArrowLeft, Send, CheckCircle, XCircle,
-  Download, FileText, Building2, User, Eye, Calendar, AlertCircle,
+  Download, FileText, Building2, User, Eye, Calendar, AlertCircle, PenTool,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 
@@ -77,6 +77,24 @@ interface Checklist {
   checklist: ChecklistItem[];
 }
 
+interface SignaturePendency {
+  document_id: string;
+  document_type: string;
+  document_name?: string;
+  employee_name?: string | null;
+  situacao: string;
+}
+
+interface SignatureStatus {
+  assinaveis: number;
+  com_solicitacao: number;
+  assinados: number;
+  pendentes: number;
+  sem_solicitacao: number;
+  pode_fechar: boolean;
+  pendencias: SignaturePendency[];
+}
+
 const statusColors: Record<string, string> = {
   em_montagem: 'bg-amber-500/10 text-amber-500 border border-amber-500/30',
   completo: 'bg-blue-500/10 text-blue-500 border border-blue-500/30',
@@ -145,8 +163,40 @@ export default function KitDetailPage() {
   const [activeTab, setActiveTab] = useState<'employee' | 'company'>('company');
   const [exporting, setExporting] = useState(false);
   const [checklist, setChecklist] = useState<Checklist | null>(null);
+  const [sig, setSig] = useState<SignatureStatus | null>(null);
+  const [requestingSig, setRequestingSig] = useState(false);
 
-  useEffect(() => { if (kitId) fetchKit(); }, [kitId]);
+  useEffect(() => { if (kitId) { fetchKit(); fetchSignatures(); } }, [kitId]);
+
+  async function fetchSignatures() {
+    try {
+      const res = await fetch(`${API_BASE}/kits/${kitId}/assinaturas`, { headers: getAuthHeaders() });
+      if (res.ok) setSig(await res.json());
+    } catch {
+      // status de assinatura é opcional — falha silenciosa
+    }
+  }
+
+  async function handleRequestSignatures() {
+    setRequestingSig(true);
+    try {
+      const res = await fetch(`${API_BASE}/kits/${kitId}/solicitar-assinaturas`, {
+        method: 'POST', headers: getAuthHeaders(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        showToast(`${data.solicitadas} nova(s) solicitação(ões); ${data.ja_existentes} já existiam`);
+        if (data.status) setSig(data.status);
+        fetchKit();
+      } else {
+        showToast('Erro ao solicitar assinaturas', 'error');
+      }
+    } catch {
+      showToast('Erro de conexão ao solicitar assinaturas', 'error');
+    } finally {
+      setRequestingSig(false);
+    }
+  }
 
   async function fetchKit() {
     setLoading(true);
@@ -181,8 +231,14 @@ export default function KitDetailPage() {
     if (!confirm('Confirma o envio deste kit ao cliente?')) return;
     try {
       const res = await fetch(`${API_BASE}/kits/${kitId}/send`, { method: 'POST', headers: getAuthHeaders() });
-      if (res.ok) { showToast('Kit enviado com sucesso'); fetchKit(); }
-      else { const e = await res.json().catch(() => null); showToast(e?.detail || 'Erro ao enviar', 'error'); }
+      if (res.ok) { showToast('Kit enviado com sucesso'); fetchKit(); fetchSignatures(); }
+      else {
+        const e = await res.json().catch(() => null);
+        const detail = e?.detail;
+        const msg = typeof detail === 'string' ? detail : (detail?.message || 'Erro ao enviar');
+        showToast(msg, 'error');
+        if (detail?.assinaturas) setSig(detail.assinaturas);
+      }
     } catch { showToast('Erro de conexão', 'error'); }
   }
 
@@ -295,6 +351,11 @@ export default function KitDetailPage() {
           </span>
         </div>
         <div className="flex flex-wrap gap-2">
+          {sig && sig.assinaveis > 0 && (
+            <button onClick={handleRequestSignatures} disabled={requestingSig} className="flex items-center gap-2 px-3 py-2 text-sm font-medium bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50">
+              {requestingSig ? <Loader2 className="h-4 w-4 animate-spin" /> : <PenTool className="h-4 w-4" />}Solicitar assinaturas
+            </button>
+          )}
           <button onClick={handleSendKit} disabled={kit.status === 'enviado' || kit.status === 'aprovado'} className="flex items-center gap-2 px-3 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
             <Send className="h-4 w-4" />Enviar
           </button>
@@ -324,6 +385,46 @@ export default function KitDetailPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Assinaturas do funcionário nos documentos do kit */}
+      {sig && sig.assinaveis > 0 && (
+        <Card className="border border-[hsl(var(--border))]">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-[hsl(var(--foreground))] flex items-center gap-2">
+                <PenTool className="h-4 w-4 text-violet-500" /> Assinaturas do funcionário
+              </span>
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${sig.pode_fechar ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30' : 'bg-amber-500/10 text-amber-500 border border-amber-500/30'}`}>
+                {sig.pode_fechar ? 'Todas assinadas' : `${sig.pendentes} pendente(s)`}
+              </span>
+            </div>
+            <div className="text-xs text-[hsl(var(--muted-foreground))] mb-3">
+              {sig.assinados}/{sig.assinaveis} documentos assinados
+              {sig.sem_solicitacao > 0 && ` • ${sig.sem_solicitacao} sem solicitação (clique em "Solicitar assinaturas")`}
+              {!sig.pode_fechar && ' • o kit só pode ser entregue quando não houver pendências'}
+            </div>
+            {sig.pendencias.length > 0 && (
+              <ul className="space-y-1 max-h-48 overflow-y-auto">
+                {sig.pendencias.slice(0, 30).map((p) => (
+                  <li key={p.document_id} className="flex items-center gap-2 text-xs">
+                    <XCircle className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
+                    <span className="text-[hsl(var(--foreground))]">{p.employee_name || '—'}</span>
+                    <span className="text-[hsl(var(--muted-foreground))]">— {typeLabels[p.document_type] || p.document_type?.replace(/_/g, ' ')}</span>
+                    <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]">
+                      {p.situacao === 'sem_solicitacao' ? 'sem solicitação' : 'aguardando'}
+                    </span>
+                  </li>
+                ))}
+                {sig.pendencias.length > 30 && (
+                  <li className="text-xs text-[hsl(var(--muted-foreground))] italic">
+                    +{sig.pendencias.length - 30} pendência(s)…
+                  </li>
+                )}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Tabs */}
       <div className="flex border-b border-[hsl(var(--border))]">

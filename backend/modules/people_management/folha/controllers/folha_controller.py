@@ -118,6 +118,31 @@ def baixar_holerite_pdf(
         pass
 
     pdf = montar_holerite_pdf(result, fdad)
+
+    # Assinatura universal do HOLERITE → só EMPLOYEE (recibo de salário, memória do
+    # Jordan: incluir_empresa=False). Idempotente por (employee_id × competência) —
+    # mesma chave usada em qualquer endpoint que gere este holerite. À prova de falha.
+    _doc_id_holerite = f"{employee_id}:{ano}-{mes:02d}"
+    try:
+        import logging as _logging
+
+        from modules.signatures.helpers import (
+            document_hash_sha256 as _dhash,
+            garantir_solicitacao_assinatura_sync,
+        )
+
+        garantir_solicitacao_assinatura_sync(
+            document_type="payslip",
+            document_id=_doc_id_holerite,
+            title=f"Holerite {mes:02d}/{ano} - {result.get('employee_nome') or 'colaborador'}",
+            document_hash=_dhash(pdf),
+            employee_id=employee_id,
+            employee_name=result.get("employee_nome"),
+            employee_document=fdad.get("cpf"),
+        )
+    except Exception as _sig_exc:  # noqa: BLE001
+        _logging.getLogger(__name__).warning("Assinatura do holerite não criada: %s", _sig_exc)
+
     nome = (result.get("employee_nome") or "colaborador").split()[0].lower()
     return Response(
         content=pdf,

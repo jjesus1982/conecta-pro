@@ -95,6 +95,7 @@ async def get_payslip_pdf(
     # Buscar nome do funcionario
     nome = "Funcionario"
     cargo = ""
+    cpf: str | None = None
     try:
         from sqlalchemy import select
 
@@ -105,10 +106,36 @@ async def get_payslip_pdf(
         if emp:
             nome = emp.nome
             cargo = getattr(emp, "cargo", "") or ""
+            cpf = getattr(emp, "cpf", None)
     except ImportError:
         pass
 
     pdf_bytes = _generate_payslip_pdf(payslip_data, nome, cargo, month, year)
+
+    # Assinatura universal do HOLERITE → só EMPLOYEE (recibo de salário; memória do
+    # Jordan: incluir_empresa=False). Idempotente por (employee_id × competência) —
+    # MESMA chave dos demais endpoints de holerite. À prova de falha.
+    try:
+        from modules.signatures.helpers import (
+            document_hash_sha256,
+            garantir_solicitacao_assinatura,
+        )
+
+        await garantir_solicitacao_assinatura(
+            db,
+            document_type="payslip",
+            document_id=f"{employee_id}:{year}-{month:02d}",
+            title=f"Holerite {month:02d}/{year} - {nome}",
+            document_hash=document_hash_sha256(pdf_bytes),
+            employee_id=str(employee_id),
+            employee_name=nome,
+            employee_document=cpf,
+        )
+        await db.commit()
+    except Exception as sig_exc:  # noqa: BLE001
+        import logging as _logging
+
+        _logging.getLogger(__name__).warning("Assinatura do holerite (portal) não criada: %s", sig_exc)
 
     return StreamingResponse(
         io.BytesIO(pdf_bytes),

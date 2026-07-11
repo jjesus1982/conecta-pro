@@ -171,6 +171,32 @@ async def generate_payslip_pdf(
 
     pdf_bytes = _build_payslip_pdf(calc, month, year)
 
+    # Assinatura universal do HOLERITE → só EMPLOYEE (recibo de salário; memória do
+    # Jordan: incluir_empresa=False). Idempotente por (employee_id × competência) —
+    # MESMA chave dos demais endpoints de holerite. À prova de falha.
+    try:
+        from modules.signatures.helpers import (
+            document_hash_sha256,
+            garantir_solicitacao_assinatura,
+        )
+
+        await garantir_solicitacao_assinatura(
+            db,
+            document_type="payslip",
+            document_id=f"{employee_id}:{year}-{month:02d}",
+            title=f"Holerite {month:02d}/{year} - {calc.get('employee_name') or employee_id[:8]}",
+            document_hash=document_hash_sha256(pdf_bytes),
+            employee_id=str(employee_id),
+            employee_name=calc.get("employee_name"),
+            employee_document=calc.get("cpf") or None,
+            requested_by=current_user.id,
+        )
+        await db.commit()
+    except Exception as sig_exc:  # noqa: BLE001
+        import logging as _logging
+
+        _logging.getLogger(__name__).warning("Assinatura do holerite (payroll) não criada: %s", sig_exc)
+
     filename = f"contracheque_{calc['employee_name'].replace(' ', '_')}_{month:02d}_{year}.pdf"
     return StreamingResponse(
         BytesIO(pdf_bytes),

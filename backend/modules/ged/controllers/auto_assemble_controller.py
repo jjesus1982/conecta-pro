@@ -246,6 +246,58 @@ async def get_kit_detail(
     }
 
 
+@router.get("/kits/{kit_id}/assinaturas")
+async def get_kit_signatures(
+    kit_id: str,
+    current_user: CurrentActiveUser = None,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Status de assinatura dos documentos do kit (funcionário) — pendências visíveis."""
+    import uuid as _uuid
+
+    from modules.ged.services.kit_signature_service import status_assinaturas_kit
+
+    try:
+        _uuid.UUID(kit_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"ID de kit inválido: '{kit_id}'")
+    return await status_assinaturas_kit(db, kit_id)
+
+
+@router.post("/kits/{kit_id}/solicitar-assinaturas", status_code=201)
+async def solicitar_kit_signatures(
+    kit_id: str,
+    current_user: CurrentActiveUser = None,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Cria/garante a solicitação de assinatura do funcionário nos docs assináveis do kit."""
+    import uuid as _uuid
+
+    from sqlalchemy import text
+
+    from modules.ged.services.kit_signature_service import (
+        solicitar_assinaturas_kit,
+        status_assinaturas_kit,
+    )
+
+    try:
+        _uuid.UUID(kit_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"ID de kit inválido: '{kit_id}'")
+
+    kit = (
+        await db.execute(text("SELECT id FROM ged_document_kits WHERE id = :id"), {"id": kit_id})
+    ).first()
+    if not kit:
+        raise HTTPException(status_code=404, detail="Kit nao encontrado")
+
+    req_by = str(current_user.id) if current_user else None
+    resumo = await solicitar_assinaturas_kit(db, kit_id, requested_by=req_by)
+    await db.commit()
+    resumo["status"] = await status_assinaturas_kit(db, kit_id)
+    return resumo
+
+
 @router.post("/kits", status_code=201)
 async def create_kit(
     data: dict[str, Any],
@@ -321,6 +373,25 @@ async def send_kit(
     if not kit:
         raise HTTPException(status_code=404, detail="Kit nao encontrado")
 
+    # GATE de assinatura: não fecha/entrega o kit enquanto houver documento do
+    # funcionário aguardando assinatura. Documentos NÃO são perdidos — ficam no
+    # kit; o cliente recebe as pendências para coletar as assinaturas primeiro.
+    from modules.ged.services.kit_signature_service import status_assinaturas_kit
+
+    assinaturas = await status_assinaturas_kit(db, kit_id)
+    if not assinaturas["pode_fechar"]:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "ASSINATURAS_PENDENTES",
+                "message": (
+                    f"{assinaturas['pendentes']} documento(s) do kit ainda aguardam assinatura "
+                    "do funcionário. Colete as assinaturas antes de entregar o kit."
+                ),
+                "assinaturas": assinaturas,
+            },
+        )
+
     await db.execute(
         text("UPDATE ged_document_kits SET status = 'enviado', sent_at = NOW(), updated_at = NOW() WHERE id = :id"),
         {"id": kit_id},
@@ -374,6 +445,24 @@ async def enviar_kit(
         raise HTTPException(
             status_code=400,
             detail=f"Kit incompleto. Completude atual: {pct:.1f}%. Só é possível enviar kits com 100% de documentos.",
+        )
+
+    # 2b. GATE de assinatura: documentos do funcionário no kit precisam estar
+    # assinados antes da entrega. Documentos não são perdidos — ficam no kit.
+    from modules.ged.services.kit_signature_service import status_assinaturas_kit
+
+    assinaturas = await status_assinaturas_kit(db, kit_id)
+    if not assinaturas["pode_fechar"]:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "ASSINATURAS_PENDENTES",
+                "message": (
+                    f"{assinaturas['pendentes']} documento(s) do kit ainda aguardam assinatura "
+                    "do funcionário. Colete as assinaturas antes de entregar o kit."
+                ),
+                "assinaturas": assinaturas,
+            },
         )
 
     # 3. Buscar cliente e validar email

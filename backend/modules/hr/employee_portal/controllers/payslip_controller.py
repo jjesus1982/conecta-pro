@@ -123,6 +123,53 @@ async def download_payslip(
             detail="Erro ao gerar PDF",
         )
 
+    # Assinatura universal do HOLERITE → só EMPLOYEE (recibo de salário; memória do
+    # Jordan: incluir_empresa=False). Idempotente por (employee_id × competência) —
+    # MESMA chave dos demais endpoints de holerite. À prova de falha.
+    try:
+        from sqlalchemy import text as _text
+
+        from modules.signatures.helpers import (
+            document_hash_sha256,
+            garantir_solicitacao_assinatura,
+        )
+
+        emp_id = str(payslip.employee_id)
+        mes = int(payslip.reference_month)
+        ano = int(payslip.reference_year)
+        _row = (
+            await db.execute(
+                _text("SELECT nome, cpf FROM employees WHERE CAST(id AS TEXT) = :e"),
+                {"e": emp_id},
+            )
+        ).first()
+        _nome = _row[0] if _row else None
+        _cpf = _row[1] if _row else None
+        _pdf_bytes = None
+        try:
+            import os as _os
+
+            if _os.path.exists(pdf_path):
+                with open(pdf_path, "rb") as _fh:
+                    _pdf_bytes = _fh.read()
+        except Exception:  # noqa: BLE001
+            _pdf_bytes = None
+        await garantir_solicitacao_assinatura(
+            db,
+            document_type="payslip",
+            document_id=f"{emp_id}:{ano}-{mes:02d}",
+            title=f"Holerite {mes:02d}/{ano} - {_nome or emp_id[:8]}",
+            document_hash=document_hash_sha256(_pdf_bytes),
+            employee_id=emp_id,
+            employee_name=_nome,
+            employee_document=_cpf,
+        )
+        await db.commit()
+    except Exception as _sig_exc:  # noqa: BLE001
+        import logging as _logging
+
+        _logging.getLogger(__name__).warning("Assinatura do holerite (hr portal) não criada: %s", _sig_exc)
+
     return FileResponse(
         path=pdf_path,
         filename=f"contracheque_{payslip.payslip_code}.pdf",

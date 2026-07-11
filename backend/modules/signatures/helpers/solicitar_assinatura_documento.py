@@ -64,6 +64,10 @@ POLITICA_ASSINANTES: dict[str, list[SignerType]] = {
     "aviso_previo": [SignerType.EMPLOYEE, SignerType.COMPANY],
     "rescisao": [SignerType.EMPLOYEE, SignerType.COMPANY],
     "licitacao": [SignerType.COMPANY],
+    # Documento do KIT GEDEON (contracheque/ponto/VT-VA-VR/contrato/ficha/férias/
+    # aviso/rescisão montados no kit por condomínio) → o FUNCIONÁRIO assina.
+    # A empresa NÃO co-assina docs do kit; ficha_epi tem fluxo próprio (fora daqui).
+    "kit_documento": [SignerType.EMPLOYEE],
 }
 
 # Política de NÍVEL legal por (document_type). Decisão do Jordan:
