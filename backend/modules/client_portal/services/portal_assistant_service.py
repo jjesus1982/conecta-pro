@@ -34,12 +34,16 @@ SUAS REGRAS ABSOLUTAS:
 1. Responda APENAS sobre dados deste cliente específico (client_id acima).
 2. NÃO revele informações de outros clientes — nunca.
 3. NÃO execute ações administrativas (criar escalas, demitir funcionários, etc.).
-4. NÃO mencione dados internos do sistema como postos, escalas ou funcionários da empresa.
+4. Fale só dos dados JÁ MOSTRADOS ao cliente no portal (abaixo). Não invente números
+   nem exponha nomes/CPF de funcionários; presença e equipe são em números agregados.
 5. Tom: profissional mas amigável, linguagem simples, sem jargão técnico interno.
 
 VOCÊ PODE AJUDAR COM:
 - Status e detalhes dos kits documentais do cliente
-- Informações sobre certidões e documentos disponíveis para download
+- Equipe alocada e presença da operação no condomínio (números, não nomes)
+- Visitas da gestão Conecta ao condomínio (quando, o que foi feito)
+- NFS-e e contrato disponíveis no financeiro
+- Certidões e documentos para download
 - Abertura e acompanhamento de chamados de suporte
 - Explicar como utilizar o portal
 
@@ -143,6 +147,56 @@ async def _fetch_client_context(db: AsyncSession, client_id: str) -> str:
     except Exception as exc:
         logger.debug("Erro ao buscar chamados do cliente %s: %s", client_id, exc)
 
+    # Operação real do condomínio (equipe, presença, ASOs) — reusa o serviço do portal
+    try:
+        from modules.client_portal.services import portal_operacao_service as op
+
+        resumo = await op.resumo(db, client_id)
+        if isinstance(resumo, dict):
+            partes = []
+            if resumo.get("equipe_total"):
+                partes.append(f"{resumo['equipe_total']} pessoas alocadas")
+            if resumo.get("assiduidade_local_pct") is not None:
+                partes.append(f"assiduidade no local {resumo['assiduidade_local_pct']}%")
+            if resumo.get("asos_vencidos"):
+                partes.append(f"{resumo['asos_vencidos']} ASO(s) a vencer")
+            if resumo.get("turnover_pct") is not None:
+                partes.append(f"turnover 12m {resumo['turnover_pct']}%")
+            if partes:
+                lines.append("Equipe no condomínio: " + ", ".join(str(p) for p in partes))
+    except Exception as exc:
+        logger.debug("Contexto operação p/ %s: %s", client_id, exc)
+
+    # Visitas da gestão (últimas) — prova de serviço
+    try:
+        from modules.client_portal.services import portal_visitas_service as vs
+
+        v = await vs.visitas(db, client_id, limite=3)
+        if isinstance(v, dict) and v.get("total_visitas"):
+            ult = (v.get("visitas") or [{}])[0]
+            lines.append(
+                f"Visitas da gestão: {v['total_visitas']} registradas; "
+                f"última em {ult.get('data', '?')} ({ult.get('responsavel', 'gestão')})"
+            )
+    except Exception as exc:
+        logger.debug("Contexto visitas p/ %s: %s", client_id, exc)
+
+    # Financeiro (NFS-e/contrato) — resumo
+    try:
+        from modules.client_portal.services import portal_financeiro_service as fin
+
+        r = await fin.resumo(db, client_id)
+        if isinstance(r, dict):
+            fpartes = []
+            if r.get("notas_total"):
+                fpartes.append(f"{r['notas_total']} NFS-e no portal")
+            if r.get("contrato_ativo") and r.get("contrato_mensal"):
+                fpartes.append(f"contrato mensal R$ {r['contrato_mensal']}")
+            if fpartes:
+                lines.append("Financeiro: " + ", ".join(str(p) for p in fpartes))
+    except Exception as exc:
+        logger.debug("Contexto financeiro p/ %s: %s", client_id, exc)
+
     if not lines:
         return "Nenhum dado adicional disponível no momento."
 
@@ -207,35 +261,29 @@ class PortalAssistantService:
         """
         message_id = str(uuid.uuid4())
 
-        # Sem LLM configurado, usa placeholder
-        if self._llm is None:
-            return {
-                "response": _get_placeholder_response(message),
-                "suggestions": DEFAULT_SUGGESTIONS,
-                "session_id": session_id,
-                "message_id": message_id,
-            }
-
-        # Busca contexto do cliente para enriquecer o prompt
+        # Contexto REAL do condomínio (kits, equipe/presença, visitas, financeiro)
         client_context = await _fetch_client_context(self.db, client_id)
-
         system_prompt = PORTAL_SYSTEM_PROMPT.format(
             client_id=client_id,
             client_context=client_context,
         )
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": message},
+        ]
 
-        messages = [{"role": "user", "content": message}]
-
+        # Roteador por camadas: tier MEDIA (conversa com contexto), escala sozinho.
+        # Última rede = frases prontas (nunca inventa).
+        response_text = None
         try:
-            llm_response = await self._llm.generate(
-                messages=messages,
-                system_prompt=system_prompt,
-                max_tokens=800,
-                temperature=0.5,
-            )
-            response_text = llm_response.content
+            from core.llm_cascade import aroute
+
+            response_text = await aroute(messages=messages, tier="media", max_tokens=800)
         except Exception as exc:
-            logger.error("Erro ao chamar LLM no portal assistant: %s", exc)
+            logger.error("Portal assistant: erro no roteador LLM: %s", exc)
+
+        if not response_text:
+            logger.info("Portal assistant: sem LLM — usando resposta pronta")
             response_text = _get_placeholder_response(message)
 
         return {
