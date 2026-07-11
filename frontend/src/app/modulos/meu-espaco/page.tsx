@@ -39,6 +39,46 @@ interface PendingDoc {
   is_expired: boolean;
 }
 
+interface MeusDados {
+  nome?: string | null; cpf?: string | null; cargo?: string | null;
+  data_admissao?: string | null; telefone?: string | null; celular?: string | null; email?: string | null;
+  endereco?: string | null;
+  cep?: string | null; logradouro?: string | null; numero?: string | null; complemento?: string | null;
+  bairro?: string | null; cidade?: string | null; uf?: string | null;
+  nome_mae?: string | null; nome_pai?: string | null;
+  naturalidade?: string | null; nacionalidade?: string | null;
+  rg?: string | null; rg_orgao?: string | null; rg_uf?: string | null;
+  estado_civil?: string | null; pis?: string | null;
+  contato_emergencia?: string | null; telefone_emergencia?: string | null;
+}
+
+interface CampoFaltante { campo: string; label: string; }
+interface OnboardingStatus {
+  pendente: boolean; total_obrigatorios: number; total_ok: number;
+  campos_ok: string[]; campos_faltantes: CampoFaltante[];
+}
+
+/** Máscaras BR (contingência client-side; a fonte da verdade é o backend). */
+function maskTelefone(v: string): string {
+  const d = v.replace(/\D/g, '').slice(0, 11);
+  if (d.length <= 10) return d.replace(/(\d{2})(\d{4})(\d{0,4})/, '($1) $2-$3').replace(/[-\s()]+$/, '');
+  return d.replace(/(\d{2})(\d{5})(\d{0,4})/, '($1) $2-$3').replace(/[-\s()]+$/, '');
+}
+function maskCep(v: string): string {
+  const d = v.replace(/\D/g, '').slice(0, 8);
+  return d.replace(/(\d{5})(\d{0,3})/, '$1-$2').replace(/-$/, '');
+}
+function maskPis(v: string): string {
+  const d = v.replace(/\D/g, '').slice(0, 11);
+  return d.replace(/(\d{3})(\d{5})(\d{2})(\d{0,1})/, '$1.$2.$3-$4').replace(/[.\-]+$/, '');
+}
+const ESTADO_CIVIL_OPTS = [
+  { v: 'solteiro', l: 'Solteiro(a)' }, { v: 'casado', l: 'Casado(a)' },
+  { v: 'divorciado', l: 'Divorciado(a)' }, { v: 'viuvo', l: 'Viúvo(a)' },
+  { v: 'uniao_estavel', l: 'União estável' },
+];
+const SS_BASE = '/api/v1/people-management/portal/self-service';
+
 type Tab =
   | 'assinar' | 'holerite' | 'ferias' | 'ponto' | 'beneficios'
   | 'documentos' | 'treinamentos' | 'dados' | 'cct'
@@ -62,16 +102,46 @@ export default function MeuEspacoPage() {
   const router = useRouter();
   const { user, isLoading, isAuthenticated, logout } = useAuth();
   const [tab, setTab] = useState<Tab>('assinar');
+  const [onbStatus, setOnbStatus] = useState<OnboardingStatus | null>(null);
+  const [onbLoading, setOnbLoading] = useState(true);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) router.replace('/login');
   }, [isLoading, isAuthenticated, router]);
 
-  if (isLoading) {
+  // Verifica o onboarding obrigatório no 1º acesso (funcionário/líder).
+  useEffect(() => {
+    if (isLoading || !isAuthenticated) return;
+    (async () => {
+      try {
+        const res = await api.get(`${SS_BASE}/onboarding-status`);
+        setOnbStatus(res.data);
+      } catch {
+        // Se a conta não é funcionário (sem employee_id) → não bloqueia.
+        setOnbStatus({ pendente: false, total_obrigatorios: 0, total_ok: 0, campos_ok: [], campos_faltantes: [] });
+      } finally {
+        setOnbLoading(false);
+      }
+    })();
+  }, [isLoading, isAuthenticated]);
+
+  if (isLoading || onbLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-[hsl(var(--primary))]" />
       </div>
+    );
+  }
+
+  // GATE: onboarding pendente bloqueia o Meu Espaço até completar o cadastro.
+  if (onbStatus?.pendente) {
+    return (
+      <OnboardingGate
+        status={onbStatus}
+        userName={user?.name}
+        onLogout={logout}
+        onDone={(novo) => setOnbStatus(novo)}
+      />
     );
   }
 
@@ -141,6 +211,250 @@ export default function MeuEspacoPage() {
         {tab === 'treinamentos' && <TreinamentosTab />}
         {tab === 'cct' && <CctTab />}
         {tab === 'dados' && <DadosTab />}
+      </div>
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------- //
+// Onboarding obrigatório (1º acesso) — completar cadastro
+// --------------------------------------------------------------------------- //
+function OnboardingGate({
+  status, userName, onLogout, onDone,
+}: {
+  status: OnboardingStatus;
+  userName?: string | null;
+  onLogout: () => void;
+  onDone: (novo: OnboardingStatus) => void;
+}) {
+  const faltantes = new Set(status.campos_faltantes.map((f) => f.campo));
+  const [form, setForm] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
+
+  const set = (k: string, v: string) => setForm((p) => ({ ...p, [k]: v }));
+
+  // Campos obrigatórios que ainda faltam (só exibimos os que faltam).
+  const obrig = status.campos_faltantes.map((f) => f.campo);
+
+  const validar = (): boolean => {
+    const errs: Record<string, string> = {};
+    for (const c of obrig) {
+      const val = (form[c] || '').trim();
+      if (!val) { errs[c] = 'Campo obrigatório'; continue; }
+      if (c === 'telefone' && val.replace(/\D/g, '').length < 10) errs[c] = 'Telefone incompleto';
+      if (c === 'cep' && val.replace(/\D/g, '').length !== 8) errs[c] = 'CEP deve ter 8 dígitos';
+      if (c === 'pis' && val.replace(/\D/g, '').length !== 11) errs[c] = 'PIS deve ter 11 dígitos';
+    }
+    setFieldErr(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  const salvar = async () => {
+    if (!validar()) return;
+    setSaving(true); setError('');
+    try {
+      // Envia apenas os campos preenchidos (todos gravam DIRETO em employees).
+      const payload: Record<string, string> = {};
+      for (const [k, v] of Object.entries(form)) if (v && v.trim()) payload[k] = v.trim();
+      const res = await api.put(`${SS_BASE}/meus-dados`, payload);
+      const novo: OnboardingStatus | undefined = res.data?.onboarding;
+      if (novo && !novo.pendente) { onDone(novo); return; }
+      if (novo) {
+        // Ainda faltam campos — atualiza a lista e avisa.
+        onDone(novo);
+        setError('Ainda há campos obrigatórios pendentes.');
+      } else {
+        // Sem status no retorno: recarrega para confirmar.
+        const st = await api.get(`${SS_BASE}/onboarding-status`);
+        onDone(st.data);
+      }
+    } catch (e: unknown) {
+      const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+      setError(typeof detail === 'string' ? detail : 'Não foi possível salvar. Confira os campos e tente de novo.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inputCls = (c: string) =>
+    [
+      'w-full rounded-lg border bg-[hsl(var(--background))] px-3 py-2 text-sm outline-none',
+      fieldErr[c] ? 'border-red-500 focus:border-red-500' : 'border-[hsl(var(--border))] focus:border-[#f97707]',
+    ].join(' ');
+
+  const Field = ({ campo, label, children }: { campo: string; label: string; children: React.ReactNode }) => (
+    <div>
+      <label className="text-xs text-[hsl(var(--muted-foreground))]">
+        {label} <span className="text-red-500">*</span>
+      </label>
+      {children}
+      {fieldErr[campo] && <p className="text-[11px] text-red-500 mt-0.5">{fieldErr[campo]}</p>}
+    </div>
+  );
+
+  const grupoEndereco = ['cep', 'logradouro', 'numero', 'bairro', 'cidade', 'uf'].filter((c) => faltantes.has(c));
+  const grupoContato = ['telefone'].filter((c) => faltantes.has(c));
+  const grupoDoc = ['nome_mae', 'naturalidade', 'nacionalidade', 'rg', 'estado_civil', 'pis'].filter((c) => faltantes.has(c));
+
+  return (
+    <div className="min-h-screen bg-[hsl(var(--background))]">
+      <header className="h-14 flex items-center justify-between px-4 lg:px-6 bg-[hsl(var(--card))] border-b border-[hsl(var(--border))]">
+        <div className="flex items-center gap-2.5">
+          <Image src="/images/logo-icon.png" alt="Conecta PRO" width={26} height={26} />
+          <span className="font-display text-sm font-semibold tracking-tight">
+            Meu&nbsp;<span style={{ color: '#f97707' }}>Espaço</span>
+          </span>
+        </div>
+        <Button variant="outline" size="sm" onClick={onLogout}>
+          <LogOut className="w-4 h-4 mr-1.5" /> Sair
+        </Button>
+      </header>
+
+      <div className="max-w-2xl mx-auto p-4 lg:p-6">
+        <div className="mb-5 flex items-start gap-3">
+          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#f97707]/10">
+            <ShieldCheck className="h-5 w-5 text-[#f97707]" />
+          </div>
+          <div>
+            <h1 className="font-display text-xl font-bold">
+              Bem-vindo{userName ? `, ${userName.split(' ')[0]}` : ''}! Complete seu cadastro
+            </h1>
+            <p className="text-sm text-[hsl(var(--muted-foreground))] mt-0.5">
+              Para liberar o Meu Espaço, precisamos de alguns dados obrigatórios (exigidos pelo
+              eSocial). Você preenche <b>uma vez</b> e essas informações passam a valer em todos os
+              módulos, sem duplicidade.
+            </p>
+          </div>
+        </div>
+
+        <div className="mb-4 h-1.5 w-full rounded-full bg-[hsl(var(--muted))]/40">
+          <div
+            className="h-1.5 rounded-full bg-[#f97707] transition-all"
+            style={{ width: `${Math.round((status.total_ok / Math.max(status.total_obrigatorios, 1)) * 100)}%` }}
+          />
+        </div>
+
+        <div className="space-y-6 bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl p-4 lg:p-5">
+          {grupoContato.length > 0 && (
+            <section className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]/70">Contato</p>
+              <Field campo="telefone" label="Telefone / celular">
+                <input className={inputCls('telefone')} inputMode="tel" placeholder="(92) 90000-0000"
+                  value={form.telefone || ''} onChange={(e) => set('telefone', maskTelefone(e.target.value))} />
+              </Field>
+            </section>
+          )}
+
+          {grupoEndereco.length > 0 && (
+            <section className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]/70">Endereço</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {faltantes.has('cep') && (
+                  <Field campo="cep" label="CEP">
+                    <input className={inputCls('cep')} inputMode="numeric" placeholder="69000-000"
+                      value={form.cep || ''} onChange={(e) => set('cep', maskCep(e.target.value))} />
+                  </Field>
+                )}
+                {faltantes.has('logradouro') && (
+                  <div className="sm:col-span-2">
+                    <Field campo="logradouro" label="Endereço (rua/avenida)">
+                      <input className={inputCls('logradouro')} value={form.logradouro || ''}
+                        onChange={(e) => set('logradouro', e.target.value)} />
+                    </Field>
+                  </div>
+                )}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {faltantes.has('numero') && (
+                  <Field campo="numero" label="Número">
+                    <input className={inputCls('numero')} value={form.numero || ''}
+                      onChange={(e) => set('numero', e.target.value)} />
+                  </Field>
+                )}
+                {faltantes.has('bairro') && (
+                  <Field campo="bairro" label="Bairro">
+                    <input className={inputCls('bairro')} value={form.bairro || ''}
+                      onChange={(e) => set('bairro', e.target.value)} />
+                  </Field>
+                )}
+                {faltantes.has('cidade') && (
+                  <Field campo="cidade" label="Cidade">
+                    <input className={inputCls('cidade')} value={form.cidade || ''}
+                      onChange={(e) => set('cidade', e.target.value)} />
+                  </Field>
+                )}
+                {faltantes.has('uf') && (
+                  <Field campo="uf" label="UF">
+                    <input className={inputCls('uf')} maxLength={2} placeholder="AM"
+                      value={form.uf || ''} onChange={(e) => set('uf', e.target.value.toUpperCase().slice(0, 2))} />
+                  </Field>
+                )}
+              </div>
+            </section>
+          )}
+
+          {grupoDoc.length > 0 && (
+            <section className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]/70">Documentos e filiação</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {faltantes.has('nome_mae') && (
+                  <div className="sm:col-span-2">
+                    <Field campo="nome_mae" label="Nome da mãe">
+                      <input className={inputCls('nome_mae')} value={form.nome_mae || ''}
+                        onChange={(e) => set('nome_mae', e.target.value)} />
+                    </Field>
+                  </div>
+                )}
+                {faltantes.has('naturalidade') && (
+                  <Field campo="naturalidade" label="Naturalidade (cidade de nascimento)">
+                    <input className={inputCls('naturalidade')} value={form.naturalidade || ''}
+                      onChange={(e) => set('naturalidade', e.target.value)} />
+                  </Field>
+                )}
+                {faltantes.has('nacionalidade') && (
+                  <Field campo="nacionalidade" label="Nacionalidade">
+                    <input className={inputCls('nacionalidade')} placeholder="Brasileira"
+                      value={form.nacionalidade || ''} onChange={(e) => set('nacionalidade', e.target.value)} />
+                  </Field>
+                )}
+                {faltantes.has('rg') && (
+                  <Field campo="rg" label="RG">
+                    <input className={inputCls('rg')} value={form.rg || ''}
+                      onChange={(e) => set('rg', e.target.value)} />
+                  </Field>
+                )}
+                {faltantes.has('estado_civil') && (
+                  <Field campo="estado_civil" label="Estado civil">
+                    <select className={inputCls('estado_civil')} value={form.estado_civil || ''}
+                      onChange={(e) => set('estado_civil', e.target.value)}>
+                      <option value="">Selecione...</option>
+                      {ESTADO_CIVIL_OPTS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+                    </select>
+                  </Field>
+                )}
+                {faltantes.has('pis') && (
+                  <Field campo="pis" label="PIS/PASEP">
+                    <input className={inputCls('pis')} inputMode="numeric" placeholder="000.00000.00-0"
+                      value={form.pis || ''} onChange={(e) => set('pis', maskPis(e.target.value))} />
+                  </Field>
+                )}
+              </div>
+            </section>
+          )}
+
+          {error && <ErrorBox msg={error} />}
+
+          <div className="flex items-center justify-between pt-1">
+            <p className="text-[11px] text-[hsl(var(--muted-foreground))]/70">
+              Campos com <span className="text-red-500">*</span> são obrigatórios.
+            </p>
+            <Button size="sm" disabled={saving} onClick={salvar}>
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Salvar e continuar'}
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -925,14 +1239,8 @@ function CctTab() {
 }
 
 // --------------------------------------------------------------------------- //
-// Meus dados (leitura + edição de campos permitidos)
+// Meus dados (leitura + edição de campos permitidos — mesma gravação em employees)
 // --------------------------------------------------------------------------- //
-interface MeusDados {
-  nome?: string | null; cpf?: string | null; cargo?: string | null;
-  data_admissao?: string | null; telefone?: string | null; email?: string | null;
-  endereco?: string | null; contato_emergencia?: string | null;
-}
-
 function DadosTab() {
   const [data, setData] = useState<MeusDados | null>(null);
   const [loading, setLoading] = useState(true);
@@ -944,13 +1252,19 @@ function DadosTab() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await api.get('/api/v1/people-management/portal/self-service/meus-dados');
+        const res = await api.get(`${SS_BASE}/meus-dados`);
         setData(res.data);
         setForm({
-          telefone: res.data?.telefone || '',
+          telefone: res.data?.telefone || '', celular: res.data?.celular || '',
           email: res.data?.email || '',
-          endereco: res.data?.endereco || '',
+          cep: res.data?.cep || '', logradouro: res.data?.logradouro || '',
+          numero: res.data?.numero || '', complemento: res.data?.complemento || '',
+          bairro: res.data?.bairro || '', cidade: res.data?.cidade || '', uf: res.data?.uf || '',
+          nome_mae: res.data?.nome_mae || '', naturalidade: res.data?.naturalidade || '',
+          nacionalidade: res.data?.nacionalidade || '', rg: res.data?.rg || '',
+          estado_civil: res.data?.estado_civil || '', pis: res.data?.pis || '',
           contato_emergencia: res.data?.contato_emergencia || '',
+          telefone_emergencia: res.data?.telefone_emergencia || '',
         });
       } catch (e: unknown) {
         const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
@@ -964,12 +1278,18 @@ function DadosTab() {
   const salvar = async () => {
     setSaving(true); setError(''); setOk('');
     try {
-      const res = await api.put('/api/v1/people-management/portal/self-service/meus-dados', {
-        telefone: form.telefone || null,
-        email: form.email || null,
-        endereco: form.endereco || null,
-        contato_emergencia: form.contato_emergencia || null,
-      });
+      // Grava DIRETO em employees (fonte única — o DP lê o mesmo registro).
+      const payload: Record<string, string | null> = {};
+      const campos = [
+        'telefone', 'celular', 'email', 'cep', 'logradouro', 'numero', 'complemento',
+        'bairro', 'cidade', 'uf', 'nome_mae', 'naturalidade', 'nacionalidade', 'rg',
+        'estado_civil', 'pis', 'contato_emergencia', 'telefone_emergencia',
+      ] as const;
+      for (const c of campos) {
+        const v = (form as Record<string, string | undefined>)[c];
+        payload[c] = v && v.trim() ? v.trim() : null;
+      }
+      const res = await api.put(`${SS_BASE}/meus-dados`, payload);
       setData(res.data);
       setOk('Dados atualizados com sucesso.');
     } catch (e: unknown) {
@@ -999,27 +1319,94 @@ function DadosTab() {
         />
       </div>
 
-      {/* Editáveis */}
+      {/* Editáveis — mesmos campos do onboarding, gravam em employees (fonte única). */}
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]/70 mb-2">
-          Contato (você pode atualizar)
-        </p>
-        <div className="space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]/70 mb-2">Contato</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="text-xs text-[hsl(var(--muted-foreground))]">Telefone</label>
-            <input className={inputCls} value={form.telefone || ''} onChange={(e) => setForm({ ...form, telefone: e.target.value })} />
+            <label className="text-xs text-[hsl(var(--muted-foreground))]">Telefone / celular</label>
+            <input className={inputCls} value={form.telefone || ''} onChange={(e) => setForm({ ...form, telefone: maskTelefone(e.target.value) })} />
           </div>
           <div>
             <label className="text-xs text-[hsl(var(--muted-foreground))]">E-mail</label>
             <input className={inputCls} value={form.email || ''} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           </div>
+        </div>
+      </div>
+
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]/70 mb-2">Endereço</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label className="text-xs text-[hsl(var(--muted-foreground))]">Endereço</label>
-            <input className={inputCls} value={form.endereco || ''} onChange={(e) => setForm({ ...form, endereco: e.target.value })} />
+            <label className="text-xs text-[hsl(var(--muted-foreground))]">CEP</label>
+            <input className={inputCls} value={form.cep || ''} onChange={(e) => setForm({ ...form, cep: maskCep(e.target.value) })} />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="text-xs text-[hsl(var(--muted-foreground))]">Endereço (rua/avenida)</label>
+            <input className={inputCls} value={form.logradouro || ''} onChange={(e) => setForm({ ...form, logradouro: e.target.value })} />
           </div>
           <div>
-            <label className="text-xs text-[hsl(var(--muted-foreground))]">Contato de emergência</label>
+            <label className="text-xs text-[hsl(var(--muted-foreground))]">Número</label>
+            <input className={inputCls} value={form.numero || ''} onChange={(e) => setForm({ ...form, numero: e.target.value })} />
+          </div>
+          <div>
+            <label className="text-xs text-[hsl(var(--muted-foreground))]">Bairro</label>
+            <input className={inputCls} value={form.bairro || ''} onChange={(e) => setForm({ ...form, bairro: e.target.value })} />
+          </div>
+          <div>
+            <label className="text-xs text-[hsl(var(--muted-foreground))]">Cidade</label>
+            <input className={inputCls} value={form.cidade || ''} onChange={(e) => setForm({ ...form, cidade: e.target.value })} />
+          </div>
+          <div>
+            <label className="text-xs text-[hsl(var(--muted-foreground))]">UF</label>
+            <input className={inputCls} maxLength={2} value={form.uf || ''} onChange={(e) => setForm({ ...form, uf: e.target.value.toUpperCase().slice(0, 2) })} />
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]/70 mb-2">Documentos e filiação</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="sm:col-span-2">
+            <label className="text-xs text-[hsl(var(--muted-foreground))]">Nome da mãe</label>
+            <input className={inputCls} value={form.nome_mae || ''} onChange={(e) => setForm({ ...form, nome_mae: e.target.value })} />
+          </div>
+          <div>
+            <label className="text-xs text-[hsl(var(--muted-foreground))]">Naturalidade</label>
+            <input className={inputCls} value={form.naturalidade || ''} onChange={(e) => setForm({ ...form, naturalidade: e.target.value })} />
+          </div>
+          <div>
+            <label className="text-xs text-[hsl(var(--muted-foreground))]">Nacionalidade</label>
+            <input className={inputCls} value={form.nacionalidade || ''} onChange={(e) => setForm({ ...form, nacionalidade: e.target.value })} />
+          </div>
+          <div>
+            <label className="text-xs text-[hsl(var(--muted-foreground))]">RG</label>
+            <input className={inputCls} value={form.rg || ''} onChange={(e) => setForm({ ...form, rg: e.target.value })} />
+          </div>
+          <div>
+            <label className="text-xs text-[hsl(var(--muted-foreground))]">Estado civil</label>
+            <select className={inputCls} value={form.estado_civil || ''} onChange={(e) => setForm({ ...form, estado_civil: e.target.value })}>
+              <option value="">Selecione...</option>
+              {ESTADO_CIVIL_OPTS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-[hsl(var(--muted-foreground))]">PIS/PASEP</label>
+            <input className={inputCls} value={form.pis || ''} onChange={(e) => setForm({ ...form, pis: maskPis(e.target.value) })} />
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]/70 mb-2">Contato de emergência</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-[hsl(var(--muted-foreground))]">Nome / parentesco</label>
             <input className={inputCls} value={form.contato_emergencia || ''} onChange={(e) => setForm({ ...form, contato_emergencia: e.target.value })} />
+          </div>
+          <div>
+            <label className="text-xs text-[hsl(var(--muted-foreground))]">Telefone de emergência</label>
+            <input className={inputCls} value={form.telefone_emergencia || ''} onChange={(e) => setForm({ ...form, telefone_emergencia: maskTelefone(e.target.value) })} />
           </div>
         </div>
       </div>

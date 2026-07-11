@@ -425,11 +425,33 @@ async def meus_dados(
     return await get_my_data(employee_id=UUID(emp), db=db)
 
 
+@router.get(
+    "/onboarding-status",
+    summary="Status do onboarding obrigatório (funcionário logado)",
+    description="Indica se o funcionário precisa completar o cadastro no 1º acesso "
+    "(campos obrigatórios do S-2200 eSocial faltando em employees). "
+    "Se pendente=true, o Meu Espaço deve bloquear e exibir o formulário obrigatório.",
+)
+async def meu_onboarding_status(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    emp = _employee_id(current_user)
+    from modules.people_management.employee_portal.controllers.my_data_controller import (
+        get_onboarding_status,
+    )
+
+    return await get_onboarding_status(employee_id=UUID(emp), db=db)
+
+
 @router.put(
     "/meus-dados",
-    summary="Atualizar meus dados (campos permitidos)",
-    description="Atualiza APENAS telefone, email, endereço e contato de emergência. "
-    "Cargo/salário/CPF nunca são editáveis pelo funcionário.",
+    summary="Atualizar meus dados (dados pessoais/contato)",
+    description="Grava DIRETO em employees (fonte única — o DP lê o mesmo registro). "
+    "Aceita todos os campos do onboarding (telefone, endereço, nome_mae, "
+    "naturalidade, nacionalidade, rg, estado_civil, pis...). "
+    "Cargo/salário/status/matrícula/CPF NUNCA são editáveis pelo funcionário. "
+    "Retorna os dados + o status de onboarding recomputado.",
 )
 async def atualizar_meus_dados(
     update_data: UpdateMyDataRequest,
