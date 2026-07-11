@@ -553,16 +553,23 @@ class UniversalSignatureService:
                     "signed_at": r.signed_at.isoformat() if r.signed_at else None,
                     "signature_hash": None,  # preenchido abaixo se assinado
                     "signature_id": str(r.signature_id) if r.signature_id else None,
+                    # metadados preenchidos abaixo se assinado (nível/certificado ICP-Brasil)
+                    "level": None,
+                    "signature_type": None,
+                    "certificate_issuer": None,
+                    "certificate_serial": None,
+                    "certificate_valid_to": None,
                 }
             )
 
-        # completa o hash de cada assinatura, se houver
+        # completa hash + metadados de cada assinatura coletada, se houver
         sig_ids = [r.signature_id for r in reqs if r.signature_id]
         if sig_ids:
-            hash_map = await self._hashes_for(sig_ids)
+            sig_map = await self._signatures_for(sig_ids)
             for s in signatarios:
-                if s["signature_id"]:
-                    s["signature_hash"] = hash_map.get(s["signature_id"])
+                info = sig_map.get(s["signature_id"]) if s["signature_id"] else None
+                if info:
+                    s.update(info)
 
         total = len(reqs)
         if signed_count == 0:
@@ -911,11 +918,39 @@ class UniversalSignatureService:
                 matched.append(r)
         return sorted(matched, key=lambda r: r.signature_order or 0)
 
-    async def _hashes_for(self, sig_ids: list[uuid.UUID]) -> dict[str, str]:
+    async def _signatures_for(self, sig_ids: list[uuid.UUID]) -> dict[str, dict[str, Any]]:
+        """Busca hash + nível + metadados do certificado (ICP-Brasil) de cada assinatura.
+
+        Usado por `status()` para o bloco de autenticidade distinguir a assinatura
+        eletrônica simples (funcionário/cliente) da qualificada ICP-Brasil (empresa),
+        exibindo emissor/série do certificado A1 quando houver.
+        """
         result = await self.db.execute(
-            select(Signature.id, Signature.signature_hash).where(Signature.id.in_(sig_ids))
+            select(
+                Signature.id,
+                Signature.signature_hash,
+                Signature.signature_type,
+                Signature.certificate_issuer,
+                Signature.certificate_serial,
+                Signature.certificate_valid_to,
+                Signature.extra_data,
+            ).where(Signature.id.in_(sig_ids))
         )
-        return {str(row[0]): row[1] for row in result.all()}
+        out: dict[str, dict[str, Any]] = {}
+        for row in result.all():
+            extra = row.extra_data or {}
+            sig_type = getattr(row.signature_type, "value", row.signature_type)
+            out[str(row.id)] = {
+                "signature_hash": row.signature_hash,
+                "signature_type": str(sig_type) if sig_type else None,
+                "level": extra.get("level"),
+                "certificate_issuer": row.certificate_issuer,
+                "certificate_serial": row.certificate_serial,
+                "certificate_valid_to": (
+                    row.certificate_valid_to.isoformat() if row.certificate_valid_to else None
+                ),
+            }
+        return out
 
     async def _maybe_complete_group(self, req: SignatureRequest) -> bool:
         """Se todos os signatários do documento assinaram, marca o grupo COMPLETED."""

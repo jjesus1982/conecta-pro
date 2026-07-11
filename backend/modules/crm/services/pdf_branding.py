@@ -316,9 +316,10 @@ def campos_assinatura(
     recebeu). incluir_funcionario=False para documentos só da empresa (ex.: licitação,
     relatórios). Se apenas um lado for incluído, a coluna é centralizada.
 
-    O Conecta PRO assina EXATAMENTE no campo de cada nome (âncora invisível
-    ASSINAR::FUNCIONARIO / ASSINAR::EMPRESA que o motor de assinatura localiza para
-    sobrepor a assinatura no ponto certo). Uso em holerite, contrato, recibo, etc.
+    A assinatura é embutida criptograficamente no PDF (eletrônica SHA-256 ou
+    qualificada PAdES/ICP-Brasil pelo motor universal); o bloco de autenticidade
+    carimba o não-repúdio. Não há marcadores de texto internos no documento final.
+    Uso em holerite, contrato, recibo, etc.
 
     data_prefixo: rótulo antes da data (ex.: "Pago em ").
     digital_funcionario: quando True, o funcionário assina DIGITALMENTE pelo Portal do
@@ -349,15 +350,17 @@ def campos_assinatura(
         sub_emp = f"Assinatura digital · {data_empresa}" if data_empresa else "Assinatura digital"
     else:
         sub_emp = EMPRESA["nome"]
-    # espaço em branco ACIMA da linha (room pra caneta) via âncora invisível + linhas vazias
+    # espaço em branco ACIMA da linha (room pra caneta) via linhas vazias. NÃO imprimimos
+    # marcadores internos no documento final — a assinatura digital é embutida no PDF
+    # (SHA-256 eletrônica / PAdES ICP-Brasil), sem depender de âncora de texto.
     col_func = Paragraph(
-        f'<font size="7" color="#FFFFFF">ASSINAR::FUNCIONARIO</font><br/><br/><br/>{linha}<br/>'
+        f'<br/><br/><br/>{linha}<br/>'
         f"<b>{funcionario_nome or 'Funcionário'}</b><br/>{func_ident}<br/>"
         f'<font color="#2D5F8B">{sub_func}</font>',
         cel,
     )
     col_emp = Paragraph(
-        f'<font size="7" color="#FFFFFF">ASSINAR::EMPRESA</font><br/><br/><br/>{linha}<br/>'
+        f'<br/><br/><br/>{linha}<br/>'
         f"<b>{resp}</b><br/>{resp_cargo}<br/>"
         f'<font color="#2D5F8B">{sub_emp}</font>',
         cel,
@@ -384,18 +387,36 @@ def campos_assinatura(
     return out
 
 
-def bloco_autenticidade_assinaturas(st: dict | None = None, *, signatarios: list | None = None) -> list:
-    """Bloco branded de AUTENTICIDADE das assinaturas eletrônicas (padrão-ouro).
+def _is_qualified_sig(s: dict) -> bool:
+    """True se a assinatura é qualificada ICP-Brasil (empresa, cert A1/PAdES)."""
+    if str(s.get("level") or "").lower() == "qualified":
+        return True
+    if str(s.get("signature_type") or "").lower() in ("digital", "qualified"):
+        return True
+    # empresa (company) com emissor de certificado presente ⇒ qualificada
+    if s.get("certificate_issuer") and str(s.get("signer_type")) == "company":
+        return True
+    return False
 
-    Mesmo padrão visual da ficha de EPI: para cada assinatura já coletada,
-    imprime "ASSINADO ELETRONICAMENTE" com nome, papel, data/hora America/Manaus
-    e o hash SHA-256. Deixa de imprimir os que ainda estão pendentes.
+
+def bloco_autenticidade_assinaturas(st: dict | None = None, *, signatarios: list | None = None) -> list:
+    """Bloco branded de AUTENTICIDADE das assinaturas (padrão-ouro).
+
+    Renderiza TODAS as assinaturas já coletadas, distinguindo o nível legal:
+
+    - FUNCIONÁRIO/CLIENTE (eletrônica simples): "ASSINADO ELETRONICAMENTE por
+      {nome} ({papel}) via Conecta PRO em {data Manaus} · Hash SHA-256: {hash} ·
+      Verifique em .../signatures/verify/{hash}".
+    - EMPRESA com certificado A1 (qualificada ICP-Brasil / PAdES): "ASSINADO
+      DIGITALMENTE (ICP-Brasil) por {razão social/CNPJ} · Certificado A1 {emissor}
+      · Série {serial} · em {data Manaus}".
 
     Consome a lista `signatarios` do UniversalSignatureService.status():
-      [{signer_name, signer_type, status, signed_at, signature_hash}, ...]
+      [{signer_name, signer_type, status, signed_at, signature_hash, level,
+        signature_type, certificate_issuer, certificate_serial}, ...]
 
-    Não altera o layout dos campos de assinatura — é um complemento branded que
-    dá não-repúdio visual ao documento, alinhado à identidade Conecta Mais.
+    Deixa de imprimir os que ainda estão pendentes. Complemento branded que dá
+    não-repúdio visual ao documento, alinhado à identidade Conecta Mais.
     """
     st = st or styles()
     assinados = [
@@ -408,28 +429,47 @@ def bloco_autenticidade_assinaturas(st: dict | None = None, *, signatarios: list
 
     papel = {"employee": "Funcionário", "company": EMPRESA["nome"], "customer": "Cliente"}
     small = st.get("small", getSampleStyleSheet()["Normal"])
+    linha_st = ParagraphStyle("aut_lin", parent=small, fontSize=7.5, leading=11)
     out: list = [Spacer(1, 4 * mm)]
     out.append(
         Paragraph(
-            '<font color="#1E3A5F"><b>AUTENTICIDADE DAS ASSINATURAS ELETRÔNICAS</b></font>',
+            '<font color="#1E3A5F"><b>AUTENTICIDADE DAS ASSINATURAS</b></font>',
             ParagraphStyle("aut_tit", parent=small, fontName=FONTE_B, fontSize=8.5),
         )
     )
     for s in assinados:
         nome = s.get("signer_name") or "—"
-        pp = papel.get(str(s.get("signer_type")), str(s.get("signer_type") or ""))
         quando = _fmt_dt_manaus(s.get("signed_at"))
         h = s.get("signature_hash") or ""
-        out.append(
-            Paragraph(
-                f"<b>ASSINADO ELETRONICAMENTE</b> por <b>{nome}</b> ({pp}) via Conecta PRO"
-                + (f" em {quando}" if quando else "")
-                + f' · Hash SHA-256: <font size="6.5">{h}</font>'
-                + f'<br/><font color="#2D5F8B" size="7">Verifique em '
-                + f"{EMPRESA['site']}/verificar · /signatures/verify/{h[:16]}…</font>",
-                ParagraphStyle("aut_lin", parent=small, fontSize=7.5, leading=11),
+        if _is_qualified_sig(s):
+            # EMPRESA — assinatura qualificada ICP-Brasil (certificado A1, PAdES).
+            titular = f"{EMPRESA['razao']} (CNPJ {EMPRESA['cnpj']})"
+            emissor = s.get("certificate_issuer") or "AC ICP-Brasil"
+            serial = s.get("certificate_serial") or "—"
+            out.append(
+                Paragraph(
+                    f"<b>ASSINADO DIGITALMENTE (ICP-Brasil)</b> por <b>{titular}</b>"
+                    + f" · Certificado A1 {emissor}"
+                    + f" · Série {serial}"
+                    + (f" · em {quando}" if quando else "")
+                    + f'<br/><font color="#2D5F8B" size="7">Assinatura PAdES embutida no PDF (fé pública) · '
+                    + f"Hash SHA-256: {h[:32]}…</font>",
+                    linha_st,
+                )
             )
-        )
+        else:
+            # FUNCIONÁRIO/CLIENTE — assinatura eletrônica simples (SHA-256).
+            pp = papel.get(str(s.get("signer_type")), str(s.get("signer_type") or ""))
+            out.append(
+                Paragraph(
+                    f"<b>ASSINADO ELETRONICAMENTE</b> por <b>{nome}</b> ({pp}) via Conecta PRO"
+                    + (f" em {quando}" if quando else "")
+                    + f' · Hash SHA-256: <font size="6.5">{h}</font>'
+                    + f'<br/><font color="#2D5F8B" size="7">Verifique em '
+                    + f"{EMPRESA['site']}/verificar · /signatures/verify/{h[:16]}…</font>",
+                    linha_st,
+                )
+            )
     return out
 
 

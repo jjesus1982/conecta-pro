@@ -240,8 +240,8 @@ def _build_signature_block(styles: dict, variaveis: dict) -> list:
     """Returns flowables for the signature block (marca centralizada, assinatura digital da empresa).
 
     Documento de licitacao e assinado SO pela empresa (CEO default JORDAN JESUS). Reaproveita o
-    helper de marca B.campos_assinatura para posicionar a ancora invisivel ASSINAR::EMPRESA e o
-    padrao visual, ocultando a coluna de "funcionario" (nao se aplica a proposta de licitacao).
+    helper de marca B.campos_assinatura para o padrao visual, ocultando a coluna de
+    "funcionario" (nao se aplica a proposta de licitacao).
     """
     data_hoje = B.br_date(datetime.utcnow())
     representante = variaveis.get("representante") or variaveis.get("representante_legal") or None

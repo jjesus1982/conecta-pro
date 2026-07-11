@@ -317,7 +317,7 @@ def build_proposal_pdf(p, signatarios: list | None = None) -> bytes:
 
     # ---------------- Aceite (assinaturas) ----------------
     # O CLIENTE aceita/assina (manual ou pelo motor de assinatura do Conecta PRO) e a EMPRESA
-    # assina digitalmente (CEO). Âncoras ASSINAR::FUNCIONARIO / ASSINAR::EMPRESA preservadas.
+    # assina digitalmente (CEO). Assinatura embutida no PDF (sem marcadores de texto internos).
     el.append(Spacer(1, 6 * mm))
     el += _secao("Aceite da Proposta", st)
     el.append(
