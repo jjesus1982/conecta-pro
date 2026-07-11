@@ -118,6 +118,8 @@ async def solicitar_assinaturas_kit(
                 FROM ged_kit_documents gkd
                 LEFT JOIN employees e ON e.id = gkd.employee_id
                 WHERE gkd.kit_id = :kid
+                  AND gkd.file_path IS NOT NULL
+                  AND COALESCE(gkd.document_name,'') NOT ILIKE '%PLACEHOLDER%'
                 """
             ),
             {"kid": kit_id},
@@ -198,6 +200,8 @@ async def status_assinaturas_kit(db: AsyncSession, kit_id: str) -> dict[str, Any
                       AND sr.document_id = gkd.id
                       AND sr.signer_type = 'employee'
                 WHERE gkd.kit_id = :kid
+                  AND gkd.file_path IS NOT NULL
+                  AND COALESCE(gkd.document_name,'') NOT ILIKE '%PLACEHOLDER%'
                 """
             ),
             {"kid": kit_id},
