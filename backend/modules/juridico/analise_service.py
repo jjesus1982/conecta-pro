@@ -107,15 +107,15 @@ _MODEL_ANTHROPIC = "claude-sonnet-4-6"  # fallback opcional (só se ANTHROPIC_AP
 async def _chamar_llm(system_prompt: str, user_content: str, max_tokens: int = 8192) -> dict[str, Any] | None:
     """Cascata OpenAI → Anthropic. Retorna None se nenhum provedor disponível (sem fabricar)."""
     try:
-        from core.llm_cascade import achat_ex
+        from core.llm_cascade import aroute_ex
 
-        result = await achat_ex(
+        # tier PESADA: risco jurídico → melhor modelo direto (não escala p/ baixo)
+        result = await aroute_ex(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
             ],
-            model_openai=_MODEL_OPENAI,
-            model_anthropic=_MODEL_ANTHROPIC,
+            tier="pesada",
             max_tokens=max_tokens,
             temperature=0.2,
             json_mode=True,
@@ -123,7 +123,7 @@ async def _chamar_llm(system_prompt: str, user_content: str, max_tokens: int = 8
         if result is None:
             logger.warning("Análise contrato: nenhum provedor LLM disponível — IA indisponível")
             return None
-        content, provider, model = result
+        content, provider, model, _tier = result
         logger.info("Análise contrato: resposta via %s (%s)", provider, model)
         return {"content": content, "model": model}
     except Exception as e:  # noqa: BLE001

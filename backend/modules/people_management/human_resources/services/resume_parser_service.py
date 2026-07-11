@@ -127,7 +127,7 @@ class ResumeParserService:
             Dicionário com dados estruturados extraídos.
         """
         try:
-            from core.llm_cascade import chat_ex
+            from core.llm_cascade import route_ex, valida_json
 
             prompt = f"""Analise o currículo abaixo e extraia dados estruturados em JSON.
 
@@ -175,19 +175,20 @@ Retorne EXATAMENTE este formato JSON (sem markdown, sem backticks):
 CURRÍCULO:
 {text[:6000]}"""
 
-            result = chat_ex(
+            # tier MEDIA + escala se o JSON vier inválido → sobe p/ gpt-5 sozinho
+            result = route_ex(
                 messages=[{"role": "user", "content": prompt}],
-                model_openai=ResumeParserService.OPENAI_MODEL,
-                model_anthropic=ResumeParserService.CLAUDE_MODEL,
+                tier="media",
                 max_tokens=ResumeParserService.LLM_MAX_TOKENS,
                 json_mode=True,
+                validar=valida_json,
             )
 
             if result is None:
                 logger.warning("Nenhum provedor LLM disponível, usando fallback regex")
                 return ResumeParserService._fallback_regex_parse(text)
 
-            result_text, provider, model = result
+            result_text, provider, model, _tier = result
             result_text = result_text.strip()
 
             # Tentar extrair JSON da resposta

@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,49 @@ logger = logging.getLogger(__name__)
 _REASONING_PREFIXES = ("gpt-5", "o1", "o3", "o4")
 # Piso de tokens p/ modelos reasoning (o raciocínio conta no orçamento de saída)
 _REASONING_MIN_TOKENS = 2000
+
+# ── Roteador por camadas (tiers) ──────────────────────────────────────────────
+# O sistema escolhe o modelo OpenAI pela COMPLEXIDADE da tarefa e ESCALA sozinho
+# quando o modelo mais barato falha/devolve vazio/reprova a validação. Assim os
+# modelos caros (gpt-5) só são pagos quando os baratos não dão conta — sem perder
+# qualidade onde importa. Cada tier é sobrescrevível por env (LLM_TIER_LEVE etc).
+_TIER_ORDER = ("leve", "media", "pesada")
+_TIER_DEFAULTS = {
+    "leve": "gpt-5-nano",    # classificar, rotular, resumo curto
+    "media": "gpt-5-mini",   # conversa com contexto, extração estruturada
+    "pesada": "gpt-5",       # análise longa, jurídico/licitações, risco/dinheiro
+}
+# Fallback Anthropic por tier (só usado SE ANTHROPIC_API_KEY existir)
+_TIER_ANTHROPIC = {
+    "leve": "claude-haiku-4-5-20251001",
+    "media": "claude-sonnet-4-6",
+    "pesada": "claude-sonnet-4-6",
+}
+
+
+def _tier_model(tier: str) -> str:
+    return os.getenv(f"LLM_TIER_{tier.upper()}", "").strip() or _TIER_DEFAULTS[tier]
+
+
+def _tiers_a_partir_de(tier: str) -> list[str]:
+    """Cadeia de escalonamento: do tier pedido para cima (leve→media→pesada)."""
+    try:
+        i = _TIER_ORDER.index(tier)
+    except ValueError:
+        i = _TIER_ORDER.index("media")
+    return list(_TIER_ORDER[i:])
+
+
+def _tier_por_heuristica(messages: list[dict], tier_min: str, json_mode: bool) -> str:
+    """Sobe o tier de PARTIDA quando a entrada já indica tarefa pesada — evita
+    gastar uma tentativa barata num prompt claramente complexo."""
+    total = sum(len(str(m.get("content", ""))) for m in messages)
+    alvo = tier_min
+    if total > 6000 and _TIER_ORDER.index(alvo) < _TIER_ORDER.index("media"):
+        alvo = "media"
+    if total > 16000:
+        alvo = "pesada"
+    return alvo
 
 
 def _openai_key() -> str | None:
@@ -257,3 +301,127 @@ async def achat(
         json_mode=json_mode,
     )
     return result[0] if result else None
+
+
+# ── Roteamento por tier com escalonamento automático ──────────────────────────
+
+
+def route_ex(
+    messages: list[dict],
+    tier: str = "media",
+    max_tokens: int = 1024,
+    temperature: float | None = None,
+    json_mode: bool = False,
+    validar: Callable[[str], bool] | None = None,
+) -> tuple[str, str, str, str] | None:
+    """Escolhe o modelo pela COMPLEXIDADE (tier) e ESCALA automaticamente.
+
+    - `tier`: 'leve' | 'media' | 'pesada' — ponto de partida mínimo.
+    - Heurística: entrada grande sobe o tier de partida.
+    - Escalonamento: se um tier devolve None (provedor falhou/vazio) OU `validar`
+      reprova a resposta (ex.: JSON inválido, resposta curta demais), tenta o
+      próximo tier acima. Só chega em gpt-5 quando os menores não resolveram.
+    Retorna (texto, provedor, modelo, tier) ou None se todos falharam.
+    """
+    partida = _tier_por_heuristica(messages, tier, json_mode)
+    for t in _tiers_a_partir_de(partida):
+        result = chat_ex(
+            messages,
+            model_openai=_tier_model(t),
+            model_anthropic=_TIER_ANTHROPIC.get(t),
+            max_tokens=max_tokens,
+            temperature=temperature,
+            json_mode=json_mode,
+        )
+        if result is None:
+            logger.info("router: tier '%s' sem resposta — escalando", t)
+            continue
+        texto = result[0]
+        if validar is not None and not _valida_ok(validar, texto):
+            logger.info("router: tier '%s' reprovou validação — escalando", t)
+            continue
+        logger.info("router: resolvido no tier '%s' via %s (%s)", t, result[1], result[2])
+        return texto, result[1], result[2], t
+    logger.warning("router: nenhum tier resolveu — retornando None")
+    return None
+
+
+async def aroute_ex(
+    messages: list[dict],
+    tier: str = "media",
+    max_tokens: int = 1024,
+    temperature: float | None = None,
+    json_mode: bool = False,
+    validar: Callable[[str], bool] | None = None,
+) -> tuple[str, str, str, str] | None:
+    """Versão async de route_ex. Retorna (texto, provedor, modelo, tier) ou None."""
+    partida = _tier_por_heuristica(messages, tier, json_mode)
+    for t in _tiers_a_partir_de(partida):
+        result = await achat_ex(
+            messages,
+            model_openai=_tier_model(t),
+            model_anthropic=_TIER_ANTHROPIC.get(t),
+            max_tokens=max_tokens,
+            temperature=temperature,
+            json_mode=json_mode,
+        )
+        if result is None:
+            logger.info("router: tier '%s' sem resposta — escalando", t)
+            continue
+        texto = result[0]
+        if validar is not None and not _valida_ok(validar, texto):
+            logger.info("router: tier '%s' reprovou validação — escalando", t)
+            continue
+        logger.info("router: resolvido no tier '%s' via %s (%s)", t, result[1], result[2])
+        return texto, result[1], result[2], t
+    logger.warning("router: nenhum tier resolveu — retornando None")
+    return None
+
+
+def _valida_ok(validar: Callable[[str], bool], texto: str) -> bool:
+    try:
+        return bool(validar(texto))
+    except Exception:  # noqa: BLE001 — validador do call site não derruba o router
+        return False
+
+
+def route(
+    messages: list[dict],
+    tier: str = "media",
+    max_tokens: int = 1024,
+    temperature: float | None = None,
+    json_mode: bool = False,
+    validar: Callable[[str], bool] | None = None,
+) -> str | None:
+    """Roteia por tier com escalonamento. Retorna só o texto (ou None)."""
+    r = route_ex(messages, tier, max_tokens, temperature, json_mode, validar)
+    return r[0] if r else None
+
+
+async def aroute(
+    messages: list[dict],
+    tier: str = "media",
+    max_tokens: int = 1024,
+    temperature: float | None = None,
+    json_mode: bool = False,
+    validar: Callable[[str], bool] | None = None,
+) -> str | None:
+    """Versão async de route. Retorna só o texto (ou None)."""
+    r = await aroute_ex(messages, tier, max_tokens, temperature, json_mode, validar)
+    return r[0] if r else None
+
+
+def valida_json(texto: str) -> bool:
+    """Validador pronto: a resposta é um JSON parseável (aceita cercas ```json)."""
+    import json as _json
+
+    t = texto.strip()
+    if t.startswith("```"):
+        t = t.split("```", 2)[1] if "```" in t[3:] else t
+        t = t[4:] if t.lower().startswith("json") else t
+        t = t.strip().strip("`").strip()
+    try:
+        _json.loads(t)
+        return True
+    except Exception:  # noqa: BLE001
+        return False

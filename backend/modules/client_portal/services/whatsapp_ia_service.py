@@ -92,7 +92,7 @@ def responder_com_ia(
         }
 
     try:
-        from core.llm_cascade import chat as llm_chat
+        from core.llm_cascade import route as llm_route
 
         # Montar histórico (últimas 10 mensagens — INV-7)
         messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -106,12 +106,8 @@ def responder_com_ia(
                 )
         messages.append({"role": "user", "content": mensagem})
 
-        resposta = llm_chat(
-            messages=messages,
-            model_openai=MODEL_OPENAI,
-            model_anthropic=MODEL_ANTHROPIC,
-            max_tokens=400,
-        )
+        # tier MEDIA: conversa com contexto; escala p/ pesada só se o menor falhar
+        resposta = llm_route(messages=messages, tier="media", max_tokens=400)
 
         if not resposta:
             logger.warning("WhatsApp IA: nenhum provedor LLM disponível — usando fallback")

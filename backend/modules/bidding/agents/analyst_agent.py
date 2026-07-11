@@ -277,7 +277,7 @@ class AnalystAgent(BaseAgent):
         Returns:
             Dict com campos da AnalysisResponse.
         """
-        from core.llm_cascade import achat
+        from core.llm_cascade import aroute
 
         user_message = (
             f"Analise o seguinte edital de licitacao e retorne o JSON estruturado "
@@ -285,13 +285,13 @@ class AnalystAgent(BaseAgent):
             f"---INICIO DO EDITAL---\n{edital_text}\n---FIM DO EDITAL---"
         )
 
-        text_content = await achat(
+        # tier PESADA: análise de edital vale contrato → melhor modelo direto
+        text_content = await aroute(
             messages=[
                 {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
                 {"role": "user", "content": user_message},
             ],
-            model_openai=OPENAI_MODEL,
-            model_anthropic=CLAUDE_MODEL,
+            tier="pesada",
             max_tokens=8192,
             json_mode=True,
         )

@@ -945,12 +945,12 @@ LIMIT 500
             f"Seja conciso (máx 3 frases). Cite o tipo de documento quando relevante."
         )
         try:
-            from core.llm_cascade import chat as llm_chat
+            from core.llm_cascade import route as llm_route
 
-            resposta = llm_chat(
+            # tier LEVE: síntese curta (3 frases); escala se reprovar
+            resposta = llm_route(
                 messages=[{"role": "user", "content": prompt}],
-                model_openai=OPENAI_LLM_MODEL,
-                model_anthropic=ANTHROPIC_MODEL,
+                tier="leve",
                 max_tokens=200,
             )
             if resposta:
