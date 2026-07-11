@@ -58,7 +58,7 @@ def _portal_descontinuado() -> None:
 @router.post("/auth/login", response_model=PortalLoginResponse, status_code=201)
 async def portal_login(
     request: Request,
-    login_data: PortalLoginRequest,
+    login_data: PortalLoginRequest | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Autentica funcionario por CPF + senha ou CPF + data de nascimento.
