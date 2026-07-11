@@ -894,6 +894,46 @@ class UniversalSignatureService:
         )
         return result.scalar_one_or_none()
 
+    async def pendentes_do_funcionario(self, employee_id: uuid.UUID) -> list[dict]:
+        """Lista as solicitações de assinatura PENDENTES de um funcionário.
+
+        Filtra por signer_type='employee' e signer_id=employee_id, apenas as que
+        ainda não foram assinadas (pending/sent/viewed/signing). Base da tela
+        "Meus documentos a assinar" do self-service — o funcionário só enxerga o
+        que é DELE (segurança por employee_id).
+        """
+        _PENDING = (
+            RequestStatus.PENDING,
+            RequestStatus.SENT,
+            RequestStatus.VIEWED,
+            RequestStatus.SIGNING,
+        )
+        result = await self.db.execute(
+            select(SignatureRequest)
+            .where(
+                SignatureRequest.signer_type == str(SignerType.EMPLOYEE),
+                SignatureRequest.signer_id == employee_id,
+                SignatureRequest.status.in_([str(s) for s in _PENDING]),
+            )
+            .order_by(SignatureRequest.created_at.asc())
+        )
+        reqs = result.scalars().all()
+        return [
+            {
+                "request_id": str(r.id),
+                "title": r.title,
+                "document_type": r.document_type,
+                "document_name": r.document_name,
+                "reference_code": r.reference_code,
+                "status": str(r.status),
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "expires_at": r.expires_at.isoformat() if r.expires_at else None,
+                "is_expired": r.is_expired,
+                "purpose": str(r.purpose) if r.purpose else None,
+            }
+            for r in reqs
+        ]
+
     async def _get_request_by_token(self, token: str) -> SignatureRequest | None:
         result = await self.db.execute(
             select(SignatureRequest).where(SignatureRequest.access_token == token)

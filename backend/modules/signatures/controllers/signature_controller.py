@@ -26,6 +26,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from fastapi import status as http_status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
@@ -41,6 +42,9 @@ from modules.signatures.services.universal_signature_service import (
     SignerType,
     UniversalSignatureService,
 )
+
+from core.auth.dependencies import get_current_active_user
+from core.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +145,31 @@ async def status_documento(
 
 
 # --------------------------------------------------------------------------- #
+# 2b) MEUS DOCUMENTOS A ASSINAR (funcionário logado — self-service)
+# --------------------------------------------------------------------------- #
+@router.get(
+    "/meus-pendentes",
+    summary="Meus documentos pendentes de assinatura (funcionário logado)",
+    description="Lista as solicitações de assinatura PENDENTES do funcionário "
+    "autenticado, resolvidas por users.employee_id. Base da tela self-service "
+    "'Meus documentos a assinar'. O funcionário só vê o que é DELE.",
+)
+async def meus_pendentes(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    if not current_user.employee_id:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail="Sua conta não está vinculada a um funcionário (employee_id ausente). "
+            "Peça a um administrador para aprovar seu acesso com o perfil 'Funcionário'.",
+        )
+    svc = UniversalSignatureService(db)
+    pendentes = await svc.pendentes_do_funcionario(current_user.employee_id)
+    return {"employee_id": str(current_user.employee_id), "total": len(pendentes), "pendentes": pendentes}
+
+
+# --------------------------------------------------------------------------- #
 # 3) ASSINAR (funcionário OU empresa, autenticado)
 # --------------------------------------------------------------------------- #
 @router.post(
@@ -181,8 +210,43 @@ async def assinar(
         )
 
     signer_id = _resolve_signer_id(credentials)
+
+    # SEGURANÇA (self-service): funcionário só assina o que é DELE.
+    # Para solicitações EMPLOYEE, resolve o employee_id do assinante e exige que
+    # bata com req.signer_id. Aceita tanto o token do Portal (claim employee_id)
+    # quanto o token principal/Google (sub=user.id → users.employee_id).
+    if signer_type == SignerType.EMPLOYEE:
+        eff_employee_id = signer_id
+        if eff_employee_id is not None:
+            u = await db.execute(select(User).where(User.id == eff_employee_id))
+            user_row = u.scalar_one_or_none()
+            if user_row is not None:
+                # sub era um user.id (token principal/Google): usa o vínculo.
+                if not user_row.employee_id:
+                    raise HTTPException(
+                        status_code=http_status.HTTP_403_FORBIDDEN,
+                        detail="Sua conta não está vinculada a um funcionário.",
+                    )
+                eff_employee_id = user_row.employee_id
+        if eff_employee_id is None or (
+            req.signer_id is not None and str(eff_employee_id) != str(req.signer_id)
+        ):
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="Você não pode assinar um documento que não é seu.",
+            )
+        signer_id = eff_employee_id
+
     body_ev = payload.evidence if payload else None
     evidence = _evidence_from(request, body_ev)
+
+    # POLÍTICA DE NÍVEL: EMPRESA assinando CONTRATO → QUALIFIED (ICP-Brasil A1);
+    # todo o resto → SIMPLE. Aplicada centralmente aqui, a partir do tipo do doc.
+    from modules.signatures.helpers.solicitar_assinatura_documento import (
+        nivel_assinatura,
+    )
+
+    level = nivel_assinatura(req.document_type or "", signer_type)
 
     try:
         return await svc.assinar(
@@ -192,6 +256,7 @@ async def assinar(
             signer_name=payload.signer_name if payload else None,
             signer_document=payload.signer_document if payload else None,
             evidence=evidence,
+            level=level,
         )
     except ValueError as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))

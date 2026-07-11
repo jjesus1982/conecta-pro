@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 import { getModuleByPath, modules } from '@/config/modules';
-import { canAccessModule, hasModuleAccess } from '@/types/modules';
+import { canAccessModule, hasModuleAccess, isSelfServiceUser, SELF_SERVICE_ROUTE } from '@/types/modules';
 import { cn } from '@/lib/utils';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { SearchTrigger } from '@/components/SearchTrigger';
@@ -202,6 +202,9 @@ export default function ModulosLayout({
 
   // Gating por permissões (user.permissions: 'all' | 'module:X'; role admin = tudo)
   const isPending = !isLoading && isAuthenticated && user?.role === 'pending';
+  // Funcionário self-service: só a própria área (/modulos/meu-espaco), sem sidebar de gestão.
+  const isSelfService = !isLoading && isAuthenticated && isSelfServiceUser(user);
+  const inSelfServiceArea = pathname.startsWith(SELF_SERVICE_ROUTE);
   const hasAccessToCurrent =
     !currentModule || (!!user && canAccessModule(user, currentModule));
   // Primeiro módulo que o usuário pode ver (para o redirect de /modulos)
@@ -215,13 +218,20 @@ export default function ModulosLayout({
     }
   }, [isLoading, isAuthenticated, router]);
 
+  // Funcionário self-service: força a própria área se tentar qualquer rota de gestão.
+  useEffect(() => {
+    if (isSelfService && !inSelfServiceArea) {
+      router.replace(SELF_SERVICE_ROUTE);
+    }
+  }, [isSelfService, inSelfServiceArea, router]);
+
   // Redirecionar /modulos → primeiro módulo acessível (fallback client-side
   // caso nginx intercepte o server redirect)
   useEffect(() => {
-    if (!isLoading && isAuthenticated && pathname === '/modulos' && !isPending) {
+    if (!isLoading && isAuthenticated && pathname === '/modulos' && !isPending && !isSelfService) {
       router.replace(firstAccessibleModule?.href ?? '/dashboard');
     }
-  }, [isLoading, isAuthenticated, pathname, router, isPending, firstAccessibleModule]);
+  }, [isLoading, isAuthenticated, pathname, router, isPending, isSelfService, firstAccessibleModule]);
 
   // Sync WS token from localStorage whenever auth state changes
   useEffect(() => {
@@ -245,6 +255,19 @@ export default function ModulosLayout({
   // Usuário pendente: TUDO bloqueado — cadastro em análise
   if (isPending) {
     return <PendingApprovalScreen userName={user?.name} onLogout={logout} />;
+  }
+
+  // Funcionário self-service: renderiza a própria área SEM a sidebar de gestão.
+  // (fora dela, o useEffect acima já redirecionou p/ SELF_SERVICE_ROUTE.)
+  if (isSelfService) {
+    if (inSelfServiceArea) {
+      return <>{children}</>;
+    }
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+      </div>
+    );
   }
 
   if (!currentModule) {

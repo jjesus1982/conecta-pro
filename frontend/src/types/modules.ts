@@ -103,6 +103,20 @@ export interface AccessUser {
 // Roles com acesso total ao ERP
 export const ADMIN_ROLES = ['admin', 'super_admin'];
 
+// Área self-service do funcionário (login Google, role='funcionario').
+// Estes usuários NUNCA veem módulos de gestão — só a própria área.
+export const SELF_SERVICE_ROUTE = '/modulos/meu-espaco';
+
+/** true se o usuário é funcionário self-service (role 'funcionario' ou permissão 'self:portal'). */
+export function isSelfServiceUser(user: AccessUser | null | undefined): boolean {
+  if (!user) return false;
+  const role = user.role ?? '';
+  const perms = user.permissions ?? [];
+  // Admin/wildcard nunca é tratado como self-service (pode ter self:portal por engano).
+  if (perms.includes('all') || perms.includes('*') || ADMIN_ROLES.includes(role)) return false;
+  return role === 'funcionario' || perms.includes('self:portal');
+}
+
 /**
  * Verifica acesso a um conjunto de permissões requeridas (any-of).
  *
@@ -128,6 +142,12 @@ export function hasModuleAccess(
   if (ADMIN_ROLES.includes(role)) return true;
 
   if (!requiredPermissions || requiredPermissions.length === 0) return true;
+
+  // Funcionário self-service: só acessa o que exige exatamente 'self:portal'.
+  // NENHUM módulo de gestão (module:X / role:admin).
+  if (isSelfServiceUser(user)) {
+    return requiredPermissions.includes('self:portal') && perms.includes('self:portal');
+  }
 
   return requiredPermissions.some(
     (req) => req !== 'role:admin' && perms.includes(req),

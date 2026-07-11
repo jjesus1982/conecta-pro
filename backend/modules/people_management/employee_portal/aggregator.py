@@ -22,6 +22,7 @@ from .controllers import (
     my_trainings_router,
     my_vacations_router,
     portal_auth_router,
+    self_service_router,
 )
 
 logger = logging.getLogger(__name__)
@@ -66,3 +67,6 @@ router.include_router(my_notifications_router)
 
 # Comunicados
 router.include_router(my_comunicados_router)
+
+# Self-service (login Google / JWT principal — role='funcionario')
+router.include_router(self_service_router)

@@ -15,9 +15,11 @@ from .my_schedules_controller import router as my_schedules_router
 from .my_trainings_controller import router as my_trainings_router
 from .my_vacations_controller import router as my_vacations_router
 from .portal_controller import router as portal_auth_router
+from .self_service_controller import router as self_service_router
 
 __all__ = [
     "portal_auth_router",
+    "self_service_router",
     "my_profile_router",
     "my_schedules_router",
     "my_payslips_router",

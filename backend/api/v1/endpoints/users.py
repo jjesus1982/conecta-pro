@@ -81,6 +81,16 @@ PERFIS_APROVACAO: dict[str, dict] = {
         "somente_ceo": False,
         "requer_employee_id": False,
     },
+    "funcionario": {
+        "label": "Funcionário (self-service)",
+        "descricao": "Área do funcionário (self-service): meus documentos a assinar, "
+        "holerite, férias, ponto e benefícios. SEM acesso a módulos de gestão. "
+        "Exige vínculo com funcionário (employee_id).",
+        "role": "funcionario",
+        "permissions": ["self:portal"],
+        "somente_ceo": False,
+        "requer_employee_id": True,
+    },
 }
 
 

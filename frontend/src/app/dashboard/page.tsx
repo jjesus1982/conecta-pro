@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/hooks/useAuth';
 import { moduleCategories, modules } from '@/config/modules';
-import { canAccessModule } from '@/types/modules';
+import { canAccessModule, isSelfServiceUser, SELF_SERVICE_ROUTE } from '@/types/modules';
 import { cn } from '@/lib/utils';
 import {
   fetchAllDashboardStats,
@@ -81,6 +81,13 @@ export default function DashboardPage() {
       router.push('/login');
     }
   }, [isLoading, isAuthenticated, router]);
+
+  // Funcionário self-service: nunca vê o dashboard de gestão — vai p/ sua área.
+  useEffect(() => {
+    if (!isLoading && isAuthenticated && isSelfServiceUser(user)) {
+      router.replace(SELF_SERVICE_ROUTE);
+    }
+  }, [isLoading, isAuthenticated, user, router]);
 
   // Filtrar módulos por busca e permissão
   const filteredCategories = moduleCategories.map(category => ({

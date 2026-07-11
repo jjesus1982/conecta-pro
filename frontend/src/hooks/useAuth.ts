@@ -12,6 +12,7 @@ interface User {
   is_active: boolean;
   phone?: string;
   permissions?: string[];
+  employee_id?: string | null;
   created_at?: string;
   updated_at?: string;
   last_login?: string;
