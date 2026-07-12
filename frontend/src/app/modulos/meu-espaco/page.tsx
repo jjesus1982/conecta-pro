@@ -21,7 +21,7 @@ import {
   FileSignature, FileText, CalendarDays, Clock, Gift, LogOut,
   CheckCircle2, Loader2, ShieldCheck, AlertTriangle,
   GraduationCap, User as UserIcon, FolderOpen, Scale, Download, Award,
-  CalendarClock, Bell, MapPin,
+  CalendarClock, Bell, MapPin, Camera, Fingerprint, X,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
@@ -691,9 +691,192 @@ function FeriasTab() {
 }
 
 // --------------------------------------------------------------------------- //
-// Ponto
+// Ponto — BATER (GPS + selfie) + histórico do dia + histórico mensal
 // --------------------------------------------------------------------------- //
+const PONTO_BASE = '/api/v1/people-management/portal/self-service';
+
+interface PontoHojeBatida {
+  tipo?: string | null;
+  hora?: string | null;
+  data_hora?: string | null;
+  posto?: string | null;
+  dentro_geofence?: boolean | null;
+}
+interface PontoHoje {
+  proxima_batida?: 'entrada' | 'saida' | string | null;
+  batidas?: PontoHojeBatida[];
+  horas_trabalhadas?: string | number | null;
+  posto?: string | null;
+  posto_nome?: string | null;
+  data?: string | null;
+}
+interface BaterResultado {
+  ok: boolean;
+  tipo?: string | null;
+  hora?: string | null;
+  posto?: string | null;
+  posto_nome?: string | null;
+  dentro_geofence?: boolean | null;
+  posto_sem_localizacao?: boolean | null;
+  mensagem?: string | null;
+}
+
+/** Captura a posição GPS com alta precisão. Rejeita com mensagem amigável. */
+function obterLocalizacao(): Promise<{ latitude: number; longitude: number; accuracy: number }> {
+  return new Promise((resolve, reject) => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      reject(new Error('Este dispositivo não suporta geolocalização. O ponto exige localização.'));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) =>
+        resolve({
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+        }),
+      (err) => {
+        if (err.code === err.PERMISSION_DENIED) {
+          reject(new Error('Localização negada. O ponto exige sua localização — ative o GPS e permita o acesso.'));
+        } else if (err.code === err.POSITION_UNAVAILABLE) {
+          reject(new Error('Não foi possível obter sua localização. Verifique o GPS e tente de novo.'));
+        } else if (err.code === err.TIMEOUT) {
+          reject(new Error('A localização demorou demais. Tente novamente em local aberto.'));
+        } else {
+          reject(new Error('Falha ao obter localização.'));
+        }
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+    );
+  });
+}
+
+/**
+ * Modal de captura da selfie (câmera frontal).
+ * Ao confirmar, devolve o base64 JPEG. Trata câmera negada/indisponível.
+ */
+function SelfieCapture({
+  onCapture, onCancel,
+}: {
+  onCapture: (fotoBase64: string) => void;
+  onCancel: () => void;
+}) {
+  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [error, setError] = useState('');
+  const [ready, setReady] = useState(false);
+
+  // Abre a câmera frontal ao montar.
+  useEffect(() => {
+    let localStream: MediaStream | null = null;
+    let cancelled = false;
+    (async () => {
+      if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+        setError('Este dispositivo não suporta câmera. Use um celular com câmera frontal.');
+        return;
+      }
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } },
+          audio: false,
+        });
+        if (cancelled) { localStream.getTracks().forEach((t) => t.stop()); return; }
+        setStream(localStream);
+        setReady(true);
+      } catch (e: unknown) {
+        const name = (e as { name?: string })?.name;
+        if (name === 'NotAllowedError' || name === 'SecurityError') {
+          setError('Câmera negada. Para bater o ponto precisamos da selfie — permita o acesso à câmera.');
+        } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+          setError('Nenhuma câmera frontal encontrada neste dispositivo.');
+        } else {
+          setError('Não foi possível abrir a câmera. Tente novamente.');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (localStream) localStream.getTracks().forEach((t) => t.stop());
+    };
+  }, []);
+
+  // Conecta o stream ao <video> assim que ambos existem.
+  useEffect(() => {
+    if (videoEl && stream) {
+      videoEl.srcObject = stream;
+      videoEl.play().catch(() => { /* autoplay pode falhar silenciosamente */ });
+    }
+  }, [videoEl, stream]);
+
+  const fechar = () => {
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    onCancel();
+  };
+
+  const capturar = () => {
+    if (!videoEl) return;
+    const w = videoEl.videoWidth || 640;
+    const h = videoEl.videoHeight || 640;
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) { setError('Falha ao capturar a foto.'); return; }
+    // Espelha horizontalmente (selfie natural).
+    ctx.translate(w, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(videoEl, 0, 0, w, h);
+    const base64 = canvas.toDataURL('image/jpeg', 0.75);
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    onCapture(base64);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+      <div className="w-full max-w-sm rounded-2xl bg-[hsl(var(--card))] border border-[hsl(var(--border))] overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[hsl(var(--border))]">
+          <span className="font-medium text-sm flex items-center gap-2">
+            <Camera className="w-4 h-4 text-[#f97707]" /> Selfie do ponto
+          </span>
+          <button onClick={fechar} className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {error ? (
+          <div className="p-5 space-y-4">
+            <ErrorBox msg={error} />
+            <Button variant="outline" size="sm" className="w-full" onClick={fechar}>Fechar</Button>
+          </div>
+        ) : (
+          <>
+            <div className="relative bg-black aspect-square flex items-center justify-center">
+              {!ready && <Loader2 className="w-7 h-7 animate-spin text-white/70 absolute" />}
+              <video
+                ref={setVideoEl}
+                playsInline
+                muted
+                className="w-full h-full object-cover"
+                style={{ transform: 'scaleX(-1)' }}
+              />
+            </div>
+            <div className="p-4">
+              <p className="text-xs text-[hsl(var(--muted-foreground))] text-center mb-3">
+                Enquadre seu rosto e toque para capturar.
+              </p>
+              <Button className="w-full" disabled={!ready} onClick={capturar}>
+                <Camera className="w-4 h-4 mr-2" /> Capturar selfie
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function PontoTab() {
+  const { user } = useAuth();
   const now = new Date();
   const [mes, setMes] = useState(now.getMonth() + 1);
   const [ano, setAno] = useState(now.getFullYear());
@@ -701,23 +884,98 @@ function PontoTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      setError('');
-      try {
-        const res = await api.get(
-          `/api/v1/people-management/portal/self-service/meu-ponto?mes=${mes}&ano=${ano}`,
-        );
-        setData(res.data);
-      } catch (e: unknown) {
-        const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-        setError(msg || 'Não foi possível carregar seu ponto.');
-      } finally {
-        setLoading(false);
-      }
-    })();
+  // Estado do dia (para saber se a próxima batida é entrada ou saída).
+  const [hoje, setHoje] = useState<PontoHoje | null>(null);
+  const [hojeLoading, setHojeLoading] = useState(true);
+
+  // Fluxo de bater: idle → gps → camera → sending → done/error
+  const [fase, setFase] = useState<'idle' | 'gps' | 'camera' | 'sending'>('idle');
+  const [baterErro, setBaterErro] = useState('');
+  const [resultado, setResultado] = useState<BaterResultado | null>(null);
+  const [geo, setGeo] = useState<{ latitude: number; longitude: number } | null>(null);
+
+  const isLider = ['lider', 'líder', 'supervisor', 'gerente', 'gestor', 'coordenador', 'admin', 'all']
+    .some((r) => (user?.role || '').toLowerCase().includes(r));
+
+  const carregarHoje = useCallback(async () => {
+    setHojeLoading(true);
+    try {
+      const res = await api.get(`${PONTO_BASE}/ponto-hoje`);
+      setHoje(res.data);
+    } catch {
+      // Endpoint pode não existir ainda / conta sem employee — não bloqueia o histórico.
+      setHoje(null);
+    } finally {
+      setHojeLoading(false);
+    }
+  }, []);
+
+  const carregarMes = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await api.get(`${PONTO_BASE}/meu-ponto?mes=${mes}&ano=${ano}`);
+      setData(res.data);
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(msg || 'Não foi possível carregar seu ponto.');
+    } finally {
+      setLoading(false);
+    }
   }, [mes, ano]);
+
+  useEffect(() => { carregarHoje(); }, [carregarHoje]);
+  useEffect(() => { carregarMes(); }, [carregarMes]);
+
+  // Tipo da próxima batida: usa ponto-hoje; default entrada.
+  const proximoTipo: 'entrada' | 'saida' =
+    hoje?.proxima_batida === 'saida' ? 'saida' : 'entrada';
+
+  // Passo 1: pedir GPS e abrir a câmera.
+  const iniciarBatida = async () => {
+    setBaterErro('');
+    setResultado(null);
+    setFase('gps');
+    try {
+      const pos = await obterLocalizacao();
+      setGeo({ latitude: pos.latitude, longitude: pos.longitude });
+      setFase('camera');
+    } catch (e: unknown) {
+      setBaterErro((e as Error)?.message || 'Não foi possível obter sua localização.');
+      setFase('idle');
+    }
+  };
+
+  // Passo 2 (após capturar a selfie): POST /bater-ponto.
+  const enviarBatida = async (fotoBase64: string) => {
+    if (!geo) { setBaterErro('Localização perdida. Toque em bater ponto novamente.'); setFase('idle'); return; }
+    setFase('sending');
+    setBaterErro('');
+    try {
+      const res = await api.post(`${PONTO_BASE}/bater-ponto`, {
+        tipo: proximoTipo,
+        latitude: geo.latitude,
+        longitude: geo.longitude,
+        foto: fotoBase64,
+      });
+      setResultado({ ok: true, ...(res.data || {}) });
+      // Atualiza estado do dia e o mês corrente (se for o mês exibido).
+      await carregarHoje();
+      if (mes === now.getMonth() + 1 && ano === now.getFullYear()) await carregarMes();
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setBaterErro(typeof msg === 'string' ? msg : 'Não foi possível registrar o ponto. Tente novamente.');
+    } finally {
+      setFase('idle');
+      setGeo(null);
+    }
+  };
+
+  const cancelarCamera = () => {
+    setFase('idle');
+    setGeo(null);
+    setBaterErro('Batida cancelada. A selfie é obrigatória para registrar o ponto.');
+  };
 
   // Backend retorna registros de BATIDA individuais: {tipo, data_hora, localizacao}
   const registros = (data?.registros || []) as Record<string, unknown>[];
@@ -729,9 +987,136 @@ function PontoTab() {
     return { dia: y ? `${day}/${m}/${y}` : d || '', hora: (h || '').slice(0, 5) };
   };
 
+  const batidasHoje = hoje?.batidas || [];
+  const bloqueado = fase === 'gps' || fase === 'sending';
+  const postoHoje = hoje?.posto_nome || hoje?.posto || null;
+
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2">
+    <div className="space-y-4">
+      {/* ---- BATER PONTO (celular-first) ---- */}
+      <div className="rounded-2xl border border-[#f97707]/25 bg-[#f97707]/[0.06] p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Fingerprint className="w-5 h-5 text-[#f97707]" />
+            <span className="font-display text-sm font-semibold">Bater ponto</span>
+          </div>
+          {postoHoje && (
+            <span className="text-[11px] text-[hsl(var(--muted-foreground))] flex items-center gap-1 truncate max-w-[55%]">
+              <MapPin className="w-3 h-3 flex-shrink-0" /> {postoHoje}
+            </span>
+          )}
+        </div>
+
+        {/* Resultado da última batida */}
+        {resultado?.ok && (
+          <div className="mb-3 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] p-3">
+            <p className="text-sm font-medium text-emerald-600 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4" />
+              {(resultado.tipo === 'saida' ? 'Saída' : 'Entrada')} registrada
+              {resultado.hora ? ` às ${String(resultado.hora).slice(0, 5)}` : ''}
+            </p>
+            <div className="mt-1 text-xs text-[hsl(var(--muted-foreground))] space-y-0.5">
+              {(resultado.posto_nome || resultado.posto) && (
+                <p className="flex items-center gap-1">
+                  <MapPin className="w-3 h-3" /> {resultado.posto_nome || resultado.posto}
+                </p>
+              )}
+              {resultado.posto_sem_localizacao ? (
+                <p className="text-amber-600 flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" /> Localização do posto não configurada — registrado mesmo assim.
+                </p>
+              ) : resultado.dentro_geofence === true ? (
+                <p className="text-emerald-600 flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" /> Dentro do posto
+                </p>
+              ) : resultado.dentro_geofence === false ? (
+                <p className="text-amber-600 flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" /> Fora do raio do posto — registrado para conferência.
+                </p>
+              ) : null}
+            </div>
+          </div>
+        )}
+
+        {baterErro && <div className="mb-3"><ErrorBox msg={baterErro} /></div>}
+
+        <button
+          onClick={iniciarBatida}
+          disabled={bloqueado || hojeLoading}
+          className={[
+            'w-full rounded-xl py-4 text-base font-semibold text-white transition-colors',
+            'flex items-center justify-center gap-2 shadow-sm',
+            bloqueado || hojeLoading
+              ? 'bg-[#f97707]/60 cursor-not-allowed'
+              : 'bg-[#f97707] hover:bg-[#e06a00] active:bg-[#c85f00]',
+          ].join(' ')}
+        >
+          {fase === 'gps' ? (
+            <><Loader2 className="w-5 h-5 animate-spin" /> Obtendo localização…</>
+          ) : fase === 'sending' ? (
+            <><Loader2 className="w-5 h-5 animate-spin" /> Registrando…</>
+          ) : (
+            <>
+              <Fingerprint className="w-5 h-5" />
+              {proximoTipo === 'saida' ? 'BATER SAÍDA' : 'BATER ENTRADA'}
+            </>
+          )}
+        </button>
+        <p className="text-[11px] text-[hsl(var(--muted-foreground))]/80 text-center mt-2">
+          Ao bater, pediremos sua localização e uma selfie (anti-fraude).
+        </p>
+      </div>
+
+      {/* ---- Câmera (selfie) ---- */}
+      {fase === 'camera' && (
+        <SelfieCapture onCapture={enviarBatida} onCancel={cancelarCamera} />
+      )}
+
+      {/* ---- Hoje: batidas + horas ---- */}
+      {!hojeLoading && (batidasHoje.length > 0 || hoje?.horas_trabalhadas != null) && (
+        <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-3">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]/70">
+              Hoje
+            </p>
+            {hoje?.horas_trabalhadas != null && (
+              <span className="text-xs text-[hsl(var(--muted-foreground))] font-mono">
+                {String(hoje.horas_trabalhadas)}h
+              </span>
+            )}
+          </div>
+          {batidasHoje.length === 0 ? (
+            <p className="text-xs text-[hsl(var(--muted-foreground))]">Nenhuma batida hoje ainda.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {batidasHoje.map((b, i) => {
+                const tipo = String(b.tipo || '');
+                const isEntrada = tipo.toLowerCase().includes('entra');
+                return (
+                  <div key={i} className="flex items-center justify-between text-sm">
+                    <span className="flex items-center gap-2">
+                      <span className={['inline-block w-2 h-2 rounded-full', isEntrada ? 'bg-emerald-500' : 'bg-orange-500'].join(' ')} />
+                      <span className="capitalize">{tipo || 'registro'}</span>
+                      {b.dentro_geofence === false && (
+                        <span className="text-[11px] text-amber-600">fora do posto</span>
+                      )}
+                    </span>
+                    <span className="font-mono text-[hsl(var(--muted-foreground))]">
+                      {String(b.hora || b.data_hora || '').slice(-8).slice(0, 5)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ---- Histórico mensal ---- */}
+      <div className="flex items-center gap-2 pt-1">
+        <span className="text-xs font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]/70 mr-1">
+          Histórico
+        </span>
         <select
           value={mes}
           onChange={(e) => setMes(Number(e.target.value))}
@@ -798,6 +1183,69 @@ function PontoTab() {
           })}
         </div>
       )}
+
+      {/* ---- LÍDER/SUPERVISOR: definir localização do posto (geofence) ---- */}
+      {isLider && (
+        <DefinirLocalizacaoPosto
+          postoId={(hoje as Record<string, unknown> | null)?.posto_id as string | undefined}
+          postoNome={postoHoje}
+          onDone={carregarHoje}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Só para líder/supervisor/gerente: captura o GPS ATUAL e grava como a
+ * localização (geofence) do posto — POST /operacional/posts/{id}/definir-localizacao.
+ * Aparece apenas quando há um posto_id resolvido no ponto-hoje.
+ */
+function DefinirLocalizacaoPosto({
+  postoId, postoNome, onDone,
+}: {
+  postoId?: string;
+  postoNome?: string | null;
+  onDone: () => void;
+}) {
+  const [salvando, setSalvando] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [erro, setErro] = useState('');
+
+  if (!postoId) return null;
+
+  const definir = async () => {
+    setSalvando(true); setMsg(''); setErro('');
+    try {
+      const pos = await obterLocalizacao();
+      await api.post(`/api/v1/operacional/posts/${postoId}/definir-localizacao`, {
+        latitude: pos.latitude,
+        longitude: pos.longitude,
+      });
+      setMsg('Localização do posto definida com a sua posição atual.');
+      onDone();
+    } catch (e: unknown) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setErro(detail || (e as Error)?.message || 'Não foi possível definir a localização do posto.');
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-dashed border-[hsl(var(--border))] p-3 mt-1">
+      <p className="text-xs font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]/70 mb-1">
+        Supervisão
+      </p>
+      <p className="text-xs text-[hsl(var(--muted-foreground))] mb-2">
+        Defina o raio (geofence) {postoNome ? `do posto ${postoNome}` : 'deste posto'} usando sua
+        posição atual. Faça isso dentro do posto.
+      </p>
+      {msg && <div className="mb-2 text-xs text-emerald-600 flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> {msg}</div>}
+      {erro && <div className="mb-2"><ErrorBox msg={erro} /></div>}
+      <Button variant="outline" size="sm" disabled={salvando} onClick={definir}>
+        {salvando ? <Loader2 className="w-4 h-4 animate-spin" /> : <><MapPin className="w-4 h-4 mr-1.5" /> Definir localização deste posto</>}
+      </Button>
     </div>
   );
 }

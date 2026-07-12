@@ -21,11 +21,14 @@ Montado sob /portal (aggregator) → prefixo final /portal/self-service/*.
 from __future__ import annotations
 
 import logging
+from datetime import date as _date
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi import status as http_status
+from pydantic import BaseModel, Field
+from sqlalchemy import text as _sqltext
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import get_current_active_user
@@ -582,3 +585,211 @@ async def minha_cct(
     )
 
     return await get_meus_direitos(employee_id=UUID(emp), db=db)
+
+
+# =========================================================================== #
+# PONTO ANTI-FRAUDE (self-service): bater ponto + status do dia
+# GPS geofence + selfie foto + timestamp (fase 1). Facial = fase 2.
+# =========================================================================== #
+
+
+class BaterPontoRequest(BaseModel):
+    """Batida de ponto do funcionário (self-service)."""
+
+    tipo: str = Field(
+        default="auto",
+        description="'entrada', 'saida' ou 'auto' (decide pelo estado do dia).",
+    )
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    accuracy: float | None = Field(
+        default=None, description="Precisão do GPS em metros (opcional)."
+    )
+    foto_base64: str | None = Field(
+        default=None,
+        description="Selfie da batida (base64 ou data-URI). Evidência anti-fraude.",
+    )
+    posto_id: str | None = Field(
+        default=None,
+        description="Opcional: força o posto. Se ausente, resolve pela alocação ativa.",
+    )
+    observacao: str | None = None
+
+
+async def _posto_atual_do_funcionario(
+    db: AsyncSession, employee_id: str
+) -> tuple[str | None, str | None]:
+    """Resolve o posto ATUAL do funcionário via alocação ativa (allocations→posts).
+
+    Prefere a alocação primária ativa e vigente (start<=hoje, sem end ou end>=hoje).
+    Retorna (posto_id, posto_nome) ou (None, None) se não houver alocação.
+    """
+    row = (
+        await db.execute(
+            _sqltext(
+                "SELECT p.id::text AS posto_id, p.name AS posto_nome "
+                "FROM allocations a JOIN posts p ON p.id = a.post_id "
+                "WHERE a.employee_id::text = :e "
+                "AND a.status = 'active' AND a.is_active = true "
+                "AND a.start_date <= :today "
+                "AND (a.end_date IS NULL OR a.end_date >= :today) "
+                "ORDER BY a.is_primary DESC, a.start_date DESC LIMIT 1"
+            ),
+            {"e": employee_id, "today": _date.today()},
+        )
+    ).mappings().first()
+    if not row:
+        return None, None
+    return row["posto_id"], row["posto_nome"]
+
+
+async def _estado_ponto_hoje(db: AsyncSession, employee_id: str) -> dict[str, Any]:
+    """Estado das batidas de HOJE: última batida e se há entrada aberta."""
+    rows = (
+        await db.execute(
+            _sqltext(
+                "SELECT punch_id, punch_type, punch_timestamp, dentro_geofence, "
+                "distancia_posto_metros, foto_capturada_url, posto_nome "
+                "FROM gp_clock_punches "
+                "WHERE employee_id::text = :e AND punch_timestamp::date = :today "
+                "ORDER BY punch_timestamp"
+            ),
+            {"e": employee_id, "today": _date.today()},
+        )
+    ).mappings().all()
+    batidas = [dict(r) for r in rows]
+    ultima = batidas[-1] if batidas else None
+    tem_entrada_aberta = bool(ultima and ultima["punch_type"] == "entrada")
+    return {"batidas": batidas, "ultima": ultima, "entrada_aberta": tem_entrada_aberta}
+
+
+@router.post(
+    "/bater-ponto",
+    summary="Bater ponto (funcionário) — GPS geofence + selfie",
+    description="Registra a batida do funcionário logado. Resolve o posto ATUAL pela "
+    "alocação ativa, calcula o geofence (haversine) contra as coordenadas reais do "
+    "posto e salva a selfie como evidência anti-fraude. tipo='auto' alterna "
+    "entrada/saída pelo estado do dia.",
+)
+async def bater_ponto(
+    payload: BaterPontoRequest = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    emp = _employee_id(current_user)
+    from modules.people_management.hr.services.time_record_service import (
+        TimeRecordService,
+    )
+
+    svc = TimeRecordService(db)
+
+    # 1. Descobrir o posto atual (forçado ou pela alocação ativa).
+    posto_id = payload.posto_id
+    posto_nome = None
+    if posto_id:
+        prow = (
+            await db.execute(
+                _sqltext("SELECT name FROM posts WHERE id::text = :p LIMIT 1"),
+                {"p": str(posto_id)},
+            )
+        ).first()
+        posto_nome = prow[0] if prow else None
+    else:
+        posto_id, posto_nome = await _posto_atual_do_funcionario(db, emp)
+
+    # 2. Decidir entrada x saída.
+    estado = await _estado_ponto_hoje(db, emp)
+    tipo = (payload.tipo or "auto").lower()
+    if tipo == "auto":
+        tipo = "saida" if estado["entrada_aberta"] else "entrada"
+
+    # 3. Executar a batida (geofence + selfie são feitos no service).
+    if tipo == "entrada":
+        resultado = await svc.clock_in(
+            employee_id=emp,
+            location_lat=payload.latitude,
+            location_lng=payload.longitude,
+            posto_id=posto_id,
+            device_type="conecta_pro_app",
+            notes=payload.observacao,
+            created_by=str(current_user.id),
+            foto_base64=payload.foto_base64,
+            accuracy=payload.accuracy,
+        )
+    elif tipo == "saida":
+        if not estado["entrada_aberta"]:
+            raise HTTPException(
+                status_code=http_status.HTTP_409_CONFLICT,
+                detail="Não há entrada aberta hoje para registrar saída.",
+            )
+        resultado = await svc.clock_out(
+            record_id=str(estado["ultima"]["punch_id"]),
+            location_lat=payload.latitude,
+            location_lng=payload.longitude,
+            notes=payload.observacao,
+            created_by=str(current_user.id),
+            foto_base64=payload.foto_base64,
+            accuracy=payload.accuracy,
+        )
+    else:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail="tipo inválido — use 'entrada', 'saida' ou 'auto'.",
+        )
+
+    await db.commit()
+    resultado["tipo"] = tipo
+    resultado["employee_id"] = emp
+    if not resultado.get("posto_nome"):
+        resultado["posto_nome"] = posto_nome
+    return resultado
+
+
+@router.get(
+    "/ponto-hoje",
+    summary="Meu ponto de hoje (funcionário)",
+    description="Status do dia: se já bateu entrada/saída, últimas batidas com "
+    "geofence e evidência, e qual a próxima ação (bater entrada ou saída).",
+)
+async def ponto_hoje(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    emp = _employee_id(current_user)
+    estado = await _estado_ponto_hoje(db, emp)
+    posto_id, posto_nome = await _posto_atual_do_funcionario(db, emp)
+
+    entrada = next(
+        (b for b in estado["batidas"] if b["punch_type"] == "entrada"), None
+    )
+    saida = next(
+        (b for b in reversed(estado["batidas"]) if b["punch_type"] == "saida"), None
+    )
+
+    def _fmt(b: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not b:
+            return None
+        ts = b["punch_timestamp"]
+        return {
+            "hora": ts.strftime("%H:%M") if ts else None,
+            "dentro_geofence": b["dentro_geofence"],
+            "distancia_posto_metros": b["distancia_posto_metros"],
+            "foto_capturada_url": b["foto_capturada_url"],
+            "posto_nome": b["posto_nome"],
+        }
+
+    proxima_acao = "saida" if estado["entrada_aberta"] else "entrada"
+    if entrada and saida and not estado["entrada_aberta"]:
+        proxima_acao = "concluido"
+
+    return {
+        "employee_id": emp,
+        "data": str(_date.today()),
+        "posto_atual": {"posto_id": posto_id, "posto_nome": posto_nome},
+        "bateu_entrada": entrada is not None,
+        "bateu_saida": saida is not None,
+        "entrada": _fmt(entrada),
+        "saida": _fmt(saida),
+        "proxima_acao": proxima_acao,
+        "total_batidas": len(estado["batidas"]),
+    }

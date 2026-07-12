@@ -146,6 +146,8 @@ class Post(Base):
     zip_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
     latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Raio do geofence (metros) para validar batida de ponto no posto (default 150m)
+    geofence_raio_metros: Mapped[float] = mapped_column(Float, nullable=False, default=150.0, server_default="150")
 
     # Horários padrão (nomes conforme schema do banco)
     shift_start_time: Mapped[time | None] = mapped_column(Time, nullable=True)

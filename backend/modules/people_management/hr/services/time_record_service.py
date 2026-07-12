@@ -10,8 +10,12 @@ Estrategia: leitura via raw SQL para evitar problemas de dessincronizacao
 model/banco. Escrita via models quando disponivel, raw SQL como fallback.
 """
 
+import base64
+import binascii
 import calendar
 import logging
+import math
+import os
 from datetime import date, datetime, time, timedelta
 from typing import Any
 from uuid import uuid4
@@ -20,6 +24,64 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
+
+# Raio default do geofence (metros) quando o posto nao define um proprio.
+DEFAULT_GEOFENCE_RAIO_METROS = 150.0
+# Base de storage das selfies de ponto (volume ./uploads -> /app/uploads).
+PONTO_UPLOAD_DIR = os.environ.get("PONTO_UPLOAD_DIR", "/app/uploads/ponto")
+
+
+def _haversine_metros(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Distancia em METROS entre dois pontos (lat/lng em graus) — formula de Haversine.
+
+    Raio medio da Terra = 6.371.000 m. Precisao suficiente para geofence de posto
+    (erro < 0,5% em distancias curtas).
+    """
+    r = 6_371_000.0
+    p1 = math.radians(lat1)
+    p2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lng2 - lng1)
+    a = (
+        math.sin(dphi / 2) ** 2
+        + math.cos(p1) * math.cos(p2) * math.sin(dlambda / 2) ** 2
+    )
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return r * c
+
+
+def _salvar_selfie_ponto(punch_id: str, foto_base64: str | None) -> str | None:
+    """Salva a selfie (base64) da batida em /app/uploads/ponto/{punch_id}.jpg.
+
+    Aceita data-URI ("data:image/jpeg;base64,...") ou base64 cru. Retorna a URL
+    relativa gravavel em foto_capturada_url, ou None se nao houver foto/erro.
+    """
+    if not foto_base64:
+        return None
+    raw = foto_base64.strip()
+    if raw.startswith("data:"):
+        # data:image/jpeg;base64,XXXX
+        try:
+            raw = raw.split(",", 1)[1]
+        except IndexError:
+            return None
+    try:
+        binario = base64.b64decode(raw, validate=True)
+    except (binascii.Error, ValueError):
+        logger.warning("Selfie de ponto invalida (base64) para punch=%s", punch_id)
+        return None
+    if not binario:
+        return None
+    try:
+        os.makedirs(PONTO_UPLOAD_DIR, exist_ok=True)
+        filename = f"{punch_id}.jpg"
+        full_path = os.path.join(PONTO_UPLOAD_DIR, filename)
+        with open(full_path, "wb") as fh:
+            fh.write(binario)
+    except OSError as exc:
+        logger.error("Falha ao salvar selfie de ponto punch=%s: %s", punch_id, exc)
+        return None
+    return f"/uploads/ponto/{filename}"
 
 
 def _format_minutes(total_minutes: int) -> str:
@@ -185,6 +247,86 @@ class TimeRecordService:
     # CLOCK IN
     # =========================================================================
 
+    async def _compute_geofence(
+        self,
+        posto_id: str | None,
+        location_lat: float | None,
+        location_lng: float | None,
+    ) -> dict[str, Any]:
+        """Calcula geofence de uma batida contra as coordenadas REAIS do posto.
+
+        Retorna dict com:
+        - posto_nome, posto_lat, posto_lng, raio_metros
+        - distancia_posto_metros (float|None)
+        - dentro_geofence (True|False|None) — None = posto sem coordenada definida
+        - geofence_flag (str) — mensagem honesta sobre o resultado
+
+        NUNCA inventa coordenada do posto. Se o posto nao tem lat/lng, retorna
+        dentro_geofence=None com flag "localizacao do posto nao definida".
+        """
+        info: dict[str, Any] = {
+            "posto_nome": None,
+            "posto_lat": None,
+            "posto_lng": None,
+            "raio_metros": DEFAULT_GEOFENCE_RAIO_METROS,
+            "distancia_posto_metros": None,
+            "dentro_geofence": None,
+            "geofence_flag": None,
+        }
+        if not posto_id:
+            info["geofence_flag"] = "posto não informado na batida"
+            return info
+
+        try:
+            pr = await self.db.execute(
+                text(
+                    "SELECT name, latitude, longitude, "
+                    "COALESCE(geofence_raio_metros, :raio_default) AS raio "
+                    "FROM posts WHERE id::text = :pid LIMIT 1"
+                ),
+                {"pid": str(posto_id), "raio_default": DEFAULT_GEOFENCE_RAIO_METROS},
+            )
+            prow = pr.mappings().first()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Falha ao buscar posto %s p/ geofence: %s", posto_id, exc)
+            prow = None
+
+        if not prow:
+            info["geofence_flag"] = "posto não encontrado"
+            return info
+
+        info["posto_nome"] = prow["name"]
+        info["posto_lat"] = prow["latitude"]
+        info["posto_lng"] = prow["longitude"]
+        info["raio_metros"] = float(prow["raio"] or DEFAULT_GEOFENCE_RAIO_METROS)
+
+        # Posto sem coordenada REAL: nao bloqueia, marca honestamente.
+        if prow["latitude"] is None or prow["longitude"] is None:
+            info["dentro_geofence"] = None
+            info["geofence_flag"] = (
+                "localização do posto não definida — capturar no local pelo líder/supervisor"
+            )
+            return info
+
+        # Sem GPS do funcionario: nao ha como validar.
+        if location_lat is None or location_lng is None:
+            info["dentro_geofence"] = None
+            info["geofence_flag"] = "GPS do funcionário não informado"
+            return info
+
+        dist = _haversine_metros(
+            float(location_lat), float(location_lng),
+            float(prow["latitude"]), float(prow["longitude"]),
+        )
+        info["distancia_posto_metros"] = round(dist, 1)
+        info["dentro_geofence"] = dist <= info["raio_metros"]
+        info["geofence_flag"] = (
+            f"dentro do geofence ({dist:.0f}m ≤ {info['raio_metros']:.0f}m)"
+            if info["dentro_geofence"]
+            else f"FORA do geofence ({dist:.0f}m > {info['raio_metros']:.0f}m)"
+        )
+        return info
+
     async def clock_in(
         self,
         employee_id: str,
@@ -194,10 +336,13 @@ class TimeRecordService:
         device_type: str = "web",
         notes: str | None = None,
         created_by: str | None = None,
+        foto_base64: str | None = None,
+        accuracy: float | None = None,
     ) -> dict[str, Any]:
         """Registra batida de entrada para o funcionario.
 
-        Verifica se ja existe entrada aberta no dia.
+        Verifica se ja existe entrada aberta no dia. Calcula geofence (haversine)
+        contra as coordenadas reais do posto e salva a selfie anti-fraude.
         """
         # Servidor roda em America/Manaus; gp_clock_punches guarda wall-clock LOCAL
         # (batidas Tangerino/manuais estao em hora local). utcnow() carimbaria +4h.
@@ -225,30 +370,25 @@ class TimeRecordService:
                 last_punch["punch_id"],
             )
 
-        # Buscar nome do posto
-        posto_nome = None
-        if posto_id:
-            try:
-                pr = await self.db.execute(
-                    text("SELECT name FROM posts WHERE id::text = :pid LIMIT 1"),
-                    {"pid": str(posto_id)},
-                )
-                posto_row = pr.first()
-                if posto_row:
-                    posto_nome = posto_row[0]
-            except Exception:
-                pass
+        # Geofence (haversine) contra as coordenadas REAIS do posto.
+        geo = await self._compute_geofence(posto_id, location_lat, location_lng)
+        posto_nome = geo["posto_nome"]
+
+        # Selfie anti-fraude (evidencia de quem bateu). facial_* ficam NULL na fase 1.
+        foto_url = _salvar_selfie_ponto(punch_id, foto_base64)
 
         # Inserir batida de entrada
         await self.db.execute(
             text("""
                 INSERT INTO gp_clock_punches (
                     punch_id, employee_id, punch_type, punch_timestamp,
-                    server_timestamp, status, latitude, longitude,
+                    server_timestamp, status, latitude, longitude, accuracy,
+                    dentro_geofence, distancia_posto_metros, foto_capturada_url,
                     device_type, is_offline, posto_id, posto_nome, created_by, created_at
                 ) VALUES (
                     :punch_id, :emp_id, 'entrada', :ts,
-                    :server_ts, 'normal', :lat, :lng,
+                    :server_ts, 'normal', :lat, :lng, :accuracy,
+                    :dentro_geofence, :distancia, :foto_url,
                     :device, false, :posto_id, :posto_nome, :created_by, :created_at
                 )
             """),
@@ -259,6 +399,10 @@ class TimeRecordService:
                 "server_ts": now,
                 "lat": location_lat,
                 "lng": location_lng,
+                "accuracy": accuracy,
+                "dentro_geofence": geo["dentro_geofence"],
+                "distancia": geo["distancia_posto_metros"],
+                "foto_url": foto_url,
                 "device": device_type,
                 "posto_id": posto_id,
                 "posto_nome": posto_nome,
@@ -269,9 +413,12 @@ class TimeRecordService:
         await self.db.flush()
 
         logger.info(
-            "Clock-in registrado: employee=%s punch=%s",
+            "Clock-in registrado: employee=%s punch=%s geofence=%s dist=%s foto=%s",
             employee_id,
             punch_id,
+            geo["dentro_geofence"],
+            geo["distancia_posto_metros"],
+            bool(foto_url),
         )
 
         return {
@@ -288,6 +435,13 @@ class TimeRecordService:
             "justification": None,
             "location_lat": location_lat,
             "location_lng": location_lng,
+            "accuracy": accuracy,
+            "posto_id": posto_id,
+            "posto_nome": posto_nome,
+            "dentro_geofence": geo["dentro_geofence"],
+            "distancia_posto_metros": geo["distancia_posto_metros"],
+            "geofence_flag": geo["geofence_flag"],
+            "foto_capturada_url": foto_url,
             "registered_by": device_type,
             "source": "portal",
             "created_at": now.isoformat(),
@@ -305,6 +459,8 @@ class TimeRecordService:
         location_lng: float | None = None,
         notes: str | None = None,
         created_by: str | None = None,
+        foto_base64: str | None = None,
+        accuracy: float | None = None,
     ) -> dict[str, Any]:
         """Registra batida de saida vinculada a uma entrada.
 
@@ -338,15 +494,21 @@ class TimeRecordService:
         now = datetime.now()
         punch_id = str(uuid4())
 
+        # Geofence da SAIDA (mesmo posto da entrada) + selfie anti-fraude.
+        geo = await self._compute_geofence(entry["posto_id"], location_lat, location_lng)
+        foto_url = _salvar_selfie_ponto(punch_id, foto_base64)
+
         await self.db.execute(
             text("""
                 INSERT INTO gp_clock_punches (
                     punch_id, employee_id, punch_type, punch_timestamp,
-                    server_timestamp, status, latitude, longitude,
+                    server_timestamp, status, latitude, longitude, accuracy,
+                    dentro_geofence, distancia_posto_metros, foto_capturada_url,
                     device_type, is_offline, posto_id, posto_nome, created_by, created_at
                 ) VALUES (
                     :punch_id, :emp_id, 'saida', :ts,
-                    :server_ts, 'normal', :lat, :lng,
+                    :server_ts, 'normal', :lat, :lng, :accuracy,
+                    :dentro_geofence, :distancia, :foto_url,
                     :device, false, :posto_id, :posto_nome, :created_by, :created_at
                 )
             """),
@@ -357,6 +519,10 @@ class TimeRecordService:
                 "server_ts": now,
                 "lat": location_lat,
                 "lng": location_lng,
+                "accuracy": accuracy,
+                "dentro_geofence": geo["dentro_geofence"],
+                "distancia": geo["distancia_posto_metros"],
+                "foto_url": foto_url,
                 "device": entry["device_type"],
                 "posto_id": entry["posto_id"],
                 "posto_nome": entry["posto_nome"],
@@ -391,6 +557,13 @@ class TimeRecordService:
             "justification": None,
             "location_lat": location_lat,
             "location_lng": location_lng,
+            "accuracy": accuracy,
+            "posto_id": entry["posto_id"],
+            "posto_nome": entry["posto_nome"],
+            "dentro_geofence": geo["dentro_geofence"],
+            "distancia_posto_metros": geo["distancia_posto_metros"],
+            "geofence_flag": geo["geofence_flag"],
+            "foto_capturada_url": foto_url,
             "registered_by": entry["device_type"],
             "source": "portal",
             "created_at": entrada_ts.isoformat() if entrada_ts else None,

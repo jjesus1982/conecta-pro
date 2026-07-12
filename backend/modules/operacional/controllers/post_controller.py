@@ -5,7 +5,9 @@ Controller (endpoints) para Post.
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
+from sqlalchemy import text as _sqltext
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
@@ -25,6 +27,72 @@ from modules.operacional.schemas.post import (
 )
 
 router = APIRouter(prefix="/posts", tags=["Operations - Posts"])
+
+
+class DefinirLocalizacaoRequest(BaseModel):
+    """Captura da localização REAL do posto (GPS enviado no local pelo líder/supervisor)."""
+
+    lat: float = Field(..., ge=-90, le=90, description="Latitude GPS capturada no posto")
+    lng: float = Field(..., ge=-180, le=180, description="Longitude GPS capturada no posto")
+    raio_metros: float | None = Field(
+        default=None, gt=0, le=5000,
+        description="Opcional: raio do geofence em metros (default 150).",
+    )
+
+
+@router.post(
+    "/{post_id}/definir-localizacao",
+    dependencies=[require_operacional_permission(Permission.POSTS_EDIT)],
+)
+async def definir_localizacao_posto(
+    post_id: UUID,
+    current_user: CurrentActiveUser,
+    payload: DefinirLocalizacaoRequest = Body(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Grava a localização REAL do posto (lat/lng capturados pelo GPS no local).
+
+    Usado pelo líder/supervisor fisicamente no posto — fonte de verdade do geofence.
+    Nunca fabrica coordenada. Também aceita ajustar o raio do geofence.
+    """
+    exists = (
+        await db.execute(
+            _sqltext("SELECT name FROM posts WHERE id = :pid"),
+            {"pid": str(post_id)},
+        )
+    ).first()
+    if not exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Posto não encontrado"
+        )
+
+    sets = "latitude = :lat, longitude = :lng, updated_at = now()"
+    params: dict[str, Any] = {"pid": str(post_id), "lat": payload.lat, "lng": payload.lng}
+    if payload.raio_metros is not None:
+        sets += ", geofence_raio_metros = :raio"
+        params["raio"] = payload.raio_metros
+
+    await db.execute(
+        _sqltext("UPDATE posts SET " + sets + " WHERE id = :pid"), params
+    )
+    await db.commit()
+
+    logger.info(
+        "Localização do posto definida",
+        action="definir_localizacao_posto",
+        post_id=str(post_id),
+        lat=payload.lat,
+        lng=payload.lng,
+        user_id=str(current_user.id),
+    )
+    return {
+        "post_id": str(post_id),
+        "posto_nome": exists[0],
+        "latitude": payload.lat,
+        "longitude": payload.lng,
+        "geofence_raio_metros": payload.raio_metros or 150.0,
+        "fonte": "gps_capturado_no_local",
+    }
 
 
 @router.post(
