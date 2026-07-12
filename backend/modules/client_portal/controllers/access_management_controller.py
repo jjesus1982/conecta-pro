@@ -274,3 +274,30 @@ async def disparar_resumo_mensal(
             db, client_id, competencia, enviar_email=enviar_email, email_override=email_override
         )
     return await rs.enviar_resumo_todos(db, competencia)
+
+
+@router.post("/{client_id}/onboard", summary="Onboarding: provisiona + entrega credenciais")
+async def onboard_cliente_endpoint(
+    client_id: str,
+    current_user: CurrentActiveUser,
+    enviar_email: bool = True,
+    email_override: str | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Provisiona/reseta o acesso e envia boas-vindas (só p/ e-mail real do síndico;
+    alias interno → credenciais devolvidas p/ entrega manual)."""
+    from modules.client_portal.services import portal_onboarding_service as ob
+
+    return await ob.onboard_cliente(db, client_id, enviar_email=enviar_email, email_override=email_override)
+
+
+@router.post("/onboard/nao-logados", summary="Onboarding em lote dos que nunca logaram")
+async def onboard_nao_logados_endpoint(
+    current_user: CurrentActiveUser,
+    enviar_email: bool = True,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Provisiona e entrega credenciais a todos os clientes habilitados sem nenhum login."""
+    from modules.client_portal.services import portal_onboarding_service as ob
+
+    return await ob.onboard_nao_logados(db, enviar_email=enviar_email)
