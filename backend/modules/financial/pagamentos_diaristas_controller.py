@@ -132,20 +132,40 @@ async def programar_lancados_dia(
         db, _validar_data(data), created_by=str(getattr(current_user, "id", None)))
 
 
+class SolicitarOtpIn(BaseModel):
+    ids: list[int] | None = None
+    data: str | None = None
+
+
+@router.post("/solicitar-otp", summary="Gera o código OTP (e-mail) que libera o lote inteiro de diaristas")
+async def solicitar_otp(
+    body: SolicitarOtpIn,
+    current_user=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Gera UM código OTP de 6 dígitos e envia por e-mail ao Jordan. Devolve o lote_id
+    que a tela usa ao confirmar. Não move dinheiro."""
+    return await svc.gerar_otp_lote(
+        db, ids=body.ids, data=body.data, user_id=str(getattr(current_user, "id", None)))
+
+
 class ExecutarIn(BaseModel):
     ids: list[int] | None = None
     data: str | None = None
     confirmar: bool = False
+    otp_code: str | None = None
+    lote_id: str | None = None
 
 
-@router.post("/executar", summary="Paga o lote via PIX (Inter). confirmar=false = prévia; true = paga (DINHEIRO SAI)")
+@router.post("/executar", summary="Paga o lote via PIX (Inter). confirmar=false = prévia; true = paga (DINHEIRO SAI, exige OTP)")
 async def executar(
     body: ExecutarIn,
     current_user=Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Pagamento em lote dos diaristas. confirmar=False devolve a PRÉVIA (nada é pago);
-    confirmar=True envia os PIX de verdade (ação do gestor, dinheiro sai — trava R$5.000/lote)."""
+    confirmar=True + OTP válido (código do e-mail) envia os PIX de verdade (dinheiro sai)."""
     return await svc.executar_lote(
         db, ids=body.ids, data=body.data, confirmar=body.confirmar,
+        otp_code=body.otp_code, lote_id=body.lote_id,
         user_id=str(getattr(current_user, "id", None)))

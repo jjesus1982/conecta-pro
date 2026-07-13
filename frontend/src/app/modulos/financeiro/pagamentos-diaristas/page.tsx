@@ -24,6 +24,11 @@ export default function PagamentosDiaristasPage() {
   const [preview, setPreview] = useState<any>(null);
   const [pagando, setPagando] = useState(false);
   const [resultado, setResultado] = useState<any>(null);
+  // OTP do lote (dinheiro que sai)
+  const [otpLote, setOtpLote] = useState<string | null>(null);
+  const [otpCode, setOtpCode] = useState('');
+  const [otpMsg, setOtpMsg] = useState<string | null>(null);
+  const [otpBusy, setOtpBusy] = useState(false);
   const [sugestoes, setSugestoes] = useState<any[]>([]);
   const [showSug, setShowSug] = useState(false);
 
@@ -86,16 +91,31 @@ export default function PagamentosDiaristasPage() {
 
   const abrirPreview = async () => {
     setPagando(true); setResultado(null);
+    setOtpLote(null); setOtpCode(''); setOtpMsg(null);  // recomeça o gate OTP a cada prévia
     try {
       const r = await fetch(`${API}/executar`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ data, confirmar: false }) }).then(x => x.json());
       setPreview(r);
     } catch { setMsg('Falha na prévia.'); } finally { setPagando(false); }
   };
+  const solicitarOtp = async () => {
+    setOtpBusy(true); setOtpMsg(null);
+    try {
+      const r = await fetch(`${API}/solicitar-otp`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ data }) }).then(x => x.json());
+      if (r?.ok && r?.lote_id) {
+        setOtpLote(r.lote_id);
+        setOtpMsg(`Código enviado por e-mail (válido ${Math.round((r.expires_in_seconds ?? 600) / 60)} min). Digite abaixo para confirmar.`);
+      } else {
+        setOtpMsg(r?.mensagem || r?.detail || 'Falha ao gerar o código.');
+      }
+    } catch { setOtpMsg('Falha ao solicitar o código.'); } finally { setOtpBusy(false); }
+  };
   const confirmarPagamento = async () => {
+    if (!otpLote || otpCode.trim().length < 6) { setOtpMsg('Informe o código de 6 dígitos do e-mail.'); return; }
     setPagando(true);
     try {
-      const r = await fetch(`${API}/executar`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ data, confirmar: true }) }).then(x => x.json());
-      setResultado(r); setPreview(null); carregarLote();
+      const r = await fetch(`${API}/executar`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ data, confirmar: true, otp_code: otpCode.trim(), lote_id: otpLote }) }).then(x => x.json());
+      if (r?.otp_invalido || r?.otp_requerido) { setOtpMsg(r?.mensagem || 'Código inválido. Gere um novo.'); return; }
+      setResultado(r); setPreview(null); setOtpLote(null); setOtpCode(''); setOtpMsg(null); carregarLote();
     } catch { setMsg('Falha ao pagar.'); } finally { setPagando(false); }
   };
 
@@ -269,9 +289,33 @@ export default function PagamentosDiaristasPage() {
             <div className="mt-3 max-h-40 overflow-auto text-xs text-gray-600 border rounded p-2">
               {(preview.beneficiarios || []).map((b: any, i: number) => <div key={i} className="flex justify-between"><span>{b.nome}</span><span>{brl(b.valor)}</span></div>)}
             </div>
+
+            {/* Gate OTP — dinheiro que sai exige o código do e-mail */}
+            {preview.dentro_do_limite && preview.itens > 0 && (
+              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                {!otpLote ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm text-amber-800">Para pagar, gere o código de autorização (enviado ao seu e-mail).</span>
+                    <Button onClick={solicitarOtp} disabled={otpBusy} variant="outline" className="whitespace-nowrap">
+                      {otpBusy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null} Solicitar código
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-amber-800 whitespace-nowrap">Código do e-mail:</label>
+                    <input value={otpCode} onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      inputMode="numeric" maxLength={6} placeholder="000000"
+                      className="border rounded px-3 py-1.5 text-lg tracking-widest font-mono w-32 text-center" />
+                    <button onClick={solicitarOtp} disabled={otpBusy} className="text-xs text-amber-700 underline">reenviar</button>
+                  </div>
+                )}
+                {otpMsg && <p className="mt-2 text-xs text-amber-800">{otpMsg}</p>}
+              </div>
+            )}
+
             <div className="mt-4 flex items-center justify-end gap-2">
               <Button variant="outline" onClick={() => setPreview(null)}>Cancelar</Button>
-              <Button onClick={confirmarPagamento} disabled={pagando || !preview.dentro_do_limite || !preview.itens} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+              <Button onClick={confirmarPagamento} disabled={pagando || !preview.dentro_do_limite || !preview.itens || !otpLote || otpCode.length < 6} className="bg-emerald-600 hover:bg-emerald-700 text-white">
                 {pagando ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Send className="h-4 w-4 mr-1" />} Confirmar e pagar {brl(preview.total)}
               </Button>
             </div>

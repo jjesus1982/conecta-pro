@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import date as _date
+import secrets
+import uuid
+from datetime import UTC, date as _date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import text
@@ -373,6 +375,10 @@ async def resumo(db: AsyncSession) -> dict[str, Any]:
 # .env CONECTA_LIMITE_DIARIO_PAGAMENTOS. Um único knob controla os dois limites.
 LIMITE_LOTE_DIARIO = float(os.getenv("CONECTA_LIMITE_DIARIO_PAGAMENTOS", "5000.00"))
 
+# OTP do lote (dinheiro que sai): 1 código por e-mail libera o lote inteiro.
+# Reusa a tabela genérica inter_lote_otp (mesmo padrão da folha) e o e-mail do D7.
+OTP_TTL_SECONDS = int(os.getenv("CONECTA_PAYMENT_OTP_TTL_SECONDS", "600"))
+
 
 def _tipo_pix(chave: str) -> str:
     c = (chave or "").strip()
@@ -390,17 +396,8 @@ def _tipo_pix(chave: str) -> str:
     return "CPF"
 
 
-async def executar_lote(
-    db: AsyncSession, ids: list[int] | None = None, data: str | None = None,
-    confirmar: bool = False, user_id: str | None = None,
-) -> dict[str, Any]:
-    """Paga o lote de diaristas via PIX (Banco Inter). confirmar=False → PRÉVIA (não envia).
-
-    DINHEIRO QUE SAI — só executa com confirmar=True (ação humana). Trava: limite R$5.000/lote,
-    só paga itens 'a_revisar' com PIX. Marca cada um 'pago' e guarda o e2e/id do Inter.
-    """
-    await _ensure(db)
-    # seleciona o lote elegível
+def _where_lote_elegivel(ids: list[int] | None, data: str | None) -> tuple[list[str], dict[str, Any]]:
+    """WHERE compartilhado do lote elegível (a_revisar com PIX), por ids e/ou data."""
     where = ["status='a_revisar'", "pix_key IS NOT NULL"]
     params: dict[str, Any] = {}
     if ids:
@@ -408,6 +405,74 @@ async def executar_lote(
     if data:
         where.append("data_referencia = :data")
         params["data"] = _date.fromisoformat(data) if isinstance(data, str) else data
+    return where, params
+
+
+async def gerar_otp_lote(
+    db: AsyncSession, ids: list[int] | None = None, data: str | None = None,
+    user_id: str | None = None,
+) -> dict[str, Any]:
+    """Gera UM OTP (6 dígitos, e-mail ao Jordan) que libera o lote inteiro de diaristas.
+
+    Reusa a tabela genérica `inter_lote_otp` + o e-mail do D7 (mesmo padrão da folha).
+    NÃO move dinheiro. Devolve o `lote_id` que a tela usa na hora de executar.
+    """
+    await _ensure(db)
+    where, params = _where_lote_elegivel(ids, data)
+    rows = (await db.execute(text(
+        f"SELECT COUNT(*) n, COALESCE(SUM(valor),0) total FROM financial_pagamentos_diaristas "
+        f"WHERE {' AND '.join(where)}"), params)).mappings().first()
+    n = int(rows["n"]) if rows else 0
+    total = float(rows["total"]) if rows else 0.0
+    if n == 0:
+        return {"ok": False, "mensagem": "Nenhum item elegível (a_revisar com PIX) para gerar o código."}
+    if total > LIMITE_LOTE_DIARIO:
+        return {"ok": False, "mensagem": f"Lote de R$ {total:.2f} excede o limite de R$ {LIMITE_LOTE_DIARIO:.2f}."}
+    lote_id = str(uuid.uuid4())
+    code = f"{secrets.randbelow(900000) + 100000}"
+    exp = datetime.now(UTC) + timedelta(seconds=OTP_TTL_SECONDS)
+    await db.execute(text(
+        "INSERT INTO inter_lote_otp (lote_id, code, expires_at, used) VALUES (:l, :c, :e, false)"),
+        {"l": lote_id, "c": code, "e": exp})
+    await db.commit()
+    email = os.getenv("JORDAN_EMAIL", "jjesus@conectamais.pro")
+    try:
+        from modules.integrations.inter.services.payment_service import _enviar_otp_email
+        await _enviar_otp_email(email, code, total, "diaristas VT+VR (lote)", f"{n} diarista(s)")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("OTP lote diaristas: falha ao enviar email: %s", exc)
+    logger.info("diaristas lote gerar_otp: lote=%s n=%s total=%.2f email=%s", lote_id, n, total, email)
+    return {"ok": True, "lote_id": lote_id, "quantidade": n, "total": total,
+            "message": f"Código enviado para {email}", "expires_in_seconds": OTP_TTL_SECONDS}
+
+
+async def _validar_e_consumir_otp_lote(db: AsyncSession, lote_id: str, otp_code: str) -> None:
+    """Valida o OTP do lote (inter_lote_otp) e o marca como usado. Levanta ValueError se inválido."""
+    now = datetime.now(UTC)
+    otp = (await db.execute(text(
+        "SELECT id, code FROM inter_lote_otp "
+        "WHERE lote_id = :l AND used = false AND expires_at > :now "
+        "ORDER BY created_at DESC LIMIT 1"), {"l": lote_id, "now": now})).mappings().first()
+    if not otp:
+        raise ValueError("Nenhum código válido para este lote (expirado ou inexistente). Gere um novo.")
+    if str(otp["code"]) != str(otp_code):
+        raise ValueError("Código OTP incorreto.")
+    await db.execute(text("UPDATE inter_lote_otp SET used = true WHERE id = :id"), {"id": str(otp["id"])})
+
+
+async def executar_lote(
+    db: AsyncSession, ids: list[int] | None = None, data: str | None = None,
+    confirmar: bool = False, otp_code: str | None = None, lote_id: str | None = None,
+    user_id: str | None = None,
+) -> dict[str, Any]:
+    """Paga o lote de diaristas via PIX (Banco Inter). confirmar=False → PRÉVIA (não envia).
+
+    DINHEIRO QUE SAI — exige confirmar=True + OTP válido (código do e-mail, 1 libera o lote).
+    Trava de limite (CONECTA_LIMITE_DIARIO_PAGAMENTOS), só paga 'a_revisar' com PIX.
+    """
+    await _ensure(db)
+    # seleciona o lote elegível
+    where, params = _where_lote_elegivel(ids, data)
     rows = await db.execute(text(
         f"SELECT id, beneficiario, pix_key, valor FROM financial_pagamentos_diaristas "
         f"WHERE {' AND '.join(where)} ORDER BY id"), params)
@@ -421,12 +486,23 @@ async def executar_lote(
     }
     if not confirmar:
         prev["preview"] = True
-        prev["aviso"] = "Prévia — nada foi pago. Envie com confirmar=true para pagar em lote."
+        prev["aviso"] = "Prévia — nada foi pago. Gere o código (OTP) e confirme para pagar em lote."
         return prev
     if not itens:
         return {"ok": False, "mensagem": "Nenhum item elegível (a_revisar com PIX)."}
     if total > LIMITE_LOTE_DIARIO:
         return {"ok": False, "mensagem": f"Lote de R$ {total:.2f} excede o limite de R$ {LIMITE_LOTE_DIARIO:.2f}."}
+    # GATE OTP — dinheiro que sai exige o código do e-mail (1 OTP libera o lote).
+    if not lote_id or not otp_code:
+        return {"ok": False, "mensagem": "Código OTP obrigatório. Gere o código e informe-o para pagar.",
+                "otp_requerido": True}
+    try:
+        await _validar_e_consumir_otp_lote(db, lote_id, otp_code)
+    except ValueError as exc:
+        return {"ok": False, "mensagem": str(exc), "otp_invalido": True}
+    except Exception:  # noqa: BLE001 — lote_id malformado/erro de validação → trata como inválido, nunca 500
+        await db.rollback()
+        return {"ok": False, "mensagem": "Código de lote inválido. Gere um novo código.", "otp_invalido": True}
 
     # ENVIO REAL via Inter (enviar_pix por item)
     import os as _os
