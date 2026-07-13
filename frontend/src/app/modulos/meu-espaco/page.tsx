@@ -21,7 +21,7 @@ import Image from 'next/image';
 import {
   FileSignature, FileText, CalendarDays, Clock, Gift, LogOut,
   CheckCircle2, Loader2, ShieldCheck, AlertTriangle,
-  GraduationCap, User as UserIcon, FolderOpen, Scale, Download, Award,
+  GraduationCap, User as UserIcon, FolderOpen, Download, Award,
   CalendarClock, Bell, MapPin, Camera, Fingerprint, X,
   Receipt, Wallet, Paperclip, Send,
   ChevronDown, ChevronRight, History,
@@ -86,7 +86,7 @@ const SS_BASE = '/api/v1/people-management/portal/self-service';
 
 type Tab =
   | 'assinar' | 'holerite' | 'ferias' | 'ponto' | 'beneficios'
-  | 'documentos' | 'treinamentos' | 'dados' | 'cct'
+  | 'documentos' | 'treinamentos' | 'dados'
   | 'escala' | 'comunicados' | 'reembolso';
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
@@ -100,7 +100,6 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'beneficios', label: 'Benefícios', icon: Gift },
   { id: 'reembolso', label: 'Reembolso', icon: Receipt },
   { id: 'treinamentos', label: 'Treinamentos', icon: GraduationCap },
-  { id: 'cct', label: 'Meus direitos (CCT)', icon: Scale },
   { id: 'dados', label: 'Meus dados', icon: UserIcon },
 ];
 
@@ -179,7 +178,7 @@ export default function MeuEspacoPage() {
           </h1>
           <p className="text-sm text-[hsl(var(--muted-foreground))]">
             Aqui você assina e baixa seus documentos e consulta holerite, férias, ponto,
-            benefícios, treinamentos, seus direitos (CCT) e seus dados.
+            benefícios, treinamentos e seus dados.
           </p>
         </div>
 
@@ -216,7 +215,6 @@ export default function MeuEspacoPage() {
         {tab === 'beneficios' && <BeneficiosTab />}
         {tab === 'reembolso' && <ReembolsoTab />}
         {tab === 'treinamentos' && <TreinamentosTab />}
-        {tab === 'cct' && <CctTab />}
         {tab === 'dados' && <DadosTab />}
       </div>
     </div>
@@ -1377,15 +1375,8 @@ interface BeneficioAtivo {
   tipo?: string; operadora?: string; plano?: string | null;
   desconto_funcionario?: number; contribuicao_empresa?: number; status?: string;
 }
-interface BeneficioCct {
-  tipo?: string; obrigatorio?: boolean; valor_minimo_cct?: number | null;
-  valor_empresa_cct?: number | null; desconto_percentual_cct?: number | null;
-  desconto_calculado?: number | null; observacao?: string;
-}
-
 function BeneficiosTab() {
   const [ativos, setAtivos] = useState<BeneficioAtivo[]>([]);
-  const [cct, setCct] = useState<BeneficioCct[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -1395,7 +1386,6 @@ function BeneficiosTab() {
         const res = await api.get('/api/v1/people-management/portal/self-service/meus-beneficios');
         const d = res.data || {};
         setAtivos(Array.isArray(d.beneficios_ativos) ? d.beneficios_ativos : []);
-        setCct(Array.isArray(d.beneficios_cct) ? d.beneficios_cct : []);
       } catch (e: unknown) {
         const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
         setError(msg || 'Não foi possível carregar seus benefícios.');
@@ -1410,7 +1400,7 @@ function BeneficiosTab() {
 
   if (loading) return <Spinner />;
   if (error) return <ErrorBox msg={error} />;
-  if (ativos.length === 0 && cct.length === 0)
+  if (ativos.length === 0)
     return <EmptyState icon={Gift} title="Sem benefícios" desc="Nenhum benefício cadastrado." />;
 
   return (
@@ -1438,33 +1428,6 @@ function BeneficiosTab() {
                     <span>Empresa paga: {brl(b.contribuicao_empresa)}</span>
                   )}
                 </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {cct.length > 0 && (
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]/70 mb-2">
-            Garantidos pela CCT 2026
-          </p>
-          <div className="space-y-2">
-            {cct.map((b, i) => (
-              <div key={i} className="bg-[hsl(var(--secondary))]/40 border border-[hsl(var(--border))] rounded-xl p-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium capitalize">
-                    {String(b.tipo || '').replace(/_/g, ' ')}
-                  </span>
-                  {b.desconto_calculado != null && (
-                    <span className="text-xs text-[hsl(var(--muted-foreground))]">
-                      Desconto est.: {brl(b.desconto_calculado)}
-                    </span>
-                  )}
-                </div>
-                {b.observacao && (
-                  <p className="mt-1 text-[11px] text-[hsl(var(--muted-foreground))]">{b.observacao}</p>
-                )}
               </div>
             ))}
           </div>
@@ -1692,116 +1655,6 @@ function TreinamentosTab() {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// --------------------------------------------------------------------------- //
-// CCT — meus direitos e piso
-// --------------------------------------------------------------------------- //
-function CctTab() {
-  const [data, setData] = useState<Record<string, unknown> | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await api.get('/api/v1/people-management/portal/self-service/minha-cct');
-        setData(res.data);
-      } catch (e: unknown) {
-        const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-        setError(msg || 'Não foi possível carregar seus direitos.');
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
-
-  if (loading) return <Spinner />;
-  if (error) return <ErrorBox msg={error} />;
-  if (!data) return <EmptyState icon={Scale} title="Sem dados" desc="Direitos indisponíveis no momento." />;
-
-  const salario = (data.salario || {}) as Record<string, unknown>;
-  const cct = (data.cct || {}) as Record<string, unknown>;
-  const beneficios = (data.beneficios_garantidos || []) as Record<string, unknown>[];
-  const adicionais = (data.adicionais || {}) as Record<string, unknown>;
-  const estabilidades = (data.estabilidades || []) as string[];
-  const brl = (v: unknown) =>
-    typeof v === 'number' ? `R$ ${v.toFixed(2).replace('.', ',')}` : String(v ?? '-');
-  const conforme = salario.conforme_cct === true;
-
-  return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3">
-        <Stat label="Piso do meu cargo" value={brl(salario.piso_cargo)} />
-        <Stat
-          label="Meu salário base"
-          value={brl(salario.salario_atual)}
-          highlight={conforme}
-        />
-      </div>
-      <div
-        className={[
-          'rounded-xl p-3 text-sm flex items-center gap-2 border',
-          conforme
-            ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-600'
-            : 'bg-amber-500/5 border-amber-500/20 text-amber-600',
-        ].join(' ')}
-      >
-        {conforme ? <CheckCircle2 className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
-        {conforme ? 'Seu salário está conforme o piso da CCT.' : 'Atenção: salário abaixo do piso da CCT — procure o DP.'}
-      </div>
-
-      {beneficios.length > 0 && (
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]/70 mb-2">
-            Benefícios garantidos
-          </p>
-          <div className="space-y-1.5">
-            {beneficios.map((b, i) => (
-              <div key={i} className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-lg p-3">
-                <p className="text-sm font-medium">{String(b.beneficio || '')}</p>
-                {Boolean(b.garantia_cct) && (
-                  <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">{String(b.garantia_cct)}</p>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {Object.keys(adicionais).length > 0 && (
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]/70 mb-2">
-            Adicionais
-          </p>
-          <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-lg divide-y divide-[hsl(var(--border))]">
-            {Object.entries(adicionais).map(([k, v]) => (
-              <div key={k} className="flex items-center justify-between px-3 py-2 text-xs">
-                <span className="capitalize text-[hsl(var(--muted-foreground))]">{k.replace(/_/g, ' ')}</span>
-                <span className="text-right">{String(v)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {estabilidades.length > 0 && (
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]/70 mb-2">
-            Estabilidades
-          </p>
-          <ul className="text-xs text-[hsl(var(--muted-foreground))] list-disc pl-4 space-y-1">
-            {estabilidades.map((e, i) => <li key={i}>{e}</li>)}
-          </ul>
-        </div>
-      )}
-
-      <p className="text-[11px] text-[hsl(var(--muted-foreground))]/70">
-        {String(cct.nome || 'CCT SINDECOMPRESTS/SINDICOND-AM')}
-        {cct.vigencia ? ` · vigência ${String(cct.vigencia)}` : ''}
-      </p>
     </div>
   );
 }

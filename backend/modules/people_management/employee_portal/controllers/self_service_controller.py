@@ -356,7 +356,12 @@ async def meus_beneficios(
         get_my_benefits,
     )
 
-    return await get_my_benefits(employee_id=emp, db=db)
+    resultado = await get_my_benefits(employee_id=emp, db=db)
+    # Não expor ao funcionário os mínimos garantidos pela CCT (decisão Jordan 2026-07-13):
+    # comparar o "garantido pela CCT" com o holerite viraria prova de gap num contencioso.
+    if isinstance(resultado, dict):
+        resultado.pop("beneficios_cct", None)
+    return resultado
 
 
 @router.get(
@@ -581,12 +586,13 @@ async def minha_cct(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    emp = _employee_id(current_user)
-    from modules.people_management.employee_portal.controllers.my_cct_controller import (
-        get_meus_direitos,
+    # DESATIVADO (decisão Jordan 2026-07-13): não expor ao funcionário o piso/adicionais
+    # "que ele deveria receber" — comparado ao holerite, viraria prova de gap num contencioso
+    # trabalhista. O dado da CCT segue disponível para o DP/gestão, não para o self-service.
+    raise HTTPException(
+        status_code=http_status.HTTP_404_NOT_FOUND,
+        detail="Recurso indisponível.",
     )
-
-    return await get_meus_direitos(employee_id=UUID(emp), db=db)
 
 
 # =========================================================================== #
