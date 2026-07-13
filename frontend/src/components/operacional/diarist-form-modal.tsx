@@ -157,14 +157,14 @@ export function DiaristFormModal({ isOpen, onClose, onSuccess, editData }: Diari
       setActiveTab('dados');
       return false;
     }
-    if (formData.valor_diaria <= 0) {
-      setError('Valor da diaria deve ser maior que zero');
+    if (!formData.pix || !formData.pix.trim()) {
+      setError('Chave PIX é obrigatória — sem PIX o diarista fica impagável.');
       setActiveTab('pagamento');
       return false;
     }
-    if (formData.tipos_servico.length === 0) {
-      setError('Selecione pelo menos um tipo de servico');
-      setActiveTab('servicos');
+    if (!formData.telefone?.trim() && !formData.email?.trim()) {
+      setError('Informe ao menos um contato: telefone ou e-mail.');
+      setActiveTab('dados');
       return false;
     }
     return true;
@@ -178,38 +178,22 @@ export function DiaristFormModal({ isOpen, onClose, onSuccess, editData }: Diari
     setIsLoading(true);
     try {
       const token = localStorage.getItem('access_token');
-      const apiData = {
+      // Cadastro ÚNICO de diarista = tabela diaria_diaristas (a que alimenta o pagamento
+      // VT+VR e as diárias). Só os campos que ela guarda e que o pagamento precisa.
+      const apiData: Record<string, unknown> = {
         nome: formData.nome.trim(),
         cpf: formData.cpf.replace(/\D/g, ''),
-        rg: formData.rg || undefined,
-        data_nascimento: formData.data_nascimento || undefined,
-        email: formData.email || undefined,
-        telefone: formData.telefone || undefined,
-        telefone_emergencia: formData.telefone_emergencia || undefined,
-        endereco: formData.endereco || undefined,
-        cidade: formData.cidade || undefined,
-        estado: formData.estado || undefined,
-        cep: formData.cep?.replace(/\D/g, '') || undefined,
-        tipos_servico: formData.tipos_servico,
-        especialidades: formData.especialidades,
-        experiencia_anos: formData.experiencia_anos,
-        dias_disponiveis: formData.dias_disponiveis,
-        hora_inicio_disponivel: formData.hora_inicio_disponivel || undefined,
-        hora_fim_disponivel: formData.hora_fim_disponivel || undefined,
-        aceita_hora_extra: formData.aceita_hora_extra,
-        valor_diaria: formData.valor_diaria,
-        valor_hora_extra: formData.valor_hora_extra || undefined,
-        banco: formData.banco || undefined,
-        agencia: formData.agencia || undefined,
-        conta: formData.conta || undefined,
-        tipo_conta: formData.tipo_conta || undefined,
-        pix: formData.pix || undefined,
+        pix: formData.pix?.trim() || undefined,
+        telefone: formData.telefone?.trim() || undefined,
+        email: formData.email?.trim() || undefined,
       };
 
       const response = await fetch(
-        isEdit ? `/api/v1/operacional/diaristas/${editData.id}` : '/api/v1/operacional/diaristas/',
+        isEdit
+          ? `/api/v1/operacional/diarias/diaristas/${editData.id}`
+          : '/api/v1/operacional/diarias/diaristas',
         {
-          method: isEdit ? 'PUT' : 'POST',
+          method: isEdit ? 'PATCH' : 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,

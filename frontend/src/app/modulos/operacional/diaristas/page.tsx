@@ -9,11 +9,9 @@ import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/ui/page-header';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/hooks/useAuth';
-import { useDiarists } from '@/hooks/operacional/useDiarists';
 import { api } from '@/lib/api';
 const DiaristFormModal = dynamic(() => import('@/components/operacional/diarist-form-modal').then(m => m.DiaristFormModal), { ssr: false });
 import {
-  type Diarist,
   type DiaristStatus,
   type DiaristType,
   DIARIST_TYPE_LABELS,
@@ -39,8 +37,43 @@ export default function DiaristasPage() {
   const router = useRouter();
   const { isLoading: authLoading, isAuthenticated } = useAuth();
 
-  const { data, isLoading, error, refetch } = useDiarists();
-  const diarists: Diarist[] = (data?.items as unknown as Diarist[]) ?? [];
+  // Cadastro ÚNICO de diarista = tabela diaria_diaristas (a que alimenta o pagamento).
+  // Lista vem de /operacional/diarias/cadastros (diaristas_gestao), mapeada p/ o card.
+  const [diarists, setDiarists] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<any>(null);
+  const loadDiarists = async () => {
+    setIsLoading(true);
+    try {
+      const res = await api.get('/api/v1/operacional/diarias/cadastros');
+      const arr = (res.data?.diaristas_gestao ?? []).map((d: any) => ({
+        id: d.id,
+        nome: d.nome,
+        cpf: d.cpf,
+        pix: d.pix,
+        celular: d.telefone,
+        telefone: d.telefone,
+        email: d.email,
+        status: d.ativo === false ? 'inativo' : 'ativo',
+        tipo: 'outros',
+        valor_diaria: d.valor_diaria ?? null,
+        media_avaliacao: 0,
+        total_avaliacoes: 0,
+        taxa_comparecimento: null,
+        total_diarias: 0,
+        especialidades: [] as string[],
+      }));
+      setDiarists(arr);
+      setError(null);
+    } catch (e) {
+      setError(e);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  const refetch = () => { loadDiarists(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (isAuthenticated) loadDiarists(); }, [isAuthenticated]);
   const total = diarists.length;
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
