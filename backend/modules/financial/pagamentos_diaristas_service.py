@@ -11,6 +11,7 @@ Este é o lado INBOUND da comunicação bidirecional Operacional↔Financeiro: a
 from __future__ import annotations
 
 import logging
+import os
 from datetime import date as _date
 from typing import Any
 
@@ -368,7 +369,9 @@ async def resumo(db: AsyncSession) -> dict[str, Any]:
     }
 
 
-LIMITE_LOTE_DIARIO = 5000.00  # trava de segurança (mesmo limite do D7)
+# Trava de segurança do lote (dinheiro que sai). MESMA fonte da verdade do D7 avulso:
+# .env CONECTA_LIMITE_DIARIO_PAGAMENTOS. Um único knob controla os dois limites.
+LIMITE_LOTE_DIARIO = float(os.getenv("CONECTA_LIMITE_DIARIO_PAGAMENTOS", "5000.00"))
 
 
 def _tipo_pix(chave: str) -> str:
