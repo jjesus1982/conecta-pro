@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { Users, Search, Plus, Eye, Edit2, ArrowLeft, ChevronLeft, ChevronRight, RefreshCw, Star, Calendar, DollarSign, Clock, CheckCircle, XCircle, Filter, Sparkles, TrendingUp, Phone, Mail } from 'lucide-react';
+import { Users, Search, Plus, Eye, Edit2, Trash2, ArrowLeft, ChevronLeft, ChevronRight, RefreshCw, Star, Calendar, DollarSign, Clock, CheckCircle, XCircle, Filter, Sparkles, TrendingUp, Phone, Mail } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -75,6 +75,17 @@ export default function DiaristasPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (isAuthenticated) loadDiarists(); }, [isAuthenticated]);
   const total = diarists.length;
+
+  const removerDiarista = async (d: any) => {
+    if (!window.confirm(`Apagar o diarista "${d.nome}"?\n\nSe ele tiver lançamentos de diária, será INATIVADO (histórico preservado) em vez de apagado.`)) return;
+    try {
+      const res = await api.delete(`/api/v1/operacional/diarias/diaristas/${d.id}`);
+      if (res.data?.inativado && res.data?.mensagem) window.alert(res.data.mensagem);
+      loadDiarists();
+    } catch (e: any) {
+      window.alert(e?.response?.data?.detail || 'Falha ao remover o diarista.');
+    }
+  };
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
   const totalPages = Math.ceil(total / pageSize);
@@ -437,6 +448,9 @@ export default function DiaristasPage() {
                     </Link>
                     <Button variant="ghost" size="sm" title="Editar diarista" onClick={() => { setEditDiarist(diarist); setShowFormModal(true); }}>
                       <Edit2 className="w-4 h-4" />
+                    </Button>
+                    <Button variant="ghost" size="sm" title="Apagar diarista" onClick={() => removerDiarista(diarist)} className="text-red-500 hover:text-red-600 hover:bg-red-500/10">
+                      <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
                 </div>

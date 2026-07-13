@@ -390,3 +390,25 @@ async def criar_diarista(db: AsyncSession, nome: str, cpf: str | None = None, pi
     row = r.first()
     await db.commit()
     return {"ok": True, "id": int(row[0]) if row else None, "ja_existia": row is None}
+
+
+async def remover_diarista(db: AsyncSession, diarista_id: int) -> dict[str, Any]:
+    """Apaga o diarista. Se ele já tem lançamentos de diária (FK/histórico), NÃO apaga de
+    verdade (perderia o histórico e violaria a FK) — INATIVA (ativo=false), somem das listas.
+    Sem histórico → apaga a linha. Nunca destrói dado de pagamento."""
+    await ensure_e_seed(db)
+    existe = (await db.execute(text(
+        "SELECT nome FROM diaria_diaristas WHERE id=:id"), {"id": diarista_id})).first()
+    if not existe:
+        return {"ok": False, "http_status": 404, "mensagem": f"Diarista {diarista_id} não encontrado."}
+    tem_lanc = (await db.execute(text(
+        "SELECT 1 FROM diaria_lancamentos WHERE diarista_id=:id LIMIT 1"), {"id": diarista_id})).first()
+    if tem_lanc:
+        await db.execute(text("UPDATE diaria_diaristas SET ativo=false WHERE id=:id"), {"id": diarista_id})
+        await db.commit()
+        return {"ok": True, "apagado": False, "inativado": True,
+                "mensagem": f"'{existe[0]}' tem lançamentos de diária no histórico — foi INATIVADO "
+                            "(sai das listas) em vez de apagado, para preservar o histórico de pagamento."}
+    await db.execute(text("DELETE FROM diaria_diaristas WHERE id=:id"), {"id": diarista_id})
+    await db.commit()
+    return {"ok": True, "apagado": True, "inativado": False, "mensagem": f"Diarista '{existe[0]}' removido."}

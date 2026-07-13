@@ -110,3 +110,13 @@ async def atualizar_diarista(diarista_id: int, body: DiaristaUpdIn,
         raise HTTPException(status_code=int(res.get("http_status", 422)),
                             detail=res.get("mensagem", "Dados inválidos para atualização de diarista."))
     return res
+
+
+@router.delete("/diaristas/{diarista_id}", summary="Apaga o diarista (ou INATIVA se tiver histórico de lançamentos)")
+async def remover_diarista(diarista_id: int, current_user=Depends(get_current_active_user),
+                           db: AsyncSession = Depends(get_db)):
+    res = await svc.remover_diarista(db, diarista_id)
+    if not res.get("ok"):
+        raise HTTPException(status_code=int(res.get("http_status", 422)),
+                            detail=res.get("mensagem", "Não foi possível remover o diarista."))
+    return res
