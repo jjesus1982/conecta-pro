@@ -378,6 +378,9 @@ export const modules: Module[] = [
       { id: 'conciliacao', title: 'Conciliacao Bancaria', href: '/modulos/financeiro/conciliacao', icon: 'CheckCircle2', permissions: ['module:financeiro'] },
       { id: 'boletos', title: 'Boletos', href: '/modulos/financeiro/boletos', icon: 'CreditCard', permissions: ['module:financeiro'] },
       { id: 'cobrancas', title: 'Cobrancas', href: '/modulos/financeiro/cobrancas', icon: 'DollarSign', permissions: ['module:financeiro'] },
+      // --- Banco Inter ---
+      { id: 'inter-painel', title: 'Banco Inter', href: '/modulos/financeiro/inter', icon: 'Building2', permissions: ['module:financeiro'] },
+      { id: 'inter-pagamentos', title: 'Pagamentos & Transferências', href: '/modulos/financeiro/inter/pagamentos', icon: 'Send', permissions: ['module:financeiro'] },
       { id: 'fornecedores', title: 'Fornecedores', href: '/modulos/financeiro/fornecedores', icon: 'Truck', permissions: ['module:financeiro'] },
       // --- Suprimentos ---
       { id: 'compras', title: 'Compras', href: '/modulos/financeiro/compras', icon: 'ShoppingCart', permissions: ['module:financeiro'] },

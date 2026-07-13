@@ -124,6 +124,12 @@ const navigationCards = [
     icon: Building2,
   },
   {
+    title: 'Pagamentos & Transferências',
+    description: 'Envie PIX, DARF, GPS, boletos e TED pelo Banco Inter (com OTP)',
+    href: '/modulos/financeiro/inter/pagamentos',
+    icon: Send,
+  },
+  {
     title: 'Precificação',
     description: 'Calcule preços ideais para novos contratos com IA',
     href: '/modulos/crm/precificacao',
