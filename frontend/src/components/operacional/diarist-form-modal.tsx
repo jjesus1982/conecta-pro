@@ -15,6 +15,7 @@ interface DiaristFormModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  editData?: any | null;  // quando presente, o modal edita (PUT) em vez de criar (POST)
 }
 
 type TabId = 'dados' | 'servicos' | 'pagamento';
@@ -25,7 +26,8 @@ const TABS = [
   { id: 'pagamento' as const, label: 'Pagamento', icon: DollarSign },
 ];
 
-export function DiaristFormModal({ isOpen, onClose, onSuccess }: DiaristFormModalProps) {
+export function DiaristFormModal({ isOpen, onClose, onSuccess, editData }: DiaristFormModalProps) {
+  const isEdit = !!editData?.id;
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingCPF, setIsFetchingCPF] = useState(false);
   const [cpfStatus, setCpfStatus] = useState<'idle' | 'found' | 'not_found'>('idle');
@@ -35,11 +37,20 @@ export function DiaristFormModal({ isOpen, onClose, onSuccess }: DiaristFormModa
 
   useEffect(() => {
     if (isOpen) {
-      setFormData({ ...INITIAL_FORM_DATA });
+      if (editData) {
+        // Edição: prefill só com as chaves que o formulário conhece (ignora id/status/etc.)
+        const prefilled: any = { ...INITIAL_FORM_DATA };
+        for (const k of Object.keys(INITIAL_FORM_DATA)) {
+          if (editData[k] !== undefined && editData[k] !== null) prefilled[k] = editData[k];
+        }
+        setFormData(prefilled);
+      } else {
+        setFormData({ ...INITIAL_FORM_DATA });
+      }
       setError(null);
       setActiveTab('dados');
     }
-  }, [isOpen]);
+  }, [isOpen, editData]);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
@@ -195,14 +206,17 @@ export function DiaristFormModal({ isOpen, onClose, onSuccess }: DiaristFormModa
         pix: formData.pix || undefined,
       };
 
-      const response = await fetch('/api/v1/operacional/diaristas/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(apiData),
-      });
+      const response = await fetch(
+        isEdit ? `/api/v1/operacional/diaristas/${editData.id}` : '/api/v1/operacional/diaristas/',
+        {
+          method: isEdit ? 'PUT' : 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(apiData),
+        }
+      );
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -229,8 +243,8 @@ export function DiaristFormModal({ isOpen, onClose, onSuccess }: DiaristFormModa
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Novo Diarista"
-      description="Cadastre um novo diarista no sistema"
+      title={isEdit ? 'Editar Diarista' : 'Novo Diarista'}
+      description={isEdit ? 'Atualize os dados do diarista' : 'Cadastre um novo diarista no sistema'}
       size="xl"
     >
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -295,7 +309,7 @@ export function DiaristFormModal({ isOpen, onClose, onSuccess }: DiaristFormModa
           </Button>
           <Button type="submit" variant="primary" disabled={isLoading}>
             {isLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-            Cadastrar Diarista
+            {isEdit ? 'Salvar alterações' : 'Cadastrar Diarista'}
           </Button>
         </ModalFooter>
       </form>

@@ -50,6 +50,7 @@ export default function DiaristasPage() {
   const [selectedStatus, setSelectedStatus] = useState<DiaristStatus | ''>('');
   const [selectedType, setSelectedType] = useState<DiaristType | ''>('');
   const [showFormModal, setShowFormModal] = useState(false);
+  const [editDiarist, setEditDiarist] = useState<any | null>(null);  // null = novo; objeto = editar
 
   // Diárias do mês — fonte REAL: módulo Diárias (/operacional/diarias/lancamentos)
   const [diariasMes, setDiariasMes] = useState<{ qtd: number; valor: number } | null>(null);
@@ -173,7 +174,7 @@ export default function DiaristasPage() {
                 <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
                 Atualizar
               </Button>
-              <Button variant="primary" size="sm" onClick={() => setShowFormModal(true)}>
+              <Button variant="primary" size="sm" onClick={() => { setEditDiarist(null); setShowFormModal(true); }}>
                 <Plus className="w-4 h-4 mr-2" />
                 Novo Diarista
               </Button>
@@ -391,7 +392,7 @@ export default function DiaristasPage() {
 
                   {/* Actions */}
                   <div className="flex items-center justify-end gap-2 mt-4 pt-3 border-t border-[hsl(var(--border))]">
-                    <Button variant="ghost" size="sm">
+                    <Button variant="ghost" size="sm" onClick={() => { setEditDiarist(diarist); setShowFormModal(true); }}>
                       <Eye className="w-4 h-4 mr-1" />
                       Ver
                     </Button>
@@ -401,7 +402,7 @@ export default function DiaristasPage() {
                         Lançar diária
                       </Button>
                     </Link>
-                    <Button variant="ghost" size="sm">
+                    <Button variant="ghost" size="sm" title="Editar diarista" onClick={() => { setEditDiarist(diarist); setShowFormModal(true); }}>
                       <Edit2 className="w-4 h-4" />
                     </Button>
                   </div>
@@ -419,7 +420,7 @@ export default function DiaristasPage() {
                 <p className="text-[hsl(var(--muted-foreground))] mt-1">
                   Ajuste os filtros ou cadastre um novo diarista
                 </p>
-                <Button variant="primary" className="mt-4" onClick={() => setShowFormModal(true)}>
+                <Button variant="primary" className="mt-4" onClick={() => { setEditDiarist(null); setShowFormModal(true); }}>
                   <Plus className="w-4 h-4 mr-2" />
                   Novo Diarista
                 </Button>
@@ -462,7 +463,8 @@ export default function DiaristasPage() {
       {/* Modal de Novo Diarista */}
       <DiaristFormModal
         isOpen={showFormModal}
-        onClose={() => setShowFormModal(false)}
+        editData={editDiarist}
+        onClose={() => { setShowFormModal(false); setEditDiarist(null); }}
         onSuccess={() => {
           refetch();
         }}
