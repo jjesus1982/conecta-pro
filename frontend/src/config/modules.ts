@@ -276,6 +276,7 @@ export const modules: Module[] = [
     subModules: [
       { id: 'sst-consultor-ia', title: 'Consultor de Pessoas IA', href: '/modulos/gestao-pessoas/consultor', icon: 'Bot', permissions: ['module:sst'] },
       { id: 'sst-dashboard', title: 'Dashboard SST', href: '/modulos/gestao-pessoas/saude-ocupacional', icon: 'LayoutDashboard', permissions: ['module:sst'] },
+      { id: 'sst-regularizacao', title: 'Regularização', href: '/modulos/gestao-pessoas/saude-ocupacional/regularizacao', icon: 'ShieldAlert', permissions: ['module:sst'] },
       { id: 'sst-prontuario', title: 'Prontuário SST', href: '/modulos/gestao-pessoas/saude-ocupacional/prontuario', icon: 'BookUser', permissions: ['module:sst'] },
       { id: 'sst-calendario-legal', title: 'Calendário Legal', href: '/modulos/gestao-pessoas/saude-ocupacional/calendario-legal', icon: 'CalendarClock', permissions: ['module:sst'] },
       { id: 'sst-exames', title: 'Exames / ASOs', href: '/modulos/gestao-pessoas/saude-ocupacional/exames', icon: 'Stethoscope', permissions: ['module:sst'] },

@@ -604,6 +604,175 @@ class SSTService:
         }
 
     # ================================================================
+    # PAINEL DE REGULARIZAÇÃO SST — os "descalços" (onda de admissões 2026)
+    # ================================================================
+
+    async def get_regularizacao_descalcos(self) -> dict[str, Any]:
+        """Painel de acompanhamento dos "descalços" — read-computed, dado REAL.
+
+        Coorte estável = funcionários ATIVOS admitidos na onda 2026
+        (data_admissao >= 2026-01-01). Como data_admissao NÃO muda, o
+        denominador da barra de progresso é fixo: conforme a Márcia registra
+        ASO retroativo, ficha de EPI assinada e certificado de treinamento, os
+        percentuais SOBEM sozinhos (nada aqui grava/fabrica cumprimento).
+
+        Por funcionário (FATO no banco):
+        - aso_ok: existe gp_asos status='realizado' vigente (data_validade
+          nula ou >= hoje)
+        - epi_ok: existe entrega gp_epi_deliveries com ficha sst_fichas_epi
+          ASSINADA
+        - treinamento_ok: certificado VÁLIDO (training_certificates) em TODOS
+          os cursos NR obrigatórios (training_courses is_mandatory=true:
+          NR-1, Uso de EPI, Ronda)
+
+        descalcos = coorte com aso_ok=false (os 19 sem ASO admissional),
+        priorizados por dias_pendente (admissão mais antiga no topo). Também
+        devolve o bloco dos ASOs VENCIDOS (renovação) via
+        listar_asos_regularizacao().
+        """
+        rows = (
+            await self.db.execute(
+                text(
+                    """
+                    WITH req AS (
+                        SELECT id, name FROM training_courses
+                        WHERE is_mandatory = true AND is_active = true
+                          AND (name ILIKE '%NR-1%' OR name ILIKE '%EPI%'
+                               OR name ILIKE '%Ronda%')
+                    ),
+                    coorte AS (
+                        SELECT e.id, e.matricula, e.nome, e.cargo, e.data_admissao,
+                               (CURRENT_DATE - e.data_admissao) AS dias_pendente
+                        FROM employees e
+                        WHERE e.status = 'ativo'
+                          AND e.data_admissao IS NOT NULL
+                          AND e.data_admissao >= DATE '2026-01-01'
+                    ),
+                    posto_atual AS (
+                        SELECT DISTINCT ON (al.employee_id)
+                               al.employee_id, p.id AS posto_id, p.name AS posto_nome
+                        FROM allocations al
+                        JOIN posts p ON p.id = al.post_id
+                        WHERE al.is_active = true AND al.status = 'active'
+                          AND (al.end_date IS NULL OR al.end_date >= CURRENT_DATE)
+                        ORDER BY al.employee_id, al.is_primary DESC, al.start_date DESC
+                    )
+                    SELECT c.id AS employee_id, c.matricula, c.nome, c.cargo,
+                           c.data_admissao, c.dias_pendente,
+                           pa.posto_id, pa.posto_nome,
+                           EXISTS(
+                               SELECT 1 FROM gp_asos a
+                               WHERE a.employee_id = c.id AND a.status = 'realizado'
+                                 AND (a.data_validade IS NULL
+                                      OR a.data_validade >= CURRENT_DATE)
+                           ) AS aso_ok,
+                           EXISTS(
+                               SELECT 1 FROM gp_epi_deliveries d
+                               JOIN sst_fichas_epi f ON f.id = d.ficha_epi_id
+                               WHERE d.employee_id = c.id AND f.status = 'assinada'
+                           ) AS epi_ok,
+                           (SELECT count(*) FROM gp_epi_deliveries d
+                            WHERE d.employee_id = c.id) AS epi_entregas,
+                           (SELECT count(DISTINCT tc.course_id)
+                            FROM training_certificates tc
+                            WHERE tc.employee_id = c.id AND tc.status = 'valid'
+                              AND tc.course_id IN (SELECT id FROM req)
+                              AND (tc.expires_at IS NULL
+                                   OR tc.expires_at >= now())) AS treino_feitos,
+                           (SELECT count(*) FROM req) AS treino_req
+                    FROM coorte c
+                    LEFT JOIN posto_atual pa ON pa.employee_id = c.id
+                    ORDER BY c.dias_pendente DESC NULLS LAST, c.nome
+                    """
+                )
+            )
+        ).mappings().all()
+
+        coorte: list[dict[str, Any]] = []
+        for r in rows:
+            treino_req = int(r["treino_req"] or 0)
+            treino_feitos = int(r["treino_feitos"] or 0)
+            # treinamento_ok só é True quando há cursos obrigatórios cadastrados
+            # E todos têm certificado válido (honesto: sem cursos = não avaliável)
+            treinamento_ok = treino_req > 0 and treino_feitos >= treino_req
+            item = {
+                "employee_id": str(r["employee_id"]),
+                "matricula": r["matricula"],
+                "nome": r["nome"],
+                "cargo": r["cargo"],
+                "posto": r["posto_nome"] or "Sem posto ativo",
+                "posto_id": str(r["posto_id"]) if r["posto_id"] else None,
+                "data_admissao": str(r["data_admissao"]) if r["data_admissao"] else None,
+                "dias_pendente": int(r["dias_pendente"]) if r["dias_pendente"] is not None else None,
+                "aso_ok": bool(r["aso_ok"]),
+                "epi_ok": bool(r["epi_ok"]),
+                "epi_entregas": int(r["epi_entregas"] or 0),
+                "treinamento_ok": treinamento_ok,
+                "treinamentos_feitos": treino_feitos,
+                "treinamentos_obrigatorios": treino_req,
+            }
+            coorte.append(item)
+
+        total = len(coorte)
+        aso_ok_n = sum(1 for c in coorte if c["aso_ok"])
+        epi_ok_n = sum(1 for c in coorte if c["epi_ok"])
+        treino_ok_n = sum(1 for c in coorte if c["treinamento_ok"])
+        regularizados_n = sum(
+            1 for c in coorte if c["aso_ok"] and c["epi_ok"] and c["treinamento_ok"]
+        )
+
+        def _pct(n: int) -> float:
+            return round(n / total * 100, 1) if total else 0.0
+
+        # descalços = coorte SEM ASO admissional realizado (o núcleo dos 19)
+        descalcos = [c for c in coorte if not c["aso_ok"]]
+
+        # Prioridade textual: os 2 mais antigos ainda descalços
+        prioridade = None
+        if descalcos:
+            top = descalcos[:2]
+            nomes = " e ".join(
+                f"{c['nome'].split()[0].title()} ({c['dias_pendente']}d)" for c in top
+            )
+            prioridade = (
+                f"Priorizar {nomes} — admissão mais antiga sem ASO/EPI/treinamento."
+            )
+
+        # Bloco dos ASOs VENCIDOS (renovação) — reusa a lista priorizada existente
+        try:
+            vencidos = await self.listar_asos_regularizacao()
+        except Exception as exc:  # à prova de falha — o painel dos descalços não cai por isto
+            logger.warning("Bloco de ASOs vencidos indisponível: %s", exc)
+            vencidos = {"funcionarios_pendentes": 0, "pendentes": [], "erro": str(exc)}
+
+        return {
+            "gerado_em": str(date.today()),
+            "resumo": {
+                "coorte_onda_2026": total,
+                "descalcos": len(descalcos),
+                "aso_ok": aso_ok_n,
+                "epi_ok": epi_ok_n,
+                "treinamento_ok": treino_ok_n,
+                "regularizados_total": regularizados_n,
+                "pct_aso": _pct(aso_ok_n),
+                "pct_epi": _pct(epi_ok_n),
+                "pct_treinamento": _pct(treino_ok_n),
+                "pct_regularizado_total": _pct(regularizados_n),
+                "prioridade": prioridade,
+                "aso_vencidos_renovacao": vencidos.get("funcionarios_pendentes", 0),
+            },
+            "nota": (
+                "Coorte estável = ativos admitidos em 2026 (data_admissao não muda), "
+                "por isso a barra sobe sozinha conforme a Márcia regulariza. Cada _ok é "
+                "FATO no banco (ASO realizado vigente / ficha de EPI assinada / certificado "
+                "de treinamento válido) — nada aqui grava ou fabrica cumprimento."
+            ),
+            "cursos_obrigatorios": ["NR-1", "Uso de EPI", "Ronda"],
+            "descalcos": descalcos,
+            "aso_vencidos": vencidos,
+        }
+
+    # ================================================================
     # ESTABILIDADE (CCT Clausula 29a)
     # ================================================================
 

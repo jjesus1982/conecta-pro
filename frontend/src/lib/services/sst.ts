@@ -460,6 +460,49 @@ export interface NR1Compliance {
 }
 
 // =============================================================================
+// TIPOS - PAINEL DE REGULARIZAÇÃO SST (os "descalços")
+// =============================================================================
+
+export interface DescalcoItem {
+  employee_id: string;
+  matricula: string | null;
+  nome: string;
+  cargo: string | null;
+  posto: string;
+  posto_id: string | null;
+  data_admissao: string | null;
+  dias_pendente: number | null;
+  aso_ok: boolean;
+  epi_ok: boolean;
+  epi_entregas: number;
+  treinamento_ok: boolean;
+  treinamentos_feitos: number;
+  treinamentos_obrigatorios: number;
+}
+
+export interface RegularizacaoDescalcos {
+  gerado_em: string;
+  resumo: {
+    coorte_onda_2026: number;
+    descalcos: number;
+    aso_ok: number;
+    epi_ok: number;
+    treinamento_ok: number;
+    regularizados_total: number;
+    pct_aso: number;
+    pct_epi: number;
+    pct_treinamento: number;
+    pct_regularizado_total: number;
+    prioridade: string | null;
+    aso_vencidos_renovacao: number;
+  };
+  nota: string;
+  cursos_obrigatorios: string[];
+  descalcos: DescalcoItem[];
+  aso_vencidos: ASORegularizacao;
+}
+
+// =============================================================================
 // TIPOS - PRONTUÁRIO SST 360 (dossiê completo por funcionário)
 // =============================================================================
 
@@ -1182,6 +1225,12 @@ export const sstService = {
   // Compliance NR-1
   getNR1Compliance: () =>
     api.get<NR1Compliance>(`${BASE}/nr1/compliance`).then((r) => r.data),
+
+  // Painel de Regularização SST (os "descalços" — onda de admissões 2026)
+  getRegularizacaoDescalcos: () =>
+    api
+      .get<RegularizacaoDescalcos>(`${BASE}/regularizacao/descalcos`)
+      .then((r) => r.data),
 
   /** Relatório de Compliance NR-1 em PDF padrão-ouro (p/ auditor fiscal) */
   downloadNR1CompliancePdf: () =>

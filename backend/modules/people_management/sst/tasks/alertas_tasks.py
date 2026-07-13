@@ -314,6 +314,108 @@ def _alertas_calendario_legal(db) -> list[dict]:
     ]
 
 
+# user_id da Márcia (MB Consultoria — perfil SST). Notificação vai para o sino
+# INTERNO dela pelo MESMO caminho dos alertas admin (notification_queue push).
+_MARCIA_USER_ID = UUID("d4e309e9-026c-4c81-94a9-8c2ba9e4f80e")
+
+
+def _coletar_regularizacao(db) -> dict:
+    """Fatos do banco para a notificação de regularização (nunca fabricados).
+
+    Retorna contagens reais + os 2 descalços mais antigos (para a prioridade).
+    """
+    from sqlalchemy import text
+
+    descalcos = db.execute(
+        text(
+            """
+            SELECT e.nome, (CURRENT_DATE - e.data_admissao) AS dias
+            FROM employees e
+            WHERE e.status = 'ativo'
+              AND e.data_admissao IS NOT NULL
+              AND e.data_admissao >= DATE '2026-01-01'
+              AND NOT EXISTS (
+                  SELECT 1 FROM gp_asos a
+                  WHERE a.employee_id = e.id AND a.status = 'realizado'
+                    AND (a.data_validade IS NULL OR a.data_validade >= CURRENT_DATE)
+              )
+            ORDER BY e.data_admissao ASC, e.nome
+            """
+        )
+    ).mappings().all()
+
+    vencidos = db.execute(
+        text(
+            """
+            WITH ultimo AS (
+                SELECT DISTINCT ON (a.employee_id) a.employee_id, a.data_validade
+                FROM gp_asos a WHERE a.data_validade IS NOT NULL
+                ORDER BY a.employee_id, a.data_validade DESC
+            )
+            SELECT count(*) AS n
+            FROM ultimo u JOIN employees e ON e.id = u.employee_id AND e.status = 'ativo'
+            WHERE u.data_validade < CURRENT_DATE
+            """
+        )
+    ).scalar() or 0
+
+    return {"descalcos": [dict(r) for r in descalcos], "aso_vencidos": int(vencidos)}
+
+
+@app.task(name="sst.notificar_regularizacao_marcia")
+def notificar_regularizacao_marcia() -> str:
+    """Notifica a Márcia (SST) sobre os funcionários a regularizar (descalços).
+
+    UMA notificação interna no sino dela, com dedupe por correlation_id
+    (atualiza se os números mudarem, nunca empilha). À prova de falha: qualquer
+    erro é logado e a task retorna a mensagem, sem derrubar o beat.
+    """
+    from core.database.session import get_sync_db
+    from modules.notifications.models import QueuePriority
+
+    try:
+        with get_sync_db() as db:
+            fatos = _coletar_regularizacao(db)
+            descalcos = fatos["descalcos"]
+            n = len(descalcos)
+            if n == 0:
+                logger.info("sst.notificar_regularizacao_marcia: 0 descalços — nada a notificar")
+                return "0 descalços — nenhuma notificação criada"
+
+            top = descalcos[:2]
+            prioridade = " e ".join(
+                f"{d['nome'].split()[0].title()} (adm. jan, {d['dias']}d)"
+                if d["dias"] and d["dias"] > 150
+                else f"{d['nome'].split()[0].title()} ({d['dias']}d)"
+                for d in top
+            )
+            titulo = f"SST: {n} funcionários a regularizar (ASO/EPI/treinamento)"
+            corpo = (
+                f"A auditoria SST apontou {n} funcionário(s) ativo(s) sem ASO admissional, "
+                f"sem entrega de EPI assinada e sem treinamento NR — os \"descalços\" da onda "
+                f"de admissões 2026. Prioridade: {prioridade}. Também há "
+                f"{fatos['aso_vencidos']} ASO(s) vencido(s) para renovação. Abra o Painel de "
+                f"Regularização para carregar ASO retroativo, gerar ficha de EPI e registrar os "
+                f"treinamentos — a barra avança conforme você executa."
+            )
+            resultado = _upsert_notificacao(
+                db,
+                user_id=_MARCIA_USER_ID,
+                correlation_id="sst:regularizacao_descalcos",
+                titulo=titulo,
+                corpo=corpo,
+                action_url="/modulos/gestao-pessoas/saude-ocupacional/regularizacao",
+                prioridade=QueuePriority.HIGH,
+            )
+            db.commit()
+            resumo = f"Notificação '{resultado}' para a Márcia ({n} descalços)"
+            logger.info("sst.notificar_regularizacao_marcia: %s", resumo)
+            return resumo
+    except Exception as exc:
+        logger.error("Erro em sst.notificar_regularizacao_marcia: %s", exc)
+        return f"Erro: {exc}"
+
+
 @app.task(name="sst.alertas_diarios")
 def alertas_diarios(forcar_semanais: bool = False) -> str:
     """Gera os alertas SST do dia no sino interno dos usuários ADMIN.

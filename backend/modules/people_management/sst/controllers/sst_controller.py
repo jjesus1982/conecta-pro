@@ -406,6 +406,23 @@ async def listar_asos_regularizacao(
     return await service.listar_asos_regularizacao()
 
 
+@router.get("/regularizacao/descalcos")
+async def get_regularizacao_descalcos(
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Painel de Regularização SST — os "descalços" (onda de admissões 2026).
+
+    Read-computed do dado REAL: coorte estável de ativos admitidos em 2026,
+    barra de progresso ASO/EPI/treinamento e a lista priorizada dos que ainda
+    não têm ASO admissional (mais antigos no topo). Inclui o bloco dos ASOs
+    vencidos (renovação). NADA aqui grava/fabrica cumprimento — cada _ok
+    reflete o fato no banco e a barra sobe sozinha conforme a Márcia executa.
+    """
+    service = SSTService(db)
+    return await service.get_regularizacao_descalcos()
+
+
 @router.post("/asos/agendar-lote", status_code=201)
 async def agendar_asos_lote(
     itens: list[ASOAgendarLoteItem],

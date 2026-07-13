@@ -474,6 +474,17 @@ export function useNR1Compliance() {
 }
 
 /**
+ * Hook para o Painel de Regularização SST (os "descalços" — onda 2026)
+ */
+export function useRegularizacaoDescalcos() {
+  return useQuery({
+    queryKey: [...sstKeys.all, 'regularizacao-descalcos'] as const,
+    queryFn: () => sstService.getRegularizacaoDescalcos(),
+    staleTime: 60 * 1000,
+  });
+}
+
+/**
  * Hook para o Prontuário SST 360 de um funcionário (dossiê completo)
  */
 export function useProntuarioSST(employeeId: string | null) {
