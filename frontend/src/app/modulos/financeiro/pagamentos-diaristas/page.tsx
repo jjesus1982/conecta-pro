@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Users, Loader2, CalendarDays, Send, AlertTriangle, CheckCircle2, RefreshCw, UserPlus, ClipboardList } from 'lucide-react';
+import { Users, Loader2, CalendarDays, Send, AlertTriangle, CheckCircle2, UserPlus, ClipboardList } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -84,16 +84,6 @@ export default function PagamentosDiaristasPage() {
     } catch { setMsgMes('Falha ao programar o lote mensal.'); } finally { setBusyMes(false); }
   };
 
-  const programar = async () => {
-    setBusy(true); setMsg(null); setResultado(null);
-    try {
-      const r = await fetch(`${API}/programar/${data}`, { method: 'POST', headers: authHeaders() }).then(x => x.json());
-      if (r?.detail) { setMsg(r.detail); return; }
-      setMsg(`Escala de ${r.escalados} diarista(s) → ${r.programados_novos} novo(s) programado(s)${r.sem_pix ? `, ${r.sem_pix} sem PIX` : ''}.`);
-      carregarLote();
-    } catch { setMsg('Falha ao programar.'); } finally { setBusy(false); }
-  };
-
   const abrirPreview = async () => {
     setPagando(true); setResultado(null);
     try {
@@ -130,30 +120,15 @@ export default function PagamentosDiaristasPage() {
         <Users className="h-7 w-7 text-emerald-700" />
         <div>
           <h1 className="font-display text-2xl font-semibold text-gray-900">Pagamentos de Diaristas (VT+VR)</h1>
-          <p className="text-sm text-muted-foreground">A escala do Operacional vira lote a pagar aqui. Revise e pague em lote via PIX (Banco Inter). R$10 VT + R$22 VR = R$32/dia.</p>
+          <p className="text-sm text-muted-foreground">A relação de diaristas do dia (lançada pelo Gonzaga no Operacional) vira lote a pagar aqui. Revise e pague em lote via PIX (Banco Inter). R$10 VT + R$22 VR = R$32/dia.</p>
         </div>
       </div>
 
-      {/* Programar (fonte: escala) */}
+      {/* Diaristas lançados no dia (fonte: relação de diárias do Gonzaga) — caminho principal do VT+VR diário */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center gap-2"><CalendarDays className="h-4 w-4 text-emerald-600" /> Programar do dia (a partir da escala)</CardTitle>
-          <p className="text-xs text-muted-foreground">fonte: escala de diaristas (diarist_schedules)</p>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-3">
-          <input type="date" value={data} onChange={e => { setData(e.target.value); carregarLote(e.target.value); }} className="border rounded px-3 py-2 text-sm" />
-          <Button onClick={programar} disabled={busy} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-            {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1" />} Programar VT+VR da escala
-          </Button>
-          {msg && <span className="text-sm text-gray-600">{msg}</span>}
-        </CardContent>
-      </Card>
-
-      {/* Diaristas lançados no dia (fonte: lançamento de diárias do Gonzaga) */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center gap-2"><ClipboardList className="h-4 w-4 text-emerald-600" /> Diaristas lançados hoje (Gonzaga)</CardTitle>
-          <p className="text-xs text-muted-foreground">fonte: lançamento de diárias do Operacional (diaria_lancamentos) — separada da escala acima</p>
+          <CardTitle className="text-base flex items-center gap-2"><ClipboardList className="h-4 w-4 text-emerald-600" /> 1. Diaristas lançados no dia (relação do Gonzaga)</CardTitle>
+          <p className="text-xs text-muted-foreground">Escolha o dia, confira quem o Gonzaga lançou e programe o VT+VR (R$32) de cada um. Quem estiver "sem PIX" precisa ser completado no cadastro do Operacional.</p>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap items-center gap-3">
@@ -216,6 +191,7 @@ export default function PagamentosDiaristasPage() {
           <div><label className="text-xs text-muted-foreground">Qtd pessoas</label><input type="number" min={1} value={mQtd} onChange={e => setMQtd(Math.max(1, Number(e.target.value)))} className="block border rounded px-2 py-1.5 text-sm w-20" /></div>
           <div className="text-sm text-gray-600 pb-1.5">= <b>{brl(32 * mQtd)}</b></div>
           <Button onClick={adicionarManual} disabled={busy} variant="outline">Adicionar ao lote</Button>
+          {msg && <span className="text-sm text-red-600">{msg}</span>}
           <p className="w-full text-xs text-muted-foreground">Ex.: um líder que leva 2 ajudantes recebe o VT+VR dos dois num PIX só → quantidade 2 = R$64.</p>
         </CardContent>
       </Card>
@@ -223,11 +199,14 @@ export default function PagamentosDiaristasPage() {
       {/* Lote */}
       <Card>
         <CardHeader className="pb-2 flex-row items-center justify-between">
-          <CardTitle className="text-base">Lote a pagar — {data}</CardTitle>
+          <CardTitle className="text-base flex items-center gap-2">
+            2. Lote a pagar —
+            <input type="date" value={data} onChange={e => { setData(e.target.value); carregarLote(e.target.value); }} className="border rounded px-2 py-1 text-sm font-normal" />
+          </CardTitle>
           <div className="text-sm">Total: <b>{brl(totalPagar)}</b> · {lote.filter(i => i.status === 'a_revisar').length} a revisar</div>
         </CardHeader>
         <CardContent>
-          {lote.length === 0 ? <p className="text-sm text-gray-400">Nenhum pagamento programado para esta data. Use "Programar VT+VR da escala".</p> : (
+          {lote.length === 0 ? <p className="text-sm text-gray-400">Nenhum pagamento programado para esta data. Programe pelo passo 1 (relação do Gonzaga) ou adicione manualmente abaixo.</p> : (
             <div className="divide-y">
               {lote.map(i => (
                 <div key={i.id} className="py-2 flex items-center justify-between gap-2 text-sm">
