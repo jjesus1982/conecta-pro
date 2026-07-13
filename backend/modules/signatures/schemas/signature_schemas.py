@@ -54,6 +54,16 @@ class SignRequestSchema(BaseModel):
     evidence: EvidenceSchema | None = None
 
 
+class AssinarLoteSchema(BaseModel):
+    """Payload para assinar VÁRIAS solicitações do próprio funcionário de uma vez."""
+
+    request_ids: list[uuid.UUID] = Field(
+        ..., min_length=1, max_length=50,
+        description="IDs das solicitações a assinar (1..50 por chamada).",
+    )
+    evidence: EvidenceSchema | None = None
+
+
 class PublicSignSchema(BaseModel):
     """Payload para assinatura pública de cliente (via link)."""
 

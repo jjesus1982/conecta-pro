@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
 from modules.signatures.schemas.signature_schemas import (
+    AssinarLoteSchema,
     CreateSignatureRequestSchema,
     PublicSignSchema,
     SignRequestSchema,
@@ -152,7 +153,9 @@ async def status_documento(
     summary="Meus documentos pendentes de assinatura (funcionário logado)",
     description="Lista as solicitações de assinatura PENDENTES do funcionário "
     "autenticado, resolvidas por users.employee_id. Base da tela self-service "
-    "'Meus documentos a assinar'. O funcionário só vê o que é DELE.",
+    "'Meus documentos a assinar'. O funcionário só vê o que é DELE. Separa em "
+    "`a_assinar_agora` (corrente/obrigatório) e `historico_opcional` (competência "
+    "antiga ou lote retroativo) — o badge conta só os obrigatórios.",
 )
 async def meus_pendentes(
     db: AsyncSession = Depends(get_db),
@@ -165,8 +168,54 @@ async def meus_pendentes(
             "Peça a um administrador para aprovar seu acesso com o perfil 'Funcionário'.",
         )
     svc = UniversalSignatureService(db)
-    pendentes = await svc.pendentes_do_funcionario(current_user.employee_id)
-    return {"employee_id": str(current_user.employee_id), "total": len(pendentes), "pendentes": pendentes}
+    separado = await svc.pendentes_do_funcionario_separado(current_user.employee_id)
+    a_assinar = separado["a_assinar_agora"]
+    historico = separado["historico_opcional"]
+    return {
+        "employee_id": str(current_user.employee_id),
+        # M2 — corrente × histórico
+        "a_assinar_agora": a_assinar,
+        "historico_opcional": historico,
+        "total_a_assinar": separado["total_a_assinar"],
+        "total_historico": separado["total_historico"],
+        # retrocompat: `pendentes` = todos (com flag `opcional`), `total` = tudo.
+        "pendentes": a_assinar + historico,
+        "total": separado["total_a_assinar"] + separado["total_historico"],
+    }
+
+
+# --------------------------------------------------------------------------- #
+# 2c) ASSINAR EM LOTE (funcionário logado — limpa o histórico de uma vez)
+# --------------------------------------------------------------------------- #
+@router.post(
+    "/assinar-lote",
+    summary="Assinar várias solicitações do próprio funcionário de uma vez",
+    description="Assina em lote (até 50 por chamada) as solicitações do funcionário "
+    "autenticado — usado para limpar o histórico opcional de uma vez. Cada documento "
+    "vira uma assinatura REAL (hash SHA-256 + evidência). Valida a posse de todas "
+    "antes: um id que não seja do funcionário resulta em 403 e nada é assinado.",
+)
+async def assinar_lote(
+    payload: AssinarLoteSchema,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    if not current_user.employee_id:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail="Sua conta não está vinculada a um funcionário (employee_id ausente).",
+        )
+    svc = UniversalSignatureService(db)
+    evidence = _evidence_from(request, payload.evidence)
+    try:
+        return await svc.assinar_lote(
+            employee_id=current_user.employee_id,
+            request_ids=payload.request_ids,
+            evidence=evidence,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=http_status.HTTP_403_FORBIDDEN, detail=str(exc))
 
 
 # --------------------------------------------------------------------------- #

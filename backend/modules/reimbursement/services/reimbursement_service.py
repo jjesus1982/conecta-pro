@@ -33,6 +33,34 @@ logger = logging.getLogger(__name__)
 UPLOAD_DIR = os.getenv("REIMBURSEMENT_UPLOAD_DIR", "/opt/conecta-pro/uploads/reimbursements")
 
 
+def _resolve_upload_dir() -> str:
+    """Resolve um diretório de upload GRAVÁVEL.
+
+    O default aponta para um caminho de HOST (/opt/conecta-pro/uploads/...) que
+    não existe dentro do container. Tenta os candidatos na ordem e devolve o
+    primeiro onde consegue de fato criar/escrever — assim o anexo funciona tanto
+    no host quanto no container (mount /app/uploads) sem exigir env/rebuild.
+    """
+    import tempfile
+
+    candidates = [
+        UPLOAD_DIR,
+        "/app/uploads/reimbursements",
+        os.path.join(tempfile.gettempdir(), "reimbursements"),
+    ]
+    for base in candidates:
+        try:
+            os.makedirs(base, exist_ok=True)
+            probe = os.path.join(base, ".write_test")
+            with open(probe, "w") as fh:
+                fh.write("ok")
+            os.remove(probe)
+            return base
+        except Exception:  # noqa: BLE001
+            continue
+    return tempfile.gettempdir()
+
+
 class ReimbursementService:
     """Service para operações de reembolso."""
 
@@ -292,8 +320,8 @@ class ReimbursementService:
         file_ext = os.path.splitext(original_filename)[1]
         unique_name = f"{uuid_lib.uuid4()}{file_ext}"
 
-        # Cria diretório se não existir
-        request_dir = os.path.join(UPLOAD_DIR, str(request_id))
+        # Cria diretório se não existir (resolve base gravável — host ou container)
+        request_dir = os.path.join(_resolve_upload_dir(), str(request_id))
         os.makedirs(request_dir, exist_ok=True)
 
         # Salva arquivo

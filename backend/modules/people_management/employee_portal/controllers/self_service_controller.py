@@ -20,8 +20,10 @@ Montado sob /portal (aggregator) → prefixo final /portal/self-service/*.
 
 from __future__ import annotations
 
+import base64
 import logging
 from datetime import date as _date
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -792,4 +794,259 @@ async def ponto_hoje(
         "saida": _fmt(saida),
         "proxima_acao": proxima_acao,
         "total_batidas": len(estado["batidas"]),
+    }
+
+
+# =========================================================================== #
+# REEMBOLSO (self-service): solicitar reembolso + listar os meus
+# O funcionário adianta a despesa a trabalho e a empresa devolve. A solicitação
+# NASCE 'pendente' (aguardando aprovação do DP/financeiro) — o funcionário NÃO
+# aprova nem paga. Grava na MESMA tabela reimbursement_requests que o DP lê.
+# Segurança: requester_id = user do JWT (1:1 com o employee_id vinculado); a
+# listagem filtra por requester_id → o funcionário só vê/cria os DELE, nunca de
+# outro. O fluxo de aprovação/pagamento permanece do módulo reimbursement (DP).
+# =========================================================================== #
+
+
+class SolicitarReembolsoRequest(BaseModel):
+    """Solicitação de reembolso do funcionário (self-service)."""
+
+    categoria: str = Field(
+        default="outros",
+        description="Categoria da despesa (transporte, alimentacao, material, saude, ...).",
+    )
+    valor: Decimal = Field(..., gt=0, description="Valor gasto pelo funcionário (R$).")
+    data_despesa: _date = Field(..., description="Data em que a despesa ocorreu.")
+    descricao: str = Field(
+        ..., min_length=3, max_length=500, description="Motivo/descrição da despesa."
+    )
+    comprovante_base64: str | None = Field(
+        default=None,
+        description="Foto/PDF do recibo (base64 ou data-URI). Evidência da despesa.",
+    )
+    comprovante_nome: str | None = Field(default=None, max_length=200)
+
+
+async def _condominio_do_reembolso(
+    db: AsyncSession, current_user: User
+) -> UUID | None:
+    """Resolve o condomínio para amarrar a solicitação.
+
+    Usa o condominio do usuário; senão o primeiro condomínio ativo. A coluna é
+    nullable — se nenhum for encontrado, retorna None (o DP/admin vê todos).
+    """
+    cid = getattr(current_user, "condominio_id", None)
+    if cid:
+        return cid if isinstance(cid, UUID) else UUID(str(cid))
+    try:
+        from modules.reimbursement.repositories import CondominioRepository
+
+        return await CondominioRepository(db).get_first_active_condominio()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+@router.get(
+    "/categorias-reembolso",
+    summary="Categorias de reembolso disponíveis",
+    description="Lista as categorias de despesa (enum) para o dropdown do formulário.",
+)
+async def categorias_reembolso(
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    from modules.reimbursement.models.reimbursement_item import (
+        EXPENSE_CATEGORY_LABELS,
+        ExpenseCategory,
+    )
+
+    return {
+        "categorias": [
+            {"value": e.value, "label": EXPENSE_CATEGORY_LABELS.get(e, e.value)}
+            for e in ExpenseCategory
+        ]
+    }
+
+
+@router.get(
+    "/meus-reembolsos",
+    summary="Meus reembolsos (funcionário logado)",
+    description="Lista os reembolsos DO funcionário logado (por requester_id do JWT) "
+    "com status, valor, categoria, data e motivo. Nunca mostra de outro funcionário.",
+)
+async def meus_reembolsos(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    emp = _employee_id(current_user)
+    from modules.reimbursement.models.reimbursement_item import (
+        EXPENSE_CATEGORY_LABELS,
+        ExpenseCategory,
+    )
+    from modules.reimbursement.schemas import ReimbursementRequestFilter
+    from modules.reimbursement.services import ReimbursementService
+
+    svc = ReimbursementService(db)
+    # condominio_id=None → não filtra por condomínio; requester_id garante que só
+    # vêm os reembolsos DESTE funcionário.
+    requests, total = await svc.list_my_requests(
+        condominio_id=None,
+        requester_id=current_user.id,
+        filters=ReimbursementRequestFilter(),
+        skip=0,
+        limit=200,
+    )
+
+    itens: list[dict[str, Any]] = []
+    for r in requests:
+        ativos = [i for i in (r.items or []) if getattr(i, "is_active", True)]
+        primeiro = ativos[0] if ativos else None
+        categoria = primeiro.category_type if primeiro else None
+        try:
+            categoria_label = (
+                EXPENSE_CATEGORY_LABELS.get(ExpenseCategory(categoria), categoria)
+                if categoria
+                else None
+            )
+        except ValueError:
+            categoria_label = categoria
+        itens.append(
+            {
+                "id": str(r.id),
+                "code": r.code,
+                "status": r.status,
+                "valor": float(r.total_amount or 0),
+                "valor_aprovado": float(r.approved_amount or 0),
+                "valor_pago": float(r.paid_amount or 0),
+                "categoria": categoria,
+                "categoria_label": categoria_label,
+                "data_despesa": str(r.expense_date_start) if r.expense_date_start else None,
+                "motivo": r.description or r.title,
+                "criado_em": str(r.created_at) if r.created_at else None,
+                "rejeicao_motivo": r.rejection_reason,
+                "anexos": len(getattr(r, "attachments", []) or []),
+            }
+        )
+
+    return {"employee_id": emp, "total": total, "reembolsos": itens}
+
+
+@router.post(
+    "/solicitar-reembolso",
+    summary="Solicitar reembolso (funcionário logado)",
+    description="Cria uma solicitação de reembolso vinculada ao funcionário logado "
+    "(requester_id do JWT). Nasce 'pendente' (aguardando DP/financeiro). Aceita o "
+    "comprovante (foto/PDF) em base64. O funcionário NÃO aprova nem paga.",
+)
+async def solicitar_reembolso(
+    payload: SolicitarReembolsoRequest = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    emp = _employee_id(current_user)
+    from modules.reimbursement.models import ExpenseCategory
+    from modules.reimbursement.models.reimbursement_item import EXPENSE_CATEGORY_LABELS
+    from modules.reimbursement.schemas import (
+        ReimbursementAttachmentCreate,
+        ReimbursementItemCreate,
+        ReimbursementRequestCreate,
+    )
+    from modules.reimbursement.services import ReimbursementService
+
+    # Categoria válida (fallback 'outros').
+    try:
+        categoria = ExpenseCategory(payload.categoria).value
+    except ValueError:
+        categoria = ExpenseCategory.OUTROS.value
+    label = EXPENSE_CATEGORY_LABELS.get(ExpenseCategory(categoria), categoria.title())
+    nome = (current_user.name or "Funcionário").strip()
+
+    data = ReimbursementRequestCreate(
+        title=f"Reembolso {label} — {nome}"[:200],
+        description=payload.descricao,
+        expense_date_start=payload.data_despesa,
+        expense_date_end=payload.data_despesa,
+        notes="Solicitado pelo funcionário via Meu Espaço.",
+        items=[
+            ReimbursementItemCreate(
+                category_type=categoria,
+                description=payload.descricao,
+                expense_date=payload.data_despesa,
+                amount=payload.valor,
+                document_type="comprovante",
+            )
+        ],
+    )
+
+    svc = ReimbursementService(db)
+    condominio_id = await _condominio_do_reembolso(db, current_user)
+
+    try:
+        request = await svc.create_request(condominio_id, current_user.id, data)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Falha ao criar reembolso do funcionário %s", emp)
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail=f"Não foi possível criar o reembolso: {exc}",
+        )
+
+    # Comprovante (opcional): decodifica base64 / data-URI e anexa.
+    anexado = False
+    if payload.comprovante_base64:
+        try:
+            raw = payload.comprovante_base64
+            mime = "image/jpeg"
+            ext = ".jpg"
+            if raw.startswith("data:"):
+                header, _, b64 = raw.partition(",")
+                if ":" in header:
+                    mime = header.split(":", 1)[1].split(";", 1)[0] or mime
+                raw = b64
+                if "pdf" in mime:
+                    ext = ".pdf"
+                elif "png" in mime:
+                    ext = ".png"
+                elif "webp" in mime:
+                    ext = ".webp"
+            content = base64.b64decode(raw)
+            filename = payload.comprovante_nome or f"comprovante_{request.code}{ext}"
+            await svc.add_attachment(
+                request_id=request.id,
+                data=ReimbursementAttachmentCreate(
+                    attachment_type="comprovante",
+                    description="Comprovante da despesa (anexado pelo funcionário).",
+                ),
+                file_content=content,
+                original_filename=filename,
+                mime_type=mime,
+                user_id=current_user.id,
+            )
+            anexado = True
+        except Exception as exc:  # noqa: BLE001
+            # Não bloqueia a solicitação: o comprovante pode ser reenviado depois.
+            logger.warning(
+                "Comprovante do reembolso %s não anexado: %s", request.code, exc
+            )
+
+    # Submete → 'pendente' (aguardando DP/financeiro). submit() valida que o
+    # solicitante é o próprio funcionário e que há ao menos um item.
+    try:
+        await svc.submit_request(request.id, current_user.id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        )
+
+    fresh = await svc.get_request(request.id)
+    return {
+        "employee_id": emp,
+        "id": str(fresh.id),
+        "code": fresh.code,
+        "status": fresh.status,
+        "valor": float(fresh.total_amount or 0),
+        "categoria": categoria,
+        "categoria_label": label,
+        "data_despesa": str(payload.data_despesa),
+        "motivo": fresh.description,
+        "comprovante_anexado": anexado,
+        "mensagem": "Reembolso enviado. Aguardando aprovação do DP/financeiro.",
     }

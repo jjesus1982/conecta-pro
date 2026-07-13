@@ -218,6 +218,68 @@ class AutoNotificationService:
             notification_type=PortalNotificationType.DOCUMENT_PENDING,
         )
 
+    async def notify_signature_pending(
+        self,
+        employee_id: str | UUID,
+        doc_title: str,
+        *,
+        dedupe: bool = True,
+    ) -> int | None:
+        """Notifica o funcionario que ha um documento aguardando a assinatura dele.
+
+        Disparada pelo motor de assinaturas (modules/signatures) sempre que uma
+        solicitacao com signatario EMPLOYEE e criada. Usa o tipo DOCUMENT_PENDING
+        (categoria de assinatura no portal).
+
+        ANTI-SPAM (dedupe=True, padrao): se o funcionario JA possui uma notificacao
+        de assinatura NAO LIDA, nao cria outra — o sino ja o avisa que ha documento
+        pendente, e o badge "documentos a assinar (N)" reflete o total real. Assim,
+        gerar N documentos em rajada (ex.: um kit inteiro) NAO gera N notificacoes.
+
+        Args:
+            employee_id: UUID do funcionario (signer_id da solicitacao).
+            doc_title: Titulo/nome do documento (ex.: "Contrato de Trabalho").
+            dedupe: Se True, pula a criacao quando ja ha alerta de assinatura nao lido.
+
+        Returns:
+            ID da notificacao criada; 0 se pulada por dedupe; None em caso de erro.
+        """
+        try:
+            if dedupe:
+                from sqlalchemy import select
+
+                existente = await self.db.execute(
+                    select(PortalNotification.id)
+                    .where(
+                        PortalNotification.employee_id
+                        == (str(employee_id) if not isinstance(employee_id, UUID) else employee_id),
+                        PortalNotification.notification_type
+                        == PortalNotificationType.DOCUMENT_PENDING,
+                        PortalNotification.is_read.is_(False),
+                    )
+                    .limit(1)
+                )
+                if existente.first() is not None:
+                    logger.info(
+                        "Assinatura pendente NAO notificada (dedupe): employee_id=%s ja tem alerta nao lido",
+                        employee_id,
+                    )
+                    return 0
+        except Exception as exc:  # noqa: BLE001
+            # Falha no dedupe nunca impede o alerta nem quebra o chamador.
+            logger.warning("Falha no dedupe de assinatura pendente (segue criando): %s", exc)
+
+        nome = (doc_title or "documento").strip()
+        return await self._create(
+            employee_id=employee_id,
+            title=f"Voce tem um documento para assinar: {nome}",
+            message=(
+                f"O documento '{nome}' requer a sua assinatura. Acesse a aba "
+                "'Documentos a assinar' do Meu Espaco para assinar."
+            ),
+            notification_type=PortalNotificationType.DOCUMENT_PENDING,
+        )
+
     async def notify_vacation_approved(
         self,
         employee_id: str | UUID,

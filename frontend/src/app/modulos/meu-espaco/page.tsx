@@ -7,7 +7,8 @@
  * Fonte: users.employee_id (resolvido no backend a partir do JWT principal).
  *
  * Abas:
- *  - Documentos a assinar (GET /signatures/meus-pendentes, POST /signatures/{id}/sign) — ESSENCIAL
+ *  - Documentos a assinar (GET /signatures/meus-pendentes → {a_assinar_agora, historico_opcional};
+ *    POST /signatures/{id}/sign; POST /signatures/assinar-lote) — ESSENCIAL
  *  - Holerite  (GET /portal/self-service/meus-holerites[/{m}/{a}][/pdf])
  *  - Férias    (GET /portal/self-service/minhas-ferias/*)
  *  - Ponto     (GET /portal/self-service/meu-ponto)
@@ -22,6 +23,8 @@ import {
   CheckCircle2, Loader2, ShieldCheck, AlertTriangle,
   GraduationCap, User as UserIcon, FolderOpen, Scale, Download, Award,
   CalendarClock, Bell, MapPin, Camera, Fingerprint, X,
+  Receipt, Wallet, Paperclip, Send,
+  ChevronDown, ChevronRight, History,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
@@ -37,6 +40,8 @@ interface PendingDoc {
   created_at: string | null;
   expires_at: string | null;
   is_expired: boolean;
+  /** M2: true = histórico/opcional (competência antiga ou lote retroativo). */
+  opcional?: boolean;
 }
 
 interface MeusDados {
@@ -82,7 +87,7 @@ const SS_BASE = '/api/v1/people-management/portal/self-service';
 type Tab =
   | 'assinar' | 'holerite' | 'ferias' | 'ponto' | 'beneficios'
   | 'documentos' | 'treinamentos' | 'dados' | 'cct'
-  | 'escala' | 'comunicados';
+  | 'escala' | 'comunicados' | 'reembolso';
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'assinar', label: 'Documentos a assinar', icon: FileSignature },
@@ -93,6 +98,7 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'ferias', label: 'Férias', icon: CalendarDays },
   { id: 'ponto', label: 'Ponto', icon: Clock },
   { id: 'beneficios', label: 'Benefícios', icon: Gift },
+  { id: 'reembolso', label: 'Reembolso', icon: Receipt },
   { id: 'treinamentos', label: 'Treinamentos', icon: GraduationCap },
   { id: 'cct', label: 'Meus direitos (CCT)', icon: Scale },
   { id: 'dados', label: 'Meus dados', icon: UserIcon },
@@ -208,6 +214,7 @@ export default function MeuEspacoPage() {
         {tab === 'ferias' && <FeriasTab />}
         {tab === 'ponto' && <PontoTab />}
         {tab === 'beneficios' && <BeneficiosTab />}
+        {tab === 'reembolso' && <ReembolsoTab />}
         {tab === 'treinamentos' && <TreinamentosTab />}
         {tab === 'cct' && <CctTab />}
         {tab === 'dados' && <DadosTab />}
@@ -464,17 +471,27 @@ function OnboardingGate({
 // Documentos a assinar (ESSENCIAL)
 // --------------------------------------------------------------------------- //
 function AssinarTab() {
-  const [docs, setDocs] = useState<PendingDoc[]>([]);
+  // M2: separa CORRENTE (a assinar agora, obrigatório) de HISTÓRICO (opcional).
+  const [aAssinar, setAAssinar] = useState<PendingDoc[]>([]);
+  const [historico, setHistorico] = useState<PendingDoc[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [signingId, setSigningId] = useState<string | null>(null);
+  const [loteLoading, setLoteLoading] = useState(false);
+  const [histAberto, setHistAberto] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
       const res = await api.get('/api/v1/signatures/meus-pendentes');
-      setDocs(res.data.pendentes || []);
+      // Novo formato separado; fallback ao antigo `pendentes` por segurança.
+      const ag: PendingDoc[] = res.data.a_assinar_agora
+        ?? (res.data.pendentes || []).filter((d: PendingDoc) => !d.opcional);
+      const hist: PendingDoc[] = res.data.historico_opcional
+        ?? (res.data.pendentes || []).filter((d: PendingDoc) => d.opcional);
+      setAAssinar(ag);
+      setHistorico(hist);
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       setError(msg || 'Não foi possível carregar seus documentos.');
@@ -501,56 +518,159 @@ function AssinarTab() {
     }
   };
 
+  // Assina em lote uma lista de solicitações (histórico e/ou corrente).
+  const assinarLote = async (docs: PendingDoc[]) => {
+    const ids = docs.filter((d) => !d.is_expired).map((d) => d.request_id);
+    if (ids.length === 0) return;
+    const ok = window.confirm(
+      `Você está assinando ${ids.length} documento(s) de uma vez. ` +
+      'Cada um recebe uma assinatura eletrônica com data/hora e hash (validade legal). Confirmar?'
+    );
+    if (!ok) return;
+    setLoteLoading(true);
+    setError('');
+    try {
+      await api.post('/api/v1/signatures/assinar-lote', {
+        request_ids: ids,
+        evidence: { device: 'meu-espaco-web', extra: { origem: 'assinar-lote' } },
+      });
+      await load();
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(msg || 'Não foi possível assinar os documentos em lote.');
+    } finally {
+      setLoteLoading(false);
+    }
+  };
+
   if (loading) return <Spinner />;
 
+  const histAssinaveis = historico.filter((d) => !d.is_expired).length;
+
+  const DocCard = (d: PendingDoc, opcional: boolean) => (
+    <div
+      key={d.request_id}
+      className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4 flex items-start justify-between gap-4"
+    >
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 mb-1">
+          <FileSignature className={`w-4 h-4 flex-shrink-0 ${opcional ? 'text-[hsl(var(--muted-foreground))]' : 'text-[#f97707]'}`} />
+          <p className="font-medium text-sm text-[hsl(var(--foreground))] truncate">{d.title}</p>
+        </div>
+        <p className="text-xs text-[hsl(var(--muted-foreground))]">
+          {d.document_name || d.document_type || 'Documento'}
+          {d.reference_code ? ` · ${d.reference_code}` : ''}
+        </p>
+        {d.is_expired && (
+          <span className="inline-flex items-center gap-1 mt-1 text-xs text-red-500">
+            <AlertTriangle className="w-3 h-3" /> Expirado
+          </span>
+        )}
+      </div>
+      <Button
+        size="sm"
+        variant={opcional ? 'outline' : 'primary'}
+        disabled={d.is_expired || signingId === d.request_id || loteLoading}
+        onClick={() => assinar(d.request_id)}
+      >
+        {signingId === d.request_id ? (
+          <Loader2 className="w-4 h-4 animate-spin" />
+        ) : (
+          <>
+            <ShieldCheck className="w-4 h-4 mr-1.5" /> Assinar
+          </>
+        )}
+      </Button>
+    </div>
+  );
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-5">
       {error && <ErrorBox msg={error} />}
-      {docs.length === 0 ? (
-        <EmptyState
-          icon={CheckCircle2}
-          title="Nenhum documento pendente"
-          desc="Você está em dia. Quando houver um documento para assinar, ele aparece aqui."
-        />
-      ) : (
-        docs.map((d) => (
-          <div
-            key={d.request_id}
-            className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4 flex items-start justify-between gap-4"
-          >
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <FileSignature className="w-4 h-4 text-[#f97707] flex-shrink-0" />
-                <p className="font-medium text-sm text-[hsl(var(--foreground))] truncate">{d.title}</p>
-              </div>
-              <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                {d.document_name || d.document_type || 'Documento'}
-                {d.reference_code ? ` · ${d.reference_code}` : ''}
-              </p>
-              {d.is_expired && (
-                <span className="inline-flex items-center gap-1 mt-1 text-xs text-red-500">
-                  <AlertTriangle className="w-3 h-3" /> Expirado
-                </span>
-              )}
-            </div>
+
+      {/* SEÇÃO 1 — A ASSINAR (corrente, destaque) */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-[hsl(var(--foreground))]">
+            <FileSignature className="w-4 h-4 text-[#f97707]" />
+            A assinar
+            {aAssinar.length > 0 && (
+              <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-[#f97707] text-white text-[11px] font-semibold">
+                {aAssinar.length}
+              </span>
+            )}
+          </h2>
+          {aAssinar.filter((d) => !d.is_expired).length > 1 && (
             <Button
               size="sm"
-              disabled={d.is_expired || signingId === d.request_id}
-              onClick={() => assinar(d.request_id)}
+              disabled={loteLoading || signingId !== null}
+              onClick={() => assinarLote(aAssinar)}
             >
-              {signingId === d.request_id ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <>
-                  <ShieldCheck className="w-4 h-4 mr-1.5" /> Assinar
-                </>
-              )}
+              {loteLoading ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <><ShieldCheck className="w-4 h-4 mr-1.5" /> Assinar todos</>}
             </Button>
+          )}
+        </div>
+        {aAssinar.length === 0 ? (
+          <EmptyState
+            icon={CheckCircle2}
+            title="Nenhum documento a assinar agora"
+            desc="Você está em dia. Quando houver um documento novo para assinar, ele aparece aqui em destaque."
+          />
+        ) : (
+          <div className="space-y-3">
+            {aAssinar.map((d) => DocCard(d, false))}
           </div>
-        ))
+        )}
+      </section>
+
+      {/* SEÇÃO 2 — HISTÓRICO (opcional, recolhido) */}
+      {historico.length > 0 && (
+        <section className="border border-[hsl(var(--border))] rounded-xl overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setHistAberto((v) => !v)}
+            className="w-full flex items-center justify-between gap-3 px-4 py-3 bg-[hsl(var(--muted))]/40 hover:bg-[hsl(var(--muted))]/60 transition-colors text-left"
+          >
+            <span className="flex items-center gap-2 text-sm font-medium text-[hsl(var(--foreground))]">
+              {histAberto ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+              <History className="w-4 h-4 text-[hsl(var(--muted-foreground))]" />
+              Histórico (opcional)
+              <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] text-[11px] font-semibold">
+                {historico.length}
+              </span>
+            </span>
+          </button>
+
+          {histAberto && (
+            <div className="p-4 space-y-3 border-t border-[hsl(var(--border))]">
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                Documentos de competências anteriores (contracheques, folhas de ponto e comprovantes
+                de meses passados). Não é obrigatório assinar agora — você pode assinar quando quiser,
+                um a um ou todos de uma vez.
+              </p>
+              {histAssinaveis > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={loteLoading || signingId !== null}
+                  onClick={() => assinarLote(historico)}
+                >
+                  {loteLoading ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <><ShieldCheck className="w-4 h-4 mr-1.5" /> Assinar todos do histórico ({histAssinaveis})</>}
+                </Button>
+              )}
+              <div className="space-y-3">
+                {historico.map((d) => DocCard(d, true))}
+              </div>
+            </div>
+          )}
+        </section>
       )}
+
       <p className="text-[11px] text-[hsl(var(--muted-foreground))]/70 pt-2">
         Assinatura eletrônica com carimbo de data/hora e hash SHA-256 (MP 2.200-2/ICP-Brasil).
+        Assinar em lote gera uma assinatura individual (com hash próprio) para cada documento.
       </p>
     </div>
   );
@@ -2144,6 +2264,296 @@ function ComunicadosTab() {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------- //
+// Reembolso — solicitar (adiantei a despesa, a empresa devolve) + meus pedidos
+// POST /portal/self-service/solicitar-reembolso  → nasce 'pendente' (DP aprova)
+// GET  /portal/self-service/meus-reembolsos       → só os DELE (requester_id JWT)
+// --------------------------------------------------------------------------- //
+const REEMB_BASE = '/api/v1/people-management/portal/self-service';
+
+interface CategoriaReembolso { value: string; label: string; }
+interface MeuReembolso {
+  id: string;
+  code: string;
+  status: string;
+  valor: number;
+  valor_aprovado?: number;
+  valor_pago?: number;
+  categoria?: string | null;
+  categoria_label?: string | null;
+  data_despesa?: string | null;
+  motivo?: string | null;
+  criado_em?: string | null;
+  rejeicao_motivo?: string | null;
+  anexos?: number;
+}
+
+/** Formata número em Real (exibição). */
+function brl(v: number): string {
+  return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+/** Cor/rótulo do status do reembolso. */
+function reembStatus(s: string): { label: string; cls: string } {
+  const map: Record<string, { label: string; cls: string }> = {
+    rascunho: { label: 'Rascunho', cls: 'bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]' },
+    pendente: { label: 'Pendente', cls: 'bg-amber-500/15 text-amber-600' },
+    em_analise: { label: 'Em análise', cls: 'bg-amber-500/15 text-amber-600' },
+    aprovado: { label: 'Aprovado', cls: 'bg-blue-500/15 text-blue-600' },
+    processado: { label: 'Pago', cls: 'bg-emerald-500/15 text-emerald-600' },
+    pago: { label: 'Pago', cls: 'bg-emerald-500/15 text-emerald-600' },
+    rejeitado: { label: 'Rejeitado', cls: 'bg-red-500/15 text-red-600' },
+    cancelado: { label: 'Cancelado', cls: 'bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]' },
+  };
+  return map[s] || { label: s || '—', cls: 'bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]' };
+}
+
+function ReembolsoTab() {
+  const [categorias, setCategorias] = useState<CategoriaReembolso[]>([]);
+  const [reembolsos, setReembolsos] = useState<MeuReembolso[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  // Formulário
+  const [categoria, setCategoria] = useState('transporte');
+  const [valor, setValor] = useState('');            // string com máscara R$
+  const [dataDespesa, setDataDespesa] = useState('');
+  const [descricao, setDescricao] = useState('');
+  const [comprovante, setComprovante] = useState<string | null>(null); // data-URI
+  const [comprovanteNome, setComprovanteNome] = useState<string>('');
+  const [enviando, setEnviando] = useState(false);
+  const [okMsg, setOkMsg] = useState('');
+  const [formErr, setFormErr] = useState('');
+
+  const carregar = useCallback(async () => {
+    try {
+      const [c, r] = await Promise.all([
+        api.get(`${REEMB_BASE}/categorias-reembolso`),
+        api.get(`${REEMB_BASE}/meus-reembolsos`),
+      ]);
+      setCategorias(Array.isArray(c.data?.categorias) ? c.data.categorias : []);
+      setReembolsos(Array.isArray(r.data?.reembolsos) ? r.data.reembolsos : []);
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(msg || 'Não foi possível carregar seus reembolsos.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { carregar(); }, [carregar]);
+
+  // Valor: mantém só dígitos e exibe em reais (centavos).
+  const onValor = (raw: string) => {
+    const dig = raw.replace(/\D/g, '');
+    if (!dig) { setValor(''); return; }
+    const cents = parseInt(dig, 10);
+    setValor((cents / 100).toFixed(2));
+  };
+  const valorFmt = valor ? brl(parseFloat(valor)) : '';
+
+  const onArquivo = (file: File | null) => {
+    if (!file) { setComprovante(null); setComprovanteNome(''); return; }
+    if (file.size > 10 * 1024 * 1024) {
+      setFormErr('O comprovante deve ter no máximo 10MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => { setComprovante(reader.result as string); setComprovanteNome(file.name); };
+    reader.onerror = () => setFormErr('Não foi possível ler o arquivo do comprovante.');
+    reader.readAsDataURL(file);
+  };
+
+  const enviar = async () => {
+    setFormErr(''); setOkMsg('');
+    const v = parseFloat(valor || '0');
+    if (!v || v <= 0) { setFormErr('Informe o valor gasto (maior que zero).'); return; }
+    if (!dataDespesa) { setFormErr('Informe a data da despesa.'); return; }
+    if (!descricao || descricao.trim().length < 3) { setFormErr('Descreva o motivo da despesa.'); return; }
+    setEnviando(true);
+    try {
+      const res = await api.post(`${REEMB_BASE}/solicitar-reembolso`, {
+        categoria,
+        valor: v,
+        data_despesa: dataDespesa,
+        descricao: descricao.trim(),
+        comprovante_base64: comprovante,
+        comprovante_nome: comprovanteNome || undefined,
+      });
+      setOkMsg(res.data?.mensagem || 'Reembolso enviado. Aguardando aprovação do DP/financeiro.');
+      // limpa o formulário e recarrega a lista
+      setValor(''); setDataDespesa(''); setDescricao('');
+      setComprovante(null); setComprovanteNome('');
+      await carregar();
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setFormErr(typeof msg === 'string' ? msg : 'Não foi possível enviar o reembolso. Tente novamente.');
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  if (loading) return <Spinner />;
+  if (error) return <ErrorBox msg={error} />;
+
+  return (
+    <div className="space-y-6">
+      {/* Formulário de solicitação */}
+      <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl p-4">
+        <div className="flex items-center gap-2 mb-1">
+          <Wallet className="w-4 h-4 text-[#f97707]" />
+          <h2 className="font-display text-sm font-semibold">Solicitar reembolso</h2>
+        </div>
+        <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">
+          Adiantou uma despesa a trabalho? Peça o reembolso. O DP/financeiro analisa e devolve o valor.
+        </p>
+
+        <div className="space-y-3">
+          {/* Categoria */}
+          <div>
+            <label className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Categoria</label>
+            <select
+              value={categoria}
+              onChange={(e) => setCategoria(e.target.value)}
+              className="mt-1 w-full h-11 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 text-sm"
+            >
+              {categorias.map((c) => (
+                <option key={c.value} value={c.value}>{c.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Valor + Data */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Valor gasto</label>
+              <input
+                inputMode="numeric"
+                placeholder="R$ 0,00"
+                value={valorFmt}
+                onChange={(e) => onValor(e.target.value)}
+                className="mt-1 w-full h-11 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 text-sm font-mono"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Data da despesa</label>
+              <input
+                type="date"
+                value={dataDespesa}
+                max={new Date().toISOString().slice(0, 10)}
+                onChange={(e) => setDataDespesa(e.target.value)}
+                className="mt-1 w-full h-11 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 text-sm"
+              />
+            </div>
+          </div>
+
+          {/* Descrição */}
+          <div>
+            <label className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Motivo / descrição</label>
+            <textarea
+              rows={2}
+              placeholder="Ex.: Táxi do posto até a base para entrega de equipamento."
+              value={descricao}
+              onChange={(e) => setDescricao(e.target.value)}
+              className="mt-1 w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 py-2 text-sm resize-none"
+            />
+          </div>
+
+          {/* Comprovante (foto/PDF via câmera ou upload) */}
+          <div>
+            <label className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Comprovante (foto ou PDF)</label>
+            <label className="mt-1 flex items-center gap-2 h-11 rounded-xl border border-dashed border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 text-sm cursor-pointer hover:border-[#f97707] transition-colors">
+              {comprovante ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                  <span className="truncate text-[hsl(var(--foreground))]">{comprovanteNome || 'Comprovante anexado'}</span>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.preventDefault(); onArquivo(null); }}
+                    className="ml-auto text-[hsl(var(--muted-foreground))] hover:text-red-500"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Paperclip className="w-4 h-4 text-[hsl(var(--muted-foreground))] flex-shrink-0" />
+                  <span className="text-[hsl(var(--muted-foreground))]">Toque para tirar foto ou anexar o recibo</span>
+                  <Camera className="w-4 h-4 text-[#f97707] ml-auto flex-shrink-0" />
+                </>
+              )}
+              <input
+                type="file"
+                accept="image/*,application/pdf"
+                capture="environment"
+                className="hidden"
+                onChange={(e) => onArquivo(e.target.files?.[0] || null)}
+              />
+            </label>
+          </div>
+
+          {formErr && <ErrorBox msg={formErr} />}
+          {okMsg && (
+            <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3 text-sm text-emerald-600 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> {okMsg}
+            </div>
+          )}
+
+          <Button onClick={enviar} disabled={enviando} className="w-full h-11">
+            {enviando ? (
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Enviando…</>
+            ) : (
+              <><Send className="w-4 h-4 mr-2" /> Enviar solicitação</>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {/* Meus reembolsos */}
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wider text-[hsl(var(--muted-foreground))]/70 mb-2">
+          Meus reembolsos
+        </p>
+        {reembolsos.length === 0 ? (
+          <EmptyState icon={Receipt} title="Nenhum reembolso" desc="Você ainda não solicitou reembolso." />
+        ) : (
+          <div className="space-y-2">
+            {reembolsos.map((r) => {
+              const st = reembStatus(r.status);
+              return (
+                <div key={r.id} className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-[hsl(var(--foreground))] truncate">
+                        {r.categoria_label || r.categoria || 'Despesa'}
+                      </p>
+                      <p className="text-xs text-[hsl(var(--muted-foreground))] truncate">{r.motivo}</p>
+                      <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">
+                        {r.data_despesa || '—'} · {r.code}
+                      </p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-sm font-bold font-mono text-[hsl(var(--foreground))]">{brl(r.valor || 0)}</p>
+                      <span className={['inline-block mt-1 text-[11px] px-2 py-0.5 rounded-md font-medium', st.cls].join(' ')}>
+                        {st.label}
+                      </span>
+                    </div>
+                  </div>
+                  {r.status === 'rejeitado' && r.rejeicao_motivo && (
+                    <p className="mt-2 text-xs text-red-500 flex items-start gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" /> {r.rejeicao_motivo}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -33,6 +33,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 import secrets
 import uuid
 from dataclasses import dataclass, field
@@ -62,6 +63,54 @@ MANAUS_TZ = ZoneInfo("America/Manaus")
 # Organização única do ERP (não há multi-tenancy real). tenant_id é NOT NULL nas
 # tabelas sig_*, então usamos um UUID fixo determinístico como "a empresa".
 DEFAULT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+# --------------------------------------------------------------------------- #
+# HISTÓRICO × CORRENTE (M2) — classificação de solicitações pendentes.
+#
+# O retroativo dos kits criou ~1131 pedidos de assinatura de meses passados
+# (contracheque 03..06/2026, folha de ponto, comprovantes VT/VA/VR, além de
+# eventos como férias/rescisão/contrato). O funcionário NÃO deve ser confrontado
+# com um "paredão" obrigatório de 16-23 assinaturas de competências antigas.
+#
+# Uma solicitação é HISTÓRICA/OPCIONAL (não entra na pilha obrigatória) quando:
+#   1) sua COMPETÊNCIA (mês a que o documento se refere, lida do título/nome/
+#      reference_code no formato MM/AAAA ou AAAA-MM) é ANTERIOR ao mês corrente; OU
+#   2) não há competência legível MAS foi criada no LOTE RETROATIVO — isto é, até
+#      o instante de virada abaixo (eventos como férias/rescisão do batch antigo).
+# Documentos novos daqui pra frente (criados após o cutoff, competência corrente)
+# entram normalmente em "a assinar agora". Nada é apagado — só reclassificado.
+#
+# Reversível/ajustável por env, sem migração de banco (computado em tempo de
+# leitura). O default = dia seguinte ao lote retroativo dos kits (2026-07-11).
+RETROATIVO_CUTOFF_DEFAULT = "2026-07-12T00:00:00"
+
+# Competência MM/AAAA (aceita separador / . -) e AAAA-MM. Bordas de dígito para
+# não casar pedaços de outras sequências numéricas.
+_COMP_MMYYYY = re.compile(r"(?<!\d)(0?[1-9]|1[0-2])[/.\-](20\d{2})(?!\d)")
+_COMP_YYYYMM = re.compile(r"(?<!\d)(20\d{2})[/.\-](0[1-9]|1[0-2])(?!\d)")
+
+
+def _retroativo_cutoff() -> datetime:
+    """Instante de virada M2 (naive local Manaus). Configurável por env."""
+    raw = os.getenv("ASSINATURA_RETROATIVO_CUTOFF", RETROATIVO_CUTOFF_DEFAULT)
+    try:
+        return datetime.fromisoformat(raw)
+    except ValueError:
+        return datetime.fromisoformat(RETROATIVO_CUTOFF_DEFAULT)
+
+
+def _competencia_de(texto: Any) -> tuple[int, int] | None:
+    """Extrai (ano, mês) de um texto com competência MM/AAAA ou AAAA-MM; None se não houver."""
+    if not texto:
+        return None
+    s = str(texto)
+    m = _COMP_MMYYYY.search(s)
+    if m:
+        return (int(m.group(2)), int(m.group(1)))
+    m = _COMP_YYYYMM.search(s)
+    if m:
+        return (int(m.group(1)), int(m.group(2)))
+    return None
 
 
 def _now_manaus() -> datetime:
@@ -294,6 +343,24 @@ class UniversalSignatureService:
             len(signers),
             parent_id,
         )
+
+        # GATILHO M1: avisa no sino do Portal cada FUNCIONÁRIO signatário de que há
+        # documento para assinar. À prova de falha (sessão própria, erros engolidos):
+        # notificar NUNCA pode quebrar a criação da solicitação de assinatura.
+        try:
+            from modules.signatures.helpers.notificar_assinatura_pendente import (
+                notificar_assinatura_pendente_para_employees,
+            )
+
+            await notificar_assinatura_pendente_para_employees(
+                signers, document_type=document_type, title=title
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Falha ao disparar notificação de assinatura pendente (doc_type=%s): %s",
+                document_type,
+                exc,
+            )
 
         return {
             "request_group_id": str(parent_id),
@@ -894,45 +961,191 @@ class UniversalSignatureService:
         )
         return result.scalar_one_or_none()
 
-    async def pendentes_do_funcionario(self, employee_id: uuid.UUID) -> list[dict]:
-        """Lista as solicitações de assinatura PENDENTES de um funcionário.
+    _PENDING_STATUSES = (
+        RequestStatus.PENDING,
+        RequestStatus.SENT,
+        RequestStatus.VIEWED,
+        RequestStatus.SIGNING,
+    )
 
-        Filtra por signer_type='employee' e signer_id=employee_id, apenas as que
-        ainda não foram assinadas (pending/sent/viewed/signing). Base da tela
-        "Meus documentos a assinar" do self-service — o funcionário só enxerga o
-        que é DELE (segurança por employee_id).
-        """
-        _PENDING = (
-            RequestStatus.PENDING,
-            RequestStatus.SENT,
-            RequestStatus.VIEWED,
-            RequestStatus.SIGNING,
-        )
+    async def _pendentes_query(self, employee_id: uuid.UUID) -> list[SignatureRequest]:
+        """Solicitações PENDENTES do funcionário (signer_type=employee, DELE)."""
         result = await self.db.execute(
             select(SignatureRequest)
             .where(
                 SignatureRequest.signer_type == str(SignerType.EMPLOYEE),
                 SignatureRequest.signer_id == employee_id,
-                SignatureRequest.status.in_([str(s) for s in _PENDING]),
+                SignatureRequest.status.in_([str(s) for s in self._PENDING_STATUSES]),
             )
             .order_by(SignatureRequest.created_at.asc())
         )
-        reqs = result.scalars().all()
+        return list(result.scalars().all())
+
+    def _eh_opcional(
+        self, r: SignatureRequest, ref_ym: tuple[int, int], cutoff: datetime
+    ) -> bool:
+        """Solicitação é HISTÓRICA/OPCIONAL? (competência antiga OU lote retroativo).
+
+        Ver bloco "HISTÓRICO × CORRENTE (M2)" no topo do módulo.
+        """
+        comp = (
+            _competencia_de(r.reference_code)
+            or _competencia_de(r.document_name)
+            or _competencia_de(r.title)
+            or _competencia_de((r.extra_data or {}).get("competencia") if r.extra_data else None)
+        )
+        if comp is not None:
+            # Competência anterior ao mês corrente → histórico.
+            return comp < ref_ym
+        # Sem competência legível: histórico se veio do lote retroativo (até o cutoff).
+        if r.created_at is not None and r.created_at <= cutoff:
+            return True
+        return False
+
+    @staticmethod
+    def _serialize_pendente(r: SignatureRequest, opcional: bool) -> dict:
+        """Serializa uma solicitação pendente para a tela, com a flag `opcional`."""
+        return {
+            "request_id": str(r.id),
+            "title": r.title,
+            "document_type": r.document_type,
+            "document_name": r.document_name,
+            "reference_code": r.reference_code,
+            "status": str(r.status),
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "expires_at": r.expires_at.isoformat() if r.expires_at else None,
+            "is_expired": r.is_expired,
+            "purpose": str(r.purpose) if r.purpose else None,
+            # M2: True = histórico/opcional (competência antiga ou lote retroativo);
+            # False = corrente, entra na pilha obrigatória "a assinar agora".
+            "opcional": opcional,
+        }
+
+    async def pendentes_do_funcionario(self, employee_id: uuid.UUID) -> list[dict]:
+        """Lista TODAS as solicitações de assinatura PENDENTES de um funcionário.
+
+        Filtra por signer_type='employee' e signer_id=employee_id, apenas as que
+        ainda não foram assinadas (pending/sent/viewed/signing). Base da tela
+        "Meus documentos a assinar" do self-service — o funcionário só enxerga o
+        que é DELE (segurança por employee_id). Cada item traz a flag `opcional`
+        (histórico) para retrocompatibilidade; a separação vem em
+        `pendentes_do_funcionario_separado`.
+        """
+        reqs = await self._pendentes_query(employee_id)
+        now = _now_manaus()
+        ref_ym = (now.year, now.month)
+        cutoff = _retroativo_cutoff()
         return [
-            {
-                "request_id": str(r.id),
-                "title": r.title,
-                "document_type": r.document_type,
-                "document_name": r.document_name,
-                "reference_code": r.reference_code,
-                "status": str(r.status),
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-                "expires_at": r.expires_at.isoformat() if r.expires_at else None,
-                "is_expired": r.is_expired,
-                "purpose": str(r.purpose) if r.purpose else None,
-            }
+            self._serialize_pendente(r, self._eh_opcional(r, ref_ym, cutoff))
             for r in reqs
         ]
+
+    async def pendentes_do_funcionario_separado(self, employee_id: uuid.UUID) -> dict:
+        """Separa os pendentes em CORRENTE (a assinar agora) × HISTÓRICO (opcional).
+
+        Returns:
+            {a_assinar_agora:[...], historico_opcional:[...],
+             total_a_assinar, total_historico}. A pilha obrigatória (badge) é só
+            `a_assinar_agora`; o histórico é assinável mas não confronta o usuário.
+        """
+        reqs = await self._pendentes_query(employee_id)
+        now = _now_manaus()
+        ref_ym = (now.year, now.month)
+        cutoff = _retroativo_cutoff()
+        a_assinar: list[dict] = []
+        historico: list[dict] = []
+        for r in reqs:
+            opcional = self._eh_opcional(r, ref_ym, cutoff)
+            item = self._serialize_pendente(r, opcional)
+            (historico if opcional else a_assinar).append(item)
+        return {
+            "a_assinar_agora": a_assinar,
+            "historico_opcional": historico,
+            "total_a_assinar": len(a_assinar),
+            "total_historico": len(historico),
+        }
+
+    async def assinar_lote(
+        self,
+        *,
+        employee_id: uuid.UUID,
+        request_ids: list[uuid.UUID],
+        evidence: SignatureEvidence | None = None,
+    ) -> dict[str, Any]:
+        """Assina em LOTE várias solicitações do PRÓPRIO funcionário (self-service).
+
+        Segurança (mesma regra de POST /{id}/sign para EMPLOYEE): valida a posse de
+        CADA request ANTES de assinar qualquer uma — signer_type='employee' e
+        signer_id == employee_id. Se QUALQUER request não pertencer ao funcionário
+        (ou não existir), levanta PermissionError e NADA é assinado.
+
+        Cada assinatura é REAL: gera sua própria linha em sig_signatures (hash
+        SHA-256 + evidências), tal qual a assinatura individual. Requests já
+        assinadas/expiradas/canceladas são puladas e reportadas em `ignorados`,
+        sem abortar o lote.
+
+        Args:
+            employee_id: employee_id do JWT (dono das assinaturas).
+            request_ids: UUIDs das solicitações a assinar (o controller limita a 50).
+            evidence: IP/user-agent/device/location (trilha de auditoria).
+
+        Returns:
+            {total, total_assinados, assinados:[{request_id, signature_hash,
+             signed_at}], ignorados:[{request_id, motivo}]}.
+
+        Raises:
+            PermissionError: alguma request não existe ou não é do funcionário.
+        """
+        from modules.signatures.helpers.solicitar_assinatura_documento import (
+            nivel_assinatura,
+        )
+
+        if not request_ids:
+            return {"total": 0, "total_assinados": 0, "assinados": [], "ignorados": []}
+
+        # 1) valida posse de TODAS antes de assinar qualquer uma (all-or-nothing).
+        doc_types: dict[uuid.UUID, str] = {}
+        for rid in request_ids:
+            r = await self._get_request(rid)
+            if r is None:
+                raise PermissionError(f"Solicitação {rid} não encontrada.")
+            if str(r.signer_type) != str(SignerType.EMPLOYEE) or str(r.signer_id) != str(
+                employee_id
+            ):
+                raise PermissionError(
+                    "Você não pode assinar um documento que não é seu."
+                )
+            # captura o tipo agora (string) para não fazer lazy-load após os commits.
+            doc_types[rid] = r.document_type or ""
+
+        # 2) assina cada uma (pulando já assinadas/expiradas sem abortar o lote).
+        assinados: list[dict[str, Any]] = []
+        ignorados: list[dict[str, Any]] = []
+        for rid in request_ids:
+            try:
+                res = await self.assinar(
+                    request_id=rid,
+                    signer_type=SignerType.EMPLOYEE,
+                    signer_id=employee_id,
+                    evidence=evidence,
+                    level=nivel_assinatura(doc_types[rid], SignerType.EMPLOYEE),
+                )
+                assinados.append(
+                    {
+                        "request_id": str(rid),
+                        "signature_hash": res["signature_hash"],
+                        "signed_at": res["signed_at"],
+                    }
+                )
+            except ValueError as exc:
+                ignorados.append({"request_id": str(rid), "motivo": str(exc)})
+
+        return {
+            "total": len(request_ids),
+            "total_assinados": len(assinados),
+            "assinados": assinados,
+            "ignorados": ignorados,
+        }
 
     async def _get_request_by_token(self, token: str) -> SignatureRequest | None:
         result = await self.db.execute(
