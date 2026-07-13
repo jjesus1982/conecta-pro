@@ -60,6 +60,8 @@ interface Pix {
 }
 
 function fmt(v: number) {
+  // Guarda: valor ausente/inválido não pode derrubar o render (error boundary).
+  if (typeof v !== 'number' || !isFinite(v)) return '—'
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
@@ -102,20 +104,15 @@ export default function InterPage() {
   const [ultimaSync, setUltimaSync] = useState<Date | null>(null)
   const [token, setToken] = useState('')
 
+  // Usa o token da sessão que o usuário JÁ possui (mesmo padrão da tela de
+  // pagamentos). NUNCA relogar com credencial no bundle — vaza senha e falha
+  // se a senha muda. Se não houver token, as chamadas caem no catch e a tela
+  // mostra "erro ao carregar" — sem quebrar o render.
   const getToken = useCallback(async () => {
-    try {
-      const r = await fetch('/api/v1/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'username=jjesus@conectamais.pro&password=JsJ618908@#%',
-      })
-      const d = await r.json()
-      const t = d.access_token || ''
-      setToken(t)
-      return t
-    } catch {
-      return ''
-    }
+    const t =
+      (typeof window !== 'undefined' && localStorage.getItem('access_token')) || ''
+    setToken(t)
+    return t
   }, [])
 
   const auth = useCallback(
@@ -128,7 +125,10 @@ export default function InterPage() {
       const t = await getToken()
       const r = await fetch(`${API}/saldo`, { headers: auth(t) })
       const d = await r.json()
-      setSaldo(d)
+      // Só aceita resposta com formato de saldo; erro (ex.: {detail}) vira null
+      // e o card simplesmente não renderiza (em vez de quebrar a página).
+      setSaldo(d && typeof d.disponivel === 'number' ? d : null)
+      if (!d || typeof d.disponivel !== 'number') setMsg('Erro ao carregar saldo')
     } catch {
       setMsg('Erro ao carregar saldo')
     }
@@ -541,7 +541,7 @@ export default function InterPage() {
                         {p.pagador?.nome || p.pagador?.cpf || 'PIX Recebido'}
                       </p>
                       <p className="text-xs text-gray-400">
-                        {fmtDate(p.data_horario)} · e2e: {p.end_to_end_id.slice(-12)}
+                        {fmtDate(p.data_horario)} · e2e: {(p.end_to_end_id || '').slice(-12)}
                       </p>
                     </div>
                     <span className="text-sm font-semibold text-green-600">+{fmt(p.valor)}</span>

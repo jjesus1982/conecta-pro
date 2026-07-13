@@ -66,17 +66,13 @@ export default function BankingPage() {
     descricao: 'INSS Patronal'
   })
 
+  // Token da sessão do usuário (mesmo padrão da tela de pagamentos).
+  // NUNCA relogar com credencial no bundle — vaza senha e quebra se ela muda.
   const getToken = useCallback(async () => {
-    try {
-      const r = await fetch('/api/v1/auth/login', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: 'username=jjesus@conectamais.pro&password=Jordan0612'
-      })
-      const d = await r.json()
-      setToken(d.access_token || '')
-      return d.access_token || ''
-    } catch { return '' }
+    const t =
+      (typeof window !== 'undefined' && localStorage.getItem('access_token')) || ''
+    setToken(t)
+    return t
   }, [])
 
   const authHeader = useCallback((t?: string) => ({
