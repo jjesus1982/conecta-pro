@@ -220,7 +220,7 @@ async def resumo_inspetores(
                        count(c.id) AS checkpoints,
                        count(DISTINCT c.post_id) AS condominios_distintos,
                        COALESCE(sum(jsonb_array_length(COALESCE(c.photos,'[]'::jsonb))),0) AS fotos,
-                       count(DISTINCT c.created_at::date) AS dias_com_registro,
+                       count(DISTINCT (c.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date) AS dias_com_registro,
                        min(c.created_at) AS primeira_atividade,
                        max(c.created_at) AS ultima_atividade,
                        count(c.id) FILTER (WHERE c.checkpoint_type='checkin_condominio') AS checkins,

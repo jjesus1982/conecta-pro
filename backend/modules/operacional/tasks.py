@@ -587,9 +587,9 @@ def briefing_operacional_matinal(self):
                                        string_agg(DISTINCT c.post_name, ', ') AS onde
                                 FROM inspection_rounds r
                                 LEFT JOIN inspection_checkpoints c ON c.inspection_round_id=r.id
-                                     AND c.created_at::date = (now() AT TIME ZONE 'America/Manaus')::date - 1
+                                     AND (c.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date = (now() AT TIME ZONE 'America/Manaus')::date - 1
                                 WHERE r.is_active
-                                  AND r.created_at::date = (now() AT TIME ZONE 'America/Manaus')::date - 1
+                                  AND (r.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date = (now() AT TIME ZONE 'America/Manaus')::date - 1
                                 GROUP BY r.inspector_name ORDER BY 1
                                 """
                             )
