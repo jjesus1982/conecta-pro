@@ -119,11 +119,21 @@ class PayrollService:
                 {"codigo": "031", "descricao": "Hora Extra 100%", "ref": f"{horas_extras_100}h", "valor": he_100}
             )
 
-        # 5. DSR sobre extras
+        # 5. DSR sobre extras — dias úteis/domingos REAIS da competência (não 22/8 fixo,
+        # que superestimava o DSR ~2,3x sobre as HE)
         total_extras = he_50 + he_100
         dsr = Decimal("0")
         if total_extras > 0:
-            dsr = calcular_dsr_sobre_extras(total_extras, dias_uteis=22, domingos_feriados=8)
+            import calendar as _cal
+
+            _du = _dom = 0
+            _, _nd = _cal.monthrange(reference_year, reference_month)
+            for _dia in range(1, _nd + 1):
+                if _cal.weekday(reference_year, reference_month, _dia) == 6:
+                    _dom += 1
+                else:
+                    _du += 1
+            dsr = calcular_dsr_sobre_extras(total_extras, dias_uteis=_du, domingos_feriados=_dom)
             proventos.append({"codigo": "040", "descricao": "DSR s/ Extras", "ref": "", "valor": dsr})
 
         total_proventos = sum(p["valor"] for p in proventos)
@@ -144,7 +154,9 @@ class PayrollService:
         )
         dep_data = dep_result.scalar()
         dependentes = len(dep_data) if isinstance(dep_data, list) else 0
-        irrf = calcular_irrf(base_irrf, dependentes=dependentes)
+        # rendimento_bruto → aplica o redutor da reforma (Lei 15.270) + opção do desconto
+        # simplificado; alinha com o motor da folha CCT (calculo_service). Motor unificado.
+        irrf = calcular_irrf(base_irrf, dependentes=dependentes, rendimento_bruto=total_proventos)
         if irrf > 0:
             descontos.append({"codigo": "202", "descricao": "IRRF", "ref": "", "valor": irrf})
 

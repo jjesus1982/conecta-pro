@@ -49,6 +49,9 @@ IRRF_FAIXAS: list[tuple[Decimal, Decimal, Decimal]] = [
 ]
 
 DEDUCAO_DEPENDENTE_IRRF = Decimal("189.59")
+# Desconto simplificado mensal do IRRF (alternativa a TODAS as deduções legais). O
+# contribuinte usa o que for mais vantajoso (menor base). Só na folha MENSAL.
+DESCONTO_SIMPLIFICADO_IRRF = Decimal("607.20")
 # Redutor da reforma (Lei 15.270/2025): isenção até R$5.000, decresce até R$0 em R$7.350.
 # Aplicado só na folha MENSAL (passar rendimento_bruto). Rescisão/férias/13º têm regra própria.
 IRRF_REDUTOR_A = Decimal("978.62")
@@ -83,7 +86,9 @@ def calcular_inss(salario_bruto: Decimal) -> Decimal:
             break
         base_faixa = min(salario_bruto, teto_faixa) - base_anterior
         if base_faixa > 0:
-            inss += (base_faixa * aliquota).quantize(_TWO, ROUND_HALF_UP)
+            # soma SEM arredondar por faixa; quantiza só no total (evita erro de centavo
+            # e diverge do padrão Domínio se arredondar faixa a faixa)
+            inss += base_faixa * aliquota
         base_anterior = teto_faixa
 
     return inss.quantize(_TWO, ROUND_HALF_UP)
@@ -109,7 +114,14 @@ def calcular_irrf(
         Valor do IRRF a descontar.
     """
     deducoes = (DEDUCAO_DEPENDENTE_IRRF * dependentes) + pensao_alimenticia
-    base = base_calculo - deducoes
+    base_legal = base_calculo - deducoes
+
+    # Na folha MENSAL (rendimento_bruto informado) o contribuinte pode optar pelo
+    # DESCONTO SIMPLIFICADO (alternativa a todas as deduções legais) — usa a MENOR base.
+    if rendimento_bruto is not None and rendimento_bruto > 0:
+        base = min(base_legal, rendimento_bruto - DESCONTO_SIMPLIFICADO_IRRF)
+    else:
+        base = base_legal
 
     if base <= 0:
         return Decimal("0")
@@ -126,7 +138,8 @@ def calcular_irrf(
         if redutor > 0:
             irrf = irrf - redutor
 
-    return max(irrf, Decimal("0"))
+    # quantiza no fim (o redutor tem mais de 2 casas — sem isto o IRRF sai com fração de centavo)
+    return max(irrf, Decimal("0")).quantize(_TWO, ROUND_HALF_UP)
 
 
 def calcular_hora_normal(salario_base: Decimal, carga_horaria_mensal: Decimal = Decimal("220")) -> Decimal:

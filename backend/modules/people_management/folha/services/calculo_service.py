@@ -11,6 +11,13 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+# FONTE ÚNICA de INSS/IRRF (mesma primitiva do payroll_service — motor unificado).
+# Ver clt_calculator: INSS soma-e-arredonda-no-fim; IRRF c/ desconto simplificado + redutor.
+from modules.people_management.common.utils.clt_calculator import (
+    calcular_inss,
+    calcular_irrf,
+)
+
 logger = logging.getLogger(__name__)
 
 # ==================== TABELAS FEDERAIS ====================
@@ -124,54 +131,9 @@ def _d(valor: Any) -> Decimal:
     return Decimal(str(valor)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
-def calcular_inss(base: Decimal) -> Decimal:
-    """Calcula INSS progressivo 2026."""
-    inss = Decimal("0")
-    anterior = Decimal("0")
-    for teto, aliquota in FAIXAS_INSS_2026:
-        if base <= anterior:
-            break
-        faixa = min(base, teto) - anterior
-        if faixa > 0:
-            inss += faixa * aliquota
-        anterior = teto
-    return _d(inss)
-
-
-def calcular_irrf(base: Decimal, inss: Decimal, dependentes: int = 0) -> Decimal:
-    """Calcula IRRF mensal 2026 com a reforma da isenção (Lei 15.270/2025).
-
-    Passos:
-    1. Base de cálculo = rendimento tributável − (INSS + dependentes×189,59), OU
-       rendimento − desconto simplificado (R$607,20), o que for mais vantajoso.
-    2. Imposto normal pela tabela progressiva mensal 2026.
-    3. Redutor da reforma: 978,62 − 0,133145 × rendimento (isenta até R$5.000; parcial
-       até R$7.350; zero acima). IRRF final = max(0, imposto − redutor).
-    """
-    rendimento = base  # rendimento bruto tributável
-    # (1) base de cálculo — escolhe a dedução mais vantajosa (menor base)
-    base_legal = base - inss - (DEDUCAO_DEPENDENTE_IRRF * dependentes)
-    base_simplificada = base - DESCONTO_SIMPLIFICADO_IRRF
-    base_ir = min(base_legal, base_simplificada)
-    if base_ir < 0:
-        base_ir = Decimal("0")
-
-    # (2) imposto normal pela tabela progressiva 2026
-    imposto = Decimal("0")
-    for teto, aliquota, deducao in FAIXAS_IRRF_2026:
-        if base_ir <= teto:
-            imposto = base_ir * aliquota - deducao
-            break
-    if imposto < 0:
-        imposto = Decimal("0")
-
-    # (3) redutor da reforma (Lei 15.270/2025)
-    redutor = IRRF_REDUTOR_A - IRRF_REDUTOR_B * rendimento
-    if redutor < 0:
-        redutor = Decimal("0")
-
-    irrf = imposto - redutor
-    return _d(irrf) if irrf > 0 else Decimal("0")
+# calcular_inss / calcular_irrf: importados de clt_calculator (FONTE ÚNICA).
+# As constantes FAIXAS_*_2026 / DEDUCAO_* / REDUTOR_* acima ficam como referência
+# documental da CCT; o cálculo efetivo é o do clt_calculator (idêntico ao payroll_service).
 
 
 def calcular_folha_colaborador(
@@ -427,8 +389,17 @@ def calcular_folha_colaborador(
         }
     )
 
-    # 1002 — IRRF
-    irrf = calcular_irrf(base_inss, inss)
+    # 1002 — IRRF (dependentes deduzidos — F4: antes ficavam de fora; motor unificado
+    # com clt_calculator: base c/ desconto simplificado + redutor da reforma)
+    try:
+        _dep = db.execute(
+            text("SELECT dependentes FROM employees WHERE CAST(id AS TEXT)=:e"),
+            {"e": employee_id},
+        ).scalar()
+        dependentes = len(_dep) if isinstance(_dep, list) else 0
+    except Exception:  # noqa: BLE001
+        dependentes = 0
+    irrf = calcular_irrf(base_inss - inss, dependentes=dependentes, rendimento_bruto=base_inss)
     if irrf > 0:
         descontos.append(
             {
