@@ -195,9 +195,12 @@ async def pagar_funcionario_pix(
             "payment_id": str(existing[0]),
         }
 
-    payment_id = str(uuid.uuid4())
     try:
-        # Registrar como processando
+        # Registrar/assumir como 'processando' de forma IDEMPOTENTE pela chave real
+        # (employee_id, mes, ano). Se já existe linha do período (ex.: pendente_pagamento),
+        # assume-a e usa o id REAL — nunca gera uuid órfão que deixaria o UPDATE final
+        # sem efeito (bug de pagar-em-dobro). A cláusula WHERE evita corrida: se a linha
+        # já está 'pago'/'processando', NADA é retornado e o envio do PIX é pulado.
         cur.execute(
             """
             INSERT INTO payroll_payments (
@@ -205,11 +208,26 @@ async def pagar_funcionario_pix(
                 valor_liquido, metodo, pix_key, status,
                 created_at, updated_at
             ) VALUES (%s,%s,%s,%s,%s,%s,'PIX',%s,'processando',NOW(),NOW())
-            ON CONFLICT DO NOTHING
+            ON CONFLICT (employee_id, mes, ano) DO UPDATE
+                SET status='processando', updated_at=NOW()
+                WHERE payroll_payments.status NOT IN ('pago','processando')
+            RETURNING id
             """,
-            (payment_id, employee_id, payslip_id, mes, ano, valor, pix_key),
+            (str(uuid.uuid4()), employee_id, payslip_id, mes, ano, valor, pix_key),
         )
+        row_pid = cur.fetchone()
         conn.commit()
+        if not row_pid:
+            # já 'pago' ou 'processando' (outra execução) → NÃO reenvia PIX (idempotência)
+            conn.close()
+            return {
+                "employee_id": employee_id,
+                "nome": nome,
+                "valor": valor,
+                "status": "ja_processado",
+                "obs": "Já pago ou em processamento para o período — envio ignorado (idempotência).",
+            }
+        payment_id = str(row_pid[0])
 
         # Enviar PIX via Inter
         adapter = _build_inter_adapter()
