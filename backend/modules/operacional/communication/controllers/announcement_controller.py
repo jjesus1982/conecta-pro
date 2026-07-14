@@ -13,7 +13,11 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth.dependencies import CurrentActiveUser
+from core.auth.dependencies import CurrentActiveUser, require_roles
+
+# Quem pode GERIR comunicados (criar/editar/excluir/publicar) — decisão do Jordan 2026-07-14:
+# admin (Jordan, Pyetra) + gerente_operacional (Gonzaga, Orlailson). Ler e dar ciência é livre p/ todos.
+_GESTAO_COMUNICADO = ("admin", "super_admin", "administrador", "gerente_operacional")
 from core.database import get_db
 from modules.operacional.communication.models.announcement import (
     AnnouncementCategory,
@@ -56,6 +60,7 @@ def _get_user_roles(user: CurrentActiveUser) -> list[str]:
 
 @router.post(
     "/comunicados",
+    dependencies=[Depends(require_roles(*_GESTAO_COMUNICADO))],
     response_model=AnnouncementResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Criar comunicado",
@@ -264,6 +269,7 @@ async def get_announcement(
 
 @router.patch(
     "/comunicados/{announcement_id}",
+    dependencies=[Depends(require_roles(*_GESTAO_COMUNICADO))],
     response_model=AnnouncementResponse,
     summary="Atualizar comunicado",
     description="Atualiza um comunicado (apenas rascunhos)",
@@ -309,6 +315,7 @@ async def update_announcement(
 
 @router.delete(
     "/comunicados/{announcement_id}",
+    dependencies=[Depends(require_roles(*_GESTAO_COMUNICADO))],
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Remover comunicado",
     description="Remove um comunicado (soft delete)",
@@ -345,6 +352,7 @@ async def delete_announcement(
 
 @router.post(
     "/comunicados/{announcement_id}/publicar",
+    dependencies=[Depends(require_roles(*_GESTAO_COMUNICADO))],
     response_model=AnnouncementResponse,
     summary="Publicar comunicado",
     description="Publica ou agenda um comunicado",

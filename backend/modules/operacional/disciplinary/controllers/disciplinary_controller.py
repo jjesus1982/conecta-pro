@@ -21,7 +21,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth import get_tenant_id
-from core.auth.dependencies import CurrentActiveUser
+from core.auth.dependencies import CurrentActiveUser, require_roles
+
+# Gestão que pode gerir medidas disciplinares (decisão do Jordan 2026-07-14):
+# admin (Jordan, Pyetra) + gerente_operacional (Gonzaga, Orlailson). Barra porteiro/líder/agente/supervisor/síndico.
+_GESTAO_DISCIPLINAR = ("admin", "super_admin", "administrador", "gerente_operacional")
 from core.cache import cache_response
 from core.database import get_db
 from core.logging import logger
@@ -85,7 +89,10 @@ from modules.operacional.disciplinary.services.template_service import (
 )
 from modules.operacional.publishers import publish_medida_disciplinar_criada
 
-router = APIRouter(tags=["Operacional - Medidas Administrativas"])
+router = APIRouter(
+    tags=["Operacional - Medidas Administrativas"],
+    dependencies=[Depends(require_roles(*_GESTAO_DISCIPLINAR))],
+)
 
 # =============================================================================
 # MEDIDAS DISCIPLINARES - CRUD
