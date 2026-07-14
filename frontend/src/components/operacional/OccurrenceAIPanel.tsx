@@ -131,8 +131,8 @@ export function OccurrenceAIPanel({ stats, occurrences }: OccurrenceAIPanelProps
           <Sparkles className="w-4 h-4 text-purple-500" />
         </div>
         <div>
-          <h3 className="text-sm font-semibold text-[hsl(var(--foreground))]">Análise IA</h3>
-          <p className="text-xs text-[hsl(var(--muted-foreground))]">Padrões e insights automáticos</p>
+          <h3 className="text-sm font-semibold text-[hsl(var(--foreground))]">Leitura rápida</h3>
+          <p className="text-xs text-[hsl(var(--muted-foreground))]">Resumo automático dos números do período</p>
         </div>
       </div>
 

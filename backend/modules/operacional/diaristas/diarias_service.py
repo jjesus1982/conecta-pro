@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date as _date
+from datetime import date as _date, timedelta
 from typing import Any
 
 from sqlalchemy import text
@@ -224,7 +224,24 @@ async def lancar(db: AsyncSession, data: str, diarista_id: int, funcao: str, pos
         {"d": dref, "did": diarista_id, "f": funcao, "p": posto, "t": t, "v": valor,
          "obs": observacao, "u": str(user_id) if user_id else None})
     await db.commit()
-    return {"ok": True, "id": int(r.scalar()), "valor": valor, "turno": t}
+    lanc_id = int(r.scalar())
+
+    # REGRA DO JORDAN: diária lançada => o VT+VR (R$32) daquele dia já cai no Financeiro
+    # (status a_revisar/sem_pix) pra ele conferir, aprovar e pagar em lote no MESMO dia.
+    # Só dispara p/ lançamento do dia (hoje/ontem) — lançamentos RETROATIVOS antigos NÃO,
+    # porque o VT+VR desses dias já foi pago diariamente (evita ruído e risco de pagar 2x).
+    # Best-effort e idempotente — nunca quebra o lançamento.
+    vt_vr_enviado = False
+    if dref >= _date.today() - timedelta(days=1):
+        try:
+            from modules.financial import pagamentos_diaristas_service as _pag
+            await _pag.programar_vt_vr_dos_lancados(db, dref, created_by=user_id)
+            vt_vr_enviado = True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("lancar: auto-programar VT+VR do dia falhou (segue): %s", exc)
+
+    return {"ok": True, "id": lanc_id, "valor": valor, "turno": t,
+            "vt_vr_enviado_financeiro": vt_vr_enviado}
 
 
 async def listar_lancamentos(db: AsyncSession, mes: int | None = None, ano: int | None = None,
@@ -254,8 +271,14 @@ async def listar_lancamentos(db: AsyncSession, mes: int | None = None, ano: int 
 
 async def excluir_lancamento(db: AsyncSession, lancamento_id: int) -> dict[str, Any]:
     await ensure_e_seed(db)
-    await db.execute(text("DELETE FROM diaria_lancamentos WHERE id=:id AND status='lancado'"), {"id": lancamento_id})
+    r = await db.execute(text("DELETE FROM diaria_lancamentos WHERE id=:id AND status='lancado'"), {"id": lancamento_id})
     await db.commit()
+    if r.rowcount == 0:
+        # nada apagado: id inexistente OU já saiu do status 'lancado' (ex.: já pago) — não mente
+        existe = (await db.execute(text("SELECT status FROM diaria_lancamentos WHERE id=:id"), {"id": lancamento_id})).scalar()
+        if existe is None:
+            return {"ok": False, "http_status": 404, "mensagem": "Lançamento não encontrado."}
+        return {"ok": False, "mensagem": f"Lançamento não pode ser excluído (status '{existe}' — só 'lancado' é editável)."}
     return {"ok": True}
 
 

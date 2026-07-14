@@ -60,7 +60,11 @@ async def lancamentos(mes: int | None = Query(default=None, ge=1, le=12),
 
 @router.delete("/lancamentos/{lancamento_id}", summary="Exclui um lançamento")
 async def excluir(lancamento_id: int, current_user=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
-    return await svc.excluir_lancamento(db, lancamento_id)
+    res = await svc.excluir_lancamento(db, lancamento_id)
+    if not res.get("ok"):
+        raise HTTPException(status_code=int(res.get("http_status", 422)),
+                            detail=res.get("mensagem", "Não foi possível excluir o lançamento."))
+    return res
 
 
 @router.get("/resumo-diarista", summary="Resumo por diarista (a lista de pagamento do dia 15)")

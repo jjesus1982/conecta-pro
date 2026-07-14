@@ -23,6 +23,8 @@ interface AnnouncementFormModalProps {
   onClose: () => void;
   onSuccess: () => void;
   editData?: Announcement | null;
+  // Template rápido: preenche o form ao abrir (só quando NÃO é edição)
+  template?: { id: string; title: string; body: string; category: string; priority: string } | null;
 }
 
 // Default form data
@@ -58,21 +60,33 @@ export function AnnouncementFormModal({
   onClose,
   onSuccess,
   editData,
+  template,
 }: AnnouncementFormModalProps) {
   const { createAnnouncement, updateAnnouncement, isLoading, error } = useAnnouncementMutations();
 
   const formKey = useMemo(() => {
-    return editData?.id || 'new';
-  }, [editData]);
+    return editData?.id || (template ? `tpl-${template.id}` : 'new');
+  }, [editData, template]);
 
   const [formData, setFormData] = useState<AnnouncementCreate>(defaultFormData);
   const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
-
-      setFormData(createFormData(editData));
-
+      if (editData) {
+        setFormData(createFormData(editData));
+      } else if (template) {
+        // Prefill a partir do template rápido (título/conteúdo/categoria/prioridade)
+        setFormData({
+          ...defaultFormData,
+          title: template.title,
+          content: template.body,
+          category: template.category as AnnouncementCreate['category'],
+          priority: template.priority as AnnouncementCreate['priority'],
+        });
+      } else {
+        setFormData(defaultFormData);
+      }
       setFormError(null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentional deps

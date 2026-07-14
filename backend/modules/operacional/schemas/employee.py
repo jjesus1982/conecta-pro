@@ -18,7 +18,7 @@ class EmployeeBase(BaseModel):
     cct_cargo_id: str | None = Field(None, description="UUID do cargo na CCT (fonte única do piso/adicionais)")
     departamento: str | None = Field(None, max_length=100)
     telefone: str | None = Field(None, max_length=20)
-    status: str | None = Field(default="Ativo", max_length=50)
+    status: str | None = Field(default="ativo", max_length=50)  # canônico minúsculo (módulo filtra 'ativo')
 
     @field_validator("cpf")
     @classmethod

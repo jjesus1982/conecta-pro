@@ -169,7 +169,7 @@ async def create_employee(
     from datetime import datetime
 
     # Validar email único
-    email_result = await db.execute(select(Employee).where(Employee.email == data.email, Employee.is_active.is_(True)))
+    email_result = await db.execute(select(Employee).where(Employee.email == data.email, Employee.status == "ativo"))
     if email_result.scalar_one_or_none():
         raise HTTPException(
             status_code=http_status.HTTP_409_CONFLICT, detail="Email já cadastrado para outro funcionário"
@@ -177,7 +177,7 @@ async def create_employee(
 
     # Validar CPF único (se fornecido)
     if data.cpf:
-        cpf_result = await db.execute(select(Employee).where(Employee.cpf == data.cpf, Employee.is_active.is_(True)))
+        cpf_result = await db.execute(select(Employee).where(Employee.cpf == data.cpf, Employee.status == "ativo"))
         if cpf_result.scalar_one_or_none():
             raise HTTPException(
                 status_code=http_status.HTTP_409_CONFLICT, detail="CPF já cadastrado para outro funcionário"
@@ -185,7 +185,7 @@ async def create_employee(
 
     # Validar matrícula única
     matricula_result = await db.execute(
-        select(Employee).where(Employee.matricula == data.matricula, Employee.is_active.is_(True))
+        select(Employee).where(Employee.matricula == data.matricula, Employee.status == "ativo")
     )
     if matricula_result.scalar_one_or_none():
         raise HTTPException(
@@ -202,7 +202,9 @@ async def create_employee(
         cargo=data.cargo,
         departamento=data.departamento,
         telefone=data.telefone,
-        status=data.status or "Ativo",
+        # canônico é minúsculo 'ativo' (todo o módulo filtra status=='ativo');
+        # normaliza p/ não criar funcionário INVISÍVEL na lista/contagens.
+        status=(data.status or "ativo").strip().lower(),
         is_active=True,
         created_by=current_user.id,
         created_at=datetime.utcnow(),

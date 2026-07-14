@@ -121,7 +121,8 @@ export default function KPITendenciasPage() {
       try {
         const resp = await fetch('/api/v1/operacional/kpi-trends/coverage-prediction', { headers });
         if (resp.ok) setCoveragePrediction(await resp.json());
-      } catch {}
+        else console.warn('KPI previsão de cobertura: HTTP', resp.status);
+      } catch (e) { console.warn('KPI previsão de cobertura falhou:', e); }
       setPredLoading(false);
     };
 
@@ -130,7 +131,8 @@ export default function KPITendenciasPage() {
       try {
         const resp = await fetch('/api/v1/operacional/kpi-trends/performance-scores', { headers });
         if (resp.ok) setPerformanceData(await resp.json());
-      } catch {}
+        else console.warn('KPI performance-scores: HTTP', resp.status);
+      } catch (e) { console.warn('KPI performance-scores falhou:', e); }
       setPerfLoading(false);
     };
 

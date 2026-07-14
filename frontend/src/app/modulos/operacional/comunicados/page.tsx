@@ -234,7 +234,7 @@ export default function ComunicadosPage() {
         <PageHeader
           eyebrow="OPERACIONAL"
           title="Comunicados"
-          subtitle={`${total} comunicados — ${readIds.size} lidos de ${total} total`}
+          subtitle={`${total} comunicado${total === 1 ? '' : 's'}`}
           icon={<Megaphone className="w-5 h-5" />}
           actions={
             <>
@@ -610,6 +610,7 @@ export default function ComunicadosPage() {
         }}
         onSuccess={refresh}
         editData={editAnnouncement}
+        template={templateToUse}
       />
 
       {/* Detail Modal */}

@@ -144,13 +144,15 @@ async def panorama(db: AsyncSession) -> dict[str, Any]:
         )
     ).first()
 
-    # Escalas vigentes hoje (scales: start_date/end_date/status)
+    # Escalas vigentes hoje. scales NÃO tem start_date/end_date populados (ficam NULL) —
+    # a vigência é por MÊS/ANO. Usar CURRENT_DATE BETWEEN start/end dava sempre 0.
     escalas = (
         await db.execute(
             text(
                 "SELECT count(*) AS total, "
                 "count(*) FILTER (WHERE COALESCE(is_active, true) "
-                "  AND CURRENT_DATE BETWEEN start_date AND end_date) AS vigentes, "
+                "  AND month = EXTRACT(MONTH FROM CURRENT_DATE)::int "
+                "  AND year = EXTRACT(YEAR FROM CURRENT_DATE)::int) AS vigentes, "
                 "count(*) FILTER (WHERE status::text ILIKE 'DRAFT%') AS rascunhos "
                 "FROM scales"
             )
