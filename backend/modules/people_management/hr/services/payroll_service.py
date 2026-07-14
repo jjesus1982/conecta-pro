@@ -254,11 +254,11 @@ class PayrollService:
         from sqlalchemy import func
 
         count_result = await self.db.execute(
-            select(func.count()).select_from(Employee).where(Employee.status == "Ativo")
+            select(func.count()).select_from(Employee).where(func.lower(Employee.status) == "ativo")
         )
         total_employees = count_result.scalar() or 0
 
-        result = await self.db.execute(select(Employee).where(Employee.status == "Ativo"))
+        result = await self.db.execute(select(Employee).where(func.lower(Employee.status) == "ativo"))
         employees = result.scalars().all()
 
         total_bruto = Decimal("0")

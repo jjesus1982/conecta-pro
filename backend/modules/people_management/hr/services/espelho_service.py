@@ -89,7 +89,7 @@ EXPECTED_44H = {0: 480, 1: 480, 2: 480, 3: 480, 4: 480, 5: 240, 6: 0}  # seg..do
 ESPERADO_MES_HORAS = {"12x36": 180.0, "44h": 220.0}
 DIVISOR = {"12x36": 180.0, "44h": 220.0}
 
-MANUAL_DEVICE_TYPES = {"manual", "ajuste", "web_manual", "portal", "portal_manual", "corrigido"}
+MANUAL_DEVICE_TYPES = {"manual", "ajuste", "ajuste_dp", "web_manual", "portal", "portal_manual", "corrigido"}
 
 STATUS_CALCULADO = "calculado"
 STATUS_FECHADO = "fechado"
@@ -422,14 +422,17 @@ def calcular_espelho(
         )
         .first()
     )
-    # Só protege recálculo de um FECHAMENTO GENUÍNO (status=fechado E closed_at
-    # carimbado). Um placeholder 'fechado' sem closed_at não é fechamento legal.
-    if (
-        existing is not None
-        and (existing.status or "") == STATUS_FECHADO
-        and existing.closed_at is not None
-        and not force
-    ):
+    # Protege QUALQUER espelho já fechado / enviado à folha / HOMOLOGADO (assinado):
+    # nunca sobrescreve em silêncio — o hash do PDF assinado deixaria de corresponder
+    # aos dados. NEM com force: recálculo de espelho protegido exige reabertura
+    # explícita (reopen_time_sheet), que invalida a homologação e a assinatura. O
+    # recálculo em massa (force=true) corretamente PULA os meses já fechados.
+    protegido = existing is not None and (
+        (existing.status or "") in STATUS_FECHADO_SET
+        or existing.closed_at is not None
+        or bool(getattr(existing, "approved_by_employee", False))
+    )
+    if protegido:
         return _resumo_do_timesheet(existing, escala, ja_fechado=True)
 
     batidas = _carregar_batidas(db, employee_id, mes, ano)
@@ -500,6 +503,7 @@ def calcular_espelho(
 
         # Atraso / saída antecipada — só com escala publicada
         late = early = 0.0
+        ps = None
         if tem_escala and dia in escala_oraculo and not escala_oraculo[dia].get("is_off_day"):
             planned = escala_oraculo[dia]
             if planned.get("planned_start"):
@@ -511,7 +515,7 @@ def calcular_espelho(
                     late_count += 1
             if planned.get("planned_end"):
                 pe = datetime.combine(dia, planned["planned_end"])
-                if pe < ps:  # vira o dia
+                if ps is not None and pe < ps:  # vira o dia (só compara se houver início)
                     pe += timedelta(days=1)
                 delta = (pe - t["saida"]).total_seconds() / 60.0
                 if delta > 5:
@@ -584,6 +588,10 @@ def calcular_espelho(
             absent_days += 1
             if not motivo:
                 unjustified_absent += 1
+                # dia de escala sem batida e SEM cobertura entra no ESPERADO: o débito
+                # de jornada tem que aparecer no saldo (coerente com o docstring; dia
+                # justificado por férias/atestado NÃO é débito, por isso fica de fora)
+                expected_total += _esperado_turno(escala, dia)
 
     # Marca justificativa das anomalias de dia (par_incompleto etc.) por data
     for a in anomalias:

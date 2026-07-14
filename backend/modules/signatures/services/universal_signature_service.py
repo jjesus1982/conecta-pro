@@ -516,10 +516,13 @@ class UniversalSignatureService:
         # Grupo completo? (todos os signatários do mesmo documento assinaram)
         group_completed = await self._maybe_complete_group(req)
 
+        # Persiste a assinatura ANTES de qualquer efeito colateral. Assim uma falha
+        # do hook (DB/loop/constraint) NÃO pode desfazer a assinatura — o hook roda
+        # depois, com commit/rollback próprios.
+        await self.db.commit()
+
         # Hook pós-assinatura por tipo de documento (fire-and-forget, nunca quebra).
         await self._pos_assinatura_hook(req, signed_at)
-
-        await self.db.commit()
 
         logger.info(
             "Documento assinado: request=%s signer_type=%s hash=%s group_completed=%s",
@@ -1142,6 +1145,14 @@ class UniversalSignatureService:
                 )
             except ValueError as exc:
                 ignorados.append({"request_id": str(rid), "motivo": str(exc)})
+            except Exception as exc:  # noqa: BLE001
+                # erro operacional (DB/loop asyncpg): NÃO derruba o lote inteiro —
+                # limpa a sessão e segue para os demais itens
+                try:
+                    await self.db.rollback()
+                except Exception:  # noqa: BLE001
+                    pass
+                ignorados.append({"request_id": str(rid), "motivo": f"erro: {exc}"})
 
         return {
             "total": len(request_ids),
@@ -1227,7 +1238,7 @@ class UniversalSignatureService:
                 return
             from sqlalchemy import text as _sql
 
-            await self.db.execute(
+            result = await self.db.execute(
                 _sql(
                     "UPDATE time_sheets SET approved_by_employee = true, "
                     "employee_approved_at = :ts "
@@ -1235,9 +1246,22 @@ class UniversalSignatureService:
                 ),
                 {"ts": signed_at, "d": doc_id},
             )
-            logger.info("Espelho de ponto homologado pelo funcionário: time_sheet=%s", doc_id)
+            await self.db.commit()
+            if getattr(result, "rowcount", 0):
+                logger.info("Espelho de ponto homologado pelo funcionário: time_sheet=%s", doc_id)
+            else:
+                # honestidade: assinatura OK, mas o id não casou nenhum time_sheet —
+                # NÃO afirmar "homologado" (evita divergência assinado × homologado)
+                logger.warning(
+                    "Hook espelho_ponto: nenhum time_sheet id=%s (assinatura OK, homologação NÃO gravada)",
+                    doc_id,
+                )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Hook pós-assinatura (espelho_ponto) falhou: %s", exc)
+            try:
+                await self.db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
 
     async def _maybe_complete_group(self, req: SignatureRequest) -> bool:
         """Se todos os signatários do documento assinaram, marca o grupo COMPLETED."""

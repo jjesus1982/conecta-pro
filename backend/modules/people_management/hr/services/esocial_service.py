@@ -288,10 +288,9 @@ class ESocialEventService:
         SubElement(ide, "procEmi").text = "1"
         SubElement(ide, "verProc").text = "ConectaPRO_2.0"
 
-        # ideEmpregador
-        emp = SubElement(evt, "ideEmpregador")
-        SubElement(emp, "tpInsc").text = "1"
-        SubElement(emp, "nrInsc").text = empregador_cnpj
+        # ideEmpregador (raiz de 8 dígitos — mesmo helper dos eventos SST; tpInsc=1
+        # exige a RAIZ do CNPJ, não o número completo, senão o eSocial rejeita)
+        _ide_empregador(evt, empregador_cnpj)
 
         # trabalhador
         # Sexo e nascimento vêm do CADASTRO real do employee — NUNCA fabricados.
@@ -349,10 +348,9 @@ class ESocialEventService:
         SubElement(ide, "procEmi").text = "1"
         SubElement(ide, "verProc").text = "ConectaPRO_2.0"
 
-        # ideEmpregador
-        emp = SubElement(evt, "ideEmpregador")
-        SubElement(emp, "tpInsc").text = "1"
-        SubElement(emp, "nrInsc").text = empregador_cnpj
+        # ideEmpregador (raiz de 8 dígitos — mesmo helper dos eventos SST; tpInsc=1
+        # exige a RAIZ do CNPJ, não o número completo, senão o eSocial rejeita)
+        _ide_empregador(evt, empregador_cnpj)
 
         # ideVinculo
         vinc = SubElement(evt, "ideVinculo")

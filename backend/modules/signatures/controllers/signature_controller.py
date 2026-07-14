@@ -286,6 +286,27 @@ async def assinar(
             )
         signer_id = eff_employee_id
 
+    # SEGURANÇA (empresa): a assinatura QUALIFIED da razão social usa o certificado
+    # ICP-Brasil A1 (fé pública). Só um usuário ADMINISTRADOR autorizado da empresa
+    # (Jordan/Pyetra) pode assiná-la — NUNCA um token do Portal do funcionário nem
+    # perfis operacionais. Sem isso, qualquer usuário autenticado assinaria contrato
+    # em nome da empresa.
+    if signer_type == SignerType.COMPANY:
+        req_user_id = _resolve_requester(credentials)
+        admin_user = None
+        if req_user_id is not None:
+            _u = await db.execute(select(User).where(User.id == req_user_id))
+            admin_user = _u.scalar_one_or_none()
+        if (
+            admin_user is None
+            or not admin_user.is_active
+            or (admin_user.role or "") not in ("admin", "operator")
+        ):
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="Assinatura em nome da empresa exige usuário administrador autorizado.",
+            )
+
     body_ev = payload.evidence if payload else None
     evidence = _evidence_from(request, body_ev)
 
