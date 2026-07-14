@@ -3,7 +3,7 @@ Repository para operações de banco de dados com Shift.
 """
 
 import builtins
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from uuid import uuid4
 
 from sqlalchemy import func, select
@@ -358,8 +358,10 @@ class ShiftRepository:
             start = datetime.combine(shift.shift_date, start_time)
             end = datetime.combine(shift.shift_date, end_time)
 
-            if end <= start:  # Turno noturno
-                end = end.replace(day=shift.shift_date.day + 1)
+            if end <= start:  # Turno noturno (cruza a meia-noite)
+                # timedelta rola mês/ano corretamente; .replace(day=day+1) estourava
+                # ValueError no último dia do mês (dia 30/31 → day=32) = 500 no check-out.
+                end = end + timedelta(days=1)
 
             duration = (end - start).total_seconds() / 3600
             shift.actual_hours = max(0, duration - (actual_break_minutes / 60))
