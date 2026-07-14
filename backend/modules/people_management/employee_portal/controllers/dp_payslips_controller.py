@@ -569,11 +569,15 @@ async def preview_pagamento_folha(
 
 # ── OTP p/ dinheiro que SAI (reusa inter_lote_otp + e-mail D7 ao Jordan) ──────
 async def _folha_gerar_otp(
-    db: AsyncSession, lote_id: str, total: float, descricao: str, detalhe: str
+    db: AsyncSession, total: float, descricao: str, detalhe: str
 ) -> dict:
-    """Gera UM código OTP (6 díg, e-mail ao Jordan) que libera a ação. NÃO move dinheiro."""
+    """Gera UM código OTP (6 díg, e-mail ao Jordan) que libera a ação. NÃO move dinheiro.
+
+    Devolve `lote_id` (UUID) — a tela reenvia lote_id+otp_code na hora de executar
+    (mesmo padrão do lote de diaristas; `inter_lote_otp.lote_id` é UUID)."""
     import os as _os
     import secrets as _secrets
+    import uuid as _uuid
     from datetime import datetime as _dt
     from datetime import timedelta as _td
     from datetime import timezone as _tz
@@ -583,6 +587,7 @@ async def _folha_gerar_otp(
     limite = float(_os.getenv("CONECTA_LIMITE_DIARIO_PAGAMENTOS", "100000"))
     if total > limite:
         return {"ok": False, "mensagem": f"Lote de R$ {total:.2f} excede o limite de R$ {limite:.2f}."}
+    lote_id = str(_uuid.uuid4())
     code = f"{_secrets.randbelow(900000) + 100000}"
     ttl = int(_os.getenv("CONECTA_PAYMENT_OTP_TTL_SECONDS", "600"))
     exp = _dt.now(_tz.utc) + _td(seconds=ttl)
@@ -629,7 +634,7 @@ async def gerar_otp_pagamento_folha(
     if not elegiveis or total <= 0:
         return {"ok": False, "mensagem": "Nada a pagar no período (sem holerite publicado / chave PIX)."}
     return await _folha_gerar_otp(
-        db, f"folha-{ano}-{mes:02d}", total, f"folha {mes:02d}/{ano}", f"{len(elegiveis)} funcionário(s)"
+        db, total, f"folha {mes:02d}/{ano}", f"{len(elegiveis)} funcionário(s)"
     )
 
 
@@ -641,24 +646,25 @@ async def pagar_folha_via_pix(
     mes: int,
     ano: int,
     otp_code: str = Query(None, description="Código OTP recebido por e-mail (obrigatório)"),
+    lote_id: str = Query(None, description="lote_id devolvido por .../gerar-otp (obrigatório)"),
     db: AsyncSession = Depends(get_db),
     _user: CurrentActiveUser = None,
 ):
     """
     Processa pagamento de salários via PIX real (Banco Inter, mTLS OAuth2).
-    DINHEIRO QUE SAI → exige OTP humano: gere em .../gerar-otp e informe otp_code.
+    DINHEIRO QUE SAI → exige OTP humano: gere em .../gerar-otp e informe lote_id+otp_code.
     """
-    # GATE OTP — sem código válido, NÃO envia PIX.
-    if not otp_code:
+    # GATE OTP — sem lote_id + código válido, NÃO envia PIX.
+    if not otp_code or not lote_id:
         return {
             "ok": False,
             "otp_requerido": True,
-            "mensagem": "Código OTP obrigatório. Gere em .../gerar-otp e informe otp_code para pagar.",
+            "mensagem": "OTP obrigatório. Gere em .../gerar-otp e informe lote_id + otp_code para pagar.",
         }
     from modules.financial.pagamentos_diaristas_service import _validar_e_consumir_otp_lote
 
     try:
-        await _validar_e_consumir_otp_lote(db, f"folha-{ano}-{mes:02d}", otp_code)
+        await _validar_e_consumir_otp_lote(db, lote_id, otp_code)
     except ValueError as exc:
         return {"ok": False, "otp_invalido": True, "mensagem": str(exc)}
     except Exception:  # noqa: BLE001 — lote malformado → trata como inválido, nunca 500
@@ -768,7 +774,7 @@ async def gerar_otp_pix_key(
 ):
     """Gera o código que libera a troca de chave PIX do funcionário. NÃO altera nada."""
     return await _folha_gerar_otp(
-        db, f"pixkey-{employee_id}", 0.0, "troca de chave PIX", f"funcionário {employee_id[:8]}"
+        db, 0.0, "troca de chave PIX", f"funcionário {employee_id[:8]}"
     )
 
 
@@ -781,27 +787,28 @@ async def cadastrar_pix_key(
     pix_key: str,
     pix_key_type: str = "CPF",
     otp_code: str = Query(None, description="Código OTP (obrigatório — troca de destino de salário)"),
+    lote_id: str = Query(None, description="lote_id devolvido por .../pix-key/gerar-otp (obrigatório)"),
     db: AsyncSession = Depends(get_db),
     _user: CurrentActiveUser = None,
 ):
     """
     Cadastra chave PIX do funcionário para pagamento de salário.
     tipo: CPF | TELEFONE | EMAIL | ALEATORIA
-    Trocar a chave = redirecionar o destino do salário → exige OTP humano.
+    Trocar a chave = redirecionar o destino do salário → exige OTP humano (lote_id+otp_code).
     """
     from sqlalchemy import text
 
     # GATE OTP — trocar a chave PIX redireciona o salário; exige código do Jordan.
-    if not otp_code:
+    if not otp_code or not lote_id:
         return {
             "ok": False,
             "otp_requerido": True,
-            "mensagem": "Troca de chave PIX exige OTP. Gere em .../pix-key/gerar-otp e informe otp_code.",
+            "mensagem": "Troca de chave PIX exige OTP. Gere em .../pix-key/gerar-otp e informe lote_id+otp_code.",
         }
     from modules.financial.pagamentos_diaristas_service import _validar_e_consumir_otp_lote
 
     try:
-        await _validar_e_consumir_otp_lote(db, f"pixkey-{employee_id}", otp_code)
+        await _validar_e_consumir_otp_lote(db, lote_id, otp_code)
     except ValueError as exc:
         return {"ok": False, "otp_invalido": True, "mensagem": str(exc)}
     except Exception:  # noqa: BLE001

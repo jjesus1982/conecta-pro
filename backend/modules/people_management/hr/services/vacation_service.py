@@ -227,8 +227,12 @@ class VacationService:
             }
 
         today = date.today()
-        delta = today - data_admissao
-        meses_trabalhados = delta.days // 30
+        # meses de vínculo em CALENDÁRIO — `delta.days // 30` usa ano de 360d e infla o
+        # direito ~5 dias/ano (pode abrir período aquisitivo/concessivo antes da hora)
+        from dateutil.relativedelta import relativedelta as _rd
+
+        _rdv = _rd(today, data_admissao)
+        meses_trabalhados = _rdv.years * 12 + _rdv.months
 
         # Dias de direito: 30 dias a cada 12 meses
         periodos_completos = meses_trabalhados // 12
@@ -242,9 +246,12 @@ class VacationService:
             gozadas = await self.db.execute(
                 text(
                     "SELECT days_requested, start_date, end_date FROM hr_vacation_requests "
-                    "WHERE CAST(employee_id AS TEXT) = :eid AND UPPER(status) = 'APPROVED'"
+                    "WHERE CAST(employee_id AS TEXT) = :eid AND UPPER(status) = 'APPROVED' "
+                    # só conta como GOZADA a que já foi consumida (end_date < hoje); férias
+                    # FUTURAS aprovadas NÃO abatem o saldo — senão mascaram a dobra vencida
+                    "AND end_date IS NOT NULL AND end_date < :today"
                 ),
-                {"eid": str(employee_id)},
+                {"eid": str(employee_id), "today": today},
             )
             for row in gozadas.fetchall():
                 if row.days_requested:

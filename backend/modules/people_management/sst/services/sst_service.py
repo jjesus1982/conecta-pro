@@ -3,6 +3,8 @@
 import calendar
 import logging
 from datetime import date, datetime, timedelta
+
+from dateutil.relativedelta import relativedelta
 from typing import Any
 from uuid import uuid4
 
@@ -128,11 +130,16 @@ class SSTService:
         tipo = data.get("tipo", TipoAfastamento.DOENCA)
         cid = data.get("cid")
 
-        # CCT Clausula 29a: acidente de trabalho gera estabilidade 12 meses
+        # CCT Clausula 29a / art. 118 Lei 8.213: acidente gera estabilidade de 12 MESES
+        # de calendário (não 30d×12). Provisiona a partir do fim do afastamento; sem
+        # previsão de fim, usa o início (recalculado no retorno). NUNCA fica None quando
+        # gera estabilidade — senão o afastado some do painel de estabilidade e pode ser
+        # demitido dentro do período estável (reintegração).
         gera_estab = _deve_gerar_estabilidade(tipo, cid)
         estab_ate = None
-        if gera_estab and data_fim:
-            estab_ate = data_fim + timedelta(days=CCT_ESTABILIDADE_MESES * 30)
+        if gera_estab:
+            base = data_fim or dt_inicio
+            estab_ate = base + relativedelta(months=CCT_ESTABILIDADE_MESES)
 
         # CCT Clausula 15a: ajuda medicamento para afastados com atestado
         ajuda_med = data.get("atestado", True) and tipo in (
@@ -178,9 +185,9 @@ class SSTService:
         af.data_retorno = dt_retorno
         af.status = StatusAfastamento.ENCERRADO
 
-        # Recalcular estabilidade CCT com data real de retorno
+        # Recalcular estabilidade CCT com data real de retorno (12 meses de calendário)
         if af.gera_estabilidade:
-            af.estabilidade_ate = dt_retorno + timedelta(days=CCT_ESTABILIDADE_MESES * 30)
+            af.estabilidade_ate = dt_retorno + relativedelta(months=CCT_ESTABILIDADE_MESES)
 
         await self.db.flush()
         await self.db.refresh(af)

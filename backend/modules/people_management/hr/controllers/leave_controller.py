@@ -97,22 +97,39 @@ async def criar_leave(data: dict, current_user: CurrentActiveUser, db: AsyncSess
     nrow = (await db.execute(_sqltext("SELECT nome FROM employees WHERE id::text = :e"), {"e": emp})).first()
     nome = nrow[0] if nrow else "—"
     lid = str(_uuid.uuid4())
+
+    tipo_af = data.get("leave_type") or data.get("tipo") or "licenca"
+    cid_af = data.get("cid")
+    di_af = _ld(data.get("start_date"))
+    df_af = _ld(data.get("end_date"))
+    # ESTABILIDADE ACIDENTÁRIA (art. 118 Lei 8.213): o registro via /leaves TAMBÉM tem
+    # que derivar gera_estabilidade/estabilidade_ate — senão um acidente lançado por aqui
+    # não aparece no painel de estabilidade e o colaborador pode ser demitido dentro do
+    # período estável (reintegração + salários = passivo). Mesma regra do SSTService.
+    from dateutil.relativedelta import relativedelta as _rd
+
+    from modules.people_management.sst.services.sst_service import _deve_gerar_estabilidade
+
+    gera_estab = _deve_gerar_estabilidade(tipo_af, cid_af)
+    estab_ate = (df_af or di_af) + _rd(months=12) if (gera_estab and (df_af or di_af)) else None
     await db.execute(
         _sqltext(
             "INSERT INTO sst_afastamentos (id, employee_id, employee_nome, tipo, data_inicio, data_fim_prevista, "
-            "cid, motivo, status, created_at, updated_at) VALUES "
-            "(:id, :emp, :nome, :tipo, :di, :df, :cid, :motivo, 'ativo', NOW(), NOW())"
+            "cid, motivo, status, gera_estabilidade, estabilidade_ate, created_at, updated_at) VALUES "
+            "(:id, :emp, :nome, :tipo, :di, :df, :cid, :motivo, 'ativo', :ge, :ea, NOW(), NOW())"
         ),
         {
             "id": lid,
             "emp": emp,
             "nome": nome,
-            "tipo": data.get("leave_type") or data.get("tipo") or "licenca",
-            "di": _ld(data.get("start_date")),
-            "df": _ld(data.get("end_date")),
-            "cid": data.get("cid"),
+            "tipo": tipo_af,
+            "di": di_af,
+            "df": df_af,
+            "cid": cid_af,
             "motivo": data.get("notes") or data.get("motivo"),
+            "ge": gera_estab,
+            "ea": estab_ate,
         },
     )
     await db.commit()
-    return {"id": lid, "message": "Licença registrada", "status": "ativo"}
+    return {"id": lid, "message": "Licença registrada", "status": "ativo", "gera_estabilidade": gera_estab}
