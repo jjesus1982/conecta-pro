@@ -304,12 +304,12 @@ def calcular_folha_colaborador(
             }
         )
 
-    # 0020 — Adicional noturno: horas noturnas REAIS do ponto (22h-05h); fallback = estimativa por escala
-    horas_not = (
-        _d(str(_hp.get("horas_noturnas", 0)))
-        if tem_ponto
-        else (Decimal(str(dias_trab * 7)) if turno == "noturno" else Decimal("0"))
-    )
+    # 0020 — Adicional noturno: SÓ das horas noturnas REAIS do ponto (22h-05h). Sem
+    # batidas NÃO se estima (dinheiro — líquido/INSS/FGTS — não pode sair de horas que
+    # ninguém bateu; viola "nunca fabricar dado"). Sem ponto → 0 + aviso; o noturno
+    # entra quando o ponto do mês for fechado (fluxo de fechamento do espelho).
+    horas_not = _d(str(_hp.get("horas_noturnas", 0))) if tem_ponto else Decimal("0")
+    noturno_pendente_ponto = (not tem_ponto) and (turno == "noturno")
     adic_noturno = Decimal("0")
     adic_hora_reduzida = Decimal("0")
     if horas_not > 0:
@@ -512,9 +512,16 @@ def calcular_folha_colaborador(
             if salario_abaixo_do_piso
             else None
         ),
-        # Fonte das horas noturnas: ponto real (batidas) ou estimativa por escala
-        "fonte_horas_noturnas": fonte_horas,
+        # Fonte das horas noturnas: ponto real (batidas). Sem ponto = pendente (nunca estimado).
+        "fonte_horas_noturnas": "pendente_ponto" if noturno_pendente_ponto else fonte_horas,
         "horas_noturnas": float(horas_not),
+        "noturno_pendente_ponto": noturno_pendente_ponto,
+        "aviso_noturno": (
+            "Adicional noturno NÃO calculado: sem batidas de ponto no período. Feche o "
+            "ponto do mês (espelho) para apurar o noturno REAL — nunca estimado."
+            if noturno_pendente_ponto
+            else None
+        ),
         "horas_trabalhadas_ponto": _hp.get("horas_trabalhadas", 0),
         "dias_trabalhados": dias_reais if tem_ponto else dias_trab,
         "vr_dia": float(VR_DIA),
