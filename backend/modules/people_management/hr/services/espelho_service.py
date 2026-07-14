@@ -20,6 +20,11 @@ FÓRMULAS (base CCT SINDECOMPRESTS AM000613/2025 — agentes de portaria):
    NÃO se agrupa por dia-calendário). Um TURNO = sequência de pares cujo intervalo
    entre um par e o próximo é < 180 min (intrajornada); intervalos ≥ 180 min
    separam turnos. O turno é atribuído à DATA da 1ª entrada.
+   BORDA DO MÊS: as batidas são lidas com margem de ±24h além do mês (SPILL_MARGIN_H)
+   para que o turno que entra 30/x 22:00 e sai 01/(x+1) feche corretamente. Depois
+   do pareamento, mantém-se no espelho SÓ os turnos cuja 1ª entrada cai no mês-alvo
+   (o turno pertence ao mês em que COMEÇA); o que vira do/para o mês vizinho conta
+   no espelho do mês vizinho — sem par_incompleto/saida_sem_entrada fantasma de borda.
 
 2. Horas trabalhadas = Σ (saída − entrada) de cada par válido (0 < dur < 24h).
    Intervalo (break) = Σ dos gaps intra-turno.
@@ -76,6 +81,8 @@ NIGHT_FACTOR = 60.0 / REDUCED_NIGHT_MIN  # ≈ 1.142857
 
 INTRA_SHIFT_GAP_MAX = 180  # min: gap < 180 = intervalo intrajornada (mesmo turno)
 MAX_PAIR_MIN = 24 * 60     # par com dur >= 24h é inválido
+# margem lida além das bordas do mês p/ fechar turno que cruza a virada do mês
+SPILL_MARGIN_H = 24
 
 EXPECTED_12X36_MIN = 660           # 12h - 1h intervalo
 EXPECTED_44H = {0: 480, 1: 480, 2: 480, 3: 480, 4: 480, 5: 240, 6: 0}  # seg..dom
@@ -92,6 +99,13 @@ STATUS_FECHADO_SET = {"fechado", "aprovado", "revisado", "enviado_folha"}
 
 def _hhmm(dt: datetime | None) -> str:
     return dt.strftime("%H:%M") if dt else "—"
+
+
+def _mes_bounds(mes: int, ano: int) -> tuple[date, date]:
+    """(1º dia do mês, 1º dia do mês seguinte)."""
+    ini = date(ano, mes, 1)
+    fim = date(ano + 1, 1, 1) if mes == 12 else date(ano, mes + 1, 1)
+    return ini, fim
 
 
 def _minutos_noturnos(inicio: datetime, fim: datetime) -> float:
@@ -133,17 +147,29 @@ def _carregar_funcionario(db: Session, employee_id: str) -> dict[str, Any] | Non
 
 
 def _carregar_batidas(db: Session, employee_id: str, mes: int, ano: int) -> list[dict[str, Any]]:
+    """Batidas do mês COM margem de ±SPILL_MARGIN_H nas bordas, para fechar o turno
+    que cruza a virada do mês. O recorte final (turno pertence ao mês em que começa)
+    é feito em calcular_espelho após o pareamento."""
+    ini, fim = _mes_bounds(mes, ano)
+    lo = datetime.combine(ini, time(0, 0)) - timedelta(hours=SPILL_MARGIN_H)
+    hi = datetime.combine(fim, time(0, 0)) + timedelta(hours=SPILL_MARGIN_H)
     rows = db.execute(
         text(
             "SELECT punch_id, punch_type, punch_timestamp, status, device_type, "
             "       COALESCE(justification_id,'') AS justification_id "
             "FROM gp_clock_punches "
             "WHERE CAST(employee_id AS TEXT) = :e "
-            "  AND EXTRACT(MONTH FROM punch_timestamp) = :m "
-            "  AND EXTRACT(YEAR FROM punch_timestamp) = :y "
-            "ORDER BY punch_timestamp"
+            "  AND punch_timestamp >= :lo AND punch_timestamp < :hi "
+            # Desempate DETERMINÍSTICO p/ batidas no MESMO timestamp: SAÍDA antes de
+            # ENTRADA (fecha o turno aberto antes de abrir o próximo — troca de turno)
+            # e punch_id como desempate final. Sem isso, o pareamento (e o espelho
+            # legal) dependeria da ordem física de linha do banco. NÃO fabrica nada:
+            # só fixa a ordem de leitura de batidas que já existem.
+            "ORDER BY punch_timestamp, "
+            "  CASE WHEN lower(COALESCE(punch_type,'')) LIKE 'sa%' THEN 0 ELSE 1 END, "
+            "  punch_id"
         ),
-        {"e": str(employee_id), "m": int(mes), "y": int(ano)},
+        {"e": str(employee_id), "lo": lo, "hi": hi},
     ).mappings().all()
     return [dict(r) for r in rows]
 
@@ -413,6 +439,29 @@ def calcular_espelho(
     pares, anomalias = _parear(batidas)
     turnos = _agrupar_turnos(pares)
 
+    # ── Recorte do mês-alvo (pareamento cruza a borda; o espelho não) ──────────
+    # O turno pertence ao mês em que COMEÇA (data da 1ª entrada). Turnos/anomalias
+    # das margens de spill (mês vizinho) são descartados aqui — eles contam no
+    # espelho do mês vizinho, não geram fantasma de borda neste.
+    mes_ini, mes_fim = _mes_bounds(mes, ano)
+
+    def _no_mes(d: date) -> bool:
+        return mes_ini <= d < mes_fim
+
+    turnos = [t for t in turnos if _no_mes(t["date"])]
+
+    def _anom_no_mes(a: dict) -> bool:
+        try:
+            return _no_mes(date.fromisoformat(a["date"]))
+        except Exception:  # noqa: BLE001
+            return True  # sem data parseável: mantém (conservador)
+
+    anomalias = [a for a in anomalias if _anom_no_mes(a)]
+
+    # batidas efetivamente REGISTRADAS no mês (p/ contadores; o pareamento usou a
+    # janela ampliada, mas os contadores refletem o calendário do mês)
+    batidas_mes = [b for b in batidas if _no_mes(b["punch_timestamp"].date())]
+
     # Agregação
     worked_total = 0.0
     expected_total = 0.0
@@ -572,7 +621,7 @@ def calcular_espelho(
             "saídas antecipadas NÃO foram apurados pelo motor — apenas horas efetivas e "
             "anomalias de pareamento. Não há estimativa/fabricação."
         )
-    if not batidas:
+    if not batidas_mes:
         obs.append("Nenhuma batida no período.")
 
     hourly_rate = None
@@ -583,7 +632,7 @@ def calcular_espelho(
         hourly_rate = None
 
     metadata = {
-        "motor_versao": "1.0",
+        "motor_versao": "1.1",
         "escala": escala,
         "esperado_mes_horas": ESPERADO_MES_HORAS.get(escala),
         "night_real_minutes": int(round(night_real_total)),
@@ -591,8 +640,9 @@ def calcular_espelho(
         "night_factor": round(NIGHT_FACTOR, 6),
         "reduced_night_min_rule": REDUCED_NIGHT_MIN,
         "tem_escala_publicada": tem_escala,
-        "total_batidas": len(batidas),
+        "total_batidas": len(batidas_mes),
         "total_turnos": len(turnos),
+        "spill_margin_horas": SPILL_MARGIN_H,
         "observacoes": obs,
         "dinheiro_fonte": "folha oficial (calculo_service) prevalece; valores aqui são referência",
     }
@@ -637,11 +687,11 @@ def calcular_espelho(
     ts.unjustified_absent_days = unjustified_absent
     ts.dsr_entitled = dsr_entitled
     ts.dsr_lost_days = dsr_lost_days
-    ts.total_entries = len(batidas)
+    ts.total_entries = len(batidas_mes)
     ts.anomaly_count = len(anomalias)
     ts.anomaly_resolved_count = resolvidas
     ts.manual_entries_count = sum(
-        1 for b in batidas
+        1 for b in batidas_mes
         if (b.get("device_type") or "").lower() in MANUAL_DEVICE_TYPES or b.get("justification_id")
     )
     ts.has_pending_issues = has_pending
@@ -675,7 +725,7 @@ def calcular_espelho(
         "work_days_worked": ts.work_days_worked,
         "absent_days": ts.absent_days,
         "unjustified_absent_days": ts.unjustified_absent_days,
-        "total_batidas": len(batidas),
+        "total_batidas": len(batidas_mes),
         "total_turnos": len(turnos),
         "anomaly_count": ts.anomaly_count,
         "anomaly_open_count": len(anomalias_abertas),
