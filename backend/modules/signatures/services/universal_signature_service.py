@@ -516,6 +516,9 @@ class UniversalSignatureService:
         # Grupo completo? (todos os signatários do mesmo documento assinaram)
         group_completed = await self._maybe_complete_group(req)
 
+        # Hook pós-assinatura por tipo de documento (fire-and-forget, nunca quebra).
+        await self._pos_assinatura_hook(req, signed_at)
+
         await self.db.commit()
 
         logger.info(
@@ -1204,6 +1207,37 @@ class UniversalSignatureService:
                 ),
             }
         return out
+
+    async def _pos_assinatura_hook(self, req: SignatureRequest, signed_at: Any) -> None:
+        """Efeitos colaterais por document_type após a assinatura.
+
+        - espelho_ponto (funcionário homologa): grava
+          time_sheets.approved_by_employee=true + employee_approved_at.
+
+        Fire-and-forget: qualquer erro é logado e engolido — a assinatura já foi
+        registrada e não pode ser desfeita por um efeito colateral.
+        """
+        try:
+            if (req.document_type or "") != "espelho_ponto":
+                return
+            if str(req.signer_type or "").lower() != "employee":
+                return
+            doc_id = str(req.document_id or (req.custom_fields or {}).get("document_id_raw", "")).strip()
+            if not doc_id:
+                return
+            from sqlalchemy import text as _sql
+
+            await self.db.execute(
+                _sql(
+                    "UPDATE time_sheets SET approved_by_employee = true, "
+                    "employee_approved_at = :ts "
+                    "WHERE CAST(id AS TEXT) = :d"
+                ),
+                {"ts": signed_at, "d": doc_id},
+            )
+            logger.info("Espelho de ponto homologado pelo funcionário: time_sheet=%s", doc_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Hook pós-assinatura (espelho_ponto) falhou: %s", exc)
 
     async def _maybe_complete_group(self, req: SignatureRequest) -> bool:
         """Se todos os signatários do documento assinaram, marca o grupo COMPLETED."""

@@ -32,9 +32,11 @@ from fastapi import status as http_status
 from pydantic import BaseModel, Field
 from sqlalchemy import text as _sqltext
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from core.auth.dependencies import get_current_active_user
 from core.database import get_db
+from core.database.session import get_sync_db_dependency
 from core.models import User
 from modules.people_management.employee_portal.controllers.my_data_controller import (
     UpdateMyDataRequest,
@@ -168,6 +170,48 @@ async def minhas_ferias_solicitacoes(
     )
 
     return await get_vacation_requests(employee_id=emp, db=db)
+
+
+@router.get(
+    "/meu-espelho/{mes}/{ano}/pdf",
+    summary="Baixar o PDF do meu espelho de ponto (mês)",
+)
+def meu_espelho_pdf(
+    mes: int,
+    ano: int,
+    current_user: User = Depends(get_current_active_user),
+    db_sync: "Session" = Depends(get_sync_db_dependency),
+) -> Any:
+    """PDF do espelho de ponto do funcionário logado (lido de time_sheets)."""
+    from fastapi.responses import Response
+
+    from modules.people_management.hr.services.espelho_ponto_pdf import (
+        montar_espelho_ponto_pdf,
+    )
+    from modules.people_management.hr.services.espelho_ponto_service import ler_espelho
+
+    emp = _employee_id(current_user)
+    esp = ler_espelho(db_sync, emp, mes, ano)
+    if not esp:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail=f"Seu espelho de ponto de {int(mes):02d}/{ano} ainda não está disponível.",
+        )
+    signatarios = None
+    try:
+        from modules.signatures.helpers import status_documento_sync
+
+        stt = status_documento_sync("espelho_ponto", esp["time_sheet_id"])
+        if stt:
+            signatarios = stt.get("signatarios")
+    except Exception:  # noqa: BLE001
+        signatarios = None
+    pdf = montar_espelho_ponto_pdf(esp, signatarios=signatarios)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="meu_espelho_{int(mes):02d}_{ano}.pdf"'},
+    )
 
 
 @router.get(

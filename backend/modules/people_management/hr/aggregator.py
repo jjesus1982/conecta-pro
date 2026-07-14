@@ -151,6 +151,16 @@ except ImportError as e:
     logger.warning("DP: falha ao incluir time_record_router: %s", e)
 
 try:
+    from modules.people_management.hr.controllers.espelho_ponto_controller import (
+        router as espelho_ponto_router,
+    )
+
+    router.include_router(espelho_ponto_router)
+    logger.debug("DP: espelho_ponto_router incluído (/ponto/espelho)")
+except ImportError as e:
+    logger.warning("DP: falha ao incluir espelho_ponto_router: %s", e)
+
+try:
     from modules.people_management.hr.controllers.leave_controller import (
         router as leave_router,
     )

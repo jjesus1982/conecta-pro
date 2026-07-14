@@ -61,6 +61,10 @@ POLITICA_ASSINANTES: dict[str, list[SignerType]] = {
     "proposal": [SignerType.COMPANY, SignerType.CUSTOMER],
     "recibo_vt_vr": [SignerType.EMPLOYEE],
     "payslip": [SignerType.EMPLOYEE],
+    # Espelho de ponto mensal (Portaria 671): o FUNCIONÁRIO homologa (assina) o
+    # espelho do mês FECHADO no Meu Espaço. A empresa não co-assina digitalmente
+    # (o bloco de assinatura da empresa consta no PDF); nível SIMPLE (SHA-256).
+    "espelho_ponto": [SignerType.EMPLOYEE],
     "aviso_previo": [SignerType.EMPLOYEE, SignerType.COMPANY],
     "rescisao": [SignerType.EMPLOYEE, SignerType.COMPANY],
     "licitacao": [SignerType.COMPANY],

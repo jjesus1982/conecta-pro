@@ -1262,6 +1262,35 @@ function PontoTab() {
         )}
       </div>
 
+      {/* Baixar o espelho de ponto (mês) — PDF legal, disponível quando o mês foi calculado. */}
+      <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <FileText className="w-4 h-4 text-[#f97707] flex-shrink-0" />
+          <p className="text-xs text-[hsl(var(--muted-foreground))] truncate">
+            Espelho de ponto de {String(mes).padStart(2, '0')}/{ano} (PDF legal — Portaria 671).
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            const token = localStorage.getItem('access_token');
+            const base = process.env.NEXT_PUBLIC_API_URL || 'https://erp.conectamais.pro';
+            fetch(`${base}/api/v1/people-management/portal/self-service/meu-espelho/${mes}/${ano}/pdf`, {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+              .then((r) => {
+                if (!r.ok) throw new Error('Espelho ainda não disponível para este mês.');
+                return r.blob();
+              })
+              .then((b) => window.open(URL.createObjectURL(b), '_blank'))
+              .catch((e) => setError(e?.message || 'Não foi possível baixar o espelho.'));
+          }}
+        >
+          <Download className="w-4 h-4 mr-1.5" /> Espelho PDF
+        </Button>
+      </div>
+
       {loading ? (
         <Spinner />
       ) : error ? (

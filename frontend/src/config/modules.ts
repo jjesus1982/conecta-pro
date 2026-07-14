@@ -98,6 +98,7 @@ export const modules: Module[] = [
       { id: 'dp-contratos', title: 'Contratos', href: '/modulos/dp/contratos', icon: 'FileSignature', permissions: ['module:dp'] },
       { id: 'dp-folha', title: 'Folha Salarial', href: '/modulos/dp/folha', icon: 'DollarSign', permissions: ['module:dp'] },
       { id: 'dp-ponto', title: 'Ponto Eletrônico', href: '/modulos/dp/ponto', icon: 'Clock', permissions: ['module:dp'] },
+      { id: 'dp-fechamento-ponto', title: 'Fechamento de Ponto', href: '/modulos/dp/fechamento-ponto', icon: 'Lock', permissions: ['module:dp'] },
       { id: 'dp-ferias', title: 'Férias', href: '/modulos/dp/ferias', icon: 'Plane', permissions: ['module:dp'] },
       { id: 'dp-beneficios', title: 'Benefícios', href: '/modulos/dp/beneficios', icon: 'Gift', permissions: ['module:dp'] },
       { id: 'dp-licencas', title: 'Licenças', href: '/modulos/dp/licencas', icon: 'FileText', permissions: ['module:dp'] },
