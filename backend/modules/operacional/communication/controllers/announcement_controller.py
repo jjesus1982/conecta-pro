@@ -453,6 +453,10 @@ async def acknowledge_announcement(
     user_agent = request_data.user_agent or request.headers.get("user-agent")
 
     try:
+        # Verifica que o comunicado existe ANTES de inserir a leitura — senão o
+        # mark_as_read viola a FK (comunicado apagado/id inválido) e vira 500 em vez de 404.
+        await service.get_by_id(announcement_id, tenant_id)
+
         # Primeiro marca como lido
         await service.mark_as_read(
             announcement_id=announcement_id,
