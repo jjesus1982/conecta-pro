@@ -196,12 +196,12 @@ async def get_shift(
 
 
 @router.patch(
-    "/{shift_id}",
+    "/{shift_id:uuid}",
     response_model=ShiftResponse,
     dependencies=[require_operacional_permission(Permission.SHIFTS_CREATE)],
 )
 async def update_shift(
-    shift_id: str,
+    shift_id: UUID,
     data: ShiftUpdate,
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
@@ -347,12 +347,12 @@ async def mark_as_missed(
 
 
 @router.delete(
-    "/{shift_id}",
+    "/{shift_id:uuid}",
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[require_operacional_permission(Permission.SHIFTS_CREATE)],
 )
 async def delete_shift(
-    shift_id: str,
+    shift_id: UUID,
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> None:

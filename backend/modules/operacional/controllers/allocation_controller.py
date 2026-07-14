@@ -5,6 +5,7 @@ Controller (endpoints) para Allocation (Alocação Funcionário-Posto).
 import asyncio
 from datetime import date
 from typing import Any
+from uuid import UUID  # path id tipado :uuid → /bulk deixa de ser engolido por /{id}
 
 from fastapi import Response, APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import text
@@ -284,12 +285,12 @@ async def get_allocation(
 
 
 @router.patch(
-    "/{allocation_id}",
+    "/{allocation_id:uuid}",
     response_model=AllocationResponse,
     dependencies=[require_operacional_permission(Permission.ALLOCATIONS_EDIT)],
 )
 async def update_allocation(
-    allocation_id: str,
+    allocation_id: UUID,
     data: AllocationUpdate,
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
@@ -355,12 +356,12 @@ async def terminate_allocation(
 
 
 @router.delete(
-    "/{allocation_id}",
+    "/{allocation_id:uuid}",
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[require_operacional_permission(Permission.ALLOCATIONS_EDIT)],
 )
 async def delete_allocation(
-    allocation_id: str,
+    allocation_id: UUID,
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> None:
