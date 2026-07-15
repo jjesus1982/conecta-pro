@@ -503,25 +503,55 @@ async def obter_nfe_por_chave(
     return dict(row)
 
 
-@router.patch("/nfe/{nfe_id}", response_model=NFeResponse)
+async def _atualizar_nota(db: AsyncSession, tabela: str, nota_id, data: dict, label: str) -> dict:
+    """Atualiza uma nota fiscal (nfses/nfes) em rascunho via SQL cru na tabela REAL.
+
+    Os models NFSe/NFe apontam para `nfse`/`nfe` (inexistentes) — todo query via model quebra;
+    o LIST/GET já usam SQL cru na tabela real. Aqui idem: só grava colunas que EXISTEM na tabela.
+    `tabela` é literal do endpoint (nunca input do usuário); nomes de coluna são whitelist do
+    information_schema — sem risco de injeção."""
+    row = (
+        await db.execute(
+            text(f"SELECT id, status FROM {tabela} WHERE id = :id AND active IS true"), {"id": nota_id}
+        )
+    ).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"{label} nao encontrada")
+    if (row["status"] or "") != "rascunho":
+        raise HTTPException(status_code=400, detail=f"Apenas {label} em rascunho pode ser editada")
+    real_cols = {
+        r[0]
+        for r in (
+            await db.execute(
+                text("SELECT column_name FROM information_schema.columns WHERE table_name = :t"),
+                {"t": tabela},
+            )
+        ).fetchall()
+    }
+    campos = {k: v for k, v in (data or {}).items() if v is not None and k in real_cols}
+    if campos:
+        sets = ", ".join(f"{k} = :{k}" for k in campos)
+        await db.execute(
+            text(f"UPDATE {tabela} SET {sets}, updated_at = now() WHERE id = :id"),
+            {**campos, "id": nota_id},
+        )
+        await db.commit()
+    updated = (
+        await db.execute(text(f"SELECT * FROM {tabela} WHERE id = :id"), {"id": nota_id})
+    ).mappings().first()
+    return dict(updated) if updated else {}
+
+
+@router.patch("/nfe/{nfe_id}")
 async def atualizar_nfe(
     nfe_id: UUID,
     data: NFeUpdate,
-    repo: FiscalRepository = Depends(get_repository),
+    db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(require_permission("fiscal:nfe:update")),
-) -> NFeResponse:
-    """Atualiza NF-e (apenas rascunho)."""
-    nfe = await repo.get_nfe_by_id(nfe_id)
-    if not nfe:
-        raise HTTPException(status_code=404, detail="NF-e nao encontrada")
-    if nfe.status != "rascunho":
-        raise HTTPException(
-            status_code=400,
-            detail="Apenas NF-e em rascunho pode ser editada",
-        )
-
-    nfe = await repo.update_nfe(nfe_id, data.model_dump(exclude_unset=True))
-    return NFeResponse.model_validate(nfe)
+):
+    """Atualiza NF-e em rascunho. Lê/grava a tabela REAL `nfes` (o model NFe aponta p/ `nfe`,
+    inexistente). Só edita colunas que existem na tabela."""
+    return await _atualizar_nota(db, "nfes", nfe_id, data.model_dump(exclude_unset=True), "NF-e")
 
 
 @router.post("/nfe/emitir", response_model=NFeEmitirResponse, status_code=201)
@@ -803,25 +833,16 @@ async def obter_nfse(
     return dict(row)
 
 
-@router.patch("/nfse/{nfse_id}", response_model=NFSeResponse)
+@router.patch("/nfse/{nfse_id}")
 async def atualizar_nfse(
     nfse_id: UUID,
     data: NFSeUpdate,
-    repo: FiscalRepository = Depends(get_repository),
+    db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(require_permission("fiscal:nfse:update")),
-) -> NFSeResponse:
-    """Atualiza NFS-e (apenas rascunho)."""
-    nfse = await repo.get_nfse_by_id(nfse_id)
-    if not nfse:
-        raise HTTPException(status_code=404, detail="NFS-e nao encontrada")
-    if nfse.status != "rascunho":
-        raise HTTPException(
-            status_code=400,
-            detail="Apenas NFS-e em rascunho pode ser editada",
-        )
-
-    nfse = await repo.update_nfse(nfse_id, data.model_dump(exclude_unset=True))
-    return NFSeResponse.model_validate(nfse)
+):
+    """Atualiza NFS-e em rascunho. Lê/grava a tabela REAL `nfses` (o model NFSe aponta p/ `nfse`,
+    inexistente — mesmo padrão do GET/LIST). Só edita colunas que existem na tabela."""
+    return await _atualizar_nota(db, "nfses", nfse_id, data.model_dump(exclude_unset=True), "NFS-e")
 
 
 @router.post("/nfse/emitir", response_model=NFSeEmitirResponse, status_code=201)
