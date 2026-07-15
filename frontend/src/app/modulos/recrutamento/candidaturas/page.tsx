@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { FileText, Plus, Search, RefreshCw, AlertCircle, ChevronRight as ChevronRightIcon, XCircle, Send, Clock, CheckCircle, Ban, Star, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -141,7 +142,7 @@ export default function CandidaturasPage() {
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.detail || `Erro ${res.status}`);
+        throw new Error(msgFromDetail(errData.detail) || `Erro ${res.status}`);
       }
       toast.success('Candidatura criada com sucesso', { duration: 4000 });
       setCreateOpen(false);
@@ -171,7 +172,7 @@ export default function CandidaturasPage() {
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.detail || `Erro ${res.status}`);
+        throw new Error(msgFromDetail(errData.detail) || `Erro ${res.status}`);
       }
       toast.success(`Candidatura avancada para: ${statusConfig[nextStatus]?.label || nextStatus}`, { duration: 4000 });
       fetchApplications();
@@ -191,7 +192,7 @@ export default function CandidaturasPage() {
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.detail || `Erro ${res.status}`);
+        throw new Error(msgFromDetail(errData.detail) || `Erro ${res.status}`);
       }
       toast.success('Candidatura rejeitada', { duration: 4000 });
       setRejectOpen(false);
@@ -221,7 +222,7 @@ export default function CandidaturasPage() {
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.detail || `Erro ${res.status}`);
+        throw new Error(msgFromDetail(errData.detail) || `Erro ${res.status}`);
       }
       toast.success('Proposta enviada com sucesso', { duration: 4000 });
       setProposalOpen(false);

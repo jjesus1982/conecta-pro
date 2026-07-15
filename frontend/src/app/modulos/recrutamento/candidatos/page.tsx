@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { UserPlus, Plus, Search, RefreshCw, Edit2, Trash2, ShieldBan, ShieldCheck, AlertCircle, Mail, Phone, User, Archive, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -185,7 +186,7 @@ export default function CandidatosPage() {
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.detail || `Erro ${res.status}`);
+        throw new Error(msgFromDetail(errData.detail) || `Erro ${res.status}`);
       }
       toast.success(editingId ? 'Candidato atualizado com sucesso' : 'Candidato cadastrado com sucesso', { duration: 4000 });
       setDialogOpen(false);
@@ -224,7 +225,7 @@ export default function CandidatosPage() {
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.detail || `Erro ${res.status}`);
+        throw new Error(msgFromDetail(errData.detail) || `Erro ${res.status}`);
       }
       toast.success('Candidato bloqueado com sucesso', { duration: 4000 });
       setBlockDialogOpen(false);

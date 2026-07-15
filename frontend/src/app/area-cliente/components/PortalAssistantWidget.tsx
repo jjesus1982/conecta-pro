@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { Bot, Send, ThumbsDown, ThumbsUp, X } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -34,7 +35,7 @@ async function portalFetch<T>(path: string, options: RequestInit = {}): Promise<
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || 'Erro na requisição');
+    throw new Error(msgFromDetail(err.detail) || 'Erro na requisição');
   }
   return res.json() as Promise<T>;
 }

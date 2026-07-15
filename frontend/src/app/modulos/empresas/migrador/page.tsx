@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import {
   ArrowRightLeft,
   ArrowLeft,
@@ -36,7 +37,7 @@ async function apiPost(path: string, body: object) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Erro desconhecido' }));
-    throw new Error(err.detail || `HTTP ${res.status}`);
+    throw new Error(msgFromDetail(err.detail) || `HTTP ${res.status}`);
   }
   return res.json();
 }

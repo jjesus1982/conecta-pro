@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { Briefcase, Plus, Search, RefreshCw, Edit2, Trash2, Globe, XCircle, AlertCircle, Pause, Play, Copy, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -190,7 +191,7 @@ export default function VagasPage() {
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.detail || `Erro ${res.status}`);
+        throw new Error(msgFromDetail(errData.detail) || `Erro ${res.status}`);
       }
       toast.success(editingId ? 'Vaga atualizada com sucesso' : 'Vaga criada com sucesso', { duration: 4000 });
       setDialogOpen(false);
@@ -225,7 +226,7 @@ export default function VagasPage() {
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.detail || `Erro ${res.status}`);
+        throw new Error(msgFromDetail(errData.detail) || `Erro ${res.status}`);
       }
       toast.success(`Vaga ${label} com sucesso`, { duration: 4000 });
       fetchPositions();

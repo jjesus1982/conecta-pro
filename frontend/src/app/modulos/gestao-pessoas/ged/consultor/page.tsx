@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import {
   Bot, Send, Loader2, AlertTriangle, History, Paperclip, X,
   CheckCircle2, XCircle, Trash2, Package, Building2, Users, ClipboardList, Wand2,
@@ -205,7 +206,7 @@ export default function ConsultorGedPage() {
         setMontagemTasks((t) => ({ ...t, [nome]: String(data?.task_id || '') }));
       } else {
         const e = await r.json().catch(() => ({}));
-        setErro(e?.detail || `Falha ao enfileirar a montagem (HTTP ${r.status}).`);
+        setErro(msgFromDetail(e?.detail) || `Falha ao enfileirar a montagem (HTTP ${r.status}).`);
       }
     } catch {
       setErro('Falha de comunicação ao enfileirar a montagem do kit.');
@@ -232,7 +233,7 @@ export default function ConsultorGedPage() {
         await Promise.all([carregarIntercorrencias(competencia), carregarPanorama(competencia)]);
       } else {
         const e = await r.json().catch(() => ({}));
-        setErro(e?.detail || `Falha ao registrar intercorrência (HTTP ${r.status}).`);
+        setErro(msgFromDetail(e?.detail) || `Falha ao registrar intercorrência (HTTP ${r.status}).`);
       }
     } catch {
       setErro('Falha de comunicação ao registrar a intercorrência.');
@@ -266,7 +267,7 @@ export default function ConsultorGedPage() {
         if (condominioChat) body.condominio = condominioChat;
         r = await fetch(`${API_BASE}/perguntar`, { method: 'POST', headers: getAuthHeaders(), body: JSON.stringify(body) });
       }
-      if (!r.ok) { const e = await r.json().catch(() => ({})); setErro(e?.detail || `O Consultor GED não respondeu agora (HTTP ${r.status}).`); return; }
+      if (!r.ok) { const e = await r.json().catch(() => ({})); setErro(msgFromDetail(e?.detail) || `O Consultor GED não respondeu agora (HTTP ${r.status}).`); return; }
       const data: ConsultaResposta = await r.json();
       if (data?.indisponivel) { setErro('Consultor GED IA temporariamente indisponível — os números do painel continuam reais.'); if (data?.panorama) setPano(data.panorama); return; }
       setResposta(data);

@@ -10,6 +10,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { msgFromDetail } from '@/lib/string';
 import {
   AlertTriangle,
   CheckCircle,
@@ -227,7 +228,7 @@ function TipoCard({
     },
     onError: (err: unknown) => {
       const detail =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+        (err as { response?: { data?: { detail?: string } } })?.response?.msgFromDetail(data?.detail) ||
         String(err);
       toast.error(`Falha no lote ${tipo}`, { description: detail });
       setConfirmOpen(false);

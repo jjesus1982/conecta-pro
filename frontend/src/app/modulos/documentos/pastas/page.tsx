@@ -1,6 +1,7 @@
 'use client';
 
 import { FolderOpen, FolderPlus, ChevronRight, Home, Search, FileText, ArrowLeft, MoreVertical, Edit, Trash2, FolderInput, Lock, Unlock } from 'lucide-react';
+import { msgFromDetail } from '@/lib/string';
 import { useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -124,7 +125,7 @@ function PastasContent() {
       invalidateFolders();
     } catch (error: any) {
       if (error?.response?.status === 409 || error?.status === 409) {
-        const errorMsg = error?.response?.data?.detail || error?.message || 'Já existe uma pasta com este nome neste local';
+        const errorMsg = error?.response?.msgFromDetail(data?.detail) || error?.message || 'Já existe uma pasta com este nome neste local';
         toast({
           variant: 'destructive',
           title: 'Pasta duplicada',
@@ -163,7 +164,7 @@ function PastasContent() {
       invalidateFolders();
     } catch (error: any) {
       if (error?.response?.status === 409 || error?.status === 409) {
-        const errorMsg = error?.response?.data?.detail || error?.message || 'Já existe uma pasta com este nome neste local';
+        const errorMsg = error?.response?.msgFromDetail(data?.detail) || error?.message || 'Já existe uma pasta com este nome neste local';
         toast({
           variant: 'destructive',
           title: 'Nome duplicado',

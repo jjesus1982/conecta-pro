@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, FormEvent } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Send, Loader2 } from 'lucide-react';
@@ -111,7 +112,7 @@ export default function NovoChamadoPage() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        throw new Error(data?.detail || 'Erro ao criar chamado.');
+        throw new Error(msgFromDetail(data?.detail) || 'Erro ao criar chamado.');
       }
 
       toast.success('Chamado criado com sucesso! Nossa equipe respondera em breve.', { duration: 4000 });

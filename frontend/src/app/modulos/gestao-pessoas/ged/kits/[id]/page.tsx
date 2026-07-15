@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { useParams, useRouter } from 'next/navigation';
 import {
   Loader2, ArrowLeft, Send, CheckCircle, XCircle,
@@ -247,7 +248,7 @@ export default function KitDetailPage() {
     try {
       const res = await fetch(`${API_BASE}/kits/${kitId}/approve`, { method: 'POST', headers: getAuthHeaders() });
       if (res.ok) { showToast('Kit aprovado com sucesso'); fetchKit(); }
-      else { const e = await res.json().catch(() => null); showToast(e?.detail || 'Erro ao aprovar', 'error'); }
+      else { const e = await res.json().catch(() => null); showToast(msgFromDetail(e?.detail) || 'Erro ao aprovar', 'error'); }
     } catch { showToast('Erro de conexão', 'error'); }
   }
 

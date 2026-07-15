@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { Scale, AlertTriangle, Loader2, Upload, FileText, ShieldCheck, ShieldAlert, Search, CheckCircle2, XCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -68,7 +69,7 @@ export default function ProcessosPage() {
           body: JSON.stringify({ texto, numero: numero || null, tipo, employee_id: employeeId || null }),
         });
       }
-      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e?.detail || `HTTP ${r.status}`); }
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(msgFromDetail(e?.detail) || `HTTP ${r.status}`); }
       const d = await r.json();
       setRes(d);
       carregar();
@@ -91,7 +92,7 @@ export default function ProcessosPage() {
         body: JSON.stringify({ confirmar: true, destinatario: destinoCQB }),
       });
       const d = await r.json();
-      if (!r.ok || !d.enviado) throw new Error(d?.detail || d?.mensagem || 'Falha no envio');
+      if (!r.ok || !d.enviado) throw new Error(msgFromDetail(d?.detail) || d?.mensagem || 'Falha no envio');
       setEnvioMsg({ ok: true, text: `Encaminhado para ${d.destinatario}` });
     } catch (e: any) {
       setEnvioMsg({ ok: false, text: e?.message || 'Falha no envio' });

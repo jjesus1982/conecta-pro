@@ -7,6 +7,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { msgFromDetail } from '@/lib/string';
 import { toast } from 'sonner';
 import receitaFederalService, {
   type ValidacaoDocumentoParams,
@@ -35,7 +36,7 @@ export function useValidarDocumento() {
       }
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao validar documento');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao validar documento');
     },
   });
 }
@@ -67,7 +68,7 @@ export function useConsultarCPFMutation() {
       toast.success('CPF consultado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao consultar CPF');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao consultar CPF');
     },
   });
 }
@@ -99,7 +100,7 @@ export function useConsultarCNPJMutation() {
       toast.success('CNPJ consultado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao consultar CNPJ');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao consultar CNPJ');
     },
   });
 }
@@ -118,7 +119,7 @@ export function useValidarInscricaoEstadual() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.data?.detail || 'Erro ao validar Inscrição Estadual'
+        error?.response?.msgFromDetail(data?.detail) || 'Erro ao validar Inscrição Estadual'
       );
     },
   });

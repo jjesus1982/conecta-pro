@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { createPortal } from 'react-dom';
 import {
   Search,
@@ -157,7 +158,7 @@ export default function GedClientesPage() {
       } else {
         // B3: Feedback de erro
         const errData = await res.json().catch(() => null);
-        showToast(errData?.detail || `Erro ${res.status}: ${res.statusText}`, 'error');
+        showToast(msgFromDetail(errData?.detail) || `Erro ${res.status}: ${res.statusText}`, 'error');
       }
     } catch (error) {
       showToast('Erro ao salvar. Verifique a conexão.', 'error');

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import {
   BarChart2,
   BookOpen,
@@ -120,7 +121,7 @@ function DRETab() {
       });
       setResult(res.data);
     } catch (e: any) {
-      setResult({ sucesso: false, erro: e?.response?.data?.detail || String(e) });
+      setResult({ sucesso: false, erro: e?.response?.msgFromDetail(data?.detail) || String(e) });
     } finally {
       setLoading(false);
     }
@@ -302,7 +303,7 @@ function BalancoTab() {
       });
       setResult(res.data);
     } catch (e: any) {
-      setResult({ sucesso: false, erro: e?.response?.data?.detail || String(e) });
+      setResult({ sucesso: false, erro: e?.response?.msgFromDetail(data?.detail) || String(e) });
     } finally {
       setLoading(false);
     }
@@ -437,7 +438,7 @@ function DFCTab() {
       });
       setResult(res.data);
     } catch (e: any) {
-      setResult({ sucesso: false, erro: e?.response?.data?.detail || String(e) });
+      setResult({ sucesso: false, erro: e?.response?.msgFromDetail(data?.detail) || String(e) });
     } finally {
       setLoading(false);
     }
@@ -563,7 +564,7 @@ function ConsolidadoTab() {
       });
       setResult(res.data);
     } catch (e: any) {
-      setResult({ sucesso: false, erro: e?.response?.data?.detail || String(e) });
+      setResult({ sucesso: false, erro: e?.response?.msgFromDetail(data?.detail) || String(e) });
     } finally {
       setLoading(false);
     }

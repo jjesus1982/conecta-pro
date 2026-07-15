@@ -1,4 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
+import { msgFromDetail } from '@/lib/string';
 
 const API_BASE = '/api/v1/people-management/hr';
 
@@ -42,7 +43,7 @@ export function useGerarAvisoPrevioFerias() {
       );
       if (!res.ok) {
         const err = await res.json().catch(() => null);
-        throw new Error(err?.detail || `Erro ${res.status}`);
+        throw new Error(msgFromDetail(err?.detail) || `Erro ${res.status}`);
       }
       return res.json();
     },

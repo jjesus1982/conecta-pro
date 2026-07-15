@@ -1,6 +1,7 @@
 'use client';
 
 import { FileText, Calendar, Lock, CheckCircle, FileSignature } from 'lucide-react';
+import { msgFromDetail } from '@/lib/string';
 import { useEffect } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import {
@@ -151,7 +152,7 @@ export function EditDocumentDialog({
     } catch (error: unknown) {
       const err = error as { response?: { data?: { detail?: string } } };
       toast.error('Erro ao atualizar documento', {
-        description: err.response?.data?.detail || 'Erro desconhecido',
+        description: err.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
       });
     }
   };

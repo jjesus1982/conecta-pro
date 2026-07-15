@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { Calendar, Plus, Search, RefreshCw, AlertCircle, Clock, CheckCircle, XCircle, Star, CalendarClock, Video, MapPin, Phone as PhoneIcon, Edit2, Trash2, Play, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -188,7 +189,7 @@ export default function EntrevistasPage() {
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.detail || `Erro ${res.status}`);
+        throw new Error(msgFromDetail(errData.detail) || `Erro ${res.status}`);
       }
       toast.success(editingId ? 'Entrevista atualizada com sucesso' : 'Entrevista agendada com sucesso', { duration: 4000 });
       setDialogOpen(false);
@@ -227,7 +228,7 @@ export default function EntrevistasPage() {
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.detail || `Erro ${res.status}`);
+        throw new Error(msgFromDetail(errData.detail) || `Erro ${res.status}`);
       }
       toast.success('Entrevista cancelada', { duration: 4000 });
       setCancelOpen(false);
@@ -255,7 +256,7 @@ export default function EntrevistasPage() {
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.detail || `Erro ${res.status}`);
+        throw new Error(msgFromDetail(errData.detail) || `Erro ${res.status}`);
       }
       toast.success('Entrevista concluida', { duration: 4000 });
       setCompleteOpen(false);
@@ -285,7 +286,7 @@ export default function EntrevistasPage() {
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.detail || `Erro ${res.status}`);
+        throw new Error(msgFromDetail(errData.detail) || `Erro ${res.status}`);
       }
       toast.success('Entrevista reagendada com sucesso', { duration: 4000 });
       setRescheduleOpen(false);

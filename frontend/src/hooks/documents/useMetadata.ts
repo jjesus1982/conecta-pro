@@ -4,6 +4,7 @@
  */
 
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { msgFromDetail } from '@/lib/string';
 import { toast } from 'sonner';
 import * as metadataService from '@/services/documents/metadata';
 
@@ -72,7 +73,7 @@ export const useValidateCPF = () => {
     onError: (error: any) => {
       const message =
         error?.response?.data?.detail?.[0]?.msg ||
-        error?.response?.data?.detail ||
+        error?.response?.msgFromDetail(data?.detail) ||
         'Erro ao validar CPF';
       toast.error(message);
     },
@@ -95,7 +96,7 @@ export const useValidateCNPJ = () => {
     onError: (error: any) => {
       const message =
         error?.response?.data?.detail?.[0]?.msg ||
-        error?.response?.data?.detail ||
+        error?.response?.msgFromDetail(data?.detail) ||
         'Erro ao validar CNPJ';
       toast.error(message);
     },

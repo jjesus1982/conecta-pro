@@ -1,6 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
+import { msgFromDetail } from '@/lib/string';
 import { Users, Search, Plus, Eye, Edit2, Trash2, ArrowLeft, ChevronLeft, ChevronRight, RefreshCw, Star, Calendar, DollarSign, Clock, CheckCircle, XCircle, Filter, Sparkles, TrendingUp, Phone, Mail } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -83,7 +84,7 @@ export default function DiaristasPage() {
       if (res.data?.inativado && res.data?.mensagem) window.alert(res.data.mensagem);
       loadDiarists();
     } catch (e: any) {
-      window.alert(e?.response?.data?.detail || 'Falha ao remover o diarista.');
+      window.alert(e?.response?.msgFromDetail(data?.detail) || 'Falha ao remover o diarista.');
     }
   };
   const [page, setPage] = useState(1);

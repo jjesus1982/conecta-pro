@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import {
   Dialog,
   DialogContent,
@@ -38,7 +39,7 @@ export function MoveFolderDialog({ folder, open, onClose, onMoved }: MoveFolderD
       onClose();
     } catch (error: any) {
       toast.error('Erro ao mover pasta', {
-        description: error.response?.data?.detail || 'Erro desconhecido',
+        description: error.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
       });
     } finally {
       setLoading(false);

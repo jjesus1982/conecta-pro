@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, FormEvent } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { useRouter } from 'next/navigation';
 import { Shield, Eye, EyeOff, Loader2 } from 'lucide-react';
 
@@ -51,7 +52,7 @@ export default function LoginPage() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        throw new Error(data?.detail || 'Credenciais inválidas.');
+        throw new Error(msgFromDetail(data?.detail) || 'Credenciais inválidas.');
       }
 
       const data = await res.json();

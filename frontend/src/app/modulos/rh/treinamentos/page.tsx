@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { GraduationCap, Plus, MapPin, Loader2, X, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -96,7 +97,7 @@ export default function TreinamentosPage() {
         await loadData();
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao agendar treinamento', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao agendar treinamento', { duration: 5000 });
       }
     } catch {
       toast.error('Erro de conexao ao salvar treinamento', { duration: 5000 });

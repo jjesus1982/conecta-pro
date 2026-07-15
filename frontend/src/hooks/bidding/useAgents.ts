@@ -6,6 +6,7 @@
  */
 
 import { useQuery, useMutation } from '@tanstack/react-query';
+import { msgFromDetail } from '@/lib/string';
 import { toast } from 'sonner';
 import agentsService, {
   type ScoutRequest,
@@ -51,7 +52,7 @@ export function useScoutBuscar() {
       toast.success(`${data.total_encontrados} oportunidades encontradas`);
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro na busca do Scout');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro na busca do Scout');
     },
   });
 }
@@ -64,7 +65,7 @@ export function useAnalystAnalisar() {
       toast.success('Analise concluida com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro na analise do Analyst');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro na analise do Analyst');
     },
   });
 }
@@ -83,7 +84,7 @@ export function useAssessorAvaliar() {
       toast.info(msg);
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro na avaliacao do Assessor');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro na avaliacao do Assessor');
     },
   });
 }
@@ -96,7 +97,7 @@ export function usePricerCalcular() {
       toast.success('Precificacao calculada com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro no calculo do Pricer');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro no calculo do Pricer');
     },
   });
 }
@@ -115,7 +116,7 @@ export function usePipelineCompleto() {
       }
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro no pipeline');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro no pipeline');
     },
   });
 }
@@ -135,7 +136,7 @@ export function useSentinelVerificar() {
   return useMutation({
     mutationFn: (cnpj?: string) => agentsService.sentinelVerificar(cnpj),
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao verificar certidoes');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao verificar certidoes');
     },
   });
 }
@@ -146,7 +147,7 @@ export function useSentinelAlertas() {
     mutationFn: ({ cnpj, dias }: { cnpj?: string; dias?: number }) =>
       agentsService.sentinelAlertas(cnpj, dias),
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao gerar alertas');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao gerar alertas');
     },
   });
 }

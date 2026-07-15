@@ -1,6 +1,7 @@
 'use client';
 
 import { CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { msgFromDetail } from '@/lib/string';
 import { useState } from 'react';
 import {
   Dialog,
@@ -47,7 +48,7 @@ export function DocumentApprovalDialog({
     } catch (error: unknown) {
       const err = error as { response?: { data?: { detail?: string } } };
       toast.error('Erro ao aprovar documento', {
-        description: err.response?.data?.detail || 'Erro desconhecido',
+        description: err.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
       });
     } finally {
       setLoading(false);
@@ -71,7 +72,7 @@ export function DocumentApprovalDialog({
     } catch (error: unknown) {
       const err = error as { response?: { data?: { detail?: string } } };
       toast.error('Erro ao rejeitar documento', {
-        description: err.response?.data?.detail || 'Erro desconhecido',
+        description: err.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
       });
     } finally {
       setLoading(false);

@@ -1,6 +1,7 @@
 'use client';
 
 import { FileText, Search, RefreshCw, Plus, MoreHorizontal, Eye, Edit, Trash2, AlertCircle, DollarSign, Clock, CheckCircle, XCircle, Send, ThumbsUp, FileDown, Link2 } from 'lucide-react';
+import { msgFromDetail } from '@/lib/string';
 import { useState, useMemo, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { customInstance } from '@/lib/api-client';
@@ -224,7 +225,7 @@ export default function PropostasPage() {
       resetForm(); setEditItem(null); setFormOpen(false);
       toast.success(editItem ? 'Proposta atualizada' : 'Proposta criada');
     } catch (e: any) {
-      toast.error('Erro ao salvar: ' + (e?.response?.data?.detail || e?.message || 'verifique os campos'));
+      toast.error('Erro ao salvar: ' + (e?.response?.msgFromDetail(data?.detail) || e?.message || 'verifique os campos'));
     }
   };
 

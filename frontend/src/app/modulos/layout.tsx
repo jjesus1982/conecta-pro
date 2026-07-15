@@ -1,6 +1,6 @@
 'use client';
 
-import { Shield, ShieldCheck, ChevronLeft, ChevronRight, Menu, X, UserPlus, Target, Building2, Contact, FileText, FileSignature, ClipboardList, Calendar, CalendarDays, MapPin, UserCheck, AlertTriangle, Route, LogIn, Monitor, Bell, TrendingDown, TrendingUp, Activity, Receipt, CheckCircle2, FileSpreadsheet, FileCode, Award, File, Folder, Package, Repeat, Settings, Camera, Fingerprint, Video, Webhook, LayoutDashboard, ClipboardCheck, PieChart, Users, Lock, Building, Eye, Database, Clock, Megaphone, ShoppingCart, Calculator, Trash2, Key, RefreshCw, ToggleRight, Landmark, DollarSign, CreditCard, Wallet, Server, Zap, Plug, Truck, Plane, Handshake, Bot, HardHat, Stethoscope, Tag, BarChart2, BarChart3, Scale, ArrowRightLeft, Play, GitBranch, Mail, FileSearch, FileCheck, Briefcase, FolderOpen, Wrench, Coins, Filter, Magnet, Volume2, Trophy, Swords, PenLine, Library, BookUser, CalendarClock, Send, ShieldAlert } from 'lucide-react';
+import { Shield, ShieldCheck, ChevronLeft, ChevronRight, Menu, X, UserPlus, Target, Building2, Contact, FileText, FileSignature, ClipboardList, Calendar, CalendarDays, MapPin, UserCheck, AlertTriangle, Route, LogIn, Monitor, Bell, TrendingDown, TrendingUp, Activity, Receipt, CheckCircle2, FileSpreadsheet, FileCode, Award, File, Folder, Package, Repeat, Settings, Camera, Fingerprint, Video, Webhook, LayoutDashboard, ClipboardCheck, PieChart, Users, Lock, Building, Eye, Database, Clock, Megaphone, ShoppingCart, Calculator, Trash2, Key, RefreshCw, ToggleRight, Landmark, DollarSign, CreditCard, Wallet, Server, Zap, Plug, Truck, Plane, Handshake, Bot, HardHat, Stethoscope, Tag, BarChart2, BarChart3, Scale, ArrowRightLeft, Play, GitBranch, Mail, FileSearch, FileCheck, Briefcase, FolderOpen, Wrench, Coins, Filter, Magnet, Volume2, Trophy, Swords, PenLine, Library, BookUser, CalendarClock, Send, ShieldAlert, CalendarPlus } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
@@ -19,7 +19,7 @@ import { WebSocketProvider, useWebSocketContext } from '@/components/WebSocketPr
 // Mapeamento de icones para modulos e submodulos
 const iconMap: Record<string, React.ElementType> = {
   UserPlus, Target, Building2, Contact, FileText,
-  FileSignature, ClipboardList, Calendar, CalendarDays,
+  FileSignature, ClipboardList, Calendar, CalendarDays, CalendarPlus,
   MapPin, UserCheck, AlertTriangle, Route, LogIn,
   Monitor, Bell, TrendingDown, TrendingUp, Activity,
   Receipt, CheckCircle2, FileSpreadsheet, FileCode,

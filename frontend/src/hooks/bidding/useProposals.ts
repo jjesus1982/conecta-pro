@@ -6,6 +6,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { msgFromDetail } from '@/lib/string';
 import { toast } from 'sonner';
 import proposalsService, {
   type ListProposalsParams,
@@ -84,7 +85,7 @@ export function useCriarProposta() {
       toast.success('Proposta criada com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao criar proposta');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao criar proposta');
     },
   });
 }
@@ -101,7 +102,7 @@ export function useAtualizarProposta() {
       toast.success('Proposta atualizada com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao atualizar proposta');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao atualizar proposta');
     },
   });
 }
@@ -116,7 +117,7 @@ export function useRemoverProposta() {
       toast.success('Proposta removida com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao remover proposta');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao remover proposta');
     },
   });
 }
@@ -133,7 +134,7 @@ export function useMarcarPronta() {
       toast.success('Proposta marcada como pronta');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao marcar proposta como pronta');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao marcar proposta como pronta');
     },
   });
 }
@@ -150,7 +151,7 @@ export function useEnviarProposta() {
       toast.success('Proposta enviada com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao enviar proposta');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao enviar proposta');
     },
   });
 }
@@ -166,7 +167,7 @@ export function useRegistrarResultado() {
       toast.success('Resultado registrado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao registrar resultado');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao registrar resultado');
     },
   });
 }
@@ -182,7 +183,7 @@ export function useRegistrarLance() {
       toast.success('Lance registrado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao registrar lance');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao registrar lance');
     },
   });
 }
@@ -192,7 +193,7 @@ export function useCalcularBDI() {
   return useMutation({
     mutationFn: (params: CalcularBDIParams) => proposalsService.calcularBDI(params),
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao calcular BDI');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao calcular BDI');
     },
   });
 }

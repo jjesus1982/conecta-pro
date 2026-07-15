@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { ScanSearch, FileSearch, Loader2, ShieldAlert, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -73,7 +74,7 @@ export default function AnaliseContratoPage() {
         body: JSON.stringify({ nome, conteudo }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d?.detail || `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(msgFromDetail(d?.detail) || `HTTP ${r.status}`);
       setResultado(d);
       if (d?.ia_disponivel === false) {
         setFeedback(d?.mensagem || 'IA indisponível — o pedido foi registrado.');

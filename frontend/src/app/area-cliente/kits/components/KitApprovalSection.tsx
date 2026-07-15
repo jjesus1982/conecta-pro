@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { CheckCircle, PenLine, RotateCcw, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -170,7 +171,7 @@ export default function KitApprovalSection({ kitId, kitStatus, onApproved }: Kit
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || 'Erro ao aprovar');
+        throw new Error(msgFromDetail(err.detail) || 'Erro ao aprovar');
       }
       const data = await res.json();
       setApprovalStatus({ status: 'aprovado', approved_at: data.approved_at, approved_by: signatoryName });

@@ -7,6 +7,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { msgFromDetail } from '@/lib/string';
 import { toast } from 'sonner';
 import spedService, {
   type DocumentoFiscalParams,
@@ -46,7 +47,7 @@ export function useAdicionarDocumentoFiscal() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.data?.detail || 'Erro ao adicionar documento fiscal'
+        error?.response?.msgFromDetail(data?.detail) || 'Erro ao adicionar documento fiscal'
       );
     },
   });
@@ -66,7 +67,7 @@ export function useAdicionarInventario() {
       toast.success('Inventário adicionado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao adicionar inventário');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao adicionar inventário');
     },
   });
 }
@@ -89,7 +90,7 @@ export function useAdicionarProduto() {
       toast.success('Produto adicionado ao cadastro');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao adicionar produto');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao adicionar produto');
     },
   });
 }
@@ -106,7 +107,7 @@ export function useGerarArquivoSpedFiscal() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.data?.detail || 'Erro ao gerar arquivo SPED Fiscal'
+        error?.response?.msgFromDetail(data?.detail) || 'Erro ao gerar arquivo SPED Fiscal'
       );
     },
   });
@@ -131,7 +132,7 @@ export function useAdicionarContaContabil() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.data?.detail || 'Erro ao adicionar conta contábil'
+        error?.response?.msgFromDetail(data?.detail) || 'Erro ao adicionar conta contábil'
       );
     },
   });
@@ -152,7 +153,7 @@ export function useAdicionarLancamento() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.data?.detail || 'Erro ao adicionar lançamento contábil'
+        error?.response?.msgFromDetail(data?.detail) || 'Erro ao adicionar lançamento contábil'
       );
     },
   });
@@ -173,7 +174,7 @@ export function useDefinirBalanco() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.data?.detail || 'Erro ao definir balanço patrimonial'
+        error?.response?.msgFromDetail(data?.detail) || 'Erro ao definir balanço patrimonial'
       );
     },
   });
@@ -192,7 +193,7 @@ export function useDefinirDRE() {
       toast.success('DRE definida com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao definir DRE');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao definir DRE');
     },
   });
 }
@@ -209,7 +210,7 @@ export function useGerarArquivoSpedContabil() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.data?.detail || 'Erro ao gerar arquivo SPED Contábil'
+        error?.response?.msgFromDetail(data?.detail) || 'Erro ao gerar arquivo SPED Contábil'
       );
     },
   });
@@ -228,7 +229,7 @@ export function useGerarR1000() {
       toast.success('Evento R-1000 gerado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao gerar evento R-1000');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao gerar evento R-1000');
     },
   });
 }
@@ -246,7 +247,7 @@ export function useGerarR2010() {
       toast.success('Evento R-2010 gerado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao gerar evento R-2010');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao gerar evento R-2010');
     },
   });
 }
@@ -264,7 +265,7 @@ export function useGerarR2099() {
       toast.success('Evento R-2099 (Fechamento) gerado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao gerar evento R-2099');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao gerar evento R-2099');
     },
   });
 }
@@ -282,7 +283,7 @@ export function useGerarR4010() {
       toast.success('Evento R-4010 gerado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao gerar evento R-4010');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao gerar evento R-4010');
     },
   });
 }
@@ -300,7 +301,7 @@ export function useGerarR4020() {
       toast.success('Evento R-4020 gerado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao gerar evento R-4020');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao gerar evento R-4020');
     },
   });
 }
@@ -320,7 +321,7 @@ export function useImportarReinf() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.data?.detail || 'Erro ao importar arquivo EFD-Reinf'
+        error?.response?.msgFromDetail(data?.detail) || 'Erro ao importar arquivo EFD-Reinf'
       );
     },
   });
@@ -344,7 +345,7 @@ export function useValidarSped() {
       }
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao validar arquivo SPED');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao validar arquivo SPED');
     },
   });
 }

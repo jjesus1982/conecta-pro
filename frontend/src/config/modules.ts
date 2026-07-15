@@ -232,6 +232,7 @@ export const modules: Module[] = [
       { id: 'turnos', title: 'Turnos', href: '/modulos/operacional/turnos', icon: 'Clock', permissions: ['module:operacional'] },
       { id: 'substituicoes', title: 'Substituicoes', href: '/modulos/operacional/substituicoes', icon: 'RefreshCw', permissions: ['module:operacional'] },
       { id: 'diaristas', title: 'Diaristas', href: '/modulos/operacional/diaristas', icon: 'UserCheck', permissions: ['module:operacional'] },
+      { id: 'diarias', title: 'Lancamento de Diarias', href: '/modulos/operacional/diarias', icon: 'CalendarPlus', permissions: ['module:operacional'] },
       { id: 'banco-horas', title: 'Banco de Horas', href: '/modulos/operacional/banco-horas', icon: 'Clock', permissions: ['module:operacional'] },
       // --- Dia a dia do lider (mobile-first) ---
       { id: 'presenca-hoje', title: 'Presenca Hoje', href: '/modulos/operacional/presenca', icon: 'UserCheck', permissions: ['module:operacional'] },
@@ -383,6 +384,7 @@ export const modules: Module[] = [
       // --- Banco Inter ---
       { id: 'inter-painel', title: 'Banco Inter', href: '/modulos/financeiro/inter', icon: 'Building2', permissions: ['module:financeiro'] },
       { id: 'inter-pagamentos', title: 'Pagamentos & Transferências', href: '/modulos/financeiro/inter/pagamentos', icon: 'Send', permissions: ['module:financeiro'] },
+      { id: 'pagamentos-diaristas', title: 'Pagamentos de Diaristas (VT+VR)', href: '/modulos/financeiro/pagamentos-diaristas', icon: 'Coins', permissions: ['module:financeiro'] },
       { id: 'fornecedores', title: 'Fornecedores', href: '/modulos/financeiro/fornecedores', icon: 'Truck', permissions: ['module:financeiro'] },
       // --- Suprimentos ---
       { id: 'compras', title: 'Compras', href: '/modulos/financeiro/compras', icon: 'ShoppingCart', permissions: ['module:financeiro'] },

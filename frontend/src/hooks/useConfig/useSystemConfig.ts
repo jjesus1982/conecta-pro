@@ -3,6 +3,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { msgFromDetail } from '@/lib/string';
 import { toast } from 'sonner';
 import * as systemConfigService from '@/services/config/system-config';
 import type {
@@ -42,7 +43,7 @@ export const useCreateSystemConfig = () => {
       toast.success('Configuração criada!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao criar');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao criar');
     },
   });
 };
@@ -58,7 +59,7 @@ export const useUpdateSystemConfig = () => {
       toast.success('Configuração atualizada!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao atualizar');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao atualizar');
     },
   });
 };
@@ -72,7 +73,7 @@ export const useDeleteSystemConfig = () => {
       toast.success('Configuração deletada!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao deletar');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao deletar');
     },
   });
 };

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { Scale, FileText, AlertTriangle, Loader2, Plus, Download, ShieldAlert } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -74,7 +75,7 @@ export default function PareceresPage() {
         body: JSON.stringify({ area, titulo, contexto }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d?.detail || `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(msgFromDetail(d?.detail) || `HTTP ${r.status}`);
       if (d?.ia_disponivel === false) {
         setFeedback(d?.mensagem || 'IA indisponível — o pedido foi registrado.');
       } else {

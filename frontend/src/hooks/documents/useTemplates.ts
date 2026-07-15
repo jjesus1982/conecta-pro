@@ -4,6 +4,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { msgFromDetail } from '@/lib/string';
 import { toast } from 'sonner';
 import * as templatesService from '@/services/documents/templates';
 import type { TemplateRequest } from '@/types/generated/documents';
@@ -59,7 +60,7 @@ export const useCreateDocumentTemplate = () => {
     onError: (error: any) => {
       const message =
         error?.response?.data?.detail?.[0]?.msg ||
-        error?.response?.data?.detail ||
+        error?.response?.msgFromDetail(data?.detail) ||
         'Erro ao criar template';
       toast.error(message);
     },
@@ -83,7 +84,7 @@ export const useDeleteTemplate = () => {
     onError: (error: any) => {
       const message =
         error?.response?.data?.detail?.[0]?.msg ||
-        error?.response?.data?.detail ||
+        error?.response?.msgFromDetail(data?.detail) ||
         'Erro ao remover template';
       toast.error(message);
     },

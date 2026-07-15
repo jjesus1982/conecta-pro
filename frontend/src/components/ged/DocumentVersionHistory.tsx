@@ -1,6 +1,7 @@
 'use client';
 
 import { Clock, Download, Archive, CheckCircle2, XCircle, FileText, User, Calendar, ArrowUpDown, Eye } from 'lucide-react';
+import { msgFromDetail } from '@/lib/string';
 import { useState, useEffect } from 'react';
 import {
   Dialog,
@@ -47,7 +48,7 @@ export function DocumentVersionHistory({
       setVersions(data);
     } catch (error: any) {
       toast.error('Erro ao carregar versões', {
-        description: error.response?.data?.detail || 'Erro desconhecido',
+        description: error.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
       });
     } finally {
       setLoading(false);
@@ -61,7 +62,7 @@ export function DocumentVersionHistory({
       loadVersions();
     } catch (error: any) {
       toast.error('Erro ao definir versão atual', {
-        description: error.response?.data?.detail || 'Erro desconhecido',
+        description: error.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
       });
     }
   };
@@ -73,7 +74,7 @@ export function DocumentVersionHistory({
       loadVersions();
     } catch (error: any) {
       toast.error('Erro ao arquivar versão', {
-        description: error.response?.data?.detail || 'Erro desconhecido',
+        description: error.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
       });
     }
   };
@@ -89,7 +90,7 @@ export function DocumentVersionHistory({
       loadVersions();
     } catch (error: any) {
       toast.error('Erro ao excluir versão', {
-        description: error.response?.data?.detail || 'Erro desconhecido',
+        description: error.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
       });
     }
   };
@@ -101,7 +102,7 @@ export function DocumentVersionHistory({
       setCompareResult(result);
     } catch (error: any) {
       toast.error('Erro ao comparar versões', {
-        description: error.response?.data?.detail || 'Erro desconhecido',
+        description: error.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
       });
       setComparing(null);
     }

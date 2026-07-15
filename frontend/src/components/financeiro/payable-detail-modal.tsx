@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { Modal, ModalFooter } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -91,7 +92,7 @@ export function PayableDetailModal({ isOpen, onClose, payable, onSuccess }: Paya
             onSuccess?.();
           }, 2000);
         } else {
-          setPaymentMsg({ ok: false, text: d.detail || JSON.stringify(d) });
+          setPaymentMsg({ ok: false, text: msgFromDetail(d.detail) || JSON.stringify(d) });
         }
       } else {
         // Registrar pagamento manual

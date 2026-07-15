@@ -1,6 +1,7 @@
 'use client';
 
 import { PenTool, User, Mail, Phone, FileText, Calendar, Plus, X, Check, AlertCircle, Send } from 'lucide-react';
+import { msgFromDetail } from '@/lib/string';
 import { useState, useRef, useEffect } from 'react';
 import {
   Dialog,
@@ -139,7 +140,7 @@ export function DocumentSignatureDialog({
       onClose();
     } catch (error: any) {
       toast.error('Erro ao solicitar assinaturas', {
-        description: error.response?.data?.detail || 'Erro desconhecido',
+        description: error.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
       });
     } finally {
       setLoading(false);
@@ -219,7 +220,7 @@ export function DocumentSignatureDialog({
       onClose();
     } catch (error: any) {
       toast.error('Erro ao assinar documento', {
-        description: error.response?.data?.detail || 'Erro desconhecido',
+        description: error.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
       });
     } finally {
       setLoading(false);

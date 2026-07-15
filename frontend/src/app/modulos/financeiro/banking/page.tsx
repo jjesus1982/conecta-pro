@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { msgFromDetail } from '@/lib/string';
 import { Landmark, CheckCircle2, Clock, XCircle, Wallet, List, Receipt, Zap, CreditCard, RefreshCw, Lightbulb, type LucideIcon } from 'lucide-react'
 
 const API = '/api/v1/integrations/banking'
@@ -142,7 +143,7 @@ export default function BankingPage() {
           }
         }
       } else {
-        setMsg({ ok: false, text: `Erro: ${d.detail || JSON.stringify(d)}` })
+        setMsg({ ok: false, text: `Erro: ${msgFromDetail(d.detail) || JSON.stringify(d)}` })
       }
     } catch (e) {
       setMsg({ ok: false, text: `Erro: ${e}` })
@@ -166,7 +167,7 @@ export default function BankingPage() {
         setMsg({ ok: true, text: `PIX gerado! Copia e cola: ${
           (d.pix_copy_paste || '').substring(0, 50)}...` })
       } else {
-        setMsg({ ok: false, text: `${d.detail || JSON.stringify(d)}` })
+        setMsg({ ok: false, text: `${msgFromDetail(d.detail) || JSON.stringify(d)}` })
       }
     } catch (e) {
       setMsg({ ok: false, text: `${e}` })
@@ -190,7 +191,7 @@ export default function BankingPage() {
       if (d.success) {
         setMsg({ ok: true, text: `Pagamento realizado! ID: ${d.payment_id}` })
       } else {
-        setMsg({ ok: false, text: `${d.detail || JSON.stringify(d)}` })
+        setMsg({ ok: false, text: `${msgFromDetail(d.detail) || JSON.stringify(d)}` })
       }
     } catch (e) {
       setMsg({ ok: false, text: `${e}` })
@@ -213,7 +214,7 @@ export default function BankingPage() {
       if (d.success) {
         setMsg({ ok: true, text: `DARF pago! ID: ${d.payment_id}` })
       } else {
-        setMsg({ ok: false, text: `${d.detail || JSON.stringify(d)}` })
+        setMsg({ ok: false, text: `${msgFromDetail(d.detail) || JSON.stringify(d)}` })
       }
     } catch (e) {
       setMsg({ ok: false, text: `${e}` })

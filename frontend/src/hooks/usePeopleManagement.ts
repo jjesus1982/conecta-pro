@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { msgFromDetail } from '@/lib/string';
 
 const API_PM = '/api/v1/people-management'
 
@@ -103,7 +104,7 @@ function useMutation<T = any>(url: string, method: string = 'POST'): MutationSta
         return result
       } else {
         const err = await res.json().catch(() => ({ detail: `Erro ${res.status}` }))
-        setError(err.detail || `Erro ${res.status}`)
+        setError(msgFromDetail(err.detail) || `Erro ${res.status}`)
         return null
       }
     } catch {

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { msgFromDetail } from '@/lib/string';
 import { User, Mail, Phone, MapPin, Building, Calendar, Save, Pencil, X, Loader2, AlertCircle } from 'lucide-react'
 
 const API_BASE = '/api/v1/people-management/portal'
@@ -70,7 +71,7 @@ export default function DadosPessoaisPortalPage() {
         setTimeout(() => setSuccess(null), 3000)
       } else {
         const err = await res.json()
-        setError(err.detail || 'Erro ao salvar dados')
+        setError(msgFromDetail(err.detail) || 'Erro ao salvar dados')
       }
     } catch {
       setError('Erro de conexão')

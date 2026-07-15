@@ -1,6 +1,7 @@
 'use client';
 
 import { Share2, Link, Mail, User, Calendar, Download, Eye, Lock, Copy, Check } from 'lucide-react';
+import { msgFromDetail } from '@/lib/string';
 import { useState } from 'react';
 import {
   Dialog,
@@ -99,7 +100,7 @@ export function DocumentShareDialog({ documentId, open, onClose }: DocumentShare
       onClose();
     } catch (error: any) {
       toast.error('Erro ao compartilhar documento', {
-        description: error.response?.data?.detail || 'Erro desconhecido',
+        description: error.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
       });
     } finally {
       setLoading(false);
@@ -122,7 +123,7 @@ export function DocumentShareDialog({ documentId, open, onClose }: DocumentShare
       toast.success('Link público criado');
     } catch (error: any) {
       toast.error('Erro ao criar link público', {
-        description: error.response?.data?.detail || 'Erro desconhecido',
+        description: error.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
       });
     } finally {
       setLoading(false);

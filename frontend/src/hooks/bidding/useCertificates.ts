@@ -7,6 +7,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { msgFromDetail } from '@/lib/string';
 import { toast } from 'sonner';
 import certificatesService, {
   type ListCertificatesParams,
@@ -69,7 +70,7 @@ export function useCriarCertidao() {
       toast.success('Certidão criada com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao criar certidão');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao criar certidão');
     },
   });
 }
@@ -90,7 +91,7 @@ export function useAtualizarCertidao() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.data?.detail || 'Erro ao atualizar certidão'
+        error?.response?.msgFromDetail(data?.detail) || 'Erro ao atualizar certidão'
       );
     },
   });
@@ -110,7 +111,7 @@ export function useRemoverCertidao() {
       toast.success('Certidão removida com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao remover certidão');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao remover certidão');
     },
   });
 }
@@ -184,7 +185,7 @@ export function useRenovarCertidoes() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.data?.detail || 'Erro ao renovar certidões'
+        error?.response?.msgFromDetail(data?.detail) || 'Erro ao renovar certidões'
       );
     },
   });
@@ -205,7 +206,7 @@ export function useAtualizarStatusEmLote() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.data?.detail || 'Erro ao atualizar status em lote'
+        error?.response?.msgFromDetail(data?.detail) || 'Erro ao atualizar status em lote'
       );
     },
   });

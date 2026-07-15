@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { Scale, Bot, Send, Loader2, AlertTriangle, History, Paperclip, X } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -80,7 +81,7 @@ export default function ConsultorJuridicoPage() {
       } else {
         r = await fetch(`${API_BASE}/perguntar`, { method: 'POST', headers: getAuthHeaders(), body: JSON.stringify({ area, pergunta }) });
       }
-      if (!r.ok) { const e = await r.json().catch(() => ({})); setErro(e?.detail || `A IA não respondeu agora (HTTP ${r.status}).`); return; }
+      if (!r.ok) { const e = await r.json().catch(() => ({})); setErro(msgFromDetail(e?.detail) || `A IA não respondeu agora (HTTP ${r.status}).`); return; }
       const data = await r.json();
       if (data?.indisponivel) { setErro('Consultor IA temporariamente indisponível.'); return; }
       setResposta(data);

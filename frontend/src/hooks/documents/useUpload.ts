@@ -4,6 +4,7 @@
  */
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { msgFromDetail } from '@/lib/string';
 import { toast } from 'sonner';
 import * as uploadService from '@/services/documents/upload';
 
@@ -44,7 +45,7 @@ export const useUploadDocument = () => {
     onError: (error: any) => {
       const message =
         error?.response?.data?.detail?.[0]?.msg ||
-        error?.response?.data?.detail ||
+        error?.response?.msgFromDetail(data?.detail) ||
         'Erro ao enviar documento';
       toast.error(message);
     },
@@ -86,7 +87,7 @@ export const useUploadBatch = () => {
     onError: (error: any) => {
       const message =
         error?.response?.data?.detail?.[0]?.msg ||
-        error?.response?.data?.detail ||
+        error?.response?.msgFromDetail(data?.detail) ||
         'Erro ao enviar documentos';
       toast.error(message);
     },

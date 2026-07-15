@@ -7,6 +7,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { msgFromDetail } from '@/lib/string';
 import { toast } from 'sonner';
 import fgtsSimplesService, {
   type CalculoFGTSParams,
@@ -32,7 +33,7 @@ export function useCalcularFGTS() {
       toast.success('FGTS calculado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao calcular FGTS');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao calcular FGTS');
     },
   });
 }
@@ -48,7 +49,7 @@ export function useCalcularINSS() {
       toast.success('INSS calculado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao calcular INSS');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao calcular INSS');
     },
   });
 }
@@ -67,7 +68,7 @@ export function useEmitirDPS() {
       toast.success('DPS emitida com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao emitir DPS');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao emitir DPS');
     },
   });
 }
@@ -86,7 +87,7 @@ export function useConsultarExtrato() {
       toast.success('Extrato FGTS consultado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao consultar extrato FGTS');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao consultar extrato FGTS');
     },
   });
 }
@@ -103,7 +104,7 @@ export function useGerarGuiaMensal() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.data?.detail || 'Erro ao gerar guia mensal FGTS'
+        error?.response?.msgFromDetail(data?.detail) || 'Erro ao gerar guia mensal FGTS'
       );
     },
   });
@@ -125,7 +126,7 @@ export function useCalcularApuracaoSimples() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.data?.detail || 'Erro ao calcular apuração Simples Nacional'
+        error?.response?.msgFromDetail(data?.detail) || 'Erro ao calcular apuração Simples Nacional'
       );
     },
   });
@@ -145,7 +146,7 @@ export function useCalcularPGDASD() {
       toast.success('PGDAS-D calculado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao calcular PGDAS-D');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao calcular PGDAS-D');
     },
   });
 }
@@ -161,7 +162,7 @@ export function useGerarDAS() {
       toast.success('DAS gerado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao gerar DAS');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao gerar DAS');
     },
   });
 }
@@ -180,7 +181,7 @@ export function useGerarDARFs() {
       toast.success('DARFs geradas com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao gerar DARFs');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao gerar DARFs');
     },
   });
 }
@@ -199,7 +200,7 @@ export function useCalcularFatorR() {
       toast.success('Fator R calculado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao calcular Fator R');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao calcular Fator R');
     },
   });
 }

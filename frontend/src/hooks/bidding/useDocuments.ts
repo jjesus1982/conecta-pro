@@ -6,6 +6,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { msgFromDetail } from '@/lib/string';
 import { toast } from 'sonner';
 import documentsService, {
   type ListDocumentsParams,
@@ -103,7 +104,7 @@ export function useCriarDocumento() {
       toast.success('Documento criado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao criar documento');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao criar documento');
     },
   });
 }
@@ -120,7 +121,7 @@ export function useAtualizarDocumento() {
       toast.success('Documento atualizado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao atualizar documento');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao atualizar documento');
     },
   });
 }
@@ -135,7 +136,7 @@ export function useRemoverDocumento() {
       toast.success('Documento removido com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao remover documento');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao remover documento');
     },
   });
 }
@@ -151,7 +152,7 @@ export function useAtualizarStatusEmLote() {
       toast.success(`${data.total_atualizado} documentos atualizados`);
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao atualizar status');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao atualizar status');
     },
   });
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { ClipboardList, Loader2, Plus, Trash2, CalendarDays, Users, BarChart3, UserPlus, Pencil, Power, X } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -28,7 +29,7 @@ const cpfValido = (v: string) => {
   return true;
 };
 // detail do backend (string PT-BR ou lista de erros de validação do FastAPI)
-const parseDetail = (d: any) => Array.isArray(d) ? d.map((e: any) => e?.msg || e?.detail || '').filter(Boolean).join(' · ') : String(d);
+const parseDetail = (d: any) => Array.isArray(d) ? d.map((e: any) => e?.msg || msgFromDetail(e?.detail) || '').filter(Boolean).join(' · ') : String(d);
 
 export default function DiariasPage() {
   const hoje = new Date().toISOString().slice(0, 10);

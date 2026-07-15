@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import {
   Landmark, FileText, Bot, Send, Loader2, AlertTriangle, History,
   Paperclip, X, ShieldCheck, Receipt, ArrowDownLeft, Package,
@@ -116,7 +117,7 @@ export default function ConsultorFiscalPage() {
       } else {
         r = await fetch(`${API_BASE}/perguntar`, { method: 'POST', headers: getAuthHeaders(), body: JSON.stringify({ area, pergunta }) });
       }
-      if (!r.ok) { const e = await r.json().catch(() => ({})); setErro(e?.detail || `O Consultor Fiscal não respondeu agora (HTTP ${r.status}).`); return; }
+      if (!r.ok) { const e = await r.json().catch(() => ({})); setErro(msgFromDetail(e?.detail) || `O Consultor Fiscal não respondeu agora (HTTP ${r.status}).`); return; }
       const data = await r.json();
       if (data?.indisponivel) { setErro('Consultor Fiscal IA temporariamente indisponível — os números do painel continuam reais.'); if (data?.panorama) setPano(data.panorama); return; }
       setResposta(data);

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import {
   Upload,
   FileText,
@@ -304,7 +305,7 @@ export default function UploadPage() {
         loadRecent();
       } else {
         const err = await res.json().catch(() => null);
-        setError(err?.detail?.[0]?.msg || err?.detail || 'Erro ao enviar documento.');
+        setError(err?.detail?.[0]?.msg || msgFromDetail(err?.detail) || 'Erro ao enviar documento.');
       }
     } catch (err) {
       console.error('Erro ao enviar documento:', err);

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import {
   MessageCircle,
   Send,
@@ -177,7 +178,7 @@ export default function WhatsAppPage() {
         sent_at: new Date().toISOString(),
       });
       if (data.success) { alert('Kit enviado com sucesso!'); }
-      else { alert(data.detail || data.message || 'Erro ao enviar'); }
+      else { alert(msgFromDetail(data.detail) || data.message || 'Erro ao enviar'); }
       setKitModal(false);
     } catch (error) { alert('Erro de conexão ao enviar WhatsApp'); console.error(error); }
     finally { setSending(false); }
@@ -231,7 +232,7 @@ export default function WhatsAppPage() {
         sent_at: new Date().toISOString(),
       });
       if (data.success) { alert('Mensagem enviada!'); setCustomPhone(''); setCustomMessage(''); }
-      else { alert(data.detail || data.message || 'Erro ao enviar'); }
+      else { alert(msgFromDetail(data.detail) || data.message || 'Erro ao enviar'); }
     } catch (error) { alert('Erro de conexão'); console.error(error); }
     finally { setSending(false); }
   };

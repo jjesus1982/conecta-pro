@@ -1,6 +1,7 @@
 'use client';
 
 import { use, useEffect, useState } from 'react';
+import { msgFromDetail } from '@/lib/string';
 
 // Página PÚBLICA de assinatura (sem login). O cliente abre o link da proposta, confere e assina.
 // Provedor interno: a assinatura é registrada pelo próprio sistema (proposal_signatures).
@@ -50,7 +51,7 @@ export default function AssinarPage({ params }: { params: Promise<{ id: string }
         body: JSON.stringify({ signer_name: name.trim(), signer_cpf: cpf.trim() || null }),
       });
       const j = await r.json();
-      if (!r.ok || !j.signed) throw new Error(j.detail || 'Não foi possível registrar a assinatura.');
+      if (!r.ok || !j.signed) throw new Error(msgFromDetail(j.detail) || 'Não foi possível registrar a assinatura.');
       setDone({ hash: j.hash });
     } catch (e: any) {
       setErr(e.message);

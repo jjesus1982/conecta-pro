@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, FormEvent } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { Lock, Bell, Building2, Loader2, Check, AlertCircle } from 'lucide-react';
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || '') + '/api/v1/portal';
@@ -85,7 +86,7 @@ export default function ConfiguracoesPage() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        throw new Error(data?.detail || 'Erro ao alterar senha.');
+        throw new Error(msgFromDetail(data?.detail) || 'Erro ao alterar senha.');
       }
       setPasswordMsg({ type: 'success', text: 'Senha alterada com sucesso!' });
       setCurrentPassword('');

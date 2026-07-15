@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect } from 'react'
+import { msgFromDetail } from '@/lib/string';
 import {
   PenLine,
   ShieldCheck,
@@ -108,7 +109,7 @@ export default function AssinaturaPortalPage() {
         loadDocuments()
       } else {
         const err = await res.json().catch(() => ({}))
-        showToast(err.detail || 'Erro ao assinar documento.', 'error')
+        showToast(msgFromDetail(err.detail) || 'Erro ao assinar documento.', 'error')
       }
     } catch {
       showToast('Erro de conexão ao assinar.', 'error')
@@ -130,7 +131,7 @@ export default function AssinaturaPortalPage() {
         setVerifyResult(await res.json())
       } else {
         const err = await res.json().catch(() => ({}))
-        showToast(err.detail || 'Erro ao verificar assinatura.', 'error')
+        showToast(msgFromDetail(err.detail) || 'Erro ao verificar assinatura.', 'error')
       }
     } catch {
       showToast('Erro de conexão ao verificar.', 'error')

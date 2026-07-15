@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import {
   PenTool,
   Clock,
@@ -167,7 +168,7 @@ export default function AssinaturasPage() {
         loadData();
       } else {
         const data = await res.json().catch(() => ({}));
-        showToast(data.detail || 'Erro ao assinar documento', 'error');
+        showToast(msgFromDetail(data.detail) || 'Erro ao assinar documento', 'error');
       }
     } catch (err) {
       console.error('handleSign:', err);
@@ -194,7 +195,7 @@ export default function AssinaturasPage() {
         loadData();
       } else {
         const data = await res.json().catch(() => ({}));
-        showToast(data.detail || 'Erro ao recusar assinatura', 'error');
+        showToast(msgFromDetail(data.detail) || 'Erro ao recusar assinatura', 'error');
       }
     } catch (err) {
       console.error('handleRefuse:', err);

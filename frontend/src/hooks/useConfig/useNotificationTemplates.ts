@@ -3,6 +3,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { msgFromDetail } from '@/lib/string';
 import { toast } from 'sonner';
 import * as templatesService from '@/services/config/notification-templates';
 import type {
@@ -46,7 +47,7 @@ export const useCreateNotificationTemplate = () => {
       toast.success('Template criado!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao criar');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao criar');
     },
   });
 };
@@ -64,7 +65,7 @@ export const useUpdateNotificationTemplate = () => {
       toast.success('Template atualizado!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao atualizar');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao atualizar');
     },
   });
 };
@@ -79,7 +80,7 @@ export const useActivateNotificationTemplate = () => {
       toast.success('Template ativado!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao ativar');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao ativar');
     },
   });
 };
@@ -94,7 +95,7 @@ export const useDeactivateNotificationTemplate = () => {
       toast.success('Template desativado!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao desativar');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao desativar');
     },
   });
 };
@@ -104,7 +105,7 @@ export const useRenderNotificationTemplate = () => {
     mutationFn: ({ id, render }: { id: string; render: NotificationTemplateRender }) =>
       templatesService.renderNotificationTemplate(id, render),
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao renderizar');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao renderizar');
     },
   });
 };
@@ -118,7 +119,7 @@ export const useCloneNotificationTemplate = () => {
       toast.success('Template clonado!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao clonar');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao clonar');
     },
   });
 };
@@ -132,7 +133,7 @@ export const useDeleteNotificationTemplate = () => {
       toast.success('Template deletado!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao deletar');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao deletar');
     },
   });
 };

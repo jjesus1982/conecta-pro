@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { BookOpen, Plus, Clock, Users, CheckCircle, XCircle, Loader2, X, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -99,7 +100,7 @@ export default function CursosPage() {
         await loadCursos();
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao criar curso', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao criar curso', { duration: 5000 });
       }
     } catch {
       toast.error('Erro de conexao ao salvar curso', { duration: 5000 });

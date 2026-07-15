@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { X, Upload, FileUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -100,7 +101,7 @@ export function DocumentUploadModal({
       });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao enviar arquivo', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao enviar arquivo', { duration: 5000 });
         return;
       }
       const gedDoc = await res.json();

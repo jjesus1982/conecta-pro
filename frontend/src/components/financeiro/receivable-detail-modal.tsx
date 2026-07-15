@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { Modal, ModalFooter } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -128,7 +129,7 @@ export function ReceivableDetailModal({ isOpen, onClose, receivable }: Receivabl
           });
           setCobrancaMsg({ ok: true, text: 'Boleto gerado com sucesso!' });
         } else {
-          setCobrancaMsg({ ok: false, text: d.detail || d.error || JSON.stringify(d) });
+          setCobrancaMsg({ ok: false, text: msgFromDetail(d.detail) || d.error || JSON.stringify(d) });
         }
       } else {
         const r = await fetch('/api/v1/integrations/banking/pix/generate', {
@@ -153,7 +154,7 @@ export function ReceivableDetailModal({ isOpen, onClose, receivable }: Receivabl
           });
           setCobrancaMsg({ ok: true, text: 'PIX gerado com sucesso!' });
         } else {
-          setCobrancaMsg({ ok: false, text: d.detail || d.error || JSON.stringify(d) });
+          setCobrancaMsg({ ok: false, text: msgFromDetail(d.detail) || d.error || JSON.stringify(d) });
         }
       }
     } catch (e) {

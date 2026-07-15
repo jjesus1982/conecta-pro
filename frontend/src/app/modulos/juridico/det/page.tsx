@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { ShieldCheck, Loader2, Upload, AlertTriangle, Landmark, FileText, RefreshCw, X } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -46,7 +47,7 @@ export default function DetPage() {
         if (texto.trim().length < 30) { setErro('Cole o texto da comunicação (ou envie o PDF).'); setProc(false); return; }
         r = await fetch(`${API_BASE}/comunicacao`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ texto }) });
       }
-      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e?.detail || `HTTP ${r.status}`); }
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(msgFromDetail(e?.detail) || `HTTP ${r.status}`); }
       const d = await r.json();
       setRes(d); setTexto(''); setArquivo(null); carregar();
     } catch (e: any) { setErro(e?.message || 'Falha ao processar.'); }

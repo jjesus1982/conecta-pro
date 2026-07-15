@@ -4,6 +4,7 @@
  */
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { msgFromDetail } from '@/lib/string';
 import { toast } from 'sonner';
 import * as processingService from '@/services/documents/processing';
 
@@ -46,7 +47,7 @@ export const useRunOCR = () => {
     onError: (error: any) => {
       const message =
         error?.response?.data?.detail?.[0]?.msg ||
-        error?.response?.data?.detail ||
+        error?.response?.msgFromDetail(data?.detail) ||
         'Erro ao executar OCR';
       toast.error(message);
     },
@@ -75,7 +76,7 @@ export const useClassifyDocument = () => {
     onError: (error: any) => {
       const message =
         error?.response?.data?.detail?.[0]?.msg ||
-        error?.response?.data?.detail ||
+        error?.response?.msgFromDetail(data?.detail) ||
         'Erro ao classificar documento';
       toast.error(message);
     },
@@ -104,7 +105,7 @@ export const useExtractData = () => {
     onError: (error: any) => {
       const message =
         error?.response?.data?.detail?.[0]?.msg ||
-        error?.response?.data?.detail ||
+        error?.response?.msgFromDetail(data?.detail) ||
         'Erro ao extrair dados';
       toast.error(message);
     },
@@ -146,7 +147,7 @@ export const useValidateData = () => {
     onError: (error: any) => {
       const message =
         error?.response?.data?.detail?.[0]?.msg ||
-        error?.response?.data?.detail ||
+        error?.response?.msgFromDetail(data?.detail) ||
         'Erro ao validar dados';
       toast.error(message);
     },
@@ -176,7 +177,7 @@ export const useProcessDocument = () => {
     onError: (error: any) => {
       const message =
         error?.response?.data?.detail?.[0]?.msg ||
-        error?.response?.data?.detail ||
+        error?.response?.msgFromDetail(data?.detail) ||
         'Erro ao processar documento';
       toast.error(message);
     },

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { Scale, PiggyBank, Loader2, TrendingUp, Cpu, Building2, Plus, Info } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -72,7 +73,7 @@ export default function EscritorioRoiPage() {
         body: JSON.stringify(body),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d?.detail || `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(msgFromDetail(d?.detail) || `HTTP ${r.status}`);
       setFeedback('Demanda registrada.');
       setAssunto('');
       setCusto('');

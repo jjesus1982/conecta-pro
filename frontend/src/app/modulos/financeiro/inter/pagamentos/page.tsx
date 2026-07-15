@@ -1,8 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback, type ReactNode } from "react";
+import { msgFromDetail } from '@/lib/string';
+import dynamic from "next/dynamic";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Wallet, TrendingDown, ShieldCheck, Lock, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Wallet, TrendingDown, ShieldCheck, Lock, CheckCircle2, AlertTriangle, Camera, FileText } from "lucide-react";
+
+// Scanner de câmera (QR PIX + código de barras boleto) — client-only (usa a câmera)
+const ScannerPagamento = dynamic(() => import("@/components/financeiro/ScannerPagamento"), { ssr: false });
 
 // ── tipos ─────────────────────────────────────────────────────────────────────
 
@@ -46,7 +51,7 @@ async function apiFetch(path: string, options?: RequestInit) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || res.statusText);
+    throw new Error(msgFromDetail(err.detail) || res.statusText);
   }
   return res.json();
 }
@@ -95,6 +100,79 @@ function NovoPagamentoForm({ onPrepared, saldo }: { onPrepared: () => void; sald
   const handleDestChange = (key: string, val: string) =>
     setDest((prev) => ({ ...prev, [key]: val }));
 
+  // Agenda de beneficiários (como o app do Inter): digita o nome → carrega a chave PIX.
+  const [benefQ, setBenefQ] = useState("");
+  const [benefList, setBenefList] = useState<Array<Record<string, string>>>([]);
+  const [benefOpen, setBenefOpen] = useState(false);
+  const buscarBenef = async (q: string) => {
+    setBenefQ(q); setBenefOpen(true);
+    if (q.trim().length < 2) { setBenefList([]); return; }
+    try {
+      const r = await apiFetch(`/api/v1/financial/beneficiarios?q=${encodeURIComponent(q)}`) as { beneficiarios?: Array<Record<string, string>> };
+      setBenefList(r?.beneficiarios || []);
+    } catch { setBenefList([]); }
+  };
+  const escolherBenef = (b: Record<string, string>) => {
+    setDest((prev) => ({ ...prev, chave: b.chave_pix || "", tipo_chave: b.tipo_chave || prev.tipo_chave || "CPF", nome_recebedor: b.nome || "" }));
+    setBenefQ(b.nome || ""); setBenefOpen(false); setBenefList([]);
+  };
+
+  // Copia-e-cola / QR Code (PIX) e código de barras (boleto)
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [colaCola, setColaCola] = useState("");
+  const [msgCodigo, setMsgCodigo] = useState("");
+  const processarCodigo = async (texto: string, formato?: "qr" | "barcode") => {
+    const t = (texto || "").trim();
+    if (!t) return;
+    setMsgCodigo("");
+    const soDigitos = t.replace(/\D/g, "");
+    const ehPix = /br\.gov\.bcb\.pix/i.test(t) || t.toUpperCase().startsWith("000201");
+    // Boleto: código de barras / linha digitável — só comprimentos válidos (44 barra, 47/48 linha)
+    if (!ehPix && (formato === "barcode" || soDigitos.length >= 40)) {
+      if (![44, 47, 48].includes(soDigitos.length)) {
+        setMsgCodigo(`Código de barras incompleto (${soDigitos.length} dígitos). Escaneie de novo, bem enquadrado.`);
+        return;
+      }
+      setType("boleto");
+      setDest({ codigo_barras: soDigitos });
+      // Auto-preenche o valor nominal (igual o app do Inter): barcode(44) pos 9-19; linha(47) pos 37-47.
+      let cents = "";
+      if (soDigitos.length === 44 && !soDigitos.startsWith("8")) cents = soDigitos.slice(9, 19);
+      else if (soDigitos.length === 47) cents = soDigitos.slice(37, 47);
+      const nominal = cents ? parseInt(cents, 10) / 100 : 0;
+      if (nominal > 0) setValor(String(nominal.toFixed(2)));
+      setMsgCodigo(`Boleto lido${nominal > 0 ? ` — valor R$ ${nominal.toFixed(2)}` : ""}. Confira e pague.`);
+      return;
+    }
+    // PIX copia-e-cola / QR
+    try {
+      const r = await apiFetch(`${API}/decodificar-pix`, { method: "POST", body: JSON.stringify({ brcode: t }) }) as Record<string, string | number | boolean | null>;
+      if (!r.valido) { setMsgCodigo(String(r.motivo || "Código PIX inválido.")); return; }
+      if (r.dinamico) { setMsgCodigo(String(r.motivo || "QR dinâmico — pague pelo app do Inter.")); return; }
+      setType("pix");
+      setDest((prev) => ({ ...prev, chave: String(r.chave || ""), tipo_chave: String(r.tipo_chave || "EVP"), nome_recebedor: String(r.nome || prev.nome_recebedor || "") }));
+      if (r.valor) setValor(String(r.valor));
+      if (r.nome) setBenefQ(String(r.nome));
+      setMsgCodigo(`PIX lido: ${r.nome || r.chave}${r.valor ? ` — R$ ${r.valor}` : ""}. Confira e confirme.`);
+    } catch { setMsgCodigo("Falha ao decodificar o código."); }
+  };
+  const anexarBoletoPdf = async (file: File | undefined) => {
+    if (!file) return;
+    setMsgCodigo("Lendo o PDF do boleto…");
+    const fd = new FormData();
+    fd.append("arquivo", file);
+    try {
+      const token = localStorage.getItem("access_token") || "";
+      const res = await fetch(`${API}/extrair-boleto-pdf`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd });
+      const r = await res.json();
+      if (!res.ok || !r.encontrado) { setMsgCodigo(r?.motivo || msgFromDetail(r?.detail) || "Não consegui ler a linha digitável do PDF."); return; }
+      setType("boleto");
+      setDest({ codigo_barras: String(r.linha_digitavel) });
+      if (r.valor) setValor(Number(r.valor).toFixed(2));
+      setMsgCodigo(`Boleto lido do PDF${r.valor ? ` — R$ ${Number(r.valor).toFixed(2)}` : ""}. Confira e pague.`);
+    } catch { setMsgCodigo("Falha ao ler o PDF do boleto."); }
+  };
+
   const handleConfirmar = async () => {
     setLoading(true);
     setError("");
@@ -123,6 +201,52 @@ function NovoPagamentoForm({ onPrepared, saldo }: { onPrepared: () => void; sald
   return (
     <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
       <h3 className="text-lg font-semibold text-[#0A2540] mb-4">Novo Pagamento</h3>
+
+      {/* Copia-e-cola / QR (PIX) e código de barras (boleto) */}
+      <div className="mb-4 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-3">
+        <label className="block text-sm font-medium text-gray-700 mb-1">PIX copia-e-cola, QR Code ou código de barras</label>
+        <div className="flex gap-2">
+          <input
+            className="flex-1 border rounded-lg px-3 py-2 text-sm"
+            value={colaCola}
+            onChange={(e) => setColaCola(e.target.value)}
+            onBlur={() => colaCola.trim() && processarCodigo(colaCola)}
+            placeholder="Cole o PIX copia-e-cola ou a linha digitável do boleto"
+          />
+          <button
+            type="button"
+            onClick={() => processarCodigo(colaCola)}
+            className="text-sm border border-gray-300 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-100 whitespace-nowrap"
+          >
+            Ler
+          </button>
+          <button
+            type="button"
+            onClick={() => setScannerOpen(true)}
+            className="text-sm bg-[#0A2540] text-white px-3 py-2 rounded-lg hover:bg-[#0d2f52] flex items-center gap-1 whitespace-nowrap"
+          >
+            <Camera className="h-4 w-4" /> Escanear
+          </button>
+          <label className="text-sm border border-[#0A2540] text-[#0A2540] px-3 py-2 rounded-lg hover:bg-gray-100 flex items-center gap-1 whitespace-nowrap cursor-pointer">
+            <FileText className="h-4 w-4" /> Boleto PDF
+            <input
+              type="file"
+              accept="application/pdf,.pdf"
+              className="hidden"
+              onChange={(e) => { anexarBoletoPdf(e.target.files?.[0]); e.target.value = ""; }}
+            />
+          </label>
+        </div>
+        <p className="text-[11px] text-gray-400 mt-1">Boleto: melhor anexar o PDF (mais confiável que a câmera). PIX: escanear o QR ou colar o copia-e-cola.</p>
+        {msgCodigo && <p className="text-xs mt-2 text-[#0A2540]">{msgCodigo}</p>}
+      </div>
+
+      {scannerOpen && (
+        <ScannerPagamento
+          onClose={() => setScannerOpen(false)}
+          onDetect={(texto, formato) => { setScannerOpen(false); setColaCola(texto); processarCodigo(texto, formato); }}
+        />
+      )}
 
       <div className="grid grid-cols-2 gap-4 mb-4">
         <div>
@@ -184,6 +308,37 @@ function NovoPagamentoForm({ onPrepared, saldo }: { onPrepared: () => void; sald
         )}
         {type === "pix" && (
           <>
+            <div className="col-span-2 relative">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Buscar beneficiário salvo</label>
+              <input
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+                value={benefQ}
+                onChange={(e) => buscarBenef(e.target.value)}
+                onFocus={() => benefQ.trim().length >= 2 && setBenefOpen(true)}
+                onBlur={() => setTimeout(() => setBenefOpen(false), 150)}
+                placeholder="Digite o nome (ex.: Saúde Manaus) e selecione — a chave carrega sozinha"
+              />
+              {benefOpen && benefList.length > 0 && (
+                <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-auto">
+                  {benefList.map((b) => (
+                    <button
+                      type="button"
+                      key={b.id}
+                      onMouseDown={(e) => { e.preventDefault(); escolherBenef(b); }}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center justify-between gap-2"
+                    >
+                      <span>
+                        <span className="font-medium">{b.nome}</span>
+                        <span className="text-xs text-gray-400 ml-2">{b.tipo_chave || "PIX"}: {b.chave_pix}</span>
+                      </span>
+                      {b.categoria && b.categoria !== "avulso" && (
+                        <span className="text-[10px] uppercase tracking-wide text-gray-400">{b.categoria}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Tipo Chave</label>
               <select
@@ -791,6 +946,22 @@ export default function PagamentosPage() {
                               className="text-xs bg-blue-600 text-white px-3 py-1 rounded-full hover:bg-blue-700"
                             >
                               Executar
+                            </button>
+                          )}
+                          {p.inter_payment_id && (
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const token = localStorage.getItem("access_token") || "";
+                                  const res = await fetch(`${API}/${p.id}/comprovante`, { headers: { Authorization: `Bearer ${token}` } });
+                                  if (!res.ok) { alert("Comprovante indisponível: pagamento ainda não concluído no Inter."); return; }
+                                  const url = URL.createObjectURL(await res.blob());
+                                  window.open(url, "_blank");
+                                } catch { alert("Erro ao gerar comprovante."); }
+                              }}
+                              className="text-xs border border-gray-300 text-gray-700 px-3 py-1 rounded-full hover:bg-gray-100 ml-1"
+                            >
+                              Comprovante
                             </button>
                           )}
                         </td>

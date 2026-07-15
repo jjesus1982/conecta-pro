@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
@@ -69,7 +70,7 @@ export function BankTransactionDetailModal({
           onSuccess?.();
         }, 1800);
       } else {
-        setJustifMsg({ ok: false, text: d.detail || d.erro || JSON.stringify(d) });
+        setJustifMsg({ ok: false, text: msgFromDetail(d.detail) || d.erro || JSON.stringify(d) });
       }
     } catch (e) {
       setJustifMsg({ ok: false, text: `Erro: ${String(e)}` });

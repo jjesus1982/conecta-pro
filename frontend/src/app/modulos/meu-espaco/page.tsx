@@ -16,6 +16,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import {
@@ -1508,7 +1509,7 @@ function DocumentosTab({ onIrAssinar }: { onIrAssinar: () => void }) {
       const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || 'Documento indisponível para download.');
+        throw new Error(msgFromDetail(j.detail) || 'Documento indisponível para download.');
       }
       const b = await r.blob();
       window.open(URL.createObjectURL(b), '_blank');

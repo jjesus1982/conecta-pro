@@ -3,6 +3,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { msgFromDetail } from '@/lib/string';
 import { toast } from 'sonner';
 import * as settingsService from '@/services/config/tenant-settings';
 import type {
@@ -48,7 +49,7 @@ export const useCreateTenantSetting = () => {
       toast.success('Configuração criada!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao criar configuração');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao criar configuração');
     },
   });
 };
@@ -64,7 +65,7 @@ export const useUpdateTenantSetting = () => {
       toast.success('Configuração atualizada!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao atualizar');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao atualizar');
     },
   });
 };
@@ -79,7 +80,7 @@ export const useUpdateTenantSettingValue = () => {
       toast.success('Valor atualizado!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao atualizar valor');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao atualizar valor');
     },
   });
 };
@@ -93,7 +94,7 @@ export const useResetTenantSetting = () => {
       toast.success('Configuração resetada!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao resetar');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao resetar');
     },
   });
 };
@@ -107,7 +108,7 @@ export const useDeleteTenantSetting = () => {
       toast.success('Configuração deletada!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao deletar');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao deletar');
     },
   });
 };

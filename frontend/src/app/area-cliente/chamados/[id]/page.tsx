@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useCallback, FormEvent, useRef } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import {
@@ -154,7 +155,7 @@ export default function ChamadoDetailPage() {
         toast.success('Mensagem enviada com sucesso!', { duration: 4000 });
       } else {
         const data = await res.json().catch(() => null);
-        toast.error(data?.detail || 'Erro ao enviar mensagem.', { duration: 5000 });
+        toast.error(msgFromDetail(data?.detail) || 'Erro ao enviar mensagem.', { duration: 5000 });
       }
     } catch {
       toast.error('Erro ao enviar mensagem. Tente novamente.', { duration: 5000 });
@@ -177,7 +178,7 @@ export default function ChamadoDetailPage() {
         toast.success('Chamado fechado com sucesso.', { duration: 4000 });
       } else {
         const data = await res.json().catch(() => null);
-        toast.error(data?.detail || 'Erro ao fechar chamado.', { duration: 5000 });
+        toast.error(msgFromDetail(data?.detail) || 'Erro ao fechar chamado.', { duration: 5000 });
       }
     } catch {
       toast.error('Erro ao fechar chamado. Tente novamente.', { duration: 5000 });

@@ -1,6 +1,7 @@
 'use client';
 
 import { AlertCircle, Loader2, User, Briefcase, DollarSign } from 'lucide-react';
+import { msgFromDetail } from '@/lib/string';
 import { useState, useEffect } from 'react';
 import { Modal, ModalFooter } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
@@ -204,7 +205,7 @@ export function DiaristFormModal({ isOpen, onClose, onSuccess, editData }: Diari
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || `Erro ${response.status}`);
+        throw new Error(msgFromDetail(errorData.detail) || `Erro ${response.status}`);
       }
 
       onSuccess();

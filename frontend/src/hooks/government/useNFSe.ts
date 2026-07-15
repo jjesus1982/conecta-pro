@@ -7,6 +7,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { msgFromDetail } from '@/lib/string';
 import { toast } from 'sonner';
 import nfseService, {
   type EmissaoNFSeParams,
@@ -36,7 +37,7 @@ export function useEmitirNFSeNacional() {
       toast.success('NFS-e Padrão Nacional emitida com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao emitir NFS-e');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao emitir NFS-e');
     },
   });
 }
@@ -55,7 +56,7 @@ export function useEmitirNFSeManaus() {
       toast.success('NFS-e Manaus emitida com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao emitir NFS-e Manaus');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao emitir NFS-e Manaus');
     },
   });
 }
@@ -74,7 +75,7 @@ export function useCancelarNFSeNacional() {
       toast.success('NFS-e cancelada com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao cancelar NFS-e');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao cancelar NFS-e');
     },
   });
 }
@@ -94,7 +95,7 @@ export function useCancelarNFSeManaus() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.data?.detail || 'Erro ao cancelar NFS-e Manaus'
+        error?.response?.msgFromDetail(data?.detail) || 'Erro ao cancelar NFS-e Manaus'
       );
     },
   });
@@ -153,7 +154,7 @@ export function useConsultarNFSePorRPSMutation() {
       toast.success('NFS-e consultada com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.data?.detail || 'Erro ao consultar NFS-e');
+      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao consultar NFS-e');
     },
   });
 }

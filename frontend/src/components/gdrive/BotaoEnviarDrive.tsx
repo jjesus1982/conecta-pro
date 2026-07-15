@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { msgFromDetail } from '@/lib/string';
 import { FolderOpen, CheckCircle2, XCircle, Mail } from 'lucide-react'
 
 interface Props {
@@ -65,7 +66,7 @@ export default function BotaoEnviarDrive({
           })
           return
         }
-        throw new Error(data.drive?.erro || data.detail || 'Erro ao enviar ao Drive')
+        throw new Error(data.drive?.erro || msgFromDetail(data.detail) || 'Erro ao enviar ao Drive')
       }
 
       setEtapa('concluido')

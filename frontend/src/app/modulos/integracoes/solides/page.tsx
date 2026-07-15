@@ -1,6 +1,7 @@
 'use client';
 
 import { Zap, RefreshCw, Settings, Users, AlertTriangle, CheckCircle2, XCircle, Search, Play, Eye, AlertCircle, Clock, ArrowRight, Loader2, Calendar } from 'lucide-react';
+import { msgFromDetail } from '@/lib/string';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -63,7 +64,7 @@ export default function SolidesPage() {
       const res = await fetch('/api/v1/people-management/hr/vacations/sync-solides', { method: 'POST', headers: getAuthHeaders() });
       const data = await res.json().catch(() => null);
       if (res.ok && data?.success) toast.success(`Férias Sólides: ${data.total_importadas ?? 0} importadas`, { duration: 5000 });
-      else toast.error(data?.detail || 'Erro ao sincronizar férias', { duration: 5000 });
+      else toast.error(msgFromDetail(data?.detail) || 'Erro ao sincronizar férias', { duration: 5000 });
     } catch { toast.error('Erro de conexão', { duration: 5000 }); }
     finally { setSyncingFerias(false); }
   };
@@ -74,7 +75,7 @@ export default function SolidesPage() {
       const res = await fetch('/api/v1/people-management/ponto/sync-escalas', { method: 'POST', headers: getAuthHeaders() });
       const data = await res.json().catch(() => null);
       if (res.ok) toast.success(`Escalas Sólides: ${data?.total_atualizados ?? data?.updated ?? 0} atualizados`, { duration: 5000 });
-      else toast.error(data?.detail || 'Erro ao sincronizar escalas', { duration: 5000 });
+      else toast.error(msgFromDetail(data?.detail) || 'Erro ao sincronizar escalas', { duration: 5000 });
     } catch { toast.error('Erro de conexão', { duration: 5000 }); }
     finally { setSyncingEscalas(false); }
   };

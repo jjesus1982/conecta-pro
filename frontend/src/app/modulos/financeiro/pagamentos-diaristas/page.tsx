@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { Users, Loader2, CalendarDays, Send, AlertTriangle, CheckCircle2, UserPlus, ClipboardList } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -50,6 +51,17 @@ export default function PagamentosDiaristasPage() {
       const r = await fetch(`${API}/lote?data=${d}`, { headers: authHeaders() }).then(x => x.json());
       setLote(r?.itens || []); setTotalPagar(r?.total_a_pagar || 0);
     } catch { /* */ }
+  };
+  const [busyExterno, setBusyExterno] = useState<number | null>(null);
+  const marcarPagoExterno = async (i: any) => {
+    if (!confirm(`Confirmar que o VT+VR de ${i.beneficiario} (${brl(i.valor)}) JÁ FOI PAGO pelo app do Inter (fora do Conecta PRO)?\n\nIsso só concilia o registro — NÃO envia dinheiro. Serve para não pagar em dobro.`)) return;
+    setBusyExterno(i.id);
+    try {
+      const r = await fetch(`${API}/${i.id}/marcar-pago-externo`, { method: 'POST', headers: authHeaders() }).then(x => x.json());
+      if (!r?.ok) { alert(r?.mensagem || 'Não foi possível marcar.'); return; }
+      await carregarLote();
+    } catch { alert('Falha ao marcar como pago externo.'); }
+    finally { setBusyExterno(null); }
   };
   const carregarSugestoes = async () => {
     try {
@@ -105,7 +117,7 @@ export default function PagamentosDiaristasPage() {
         setOtpLote(r.lote_id);
         setOtpMsg(`Código enviado por e-mail (válido ${Math.round((r.expires_in_seconds ?? 600) / 60)} min). Digite abaixo para confirmar.`);
       } else {
-        setOtpMsg(r?.mensagem || r?.detail || 'Falha ao gerar o código.');
+        setOtpMsg(r?.mensagem || msgFromDetail(r?.detail) || 'Falha ao gerar o código.');
       }
     } catch { setOtpMsg('Falha ao solicitar o código.'); } finally { setOtpBusy(false); }
   };
@@ -237,6 +249,15 @@ export default function PagamentosDiaristasPage() {
                   </div>
                   <span className="font-semibold">{brl(i.valor)}</span>
                   {badge(i.status)}
+                  {['a_revisar', 'sem_pix', 'aprovado'].includes(i.status) && (
+                    <button
+                      onClick={() => marcarPagoExterno(i)}
+                      disabled={busyExterno === i.id}
+                      title="Já paguei este pelo app do Inter (fora do Conecta PRO) — conciliar para não pagar em dobro"
+                      className="text-xs text-slate-600 hover:text-emerald-700 underline decoration-dotted disabled:opacity-50 whitespace-nowrap">
+                      {busyExterno === i.id ? '...' : 'pago pelo app Inter'}
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

@@ -1,6 +1,7 @@
 'use client';
 
 import { X, Plus, Tag, Hash, Search } from 'lucide-react';
+import { msgFromDetail } from '@/lib/string';
 import { useState, useEffect } from 'react';
 import {
   Dialog,
@@ -95,7 +96,7 @@ export function DocumentTagManager({
     } catch (error: unknown) {
       const err = error as { response?: { data?: { detail?: string } } };
       toast.error('Erro ao carregar tags', {
-        description: err.response?.data?.detail || 'Erro desconhecido',
+        description: err.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
       });
     } finally {
       setLoading(false);
@@ -137,7 +138,7 @@ export function DocumentTagManager({
     } catch (error: unknown) {
       const err = error as { response?: { data?: { detail?: string } } };
       toast.error('Erro ao criar tag', {
-        description: err.response?.data?.detail || 'Erro desconhecido',
+        description: err.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
       });
     }
   };
@@ -158,7 +159,7 @@ export function DocumentTagManager({
     } catch (error: unknown) {
       const err = error as { response?: { data?: { detail?: string } } };
       toast.error('Erro ao adicionar tag', {
-        description: err.response?.data?.detail || 'Erro desconhecido',
+        description: err.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
       });
     }
   };
@@ -181,7 +182,7 @@ export function DocumentTagManager({
     } catch (error: unknown) {
       const err = error as { response?: { data?: { detail?: string } } };
       toast.error('Erro ao remover tag', {
-        description: err.response?.data?.detail || 'Erro desconhecido',
+        description: err.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
       });
     }
   };
