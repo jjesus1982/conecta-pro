@@ -174,12 +174,16 @@ def get_dashboard(db: Session) -> dict[str, Any]:
     em_aberto = (
         db.execute(
             text(
+                # 'em aberto' = entrada SEM saída cronológica nas 18h seguintes (a saída
+                # do 12x36 noturno cai no dia SEGUINTE — parear por DATE() marcava todo
+                # plantão como aberto)
                 "SELECT COUNT(DISTINCT e.employee_id) FROM gp_clock_punches e "
                 "WHERE e.punch_type='entrada' AND DATE(e.punch_timestamp)=:hoje "
                 "AND NOT EXISTS ("
                 "  SELECT 1 FROM gp_clock_punches s "
                 "  WHERE s.employee_id=e.employee_id AND s.punch_type='saida' "
-                "  AND DATE(s.punch_timestamp)=:hoje"
+                "  AND s.punch_timestamp > e.punch_timestamp "
+                "  AND s.punch_timestamp <= e.punch_timestamp + interval '18 hours'"
                 ")"
             ),
             {"hoje": hoje},
@@ -299,6 +303,8 @@ def get_inconsistencias(
     # 2. Entradas sem saida (ponto em aberto)
     abertos = db.execute(
         text(
+            # 'em aberto' = entrada sem saída cronológica nas 18h seguintes (não por
+            # DATE(), que marcava todo plantão noturno 12x36 como aberto)
             "SELECT e.employee_id, DATE(e.punch_timestamp) as dia "
             "FROM gp_clock_punches e "
             "WHERE e.punch_type='entrada' "
@@ -306,7 +312,8 @@ def get_inconsistencias(
             "AND NOT EXISTS ("
             "  SELECT 1 FROM gp_clock_punches s "
             "  WHERE s.employee_id=e.employee_id AND s.punch_type='saida' "
-            "  AND DATE(s.punch_timestamp)=DATE(e.punch_timestamp)"
+            "  AND s.punch_timestamp > e.punch_timestamp "
+            "  AND s.punch_timestamp <= e.punch_timestamp + interval '18 hours'"
             ") ORDER BY dia DESC"
         ),
         {"ini": inicio, "fim": fim},
@@ -327,15 +334,21 @@ def get_inconsistencias(
     # 3. Jornadas excedidas (>12h para 12x36)
     jornadas = db.execute(
         text(
+            # pareia cada entrada com a PRÓXIMA saída cronológica (LATERAL, janela 18h) —
+            # o JOIN por DATE() casava cada entrada com cada saída do dia (pares cruzados,
+            # ex. 08:00→22:00=14h que nunca ocorreu) e cegava o plantão noturno real
             "SELECT ent.employee_id, DATE(ent.punch_timestamp) as dia, "
-            "  EXTRACT(EPOCH FROM (sai.punch_timestamp - ent.punch_timestamp))/3600 as horas "
+            "  EXTRACT(EPOCH FROM (nx.saida_ts - ent.punch_timestamp))/3600 as horas "
             "FROM gp_clock_punches ent "
-            "JOIN gp_clock_punches sai ON ent.employee_id=sai.employee_id "
-            "  AND sai.punch_type='saida' "
-            "  AND DATE(sai.punch_timestamp)=DATE(ent.punch_timestamp) "
+            "JOIN LATERAL ("
+            "  SELECT MIN(s.punch_timestamp) AS saida_ts FROM gp_clock_punches s "
+            "  WHERE s.employee_id=ent.employee_id AND s.punch_type='saida' "
+            "  AND s.punch_timestamp > ent.punch_timestamp "
+            "  AND s.punch_timestamp <= ent.punch_timestamp + interval '18 hours'"
+            ") nx ON nx.saida_ts IS NOT NULL "
             "WHERE ent.punch_type='entrada' "
             "AND DATE(ent.punch_timestamp) BETWEEN :ini AND :fim "
-            "AND EXTRACT(EPOCH FROM (sai.punch_timestamp - ent.punch_timestamp))/3600 > :max_h "
+            "AND EXTRACT(EPOCH FROM (nx.saida_ts - ent.punch_timestamp))/3600 > :max_h "
             "ORDER BY dia DESC"
         ),
         {"ini": inicio, "fim": fim, "max_h": JORNADA_MAXIMA_12X36_HORAS},
@@ -430,6 +443,27 @@ def get_banco_horas(db: Session, employee_id: str) -> dict[str, Any]:
 
     escala = emp[2] or "12x36"
     hoje = _hoje_manaus()
+
+    # Escala SEM parâmetro de jornada (ex.: '5x2'/'6x1'/'plantao'/'livre' vindos do
+    # Sólides) → NÃO assumir 220h (isso criava débito fantasma de dezenas de horas).
+    # Banco de horas fica 'não apurado' até o esperado da escala ser definido.
+    if escala not in _ESPERADO_MES:
+        return {
+            "employee_id": employee_id,
+            "employee_nome": emp[1],
+            "escala": escala,
+            "horas_trabalhadas": None,
+            "horas_esperadas": None,
+            "saldo_horas": None,
+            "creditos": None,
+            "debitos": None,
+            "vencimento_proximo": None,
+            "detalhes": [],
+            "obs": (
+                f"Escala '{escala}' sem parâmetro de jornada mensal — banco de horas NÃO "
+                "apurado (defina o esperado desta escala em _ESPERADO_MES). Nunca estimado."
+            ),
+        }
 
     # Horas trabalhadas REAIS do mês corrente (pareamento entrada->saída).
     horas = horas_reais_ponto(db, employee_id, hoje.month, hoje.year)
