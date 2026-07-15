@@ -250,15 +250,30 @@ def _extract_public_token(status: dict[str, Any]) -> str | None:
     return None
 
 
+def _engine_sync_nullpool():
+    """Engine DEDICADA com NullPool para os helpers `_sync` (asyncio.run cria um loop
+    novo a cada chamada; o pool GLOBAL prende conexões asyncpg ao loop de origem → erro
+    'got Future attached to a different loop'). NullPool abre/fecha conexão por uso."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from core.config import settings
+
+    eng = create_async_engine(settings.database_url, poolclass=NullPool)
+    return eng, async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
+
+
 def status_documento_sync(document_type: str, document_id: str) -> dict[str, Any] | None:
     """Versão síncrona de status() para endpoints `def` (ex.: folha/recibo VT-VR)."""
     async def _run() -> dict[str, Any] | None:
-        from core.database import async_session_factory
-
-        async with async_session_factory() as session:
-            return await UniversalSignatureService(session).status(
-                document_type=document_type, document_id=str(document_id)
-            )
+        eng, factory = _engine_sync_nullpool()
+        try:
+            async with factory() as session:
+                return await UniversalSignatureService(session).status(
+                    document_type=document_type, document_id=str(document_id)
+                )
+        finally:
+            await eng.dispose()
 
     try:
         return asyncio.run(_run())
@@ -275,10 +290,12 @@ def garantir_solicitacao_assinatura_sync(**kwargs: Any) -> dict[str, Any] | None
     loop). Nunca quebra o chamador: erros retornam None.
     """
     async def _run() -> dict[str, Any] | None:
-        from core.database import async_session_factory
-
-        async with async_session_factory() as session:
-            return await garantir_solicitacao_assinatura(session, **kwargs)
+        eng, factory = _engine_sync_nullpool()
+        try:
+            async with factory() as session:
+                return await garantir_solicitacao_assinatura(session, **kwargs)
+        finally:
+            await eng.dispose()
 
     try:
         return asyncio.run(_run())

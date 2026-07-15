@@ -169,7 +169,7 @@ class WorkScheduleRepository:
         type_result = await self.db.execute(
             select(WorkSchedule.schedule_type, func.count()).where(*base_where).group_by(WorkSchedule.schedule_type)
         )
-        by_type = {row[0].value: row[1] for row in type_result.all()}
+        by_type = {(row[0].value if hasattr(row[0],'value') else str(row[0])): row[1] for row in type_result.all()}
 
         return {
             "total_schedules": total,

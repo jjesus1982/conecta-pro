@@ -319,7 +319,12 @@ class TimeSheetRepository:
         status_result = await self.db.execute(
             select(TimeSheet.status, func.count()).where(*base_where).group_by(TimeSheet.status)
         )
-        by_status = {row[0].value: row[1] for row in status_result.all()}
+        # status volta como STRING do banco (coluna não é enum nativo) → .value crashava.
+        # Normaliza p/ str aceitando tanto enum quanto string.
+        by_status = {
+            (row[0].value if hasattr(row[0], "value") else str(row[0])): row[1]
+            for row in status_result.all()
+        }
 
         # Abertas
         open_count = by_status.get(TimeSheetStatus.ABERTO.value, 0)

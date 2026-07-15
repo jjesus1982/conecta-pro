@@ -235,13 +235,13 @@ class OvertimeRepository:
         status_result = await self.db.execute(
             select(Overtime.status, func.count()).where(*base_where).group_by(Overtime.status)
         )
-        by_status = {row[0].value: row[1] for row in status_result.all()}
+        by_status = {(row[0].value if hasattr(row[0],'value') else str(row[0])): row[1] for row in status_result.all()}
 
         # Por tipo
         type_result = await self.db.execute(
             select(Overtime.overtime_type, func.count()).where(*base_where).group_by(Overtime.overtime_type)
         )
-        by_type = {row[0].value: row[1] for row in type_result.all()}
+        by_type = {(row[0].value if hasattr(row[0],'value') else str(row[0])): row[1] for row in type_result.all()}
 
         # Total de minutos aprovados
         approved_minutes_result = await self.db.execute(
