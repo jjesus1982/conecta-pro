@@ -25,6 +25,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/events", tags=["Payroll Events"])
 
 
+
+
+def _uget(user, key, default=None):
+    """Acessa campo do usuário seja objeto User (get_current_user) ou dict — os endpoints
+    usavam current_user['x'], que crashava no User ('User' object is not subscriptable)."""
+    if isinstance(user, dict):
+        return user.get(key, default)
+    return getattr(user, key, default)
 @router.post(
     "/",
     response_model=PayrollEventResponse,
@@ -41,14 +49,14 @@ async def create_event(
         service = PayrollEventService(db)
         event = await service.create_event(
             data=data,
-            condominio_id=current_user["condominio_id"],
-            user_id=current_user.id,
+            condominio_id=_uget(current_user, "condominio_id"),
+            user_id=_uget(current_user, "id"),
         )
         logger.info(
             "Evento criado: %s para funcionário %s por %s",
             event.event_code,
             event.employee_id,
-            current_user["email"],
+            _uget(current_user, "email"),
         )
         return PayrollEventResponse.model_validate(event)
     except ValueError as e:
@@ -77,14 +85,14 @@ async def create_bulk_events(
         service = PayrollEventService(db)
         result = await service.create_bulk(
             data=data,
-            condominio_id=current_user["condominio_id"],
-            user_id=current_user.id,
+            condominio_id=_uget(current_user, "condominio_id"),
+            user_id=_uget(current_user, "id"),
         )
         logger.info(
             "Bulk create: %d criados, %d falhas por %s",
             result["created"],
             result["failed"],
-            current_user["email"],
+            _uget(current_user, "email"),
         )
         return result
     except ValueError as e:
@@ -298,7 +306,7 @@ async def update_event(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Evento não encontrado",
             )
-        logger.info("Evento atualizado: %s por %s", event_id, current_user["email"])
+        logger.info("Evento atualizado: %s por %s", event_id, _uget(current_user, "email"))
         return PayrollEventResponse.model_validate(event)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -329,7 +337,7 @@ async def adjust_event(
         event = await service.adjust_event(
             event_id=event_id,
             data=data,
-            user_id=current_user.id,
+            user_id=_uget(current_user, "id"),
         )
         if not event:
             raise HTTPException(
@@ -340,7 +348,7 @@ async def adjust_event(
             "Evento ajustado: %s para %s por %s",
             event_id,
             data.new_value,
-            current_user["email"],
+            _uget(current_user, "email"),
         )
         return PayrollEventResponse.model_validate(event)
     except ValueError as e:
@@ -372,14 +380,14 @@ async def cancel_event(
         event = await service.cancel_event(
             event_id=event_id,
             reason=reason,
-            user_id=current_user.id,
+            user_id=_uget(current_user, "id"),
         )
         if not event:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Evento não encontrado",
             )
-        logger.info("Evento cancelado: %s por %s", event_id, current_user["email"])
+        logger.info("Evento cancelado: %s por %s", event_id, _uget(current_user, "email"))
         return PayrollEventResponse.model_validate(event)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -410,14 +418,14 @@ async def recalculate_employee(
         result = await service.recalculate_employee(
             employee_id=employee_id,
             period_id=period_id,
-            condominio_id=current_user["condominio_id"],
-            user_id=current_user.id,
+            condominio_id=_uget(current_user, "condominio_id"),
+            user_id=_uget(current_user, "id"),
         )
         logger.info(
             "Folha recalculada: funcionário %s, período %s por %s",
             employee_id,
             period_id,
-            current_user["email"],
+            _uget(current_user, "email"),
         )
         return result
     except ValueError as e:

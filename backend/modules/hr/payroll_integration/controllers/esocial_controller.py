@@ -21,6 +21,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/esocial", tags=["eSocial"])
 
 
+def _uget(user, key, default=None):
+    """Acessa campo do usuário seja ele objeto User (get_current_user) ou dict
+    (require_permissions). Os endpoints misturavam current_user['x'] (crashava no
+    objeto User: 'User' object is not subscriptable) com current_user.x."""
+    if isinstance(user, dict):
+        return user.get(key, default)
+    return getattr(user, key, default)
+
+
 @router.get(
     "/integration",
     response_model=PayrollIntegrationResponse | None,
@@ -33,7 +42,7 @@ async def get_integration(
     """Retorna configuração de integração eSocial."""
     try:
         service = ESocialService(db)
-        integration = await service.get_integration(current_user["condominio_id"])
+        integration = await service.get_integration(_uget(current_user, "condominio_id"))
         if not integration:
             return None
         return PayrollIntegrationResponse.model_validate(integration)
@@ -57,7 +66,7 @@ async def validate_integration(
     """Valida configuração do eSocial."""
     try:
         service = ESocialService(db)
-        result = await service.validate_integration(current_user["condominio_id"])
+        result = await service.validate_integration(_uget(current_user, "condominio_id"))
         return result
     except Exception as e:
         logger.error("Erro ao validar integração eSocial: %s", e)
@@ -109,14 +118,14 @@ async def generate_event(
         service = ESocialService(db)
         export = await service.generate_event(
             request=request,
-            condominio_id=current_user["condominio_id"],
-            user_id=current_user.id,
+            condominio_id=_uget(current_user, "condominio_id"),
+            user_id=_uget(current_user, "id"),
         )
         logger.info(
             "Evento eSocial gerado: %s tipo %s por %s",
             export.export_code,
             request.event_type,
-            current_user["email"],
+            _uget(current_user, "email"),
         )
         return PayrollExportResponse.model_validate(export)
     except ValueError as e:
@@ -144,13 +153,13 @@ async def transmit_event(
         service = ESocialService(db)
         result = await service.transmit(
             export_id=export_id,
-            condominio_id=current_user["condominio_id"],
+            condominio_id=_uget(current_user, "condominio_id"),
         )
         logger.info(
             "Evento transmitido: %s protocolo %s por %s",
             export_id,
             result.protocol,
-            current_user["email"],
+            _uget(current_user, "email"),
         )
         return result
     except ValueError as e:
@@ -178,7 +187,7 @@ async def check_receipt(
         service = ESocialService(db)
         result = await service.check_receipt(
             export_id=export_id,
-            condominio_id=current_user["condominio_id"],
+            condominio_id=_uget(current_user, "condominio_id"),
         )
         return result
     except ValueError as e:
@@ -224,8 +233,8 @@ async def generate_batch(
                 )
                 export = await service.generate_event(
                     request=request,
-                    condominio_id=current_user["condominio_id"],
-                    user_id=current_user.id,
+                    condominio_id=_uget(current_user, "condominio_id"),
+                    user_id=_uget(current_user, "id"),
                 )
                 results["generated"].append(
                     {
@@ -248,7 +257,7 @@ async def generate_batch(
             "Lote eSocial: %d gerados, %d falhas por %s",
             len(results["generated"]),
             len(results["failed"]),
-            current_user["email"],
+            _uget(current_user, "email"),
         )
         return results
     except Exception as e:
@@ -282,7 +291,7 @@ async def transmit_batch(
             try:
                 result = await service.transmit(
                     export_id=UUID(export_id),
-                    condominio_id=current_user["condominio_id"],
+                    condominio_id=_uget(current_user, "condominio_id"),
                 )
                 results["transmitted"].append(
                     {
@@ -306,7 +315,7 @@ async def transmit_batch(
             "Transmissão lote: %d enviados, %d falhas por %s",
             len(results["transmitted"]),
             len(results["failed"]),
-            current_user["email"],
+            _uget(current_user, "email"),
         )
         return results
     except Exception as e:
@@ -329,7 +338,7 @@ async def get_rubrica_mapping(
     """Retorna mapeamento de rubricas para eSocial."""
     try:
         service = ESocialService(db)
-        integration = await service.get_integration(current_user["condominio_id"])
+        integration = await service.get_integration(_uget(current_user, "condominio_id"))
         if not integration:
             return {"mapping": {}, "total": 0}
 
@@ -357,8 +366,8 @@ async def get_esocial_status(
     """Retorna status geral da integração eSocial."""
     try:
         service = ESocialService(db)
-        integration = await service.get_integration(current_user["condominio_id"])
-        validation = await service.validate_integration(current_user["condominio_id"])
+        integration = await service.get_integration(_uget(current_user, "condominio_id"))
+        validation = await service.validate_integration(_uget(current_user, "condominio_id"))
 
         return {
             "configured": integration is not None,

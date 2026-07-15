@@ -177,6 +177,16 @@ def require_roles(*roles: str):
         @router.get("/admin", dependencies=[Depends(require_roles("admin", "manager"))])
         async def admin_endpoint(): ...
     """
+    # Aceita tanto require_roles("admin","rh") quanto require_roles(["admin","rh"]): vários
+    # controllers (time-tracking do DP) passam a LISTA num único arg → sem o flatten,
+    # `role not in roles` falhava sempre e `', '.join(roles)` quebrava (500 em 16 rotas).
+    _flat: list[str] = []
+    for r in roles:
+        if isinstance(r, (list, tuple, set)):
+            _flat.extend(str(x) for x in r)
+        else:
+            _flat.append(str(r))
+    roles = tuple(_flat)
 
     async def role_checker(
         user_id: CurrentUserId,

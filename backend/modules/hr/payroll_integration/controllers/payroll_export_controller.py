@@ -24,6 +24,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/exports", tags=["Payroll Exports"])
 
 
+
+
+def _uget(user, key, default=None):
+    """Acessa campo do usuário seja objeto User (get_current_user) ou dict — os endpoints
+    usavam current_user['x'], que crashava no User ('User' object is not subscriptable)."""
+    if isinstance(user, dict):
+        return user.get(key, default)
+    return getattr(user, key, default)
 @router.post(
     "/",
     response_model=PayrollExportResponse,
@@ -40,13 +48,13 @@ async def create_export(
         service = PayrollExportService(db)
         export = await service.create_export(
             data=data,
-            condominio_id=current_user["condominio_id"],
-            user_id=current_user.id,
+            condominio_id=_uget(current_user, "condominio_id"),
+            user_id=_uget(current_user, "id"),
         )
         logger.info(
             "Exportação criada: %s por %s",
             export.export_code,
-            current_user["email"],
+            _uget(current_user, "email"),
         )
         return PayrollExportResponse.model_validate(export)
     except ValueError as e:
@@ -81,7 +89,7 @@ async def list_exports(
     try:
         service = PayrollExportService(db)
         exports, total = await service.list_exports(
-            condominio_id=current_user["condominio_id"],
+            condominio_id=_uget(current_user, "condominio_id"),
             period_id=period_id,
             export_format=export_format,
             status=status_filter,
@@ -148,12 +156,12 @@ async def process_export(
         service = PayrollExportService(db)
         export = await service.process_export(
             export_id=export_id,
-            condominio_id=current_user["condominio_id"],
+            condominio_id=_uget(current_user, "condominio_id"),
         )
         logger.info(
             "Exportação processada: %s por %s",
             export.export_code,
-            current_user["email"],
+            _uget(current_user, "email"),
         )
         return PayrollExportResponse.model_validate(export)
     except ValueError as e:
@@ -208,7 +216,7 @@ async def get_download_info(
         logger.info(
             "Download info: %s por %s",
             export_id,
-            current_user["email"],
+            _uget(current_user, "email"),
         )
         return download_info
     except ValueError as e:
@@ -242,7 +250,7 @@ async def download_file(
         logger.info(
             "Download arquivo: %s por %s",
             export_id,
-            current_user["email"],
+            _uget(current_user, "email"),
         )
 
         return StreamingResponse(
@@ -280,7 +288,7 @@ async def retry_export(
         logger.info(
             "Exportação retentada: %s por %s",
             export.export_code,
-            current_user["email"],
+            _uget(current_user, "email"),
         )
         return PayrollExportResponse.model_validate(export)
     except ValueError as e:
@@ -310,7 +318,7 @@ async def cancel_export(
         logger.info(
             "Exportação cancelada: %s por %s",
             export.export_code,
-            current_user["email"],
+            _uget(current_user, "email"),
         )
         return PayrollExportResponse.model_validate(export)
     except ValueError as e:
@@ -337,13 +345,13 @@ async def process_pending_exports(
     try:
         service = PayrollExportService(db)
         result = await service.process_pending_exports(
-            condominio_id=current_user["condominio_id"],
+            condominio_id=_uget(current_user, "condominio_id"),
             limit=limit,
         )
         logger.info(
             "Processadas %d exportações pendentes por %s",
             result["processed"],
-            current_user["email"],
+            _uget(current_user, "email"),
         )
         return result
     except Exception as e:
