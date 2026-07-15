@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { Sun, ArrowLeft, Inbox, Loader2, Plus, X, Save, Search, ChevronLeft, ChevronRight as ChevronRightIcon, Eye, CheckCircle, XCircle, Calendar, Clock, AlertTriangle, UserCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
@@ -238,7 +239,7 @@ export default function FeriasPage() {
         toast.success('Solicitação de férias criada com sucesso!', { duration: 4000 });
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao criar solicitação de férias', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao criar solicitação de férias', { duration: 5000 });
       }
     } catch {
       toast.error('Erro de conexão com o servidor', { duration: 5000 });
@@ -292,7 +293,7 @@ export default function FeriasPage() {
         setRefreshKey(k => k + 1);
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao aprovar férias', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao aprovar férias', { duration: 5000 });
       }
     } catch {
       toast.error('Erro de conexão', { duration: 5000 });
@@ -320,7 +321,7 @@ export default function FeriasPage() {
         setRefreshKey(k => k + 1);
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao rejeitar férias', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao rejeitar férias', { duration: 5000 });
       }
     } catch {
       toast.error('Erro de conexão', { duration: 5000 });
@@ -345,7 +346,7 @@ export default function FeriasPage() {
         setRefreshKey(k => k + 1);
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao cancelar solicitação', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao cancelar solicitação', { duration: 5000 });
       }
     } catch {
       toast.error('Erro de conexão', { duration: 5000 });
@@ -366,7 +367,7 @@ export default function FeriasPage() {
         toast.success(`Sync Sólides: ${data.total_importadas ?? 0} importadas, ${data.total_atualizadas ?? 0} atualizadas`, { duration: 5000 });
         setRefreshKey(k => k + 1);
       } else {
-        toast.error(data?.reason || data?.detail || 'Erro ao sincronizar com Sólides', { duration: 5000 });
+        toast.error(data?.reason || msgFromDetail(data?.detail) || 'Erro ao sincronizar com Sólides', { duration: 5000 });
       }
     } catch {
       toast.error('Erro de conexão ao sincronizar Sólides', { duration: 5000 });

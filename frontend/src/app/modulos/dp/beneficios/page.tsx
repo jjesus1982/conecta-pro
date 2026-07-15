@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { Gift, ArrowLeft, Inbox, Loader2, Plus, X, Save, Search, Filter, Edit, Trash2, ChevronLeft, ChevronRight as ChevronRightIcon, DollarSign } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
@@ -276,7 +277,7 @@ export default function BeneficiosPage() {
         toast.success(editingId ? 'Benefício atualizado com sucesso!' : 'Benefício criado com sucesso!', { duration: 4000 });
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao salvar beneficio', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao salvar beneficio', { duration: 5000 });
       }
     } catch { toast.error('Erro de conexão', { duration: 5000 }); } finally { setSaving(false); }
   };
@@ -290,7 +291,7 @@ export default function BeneficiosPage() {
         toast.success('Benefício cancelado', { duration: 4000 });
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao cancelar beneficio', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao cancelar beneficio', { duration: 5000 });
       }
     } catch { toast.error('Erro de conexão', { duration: 5000 }); }
   };

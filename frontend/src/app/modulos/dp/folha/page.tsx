@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { DollarSign, ArrowLeft, Inbox, Loader2, Search, ChevronLeft, ChevronRight as ChevronRightIcon, Calculator, RefreshCw, Banknote, X, AlertTriangle, FileText, FileDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { baixarArquivoAutenticado } from '@/utils/baixarArquivoAutenticado';
@@ -215,7 +216,7 @@ export default function FolhaPage() {
         setRefreshKey(k => k + 1);
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao processar pagamento PIX', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao processar pagamento PIX', { duration: 5000 });
       }
     } catch {
       toast.error('Erro de conexão ao processar PIX', { duration: 5000 });
@@ -266,7 +267,7 @@ export default function FolhaPage() {
         setRefreshKey(k => k + 1);
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao calcular folha', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao calcular folha', { duration: 5000 });
       }
     } catch {
       toast.error('Erro de conexão ao calcular folha', { duration: 5000 });

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import {
   UserMinus, ArrowLeft, Inbox, Loader2, Plus, X, Save, Search,
   ChevronLeft, ChevronRight as ChevronRightIcon, Eye, Calculator,
@@ -313,7 +314,7 @@ export default function RescisaoPage() {
         toast.success('Processo de rescisão criado com sucesso!', { duration: 4000 });
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao criar rescisão', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao criar rescisão', { duration: 5000 });
       }
     } catch {
       toast.error('Erro de conexão com o servidor', { duration: 5000 });
@@ -402,7 +403,7 @@ export default function RescisaoPage() {
         toast.success('Cálculo rescisório realizado!', { duration: 4000 });
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao calcular verbas rescisórias', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao calcular verbas rescisórias', { duration: 5000 });
       }
     } catch {
       toast.error('Erro de conexão', { duration: 5000 });
@@ -424,7 +425,7 @@ export default function RescisaoPage() {
         setRefreshKey(k => k + 1);
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao concluir rescisão', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao concluir rescisão', { duration: 5000 });
       }
     } catch {
       toast.error('Erro de conexão', { duration: 5000 });

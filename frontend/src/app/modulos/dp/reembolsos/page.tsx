@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { Receipt, ArrowLeft, Inbox, Plus, X, Save, Search, Filter, Loader2, Pencil, Trash2, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
@@ -179,7 +180,7 @@ export default function ReembolsosPage() {
         toast.success(`Reembolso ${created.code} criado com sucesso!`, { duration: 4000 });
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao criar reembolso', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao criar reembolso', { duration: 5000 });
       }
     } catch { toast.error('Erro de conexão', { duration: 5000 }); } finally { setSaving(false); }
   };
@@ -224,7 +225,7 @@ export default function ReembolsosPage() {
         setRefreshKey(k => k + 1);
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao atualizar reembolso', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao atualizar reembolso', { duration: 5000 });
       }
     } catch { toast.error('Erro de conexão', { duration: 5000 }); } finally { setEditSaving(false); }
   };
@@ -243,7 +244,7 @@ export default function ReembolsosPage() {
         setRefreshKey(k => k + 1);
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao excluir reembolso', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao excluir reembolso', { duration: 5000 });
       }
     } catch { toast.error('Erro de conexão', { duration: 5000 }); } finally { setDeletingId(null); }
   };

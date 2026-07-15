@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import {
   FileText, ArrowLeft, Inbox, Loader2, Plus, X, Save, Search,
   ChevronLeft, ChevronRight as ChevronRightIcon, Pencil, FileDown,
@@ -287,7 +288,7 @@ export default function ContratosPage() {
         toast.success('Contrato criado com sucesso!', { duration: 4000 });
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao criar contrato', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao criar contrato', { duration: 5000 });
       }
     } catch {
       toast.error('Erro de conexão', { duration: 5000 });
@@ -344,7 +345,7 @@ export default function ContratosPage() {
         toast.success('Contrato atualizado com sucesso!', { duration: 4000 });
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao atualizar contrato', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao atualizar contrato', { duration: 5000 });
       }
     } catch {
       toast.error('Erro de conexão', { duration: 5000 });
@@ -394,7 +395,7 @@ export default function ContratosPage() {
         toast.success('Contrato CLT gerado e baixado!', { duration: 4000 });
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao gerar contrato', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao gerar contrato', { duration: 5000 });
       }
     } catch {
       toast.error('Erro de conexão', { duration: 5000 });
@@ -422,7 +423,7 @@ export default function ContratosPage() {
         loadSigStatus(contractId);  // gerar o PDF cria a solicitação de assinatura
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao gerar PDF', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao gerar PDF', { duration: 5000 });
       }
     } catch {
       toast.error('Erro de conexão', { duration: 5000 });

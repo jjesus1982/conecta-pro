@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { ShieldCheck, ArrowLeft, Inbox, Loader2, X, AlertTriangle, Search, ChevronLeft, ChevronRight as ChevronRightIcon, RefreshCw, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
@@ -138,7 +139,7 @@ export default function ESocialPage() {
         setRefreshKey(k => k + 1);
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao enviar eventos', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao enviar eventos', { duration: 5000 });
       }
     } catch {
       toast.error('Erro de conexão ao enviar eventos', { duration: 5000 });

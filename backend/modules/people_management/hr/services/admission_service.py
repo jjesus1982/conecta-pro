@@ -80,6 +80,24 @@ class AdmissionService:
         Returns:
             Instância de AdmissionProcess criada.
         """
+        # Duplicidade CEDO: bloqueia CPF de funcionário ATIVO já na criação do processo
+        # (feedback imediato "já existe"). Rehire de demitido/inativo continua permitido.
+        from sqlalchemy import func as _func
+
+        from modules.operacional.models.employee import Employee as _Employee
+
+        _cpf = (data.get("cpf") or "").strip() if isinstance(data.get("cpf"), str) else data.get("cpf")
+        if _cpf:
+            _dup = (
+                await self.db.execute(
+                    select(_Employee).where(
+                        _Employee.cpf == _cpf, _func.lower(_Employee.status) == "ativo"
+                    )
+                )
+            ).scalar_one_or_none()
+            if _dup is not None:
+                raise ValueError(f"Já existe funcionário ATIVO com o CPF {_cpf} ({_dup.nome}).")
+
         # PIS/PASEP e data de nascimento não têm colunas próprias em admission_processes.
         # Persistimos em documents_received._dados_candidato (JSONB) para NÃO descartar
         # o que o form coletou; migram p/ o Employee (pis/data_nascimento) na conclusão.

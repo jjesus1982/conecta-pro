@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { UserPlus, Filter, ArrowLeft, Inbox, Loader2, X, Save, Search, ChevronLeft, ChevronRight as ChevronRightIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { validateCPF, formatCPF } from '@/utils/validators';
@@ -285,7 +286,7 @@ export default function AdmissaoPage() {
                         toast.success('Admissão criada com sucesso!', { duration: 4000 });
                       } else {
                         const err = await res.json().catch(() => null);
-                        toast.error(err?.detail || 'Erro ao criar admissão', { duration: 5000 });
+                        toast.error(msgFromDetail(err?.detail) || 'Erro ao criar admissão', { duration: 5000 });
                       }
                     } catch { toast.error('Erro de conexão', { duration: 5000 }); } finally { setSaving(false); }
                   }}>

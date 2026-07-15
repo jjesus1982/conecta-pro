@@ -12,6 +12,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { useRouter } from 'next/navigation';
 import {
   Clock, ArrowLeft, Loader2, AlertTriangle, CheckCircle2, Calculator,
@@ -153,7 +154,7 @@ export default function FechamentoPontoPage() {
       const res = await fetch(`${HR_PONTO}/espelho/${f.employee_id}/${mes}/${ano}/pdf`, { headers: authHeaders() });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Espelho ainda não disponível.');
+        toast.error(msgFromDetail(err?.detail) || 'Espelho ainda não disponível.');
         return;
       }
       const blob = await res.blob();

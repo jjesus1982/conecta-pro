@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Users, ArrowLeft, Search, Loader2, AlertTriangle, CheckCircle2, XCircle, Edit, Save, X,
@@ -171,7 +172,7 @@ export default function FuncionariosPage() {
         await loadDeductions(editingId);
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || (isEdit ? 'Erro ao editar dedução' : 'Erro ao criar dedução'), { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || (isEdit ? 'Erro ao editar dedução' : 'Erro ao criar dedução'), { duration: 5000 });
       }
     } catch { toast.error('Erro de conexão', { duration: 5000 }); }
     finally { setDeductionSaving(false); }
@@ -191,7 +192,7 @@ export default function FuncionariosPage() {
         await loadDeductions(editingId);
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao excluir dedução', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao excluir dedução', { duration: 5000 });
       }
     } catch { toast.error('Erro de conexão', { duration: 5000 }); }
     finally { setDeductionDeletingId(null); }
@@ -368,7 +369,7 @@ export default function FuncionariosPage() {
         toast.error('Erro no servidor. Tente novamente em instantes.', { duration: 5000 });
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao salvar', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao salvar', { duration: 5000 });
       }
     } catch { toast.error('Erro de conexão', { duration: 5000 }); }
     finally { setSaving(false); }

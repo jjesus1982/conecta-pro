@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { Clock, ArrowLeft, Inbox, Loader2, AlertTriangle, Search, ChevronLeft, ChevronRight as ChevronRightIcon, Plus, X, Save, LogIn, LogOut } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
@@ -172,7 +173,7 @@ export default function PontoPage() {
         setRefreshKey(k => k + 1);
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao registrar saida', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao registrar saida', { duration: 5000 });
       }
     } catch (err) {
       console.error('handleClockOut:', err);
@@ -232,7 +233,7 @@ export default function PontoPage() {
         setRefreshKey(k => k + 1);
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao criar registro manual', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao criar registro manual', { duration: 5000 });
       }
     } catch (err) {
       console.error('handleManualEntry:', err);

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { CalendarDays, ArrowLeft, Inbox, Loader2, Plus, X, Save, Search, Filter, ChevronLeft, ChevronRight as ChevronRightIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
@@ -216,7 +217,7 @@ export default function LicencasPage() {
         toast.success('Licença registrada com sucesso!', { duration: 4000 });
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao registrar licença', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao registrar licença', { duration: 5000 });
       }
     } catch { toast.error('Erro de conexão', { duration: 5000 }); } finally { setSaving(false); }
   };

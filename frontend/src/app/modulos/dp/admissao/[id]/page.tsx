@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Loader2, User, FileText, Calendar, ChevronRight, CheckCircle2, XCircle, Circle, Edit, Save, X, Download } from 'lucide-react';
 import { toast } from 'sonner';
@@ -86,7 +87,7 @@ export default function AdmissaoDetalhePage() {
         toast.success('XML S-2200 gerado e baixado com sucesso!', { duration: 4000 });
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao gerar S-2200', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao gerar S-2200', { duration: 5000 });
       }
     } catch {
       toast.error('Erro de conexão ao gerar S-2200', { duration: 5000 });
@@ -164,7 +165,7 @@ export default function AdmissaoDetalhePage() {
         await loadData();
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.detail || 'Erro ao salvar alterações', { duration: 5000 });
+        toast.error(msgFromDetail(err?.detail) || 'Erro ao salvar alterações', { duration: 5000 });
       }
     } catch { toast.error('Erro de conexão', { duration: 5000 }); }
     finally { setSavingEdit(false); }

@@ -244,3 +244,23 @@ export const maskPhone = (phone: string): string => {
 
   return cleaned;
 };
+
+/**
+ * Normaliza o `detail` de um erro de API para STRING exibível.
+ * FastAPI/Pydantic 422 retorna detail = [{loc,msg,...}] (array de objetos) — passar
+ * isso direto a toast/JSX quebra o React (#31 "object as child") e derruba a tela.
+ */
+export function msgFromDetail(detail: unknown): string | undefined {
+  if (!detail) return undefined;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    const msgs = detail
+      .map((e) => (typeof e === 'string' ? e : (e && typeof e === 'object' && 'msg' in e ? String((e as { msg: unknown }).msg) : '')))
+      .filter(Boolean);
+    return msgs.length ? msgs.join('; ') : undefined;
+  }
+  if (typeof detail === 'object' && detail !== null && 'msg' in detail) {
+    return String((detail as { msg: unknown }).msg);
+  }
+  return undefined;
+}

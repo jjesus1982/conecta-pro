@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { msgFromDetail } from '@/lib/string';
 import { FolderOpen, ArrowLeft, Inbox, Loader2, Eye, Download, X, Save, Upload, Search, Filter, ChevronLeft, ChevronRight as ChevronRightIcon, FileUp } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -302,7 +303,7 @@ export default function DocumentosPage() {
                     toast.success('Documento enviado com sucesso!', { duration: 4000 });
                   } else {
                     const err = await res.json().catch(() => null);
-                    toast.error(err?.detail || 'Erro ao enviar documento', { duration: 5000 });
+                    toast.error(msgFromDetail(err?.detail) || 'Erro ao enviar documento', { duration: 5000 });
                   }
                 } catch { toast.error('Erro de conexão', { duration: 5000 }); } finally { setSaving(false); }
               }}>
