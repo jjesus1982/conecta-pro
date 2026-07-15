@@ -282,12 +282,23 @@ class AdmissionService:
         _pis = employee_data.get("pis") or _dados_cand.get("pis_pasep")
         _nasc = employee_data.get("data_nascimento") or _dados_cand.get("birth_date")
 
+        # Validação de identidade: CPF obrigatório + SEM duplicidade — senão cria dois
+        # employees do mesmo CPF (folha duplicada + eSocial S-2200 quebra por payload).
+        _cpf = (employee_data.get("cpf") or "").strip()
+        if not _cpf:
+            raise ValueError("CPF é obrigatório para concluir a admissão.")
+        _dup = (
+            await self.db.execute(select(Employee).where(Employee.cpf == _cpf))
+        ).scalar_one_or_none()
+        if _dup is not None:
+            raise ValueError(f"Já existe funcionário cadastrado com o CPF {_cpf}.")
+
         # Criar Employee
         employee = Employee(
             id=uuid4(),
             nome=employee_data.get("nome", ""),
             email=employee_data.get("email"),
-            cpf=employee_data.get("cpf"),
+            cpf=_cpf,
             matricula=employee_data.get("matricula"),
             cargo=_cargo_nome or employee_data.get("cargo"),
             cct_cargo_id=_cct_id,
@@ -297,7 +308,7 @@ class AdmissionService:
             data_nascimento=_nasc,
             data_admissao=admission.actual_start_date or admission.expected_start_date,
             salario_base=admission.salary_proposed or _piso,
-            status="Ativo",
+            status="ativo",  # canônico minúsculo (senão some das queries status='ativo')
         )
         self.db.add(employee)
         await self.db.flush()

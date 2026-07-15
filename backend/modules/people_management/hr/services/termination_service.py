@@ -294,9 +294,24 @@ class TerminationService:
         emp_result = await self.db.execute(select(Employee).where(Employee.id == str(termination.employee_id)))
         employee = emp_result.scalar_one_or_none()
         if employee:
-            employee.status = "Desligado"
+            # canônico: 'demitido' (não "Desligado" — que o trigger de is_active trata como
+            # ATIVO e as queries de demitido não pegam)
+            employee.status = "demitido"
             if termination.last_working_day:
                 employee.data_demissao = termination.last_working_day
+
+            # encerrar benefícios ATIVOS do demitido — senão seguem 'active' e continuam
+            # sendo somados/descontados na folha do mês seguinte
+            from sqlalchemy import text as _sqltext
+
+            await self.db.execute(
+                _sqltext(
+                    "UPDATE employee_benefits SET status='cancelled', "
+                    "end_date=:d, updated_at=NOW() "
+                    "WHERE CAST(employee_id AS TEXT)=:e AND status='active'"
+                ),
+                {"d": termination.last_working_day, "e": str(termination.employee_id)},
+            )
 
         await self.db.flush()
         await self.db.refresh(termination)
