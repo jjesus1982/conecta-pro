@@ -288,15 +288,17 @@ def calcular_13_proporcional(salario_base: Decimal, meses_trabalhados: int) -> D
     return (salario_base * meses / 12).quantize(_TWO, ROUND_HALF_UP)
 
 
-def _avos_ano_civil(data_demissao: date) -> int:
+def _avos_ano_civil(data_demissao: date, data_admissao: date | None = None) -> int:
     """Avos do 13º proporcional: meses do ANO CIVIL da demissão (jan→demissão).
 
     Regra CLT/Súmula 461 TST: cada mês com fração >= 15 dias trabalhados conta 1 avo.
-    A base do 13º é sempre o ano civil (jan a dez), independente da data de admissão.
+    A base do 13º é o ano civil, MAS não pode contar meses ANTERIORES à admissão —
+    quem entrou no meio do ano só tem avos a partir da admissão (senão superpaga).
     O mês da demissão só conta se o último dia de trabalho for >= dia 15.
 
     Args:
         data_demissao: Último dia de trabalho.
+        data_admissao: Data de admissão (p/ não contar meses antes dela no mesmo ano).
 
     Returns:
         Número de avos (0..12).
@@ -304,7 +306,16 @@ def _avos_ano_civil(data_demissao: date) -> int:
     avos = data_demissao.month - 1  # meses cheios de janeiro até o mês anterior
     if data_demissao.day >= 15:
         avos += 1
-    return max(0, min(avos, 12))
+    avos = max(0, min(avos, 12))
+    # admitido no MESMO ano civil: limita aos meses desde a admissão (regra dos 15 dias)
+    if data_admissao is not None and data_admissao.year == data_demissao.year:
+        meses_adm = data_demissao.month - data_admissao.month
+        if data_admissao.day > 15:
+            meses_adm -= 1
+        if data_demissao.day >= 15:
+            meses_adm += 1
+        avos = min(avos, max(0, meses_adm))
+    return avos
 
 
 def _avos_periodo_aquisitivo(data_admissao: date, data_demissao: date) -> int:
@@ -457,7 +468,7 @@ def calcular_rescisao(
     #    último aniversário de admissão), art. 146 CLT / Súmula 171 TST.
     # É por isso que 13º e férias proporcionais podem (e costumam) diferir.
     # ------------------------------------------------------------------
-    avos_13 = _avos_ano_civil(data_demissao)
+    avos_13 = _avos_ano_civil(data_demissao, data_admissao)
     avos_ferias = _avos_periodo_aquisitivo(data_admissao, data_demissao)
 
     valor_dia = salario_base / 30

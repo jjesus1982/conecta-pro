@@ -102,7 +102,7 @@ def _horas_trab_por_escala(db: Session, month: int, year: int) -> dict[str, dict
             "WHERE e.status='ativo' "
             "  AND EXTRACT(MONTH FROM p.punch_timestamp)=:m "
             "  AND EXTRACT(YEAR FROM p.punch_timestamp)=:y "
-            "ORDER BY p.employee_id, p.punch_timestamp"
+            "ORDER BY p.employee_id, p.punch_timestamp, CASE WHEN lower(coalesce(p.punch_type,'')) LIKE 'sa%' THEN 0 ELSE 1 END, p.punch_id"
         ),
         {"m": month, "y": year},
     ).fetchall()
@@ -367,7 +367,7 @@ def get_inconsistencias(
             "SELECT employee_id, punch_type, punch_timestamp FROM gp_clock_punches "
             "WHERE punch_type IN ('entrada','saida') "
             "AND DATE(punch_timestamp) BETWEEN :ini AND :fim "
-            "ORDER BY employee_id, punch_timestamp"
+            "ORDER BY employee_id, punch_timestamp, CASE WHEN lower(coalesce(punch_type,'')) LIKE 'sa%' THEN 0 ELSE 1 END, punch_id"
         ),
         {"ini": inicio, "fim": fim},
     ).fetchall()

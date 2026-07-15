@@ -112,7 +112,9 @@ def _calc_minutes_between(t1: Any, t2: Any) -> int:
         d2 += timedelta(days=1)
     diff = (d2 - d1).total_seconds()
     if diff > 16 * 3600:
-        diff = 12 * 3600  # sanidade: maximo 16h
+        # duração implausível (provável esquecimento de saída) → NÃO apurável.
+        # Não chumbar 12h (fabricaria total que nunca existiu); 0 = não apurado.
+        return 0
     return int(diff // 60)
 
 
@@ -363,12 +365,15 @@ class TimeRecordService:
         )
         last_punch = existing.mappings().first()
         if last_punch and last_punch["punch_type"] == "entrada":
-            # Ja tem entrada sem saida — nao duplicar
+            # Já tem entrada sem saída — NÃO inserir a 2ª (o código antigo só logava e
+            # seguia pro INSERT, criando entrada/entrada no mesmo dia → o pareamento
+            # passava a contar a partir da 2ª, subcontando as horas + falso "em aberto").
             logger.warning(
-                "Clock-in duplicado ignorado: employee=%s, punch=%s",
+                "Clock-in duplicado recusado: employee=%s, punch aberto=%s",
                 employee_id,
                 last_punch["punch_id"],
             )
+            raise ValueError("Já existe uma entrada em aberto hoje. Registre a saída antes de nova entrada.")
 
         # Geofence (haversine) contra as coordenadas REAIS do posto.
         geo = await self._compute_geofence(posto_id, location_lat, location_lng)

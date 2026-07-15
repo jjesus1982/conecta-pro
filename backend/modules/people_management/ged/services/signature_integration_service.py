@@ -99,8 +99,13 @@ class SignatureIntegrationService:
         if doc.is_signed:
             raise ValueError(f"Documento '{doc.document_name}' ja esta assinado")
 
-        # Calcular hash SHA-256 do arquivo
+        # Calcular hash SHA-256 do arquivo REAL. Sem arquivo (placeholder) NÃO se assina —
+        # senão o hash seria fabricado e a assinatura nunca fecharia na verificação.
         signature_hash = await self._calculate_file_hash(doc.file_path)
+        if not signature_hash:
+            raise ValueError(
+                f"Documento '{doc.document_name}' não tem arquivo anexado — não pode ser assinado."
+            )
 
         # Registrar assinatura
         now = datetime.utcnow()
@@ -244,6 +249,19 @@ class SignatureIntegrationService:
             }
 
         current_hash = await self._calculate_file_hash(doc.file_path)
+        if current_hash is None:
+            # sem arquivo físico → integridade NÃO verificável (não é "inválido" fabricado,
+            # e evita crash de None[:16] no log)
+            return {
+                "document_id": str(doc.id),
+                "document_name": doc.document_name,
+                "is_valid": False,
+                "reason": "Documento sem arquivo físico — integridade não verificável.",
+                "signed_at": doc.signed_at.isoformat() if doc.signed_at else None,
+                "signed_by": str(doc.signed_by) if doc.signed_by else None,
+                "stored_hash": doc.signature_hash,
+                "current_hash": None,
+            }
         is_valid = current_hash == doc.signature_hash
 
         if not is_valid:
@@ -312,6 +330,17 @@ class SignatureIntegrationService:
                 continue
 
             current_hash = await self._calculate_file_hash(doc.file_path)
+            if current_hash is None:
+                # documento assinado mas SEM arquivo físico → não verificável (honesto)
+                invalid_count += 1
+                invalid_docs.append(
+                    {
+                        "document_id": str(doc.id),
+                        "document_name": doc.document_name,
+                        "reason": "sem arquivo físico — integridade não verificável",
+                    }
+                )
+                continue
             if current_hash == doc.signature_hash:
                 valid_count += 1
             else:
@@ -354,17 +383,18 @@ class SignatureIntegrationService:
             raise ValueError(f"Documento nao encontrado: {document_id}")
         return doc
 
-    async def _calculate_file_hash(self, file_path: str | None) -> str:
-        """Calcula hash SHA-256 de um arquivo.
+    async def _calculate_file_hash(self, file_path: str | None) -> str | None:
+        """Calcula hash SHA-256 do ARQUIVO REAL. Retorna None se não houver arquivo.
 
-        Se o arquivo nao existir fisicamente, gera um hash baseado
-        no caminho e timestamp para manter consistencia.
+        NUNCA fabrica hash a partir de path+timestamp (o fallback antigo gerava um hash
+        de timestamp → a assinatura "colava" num placeholder e a verificação recomputava
+        outro timestamp → NUNCA fechava). Sem arquivo = None; quem chama trata honesto.
 
         Args:
             file_path: Caminho relativo do arquivo.
 
         Returns:
-            Hash SHA-256 como string hexadecimal (64 caracteres).
+            Hash SHA-256 (64 hex) ou None se o arquivo não existe.
         """
         if file_path:
             full_path = os.path.join(GED_STORAGE_BASE, file_path)
@@ -374,10 +404,7 @@ class SignatureIntegrationService:
                     for chunk in iter(lambda: f.read(8192), b""):
                         sha256.update(chunk)
                 return sha256.hexdigest()
-
-        # Fallback: hash baseado no path para ambientes sem arquivo fisico
-        content = f"{file_path or 'no-file'}:{datetime.utcnow().isoformat()}"
-        return hashlib.sha256(content.encode("utf-8")).hexdigest()
+        return None
 
     async def _update_kit_signed_count(self, kit_id: str) -> None:
         """Atualiza contadores de documentos assinados no kit."""

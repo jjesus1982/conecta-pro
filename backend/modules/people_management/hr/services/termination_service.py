@@ -158,6 +158,10 @@ class TerminationService:
         if last_working_day.day >= 15:
             meses_calendario += 1
         months_worked = max(1, min(meses_calendario, 12))
+        # tempo TOTAL de casa (SEM teto de 12): FGTS é depositado todo mês e as férias
+        # vencidas dependem do tempo real — usar o valor capado aqui zerava a multa 40%
+        # e as férias vencidas de quem tem mais de 1 ano.
+        meses_totais_casa = max(1, meses_calendario)
 
         # Mapear tipo de rescisão para clt_calculator
         type_map = {
@@ -169,10 +173,14 @@ class TerminationService:
         tipo_str = type_map.get(termination_type, str(termination_type.value))
 
         # Estimar saldo FGTS acumulado (8% sobre a remuneração, base que inclui adicionais)
-        saldo_fgts = remuneracao_base * Decimal("0.08") * months_worked
+        # sobre o tempo REAL de casa (estimativa de referência; o saldo oficial vem do
+        # extrato FGTS/Caixa antes de fechar o TRCT).
+        saldo_fgts = remuneracao_base * Decimal("0.08") * meses_totais_casa
 
-        # Férias vencidas (simplificado: 30 dias se > 12 meses)
-        ferias_vencidas_dias = 30 if months_worked > 12 else 0
+        # Férias vencidas: >12 meses de casa => há período aquisitivo vencido (estimativa;
+        # o TRCT oficial confirma contra o histórico de férias gozadas). Nunca zerar por
+        # causa do teto de avos.
+        ferias_vencidas_dias = 30 if meses_totais_casa > 12 else 0
 
         # Dias trabalhados no mês da rescisão — teto de 30 para não exceder 100%
         # do salário do mês (a base do saldo é salário/30; dia 31 daria 103%).

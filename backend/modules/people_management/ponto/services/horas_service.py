@@ -38,7 +38,9 @@ def horas_reais_ponto(db, employee_id: str, mes: int, ano: int) -> dict:
             "WHERE CAST(employee_id AS TEXT) = :e "
             "AND EXTRACT(MONTH FROM punch_timestamp) = :m "
             "AND EXTRACT(YEAR FROM punch_timestamp) = :y "
-            "ORDER BY punch_timestamp"
+            # desempate determinístico p/ batidas no MESMO timestamp (saída antes de
+            # entrada + punch_id) — igual ao espelho, senão o total oscila entre execuções
+            "ORDER BY punch_timestamp, CASE WHEN lower(coalesce(punch_type,'')) LIKE 'sa%' THEN 0 ELSE 1 END, punch_id"
         ),
         {"e": str(employee_id), "m": mes, "y": ano},
     ).fetchall()

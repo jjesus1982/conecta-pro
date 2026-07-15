@@ -61,7 +61,10 @@ class PunchService:
             Dicionario com os dados da batida registrada.
         """
         punch_id = str(uuid4())
-        now = datetime.utcnow()
+        # wall-clock LOCAL (servidor em America/Manaus) — igual a clock_in/clock_out e ao
+        # Tangerino. utcnow() carimbava +4h → a batida do portal caía no dia seguinte, sumia
+        # da tela "bater ponto" (filtro por data local) e migrava de dia/mês no espelho.
+        now = datetime.now()
         timestamp = data.timestamp or now.isoformat()
 
         # Determinar status — vocabulário REAL do ciclo de vida do ponto: uma batida
@@ -504,7 +507,8 @@ class PunchService:
                     "WHERE CAST(employee_id AS TEXT) = :e "
                     "AND EXTRACT(MONTH FROM punch_timestamp) = :m "
                     "AND EXTRACT(YEAR FROM punch_timestamp) = :y "
-                    "ORDER BY punch_timestamp"
+                    # desempate determinístico (saída antes de entrada + punch_id), igual ao espelho
+                    "ORDER BY punch_timestamp, CASE WHEN lower(coalesce(punch_type,'')) LIKE 'sa%' THEN 0 ELSE 1 END, punch_id"
                 ),
                 {"e": str(employee_id), "m": month, "y": year},
             )
