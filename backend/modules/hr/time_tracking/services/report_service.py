@@ -352,10 +352,10 @@ class ReportService:
                 }
 
             by_employee[emp_id]["total_minutes"] += ot.total_minutes
-            if ot.status == OvertimeStatus.APROVADO:
+            if ot.status == OvertimeStatus.APROVADA:
                 by_employee[emp_id]["approved_minutes"] += ot.total_minutes
                 by_employee[emp_id]["total_value"] += ot.calculated_value or Decimal("0")
-            elif ot.status in [OvertimeStatus.PENDENTE, OvertimeStatus.PRE_APROVADO]:
+            elif ot.status in [OvertimeStatus.PENDENTE, OvertimeStatus.EM_ANALISE]:
                 by_employee[emp_id]["pending_minutes"] += ot.total_minutes
 
         date_from_str = date_from.isoformat() if date_from else "N/A"

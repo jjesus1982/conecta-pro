@@ -332,7 +332,7 @@ async def analyze_justification(
             detail="Justificativa não encontrada",
         )
 
-    if justification.status != JustificationStatus.SUBMETIDO:
+    if justification.status != JustificationStatus.PENDENTE:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Apenas justificativas submetidas podem entrar em análise",
@@ -370,7 +370,7 @@ async def approve_justification(
         )
 
     if justification.status not in [
-        JustificationStatus.SUBMETIDO,
+        JustificationStatus.PENDENTE,
         JustificationStatus.EM_ANALISE,
     ]:
         raise HTTPException(
@@ -412,7 +412,7 @@ async def partial_approve_justification(
         )
 
     if justification.status not in [
-        JustificationStatus.SUBMETIDO,
+        JustificationStatus.PENDENTE,
         JustificationStatus.EM_ANALISE,
     ]:
         raise HTTPException(

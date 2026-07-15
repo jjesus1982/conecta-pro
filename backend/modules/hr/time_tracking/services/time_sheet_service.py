@@ -208,7 +208,7 @@ class TimeSheetService:
 
         # Processa horas extras aprovadas
         for ot in overtimes:
-            if ot.status == OvertimeStatus.APROVADO:
+            if ot.status == OvertimeStatus.APROVADA:
                 if ot.overtime_50_minutes:
                     total_overtime_50 += ot.overtime_50_minutes
                 if ot.overtime_100_minutes:
@@ -236,7 +236,7 @@ class TimeSheetService:
         time_bank_credits = sum(
             ot.time_bank_minutes or 0
             for ot in overtimes
-            if ot.status == OvertimeStatus.APROVADO and ot.time_bank_minutes
+            if ot.status == OvertimeStatus.APROVADA and ot.time_bank_minutes
         )
 
         # Pendências
@@ -256,7 +256,7 @@ class TimeSheetService:
 
         # Justificativas pendentes
         pending_just = [
-            j for j in justifications if j.status in [JustificationStatus.SUBMETIDO, JustificationStatus.EM_ANALISE]
+            j for j in justifications if j.status in [JustificationStatus.PENDENTE, JustificationStatus.EM_ANALISE]
         ]
         if pending_just:
             pending_issues.append(
@@ -269,7 +269,7 @@ class TimeSheetService:
             )
 
         # HE pendentes
-        pending_ot = [ot for ot in overtimes if ot.status in [OvertimeStatus.PENDENTE, OvertimeStatus.PRE_APROVADO]]
+        pending_ot = [ot for ot in overtimes if ot.status in [OvertimeStatus.PENDENTE, OvertimeStatus.EM_ANALISE]]
         if pending_ot:
             pending_issues.append(
                 {
@@ -321,7 +321,7 @@ class TimeSheetService:
         sheet.anomaly_count = anomaly_count
         sheet.justification_count = len(justifications)
         sheet.justification_approved_count = len(
-            [j for j in justifications if j.status == JustificationStatus.APROVADO]
+            [j for j in justifications if j.status == JustificationStatus.APROVADA]
         )
         sheet.justification_pending_count = len(pending_just)
 
@@ -382,7 +382,7 @@ class TimeSheetService:
             day_justifications = [
                 j
                 for j in justifications
-                if j.start_date <= work_date <= j.end_date and j.status == JustificationStatus.APROVADO
+                if j.start_date <= work_date <= j.end_date and j.status == JustificationStatus.APROVADA
             ]
             if day_justifications:
                 result["is_justified"] = True

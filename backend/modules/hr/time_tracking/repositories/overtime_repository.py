@@ -156,7 +156,7 @@ class OvertimeRepository:
             Overtime.status.in_(
                 [
                     OvertimeStatus.PENDENTE,
-                    OvertimeStatus.PRE_APROVADO,
+                    OvertimeStatus.EM_ANALISE,
                 ]
             ),
             Overtime.is_deleted.is_(False),
@@ -176,7 +176,7 @@ class OvertimeRepository:
     ) -> builtins.list[Overtime]:
         """Busca horas extras aprovadas pendentes de compensação."""
         query = select(Overtime).where(
-            Overtime.status == OvertimeStatus.APROVADO,
+            Overtime.status == OvertimeStatus.APROVADA,
             Overtime.compensation_type == CompensationType.BANCO_HORAS,
             Overtime.is_compensated.is_(False),
             Overtime.is_deleted.is_(False),
@@ -196,7 +196,7 @@ class OvertimeRepository:
     ) -> builtins.list[Overtime]:
         """Busca horas extras aprovadas pendentes de pagamento."""
         query = select(Overtime).where(
-            Overtime.status == OvertimeStatus.APROVADO,
+            Overtime.status == OvertimeStatus.APROVADA,
             Overtime.compensation_type == CompensationType.PAGAMENTO,
             Overtime.is_paid.is_(False),
             Overtime.is_deleted.is_(False),
@@ -245,18 +245,18 @@ class OvertimeRepository:
 
         # Total de minutos aprovados
         approved_minutes_result = await self.db.execute(
-            select(func.sum(Overtime.total_minutes)).where(
+            select(func.sum(Overtime.net_duration_minutes)).where(
                 *base_where,
-                Overtime.status == OvertimeStatus.APROVADO,
+                Overtime.status == OvertimeStatus.APROVADA,
             )
         )
         approved_minutes = approved_minutes_result.scalar() or 0
 
         # Total valor
         total_value_result = await self.db.execute(
-            select(func.sum(Overtime.calculated_value)).where(
+            select(func.sum(Overtime.total_value)).where(
                 *base_where,
-                Overtime.status == OvertimeStatus.APROVADO,
+                Overtime.status == OvertimeStatus.APROVADA,
             )
         )
         total_value = total_value_result.scalar() or 0
@@ -268,7 +268,7 @@ class OvertimeRepository:
                 Overtime.status.in_(
                     [
                         OvertimeStatus.PENDENTE,
-                        OvertimeStatus.PRE_APROVADO,
+                        OvertimeStatus.EM_ANALISE,
                     ]
                 ),
             )
@@ -280,7 +280,7 @@ class OvertimeRepository:
             select(Overtime.compensation_type, func.count())
             .where(
                 *base_where,
-                Overtime.status == OvertimeStatus.APROVADO,
+                Overtime.status == OvertimeStatus.APROVADA,
             )
             .group_by(Overtime.compensation_type)
         )
@@ -319,38 +319,38 @@ class OvertimeRepository:
 
         # Horas 50%
         h50_result = await self.db.execute(
-            select(func.sum(Overtime.total_minutes)).where(
+            select(func.sum(Overtime.net_duration_minutes)).where(
                 *base_where,
                 Overtime.overtime_type == OvertimeType.HORA_EXTRA_50,
-                Overtime.status == OvertimeStatus.APROVADO,
+                Overtime.status == OvertimeStatus.APROVADA,
             )
         )
         h50_minutes = h50_result.scalar() or 0
 
         # Horas 100%
         h100_result = await self.db.execute(
-            select(func.sum(Overtime.total_minutes)).where(
+            select(func.sum(Overtime.net_duration_minutes)).where(
                 *base_where,
                 Overtime.overtime_type == OvertimeType.HORA_EXTRA_100,
-                Overtime.status == OvertimeStatus.APROVADO,
+                Overtime.status == OvertimeStatus.APROVADA,
             )
         )
         h100_minutes = h100_result.scalar() or 0
 
         # Valor total
         value_result = await self.db.execute(
-            select(func.sum(Overtime.calculated_value)).where(
+            select(func.sum(Overtime.total_value)).where(
                 *base_where,
-                Overtime.status == OvertimeStatus.APROVADO,
+                Overtime.status == OvertimeStatus.APROVADA,
             )
         )
         total_value = value_result.scalar() or 0
 
         # Para banco de horas
         bank_result = await self.db.execute(
-            select(func.sum(Overtime.total_minutes)).where(
+            select(func.sum(Overtime.net_duration_minutes)).where(
                 *base_where,
-                Overtime.status == OvertimeStatus.APROVADO,
+                Overtime.status == OvertimeStatus.APROVADA,
                 Overtime.compensation_type == CompensationType.BANCO_HORAS,
             )
         )

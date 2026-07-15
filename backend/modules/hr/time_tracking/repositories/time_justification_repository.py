@@ -111,7 +111,7 @@ class TimeJustificationRepository:
                         TimeJustification.status.in_(
                             [
                                 JustificationStatus.RASCUNHO,
-                                JustificationStatus.SUBMETIDO,
+                                JustificationStatus.PENDENTE,
                                 JustificationStatus.EM_ANALISE,
                             ]
                         )
@@ -120,8 +120,8 @@ class TimeJustificationRepository:
                     query = query.where(
                         TimeJustification.status.in_(
                             [
-                                JustificationStatus.APROVADO,
-                                JustificationStatus.REJEITADO,
+                                JustificationStatus.APROVADA,
+                                JustificationStatus.REJEITADA,
                             ]
                         )
                     )
@@ -184,7 +184,7 @@ class TimeJustificationRepository:
         query = select(TimeJustification).where(
             TimeJustification.status.in_(
                 [
-                    JustificationStatus.SUBMETIDO,
+                    JustificationStatus.PENDENTE,
                     JustificationStatus.EM_ANALISE,
                 ]
             ),
@@ -207,7 +207,7 @@ class TimeJustificationRepository:
     ) -> builtins.list[TimeJustification]:
         """Busca justificativas aprovadas pendentes de verificação do RH."""
         query = select(TimeJustification).where(
-            TimeJustification.status == JustificationStatus.APROVADO,
+            TimeJustification.status == JustificationStatus.APROVADA,
             TimeJustification.is_verified.is_(False),
             TimeJustification.is_deleted.is_(False),
         )
@@ -231,7 +231,7 @@ class TimeJustificationRepository:
                 TimeJustification.employee_id == employee_id,
                 TimeJustification.start_date <= target_date,
                 TimeJustification.end_date >= target_date,
-                TimeJustification.status == JustificationStatus.APROVADO,
+                TimeJustification.status == JustificationStatus.APROVADA,
                 TimeJustification.is_deleted.is_(False),
             )
         )
@@ -318,7 +318,7 @@ class TimeJustificationRepository:
         days_result = await self.db.execute(
             select(func.sum(TimeJustification.days_count)).where(
                 *base_where,
-                TimeJustification.status == JustificationStatus.APROVADO,
+                TimeJustification.status == JustificationStatus.APROVADA,
             )
         )
         total_days = days_result.scalar() or 0
@@ -329,7 +329,7 @@ class TimeJustificationRepository:
                 *base_where,
                 TimeJustification.status.in_(
                     [
-                        JustificationStatus.SUBMETIDO,
+                        JustificationStatus.PENDENTE,
                         JustificationStatus.EM_ANALISE,
                     ]
                 ),
@@ -350,7 +350,7 @@ class TimeJustificationRepository:
         verification_result = await self.db.execute(
             select(func.count()).where(
                 *base_where,
-                TimeJustification.status == JustificationStatus.APROVADO,
+                TimeJustification.status == JustificationStatus.APROVADA,
                 TimeJustification.is_verified.is_(False),
             )
         )
@@ -391,7 +391,7 @@ class TimeJustificationRepository:
                     TimeJustification.end_date >= end_date,
                 ),
             ),
-            TimeJustification.status != JustificationStatus.REJEITADO,
+            TimeJustification.status != JustificationStatus.REJEITADA,
             TimeJustification.is_deleted.is_(False),
         )
 
