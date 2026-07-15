@@ -8,6 +8,7 @@ Quality Score Target: 99+/100
 
 import asyncio
 import logging
+from uuid import UUID
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -223,13 +224,13 @@ async def list_unread_announcements(
 
 
 @router.get(
-    "/comunicados/{announcement_id}",
+    "/comunicados/{announcement_id:uuid}",
     response_model=AnnouncementResponse,
     summary="Buscar comunicado",
     description="Busca comunicado por ID",
 )
 async def get_announcement(
-    announcement_id: str,
+    announcement_id: UUID,
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> AnnouncementResponse:
@@ -269,14 +270,14 @@ async def get_announcement(
 
 
 @router.patch(
-    "/comunicados/{announcement_id}",
+    "/comunicados/{announcement_id:uuid}",
     dependencies=[Depends(require_permission(_PERM_COMUNICADO))],
     response_model=AnnouncementResponse,
     summary="Atualizar comunicado",
     description="Atualiza um comunicado (apenas rascunhos)",
 )
 async def update_announcement(
-    announcement_id: str,
+    announcement_id: UUID,
     data: AnnouncementUpdate,
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
@@ -315,14 +316,14 @@ async def update_announcement(
 
 
 @router.delete(
-    "/comunicados/{announcement_id}",
+    "/comunicados/{announcement_id:uuid}",
     dependencies=[Depends(require_permission(_PERM_COMUNICADO))],
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Remover comunicado",
     description="Remove um comunicado (soft delete)",
 )
 async def delete_announcement(
-    announcement_id: str,
+    announcement_id: UUID,
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> None:
@@ -352,7 +353,7 @@ async def delete_announcement(
 
 
 @router.post(
-    "/comunicados/{announcement_id}/publicar",
+    "/comunicados/{announcement_id:uuid}/publicar",
     dependencies=[Depends(require_permission(_PERM_COMUNICADO))],
     response_model=AnnouncementResponse,
     summary="Publicar comunicado",
@@ -360,7 +361,7 @@ async def delete_announcement(
     status_code=201,
 )
 async def publish_announcement(
-    announcement_id: str,
+    announcement_id: UUID,
     request_data: AnnouncementPublishRequest,
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
@@ -416,14 +417,14 @@ async def publish_announcement(
 
 
 @router.post(
-    "/comunicados/{announcement_id}/confirmar",
+    "/comunicados/{announcement_id:uuid}/confirmar",
     response_model=dict,
     summary="Confirmar leitura",
     description="Confirma leitura de comunicado que requer confirmacao",
     status_code=201,
 )
 async def acknowledge_announcement(
-    announcement_id: str,
+    announcement_id: UUID,
     request_data: AnnouncementAcknowledgeRequest,
     request: Request,
     current_user: CurrentActiveUser,
@@ -487,13 +488,13 @@ async def acknowledge_announcement(
 
 
 @router.get(
-    "/comunicados/{announcement_id}/leituras",
+    "/comunicados/{announcement_id:uuid}/leituras",
     response_model=AnnouncementReadStats,
     summary="Estatisticas de leitura",
     description="Obtem estatisticas de leitura de um comunicado",
 )
 async def get_announcement_read_stats(
-    announcement_id: str,
+    announcement_id: UUID,
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> AnnouncementReadStats:
