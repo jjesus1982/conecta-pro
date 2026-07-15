@@ -64,7 +64,7 @@ async def create_justification(
             detail=f"Já existe justificativa para este período (código: {overlap.code})",
         )
 
-    justification = await repo.create(data, created_by_id=current_user.get("sub"))
+    justification = await repo.create(data, created_by_id=getattr(current_user, "id", None))
     await db.commit()
 
     return justification
@@ -339,8 +339,8 @@ async def analyze_justification(
         )
 
     justification.status = JustificationStatus.EM_ANALISE
-    justification.analyzed_by_id = current_user.get("sub")
-    justification.analyzed_by_name = current_user.get("name", "")
+    justification.analyzed_by_id = getattr(current_user, "id", None)
+    justification.analyzed_by_name = getattr(current_user, "name", "")
 
     await db.commit()
     await db.refresh(justification)
@@ -379,8 +379,8 @@ async def approve_justification(
         )
 
     justification.approve(
-        approved_by_id=current_user.get("sub"),
-        approved_by_name=current_user.get("name", ""),
+        approved_by_id=getattr(current_user, "id", None),
+        approved_by_name=getattr(current_user, "name", ""),
         notes=data.notes,
     )
 
@@ -423,8 +423,8 @@ async def partial_approve_justification(
     justification.status = JustificationStatus.APROVADA_PARCIAL
     justification.partial_approved_days = data.approved_days
     justification.partial_approved_minutes = data.approved_minutes
-    justification.approved_by_id = current_user.get("sub")
-    justification.approved_by_name = current_user.get("name", "")
+    justification.approved_by_id = getattr(current_user, "id", None)
+    justification.approved_by_name = getattr(current_user, "name", "")
     justification.approval_notes = data.notes
 
     await db.commit()
@@ -464,8 +464,8 @@ async def reject_justification(
         )
 
     justification.reject(
-        rejected_by_id=current_user.get("sub"),
-        rejected_by_name=current_user.get("name", ""),
+        rejected_by_id=getattr(current_user, "id", None),
+        rejected_by_name=getattr(current_user, "name", ""),
         reason=data.reason,
     )
 
@@ -506,8 +506,8 @@ async def verify_justification(
         )
 
     justification.verify(
-        verified_by_id=current_user.get("sub"),
-        verified_by_name=current_user.get("name", ""),
+        verified_by_id=getattr(current_user, "id", None),
+        verified_by_name=getattr(current_user, "name", ""),
         notes=data.notes,
     )
 

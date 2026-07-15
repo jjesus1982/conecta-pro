@@ -62,7 +62,7 @@ async def create_time_sheet(
             detail="Folha de ponto já existe para este período",
         )
 
-    sheet = await repo.create(data, created_by_id=current_user.get("sub"))
+    sheet = await repo.create(data, created_by_id=getattr(current_user, "id", None))
     await db.commit()
 
     return sheet
@@ -95,7 +95,7 @@ async def generate_time_sheet(
         reference_month=reference_month,
         reference_year=reference_year,
         condominium_id=condominium_id,
-        created_by_id=current_user.get("sub"),
+        created_by_id=getattr(current_user, "id", None),
     )
 
     await db.commit()
@@ -126,7 +126,7 @@ async def generate_time_sheets_batch(
         reference_month=reference_month,
         reference_year=reference_year,
         condominium_id=condominium_id,
-        created_by_id=current_user.get("sub"),
+        created_by_id=getattr(current_user, "id", None),
     )
 
     await db.commit()
@@ -210,10 +210,11 @@ async def get_pending_employee_approval(
     """Lista folhas pendentes de aprovação do funcionário."""
     repo = TimeSheetRepository(db)
 
-    # Se não for admin/rh, filtra pelo próprio usuário
-    user_role = current_user.get("role", "")
+    # Se não for admin/rh, filtra pelo próprio usuário. current_user é objeto User
+    # (get_current_user), não dict → getattr (o .get() crashava: 'User' has no 'get').
+    user_role = getattr(current_user, "role", "") or ""
     if user_role not in ["admin", "rh"] and not employee_id:
-        employee_id = current_user.get("sub")
+        employee_id = getattr(current_user, "employee_id", None) or getattr(current_user, "id", None)
 
     sheets = await repo.get_pending_employee_approval(employee_id, condominium_id)
 
@@ -349,7 +350,7 @@ async def approve_by_employee(
         )
 
     # Verifica se é o próprio funcionário
-    if sheet.employee_id != current_user.get("sub"):
+    if sheet.employee_id != getattr(current_user, "id", None):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Apenas o próprio funcionário pode aprovar sua folha",
@@ -392,8 +393,8 @@ async def approve_by_manager(
     try:
         sheet = await service.approve_by_manager(
             sheet,
-            manager_id=current_user.get("sub"),
-            manager_name=current_user.get("name", ""),
+            manager_id=getattr(current_user, "id", None),
+            manager_name=getattr(current_user, "name", ""),
             notes=data.notes,
         )
         await db.commit()
@@ -431,8 +432,8 @@ async def approve_by_hr(
     try:
         sheet = await service.approve_by_hr(
             sheet,
-            hr_id=current_user.get("sub"),
-            hr_name=current_user.get("name", ""),
+            hr_id=getattr(current_user, "id", None),
+            hr_name=getattr(current_user, "name", ""),
             notes=data.notes,
         )
         await db.commit()
@@ -469,8 +470,8 @@ async def close_time_sheet(
     try:
         sheet = await service.close_time_sheet(
             sheet,
-            closed_by_id=current_user.get("sub"),
-            closed_by_name=current_user.get("name", ""),
+            closed_by_id=getattr(current_user, "id", None),
+            closed_by_name=getattr(current_user, "name", ""),
         )
         await db.commit()
     except ValueError as e:
@@ -546,7 +547,7 @@ async def reopen_time_sheet(
         sheet = await service.reopen_time_sheet(
             sheet,
             reason=data.reason,
-            reopened_by_id=current_user.get("sub"),
+            reopened_by_id=getattr(current_user, "id", None),
         )
         await db.commit()
     except ValueError as e:
@@ -588,8 +589,8 @@ async def batch_action(
             if data.action == "close":
                 await service.close_time_sheet(
                     sheet,
-                    closed_by_id=current_user.get("sub"),
-                    closed_by_name=current_user.get("name", ""),
+                    closed_by_id=getattr(current_user, "id", None),
+                    closed_by_name=getattr(current_user, "name", ""),
                 )
             elif data.action == "send_to_payroll":
                 await service.send_to_payroll(
@@ -600,7 +601,7 @@ async def batch_action(
                 await service.reopen_time_sheet(
                     sheet,
                     reason=data.notes or "Reabertura em lote",
-                    reopened_by_id=current_user.get("sub"),
+                    reopened_by_id=getattr(current_user, "id", None),
                 )
 
             results["success"].append(sheet_id)

@@ -177,7 +177,8 @@ class OvertimeRepository:
         """Busca horas extras aprovadas pendentes de compensação."""
         query = select(Overtime).where(
             Overtime.status == OvertimeStatus.APROVADA,
-            Overtime.compensation_type == CompensationType.BANCO_HORAS,
+            # CompensationType.BANCO_HORAS não existe → FOLGA (compensar com folga = banco de horas)
+            Overtime.compensation_type == CompensationType.FOLGA,
             Overtime.is_compensated.is_(False),
             Overtime.is_deleted.is_(False),
         )

@@ -245,13 +245,15 @@ class TimeJustificationRepository:
         date_to: date = None,
     ) -> builtins.list[TimeJustification]:
         """Busca atestados médicos."""
+        # só membros REAIS do enum (ATESTADO_MEDICO/ATESTADO_ACOMPANHANTE/DOENCA_OCUPACIONAL
+        # não existem em JustificationType → crashavam a rota)
         medical_types = [
-            JustificationType.ATESTADO_MEDICO,
-            JustificationType.ATESTADO_ACOMPANHANTE,
+            JustificationType.LICENCA_MEDICA,
+            JustificationType.ACOMPANHAMENTO_FAMILIAR,
             JustificationType.LICENCA_MATERNIDADE,
             JustificationType.LICENCA_PATERNIDADE,
             JustificationType.ACIDENTE_TRABALHO,
-            JustificationType.DOENCA_OCUPACIONAL,
+            JustificationType.CONSULTA_MEDICA,
         ]
 
         query = select(TimeJustification).where(

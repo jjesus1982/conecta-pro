@@ -68,7 +68,7 @@ async def create_time_entry(
             detail=f"Registro de {data.entry_type.value} já existe para esta data",
         )
 
-    entry = await repo.create(data, created_by_id=current_user.get("sub"))
+    entry = await repo.create(data, created_by_id=getattr(current_user, "id", None))
     await db.commit()
 
     return entry
@@ -330,8 +330,8 @@ async def approve_time_entry(
         )
 
     entry.approve(
-        approved_by_id=current_user.get("sub"),
-        approved_by_name=current_user.get("name", ""),
+        approved_by_id=getattr(current_user, "id", None),
+        approved_by_name=getattr(current_user, "name", ""),
         notes=data.notes,
     )
 
@@ -363,8 +363,8 @@ async def reject_time_entry(
         )
 
     entry.reject(
-        rejected_by_id=current_user.get("sub"),
-        rejected_by_name=current_user.get("name", ""),
+        rejected_by_id=getattr(current_user, "id", None),
+        rejected_by_name=getattr(current_user, "name", ""),
         reason=reason,
     )
 
@@ -401,8 +401,8 @@ async def manual_adjust_entry(
     # Aplica ajuste
     entry.entry_time = data.new_time
     entry.mark_as_manual(
-        adjusted_by_id=current_user.get("sub"),
-        adjusted_by_name=current_user.get("name", ""),
+        adjusted_by_id=getattr(current_user, "id", None),
+        adjusted_by_name=getattr(current_user, "name", ""),
         reason=data.reason,
     )
 

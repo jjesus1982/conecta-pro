@@ -50,7 +50,7 @@ async def create_overtime(
     """
     repo = OvertimeRepository(db)
 
-    overtime = await repo.create(data, created_by_id=current_user.get("sub"))
+    overtime = await repo.create(data, created_by_id=getattr(current_user, "id", None))
     await db.commit()
 
     return overtime
@@ -287,8 +287,8 @@ async def pre_approve_overtime(
         )
 
     overtime.pre_approve(
-        approved_by_id=current_user.get("sub"),
-        approved_by_name=current_user.get("name", ""),
+        approved_by_id=getattr(current_user, "id", None),
+        approved_by_name=getattr(current_user, "name", ""),
         notes=data.notes,
     )
 
@@ -326,8 +326,8 @@ async def approve_overtime(
         )
 
     overtime.approve(
-        approved_by_id=current_user.get("sub"),
-        approved_by_name=current_user.get("name", ""),
+        approved_by_id=getattr(current_user, "id", None),
+        approved_by_name=getattr(current_user, "name", ""),
         compensation_type=data.compensation_type,
         notes=data.notes,
     )
@@ -366,8 +366,8 @@ async def reject_overtime(
         )
 
     overtime.reject(
-        rejected_by_id=current_user.get("sub"),
-        rejected_by_name=current_user.get("name", ""),
+        rejected_by_id=getattr(current_user, "id", None),
+        rejected_by_name=getattr(current_user, "name", ""),
         reason=data.reason,
     )
 
