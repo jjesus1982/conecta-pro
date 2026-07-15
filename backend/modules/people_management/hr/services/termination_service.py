@@ -313,6 +313,15 @@ class TerminationService:
                 {"d": termination.last_working_day, "e": str(termination.employee_id)},
             )
 
+            # encerrar o CONTRATO vigente (end_date NULL) — senão o demitido segue "Vigente"
+            await self.db.execute(
+                _sqltext(
+                    "UPDATE employment_contracts SET end_date=:d, updated_at=NOW() "
+                    "WHERE CAST(employee_id AS TEXT)=:e AND end_date IS NULL"
+                ),
+                {"d": termination.last_working_day, "e": str(termination.employee_id)},
+            )
+
         await self.db.flush()
         await self.db.refresh(termination)
         logger.info("Rescisão %s concluída", termination_id)

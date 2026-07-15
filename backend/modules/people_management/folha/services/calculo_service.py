@@ -490,6 +490,11 @@ def calcular_folha_colaborador(
         pass
 
     total_descontos = sum(Decimal(str(d["valor"])) for d in descontos)
+    # Líquido NUNCA é negativo: descontos não podem exceder os proventos (o excedente vira
+    # saldo devedor do funcionário, NÃO desconto abaixo de zero no holerite). Sem isto, um
+    # suspenso/afastado com base cheia − descontos dava líquido negativo (ex.: -R$68,99).
+    if total_descontos > total_proventos:
+        total_descontos = total_proventos
     liquido = _d(total_proventos - total_descontos)
     fgts = _d(base_inss * FGTS_PCT)
 

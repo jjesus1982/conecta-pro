@@ -35,12 +35,10 @@ class ContractCreate(BaseModel):
     def _validar_datas_e_prazo(self) -> "ContractCreate":
         # data invertida
         if self.end_date is not None and self.end_date < self.start_date:
-            raise ValueError("Data de término (end_date) não pode ser anterior à admissão (start_date).")
+            raise ValueError("A data de término não pode ser anterior à data de início do contrato.")
         # contrato por prazo DETERMINADO/TEMPORÁRIO exige término (senão vira 'determinado eterno')
         if self.type in (ContractType.CLT_DETERMINATE, ContractType.TEMPORARY) and self.end_date is None:
-            raise ValueError(
-                f"Contrato do tipo '{self.type.value}' (prazo determinado) exige data de término (end_date)."
-            )
+            raise ValueError("Contrato por prazo determinado exige uma data de término.")
         return self
 
 

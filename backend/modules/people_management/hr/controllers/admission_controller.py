@@ -58,7 +58,11 @@ async def create_admission(
 ) -> Any:
     """Cria um novo processo de admissão."""
     service = AdmissionService(db)
-    admission = await service.create_admission(data.model_dump(), created_by_id=current_user.id)
+    try:
+        admission = await service.create_admission(data.model_dump(), created_by_id=current_user.id)
+    except ValueError as e:
+        # ex.: CPF de funcionário ATIVO já existe → 409 gracioso (não 500)
+        raise HTTPException(status_code=409, detail=str(e))
     await db.commit()
     return admission
 
