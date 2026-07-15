@@ -419,6 +419,16 @@ class InterPaymentService:
             await self._audit(payment_id, user_id, "executado", "erro", f"Inter recusou/não confirmou: {detalhe}")
             await self.db.commit()
             logger.error("D7 executar: Inter NÃO confirmou payment_id=%s resp=%s", payment_id, inter_response)
+            # Boleto reemitido/atualizado: o Inter valida a data contra a CIP e recusa quando
+            # não bate (o app resolve por consulta interna que a API não expõe). Mensagem clara.
+            if payment_type == "boleto" and ("vencimento" in detalhe.lower() or "inválid" in detalhe.lower()):
+                raise PaymentError(
+                    "Este boleto foi recusado pelo Banco Inter na validação de vencimento — "
+                    "geralmente é boleto reemitido/2ª via ou atualizado, cujo registro na CIP "
+                    "difere do código. A API do Inter não permite consultar esse dado antes de pagar. "
+                    "Pague este boleto pelo app do Inter e depois marque como 'pago pelo app Inter' "
+                    "na tela de Pagamentos de Diaristas/Financeiro para conciliar."
+                )
             raise PaymentError(f"Inter não confirmou o pagamento: {detalhe}")
 
         # O Inter ACEITOU o pedido, mas pagamento por API entra numa fila e pode ficar

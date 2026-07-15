@@ -814,7 +814,6 @@ class InterAdapter(BaseBankingAdapter):
                     payload["dataPagamento"] = data_pagamento
             except (ValueError, TypeError):
                 pass
-            logger.warning("D7 BOLETO payload -> %s", payload)
             data = await self._request("POST", "/banking/v2/pagamento", json=payload)
             return {
                 "success": True,
