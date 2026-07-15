@@ -569,6 +569,22 @@ async def audit_log(
     return {"payment_id": payment_id, "audit": await svc.audit_log(payment_id)}
 
 
+class DecodificarPixPayload(BaseModel):
+    brcode: str = Field(min_length=8, description="PIX copia-e-cola (BR Code) lido do QR ou colado")
+
+
+@router.post("/decodificar-pix", summary="Decodifica um PIX copia-e-cola/QR Code em chave+valor (não paga)")
+async def decodificar_pix(
+    body: DecodificarPixPayload,
+    current_user=Depends(get_current_user),
+):
+    """Lê o BR Code (copia-e-cola ou QR) e devolve chave/valor/nome pra pré-preencher o pagamento.
+    NÃO envia dinheiro. QR dinâmico (URL do PSP) é sinalizado para tratar pelo app."""
+    from modules.integrations.inter.pix_brcode import decodificar_brcode
+
+    return decodificar_brcode(body.brcode)
+
+
 @router.get("/{payment_id}/comprovante", summary="Comprovante do pagamento em PDF timbrado (padrão-ouro)")
 async def comprovante(
     payment_id: str,
