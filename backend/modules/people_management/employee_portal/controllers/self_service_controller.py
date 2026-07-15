@@ -735,17 +735,28 @@ async def bater_ponto(
 
     svc = TimeRecordService(db)
 
-    # 1. Descobrir o posto atual (forçado ou pela alocação ativa).
+    # 1. Descobrir o posto atual. SEGURANÇA anti-fraude: um posto_id vindo do cliente só
+    # é aceito se pertencer a uma ALOCAÇÃO ATIVA do próprio funcionário — senão o geofence
+    # seria medido contra um posto escolhido por ele (marcaria dentro_geofence fora do posto
+    # real). Posto não-pertencente é ignorado e cai na alocação real.
     posto_id = payload.posto_id
     posto_nome = None
     if posto_id:
         prow = (
             await db.execute(
-                _sqltext("SELECT name FROM posts WHERE id::text = :p LIMIT 1"),
-                {"p": str(posto_id)},
+                _sqltext(
+                    "SELECT p.name FROM allocations a JOIN posts p ON p.id = a.post_id "
+                    "WHERE a.employee_id::text = :e AND p.id::text = :p "
+                    "AND a.status = 'active' AND a.is_active = true "
+                    "AND (a.end_date IS NULL OR a.end_date >= :today) LIMIT 1"
+                ),
+                {"e": str(emp), "p": str(posto_id), "today": _date.today()},
             )
         ).first()
-        posto_nome = prow[0] if prow else None
+        if prow:
+            posto_nome = prow[0]
+        else:
+            posto_id, posto_nome = await _posto_atual_do_funcionario(db, emp)
     else:
         posto_id, posto_nome = await _posto_atual_do_funcionario(db, emp)
 

@@ -228,9 +228,13 @@ def _dia_coberto_por_abono(db: Session, employee_id: str, dia: date) -> str | No
     try:
         r = db.execute(
             text(
-                "SELECT reason FROM gp_justifications "
-                "WHERE CAST(employee_id AS TEXT)=:e AND lower(status) IN ('aprovada','approved') "
-                "AND created_at::date = :d LIMIT 1"
+                "SELECT j.reason FROM gp_justifications j "
+                "LEFT JOIN gp_clock_punches p ON p.punch_id = j.punch_id "
+                "WHERE CAST(j.employee_id AS TEXT)=:e AND lower(j.status) IN ('aprovada','approved') "
+                # casa pela data do FATO (a batida que a justificativa cobre) OU, na falta de
+                # punch_id, pela data de lançamento — assim atestado lançado dias DEPOIS da
+                # falta ainda cobre o dia certo (antes só `created_at::date` → virava falta)
+                "AND (p.punch_timestamp::date = :d OR j.created_at::date = :d) LIMIT 1"
             ),
             {"e": str(employee_id), "d": dia},
         ).first()

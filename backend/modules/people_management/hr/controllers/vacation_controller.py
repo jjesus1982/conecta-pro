@@ -152,19 +152,10 @@ async def list_vacations(
             "total_pages": max(1, (total + page_size - 1) // page_size),
         }
     except Exception:
-        return {
-            "items": [],
-            "total": 0,
-            "page": 1,
-            "page_size": 20,
-            "total_pages": 1,
-            "pendente": 0,
-            "aprovado": 0,
-            "rejeitado": 0,
-            "cancelado": 0,
-            "counts": {},
-            "total_all": 0,
-        }
+        # NÃO mascarar como "0 pendentes" (obrigação legal escondida como all-clear).
+        # Loga e propaga → 500 honesto ("não carregou" é melhor que "0 pendentes").
+        logger.exception("list_vacations falhou — propagando erro em vez de retornar zeros")
+        raise
 
 
 @router.get(

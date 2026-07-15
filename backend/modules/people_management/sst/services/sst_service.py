@@ -342,8 +342,10 @@ class SSTService:
                         "dias_restantes": (row[4] - hoje).days,
                     }
                 )
-        except Exception as exc:
-            logger.debug("Tabela gp_asos sem dados: %s", exc)
+        except Exception:
+            # falha real NÃO pode virar "0 ASOs vencendo" silencioso (obrigação legal
+            # escondida como all-clear) — sobe pro log como erro, visível ao ops
+            logger.exception("verificar_vencimentos_aso falhou — resultado pode estar incompleto")
         return vencendo
 
     async def listar_sem_aso(self) -> list[dict]:

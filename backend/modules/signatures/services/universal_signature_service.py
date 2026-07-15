@@ -567,8 +567,12 @@ class UniversalSignatureService:
         req = await self._get_request_by_token(access_token)
         if req is None:
             raise ValueError("Link de assinatura inválido.")
-        if req.access_code and access_code != req.access_code:
-            raise ValueError("PIN de verificação incorreto.")
+        if req.access_code:
+            import secrets as _secrets
+
+            # comparação em tempo CONSTANTE (evita timing attack no PIN de 6 dígitos)
+            if not _secrets.compare_digest(str(access_code or ""), str(req.access_code)):
+                raise ValueError("PIN de verificação incorreto.")
 
         return await self.assinar(
             request_id=req.id,

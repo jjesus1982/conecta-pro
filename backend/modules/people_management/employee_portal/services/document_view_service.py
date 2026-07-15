@@ -294,7 +294,8 @@ class DocumentViewService:
                         if hasattr(signed_at, "isoformat")
                         else (str(signed_at) if signed_at else None),
                         "signature_valid": bool(row["is_signed"]),
-                        "file_path": row["file_path"],
+                        # file_path (caminho físico interno) NÃO exposto ao funcionário —
+                        # o download é por document_id; evita disclosure da estrutura de storage
                     }
                 )
 
