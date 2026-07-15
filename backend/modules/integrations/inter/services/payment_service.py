@@ -441,6 +441,22 @@ class InterPaymentService:
         )
         await self.db.commit()
 
+        # AGENDA — auto-salva o beneficiário PIX (como o app do Inter): próxima vez basta o nome.
+        # Não-fatal: uma falha aqui NUNCA pode afetar o pagamento já concluído.
+        if payment_type == "pix" and dest.get("chave"):
+            try:
+                from modules.financial.beneficiarios_service import upsert_beneficiario
+                doc = (dest.get("chave") if (dest.get("tipo_chave") or "").upper() in ("CPF", "CNPJ")
+                       else dest.get("cpf") or dest.get("cpf_cnpj"))
+                await upsert_beneficiario(
+                    self.db, nome=dest.get("nome_recebedor") or dest.get("nome"),
+                    chave_pix=dest.get("chave"), tipo_chave=dest.get("tipo_chave"),
+                    cpf_cnpj=doc, categoria="avulso", origem="pagamento", contar_pagamento=True)
+                await self.db.commit()
+            except Exception as _e:  # noqa: BLE001
+                logger.warning("Auto-salvar beneficiário falhou (ignorado): %s", _e)
+                await self.db.rollback()
+
         logger.info("D7 executar: payment_id=%s cod=%s status_inter=%s -> %s",
                     payment_id, inter_payment_id, inter_response.get("status"), novo_status)
         return {
@@ -742,9 +758,11 @@ async def _chamar_inter(payment_type: str, dest: dict, valor: Decimal, data_pgto
                 data_pagamento=data_pgto,
             )
         elif payment_type == "pix":
+            # tipo_chave é OPCIONAL: o Inter auto-detecta (destinatario.tipo='CHAVE').
+            # Usar .get evita KeyError "'tipo_chave'" quando a tela não o envia.
             result = await adapter.enviar_pix(
                 chave=dest["chave"],
-                tipo_chave=dest["tipo_chave"],
+                tipo_chave=dest.get("tipo_chave", ""),
                 valor=valor,
                 nome_recebedor=dest.get("nome_recebedor", ""),
                 descricao=dest.get("descricao", ""),

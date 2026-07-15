@@ -1273,6 +1273,16 @@ try:
 except Exception as _e:  # noqa: BLE001
     logger.warning("Financeiro — Pagamentos Diaristas: %s", _e)
 
+# Financeiro — Agenda de beneficiários PIX (favoritos: digitar nome → carrega a chave)
+try:
+    import importlib as _il_ben
+
+    _ben_mod = _il_ben.import_module("modules.financial.beneficiarios_controller")
+    api_router.include_router(_ben_mod.router, dependencies=[_FIN_GATE])
+    logger.info("Financeiro — Agenda Beneficiários: OK")
+except Exception as _e:  # noqa: BLE001
+    logger.warning("Financeiro — Agenda Beneficiários: %s", _e)
+
 # Operacional — Diárias (modelo da planilha: cadastros + lançamento c/ valor automático + resumo dia 15)
 try:
     import importlib as _il_dia

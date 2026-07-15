@@ -567,3 +567,48 @@ async def audit_log(
     """Retorna audit log completo de um pagamento."""
     svc = InterPaymentService(db)
     return {"payment_id": payment_id, "audit": await svc.audit_log(payment_id)}
+
+
+@router.get("/{payment_id}/comprovante", summary="Comprovante do pagamento em PDF timbrado (padrão-ouro)")
+async def comprovante(
+    payment_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Gera o comprovante PDF branded a partir do pagamento REAL (inter_payments).
+
+    Só emite se o pagamento foi de fato enviado (tem inter_payment_id/endToEndId) — nunca
+    fabrica comprovante de pagamento não concluído."""
+    import json as _json
+
+    from fastapi.responses import Response
+
+    from modules.gedeon.services.comprovante_generator import gerar_comprovante_pdf
+
+    row = (await db.execute(text("""
+        SELECT payment_type, destinatario, valor, data_pagamento, status,
+               inter_payment_id, executed_at, observacoes, categoria
+        FROM inter_payments WHERE id = :id
+    """), {"id": payment_id})).mappings().first()
+    if not row:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Pagamento não encontrado.")
+    if not row["inter_payment_id"] or row["status"] in ("preparado", "aprovado", "cancelado", "erro"):
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail="Comprovante indisponível: pagamento ainda não foi concluído no Inter.")
+
+    dest = row["destinatario"] if isinstance(row["destinatario"], dict) else _json.loads(row["destinatario"] or "{}")
+    favorecido = dest.get("nome_recebedor") or dest.get("nome") or "Beneficiário"
+    tipo = (dest.get("tipo_chave") or "").upper()
+    chave = dest.get("chave") or ""
+    doc = chave if tipo in ("CPF", "CNPJ") else (dest.get("cpf") or dest.get("cpf_cnpj"))
+    data_pg = row["data_pagamento"] or row["executed_at"]
+    tipo_pag = {"pix": "PIX", "ted": "TED", "boleto": "Boleto", "darf": "DARF", "gps": "GPS"}.get(
+        (row["payment_type"] or "pix").lower(), "PIX")
+
+    pdf = gerar_comprovante_pdf(
+        favorecido=favorecido, cpf=doc, valor=float(row["valor"]),
+        data_pagamento=data_pg, descricao=row["observacoes"] or None,
+        id_transacao=row["inter_payment_id"], tipo=tipo_pag)
+    fname = f"comprovante_{tipo_pag}_{favorecido.split()[0].lower()}_{payment_id[:8]}.pdf"
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="{fname}"'})
