@@ -565,7 +565,14 @@ class TimeSheet(Base):
             TimeSheetStatus.ENVIADO_FOLHA: "Enviado p/ Folha",
             TimeSheetStatus.CANCELADO: "Cancelado",
         }
-        return display_map.get(self.status, self.status.value)
+        # self.status pode vir como STRING crua do banco (não coerce p/ enum) → normaliza
+        # sem quebrar (o antigo self.status.value estourava em str: 'str' has no 'value').
+        raw = self.status.value if hasattr(self.status, "value") else str(self.status)
+        try:
+            key = TimeSheetStatus(raw)
+        except ValueError:
+            return raw
+        return display_map.get(key, raw)
 
     def __repr__(self) -> str:
         """Representação do objeto."""

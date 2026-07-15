@@ -586,7 +586,7 @@ class TimeJustification(Base):
             JustificationStatus.CANCELADA: "Cancelada",
             JustificationStatus.EXPIRADA: "Expirada",
         }
-        return display_map.get(self.status, self.status.value)
+        return display_map.get(self.status, self.status.value if hasattr(self.status, "value") else str(self.status))
 
     def __repr__(self) -> str:
         """Representação do objeto."""
