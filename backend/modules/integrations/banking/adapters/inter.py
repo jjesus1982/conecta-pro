@@ -799,13 +799,22 @@ class InterAdapter(BaseBankingAdapter):
             # Campos EXATOS da API Inter /banking/v2/pagamento (iguais ao initiate_payment):
             # codBarraLinhaDigitavel + valorPagar + dataPagamento. Os nomes antigos
             # (codigoBarras/valor) causavam HTTP 400 (campo obrigatório ausente).
+            from datetime import date as _date
+
             payload: dict = {
                 "codBarraLinhaDigitavel": "".join(c for c in codigo_barras if c.isdigit()),
-                "dataPagamento": data_pagamento,
                 "dataVencimento": self._vencimento_do_boleto(codigo_barras, data_pagamento),
             }
             if valor:
                 payload["valorPagar"] = float(valor)
+            # dataPagamento é OPCIONAL — só envia p/ AGENDAMENTO futuro; pagamento imediato
+            # (hoje) omite (evita conflito dataPagamento==dataVencimento==hoje no Inter).
+            try:
+                if data_pagamento and _date.fromisoformat(data_pagamento) > _date.today():
+                    payload["dataPagamento"] = data_pagamento
+            except (ValueError, TypeError):
+                pass
+            logger.warning("D7 BOLETO payload -> %s", payload)
             data = await self._request("POST", "/banking/v2/pagamento", json=payload)
             return {
                 "success": True,
