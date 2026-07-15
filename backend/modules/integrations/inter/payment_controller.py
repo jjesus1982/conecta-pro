@@ -6,7 +6,7 @@ Prefixo: /api/v1/financeiro/inter/payments
 import logging
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -583,6 +583,24 @@ async def decodificar_pix(
     from modules.integrations.inter.pix_brcode import decodificar_brcode
 
     return decodificar_brcode(body.brcode)
+
+
+@router.post("/extrair-boleto-pdf", summary="Extrai a linha digitável de um boleto em PDF (não paga)")
+async def extrair_boleto_pdf(
+    arquivo: UploadFile = File(...),
+    current_user=Depends(get_current_user),
+):
+    """Recebe o PDF do boleto e devolve a linha digitável + valor para pré-preencher o pagamento.
+    NÃO envia dinheiro. PDF só-imagem (escaneado) → encontrado=False."""
+    from modules.integrations.inter.boleto_pdf import extrair_linha_digitavel
+
+    nome = (arquivo.filename or "").lower()
+    if not nome.endswith(".pdf") and (arquivo.content_type or "") != "application/pdf":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Envie um arquivo PDF do boleto.")
+    conteudo = await arquivo.read()
+    if len(conteudo) > 10 * 1024 * 1024:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="PDF muito grande (máx. 10MB).")
+    return extrair_linha_digitavel(conteudo)
 
 
 @router.get("/{payment_id}/comprovante", summary="Comprovante do pagamento em PDF timbrado (padrão-ouro)")
