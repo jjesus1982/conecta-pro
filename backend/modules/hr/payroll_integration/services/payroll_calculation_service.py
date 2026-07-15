@@ -624,7 +624,9 @@ class PayrollCalculationService:
 
     async def get_period(self, period_id, condominio_id=None):
         """Busca período por ID."""
-        return await self.period_repo.get_by_id(period_id, condominio_id)
+        # get_by_id(period_id, *, include_events) NÃO aceita condominio_id posicional
+        # (dava 'takes 2 positional but 3 given'); o id já é UUID único → filtro redundante.
+        return await self.period_repo.get_by_id(period_id)
 
     async def update_period(self, period_id, data, condominio_id=None):
         """Atualiza período."""

@@ -30,6 +30,7 @@ class TimeSheetStatus(StrEnum):
 
     ABERTO = "aberto"
     EM_PROCESSAMENTO = "em_processamento"
+    CALCULADO = "calculado"  # estado do motor de espelho (calculado, ainda não fechado)
     PENDENTE_REVISAO = "pendente_revisao"
     REVISADO = "revisado"
     APROVADO = "aprovado"
@@ -556,6 +557,7 @@ class TimeSheet(Base):
         display_map = {
             TimeSheetStatus.ABERTO: "Aberto",
             TimeSheetStatus.EM_PROCESSAMENTO: "Em Processamento",
+            TimeSheetStatus.CALCULADO: "Calculado",
             TimeSheetStatus.PENDENTE_REVISAO: "Pendente Revisão",
             TimeSheetStatus.REVISADO: "Revisado",
             TimeSheetStatus.APROVADO: "Aprovado",
