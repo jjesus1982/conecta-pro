@@ -178,4 +178,10 @@ async def cancel_payment(
 ) -> dict:
     """Cancela pagamento agendado (antes da data de execução)."""
     adapter = _build_inter_adapter()
-    return await adapter.cancel_payment(payment_id)
+    ok = await adapter.cancel_payment(payment_id)  # adapter devolve bool
+    return {
+        "success": bool(ok),
+        "payment_id": payment_id,
+        "mensagem": "Pagamento cancelado." if ok
+        else "Não foi possível cancelar (pagamento não encontrado ou já executado).",
+    }

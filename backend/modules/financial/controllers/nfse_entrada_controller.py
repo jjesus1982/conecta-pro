@@ -85,7 +85,7 @@ async def auto_criar_payables(
     resultado = await auto_criar_payables_nfse(db)
     return {
         "success": True,
-        "message": f"{resultado['criadas']} conta(s) a pagar criada(s), {resultado['erros']} erro(s).",
+        "message": f"{resultado.get('criados', 0)} conta(s) a pagar criada(s), {resultado.get('erros', 0)} erro(s).",
         **resultado,
     }
 
