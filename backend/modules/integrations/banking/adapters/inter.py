@@ -757,6 +757,29 @@ class InterAdapter(BaseBankingAdapter):
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    @staticmethod
+    def _vencimento_do_boleto(codigo: str, data_pagamento: str) -> str:
+        """Data de vencimento a partir do FATOR DE VENCIMENTO do código (obrigatória p/ o Inter).
+
+        Fator = dias desde 1997-10-07 (Febraban). Reseta ao chegar em 9999; corrige somando
+        ciclos de 9000 até a data ficar coerente (perto de hoje). Fator 0 = à vista → hoje."""
+        from datetime import date, timedelta
+
+        d = "".join(c for c in (codigo or "") if c.isdigit())
+        fator = 0
+        if len(d) == 47:      # linha digitável bancário: campo5 = fator(4)+valor(10)
+            fator = int(d[33:37] or 0)
+        elif len(d) == 44:    # código de barras
+            fator = int(d[5:9] or 0)
+        if fator <= 0:
+            return data_pagamento
+        venc = date(1997, 10, 7) + timedelta(days=fator)
+        hoje = date.today()
+        # corrige o reset do fator (ciclos de 9000): avança até não ficar muito no passado
+        while venc < hoje - timedelta(days=180):
+            venc += timedelta(days=9000)
+        return venc.strftime("%Y-%m-%d")
+
     async def pay_barcode(
         self,
         codigo_barras: str,
@@ -779,6 +802,7 @@ class InterAdapter(BaseBankingAdapter):
             payload: dict = {
                 "codBarraLinhaDigitavel": "".join(c for c in codigo_barras if c.isdigit()),
                 "dataPagamento": data_pagamento,
+                "dataVencimento": self._vencimento_do_boleto(codigo_barras, data_pagamento),
             }
             if valor:
                 payload["valorPagar"] = float(valor)
