@@ -81,6 +81,7 @@ signxml>=4.4.0  # Dependência PyNFe para assinatura XML NF-e
 
 # Document Processing & Generation
 PyMuPDF>=1.27.0
+zxing-cpp>=2.2.0   # decodifica código de barras de boleto (ITF) e QR a partir de PDF-imagem
 python-docx>=1.2.0
 xlsxwriter>=3.2.0
 reportlab>=4.4.0
