@@ -549,6 +549,37 @@ async def cancelar(db: AsyncSession, pagamento_id: int) -> dict[str, Any]:
     return {"ok": True}
 
 
+async def marcar_pago_externo(db: AsyncSession, pagamento_id: int,
+                              user_nome: str | None = None) -> dict[str, Any]:
+    """Concilia um VT+VR que foi pago FORA do Conecta PRO (direto no app do banco).
+
+    NÃO envia dinheiro — só registra que já saiu, pra não pagar em dobro no lote.
+    Etiqueta honesta na descrição (sem e2e do Conecta PRO) p/ auditoria distinguir de PIX
+    enviado pelo sistema. Só age em item ainda pendente (a_revisar/sem_pix/aprovado)."""
+    await _ensure(db)
+    quem = (user_nome or "operador").strip()
+    row = (await db.execute(text(
+        "SELECT beneficiario, valor, status FROM financial_pagamentos_diaristas WHERE id=:id"),
+        {"id": pagamento_id})).first()
+    if not row:
+        return {"ok": False, "mensagem": "Pagamento não encontrado."}
+    if row.status in ("pago", "cancelado"):
+        return {"ok": False, "mensagem": f"Item já está '{row.status}' — nada a fazer."}
+    res = await db.execute(text(
+        "UPDATE financial_pagamentos_diaristas "
+        "SET status='pago', "
+        "    descricao = descricao || ' | PAGO PELO APP INTER (fora do Conecta PRO) por ' "
+        "                || :quem || ' em ' || to_char(now(),'YYYY-MM-DD') "
+        "                || ' — conciliação manual, SEM e2e do Conecta PRO', "
+        "    updated_at=now() "
+        "WHERE id=:id AND status IN ('a_revisar','sem_pix','aprovado')"),
+        {"id": pagamento_id, "quem": quem})
+    await db.commit()
+    if not res.rowcount:
+        return {"ok": False, "mensagem": "Item não estava pendente — nada alterado."}
+    return {"ok": True, "mensagem": f"{row.beneficiario}: marcado como pago externamente (R$ {float(row.valor):.2f})."}
+
+
 def _extrair_nome_pix(descricao: str) -> str | None:
     """Extrai o nome do beneficiário da descrição de um PIX enviado do extrato Inter."""
     import re

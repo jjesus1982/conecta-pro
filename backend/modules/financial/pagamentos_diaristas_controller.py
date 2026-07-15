@@ -82,6 +82,17 @@ async def cancelar(
     return await svc.cancelar(db, pagamento_id)
 
 
+@router.post("/{pagamento_id}/marcar-pago-externo",
+             summary="Concilia um VT+VR já pago FORA do Conecta PRO (app do banco) — não envia dinheiro")
+async def marcar_pago_externo(
+    pagamento_id: int,
+    current_user=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    nome = getattr(current_user, "name", None) or getattr(current_user, "email", None)
+    return await svc.marcar_pago_externo(db, pagamento_id, user_nome=nome)
+
+
 @router.get("/sugestoes-cadastro", summary="Sugere diaristas a cadastrar a partir do histórico de PIX R$32")
 async def sugestoes(
     dias: int = Query(default=30, ge=1, le=180),
