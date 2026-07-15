@@ -96,6 +96,12 @@ class PunchService:
             if not dentro_geofence:
                 status = "fora_local"
 
+        # Anti-fraude facial: match NEGATIVO (selfie de outra pessoa) marca a batida p/
+        # REVISÃO do DP — não pode entrar como válida só porque o geofence passou. Hoje
+        # latente (facial na fase 1), mas o resultado deixa de ser só persistido e ignorado.
+        if data.facial is not None and data.facial.match is False:
+            status = "facial_reprovado"
+
         # Criar model e persistir
         punch = ClockPunchModel(
             punch_id=punch_id,

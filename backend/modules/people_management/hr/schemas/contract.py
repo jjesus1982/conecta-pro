@@ -5,7 +5,7 @@ Schemas Pydantic para EmploymentContract (Contrato de Trabalho).
 from datetime import date, datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from modules.people_management.hr.models.contract import ContractType
 
@@ -30,6 +30,18 @@ class ContractCreate(BaseModel):
     union_name: str | None = None
     union_code: str | None = None
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def _validar_datas_e_prazo(self) -> "ContractCreate":
+        # data invertida
+        if self.end_date is not None and self.end_date < self.start_date:
+            raise ValueError("Data de término (end_date) não pode ser anterior à admissão (start_date).")
+        # contrato por prazo DETERMINADO/TEMPORÁRIO exige término (senão vira 'determinado eterno')
+        if self.type in (ContractType.CLT_DETERMINATE, ContractType.TEMPORARY) and self.end_date is None:
+            raise ValueError(
+                f"Contrato do tipo '{self.type.value}' (prazo determinado) exige data de término (end_date)."
+            )
+        return self
 
 
 class ContractUpdate(BaseModel):
