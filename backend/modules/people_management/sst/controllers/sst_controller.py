@@ -171,6 +171,10 @@ async def registrar_afastamento(
     GATILHO eSocial: tipos mapeáveis na Tabela 18 (doenca, acidente_trabalho,
     acidente_trajeto, licenca_maternidade) enfileiram o S-2230 automaticamente.
     """
+    if not data.get("employee_id") or not data.get("data_inicio"):
+        raise HTTPException(
+            status_code=422, detail="Campos 'employee_id' e 'data_inicio' são obrigatórios."
+        )
     service = SSTService(db)
     result = await service.registrar_afastamento(data)
     await db.commit()
@@ -1509,6 +1513,8 @@ async def registrar_reuniao_cipa(
     from sqlalchemy import text as sql_text
 
     reuniao_id = str(uuid4())
+    if not data.get("data_reuniao"):
+        raise HTTPException(status_code=422, detail="Campo 'data_reuniao' é obrigatório.")
     data_reuniao = date.fromisoformat(data.get("data_reuniao"))
     await db.execute(
         sql_text(

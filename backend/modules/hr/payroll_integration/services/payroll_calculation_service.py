@@ -635,3 +635,32 @@ class PayrollCalculationService:
     async def delete_period(self, period_id):
         """Remove período."""
         return await self.period_repo.delete(period_id)
+
+    # Lifecycle do período (estavam sendo chamados pelo controller mas NÃO existiam →
+    # 500). Usam o update_status dedicado do repo (carimba datas de aprovação/fechamento).
+    async def approve_period(self, period_id, user_id=None):
+        """Aprova o período (status=approved)."""
+        from modules.hr.payroll_integration.models import PeriodStatus
+
+        p = await self.period_repo.update_status(period_id, PeriodStatus.APPROVED, user_id=user_id)
+        if p is None:
+            raise ValueError("Período não encontrado")
+        return p
+
+    async def close_period(self, period_id, user_id=None):
+        """Fecha o período (status=closed)."""
+        from modules.hr.payroll_integration.models import PeriodStatus
+
+        p = await self.period_repo.update_status(period_id, PeriodStatus.CLOSED, user_id=user_id)
+        if p is None:
+            raise ValueError("Período não encontrado")
+        return p
+
+    async def reopen_period(self, period_id, user_id=None):
+        """Reabre o período (status=open)."""
+        from modules.hr.payroll_integration.models import PeriodStatus
+
+        p = await self.period_repo.update_status(period_id, PeriodStatus.OPEN, user_id=user_id)
+        if p is None:
+            raise ValueError("Período não encontrado")
+        return p

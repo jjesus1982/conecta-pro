@@ -305,10 +305,14 @@ async def fechar_mes_todos(
 ) -> dict:
     """Fecha o ponto mensal de TODOS os funcionários ativos (tela Fechamento Mensal).
     Recebe {mes, ano, fechado_por?}. Fecha cada um; retorna resumo (fechados/erros)."""
+    from fastapi import HTTPException
     from sqlalchemy import text as _text
 
-    mes = int(payload.get("mes") or payload.get("month"))
-    ano = int(payload.get("ano") or payload.get("year"))
+    _mes = payload.get("mes") or payload.get("month")
+    _ano = payload.get("ano") or payload.get("year")
+    if _mes is None or _ano is None:
+        raise HTTPException(status_code=422, detail="Campos 'mes' e 'ano' são obrigatórios.")
+    mes, ano = int(_mes), int(_ano)
     fechado_por = payload.get("fechado_por") or "sistema"
     rows = (await db.execute(_text("SELECT CAST(id AS text) FROM employees WHERE status='ativo'"))).fetchall()
     service = PunchService(db)
