@@ -825,6 +825,7 @@ async def _chamar_inter(payment_type: str, dest: dict, valor: Decimal, data_pgto
         inter_id = (
             result.get("codigoSolicitacao")
             or result.get("endToEndId")
+            or result.get("payment_id")  # boleto/tributo: codigoTransacao
             or result.get("autenticacao")
             or result.get("nosso_numero")
         )

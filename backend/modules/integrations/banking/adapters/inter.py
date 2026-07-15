@@ -773,26 +773,35 @@ class InterAdapter(BaseBankingAdapter):
         if not data_pagamento:
             data_pagamento = datetime.now().strftime("%Y-%m-%d")
         try:
+            # Campos EXATOS da API Inter /banking/v2/pagamento (iguais ao initiate_payment):
+            # codBarraLinhaDigitavel + valorPagar + dataPagamento. Os nomes antigos
+            # (codigoBarras/valor) causavam HTTP 400 (campo obrigatório ausente).
             payload: dict = {
-                "codigoBarras": "".join(c for c in codigo_barras if c.isdigit()),
+                "codBarraLinhaDigitavel": "".join(c for c in codigo_barras if c.isdigit()),
                 "dataPagamento": data_pagamento,
-                "descricao": descricao or "Pagamento via Conecta PRO",
             }
             if valor:
-                payload["valor"] = valor
+                payload["valorPagar"] = float(valor)
             data = await self._request("POST", "/banking/v2/pagamento", json=payload)
             return {
                 "success": True,
-                "payment_id": data.get("codigoPagamento", data.get("idPagamento", "")),
+                "payment_id": data.get("codigoTransacao")
+                or data.get("codigoPagamento")
+                or data.get("idPagamento", ""),
                 "valor": valor,
                 "data_pagamento": data_pagamento,
-                "status": data.get("status", "processando"),
+                "status": data.get("tipoRetorno") or data.get("status", "processando"),
                 "autenticacao": data.get("autenticacao", ""),
             }
         except BankingAdapterError as e:
-            return {"success": False, "status_code": e.code, "detail": str(e)}
+            # Expõe o motivo REAL do Inter (corpo da resposta), não só "400".
+            corpo = ""
+            if getattr(e, "details", None):
+                corpo = str(e.details.get("response", ""))[:400]
+            return {"success": False, "status_code": e.code,
+                    "detail": f"{e}{(' — ' + corpo) if corpo else ''}"}
         except Exception as e:
-            return {"error": str(e)}
+            return {"success": False, "error": str(e)}
 
     async def pay_batch(self, pagamentos: list) -> dict:
         """
