@@ -729,6 +729,35 @@ async def _enviar_otp_email(email: str, code: str, valor: float, payment_type: s
         logger.warning("D7 _enviar_otp_email falhou (%s) — continuando sem email", exc)
 
 
+def _mod10(num: str) -> int:
+    """Dígito verificador mod10 (usado nos campos da linha digitável do boleto bancário)."""
+    soma, peso = 0, 2
+    for d in reversed(num):
+        p = int(d) * peso
+        soma += p if p < 10 else p - 9
+        peso = 1 if peso == 2 else 2
+    return (10 - (soma % 10)) % 10
+
+
+def _normalizar_codigo_boleto(codigo: str) -> str:
+    """Normaliza para a LINHA DIGITÁVEL (o formato que a API do Inter aceita de forma confiável).
+
+    - 47/48 dígitos (linha digitável já) → mantém.
+    - 44 dígitos (código de barras lido do QR/ITF pela câmera) → converte:
+        * boleto bancário (não começa com 8) → linha digitável de 47.
+        * arrecadação (começa com 8) → mantém 44 (conversão p/ 48 é feita pelo Inter).
+    - outro tamanho → devolve só os dígitos (deixa o Inter validar).
+    """
+    b = "".join(c for c in (codigo or "") if c.isdigit())
+    if len(b) in (47, 48):
+        return b
+    if len(b) == 44 and not b.startswith("8"):
+        campo1, campo2, campo3 = b[0:4] + b[19:24], b[24:34], b[34:44]
+        return (f"{campo1}{_mod10(campo1)}{campo2}{_mod10(campo2)}"
+                f"{campo3}{_mod10(campo3)}{b[4]}{b[5:19]}")
+    return b
+
+
 async def _chamar_inter(payment_type: str, dest: dict, valor: Decimal, data_pgto: date) -> tuple[dict, str | None]:
     """Despacha para o método correto do InterAdapter conforme tipo."""
     import os
@@ -753,7 +782,7 @@ async def _chamar_inter(payment_type: str, dest: dict, valor: Decimal, data_pgto
 
         if payment_type == "boleto":
             result = await adapter.pagar_boleto(
-                codigo_barras=dest["codigo_barras"],
+                codigo_barras=_normalizar_codigo_boleto(dest["codigo_barras"]),
                 valor=valor,
                 data_pagamento=data_pgto,
             )
