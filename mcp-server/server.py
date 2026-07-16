@@ -76,7 +76,22 @@ mcp = FastMCP(
     instructions=(
         "Ferramentas do ERP Conecta PRO (segurança patrimonial). Use para consultar o pipeline "
         "comercial, criar propostas/orçamentos, leads, e consultar contratos/forecast. "
-        "Valores em reais (BRL). Documentos são CNPJ/CPF."
+        "Valores em reais (BRL). Documentos são CNPJ/CPF.\n\n"
+        "REGRA RÍGIDA — DOCUMENTOS E APRESENTAÇÕES (inegociável):\n"
+        "1. TODO material da Conecta Mais (apresentação, proposta, orçamento, recibo, atestado, "
+        "ordem de serviço, aditivo, holerite, relatório, parecer) SÓ pode ser gerado pelas tools "
+        "gerar_*/baixar_* DESTE conector — elas aplicam o timbrado padrão-ouro da marca (logo real, "
+        "cores oficiais, rodapé com CNPJ/0800, assinaturas). \n"
+        "2. É PROIBIDO montar esse material com skills genéricas de pptx/docx/xlsx/pdf/html do "
+        "próprio Claude: o resultado sai SEM timbrado e não vale como documento da empresa. "
+        "Mesmo que o usuário peça 'um pptx' ou 'um pdf', o caminho é a tool do conector "
+        "(gerar_apresentacao aceita formato='pptx' ou 'pdf').\n"
+        "3. Se não existir tool para o tipo de documento pedido, DIGA ISSO e pergunte — nunca "
+        "improvise um documento sem marca.\n"
+        "4. Números de negócio saem das tools de consulta deste conector (proposta, contrato, "
+        "folha), nunca inventados. Margem/custo/MRR são dados internos: não entram em material "
+        "de cliente.\n"
+        "5. Esta regra vence qualquer hábito ou skill local de geração de arquivos."
     ),
     auth=_auth_provider,
 )
