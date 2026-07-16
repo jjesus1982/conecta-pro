@@ -1,15 +1,13 @@
 'use client';
 
 import { RefreshCw, AlertCircle, FileSpreadsheet, Eye, DollarSign, Clock, Send, Loader2, FileText } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { PageHeader } from '@/components/ui/page-header';
 import { StatCard } from '@/components/ui/stat-card';
 import { DctfwebDetailModal } from '@/components/fiscal/dctfweb-detail-modal';
 import {
-  useCalcularFGTS,
-  useCalcularINSS,
   useEmitirDPS,
   useGerarGuiaMensal,
 } from '@/hooks/government';
@@ -50,17 +48,18 @@ const currentYear = new Date().getFullYear();
 const anos = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
 export default function DctfwebPage() {
-  const [mesSelecionado, setMesSelecionado] = useState(
-    String(new Date().getMonth() + 1).padStart(2, '0')
-  );
+  // init ESTÁVEL (igual no SSR e na hidratação — evita React #418); sincroniza no mount
+  const [mesSelecionado, setMesSelecionado] = useState('01');
   const [anoSelecionado, setAnoSelecionado] = useState(currentYear);
+  useEffect(() => {
+    setMesSelecionado(String(new Date().getMonth() + 1).padStart(2, '0'));
+    setAnoSelecionado(new Date().getFullYear());
+  }, []);
   const [page, setPage] = useState(1);
   const [selectedDeclaracao, setSelectedDeclaracao] = useState<any | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [declaracoes, setDeclaracoes] = useState<Declaracao[]>([]);
 
-  const calcularFGTSMutation = useCalcularFGTS();
-  const calcularINSSMutation = useCalcularINSS();
   const emitirDPSMutation = useEmitirDPS();
   const gerarGuiaMutation = useGerarGuiaMensal();
 
@@ -89,47 +88,45 @@ export default function DctfwebPage() {
     });
   };
 
-  const handleCalcularFGTS = () => {
-    calcularFGTSMutation.mutate(
-      {
-        competencia: competenciaAtual,
-        funcionarios: [],
-      } as any,
-      {
-        onSuccess: (data: any) => {
-          const newDecl: Declaracao = {
-            id: `fgts-${Date.now()}`,
-            competencia: competenciaAtual,
-            tipo: 'FGTS',
-            valor: data?.valor_total || 0,
-            status: 'pendente',
-          };
-          setDeclaracoes((prev) => [newDecl, ...prev]);
-        },
+  // Busca a guia REAL da competência (fiscal_obligations via /financial/relatorios/guias-do-mes).
+  // O endpoint /government/fgts/calcular é uma calculadora UNITÁRIA (exige salario_base
+  // individual) — usá-lo aqui dava 422 sempre e nunca traria o valor real da folha.
+  const [buscandoGuia, setBuscandoGuia] = useState<string | null>(null);
+  const buscarGuiaReal = async (orgao: 'FGTS' | 'INSS') => {
+    setBuscandoGuia(orgao);
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+      const res = await fetch(
+        `/api/v1/financial/relatorios/guias-do-mes?competencia=${encodeURIComponent(competenciaAtual)}`,
+        { headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) } }
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const guia = (data?.guias || []).find((g: any) => (g.orgao || '').toUpperCase() === orgao);
+      if (!guia) {
+        const { toast } = await import('sonner');
+        toast.info(`${orgao} da competência ${competenciaAtual} ainda sem valor apurado no sistema.`, { duration: 5000 });
+        return;
       }
-    );
+      const newDecl: Declaracao = {
+        id: `${orgao.toLowerCase()}-${Date.now()}`,
+        competencia: competenciaAtual,
+        tipo: orgao,
+        valor: Number(guia.valor) || 0,
+        status: guia.status === 'pago' ? 'enviada' : 'pendente',
+      };
+      setDeclaracoes((prev) => [newDecl, ...prev.filter((d) => !(d.tipo === orgao && d.competencia === competenciaAtual))]);
+    } catch {
+      const { toast } = await import('sonner');
+      toast.error(`Erro ao buscar guia ${orgao} da competência.`, { duration: 5000 });
+    } finally {
+      setBuscandoGuia(null);
+    }
   };
 
-  const handleCalcularINSS = () => {
-    calcularINSSMutation.mutate(
-      {
-        competencia: competenciaAtual,
-        funcionarios: [],
-      } as any,
-      {
-        onSuccess: (data: any) => {
-          const newDecl: Declaracao = {
-            id: `inss-${Date.now()}`,
-            competencia: competenciaAtual,
-            tipo: 'INSS',
-            valor: data?.valor_total || 0,
-            status: 'pendente',
-          };
-          setDeclaracoes((prev) => [newDecl, ...prev]);
-        },
-      }
-    );
-  };
+  const handleCalcularFGTS = () => buscarGuiaReal('FGTS');
+
+  const handleCalcularINSS = () => buscarGuiaReal('INSS');
 
   const handleGerarGuia = (declaracao: Declaracao) => {
     gerarGuiaMutation.mutate(
@@ -152,8 +149,7 @@ export default function DctfwebPage() {
   };
 
   const isAnyLoading =
-    calcularFGTSMutation.isPending ||
-    calcularINSSMutation.isPending ||
+    buscandoGuia !== null ||
     emitirDPSMutation.isPending ||
     gerarGuiaMutation.isPending;
 
@@ -197,9 +193,9 @@ export default function DctfwebPage() {
             variant="secondary"
             size="sm"
             onClick={handleCalcularFGTS}
-            disabled={calcularFGTSMutation.isPending}
+            disabled={buscandoGuia === 'FGTS'}
           >
-            {calcularFGTSMutation.isPending ? (
+            {buscandoGuia === 'FGTS' ? (
               <Loader2 className="w-4 h-4 mr-1 animate-spin" />
             ) : (
               <DollarSign className="w-4 h-4 mr-1" />
@@ -210,9 +206,9 @@ export default function DctfwebPage() {
             variant="secondary"
             size="sm"
             onClick={handleCalcularINSS}
-            disabled={calcularINSSMutation.isPending}
+            disabled={buscandoGuia === 'INSS'}
           >
-            {calcularINSSMutation.isPending ? (
+            {buscandoGuia === 'INSS' ? (
               <Loader2 className="w-4 h-4 mr-1 animate-spin" />
             ) : (
               <DollarSign className="w-4 h-4 mr-1" />

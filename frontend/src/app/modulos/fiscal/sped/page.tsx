@@ -1,7 +1,7 @@
 'use client';
 
 import { RefreshCw, AlertCircle, Database, Eye, FileText, Download, CheckSquare, Loader2, Plus } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { PageHeader } from '@/components/ui/page-header';
@@ -52,10 +52,13 @@ const anos = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
 export default function SpedPage() {
   const [activeTab, setActiveTab] = useState('fiscal');
-  const [mesSelecionado, setMesSelecionado] = useState(
-    String(new Date().getMonth() + 1).padStart(2, '0')
-  );
+  // init ESTÁVEL (igual no SSR e na hidratação — evita React #418); sincroniza no mount
+  const [mesSelecionado, setMesSelecionado] = useState('01');
   const [anoSelecionado, setAnoSelecionado] = useState(currentYear);
+  useEffect(() => {
+    setMesSelecionado(String(new Date().getMonth() + 1).padStart(2, '0'));
+    setAnoSelecionado(new Date().getFullYear());
+  }, []);
   const [selectedSped, setSelectedSped] = useState<any | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
 
@@ -94,7 +97,7 @@ export default function SpedPage() {
             ano_referencia: anoSelecionado,
             status: 'gerado',
             data_geracao: new Date().toISOString(),
-            registros: data?.registros,
+            registros: data?.data?.total_registros ?? data?.registros,
           };
           setFiscalFiles((prev) => [newFile, ...prev]);
         },
@@ -117,7 +120,7 @@ export default function SpedPage() {
             ano_referencia: anoSelecionado,
             status: 'gerado',
             data_geracao: new Date().toISOString(),
-            registros: data?.registros,
+            registros: data?.data?.total_registros ?? data?.registros,
           };
           setContabilFiles((prev) => [newFile, ...prev]);
         },

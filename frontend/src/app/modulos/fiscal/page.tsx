@@ -2,6 +2,7 @@
 
 import { Landmark, FileText, Users, Database, FileSpreadsheet, FileCode, Award, RefreshCw, ArrowRight, AlertCircle, Receipt } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/ui/page-header';
@@ -19,10 +20,29 @@ export default function FiscalDashboardPage() {
   } = useObterDashboardMonitoramento();
   const { data: healthData } = useHealthCheck();
 
+  // Cards com DADO REAL: o dashboard de monitoramento gov não traz nfse/certidões,
+  // então os cards ficavam "0" divergindo dos 80 reais das outras telas.
+  const [realStats, setRealStats] = useState<{ nfse?: number; certidoes?: number }>({});
+  useEffect(() => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+    const H = { ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+    fetch('/api/v1/financial/fiscal/dashboard', { headers: H })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d?.stats?.total_nfse_emitidas != null && setRealStats((p) => ({ ...p, nfse: d.stats.total_nfse_emitidas })))
+      .catch(() => {});
+    fetch('/api/v1/ged/certidoes', { headers: H })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const total = Array.isArray(d?.certidoes) ? d.certidoes.length : (Array.isArray(d) ? d.length : null);
+        if (total != null) setRealStats((p) => ({ ...p, certidoes: total }));
+      })
+      .catch(() => {});
+  }, []);
+
   const dashboard = dashboardData as any;
-  const nfseEmitidas = dashboard?.nfse_emitidas ?? dashboard?.nfse?.total ?? 0;
+  const nfseEmitidas = realStats.nfse ?? dashboard?.nfse_emitidas ?? dashboard?.nfse?.total ?? 0;
   const esocialPendente = dashboard?.esocial_pendente ?? dashboard?.esocial?.pendentes ?? 0;
-  const certidoesCount = dashboard?.certidoes ?? dashboard?.certificados?.total ?? 0;
+  const certidoesCount = realStats.certidoes ?? dashboard?.certidoes ?? dashboard?.certificados?.total ?? 0;
   const syncStatus = healthData?.status ?? dashboard?.sync_status ?? 'offline';
 
   const syncOnline = syncStatus === 'ok' || syncStatus === 'healthy';

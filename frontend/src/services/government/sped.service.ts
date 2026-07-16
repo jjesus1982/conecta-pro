@@ -109,16 +109,25 @@ export async function adicionarProduto(params: {
 }
 
 /**
- * Gera arquivo SPED Fiscal
+ * Gera arquivo SPED Fiscal.
+ * O endpoint exige {periodo_inicio, periodo_fim} e devolve JSON {success, data:{total_registros...}}
+ * — a tela seleciona mês/ano, então convertemos aqui (antes mandava mes/ano_referencia e o
+ * backend respondia 422 sempre; e responseType blob quebrava o retorno JSON).
  */
 export async function gerarArquivoSpedFiscal(params: {
   mes_referencia: string;
   ano_referencia: number;
-}): Promise<Blob> {
-  const { data } = await api.post(
+}): Promise<StandardResponse> {
+  const mes = Number(params.mes_referencia);
+  const ano = Number(params.ano_referencia);
+  const ultimoDia = new Date(ano, mes, 0).getDate();
+  const mm = String(mes).padStart(2, '0');
+  const { data } = await api.post<StandardResponse>(
     '/api/v1/government/sped-fiscal/gerar',
-    params,
-    { responseType: 'blob' }
+    {
+      periodo_inicio: `${ano}-${mm}-01`,
+      periodo_fim: `${ano}-${mm}-${String(ultimoDia).padStart(2, '0')}`,
+    }
   );
   return data;
 }
@@ -193,11 +202,20 @@ export async function definirDRE(
 export async function gerarArquivoSpedContabil(params: {
   mes_referencia: string;
   ano_referencia: number;
-}): Promise<Blob> {
-  const { data } = await api.post(
+}): Promise<StandardResponse> {
+  // Endpoint exige ano_referencia + periodo_inicio/fim e devolve JSON (não blob) — ver
+  // gerarArquivoSpedFiscal. ECD é anual: período = ano inteiro até o fim do mês escolhido.
+  const mes = Number(params.mes_referencia);
+  const ano = Number(params.ano_referencia);
+  const ultimoDia = new Date(ano, mes, 0).getDate();
+  const mm = String(mes).padStart(2, '0');
+  const { data } = await api.post<StandardResponse>(
     '/api/v1/government/sped-contabil/gerar',
-    params,
-    { responseType: 'blob' }
+    {
+      ano_referencia: ano,
+      periodo_inicio: `${ano}-01-01`,
+      periodo_fim: `${ano}-${mm}-${String(ultimoDia).padStart(2, '0')}`,
+    }
   );
   return data;
 }

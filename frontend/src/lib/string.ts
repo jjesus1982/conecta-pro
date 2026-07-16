@@ -246,21 +246,58 @@ export const maskPhone = (phone: string): string => {
 };
 
 /**
+ * Traduz as mensagens padrão do Pydantic (inglês) para PT-BR e, quando o item de
+ * erro traz `loc`, prefixa o campo — "Field required" solto não diz qual campo faltou.
+ */
+const PYDANTIC_PT: Array<[RegExp, string]> = [
+  [/^Field required$/i, 'Campo obrigatório'],
+  [/^Input should be a valid (number|integer)/i, 'Informe um número válido'],
+  [/^Input should be a valid date/i, 'Informe uma data válida'],
+  [/^Input should be a valid string/i, 'Informe um texto válido'],
+  [/^Input should be greater than 0$/i, 'Deve ser maior que zero'],
+  [/^String should have at least (\d+) characters?$/i, 'Mínimo de $1 caracteres'],
+  [/^String should have at most (\d+) characters?$/i, 'Máximo de $1 caracteres'],
+  [/^Value error, ?/i, ''],
+];
+
+function traduzirMsg(msg: string, loc?: unknown): string {
+  let out = msg;
+  for (const [re, pt] of PYDANTIC_PT) {
+    if (re.test(out)) { out = out.replace(re, pt); break; }
+  }
+  // prefixa o nome do campo (último item do loc que não seja 'body'/'query'/índice)
+  if (Array.isArray(loc)) {
+    const campo = [...loc].reverse().find((l) => typeof l === 'string' && !['body', 'query', 'path', 'header'].includes(l));
+    if (campo) out = `${campo}: ${out}`;
+  }
+  return out;
+}
+
+/**
  * Normaliza o `detail` de um erro de API para STRING exibível.
  * FastAPI/Pydantic 422 retorna detail = [{loc,msg,...}] (array de objetos) — passar
  * isso direto a toast/JSX quebra o React (#31 "object as child") e derruba a tela.
+ * As mensagens padrão do Pydantic são traduzidas para PT-BR com o campo prefixado.
  */
 export function msgFromDetail(detail: unknown): string | undefined {
   if (!detail) return undefined;
   if (typeof detail === 'string') return detail;
   if (Array.isArray(detail)) {
     const msgs = detail
-      .map((e) => (typeof e === 'string' ? e : (e && typeof e === 'object' && 'msg' in e ? String((e as { msg: unknown }).msg) : '')))
+      .map((e) => {
+        if (typeof e === 'string') return e;
+        if (e && typeof e === 'object' && 'msg' in e) {
+          const item = e as { msg: unknown; loc?: unknown };
+          return traduzirMsg(String(item.msg), item.loc);
+        }
+        return '';
+      })
       .filter(Boolean);
     return msgs.length ? msgs.join('; ') : undefined;
   }
   if (typeof detail === 'object' && detail !== null && 'msg' in detail) {
-    return String((detail as { msg: unknown }).msg);
+    const item = detail as { msg: unknown; loc?: unknown };
+    return traduzirMsg(String(item.msg), item.loc);
   }
   return undefined;
 }
