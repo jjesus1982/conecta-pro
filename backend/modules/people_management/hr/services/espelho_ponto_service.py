@@ -151,7 +151,7 @@ def painel_fechamento(db: Session, mes: int, ano: int) -> dict[str, Any]:
             """
             SELECT id, employee_id, employee_name, position_name, condominium_name,
                    status, hours_worked_minutes, overtime_total_minutes, night_hours_minutes,
-                   absent_days, anomaly_count, anomaly_resolved_count,
+                   absent_days, late_minutes, late_count, anomaly_count, anomaly_resolved_count,
                    approved_by_employee, employee_approved_at
             FROM time_sheets
             WHERE reference_month = :m AND reference_year = :y
@@ -181,8 +181,12 @@ def painel_fechamento(db: Session, mes: int, ano: int) -> dict[str, Any]:
                 "fechado": fechado,
                 "horas_trabalhadas": _hm(r.get("hours_worked_minutes")),
                 "extras": _hm(r.get("overtime_total_minutes")),
+                "extras_minutos": int(r.get("overtime_total_minutes") or 0),
                 "adicional_noturno": _hm(r.get("night_hours_minutes")),
                 "faltas_dias": int(r.get("absent_days") or 0),
+                "atrasos": _hm(r.get("late_minutes")),
+                "atrasos_minutos": int(r.get("late_minutes") or 0),
+                "atrasos_qtd": int(r.get("late_count") or 0),
                 "anomalias_abertas": anomalias,
                 "homologacao_solicitada": homo.get("solicitado", False),
                 "homologado": assinado,
