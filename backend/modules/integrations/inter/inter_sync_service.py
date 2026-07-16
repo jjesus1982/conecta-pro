@@ -49,8 +49,13 @@ class InterSyncService:
         duplicadas = 0
         erros: list[str] = []
 
+        saldo_live = None
         try:
             statement = await adapter.get_statement(start_date, end_date)
+            try:
+                saldo_live = await adapter.get_balance()  # saldo LIVE p/ atualizar o cache
+            except Exception as _e:  # noqa: BLE001
+                logger.warning("D6.1 saldo live indisponível: %s", _e)
         except Exception as exc:
             logger.error("D6.1 falha ao buscar extrato Inter: %s", exc)
             return {"sincronizadas": 0, "duplicadas": 0, "erros": [str(exc)]}
@@ -134,12 +139,77 @@ class InterSyncService:
         recebimentos = await self.casar_recebimentos_clientes()
         categorizadas = await self.auto_categorizar_vtvr()
         await self.tag_fornecedores()
-        logger.info("D6.1 sync: sincronizadas=%d duplicadas=%d erros=%d ponte=%d conecta=%d receb=%s vtvr=%d",
-                    sincronizadas, duplicadas, len(erros), pontefeitas, casados, recebimentos, categorizadas)
+        saldo_atualizado = await self.atualizar_saldo_inter(saldo_live)
+        cashflow_novas = await self.sincronizar_cashflow_do_extrato()
+        logger.info("D6.1 sync: sincronizadas=%d duplicadas=%d erros=%d ponte=%d conecta=%d receb=%s vtvr=%d saldo=%s cashflow=%d",
+                    sincronizadas, duplicadas, len(erros), pontefeitas, casados, recebimentos, categorizadas,
+                    saldo_atualizado, cashflow_novas)
         return {"sincronizadas": sincronizadas, "duplicadas": duplicadas, "erros": erros,
                 "conciliacao_novas": pontefeitas, "pagamentos_conecta_casados": casados,
                 "recebimentos_clientes": recebimentos,
-                "vtvr_categorizadas": categorizadas}
+                "vtvr_categorizadas": categorizadas,
+                "saldo_atualizado": saldo_atualizado, "cashflow_novas": cashflow_novas}
+
+    async def atualizar_saldo_inter(self, saldo) -> bool:
+        """Atualiza o saldo ARMAZENADO (bank_accounts) com o saldo LIVE do Inter.
+
+        As telas de Fluxo de Caixa/Conciliação/Agentes leem esse cache; sem atualizar, ficam
+        com valor velho (divergindo da tela ao vivo). Não move dinheiro."""
+        if saldo is None:
+            return False
+        try:
+            total = float(getattr(saldo, "total", None) or getattr(saldo, "available", 0) or 0)
+            avail = float(getattr(saldo, "available", None) or total)
+            blocked = float(getattr(saldo, "blocked", 0) or 0)
+            await self.db.execute(text("""
+                UPDATE bank_accounts SET
+                    current_balance = :bal, available_balance = :avail, blocked_balance = :blk,
+                    last_balance_update = now(), updated_at = now()
+                WHERE bank_name ILIKE '%inter%'
+            """), {"bal": total, "avail": avail, "blk": blocked})
+            await self.db.commit()
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("D6.1 atualizar saldo falhou: %s", exc)
+            await self.db.rollback()
+            return False
+
+    async def sincronizar_cashflow_do_extrato(self) -> int:
+        """Popula cashflow_entries com os movimentos REALIZADOS do extrato Inter ainda não refletidos.
+
+        O Fluxo de Caixa lê cashflow_entries; os dados paravam em 13/04 (a origem antiga não seguiu).
+        Aqui espelhamos as inter_transactions (C=entrada, D=saída) como lançamentos realizados, com
+        dedup por metadata.inter_tx_id e cutoff ancorado no fim dos dados pré-existentes. Não move dinheiro."""
+        try:
+            acc = (await self.db.execute(
+                text("SELECT id FROM bank_accounts WHERE bank_name ILIKE '%inter%' LIMIT 1"))).scalar()
+            r = await self.db.execute(text("""
+                INSERT INTO cashflow_entries
+                  (id, condominio_id, bank_account_id, entry_type, source_type, description, category,
+                   entry_date, expected_amount, realized_date, realized_amount, status, ativo, is_recurring,
+                   notes, metadata, created_at, updated_at)
+                SELECT gen_random_uuid(), :cid, :acc,
+                  (CASE WHEN it.tipo_operacao = 'C' THEN 'entrada' ELSE 'saida' END)::cashflowentrytype,
+                  'manual'::cashflowsourcetype,
+                  COALESCE(NULLIF(it.descricao, ''), 'Movimento Inter'),
+                  COALESCE(NULLIF(it.tipo_transacao, ''), 'Outros'),
+                  it.data_lancamento, it.valor, it.data_lancamento, it.valor,
+                  'realizado'::cashflowentrystatus, true, false, 'Extrato Banco Inter',
+                  jsonb_build_object('inter_tx_id', it.id::text, 'origem', 'inter_extrato'),
+                  now(), now()
+                FROM inter_transactions it
+                WHERE it.data_lancamento > COALESCE(
+                        (SELECT max(entry_date) FROM cashflow_entries WHERE metadata->>'inter_tx_id' IS NULL),
+                        DATE '2026-04-13')
+                  AND NOT EXISTS (
+                        SELECT 1 FROM cashflow_entries ce WHERE ce.metadata->>'inter_tx_id' = it.id::text)
+            """), {"cid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "acc": str(acc) if acc else None})
+            await self.db.commit()
+            return r.rowcount or 0
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("D6.1 sincronizar cashflow falhou: %s", exc)
+            await self.db.rollback()
+            return 0
 
     async def casar_recebimentos_clientes(self) -> dict:
         """CONCILIAÇÃO INBOUND: categoriza os RECEBIMENTOS (entradas) pendentes como 'Recebimento de
