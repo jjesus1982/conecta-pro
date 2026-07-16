@@ -430,7 +430,7 @@ class ReceivableAccountRepository:
             interest_rate=data.interest_rate,
             penalty_rate=data.penalty_rate,
             grace_days=data.grace_days,
-            issue_date=data.issue_date,
+            issue_date=data.issue_date or date.today(),  # NOT NULL no banco → default hoje
             due_date=data.due_date,
             competence_date=data.competence_date,
             total_installments=data.total_installments,

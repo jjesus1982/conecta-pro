@@ -53,8 +53,14 @@ class PayableAccountRepository:
         # Calcula valor líquido
         net_value = data.gross_value - data.discount_value + data.addition_value - total_withholdings
 
+        dump = data.model_dump()
+        # issue_date é NOT NULL no banco mas opcional no schema → default p/ hoje quando não vem
+        # (senão INSERT viola not-null e o create dá 500).
+        if not dump.get("issue_date"):
+            dump["issue_date"] = date.today()
+
         payable = PayableAccount(
-            **data.model_dump(),
+            **dump,
             net_value=net_value,
             remaining_value=net_value,
             total_withholdings=total_withholdings,
