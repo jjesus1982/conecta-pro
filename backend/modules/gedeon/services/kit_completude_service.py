@@ -209,7 +209,19 @@ def condominios_do_workspace(svc=None) -> list[str]:
         )
     except Exception:
         return list(CONDOMINIOS_PADRAO)
-    nomes = sorted({f["name"] for f in folders if not f["name"].startswith("_") and f["name"].strip() != "Folhas de Ponto"})
+    from modules.gedeon.services.kit_layout import nome_parece_arquivo
+
+    _meta = {"folhas de ponto", "documentos temporários", "documentos temporarios"}
+    nomes = sorted(
+        {
+            f["name"]
+            for f in folders
+            if not f["name"].startswith("_")
+            and f["name"].strip().lower() not in _meta
+            # pasta-lixo com nome de arquivo (incidentes 30/06 e 16/07) não é condomínio
+            and not nome_parece_arquivo(f["name"])
+        }
+    )
     return nomes or list(CONDOMINIOS_PADRAO)
 
 

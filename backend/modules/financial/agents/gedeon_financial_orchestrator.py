@@ -72,7 +72,7 @@ class GedeonFinancialOrchestrator:
             ).where(
                 and_(
                     ReceivableAccount.due_date < cutoff,
-                    ReceivableAccount.status == ReceivableStatus.ABERTA.value,
+                    ReceivableAccount.status.notin_(("paga", "pago", "cancelada", "baixada")),  # em aberto (enum não tem ABERTA)
                 )
             )
             inadimplentes_row = (await self.db.execute(inadimplentes_q)).first()
@@ -84,7 +84,7 @@ class GedeonFinancialOrchestrator:
                 and_(
                     ReceivableAccount.due_date >= today,
                     ReceivableAccount.due_date <= today + timedelta(days=30),
-                    ReceivableAccount.status == ReceivableStatus.ABERTA.value,
+                    ReceivableAccount.status.notin_(("paga", "pago", "cancelada", "baixada")),  # em aberto (enum não tem ABERTA)
                 )
             )
             a_receber_30d = float((await self.db.execute(a_receber_q)).scalar_one() or 0)
@@ -94,7 +94,7 @@ class GedeonFinancialOrchestrator:
                 and_(
                     PayableAccount.due_date >= today,
                     PayableAccount.due_date <= today + timedelta(days=30),
-                    PayableAccount.status == PayableStatus.ABERTA.value,
+                    PayableAccount.status.notin_(("paga", "cancelada")),  # em aberto (enum não tem ABERTA)
                 )
             )
             a_pagar_30d = float((await self.db.execute(a_pagar_q)).scalar_one() or 0)

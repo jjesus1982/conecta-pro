@@ -289,7 +289,7 @@ async def search_documents(
     }
 
 
-@router.get("/{document_id}", response_model=DocumentResponse)
+@router.get("/{document_id:uuid}", response_model=DocumentResponse)
 async def get_document(
     document_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -317,7 +317,7 @@ async def get_document_by_code(
     return document
 
 
-@router.put("/{document_id}", response_model=DocumentResponse)
+@router.put("/{document_id:uuid}", response_model=DocumentResponse)
 async def update_document(
     document_id: UUID,
     data: DocumentUpdate,
@@ -332,7 +332,7 @@ async def update_document(
     return document
 
 
-@router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{document_id:uuid}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_document(
     document_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -441,7 +441,7 @@ async def get_expiring_soon(
     return await service.get_expiring_soon(days, condominium_id)
 
 
-@router.post("/{document_id}/approve", response_model=DocumentResponse, status_code=201)
+@router.post("/{document_id:uuid}/approve", response_model=DocumentResponse, status_code=201)
 async def approve_document(
     document_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -457,7 +457,7 @@ async def approve_document(
     return document
 
 
-@router.post("/{document_id}/reject", response_model=DocumentResponse, status_code=201)
+@router.post("/{document_id:uuid}/reject", response_model=DocumentResponse, status_code=201)
 async def reject_document(
     document_id: UUID,
     reason: str = Query(..., min_length=1),
@@ -472,7 +472,7 @@ async def reject_document(
     return document
 
 
-@router.post("/{document_id}/publish", response_model=DocumentResponse, status_code=201)
+@router.post("/{document_id:uuid}/publish", response_model=DocumentResponse, status_code=201)
 async def publish_document(
     document_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -486,7 +486,7 @@ async def publish_document(
     return document
 
 
-@router.post("/{document_id}/archive", response_model=DocumentResponse, status_code=201)
+@router.post("/{document_id:uuid}/archive", response_model=DocumentResponse, status_code=201)
 async def archive_document(
     document_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -502,7 +502,7 @@ async def archive_document(
     return document
 
 
-@router.post("/{document_id}/unarchive", response_model=DocumentResponse, status_code=201)
+@router.post("/{document_id:uuid}/unarchive", response_model=DocumentResponse, status_code=201)
 async def unarchive_document(
     document_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -516,7 +516,7 @@ async def unarchive_document(
     return document
 
 
-@router.post("/{document_id}/move", response_model=DocumentResponse, status_code=201)
+@router.post("/{document_id:uuid}/move", response_model=DocumentResponse, status_code=201)
 async def move_document(
     document_id: UUID,
     folder_id: str = Query(...),
@@ -537,7 +537,7 @@ async def move_document(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
-@router.post("/{document_id}/view", response_model=DocumentResponse, status_code=201)
+@router.post("/{document_id:uuid}/view", response_model=DocumentResponse, status_code=201)
 async def view_document(
     document_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -551,7 +551,7 @@ async def view_document(
     return document
 
 
-@router.post("/{document_id}/download", response_model=DocumentResponse, status_code=201)
+@router.post("/{document_id:uuid}/download", response_model=DocumentResponse, status_code=201)
 async def register_download(
     document_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -565,7 +565,7 @@ async def register_download(
     return document
 
 
-@router.get("/{document_id}/download")
+@router.get("/{document_id:uuid}/download")
 async def download_file(
     document_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -591,7 +591,7 @@ async def download_file(
     )
 
 
-@router.get("/{document_id}/preview")
+@router.get("/{document_id:uuid}/preview")
 async def get_preview_url(
     document_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -611,7 +611,7 @@ async def get_preview_url(
     return {"url": preview_url}
 
 
-@router.get("/{document_id}/view-url")
+@router.get("/{document_id:uuid}/view-url")
 async def get_view_url(
     document_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -656,7 +656,7 @@ async def get_stats(
     return await service.get_stats(condominium_id)
 
 
-@router.post("/{document_id}/submit-approval", response_model=DocumentResponse, status_code=201)
+@router.post("/{document_id:uuid}/submit-approval", response_model=DocumentResponse, status_code=201)
 async def submit_for_approval(
     document_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -670,7 +670,7 @@ async def submit_for_approval(
     return document
 
 
-@router.post("/{document_id}/new-version", response_model=DocumentResponse, status_code=201)
+@router.post("/{document_id:uuid}/new-version", response_model=DocumentResponse, status_code=201)
 async def create_new_version(
     document_id: UUID,
     data: DocumentUploadRequest,
@@ -718,7 +718,7 @@ async def classify_document(
     return await service.classify_document(text, file_name)
 
 
-@router.post("/{document_id}/ai/analyze-ocr", response_model=DocumentOCRResult, status_code=201)
+@router.post("/{document_id:uuid}/ai/analyze-ocr", response_model=DocumentOCRResult, status_code=201)
 async def analyze_ocr(
     document_id: UUID,
     ocr_text: str = Query(..., min_length=1),

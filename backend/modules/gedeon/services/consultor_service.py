@@ -147,7 +147,7 @@ async def panorama(db: AsyncSession, competencia: str | None = None) -> dict[str
         ).fetchall()
     ]
 
-    # Última montagem da competência por cliente
+    # Última montagem da competência por cliente (score vem do histórico GEDEON)
     montagens = {
         str(r.client_id): dict(r._mapping)
         for r in (
@@ -159,6 +159,29 @@ async def panorama(db: AsyncSession, competencia: str | None = None) -> dict[str
                     "ORDER BY client_id, created_at DESC"
                 ),
                 {"comps": comps},
+            )
+        ).fetchall()
+    }
+
+    # Kits reais da competência em ged_document_kits (espelho do que está no Drive —
+    # kits montados fora do fluxo GEDEON não entram no gedeon_kit_history e o panorama
+    # dizia "NÃO montado" com o Drive cheio). ged_document_kits.client_id aponta para
+    # ged_clients; o elo ged_clients↔clients é por nome exato (11/11 verificado).
+    kits_erp = {
+        str(r.client_id): dict(r._mapping)
+        for r in (
+            await db.execute(
+                text(
+                    "SELECT DISTINCT ON (c.id) c.id AS client_id, k.total_documents, "
+                    "k.status, k.google_drive_link, k.created_at "
+                    "FROM ged_document_kits k "
+                    "JOIN ged_clients g ON g.id = k.client_id "
+                    "JOIN clients c ON upper(c.name) = upper(g.name) "
+                    "WHERE date_trunc('month', k.reference_month) = to_date(:comp, 'YYYY-MM') "
+                    "  AND COALESCE(k.total_documents, 0) > 0 "
+                    "ORDER BY c.id, k.created_at DESC"
+                ),
+                {"comp": comp},
             )
         ).fetchall()
     }
@@ -178,8 +201,9 @@ async def panorama(db: AsyncSession, competencia: str | None = None) -> dict[str
         ).fetchall()
     }
 
-    # Funcionários alocados por posto cujo nome casa com o condomínio (melhor esforço,
-    # fonte marcada — o elo formal posto↔cliente ainda não existe no schema)
+    # Funcionários alocados via elo FORMAL posts.client_id (curado pelo Jordan).
+    # O match antigo por nome nunca casava (acento: "Condomínio" × "CONDOMINIO",
+    # e "DO EDIFICIO" no meio) → mostrava ≈0 para todos.
     aloc = {
         r.condominio: r.funcionarios
         for r in (
@@ -187,9 +211,9 @@ async def panorama(db: AsyncSession, competencia: str | None = None) -> dict[str
                 text(
                     "SELECT c.name AS condominio, count(DISTINCT a.employee_id) AS funcionarios "
                     "FROM clients c JOIN gedeon_kit_config g ON g.client_id = c.id "
-                    "LEFT JOIN posts p ON p.name ILIKE '%' || split_part(c.name, ' ', 1) || '%' "
-                    "   OR c.name ILIKE '%' || p.name || '%' "
-                    "LEFT JOIN allocations a ON a.post_id = p.id AND a.status::text ILIKE 'ACTIVE%' "
+                    "LEFT JOIN posts p ON p.client_id = c.id "
+                    "LEFT JOIN allocations a ON a.post_id = p.id "
+                    "   AND lower(a.status::text) = 'active' "
                     "GROUP BY 1"
                 )
             )
@@ -199,21 +223,25 @@ async def panorama(db: AsyncSession, competencia: str | None = None) -> dict[str
     itens = []
     for c in condominios:
         nome = c["condominio"]
-        m = montagens.get(str(c["client_id"])) or {}
+        cid = str(c["client_id"])
+        m = montagens.get(cid) or {}
+        k = kits_erp.get(cid) or {}
         i = interc.get(nome) or {"abertas": 0, "total": 0}
+        montado = bool(m) or bool(k)
         itens.append(
             {
                 "condominio": nome,
                 "kit": {
-                    "montado": bool(m),
+                    "montado": montado,
                     "score": m.get("score_final"),
-                    "docs_total": m.get("docs_total"),
-                    "montado_em": str(m.get("created_at") or "") or None,
+                    "docs_total": m.get("docs_total") or k.get("total_documents"),
+                    "montado_em": str(m.get("created_at") or k.get("created_at") or "") or None,
+                    "drive_link": k.get("google_drive_link"),
                 },
                 "intercorrencias_abertas": i["abertas"],
                 "intercorrencias_total": i["total"],
                 "funcionarios_alocados": aloc.get(nome, 0),
-                "pronto_para_fechar": bool(m) and i["abertas"] == 0,
+                "pronto_para_fechar": montado and i["abertas"] == 0,
             }
         )
 
@@ -236,7 +264,7 @@ async def panorama(db: AsyncSession, competencia: str | None = None) -> dict[str
         "kits_montados": sum(1 for x in itens if x["kit"]["montado"]),
         "intercorrencias_abertas": sum(x["intercorrencias_abertas"] for x in itens),
         "folha_competencia": {"holerites": folha.holerites, "liquido": float(folha.liquido)},
-        "fonte": "gedeon_kit_history + gedeon_intercorrencias + allocations (elo por nome, melhor esforço) + hr_payslips",
+        "fonte": "gedeon_kit_history + ged_document_kits (espelho do Drive) + gedeon_intercorrencias + allocations (elo formal posts.client_id) + hr_payslips",
         "gerado_em": datetime.now().isoformat(timespec="seconds"),
     }
 

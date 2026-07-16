@@ -503,7 +503,11 @@ def del_checklist(
 
 
 _COMPLETUDE_CACHE: dict = {}  # competencia -> (timestamp, resultado)
-_COMPLETUDE_TTL = 90  # segundos
+# 10 min: ler o Drive frio custa ~30s e travava a dashboard do GED a cada 90s.
+# Mutações via API (upload/delete/montagem) invalidam na hora (_invalidar_kit);
+# escrita externa (robôs direto no Drive) aparece em até 10 min ou no botão
+# "Atualizar" da tela (refresh=true).
+_COMPLETUDE_TTL = 600  # segundos
 
 
 @router.get("/completude", summary="Completude REAL dos kits + checklist (lê o Drive)")

@@ -50,7 +50,7 @@ async def create_tag(
         ) from e
 
 
-@router.get("/{tag_id}", response_model=DocumentTagResponse)
+@router.get("/{tag_id:uuid}", response_model=DocumentTagResponse)
 async def get_tag(
     tag_id: str,
     db: AsyncSession = Depends(get_db),
@@ -94,7 +94,7 @@ async def get_tag_by_slug(
     return tag
 
 
-@router.put("/{tag_id}", response_model=DocumentTagResponse)
+@router.put("/{tag_id:uuid}", response_model=DocumentTagResponse)
 async def update_tag(
     tag_id: str,
     data: DocumentTagUpdate,
@@ -109,7 +109,7 @@ async def update_tag(
     return tag
 
 
-@router.delete("/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{tag_id:uuid}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_tag(
     tag_id: str,
     db: AsyncSession = Depends(get_db),
@@ -169,7 +169,7 @@ async def get_tree(
     return await service.get_tree(condominium_id)
 
 
-@router.post("/{tag_id}/documents/{document_id}/add", status_code=201)
+@router.post("/{tag_id:uuid}/documents/{document_id}/add", status_code=201)
 async def add_to_document(
     tag_id: str,
     document_id: str,
@@ -185,8 +185,8 @@ async def add_to_document(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
-@router.delete("/{tag_id}/documents/{document_id}", include_in_schema=False)
-@router.delete("/{tag_id}/documents/{document_id}/remove")
+@router.delete("/{tag_id:uuid}/documents/{document_id}", include_in_schema=False)
+@router.delete("/{tag_id:uuid}/documents/{document_id}/remove")
 async def remove_from_document(
     tag_id: str,
     document_id: str,
@@ -210,7 +210,7 @@ async def get_by_document(
     return await service.get_by_document(document_id)
 
 
-@router.get("/{tag_id}/documents")
+@router.get("/{tag_id:uuid}/documents")
 async def get_documents_by_tag(
     tag_id: str,
     page: int = Query(1, ge=1),

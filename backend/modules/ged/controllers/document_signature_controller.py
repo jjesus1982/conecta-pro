@@ -83,7 +83,7 @@ async def create_bulk_signatures(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
-@router.get("/{signature_id}", response_model=DocumentSignatureResponse)
+@router.get("/{signature_id:uuid}", response_model=DocumentSignatureResponse)
 async def get_signature(
     signature_id: str,
     db: AsyncSession = Depends(get_db),
@@ -110,7 +110,7 @@ async def get_by_token(
     return signature
 
 
-@router.put("/{signature_id}", response_model=DocumentSignatureResponse)
+@router.put("/{signature_id:uuid}", response_model=DocumentSignatureResponse)
 async def update_signature(
     signature_id: str,
     data: DocumentSignatureUpdate,
@@ -125,7 +125,7 @@ async def update_signature(
     return signature
 
 
-@router.delete("/{signature_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{signature_id:uuid}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_signature(
     signature_id: str,
     db: AsyncSession = Depends(get_db),
@@ -191,7 +191,7 @@ async def get_pending_by_signer(
     return await service.get_pending_by_signer(signer_id=_uid(current_user))
 
 
-@router.post("/{signature_id}/sign", response_model=DocumentSignatureResponse, status_code=201)
+@router.post("/{signature_id:uuid}/sign", response_model=DocumentSignatureResponse, status_code=201)
 async def sign(
     signature_id: str,
     data: SignatureRequest,
@@ -217,7 +217,7 @@ async def sign(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
-@router.post("/{signature_id}/refuse", response_model=DocumentSignatureResponse, status_code=201)
+@router.post("/{signature_id:uuid}/refuse", response_model=DocumentSignatureResponse, status_code=201)
 async def refuse(
     signature_id: str,
     data: SignatureRefusalRequest,
@@ -238,7 +238,7 @@ async def refuse(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
-@router.post("/{signature_id}/cancel", response_model=DocumentSignatureResponse, status_code=201)
+@router.post("/{signature_id:uuid}/cancel", response_model=DocumentSignatureResponse, status_code=201)
 async def cancel(
     signature_id: str,
     db: AsyncSession = Depends(get_db),
@@ -258,7 +258,7 @@ async def cancel(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
-@router.post("/{signature_id}/verify", response_model=DocumentSignatureResponse, status_code=201)
+@router.post("/{signature_id:uuid}/verify", response_model=DocumentSignatureResponse, status_code=201)
 async def verify(
     signature_id: str,
     db: AsyncSession = Depends(get_db),
@@ -278,7 +278,7 @@ async def verify(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
-@router.post("/{signature_id}/notify", response_model=DocumentSignatureResponse, status_code=201)
+@router.post("/{signature_id:uuid}/notify", response_model=DocumentSignatureResponse, status_code=201)
 async def send_notification(
     signature_id: str,
     db: AsyncSession = Depends(get_db),
@@ -292,7 +292,7 @@ async def send_notification(
     return signature
 
 
-@router.post("/{signature_id}/remind", response_model=DocumentSignatureResponse, status_code=201)
+@router.post("/{signature_id:uuid}/remind", response_model=DocumentSignatureResponse, status_code=201)
 async def send_reminder(
     signature_id: str,
     db: AsyncSession = Depends(get_db),
@@ -306,7 +306,7 @@ async def send_reminder(
     return signature
 
 
-@router.post("/{signature_id}/regenerate-token", status_code=201)
+@router.post("/{signature_id:uuid}/regenerate-token", status_code=201)
 async def regenerate_token(
     signature_id: str,
     expires_in_hours: int = Query(72, ge=1, le=720),
@@ -321,7 +321,7 @@ async def regenerate_token(
     return {"token": token}
 
 
-@router.post("/{signature_id}/extend", response_model=DocumentSignatureResponse, status_code=201)
+@router.post("/{signature_id:uuid}/extend", response_model=DocumentSignatureResponse, status_code=201)
 async def extend_deadline(
     signature_id: str,
     new_deadline: datetime = Query(...),
@@ -414,7 +414,7 @@ async def cancel_all_pending(
     return {"cancelled_count": count}
 
 
-@router.get("/{signature_id}/certificate")
+@router.get("/{signature_id:uuid}/certificate")
 async def get_certificate(
     signature_id: str,
     db: AsyncSession = Depends(get_db),

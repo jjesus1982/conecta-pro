@@ -61,7 +61,7 @@ async def create_folder(
         ) from e
 
 
-@router.get("/{folder_id}", response_model=FolderResponse)
+@router.get("/{folder_id:uuid}", response_model=FolderResponse)
 async def get_folder(
     folder_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -89,7 +89,7 @@ async def get_folder_by_code(
     return folder
 
 
-@router.put("/{folder_id}", response_model=FolderResponse)
+@router.put("/{folder_id:uuid}", response_model=FolderResponse)
 async def update_folder(
     folder_id: UUID,
     data: FolderUpdate,
@@ -118,7 +118,7 @@ async def update_folder(
         ) from e
 
 
-@router.delete("/{folder_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{folder_id:uuid}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_folder(
     folder_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -172,7 +172,7 @@ async def get_root_folders(
     return await service.get_root_folders(condominium_id)
 
 
-@router.get("/{folder_id}/children", response_model=list[FolderResponse])
+@router.get("/{folder_id:uuid}/children", response_model=list[FolderResponse])
 async def get_children(
     folder_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -207,7 +207,7 @@ async def get_by_type(
     return await service.get_by_type(folder_type, condominium_id)
 
 
-@router.post("/{folder_id}/archive", response_model=FolderResponse, status_code=201)
+@router.post("/{folder_id:uuid}/archive", response_model=FolderResponse, status_code=201)
 async def archive_folder(
     folder_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -221,7 +221,7 @@ async def archive_folder(
     return folder
 
 
-@router.post("/{folder_id}/unarchive", response_model=FolderResponse, status_code=201)
+@router.post("/{folder_id:uuid}/unarchive", response_model=FolderResponse, status_code=201)
 async def unarchive_folder(
     folder_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -235,7 +235,7 @@ async def unarchive_folder(
     return folder
 
 
-@router.post("/{folder_id}/block", response_model=FolderResponse, status_code=201)
+@router.post("/{folder_id:uuid}/block", response_model=FolderResponse, status_code=201)
 async def block_folder(
     folder_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -249,7 +249,7 @@ async def block_folder(
     return folder
 
 
-@router.post("/{folder_id}/unblock", response_model=FolderResponse, status_code=201)
+@router.post("/{folder_id:uuid}/unblock", response_model=FolderResponse, status_code=201)
 async def unblock_folder(
     folder_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -263,7 +263,7 @@ async def unblock_folder(
     return folder
 
 
-@router.post("/{folder_id}/move", response_model=FolderResponse, status_code=201)
+@router.post("/{folder_id:uuid}/move", response_model=FolderResponse, status_code=201)
 async def move_folder(
     folder_id: UUID,
     new_parent_id: str | None = Query(None),
@@ -281,7 +281,7 @@ async def move_folder(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
-@router.post("/{folder_id}/permissions/grant", response_model=FolderResponse, status_code=201)
+@router.post("/{folder_id:uuid}/permissions/grant", response_model=FolderResponse, status_code=201)
 async def grant_permission(
     folder_id: UUID,
     user_id: str = Query(...),
@@ -297,7 +297,7 @@ async def grant_permission(
     return folder
 
 
-@router.post("/{folder_id}/permissions/revoke", response_model=FolderResponse, status_code=201)
+@router.post("/{folder_id:uuid}/permissions/revoke", response_model=FolderResponse, status_code=201)
 async def revoke_permission(
     folder_id: UUID,
     user_id: str = Query(...),
@@ -313,7 +313,7 @@ async def revoke_permission(
     return folder
 
 
-@router.get("/{folder_id}/permissions/check")
+@router.get("/{folder_id:uuid}/permissions/check")
 async def check_permission(
     folder_id: UUID,
     user_id: str = Query(...),

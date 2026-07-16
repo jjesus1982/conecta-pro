@@ -15,7 +15,9 @@ from __future__ import annotations
 import threading
 import time
 
-_TTL = 90  # segundos
+# 5 min: mutações via API invalidam explicitamente (invalidar()); leitura fria do
+# Drive é cara (~1-3s por kit) e o TTL curto fazia as telas re-lerem o Drive toda hora.
+_TTL = 300  # segundos
 _lock = threading.Lock()
 _kit: dict = {}    # (cond, comp) -> (ts, kit_dict)
 _folha: dict = {}  # (cond, comp) -> (ts, [nomes])

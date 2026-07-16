@@ -12,9 +12,26 @@ a folha de competência X entra no kit do mês X+1 (competência 05.2026 → kit
 
 from __future__ import annotations
 
+import logging
+import re
+
 from modules.gdrive.services.gdrive_service import gdrive_service
 
+logger = logging.getLogger(__name__)
+
 ROOT_WORKSPACE_ID = "1oigpHoCvFT-M2tm96FDvE0LvowciNLKJ"
+
+# Nome com extensão de arquivo NUNCA é condomínio. Incidentes de 30/06 e 16/07:
+# chamadas com nome de ARQUIVO no lugar do condomínio criaram pastas-lixo na raiz
+# do workspace ("Comprovante de Pagamento de Salário_Fulano.pdf/Julho/...") que
+# poluíam o painel de completude (24 "kits" em vez de ~12). Guard no choke point:
+# toda criação de pasta de condomínio passa por garantir_pasta_kit.
+_RE_NOME_DE_ARQUIVO = re.compile(r"\.(pdf|xlsx?|docx?|csv|png|jpe?g|zip|txt|xml)$", re.IGNORECASE)
+
+
+def nome_parece_arquivo(nome: str) -> bool:
+    """True se o "condomínio" tem cara de nome de arquivo (defesa contra args trocados)."""
+    return bool(_RE_NOME_DE_ARQUIVO.search((nome or "").strip()))
 
 MESES_PT = {
     1: "Janeiro",
@@ -65,6 +82,13 @@ def _arquivo_ja_existe(folder_id: str, nome: str) -> bool:
 
 def garantir_pasta_kit(condominio: str, competencia: str, cache: dict | None = None) -> str | None:
     """Garante [Condomínio]/[Mês do kit] e devolve o ID da pasta do mês (flat)."""
+    if nome_parece_arquivo(condominio):
+        logger.warning(
+            "garantir_pasta_kit: %r parece nome de ARQUIVO, não condomínio — "
+            "recusado (argumentos trocados no caller?)",
+            condominio,
+        )
+        return None
     if not gdrive_service._service:
         gdrive_service.check_status()
     cache = cache if cache is not None else {}
