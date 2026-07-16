@@ -78,6 +78,7 @@ export {
   useListEntriesApiV1FinancialCashflowCashflowEntriesGet as useCashflowEntries,
   useListForecastsApiV1FinancialCashflowCashflowForecastsGet as useCashflowForecast,
   useGetProjectionApiV1FinancialCashflowCashflowProjectionGet as useCashflowProjection,
+  useGetTrendsApiV1FinancialCashflowCashflowTrendsGet as useCashflowTrends,
   useGetDashboardApiV1FinancialCashflowCashflowDashboardGet as useCashflowDashboard,
   useCreateEntryApiV1FinancialCashflowCashflowEntriesPost as useCreateCashflowEntry,
   getListEntriesApiV1FinancialCashflowCashflowEntriesGetQueryKey as cashflowKeys,

@@ -171,6 +171,21 @@ def test_fin04_projection_starts_from_real_balance(client):
     assert "receivables" in primeiro and "payables" in primeiro
 
 
+# ── REG-01: /trends agrega entradas por mês (fonte do gráfico Receitas) ───────
+
+
+def test_reg01_trends_monthly_inflows(client):
+    resp = client.get("/api/v1/financial/cashflow/trends", params={"months": 6})
+    assert resp.status_code == 200
+    trends = resp.json()
+    assert isinstance(trends, list) and trends, "trends vazio sem condominio (deve agregar)"
+    meses_com_receita = [t for t in trends if float(t["inflows"] or 0) > 0]
+    assert meses_com_receita, (
+        "nenhum mês com inflows > 0 — série Receitas do gráfico voltaria a zerar (REG-01)"
+    )
+    assert isinstance(trends[0]["inflows"], (int, float)), "inflows serializou como string"
+
+
 # ── FIN-05: valor <= 0 tem que ser rejeitado pelo backend ─────────────────────
 
 

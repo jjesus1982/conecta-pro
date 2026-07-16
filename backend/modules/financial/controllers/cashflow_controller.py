@@ -142,16 +142,20 @@ async def get_summary(
     summary="Tendências de fluxo de caixa",
 )
 async def get_trends(
-    condominio_id: UUID,
+    condominio_id: UUID | None = Query(None),
     months: int = Query(12, ge=3, le=24, description="Meses de histórico"),
     session: AsyncSession = Depends(get_session),
     current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
 ) -> list[CashFlowTrend]:
-    """Retorna tendências mensais de fluxo de caixa (a partir de cashflow_entries)."""
+    """Retorna tendências mensais de fluxo de caixa (a partir de cashflow_entries).
+
+    condominio_id None agrega todos (mesmo padrão do summary/entries — FIN-01).
+    """
+    condominio_filter = "AND condominio_id = :cid" if condominio_id else ""
     rows = (
         (
             await session.execute(
-                text("""
+                text(f"""
                     SELECT
                         to_char(date_trunc('month', entry_date), 'YYYY-MM') AS period,
                         COALESCE(SUM(CASE WHEN entry_type = 'entrada'
@@ -160,12 +164,14 @@ async def get_trends(
                             THEN COALESCE(realized_amount, expected_amount, 0) ELSE 0 END), 0) AS outflows
                     FROM cashflow_entries
                     WHERE ativo = true
-                      AND condominio_id = :cid
+                      {condominio_filter}
                       AND entry_date >= (date_trunc('month', CURRENT_DATE) - make_interval(months => :months))
                     GROUP BY 1
                     ORDER BY 1
                 """),
-                {"cid": str(condominio_id), "months": months},
+                {"cid": str(condominio_id), "months": months}
+                if condominio_id
+                else {"months": months},
             )
         )
         .mappings()

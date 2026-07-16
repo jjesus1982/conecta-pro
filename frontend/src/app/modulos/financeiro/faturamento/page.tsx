@@ -314,11 +314,12 @@ export default function FaturamentoPage() {
     return matchesSearch && matchesStatus;
   });
 
-  // FIN-08: as regras têm value_type='fixo' (PT) e o valor está em base_value —
-  // antes filtrava por 'fixed' (EN, não existia) e somava r.value/amount
-  // (inexistentes) → Valor Fixo Total = R$0. Agora tolera fixo/fixed e lê base_value.
-  const isFixa = (r: any) =>
-    ['fixo', 'fixed'].includes(String(r.value_type ?? r.type ?? r.rule_type ?? '').toLowerCase());
+  // FIN-08: o valor da regra está em base_value. O payload da API NÃO expõe campo
+  // de tipo de valor (value_type fica só no banco) — e todas as regras reais são
+  // FIXAS. Então: percentual só se um campo de tipo disser explicitamente;
+  // ausência de tipo = fixa (senão o KPI zera de novo, que foi o FAIL do CIC).
+  const tipoRegra = (r: any) => String(r.value_type ?? r.type ?? r.rule_type ?? 'fixo').toLowerCase();
+  const isFixa = (r: any) => !['percentual', 'percentage'].includes(tipoRegra(r));
   const valorRegra = (r: any) => Number(r.base_value ?? r.value ?? r.amount ?? 0);
   const activeRules = rules.filter((r: any) => isAtiva(r));
   const totalFixedValue = activeRules
@@ -819,7 +820,7 @@ export default function FaturamentoPage() {
                             </Badge>
                           </TableCell>
                           <TableCell className="font-medium">
-                            {['percentual', 'percentage'].includes(String(rule.value_type ?? rule.type ?? rule.rule_type ?? '').toLowerCase())
+                            {!isFixa(rule)
                               ? `${valorRegra(rule)}%`
                               : formatCurrency(valorRegra(rule))}
                           </TableCell>

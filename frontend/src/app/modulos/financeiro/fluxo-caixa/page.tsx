@@ -7,7 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useCondominio } from '@/contexts/CondominioContext';
-import { useCashflowEntries, useCashflowDashboard, useCreateCashflowEntry, useCashflowProjection } from '@/hooks/financial/useFinancial';
+import { useCashflowEntries, useCashflowDashboard, useCreateCashflowEntry, useCashflowProjection, useCashflowTrends } from '@/hooks/financial/useFinancial';
 import type { CashFlowEntryResponse } from '@/types/generated/financial/models/cashFlowEntryResponse';
 import { CashflowFormModal } from '@/components/financeiro/cashflow-form-modal';
 import type { CashFlowEntryCreate } from '@/types/generated/financial/models/cashFlowEntryCreate';
@@ -45,6 +45,12 @@ export default function FluxoCaixaPage() {
   // Projection hook for chart
   const { data: projectionRaw } = useCashflowProjection({ condominio_id: condominioId });
   const projectionData: any[] = Array.isArray(projectionRaw) ? projectionRaw : (projectionRaw as any)?.items ?? [];
+
+  // REG-01: o gráfico "Receitas vs Despesas" agrega no SERVIDOR (/cashflow/trends,
+  // por mês) — a versão anterior somava só a página visível (20 itens), então os
+  // meses fora da página ficavam zerados.
+  const { data: trendsRaw } = useCashflowTrends({ condominio_id: condominioId, months: 6 } as any);
+  const trendsData: any[] = Array.isArray(trendsRaw) ? trendsRaw : [];
 
   // AI Insights state
   const [aiRisks, setAiRisks] = useState<any[]>([]);
@@ -122,39 +128,51 @@ export default function FluxoCaixaPage() {
     }
   };
 
+  // REG-01: o enum real do backend é 'entrada'/'saida' (PT) — a tela comparava com
+  // 'income'/'expense' (EN, nunca batia) → TODA linha caía no ramo de débito
+  // (valor negativo/vermelho) e a série Receitas ficava zerada.
+  const isEntrada = (type: string) => ['entrada', 'income'].includes(String(type ?? '').toLowerCase());
+  const isSaida = (type: string) => ['saida', 'expense'].includes(String(type ?? '').toLowerCase());
+
   const getEntryTypeColor = (type: string) => {
-    switch (type) {
-      case 'income':
-        return 'bg-green-500/10 text-green-500 border-green-500/30';
-      case 'expense':
-        return 'bg-red-500/10 text-red-500 border-red-500/30';
-      default:
-        return 'bg-gray-500/10 text-gray-500 border-gray-500/30';
-    }
+    if (isEntrada(type)) return 'bg-green-500/10 text-green-500 border-green-500/30';
+    if (isSaida(type)) return 'bg-red-500/10 text-red-500 border-red-500/30';
+    return 'bg-gray-500/10 text-gray-500 border-gray-500/30';
   };
 
   const getEntryTypeLabel = (type: string) => {
-    switch (type) {
-      case 'income':
-        return 'Entrada';
-      case 'expense':
-        return 'Saida';
-      default:
-        return type;
-    }
+    if (isEntrada(type)) return 'Entrada';
+    if (isSaida(type)) return 'Saida';
+    return type;
   };
 
-  // Filtrar localmente por search se necessario
-  const filteredEntries = search
-    ? entries.filter((entry: any) =>
-        entry.description?.toLowerCase().includes(search.toLowerCase()) ||
-        entry.memo?.toLowerCase().includes(search.toLowerCase())
-      )
-    : entries;
+  // Filtrar localmente por search e por tipo (os botões Entradas/Saídas guardam
+  // 'income'/'expense' como estado — os helpers isEntrada/isSaida traduzem pro
+  // enum PT do dado; antes os botões não filtravam nada).
+  const filteredEntries = entries.filter((entry: any) => {
+    if (entryType === 'income' && !isEntrada(entry.entry_type)) return false;
+    if (entryType === 'expense' && !isSaida(entry.entry_type)) return false;
+    if (!search) return true;
+    return (
+      entry.description?.toLowerCase().includes(search.toLowerCase()) ||
+      entry.memo?.toLowerCase().includes(search.toLowerCase())
+    );
+  });
 
-  // Build last-6-months bar chart data from entries
+  // Build last-6-months bar chart data — fonte primária: /cashflow/trends
+  // (agregado por mês no servidor). Fallback: agrega a página local de entries.
   const monthLabels: string[] = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
   const barChartData = (() => {
+    if (trendsData.length) {
+      return trendsData.slice(-6).map((t: any) => {
+        const monthIdx = Number(String(t.period ?? '').slice(5, 7)) - 1;
+        return {
+          month: monthLabels[monthIdx] ?? String(t.period ?? ''),
+          Receitas: Math.abs(Number(t.inflows ?? 0)),
+          Despesas: Math.abs(Number(t.outflows ?? 0)),
+        };
+      });
+    }
     const now = new Date();
     const months: { month: string; Receitas: number; Despesas: number }[] = [];
     for (let i = 5; i >= 0; i--) {
@@ -170,7 +188,7 @@ export default function FluxoCaixaPage() {
       const bucket = months[idx];
       if (!bucket) return;
       const val = Math.abs(parseFloat(e.expected_amount || e.amount || 0));
-      if (e.entry_type === 'income') bucket.Receitas += val;
+      if (isEntrada(e.entry_type)) bucket.Receitas += val;
       else bucket.Despesas += val;
     });
     return months;
@@ -274,7 +292,16 @@ export default function FluxoCaixaPage() {
             </div>
             <div>
               <p className="font-data text-2xl font-semibold tabular-nums text-[hsl(var(--foreground))]">
-                {isLoading ? '...' : formatCurrency(Number(dashboard?.upcoming_receivables ?? 0) - Number(dashboard?.upcoming_payables ?? 0))}
+                {/* FIN-04: o card lê a MESMA série já corrigida do gráfico "Projeção de
+                    Saldo" (último ponto = saldo projetado em 30d) — a fórmula antiga
+                    (upcoming_receivables − upcoming_payables) dava o −R$66 espúrio. */}
+                {isLoading
+                  ? '...'
+                  : formatCurrency(
+                      areaChartData.length
+                        ? Number(areaChartData[areaChartData.length - 1]?.Saldo ?? 0)
+                        : Number(dashboard?.summary?.closing_balance ?? 0)
+                    )}
               </p>
               <p className="text-xs text-[hsl(var(--muted-foreground))]">Projecao 30d</p>
             </div>
@@ -579,12 +606,12 @@ export default function FluxoCaixaPage() {
                         <span
                           className={cn(
                             'font-mono text-sm font-medium',
-                            entry.entry_type === 'income'
+                            isEntrada(entry.entry_type)
                               ? 'text-green-500'
                               : 'text-red-500'
                           )}
                         >
-                          {entry.entry_type === 'income' ? '+' : '-'}
+                          {isEntrada(entry.entry_type) ? '+' : '-'}
                           {formatCurrency(Math.abs(parseFloat(entry.expected_amount || entry.amount || 0)))}
                         </span>
                       </td>
