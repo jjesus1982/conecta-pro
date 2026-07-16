@@ -197,6 +197,25 @@ export default function ModulosLayout({
   const router = useRouter();
   const { isAuthenticated, isLoading, user, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  // Espião de hydration: o React #418 residual é INTERMITENTE (não reproduz em bancada).
+  // Quando ocorrer numa sessão real, gravamos o component stack em localStorage.__h418
+  // para diagnóstico posterior (ler no console: JSON.parse(localStorage.__h418)).
+  useEffect(() => {
+    const orig = console.error;
+    console.error = (...args: unknown[]) => {
+      try {
+        const flat = args.map((a) => (a instanceof Error ? `${a.message}\n${a.stack}` : String(a))).join(' | ');
+        if (flat.includes('418') || /hydrat/i.test(flat)) {
+          const prev = JSON.parse(localStorage.getItem('__h418') || '[]');
+          prev.push({ t: new Date().toISOString(), path: window.location.pathname, detail: flat.slice(0, 1500) });
+          localStorage.setItem('__h418', JSON.stringify(prev.slice(-10)));
+        }
+      } catch { /* nunca interferir no fluxo */ }
+      orig.apply(console, args as []);
+    };
+    return () => { console.error = orig; };
+  }, []);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [wsToken, setWsToken] = useState<string | null>(null);
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://erp.conectamais.pro';
