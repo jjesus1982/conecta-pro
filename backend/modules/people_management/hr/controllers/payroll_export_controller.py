@@ -44,26 +44,47 @@ async def exportar_dominio(
     except (ValueError, IndexError):
         raise HTTPException(400, "Formato de competência inválido. Use YYYY-MM.")
 
-    payroll_svc = PayrollService(db)
-    await payroll_svc.close_payroll(month, year)
+    # EXPORT é LEITURA: jamais fechar a folha como efeito colateral de um GET (antes
+    # chamava close_payroll aqui!). Usa o MESMO motor da tela de folha (calcular_folha_batch)
+    # p/ o arquivo Domínio bater 1:1 com o que o DP vê — e status canônico 'ativo'
+    # (o filtro antigo status == "Ativo" maiúsculo devolvia 0 funcionários).
+    from sqlalchemy import text as _sqltext
+    from starlette.concurrency import run_in_threadpool
 
-    # Montar dados para exportação (cada funcionário processado)
-    from sqlalchemy import select
+    from core.database.session import SyncSessionLocal
+    from modules.people_management.folha.services.calculo_service import calcular_folha_batch
 
-    from modules.operacional.models.employee import Employee
+    def _calc_batch() -> dict:
+        _db = SyncSessionLocal()
+        try:
+            return calcular_folha_batch(_db, month, year)
+        finally:
+            _db.close()
 
-    result = await db.execute(select(Employee).where(Employee.status == "Ativo"))
-    employees = result.scalars().all()
+    batch = await run_in_threadpool(_calc_batch)
+    holerites = batch.get("holerites") or []
+
+    # cpf/matrícula por funcionário (o motor devolve employee_id)
+    rows = (
+        await db.execute(_sqltext("SELECT CAST(id AS TEXT) AS id, cpf, matricula FROM employees WHERE status='ativo'"))
+    ).mappings().all()
+    _info = {r["id"]: r for r in rows}
 
     folha_data = []
-    for emp in employees:
-        try:
-            calc = await payroll_svc.calculate_employee_payroll(str(emp.id), month, year)
-            calc["cpf"] = getattr(emp, "cpf", "")
-            calc["matricula"] = getattr(emp, "matricula", str(emp.id)[:6])
-            folha_data.append(calc)
-        except Exception as e:
-            logger.warning("Erro ao calcular folha de %s para export: %s", emp.id, e)
+    for h in holerites:
+        emp_id = str(h.get("employee_id") or "")
+        info = _info.get(emp_id, {})
+        folha_data.append(
+            {
+                **h,
+                # mapeia p/ as chaves do layout Domínio (export_dominio)
+                "employee_name": h.get("employee_nome") or h.get("nome") or "",
+                "salario_liquido": h.get("liquido", 0),
+                "fgts_8_pct": h.get("fgts_empresa", 0),
+                "cpf": info.get("cpf") or "",
+                "matricula": info.get("matricula") or emp_id[:6],
+            }
+        )
 
     comp_fmt = f"{month:02d}/{year}"
     conteudo = PayrollExportService.export_dominio(folha_data, comp_fmt)
