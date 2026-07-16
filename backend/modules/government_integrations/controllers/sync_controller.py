@@ -447,11 +447,16 @@ async def obter_historico(
         stmt = _select(SyncLog).where(SyncLog.cnpj_empresa == cnpj)
         if servico:
             stmt = stmt.where(SyncLog.servico == servico.value)
-        logs = (
-            (await db.execute(stmt.order_by(SyncLog.inicio_execucao.desc()).offset(offset).limit(limite)))
-            .scalars()
-            .all()
-        )
+        try:
+            logs = (
+                (await db.execute(stmt.order_by(SyncLog.inicio_execucao.desc()).offset(offset).limit(limite)))
+                .scalars()
+                .all()
+            )
+        except Exception:
+            # gov_sync_logs não provisionada (migration sprint56 não aplicada) → vazio honesto
+            await db.rollback()
+            return []
 
         return [
             HistoricoResponse(
@@ -642,11 +647,16 @@ async def listar_agendamentos(
 
         from ..models.sync_models import SyncAgendamento
 
-        agendamentos = (
-            (await db.execute(_select(SyncAgendamento).where(SyncAgendamento.cnpj_empresa == cnpj)))
-            .scalars()
-            .all()
-        )
+        try:
+            agendamentos = (
+                (await db.execute(_select(SyncAgendamento).where(SyncAgendamento.cnpj_empresa == cnpj)))
+                .scalars()
+                .all()
+            )
+        except Exception:
+            # gov_sync_agendamentos não provisionada → vazio honesto
+            await db.rollback()
+            return []
 
         return [
             {
@@ -873,20 +883,26 @@ async def listar_documentos(
         if data_final:
             conds.append(DocumentoFiscal.data_emissao <= data_final)
 
-        total = (await db.execute(_select(_func.count()).select_from(DocumentoFiscal).where(*conds))).scalar() or 0
-        documentos = (
-            (
-                await db.execute(
-                    _select(DocumentoFiscal)
-                    .where(*conds)
-                    .order_by(DocumentoFiscal.data_emissao.desc())
-                    .offset(offset)
-                    .limit(limite)
+        try:
+            total = (await db.execute(_select(_func.count()).select_from(DocumentoFiscal).where(*conds))).scalar() or 0
+            documentos = (
+                (
+                    await db.execute(
+                        _select(DocumentoFiscal)
+                        .where(*conds)
+                        .order_by(DocumentoFiscal.data_emissao.desc())
+                        .offset(offset)
+                        .limit(limite)
+                    )
                 )
+                .scalars()
+                .all()
             )
-            .scalars()
-            .all()
-        )
+        except Exception:
+            # gov_documentos_fiscais não provisionada → vazio honesto
+            await db.rollback()
+            return {"total": 0, "limite": limite, "offset": offset, "documentos": [],
+                    "aviso": "sincronização não provisionada (tabela ausente)"}
 
         return {
             "total": total,
@@ -940,20 +956,26 @@ async def listar_eventos_esocial(
         if periodo:
             conds.append(EventoESocial.periodo_apuracao == periodo)
 
-        total = (await db.execute(_select(_func.count()).select_from(EventoESocial).where(*conds))).scalar() or 0
-        eventos = (
-            (
-                await db.execute(
-                    _select(EventoESocial)
-                    .where(*conds)
-                    .order_by(EventoESocial.data_evento.desc())
-                    .offset(offset)
-                    .limit(limite)
+        try:
+            total = (await db.execute(_select(_func.count()).select_from(EventoESocial).where(*conds))).scalar() or 0
+            eventos = (
+                (
+                    await db.execute(
+                        _select(EventoESocial)
+                        .where(*conds)
+                        .order_by(EventoESocial.data_evento.desc())
+                        .offset(offset)
+                        .limit(limite)
+                    )
                 )
+                .scalars()
+                .all()
             )
-            .scalars()
-            .all()
-        )
+        except Exception:
+            # gov_eventos_esocial não provisionada → vazio honesto
+            await db.rollback()
+            return {"total": 0, "limite": limite, "offset": offset, "eventos": [],
+                    "aviso": "sincronização não provisionada (tabela ausente)"}
 
         return {
             "total": total,
@@ -1050,18 +1072,23 @@ async def listar_guias(
         if data_final:
             conds.append(GuiaRecolhimento.data_vencimento <= data_final)
 
-        guias = (
-            (
-                await db.execute(
-                    _select(GuiaRecolhimento)
-                    .where(*conds)
-                    .order_by(GuiaRecolhimento.data_vencimento.desc())
-                    .limit(limite)
+        try:
+            guias = (
+                (
+                    await db.execute(
+                        _select(GuiaRecolhimento)
+                        .where(*conds)
+                        .order_by(GuiaRecolhimento.data_vencimento.desc())
+                        .limit(limite)
+                    )
                 )
+                .scalars()
+                .all()
             )
-            .scalars()
-            .all()
-        )
+        except Exception:
+            # gov_guias_recolhimento não provisionada → vazio honesto
+            await db.rollback()
+            return []
 
         return [
             {

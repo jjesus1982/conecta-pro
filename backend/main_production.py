@@ -765,6 +765,13 @@ try:
     api_router.include_router(purchase_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Compras"])
     api_router.include_router(inventory_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Estoque"])
     api_router.include_router(fiscal_router, dependencies=[_FISCAL_GATE], prefix="/financial", tags=["Financial - Fiscal/Tributário"])
+    # ALIAS de compat: o client GERADO do frontend (orval, a partir do openapi de dev/main.py)
+    # chama /financial/fiscal/fiscal/* (prefixo dobrado). Em produção só existia o single e a
+    # tela Gestão Fiscal 404-ava. Servimos o dobrado TAMBÉM, mesmo gate, até regenerar o client.
+    api_router.include_router(
+        fiscal_router, dependencies=[_FISCAL_GATE], prefix="/financial/fiscal",
+        tags=["Financial - Fiscal/Tributário (alias client gerado)"], include_in_schema=False,
+    )
     api_router.include_router(financial_ai_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial AI"])
     api_router.include_router(relatorios_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Relatórios"])
     api_router.include_router(bi_dashboard_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - BI Dashboard"])
