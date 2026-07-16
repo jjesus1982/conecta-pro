@@ -1105,6 +1105,38 @@ class InterAdapter(BaseBankingAdapter):
         except Exception as exc:
             return {"success": False, "error": str(exc)}
 
+    async def enviar_pix_copia_e_cola(self, brcode: str, valor: Decimal, descricao: str = "") -> dict:
+        """Paga um PIX copia-e-cola (QR estático OU dinâmico). POST /banking/v2/pix.
+
+        destinatario.tipo='PIX_COPIA_E_COLA' — o Inter resolve a cobrança no PSP e
+        liquida NELA (mantém o txid → o emissor, ex. Sólides, baixa a cobrança).
+        Pagar a chave subjacente por fora NÃO baixa a cobrança no PSP — por isso o
+        dinâmico usa este método, nunca enviar_pix(chave).
+        """
+        try:
+            payload = {
+                "valor": str(valor),
+                "descricao": (descricao or "PIX copia-e-cola")[:140],
+                "destinatario": {
+                    "tipo": "PIX_COPIA_E_COLA",
+                    "pixCopiaECola": brcode.strip(),
+                },
+            }
+            data = await self._request("POST", "/banking/v2/pix", json=payload)
+            return {
+                "success": True,
+                "endToEndId": data.get("endToEndId", ""),
+                "codigoSolicitacao": data.get("codigoSolicitacao", ""),
+                "status": data.get("tipoRetorno") or data.get("status", "PROCESSANDO"),
+            }
+        except BankingAdapterError as exc:
+            corpo = ""
+            if getattr(exc, "details", None):
+                corpo = str(exc.details.get("response", ""))[:400]
+            return {"success": False, "status_code": exc.code, "detail": f"{exc}{(' — ' + corpo) if corpo else ''}"}
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
     async def pagar_darf(
         self, periodo_apuracao: str, codigo_receita: str, valor: Decimal, referencia: str = ""
     ) -> dict:

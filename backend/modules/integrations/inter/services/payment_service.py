@@ -690,6 +690,10 @@ def _validar_destinatario(payment_type: str, dest: dict) -> None:
     }
     if payment_type not in required:
         raise PaymentError(f"payment_type inválido: {payment_type}. Válidos: {set(required)}")
+    # PIX via copia-e-cola (QR dinâmico, ex. VT/VR do Sólides): o brcode substitui a
+    # chave — o Inter liquida a COBRANÇA no PSP (mantém txid/conciliação do emissor).
+    if payment_type == "pix" and dest.get("pix_copia_e_cola"):
+        return
     campos = required[payment_type]
     faltando = [c for c in campos if not dest.get(c)]
     if faltando:
@@ -795,6 +799,14 @@ async def _chamar_inter(payment_type: str, dest: dict, valor: Decimal, data_pgto
                 codigo_barras=_normalizar_codigo_boleto(dest["codigo_barras"]),
                 valor=valor,
                 data_pagamento=data_pgto,
+            )
+        elif payment_type == "pix" and dest.get("pix_copia_e_cola"):
+            # QR dinâmico (cobrança no PSP, ex. Sólides/contaswap): paga o COPIA-E-COLA —
+            # o Inter liquida a cobrança e o txid é preservado (o emissor baixa sozinho).
+            result = await adapter.enviar_pix_copia_e_cola(
+                brcode=dest["pix_copia_e_cola"],
+                valor=valor,
+                descricao=dest.get("descricao", "") or f"PIX para {dest.get('nome_recebedor', '')}",
             )
         elif payment_type == "pix":
             # tipo_chave é OPCIONAL: o Inter auto-detecta (destinatario.tipo='CHAVE').

@@ -1,17 +1,24 @@
 """Decodificador de BR Code PIX (copia-e-cola / QR Code) — padrão EMV MPM (BCB).
 
-Extrai chave PIX, valor, nome do recebedor e txid de um "copia e cola". Suporta o
-caso ESTÁTICO (chave embutida) — o mais comum para pagar fornecedor recorrente. O
-caso DINÂMICO (payload traz uma URL do PSP, sem chave embutida) é sinalizado
-(`dinamico=True`) para o chamador tratar (hoje: pagar pelo app e conciliar).
+Extrai chave PIX, valor, nome do recebedor e txid de um "copia e cola". Suporta:
+- caso ESTÁTICO (chave embutida) — fornecedor recorrente;
+- caso DINÂMICO (payload traz a URL do PSP): resolvemos a URL (JWS do padrão
+  cobrança BCB) e devolvemos valor/chave/txid reais (`dinamico=True, resolvido=True`).
+  É o caso do Sólides (VT/VR via contaswap): o valor NÃO está no EMV, só no PSP.
 
-Não faz efeito externo — recebe string, devolve dict. Nunca fabrica dado: se não
-achar chave, devolve chave=None e o motivo.
+Não faz efeito externo além do GET de leitura na URL do PSP — nunca paga.
+Nunca fabrica dado: se não conseguir resolver, devolve o motivo.
 """
 
 from __future__ import annotations
 
+import base64
+import json
+import logging
+import urllib.request
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_tlv(payload: str) -> dict[str, str]:
@@ -119,11 +126,60 @@ def decodificar_brcode(brcode: str) -> dict[str, Any]:
         res["tipo_chave"] = _detectar_tipo_chave(chave)
         return res
     if url:
-        # dinâmico: precisa resolver a URL no PSP (não suportado no fluxo direto ainda)
+        # dinâmico: resolve a URL no PSP (JWS da cobrança) → valor/chave/txid reais
         res["valido"] = True
         res["dinamico"] = True
-        res["motivo"] = ("QR dinâmico (valor/link no PSP). Pague pelo app do Inter e marque como "
-                         "'pago pelo app Inter', ou use a chave PIX direta.")
+        cob = resolver_dinamico(url)
+        if cob:
+            res["resolvido"] = True
+            res["valor"] = cob.get("valor") or res["valor"]
+            res["chave"] = cob.get("chave")
+            res["tipo_chave"] = _detectar_tipo_chave(cob.get("chave") or "")
+            res["txid"] = cob.get("txid") or res["txid"]
+            res["cob_status"] = cob.get("status")
+            res["solicitacao"] = cob.get("solicitacao")
+            if cob.get("status") and cob["status"] != "ATIVA":
+                res["motivo"] = (f"Atenção: a cobrança está '{cob['status']}' no PSP "
+                                 "(pode já ter sido paga ou expirado). Confira antes de pagar.")
+            return res
+        res["resolvido"] = False
+        res["motivo"] = ("QR dinâmico — não consegui consultar o PSP agora. Pague pelo app do "
+                         "Inter e marque como 'pago pelo app Inter', ou tente de novo.")
         return res
     res["motivo"] = "Sem chave PIX no código."
     return res
+
+
+def resolver_dinamico(url: str, timeout: int = 15) -> dict[str, Any] | None:
+    """Consulta a URL do QR dinâmico (padrão cobrança BCB: resposta é um JWS) e
+    devolve {valor, chave, txid, status, solicitacao} — ou None se não resolver.
+
+    Leitura pura (GET); não confirma nem paga nada no PSP.
+    """
+    alvo = url if url.startswith("http") else f"https://{url}"
+    try:
+        req = urllib.request.Request(
+            alvo, headers={"Accept": "application/jose", "User-Agent": "ConectaPRO/1.0"}
+        )
+        corpo = urllib.request.urlopen(req, timeout=timeout).read().decode("utf-8", "replace").strip()
+        partes = corpo.split(".")
+        if len(partes) != 3:
+            logger.warning("PIX dinâmico: resposta do PSP não é JWS (%s...)", corpo[:60])
+            return None
+        pad = partes[1] + "=" * (-len(partes[1]) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(pad))
+        valor = None
+        try:
+            valor = float((payload.get("valor") or {}).get("original") or 0) or None
+        except (TypeError, ValueError):
+            valor = None
+        return {
+            "valor": valor,
+            "chave": (payload.get("chave") or "").strip() or None,
+            "txid": (payload.get("txid") or "").strip() or None,
+            "status": (payload.get("status") or "").strip() or None,
+            "solicitacao": (payload.get("solicitacaoPagador") or "").strip() or None,
+        }
+    except Exception as exc:
+        logger.warning("PIX dinâmico: falha ao resolver %s: %s", alvo[:80], exc)
+        return None

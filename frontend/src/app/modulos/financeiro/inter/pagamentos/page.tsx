@@ -98,7 +98,15 @@ function NovoPagamentoForm({ onPrepared, saldo }: { onPrepared: () => void; sald
   const [confirmando, setConfirmando] = useState(false);
 
   const handleDestChange = (key: string, val: string) =>
-    setDest((prev) => ({ ...prev, [key]: val }));
+    setDest((prev) => {
+      // editou a chave na mão → invalida o copia-e-cola colado antes (senão o
+      // pagamento iria pra cobrança antiga do QR, não pra chave editada)
+      if (key === "chave" && prev.pix_copia_e_cola) {
+        const { pix_copia_e_cola: _drop, ...resto } = prev;
+        return { ...resto, [key]: val };
+      }
+      return { ...prev, [key]: val };
+    });
 
   // Agenda de beneficiários (como o app do Inter): digita o nome → carrega a chave PIX.
   const [benefQ, setBenefQ] = useState("");
@@ -113,7 +121,10 @@ function NovoPagamentoForm({ onPrepared, saldo }: { onPrepared: () => void; sald
     } catch { setBenefList([]); }
   };
   const escolherBenef = (b: Record<string, string>) => {
-    setDest((prev) => ({ ...prev, chave: b.chave_pix || "", tipo_chave: b.tipo_chave || prev.tipo_chave || "CPF", nome_recebedor: b.nome || "" }));
+    setDest((prev) => {
+      const { pix_copia_e_cola: _drop, ...resto } = prev;  // agenda troca a chave → invalida QR colado antes
+      return { ...resto, chave: b.chave_pix || "", tipo_chave: b.tipo_chave || prev.tipo_chave || "CPF", nome_recebedor: b.nome || "" };
+    });
     setBenefQ(b.nome || ""); setBenefOpen(false); setBenefList([]);
   };
 
@@ -148,12 +159,24 @@ function NovoPagamentoForm({ onPrepared, saldo }: { onPrepared: () => void; sald
     try {
       const r = await apiFetch(`${API}/decodificar-pix`, { method: "POST", body: JSON.stringify({ brcode: t }) }) as Record<string, string | number | boolean | null>;
       if (!r.valido) { setMsgCodigo(String(r.motivo || "Código PIX inválido.")); return; }
-      if (r.dinamico) { setMsgCodigo(String(r.motivo || "QR dinâmico — pague pelo app do Inter.")); return; }
+      if (r.dinamico && !r.resolvido) { setMsgCodigo(String(r.motivo || "QR dinâmico — não consegui consultar o PSP. Tente de novo ou pague pelo app.")); return; }
       setType("pix");
-      setDest((prev) => ({ ...prev, chave: String(r.chave || ""), tipo_chave: String(r.tipo_chave || "EVP"), nome_recebedor: String(r.nome || prev.nome_recebedor || "") }));
+      setDest((prev) => {
+        // QR dinâmico (ex.: VT/VR do Sólides): o pagamento vai pelo COPIA-E-COLA —
+        // o Inter liquida a cobrança no PSP e o emissor baixa sozinho (txid preservado).
+        const { pix_copia_e_cola: _drop, ...resto } = prev;
+        return {
+          ...resto,
+          chave: String(r.chave || ""),
+          tipo_chave: String(r.tipo_chave || "EVP"),
+          nome_recebedor: String(r.nome || prev.nome_recebedor || ""),
+          ...(r.dinamico ? { pix_copia_e_cola: t } : {}),
+        };
+      });
       if (r.valor) setValor(String(r.valor));
       if (r.nome) setBenefQ(String(r.nome));
-      setMsgCodigo(`PIX lido: ${r.nome || r.chave}${r.valor ? ` — R$ ${r.valor}` : ""}. Confira e confirme.`);
+      const aviso = r.cob_status && r.cob_status !== "ATIVA" ? ` ⚠ cobrança ${r.cob_status} no PSP` : "";
+      setMsgCodigo(`PIX ${r.dinamico ? "dinâmico resolvido" : "lido"}: ${r.nome || r.chave}${r.valor ? ` — R$ ${Number(r.valor).toFixed(2)}` : ""}${aviso}. Confira e confirme.`);
     } catch { setMsgCodigo("Falha ao decodificar o código."); }
   };
   const anexarBoletoPdf = async (file: File | undefined) => {
