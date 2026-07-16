@@ -339,15 +339,15 @@ async def get_dashboard(
         text("""
             SELECT
                 COALESCE(SUM(net_value) FILTER (
-                    WHERE status NOT IN ('pago','cancelado','cancelled')), 0) AS pending,
+                    WHERE status NOT IN ('paga','pago','cancelada','cancelado','cancelled')), 0) AS pending,
                 COALESCE(SUM(net_value) FILTER (
                     WHERE due_date < CURRENT_DATE
-                    AND status NOT IN ('pago','cancelado','cancelled')), 0) AS overdue,
+                    AND status NOT IN ('paga','pago','cancelada','cancelado','cancelled')), 0) AS overdue,
                 COUNT(*) FILTER (
                     WHERE due_date < CURRENT_DATE
-                    AND status NOT IN ('pago','cancelado','cancelled')) AS qtd_overdue,
+                    AND status NOT IN ('paga','pago','cancelada','cancelado','cancelled')) AS qtd_overdue,
                 COUNT(*) FILTER (
-                    WHERE status NOT IN ('pago','cancelado','cancelled')) AS qtd_pending
+                    WHERE status NOT IN ('paga','pago','cancelada','cancelado','cancelled')) AS qtd_pending
             FROM payable_accounts
             WHERE condominio_id = :cid
         """),

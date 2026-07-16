@@ -2,6 +2,8 @@
 
 from datetime import date, datetime
 from decimal import Decimal
+
+from modules.financial.schemas._money import Money, MoneyOpt
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -14,11 +16,11 @@ class ReceiptItemBase(BaseModel):
 
     description: str = Field(..., min_length=1, max_length=500)
     unit_of_measure: str = Field(default="un", max_length=10)
-    quantity_expected: Decimal = Field(..., gt=0)
-    quantity_received: Decimal = Field(default=Decimal("0"), ge=0)
-    quantity_accepted: Decimal = Field(default=Decimal("0"), ge=0)
-    quantity_rejected: Decimal = Field(default=Decimal("0"), ge=0)
-    unit_price: Decimal | None = Field(None, ge=0)
+    quantity_expected: Money = Field(..., gt=0)
+    quantity_received: Money = Field(default=Decimal("0"), ge=0)
+    quantity_accepted: Money = Field(default=Decimal("0"), ge=0)
+    quantity_rejected: Money = Field(default=Decimal("0"), ge=0)
+    unit_price: MoneyOpt = Field(None, ge=0)
     batch_number: str | None = Field(None, max_length=50)
     manufacturing_date: date | None = None
     expiry_date: date | None = None
@@ -37,9 +39,9 @@ class ReceiptItemCreate(ReceiptItemBase):
 class ReceiptItemUpdate(BaseModel):
     """Schema para atualizar item de recebimento."""
 
-    quantity_received: Decimal | None = Field(None, ge=0)
-    quantity_accepted: Decimal | None = Field(None, ge=0)
-    quantity_rejected: Decimal | None = Field(None, ge=0)
+    quantity_received: MoneyOpt = Field(None, ge=0)
+    quantity_accepted: MoneyOpt = Field(None, ge=0)
+    quantity_rejected: MoneyOpt = Field(None, ge=0)
     batch_number: str | None = None
     manufacturing_date: date | None = None
     expiry_date: date | None = None
@@ -58,11 +60,11 @@ class ReceiptItemResponse(ReceiptItemBase):
     id: UUID
     receipt_id: UUID
     item_number: int
-    quantity_difference: Decimal = Decimal("0")
-    expected_total: Decimal | None = None
-    received_total: Decimal | None = None
-    accepted_total: Decimal | None = None
-    rejected_total: Decimal | None = None
+    quantity_difference: Money = Decimal("0")
+    expected_total: MoneyOpt = None
+    received_total: MoneyOpt = None
+    accepted_total: MoneyOpt = None
+    rejected_total: MoneyOpt = None
     inspection_result: InspectionResult | None = None
     inspection_notes: str | None = None
     rejection_reason: str | None = None
@@ -83,7 +85,7 @@ class GoodsReceiptBase(BaseModel):
     invoice_series: str | None = Field(None, max_length=10)
     invoice_date: date | None = None
     invoice_key: str | None = Field(None, max_length=50)
-    invoice_total: Decimal | None = Field(None, ge=0)
+    invoice_total: MoneyOpt = Field(None, ge=0)
     carrier: str | None = Field(None, max_length=200)
     carrier_cnpj: str | None = Field(None, max_length=18)
     vehicle_plate: str | None = Field(None, max_length=10)
@@ -91,8 +93,8 @@ class GoodsReceiptBase(BaseModel):
     driver_document: str | None = Field(None, max_length=20)
     seal_number: str | None = Field(None, max_length=50)
     volumes: int | None = Field(None, ge=0)
-    gross_weight: Decimal | None = Field(None, ge=0)
-    net_weight: Decimal | None = Field(None, ge=0)
+    gross_weight: MoneyOpt = Field(None, ge=0)
+    net_weight: MoneyOpt = Field(None, ge=0)
     storage_location: str | None = Field(None, max_length=100)
     storage_notes: str | None = None
     notes: str | None = None
@@ -115,7 +117,7 @@ class GoodsReceiptUpdate(BaseModel):
     invoice_series: str | None = None
     invoice_date: date | None = None
     invoice_key: str | None = None
-    invoice_total: Decimal | None = None
+    invoice_total: MoneyOpt = None
     carrier: str | None = None
     carrier_cnpj: str | None = None
     vehicle_plate: str | None = None
@@ -123,8 +125,8 @@ class GoodsReceiptUpdate(BaseModel):
     driver_document: str | None = None
     seal_number: str | None = None
     volumes: int | None = None
-    gross_weight: Decimal | None = None
-    net_weight: Decimal | None = None
+    gross_weight: MoneyOpt = None
+    net_weight: MoneyOpt = None
     storage_location: str | None = None
     storage_notes: str | None = None
     notes: str | None = None
@@ -142,11 +144,11 @@ class GoodsReceiptResponse(GoodsReceiptBase):
     receipt_date: date
     inspection_date: datetime | None = None
     approval_date: datetime | None = None
-    total_expected: Decimal = Decimal("0")
-    total_received: Decimal = Decimal("0")
-    total_accepted: Decimal = Decimal("0")
-    total_rejected: Decimal = Decimal("0")
-    total_difference: Decimal = Decimal("0")
+    total_expected: Money = Decimal("0")
+    total_received: Money = Decimal("0")
+    total_accepted: Money = Decimal("0")
+    total_rejected: Money = Decimal("0")
+    total_difference: Money = Decimal("0")
     inspection_result: InspectionResult | None = None
     inspection_notes: str | None = None
     inspected_by: UUID | None = None
@@ -221,7 +223,7 @@ class ReceiptStats(BaseModel):
     by_type: dict[str, int] = {}
     pending_inspection: int = 0
     with_divergence: int = 0
-    total_received_value: Decimal = Decimal("0")
+    total_received_value: Money = Decimal("0")
     acceptance_rate: float | None = None
     average_inspection_hours: float | None = None
 

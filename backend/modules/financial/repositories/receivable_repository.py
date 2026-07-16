@@ -419,6 +419,7 @@ class ReceivableAccountRepository:
             receivable_type=data.receivable_type.value,
             priority=data.priority.value,
             customer_id=data.customer_id,
+            customer_name=data.customer_name,  # FIN-03: nome denormalizado do sacado
             unidade_id=data.unidade_id,
             morador_id=data.morador_id,
             category_id=data.category_id,

@@ -2,6 +2,8 @@
 
 from datetime import date, datetime, time
 from decimal import Decimal
+
+from modules.financial.schemas._money import Money, MoneyOpt
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -53,7 +55,7 @@ class CustomerBase(BaseModel):
     address_zipcode: str | None = Field(None, max_length=10)
 
     # Financeiro
-    credit_limit: Decimal = Field(default=Decimal("0"), ge=0)
+    credit_limit: Money = Field(default=Decimal("0"), ge=0)
 
     # Cobranca
     billing_email: str | None = Field(None, max_length=200)
@@ -99,7 +101,7 @@ class CustomerUpdate(BaseModel):
     address_state: str | None = Field(None, max_length=2)
     address_zipcode: str | None = Field(None, max_length=10)
 
-    credit_limit: Decimal | None = Field(None, ge=0)
+    credit_limit: MoneyOpt = Field(None, ge=0)
     billing_email: str | None = Field(None, max_length=200)
     billing_day: int | None = Field(None)
     auto_billing: bool | None = None
@@ -119,8 +121,8 @@ class CustomerResponse(CustomerBase):
     condominio_id: UUID
     status: CustomerStatus
 
-    total_debt: Decimal
-    overdue_debt: Decimal
+    total_debt: Money
+    overdue_debt: Money
     available_credit: float
     is_inadimplente: bool
 
@@ -246,13 +248,13 @@ class ReceivableAccountBase(BaseModel):
     morador_id: UUID | None = None
     category_id: UUID | None = None
 
-    gross_value: Decimal = Field(..., gt=0)
-    discount_value: Decimal = Field(default=Decimal("0"), ge=0)
-    addition_value: Decimal = Field(default=Decimal("0"), ge=0)
+    gross_value: Money = Field(..., gt=0)
+    discount_value: Money = Field(default=Decimal("0"), ge=0)
+    addition_value: Money = Field(default=Decimal("0"), ge=0)
 
     # Juros e multa
-    interest_rate: Decimal = Field(default=Decimal("1"), ge=0)
-    penalty_rate: Decimal = Field(default=Decimal("2"), ge=0)
+    interest_rate: Money = Field(default=Decimal("1"), ge=0)
+    penalty_rate: Money = Field(default=Decimal("2"), ge=0)
     grace_days: int = Field(default=0, ge=0)
 
     # Datas
@@ -281,6 +283,11 @@ class ReceivableAccountCreate(ReceivableAccountBase):
 
     condominio_id: UUID
 
+    # FIN-03: nome do cliente/sacado digitado no modal. Gravado na coluna
+    # denormalizada customer_name (usada quando customer_id é NULL) → aparece na
+    # coluna Cliente em vez de ficar vazio.
+    customer_name: str | None = Field(None, max_length=255)
+
     # Boleto/PIX automatico
     generate_boleto: bool = False
     generate_pix: bool = False
@@ -296,12 +303,12 @@ class ReceivableAccountUpdate(BaseModel):
     customer_id: UUID | None = None
     category_id: UUID | None = None
 
-    gross_value: Decimal | None = Field(None, gt=0)
-    discount_value: Decimal | None = Field(None, ge=0)
-    addition_value: Decimal | None = Field(None, ge=0)
+    gross_value: MoneyOpt = Field(None, gt=0)
+    discount_value: MoneyOpt = Field(None, ge=0)
+    addition_value: MoneyOpt = Field(None, ge=0)
 
-    interest_rate: Decimal | None = Field(None, ge=0)
-    penalty_rate: Decimal | None = Field(None, ge=0)
+    interest_rate: MoneyOpt = Field(None, ge=0)
+    penalty_rate: MoneyOpt = Field(None, ge=0)
     grace_days: int | None = Field(None, ge=0)
 
     due_date: date | None = None
@@ -319,11 +326,11 @@ class ReceivableAccountResponse(ReceivableAccountBase):
     condominio_id: UUID
     code: str | None = None
     status: ReceivableStatus
-    net_value: Decimal
-    paid_value: Decimal
-    remaining_value: Decimal | None = None
-    interest_value: Decimal
-    penalty_value: Decimal
+    net_value: Money
+    paid_value: Money
+    remaining_value: MoneyOpt = None
+    interest_value: Money
+    penalty_value: Money
 
     entry_date: date
     payment_date: date | None = None
@@ -348,8 +355,8 @@ class ReceivableAccountResponse(ReceivableAccountBase):
     days_overdue: int
     days_until_due: int
     payment_percentage: float
-    balance: Decimal
-    current_total_value: Decimal
+    balance: Money
+    current_total_value: Money
 
     attachments: list[dict] = Field(default_factory=list)
 
@@ -375,9 +382,9 @@ class ReceivableAccountListResponse(BaseModel):
     customer_name: str | None = None
     unidade_codigo: str | None = None
     category_name: str | None = None
-    net_value: Decimal
-    paid_value: Decimal
-    balance: Decimal
+    net_value: Money
+    paid_value: Money
+    balance: Money
     due_date: date
     payment_date: date | None = None
     is_overdue: bool
@@ -410,8 +417,8 @@ class ReceivableAccountFilter(BaseModel):
     has_boleto: bool | None = None
     has_pix: bool | None = None
     cost_center: str | None = None
-    min_value: Decimal | None = None
-    max_value: Decimal | None = None
+    min_value: MoneyOpt = None
+    max_value: MoneyOpt = None
     tags: list[str] | None = None
 
 
@@ -419,10 +426,10 @@ class ReceivableAccountStats(BaseModel):
     """Estatisticas de contas a receber."""
 
     total_count: int = 0
-    total_value: Decimal = Decimal("0")
-    total_received: Decimal = Decimal("0")
-    total_pending: Decimal = Decimal("0")
-    total_overdue: Decimal = Decimal("0")
+    total_value: Money = Decimal("0")
+    total_received: Money = Decimal("0")
+    total_pending: Money = Decimal("0")
+    total_overdue: Money = Decimal("0")
     overdue_count: int = 0
 
     by_status: dict = Field(default_factory=dict)
@@ -439,12 +446,12 @@ class ReceivableInstallmentCreate(BaseModel):
 
     installment_number: int = Field(..., ge=1)
     total_installments: int = Field(..., ge=1)
-    original_value: Decimal = Field(..., gt=0)
+    original_value: Money = Field(..., gt=0)
     due_date: date
 
-    discount_value: Decimal = Field(default=Decimal("0"), ge=0)
-    interest_rate: Decimal = Field(default=Decimal("1"), ge=0)
-    penalty_rate: Decimal = Field(default=Decimal("2"), ge=0)
+    discount_value: Money = Field(default=Decimal("0"), ge=0)
+    interest_rate: Money = Field(default=Decimal("1"), ge=0)
+    penalty_rate: Money = Field(default=Decimal("2"), ge=0)
     grace_days: int = Field(default=0, ge=0)
 
     notes: str | None = None
@@ -454,10 +461,10 @@ class ReceivableInstallmentUpdate(BaseModel):
     """Schema para atualizacao de parcela."""
 
     due_date: date | None = None
-    discount_value: Decimal | None = Field(None, ge=0)
-    addition_value: Decimal | None = Field(None, ge=0)
-    interest_rate: Decimal | None = Field(None, ge=0)
-    penalty_rate: Decimal | None = Field(None, ge=0)
+    discount_value: MoneyOpt = Field(None, ge=0)
+    addition_value: MoneyOpt = Field(None, ge=0)
+    interest_rate: MoneyOpt = Field(None, ge=0)
+    penalty_rate: MoneyOpt = Field(None, ge=0)
     grace_days: int | None = Field(None, ge=0)
 
     notes: str | None = None
@@ -474,21 +481,21 @@ class ReceivableInstallmentResponse(BaseModel):
     display_number: str
     status: InstallmentStatus
 
-    original_value: Decimal
-    discount_value: Decimal
-    interest_value: Decimal
-    penalty_value: Decimal
-    addition_value: Decimal
-    current_value: Decimal
-    paid_value: Decimal
-    balance: Decimal
+    original_value: Money
+    discount_value: Money
+    interest_value: Money
+    penalty_value: Money
+    addition_value: Money
+    current_value: Money
+    paid_value: Money
+    balance: Money
 
     due_date: date
     original_due_date: date | None = None
     payment_date: date | None = None
 
-    interest_rate: Decimal
-    penalty_rate: Decimal
+    interest_rate: Money
+    penalty_rate: Money
     grace_days: int
 
     boleto_generated: bool
@@ -527,7 +534,7 @@ class ReceivableInstallmentRenegotiateRequest(BaseModel):
     """Request para renegociar parcela."""
 
     new_due_date: date
-    new_value: Decimal | None = Field(None, gt=0)
+    new_value: MoneyOpt = Field(None, gt=0)
     reason: str = Field(..., min_length=5, max_length=500)
 
 
@@ -550,14 +557,14 @@ class ReceivablePaymentCreate(BaseModel):
     """Schema para criacao de recebimento."""
 
     installment_id: UUID
-    paid_value: Decimal = Field(..., gt=0)
+    paid_value: Money = Field(..., gt=0)
     payment_date: date
     origin: PaymentOrigin = PaymentOrigin.MANUAL
 
-    discount_value: Decimal = Field(default=Decimal("0"), ge=0)
-    interest_value: Decimal = Field(default=Decimal("0"), ge=0)
-    penalty_value: Decimal = Field(default=Decimal("0"), ge=0)
-    fee_value: Decimal = Field(default=Decimal("0"), ge=0)
+    discount_value: Money = Field(default=Decimal("0"), ge=0)
+    interest_value: Money = Field(default=Decimal("0"), ge=0)
+    penalty_value: Money = Field(default=Decimal("0"), ge=0)
+    fee_value: Money = Field(default=Decimal("0"), ge=0)
 
     payment_method_id: UUID | None = None
     bank_account_id: UUID | None = None
@@ -573,10 +580,10 @@ class ReceivablePaymentUpdate(BaseModel):
     """Schema para atualizacao de recebimento."""
 
     payment_date: date | None = None
-    discount_value: Decimal | None = Field(None, ge=0)
-    interest_value: Decimal | None = Field(None, ge=0)
-    penalty_value: Decimal | None = Field(None, ge=0)
-    fee_value: Decimal | None = Field(None, ge=0)
+    discount_value: MoneyOpt = Field(None, ge=0)
+    interest_value: MoneyOpt = Field(None, ge=0)
+    penalty_value: MoneyOpt = Field(None, ge=0)
+    fee_value: MoneyOpt = Field(None, ge=0)
 
     receipt_number: str | None = Field(None, max_length=50)
     receipt_url: str | None = Field(None, max_length=500)
@@ -595,14 +602,14 @@ class ReceivablePaymentResponse(BaseModel):
     status: PaymentStatus
     origin: PaymentOrigin
 
-    paid_value: Decimal
-    discount_value: Decimal
-    interest_value: Decimal
-    penalty_value: Decimal
-    fee_value: Decimal
-    net_value: Decimal
-    total_additions: Decimal
-    total_deductions: Decimal
+    paid_value: Money
+    discount_value: Money
+    interest_value: Money
+    penalty_value: Money
+    fee_value: Money
+    net_value: Money
+    total_additions: Money
+    total_deductions: Money
 
     payment_date: date
     processing_date: date | None = None
@@ -664,7 +671,7 @@ class BillingRuleBase(BaseModel):
     billing_type: BillingType = BillingType.TAXA_CONDOMINIAL
     category_id: UUID | None = None
 
-    base_value: Decimal = Field(..., gt=0)
+    base_value: Money = Field(..., gt=0)
     value_type: str = Field(default="fixo")  # fixo, percentual, por_m2
     reference_field: str | None = Field(None, max_length=50)
 
@@ -676,13 +683,13 @@ class BillingRuleBase(BaseModel):
     end_date: date | None = None
 
     apply_interest: bool = True
-    interest_rate: Decimal = Field(default=Decimal("1"), ge=0)
+    interest_rate: Money = Field(default=Decimal("1"), ge=0)
     apply_penalty: bool = True
-    penalty_rate: Decimal = Field(default=Decimal("2"), ge=0)
+    penalty_rate: Money = Field(default=Decimal("2"), ge=0)
     grace_days: int = Field(default=0, ge=0)
 
     apply_discount: bool = False
-    discount_rate: Decimal = Field(default=Decimal("0"), ge=0)
+    discount_rate: Money = Field(default=Decimal("0"), ge=0)
     discount_days: int = Field(default=0, ge=0)
 
     auto_generate_boleto: bool = True
@@ -723,7 +730,7 @@ class BillingRuleUpdate(BaseModel):
     description: str | None = None
     category_id: UUID | None = None
 
-    base_value: Decimal | None = Field(None, gt=0)
+    base_value: MoneyOpt = Field(None, gt=0)
     value_type: str | None = None
     reference_field: str | None = Field(None, max_length=50)
 
@@ -733,13 +740,13 @@ class BillingRuleUpdate(BaseModel):
     end_date: date | None = None
 
     apply_interest: bool | None = None
-    interest_rate: Decimal | None = Field(None, ge=0)
+    interest_rate: MoneyOpt = Field(None, ge=0)
     apply_penalty: bool | None = None
-    penalty_rate: Decimal | None = Field(None, ge=0)
+    penalty_rate: MoneyOpt = Field(None, ge=0)
     grace_days: int | None = Field(None, ge=0)
 
     apply_discount: bool | None = None
-    discount_rate: Decimal | None = Field(None, ge=0)
+    discount_rate: MoneyOpt = Field(None, ge=0)
     discount_days: int | None = Field(None, ge=0)
 
     auto_generate_boleto: bool | None = None
@@ -771,7 +778,7 @@ class BillingRuleResponse(BaseModel):
     name: str = ""
     description: str | None = None
     billing_type: str | None = None
-    base_value: Decimal = Decimal("0")
+    base_value: Money = Decimal("0")
     frequency: str = "mensal"
     due_day: int = 10
     start_date: date | None = None
@@ -780,8 +787,8 @@ class BillingRuleResponse(BaseModel):
     is_active: bool = True
     should_run_today: bool = False
     total_generated: int = 0
-    total_collected: Decimal = Decimal("0")
-    collection_rate: Decimal = Decimal("0")
+    total_collected: Money = Decimal("0")
+    collection_rate: Money = Decimal("0")
     last_run_at: datetime | None = None
     last_run_result: dict | None = None
     next_run_at: datetime | None = None
@@ -843,5 +850,5 @@ class ReceivableAgreementRequest(BaseModel):
 
     agreement_id: UUID
     new_due_date: date
-    new_value: Decimal | None = Field(None, gt=0)
+    new_value: MoneyOpt = Field(None, gt=0)
     installments: int = Field(default=1, ge=1, le=60)

@@ -89,7 +89,12 @@ export default function FluxoCaixaPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const entries: any[] = (entriesData as any)?.items ?? [];
+  // FIN-01: o endpoint /cashflow/entries devolve uma LISTA pura; tratar array
+  // além de {items}. Antes lia só .items → lista/gráfico ficavam vazios mesmo com
+  // dados no backend.
+  const entries: any[] = Array.isArray(entriesData)
+    ? (entriesData as any[])
+    : ((entriesData as any)?.items ?? []);
   const total = (entriesData as any)?.total ?? entries.length;
   const totalPages = Math.ceil(total / pageSize);
 

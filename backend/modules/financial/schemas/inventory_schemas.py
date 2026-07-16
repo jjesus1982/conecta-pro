@@ -2,6 +2,8 @@
 
 from datetime import date, datetime
 from decimal import Decimal
+
+from modules.financial.schemas._money import Money, MoneyOpt
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -40,8 +42,8 @@ class WarehouseBase(BaseModel):
     city: str | None = Field(None, max_length=100)
     state: str | None = Field(None, max_length=2)
     zip_code: str | None = Field(None, max_length=10)
-    latitude: Decimal | None = None
-    longitude: Decimal | None = None
+    latitude: MoneyOpt = None
+    longitude: MoneyOpt = None
 
     # Contato
     manager_name: str | None = Field(None, max_length=100)
@@ -51,18 +53,18 @@ class WarehouseBase(BaseModel):
     email: str | None = Field(None, max_length=200)
 
     # Capacidade
-    total_area_m2: Decimal | None = None
-    storage_area_m2: Decimal | None = None
+    total_area_m2: MoneyOpt = None
+    storage_area_m2: MoneyOpt = None
     total_positions: str | None = "0"
-    max_weight_kg: Decimal | None = None
+    max_weight_kg: MoneyOpt = None
 
     # Estrutura de endereçamento
     has_addressing: bool = False
     addressing_format: str | None = None
 
     # Configurações de temperatura
-    min_temperature: Decimal | None = None
-    max_temperature: Decimal | None = None
+    min_temperature: MoneyOpt = None
+    max_temperature: MoneyOpt = None
 
     # Segurança
     has_cctv: bool = False
@@ -75,7 +77,7 @@ class WarehouseBase(BaseModel):
     works_24h: bool = False
 
     # Custos
-    monthly_cost: Decimal | None = Field(default=Decimal("0"))
+    monthly_cost: MoneyOpt = Field(default=Decimal("0"))
     cost_center: str | None = None
 
     # Configurações
@@ -108,17 +110,17 @@ class WarehouseUpdate(BaseModel):
     manager_phone: str | None = None
     phone: str | None = None
     email: str | None = None
-    total_area_m2: Decimal | None = None
-    storage_area_m2: Decimal | None = None
+    total_area_m2: MoneyOpt = None
+    storage_area_m2: MoneyOpt = None
     total_positions: str | None = None
     has_addressing: bool | None = None
     addressing_format: str | None = None
-    min_temperature: Decimal | None = None
-    max_temperature: Decimal | None = None
+    min_temperature: MoneyOpt = None
+    max_temperature: MoneyOpt = None
     opening_time: str | None = None
     closing_time: str | None = None
     works_24h: bool | None = None
-    monthly_cost: Decimal | None = None
+    monthly_cost: MoneyOpt = None
     cost_center: str | None = None
     allows_negative_stock: bool | None = None
     fifo_enabled: bool | None = None
@@ -133,11 +135,11 @@ class WarehouseResponse(WarehouseBase):
     condominio_id: UUID
     status: WarehouseStatus
     occupied_positions: str | None = "0"
-    current_weight_kg: Decimal | None = None
-    current_temperature: Decimal | None = None
+    current_weight_kg: MoneyOpt = None
+    current_temperature: MoneyOpt = None
     total_items: str | None = "0"
-    total_quantity: Decimal | None = None
-    total_value: Decimal | None = None
+    total_quantity: MoneyOpt = None
+    total_value: MoneyOpt = None
     last_movement_at: datetime | None = None
     last_inventory_at: datetime | None = None
     is_blocked: bool = False
@@ -171,7 +173,7 @@ class WarehouseListResponse(BaseModel):
     storage_type: str
     city: str | None = None
     total_items: str | None = "0"
-    total_value: Decimal | None = None
+    total_value: MoneyOpt = None
     occupancy_rate: float | None = None
     is_active: bool = True
 
@@ -204,11 +206,11 @@ class StockItemBase(BaseModel):
     bin: str | None = Field(None, max_length=10)
 
     # Parâmetros de estoque
-    min_quantity: Decimal | None = None
-    max_quantity: Decimal | None = None
-    reorder_point: Decimal | None = None
-    reorder_quantity: Decimal | None = None
-    safety_stock: Decimal | None = None
+    min_quantity: MoneyOpt = None
+    max_quantity: MoneyOpt = None
+    reorder_point: MoneyOpt = None
+    reorder_quantity: MoneyOpt = None
+    safety_stock: MoneyOpt = None
 
     # Custeio
     costing_method: CostingMethod = CostingMethod.CUSTO_MEDIO
@@ -223,8 +225,8 @@ class StockItemBase(BaseModel):
 class StockItemCreate(StockItemBase):
     """Schema para criar StockItem."""
 
-    quantity_on_hand: Decimal = Field(default=Decimal("0"))
-    unit_cost: Decimal = Field(default=Decimal("0"))
+    quantity_on_hand: Money = Field(default=Decimal("0"))
+    unit_cost: Money = Field(default=Decimal("0"))
 
 
 class StockItemUpdate(BaseModel):
@@ -237,11 +239,11 @@ class StockItemUpdate(BaseModel):
     rack: str | None = None
     shelf: str | None = None
     bin: str | None = None
-    min_quantity: Decimal | None = None
-    max_quantity: Decimal | None = None
-    reorder_point: Decimal | None = None
-    reorder_quantity: Decimal | None = None
-    safety_stock: Decimal | None = None
+    min_quantity: MoneyOpt = None
+    max_quantity: MoneyOpt = None
+    reorder_point: MoneyOpt = None
+    reorder_quantity: MoneyOpt = None
+    safety_stock: MoneyOpt = None
     abc_class: str | None = None
     xyz_class: str | None = None
     notes: str | None = None
@@ -253,15 +255,15 @@ class StockItemResponse(StockItemBase):
     id: UUID
     condominio_id: UUID
     status: StockItemStatus
-    quantity_on_hand: Decimal
-    quantity_reserved: Decimal
-    quantity_committed: Decimal
-    quantity_on_order: Decimal
-    quantity_in_transit: Decimal
-    unit_cost: Decimal
-    average_cost: Decimal
-    last_cost: Decimal
-    total_cost: Decimal
+    quantity_on_hand: Money
+    quantity_reserved: Money
+    quantity_committed: Money
+    quantity_on_order: Money
+    quantity_in_transit: Money
+    unit_cost: Money
+    average_cost: Money
+    last_cost: Money
+    total_cost: Money
     last_receipt_date: datetime | None = None
     last_issue_date: datetime | None = None
     last_count_date: datetime | None = None
@@ -333,9 +335,9 @@ class StockMovementBase(BaseModel):
     batch_number: str | None = Field(None, max_length=50)
     expiry_date: date | None = None
     serial_number: str | None = Field(None, max_length=100)
-    quantity: Decimal = Field(..., gt=0)
+    quantity: Money = Field(..., gt=0)
     unit_of_measure: str = Field(default="un", max_length=10)
-    unit_cost: Decimal = Field(default=Decimal("0"))
+    unit_cost: Money = Field(default=Decimal("0"))
 
     # Localização origem
     source_location: str | None = None
@@ -377,8 +379,8 @@ class StockMovementUpdate(BaseModel):
 
     movement_date: date | None = None
     batch_number: str | None = None
-    quantity: Decimal | None = None
-    unit_cost: Decimal | None = None
+    quantity: MoneyOpt = None
+    unit_cost: MoneyOpt = None
     description: str | None = None
     notes: str | None = None
 
@@ -390,9 +392,9 @@ class StockMovementResponse(StockMovementBase):
     condominio_id: UUID
     number: str
     status: MovementStatus
-    total_cost: Decimal
-    balance_before: Decimal | None = None
-    balance_after: Decimal | None = None
+    total_cost: Money
+    balance_before: MoneyOpt = None
+    balance_after: MoneyOpt = None
     approved_by: UUID | None = None
     approved_at: datetime | None = None
     confirmed_by: UUID | None = None
@@ -511,14 +513,14 @@ class StockInventoryResponse(StockInventoryBase):
     verified_items: int = 0
     divergent_items: int = 0
     adjusted_items: int = 0
-    expected_value: Decimal = Decimal("0")
-    counted_value: Decimal = Decimal("0")
-    difference_value: Decimal = Decimal("0")
-    expected_quantity: Decimal = Decimal("0")
-    counted_quantity: Decimal = Decimal("0")
-    difference_quantity: Decimal = Decimal("0")
-    accuracy_rate: Decimal | None = None
-    hit_rate: Decimal | None = None
+    expected_value: Money = Decimal("0")
+    counted_value: Money = Decimal("0")
+    difference_value: Money = Decimal("0")
+    expected_quantity: Money = Decimal("0")
+    counted_quantity: Money = Decimal("0")
+    difference_quantity: Money = Decimal("0")
+    accuracy_rate: MoneyOpt = None
+    hit_rate: MoneyOpt = None
     approved_by: UUID | None = None
     approved_at: datetime | None = None
     created_at: datetime
@@ -580,8 +582,8 @@ class StockInventoryItemBase(BaseModel):
     rack: str | None = None
     shelf: str | None = None
     bin_loc: str | None = None
-    expected_quantity: Decimal = Decimal("0")
-    unit_cost: Decimal = Decimal("0")
+    expected_quantity: Money = Decimal("0")
+    unit_cost: Money = Decimal("0")
 
 
 class StockInventoryItemCreate(StockInventoryItemBase):
@@ -593,7 +595,7 @@ class StockInventoryItemCreate(StockInventoryItemBase):
 class StockInventoryItemCount(BaseModel):
     """Schema para registrar contagem."""
 
-    counted_quantity: Decimal = Field(..., ge=0)
+    counted_quantity: Money = Field(..., ge=0)
     notes: str | None = None
 
 
@@ -603,13 +605,13 @@ class StockInventoryItemResponse(StockInventoryItemBase):
     id: UUID
     inventory_id: UUID
     status: InventoryItemStatus
-    expected_value: Decimal = Decimal("0")
-    counted_quantity: Decimal | None = None
-    recount_quantity: Decimal | None = None
-    difference_quantity: Decimal | None = None
-    adjusted_quantity: Decimal | None = None
-    counted_value: Decimal | None = None
-    difference_value: Decimal | None = None
+    expected_value: Money = Decimal("0")
+    counted_quantity: MoneyOpt = None
+    recount_quantity: MoneyOpt = None
+    difference_quantity: MoneyOpt = None
+    adjusted_quantity: MoneyOpt = None
+    counted_value: MoneyOpt = None
+    difference_value: MoneyOpt = None
     counted_at: datetime | None = None
     counted_by: UUID | None = None
     recounted_at: datetime | None = None
@@ -653,7 +655,7 @@ class StockReservationBase(BaseModel):
     warehouse_id: UUID
     stock_item_id: UUID | None = None
     batch_number: str | None = None
-    quantity_requested: Decimal = Field(..., gt=0)
+    quantity_requested: Money = Field(..., gt=0)
     unit_of_measure: str = Field(default="un", max_length=10)
     required_date: datetime | None = None
     expiry_date: datetime | None = None
@@ -695,7 +697,7 @@ class StockReservationUpdate(BaseModel):
 class StockReservationRelease(BaseModel):
     """Schema para liberar reserva."""
 
-    quantity: Decimal = Field(..., gt=0)
+    quantity: Money = Field(..., gt=0)
     notes: str | None = None
 
 
@@ -706,9 +708,9 @@ class StockReservationResponse(StockReservationBase):
     condominio_id: UUID
     number: str
     status: ReservationStatus
-    quantity_reserved: Decimal = Decimal("0")
-    quantity_released: Decimal = Decimal("0")
-    quantity_pending: Decimal = Decimal("0")
+    quantity_reserved: Money = Decimal("0")
+    quantity_released: Money = Decimal("0")
+    quantity_pending: Money = Decimal("0")
     reservation_date: datetime
     approved_by: UUID | None = None
     approved_at: datetime | None = None
@@ -841,8 +843,8 @@ class StockFilter(BaseModel):
     is_low_stock: bool | None = None
     is_expired: bool | None = None
     is_expiring_soon: bool | None = None
-    min_quantity: Decimal | None = None
-    max_quantity: Decimal | None = None
+    min_quantity: MoneyOpt = None
+    max_quantity: MoneyOpt = None
 
 
 class MovementFilter(BaseModel):

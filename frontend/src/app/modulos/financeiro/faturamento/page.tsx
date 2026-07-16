@@ -285,8 +285,10 @@ export default function FaturamentoPage() {
     });
     setConfirmOpen(true);
   };
+  // O banco guarda status em PT ('ativa'/'inativa'); comparar com 'active' (EN) nunca casava.
+  const isAtiva = (r: any) => ['ativa', 'active', 'ativo', 'ativado'].includes(String(r?.status ?? '').toLowerCase()) || r?.is_active === true;
   const handleToggleStatus = async (rule: any) => {
-    if (rule.is_active) {
+    if (isAtiva(rule)) {
       await pauseMutation.mutateAsync({ ruleId: rule.id });
     } else {
       await activateMutation.mutateAsync({ ruleId: rule.id });
@@ -307,14 +309,21 @@ export default function FaturamentoPage() {
       !searchTerm ||
       rule.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       rule.description?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || rule.status === statusFilter;
+    const matchesStatus = statusFilter === 'all'
+      || (statusFilter === 'active' ? isAtiva(rule) : !isAtiva(rule));
     return matchesSearch && matchesStatus;
   });
 
-  const activeRules = rules.filter((r: any) => r.is_active);
+  // FIN-08: as regras têm value_type='fixo' (PT) e o valor está em base_value —
+  // antes filtrava por 'fixed' (EN, não existia) e somava r.value/amount
+  // (inexistentes) → Valor Fixo Total = R$0. Agora tolera fixo/fixed e lê base_value.
+  const isFixa = (r: any) =>
+    ['fixo', 'fixed'].includes(String(r.value_type ?? r.type ?? r.rule_type ?? '').toLowerCase());
+  const valorRegra = (r: any) => Number(r.base_value ?? r.value ?? r.amount ?? 0);
+  const activeRules = rules.filter((r: any) => isAtiva(r));
   const totalFixedValue = activeRules
-    .filter((r: any) => r.type === 'fixed' || r.rule_type === 'fixed')
-    .reduce((sum: number, r: any) => sum + (r.value || r.amount || 0), 0);
+    .filter(isFixa)
+    .reduce((sum: number, r: any) => sum + valorRegra(r), 0);
 
   // ── Chart data for overview
   const chartData = summary ? [
@@ -738,7 +747,7 @@ export default function FaturamentoPage() {
                 icon={<CheckCircle className="w-5 h-5 text-green-500" />} color="bg-green-500/10" />
               <KPICard label="Valor Fixo Total" value={rulesLoading ? '...' : formatCurrency(totalFixedValue)}
                 icon={<DollarSign className="w-5 h-5 text-blue-500" />} color="bg-blue-500/10" />
-              <KPICard label="Inativas" value={rulesLoading ? '...' : String(rules.filter((r: any) => r.status !== 'active').length)}
+              <KPICard label="Inativas" value={rulesLoading ? '...' : String(rules.filter((r: any) => !isAtiva(r)).length)}
                 icon={<Clock className="w-5 h-5 text-gray-500" />} color="bg-gray-500/10" />
             </div>
 
@@ -810,9 +819,9 @@ export default function FaturamentoPage() {
                             </Badge>
                           </TableCell>
                           <TableCell className="font-medium">
-                            {(rule.type || rule.rule_type) === 'percentage'
-                              ? `${rule.value || rule.amount}%`
-                              : formatCurrency(rule.value || rule.amount)}
+                            {['percentual', 'percentage'].includes(String(rule.value_type ?? rule.type ?? rule.rule_type ?? '').toLowerCase())
+                              ? `${valorRegra(rule)}%`
+                              : formatCurrency(valorRegra(rule))}
                           </TableCell>
                           <TableCell>
                             <span className="text-sm text-[hsl(var(--foreground))]">
@@ -822,13 +831,13 @@ export default function FaturamentoPage() {
                           <TableCell>
                             <Badge
                               className={
-                                rule.status === 'active'
+                                isAtiva(rule)
                                   ? 'bg-green-500/10 text-green-500 border-green-500/20 cursor-pointer'
                                   : 'bg-gray-500/10 text-gray-500 border-gray-500/20 cursor-pointer'
                               }
                               onClick={() => handleToggleStatus(rule)}
                             >
-                              {rule.status === 'active' ? 'Ativo' : 'Inativo'}
+                              {isAtiva(rule) ? 'Ativo' : 'Inativo'}
                             </Badge>
                           </TableCell>
                           <TableCell className="text-right">

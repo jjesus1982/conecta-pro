@@ -2,6 +2,8 @@
 
 from datetime import date, datetime
 from decimal import Decimal
+
+from modules.financial.schemas._money import Money, MoneyOpt
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
@@ -142,7 +144,7 @@ class AccountingAccountBase(BaseModel):
 class AccountingAccountCreate(AccountingAccountBase):
     """Schema para criar AccountingAccount."""
 
-    opening_balance: Decimal = Field(default=Decimal("0"))
+    opening_balance: Money = Field(default=Decimal("0"))
 
 
 class AccountingAccountUpdate(BaseModel):
@@ -170,13 +172,13 @@ class AccountingAccountResponse(AccountingAccountBase):
     condominio_id: UUID
     status: AccountStatus
     path: str | None = None
-    opening_balance: Decimal = Decimal("0")
-    current_balance: Decimal = Decimal("0")
-    debit_total: Decimal = Decimal("0")
-    credit_total: Decimal = Decimal("0")
-    period_debit: Decimal = Decimal("0")
-    period_credit: Decimal = Decimal("0")
-    period_balance: Decimal = Decimal("0")
+    opening_balance: Money = Decimal("0")
+    current_balance: Money = Decimal("0")
+    debit_total: Money = Decimal("0")
+    credit_total: Money = Decimal("0")
+    period_debit: Money = Decimal("0")
+    period_credit: Money = Decimal("0")
+    period_balance: Money = Decimal("0")
     last_movement_date: datetime | None = None
     is_system: bool = False
     active: bool = True
@@ -210,7 +212,7 @@ class AccountTreeResponse(BaseModel):
     nature: AccountNature
     classification: AccountClassification
     level: int
-    current_balance: Decimal = Decimal("0")
+    current_balance: Money = Decimal("0")
     children: list["AccountTreeResponse"] = []
 
     class Config:  # pylint: disable=too-few-public-methods
@@ -237,17 +239,17 @@ class CostCenterBase(BaseModel):
     manager_id: UUID | None = None
     manager_name: str | None = Field(None, max_length=100)
     department: str | None = Field(None, max_length=100)
-    budget_annual: Decimal = Field(default=Decimal("0"))
-    budget_monthly: Decimal = Field(default=Decimal("0"))
+    budget_annual: Money = Field(default=Decimal("0"))
+    budget_monthly: Money = Field(default=Decimal("0"))
     allocation_method: AllocationMethod = AllocationMethod.DIRECT
-    allocation_percentage: Decimal = Field(default=Decimal("100"), ge=0, le=100)
+    allocation_percentage: Money = Field(default=Decimal("100"), ge=0, le=100)
     headcount: int = Field(default=0, ge=0)
-    area_m2: Decimal = Field(default=Decimal("0"), ge=0)
+    area_m2: Money = Field(default=Decimal("0"), ge=0)
     valid_from: datetime | None = None
     valid_until: datetime | None = None
     is_default: bool = False
     requires_approval: bool = False
-    approval_limit: Decimal | None = None
+    approval_limit: MoneyOpt = None
     allows_over_budget: bool = False
     notes: str | None = None
 
@@ -266,14 +268,14 @@ class CostCenterUpdate(BaseModel):
     manager_id: UUID | None = None
     manager_name: str | None = Field(None, max_length=100)
     department: str | None = Field(None, max_length=100)
-    budget_annual: Decimal | None = None
-    budget_monthly: Decimal | None = None
-    allocation_percentage: Decimal | None = Field(None, ge=0, le=100)
+    budget_annual: MoneyOpt = None
+    budget_monthly: MoneyOpt = None
+    allocation_percentage: MoneyOpt = Field(None, ge=0, le=100)
     headcount: int | None = Field(None, ge=0)
-    area_m2: Decimal | None = Field(None, ge=0)
+    area_m2: MoneyOpt = Field(None, ge=0)
     valid_until: datetime | None = None
     requires_approval: bool | None = None
-    approval_limit: Decimal | None = None
+    approval_limit: MoneyOpt = None
     notes: str | None = None
 
 
@@ -285,13 +287,13 @@ class CostCenterResponse(CostCenterBase):
     status: CostCenterStatus
     path: str | None = None
     order_index: int | None = None
-    budget_used: Decimal = Decimal("0")
-    budget_available: Decimal = Decimal("0")
-    total_debit: Decimal = Decimal("0")
-    total_credit: Decimal = Decimal("0")
-    current_balance: Decimal = Decimal("0")
-    period_debit: Decimal = Decimal("0")
-    period_credit: Decimal = Decimal("0")
+    budget_used: Money = Decimal("0")
+    budget_available: Money = Decimal("0")
+    total_debit: Money = Decimal("0")
+    total_credit: Money = Decimal("0")
+    current_balance: Money = Decimal("0")
+    period_debit: Money = Decimal("0")
+    period_credit: Money = Decimal("0")
     last_movement_date: datetime | None = None
     active: bool = True
     created_at: datetime
@@ -369,14 +371,14 @@ class AccountingPeriodResponse(AccountingPeriodBase):
     closing_date: datetime | None = None
     closing_type: ClosingType | None = None
     total_entries: int = 0
-    total_debit: Decimal = Decimal("0")
-    total_credit: Decimal = Decimal("0")
+    total_debit: Money = Decimal("0")
+    total_credit: Money = Decimal("0")
     total_documents: int = 0
-    opening_balance_total: Decimal = Decimal("0")
-    closing_balance_total: Decimal = Decimal("0")
-    period_revenue: Decimal = Decimal("0")
-    period_expenses: Decimal = Decimal("0")
-    period_result: Decimal = Decimal("0")
+    opening_balance_total: Money = Decimal("0")
+    closing_balance_total: Money = Decimal("0")
+    period_revenue: Money = Decimal("0")
+    period_expenses: Money = Decimal("0")
+    period_result: Money = Decimal("0")
     closed_by: UUID | None = None
     sped_transmitted: bool = False
     allows_entries: bool = True
@@ -425,8 +427,8 @@ class JournalEntryLineBase(BaseModel):
     account_id: UUID
     cost_center_id: UUID | None = None
     line_number: int = Field(..., ge=1)
-    debit_amount: Decimal = Field(default=Decimal("0"), ge=0)
-    credit_amount: Decimal = Field(default=Decimal("0"), ge=0)
+    debit_amount: Money = Field(default=Decimal("0"), ge=0)
+    credit_amount: Money = Field(default=Decimal("0"), ge=0)
     description: str | None = Field(None, max_length=500)
     history_code: str | None = Field(None, max_length=10)
     document_type: str | None = Field(None, max_length=30)
@@ -437,7 +439,7 @@ class JournalEntryLineBase(BaseModel):
 
     @field_validator("credit_amount")
     @classmethod
-    def validate_amounts(cls, v: Decimal, info) -> Decimal:
+    def validate_amounts(cls, v: Money, info) -> Decimal:
         """Valida que apenas um dos valores (débito ou crédito) é preenchido."""
         if "debit_amount" in info.data:
             if info.data["debit_amount"] > 0 and v > 0:
@@ -518,8 +520,8 @@ class JournalEntryResponse(JournalEntryBase):
     entry_number: str
     batch_number: str | None = None
     status: EntryStatus
-    total_debit: Decimal = Decimal("0")
-    total_credit: Decimal = Decimal("0")
+    total_debit: Money = Decimal("0")
+    total_credit: Money = Decimal("0")
     line_count: int = 0
     posting_date: datetime | None = None
     is_reversal: bool = False
@@ -608,24 +610,24 @@ class TrialBalanceResponse(TrialBalanceBase):
     status: BalanceStatus
     total_accounts: int = 0
     total_analytical: int = 0
-    previous_debit_total: Decimal = Decimal("0")
-    previous_credit_total: Decimal = Decimal("0")
-    previous_balance_debit: Decimal = Decimal("0")
-    previous_balance_credit: Decimal = Decimal("0")
-    period_debit_total: Decimal = Decimal("0")
-    period_credit_total: Decimal = Decimal("0")
-    current_debit_total: Decimal = Decimal("0")
-    current_credit_total: Decimal = Decimal("0")
-    current_balance_debit: Decimal = Decimal("0")
-    current_balance_credit: Decimal = Decimal("0")
+    previous_debit_total: Money = Decimal("0")
+    previous_credit_total: Money = Decimal("0")
+    previous_balance_debit: Money = Decimal("0")
+    previous_balance_credit: Money = Decimal("0")
+    period_debit_total: Money = Decimal("0")
+    period_credit_total: Money = Decimal("0")
+    current_debit_total: Money = Decimal("0")
+    current_credit_total: Money = Decimal("0")
+    current_balance_debit: Money = Decimal("0")
+    current_balance_credit: Money = Decimal("0")
     is_balanced: bool = True
-    difference_amount: Decimal = Decimal("0")
-    total_revenue: Decimal = Decimal("0")
-    total_expenses: Decimal = Decimal("0")
-    period_result: Decimal = Decimal("0")
-    total_assets: Decimal = Decimal("0")
-    total_liabilities: Decimal = Decimal("0")
-    total_equity: Decimal = Decimal("0")
+    difference_amount: Money = Decimal("0")
+    total_revenue: Money = Decimal("0")
+    total_expenses: Money = Decimal("0")
+    period_result: Money = Decimal("0")
+    total_assets: Money = Decimal("0")
+    total_liabilities: Money = Decimal("0")
+    total_equity: Money = Decimal("0")
     generated_at: datetime | None = None
     generated_by: UUID | None = None
     generation_time_ms: int | None = None
@@ -659,16 +661,16 @@ class TrialBalanceItemResponse(BaseModel):
     cost_center_id: UUID | None = None
     cost_center_code: str | None = None
     cost_center_name: str | None = None
-    previous_debit: Decimal = Decimal("0")
-    previous_credit: Decimal = Decimal("0")
-    previous_balance: Decimal = Decimal("0")
-    period_debit: Decimal = Decimal("0")
-    period_credit: Decimal = Decimal("0")
-    current_debit: Decimal = Decimal("0")
-    current_credit: Decimal = Decimal("0")
-    current_balance: Decimal = Decimal("0")
-    variation_absolute: Decimal | None = None
-    variation_percentage: Decimal | None = None
+    previous_debit: Money = Decimal("0")
+    previous_credit: Money = Decimal("0")
+    previous_balance: Money = Decimal("0")
+    period_debit: Money = Decimal("0")
+    period_credit: Money = Decimal("0")
+    current_debit: Money = Decimal("0")
+    current_credit: Money = Decimal("0")
+    current_balance: Money = Decimal("0")
+    variation_absolute: MoneyOpt = None
+    variation_percentage: MoneyOpt = None
     display_order: int | None = None
 
     class Config:  # pylint: disable=too-few-public-methods
@@ -718,9 +720,9 @@ class AccountStats(BaseModel):
     by_type: dict[str, int] = {}
     by_nature: dict[str, int] = {}
     by_classification: dict[str, int] = {}
-    total_balance: Decimal = Decimal("0")
-    total_debit: Decimal = Decimal("0")
-    total_credit: Decimal = Decimal("0")
+    total_balance: Money = Decimal("0")
+    total_debit: Money = Decimal("0")
+    total_credit: Money = Decimal("0")
 
 
 class CostCenterStats(BaseModel):
@@ -730,9 +732,9 @@ class CostCenterStats(BaseModel):
     active_cost_centers: int = 0
     by_type: dict[str, int] = {}
     by_status: dict[str, int] = {}
-    total_budget: Decimal = Decimal("0")
-    total_used: Decimal = Decimal("0")
-    budget_usage_percent: Decimal = Decimal("0")
+    total_budget: Money = Decimal("0")
+    total_used: Money = Decimal("0")
+    budget_usage_percent: Money = Decimal("0")
     over_budget_count: int = 0
 
 
@@ -744,8 +746,8 @@ class PeriodStats(BaseModel):
     closed_periods: int = 0
     by_status: dict[str, int] = {}
     total_entries: int = 0
-    total_debit: Decimal = Decimal("0")
-    total_credit: Decimal = Decimal("0")
+    total_debit: Money = Decimal("0")
+    total_credit: Money = Decimal("0")
 
 
 class JournalStats(BaseModel):
@@ -757,8 +759,8 @@ class JournalStats(BaseModel):
     by_type: dict[str, int] = {}
     by_status: dict[str, int] = {}
     by_origin: dict[str, int] = {}
-    total_debit: Decimal = Decimal("0")
-    total_credit: Decimal = Decimal("0")
+    total_debit: Money = Decimal("0")
+    total_credit: Money = Decimal("0")
     entries_today: int = 0
     entries_this_month: int = 0
 
@@ -804,8 +806,8 @@ class JournalFilter(BaseModel):
     cost_center_id: UUID | None = None
     date_from: date | None = None
     date_to: date | None = None
-    min_amount: Decimal | None = None
-    max_amount: Decimal | None = None
+    min_amount: MoneyOpt = None
+    max_amount: MoneyOpt = None
     search: str | None = None
 
 

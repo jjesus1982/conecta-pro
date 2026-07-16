@@ -3,6 +3,8 @@
 
 from datetime import date, datetime
 from decimal import Decimal
+
+from modules.financial.schemas._money import Money, MoneyOpt
 from enum import StrEnum
 from typing import Any
 from uuid import UUID
@@ -220,31 +222,31 @@ class NCMBase(BaseModel):
     subposicao: str | None = Field(None, max_length=6)
 
     # IPI
-    ipi_aliquota: Decimal | None = Field(None, ge=0, le=100)
+    ipi_aliquota: MoneyOpt = Field(None, ge=0, le=100)
     ipi_codigo_enquadramento: str | None = Field(None, max_length=5)
     ipi_unidade_tributavel: str | None = Field(None, max_length=6)
 
     # PIS/COFINS
-    pis_aliquota: Decimal | None = Field(Decimal("1.65"), ge=0, le=100)
-    cofins_aliquota: Decimal | None = Field(Decimal("7.6"), ge=0, le=100)
+    pis_aliquota: MoneyOpt = Field(Decimal("1.65"), ge=0, le=100)
+    cofins_aliquota: MoneyOpt = Field(Decimal("7.6"), ge=0, le=100)
     pis_cofins_cst_entrada: str | None = Field("50", max_length=2)
     pis_cofins_cst_saida: str | None = Field("01", max_length=2)
 
     # ICMS
     icms_cest: str | None = Field(None, max_length=7)
-    icms_st_mva: Decimal | None = Field(None, ge=0, le=500)
+    icms_st_mva: MoneyOpt = Field(None, ge=0, le=500)
 
     # II
-    ii_aliquota: Decimal | None = Field(None, ge=0, le=100)
+    ii_aliquota: MoneyOpt = Field(None, ge=0, le=100)
 
     # Tributacao Monofasica
     tributacao_monofasica: bool = False
-    aliquota_monofasica: Decimal | None = Field(None, ge=0, le=100)
+    aliquota_monofasica: MoneyOpt = Field(None, ge=0, le=100)
 
     # Zona Franca
     zfm_isento_ipi: bool = False
     zfm_reduz_ii: bool = False
-    zfm_percentual_reducao_ii: Decimal | None = Field(None, ge=0, le=100)
+    zfm_percentual_reducao_ii: MoneyOpt = Field(None, ge=0, le=100)
 
     # TIPI
     tipi_unidade: str | None = Field(None, max_length=10)
@@ -291,18 +293,18 @@ class NCMUpdate(BaseModel):
 
     descricao: str | None = Field(None, max_length=2000)
     descricao_resumida: str | None = Field(None, max_length=200)
-    ipi_aliquota: Decimal | None = None
+    ipi_aliquota: MoneyOpt = None
     ipi_codigo_enquadramento: str | None = None
-    pis_aliquota: Decimal | None = None
-    cofins_aliquota: Decimal | None = None
+    pis_aliquota: MoneyOpt = None
+    cofins_aliquota: MoneyOpt = None
     icms_cest: str | None = None
-    icms_st_mva: Decimal | None = None
-    ii_aliquota: Decimal | None = None
+    icms_st_mva: MoneyOpt = None
+    ii_aliquota: MoneyOpt = None
     tributacao_monofasica: bool | None = None
-    aliquota_monofasica: Decimal | None = None
+    aliquota_monofasica: MoneyOpt = None
     zfm_isento_ipi: bool | None = None
     zfm_reduz_ii: bool | None = None
-    zfm_percentual_reducao_ii: Decimal | None = None
+    zfm_percentual_reducao_ii: MoneyOpt = None
     valid_from: date | None = None
     valid_until: date | None = None
     active: bool | None = None
@@ -362,8 +364,8 @@ class RetencaoFederalBase(BaseModel):
 
     # INSS (11%)
     inss_retido: bool = True
-    inss_aliquota: Decimal = Field(Decimal("11.00"), ge=0, le=100)
-    inss_base_minima: Decimal | None = Field(None, ge=0)
+    inss_aliquota: Money = Field(Decimal("11.00"), ge=0, le=100)
+    inss_base_minima: MoneyOpt = Field(None, ge=0)
 
     # Liminar INSS
     inss_liminar_ativa: bool = False
@@ -375,27 +377,27 @@ class RetencaoFederalBase(BaseModel):
 
     # IR (1.5%)
     ir_retido: bool = True
-    ir_aliquota: Decimal = Field(Decimal("1.50"), ge=0, le=100)
-    ir_base_minima: Decimal = Field(Decimal("666.66"), ge=0)
+    ir_aliquota: Money = Field(Decimal("1.50"), ge=0, le=100)
+    ir_base_minima: Money = Field(Decimal("666.66"), ge=0)
 
     # CSLL (1%)
     csll_retido: bool = True
-    csll_aliquota: Decimal = Field(Decimal("1.00"), ge=0, le=100)
+    csll_aliquota: Money = Field(Decimal("1.00"), ge=0, le=100)
 
     # PIS (0.65%)
     pis_retido: bool = True
-    pis_aliquota: Decimal = Field(Decimal("0.65"), ge=0, le=100)
+    pis_aliquota: Money = Field(Decimal("0.65"), ge=0, le=100)
 
     # COFINS (3%)
     cofins_retido: bool = True
-    cofins_aliquota: Decimal = Field(Decimal("3.00"), ge=0, le=100)
+    cofins_aliquota: Money = Field(Decimal("3.00"), ge=0, le=100)
 
     # PCC base minima
-    pcc_base_minima: Decimal = Field(Decimal("215.05"), ge=0)
+    pcc_base_minima: Money = Field(Decimal("215.05"), ge=0)
 
     # ISS
     iss_retido: bool = False
-    iss_aliquota: Decimal | None = Field(None, ge=0, le=5)
+    iss_aliquota: MoneyOpt = Field(None, ge=0, le=5)
 
     # Cliente especifico
     cliente_id: UUID | None = None
@@ -422,8 +424,8 @@ class RetencaoFederalUpdate(BaseModel):
     servico_locacao_mao_obra: bool | None = None
     servico_construcao_civil: bool | None = None
     inss_retido: bool | None = None
-    inss_aliquota: Decimal | None = None
-    inss_base_minima: Decimal | None = None
+    inss_aliquota: MoneyOpt = None
+    inss_base_minima: MoneyOpt = None
     inss_liminar_ativa: bool | None = None
     inss_liminar_numero: str | None = None
     inss_liminar_vara: str | None = None
@@ -431,17 +433,17 @@ class RetencaoFederalUpdate(BaseModel):
     inss_liminar_validade: date | None = None
     inss_liminar_texto: str | None = None
     ir_retido: bool | None = None
-    ir_aliquota: Decimal | None = None
-    ir_base_minima: Decimal | None = None
+    ir_aliquota: MoneyOpt = None
+    ir_base_minima: MoneyOpt = None
     csll_retido: bool | None = None
-    csll_aliquota: Decimal | None = None
+    csll_aliquota: MoneyOpt = None
     pis_retido: bool | None = None
-    pis_aliquota: Decimal | None = None
+    pis_aliquota: MoneyOpt = None
     cofins_retido: bool | None = None
-    cofins_aliquota: Decimal | None = None
-    pcc_base_minima: Decimal | None = None
+    cofins_aliquota: MoneyOpt = None
+    pcc_base_minima: MoneyOpt = None
     iss_retido: bool | None = None
-    iss_aliquota: Decimal | None = None
+    iss_aliquota: MoneyOpt = None
     cliente_id: UUID | None = None
     cliente_aceita_liminar: bool | None = None
     valid_from: date | None = None
@@ -454,7 +456,7 @@ class RetencaoFederalResponse(RetencaoFederalBase):
 
     id: UUID
     condominio_id: UUID
-    aliquota_pcc: Decimal
+    aliquota_pcc: Money
     created_at: datetime
     updated_at: datetime | None
     active: bool
@@ -473,7 +475,7 @@ class RetencaoFederalListResponse(BaseModel):
 class CalculoRetencaoRequest(BaseModel):
     """Request para calculo de retencoes."""
 
-    valor_servico: Decimal = Field(..., gt=0)
+    valor_servico: Money = Field(..., gt=0)
     retencao_id: UUID | None = None
     cliente_aceita_liminar: bool = False
     tipo_servico: str | None = None
@@ -482,15 +484,15 @@ class CalculoRetencaoRequest(BaseModel):
 class CalculoRetencaoResponse(BaseModel):
     """Response do calculo de retencoes."""
 
-    valor_servico: Decimal
-    inss: Decimal
-    ir: Decimal
-    csll: Decimal
-    pis: Decimal
-    cofins: Decimal
-    iss: Decimal
-    total: Decimal
-    valor_liquido: Decimal
+    valor_servico: Money
+    inss: Money
+    ir: Money
+    csll: Money
+    pis: Money
+    cofins: Money
+    iss: Money
+    total: Money
+    valor_liquido: Money
     liminar_aplicada: bool
     liminar_numero: str | None = None
     detalhamento: dict[str, Any]
@@ -512,41 +514,41 @@ class NFeItemBase(BaseModel):
     cfop: str = Field(..., min_length=4, max_length=4)
 
     unidade: str = Field(..., max_length=6)
-    quantidade: Decimal = Field(..., gt=0)
-    valor_unitario: Decimal = Field(..., gt=0)
-    valor_total: Decimal | None = None
+    quantidade: Money = Field(..., gt=0)
+    valor_unitario: Money = Field(..., gt=0)
+    valor_total: MoneyOpt = None
 
     # Descontos/Acrescimos
-    valor_desconto: Decimal = Field(Decimal("0"), ge=0)
-    valor_frete: Decimal = Field(Decimal("0"), ge=0)
-    valor_seguro: Decimal = Field(Decimal("0"), ge=0)
-    valor_outros: Decimal = Field(Decimal("0"), ge=0)
+    valor_desconto: Money = Field(Decimal("0"), ge=0)
+    valor_frete: Money = Field(Decimal("0"), ge=0)
+    valor_seguro: Money = Field(Decimal("0"), ge=0)
+    valor_outros: Money = Field(Decimal("0"), ge=0)
 
     # ICMS
     icms_origem: str = Field("0", max_length=1)
     icms_cst: str | None = Field(None, max_length=3)
     icms_csosn: str | None = Field(None, max_length=3)
-    icms_base_calculo: Decimal = Field(Decimal("0"), ge=0)
-    icms_aliquota: Decimal = Field(Decimal("0"), ge=0, le=100)
-    icms_valor: Decimal = Field(Decimal("0"), ge=0)
+    icms_base_calculo: Money = Field(Decimal("0"), ge=0)
+    icms_aliquota: Money = Field(Decimal("0"), ge=0, le=100)
+    icms_valor: Money = Field(Decimal("0"), ge=0)
 
     # IPI
     ipi_cst: str | None = Field(None, max_length=2)
-    ipi_base_calculo: Decimal = Field(Decimal("0"), ge=0)
-    ipi_aliquota: Decimal = Field(Decimal("0"), ge=0, le=100)
-    ipi_valor: Decimal = Field(Decimal("0"), ge=0)
+    ipi_base_calculo: Money = Field(Decimal("0"), ge=0)
+    ipi_aliquota: Money = Field(Decimal("0"), ge=0, le=100)
+    ipi_valor: Money = Field(Decimal("0"), ge=0)
 
     # PIS
     pis_cst: str | None = Field(None, max_length=2)
-    pis_base_calculo: Decimal = Field(Decimal("0"), ge=0)
-    pis_aliquota: Decimal = Field(Decimal("0"), ge=0, le=100)
-    pis_valor: Decimal = Field(Decimal("0"), ge=0)
+    pis_base_calculo: Money = Field(Decimal("0"), ge=0)
+    pis_aliquota: Money = Field(Decimal("0"), ge=0, le=100)
+    pis_valor: Money = Field(Decimal("0"), ge=0)
 
     # COFINS
     cofins_cst: str | None = Field(None, max_length=2)
-    cofins_base_calculo: Decimal = Field(Decimal("0"), ge=0)
-    cofins_aliquota: Decimal = Field(Decimal("0"), ge=0, le=100)
-    cofins_valor: Decimal = Field(Decimal("0"), ge=0)
+    cofins_base_calculo: Money = Field(Decimal("0"), ge=0)
+    cofins_aliquota: Money = Field(Decimal("0"), ge=0, le=100)
+    cofins_valor: Money = Field(Decimal("0"), ge=0)
 
     @model_validator(mode="before")
     @classmethod
@@ -618,7 +620,7 @@ class NFeBase(BaseModel):
     # Pagamento
     forma_pagamento: str = Field("0", max_length=2)  # 0-AVista, 1-APrazo
     meio_pagamento: str = Field("99", max_length=2)  # 01-Dinheiro, 99-Outros
-    valor_pagamento: Decimal | None = Field(None, ge=0)
+    valor_pagamento: MoneyOpt = Field(None, ge=0)
 
     # Informacoes adicionais
     informacoes_complementares: str | None = Field(None, max_length=5000)
@@ -659,16 +661,16 @@ class NFeResponse(NFeBase):
     motivo_rejeicao: str | None
 
     # Totais
-    valor_total_produtos: Decimal
-    valor_total_icms: Decimal
-    valor_total_ipi: Decimal
-    valor_total_pis: Decimal
-    valor_total_cofins: Decimal
-    valor_total_frete: Decimal
-    valor_total_seguro: Decimal
-    valor_total_desconto: Decimal
-    valor_total_outros: Decimal
-    valor_total_nota: Decimal
+    valor_total_produtos: Money
+    valor_total_icms: Money
+    valor_total_ipi: Money
+    valor_total_pis: Money
+    valor_total_cofins: Money
+    valor_total_frete: Money
+    valor_total_seguro: Money
+    valor_total_desconto: Money
+    valor_total_outros: Money
+    valor_total_nota: Money
 
     itens: list[NFeItemResponse]
 
@@ -783,23 +785,23 @@ class NFSeBase(BaseModel):
     codigo_tributacao_municipio: str | None = Field(None, max_length=20)
 
     # Valores
-    valor_servicos: Decimal = Field(..., gt=0)
-    valor_deducoes: Decimal = Field(Decimal("0"), ge=0)
-    valor_desconto_condicionado: Decimal = Field(Decimal("0"), ge=0)
-    valor_desconto_incondicionado: Decimal = Field(Decimal("0"), ge=0)
+    valor_servicos: Money = Field(..., gt=0)
+    valor_deducoes: Money = Field(Decimal("0"), ge=0)
+    valor_desconto_condicionado: Money = Field(Decimal("0"), ge=0)
+    valor_desconto_incondicionado: Money = Field(Decimal("0"), ge=0)
 
     # ISS
-    iss_aliquota: Decimal = Field(..., ge=0, le=5)
-    iss_valor: Decimal | None = Field(None, ge=0)
+    iss_aliquota: Money = Field(..., ge=0, le=5)
+    iss_valor: MoneyOpt = Field(None, ge=0)
     iss_retido: bool = False
 
     # Retencoes federais
-    pis_valor: Decimal = Field(Decimal("0"), ge=0)
-    cofins_valor: Decimal = Field(Decimal("0"), ge=0)
-    inss_valor: Decimal = Field(Decimal("0"), ge=0)
-    ir_valor: Decimal = Field(Decimal("0"), ge=0)
-    csll_valor: Decimal = Field(Decimal("0"), ge=0)
-    outras_retencoes: Decimal = Field(Decimal("0"), ge=0)
+    pis_valor: Money = Field(Decimal("0"), ge=0)
+    cofins_valor: Money = Field(Decimal("0"), ge=0)
+    inss_valor: Money = Field(Decimal("0"), ge=0)
+    ir_valor: Money = Field(Decimal("0"), ge=0)
+    csll_valor: Money = Field(Decimal("0"), ge=0)
+    outras_retencoes: Money = Field(Decimal("0"), ge=0)
 
     # Liminar INSS
     inss_liminar_aplicada: bool = False
@@ -840,8 +842,8 @@ class NFSeResponse(NFSeBase):
     mensagem_retorno: str | None
 
     # Valores calculados
-    valor_liquido: Decimal
-    total_retencoes: Decimal
+    valor_liquido: Money
+    total_retencoes: Money
 
     created_at: datetime
     updated_at: datetime | None
@@ -1011,7 +1013,7 @@ class ObrigacaoFiscalBase(BaseModel):
     competencia_mes: int | None = Field(None, ge=1, le=12)
     competencia_ano: int = Field(..., ge=2000, le=2100)
     data_vencimento: date
-    valor_devido: Decimal | None = Field(None, ge=0)
+    valor_devido: MoneyOpt = Field(None, ge=0)
 
 
 class ObrigacaoFiscalCreate(ObrigacaoFiscalBase):
@@ -1024,8 +1026,8 @@ class ObrigacaoFiscalUpdate(BaseModel):
     """Schema para atualizar obrigacao fiscal."""
 
     data_vencimento: date | None = None
-    valor_devido: Decimal | None = None
-    valor_pago: Decimal | None = None
+    valor_devido: MoneyOpt = None
+    valor_pago: MoneyOpt = None
     data_pagamento: date | None = None
     numero_recibo: str | None = None
     observacoes: str | None = None
@@ -1043,7 +1045,7 @@ class ObrigacaoFiscalResponse(ObrigacaoFiscalBase):
     # Aceita qualquer status real do banco (ex.: "cumprida"); o enum estava
     # defasado em relacao aos valores persistidos e causava 500 na listagem.
     status: str
-    valor_pago: Decimal | None
+    valor_pago: MoneyOpt
     data_pagamento: date | None
     numero_recibo: str | None
     observacoes: str | None
@@ -1091,18 +1093,18 @@ class SimplesNacionalDASBase(BaseModel):
     data_vencimento: date
 
     # Receita
-    receita_bruta_mes: Decimal = Field(..., ge=0)
-    receita_bruta_12_meses: Decimal = Field(..., ge=0)
+    receita_bruta_mes: Money = Field(..., ge=0)
+    receita_bruta_12_meses: Money = Field(..., ge=0)
 
     # Faixa e aliquota
     anexo: str = Field("III", max_length=5)  # III para vigilancia
     faixa: int = Field(..., ge=1, le=6)
-    aliquota_nominal: Decimal = Field(..., ge=0, le=100)
-    aliquota_efetiva: Decimal = Field(..., ge=0, le=100)
-    parcela_deduzir: Decimal = Field(..., ge=0)
+    aliquota_nominal: Money = Field(..., ge=0, le=100)
+    aliquota_efetiva: Money = Field(..., ge=0, le=100)
+    parcela_deduzir: Money = Field(..., ge=0)
 
     # Valor
-    valor_devido: Decimal = Field(..., ge=0)
+    valor_devido: Money = Field(..., ge=0)
 
 
 class SimplesNacionalDASCreate(SimplesNacionalDASBase):
@@ -1119,17 +1121,17 @@ class SimplesNacionalDASResponse(SimplesNacionalDASBase):
     status: ObrigacaoStatusEnum
     numero_documento: str | None
     codigo_barras: str | None
-    valor_pago: Decimal | None
+    valor_pago: MoneyOpt
     data_pagamento: date | None
     numero_recibo: str | None
 
     # Reparticao tributos
-    reparticao_irpj: Decimal | None
-    reparticao_csll: Decimal | None
-    reparticao_cofins: Decimal | None
-    reparticao_pis: Decimal | None
-    reparticao_cpp: Decimal | None
-    reparticao_iss: Decimal | None
+    reparticao_irpj: MoneyOpt
+    reparticao_csll: MoneyOpt
+    reparticao_cofins: MoneyOpt
+    reparticao_pis: MoneyOpt
+    reparticao_cpp: MoneyOpt
+    reparticao_iss: MoneyOpt
 
     created_at: datetime
     updated_at: datetime | None
@@ -1142,8 +1144,8 @@ class SimplesNacionalDASResponse(SimplesNacionalDASBase):
 class DASCalcularRequest(BaseModel):
     """Request para calcular DAS."""
 
-    receita_bruta_mes: Decimal
-    receita_bruta_12_meses: Decimal
+    receita_bruta_mes: Money
+    receita_bruta_12_meses: Money
     anexo: str = Field("III", description="III, IV ou V")
     competencia_mes: int
     competencia_ano: int
@@ -1153,10 +1155,10 @@ class DASCalcularResponse(BaseModel):
     """Response do calculo do DAS."""
 
     faixa: int
-    aliquota_nominal: Decimal
-    parcela_deduzir: Decimal
-    aliquota_efetiva: Decimal
-    valor_devido: Decimal
+    aliquota_nominal: Money
+    parcela_deduzir: Money
+    aliquota_efetiva: Money
+    valor_devido: Money
     reparticao: dict[str, Decimal]
     data_vencimento: date
 
@@ -1176,7 +1178,7 @@ class SUFRAMAConfigBase(BaseModel):
     # Beneficios
     isento_ipi: bool = True
     reducao_icms: bool = True
-    percentual_reducao_icms: Decimal = Field(Decimal("100"), ge=0, le=100)
+    percentual_reducao_icms: Money = Field(Decimal("100"), ge=0, le=100)
     suspensao_pis_cofins: bool = True
 
     # Produtos incentivados
@@ -1210,11 +1212,11 @@ class SUFRAMAOperacaoBase(BaseModel):
 
     nfe_id: UUID | None = None
     data_operacao: date
-    valor_operacao: Decimal = Field(..., gt=0)
-    valor_ipi_desonerado: Decimal = Field(Decimal("0"), ge=0)
-    valor_icms_desonerado: Decimal = Field(Decimal("0"), ge=0)
-    valor_pis_suspenso: Decimal = Field(Decimal("0"), ge=0)
-    valor_cofins_suspenso: Decimal = Field(Decimal("0"), ge=0)
+    valor_operacao: Money = Field(..., gt=0)
+    valor_ipi_desonerado: Money = Field(Decimal("0"), ge=0)
+    valor_icms_desonerado: Money = Field(Decimal("0"), ge=0)
+    valor_pis_suspenso: Money = Field(Decimal("0"), ge=0)
+    valor_cofins_suspenso: Money = Field(Decimal("0"), ge=0)
 
     # PIN (Protocolo de Ingresso)
     numero_pin: str | None = Field(None, max_length=20)
@@ -1233,7 +1235,7 @@ class SUFRAMAOperacaoResponse(SUFRAMAOperacaoBase):
 
     id: UUID
     condominio_id: UUID
-    total_economia: Decimal
+    total_economia: Money
 
     created_at: datetime
     active: bool
@@ -1247,9 +1249,9 @@ class SUFRAMAOperacaoListResponse(BaseModel):
 
     items: list[SUFRAMAOperacaoResponse]
     total: int
-    total_economia_ipi: Decimal
-    total_economia_icms: Decimal
-    total_economia_pis_cofins: Decimal
+    total_economia_ipi: Money
+    total_economia_icms: Money
+    total_economia_pis_cofins: Money
 
 
 # ============================================================
@@ -1283,7 +1285,7 @@ class FiscalAIAnalyseResponse(BaseModel):
 class FiscalAIOptimizeRequest(BaseModel):
     """Request para otimizacao tributaria por IA."""
 
-    receita_mensal_media: Decimal
+    receita_mensal_media: Money
     tipo_servico: str
     uf_operacao: str
     simula_regimes: bool = True
@@ -1293,10 +1295,10 @@ class FiscalAIOptimizeResponse(BaseModel):
     """Response da otimizacao tributaria."""
 
     regime_atual: str
-    carga_tributaria_atual: Decimal
+    carga_tributaria_atual: Money
     regimes_simulados: list[dict[str, Any]]
     melhor_regime: str
-    economia_potencial: Decimal
+    economia_potencial: Money
     acoes_recomendadas: list[str]
 
 
@@ -1310,7 +1312,7 @@ class FiscalAIPredictResponse(BaseModel):
     """Response da previsao de obrigacoes."""
 
     projecao_mensal: list[dict[str, Any]]
-    total_previsto: Decimal
+    total_previsto: Money
     obrigacoes_futuras: list[dict[str, Any]]
     alertas_vencimento: list[dict[str, Any]]
 
@@ -1326,16 +1328,16 @@ class FiscalStats(BaseModel):
     # NF-e
     total_nfe_emitidas: int
     total_nfe_mes: int
-    valor_total_nfe_mes: Decimal
+    valor_total_nfe_mes: Money
 
     # NFS-e
     total_nfse_emitidas: int
     total_nfse_mes: int
-    valor_total_nfse_mes: Decimal
+    valor_total_nfse_mes: Money
 
     # Retencoes
-    total_retencoes_mes: Decimal
-    economia_liminar_inss: Decimal
+    total_retencoes_mes: Money
+    economia_liminar_inss: Money
 
     # Obrigacoes
     obrigacoes_pendentes: int
@@ -1343,13 +1345,13 @@ class FiscalStats(BaseModel):
     proxima_obrigacao: dict[str, Any] | None
 
     # Simples Nacional
-    das_mes_atual: Decimal | None
+    das_mes_atual: MoneyOpt
     faixa_atual: int | None
-    receita_12_meses: Decimal | None
+    receita_12_meses: MoneyOpt
 
     # SUFRAMA
-    economia_zfm_mes: Decimal | None
-    economia_zfm_ano: Decimal | None
+    economia_zfm_mes: MoneyOpt
+    economia_zfm_ano: MoneyOpt
 
 
 class FiscalDashboard(BaseModel):

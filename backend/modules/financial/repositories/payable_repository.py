@@ -54,6 +54,11 @@ class PayableAccountRepository:
         net_value = data.gross_value - data.discount_value + data.addition_value - total_withholdings
 
         dump = data.model_dump()
+        # FIN-03: supplier_name é coluna denormalizada de PayableAccount — o nome
+        # digitado no modal flui direto para a coluna (sem criar fornecedor fake,
+        # que exigiria cpf_cnpj NOT NULL/único). A coluna Fornecedor lê isto.
+        if dump.get("supplier_name"):
+            dump["supplier_name"] = dump["supplier_name"].strip() or None
         # issue_date é NOT NULL no banco mas opcional no schema → default p/ hoje quando não vem
         # (senão INSERT viola not-null e o create dá 500).
         if not dump.get("issue_date"):

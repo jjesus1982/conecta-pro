@@ -20,6 +20,7 @@ import {
   Minus,
 } from 'lucide-react';
 import { useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -175,6 +176,20 @@ export default function RelatoriosPage() {
   const { data: overviewRaw, isLoading: loadingOverview } =
     useFinancialOverview({ condominio_id: condominioId });
 
+  // DRE REAL (o cálculo por entries/cashflow zerava porque essas fontes vêm vazias).
+  const { data: dreRaw } = useQuery({
+    queryKey: ['accounting-dre'],
+    queryFn: async () => {
+      const token = typeof window !== 'undefined' ? (localStorage.getItem('access_token') ?? localStorage.getItem('token') ?? '') : '';
+      const res = await fetch('/api/v1/financial/accounting/dre', { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+  const dre = dreRaw as any;
+
   const isLoadingAny = loadingCashflow || loadingEntries || loadingOverview;
 
   // ── Cast to any ──────────────────────────────
@@ -191,18 +206,27 @@ export default function RelatoriosPage() {
   const incomeEntries = entries.filter((e: any) => e.type === 'income' || e.entry_type === 'income');
   const expenseEntries = entries.filter((e: any) => e.type === 'expense' || e.entry_type === 'expense');
 
-  const receitaBruta = incomeEntries.reduce((sum: number, e: any) => sum + Number(e.amount ?? e.valor ?? 0), 0)
+  // Prioriza o DRE REAL do backend (/accounting/dre); só cai no cálculo por entries/cashflow se vier vazio.
+  const dreReceita = Number(dre?.receita_bruta ?? 0);
+  const dreDespPessoal = Number(dre?.despesa_pessoal ?? 0);
+  const dreDespEncargos = Number(dre?.despesa_encargos ?? 0);
+  const dreDespOper = Number(dre?.despesas_operacionais ?? 0);
+  const dreDespTotal = dreDespPessoal + dreDespEncargos + dreDespOper;
+
+  const receitaBruta = dreReceita
+    || incomeEntries.reduce((sum: number, e: any) => sum + Number(e.amount ?? e.valor ?? 0), 0)
     || Number(cashflow?.summary?.total_inflows ?? overview?.receita_total ?? 0);
 
-  const despesaTotal = expenseEntries.reduce((sum: number, e: any) => sum + Number(e.amount ?? e.valor ?? 0), 0)
+  const despesaTotal = (dreReceita ? dreDespTotal : 0)
+    || expenseEntries.reduce((sum: number, e: any) => sum + Number(e.amount ?? e.valor ?? 0), 0)
     || Number(cashflow?.summary?.total_outflows ?? overview?.despesa_total ?? 0);
 
-  const deducoes = receitaBruta * 0.1; // 10% estimativa impostos
+  const deducoes = dreReceita ? Number(dre?.deducoes ?? 0) : receitaBruta * 0.1;
   const receitaLiquida = receitaBruta - deducoes;
-  const custosOperacionais = despesaTotal * 0.65;
-  const despesasAdmin = despesaTotal * 0.35;
+  const custosOperacionais = dreReceita ? (dreDespPessoal + dreDespEncargos) : despesaTotal * 0.65;
+  const despesasAdmin = dreReceita ? dreDespOper : despesaTotal * 0.35;
   const ebitda = receitaLiquida - custosOperacionais;
-  const lucroLiquido = ebitda - despesasAdmin;
+  const lucroLiquido = dreReceita ? Number(dre?.resultado_operacional ?? (ebitda - despesasAdmin)) : (ebitda - despesasAdmin);
 
   // ── Monthly chart data (last 6 months simulation from entries) ────────────
   const monthlyData = useMemo(() => {
@@ -598,7 +622,7 @@ export default function RelatoriosPage() {
                   <div className="rounded-lg border border-[hsl(var(--border))] p-4 bg-green-500/5">
                     <p className="text-xs text-[hsl(var(--muted-foreground))] mb-1">A Receber (total)</p>
                     <p className="text-lg font-bold text-green-500">
-                      {formatCurrency(Number(receivableDash?.total_amount ?? receivableDash?.total ?? 0))}
+                      {formatCurrency(Number(receivableDash?.total_value ?? receivableDash?.total_amount ?? receivableDash?.total ?? 0))}
                     </p>
                     <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
                       {Number(receivableDash?.total_count ?? receivableDash?.total_records ?? 0)} registros
@@ -607,7 +631,7 @@ export default function RelatoriosPage() {
                   <div className="rounded-lg border border-[hsl(var(--border))] p-4 bg-red-500/5">
                     <p className="text-xs text-[hsl(var(--muted-foreground))] mb-1">A Pagar (total)</p>
                     <p className="text-lg font-bold text-red-500">
-                      {formatCurrency(Number(payableDash?.total_amount ?? payableDash?.total ?? 0))}
+                      {formatCurrency(Number(payableDash?.total_value ?? payableDash?.total_amount ?? payableDash?.total ?? 0))}
                     </p>
                     <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
                       {Number(payableDash?.total_count ?? payableDash?.total_records ?? 0)} registros

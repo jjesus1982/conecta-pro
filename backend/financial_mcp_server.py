@@ -183,8 +183,8 @@ MCP_TOOLS_SCHEMA: list = [
     {
         "name": "get_cashflow_status",
         "description": (
-            "Fluxo de caixa: saldo atual R$36k, entradas/saídas dos últimos 7d, projeção 30d. "
-            "Use para análise de liquidez e planejamento de caixa."
+            "Fluxo de caixa: saldo atual (ao vivo do Inter), entradas/saídas dos últimos 7d "
+            "e projeção 30d. Use para análise de liquidez e planejamento de caixa."
         ),
         "inputSchema": {"type": "object", "properties": {}, "required": []},
     },

@@ -2,6 +2,8 @@
 
 from datetime import date, datetime
 from decimal import Decimal
+
+from modules.financial.schemas._money import Money, MoneyOpt
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -19,8 +21,8 @@ class RequisitionItemBase(BaseModel):
     description: str = Field(..., min_length=1, max_length=500)
     specifications: str | None = None
     unit_of_measure: str = Field(default="un", max_length=10)
-    quantity_requested: Decimal = Field(..., gt=0)
-    estimated_unit_price: Decimal | None = Field(None, ge=0)
+    quantity_requested: Money = Field(..., gt=0)
+    estimated_unit_price: MoneyOpt = Field(None, ge=0)
     product_id: UUID | None = None
     notes: str | None = None
 
@@ -35,9 +37,9 @@ class RequisitionItemUpdate(BaseModel):
     description: str | None = Field(None, min_length=1, max_length=500)
     specifications: str | None = None
     unit_of_measure: str | None = None
-    quantity_requested: Decimal | None = Field(None, gt=0)
-    quantity_approved: Decimal | None = Field(None, ge=0)
-    estimated_unit_price: Decimal | None = Field(None, ge=0)
+    quantity_requested: MoneyOpt = Field(None, gt=0)
+    quantity_approved: MoneyOpt = Field(None, ge=0)
+    estimated_unit_price: MoneyOpt = Field(None, ge=0)
     product_id: UUID | None = None
     notes: str | None = None
 
@@ -48,10 +50,10 @@ class RequisitionItemResponse(RequisitionItemBase):
     id: UUID
     requisition_id: UUID
     item_number: int
-    quantity_approved: Decimal | None = None
-    quantity_ordered: Decimal = Decimal("0")
-    quantity_received: Decimal = Decimal("0")
-    estimated_total: Decimal | None = None
+    quantity_approved: MoneyOpt = None
+    quantity_ordered: Money = Decimal("0")
+    quantity_received: Money = Decimal("0")
+    estimated_total: MoneyOpt = None
     created_at: datetime
 
     class Config:  # pylint: disable=too-few-public-methods
@@ -122,9 +124,9 @@ class PurchaseRequisitionResponse(PurchaseRequisitionBase):
     status: RequisitionStatus
     requester_id: UUID
     request_date: date
-    estimated_total: Decimal = Decimal("0")
-    approved_budget: Decimal | None = None
-    actual_total: Decimal = Decimal("0")
+    estimated_total: Money = Decimal("0")
+    approved_budget: MoneyOpt = None
+    actual_total: Money = Decimal("0")
     approved_at: datetime | None = None
     approved_by: UUID | None = None
     rejection_reason: str | None = None
@@ -152,7 +154,7 @@ class RequisitionApproveRequest(BaseModel):
     """Request para aprovar requisição."""
 
     comment: str | None = Field(None, max_length=500)
-    approved_budget: Decimal | None = Field(None, ge=0)
+    approved_budget: MoneyOpt = Field(None, ge=0)
 
 
 class RequisitionRejectRequest(BaseModel):
@@ -177,7 +179,7 @@ class RequisitionStats(BaseModel):
     by_type: dict[str, int] = {}
     pending_approval: int = 0
     overdue: int = 0
-    total_estimated: Decimal = Decimal("0")
+    total_estimated: Money = Decimal("0")
     average_approval_time_hours: float | None = None
 
 

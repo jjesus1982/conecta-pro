@@ -2,6 +2,8 @@
 
 from datetime import date, datetime
 from decimal import Decimal
+
+from modules.financial.schemas._money import Money, MoneyOpt
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
@@ -29,17 +31,17 @@ class PayableAccountBase(BaseModel):
     supplier_id: UUID | None = None
     category_id: UUID | None = None
 
-    gross_value: Decimal = Field(..., gt=0)
-    discount_value: Decimal = Field(default=Decimal("0"), ge=0)
-    addition_value: Decimal = Field(default=Decimal("0"), ge=0)
+    gross_value: Money = Field(..., gt=0)
+    discount_value: Money = Field(default=Decimal("0"), ge=0)
+    addition_value: Money = Field(default=Decimal("0"), ge=0)
 
     # Retenções
-    withhold_iss: Decimal = Field(default=Decimal("0"), ge=0)
-    withhold_ir: Decimal = Field(default=Decimal("0"), ge=0)
-    withhold_pis: Decimal = Field(default=Decimal("0"), ge=0)
-    withhold_cofins: Decimal = Field(default=Decimal("0"), ge=0)
-    withhold_csll: Decimal = Field(default=Decimal("0"), ge=0)
-    withhold_inss: Decimal = Field(default=Decimal("0"), ge=0)
+    withhold_iss: Money = Field(default=Decimal("0"), ge=0)
+    withhold_ir: Money = Field(default=Decimal("0"), ge=0)
+    withhold_pis: Money = Field(default=Decimal("0"), ge=0)
+    withhold_cofins: Money = Field(default=Decimal("0"), ge=0)
+    withhold_csll: Money = Field(default=Decimal("0"), ge=0)
+    withhold_inss: Money = Field(default=Decimal("0"), ge=0)
 
     # Datas
     issue_date: date | None = None
@@ -82,6 +84,10 @@ class PayableAccountCreate(PayableAccountBase):
     """Schema para criação de conta a pagar."""
 
     condominio_id: UUID
+    # FIN-03: nome do fornecedor digitado no modal "Nova Conta". Quando vem sem
+    # supplier_id, o repositório resolve (find-or-create Supplier) e grava o
+    # supplier_id — antes o nome era ignorado e a conta ficava com fornecedor NULL.
+    supplier_name: str | None = Field(None, max_length=200)
 
     @field_validator("due_date")
     @classmethod
@@ -101,17 +107,17 @@ class PayableAccountUpdate(BaseModel):
     supplier_id: UUID | None = None
     category_id: UUID | None = None
 
-    gross_value: Decimal | None = Field(None, gt=0)
-    discount_value: Decimal | None = Field(None, ge=0)
-    addition_value: Decimal | None = Field(None, ge=0)
+    gross_value: MoneyOpt = Field(None, gt=0)
+    discount_value: MoneyOpt = Field(None, ge=0)
+    addition_value: MoneyOpt = Field(None, ge=0)
 
     # Retenções
-    withhold_iss: Decimal | None = Field(None, ge=0)
-    withhold_ir: Decimal | None = Field(None, ge=0)
-    withhold_pis: Decimal | None = Field(None, ge=0)
-    withhold_cofins: Decimal | None = Field(None, ge=0)
-    withhold_csll: Decimal | None = Field(None, ge=0)
-    withhold_inss: Decimal | None = Field(None, ge=0)
+    withhold_iss: MoneyOpt = Field(None, ge=0)
+    withhold_ir: MoneyOpt = Field(None, ge=0)
+    withhold_pis: MoneyOpt = Field(None, ge=0)
+    withhold_cofins: MoneyOpt = Field(None, ge=0)
+    withhold_csll: MoneyOpt = Field(None, ge=0)
+    withhold_inss: MoneyOpt = Field(None, ge=0)
 
     # Datas
     due_date: date | None = None
@@ -136,11 +142,12 @@ class PayableAccountResponse(PayableAccountBase):
     id: UUID
     condominio_id: UUID
     code: str | None = None
+    supplier_name: str | None = None  # FIN-03: nome denormalizado do fornecedor
     status: PayableStatus
-    net_value: Decimal
-    paid_value: Decimal
-    remaining_value: Decimal | None = None
-    total_withholdings: Decimal
+    net_value: Money
+    paid_value: Money
+    remaining_value: MoneyOpt = None
+    total_withholdings: Money
 
     entry_date: date
     payment_date: date | None = None
@@ -158,7 +165,7 @@ class PayableAccountResponse(PayableAccountBase):
     days_overdue: int
     days_until_due: int
     payment_percentage: float
-    balance: Decimal
+    balance: Money
 
     attachments: list[dict] = Field(default_factory=list)
 
@@ -183,9 +190,9 @@ class PayableAccountListResponse(BaseModel):
     priority: str
     supplier_name: str | None = None
     category_name: str | None = None
-    net_value: Decimal
-    paid_value: Decimal
-    balance: Decimal
+    net_value: Money
+    paid_value: Money
+    balance: Money
     due_date: date
     payment_date: date | None = None
     is_overdue: bool
@@ -214,8 +221,8 @@ class PayableAccountFilter(BaseModel):
     is_overdue: bool | None = None
     cost_center: str | None = None
     project: str | None = None
-    min_value: Decimal | None = None
-    max_value: Decimal | None = None
+    min_value: MoneyOpt = None
+    max_value: MoneyOpt = None
     tags: list[str] | None = None
 
 
@@ -223,10 +230,10 @@ class PayableAccountStats(BaseModel):
     """Estatísticas de contas a pagar."""
 
     total_count: int = 0
-    total_value: Decimal = Decimal("0")
-    total_paid: Decimal = Decimal("0")
-    total_pending: Decimal = Decimal("0")
-    total_overdue: Decimal = Decimal("0")
+    total_value: Money = Decimal("0")
+    total_paid: Money = Decimal("0")
+    total_pending: Money = Decimal("0")
+    total_overdue: Money = Decimal("0")
     overdue_count: int = 0
 
     by_status: dict = Field(default_factory=dict)
@@ -243,12 +250,12 @@ class PayableInstallmentCreate(BaseModel):
 
     installment_number: int = Field(..., ge=1)
     total_installments: int = Field(..., ge=1)
-    original_value: Decimal = Field(..., gt=0)
+    original_value: Money = Field(..., gt=0)
     due_date: date
 
-    discount_value: Decimal = Field(default=Decimal("0"), ge=0)
-    interest_rate: Decimal = Field(default=Decimal("0"), ge=0)
-    penalty_rate: Decimal = Field(default=Decimal("0"), ge=0)
+    discount_value: Money = Field(default=Decimal("0"), ge=0)
+    interest_rate: Money = Field(default=Decimal("0"), ge=0)
+    penalty_rate: Money = Field(default=Decimal("0"), ge=0)
 
     payment_method_id: UUID | None = None
     barcode: str | None = Field(None, max_length=100)
@@ -261,10 +268,10 @@ class PayableInstallmentUpdate(BaseModel):
     """Schema para atualização de parcela."""
 
     due_date: date | None = None
-    discount_value: Decimal | None = Field(None, ge=0)
-    addition_value: Decimal | None = Field(None, ge=0)
-    interest_rate: Decimal | None = Field(None, ge=0)
-    penalty_rate: Decimal | None = Field(None, ge=0)
+    discount_value: MoneyOpt = Field(None, ge=0)
+    addition_value: MoneyOpt = Field(None, ge=0)
+    interest_rate: MoneyOpt = Field(None, ge=0)
+    penalty_rate: MoneyOpt = Field(None, ge=0)
 
     payment_method_id: UUID | None = None
     barcode: str | None = Field(None, max_length=100)
@@ -288,21 +295,21 @@ class PayableInstallmentResponse(BaseModel):
     display_number: str
     status: InstallmentStatus
 
-    original_value: Decimal
-    discount_value: Decimal
-    interest_value: Decimal
-    penalty_value: Decimal
-    addition_value: Decimal
-    current_value: Decimal
-    paid_value: Decimal
-    balance: Decimal
+    original_value: Money
+    discount_value: Money
+    interest_value: Money
+    penalty_value: Money
+    addition_value: Money
+    current_value: Money
+    paid_value: Money
+    balance: Money
 
     due_date: date
     original_due_date: date | None = None
     payment_date: date | None = None
 
-    interest_rate: Decimal | None = None
-    penalty_rate: Decimal | None = None
+    interest_rate: MoneyOpt = None
+    penalty_rate: MoneyOpt = None
 
     barcode: str | None = None
     digitable_line: str | None = None
@@ -331,7 +338,7 @@ class PayableInstallmentRenegotiateRequest(BaseModel):
     """Request para renegociar parcela."""
 
     new_due_date: date
-    new_value: Decimal | None = Field(None, gt=0)
+    new_value: MoneyOpt = Field(None, gt=0)
     reason: str = Field(..., min_length=5, max_length=500)
 
 
@@ -342,13 +349,13 @@ class PayablePaymentCreate(BaseModel):
     """Schema para criação de pagamento."""
 
     installment_id: UUID
-    paid_value: Decimal = Field(..., gt=0)
+    paid_value: Money = Field(..., gt=0)
     payment_date: date
 
-    discount_value: Decimal = Field(default=Decimal("0"), ge=0)
-    interest_value: Decimal = Field(default=Decimal("0"), ge=0)
-    penalty_value: Decimal = Field(default=Decimal("0"), ge=0)
-    fee_value: Decimal = Field(default=Decimal("0"), ge=0)
+    discount_value: Money = Field(default=Decimal("0"), ge=0)
+    interest_value: Money = Field(default=Decimal("0"), ge=0)
+    penalty_value: Money = Field(default=Decimal("0"), ge=0)
+    fee_value: Money = Field(default=Decimal("0"), ge=0)
 
     payment_method_id: UUID | None = None
     bank_account_id: UUID | None = None
@@ -364,10 +371,10 @@ class PayablePaymentUpdate(BaseModel):
     """Schema para atualização de pagamento."""
 
     payment_date: date | None = None
-    discount_value: Decimal | None = Field(None, ge=0)
-    interest_value: Decimal | None = Field(None, ge=0)
-    penalty_value: Decimal | None = Field(None, ge=0)
-    fee_value: Decimal | None = Field(None, ge=0)
+    discount_value: MoneyOpt = Field(None, ge=0)
+    interest_value: MoneyOpt = Field(None, ge=0)
+    penalty_value: MoneyOpt = Field(None, ge=0)
+    fee_value: MoneyOpt = Field(None, ge=0)
 
     receipt_number: str | None = Field(None, max_length=50)
     receipt_url: str | None = Field(None, max_length=500)
@@ -386,13 +393,13 @@ class PayablePaymentResponse(BaseModel):
     status: PaymentStatus
     origin: PaymentOrigin
 
-    paid_value: Decimal
-    discount_value: Decimal
-    interest_value: Decimal
-    penalty_value: Decimal
-    fee_value: Decimal
-    net_value: Decimal
-    total_additions: Decimal
+    paid_value: Money
+    discount_value: Money
+    interest_value: Money
+    penalty_value: Money
+    fee_value: Money
+    net_value: Money
+    total_additions: Money
 
     payment_date: date
     processing_date: date | None = None

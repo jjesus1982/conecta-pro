@@ -8,9 +8,15 @@ from uuid import UUID
 from sqlalchemy import and_, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.financial.models.bank_account import BankAccount
 from modules.financial.models.payable_account import PayableAccount
 from modules.financial.models.payable_category import PayableCategory
 from modules.financial.models.payable_installment import InstallmentStatus, PayableInstallment
+from modules.financial.models.receivable_installment import (
+    InstallmentStatus as ReceivableInstallmentStatus,
+)
+from modules.financial.models.receivable_account import ReceivableAccount
+from modules.financial.models.receivable_installment import ReceivableInstallment
 from modules.financial.models.supplier import Supplier
 
 logger = logging.getLogger(__name__)
@@ -70,49 +76,78 @@ class CashFlowService:
 
         logger.info(f"Gerando projeção de {start_date} a {end_date} para {condominio_id}")
 
-        # Busca parcelas no período
-        statuses = [InstallmentStatus.PENDENTE.value]
-        if include_scheduled:
-            statuses.append(InstallmentStatus.AGENDADA.value)
+        # FIN-04: projeta a partir das CONTAS em aberto (onde está o saldo real),
+        # não das parcelas. A maioria das contas não tem parcela desmembrada (só
+        # ~18 de 71 pagáveis / ~21 de 9 recebíveis), então a projeção por parcela
+        # ficava quase vazia → valor incoerente (ex.: −R$67). Projetamos as DUAS
+        # pontas por data de vencimento: pagáveis (saída) e recebíveis (entrada).
+        _CLOSED_PAY = ("paga", "cancelada")
+        _CLOSED_REC = ("paga", "pago", "cancelada")
 
-        query = (
-            select(PayableInstallment)
-            .join(PayableAccount)
+        projections_map: dict[date, CashFlowProjection] = {}
+
+        pay_query = (
+            select(PayableAccount)
             .where(
                 and_(
                     PayableAccount.condominio_id == condominio_id,
                     PayableAccount.ativo.is_(True),
-                    PayableInstallment.status.in_(statuses),
-                    PayableInstallment.due_date >= start_date,
-                    PayableInstallment.due_date <= end_date,
+                    PayableAccount.due_date >= start_date,
+                    PayableAccount.due_date <= end_date,
+                    PayableAccount.status.notin_(_CLOSED_PAY),
                 )
             )
-            .order_by(PayableInstallment.due_date)
+            .order_by(PayableAccount.due_date)
         )
-
-        result = await self.session.execute(query)
-        installments = list(result.scalars().all())
-
-        # Agrupa por data
-        projections_map: dict[date, CashFlowProjection] = {}
-
-        for inst in installments:
-            proj_date = self._get_grouped_date(inst.due_date, group_by)
-
+        for acct in (await self.session.execute(pay_query)).scalars().all():
+            amount = (acct.net_value or Decimal("0")) - (acct.paid_value or Decimal("0"))
+            if amount <= 0:
+                continue
+            proj_date = self._get_grouped_date(acct.due_date, group_by)
             if proj_date not in projections_map:
                 projections_map[proj_date] = CashFlowProjection(date=proj_date)
-
             proj = projections_map[proj_date]
-            amount = inst.calculate_current_value()
-
             proj.payables += amount
             proj.balance -= amount
             proj.details.append(
                 {
                     "type": "payable",
-                    "installment_id": str(inst.id),
-                    "description": inst.description or f"Parcela {inst.installment_number}",
-                    "due_date": inst.due_date.isoformat(),
+                    "account_id": str(acct.id),
+                    "description": acct.description or "Conta a pagar",
+                    "due_date": acct.due_date.isoformat(),
+                    "amount": float(amount),
+                }
+            )
+
+        rec_query = (
+            select(ReceivableAccount)
+            .where(
+                and_(
+                    ReceivableAccount.condominio_id == condominio_id,
+                    ReceivableAccount.ativo.is_(True),
+                    ReceivableAccount.due_date >= start_date,
+                    ReceivableAccount.due_date <= end_date,
+                    ReceivableAccount.status.notin_(_CLOSED_REC),
+                )
+            )
+            .order_by(ReceivableAccount.due_date)
+        )
+        for acct in (await self.session.execute(rec_query)).scalars().all():
+            amount = (acct.net_value or Decimal("0")) - (acct.paid_value or Decimal("0"))
+            if amount <= 0:
+                continue
+            proj_date = self._get_grouped_date(acct.due_date, group_by)
+            if proj_date not in projections_map:
+                projections_map[proj_date] = CashFlowProjection(date=proj_date)
+            proj = projections_map[proj_date]
+            proj.receivables += amount
+            proj.balance += amount
+            proj.details.append(
+                {
+                    "type": "receivable",
+                    "account_id": str(acct.id),
+                    "description": acct.description or acct.customer_name or "Conta a receber",
+                    "due_date": acct.due_date.isoformat(),
                     "amount": float(amount),
                 }
             )
@@ -120,10 +155,17 @@ class CashFlowService:
         # Ordena e calcula saldo acumulado
         projections = sorted(projections_map.values(), key=lambda p: p.date)
 
-        # Integrar com contas a receber para calcular receivables (futuro)
-        # Por enquanto, considera apenas saídas
-
-        cumulative = Decimal("0")
+        # FIN-04: parte do SALDO ATUAL (não de zero) — assim o acumulado projetado
+        # tem sentido físico (saldo de hoje ± fluxos futuros).
+        opening_res = await self.session.execute(
+            select(func.sum(BankAccount.current_balance)).where(
+                and_(
+                    BankAccount.condominio_id == condominio_id,
+                    BankAccount.ativo.is_(True),
+                )
+            )
+        )
+        cumulative = opening_res.scalar() or Decimal("0")
         for proj in projections:
             cumulative += proj.balance
             proj.cumulative_balance = cumulative

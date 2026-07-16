@@ -2,6 +2,8 @@
 
 from datetime import date, datetime
 from decimal import Decimal
+
+from modules.financial.schemas._money import Money, MoneyOpt
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -14,11 +16,11 @@ class OrderItemBase(BaseModel):
 
     description: str = Field(..., min_length=1, max_length=500)
     unit_of_measure: str = Field(default="un", max_length=10)
-    quantity_ordered: Decimal = Field(..., gt=0)
-    unit_price: Decimal = Field(..., ge=0)
-    discount_percentage: Decimal = Decimal("0")
-    ipi_percentage: Decimal = Decimal("0")
-    icms_percentage: Decimal = Decimal("0")
+    quantity_ordered: Money = Field(..., gt=0)
+    unit_price: Money = Field(..., ge=0)
+    discount_percentage: Money = Decimal("0")
+    ipi_percentage: Money = Decimal("0")
+    icms_percentage: Money = Decimal("0")
     expected_delivery_date: date | None = None
     supplier_code: str | None = Field(None, max_length=50)
     notes: str | None = None
@@ -35,11 +37,11 @@ class OrderItemUpdate(BaseModel):
     """Schema para atualizar item de ordem."""
 
     description: str | None = Field(None, min_length=1, max_length=500)
-    quantity_ordered: Decimal | None = Field(None, gt=0)
-    unit_price: Decimal | None = Field(None, ge=0)
-    discount_percentage: Decimal | None = None
-    ipi_percentage: Decimal | None = None
-    icms_percentage: Decimal | None = None
+    quantity_ordered: MoneyOpt = Field(None, gt=0)
+    unit_price: MoneyOpt = Field(None, ge=0)
+    discount_percentage: MoneyOpt = None
+    ipi_percentage: MoneyOpt = None
+    icms_percentage: MoneyOpt = None
     expected_delivery_date: date | None = None
     supplier_code: str | None = None
     notes: str | None = None
@@ -51,13 +53,13 @@ class OrderItemResponse(OrderItemBase):
     id: UUID
     order_id: UUID
     item_number: int
-    discount_amount: Decimal = Decimal("0")
-    total: Decimal
-    ipi_amount: Decimal = Decimal("0")
-    icms_amount: Decimal = Decimal("0")
-    quantity_received: Decimal = Decimal("0")
-    quantity_invoiced: Decimal = Decimal("0")
-    quantity_returned: Decimal = Decimal("0")
+    discount_amount: Money = Decimal("0")
+    total: Money
+    ipi_amount: Money = Decimal("0")
+    icms_amount: Money = Decimal("0")
+    quantity_received: Money = Decimal("0")
+    quantity_invoiced: Money = Decimal("0")
+    quantity_returned: Money = Decimal("0")
     actual_delivery_date: date | None = None
     created_at: datetime
 
@@ -75,11 +77,11 @@ class PurchaseOrderBase(BaseModel):
     payment_condition: str | None = Field(None, max_length=20)
     payment_installments: int | None = Field(None, ge=1)
     delivery_type: str | None = Field(None, max_length=20)
-    discount_percentage: Decimal = Decimal("0")
-    discount_amount: Decimal = Decimal("0")
-    freight_amount: Decimal = Decimal("0")
-    insurance_amount: Decimal = Decimal("0")
-    other_costs: Decimal = Decimal("0")
+    discount_percentage: Money = Decimal("0")
+    discount_amount: Money = Decimal("0")
+    freight_amount: Money = Decimal("0")
+    insurance_amount: Money = Decimal("0")
+    other_costs: Money = Decimal("0")
     delivery_address: str | None = None
     delivery_contact: str | None = Field(None, max_length=100)
     delivery_phone: str | None = Field(None, max_length=20)
@@ -107,11 +109,11 @@ class PurchaseOrderUpdate(BaseModel):
     payment_condition: str | None = None
     payment_installments: int | None = None
     delivery_type: str | None = None
-    discount_percentage: Decimal | None = None
-    discount_amount: Decimal | None = None
-    freight_amount: Decimal | None = None
-    insurance_amount: Decimal | None = None
-    other_costs: Decimal | None = None
+    discount_percentage: MoneyOpt = None
+    discount_amount: MoneyOpt = None
+    freight_amount: MoneyOpt = None
+    insurance_amount: MoneyOpt = None
+    other_costs: MoneyOpt = None
     delivery_address: str | None = None
     delivery_contact: str | None = None
     delivery_phone: str | None = None
@@ -136,16 +138,16 @@ class PurchaseOrderResponse(PurchaseOrderBase):
     sent_date: datetime | None = None
     confirmed_date: datetime | None = None
     actual_delivery_date: date | None = None
-    subtotal: Decimal = Decimal("0")
-    total: Decimal = Decimal("0")
-    ipi_amount: Decimal = Decimal("0")
-    icms_amount: Decimal = Decimal("0")
-    icms_st_amount: Decimal = Decimal("0")
-    pis_amount: Decimal = Decimal("0")
-    cofins_amount: Decimal = Decimal("0")
-    received_total: Decimal = Decimal("0")
-    invoiced_total: Decimal = Decimal("0")
-    paid_total: Decimal = Decimal("0")
+    subtotal: Money = Decimal("0")
+    total: Money = Decimal("0")
+    ipi_amount: Money = Decimal("0")
+    icms_amount: Money = Decimal("0")
+    icms_st_amount: Money = Decimal("0")
+    pis_amount: Money = Decimal("0")
+    cofins_amount: Money = Decimal("0")
+    received_total: Money = Decimal("0")
+    invoiced_total: Money = Decimal("0")
+    paid_total: Money = Decimal("0")
     approved_by: UUID | None = None
     supplier_notes: str | None = None
     rejection_reason: str | None = None
@@ -191,14 +193,14 @@ class OrderCancelRequest(BaseModel):
 class OrderReceiveRequest(BaseModel):
     """Request para registrar recebimento parcial."""
 
-    amount: Decimal = Field(..., gt=0)
+    amount: Money = Field(..., gt=0)
     notes: str | None = None
 
 
 class OrderInvoiceRequest(BaseModel):
     """Request para registrar fatura."""
 
-    invoice_total: Decimal = Field(..., gt=0)
+    invoice_total: Money = Field(..., gt=0)
     invoice_number: str | None = None
     invoice_date: date | None = None
 
@@ -206,7 +208,7 @@ class OrderInvoiceRequest(BaseModel):
 class OrderPaymentRequest(BaseModel):
     """Request para registrar pagamento."""
 
-    paid_amount: Decimal = Field(..., gt=0)
+    paid_amount: Money = Field(..., gt=0)
     payment_date: date | None = None
     notes: str | None = None
 
@@ -220,8 +222,8 @@ class OrderStats(BaseModel):
     pending_approval: int = 0
     pending_delivery: int = 0
     overdue: int = 0
-    total_amount: Decimal = Decimal("0")
-    total_pending: Decimal = Decimal("0")
+    total_amount: Money = Decimal("0")
+    total_pending: Money = Decimal("0")
     average_delivery_days: float | None = None
 
 

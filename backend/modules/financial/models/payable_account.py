@@ -103,6 +103,11 @@ class PayableAccount(Base):
         nullable=True,
         index=True,
     )
+    # FIN-03: nome do fornecedor denormalizado (espelha customer_name de
+    # receivable_accounts). Populado no create com o nome digitado no modal ou
+    # com o nome do Supplier vinculado; a lista exibe esta coluna direto — antes
+    # não havia coluna/property e a coluna Fornecedor ficava vazia para todos.
+    supplier_name = Column(String(255), nullable=True)
 
     # Categoria
     category_id = Column(

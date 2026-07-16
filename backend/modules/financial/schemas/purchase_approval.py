@@ -2,6 +2,8 @@
 
 from datetime import datetime
 from decimal import Decimal
+
+from modules.financial.schemas._money import Money, MoneyOpt
 from typing import Any
 from uuid import UUID
 
@@ -22,7 +24,7 @@ class PurchaseApprovalBase(BaseModel):
     document_id: UUID
     document_number: str | None = Field(None, max_length=50)
     approval_level: ApprovalLevel
-    document_total: Decimal | None = Field(None, ge=0)
+    document_total: MoneyOpt = Field(None, ge=0)
     deadline: datetime | None = None
 
 
@@ -57,7 +59,7 @@ class PurchaseApprovalResponse(PurchaseApprovalBase):
     delegated_at: datetime | None = None
     requested_at: datetime
     responded_at: datetime | None = None
-    response_time_hours: Decimal | None = None
+    response_time_hours: MoneyOpt = None
     action: ApprovalAction | None = None
     comments: str | None = None
     rejection_reason: str | None = None
@@ -160,5 +162,5 @@ class ApprovalWorkflowConfig(BaseModel):
     # [{level: "operacional", min_value: 0, max_value: 1000, approvers: [uuid1, uuid2]}]
     sequential: bool = True  # Aprovação sequencial ou paralela
     require_all: bool = False  # Requer todos aprovarem (paralelo)
-    auto_approve_below: Decimal | None = None  # Auto-aprovar abaixo deste valor
+    auto_approve_below: MoneyOpt = None  # Auto-aprovar abaixo deste valor
     deadline_hours: int = 48  # Prazo padrão em horas

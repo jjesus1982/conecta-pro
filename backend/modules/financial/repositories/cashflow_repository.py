@@ -471,18 +471,22 @@ class CashFlowEntryRepository:
 
     async def list(
         self,
-        condominio_id: UUID,
+        condominio_id: UUID | None = None,
         filters: CashFlowEntryFilter | None = None,
         skip: int = 0,
         limit: int = 100,
     ) -> list[CashFlowEntry]:
-        """Lista lancamentos."""
-        query = select(CashFlowEntry).where(
-            and_(
-                CashFlowEntry.condominio_id == condominio_id,
-                CashFlowEntry.ativo.is_(True),  # noqa: E712
-            )
-        )
+        """Lista lancamentos.
+
+        FIN-01: quando condominio_id vem None, agrega TODOS os condominios
+        (mesmo comportamento do summary/KPI) em vez de virar `condominio_id = NULL`
+        no SQL e devolver lista vazia — o que deixava lista/grafico vazios enquanto
+        o KPI mostrava valor.
+        """
+        base_conditions = [CashFlowEntry.ativo.is_(True)]  # noqa: E712
+        if condominio_id is not None:
+            base_conditions.append(CashFlowEntry.condominio_id == condominio_id)
+        query = select(CashFlowEntry).where(and_(*base_conditions))
 
         if filters:
             if filters.entry_type:
@@ -526,16 +530,14 @@ class CashFlowEntryRepository:
 
     async def count(
         self,
-        condominio_id: UUID,
+        condominio_id: UUID | None = None,
         filters: CashFlowEntryFilter | None = None,
     ) -> int:
-        """Conta lancamentos."""
-        query = select(func.count(CashFlowEntry.id)).where(
-            and_(
-                CashFlowEntry.condominio_id == condominio_id,
-                CashFlowEntry.ativo.is_(True),  # noqa: E712
-            )
-        )
+        """Conta lancamentos. FIN-01: agrega tudo quando condominio_id None."""
+        base_conditions = [CashFlowEntry.ativo.is_(True)]  # noqa: E712
+        if condominio_id is not None:
+            base_conditions.append(CashFlowEntry.condominio_id == condominio_id)
+        query = select(func.count(CashFlowEntry.id)).where(and_(*base_conditions))
 
         if filters:
             if filters.entry_type:

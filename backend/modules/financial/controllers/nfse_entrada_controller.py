@@ -265,7 +265,7 @@ async def conciliacao_auto(
                 {"tid": str(match_tx.id)},
             )
             await db.execute(
-                text("UPDATE receivable_accounts SET status='pago', updated_at=NOW() WHERE id=:rid"),
+                text("UPDATE receivable_accounts SET status='paga', updated_at=NOW() WHERE id=:rid"),
                 {"rid": rec["id"]},
             )
             conciliados.append(

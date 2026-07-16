@@ -2,6 +2,8 @@
 
 from datetime import datetime
 from decimal import Decimal
+
+from modules.financial.schemas._money import Money, MoneyOpt
 from typing import Any
 from uuid import UUID
 
@@ -21,12 +23,12 @@ class ProductBase(BaseModel):
     code: str | None = Field(None, max_length=50)
     barcode: str | None = Field(None, max_length=50)
     unit_of_measure: UnitOfMeasure = UnitOfMeasure.UNIDADE
-    conversion_factor: Decimal = Decimal("1")
+    conversion_factor: Money = Decimal("1")
     category_id: UUID | None = None
-    reference_price: Decimal | None = Field(None, ge=0)
-    min_stock: Decimal = Decimal("0")
-    max_stock: Decimal | None = Field(None, ge=0)
-    reorder_point: Decimal | None = Field(None, ge=0)
+    reference_price: MoneyOpt = Field(None, ge=0)
+    min_stock: Money = Decimal("0")
+    max_stock: MoneyOpt = Field(None, ge=0)
+    reorder_point: MoneyOpt = Field(None, ge=0)
     lead_time_days: str | None = None
     ncm: str | None = Field(None, max_length=10)
     cest: str | None = Field(None, max_length=10)
@@ -61,10 +63,10 @@ class ProductUpdate(BaseModel):
     barcode: str | None = None
     unit_of_measure: UnitOfMeasure | None = None
     category_id: UUID | None = None
-    reference_price: Decimal | None = None
-    min_stock: Decimal | None = None
-    max_stock: Decimal | None = None
-    reorder_point: Decimal | None = None
+    reference_price: MoneyOpt = None
+    min_stock: MoneyOpt = None
+    max_stock: MoneyOpt = None
+    reorder_point: MoneyOpt = None
     lead_time_days: str | None = None
     ncm: str | None = None
     preferred_supplier_id: UUID | None = None
@@ -83,10 +85,10 @@ class ProductResponse(ProductBase):
     id: UUID
     condominio_id: UUID
     status: ProductStatus
-    last_purchase_price: Decimal | None = None
-    average_price: Decimal | None = None
-    min_price: Decimal | None = None
-    max_price: Decimal | None = None
+    last_purchase_price: MoneyOpt = None
+    average_price: MoneyOpt = None
+    min_price: MoneyOpt = None
+    max_price: MoneyOpt = None
     total_purchases: str = "0"
     last_purchase_at: datetime | None = None
     is_blocked: bool = False
@@ -130,7 +132,7 @@ class ProductPriceHistory(BaseModel):
 
     product_id: UUID
     prices: list[dict[str, Any]] = []
-    min_price: Decimal | None = None
-    max_price: Decimal | None = None
-    average_price: Decimal | None = None
-    price_variation: Decimal | None = None
+    min_price: MoneyOpt = None
+    max_price: MoneyOpt = None
+    average_price: MoneyOpt = None
+    price_variation: MoneyOpt = None

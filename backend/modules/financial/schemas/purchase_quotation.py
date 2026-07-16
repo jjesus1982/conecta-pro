@@ -2,6 +2,8 @@
 
 from datetime import date, datetime
 from decimal import Decimal
+
+from modules.financial.schemas._money import Money, MoneyOpt
 from typing import Any
 from uuid import UUID
 
@@ -19,12 +21,12 @@ class QuotationItemBase(BaseModel):
 
     description: str = Field(..., min_length=1, max_length=500)
     unit_of_measure: str = Field(default="un", max_length=10)
-    quantity_requested: Decimal = Field(..., gt=0)
-    quantity_offered: Decimal | None = Field(None, gt=0)
-    unit_price: Decimal | None = Field(None, ge=0)
-    discount_percentage: Decimal = Decimal("0")
-    ipi_percentage: Decimal = Decimal("0")
-    icms_percentage: Decimal = Decimal("0")
+    quantity_requested: Money = Field(..., gt=0)
+    quantity_offered: MoneyOpt = Field(None, gt=0)
+    unit_price: MoneyOpt = Field(None, ge=0)
+    discount_percentage: Money = Decimal("0")
+    ipi_percentage: Money = Decimal("0")
+    icms_percentage: Money = Decimal("0")
     delivery_days: int | None = Field(None, ge=0)
     availability: str | None = Field(None, max_length=50)
     supplier_code: str | None = Field(None, max_length=50)
@@ -43,11 +45,11 @@ class QuotationItemUpdate(BaseModel):
     """Schema para atualizar item de cotação."""
 
     description: str | None = Field(None, min_length=1, max_length=500)
-    quantity_offered: Decimal | None = Field(None, gt=0)
-    unit_price: Decimal | None = Field(None, ge=0)
-    discount_percentage: Decimal | None = None
-    ipi_percentage: Decimal | None = None
-    icms_percentage: Decimal | None = None
+    quantity_offered: MoneyOpt = Field(None, gt=0)
+    unit_price: MoneyOpt = Field(None, ge=0)
+    discount_percentage: MoneyOpt = None
+    ipi_percentage: MoneyOpt = None
+    icms_percentage: MoneyOpt = None
     delivery_days: int | None = None
     availability: str | None = None
     supplier_code: str | None = None
@@ -64,9 +66,9 @@ class QuotationItemResponse(QuotationItemBase):
     id: UUID
     quotation_id: UUID
     item_number: int
-    discount_amount: Decimal = Decimal("0")
-    total: Decimal | None = None
-    min_quantity: Decimal | None = None
+    discount_amount: Money = Decimal("0")
+    total: MoneyOpt = None
+    min_quantity: MoneyOpt = None
     meets_specs: bool | None = None
     evaluation_notes: str | None = None
     created_at: datetime
@@ -87,13 +89,13 @@ class PurchaseQuotationBase(BaseModel):
     payment_installments: int | None = Field(None, ge=1)
     delivery_type: DeliveryType = DeliveryType.CIF
     delivery_days: int | None = Field(None, ge=0)
-    discount_percentage: Decimal = Decimal("0")
-    discount_amount: Decimal = Decimal("0")
-    freight_amount: Decimal = Decimal("0")
-    insurance_amount: Decimal = Decimal("0")
-    other_costs: Decimal = Decimal("0")
-    ipi_amount: Decimal = Decimal("0")
-    icms_amount: Decimal = Decimal("0")
+    discount_percentage: Money = Decimal("0")
+    discount_amount: Money = Decimal("0")
+    freight_amount: Money = Decimal("0")
+    insurance_amount: Money = Decimal("0")
+    other_costs: Money = Decimal("0")
+    ipi_amount: Money = Decimal("0")
+    icms_amount: Money = Decimal("0")
     notes: str | None = None
     supplier_notes: str | None = None
 
@@ -117,18 +119,18 @@ class PurchaseQuotationUpdate(BaseModel):
     payment_installments: int | None = None
     delivery_type: DeliveryType | None = None
     delivery_days: int | None = None
-    discount_percentage: Decimal | None = None
-    discount_amount: Decimal | None = None
-    freight_amount: Decimal | None = None
-    insurance_amount: Decimal | None = None
-    other_costs: Decimal | None = None
-    ipi_amount: Decimal | None = None
-    icms_amount: Decimal | None = None
+    discount_percentage: MoneyOpt = None
+    discount_amount: MoneyOpt = None
+    freight_amount: MoneyOpt = None
+    insurance_amount: MoneyOpt = None
+    other_costs: MoneyOpt = None
+    ipi_amount: MoneyOpt = None
+    icms_amount: MoneyOpt = None
     notes: str | None = None
     supplier_notes: str | None = None
-    technical_score: Decimal | None = Field(None, ge=0, le=100)
-    commercial_score: Decimal | None = Field(None, ge=0, le=100)
-    delivery_score: Decimal | None = Field(None, ge=0, le=100)
+    technical_score: MoneyOpt = Field(None, ge=0, le=100)
+    commercial_score: MoneyOpt = Field(None, ge=0, le=100)
+    delivery_score: MoneyOpt = Field(None, ge=0, le=100)
 
 
 class PurchaseQuotationResponse(PurchaseQuotationBase):
@@ -143,14 +145,14 @@ class PurchaseQuotationResponse(PurchaseQuotationBase):
     request_date: date
     sent_date: datetime | None = None
     received_date: datetime | None = None
-    subtotal: Decimal = Decimal("0")
-    total: Decimal = Decimal("0")
-    pis_amount: Decimal = Decimal("0")
-    cofins_amount: Decimal = Decimal("0")
-    technical_score: Decimal | None = None
-    commercial_score: Decimal | None = None
-    delivery_score: Decimal | None = None
-    overall_score: Decimal | None = None
+    subtotal: Money = Decimal("0")
+    total: Money = Decimal("0")
+    pis_amount: Money = Decimal("0")
+    cofins_amount: Money = Decimal("0")
+    technical_score: MoneyOpt = None
+    commercial_score: MoneyOpt = None
+    delivery_score: MoneyOpt = None
+    overall_score: MoneyOpt = None
     is_best_price: bool = False
     is_best_delivery: bool = False
     is_best_overall: bool = False
@@ -192,9 +194,9 @@ class QuotationRejectRequest(BaseModel):
 class QuotationScoreRequest(BaseModel):
     """Request para avaliar cotação."""
 
-    technical_score: Decimal | None = Field(None, ge=0, le=100)
-    commercial_score: Decimal | None = Field(None, ge=0, le=100)
-    delivery_score: Decimal | None = Field(None, ge=0, le=100)
+    technical_score: MoneyOpt = Field(None, ge=0, le=100)
+    commercial_score: MoneyOpt = Field(None, ge=0, le=100)
+    delivery_score: MoneyOpt = Field(None, ge=0, le=100)
     notes: str | None = None
 
 

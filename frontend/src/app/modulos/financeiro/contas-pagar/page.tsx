@@ -13,6 +13,9 @@ interface ContaPagar {
   valor?: number
   amount?: number
   net_value?: number
+  balance?: number | string
+  is_overdue?: boolean
+  days_overdue?: number
   vencimento?: string
   due_date?: string
   status?: string
@@ -57,15 +60,22 @@ const statusColor: Record<string, string> = {
   overdue: 'bg-red-100 text-red-700',
 }
 
+// Condomínio matriz (ESCRITÓRIO) — todas as contas a pagar da empresa usam este.
+const CONDOMINIO_MATRIZ = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
+
 export default function ContasPagarPage() {
   const [statusFilter, setStatusFilter] = useState('todos')
   const [search, setSearch] = useState('')
+  const [showNew, setShowNew] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [formErr, setFormErr] = useState('')
+  const [form, setForm] = useState({ description: '', supplier_name: '', gross_value: '', due_date: new Date().toISOString().slice(0, 10), category: '' })
 
   const { data, isLoading, error, refetch } = useQuery<PayablesResponse>({
-    queryKey: ['payables', statusFilter],
-    queryFn: () => fetchWithAuth(
-      `/api/v1/financial/payables${statusFilter !== 'todos' ? `?status=${statusFilter}` : ''}`
-    ),
+    queryKey: ['payables'],
+    // busca TODAS as contas; o filtro de status é aplicado no cliente (o status do backend
+    // tem casing/valores próprios — 'vencido' é derivado de is_overdue, não é status salvo).
+    queryFn: () => fetchWithAuth('/api/v1/financial/payables?page_size=500'),
     staleTime: 2 * 60 * 1000,
     retry: 1,
   })
@@ -80,17 +90,69 @@ export default function ContasPagarPage() {
   void aging
 
   const items: ContaPagar[] = data?.data ?? data?.items ?? []
-  const total = data?.total ?? items.length
-  const totalAmount = data?.total_amount ?? items.reduce((s, i) => s + (i.net_value ?? i.valor ?? i.amount ?? 0), 0)
-  const vencendoHoje = data?.vencendo_hoje ?? 0
-  const atrasadas = data?.atrasadas ?? 0
-  const pagas = data?.pagas ?? 0
+
+  // valores vêm como STRING do backend (Decimal serializado) — coagir SEMPRE p/ número,
+  // senão `0 + "2890.00"` concatena ("02890.00689.00...") e toLocaleString não formata.
+  const num = (v: unknown) => { const n = Number(v ?? 0); return Number.isFinite(n) ? n : 0 }
+  const brl = (v: unknown) => num(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  const valorDe = (i: ContaPagar) => num(i.net_value ?? i.valor ?? i.amount ?? i.balance ?? 0)
+  const hoje = new Date().toISOString().slice(0, 10)
+  const isPago = (s?: string) => ['pago', 'paid'].includes((s ?? '').toLowerCase())
+  const isVencido = (i: ContaPagar) => Boolean(i.is_overdue) && !isPago(i.status)
+
+  // KPIs calculados dos próprios itens (o backend não manda esses campos no topo).
+  const total = items.length
+  const vencendoHoje = items.filter(i => (i.vencimento ?? i.due_date)?.slice(0, 10) === hoje && !isPago(i.status)).length
+  const atrasadas = items.filter(isVencido).length
+  const pagas = items.filter(i => isPago(i.status)).length
 
   const filtered = items.filter(item => {
     const desc = (item.descricao ?? item.description ?? '').toLowerCase()
     const forn = (item.supplier_name ?? item.fornecedor ?? item.supplier ?? '').toLowerCase()
-    return desc.includes(search.toLowerCase()) || forn.includes(search.toLowerCase())
+    const buscaOk = desc.includes(search.toLowerCase()) || forn.includes(search.toLowerCase())
+    if (!buscaOk) return false
+    if (statusFilter === 'todos') return true
+    if (statusFilter === 'pago') return isPago(item.status)
+    if (statusFilter === 'vencido') return isVencido(item)
+    if (statusFilter === 'pendente') return !isPago(item.status) && !isVencido(item)
+    return (item.status ?? '').toLowerCase() === statusFilter
   })
+
+  // total exibido = soma dos itens FILTRADOS (bate com o que está na tela)
+  const totalAmount = filtered.reduce((s, i) => s + valorDe(i), 0)
+
+  const criarConta = async () => {
+    setFormErr('')
+    if (!form.description.trim() || !form.gross_value || !form.due_date) {
+      setFormErr('Preencha descrição, valor e vencimento.'); return
+    }
+    if (Number(form.gross_value) <= 0) {  // FIN-05: valor > 0 (espelha a trava gt=0 do backend)
+      setFormErr('O valor deve ser maior que zero.'); return
+    }
+    setSaving(true)
+    try {
+      const token = localStorage.getItem('access_token') ?? localStorage.getItem('token') ?? ''
+      const res = await fetch('/api/v1/financial/payables', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          description: form.description.trim(),
+          supplier_name: form.supplier_name.trim() || undefined,
+          gross_value: Number(form.gross_value),
+          due_date: form.due_date,
+          category: form.category.trim() || undefined,
+          condominio_id: CONDOMINIO_MATRIZ,
+        }),
+      })
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}))
+        setFormErr(typeof e.detail === 'string' ? e.detail : 'Não foi possível criar a conta.'); return
+      }
+      setShowNew(false)
+      setForm({ description: '', supplier_name: '', gross_value: '', due_date: new Date().toISOString().slice(0, 10), category: '' })
+      refetch()
+    } catch { setFormErr('Falha ao salvar.') } finally { setSaving(false) }
+  }
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
@@ -112,6 +174,7 @@ export default function ContasPagarPage() {
             ↺ Atualizar
           </button>
           <button
+            onClick={() => { setFormErr(''); setShowNew(true) }}
             className="flex items-center gap-1.5 px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
           >
             + Nova Conta
@@ -199,16 +262,14 @@ export default function ContasPagarPage() {
               {filtered.map((item, idx) => (
                 <tr key={item.id ?? idx} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3 text-gray-900">{item.descricao ?? item.description ?? '—'}</td>
-                  <td className="px-4 py-3 text-gray-600">{item.supplier_name ?? item.description ?? item.fornecedor ?? item.supplier ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-600">{item.supplier_name ?? item.fornecedor ?? item.supplier ?? '—'}</td>
                   <td className="px-4 py-3 text-gray-600">
                     {(item.vencimento ?? item.due_date)
-                      ? new Date(item.vencimento ?? item.due_date ?? '').toLocaleDateString('pt-BR')
+                      ? new Date(`${(item.vencimento ?? item.due_date ?? '').slice(0, 10)}T00:00:00`).toLocaleDateString('pt-BR')
                       : '—'}
                   </td>
                   <td className="px-4 py-3 text-right font-medium text-gray-900">
-                    {(item.net_value ?? item.valor ?? item.amount ?? 0).toLocaleString('pt-BR', {
-                      style: 'currency', currency: 'BRL'
-                    })}
+                    {brl(valorDe(item))}
                   </td>
                   <td className="px-4 py-3 text-center">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColor[item.status ?? ''] ?? 'bg-gray-100 text-gray-600'}`}>
@@ -228,8 +289,54 @@ export default function ContasPagarPage() {
           <span>{filtered.length} conta(s) exibida(s)</span>
           <span className="font-medium text-gray-900">
             Total:{' '}
-            {totalAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+            {brl(totalAmount)}
           </span>
+        </div>
+      )}
+
+      {/* Modal Nova Conta */}
+      {showNew && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setShowNew(false)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Nova Conta a Pagar</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Descrição *</label>
+                <input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
+                  className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Ex.: Energia — julho" />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Fornecedor</label>
+                <input value={form.supplier_name} onChange={e => setForm({ ...form, supplier_name: e.target.value })}
+                  className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Opcional" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">Valor (R$) *</label>
+                  <input type="number" step="0.01" min="0" value={form.gross_value} onChange={e => setForm({ ...form, gross_value: e.target.value })}
+                    className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="0,00" />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">Vencimento *</label>
+                  <input type="date" value={form.due_date} onChange={e => setForm({ ...form, due_date: e.target.value })}
+                    className="w-full border rounded-lg px-3 py-2 text-sm" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Categoria</label>
+                <input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}
+                  className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Opcional" />
+              </div>
+              {formErr && <p className="text-sm text-red-600">{formErr}</p>}
+            </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <button onClick={() => setShowNew(false)} className="px-4 py-2 text-sm border rounded-lg text-gray-700 hover:bg-gray-50">Cancelar</button>
+              <button onClick={criarConta} disabled={saving}
+                className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                {saving ? 'Salvando…' : 'Criar conta'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
