@@ -203,7 +203,7 @@ export default function DashboardPage() {
           {[
             { key: 'employees', label: 'Colaboradores', icon: Users, color: '#111b57', value: stats?.employees },
             { key: 'posts', label: 'Postos Ativos', icon: Shield, color: '#f97707', value: stats?.active_posts },
-            { key: 'clients', label: 'Clientes', icon: Briefcase, color: '#10b981', value: stats?.clients },
+            { key: 'clients', label: 'Clientes Pagantes', icon: Briefcase, color: '#10b981', value: stats?.clients },
             { key: 'scales', label: 'Escalas', icon: BarChart3, color: '#8b5cf6', value: stats?.scales },
           ].map((stat) => (
             <div key={stat.key} className="card-shine bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl p-3.5 sm:p-5 transition-shadow hover:shadow-sm">
@@ -351,7 +351,7 @@ export default function DashboardPage() {
                 <span className="text-sm font-semibold">Financeiro</span>
               </div>
               <p className="font-data text-2xl font-semibold tabular-nums">{stats?.clients ?? 0}</p>
-              <p className="text-xs text-[hsl(var(--muted-foreground))]">clientes ativos</p>
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">clientes pagantes</p>
             </div>
 
             <div

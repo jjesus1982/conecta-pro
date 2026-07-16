@@ -49,11 +49,12 @@ async function fetchEmployeeCount(): Promise<number> {
 async function fetchPostCount(): Promise<number> {
   try {
     const { data } = await api.get('/api/v1/operacional/posts/stats');
-    return data.total ?? data.count ?? 0;
+    // Card diz "Postos Ativos": usar by_status.active, nunca o total (ativos+inativos)
+    return data.by_status?.active ?? data.active ?? 0;
   } catch {
     try {
       const { data } = await api.get('/api/v1/operacional/posts/', {
-        params: { page: 1, page_size: 1 },
+        params: { page: 1, page_size: 1, status: 'active' },
       });
       return data.total ?? data.count ?? 0;
     } catch {
@@ -68,7 +69,8 @@ async function fetchPostCount(): Promise<number> {
 async function fetchClientCount(): Promise<number> {
   try {
     const { data } = await api.get('/api/v1/clients/stats');
-    return data.total_clients ?? data.total ?? data.count ?? 0;
+    // Card diz "Clientes Pagantes": mrr > 0 (exclui prospects e as empresas do grupo)
+    return data.paying_clients ?? data.total_clients ?? data.total ?? 0;
   } catch {
     try {
       const { data } = await api.get('/api/v1/clients/', {

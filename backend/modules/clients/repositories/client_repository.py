@@ -231,8 +231,13 @@ class ClientRepository:
             text("SELECT COALESCE(sum(total_revenue), 0) FROM clients")
         ).scalar() or Decimal("0")
 
+        paying = self.db.execute(
+            text("SELECT count(*) FROM clients WHERE COALESCE(mrr, 0) > 0")
+        ).scalar() or 0
+
         return {
             "total_clients": total,
+            "paying_clients": paying,
             "active_clients": active,
             "inactive_clients": inactive,
             "defaulter_clients": 0,

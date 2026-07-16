@@ -298,6 +298,7 @@ class ClientStats(BaseModel):
     """Schema for client statistics."""
 
     total_clients: int = 0
+    paying_clients: int = 0
     active_clients: int = 0
     inactive_clients: int = 0
     defaulter_clients: int = 0
