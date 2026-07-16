@@ -42,35 +42,39 @@ const fmt = (v: number | null | undefined) => {
 const fmtPct = (v: number | null | undefined) => `${(v ?? 0).toFixed(1)}%`;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+// Shape REAL do GET /empresas/dashboard/fiscal/grupo (as empresas ficam sob `empresas.*`)
 interface FiscalData {
   periodo: string;
+  status?: string;
   grupo: {
-    total_faturamento_estimado: number;
+    total_empresas?: number;
+    total_receita_mes: number;
     total_impostos_mes: number;
-    economia_liminares_potencial: number;
+    economia_liminares: number;
+    fonte?: string;
   };
-  conecta_eletronica: {
-    regime: string;
-    receita_estimada: number;
-    impostos_mes: number;
-    carga_pct: number;
-    detalhamento: Record<string, number>;
+  empresas?: {
+    conecta_eletronica?: {
+      regime?: string;
+      receita_mes?: number;
+      impostos_mes?: number;
+      carga_pct?: number;
+      detalhamento?: Record<string, number>;
+    };
+    conecta_patrimonial?: {
+      regime?: string;
+      receita_mes?: number;
+      impostos_sem_liminar?: number;
+      carga_pct_sem?: number;
+      liminares_ativas?: number;
+      status_liminares?: string;
+    };
   };
-  conecta_patrimonial: {
-    regime: string;
-    receita_estimada: number;
-    impostos_sem_liminar: number;
-    impostos_com_liminar: number;
-    economia_liminar: number;
-    carga_pct_sem: number;
-    carga_pct_com: number;
-    status_liminares: string;
-  };
-  obrigacoes_mes: {
-    total: number;
-    criticas: number;
-    atrasadas: number;
-    pendentes: number;
+  obrigacoes_mes?: {
+    total?: number;
+    criticas?: number;
+    atrasadas?: number;
+    pendentes?: number;
   };
 }
 
@@ -125,13 +129,16 @@ interface ContabilData {
   };
 }
 
-// ─── Dados de gráfico fiscal (estáticos para o chart) ─────────────────────────
-const CHART_FISCAL_DATA = [
-  { name: 'IRPJ/CSLL', eletronica: 19200, patrimonial: 0 },
-  { name: 'PIS/COFINS', eletronica: 16500, patrimonial: 3882 },
-  { name: 'ISS', eletronica: 10000, patrimonial: 7500 },
-  { name: 'DAS/GPS', eletronica: 0, patrimonial: 8538 },
-];
+// Gráfico fiscal montado do DETALHAMENTO REAL do payload (nunca valores chumbados).
+// Vazio-real → gráfico não renderiza e mostramos "aguardando detalhamento".
+function buildChartFiscal(fiscal: FiscalData | null) {
+  const det = fiscal?.empresas?.conecta_eletronica?.detalhamento ?? {};
+  return Object.entries(det).map(([name, valor]) => ({
+    name,
+    eletronica: Number(valor) || 0,
+    patrimonial: 0, // payload atual não traz detalhamento da Patrimonial (pré-liminares)
+  }));
+}
 
 const SITUACAO_LABEL: Record<string, string> = {
   excelente: 'Excelente',
@@ -232,10 +239,10 @@ export default function DashboardMultiEmpresaPage() {
 
   useEffect(() => { carregar(); }, [carregar]);
 
-  const lucroLiquido = (rentabilidade?.resumo_grupo.total_lucro_liquido_mes ?? 0);
-  const impostosMes = (fiscal?.grupo.total_impostos_mes ?? 0);
-  const faturamento = (fiscal?.grupo.total_faturamento_estimado ?? 350000);
-  const economiaLiminar = (fiscal?.grupo.economia_liminares_potencial ?? 0);
+  const lucroLiquido = (rentabilidade?.resumo_grupo?.total_lucro_liquido_mes ?? 0);
+  const impostosMes = (fiscal?.grupo?.total_impostos_mes ?? 0);
+  const faturamento = (fiscal?.grupo?.total_receita_mes ?? 0);
+  const economiaLiminar = (fiscal?.grupo?.economia_liminares ?? 0);
 
   // Dados para o gráfico pizza de rentabilidade
   const pieData = (rentabilidade?.por_contrato ?? []).map((c, i) => ({
@@ -312,7 +319,7 @@ export default function DashboardMultiEmpresaPage() {
           <KpiCard
             title="Lucro Líquido"
             value={fmt(lucroLiquido)}
-            sub={`Margem ${fmtPct(rentabilidade?.resumo_grupo.margem_media_pct)}`}
+            sub={`Margem ${fmtPct(rentabilidade?.resumo_grupo?.margem_media_pct)}`}
             icon={TrendingUp}
             color="text-green-600"
           />
@@ -353,25 +360,25 @@ export default function DashboardMultiEmpresaPage() {
                             <span className="font-semibold text-gray-800">Conecta Eletrônica</span>
                           </div>
                           <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-blue-100 text-blue-700">
-                            {fiscal?.conecta_eletronica.regime}
+                            {fiscal?.empresas?.conecta_eletronica?.regime}
                           </span>
                         </div>
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
                             <span className="text-gray-600">Receita estimada</span>
-                            <span className="font-semibold">{fmt(fiscal?.conecta_eletronica.receita_estimada)}</span>
+                            <span className="font-semibold">{fmt(fiscal?.empresas?.conecta_eletronica?.receita_mes)}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-gray-600">Impostos totais</span>
-                            <span className="font-semibold text-red-600">{fmt(fiscal?.conecta_eletronica.impostos_mes)}</span>
+                            <span className="font-semibold text-red-600">{fmt(fiscal?.empresas?.conecta_eletronica?.impostos_mes)}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-gray-600">Carga tributária</span>
-                            <span className="font-semibold">{fmtPct(fiscal?.conecta_eletronica.carga_pct)}</span>
+                            <span className="font-semibold">{fmtPct(fiscal?.empresas?.conecta_eletronica?.carga_pct)}</span>
                           </div>
                           <div className="border-t border-blue-100 pt-2 mt-2">
                             <p className="text-xs text-gray-500 mb-1.5">Detalhamento:</p>
-                            {Object.entries(fiscal?.conecta_eletronica.detalhamento ?? {}).map(([k, v]) => (
+                            {Object.entries(fiscal?.empresas?.conecta_eletronica?.detalhamento ?? {}).map(([k, v]) => (
                               <div key={k} className="flex justify-between text-xs">
                                 <span className="text-gray-500 uppercase">{k}</span>
                                 <span className="font-medium">{fmt(v)}</span>
@@ -389,47 +396,52 @@ export default function DashboardMultiEmpresaPage() {
                             <span className="font-semibold text-gray-800">Conecta Patrimonial</span>
                           </div>
                           <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-orange-100 text-orange-700">
-                            {fiscal?.conecta_patrimonial.regime}
+                            {fiscal?.empresas?.conecta_patrimonial?.regime}
                           </span>
                         </div>
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
                             <span className="text-gray-600">Receita estimada</span>
-                            <span className="font-semibold">{fmt(fiscal?.conecta_patrimonial.receita_estimada)}</span>
+                            <span className="font-semibold">{fmt(fiscal?.empresas?.conecta_patrimonial?.receita_mes)}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-gray-600">DAS sem liminar</span>
-                            <span className="font-semibold text-red-600">{fmt(fiscal?.conecta_patrimonial.impostos_sem_liminar)}</span>
+                            <span className="font-semibold text-red-600">{fmt(fiscal?.empresas?.conecta_patrimonial?.impostos_sem_liminar)}</span>
+                          </div>
+                          {/* payload real traz liminares_ativas/status_liminares (não impostos_com_liminar) */}
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Liminares ativas</span>
+                            <span className="font-semibold text-green-600">{fiscal?.empresas?.conecta_patrimonial?.liminares_ativas ?? 0}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-600">DAS com liminar</span>
-                            <span className="font-semibold text-green-600">{fmt(fiscal?.conecta_patrimonial.impostos_com_liminar)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Economia liminar</span>
-                            <span className="font-semibold text-orange-600">{fmt(fiscal?.conecta_patrimonial.economia_liminar)}</span>
+                            <span className="text-gray-600">Status liminares</span>
+                            <span className="font-semibold text-orange-600">{fiscal?.empresas?.conecta_patrimonial?.status_liminares ?? '—'}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-gray-600">Carga s/ liminar</span>
-                            <span className="font-medium">{fmtPct(fiscal?.conecta_patrimonial.carga_pct_sem)}</span>
+                            <span className="font-medium">{fmtPct(fiscal?.empresas?.conecta_patrimonial?.carga_pct_sem)}</span>
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    {/* Gráfico comparativo */}
+                    {/* Gráfico comparativo — detalhamento REAL do payload (sem valores chumbados) */}
                     <div>
-                      <h3 className="text-sm font-semibold text-gray-700 mb-3">Comparativo de Impostos por Categoria</h3>
-                      <ResponsiveContainer width="100%" height={220}>
-                        <BarChart data={CHART_FISCAL_DATA} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                          <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                          <YAxis tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} />
-                          <Tooltip formatter={(v: unknown) => fmt(v as number)} />
-                          <Legend />
-                          <Bar dataKey="eletronica" name="Eletrônica" fill="#1a47f5" radius={[4, 4, 0, 0]} />
-                          <Bar dataKey="patrimonial" name="Patrimonial" fill="#f97707" radius={[4, 4, 0, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
+                      <h3 className="text-sm font-semibold text-gray-700 mb-3">Impostos por Categoria (Eletrônica — dado real)</h3>
+                      {buildChartFiscal(fiscal).length > 0 ? (
+                        <ResponsiveContainer width="100%" height={220}>
+                          <BarChart data={buildChartFiscal(fiscal)} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                            <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                            <YAxis tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} />
+                            <Tooltip formatter={(v: unknown) => fmt(v as number)} />
+                            <Legend />
+                            <Bar dataKey="eletronica" name="Eletrônica" fill="#1a47f5" radius={[4, 4, 0, 0]} />
+                            <Bar dataKey="patrimonial" name="Patrimonial" fill="#f97707" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <p className="text-sm text-gray-500 py-8 text-center">Aguardando detalhamento de impostos do período.</p>
+                      )}
                     </div>
 
                     {/* Banner liminares */}
@@ -437,8 +449,8 @@ export default function DashboardMultiEmpresaPage() {
                       <AlertTriangle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
                       <p className="text-sm text-yellow-800">
                         <strong>Com liminares PIS/COFINS + INSS,</strong> Patrimonial economizaria{' '}
-                        <strong>{fmt(fiscal?.grupo.economia_liminares_potencial)}/mês</strong> ({fmt((fiscal?.grupo.economia_liminares_potencial ?? 0) * 12)}/ano).
-                        Status atual: <span className="uppercase font-medium">{fiscal?.conecta_patrimonial.status_liminares?.replace('_', ' ')}</span>.
+                        <strong>{fmt(fiscal?.grupo?.economia_liminares)}/mês</strong> ({fmt((fiscal?.grupo?.economia_liminares ?? 0) * 12)}/ano).
+                        Status atual: <span className="uppercase font-medium">{fiscal?.empresas?.conecta_patrimonial?.status_liminares?.replace('_', ' ')}</span>.
                       </p>
                     </div>
                   </>
@@ -565,8 +577,8 @@ export default function DashboardMultiEmpresaPage() {
                               { label: 'Impostos', eletKey: 'impostos', patKey: 'impostos', consKey: 'impostos', neg: true },
                               { label: 'Lucro Líquido', eletKey: 'lucro_liquido', patKey: 'lucro_liquido', consKey: 'lucro_liquido', bold: true },
                             ].map((row, i) => {
-                              const elet = contabil?.por_empresa.conecta_eletronica as any;
-                              const pat = contabil?.por_empresa.conecta_patrimonial as any;
+                              const elet = contabil?.por_empresa?.conecta_eletronica as any;
+                              const pat = contabil?.por_empresa?.conecta_patrimonial as any;
                               const cons = contabil?.grupo_consolidado as any;
                               return (
                                 <tr key={i} className={row.bold ? 'bg-gray-50' : ''}>
@@ -585,9 +597,9 @@ export default function DashboardMultiEmpresaPage() {
                             })}
                             <tr>
                               <td className="py-2.5 text-gray-600">Margem Líquida</td>
-                              <td className="py-2.5 text-right">{fmtPct(contabil?.por_empresa.conecta_eletronica.margem_pct)}</td>
-                              <td className="py-2.5 text-right">{fmtPct(contabil?.por_empresa.conecta_patrimonial.margem_pct)}</td>
-                              <td className="py-2.5 text-right font-semibold">{fmtPct(contabil?.grupo_consolidado.margem_liquida_pct)}</td>
+                              <td className="py-2.5 text-right">{fmtPct(contabil?.por_empresa?.conecta_eletronica?.margem_pct)}</td>
+                              <td className="py-2.5 text-right">{fmtPct(contabil?.por_empresa?.conecta_patrimonial?.margem_pct)}</td>
+                              <td className="py-2.5 text-right font-semibold">{fmtPct(contabil?.grupo_consolidado?.margem_liquida_pct)}</td>
                             </tr>
                           </tbody>
                         </table>
@@ -599,8 +611,8 @@ export default function DashboardMultiEmpresaPage() {
                       <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
                       <p className="text-sm text-green-800">
                         <strong>Patrimonial:</strong> com liminares ativas, economia potencial de{' '}
-                        <strong>{fmt(contabil?.por_empresa.conecta_patrimonial.economia_potencial_liminares)}/mês</strong>{' '}
-                        ({fmt((contabil?.por_empresa.conecta_patrimonial.economia_potencial_liminares ?? 0) * 12)}/ano).
+                        <strong>{fmt(contabil?.por_empresa?.conecta_patrimonial?.economia_potencial_liminares)}/mês</strong>{' '}
+                        ({fmt((contabil?.por_empresa?.conecta_patrimonial?.economia_potencial_liminares ?? 0) * 12)}/ano).
                       </p>
                     </div>
 
@@ -609,10 +621,10 @@ export default function DashboardMultiEmpresaPage() {
                       <div className="flex items-start justify-between">
                         <div>
                           <h3 className="font-semibold text-gray-800">Exportação para Contador</h3>
-                          <p className="text-sm text-gray-500 mt-0.5">Formato: {contabil?.exportacao_contador.formato}</p>
+                          <p className="text-sm text-gray-500 mt-0.5">Formato: {contabil?.exportacao_contador?.formato}</p>
                           <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
-                            <span>Última: {contabil?.exportacao_contador.ultima_exportacao ?? 'Nunca'}</span>
-                            <span>Próxima: {contabil?.exportacao_contador.proxima_exportacao}</span>
+                            <span>Última: {contabil?.exportacao_contador?.ultima_exportacao ?? 'Nunca'}</span>
+                            <span>Próxima: {contabil?.exportacao_contador?.proxima_exportacao}</span>
                           </div>
                         </div>
                         <button type="button" className="flex items-center gap-2 px-4 py-2 bg-[#111b57] hover:bg-[#1a47f5] text-white text-sm rounded-lg transition-colors">
@@ -623,12 +635,12 @@ export default function DashboardMultiEmpresaPage() {
                       <div className="mt-3">
                         <span className={cn(
                           'inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full',
-                          contabil?.exportacao_contador.status === 'pendente'
+                          contabil?.exportacao_contador?.status === 'pendente'
                             ? 'bg-yellow-50 text-yellow-700 border border-yellow-200'
                             : 'bg-green-50 text-green-700 border border-green-200'
                         )}>
                           <Clock className="w-3 h-3" />
-                          {contabil?.exportacao_contador.status === 'pendente' ? 'Exportação pendente' : 'Exportado'}
+                          {contabil?.exportacao_contador?.status === 'pendente' ? 'Exportação pendente' : 'Exportado'}
                         </span>
                       </div>
                     </div>
@@ -657,10 +669,10 @@ export default function DashboardMultiEmpresaPage() {
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
-                { label: 'Total', value: fiscal?.obrigacoes_mes.total ?? 0, color: 'text-gray-700', bg: 'bg-gray-50' },
-                { label: 'Críticas', value: fiscal?.obrigacoes_mes.criticas ?? 0, color: 'text-red-700', bg: 'bg-red-50' },
-                { label: 'Atrasadas', value: fiscal?.obrigacoes_mes.atrasadas ?? 0, color: 'text-orange-700', bg: 'bg-orange-50' },
-                { label: 'Pendentes', value: fiscal?.obrigacoes_mes.pendentes ?? 0, color: 'text-yellow-700', bg: 'bg-yellow-50' },
+                { label: 'Total', value: fiscal?.obrigacoes_mes?.total ?? 0, color: 'text-gray-700', bg: 'bg-gray-50' },
+                { label: 'Críticas', value: fiscal?.obrigacoes_mes?.criticas ?? 0, color: 'text-red-700', bg: 'bg-red-50' },
+                { label: 'Atrasadas', value: fiscal?.obrigacoes_mes?.atrasadas ?? 0, color: 'text-orange-700', bg: 'bg-orange-50' },
+                { label: 'Pendentes', value: fiscal?.obrigacoes_mes?.pendentes ?? 0, color: 'text-yellow-700', bg: 'bg-yellow-50' },
               ].map((item, i) => (
                 <div key={i} className={cn('rounded-xl p-4 text-center', item.bg)}>
                   <p className={cn('font-data text-2xl font-semibold tabular-nums', item.color)}>{item.value}</p>
