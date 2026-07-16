@@ -134,7 +134,13 @@ function NovoPagamentoForm({ onPrepared, saldo }: { onPrepared: () => void; sald
   const escolherBenef = (b: Record<string, string>) => {
     setDest((prev) => {
       const { pix_copia_e_cola: _drop, ...resto } = prev;  // agenda troca a chave → invalida QR colado antes
-      return { ...resto, chave: b.chave_pix || "", tipo_chave: b.tipo_chave || prev.tipo_chave || "CPF", nome_recebedor: b.nome || "" };
+      return {
+        ...resto,
+        chave: b.chave_pix || "",
+        tipo_chave: b.tipo_chave || prev.tipo_chave || "CPF",
+        nome_recebedor: b.nome || "",
+        ...(b.cpf_cnpj ? { cpf_cnpj: b.cpf_cnpj } : {}),  // CNPJ da agenda → comprovante
+      };
     });
     setBenefQ(b.nome || ""); setBenefOpen(false); setBenefList([]);
   };
@@ -186,6 +192,14 @@ function NovoPagamentoForm({ onPrepared, saldo }: { onPrepared: () => void; sald
       });
       if (r.valor) setValor(String(r.valor));
       if (r.nome) setBenefQ(String(r.nome));
+      // CNPJ/CPF do favorecido: puxa da agenda de beneficiários pelo nome (ex.: Sólides)
+      if (r.nome) {
+        try {
+          const ag = await apiFetch(`/api/v1/financial/beneficiarios?q=${encodeURIComponent(String(r.nome))}`) as { beneficiarios?: Array<Record<string, string>> };
+          const hit = (ag?.beneficiarios || []).find((b) => (b.nome || "").toUpperCase() === String(r.nome).toUpperCase() && b.cpf_cnpj);
+          if (hit?.cpf_cnpj) handleDestChange("cpf_cnpj", hit.cpf_cnpj);
+        } catch { /* agenda é enriquecimento, nunca bloqueia */ }
+      }
       const aviso = r.cob_status && r.cob_status !== "ATIVA" ? ` ⚠ cobrança ${r.cob_status} no PSP` : "";
       setMsgCodigo(`PIX ${r.dinamico ? "dinâmico resolvido" : "lido"}: ${r.nome || r.chave}${r.valor ? ` — R$ ${Number(r.valor).toFixed(2)}` : ""}${aviso}. Confira e confirme.`);
     } catch { setMsgCodigo("Falha ao decodificar o código."); }
@@ -245,6 +259,11 @@ function NovoPagamentoForm({ onPrepared, saldo }: { onPrepared: () => void; sald
             value={colaCola}
             onChange={(e) => setColaCola(e.target.value)}
             onBlur={() => colaCola.trim() && processarCodigo(colaCola)}
+            onPaste={(e) => {
+              // colar já dispara a leitura (antes só no blur/botão "Ler" — parecia travado)
+              const texto = e.clipboardData.getData("text").trim();
+              if (texto.length > 30) { setColaCola(texto); setTimeout(() => processarCodigo(texto), 60); }
+            }}
             placeholder="Cole o PIX copia-e-cola ou a linha digitável do boleto"
           />
           <button
