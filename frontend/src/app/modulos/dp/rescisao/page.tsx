@@ -768,19 +768,19 @@ export default function RescisaoPage() {
                   <p className="text-sm font-medium mb-2">Verbas Rescisórias</p>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div className="flex justify-between bg-muted/50 p-2 rounded">
-                      <span>Indenização</span>
+                      <span>Aviso prévio indenizado</span>
                       <span className="font-medium">{formatCurrency(selectedItem.severance_amount)}</span>
                     </div>
                     <div className="flex justify-between bg-muted/50 p-2 rounded">
-                      <span>Férias</span>
+                      <span>Férias + 1/3 constitucional</span>
                       <span className="font-medium">{formatCurrency(selectedItem.vacation_balance_amount)}</span>
                     </div>
                     <div className="flex justify-between bg-muted/50 p-2 rounded">
-                      <span>13º Salário</span>
+                      <span>13º proporcional</span>
                       <span className="font-medium">{formatCurrency(selectedItem.thirteenth_salary_amount)}</span>
                     </div>
                     <div className="flex justify-between bg-muted/50 p-2 rounded">
-                      <span>FGTS</span>
+                      <span>Multa FGTS 40%</span>
                       <span className="font-medium">{formatCurrency(selectedItem.fgts_amount)}</span>
                     </div>
                     <div className="col-span-2 flex justify-between bg-primary/10 p-2 rounded font-semibold">
