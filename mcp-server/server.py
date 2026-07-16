@@ -409,10 +409,10 @@ async def atualizar_proposta(proposta_id: str, titulo: str | None = None, condic
 
 
 @mcp.tool
-async def baixar_proposta_pdf(proposta_id: str) -> dict:
+async def baixar_proposta_pdf(proposta_id: str, salvar_no_drive: bool = False) -> dict:
     """Gera o PDF da proposta (SEM enviar ao cliente), REGISTRA no Conecta PRO e devolve o LINK de
     download (clicável). Use para conferir o layout/auditar antes de qualquer envio real."""
-    return await _gerar_doc_get(f"/crm/proposals/{proposta_id}/pdf")
+    return await _gerar_doc_get(f"/crm/proposals/{proposta_id}/pdf", drive=salvar_no_drive)
 
 
 async def _pdf_b64(path: str) -> dict:
@@ -428,15 +428,15 @@ async def _pdf_b64(path: str) -> dict:
 
 
 @mcp.tool
-async def baixar_contrato_pdf(contrato_id: str) -> dict:
+async def baixar_contrato_pdf(contrato_id: str, salvar_no_drive: bool = False) -> dict:
     """Gera o PDF do CONTRATO no padrão Conecta Mais (com selo), em base64. contrato_id = número (CTR-...) ou id."""
-    return await _gerar_doc_get(f"/crm/contracts/{contrato_id}/pdf")
+    return await _gerar_doc_get(f"/crm/contracts/{contrato_id}/pdf", drive=salvar_no_drive)
 
 
 @mcp.tool
-async def baixar_relatorio_comercial_pdf() -> dict:
+async def baixar_relatorio_comercial_pdf(salvar_no_drive: bool = False) -> dict:
     """Gera o RELATÓRIO COMERCIAL em PDF (MRR, clientes, pipeline, top deals) no padrão Conecta Mais, em base64."""
-    return await _gerar_doc_get("/crm/reports/comercial/pdf")
+    return await _gerar_doc_get("/crm/reports/comercial/pdf", drive=salvar_no_drive)
 
 
 async def _pdf_post_b64(path: str, payload: dict) -> dict:
@@ -449,27 +449,27 @@ async def _pdf_post_b64(path: str, payload: dict) -> dict:
             "pdf_base64": base64.b64encode(raw).decode("ascii")}
 
 
-async def _gerar_doc(path: str, payload: dict, teste: bool = True) -> dict:
-    """Gera o documento (POST), REGISTRA no Conecta PRO e devolve o LINK público de download (clicável)."""
+async def _gerar_doc(path: str, payload: dict, teste: bool = True, drive: bool = False) -> dict:
+    """Gera o documento (POST), REGISTRA no Conecta PRO e devolve o LINK público. drive=True: sobe pro Google Drive."""
     try:
-        r = await erp.post(f"{path}?salvar=true&teste={'true' if teste else 'false'}", json=payload)
+        r = await erp.post(f"{path}?salvar=true&teste={'true' if teste else 'false'}&drive={'true' if drive else 'false'}", json=payload)
     except Exception as exc:  # noqa: BLE001
         return {"gerado": False, "erro": str(exc)[:200]}
     return {"gerado": True, "titulo": r.get("titulo"), "tamanho_kb": r.get("tamanho_kb"),
-            "download_url": r.get("download_url"), "id": r.get("id"),
-            "obs": "Registrado no Conecta PRO. Abra o download_url no navegador para ver/baixar."}
+            "download_url": r.get("download_url"), "drive_url": r.get("drive_url"), "id": r.get("id"),
+            "obs": "Registrado no Conecta PRO." + (f" Salvo no Drive: {r.get('drive_url')}" if r.get("drive_url") else " Abra o download_url para ver/baixar.")}
 
 
-async def _gerar_doc_get(path: str, teste: bool = True) -> dict:
-    """Idem (GET): gera doc de uma entidade existente (proposta/contrato/relatório), registra + link."""
+async def _gerar_doc_get(path: str, teste: bool = True, drive: bool = False) -> dict:
+    """Idem (GET): gera doc de uma entidade existente (proposta/contrato/relatório), registra + link. drive=True: sobe pro Drive."""
     sep = "&" if "?" in path else "?"
     try:
-        r = await erp.get(f"{path}{sep}salvar=true&teste={'true' if teste else 'false'}")
+        r = await erp.get(f"{path}{sep}salvar=true&teste={'true' if teste else 'false'}&drive={'true' if drive else 'false'}")
     except Exception as exc:  # noqa: BLE001
         return {"gerado": False, "erro": str(exc)[:200]}
     return {"gerado": True, "titulo": r.get("titulo"), "tamanho_kb": r.get("tamanho_kb"),
-            "download_url": r.get("download_url"), "id": r.get("id"),
-            "obs": "Registrado no Conecta PRO. Abra o download_url no navegador para ver/baixar."}
+            "download_url": r.get("download_url"), "drive_url": r.get("drive_url"), "id": r.get("id"),
+            "obs": "Registrado no Conecta PRO." + (f" Salvo no Drive: {r.get('drive_url')}" if r.get("drive_url") else " Abra o download_url para ver/baixar.")}
 
 
 @mcp.tool
@@ -526,25 +526,25 @@ async def listar_documentos(tipo: str | None = None, limite: int = 30) -> dict:
 
 @mcp.tool
 async def gerar_recibo_pdf(pagador: str, valor: float, referente: str, documento: str | None = None,
-                           forma_pagamento: str | None = None, numero: str | None = None) -> dict:
+                           forma_pagamento: str | None = None, numero: str | None = None, salvar_no_drive: bool = False) -> dict:
     """Gera um RECIBO de pagamento em PDF (padrão Conecta Mais, com selo), em base64.
     Ex.: pagador='CONDOMINIO X', valor=6000, referente='portaria remota — junho/2026'."""
     return await _gerar_doc("/crm/docs/recibo/pdf", {
         "pagador": pagador, "valor": valor, "referente": referente,
-        "documento": documento, "forma_pagamento": forma_pagamento, "numero": numero})
+        "documento": documento, "forma_pagamento": forma_pagamento, "numero": numero}, drive=salvar_no_drive)
 
 
 @mcp.tool
 async def gerar_aditivo_pdf(contrato_numero: str, tipo: str = "outro", objeto: str | None = None,
                             cliente: str | None = None, documento: str | None = None,
                             novo_valor: float | None = None, nova_vigencia_fim: str | None = None,
-                            justificativa: str | None = None, numero: str | None = None) -> dict:
+                            justificativa: str | None = None, numero: str | None = None, salvar_no_drive: bool = False) -> dict:
     """Gera um TERMO ADITIVO de contrato em PDF (padrão Conecta Mais, com selo), em base64.
     tipo: reajuste | prorrogacao | escopo | valor | outro. Enriquece cliente pelo contrato se omitido."""
     return await _gerar_doc("/crm/docs/aditivo/pdf", {
         "contrato_numero": contrato_numero, "tipo": tipo, "objeto": objeto, "cliente": cliente,
         "documento": documento, "novo_valor": novo_valor, "nova_vigencia_fim": nova_vigencia_fim,
-        "justificativa": justificativa, "numero": numero})
+        "justificativa": justificativa, "numero": numero}, drive=salvar_no_drive)
 
 
 @mcp.tool
@@ -552,13 +552,13 @@ async def gerar_atestado_pdf(emitente: str, servico: str, periodo: str | None = 
                              emitente_documento: str | None = None, emitente_responsavel: str | None = None,
                              emitente_cargo: str | None = None, valor: float | None = None,
                              cidade: str | None = None, observacoes: str | None = None,
-                             numero: str | None = None) -> dict:
+                             numero: str | None = None, salvar_no_drive: bool = False) -> dict:
     """Gera um ATESTADO DE CAPACIDADE TÉCNICA em PDF (padrão Conecta Mais, com selo), em base64.
     emitente = cliente que atesta os serviços da Conecta Mais (usado em licitações)."""
     return await _gerar_doc("/crm/docs/atestado/pdf", {
         "emitente": emitente, "servico": servico, "periodo": periodo, "emitente_documento": emitente_documento,
         "emitente_responsavel": emitente_responsavel, "emitente_cargo": emitente_cargo, "valor": valor,
-        "cidade": cidade, "observacoes": observacoes, "numero": numero})
+        "cidade": cidade, "observacoes": observacoes, "numero": numero}, drive=salvar_no_drive)
 
 
 @mcp.tool
@@ -566,12 +566,12 @@ async def gerar_ordem_servico_pdf(cliente: str, servico: str, descricao: str | N
                                   documento: str | None = None, endereco: str | None = None,
                                   responsavel: str | None = None, valor: float | None = None,
                                   prazo: str | None = None, observacoes: str | None = None,
-                                  numero: str | None = None) -> dict:
+                                  numero: str | None = None, salvar_no_drive: bool = False) -> dict:
     """Gera uma ORDEM DE SERVIÇO (OS) em PDF (padrão Conecta Mais, com selo), em base64."""
     return await _gerar_doc("/crm/docs/ordem-servico/pdf", {
         "cliente": cliente, "servico": servico, "descricao": descricao, "documento": documento,
         "endereco": endereco, "responsavel": responsavel, "valor": valor, "prazo": prazo,
-        "observacoes": observacoes, "numero": numero})
+        "observacoes": observacoes, "numero": numero}, drive=salvar_no_drive)
 
 
 @mcp.tool
@@ -814,8 +814,8 @@ async def upload_asset(arquivo_base64: str, tipo: str = "logo", nome: str | None
 
 
 @mcp.tool
-async def excluir_documento(documento_id: str, confirmar: bool = False) -> dict:
-    """Exclui (soft-delete) um documento gerado/registrado. Exige confirmar=true."""
+async def excluir_documento_crm(documento_id: str, confirmar: bool = False) -> dict:
+    """Exclui (soft-delete) um documento gerado/registrado no CRM. Exige confirmar=true."""
     if not confirmar:
         return {"preview": True, "documento_id": documento_id,
                 "aviso": "Isto exclui o documento. Reenvie com confirmar=true."}
@@ -1006,7 +1006,7 @@ async def _one_proposal(pid: str) -> dict:
 async def cadastrar_whatsapp_cliente(cnpj_ou_id: str, numero: str) -> dict:
     """Grava/normaliza (E.164 +55…) o WhatsApp de um cliente (por CNPJ ou id) ou lead (id).
     Pré-requisito para o José Luís enviar follow-up/proposta por WhatsApp."""
-    return await erp.post("/crm/whatsapp/cadastrar", json={"cnpj_ou_id": cnpj_ou_id, "numero": numero})
+    return await erp.post("/crm/whatsapp/cadastrar", json={"cnpj_ou_id": cnpj_ou_id, "numero": numero}, drive=salvar_no_drive)
 
 
 @mcp.tool
@@ -1469,7 +1469,1006 @@ async def status_certidoes() -> dict:
     } for c in d.get("certidoes", [])]}
 
 
+# ============================ CFO / Financeiro / Diárias / DET (recursos novos 2026-07) ========
+
+@mcp.tool
+async def cfo_panorama() -> dict:
+    """Fotografia financeira REAL da empresa agora: saldo do Banco Inter AO VIVO, MRR, folha, margem,
+    runway, contas a pagar/receber, e visão cross-módulo (pipeline comercial, contingências jurídicas,
+    diaristas a pagar). Use para saber a saúde financeira atual."""
+    return await erp.get("/financial/cfo/panorama")
+
+
+@mcp.tool
+async def cfo_perguntar(pergunta: str, area: str = "fluxo_caixa") -> dict:
+    """Pergunta ao CFO IA (diretor financeiro), ancorado nos números reais do ERP. Nunca inventa número.
+    area: fluxo_caixa | resultado | tributos | estrategico. Ex.: 'Meu caixa cobre a folha deste mês?'."""
+    return await erp.post("/financial/cfo/perguntar", json={"area": area, "pergunta": pergunta})
+
+
+@mcp.tool
+async def previsao_custos_mensais() -> dict:
+    """Previsibilidade de custos mensais: folha, FGTS, ISS, diaristas (VT+VR diário e diárias do dia 15),
+    fornecedores, reembolsos, e os parcelamentos/acordos/custos fixos registrados. Cada valor traz a fonte."""
+    return await erp.get("/financial/cfo/previsao-custos")
+
+
+@mcp.tool
+async def registrar_custo_recorrente(categoria: str, descricao: str, valor: float,
+                                     dia_vencimento: int | None = None,
+                                     parcelas_total: int | None = None,
+                                     parcelas_pagas: int = 0) -> dict:
+    """Registra um custo recorrente para entrar na previsão. categoria: tributo | parcelamento | acordo | fixo | fornecedor.
+    Ex.: parcelamento (valor da parcela + parcelas_total + parcelas_pagas); aluguel/contador (fixo)."""
+    return await erp.post("/financial/cfo/custos-recorrentes", json={
+        "categoria": categoria, "descricao": descricao, "valor": valor,
+        "dia_vencimento": dia_vencimento, "parcelas_total": parcelas_total, "parcelas_pagas": parcelas_pagas})
+
+
+@mcp.tool
+async def diarias_cadastros() -> dict:
+    """Listas para lançar diárias: diaristas, funções, postos/condomínios, turnos e a tabela de preços (Função|Turno→valor)."""
+    return await erp.get("/operacional/diarias/cadastros")
+
+
+@mcp.tool
+async def lancar_diaria(diarista_id: int, funcao: str, posto: str, data: str, turno: str | None = None) -> dict:
+    """Lança uma diária trabalhada — o valor sai AUTOMÁTICO pela função/turno. data = AAAA-MM-DD.
+    turno (só p/ Agente de Portaria): DIURNO | NOTURNO | MEIO PERÍODO. Use diarias_cadastros() para os ids/opções."""
+    return await erp.post("/operacional/diarias/lancar", json={
+        "diarista_id": diarista_id, "funcao": funcao, "posto": posto, "data": data, "turno": turno})
+
+
+@mcp.tool
+async def resumo_diarias(mes: int, ano: int) -> dict:
+    """Resumo das diárias trabalhadas por diarista no mês — a lista que o Financeiro paga no dia 15."""
+    return await erp.get("/operacional/diarias/resumo-diarista", params={"mes": mes, "ano": ano})
+
+
+@mcp.tool
+async def gerar_lote_diarias_mes(ano: int, mes: int) -> dict:
+    """Gera o lote de pagamento do dia 15 a partir das diárias trabalhadas do mês (fila para o Financeiro pagar)."""
+    return await erp.post(f"/financial/pagamentos-diaristas/programar-diarias-mensais/{ano}/{mes}")
+
+
+@mcp.tool
+async def lote_diaristas(data: str | None = None) -> dict:
+    """Lote de pagamentos de diaristas a revisar (VT+VR diário e diárias do dia 15). data opcional AAAA-MM-DD.
+    O pagamento em lote em si é feito na tela do Financeiro (dinheiro que sai exige aprovação do gestor)."""
+    return await erp.get("/financial/pagamentos-diaristas/lote", params=({"data": data} if data else None))
+
+
+@mcp.tool
+async def diaristas_a_cadastrar() -> dict:
+    """Diaristas que aparecem no histórico de pagamentos (PIX de R$32 = VT+VR) e ainda NÃO estão cadastrados,
+    por frequência. Cada um precisa de CPF (obrigatório) + chave PIX no cadastro do Operacional."""
+    return await erp.get("/financial/pagamentos-diaristas/sugestoes-cadastro")
+
+
+@mcp.tool
+async def det_comunicacoes() -> dict:
+    """Comunicações do DET (Domicílio Eletrônico Trabalhista) coletadas pelo robô: notificações de
+    fiscalização (FGTS/INSS), intimações e avisos. Sinaliza as que exigem ação/escalonamento ao CQB."""
+    return await erp.get("/juridico/det/comunicacoes")
+
+
+@mcp.tool
+async def gerar_apresentacao(
+    titulo: str,
+    slides: list[dict],
+    subtitulo: str | None = None,
+    cliente: str | None = None,
+    local: str | None = None,
+    data: str | None = None,
+    formato: str = "pdf",
+    salvar_no_drive: bool = False,
+) -> dict:
+    """Gera uma APRESENTAÇÃO no padrão visual Conecta PRO — a MESMA identidade dos documentos
+    (capa azul-marinho com faixa laranja + logo, títulos com barra laranja, cards, selos com números
+    laranja, rodapé de marca fixo com CNPJ/0800/site, fechamento assinado pelo CEO). Use SEMPRE esta
+    ferramenta para montar apresentações/propostas em slides — nunca gere slides fora deste padrão.
+
+    Monte `slides` como uma lista de blocos (a CAPA e o CONTATO são adicionados automaticamente do
+    titulo/cliente/local/data e do CEO). Tipos de bloco:
+    - {"tipo":"sobre"}  → 4 selos padrão (+12 anos, 100% equipe própria, 24/7, Sentinela IA); customize com "selos":[{"valor","label"}]
+    - {"tipo":"problema","titulo":"O Desafio","subtitulo":"...","itens":[{"titulo","desc"}]}  (cards numerados)
+    - {"tipo":"solucao"|"escopo"|"diferenciais"|"cards","titulo":"...","subtitulo":"...","cards":[{"titulo","desc"}]}
+    - {"tipo":"passos","titulo":"Como Funciona","passos":[{"titulo","desc"}]}  (fluxo numerado)
+    - {"tipo":"kpis","titulo":"...","kpis":[{"valor":"+12","label":"anos"}]}
+    - {"tipo":"investimento","titulo":"...","opcoes":[{"nome","valor","destaque":true,"itens":["..."]}],"observacao":"..."}
+    - {"tipo":"imagem","titulo":"...","legenda":"...","imagem_path":"/caminho.png"}
+    - {"tipo":"secao","titulo":"...","subtitulo":"..."}  (divisória de seção)
+    - {"tipo":"contato","cta":"Vamos proteger seu pátio?"}
+    formato: "pdf" (retorna download_url clicável para enviar ao cliente) ou "pptx" (arquivo editável em base64)."""
+    import base64
+
+    payload = {"titulo": titulo, "subtitulo": subtitulo, "cliente": cliente,
+               "local": local, "data": data, "slides": slides}
+    if (formato or "pdf").lower() == "pptx":
+        try:
+            raw = await erp.post_bytes("/crm/apresentacoes/gerar?formato=pptx", payload)
+        except Exception as exc:  # noqa: BLE001
+            return {"gerado": False, "erro": str(exc)[:200]}
+        return {"gerado": True, "formato": "pptx", "tamanho_kb": round(len(raw) / 1024, 1),
+                "pptx_base64": base64.b64encode(raw).decode("ascii"),
+                "obs": "Apresentação editável (PowerPoint) no padrão Conecta PRO."}
+    try:
+        r = await erp.post(f"/crm/apresentacoes/gerar?formato=pdf&salvar=true&teste=false&drive={'true' if salvar_no_drive else 'false'}", json=payload)
+    except Exception as exc:  # noqa: BLE001
+        return {"gerado": False, "erro": str(exc)[:200]}
+    return {"gerado": True, "formato": "pdf", "titulo": r.get("titulo"), "tamanho_kb": r.get("tamanho_kb"),
+            "download_url": r.get("download_url"), "drive_url": r.get("drive_url"), "id": r.get("id"),
+            "obs": "Apresentação no padrão Conecta PRO." + (f" Salva no Drive: {r.get('drive_url')}" if r.get("drive_url") else " Abra o download_url para ver/enviar.")}
+
+
+@mcp.tool
+async def gerar_orcamento(
+    cliente: str,
+    itens: list[dict],
+    documento: str | None = None,
+    cidade: str | None = None,
+    objeto: str | None = None,
+    desconto_avista_pct: float | None = None,
+    parcelas: int | None = None,
+    entrada: float | None = None,
+    validade_dias: int | None = None,
+    garantia: str | None = None,
+    prazo: str | None = None,
+    observacao: str | None = None,
+    numero: str | None = None,
+    salvar_no_drive: bool = False,
+) -> dict:
+    """Gera um ORÇAMENTO / proposta de PAGAMENTO ÚNICO no padrão-ouro Conecta PRO — para MATERIAL,
+    SERVIÇO ou ambos (misto), SEM recorrência mensal. É a opção certa para venda de material,
+    serviço avulso ou fornecimento+instalação (diferente da proposta de serviço mensal recorrente).
+
+    `itens`: lista de {"descricao","valor_unit","qtd"(=1),"unidade"("un"),"tipo"("material"|"servico")}.
+    Ex.: [{"descricao":"BARREIRA LED CLASS 4,30M","qtd":2,"unidade":"un","valor_unit":750,"tipo":"material"}].
+    Pagamento (combine à vontade):
+      - desconto_avista_pct: ex. 5  → mostra "À vista com 5% de desconto".
+      - parcelas (+ entrada opcional): ex. parcelas=3 → "3x de R$ X (sem juros)".
+    documento = CNPJ/CPF do cliente. objeto = 1 linha resumindo o fornecimento (opcional).
+    validade_dias (15), garantia (material), prazo — vão no bloco Condições.
+    Retorna download_url (link clicável para enviar/imprimir). Assinatura: cliente + CEO."""
+    condicoes = {}
+    if validade_dias is not None:
+        condicoes["validade_dias"] = validade_dias
+    if garantia:
+        condicoes["garantia"] = garantia
+    if prazo:
+        condicoes["prazo"] = prazo
+    payload = {
+        "cliente": cliente, "itens": itens, "documento": documento, "cidade": cidade,
+        "objeto": objeto, "desconto_avista_pct": desconto_avista_pct, "parcelas": parcelas,
+        "entrada": entrada, "observacao": observacao, "numero": numero,
+        "condicoes": condicoes or None,
+    }
+    return await _gerar_doc("/crm/docs/orcamento/pdf", payload, drive=salvar_no_drive)
+
+
+# =================================================================== JURÍDICO
+
+
+@mcp.tool
+async def consultar_juridico(area: str, pergunta: str) -> dict:
+    """Pergunta ao CONSULTOR JURÍDICO IA do Conecta PRO (fundamentado, com contexto REAL do ERP).
+    area: 'trabalhista' | 'civel' | 'tributaria'. Ex.: pergunta='Posso descontar aviso prévio não cumprido?'.
+    Retorna resposta estruturada (fundamentos, riscos, recomendação). READ-ONLY, não altera nada."""
+    try:
+        return await erp.post("/juridico/consultor/perguntar", json={"area": area, "pergunta": pergunta})
+    except Exception as exc:  # noqa: BLE001
+        return {"erro": str(exc)[:200]}
+
+
+@mcp.tool
+async def analisar_processo_juridico(
+    texto: str, numero: str | None = None, tipo: str | None = None, employee_id: str | None = None
+) -> dict:
+    """Analisa um PROCESSO/notificação a partir do texto colado: extrai pedidos, monta dossiê com dado
+    REAL do ERP (funcionário/contrato) e gera linha de defesa IA (com 'como obter' as provas).
+    tipo ex.: 'trabalhista'. employee_id: dica de qual funcionário, se souber."""
+    payload = {"texto": texto, "numero": numero, "tipo": tipo, "employee_id": employee_id}
+    try:
+        return await erp.post("/juridico/processos", json=payload)
+    except Exception as exc:  # noqa: BLE001
+        return {"erro": str(exc)[:200]}
+
+
+@mcp.tool
+async def gerar_parecer_juridico(area: str, titulo: str, contexto: str) -> dict:
+    """Gera um PARECER JURÍDICO (rascunho IA) sobre um tema. area: trabalhista|civel|tributaria.
+    contexto = situação/fatos a analisar. Retorna o parecer estruturado (registrado no ERP)."""
+    try:
+        return await erp.post("/juridico/pareceres", json={"area": area, "titulo": titulo, "contexto": contexto})
+    except Exception as exc:  # noqa: BLE001
+        return {"erro": str(exc)[:200]}
+
+
+@mcp.tool
+async def dossie_juridico(tipo: str, identificador: str | None = None) -> dict:
+    """Dossiê jurídico READ-ONLY cross-módulo do Conecta PRO. tipo:
+    - 'panorama'   → visão geral (passivos, contratos, riscos).
+    - 'funcionario'→ identificador = nome/CPF/id do funcionário (histórico, ponto, advertências, folha).
+    - 'contrato'   → identificador = número/id do contrato.
+    - 'cliente'    → identificador = id do cliente.
+    Reúne o contexto real para embasar defesa/consulta — não inventa nada."""
+    t = (tipo or "").strip().lower()
+    try:
+        if t == "panorama":
+            return await erp.get("/juridico/contexto/panorama")
+        if t in ("funcionario", "funcionário", "pessoa"):
+            return await erp.get(f"/juridico/contexto/funcionario/{identificador}")
+        if t == "contrato":
+            return await erp.get(f"/juridico/contexto/contrato/{identificador}")
+        if t == "cliente":
+            return await erp.get(f"/juridico/contexto/cliente/{identificador}")
+        return {"erro": f"tipo inválido '{tipo}'. Use: panorama | funcionario | contrato | cliente."}
+    except Exception as exc:  # noqa: BLE001
+        return {"erro": str(exc)[:200]}
+
+
+@mcp.tool
+async def painel_juridico() -> dict:
+    """Painel do Jurídico: dashboard consolidado (dado real) + prazos/compliance vencendo (≤7/≤15/≤30
+    dias e atrasados). Use para saber a situação jurídica e o que está prestes a vencer."""
+    out: dict = {}
+    try:
+        out["dashboard"] = await erp.get("/juridico/dashboard")
+    except Exception as exc:  # noqa: BLE001
+        out["dashboard_erro"] = str(exc)[:150]
+    try:
+        out["prazos_alertas"] = await erp.get("/juridico/prazos/alertas")
+    except Exception as exc:  # noqa: BLE001
+        out["prazos_erro"] = str(exc)[:150]
+    return out
+
+
+
+# =================================================================== DP / PEOPLE-MANAGEMENT (Pyetra)
+
+
+# ---- Funcionários ----
+@mcp.tool
+async def listar_funcionarios(busca: str | None = None, page: int = 1, page_size: int = 30) -> dict:
+    """Lista funcionários (DP). busca = nome/CPF/matrícula. Paginação page/page_size."""
+    params = {"page": page, "page_size": page_size}
+    if busca:
+        params["search"] = busca
+    return await erp.get("/people-management/hr/employees", params=params)
+
+
+@mcp.tool
+async def buscar_funcionario(busca: str) -> dict:
+    """Busca rápida de funcionário por nome/CPF/matrícula (retorna os que casam)."""
+    return await erp.get("/people-management/hr/employees/search", params={"q": busca, "search": busca})
+
+
+@mcp.tool
+async def obter_funcionario(employee_id: str) -> dict:
+    """Dados cadastrais de um funcionário pelo id."""
+    return await erp.get(f"/people-management/hr/employees/{employee_id}")
+
+
+@mcp.tool
+async def buscar_funcionario_por_cpf(cpf: str) -> dict:
+    """Localiza um funcionário pelo CPF (só dígitos ou formatado)."""
+    return await erp.get(f"/people-management/hr/employees/cpf/{cpf}")
+
+
+@mcp.tool
+async def ficha_funcionario(employee_id: str) -> dict:
+    """Ficha/perfil completo do funcionário (dados + vínculos)."""
+    return await erp.get(f"/people-management/hr/employees/{employee_id}/profile")
+
+
+@mcp.tool
+async def estatisticas_funcionarios() -> dict:
+    """Estatísticas de pessoal (headcount, por cargo/status)."""
+    return await erp.get("/people-management/hr/employees/stats")
+
+
+# ---- Folha de pagamento ----
+@mcp.tool
+async def folha_dashboard(mes: int, ano: int) -> dict:
+    """Dashboard da FOLHA do mês (total colaboradores, proventos, descontos, líquido, FGTS, INSS, fonte)."""
+    return await erp.get("/people-management/folha/dashboard", params={"mes": mes, "ano": ano})
+
+
+@mcp.tool
+async def resumo_folha(mes: int, ano: int) -> dict:
+    """Resumo consolidado da folha de uma competência (mes/ano)."""
+    return await erp.get(f"/people-management/folha/resumo/{mes}/{ano}")
+
+
+@mcp.tool
+async def calcular_holerite(employee_id: str, mes: int, ano: int) -> dict:
+    """Calcula o holerite completo (CCT 2026) de um funcionário na competência mes/ano."""
+    return await erp.get(f"/people-management/folha/calcular/{employee_id}/{mes}/{ano}")
+
+
+@mcp.tool
+async def baixar_holerite_pdf(employee_id: str, mes: int, ano: int) -> dict:
+    """Gera o HOLERITE em PDF (padrão-ouro, só assinatura do funcionário) — retorna base64."""
+    return await _pdf_b64(f"/people-management/folha/holerite/{employee_id}/{mes}/{ano}/pdf")
+
+
+@mcp.tool
+async def baixar_recibo_vt_vr_pdf(employee_id: str, mes: int, ano: int) -> dict:
+    """Gera o recibo de VT/VR em PDF (só assinatura do funcionário) — retorna base64."""
+    return await _pdf_b64(f"/people-management/folha/recibo-vt-vr/{employee_id}/{mes}/{ano}/pdf")
+
+
+@mcp.tool
+async def listar_rubricas_folha() -> dict:
+    """Lista as rubricas da folha (proventos/descontos cadastrados)."""
+    return await erp.get("/people-management/folha/rubricas")
+
+
+@mcp.tool
+async def calcular_folha_todos(mes: int, ano: int) -> dict:
+    """Calcula a folha do mês para TODOS os funcionários ativos (lote)."""
+    return await erp.post(f"/people-management/folha/calcular/todos/{mes}/{ano}", json={})
+
+
+@mcp.tool
+async def fechar_folha(mes: int, ano: int) -> dict:
+    """FECHA a folha de uma competência (mes/ano). Ação de gestão — confirme antes."""
+    return await erp.post(f"/people-management/folha/fechar/{mes}/{ano}", json={})
+
+
+# ---- Ponto eletrônico ----
+@mcp.tool
+async def ponto_dashboard(mes: int, ano: int) -> dict:
+    """Dashboard do PONTO do mês (batidas, inconsistências, banco de horas consolidado)."""
+    return await erp.get("/people-management/ponto/dashboard", params={"mes": mes, "ano": ano})
+
+
+@mcp.tool
+async def espelho_ponto(employee_id: str, mes: int, ano: int) -> dict:
+    """Espelho de ponto mensal de um funcionário (escala, horas esperadas/trabalhadas, saldo)."""
+    return await erp.get(f"/people-management/ponto/espelho/{employee_id}", params={"month": mes, "year": ano})
+
+
+@mcp.tool
+async def banco_horas(employee_id: str, mes: int | None = None, ano: int | None = None) -> dict:
+    """Saldo de banco de horas de um funcionário (12x36→180h; 44h→220h)."""
+    params = {}
+    if mes:
+        params["mes"] = mes
+    if ano:
+        params["ano"] = ano
+    return await erp.get(f"/people-management/ponto/banco-horas/{employee_id}", params=params or None)
+
+
+@mcp.tool
+async def colaboradores_sem_escala() -> dict:
+    """Lista funcionários ativos SEM escala cadastrada (precisam de definição no DP)."""
+    return await erp.get("/people-management/ponto/colaboradores-sem-escala")
+
+
+@mcp.tool
+async def justificativas_ponto_pendentes() -> dict:
+    """Lista as justificativas de ponto aguardando revisão do DP."""
+    return await erp.get("/people-management/ponto/justificativas/pendentes")
+
+
+@mcp.tool
+async def revisar_justificativa_ponto(justification_id: str, aprovar: bool, observacao: str | None = None) -> dict:
+    """Aprova (aprovar=True) ou rejeita uma justificativa de ponto."""
+    return await erp.request("PUT", f"/people-management/ponto/justificativa/{justification_id}/revisar",
+                             json={"aprovar": aprovar, "aprovada": aprovar, "observacao": observacao})
+
+
+@mcp.tool
+async def status_fechamento_ponto(mes: int, ano: int) -> dict:
+    """Estado real do fechamento do ponto por competência (quantos fechados/pendentes)."""
+    return await erp.get("/people-management/ponto/fechamento/status", params={"month": mes, "year": ano})
+
+
+@mcp.tool
+async def fechar_mes_ponto(mes: int, ano: int) -> dict:
+    """FECHA o mês do ponto para todos (idempotente). Ação de gestão — confirme antes."""
+    return await erp.post("/people-management/ponto/fechamento-mes", json={"mes": mes, "ano": ano})
+
+
+# ---- Férias ----
+@mcp.tool
+async def listar_ferias(status: str | None = None, page: int = 1, page_size: int = 30) -> dict:
+    """Lista solicitações de férias (todos). status opcional (ex.: 'aprovado','solicitado')."""
+    params = {"page": page, "page_size": page_size}
+    if status:
+        params["status"] = status
+    return await erp.get("/people-management/hr/vacations", params=params)
+
+
+@mcp.tool
+async def ferias_funcionario(employee_id: str) -> dict:
+    """Férias de um funcionário específico."""
+    return await erp.get(f"/people-management/hr/vacations/employee/{employee_id}")
+
+
+@mcp.tool
+async def saldo_ferias(employee_id: str) -> dict:
+    """Saldo e período aquisitivo de férias de um funcionário (alerta de vencidas)."""
+    return await erp.get(f"/people-management/hr/vacations/employee/{employee_id}/balance")
+
+
+@mcp.tool
+async def solicitar_ferias(employee_id: str, data_inicio: str, dias: int = 30, observacao: str | None = None) -> dict:
+    """Cria uma solicitação de férias. data_inicio no formato YYYY-MM-DD; dias (ex.: 30)."""
+    return await erp.post("/people-management/hr/vacations", json={
+        "employee_id": employee_id, "data_inicio": data_inicio, "start_date": data_inicio,
+        "dias": dias, "days": dias, "observacao": observacao})
+
+
+@mcp.tool
+async def aprovar_ferias(vacation_id: str, observacao: str | None = None) -> dict:
+    """Aprova uma solicitação de férias."""
+    return await erp.post(f"/people-management/hr/vacations/{vacation_id}/approve",
+                          json={"observacao": observacao})
+
+
+# ---- Admissão ----
+@mcp.tool
+async def listar_admissoes(status: str | None = None) -> dict:
+    """Lista processos de admissão em andamento."""
+    return await erp.get("/people-management/hr/admissions", params={"status": status} if status else None)
+
+
+@mcp.tool
+async def concluir_admissao(admission_id: str) -> dict:
+    """Finaliza uma admissão (gera o funcionário efetivo). Confirme os documentos antes."""
+    return await erp.post(f"/people-management/hr/admissions/{admission_id}/complete", json={})
+
+
+# ---- Rescisão ----
+@mcp.tool
+async def listar_rescisoes(status: str | None = None) -> dict:
+    """Lista processos de rescisão."""
+    return await erp.get("/people-management/hr/terminations", params={"status": status} if status else None)
+
+
+@mcp.tool
+async def calcular_verbas_rescisorias(termination_id: str) -> dict:
+    """Calcula as verbas rescisórias de um processo de rescisão."""
+    return await erp.post(f"/people-management/hr/terminations/{termination_id}/calculate", json={})
+
+
+# ---- Benefícios ----
+@mcp.tool
+async def listar_beneficios_funcionario(employee_id: str) -> dict:
+    """Benefícios (VT/VR/plano) de um funcionário."""
+    return await erp.get(f"/people-management/hr/benefits/employee/{employee_id}")
+
+
+# ---- SST (saúde ocupacional) ----
+@mcp.tool
+async def sst_dashboard() -> dict:
+    """Dashboard de SST (ASOs, EPIs, PCMSO, PPRA, acidentes)."""
+    return await erp.get("/people-management/sst/dashboard")
+
+
+@mcp.tool
+async def asos_vencendo(dias: int = 30) -> dict:
+    """ASOs (exames ocupacionais) vencendo nos próximos N dias."""
+    return await erp.get("/people-management/sst/asos/vencendo", params={"dias": dias})
+
+
+@mcp.tool
+async def funcionarios_sem_aso() -> dict:
+    """Funcionários sem ASO válido (pendência de saúde ocupacional)."""
+    return await erp.get("/people-management/sst/asos/sem-aso")
+
+
+
+
+# =================================================================== FISCAL / CONTÁBIL
+
+
+# ---- NFS-e ----
+@mcp.tool
+async def listar_nfse(competencia: str | None = None, limit: int = 50) -> dict:
+    """Lista NFS-e emitidas (fonte real gov.br, só cStat 100). competencia='YYYY-MM' opcional."""
+    params = {"limit": limit}
+    if competencia:
+        params["competencia"] = competencia
+    return await erp.get("/financial/nfse", params=params)
+
+
+@mcp.tool
+async def dashboard_nfse() -> dict:
+    """Painel de faturamento por NFS-e: total de notas, valor, ISS, por competência e por cliente."""
+    return await erp.get("/financial/nfse/dashboard")
+
+
+@mcp.tool
+async def listar_nfse_entrada() -> dict:
+    """Lista NFS-e de ENTRADA (tomadas contra o CNPJ) — custos/fornecedores."""
+    return await erp.get("/financial/nfse-entrada")
+
+
+@mcp.tool
+async def resumo_nfse_entrada() -> dict:
+    """Resumo fiscal das NFS-e de entrada (retenções, tributos)."""
+    return await erp.get("/financial/nfse-entrada/resumo-fiscal")
+
+
+# ---- Dashboards fiscais ----
+@mcp.tool
+async def dashboard_fiscal() -> dict:
+    """Painel fiscal consolidado (NFS-e, tributos, obrigações, INSS/FGTS)."""
+    return await erp.get("/financial/fiscal/dashboard")
+
+
+@mcp.tool
+async def dashboard_fiscal_grupo(mes: int | None = None, ano: int | None = None) -> dict:
+    """Painel fiscal do GRUPO (multi-empresa): receita/impostos por CNPJ na competência."""
+    params = {}
+    if mes:
+        params["mes"] = mes
+    if ano:
+        params["ano"] = ano
+    return await erp.get("/empresas/dashboard/fiscal/grupo", params=params or None)
+
+
+@mcp.tool
+async def rentabilidade_grupo() -> dict:
+    """Rentabilidade/margem comparada entre as empresas do grupo."""
+    return await erp.get("/empresas/dashboard/rentabilidade/grupo")
+
+
+@mcp.tool
+async def contabil_grupo() -> dict:
+    """Painel contábil consolidado do grupo."""
+    return await erp.get("/empresas/dashboard/contabil/grupo")
+
+
+@mcp.tool
+async def monitor_integracoes_gov() -> dict:
+    """Monitoramento das integrações gov (SEFAZ/eSocial/e-CAC/etc.): online/degraded."""
+    return await erp.get("/government/dashboard/")
+
+
+@mcp.tool
+async def alertas_certificados() -> dict:
+    """Alertas de vencimento de certificados digitais A1/A3."""
+    return await erp.get("/government/dashboard/certificados/alertas")
+
+
+# ---- DAS / Simples ----
+@mcp.tool
+async def status_simples_nacional() -> dict:
+    """Situação/opção no Simples Nacional (anexo, sublimite, pendências)."""
+    return await erp.get("/government/simples-nacional/status")
+
+
+@mcp.tool
+async def pendencias_simples() -> dict:
+    """Pendências no Simples Nacional."""
+    return await erp.get("/government/simples-nacional/pendencias")
+
+
+# ---- Obrigações ----
+@mcp.tool
+async def alertas_obrigacoes() -> dict:
+    """Alertas de obrigações acessórias vencendo/vencidas (grupo)."""
+    return await erp.get("/empresas/obrigacoes/alertas")
+
+
+@mcp.tool
+async def calendario_obrigacoes() -> dict:
+    """Calendário de obrigações fiscais do grupo (multi-empresa)."""
+    return await erp.get("/empresas/obrigacoes/calendario/grupo")
+
+
+# ---- Certidões / e-CAC ----
+@mcp.tool
+async def listar_certidoes() -> dict:
+    """Lista certidões (CND, FGTS, trabalhista) e validade."""
+    return await erp.get("/ged/certidoes")
+
+
+@mcp.tool
+async def situacao_fiscal_ecac() -> dict:
+    """Situação fiscal no e-CAC (regularidade)."""
+    return await erp.get("/government/ecac/situacao-fiscal")
+
+
+@mcp.tool
+async def debitos_ecac() -> dict:
+    """Débitos no e-CAC."""
+    return await erp.get("/government/ecac/debitos")
+
+
+@mcp.tool
+async def resumo_ecac() -> dict:
+    """Resumo/status do e-CAC (situação, declarações, parcelamentos)."""
+    return await erp.get("/government/ecac/status")
+
+
+# ---- eSocial / FGTS / DCTFWeb ----
+@mcp.tool
+async def listar_eventos_esocial() -> dict:
+    """Lista eventos do eSocial registrados (só transmissões reais)."""
+    return await erp.get("/government/esocial/eventos")
+
+
+@mcp.tool
+async def gaps_esocial() -> dict:
+    """Funcionários com pendências/faltando eventos no eSocial."""
+    return await erp.get("/government/esocial/gaps-funcionarios")
+
+
+@mcp.tool
+async def status_dctfweb() -> dict:
+    """Status/configuração da DCTFWeb."""
+    return await erp.get("/government/dctfweb/status")
+
+
+@mcp.tool
+async def status_fgts_digital() -> dict:
+    """Status do FGTS Digital."""
+    return await erp.get("/government/fgts-digital/status")
+
+
+@mcp.tool
+async def guias_fgts() -> dict:
+    """Lista/gera guias de FGTS."""
+    return await erp.get("/government/fgts/guias")
+
+
+# ---- Empresas ----
+@mcp.tool
+async def listar_empresas() -> dict:
+    """Lista as empresas/CNPJs do grupo econômico."""
+    return await erp.get("/empresas/")
+
+
+
+
+# =================================================================== OPERACIONAL / CAMPO
+
+
+@mcp.tool
+async def dashboard_operacional() -> dict:
+    """Painel operacional: postos ativos, colaboradores, alocações, turnos hoje, ocorrências, cobertura."""
+    return await erp.get("/operacional/dashboard/")
+
+
+@mcp.tool
+async def listar_postos(status: str | None = None, busca: str | None = None, page: int = 1, page_size: int = 30) -> dict:
+    """Lista POSTOS de trabalho (com filtros de status/busca)."""
+    params = {"page": page, "page_size": page_size}
+    if status:
+        params["status"] = status
+    if busca:
+        params["search"] = busca
+    return await erp.get("/operacional/posts/", params=params)
+
+
+@mcp.tool
+async def estatisticas_postos() -> dict:
+    """KPIs de postos (total, ativos, com/sem vaga)."""
+    return await erp.get("/operacional/posts/stats")
+
+
+@mcp.tool
+async def listar_escalas(mes: int | None = None, ano: int | None = None, page: int = 1, page_size: int = 30) -> dict:
+    """Lista ESCALAS (12x36, 44h etc.), com filtro por mês/ano."""
+    params = {"page": page, "page_size": page_size}
+    if mes:
+        params["month"] = mes
+    if ano:
+        params["year"] = ano
+    return await erp.get("/operacional/scales/", params=params)
+
+
+@mcp.tool
+async def listar_alocacoes(post_id: str | None = None, employee_id: str | None = None, page: int = 1) -> dict:
+    """Lista ALOCAÇÕES (funcionário↔posto). Filtra por post_id/employee_id."""
+    params = {"page": page, "page_size": 30}
+    if post_id:
+        params["post_id"] = post_id
+    if employee_id:
+        params["employee_id"] = employee_id
+    return await erp.get("/operacional/allocations/", params=params)
+
+
+@mcp.tool
+async def alocacoes_vigentes(post_id: str | None = None) -> dict:
+    """Alocações ativas no momento (opcional: de um posto específico)."""
+    return await erp.get("/operacional/allocations/current", params={"post_id": post_id} if post_id else None)
+
+
+@mcp.tool
+async def funcionarios_disponiveis_posto(post_id: str) -> dict:
+    """Funcionários livres para alocar num posto (post_id obrigatório)."""
+    return await erp.get("/operacional/allocations/available-employees", params={"post_id": post_id})
+
+
+@mcp.tool
+async def listar_ocorrencias(status: str | None = None, severity: str | None = None, page: int = 1) -> dict:
+    """Lista OCORRÊNCIAS operacionais (filtra por status/severidade)."""
+    params = {"page": page, "page_size": 30}
+    if status:
+        params["status"] = status
+    if severity:
+        params["severity"] = severity
+    return await erp.get("/operacional/occurrences/", params=params)
+
+
+@mcp.tool
+async def relatorio_cobertura(start_date: str | None = None, end_date: str | None = None) -> dict:
+    """Relatório de cobertura (postos × alocações, taxa de cobertura). Datas YYYY-MM-DD."""
+    params = {}
+    if start_date:
+        params["start_date"] = start_date
+    if end_date:
+        params["end_date"] = end_date
+    return await erp.get("/operacional/reports/coverage", params=params or None)
+
+
+@mcp.tool
+async def listar_ordens_servico(status: str | None = None, page: int = 1, page_size: int = 30) -> dict:
+    """Lista ORDENS DE SERVIÇO de campo (instalação/manutenção)."""
+    params = {"page": page, "page_size": page_size}
+    if status:
+        params["status"] = status
+    return await erp.get("/campo/os/", params=params)
+
+
+@mcp.tool
+async def dashboard_ordens_servico() -> dict:
+    """Estatísticas de OS de campo (abertas, atrasadas, por técnico)."""
+    return await erp.get("/campo/os/dashboard")
+
+
+@mcp.tool
+async def listar_visitas_campo(status: str | None = None, page: int = 1) -> dict:
+    """Lista VISITAS de campo (técnicas/comerciais agendadas)."""
+    params = {"page": page, "page_size": 30}
+    if status:
+        params["status"] = status
+    return await erp.get("/campo/visitas/", params=params)
+
+
+@mcp.tool
+async def dashboard_campo() -> dict:
+    """Painel do módulo de campo (OS + visitas + técnicos)."""
+    return await erp.get("/campo/dashboard")
+
+
+# =================================================================== RH / SST / CCT / REEMBOLSO
+
+
+@mcp.tool
+async def listar_vagas(status: str | None = None) -> dict:
+    """Lista VAGAS de recrutamento (status opcional)."""
+    return await erp.get("/recruitment/job-positions", params={"status": status} if status else None)
+
+
+@mcp.tool
+async def vagas_abertas() -> dict:
+    """Lista só as vagas ABERTAS (em recrutamento)."""
+    return await erp.get("/recruitment/job-positions/open")
+
+
+@mcp.tool
+async def listar_candidatos(busca: str | None = None, page: int = 1) -> dict:
+    """Lista CANDIDATOS do recrutamento (busca opcional)."""
+    params = {"page": page, "page_size": 30}
+    if busca:
+        params["q"] = busca
+    return await erp.get("/recruitment/candidates", params=params)
+
+
+@mcp.tool
+async def listar_entrevistas() -> dict:
+    """Lista ENTREVISTAS agendadas do recrutamento."""
+    return await erp.get("/recruitment/interviews")
+
+
+@mcp.tool
+async def estoque_epi() -> dict:
+    """Estoque de EPIs (equipamentos de proteção — NR-6)."""
+    return await erp.get("/health-occupational/epi/estoque")
+
+
+@mcp.tool
+async def status_pcmso() -> dict:
+    """Estatísticas/status do PCMSO (exames ocupacionais — NR-7)."""
+    return await erp.get("/health-occupational/pcmso/estatisticas")
+
+
+@mcp.tool
+async def status_ppra() -> dict:
+    """Estatísticas do PPRA/PGR (riscos ocupacionais — NR-9)."""
+    return await erp.get("/health-occupational/ppra/estatisticas")
+
+
+@mcp.tool
+async def listar_reembolsos(status: str | None = None) -> dict:
+    """Lista solicitações de REEMBOLSO (status opcional)."""
+    return await erp.get("/reimbursements/", params={"status": status} if status else None)
+
+
+@mcp.tool
+async def reembolsos_pendentes_aprovacao() -> dict:
+    """Reembolsos aguardando aprovação."""
+    return await erp.get("/reimbursements/approvals/pending")
+
+
+@mcp.tool
+async def reembolsos_prontos_pagamento() -> dict:
+    """Reembolsos aprovados e prontos para pagamento."""
+    return await erp.get("/reimbursements/ready-for-payment")
+
+
+@mcp.tool
+async def tabela_salarial_cct() -> dict:
+    """Tabela salarial completa da CCT SINDECOMPRESTS 2026 (pisos por cargo)."""
+    return await erp.get("/cct/salarios/tabela")
+
+
+@mcp.tool
+async def beneficios_cct(cargo: str | None = None) -> dict:
+    """Benefícios previstos na CCT (VT/VR/cesta) — opcional por cargo."""
+    return await erp.get("/cct/beneficios", params={"cargo": cargo} if cargo else None)
+
+
+@mcp.tool
+async def dashboard_clima() -> dict:
+    """Indicadores da pesquisa de clima organizacional."""
+    return await erp.get("/retention/climate/dashboard")
+
+
+
 # =================================================================== ASGI app
+# ============================================================================
+# ATUALIZAÇÃO 2026-07-16 — recursos novos (tudo READ-ONLY; dinheiro que sai
+# continua SÓ pela tela com gate OTP humano — o conector não executa pagamento)
+# ============================================================================
+
+@mcp.tool
+async def inter_saldo() -> dict:
+    """Saldo atual da conta Banco Inter (leitura, tempo real)."""
+    return await erp.get("/financeiro/inter/saldo")
+
+
+@mcp.tool
+async def inter_extrato_resumo() -> dict:
+    """Resumo do extrato Inter (entradas/saídas recentes, conciliação)."""
+    return await erp.get("/financeiro/inter/extrato/resumo")
+
+
+@mcp.tool
+async def listar_pagamentos_inter(page_size: int = 20) -> dict:
+    """Pagamentos feitos pelo Inter (PIX/boleto/DARF): valor, status, categoria, datas."""
+    return await erp.get("/financeiro/inter/payments", params={"page_size": page_size})
+
+
+@mcp.tool
+async def baixar_comprovante_pagamento_pdf(payment_id: str) -> dict:
+    """Comprovante em PDF (padrão-ouro) de um pagamento Inter CONCLUÍDO — retorna base64."""
+    return await _pdf_b64(f"/financeiro/inter/payments/{payment_id}/comprovante")
+
+
+@mcp.tool
+async def teto_diario_pagamentos() -> dict:
+    """Teto diário de pagamentos (CONECTA_LIMITE_DIARIO) vs quanto já saiu hoje."""
+    return await erp.get("/financeiro/inter/payments/saldo-limite")
+
+
+@mcp.tool
+async def divergencias_folha_pagamentos() -> dict:
+    """Divergências entre a folha calculada e os pagamentos Inter (antes de pagar)."""
+    return await erp.get("/financeiro/inter/payroll/divergencias")
+
+
+@mcp.tool
+async def pix_recebidos() -> dict:
+    """PIX recebidos na conta Inter (entradas identificadas)."""
+    return await erp.get("/financeiro/inter/pix/recebidos")
+
+
+@mcp.tool
+async def listar_cobrancas_inter() -> dict:
+    """Cobranças/boletos emitidos pelo Inter e seus status."""
+    return await erp.get("/financeiro/inter/cobrancas")
+
+
+@mcp.tool
+async def listar_beneficiarios_pix() -> dict:
+    """Agenda de beneficiários PIX (nome → chave salva; employees usam pix_key)."""
+    return await erp.get("/financial/beneficiarios")
+
+
+@mcp.tool
+async def status_dominio() -> dict:
+    """Status da integração com a contabilidade Domínio (plano de contas, conexão)."""
+    return await erp.get("/empresas/dominio/status")
+
+
+@mcp.tool
+async def exportar_folha_dominio(competencia: str) -> dict:
+    """Export da folha no layout Domínio (motor read-only — NÃO fecha a folha). competencia: 'YYYY-MM'."""
+    return await erp.get(f"/people-management/hr/payroll-export/dominio/{competencia}")
+
+
+@mcp.tool
+async def esocial_espelho_resumo() -> dict:
+    """Espelho eSocial: resumo dos eventos transmitidos vs pendentes por funcionário."""
+    return await erp.get("/government/esocial/espelho/resumo")
+
+
+@mcp.tool
+async def esocial_timeline_funcionario(employee_id: str) -> dict:
+    """Linha do tempo eSocial de um funcionário (S-2200/2230/2299 e protocolos)."""
+    return await erp.get(f"/government/esocial/espelho/timeline/{employee_id}")
+
+
+@mcp.tool
+async def presenca_ao_vivo() -> dict:
+    """PRESENÇA AO VIVO de hoje: escala × batidas por posto (TZ Manaus), faltas e atrasos."""
+    return await erp.get("/operacional/presenca/hoje")
+
+
+@mcp.tool
+async def substitutos_disponiveis(posto_id: str) -> dict:
+    """Substitutos disponíveis para cobrir falta num posto (mesmo cargo, sem conflito de escala)."""
+    return await erp.get(f"/operacional/presenca/substitutos/{posto_id}")
+
+
+@mcp.tool
+async def substituicoes_pendentes() -> dict:
+    """Faltas com substituição ainda pendente de resolução."""
+    return await erp.get("/operacional/substitutions/pending")
+
+
+@mcp.tool
+async def listar_substituicoes(data: str | None = None) -> dict:
+    """Substituições registradas (falta → substituto). data opcional 'YYYY-MM-DD'."""
+    if data:
+        return await erp.get(f"/operacional/substitutions/by-date/{data}")
+    return await erp.get("/operacional/substitutions")
+
+
+@mcp.tool
+async def grade_postos() -> dict:
+    """Grade de escala por posto (visão geral: quem cobre o quê, 12x36/comercial)."""
+    return await erp.get("/operacional/grade/postos")
+
+
+@mcp.tool
+async def grade_do_posto(posto_id: str) -> dict:
+    """Grade de escala POR PESSOA de um posto (leitura; edição é só na tela, pelo Jordan/Gonzaga/Paiva)."""
+    return await erp.get(f"/operacional/grade/{posto_id}")
+
+
+@mcp.tool
+async def listar_comunicados() -> dict:
+    """Comunicados internos publicados (sino do ERP)."""
+    return await erp.get("/operacional/comunicados")
+
+
+@mcp.tool
+async def comunicados_nao_lidos() -> dict:
+    """Comunicados internos ainda não lidos pelos destinatários (cobrança de leitura)."""
+    return await erp.get("/operacional/comunicados/nao-lidos")
+
+
+@mcp.tool
+async def painel_espelho_ponto(mes: int, ano: int) -> dict:
+    """Painel do espelho de ponto da competência: todos os funcionários, horas e pendências."""
+    return await erp.get(f"/people-management/hr/ponto/espelho/painel/{mes}/{ano}")
+
+
+@mcp.tool
+async def baixar_espelho_ponto_pdf(employee_id: str, mes: int, ano: int) -> dict:
+    """Espelho de ponto mensal de um funcionário em PDF (padrão-ouro) — retorna base64."""
+    return await _pdf_b64(f"/people-management/hr/ponto/espelho/{employee_id}/{mes}/{ano}/pdf")
+
+
 _mcp_app = mcp.http_app(path="/mcp")
 
 
