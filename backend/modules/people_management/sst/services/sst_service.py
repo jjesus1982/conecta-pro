@@ -932,12 +932,20 @@ class SSTService:
             )
             realizados = r.scalar() or 0
 
-            # ASOs vencidos
+            # ASOs vencidos — conta o funcionário ATIVO cujo ÚLTIMO ASO está vencido
+            # (não qualquer ASO vencido no histórico: quem renovou tem um ASO antigo
+            # vencido + um novo válido e NÃO deve entrar aqui, senão o card diverge do
+            # painel de regularização, que já usa "último ASO por funcionário").
             r2 = await self.db.execute(
                 text(
-                    "SELECT count(DISTINCT employee_id) FROM gp_asos "
-                    "WHERE data_validade IS NOT NULL AND data_validade < :hoje "
-                    "AND status = 'realizado'"
+                    "WITH ultimo_aso AS ("
+                    "  SELECT DISTINCT ON (a.employee_id) a.employee_id, a.data_validade "
+                    "  FROM gp_asos a WHERE a.data_validade IS NOT NULL "
+                    "  ORDER BY a.employee_id, a.data_validade DESC"
+                    ") "
+                    "SELECT count(*) FROM ultimo_aso u "
+                    "JOIN employees e ON e.id = u.employee_id AND e.status = 'ativo' "
+                    "WHERE u.data_validade < :hoje"
                 ),
                 {"hoje": hoje},
             )

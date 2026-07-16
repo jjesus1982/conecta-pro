@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 class VacationRequestCreate(BaseModel):
@@ -17,6 +17,23 @@ class VacationRequestCreate(BaseModel):
     end_date: date
     reason: str | None = None
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def _validar_periodo(self) -> "VacationRequestCreate":
+        # término nunca antes do início (qualquer tipo)
+        if self.end_date < self.start_date:
+            raise ValueError("A data de término não pode ser anterior à data de início.")
+        # FÉRIAS têm teto legal de 30 dias corridos (CLT art. 130). Afastamentos/licenças
+        # (médica, maternidade, etc.) podem ultrapassar 30 dias, então só validamos férias.
+        _t = (self.type or "").strip().lower()
+        if _t in ("ferias", "férias", "vacation"):
+            dias_corridos = (self.end_date - self.start_date).days + 1
+            if dias_corridos > 30:
+                raise ValueError(
+                    f"Férias não podem exceder 30 dias corridos (CLT art. 130); "
+                    f"o período informado tem {dias_corridos} dias."
+                )
+        return self
 
 
 class VacationRequestUpdate(BaseModel):

@@ -156,6 +156,45 @@ async def get_termination(
 
     data = TerminationResponse.model_validate(termination).model_dump(mode="json")
     data["employee_name"] = employee_name
+
+    # Discriminação das verbas SEMPRE presente no detalhe. Registros legados foram
+    # gravados sem os valores (total/severance/13º/férias/FGTS NULL) e a tela mostrava
+    # só "R$ 0,00" sem breakdown. Quando faltam os valores armazenados, calculamos ao
+    # vivo (mesma regra CLT do fechamento) e devolvemos a discriminação, sem mutar o
+    # histórico. Nunca quebra a tela — falha de cálculo só omite o breakdown.
+    _sem_valores = not any(
+        getattr(termination, f, None)
+        for f in ("total_amount", "severance_amount", "thirteenth_salary_amount",
+                  "vacation_balance_amount", "fgts_amount")
+    )
+    if _sem_valores and termination.employee_id and termination.last_working_day:
+        try:
+            from modules.people_management.hr.models.termination import TerminationType
+
+            _tp_raw = termination.type.value if hasattr(termination.type, "value") else str(termination.type or "")
+            try:
+                _tp = TerminationType(_tp_raw)
+            except ValueError:
+                _tp = TerminationType.INVOLUNTARY
+            calc = await service.calculate_severance(
+                employee_id=str(termination.employee_id),
+                termination_type=_tp,
+                last_working_day=termination.last_working_day,
+            )
+            data["calculation"] = calc
+            data["calculation_source"] = "recalculado_ao_vivo"
+            # espelha os totais no topo para os cards da tela não ficarem zerados
+            data["total_amount"] = calc.get("total_liquido") or calc.get("total_proventos")
+            data["severance_amount"] = calc.get("aviso_previo_indenizado")
+            data["thirteenth_salary_amount"] = calc.get("decimo_terceiro_proporcional")
+            data["vacation_balance_amount"] = (
+                (calc.get("ferias_vencidas") or 0)
+                + (calc.get("ferias_proporcionais") or 0)
+                + (calc.get("terco_constitucional") or 0)
+            )
+            data["fgts_amount"] = calc.get("multa_fgts_40")
+        except Exception:  # noqa: BLE001 — breakdown é best-effort, nunca quebra o detalhe
+            pass
     return data
 
 
