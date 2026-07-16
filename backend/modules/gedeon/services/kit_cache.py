@@ -30,32 +30,54 @@ def _get(store: dict, key, ttl: float):
     return None
 
 
+_inflight: dict = {}  # key -> Lock (single-flight: 1 leitura do Drive por chave)
+
+
+def _lock_da_chave(kind: str, key) -> threading.Lock:
+    with _lock:
+        return _inflight.setdefault((kind, *key), threading.Lock())
+
+
 def ler_kit(svc, cond: str, competencia: str, ttl: float = _TTL) -> dict:
-    """`_ler_kit` cacheado por (condomínio, competência)."""
+    """`_ler_kit` cacheado por (condomínio, competência) com SINGLE-FLIGHT.
+
+    Sem a trava, N páginas abertas ao mesmo tempo disparavam N leituras frias do
+    Drive em paralelo — saturava o threadpool e já DERRUBOU o backend (restart em
+    16/07 com 2 navegações simultâneas no hub GED). Agora concorrentes esperam a
+    leitura em voo e reusam o resultado.
+    """
     from modules.gedeon.services.kit_completude_service import _ler_kit
 
     key = (cond, competencia)
     cached = _get(_kit, key, ttl)
     if cached is not None:
         return cached
-    val = _ler_kit(svc, cond, competencia)
-    with _lock:
-        _kit[key] = (time.time(), val)
-    return val
+    with _lock_da_chave("kit", key):
+        cached = _get(_kit, key, ttl)  # double-check: alguém pode ter preenchido enquanto esperava
+        if cached is not None:
+            return cached
+        val = _ler_kit(svc, cond, competencia)
+        with _lock:
+            _kit[key] = (time.time(), val)
+        return val
 
 
 def nomes_folha(svc, cond: str, competencia: str, ttl: float = _TTL) -> list[str]:
-    """`_nomes_da_folha` cacheado por (condomínio, competência)."""
+    """`_nomes_da_folha` cacheado por (condomínio, competência) com single-flight."""
     from modules.gedeon.services.kit_ficha_service import _nomes_da_folha
 
     key = (cond, competencia)
     cached = _get(_folha, key, ttl)
     if cached is not None:
         return cached
-    val = _nomes_da_folha(svc, cond, competencia) if svc else []
-    with _lock:
-        _folha[key] = (time.time(), val)
-    return val
+    with _lock_da_chave("folha", key):
+        cached = _get(_folha, key, ttl)
+        if cached is not None:
+            return cached
+        val = _nomes_da_folha(svc, cond, competencia) if svc else []
+        with _lock:
+            _folha[key] = (time.time(), val)
+        return val
 
 
 def invalidar(cond: str | None = None, competencia: str | None = None) -> None:

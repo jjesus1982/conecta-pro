@@ -6,6 +6,7 @@ Mantém o agendamento (dia 28) intacto; isto é o acionamento MANUAL + acompanha
 
 from __future__ import annotations
 
+import threading
 from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -508,6 +509,7 @@ _COMPLETUDE_CACHE: dict = {}  # competencia -> (timestamp, resultado)
 # escrita externa (robôs direto no Drive) aparece em até 10 min ou no botão
 # "Atualizar" da tela (refresh=true).
 _COMPLETUDE_TTL = 600  # segundos
+_COMPLETUDE_LOCKS: dict = {}  # competencia -> Lock (single-flight da varredura do Drive)
 
 
 @router.get("/completude", summary="Completude REAL dos kits + checklist (lê o Drive)")
@@ -532,12 +534,21 @@ def completude_kits_endpoint(
         from modules.gedeon.services import kit_cache
 
         kit_cache.invalidar(competencia=comp)
-    try:
-        out = completude_kits(comp)
-        _COMPLETUDE_CACHE[comp] = (time.time(), out)
-        return out
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+    # SINGLE-FLIGHT por competência: N abas/usuários abrindo a dashboard fria
+    # disparavam N varreduras completas do Drive em paralelo — já derrubou o
+    # backend (restart 16/07 com 2 navegações simultâneas). Concorrentes esperam
+    # a varredura em voo e reusam o resultado.
+    lk = _COMPLETUDE_LOCKS.setdefault(comp, threading.Lock())
+    with lk:
+        cached = _COMPLETUDE_CACHE.get(comp)
+        if cached and not refresh and (time.time() - cached[0]) < _COMPLETUDE_TTL:
+            return {**cached[1], "_cache": True}
+        try:
+            out = completude_kits(comp)
+            _COMPLETUDE_CACHE[comp] = (time.time(), out)
+            return out
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
 
 
 def _eh_util(d: date) -> bool:
