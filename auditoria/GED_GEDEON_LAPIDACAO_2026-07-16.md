@@ -59,13 +59,23 @@ Task `gedeon.risk_monitor` rodava com `erro: ReceivableStatus has no attribute A
 - `/documentos` exige filtro antes de listar = design (não mente dado).
 - Certidões: cards ricos com fontes marcadas (inclusive "portal indisponível" honesto).
 
+### BUG 6 — Backend CAÍA sob navegação concorrente no hub GED 🔴 (descoberto pelo próprio QA)
+**Sintoma:** durante o QA E2E, duas navegações simultâneas no hub derrubaram o backend
+(RestartCount +2; ondas de 502 em todas as APIs). **Causa:** N páginas frias disparavam
+N varreduras completas do Drive em paralelo (o cache não tinha trava de voo) — saturava
+o threadpool do FastAPI. **Fix:** single-flight no `kit_cache` (lock por chave com
+double-check) e no endpoint `/kits/completude` (lock por competência) — concorrentes
+esperam a leitura em voo e reusam o resultado. **Prova por estresse:** 10 chamadas
+pesadas frias concorrentes → health 200 em todas as sondas, zero restart.
+
 ## 2. Provas (tudo na imagem baked, pós-recreate)
 - **Suíte pytest: 29/29** (12 regressões GED novas + 17 do Financeiro sem regressão) —
   `backend/tests/ged_release/`: rotas destravadas, panorama com elo formal, kits do
   espelho do Drive, completude sem lixo, guard anti-arquivo, RiskMonitor sem erro.
-- **QA de browser: 19/19** — `scripts/qa_ged_browser.py` (permanente): 15 telas sem
-  crash/console-error/HTTP≥400 + consultor sem "≈0 geral" (9/11 kits) + painel resolve
-  + sem pasta-lixo + certidões reais.
+- **QA de browser: 24/24** — `scripts/qa_ged_browser.py` (permanente), rodado na imagem
+  FINAL baked: 15 telas sem crash/console-error/HTTP≥400 + veracidade (consultor 9/11
+  junho, sem "≈0", painel sem pasta-lixo, certidões reais) + interações (ficha IDEAL
+  FLORES, troca de competência junho 9/11 ↔ julho 7/11, clique painel→ficha, Sophia).
 - Drive workspace limpo (12 pastas na lixeira, raiz só com condomínios reais).
 
 ## 3. Pendências conhecidas (P2/futuro)
