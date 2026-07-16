@@ -193,7 +193,8 @@ export default function FiscalPage() {
                 <p className="font-data text-2xl font-semibold tabular-nums text-green-500">
                   {dashboard?.stats?.total_nfe_mes ?? 0}
                 </p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">Autorizadas</p>
+                {/* rótulo honesto: o dado é NF-e de ENTRADA no mês, não "notas autorizadas" */}
+                <p className="text-xs text-[hsl(var(--muted-foreground))]">NF-e entrada no mês</p>
               </div>
             </div>
           </div>
@@ -207,7 +208,8 @@ export default function FiscalPage() {
                 <p className="font-data text-2xl font-semibold tabular-nums text-yellow-500">
                   {dashboard?.stats?.obrigacoes_pendentes ?? 0}
                 </p>
-                <p className="text-xs text-[hsl(var(--muted-foreground))]">Pendentes</p>
+                {/* rótulo honesto: são OBRIGAÇÕES fiscais em aberto, não notas pendentes */}
+                <p className="text-xs text-[hsl(var(--muted-foreground))]">Obrigações em aberto</p>
               </div>
             </div>
           </div>
