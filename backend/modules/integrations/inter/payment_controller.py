@@ -641,7 +641,12 @@ async def comprovante(
 
     pdf = gerar_comprovante_pdf(
         favorecido=favorecido, cpf=doc, valor=float(row["valor"]),
-        data_pagamento=data_pg, descricao=row["observacoes"] or None,
+        data_pagamento=data_pg,
+        descricao=row["observacoes"] or dest.get("descricao") or None,
+        # competência/condomínio: informados no form (viajam no destinatario) — o
+        # gerador já suportava, só não recebia (o comprovante saía com "-")
+        competencia=dest.get("competencia") or None,
+        condominio=dest.get("condominio") or None,
         id_transacao=row["inter_payment_id"], tipo=tipo_pag)
     fname = f"comprovante_{tipo_pag}_{favorecido.split()[0].lower()}_{payment_id[:8]}.pdf"
     return Response(content=pdf, media_type="application/pdf",

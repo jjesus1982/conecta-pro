@@ -96,6 +96,17 @@ function NovoPagamentoForm({ onPrepared, saldo }: { onPrepared: () => void; sald
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [confirmando, setConfirmando] = useState(false);
+  // datalist do campo Condomínio/Posto do comprovante (nomes reais do GEDEON)
+  const [condsList, setCondsList] = useState<string[]>([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await apiFetch("/api/v1/gedeon/kits/condominios") as { condominios?: Array<string | { nome?: string }> };
+        const nomes = (r?.condominios || []).map((c) => (typeof c === "string" ? c : c?.nome || "")).filter(Boolean);
+        setCondsList(nomes);
+      } catch { /* datalist é opcional */ }
+    })();
+  }, []);
 
   const handleDestChange = (key: string, val: string) =>
     setDest((prev) => {
@@ -313,6 +324,41 @@ function NovoPagamentoForm({ onPrepared, saldo }: { onPrepared: () => void; sald
             onChange={(e) => setObs(e.target.value)}
             placeholder="Opcional"
           />
+        </div>
+      </div>
+
+      {/* Dados do comprovante (opcionais) — saem impressos no PDF */}
+      <div className="grid grid-cols-3 gap-4 mb-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">CPF/CNPJ do favorecido <span className="text-gray-400">(comprovante)</span></label>
+          <input
+            className="w-full border rounded-lg px-3 py-2 text-sm"
+            value={dest.cpf_cnpj || ""}
+            onChange={(e) => handleDestChange("cpf_cnpj", e.target.value)}
+            placeholder="Opcional — sai no comprovante"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Competência (folha) <span className="text-gray-400">(comprovante)</span></label>
+          <input
+            type="month"
+            className="w-full border rounded-lg px-3 py-2 text-sm"
+            value={dest.competencia || ""}
+            onChange={(e) => handleDestChange("competencia", e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Condomínio / Posto <span className="text-gray-400">(comprovante)</span></label>
+          <input
+            list="conds-comprovante"
+            className="w-full border rounded-lg px-3 py-2 text-sm"
+            value={dest.condominio || ""}
+            onChange={(e) => handleDestChange("condominio", e.target.value)}
+            placeholder="Ex.: Villa dos Pássaros"
+          />
+          <datalist id="conds-comprovante">
+            {condsList.map((c) => <option key={c} value={c} />)}
+          </datalist>
         </div>
       </div>
 
