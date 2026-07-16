@@ -56,7 +56,7 @@ export const useCreateFeatureFlag = () => {
       toast.success('Feature flag criada!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao criar');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao criar');
     },
   });
 };
@@ -72,7 +72,7 @@ export const useUpdateFeatureFlag = () => {
       toast.success('Feature flag atualizada!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao atualizar');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao atualizar');
     },
   });
 };
@@ -87,7 +87,7 @@ export const useEnableFeatureFlag = () => {
       toast.success('Feature flag habilitada!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao habilitar');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao habilitar');
     },
   });
 };
@@ -102,7 +102,7 @@ export const useDisableFeatureFlag = () => {
       toast.success('Feature flag desabilitada!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao desabilitar');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao desabilitar');
     },
   });
 };
@@ -117,7 +117,7 @@ export const useSetFeatureFlagPercentage = () => {
       toast.success('Percentual atualizado!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao atualizar percentual');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao atualizar percentual');
     },
   });
 };
@@ -132,7 +132,7 @@ export const useSetGradualRollout = () => {
       toast.success('Rollout configurado!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao configurar rollout');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao configurar rollout');
     },
   });
 };
@@ -147,7 +147,7 @@ export const useToggleFeatureFlagForTenant = () => {
       toast.success('Feature flag atualizada para tenant!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao atualizar');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao atualizar');
     },
   });
 };
@@ -161,7 +161,7 @@ export const useDeleteFeatureFlag = () => {
       toast.success('Feature flag deletada!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao deletar');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao deletar');
     },
   });
 };

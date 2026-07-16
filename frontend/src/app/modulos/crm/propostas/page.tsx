@@ -225,7 +225,7 @@ export default function PropostasPage() {
       resetForm(); setEditItem(null); setFormOpen(false);
       toast.success(editItem ? 'Proposta atualizada' : 'Proposta criada');
     } catch (e: any) {
-      toast.error('Erro ao salvar: ' + (e?.response?.msgFromDetail(data?.detail) || e?.message || 'verifique os campos'));
+      toast.error('Erro ao salvar: ' + (msgFromDetail(e?.response?.data?.detail) || e?.message || 'verifique os campos'));
     }
   };
 

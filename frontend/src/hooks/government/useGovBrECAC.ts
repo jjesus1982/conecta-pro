@@ -46,7 +46,7 @@ export function useGerarUrlAutorizacao() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.msgFromDetail(data?.detail) || 'Erro ao gerar URL de autorização Gov.br'
+        msgFromDetail(error?.response?.data?.detail) || 'Erro ao gerar URL de autorização Gov.br'
       );
     },
   });
@@ -67,7 +67,7 @@ export function useProcessarCallback() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.msgFromDetail(data?.detail) || 'Erro ao processar autenticação Gov.br'
+        msgFromDetail(error?.response?.data?.detail) || 'Erro ao processar autenticação Gov.br'
       );
     },
   });
@@ -88,7 +88,7 @@ export function useGerarUrlLogout() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.msgFromDetail(data?.detail) || 'Erro ao gerar URL de logout Gov.br'
+        msgFromDetail(error?.response?.data?.detail) || 'Erro ao gerar URL de logout Gov.br'
       );
     },
   });
@@ -192,7 +192,7 @@ export function useEmitirCertidao() {
       toast.success('Certidão emitida com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao emitir certidão');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao emitir certidão');
     },
   });
 }
@@ -212,7 +212,7 @@ export function useValidarCertidao() {
       }
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao validar certidão');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao validar certidão');
     },
   });
 }

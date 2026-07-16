@@ -43,7 +43,7 @@ export const useCreateSystemConfig = () => {
       toast.success('Configuração criada!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao criar');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao criar');
     },
   });
 };
@@ -59,7 +59,7 @@ export const useUpdateSystemConfig = () => {
       toast.success('Configuração atualizada!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao atualizar');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao atualizar');
     },
   });
 };
@@ -73,7 +73,7 @@ export const useDeleteSystemConfig = () => {
       toast.success('Configuração deletada!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao deletar');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao deletar');
     },
   });
 };

@@ -45,7 +45,7 @@ export const useUploadDocument = () => {
     onError: (error: any) => {
       const message =
         error?.response?.data?.detail?.[0]?.msg ||
-        error?.response?.msgFromDetail(data?.detail) ||
+        msgFromDetail(error?.response?.data?.detail) ||
         'Erro ao enviar documento';
       toast.error(message);
     },
@@ -87,7 +87,7 @@ export const useUploadBatch = () => {
     onError: (error: any) => {
       const message =
         error?.response?.data?.detail?.[0]?.msg ||
-        error?.response?.msgFromDetail(data?.detail) ||
+        msgFromDetail(error?.response?.data?.detail) ||
         'Erro ao enviar documentos';
       toast.error(message);
     },

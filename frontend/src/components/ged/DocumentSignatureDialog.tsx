@@ -140,7 +140,7 @@ export function DocumentSignatureDialog({
       onClose();
     } catch (error: any) {
       toast.error('Erro ao solicitar assinaturas', {
-        description: error.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
+        description: msgFromDetail(error.response?.data?.detail) || 'Erro desconhecido',
       });
     } finally {
       setLoading(false);
@@ -220,7 +220,7 @@ export function DocumentSignatureDialog({
       onClose();
     } catch (error: any) {
       toast.error('Erro ao assinar documento', {
-        description: error.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
+        description: msgFromDetail(error.response?.data?.detail) || 'Erro desconhecido',
       });
     } finally {
       setLoading(false);

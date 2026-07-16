@@ -124,7 +124,7 @@ export default function OrdensServicoCampoPage() {
       }
       setAction(null);
     } catch (e: any) {
-      toast.error(e?.response?.msgFromDetail(data?.detail) || e?.message || 'Não foi possível concluir a ação');
+      toast.error(msgFromDetail(e?.response?.data?.detail) || e?.message || 'Não foi possível concluir a ação');
     }
   };
 

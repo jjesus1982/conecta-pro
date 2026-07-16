@@ -228,7 +228,7 @@ function TipoCard({
     },
     onError: (err: unknown) => {
       const detail =
-        (err as { response?: { data?: { detail?: string } } })?.response?.msgFromDetail(data?.detail) ||
+        msgFromDetail((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail) ||
         String(err);
       toast.error(`Falha no lote ${tipo}`, { description: detail });
       setConfirmOpen(false);

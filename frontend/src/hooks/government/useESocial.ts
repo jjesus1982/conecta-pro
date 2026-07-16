@@ -37,7 +37,7 @@ export function useEnviarEvento() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.msgFromDetail(data?.detail) || 'Erro ao enviar evento eSocial'
+        msgFromDetail(error?.response?.data?.detail) || 'Erro ao enviar evento eSocial'
       );
     },
   });
@@ -94,7 +94,7 @@ export function useConfigurarEmpresa() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.msgFromDetail(data?.detail) || 'Erro ao configurar empresa no eSocial'
+        msgFromDetail(error?.response?.data?.detail) || 'Erro ao configurar empresa no eSocial'
       );
     },
   });
@@ -112,7 +112,7 @@ export function useCalcularFolha() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.msgFromDetail(data?.detail) || 'Erro ao calcular folha de pagamento'
+        msgFromDetail(error?.response?.data?.detail) || 'Erro ao calcular folha de pagamento'
       );
     },
   });
@@ -136,7 +136,7 @@ export function useValidarEvento() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.msgFromDetail(data?.detail) || 'Erro ao validar evento eSocial'
+        msgFromDetail(error?.response?.data?.detail) || 'Erro ao validar evento eSocial'
       );
     },
   });
@@ -169,7 +169,7 @@ export function useGerarLoteEventos() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.msgFromDetail(data?.detail) || 'Erro ao gerar lote de eventos'
+        msgFromDetail(error?.response?.data?.detail) || 'Erro ao gerar lote de eventos'
       );
     },
   });

@@ -125,7 +125,7 @@ function PastasContent() {
       invalidateFolders();
     } catch (error: any) {
       if (error?.response?.status === 409 || error?.status === 409) {
-        const errorMsg = error?.response?.msgFromDetail(data?.detail) || error?.message || 'Já existe uma pasta com este nome neste local';
+        const errorMsg = msgFromDetail(error?.response?.data?.detail) || error?.message || 'Já existe uma pasta com este nome neste local';
         toast({
           variant: 'destructive',
           title: 'Pasta duplicada',
@@ -164,7 +164,7 @@ function PastasContent() {
       invalidateFolders();
     } catch (error: any) {
       if (error?.response?.status === 409 || error?.status === 409) {
-        const errorMsg = error?.response?.msgFromDetail(data?.detail) || error?.message || 'Já existe uma pasta com este nome neste local';
+        const errorMsg = msgFromDetail(error?.response?.data?.detail) || error?.message || 'Já existe uma pasta com este nome neste local';
         toast({
           variant: 'destructive',
           title: 'Nome duplicado',

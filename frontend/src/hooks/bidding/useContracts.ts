@@ -87,7 +87,7 @@ export function useCriarContrato() {
       toast.success('Contrato criado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao criar contrato');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao criar contrato');
     },
   });
 }
@@ -104,7 +104,7 @@ export function useAtualizarContrato() {
       toast.success('Contrato atualizado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao atualizar contrato');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao atualizar contrato');
     },
   });
 }
@@ -119,7 +119,7 @@ export function useRemoverContrato() {
       toast.success('Contrato removido com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao remover contrato');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao remover contrato');
     },
   });
 }
@@ -135,7 +135,7 @@ export function useAditivar() {
       toast.success('Aditivo criado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao criar aditivo');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao criar aditivo');
     },
   });
 }
@@ -145,7 +145,7 @@ export function useCalcularReajuste() {
   return useMutation({
     mutationFn: (params: CalcularReajusteParams) => contractsService.calcularReajuste(params),
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao calcular reajuste');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao calcular reajuste');
     },
   });
 }
@@ -161,7 +161,7 @@ export function useAplicarReajuste() {
       toast.success('Reajuste aplicado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao aplicar reajuste');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao aplicar reajuste');
     },
   });
 }
@@ -187,7 +187,7 @@ export function useCriarMedicao() {
       toast.success('Medição criada com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao criar medição');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao criar medição');
     },
   });
 }
@@ -204,7 +204,7 @@ export function useAprovarMedicao() {
       toast.success('Medição aprovada com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao aprovar medição');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao aprovar medição');
     },
   });
 }

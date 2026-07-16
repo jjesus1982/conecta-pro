@@ -152,7 +152,7 @@ export function EditDocumentDialog({
     } catch (error: unknown) {
       const err = error as { response?: { data?: { detail?: string } } };
       toast.error('Erro ao atualizar documento', {
-        description: err.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
+        description: msgFromDetail(err.response?.data?.detail) || 'Erro desconhecido',
       });
     }
   };

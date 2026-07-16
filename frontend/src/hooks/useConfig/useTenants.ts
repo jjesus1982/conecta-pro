@@ -79,7 +79,7 @@ export const useCreateTenant = () => {
       toast.success('Tenant criado com sucesso!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao criar tenant');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao criar tenant');
     },
   });
 };
@@ -99,7 +99,7 @@ export const useUpdateTenant = () => {
       toast.success('Tenant atualizado com sucesso!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao atualizar tenant');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao atualizar tenant');
     },
   });
 };
@@ -117,7 +117,7 @@ export const useDeleteTenant = () => {
       toast.success('Tenant deletado com sucesso!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao deletar tenant');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao deletar tenant');
     },
   });
 };
@@ -139,7 +139,7 @@ export const useUpdateTenantPlan = () => {
       toast.success('Plano atualizado com sucesso!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao atualizar plano');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao atualizar plano');
     },
   });
 };
@@ -160,7 +160,7 @@ export const useUpdateTenantAddress = () => {
       toast.success('Endereço atualizado com sucesso!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao atualizar endereço');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao atualizar endereço');
     },
   });
 };
@@ -181,7 +181,7 @@ export const useActivateTenant = () => {
       toast.success('Tenant ativado com sucesso!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao ativar tenant');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao ativar tenant');
     },
   });
 };
@@ -200,7 +200,7 @@ export const useSuspendTenant = () => {
       toast.success('Tenant suspenso com sucesso!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao suspender tenant');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao suspender tenant');
     },
   });
 };
@@ -219,7 +219,7 @@ export const useCancelTenant = () => {
       toast.success('Tenant cancelado com sucesso!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao cancelar tenant');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao cancelar tenant');
     },
   });
 };
@@ -238,7 +238,7 @@ export const useConvertTrialTenant = () => {
       toast.success('Trial convertido com sucesso!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao converter trial');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao converter trial');
     },
   });
 };
@@ -259,7 +259,7 @@ export const useEnableTenantFeature = () => {
       toast.success('Feature habilitada com sucesso!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao habilitar feature');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao habilitar feature');
     },
   });
 };
@@ -278,7 +278,7 @@ export const useDisableTenantFeature = () => {
       toast.success('Feature desabilitada com sucesso!');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao desabilitar feature');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao desabilitar feature');
     },
   });
 };

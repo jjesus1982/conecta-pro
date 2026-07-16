@@ -41,7 +41,7 @@ export function useEmitirNFe() {
       toast.success('NF-e emitida com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao emitir NF-e');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao emitir NF-e');
     },
   });
 }
@@ -74,7 +74,7 @@ export function useCancelarNFe() {
       toast.success('NF-e cancelada com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao cancelar NF-e');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao cancelar NF-e');
     },
   });
 }
@@ -96,7 +96,7 @@ export function useEmitirCartaCorrecao() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.msgFromDetail(data?.detail) || 'Erro ao emitir Carta de Correção'
+        msgFromDetail(error?.response?.data?.detail) || 'Erro ao emitir Carta de Correção'
       );
     },
   });
@@ -121,7 +121,7 @@ export function useInutilizarNumeracao() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.msgFromDetail(data?.detail) || 'Erro ao inutilizar numeração'
+        msgFromDetail(error?.response?.data?.detail) || 'Erro ao inutilizar numeração'
       );
     },
   });
@@ -140,7 +140,7 @@ export function useEmitirCTe() {
       toast.success('CT-e emitido com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao emitir CT-e');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao emitir CT-e');
     },
   });
 }
@@ -159,7 +159,7 @@ export function useCancelarCTe() {
       toast.success('CT-e cancelado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao cancelar CT-e');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao cancelar CT-e');
     },
   });
 }
@@ -177,7 +177,7 @@ export function useEmitirMDFe() {
       toast.success('MDF-e emitido com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao emitir MDF-e');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao emitir MDF-e');
     },
   });
 }
@@ -196,7 +196,7 @@ export function useEncerrarMDFe() {
       toast.success('MDF-e encerrado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao encerrar MDF-e');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao encerrar MDF-e');
     },
   });
 }
@@ -215,7 +215,7 @@ export function useIncluirCondutor() {
       toast.success('Condutor incluído com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao incluir condutor');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao incluir condutor');
     },
   });
 }
@@ -262,7 +262,7 @@ export function useGerarDANFE() {
       toast.success('DANFE gerado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao gerar DANFE');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao gerar DANFE');
     },
   });
 }
@@ -278,7 +278,7 @@ export function useGerarDANFENFCe() {
       toast.success('DANFE NFC-e gerado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao gerar DANFE NFC-e');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao gerar DANFE NFC-e');
     },
   });
 }

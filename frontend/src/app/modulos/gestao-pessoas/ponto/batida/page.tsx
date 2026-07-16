@@ -115,7 +115,7 @@ export default function BaterPontoPage() {
         <div className="bg-red-500/10 border border-red-500/30 text-red-500 px-4 py-3 rounded-lg text-sm">
           {(() => {
             const err = punchMutation.error as any;
-            const detail = err?.response?.msgFromDetail(data?.detail) || err?.message || 'Erro desconhecido';
+            const detail = msgFromDetail(err?.response?.data?.detail) || err?.message || 'Erro desconhecido';
             if (detail.includes('não encontrado') || detail.includes('not found')) {
               return 'Seu usuário não está vinculado a um funcionário. Verifique se o e-mail do seu login é o mesmo cadastrado no seu perfil de funcionário.';
             }

@@ -70,7 +70,7 @@ export function useCriarCertidao() {
       toast.success('Certidão criada com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao criar certidão');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao criar certidão');
     },
   });
 }
@@ -91,7 +91,7 @@ export function useAtualizarCertidao() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.msgFromDetail(data?.detail) || 'Erro ao atualizar certidão'
+        msgFromDetail(error?.response?.data?.detail) || 'Erro ao atualizar certidão'
       );
     },
   });
@@ -111,7 +111,7 @@ export function useRemoverCertidao() {
       toast.success('Certidão removida com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao remover certidão');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao remover certidão');
     },
   });
 }
@@ -185,7 +185,7 @@ export function useRenovarCertidoes() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.msgFromDetail(data?.detail) || 'Erro ao renovar certidões'
+        msgFromDetail(error?.response?.data?.detail) || 'Erro ao renovar certidões'
       );
     },
   });
@@ -206,7 +206,7 @@ export function useAtualizarStatusEmLote() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.msgFromDetail(data?.detail) || 'Erro ao atualizar status em lote'
+        msgFromDetail(error?.response?.data?.detail) || 'Erro ao atualizar status em lote'
       );
     },
   });

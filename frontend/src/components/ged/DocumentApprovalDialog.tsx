@@ -48,7 +48,7 @@ export function DocumentApprovalDialog({
     } catch (error: unknown) {
       const err = error as { response?: { data?: { detail?: string } } };
       toast.error('Erro ao aprovar documento', {
-        description: err.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
+        description: msgFromDetail(err.response?.data?.detail) || 'Erro desconhecido',
       });
     } finally {
       setLoading(false);
@@ -72,7 +72,7 @@ export function DocumentApprovalDialog({
     } catch (error: unknown) {
       const err = error as { response?: { data?: { detail?: string } } };
       toast.error('Erro ao rejeitar documento', {
-        description: err.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
+        description: msgFromDetail(err.response?.data?.detail) || 'Erro desconhecido',
       });
     } finally {
       setLoading(false);

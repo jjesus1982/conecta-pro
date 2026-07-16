@@ -84,7 +84,7 @@ export default function DiaristasPage() {
       if (res.data?.inativado && res.data?.mensagem) window.alert(res.data.mensagem);
       loadDiarists();
     } catch (e: any) {
-      window.alert(e?.response?.msgFromDetail(data?.detail) || 'Falha ao remover o diarista.');
+      window.alert(msgFromDetail(e?.response?.data?.detail) || 'Falha ao remover o diarista.');
     }
   };
   const [page, setPage] = useState(1);

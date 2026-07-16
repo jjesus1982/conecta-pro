@@ -73,7 +73,7 @@ export const useValidateCPF = () => {
     onError: (error: any) => {
       const message =
         error?.response?.data?.detail?.[0]?.msg ||
-        error?.response?.msgFromDetail(data?.detail) ||
+        msgFromDetail(error?.response?.data?.detail) ||
         'Erro ao validar CPF';
       toast.error(message);
     },
@@ -96,7 +96,7 @@ export const useValidateCNPJ = () => {
     onError: (error: any) => {
       const message =
         error?.response?.data?.detail?.[0]?.msg ||
-        error?.response?.msgFromDetail(data?.detail) ||
+        msgFromDetail(error?.response?.data?.detail) ||
         'Erro ao validar CNPJ';
       toast.error(message);
     },

@@ -48,7 +48,7 @@ export function DocumentVersionHistory({
       setVersions(data);
     } catch (error: any) {
       toast.error('Erro ao carregar versões', {
-        description: error.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
+        description: msgFromDetail(error.response?.data?.detail) || 'Erro desconhecido',
       });
     } finally {
       setLoading(false);
@@ -62,7 +62,7 @@ export function DocumentVersionHistory({
       loadVersions();
     } catch (error: any) {
       toast.error('Erro ao definir versão atual', {
-        description: error.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
+        description: msgFromDetail(error.response?.data?.detail) || 'Erro desconhecido',
       });
     }
   };
@@ -74,7 +74,7 @@ export function DocumentVersionHistory({
       loadVersions();
     } catch (error: any) {
       toast.error('Erro ao arquivar versão', {
-        description: error.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
+        description: msgFromDetail(error.response?.data?.detail) || 'Erro desconhecido',
       });
     }
   };
@@ -90,7 +90,7 @@ export function DocumentVersionHistory({
       loadVersions();
     } catch (error: any) {
       toast.error('Erro ao excluir versão', {
-        description: error.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
+        description: msgFromDetail(error.response?.data?.detail) || 'Erro desconhecido',
       });
     }
   };
@@ -102,7 +102,7 @@ export function DocumentVersionHistory({
       setCompareResult(result);
     } catch (error: any) {
       toast.error('Erro ao comparar versões', {
-        description: error.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
+        description: msgFromDetail(error.response?.data?.detail) || 'Erro desconhecido',
       });
       setComparing(null);
     }

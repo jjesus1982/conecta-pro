@@ -60,7 +60,7 @@ export const useCreateDocumentTemplate = () => {
     onError: (error: any) => {
       const message =
         error?.response?.data?.detail?.[0]?.msg ||
-        error?.response?.msgFromDetail(data?.detail) ||
+        msgFromDetail(error?.response?.data?.detail) ||
         'Erro ao criar template';
       toast.error(message);
     },
@@ -84,7 +84,7 @@ export const useDeleteTemplate = () => {
     onError: (error: any) => {
       const message =
         error?.response?.data?.detail?.[0]?.msg ||
-        error?.response?.msgFromDetail(data?.detail) ||
+        msgFromDetail(error?.response?.data?.detail) ||
         'Erro ao remover template';
       toast.error(message);
     },

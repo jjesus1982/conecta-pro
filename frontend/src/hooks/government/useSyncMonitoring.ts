@@ -47,7 +47,7 @@ export function useIniciarExtracao() {
       toast.success('Extração iniciada com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao iniciar extração');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao iniciar extração');
     },
   });
 }
@@ -67,7 +67,7 @@ export function useSincronizarNFeRapido() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.msgFromDetail(data?.detail) || 'Erro ao sincronizar NF-e'
+        msgFromDetail(error?.response?.data?.detail) || 'Erro ao sincronizar NF-e'
       );
     },
   });
@@ -87,7 +87,7 @@ export function useSincronizarFGTSRapido() {
       toast.success('Sincronização de FGTS iniciada');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao sincronizar FGTS');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao sincronizar FGTS');
     },
   });
 }
@@ -106,7 +106,7 @@ export function useSincronizarTodosRapido() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.msgFromDetail(data?.detail) || 'Erro ao sincronizar todos os serviços'
+        msgFromDetail(error?.response?.data?.detail) || 'Erro ao sincronizar todos os serviços'
       );
     },
   });
@@ -158,7 +158,7 @@ export function useAgendarSincronizacao() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.msgFromDetail(data?.detail) || 'Erro ao agendar sincronização'
+        msgFromDetail(error?.response?.data?.detail) || 'Erro ao agendar sincronização'
       );
     },
   });
@@ -191,7 +191,7 @@ export function useExecutarSyncBackground() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.msgFromDetail(data?.detail) || 'Erro ao executar sincronização'
+        msgFromDetail(error?.response?.data?.detail) || 'Erro ao executar sincronização'
       );
     },
   });
@@ -211,7 +211,7 @@ export function useUploadCertificado() {
       toast.success('Certificado enviado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao enviar certificado');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao enviar certificado');
     },
   });
 }
@@ -231,7 +231,7 @@ export function useValidarCertificado() {
       }
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao validar certificado');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao validar certificado');
     },
   });
 }
@@ -277,7 +277,7 @@ export function useRemoverCertificado() {
       toast.success('Certificado removido com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao remover certificado');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao remover certificado');
     },
   });
 }
@@ -296,7 +296,7 @@ export function useTestarAssinaturaCertificado() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.msgFromDetail(data?.detail) || 'Erro ao testar assinatura'
+        msgFromDetail(error?.response?.data?.detail) || 'Erro ao testar assinatura'
       );
     },
   });
@@ -341,7 +341,7 @@ export function useExecutarJobAgora() {
       toast.success('Job executado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao executar job');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao executar job');
     },
   });
 }

@@ -439,14 +439,19 @@ async def obter_historico(
     - **offset**: Paginação
     """
     try:
+        from sqlalchemy import select as _select
+
         from ..models.sync_models import SyncLog
 
-        query = db.query(SyncLog).filter(SyncLog.cnpj_empresa == cnpj)
-
+        # AsyncSession não tem .query() — esta rota devolvia 500 sempre
+        stmt = _select(SyncLog).where(SyncLog.cnpj_empresa == cnpj)
         if servico:
-            query = query.filter(SyncLog.servico == servico.value)
-
-        logs = query.order_by(SyncLog.inicio_execucao.desc()).offset(offset).limit(limite).all()
+            stmt = stmt.where(SyncLog.servico == servico.value)
+        logs = (
+            (await db.execute(stmt.order_by(SyncLog.inicio_execucao.desc()).offset(offset).limit(limite)))
+            .scalars()
+            .all()
+        )
 
         return [
             HistoricoResponse(
@@ -563,19 +568,21 @@ async def configurar_agendamento(
     - **horario_inicio/fim**: Janela de execução (opcional)
     """
     try:
+        from sqlalchemy import select as _select
+
         from ..models.sync_models import SyncAgendamento, TipoSincronizacao
 
         servico_gov = ServicoGov(request.servico.value)
 
-        # Buscar ou criar agendamento
+        # Buscar ou criar agendamento (AsyncSession: select/await, não .query)
         agendamento = (
-            db.query(SyncAgendamento)
-            .filter(
-                SyncAgendamento.cnpj_empresa == request.cnpj_empresa,
-                SyncAgendamento.servico == request.servico.value,
+            await db.execute(
+                _select(SyncAgendamento).where(
+                    SyncAgendamento.cnpj_empresa == request.cnpj_empresa,
+                    SyncAgendamento.servico == request.servico.value,
+                )
             )
-            .first()
-        )
+        ).scalar_one_or_none()
 
         if agendamento:
             agendamento.intervalo_minutos = request.intervalo_minutos
@@ -595,7 +602,7 @@ async def configurar_agendamento(
             )
             db.add(agendamento)
 
-        db.commit()
+        await db.commit()
 
         # Atualizar no manager
         sync_manager.configurar_agendamento(
@@ -614,7 +621,7 @@ async def configurar_agendamento(
         }
 
     except Exception as e:
-        db.rollback()
+        await db.rollback()
         logger.exception("[Sync API] Erro configurando agendamento")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
@@ -631,9 +638,15 @@ async def listar_agendamentos(
 ):
     """Lista todos os agendamentos de sincronização."""
     try:
+        from sqlalchemy import select as _select
+
         from ..models.sync_models import SyncAgendamento
 
-        agendamentos = db.query(SyncAgendamento).filter(SyncAgendamento.cnpj_empresa == cnpj).all()
+        agendamentos = (
+            (await db.execute(_select(SyncAgendamento).where(SyncAgendamento.cnpj_empresa == cnpj)))
+            .scalars()
+            .all()
+        )
 
         return [
             {
@@ -666,22 +679,24 @@ async def remover_agendamento(
 ):
     """Remove agendamento de sincronização."""
     try:
+        from sqlalchemy import select as _select
+
         from ..models.sync_models import SyncAgendamento
 
         agendamento = (
-            db.query(SyncAgendamento)
-            .filter(
-                SyncAgendamento.cnpj_empresa == cnpj,
-                SyncAgendamento.servico == servico.value,
+            await db.execute(
+                _select(SyncAgendamento).where(
+                    SyncAgendamento.cnpj_empresa == cnpj,
+                    SyncAgendamento.servico == servico.value,
+                )
             )
-            .first()
-        )
+        ).scalar_one_or_none()
 
         if not agendamento:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agendamento não encontrado")
 
-        db.delete(agendamento)
-        db.commit()
+        await db.delete(agendamento)
+        await db.commit()
 
         # Remover do manager
         if cnpj in sync_manager._schedules:
@@ -693,7 +708,7 @@ async def remover_agendamento(
     except HTTPException:
         raise
     except Exception as e:
-        db.rollback()
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
@@ -718,12 +733,16 @@ async def configurar_integracao(
     - **ambiente**: producao ou homologacao
     """
     try:
+        from sqlalchemy import select as _select
+
         from ..models.sync_models import ConfiguracaoIntegracao
 
-        # Buscar ou criar configuração
+        # Buscar ou criar configuração (AsyncSession: select/await, não .query)
         config = (
-            db.query(ConfiguracaoIntegracao).filter(ConfiguracaoIntegracao.cnpj_empresa == request.cnpj_empresa).first()
-        )
+            await db.execute(
+                _select(ConfiguracaoIntegracao).where(ConfiguracaoIntegracao.cnpj_empresa == request.cnpj_empresa)
+            )
+        ).scalar_one_or_none()
 
         if config:
             if request.certificate_id:
@@ -750,7 +769,7 @@ async def configurar_integracao(
             )
             db.add(config)
 
-        db.commit()
+        await db.commit()
 
         # Configurar no manager
         await sync_manager.configurar_empresa(
@@ -766,7 +785,7 @@ async def configurar_integracao(
         }
 
     except Exception as e:
-        db.rollback()
+        await db.rollback()
         logger.exception("[Sync API] Erro configurando integração")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
@@ -787,9 +806,10 @@ async def obter_configuracao(
 
         from ..models.sync_models import ConfiguracaoIntegracao
 
-        # Tentar usar select() (compatível com sync e async sessions)
+        # AWAIT obrigatório (AsyncSession): sem ele o except engolia e devolvia
+        # "configurado: False" mesmo com configuração existente.
         try:
-            result = db.execute(select(ConfiguracaoIntegracao).where(ConfiguracaoIntegracao.cnpj_empresa == cnpj))
+            result = await db.execute(select(ConfiguracaoIntegracao).where(ConfiguracaoIntegracao.cnpj_empresa == cnpj))
             config = result.scalars().first()
         except Exception:
             # Fallback: tabela pode não existir (migration sprint56 não aplicada)
@@ -839,19 +859,34 @@ async def listar_documentos(
 ):
     """Lista documentos fiscais (NF-e, CT-e, NFS-e, etc)."""
     try:
+        from sqlalchemy import func as _func
+        from sqlalchemy import select as _select
+
         from ..models.sync_models import DocumentoFiscal
 
-        query = db.query(DocumentoFiscal).filter(DocumentoFiscal.cnpj_empresa == cnpj)
-
+        # AsyncSession não tem .query() — esta rota devolvia 500 sempre
+        conds = [DocumentoFiscal.cnpj_empresa == cnpj]
         if tipo:
-            query = query.filter(DocumentoFiscal.tipo_documento == tipo)
+            conds.append(DocumentoFiscal.tipo_documento == tipo)
         if data_inicial:
-            query = query.filter(DocumentoFiscal.data_emissao >= data_inicial)
+            conds.append(DocumentoFiscal.data_emissao >= data_inicial)
         if data_final:
-            query = query.filter(DocumentoFiscal.data_emissao <= data_final)
+            conds.append(DocumentoFiscal.data_emissao <= data_final)
 
-        total = query.count()
-        documentos = query.order_by(DocumentoFiscal.data_emissao.desc()).offset(offset).limit(limite).all()
+        total = (await db.execute(_select(_func.count()).select_from(DocumentoFiscal).where(*conds))).scalar() or 0
+        documentos = (
+            (
+                await db.execute(
+                    _select(DocumentoFiscal)
+                    .where(*conds)
+                    .order_by(DocumentoFiscal.data_emissao.desc())
+                    .offset(offset)
+                    .limit(limite)
+                )
+            )
+            .scalars()
+            .all()
+        )
 
         return {
             "total": total,
@@ -893,17 +928,32 @@ async def listar_eventos_esocial(
 ):
     """Lista eventos eSocial."""
     try:
+        from sqlalchemy import func as _func
+        from sqlalchemy import select as _select
+
         from ..models.sync_models import EventoESocial
 
-        query = db.query(EventoESocial).filter(EventoESocial.cnpj_empresa == cnpj)
-
+        # AsyncSession não tem .query() — esta rota devolvia 500 sempre
+        conds = [EventoESocial.cnpj_empresa == cnpj]
         if tipo_evento:
-            query = query.filter(EventoESocial.tipo_evento == tipo_evento)
+            conds.append(EventoESocial.tipo_evento == tipo_evento)
         if periodo:
-            query = query.filter(EventoESocial.periodo_apuracao == periodo)
+            conds.append(EventoESocial.periodo_apuracao == periodo)
 
-        total = query.count()
-        eventos = query.order_by(EventoESocial.data_evento.desc()).offset(offset).limit(limite).all()
+        total = (await db.execute(_select(_func.count()).select_from(EventoESocial).where(*conds))).scalar() or 0
+        eventos = (
+            (
+                await db.execute(
+                    _select(EventoESocial)
+                    .where(*conds)
+                    .order_by(EventoESocial.data_evento.desc())
+                    .offset(offset)
+                    .limit(limite)
+                )
+            )
+            .scalars()
+            .all()
+        )
 
         return {
             "total": total,
@@ -943,7 +993,9 @@ async def listar_certidoes(
         from ..models.sync_models import Certidao
 
         try:
-            result = db.execute(
+            # AWAIT obrigatório: sem ele o db.execute devolvia coroutine, o .scalars()
+            # explodia e o except engolia → certidões SEMPRE vazias em silêncio.
+            result = await db.execute(
                 select(Certidao).where(Certidao.cnpj_empresa == cnpj).order_by(Certidao.data_emissao.desc())
             )
             certidoes = result.scalars().all()
@@ -985,18 +1037,31 @@ async def listar_guias(
 ):
     """Lista guias de recolhimento."""
     try:
+        from sqlalchemy import select as _select
+
         from ..models.sync_models import GuiaRecolhimento
 
-        query = db.query(GuiaRecolhimento).filter(GuiaRecolhimento.cnpj_empresa == cnpj)
-
+        # AsyncSession não tem .query() — esta rota devolvia 500 sempre
+        conds = [GuiaRecolhimento.cnpj_empresa == cnpj]
         if tipo:
-            query = query.filter(GuiaRecolhimento.tipo_guia == tipo)
+            conds.append(GuiaRecolhimento.tipo_guia == tipo)
         if data_inicial:
-            query = query.filter(GuiaRecolhimento.data_vencimento >= data_inicial)
+            conds.append(GuiaRecolhimento.data_vencimento >= data_inicial)
         if data_final:
-            query = query.filter(GuiaRecolhimento.data_vencimento <= data_final)
+            conds.append(GuiaRecolhimento.data_vencimento <= data_final)
 
-        guias = query.order_by(GuiaRecolhimento.data_vencimento.desc()).limit(limite).all()
+        guias = (
+            (
+                await db.execute(
+                    _select(GuiaRecolhimento)
+                    .where(*conds)
+                    .order_by(GuiaRecolhimento.data_vencimento.desc())
+                    .limit(limite)
+                )
+            )
+            .scalars()
+            .all()
+        )
 
         return [
             {

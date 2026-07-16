@@ -37,7 +37,7 @@ export function useEmitirNFSeNacional() {
       toast.success('NFS-e Padrão Nacional emitida com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao emitir NFS-e');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao emitir NFS-e');
     },
   });
 }
@@ -56,7 +56,7 @@ export function useEmitirNFSeManaus() {
       toast.success('NFS-e Manaus emitida com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao emitir NFS-e Manaus');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao emitir NFS-e Manaus');
     },
   });
 }
@@ -75,7 +75,7 @@ export function useCancelarNFSeNacional() {
       toast.success('NFS-e cancelada com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao cancelar NFS-e');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao cancelar NFS-e');
     },
   });
 }
@@ -95,7 +95,7 @@ export function useCancelarNFSeManaus() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.msgFromDetail(data?.detail) || 'Erro ao cancelar NFS-e Manaus'
+        msgFromDetail(error?.response?.data?.detail) || 'Erro ao cancelar NFS-e Manaus'
       );
     },
   });
@@ -154,7 +154,7 @@ export function useConsultarNFSePorRPSMutation() {
       toast.success('NFS-e consultada com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao consultar NFS-e');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao consultar NFS-e');
     },
   });
 }

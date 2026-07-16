@@ -100,7 +100,7 @@ export function DocumentShareDialog({ documentId, open, onClose }: DocumentShare
       onClose();
     } catch (error: any) {
       toast.error('Erro ao compartilhar documento', {
-        description: error.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
+        description: msgFromDetail(error.response?.data?.detail) || 'Erro desconhecido',
       });
     } finally {
       setLoading(false);
@@ -123,7 +123,7 @@ export function DocumentShareDialog({ documentId, open, onClose }: DocumentShare
       toast.success('Link público criado');
     } catch (error: any) {
       toast.error('Erro ao criar link público', {
-        description: error.response?.msgFromDetail(data?.detail) || 'Erro desconhecido',
+        description: msgFromDetail(error.response?.data?.detail) || 'Erro desconhecido',
       });
     } finally {
       setLoading(false);

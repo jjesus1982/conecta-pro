@@ -121,7 +121,7 @@ function DRETab() {
       });
       setResult(res.data);
     } catch (e: any) {
-      setResult({ sucesso: false, erro: e?.response?.msgFromDetail(data?.detail) || String(e) });
+      setResult({ sucesso: false, erro: msgFromDetail(e?.response?.data?.detail) || String(e) });
     } finally {
       setLoading(false);
     }
@@ -303,7 +303,7 @@ function BalancoTab() {
       });
       setResult(res.data);
     } catch (e: any) {
-      setResult({ sucesso: false, erro: e?.response?.msgFromDetail(data?.detail) || String(e) });
+      setResult({ sucesso: false, erro: msgFromDetail(e?.response?.data?.detail) || String(e) });
     } finally {
       setLoading(false);
     }
@@ -438,7 +438,7 @@ function DFCTab() {
       });
       setResult(res.data);
     } catch (e: any) {
-      setResult({ sucesso: false, erro: e?.response?.msgFromDetail(data?.detail) || String(e) });
+      setResult({ sucesso: false, erro: msgFromDetail(e?.response?.data?.detail) || String(e) });
     } finally {
       setLoading(false);
     }
@@ -564,7 +564,7 @@ function ConsolidadoTab() {
       });
       setResult(res.data);
     } catch (e: any) {
-      setResult({ sucesso: false, erro: e?.response?.msgFromDetail(data?.detail) || String(e) });
+      setResult({ sucesso: false, erro: msgFromDetail(e?.response?.data?.detail) || String(e) });
     } finally {
       setLoading(false);
     }

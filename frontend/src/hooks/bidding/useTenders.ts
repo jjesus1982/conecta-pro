@@ -130,7 +130,7 @@ export function useCriarEdital() {
       toast.success('Edital criado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao criar edital');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao criar edital');
     },
   });
 }
@@ -147,7 +147,7 @@ export function useAtualizarEdital() {
       toast.success('Edital atualizado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao atualizar edital');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao atualizar edital');
     },
   });
 }
@@ -162,7 +162,7 @@ export function useRemoverEdital() {
       toast.success('Edital removido com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao remover edital');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao remover edital');
     },
   });
 }
@@ -178,7 +178,7 @@ export function useMarcarParticipacao() {
       toast.success('Participação registrada com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao registrar participação');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao registrar participação');
     },
   });
 }
@@ -194,7 +194,7 @@ export function useAlterarStatusEdital() {
       toast.success('Status alterado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao alterar status');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao alterar status');
     },
   });
 }
@@ -204,7 +204,7 @@ export function useBuscarPNCPMutation() {
   return useMutation({
     mutationFn: (params: PNCPBuscarParams) => tendersService.buscarPNCP(params),
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao buscar no PNCP');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao buscar no PNCP');
     },
   });
 }
@@ -219,7 +219,7 @@ export function useSincronizarPNCP() {
       toast.success(`${data.total_sincronizado} editais sincronizados`);
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao sincronizar PNCP');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao sincronizar PNCP');
     },
   });
 }

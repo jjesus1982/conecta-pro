@@ -36,7 +36,7 @@ export function useValidarDocumento() {
       }
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao validar documento');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao validar documento');
     },
   });
 }
@@ -68,7 +68,7 @@ export function useConsultarCPFMutation() {
       toast.success('CPF consultado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao consultar CPF');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao consultar CPF');
     },
   });
 }
@@ -100,7 +100,7 @@ export function useConsultarCNPJMutation() {
       toast.success('CNPJ consultado com sucesso');
     },
     onError: (error: any) => {
-      toast.error(error?.response?.msgFromDetail(data?.detail) || 'Erro ao consultar CNPJ');
+      toast.error(msgFromDetail(error?.response?.data?.detail) || 'Erro ao consultar CNPJ');
     },
   });
 }
@@ -119,7 +119,7 @@ export function useValidarInscricaoEstadual() {
     },
     onError: (error: any) => {
       toast.error(
-        error?.response?.msgFromDetail(data?.detail) || 'Erro ao validar Inscrição Estadual'
+        msgFromDetail(error?.response?.data?.detail) || 'Erro ao validar Inscrição Estadual'
       );
     },
   });
