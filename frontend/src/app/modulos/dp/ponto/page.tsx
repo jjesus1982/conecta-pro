@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, Suspense } from 'react';
 import { msgFromDetail } from '@/lib/string';
 import { Clock, ArrowLeft, Inbox, Loader2, AlertTriangle, Search, ChevronLeft, ChevronRight as ChevronRightIcon, Plus, X, Save, LogIn, LogOut } from 'lucide-react';
 import { toast } from 'sonner';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -55,17 +55,19 @@ function formatDate(val: string | null | undefined): string {
   return val;
 }
 
-export default function PontoPage() {
+function PontoPageInner() {
   const router = useRouter();
+  // Deep-link do Fechamento de Ponto ("corrigir" numa anomalia): abre já no MÊS certo,
+  // em visão MENSAL e filtrado no funcionário. useSearchParams (NÃO window.location.search):
+  // no client-side router.push a URL só é commitada depois do render, então window.location
+  // ainda mostrava a rota antiga e a tela caía em hoje/diário.
+  const searchParams = useSearchParams();
   // Data LOCAL (não toISOString, que converte p/ UTC e à noite "vira o dia" antes de Manaus → tela vazia)
   const _now = new Date();
   const today = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`;
-  // Deep-link do Fechamento de Ponto ("corrigir" numa anomalia): abre já no MÊS certo,
-  // em visão MENSAL e filtrado no funcionário — senão a tela caía sempre em hoje/diário.
-  const _params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
-  const _qpMes = _params.get('mes');
-  const _qpAno = _params.get('ano');
-  const _qpNome = _params.get('nome') || '';
+  const _qpMes = searchParams.get('mes');
+  const _qpAno = searchParams.get('ano');
+  const _qpNome = searchParams.get('nome') || '';
   const _temPeriodoURL = Boolean(_qpMes && _qpAno);
   const _periodoURL = _temPeriodoURL
     ? `${_qpAno}-${String(Number(_qpMes)).padStart(2, '0')}`
@@ -73,6 +75,15 @@ export default function PontoPage() {
   const [viewMode, setViewMode] = useState<'daily' | 'monthly'>(_temPeriodoURL ? 'monthly' : 'daily');
   const [selectedDate, setSelectedDate] = useState(today);
   const [periodo, setPeriodo] = useState(_periodoURL);
+  // Reage se os params mudarem depois do mount (nav de "corrigir" repetida na mesma página)
+  useEffect(() => {
+    if (_temPeriodoURL) {
+      setViewMode('monthly');
+      setPeriodo(_periodoURL);
+      if (_qpNome) setSearchTerm(_qpNome);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [_periodoURL, _qpNome, _temPeriodoURL]);
   const [registros, setRegistros] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState(_qpNome);
@@ -607,5 +618,14 @@ export default function PontoPage() {
         </>
       )}
     </div>
+  );
+}
+
+// useSearchParams exige Suspense boundary no App Router (senão o build falha em página estática)
+export default function PontoPage() {
+  return (
+    <Suspense fallback={null}>
+      <PontoPageInner />
+    </Suspense>
   );
 }

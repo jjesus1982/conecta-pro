@@ -504,6 +504,17 @@ async def criar_vacation(data: dict, current_user: CurrentActiveUser, db: AsyncS
     sd, ed = _d(data.get("start_date")), _d(data.get("end_date"))
     if not sd or not ed:
         raise HTTPException(status_code=422, detail="start_date e end_date são obrigatórios")
+    if ed < sd:
+        raise HTTPException(status_code=422, detail="A data de término não pode ser anterior à data de início.")
+    # Teto legal: férias nunca excedem 30 dias corridos (CLT art. 130). Este endpoint recebe
+    # dict cru (sem schema Pydantic) — a tela do DP posta DIRETO nesta rota, então a
+    # validação precisa estar aqui (a guarda no schema de /operacional/vacations não a cobre).
+    _dias_corridos = (ed - sd).days + 1
+    if _dias_corridos > 30:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Férias não podem exceder 30 dias corridos (CLT art. 130); o período informado tem {_dias_corridos} dias.",
+        )
 
     days = data.get("days")
     if days is None:

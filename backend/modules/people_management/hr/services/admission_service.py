@@ -88,10 +88,14 @@ class AdmissionService:
 
         _cpf = (data.get("cpf") or "").strip() if isinstance(data.get("cpf"), str) else data.get("cpf")
         if _cpf:
+            # Compara por DÍGITOS dos dois lados: o form manda mascarado ("703.417.552-73")
+            # e o banco guarda só dígitos — igualdade exata deixava o duplicado passar (201).
+            _digits = "".join(ch for ch in str(_cpf) if ch.isdigit())
             _dup = (
                 await self.db.execute(
                     select(_Employee).where(
-                        _Employee.cpf == _cpf, _func.lower(_Employee.status) == "ativo"
+                        _func.regexp_replace(_Employee.cpf, "[^0-9]", "", "g") == _digits,
+                        _func.lower(_Employee.status) == "ativo",
                     )
                 )
             ).scalar_one_or_none()
@@ -305,8 +309,14 @@ class AdmissionService:
         _cpf = (employee_data.get("cpf") or "").strip()
         if not _cpf:
             raise ValueError("CPF é obrigatório para concluir a admissão.")
+        # comparação por dígitos (form manda mascarado; banco guarda só dígitos)
+        from sqlalchemy import func as _f
+
+        _digits = "".join(ch for ch in _cpf if ch.isdigit())
         _dup = (
-            await self.db.execute(select(Employee).where(Employee.cpf == _cpf))
+            await self.db.execute(
+                select(Employee).where(_f.regexp_replace(Employee.cpf, "[^0-9]", "", "g") == _digits)
+            )
         ).scalar_one_or_none()
         if _dup is not None:
             raise ValueError(f"Já existe funcionário cadastrado com o CPF {_cpf}.")
@@ -316,7 +326,7 @@ class AdmissionService:
             id=uuid4(),
             nome=employee_data.get("nome", ""),
             email=employee_data.get("email"),
-            cpf=_cpf,
+            cpf=_digits or _cpf,  # convenção do banco: só dígitos
             matricula=employee_data.get("matricula"),
             cargo=_cargo_nome or employee_data.get("cargo"),
             cct_cargo_id=_cct_id,

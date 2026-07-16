@@ -324,7 +324,9 @@ export default function RegularizacaoSSTPage() {
         {vencidos && (vencidos.resumo_por_posto?.length ?? 0) > 0 && (
           <CardContent className="pt-0">
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {vencidos.resumo_por_posto!.slice(0, 6).map((g) => (
+              {/* TODOS os grupos (sem slice): truncar fazia a soma do breakdown (23) divergir
+                  do card total (25) — os grupos cortados (ex.: "Sem posto ativo") sumiam. */}
+              {vencidos.resumo_por_posto!.map((g) => (
                 <div
                   key={g.posto_nome}
                   className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"

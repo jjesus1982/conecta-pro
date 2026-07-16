@@ -518,7 +518,11 @@ export default function FolhaPage() {
                         const inssVal = item.inss_value ?? item.inss ?? (item.descontos || []).find?.((d: any) => d.descricao?.includes('INSS'))?.valor ?? 0;
                         const fgtsVal = item.fgts_value ?? item.fgts_8_pct ?? item.fgts ?? 0;
                         const descVal = item.total_descontos || 0;
-                        const liqVal = item.salario_liquido || item.net_salary || (salBase - descVal);
+                        // ?? (não ||): net_salary = 0,00 é VALOR legítimo (ex.: suspenso com
+                        // descontos = proventos). Com || o zero caía no fallback salBase−desc
+                        // e virava líquido NEGATIVO (-R$68,99). E clamp: nunca exibir < 0.
+                        const liqRaw = item.salario_liquido ?? item.net_salary ?? (salBase - descVal);
+                        const liqVal = Math.max(0, Number(liqRaw) || 0);
                         // Linha de fallback (cadastro, sem folha do período) → rótulo honesto.
                         const status = item._sem_folha
                           ? 'sem_folha'
