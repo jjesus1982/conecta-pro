@@ -50,6 +50,7 @@ import {
   useReceivableDashboard,
   useFinancialOverview,
 } from '@/hooks/financial/useFinancial';
+import { useListChartsApiV1FinancialAccountingAccountingChartsGet as useAccountingCharts } from '@/types/generated/financial/financial-accounting/financial-accounting';
 import { cn } from '@/lib/utils';
 import { useCondominio } from '@/contexts/CondominioContext';
 
@@ -164,8 +165,14 @@ export default function RelatoriosPage() {
   const { data: projectionRaw, isLoading: loadingProjection, refetch: refetchProjection } =
     useCashflowProjection({ condominio_id: condominioId });
 
+  // chart_id vazio dava 422 no console em toda carga (e o Balanço nunca recebia
+  // dado) — mesmo padrão da tela de contabilidade: pega o 1º plano de contas e
+  // só consulta quando ele existe.
+  const { data: chartsData } = useAccountingCharts({});
+  const activeChartId: string =
+    (Array.isArray(chartsData) && chartsData.length > 0) ? (chartsData as any[])[0]?.id ?? '' : '';
   const { data: accountsRaw, isLoading: loadingAccounts, refetch: refetchAccounts } =
-    useAccountingAccounts({ chart_id: '' });
+    useAccountingAccounts({ chart_id: activeChartId }, { query: { enabled: !!activeChartId } });
 
   const { data: payableDashRaw, isLoading: loadingPayable } =
     usePayableDashboard({ condominio_id: condominioId });
