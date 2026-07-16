@@ -211,7 +211,9 @@ export default function FolhaPage() {
         const d = await res.json();
         const total = d.total_valor ?? pixSimulacao?.total_valor ?? 0;
         const funcs = d.total_funcionarios ?? pixSimulacao?.total_funcionarios ?? 0;
-        toast.success(`PIX agendado: ${funcs} funcionários · ${fmt(total)}`, { duration: 6000 });
+        // NÃO diz "pago/agendado" — o lote só fica PENDENTE. O dinheiro só sai no passo de
+        // pagamento via Inter, que exige OTP. Deixar claro pra ninguém achar que já pagou.
+        toast.success(`Lote registrado como PENDENTE: ${funcs} funcionários · ${fmt(total)}. Nenhum PIX foi enviado — o pagamento exige aprovação com OTP.`, { duration: 8000 });
         setPixModalOpen(false);
         setRefreshKey(k => k + 1);
       } else {

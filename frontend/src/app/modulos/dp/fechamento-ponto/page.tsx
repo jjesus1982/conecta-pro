@@ -284,7 +284,7 @@ export default function FechamentoPontoPage() {
                             {statusBadge(f)}
                             {f.anomalias_abertas > 0 && (
                               <button
-                                onClick={() => router.push(`/modulos/dp/ponto?employee=${f.employee_id}&mes=${mes}&ano=${ano}`)}
+                                onClick={() => router.push(`/modulos/dp/ponto?employee=${f.employee_id}&nome=${encodeURIComponent(f.employee_name || '')}&mes=${mes}&ano=${ano}`)}
                                 className="text-xs text-amber-500 hover:underline inline-flex items-center gap-0.5"
                               >
                                 corrigir <ChevronRight className="w-3 h-3" />

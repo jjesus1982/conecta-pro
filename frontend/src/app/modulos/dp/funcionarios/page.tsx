@@ -211,6 +211,19 @@ export default function FuncionariosPage() {
           contract_start_date: data.current_contract?.start_date ?? null,
           base_salary: data.current_contract?.base_salary ?? data.employee?.salario_base ?? null,
         });
+        // Repopula o formulário com o registro COMPLETO. A lista traz só um resumo, então
+        // campos detalhados (RG, CTPS, endereço…) vinham vazios ao abrir "Editar". O perfil
+        // devolve data.employee com o registro inteiro — funde nos campos que o form conhece.
+        const emp = data.employee;
+        if (emp && typeof emp === 'object') {
+          setEditData(prev => {
+            const merged = { ...prev };
+            for (const key of Object.keys(FIELD_LABELS)) {
+              if (emp[key] != null && String(emp[key]) !== '') merged[key] = String(emp[key]);
+            }
+            return merged;
+          });
+        }
       }
     } catch { /* ignore */ }
   };

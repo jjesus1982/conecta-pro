@@ -51,6 +51,13 @@ const statusConfig: Record<string, { label: string; className: string }> = {
 };
 
 function deriveStatus(contract: any): string {
+  // Um contrato com data de término no passado está ENCERRADO, mesmo que is_current
+  // ainda esteja defasado no banco (ex.: demitido). A data manda sobre a flag.
+  if (contract.end_date) {
+    const fim = String(contract.end_date).split('T')[0];
+    const hoje = new Date().toISOString().split('T')[0];
+    if (fim < hoje) return 'ended';
+  }
   if (contract.is_current) return 'current';
   return 'ended';
 }

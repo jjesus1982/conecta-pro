@@ -102,6 +102,36 @@ async def list_terminations(
                     "updated_at": t.updated_at.isoformat() if t.updated_at else None,
                 }
             )
+        # Verbas ao vivo na LISTA (mesma regra do detalhe): registros legados foram gravados
+        # sem valores (NULL) e a lista mostrava "R$ 0,00", divergindo do detalhe que já
+        # recalcula. Recalcula aqui quando o total armazenado está ausente, para lista == detalhe.
+        from modules.people_management.hr.models.termination import TerminationType
+
+        for row, item in zip(result["items"], serialized):
+            if item.get("total_amount") is None and row.employee_id and row.last_working_day:
+                try:
+                    _tp_raw = row.type.value if hasattr(row.type, "value") else str(row.type or "")
+                    try:
+                        _tp = TerminationType(_tp_raw)
+                    except ValueError:
+                        _tp = TerminationType.INVOLUNTARY
+                    calc = await service.calculate_severance(
+                        employee_id=str(row.employee_id),
+                        termination_type=_tp,
+                        last_working_day=row.last_working_day,
+                    )
+                    item["total_amount"] = calc.get("total_liquido") or calc.get("total_proventos")
+                    item["severance_amount"] = calc.get("aviso_previo_indenizado")
+                    item["thirteenth_salary_amount"] = calc.get("decimo_terceiro_proporcional")
+                    item["vacation_balance_amount"] = (
+                        (calc.get("ferias_vencidas") or 0)
+                        + (calc.get("ferias_proporcionais") or 0)
+                        + (calc.get("terco_constitucional") or 0)
+                    )
+                    item["fgts_amount"] = calc.get("multa_fgts_40")
+                    item["valores_recalculados"] = True
+                except Exception:  # noqa: BLE001 — best-effort; nunca quebra a lista
+                    pass
         result["items"] = serialized
     return result
 

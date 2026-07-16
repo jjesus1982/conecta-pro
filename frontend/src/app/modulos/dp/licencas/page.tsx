@@ -192,7 +192,9 @@ export default function LicencasPage() {
   const handleCreate = async () => {
     const errors: Record<string, string> = {};
     if (!formData.employee_id) errors.employee_id = 'Colaborador é obrigatório';
-    if (!formData.start_date) errors.start_date = 'Data inicio e obrigatoria';
+    if (!formData.start_date) errors.start_date = 'A data de início é obrigatória';
+    if (formData.end_date && formData.start_date && formData.end_date < formData.start_date)
+      errors.end_date = 'A data de término não pode ser anterior à data de início';
     if (Object.keys(errors).length > 0) {
       setFormErrors(errors);
       toast.error('Corrija os campos destacados', { duration: 5000 });

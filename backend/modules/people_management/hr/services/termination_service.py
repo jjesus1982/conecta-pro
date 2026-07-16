@@ -313,11 +313,15 @@ class TerminationService:
                 {"d": termination.last_working_day, "e": str(termination.employee_id)},
             )
 
-            # encerrar o CONTRATO vigente (end_date NULL) — senão o demitido segue "Vigente"
+            # encerrar o CONTRATO vigente — end_date E is_current=false. O badge "Vigente" lê
+            # is_current (não deriva de end_date), então setar só a data deixava o demitido
+            # como "Vigente". Encerra os contratos abertos (end_date NULL) e também qualquer
+            # contrato ainda marcado is_current do demitido.
             await self.db.execute(
                 _sqltext(
-                    "UPDATE employment_contracts SET end_date=:d, updated_at=NOW() "
-                    "WHERE CAST(employee_id AS TEXT)=:e AND end_date IS NULL"
+                    "UPDATE employment_contracts SET "
+                    "end_date=COALESCE(end_date, :d), is_current=false, updated_at=NOW() "
+                    "WHERE CAST(employee_id AS TEXT)=:e AND (end_date IS NULL OR is_current=true)"
                 ),
                 {"d": termination.last_working_day, "e": str(termination.employee_id)},
             )

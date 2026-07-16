@@ -60,20 +60,30 @@ export default function PontoPage() {
   // Data LOCAL (não toISOString, que converte p/ UTC e à noite "vira o dia" antes de Manaus → tela vazia)
   const _now = new Date();
   const today = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`;
-  const [viewMode, setViewMode] = useState<'daily' | 'monthly'>('daily');
+  // Deep-link do Fechamento de Ponto ("corrigir" numa anomalia): abre já no MÊS certo,
+  // em visão MENSAL e filtrado no funcionário — senão a tela caía sempre em hoje/diário.
+  const _params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
+  const _qpMes = _params.get('mes');
+  const _qpAno = _params.get('ano');
+  const _qpNome = _params.get('nome') || '';
+  const _temPeriodoURL = Boolean(_qpMes && _qpAno);
+  const _periodoURL = _temPeriodoURL
+    ? `${_qpAno}-${String(Number(_qpMes)).padStart(2, '0')}`
+    : `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}`;
+  const [viewMode, setViewMode] = useState<'daily' | 'monthly'>(_temPeriodoURL ? 'monthly' : 'daily');
   const [selectedDate, setSelectedDate] = useState(today);
-  const [periodo, setPeriodo] = useState(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  });
+  const [periodo, setPeriodo] = useState(_periodoURL);
   const [registros, setRegistros] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(_qpNome);
   const [currentPage, setCurrentPage] = useState(1);
   const [sortField, setSortField] = useState<string>('');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [filtroStatus, setFiltroStatus] = useState<string>('todos');
   const [refreshKey, setRefreshKey] = useState(0);
+  // Resumo mensal REAL (agregado do espelho/time_sheets), não a contagem por status das
+  // linhas cruas — que ficava zerada porque time-records não carrega status 'falta'/'extra'.
+  const [monthlyResumo, setMonthlyResumo] = useState<{ extras_min: number; faltas: number; atrasos_min: number } | null>(null);
 
   // Manual entry form
   const [showForm, setShowForm] = useState(false);
@@ -141,6 +151,28 @@ export default function PontoPage() {
 
         setRegistros(normalized);
         toast.info(`${normalized.length} registro${normalized.length !== 1 ? 's' : ''} carregado${normalized.length !== 1 ? 's' : ''}`, { duration: 3000 });
+
+        // Cards do mês: agregado REAL do espelho (extras/faltas/atrasos), não a contagem
+        // por status das linhas (que ficava zerada). Best-effort — falha não quebra a lista.
+        if (viewMode === 'monthly') {
+          try {
+            const [y, m] = periodo.split('-');
+            const pr = await fetch(`${API_BASE}/hr/ponto/espelho/painel/${Number(m)}/${y}`, { headers: getAuthHeaders() }).catch(() => null);
+            if (pr?.ok) {
+              const pd = await pr.json();
+              const funcs: any[] = pd.funcionarios || pd.itens || [];
+              setMonthlyResumo({
+                extras_min: funcs.reduce((s, f) => s + (Number(f.extras_minutos) || 0), 0),
+                faltas: funcs.reduce((s, f) => s + (Number(f.faltas_dias) || 0), 0),
+                atrasos_min: funcs.reduce((s, f) => s + (Number(f.atrasos_minutos) || 0), 0),
+              });
+            } else {
+              setMonthlyResumo(null);
+            }
+          } catch { setMonthlyResumo(null); }
+        } else {
+          setMonthlyResumo(null);
+        }
       } catch (err) {
         console.error('loadTimeRecords:', err);
         toast.error('Erro ao carregar registros de ponto', { duration: 5000 });
@@ -289,12 +321,21 @@ export default function PontoPage() {
   const faltas = registros.filter(r => r.status === 'falta' || r.status === 'absent').length;
   const atrasos = registros.filter(r => r.status === 'atraso' || r.status === 'late').length;
 
-  const summaryCards = [
-    { title: 'Total Registros', value: `${totalRegistros}`, icon: Clock, color: '#2563eb' },
-    { title: 'Horas Extras', value: `${horasExtras}`, icon: Clock, color: '#16a34a' },
-    { title: 'Faltas', value: `${faltas}`, icon: AlertTriangle, color: '#dc2626' },
-    { title: 'Atrasos', value: `${atrasos}`, icon: AlertTriangle, color: '#ca8a04' },
-  ];
+  const _hm = (min: number) => `${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}`;
+  // No mês, os cards refletem o agregado REAL do espelho; no dia, a contagem por status.
+  const summaryCards = viewMode === 'monthly' && monthlyResumo
+    ? [
+        { title: 'Total Registros', value: `${totalRegistros}`, icon: Clock, color: '#2563eb' },
+        { title: 'Horas Extras', value: _hm(monthlyResumo.extras_min), icon: Clock, color: '#16a34a' },
+        { title: 'Faltas', value: `${monthlyResumo.faltas}`, icon: AlertTriangle, color: '#dc2626' },
+        { title: 'Atrasos', value: _hm(monthlyResumo.atrasos_min), icon: AlertTriangle, color: '#ca8a04' },
+      ]
+    : [
+        { title: 'Total Registros', value: `${totalRegistros}`, icon: Clock, color: '#2563eb' },
+        { title: 'Horas Extras', value: `${horasExtras}`, icon: Clock, color: '#16a34a' },
+        { title: 'Faltas', value: `${faltas}`, icon: AlertTriangle, color: '#dc2626' },
+        { title: 'Atrasos', value: `${atrasos}`, icon: AlertTriangle, color: '#ca8a04' },
+      ];
 
   return (
     <div className="space-y-6 pb-28">
