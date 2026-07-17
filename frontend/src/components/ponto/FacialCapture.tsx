@@ -9,13 +9,15 @@ import { Camera, CheckCircle, XCircle, Loader2, RotateCcw } from 'lucide-react';
 import { useFaceDetection } from '@/hooks/useFaceDetection';
 import type { FaceDetectionResult } from '@/hooks/useFaceDetection';
 
-interface FacialCaptureResult {
+export interface FacialCaptureResult {
   success: boolean;
   matched: boolean;
   confidence: number;
   distance: number;
   imageData: string;
   timestamp: string;
+  /** Descriptor de 128 floats do rosto capturado (para cadastro de referência). */
+  descriptor: number[];
 }
 
 interface FacialCaptureProps {
@@ -123,6 +125,7 @@ export function FacialCapture({
       distance,
       imageData,
       timestamp: new Date().toISOString(),
+      descriptor: detection.descriptor ? Array.from(detection.descriptor) : [],
     };
 
     if (matched) {

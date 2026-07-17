@@ -228,6 +228,10 @@ def _compute_onboarding_status(employee: Any) -> dict[str, Any]:
     # depois (banner persistente). `bloqueante=true` só quando PONTO_ONBOARDING_BLOQUEANTE
     # for ligado (default false). O DP acompanha a completude pelo painel.
     bloqueante = os.getenv("PONTO_ONBOARDING_BLOQUEANTE", "false").lower() == "true"
+    # Reconhecimento facial: cadastrar o rosto é OBRIGATÓRIO (decisão do Jordan) — sem ele
+    # o funcionário não bate ponto (gate rígido em /ponto/facial/batida). Diferente dos
+    # campos de dados (modo transição), a facial é sempre exigida antes de bater.
+    facial_cadastrada = bool(getattr(employee, "biometria_facial", False))
     return {
         "pendente": len(faltantes) > 0,
         "bloqueante": bloqueante and len(faltantes) > 0,
@@ -236,6 +240,8 @@ def _compute_onboarding_status(employee: Any) -> dict[str, Any]:
         "total_ok": len(ok),
         "campos_ok": ok,
         "campos_faltantes": faltantes,
+        "facial_cadastrada": facial_cadastrada,
+        "facial_pendente": not facial_cadastrada,
     }
 
 
@@ -294,6 +300,8 @@ async def get_onboarding_status(
             "total_ok": 0,
             "campos_ok": [],
             "campos_faltantes": [],
+            "facial_cadastrada": False,
+            "facial_pendente": True,
         }
     return _compute_onboarding_status(employee)
 

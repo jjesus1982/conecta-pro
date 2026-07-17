@@ -30,6 +30,7 @@ import {
 import api from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
+import { FacialCapture, type FacialCaptureResult } from '@/components/ponto/FacialCapture';
 
 interface PendingDoc {
   request_id: string;
@@ -913,130 +914,6 @@ function obterLocalizacao(): Promise<{ latitude: number; longitude: number; accu
   });
 }
 
-/**
- * Modal de captura da selfie (câmera frontal).
- * Ao confirmar, devolve o base64 JPEG. Trata câmera negada/indisponível.
- */
-function SelfieCapture({
-  onCapture, onCancel,
-}: {
-  onCapture: (fotoBase64: string) => void;
-  onCancel: () => void;
-}) {
-  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
-  const [stream, setStream] = useState<MediaStream | null>(null);
-  const [error, setError] = useState('');
-  const [ready, setReady] = useState(false);
-
-  // Abre a câmera frontal ao montar.
-  useEffect(() => {
-    let localStream: MediaStream | null = null;
-    let cancelled = false;
-    (async () => {
-      if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
-        setError('Este dispositivo não suporta câmera. Use um celular com câmera frontal.');
-        return;
-      }
-      try {
-        localStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } },
-          audio: false,
-        });
-        if (cancelled) { localStream.getTracks().forEach((t) => t.stop()); return; }
-        setStream(localStream);
-        setReady(true);
-      } catch (e: unknown) {
-        const name = (e as { name?: string })?.name;
-        if (name === 'NotAllowedError' || name === 'SecurityError') {
-          setError('Câmera negada. Para bater o ponto precisamos da selfie — permita o acesso à câmera.');
-        } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
-          setError('Nenhuma câmera frontal encontrada neste dispositivo.');
-        } else {
-          setError('Não foi possível abrir a câmera. Tente novamente.');
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-      if (localStream) localStream.getTracks().forEach((t) => t.stop());
-    };
-  }, []);
-
-  // Conecta o stream ao <video> assim que ambos existem.
-  useEffect(() => {
-    if (videoEl && stream) {
-      videoEl.srcObject = stream;
-      videoEl.play().catch(() => { /* autoplay pode falhar silenciosamente */ });
-    }
-  }, [videoEl, stream]);
-
-  const fechar = () => {
-    if (stream) stream.getTracks().forEach((t) => t.stop());
-    onCancel();
-  };
-
-  const capturar = () => {
-    if (!videoEl) return;
-    const w = videoEl.videoWidth || 640;
-    const h = videoEl.videoHeight || 640;
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) { setError('Falha ao capturar a foto.'); return; }
-    // Espelha horizontalmente (selfie natural).
-    ctx.translate(w, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(videoEl, 0, 0, w, h);
-    const base64 = canvas.toDataURL('image/jpeg', 0.75);
-    if (stream) stream.getTracks().forEach((t) => t.stop());
-    onCapture(base64);
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-[hsl(var(--card))] border border-[hsl(var(--border))] overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[hsl(var(--border))]">
-          <span className="font-medium text-sm flex items-center gap-2">
-            <Camera className="w-4 h-4 text-[#f97707]" /> Selfie do ponto
-          </span>
-          <button onClick={fechar} className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {error ? (
-          <div className="p-5 space-y-4">
-            <ErrorBox msg={error} />
-            <Button variant="outline" size="sm" className="w-full" onClick={fechar}>Fechar</Button>
-          </div>
-        ) : (
-          <>
-            <div className="relative bg-black aspect-square flex items-center justify-center">
-              {!ready && <Loader2 className="w-7 h-7 animate-spin text-white/70 absolute" />}
-              <video
-                ref={setVideoEl}
-                playsInline
-                muted
-                className="w-full h-full object-cover"
-                style={{ transform: 'scaleX(-1)' }}
-              />
-            </div>
-            <div className="p-4">
-              <p className="text-xs text-[hsl(var(--muted-foreground))] text-center mb-3">
-                Enquadre seu rosto e toque para capturar.
-              </p>
-              <Button className="w-full" disabled={!ready} onClick={capturar}>
-                <Camera className="w-4 h-4 mr-2" /> Capturar selfie
-              </Button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function PontoTab() {
   const { user } = useAuth();
   const now = new Date();
@@ -1050,11 +927,81 @@ function PontoTab() {
   const [hoje, setHoje] = useState<PontoHoje | null>(null);
   const [hojeLoading, setHojeLoading] = useState(true);
 
-  // Fluxo de bater: idle → gps → camera → sending → done/error
-  const [fase, setFase] = useState<'idle' | 'gps' | 'camera' | 'sending'>('idle');
+  // Fluxo de bater: idle → gps → facial → sending → done/error. 'enroll' = cadastro do rosto.
+  const [fase, setFase] = useState<'idle' | 'gps' | 'facial' | 'enroll' | 'sending'>('idle');
   const [baterErro, setBaterErro] = useState('');
   const [resultado, setResultado] = useState<BaterResultado | null>(null);
   const [geo, setGeo] = useState<{ latitude: number; longitude: number } | null>(null);
+
+  // Reconhecimento facial: rosto de referência cadastrado (obrigatório antes de bater).
+  const [faceEnrolled, setFaceEnrolled] = useState<boolean | null>(null); // null = carregando
+  const [faceRef, setFaceRef] = useState<Float32Array | null>(null);
+
+  const carregarFace = useCallback(async () => {
+    try {
+      const res = await api.get(`${PONTO_BASE}/facial/referencia`);
+      const enrolled = Boolean(res.data?.enrolled);
+      setFaceEnrolled(enrolled);
+      setFaceRef(enrolled && Array.isArray(res.data?.descriptor)
+        ? new Float32Array(res.data.descriptor as number[]) : null);
+    } catch {
+      setFaceEnrolled(false);
+      setFaceRef(null);
+    }
+  }, []);
+  useEffect(() => { carregarFace(); }, [carregarFace]);
+
+  // Cadastro do rosto de referência (enrollment) — captura o descriptor e envia.
+  const onEnrollCapture = async (r: FacialCaptureResult) => {
+    if (!r.descriptor?.length) {
+      setBaterErro('Não foi possível ler seu rosto. Tente em local iluminado, rosto centralizado.');
+      setFase('idle');
+      return;
+    }
+    setFase('sending');
+    setBaterErro('');
+    try {
+      await api.post(`${PONTO_BASE}/facial/cadastrar`, { descriptor: r.descriptor });
+      await carregarFace();
+      setResultado(null);
+    } catch {
+      setBaterErro('Falha ao cadastrar o rosto. Tente novamente.');
+    } finally {
+      setFase('idle');
+    }
+  };
+
+  // Batida com match facial: só envia se o rosto bateu com a referência.
+  const onFacialCapture = async (r: FacialCaptureResult) => {
+    if (!r.matched) {
+      setBaterErro('Rosto não reconhecido. A batida só é confirmada com reconhecimento facial. Tente novamente.');
+      setFase('idle');
+      setGeo(null);
+      return;
+    }
+    if (!geo) { setBaterErro('Localização perdida. Toque em bater ponto novamente.'); setFase('idle'); return; }
+    setFase('sending');
+    setBaterErro('');
+    try {
+      const res = await api.post(`${PONTO_BASE}/facial/batida`, {
+        match: true,
+        confidence: r.confidence,
+        liveness_check: true,
+        foto_base64: r.imageData,
+        location: { latitude: geo.latitude, longitude: geo.longitude, accuracy: 0 },
+        punch_type: proximoTipo,
+      });
+      setResultado({ ok: true, ...(res.data || {}) });
+      await carregarHoje();
+      if (mes === now.getMonth() + 1 && ano === now.getFullYear()) await carregarMes();
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setBaterErro(typeof msg === 'string' ? msg : 'Não foi possível registrar o ponto. Tente novamente.');
+    } finally {
+      setFase('idle');
+      setGeo(null);
+    }
+  };
 
   const isLider = ['lider', 'líder', 'supervisor', 'gerente', 'gestor', 'coordenador', 'admin', 'all']
     .some((r) => (user?.role || '').toLowerCase().includes(r));
@@ -1093,50 +1040,23 @@ function PontoTab() {
   const proximoTipo: 'entrada' | 'saida' =
     hoje?.proxima_batida === 'saida' ? 'saida' : 'entrada';
 
-  // Passo 1: pedir GPS e abrir a câmera.
+  // Passo 1: pedir GPS e abrir a câmera para o reconhecimento facial.
   const iniciarBatida = async () => {
     setBaterErro('');
     setResultado(null);
+    if (!faceEnrolled) {
+      setBaterErro('Cadastre seu reconhecimento facial antes de bater o ponto.');
+      return;
+    }
     setFase('gps');
     try {
       const pos = await obterLocalizacao();
       setGeo({ latitude: pos.latitude, longitude: pos.longitude });
-      setFase('camera');
+      setFase('facial');
     } catch (e: unknown) {
       setBaterErro((e as Error)?.message || 'Não foi possível obter sua localização.');
       setFase('idle');
     }
-  };
-
-  // Passo 2 (após capturar a selfie): POST /bater-ponto.
-  const enviarBatida = async (fotoBase64: string) => {
-    if (!geo) { setBaterErro('Localização perdida. Toque em bater ponto novamente.'); setFase('idle'); return; }
-    setFase('sending');
-    setBaterErro('');
-    try {
-      const res = await api.post(`${PONTO_BASE}/bater-ponto`, {
-        tipo: proximoTipo,
-        latitude: geo.latitude,
-        longitude: geo.longitude,
-        foto: fotoBase64,
-      });
-      setResultado({ ok: true, ...(res.data || {}) });
-      // Atualiza estado do dia e o mês corrente (se for o mês exibido).
-      await carregarHoje();
-      if (mes === now.getMonth() + 1 && ano === now.getFullYear()) await carregarMes();
-    } catch (e: unknown) {
-      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setBaterErro(typeof msg === 'string' ? msg : 'Não foi possível registrar o ponto. Tente novamente.');
-    } finally {
-      setFase('idle');
-      setGeo(null);
-    }
-  };
-
-  const cancelarCamera = () => {
-    setFase('idle');
-    setGeo(null);
-    setBaterErro('Batida cancelada. A selfie é obrigatória para registrar o ponto.');
   };
 
   // Backend retorna registros de BATIDA individuais: {tipo, data_hora, localizacao}
@@ -1202,36 +1122,82 @@ function PontoTab() {
 
         {baterErro && <div className="mb-3"><ErrorBox msg={baterErro} /></div>}
 
-        <button
-          onClick={iniciarBatida}
-          disabled={bloqueado || hojeLoading}
-          className={[
-            'w-full rounded-xl py-4 text-base font-semibold text-white transition-colors',
-            'flex items-center justify-center gap-2 shadow-sm',
-            bloqueado || hojeLoading
-              ? 'bg-[#f97707]/60 cursor-not-allowed'
-              : 'bg-[#f97707] hover:bg-[#e06a00] active:bg-[#c85f00]',
-          ].join(' ')}
-        >
-          {fase === 'gps' ? (
-            <><Loader2 className="w-5 h-5 animate-spin" /> Obtendo localização…</>
-          ) : fase === 'sending' ? (
-            <><Loader2 className="w-5 h-5 animate-spin" /> Registrando…</>
-          ) : (
-            <>
-              <Fingerprint className="w-5 h-5" />
-              {proximoTipo === 'saida' ? 'BATER SAÍDA' : 'BATER ENTRADA'}
-            </>
-          )}
-        </button>
-        <p className="text-[11px] text-[hsl(var(--muted-foreground))]/80 text-center mt-2">
-          Ao bater, pediremos sua localização e uma selfie (anti-fraude).
-        </p>
+        {/* Cadastro obrigatório do rosto antes de liberar a batida */}
+        {faceEnrolled === false ? (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.07] p-3">
+            <p className="text-sm font-medium text-amber-700 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" /> Cadastre seu reconhecimento facial
+            </p>
+            <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
+              Para bater o ponto pelo app, primeiro registre seu rosto. É rápido e só precisa ser feito uma vez.
+            </p>
+            <button
+              onClick={() => { setBaterErro(''); setResultado(null); setFase('enroll'); }}
+              disabled={bloqueado}
+              className="mt-3 w-full rounded-xl py-3 text-sm font-semibold text-white bg-[#f97707] hover:bg-[#e06a00] active:bg-[#c85f00] disabled:bg-[#f97707]/60 flex items-center justify-center gap-2"
+            >
+              <Camera className="w-4 h-4" /> Cadastrar meu rosto
+            </button>
+          </div>
+        ) : (
+          <>
+            <button
+              onClick={iniciarBatida}
+              disabled={bloqueado || hojeLoading || faceEnrolled === null}
+              className={[
+                'w-full rounded-xl py-4 text-base font-semibold text-white transition-colors',
+                'flex items-center justify-center gap-2 shadow-sm',
+                bloqueado || hojeLoading || faceEnrolled === null
+                  ? 'bg-[#f97707]/60 cursor-not-allowed'
+                  : 'bg-[#f97707] hover:bg-[#e06a00] active:bg-[#c85f00]',
+              ].join(' ')}
+            >
+              {fase === 'gps' ? (
+                <><Loader2 className="w-5 h-5 animate-spin" /> Obtendo localização…</>
+              ) : fase === 'sending' ? (
+                <><Loader2 className="w-5 h-5 animate-spin" /> Registrando…</>
+              ) : fase === 'facial' ? (
+                <><Loader2 className="w-5 h-5 animate-spin" /> Reconhecendo rosto…</>
+              ) : (
+                <>
+                  <Fingerprint className="w-5 h-5" />
+                  {proximoTipo === 'saida' ? 'BATER SAÍDA' : 'BATER ENTRADA'}
+                </>
+              )}
+            </button>
+            <p className="text-[11px] text-[hsl(var(--muted-foreground))]/80 text-center mt-2">
+              Ao bater, pediremos sua localização e o reconhecimento facial (anti-fraude).
+            </p>
+          </>
+        )}
       </div>
 
-      {/* ---- Câmera (selfie) ---- */}
-      {fase === 'camera' && (
-        <SelfieCapture onCapture={enviarBatida} onCancel={cancelarCamera} />
+      {/* ---- Reconhecimento facial (cadastro do rosto ou match na batida) ---- */}
+      {(fase === 'facial' || fase === 'enroll') && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-[hsl(var(--card))] border border-[hsl(var(--border))] p-4">
+            <div className="flex items-center justify-between mb-3">
+              <span className="font-display text-sm font-semibold">
+                {fase === 'enroll' ? 'Cadastrar meu rosto' : 'Reconhecimento facial'}
+              </span>
+              <button
+                onClick={() => {
+                  setFase('idle');
+                  setGeo(null);
+                  if (fase === 'facial') setBaterErro('Batida cancelada. O reconhecimento facial é obrigatório.');
+                }}
+                className="text-xs text-[hsl(var(--muted-foreground))] hover:underline"
+              >
+                Cancelar
+              </button>
+            </div>
+            <FacialCapture
+              employeeDescriptor={fase === 'facial' ? (faceRef ?? undefined) : undefined}
+              onCapture={fase === 'enroll' ? onEnrollCapture : onFacialCapture}
+              onError={(m) => { setBaterErro(m); setFase('idle'); setGeo(null); }}
+            />
+          </div>
+        </div>
       )}
 
       {/* ---- Hoje: batidas + horas ---- */}

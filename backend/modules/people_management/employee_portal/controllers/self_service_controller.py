@@ -1111,3 +1111,157 @@ async def solicitar_reembolso(
         "comprovante_anexado": anexado,
         "mensagem": "Reembolso enviado. Aguardando aprovação do DP/financeiro.",
     }
+
+
+# ==================== RECONHECIMENTO FACIAL (área do funcionário) ====================
+#
+# Arquitetura on-device (face-api.js): o NAVEGADOR calcula o descriptor de 128 floats do
+# rosto (modelos em /public/models) e compara com a REFERÊNCIA cadastrada. Aqui no portal
+# do funcionário (token normal, sem guard de módulo DP) o funcionário: (1) cadastra o rosto
+# no onboarding — obrigatório; (2) bate ponto SÓ com match=true (gate rígido do Jordan).
+import json as _facial_json
+
+
+class _FacialEnrollBody(BaseModel):
+    descriptor: list[float] = Field(..., min_length=64, max_length=512)
+    foto_base64: str | None = None
+
+
+class _FacialLocation(BaseModel):
+    latitude: float
+    longitude: float
+    accuracy: float = 0.0
+
+
+class _FacialBatidaBody(BaseModel):
+    match: bool
+    confidence: float = 0.0
+    liveness_check: bool = True
+    foto_base64: str | None = None
+    location: _FacialLocation | None = None
+    punch_type: str | None = None
+
+
+_PUNCH_SEQ = ["entrada", "saida_almoco", "retorno_almoco", "saida"]
+
+
+@router.post("/facial/cadastrar", status_code=201)
+async def facial_cadastrar(
+    body: _FacialEnrollBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Cadastra/atualiza o rosto de referência do funcionário (obrigatório no onboarding)."""
+    emp = _employee_id(current_user)
+    await db.execute(
+        _sqltext(
+            "UPDATE employees SET face_descriptor = :d, biometria_facial = true, "
+            "face_enrolled_at = (now() AT TIME ZONE 'America/Manaus') WHERE id = :eid"
+        ),
+        {"d": _facial_json.dumps(body.descriptor), "eid": emp},
+    )
+    await db.commit()
+    return {"success": True, "enrolled": True, "employee_id": emp, "dimensoes": len(body.descriptor)}
+
+
+@router.get("/facial/referencia")
+async def facial_referencia(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Descriptor de referência do funcionário (para o app comparar ao vivo)."""
+    emp = _employee_id(current_user)
+    row = (
+        await db.execute(
+            _sqltext("SELECT face_descriptor FROM employees WHERE id = :eid"), {"eid": emp}
+        )
+    ).fetchone()
+    descriptor = None
+    if row and row[0]:
+        try:
+            descriptor = _facial_json.loads(row[0])
+        except (ValueError, TypeError):
+            descriptor = None
+    return {"enrolled": bool(descriptor), "employee_id": emp, "descriptor": descriptor}
+
+
+@router.post("/facial/batida", status_code=201)
+async def facial_batida(
+    body: _FacialBatidaBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Batida com GATE RÍGIDO facial: só registra com match=true contra a referência."""
+    from modules.people_management.ponto.schemas.punch_schemas import (
+        FacialSchema,
+        GeoLocationSchema,
+        PunchCreate,
+    )
+    from modules.people_management.ponto.services.punch_service import PunchService
+
+    emp = _employee_id(current_user)
+
+    # precisa ter rosto cadastrado
+    row = (
+        await db.execute(
+            _sqltext("SELECT face_descriptor FROM employees WHERE id = :eid"), {"eid": emp}
+        )
+    ).fetchone()
+    if not row or not row[0]:
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN,
+            detail="Rosto não cadastrado. Cadastre seu reconhecimento facial antes de bater o ponto.",
+        )
+
+    # GATE: sem match, não bate
+    if body.match is not True:
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Rosto não reconhecido. A batida só é confirmada com reconhecimento facial.",
+        )
+
+    # próximo tipo (entrada/almoço/retorno/saída) pelas batidas de hoje (fuso Manaus)
+    if body.punch_type:
+        tipo = body.punch_type
+    else:
+        cnt = (
+            await db.execute(
+                _sqltext(
+                    "SELECT count(*) FROM gp_clock_punches WHERE employee_id = :e "
+                    "AND (punch_timestamp)::date = (now() AT TIME ZONE 'America/Manaus')::date"
+                ),
+                {"e": emp},
+            )
+        ).scalar() or 0
+        tipo = _PUNCH_SEQ[cnt] if cnt < len(_PUNCH_SEQ) else "saida"
+
+    location = None
+    if body.location is not None:
+        location = GeoLocationSchema(
+            latitude=body.location.latitude,
+            longitude=body.location.longitude,
+            accuracy=body.location.accuracy,
+        )
+    data = PunchCreate(
+        employee_id=str(emp),
+        punch_type=tipo,
+        location=location,
+        facial=FacialSchema(
+            match=True, confidence=body.confidence,
+            liveness_check=body.liveness_check, foto_base64=body.foto_base64,
+        ),
+        device_type="mobile",
+    )
+    result = await PunchService(db).registrar_batida(data)
+    await db.commit()
+    return {
+        "success": True,
+        "punch_id": result["punch_id"],
+        "punch_type": result.get("punch_type"),
+        "punch_timestamp": result.get("punch_timestamp"),
+        "status": result.get("status"),
+        "facial_match": result.get("facial_match"),
+        "facial_confidence": result.get("facial_confidence"),
+        "dentro_geofence": result.get("dentro_geofence"),
+        "message": "Ponto registrado com reconhecimento facial",
+    }
