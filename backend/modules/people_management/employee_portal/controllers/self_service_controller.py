@@ -845,15 +845,31 @@ async def ponto_hoje(
     if entrada and saida and not estado["entrada_aberta"]:
         proxima_acao = "concluido"
 
+    # Lista de batidas do dia (para a tela "Hoje" do Meu Espaço).
+    batidas_lista = [
+        {
+            "tipo": b["punch_type"],
+            "hora": b["punch_timestamp"].strftime("%H:%M") if b["punch_timestamp"] else None,
+            "data_hora": str(b["punch_timestamp"]) if b["punch_timestamp"] else None,
+            "posto": b["posto_nome"],
+            "dentro_geofence": b["dentro_geofence"],
+        }
+        for b in estado["batidas"]
+    ]
+
     return {
         "employee_id": emp,
         "data": str(_date.today()),
         "posto_atual": {"posto_id": posto_id, "posto_nome": posto_nome},
+        "posto_nome": posto_nome,  # alias p/ a tela (hoje?.posto_nome)
         "bateu_entrada": entrada is not None,
         "bateu_saida": saida is not None,
         "entrada": _fmt(entrada),
         "saida": _fmt(saida),
         "proxima_acao": proxima_acao,
+        # aliases de compatibilidade com o Meu Espaço (lê proxima_batida / batidas[])
+        "proxima_batida": proxima_acao,
+        "batidas": batidas_lista,
         "total_batidas": len(estado["batidas"]),
     }
 
