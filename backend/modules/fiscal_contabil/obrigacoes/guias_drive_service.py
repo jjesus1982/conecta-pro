@@ -367,6 +367,31 @@ def _marcar_acessorias_cumpridas(db, g: GuiaParseada, meta: dict[str, Any]) -> l
     return marcadas
 
 
+# Donos do fiscal que recebem o sino (Jordan + Pyetra) — ver [[project_financeiro_auditoria_organizacao]]
+FISCAL_OWNERS_EMAILS = ("jjesus@conectamais.pro", "pjesus@conectamais.pro")
+
+
+def _emitir_notificacao_fiscal(db, titulo: str, corpo: str, action_url: str = "/modulos/fiscal/ecac") -> int:
+    """Emite notificação no sino p/ os donos do fiscal. O sino filtra por
+    tenant_id=getattr(user,'tenant_id',str(user.id))=id → gravamos tenant_id=user_id=id."""
+    import uuid as _uuid
+    try:
+        rows = db.execute(_sql(
+            "SELECT id FROM users WHERE email IN ('jjesus@conectamais.pro','pjesus@conectamais.pro') AND is_active"
+        )).fetchall()
+        for (uid,) in rows:
+            db.execute(_sql(
+                "INSERT INTO communication_notifications (id,tenant_id,user_id,title,body,type,"
+                "reference_type,channels,is_active,created_at,action_url) "
+                "VALUES (:id,:t,:u,:ti,:b,'alerta','fiscal_guia','[\"in_app\"]',true,now(),:url)"),
+                {"id": str(_uuid.uuid4()), "t": str(uid), "u": str(uid),
+                 "ti": titulo[:200], "b": corpo[:500], "url": action_url})
+        return len(rows)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("emitir_notificacao_fiscal: %s", e)
+        return 0
+
+
 def _ja_processado(db, file_id: str) -> bool:
     return bool(
         db.execute(
@@ -443,6 +468,18 @@ def sync_guias_drive(forcar: bool = False) -> dict[str, Any]:
                 rel["anexos"].append({"arquivo": nome, "relatorio": g.detalhe.get("relatorio"), "tomadores": g.detalhe.get("tomadores")})
             else:
                 rel["nao_classificados"].append(nome)
+        # SINO: notifica os donos do fiscal se veio guia/parcelamento NOVO ou divergente
+        novas_guias = [g for g in rel["guias"] if g.get("acao") in ("criada", "atualizada_divergente")]
+        novos_parc = [p for p in rel["parcelamentos"] if p.get("acao") == "criado"]
+        if novas_guias or novos_parc:
+            partes = []
+            if novas_guias:
+                partes.append(f"{len(novas_guias)} guia(s)")
+            if novos_parc:
+                partes.append(f"{len(novos_parc)} parcelamento(s)")
+            rel["notificados"] = _emitir_notificacao_fiscal(
+                db, "Puxador fiscal: novidades da Receita",
+                "O puxador trouxe " + " e ".join(partes) + " do Drive (Portte/Onvio). Confira no e-CAC.")
         db.commit()
     except Exception as exc:  # noqa: BLE001
         db.rollback()
