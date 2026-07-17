@@ -210,6 +210,9 @@ function KpiCard({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function DashboardMultiEmpresaPage() {
+  // Data só no cliente (evita hydration mismatch React #418: SSR usa a data do build,
+  // o cliente a data atual). mounted-gate garante SSR == 1º render do cliente.
+  const [mounted, setMounted] = useState(false);
   const hoje = new Date();
   const [mes, setMes] = useState(hoje.getMonth() + 1);
   const [ano, setAno] = useState(hoje.getFullYear());
@@ -238,6 +241,7 @@ export default function DashboardMultiEmpresaPage() {
   }, [mes, ano]);
 
   useEffect(() => { carregar(); }, [carregar]);
+  useEffect(() => { setMounted(true); }, []);
 
   const lucroLiquido = (rentabilidade?.resumo_grupo?.total_lucro_liquido_mes ?? 0);
   const impostosMes = (fiscal?.grupo?.total_impostos_mes ?? 0);
@@ -250,6 +254,8 @@ export default function DashboardMultiEmpresaPage() {
     value: Math.max(0, c.lucro_liquido_mes),
     color: PIE_COLORS[i % PIE_COLORS.length],
   }));
+
+  if (!mounted) return null;
 
   return (
     <div className="min-h-screen bg-gray-50">

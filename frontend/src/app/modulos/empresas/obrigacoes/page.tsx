@@ -213,6 +213,8 @@ function TabelaObrigacoes({
 type Tab = 'grupo' | 'eletronica' | 'patrimonial';
 
 export default function ObrigacoesPage() {
+  // Data só no cliente (evita hydration mismatch React #418). Ver dashboard multi-empresa.
+  const [mounted, setMounted] = useState(false);
   const today = new Date();
   const [mes, setMes] = useState(today.getMonth() + 1);
   const [ano, setAno] = useState(today.getFullYear());
@@ -263,6 +265,7 @@ export default function ObrigacoesPage() {
     fetchCalendario();
     fetchDispensadas();
   }, [fetchCalendario, fetchDispensadas]);
+  useEffect(() => { setMounted(true); }, []);
 
   const prevMes = () => {
     if (mes === 1) { setMes(12); setAno(a => a - 1); }
@@ -304,6 +307,8 @@ export default function ObrigacoesPage() {
       count: patrimonial.length,
     },
   ];
+
+  if (!mounted) return null;
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8">

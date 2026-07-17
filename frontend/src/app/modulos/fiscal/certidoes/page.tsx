@@ -86,10 +86,18 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+// Datas ISO só-data (YYYY-MM-DD) são meia-noite UTC; em fuso negativo (Manaus/Brasília)
+// new Date() as renderiza no dia anterior. Parse como data LOCAL para evitar o off-by-one.
+function parseLocalDate(dateStr: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr.slice(0, 10));
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return new Date(dateStr);
+}
+
 function calcularStatus(certidao: Certidao): string {
   if (certidao.status) return certidao.status;
   if (!certidao.expiry_date) return 'sem_vencimento';
-  const validade = new Date(certidao.expiry_date);
+  const validade = parseLocalDate(certidao.expiry_date);
   const hoje = new Date();
   const diff = Math.ceil((validade.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24));
   if (diff < 0) return 'vencida';
@@ -99,7 +107,7 @@ function calcularStatus(certidao: Certidao): string {
 
 function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return '—';
-  return new Date(dateStr).toLocaleDateString('pt-BR', {
+  return parseLocalDate(dateStr).toLocaleDateString('pt-BR', {
     day: '2-digit', month: '2-digit', year: 'numeric',
   });
 }

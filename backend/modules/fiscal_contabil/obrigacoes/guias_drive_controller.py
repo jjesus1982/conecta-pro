@@ -3,9 +3,11 @@ Controller — Puxador de guias do Drive (pacote mensal Portte/Onvio).
 
 POST /fiscal/guias-drive/sync    → varre a pasta do Drive e sincroniza tudo
 GET  /fiscal/guias-drive/status  → última visão do que há na pasta + processados
-"""
 
-from __future__ import annotations
+NOTA: sem `from __future__ import annotations` de propósito — ele transforma as
+anotações em strings e, junto com CurrentActiveUser = Annotated["User", Depends(...)]
+(forward-ref), o FastAPI perde o Depends e passa a exigir current_user como query (422).
+"""
 
 from typing import Any
 
