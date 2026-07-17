@@ -138,12 +138,12 @@ class ReportsRepository:
                     """
                     WITH p AS (
                       SELECT employee_id,
-                             (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') AS ts,
+                             (punch_timestamp) AS ts,
                              punch_type,
                              ROW_NUMBER() OVER (PARTITION BY employee_id ORDER BY punch_timestamp) AS rn
                       FROM gp_clock_punches
                       WHERE COALESCE(status,'') NOT IN ('rejected','cancelado')
-                        AND (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date
+                        AND (punch_timestamp)::date
                             BETWEEN :ini AND :fim
                     ),
                     pares AS (
@@ -193,12 +193,12 @@ class ReportsRepository:
             """
             WITH p AS (
               SELECT employee_id,
-                     (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') AS ts,
+                     (punch_timestamp) AS ts,
                      punch_type,
                      ROW_NUMBER() OVER (PARTITION BY employee_id ORDER BY punch_timestamp) AS rn
               FROM gp_clock_punches
               WHERE COALESCE(status,'') NOT IN ('rejected','cancelado')
-                AND (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date
+                AND (punch_timestamp)::date
                     BETWEEN :ini AND :fim
             ),
             pares AS (

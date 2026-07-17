@@ -21,9 +21,12 @@ from ..schemas.punch_schemas import JustificationCreate, PunchCreate
 
 logger = logging.getLogger(__name__)
 
+_MANAUS_TZ = timezone(timedelta(hours=-4))  # Manaus UTC-4, sem DST
+
+
 def _ts_local(col):
-    """Coluna punch_timestamp (armazenada em UTC) convertida p/ America/Manaus (leitura)."""
-    return func.timezone("America/Manaus", func.timezone("UTC", col))
+    """punch_timestamp já é gravado em hora LOCAL de Manaus (naive) → leitura direta."""
+    return col
 
 
 # Raio padrao de geofence em metros
@@ -66,15 +69,18 @@ class PunchService:
             Dicionario com os dados da batida registrada.
         """
         punch_id = str(uuid4())
-        # CONVENÇÃO CANÔNICA DA COLUNA: UTC (igual ao acervo do sync Tangerino e ao que a
-        # presença ao vivo do Operacional assume). Os LEITORES convertem p/ Manaus — o bug
-        # antigo ("batida caía no dia seguinte") era leitor cru, já corrigido em todos.
-        now = datetime.utcnow()
+        # CONVENÇÃO CANÔNICA DA COLUNA: hora LOCAL de Manaus (naive) — igual ao acervo do
+        # sync Tangerino (datetime.fromtimestamp num servidor America/Manaus). datetime.now()
+        # já devolve Manaus local; os LEITORES leem o valor como está (sem conversão de fuso).
+        now = datetime.now()
         if data.timestamp:
-            # timestamp vindo do device (offline/app) chega em hora LOCAL Manaus → UTC (+4h;
-            # Manaus não tem horário de verão).
+            # timestamp do device (offline/app) chega em hora LOCAL Manaus → grava como está.
             ts_local = datetime.fromisoformat(str(data.timestamp))
-            timestamp = (ts_local + timedelta(hours=4)).isoformat() if ts_local.tzinfo is None else ts_local.astimezone(timezone.utc).replace(tzinfo=None).isoformat()
+            timestamp = (
+                ts_local.replace(tzinfo=None).isoformat()
+                if ts_local.tzinfo is None
+                else ts_local.astimezone(_MANAUS_TZ).replace(tzinfo=None).isoformat()
+            )
         else:
             timestamp = now.isoformat()
 
@@ -165,7 +171,7 @@ class PunchService:
 
         for p in punches:
             # Verificar duplicata no banco
-            ts = p.timestamp or datetime.utcnow().isoformat()
+            ts = p.timestamp or datetime.now().isoformat()
             existing = await self.db.execute(
                 select(ClockPunchModel.id)
                 .where(
@@ -520,10 +526,10 @@ class PunchService:
         rows = (
             await self.db.execute(
                 text(
-                    "SELECT punch_type, (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') AS punch_timestamp FROM gp_clock_punches "
+                    "SELECT punch_type, (punch_timestamp) AS punch_timestamp FROM gp_clock_punches "
                     "WHERE CAST(employee_id AS TEXT) = :e "
-                    "AND EXTRACT(MONTH FROM (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')) = :m "
-                    "AND EXTRACT(YEAR FROM (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')) = :y "
+                    "AND EXTRACT(MONTH FROM (punch_timestamp)) = :m "
+                    "AND EXTRACT(YEAR FROM (punch_timestamp)) = :y "
                     # desempate determinístico (saída antes de entrada + punch_id), igual ao espelho
                     "ORDER BY punch_timestamp, CASE WHEN lower(coalesce(punch_type,'')) LIKE 'sa%' THEN 0 ELSE 1 END, punch_id"
                 ),

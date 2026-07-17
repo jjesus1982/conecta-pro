@@ -362,7 +362,7 @@ def briefing_operacional_matinal(self):
                                 """
                                 SELECT COUNT(*), COUNT(DISTINCT employee_id)
                                 FROM gp_clock_punches
-                                WHERE (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date = :hoje
+                                WHERE (punch_timestamp)::date = :hoje
                                   AND COALESCE(status, '') NOT IN ('rejected', 'cancelado')
                                 """
                             ),
@@ -412,7 +412,7 @@ def briefing_operacional_matinal(self):
                                   AND NOT EXISTS (
                                       SELECT 1 FROM gp_clock_punches cp
                                       WHERE cp.employee_id = sh.employee_id
-                                        AND (cp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date = :hoje
+                                        AND (cp.punch_timestamp)::date = :hoje
                                         AND COALESCE(cp.status, '') NOT IN ('rejected', 'cancelado')
                                   )
                                 ORDER BY p.name
@@ -587,9 +587,9 @@ def briefing_operacional_matinal(self):
                                        string_agg(DISTINCT c.post_name, ', ') AS onde
                                 FROM inspection_rounds r
                                 LEFT JOIN inspection_checkpoints c ON c.inspection_round_id=r.id
-                                     AND (c.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date = (now() AT TIME ZONE 'America/Manaus')::date - 1
+                                     AND (c.created_at)::date = (now() AT TIME ZONE 'America/Manaus')::date - 1
                                 WHERE r.is_active
-                                  AND (r.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date = (now() AT TIME ZONE 'America/Manaus')::date - 1
+                                  AND (r.created_at)::date = (now() AT TIME ZONE 'America/Manaus')::date - 1
                                 GROUP BY r.inspector_name ORDER BY 1
                                 """
                             )
@@ -836,7 +836,7 @@ def vigia_ausencia(self):
                           AND NOT EXISTS (
                             SELECT 1 FROM gp_clock_punches gp
                             WHERE gp.employee_id = s.employee_id
-                              AND (gp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date = :hoje
+                              AND (gp.punch_timestamp)::date = :hoje
                               AND COALESCE(gp.status, '') NOT IN ('rejected', 'cancelado')
                           )
                         """

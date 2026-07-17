@@ -43,9 +43,9 @@ async def get_ponto_historico(
             select(ClockPunch)
             .where(
                 ClockPunch.employee_id == employee_id,
-                # coluna canônica UTC → filtra pelo mês/ano LOCAL Manaus
-                extract("month", func.timezone("America/Manaus", func.timezone("UTC", ClockPunch.punch_timestamp))) == target_mes,
-                extract("year", func.timezone("America/Manaus", func.timezone("UTC", ClockPunch.punch_timestamp))) == target_ano,
+                # punch_timestamp já é hora LOCAL Manaus (naive) → filtra direto
+                extract("month", ClockPunch.punch_timestamp) == target_mes,
+                extract("year", ClockPunch.punch_timestamp) == target_ano,
             )
             .order_by(ClockPunch.punch_timestamp.desc())
         )

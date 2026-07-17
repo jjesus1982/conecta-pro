@@ -34,10 +34,10 @@ def horas_reais_ponto(db, employee_id: str, mes: int, ano: int) -> dict:
     """
     rows = db.execute(
         text(
-            "SELECT punch_type, (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') AS punch_timestamp FROM gp_clock_punches "
+            "SELECT punch_type, (punch_timestamp) AS punch_timestamp FROM gp_clock_punches "
             "WHERE CAST(employee_id AS TEXT) = :e "
-            "AND EXTRACT(MONTH FROM (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')) = :m "
-            "AND EXTRACT(YEAR FROM (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')) = :y "
+            "AND EXTRACT(MONTH FROM (punch_timestamp)) = :m "
+            "AND EXTRACT(YEAR FROM (punch_timestamp)) = :y "
             # desempate determinístico p/ batidas no MESMO timestamp (saída antes de
             # entrada + punch_id) — igual ao espelho, senão o total oscila entre execuções
             "ORDER BY punch_timestamp, CASE WHEN lower(coalesce(punch_type,'')) LIKE 'sa%' THEN 0 ELSE 1 END, punch_id"

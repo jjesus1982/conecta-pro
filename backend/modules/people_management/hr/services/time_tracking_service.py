@@ -130,7 +130,7 @@ class TimeTrackingService:
             params = {"emp_id": str(employee_id)}
             date_filter = ""
             if start_date:
-                date_filter += " AND (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') >= :start"
+                date_filter += " AND (punch_timestamp) >= :start"
                 sd = (
                     start_date
                     if isinstance(start_date, (date_type, dt_type))
@@ -138,7 +138,7 @@ class TimeTrackingService:
                 )
                 params["start"] = sd
             if end_date:
-                date_filter += " AND (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') <= :end"
+                date_filter += " AND (punch_timestamp) <= :end"
                 ed = end_date if isinstance(end_date, (date_type, dt_type)) else dt_type.fromisoformat(str(end_date))
                 if isinstance(ed, date_type) and not isinstance(ed, dt_type):
                     ed = dt_type.combine(ed, dt_type.max.time())
@@ -148,7 +148,7 @@ class TimeTrackingService:
                 SELECT
                     id,
                     employee_id,
-                    (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date as date,
+                    (punch_timestamp)::date as date,
                     punch_timestamp::time as time,
                     punch_type as entry_type,
                     status,

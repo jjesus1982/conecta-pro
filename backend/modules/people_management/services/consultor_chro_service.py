@@ -157,7 +157,7 @@ async def panorama(db: AsyncSession) -> dict[str, Any]:
                 "count(*) FILTER (WHERE status = 'pending') AS pendentes_revisao, "
                 "count(DISTINCT employee_id) AS funcionarios_batendo "
                 "FROM gp_clock_punches "
-                "WHERE punch_timestamp >= now() - interval '7 days'"
+                "WHERE (punch_timestamp) >= now() - interval '7 days'"
             )
         )
     ).first()

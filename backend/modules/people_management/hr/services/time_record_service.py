@@ -149,10 +149,10 @@ class TimeRecordService:
             where_clauses.append("employee_id = :emp_id")
             params["emp_id"] = str(employee_id)
         if date_from:
-            where_clauses.append("(punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date >= :date_from")
+            where_clauses.append("(punch_timestamp)::date >= :date_from")
             params["date_from"] = date_from
         if date_to:
-            where_clauses.append("(punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date <= :date_to")
+            where_clauses.append("(punch_timestamp)::date <= :date_to")
             params["date_to"] = date_to
 
         where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
@@ -162,14 +162,14 @@ class TimeRecordService:
         # Gap 2: sem f-string — where_sql contém apenas cláusulas hardcoded com placeholders nomeados
         # Count total distinct days
         count_sql = text(
-            "SELECT COUNT(DISTINCT (employee_id, punch_timestamp::date)) FROM gp_clock_punches WHERE " + where_sql
+            "SELECT COUNT(DISTINCT (employee_id, (punch_timestamp)::date)) FROM gp_clock_punches WHERE " + where_sql
         )
         total_result = await self.db.execute(count_sql, params)
         total = total_result.scalar() or 0
 
         # Fetch punches
         sql = text(
-            "SELECT id, punch_id, employee_id, punch_type, punch_timestamp, "
+            "SELECT id, punch_id, employee_id, punch_type, (punch_timestamp) AS punch_timestamp, "
             "status, latitude, longitude, device_type, is_offline, "
             "posto_id, posto_nome, justification_id, created_at, updated_at "
             "FROM gp_clock_punches WHERE " + where_sql + " "
@@ -234,7 +234,7 @@ class TimeRecordService:
                     justification_id, created_at, updated_at
                 FROM gp_clock_punches
                 WHERE employee_id = :emp_id
-                  AND punch_timestamp::date = :pdate
+                  AND (punch_timestamp)::date = :pdate
                 ORDER BY punch_timestamp
             """)
             day_result = await self.db.execute(day_sql, {"emp_id": emp_id, "pdate": punch_date})
@@ -348,7 +348,7 @@ class TimeRecordService:
         """
         # CONVENÇÃO CANÔNICA: punch_timestamp em UTC (leitores convertem p/ Manaus).
         # 'today' segue LOCAL (decide o dia da batida do ponto de vista do funcionário).
-        now = datetime.utcnow()
+        now = datetime.now()
         today = datetime.now().date()
         punch_id = str(uuid4())
 
@@ -357,7 +357,7 @@ class TimeRecordService:
             text("""
                 SELECT punch_id, punch_type FROM gp_clock_punches
                 WHERE employee_id = :emp_id
-                  AND punch_timestamp::date = :today
+                  AND (punch_timestamp)::date = :today
                 ORDER BY punch_timestamp DESC
                 LIMIT 1
             """),
@@ -431,7 +431,7 @@ class TimeRecordService:
             "employee_id": str(employee_id),
             "record_date": str(today),
             # confirmação para o funcionário em hora LOCAL Manaus (now é UTC p/ gravar)
-            "clock_in": (now - timedelta(hours=4)).strftime("%H:%M"),
+            "clock_in": now.strftime("%H:%M"),
             "clock_out": None,
             "clock_in_lunch": None,
             "clock_out_lunch": None,
@@ -476,7 +476,7 @@ class TimeRecordService:
         # Buscar a entrada original
         result = await self.db.execute(
             text("""
-                SELECT punch_id, employee_id, punch_timestamp, device_type, posto_id, posto_nome
+                SELECT punch_id, employee_id, (punch_timestamp) AS punch_timestamp, device_type, posto_id, posto_nome
                 FROM gp_clock_punches
                 WHERE punch_id = :rid OR id::text = :rid
                 ORDER BY punch_timestamp DESC
@@ -497,7 +497,7 @@ class TimeRecordService:
             )
 
         # CONVENÇÃO CANÔNICA: punch_timestamp em UTC (leitores convertem p/ Manaus).
-        now = datetime.utcnow()
+        now = datetime.now()
         punch_id = str(uuid4())
 
         # Geofence da SAIDA (mesmo posto da entrada) + selfie anti-fraude.
@@ -553,9 +553,9 @@ class TimeRecordService:
             "id": entry["punch_id"],
             "employee_id": entry["employee_id"],
             # entrada_ts vem do banco (UTC) → local; now é UTC p/ gravar → local
-            "record_date": str((entrada_ts - timedelta(hours=4)).date()) if entrada_ts else str(date.today()),
-            "clock_in": (entrada_ts - timedelta(hours=4)).strftime("%H:%M") if entrada_ts else None,
-            "clock_out": (now - timedelta(hours=4)).strftime("%H:%M"),
+            "record_date": str(entrada_ts.date()) if entrada_ts else str(date.today()),
+            "clock_in": entrada_ts.strftime("%H:%M") if entrada_ts else None,
+            "clock_out": now.strftime("%H:%M"),
             "clock_in_lunch": None,
             "clock_out_lunch": None,
             "total_hours": _format_minutes(total_minutes),
@@ -618,8 +618,8 @@ class TimeRecordService:
                 if isinstance(ts, datetime)
                 else datetime.combine(record_date, ts.time() if isinstance(ts, datetime) else ts)
             )
-            # operador informa hora LOCAL Manaus → coluna canônica UTC (+4h, sem DST)
-            ts_dt = ts_dt + timedelta(hours=4)
+            # operador informa hora LOCAL Manaus e a coluna é gravada em Manaus local
+            # (naive) → grava como está.
 
             await self.db.execute(
                 text("""
@@ -707,7 +707,7 @@ class TimeRecordService:
         # Buscar registro existente
         result = await self.db.execute(
             text("""
-                SELECT id, punch_id, employee_id, punch_type, punch_timestamp,
+                SELECT id, punch_id, employee_id, punch_type, (punch_timestamp) AS punch_timestamp,
                        status, justification_id
                 FROM gp_clock_punches
                 WHERE punch_id = :rid OR id::text = :rid
@@ -720,7 +720,7 @@ class TimeRecordService:
         if not row:
             return None
 
-        now = datetime.utcnow()
+        now = datetime.now()
         sets = []
         params: dict[str, Any] = {"rid": str(row["punch_id"]), "updated_at": now}
 
@@ -822,8 +822,8 @@ class TimeRecordService:
                 device_type, created_at
             FROM gp_clock_punches
             WHERE employee_id = :emp_id
-              AND punch_timestamp::date >= :d1
-              AND punch_timestamp::date <= :d2
+              AND (punch_timestamp)::date >= :d1
+              AND (punch_timestamp)::date <= :d2
             ORDER BY punch_timestamp
         """)
         result = await self.db.execute(sql, {"emp_id": str(employee_id), "d1": first_day, "d2": last_day})
@@ -917,7 +917,7 @@ class TimeRecordService:
                 device_type, is_offline, posto_id, posto_nome,
                 created_at, updated_at
             FROM gp_clock_punches
-            WHERE punch_timestamp::date = :pdate
+            WHERE (punch_timestamp)::date = :pdate
             ORDER BY employee_id, punch_timestamp
         """)
         result = await self.db.execute(sql, {"pdate": record_date})

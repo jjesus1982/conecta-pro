@@ -105,11 +105,10 @@ class ClockPunchModel(Base):
 
     def to_dict(self) -> dict[str, Any]:
         # punch_timestamp é armazenado em UTC (convenção canônica da coluna);
-        # to_dict é o choke point de APRESENTAÇÃO → converte p/ America/Manaus
-        # (UTC-4 fixo, sem horário de verão) para todas as telas/APIs.
-        from datetime import timedelta
-
-        ts_local = (self.punch_timestamp - timedelta(hours=4)) if self.punch_timestamp else None
+        # CONVENÇÃO: punch_timestamp já é gravado em hora LOCAL de Manaus (naive) —
+        # o sync Sólides usa datetime.fromtimestamp (servidor em America/Manaus) e o
+        # ponto nativo grava datetime.now(). Logo a apresentação lê o valor como está.
+        ts_local = self.punch_timestamp
         return {
             "id": self.id,
             "punch_id": self.punch_id,

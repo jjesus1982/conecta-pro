@@ -140,11 +140,11 @@ class IntegratedPerformanceService:
         if "gp_clock_punches" in existentes:
             ponto = await self._map(
                 "SELECT employee_id::text AS employee_id, COUNT(*) AS batidas, "
-                "COUNT(DISTINCT punch_timestamp::date) AS dias_com_batida, "
+                "COUNT(DISTINCT (punch_timestamp)::date) AS dias_com_batida, "
                 "COUNT(*) FILTER (WHERE dentro_geofence IS NOT NULL) AS batidas_com_geofence, "
                 "COUNT(*) FILTER (WHERE dentro_geofence IS TRUE) AS batidas_dentro_geofence "
                 "FROM gp_clock_punches "
-                f"WHERE punch_timestamp >= now() - INTERVAL '{JANELA_PONTO_DIAS} days' "
+                f"WHERE (punch_timestamp) >= now() - INTERVAL '{JANELA_PONTO_DIAS} days' "
                 "GROUP BY employee_id"
             )
 

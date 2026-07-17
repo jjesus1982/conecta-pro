@@ -208,7 +208,7 @@ async def registrar_falta(
                 """
                 SELECT 1 FROM gp_clock_punches
                 WHERE employee_id = CAST(:e AS uuid)
-                  AND (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')
+                  AND (punch_timestamp)
                       BETWEEN :ini AND :fim
                 LIMIT 1
                 """

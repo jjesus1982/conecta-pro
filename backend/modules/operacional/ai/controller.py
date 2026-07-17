@@ -51,7 +51,7 @@ async def command_center(_user: CurrentActiveUser, db: AsyncSession = Depends(ge
         await db.execute(
             text(
                 "SELECT count(DISTINCT employee_id) FROM gp_clock_punches "
-                "WHERE punch_type='entrada' AND (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date = :h"
+                "WHERE punch_type='entrada' AND (punch_timestamp)::date = :h"
             ),
             {"h": hoje},
         )

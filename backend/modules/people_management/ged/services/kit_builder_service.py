@@ -368,14 +368,14 @@ class KitBuilderService:
                     text("""
                 SELECT
                     e.nome, e.cpf, e.cargo, e.matricula,
-                    cp.punch_timestamp::date AS data,
+                    cp.(punch_timestamp)::date AS data,
                     cp.punch_timestamp::time AS hora,
                     cp.punch_type
                 FROM gp_clock_punches cp
                 JOIN employees e ON e.id = cp.employee_id
                 WHERE cp.employee_id = CAST(:emp_id AS uuid)
-                  AND cp.punch_timestamp >= :inicio
-                  AND cp.punch_timestamp <= :fim
+                  AND (cp.punch_timestamp) >= :inicio
+                  AND (cp.punch_timestamp) <= :fim
                 ORDER BY cp.punch_timestamp
             """),
                     {"emp_id": str(emp_id), "inicio": dt_inicio, "fim": dt_fim},

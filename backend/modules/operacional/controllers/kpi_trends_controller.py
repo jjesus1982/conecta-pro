@@ -229,7 +229,7 @@ async def get_performance_scores(
                             AND (s.actual_start_time IS NOT NULL OR EXISTS (
                               SELECT 1 FROM gp_clock_punches gp
                               WHERE gp.employee_id = s.employee_id
-                                AND (gp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date = s.shift_date
+                                AND (gp.punch_timestamp)::date = s.shift_date
                                 AND COALESCE(gp.status,'') NOT IN ('rejected','cancelado')))
                         ) AS presentes_30d
                     FROM employees e

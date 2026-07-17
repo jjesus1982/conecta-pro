@@ -146,14 +146,14 @@ async def _batidas_por_funcionario(db: AsyncSession, dia: date) -> dict[str, lis
         text(
             f"""
             SELECT cp.employee_id::text AS employee_id,
-                   (cp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') AS punch_timestamp,
+                   (cp.punch_timestamp) AS punch_timestamp,
                    cp.facial_match,
                    cp.dentro_geofence
             FROM gp_clock_punches cp
-            WHERE (cp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') >= :ini
-              AND (cp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') < :fim
+            WHERE (cp.punch_timestamp) >= :ini
+              AND (cp.punch_timestamp) < :fim
               AND {_PUNCH_VALIDO}
-            ORDER BY cp.employee_id, (cp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') ASC
+            ORDER BY cp.employee_id, (cp.punch_timestamp) ASC
             """
         ),
         {
@@ -475,7 +475,7 @@ async def quadro_presenca_hoje(
 
     ultima_sync = (
         await db.execute(
-            text("SELECT max(punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') FROM gp_clock_punches")
+            text("SELECT max(punch_timestamp) FROM gp_clock_punches")
         )
     ).scalar()
 
@@ -566,11 +566,11 @@ async def checkin_manual(
         await db.execute(
             text(
                 f"""
-                SELECT MIN((cp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus'))
+                SELECT MIN((cp.punch_timestamp))
                 FROM gp_clock_punches cp
                 WHERE cp.employee_id = :emp
-                  AND (cp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') >= :ini
-                  AND (cp.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') <= :fim
+                  AND (cp.punch_timestamp) >= :ini
+                  AND (cp.punch_timestamp) <= :fim
                   AND {_PUNCH_VALIDO}
                 """
             ),

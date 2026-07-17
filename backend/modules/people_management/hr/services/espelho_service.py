@@ -155,11 +155,11 @@ def _carregar_batidas(db: Session, employee_id: str, mes: int, ano: int) -> list
     hi = datetime.combine(fim, time(0, 0)) + timedelta(hours=SPILL_MARGIN_H)
     rows = db.execute(
         text(
-            "SELECT punch_id, punch_type, punch_timestamp, status, device_type, "
+            "SELECT punch_id, punch_type, (punch_timestamp) AS punch_timestamp, status, device_type, "
             "       COALESCE(justification_id,'') AS justification_id "
             "FROM gp_clock_punches "
             "WHERE CAST(employee_id AS TEXT) = :e "
-            "  AND punch_timestamp >= :lo AND punch_timestamp < :hi "
+            "  AND (punch_timestamp) >= :lo AND (punch_timestamp) < :hi "
             # Desempate DETERMINÍSTICO p/ batidas no MESMO timestamp: SAÍDA antes de
             # ENTRADA (fecha o turno aberto antes de abrir o próximo — troca de turno)
             # e punch_id como desempate final. Sem isso, o pareamento (e o espelho
@@ -234,7 +234,7 @@ def _dia_coberto_por_abono(db: Session, employee_id: str, dia: date) -> str | No
                 # casa pela data do FATO (a batida que a justificativa cobre) OU, na falta de
                 # punch_id, pela data de lançamento — assim atestado lançado dias DEPOIS da
                 # falta ainda cobre o dia certo (antes só `created_at::date` → virava falta)
-                "AND (p.punch_timestamp::date = :d OR j.created_at::date = :d) LIMIT 1"
+                "AND ((punch_timestamp)::date = :d OR j.created_at::date = :d) LIMIT 1"
             ),
             {"e": str(employee_id), "d": dia},
         ).first()
@@ -781,7 +781,7 @@ def _employees_com_batida(db: Session, mes: int, ano: int) -> list[str]:
     rows = db.execute(
         text(
             "SELECT DISTINCT CAST(employee_id AS TEXT) AS e FROM gp_clock_punches "
-            "WHERE EXTRACT(MONTH FROM punch_timestamp)=:m AND EXTRACT(YEAR FROM punch_timestamp)=:y"
+            "WHERE EXTRACT(MONTH FROM (punch_timestamp))=:m AND EXTRACT(YEAR FROM (punch_timestamp))=:y"
         ),
         {"m": int(mes), "y": int(ano)},
     ).fetchall()
