@@ -95,10 +95,16 @@ export function useFaceDetection(
 
   const startCamera = useCallback(async (): Promise<void> => {
     try {
+      // iOS (Safari e Chrome, ambos WebKit) e Android exigem HTTPS + getUserMedia.
       if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error('Camera nao suportada neste navegador');
+        throw new Error(
+          'Este navegador não abre a câmera. No iPhone use o Safari ou o Chrome; ' +
+          'evite abrir por um link dentro do WhatsApp/Instagram.',
+        );
       }
 
+      // facingMode 'user' (frontal) e resolução 'ideal' (não 'exact') p/ máxima
+      // compatibilidade — iOS rejeita constraints exatas.
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'user',
@@ -113,9 +119,21 @@ export function useFaceDetection(
         await videoRef.current.play();
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Erro ao acessar camera';
+      const name = (err as { name?: string })?.name;
+      let message: string;
+      if (name === 'NotAllowedError' || name === 'SecurityError') {
+        message =
+          'Câmera bloqueada. Toque no “aA”/cadeado na barra de endereço e permita a câmera. ' +
+          'Se abriu por um link do WhatsApp/Instagram, abra no Safari (iPhone) ou Chrome (Android).';
+      } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+        message = 'Nenhuma câmera frontal encontrada neste aparelho.';
+      } else if (name === 'NotReadableError' || name === 'AbortError') {
+        message = 'A câmera está em uso por outro app. Feche os outros apps e tente de novo.';
+      } else {
+        message = err instanceof Error && err.message ? err.message : 'Não foi possível abrir a câmera. Tente novamente.';
+      }
       setError(message);
-      throw err;
+      throw new Error(message);
     }
   }, []);
 
