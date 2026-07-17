@@ -35,6 +35,7 @@ app = Celery(
         "modules.gedeon.tasks.orquestrador_tasks",
         "modules.client_portal.tasks",
         "modules.financial.tasks",
+        "modules.fiscal_contabil.obrigacoes.tasks",
         "modules.crm.tasks",
         "modules.integrations.connectors.whatsapp.tasks",
         "modules.analytics.tasks",
@@ -164,6 +165,12 @@ app.conf.beat_schedule = {
     "financeiro-monitor-pagamentos-pendentes": {
         "task": "financial.inter_monitorar_pendentes",
         "schedule": crontab(minute="*/5"),
+        "options": {"queue": "gov.batch"},
+    },
+    # ── Fiscal — Guias do Drive (pacote Portte/Onvio → fiscal_obligations) ──────
+    "fiscal-sync-guias-drive": {
+        "task": "fiscal.sync_guias_drive",
+        "schedule": crontab(hour="9,15", minute=30),
         "options": {"queue": "gov.batch"},
     },
     # ── GEDEON — Kronos/Themis ────────────────────────────────────────────────

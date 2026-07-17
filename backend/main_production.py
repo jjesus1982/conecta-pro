@@ -901,6 +901,20 @@ try:
 except Exception as _e:
     logger.warning(f"NF-e Entrada: {_e}")
 
+# Guias do Drive (pacote mensal Portte/Onvio → fiscal_obligations) — bloco isolado
+try:
+    from modules.fiscal_contabil.obrigacoes.guias_drive_controller import (
+        router as _guias_drive_router,
+    )
+
+    api_router.include_router(
+        _guias_drive_router, dependencies=[_FISCAL_GATE], prefix="/fiscal",
+        tags=["Fiscal - Guias do Drive"],
+    )
+    logger.info("Guias Drive: OK (sync + status da pasta Portte/Onvio)")
+except Exception as _e:
+    logger.warning(f"Guias Drive: {_e}")
+
 # NF-e Produto/Saída (emissão via SEFAZ-AM) — bloco isolado
 try:
     from modules.fiscal_contabil.notas_fiscais.nfe.controller import (

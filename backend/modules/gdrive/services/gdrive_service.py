@@ -280,6 +280,61 @@ class GDriveService:
         month_folder = self._criar_pasta(self._nome_pasta_mes(competencia), client_folder)
         return client_folder, month_folder
 
+    # ── LISTAGEM / DOWNLOAD ──────────────────────────────────────────────────
+
+    def listar_arquivos(self, folder_id: str) -> list[dict[str, Any]]:
+        """Lista filhos diretos de uma pasta (arquivos e subpastas), sem lixeira.
+
+        Retorna [{id, name, mimeType, modifiedTime, size}]. Vazio em falha (gracioso).
+        """
+        if not self._service:
+            return []
+        try:
+            out: list[dict[str, Any]] = []
+            token = None
+            while True:
+                resp = (
+                    self._service.files()
+                    .list(
+                        q=f"'{folder_id}' in parents and trashed=false",
+                        fields="nextPageToken, files(id,name,mimeType,modifiedTime,size)",
+                        pageSize=200,
+                        pageToken=token,
+                    )
+                    .execute()
+                )
+                out.extend(resp.get("files", []))
+                token = resp.get("nextPageToken")
+                if not token:
+                    break
+            return out
+        except Exception as exc:
+            logger.warning("GDrive.listar_arquivos(%s): %s", folder_id, exc)
+            return []
+
+    def baixar_arquivo(self, file_id: str, dest_path: str) -> bool:
+        """Baixa um arquivo binário do Drive para dest_path. False em falha (gracioso)."""
+        if not self._service:
+            return False
+        try:
+            import io
+
+            from googleapiclient.http import MediaIoBaseDownload
+
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            request = self._service.files().get_media(fileId=file_id)
+            buf = io.BytesIO()
+            downloader = MediaIoBaseDownload(buf, request)
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
+            with open(dest_path, "wb") as f:
+                f.write(buf.getvalue())
+            return True
+        except Exception as exc:
+            logger.warning("GDrive.baixar_arquivo(%s): %s", file_id, exc)
+            return False
+
     # ── UPLOAD ────────────────────────────────────────────────────────────────
 
     def fazer_upload_arquivo(
