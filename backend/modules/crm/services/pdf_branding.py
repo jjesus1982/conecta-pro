@@ -35,6 +35,75 @@ EMPRESA = {
     "ceo": "JORDAN JESUS",
     "ceo_cargo": "Diretor Executivo (CEO)",
 }
+
+# ============================================================================
+# MULTI-CNPJ (E2): identidade paramétrica por empresa e por COMPETÊNCIA.
+#
+# REGRA ANTI-REESCRITA (pré-mortem F1): documento de competência fechada
+# NUNCA muda de identidade. A fronteira (primeira competência da Patrimonial,
+# definida pela data oficial da Portte) vem de MULTICNPJ_FRONTEIRA_COMPETENCIA
+# ("YYYY-MM"). Vazia => TODA competência resolve CNPJ1 (comportamento atual,
+# dormante). O dict EMPRESA acima permanece como default do CNPJ1 — os 28
+# geradores continuam byte-idênticos até migrarem para empresa_branding().
+#
+# Grafia (PRD): "nome" = exibição ("Conecta Mais ..."); "razao" = grafia EXATA
+# da Receita, usada apenas em campos legais.
+# ============================================================================
+
+EMPRESA_PATRIMONIAL = {
+    "nome": "CONECTA MAIS PATRIMONIAL",
+    "razao": "CONECTAMAIS PATRIMONIAL LTDA",
+    "cnpj": "66.014.833/0001-10",
+    "fone": "0800 880 4414",
+    "site": "www.conectamais.pro",
+    "email": "jjesus@conectamais.pro",
+    "instagram": "@conectamaisoficial",
+    "endereco": "Rua Victor Hughes, 19 — Parque 10 de Novembro, Manaus/AM",
+    "ceo": "JORDAN JESUS",
+    "ceo_cargo": "Diretor Executivo (CEO)",
+}
+
+_BRANDING_POR_SLUG = {
+    "conecta_eletronica": EMPRESA,
+    "conecta_patrimonial": EMPRESA_PATRIMONIAL,
+}
+
+
+def _fronteira_competencia() -> str | None:
+    """Primeira competência (YYYY-MM) sob a Patrimonial; None = ainda não definida."""
+    import os
+
+    valor = (os.getenv("MULTICNPJ_FRONTEIRA_COMPETENCIA") or "").strip()
+    return valor or None
+
+
+def resolve_slug_por_competencia(slug_atual: str, competencia: str | None) -> str:
+    """Aplica a regra anti-reescrita: competência ANTERIOR à fronteira => CNPJ1.
+
+    `competencia` em "YYYY-MM" (ou "YYYY-MM-DD", só o prefixo é usado).
+    Sem fronteira definida, ou sem competência informada, devolve CNPJ1 para
+    documentos competenciados — nunca assume a empresa nova por padrão.
+    """
+    fronteira = _fronteira_competencia()
+    if not fronteira:
+        return "conecta_eletronica"
+    if competencia and competencia[:7] < fronteira:
+        return "conecta_eletronica"
+    return slug_atual
+
+
+def empresa_branding(slug: str | None = None, competencia: str | None = None) -> dict:
+    """Identidade de marca para documentos, resolvida por empresa e competência.
+
+    - `slug` = empresa dona do vínculo/contrato (empresas.slug). None => CNPJ1.
+    - `competencia` = competência do documento (holerite, espelho, kit). Quando
+      informada, a regra anti-reescrita pode rebaixar para CNPJ1.
+    Retorna um dict no MESMO formato de EMPRESA (drop-in para os geradores).
+    """
+    slug_efetivo = slug or "conecta_eletronica"
+    if competencia is not None:
+        slug_efetivo = resolve_slug_por_competencia(slug_efetivo, competencia)
+    return _BRANDING_POR_SLUG.get(slug_efetivo, EMPRESA)
 MESES = [
     "",
     "janeiro",
