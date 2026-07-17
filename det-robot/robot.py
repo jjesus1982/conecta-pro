@@ -366,17 +366,95 @@ def _ecac_sso(page):
             # já dentro → tenta Situação Fiscal
             for termo in ("Situação Fiscal", "Consulta Pendências", "Certidões e Situação",
                           "Diagnóstico Fiscal", "Regularidade Fiscal"):
-                try:
-                    el = page.get_by_text(termo, exact=False)
-                    if el.count():
-                        el.first.click(timeout=6000); page.wait_for_timeout(5000)
-                        out["etapas"].append(f"clicou {termo}")
-                        break
-                except Exception:
-                    continue
+                pass  # (navegação por menu abaixo)
+
+            # e-CAC: menu por GRUPO → SERVIÇO. As telas abrem em POPUP (nova página).
+            # 1) expande "Certidões e Situação Fiscal"; 2) clica "Consulta Pendências".
+            ctx = page.context
+            svc_txt = ""
+            try:
+                page.get_by_text("Certidões e Situação Fiscal", exact=False).first.click(timeout=6000)
+                page.wait_for_timeout(2500)
+                out["etapas"].append("abriu grupo Certidões e Situação Fiscal")
+            except Exception as e:
+                out["etapas"].append(f"grupo: {str(e)[:40]}")
+            # tenta abrir a Consulta Pendências (pode ser popup)
+            alvo = None
+            for termo in ("Consulta Pendências - Situação Fiscal", "Situação Fiscal Completa",
+                          "Situação Fiscal", "Consulta Pendências"):
+                loc = page.get_by_text(termo, exact=False)
+                if loc.count():
+                    alvo = termo
+                    try:
+                        with ctx.expect_page(timeout=8000) as pinfo:
+                            loc.first.click(timeout=6000)
+                        pop = pinfo.value
+                        pop.wait_for_load_state("domcontentloaded", timeout=30000)
+                        pop.wait_for_timeout(5000)
+                        out["etapas"].append(f"POPUP '{termo}': {pop.url[:60]}")
+                        # o app RFB (servicos.receitafederal.gov.br) pede auth PRÓPRIA →
+                        # reusa a sessão gov.br: clica 'gov.br'/entrar, que faz o authorize
+                        # e volta logado (sem captcha/cert, sessão viva).
+                        if "servicos.receitafederal.gov.br/login" in pop.url.lower() or "precisa de autentic" in pop.inner_text("body").lower():
+                            out["popup_login_dom"] = pop.evaluate(
+                                """()=>[...document.querySelectorAll('a,button,input[type=submit]')].map(e=>({
+                                     t:(e.innerText||e.value||e.alt||'').trim().slice(0,40),
+                                     id:e.id||'', href:(e.getAttribute('href')||'').slice(0,90)})).filter(x=>x.t||x.href).slice(0,30)"""
+                            )
+                            # captura o botão + navegações; o clique pode abrir 3ª aba
+                            navs = []
+                            pop.on("framenavigated", lambda f: navs.append(f.url[:90]) if f == pop.main_frame else None)
+                            try:
+                                out["govbr_btn"] = pop.evaluate(
+                                    """()=>{const b=[...document.querySelectorAll('a,button')].find(e=>/govbr|gov\\.br/i.test(e.innerText||''));
+                                      return b?{tag:b.tagName,href:b.getAttribute('href'),onclick:(b.getAttribute('onclick')||'').slice(0,120),html:b.outerHTML.slice(0,250)}:null;}"""
+                                )
+                            except Exception:
+                                out["govbr_btn"] = None
+                            pop3 = None
+                            try:
+                                with ctx.expect_page(timeout=6000) as p3info:
+                                    pop.get_by_text("Entrar com GovBR", exact=False).first.click(timeout=6000)
+                                pop3 = p3info.value
+                                pop3.wait_for_load_state("domcontentloaded", timeout=25000)
+                                out["etapas"].append(f"3ª aba: {pop3.url[:60]}")
+                            except Exception:
+                                out["etapas"].append(f"sem 3ª aba; pop url: {pop.url[:60]}")
+                            alvopop = pop3 or pop
+                            pop.wait_for_timeout(3000)
+                            # se tem href de authorize, navega direto (session-reuse)
+                            gb = out.get("govbr_btn") or {}
+                            if "/login" in alvopop.url.lower() and gb.get("href") and "authorize" in (gb.get("href") or ""):
+                                try:
+                                    alvopop.goto(gb["href"], wait_until="domcontentloaded", timeout=30000)
+                                    out["etapas"].append("naveguei authorize do popup")
+                                except Exception:
+                                    pass
+                            dl2 = time.time() + 55
+                            while time.time() < dl2:
+                                pu = alvopop.url.lower()
+                                if "servicos.receitafederal.gov.br" in pu and "/login" not in pu:
+                                    break
+                                time.sleep(3)
+                            pop = alvopop
+                            pop.wait_for_timeout(5000)
+                            out["etapas"].append(f"popup final: {pop.url[:65]}")
+                            out["navs_popup"] = navs[:10]
+                        svc_txt = pop.inner_text("body")[:9000]
+                        out["popup_url_final"] = pop.url
+                        try: pop.screenshot(path="/state/ecac_sso/sitfis.png", full_page=True)
+                        except Exception: pass
+                    except Exception as e:
+                        out["etapas"].append(f"popup erro: {str(e)[:50]}")
+                        try:
+                            loc.first.click(timeout=6000); page.wait_for_timeout(5000)
+                            svc_txt = page.inner_text("body")[:9000]
+                        except Exception:
+                            pass
+                    break
+            out["etapas"].append(f"alvo pendências: {alvo}")
             out["url"] = page.url
-            try: out["situacao_fiscal_texto"] = page.locator("body").inner_text()[:9000]
-            except Exception: out["situacao_fiscal_texto"] = ""
+            out["situacao_fiscal_texto"] = svc_txt or page.locator("body").inner_text()[:9000]
         else:
             try: out["texto"] = page.locator("body").inner_text()[:1500]
             except Exception: out["texto"] = ""
