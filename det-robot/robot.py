@@ -112,8 +112,9 @@ def _pem():
     return cp, kp
 
 
-def _solve_hcaptcha(sitekey, pageurl, rqdata=None, timeout=220):
-    payload = {"key": TWO, "method": "hcaptcha", "sitekey": sitekey, "pageurl": pageurl, "invisible": 1, "json": 1, "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"}
+def _solve_hcaptcha(sitekey, pageurl, rqdata=None, timeout=220, user_agent=None, invisible=1):
+    ua = user_agent or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+    payload = {"key": TWO, "method": "hcaptcha", "sitekey": sitekey, "pageurl": pageurl, "invisible": invisible, "json": 1, "userAgent": ua}
     if rqdata:
         payload["data"] = rqdata
     with httpx.Client(timeout=30) as cli:
@@ -302,6 +303,12 @@ def _debug_detalhe(page):
 
 ECAC_HOME = "https://cav.receita.fazenda.gov.br/ecac/"
 SITEKEY_ECAC = "903db64c-2422-4230-a22e-5645634d893f"
+# apps RFB modernos (SPA c/ login gov.br próprio) — alvo do login SUPERVISIONADO
+PENDENCIAS_URL = "https://servicos.receitafederal.gov.br/servico/pendencias/"
+PARCELAMENTOS_URLS = [
+    "https://servicos.receitafederal.gov.br/servico/parcsn-web/",   # Simples Nacional
+    "https://servicos.receitafederal.gov.br/servico/pagamentos-web/",
+]
 
 
 def _ecac_logado(page):
@@ -470,6 +477,211 @@ def _ecac_sso(page):
     return out
 
 
+def _ecac_login_only(page):
+    """Garante e-CAC logado (session-reuse). Retorna True se logado."""
+    for _ in range(4):
+        if _ecac_logado(page):
+            return True
+        try:
+            page.goto(ECAC_HOME, wait_until="domcontentloaded", timeout=40000)
+            page.wait_for_timeout(3000)
+        except Exception:
+            pass
+        if _ecac_logado(page):
+            return True
+        if "autenticacao/login" in page.url.lower():
+            try:
+                _ecac_form_submit(page)
+            except Exception:
+                pass
+    return _ecac_logado(page)
+
+
+def _scrape_pendencias(page):
+    """Lê o corpo da tela de pendências/parcelamentos do app RFB (SPA já autenticado)."""
+    out = {}
+    try:
+        page.wait_for_timeout(4000)
+        out["url"] = page.url
+        out["texto"] = page.inner_text("body")[:12000]
+        try:
+            os.makedirs("/state/ecac_sso", exist_ok=True)
+            page.screenshot(path="/state/ecac_sso/pendencias.png", full_page=True)
+        except Exception:
+            pass
+    except Exception as e:
+        out["erro"] = str(e)[:80]
+    return out
+
+
+def _servicos_login_auto(page, alvo_url):
+    """Resolve o hCaptcha (Enterprise) da tela de login do app RFB e submete o form
+    govbr/post → gov.br authorize (session-reuse) → app logado. Captura sitekey+rqdata+UA
+    reais e re-navega pra tela limpa (evita ficar preso em /erro-captcha)."""
+    # 1) GRAMPO na API do hCaptcha p/ capturar rqdata REAL (Enterprise) na origem,
+    #    antes do widget inicializar. Precisa ser add_init_script ANTES do goto.
+    try:
+        page.add_init_script(
+            "(function(){window.__rqcap=null;function wrap(o){if(!o||o.__wrapped)return o;"
+            "['render','execute','setData'].forEach(function(fn){if(typeof o[fn]==='function'){var org=o[fn];"
+            "o[fn]=function(){try{for(var i=0;i<arguments.length;i++){var a=arguments[i];"
+            "if(a&&a.rqdata){window.__rqcap=a.rqdata;}}}catch(e){}return org.apply(this,arguments);};}});o.__wrapped=true;return o;}"
+            "var _h=window.hcaptcha;Object.defineProperty(window,'hcaptcha',{configurable:true,"
+            "get:function(){return _h;},set:function(v){_h=wrap(v);}});"
+            "var iv=setInterval(function(){if(window.hcaptcha)wrap(window.hcaptcha);},60);setTimeout(function(){clearInterval(iv);},20000);})();")
+    except Exception:
+        pass
+    # 2) tela limpa de login (fresh captcha) — sempre re-navega
+    try:
+        page.goto(alvo_url, wait_until="domcontentloaded", timeout=45000)
+        page.wait_for_timeout(6000)
+    except Exception:
+        pass
+    # 3) sitekey + rqdata (do grampo, senão atributo, senão regex) + UA reais
+    info = page.evaluate(
+        "()=>{let s=null,rq=window.__rqcap||null;"
+        "const e=document.querySelector('[data-sitekey]');if(e){s=e.getAttribute('data-sitekey');if(!rq)rq=e.getAttribute('data-rqdata')||e.getAttribute('rqdata');}"
+        "const H=document.documentElement.innerHTML;"
+        "if(!s){const m=H.match(/sitekey[\"'\\s:=]+([0-9a-f-]{36})/);if(m)s=m[1];}"
+        "return {sitekey:s, rqdata:rq, ua:navigator.userAgent};}")
+    sk = info.get("sitekey")
+    if not sk:
+        return {"erro": "sitekey servicos não encontrado", "sitekey": None}
+    _estado["ultima_msg"] = f"🤖 hCaptcha Receita: sitekey ok, rqdata={'SIM' if info.get('rqdata') else 'não'} → 2Captcha…"
+    tok = _solve_hcaptcha(sk, page.url, info.get("rqdata"), user_agent=info.get("ua"))
+    page.evaluate(
+        "(tok)=>{document.querySelectorAll('textarea[name=\"h-captcha-response\"],textarea[name=\"g-recaptcha-response\"],"
+        "input[name*=\"aptcha\"],input[name*=\"Captcha\"],#h-captcha-response').forEach(e=>{e.value=tok;});"
+        "try{if(window.hcaptcha&&window.__hcapWid!==undefined){}}catch(e){}"
+        "try{(window.__hcap&&window.__hcap.cbs||[]).forEach(cb=>{try{cb(tok);}catch(e){}});}catch(e){}"
+        "try{if(typeof validarHcaptcha==='function'){validarHcaptcha();}}catch(e){}"
+        "const f=document.querySelector('form[action*=\"govbr/post\"]')||document.querySelector('form[action*=\"login/govbr\"]')||document.forms[0]; if(f) f.submit();}", tok)
+    page.wait_for_timeout(9000)
+    return {"sitekey": sk, "rqdata_found": bool(info.get("rqdata")), "ok": True}
+
+
+def _ecac_dbg_servicos(page, alvo_url=None):
+    """Radiografa a tela de login do app RFB: acha o authorize/href real do 'Entrar com gov.br'."""
+    alvo_url = alvo_url or PENDENCIAS_URL
+    out = {"etapas": [], "alvo": alvo_url}
+    try:
+        if not _ecac_login_only(page):
+            out["etapas"].append("e-CAC não logou"); return out
+        # captura requests de navegação e authorize
+        caps = []
+        page.on("request", lambda r: caps.append(f"{r.method} {r.url[:130]}") if (
+            "authorize" in r.url or "sso.acesso" in r.url or "certificado.sso" in r.url) else None)
+        try:
+            page.goto(alvo_url, wait_until="networkidle", timeout=45000)
+        except Exception:
+            page.wait_for_timeout(4000)
+        page.wait_for_timeout(4000)
+        out["url"] = page.url
+        # todos os elementos clicáveis + forms
+        out["clicaveis"] = page.evaluate(
+            """()=>[...document.querySelectorAll('a,button,input[type=submit],[role=button],[onclick]')].map(e=>({
+                 tag:e.tagName, t:(e.innerText||e.value||e.getAttribute('aria-label')||'').trim().slice(0,50),
+                 id:e.id||'', cls:(e.className||'').toString().slice(0,40),
+                 href:(e.getAttribute('href')||'').slice(0,140),
+                 onclick:(e.getAttribute('onclick')||'').slice(0,100)})).filter(x=>x.t||x.href||x.onclick).slice(0,40)""")
+        out["forms"] = page.evaluate(
+            """()=>[...document.querySelectorAll('form')].map(f=>({action:f.action||'',method:f.method||''})).slice(0,10)""")
+        # procura authorize/client_id no HTML e scripts
+        html = page.content()
+        import re as _re
+        out["authorize_urls"] = list(dict.fromkeys(_re.findall(r'https://[^"\'\s<>]*authorize[^"\'\s<>]*', html)))[:6]
+        out["client_ids"] = list(dict.fromkeys(_re.findall(r'client_id[=:]["\s]*([a-zA-Z0-9._-]+)', html)))[:6]
+        out["sso_refs"] = list(dict.fromkeys(_re.findall(r'https://[^"\'\s<>]*(?:sso\.acesso|certificado\.sso)[^"\'\s<>]*', html)))[:6]
+        out["reqs_authorize"] = caps[:15]
+    except Exception as e:
+        out["etapas"].append(f"erro: {str(e)[:80]}")
+    finally:
+        try: page.goto("https://det.sit.trabalho.gov.br/servicos", wait_until="domcontentloaded", timeout=30000)
+        except Exception: pass
+    return out
+
+
+def _ecac_pendencias_sup(page, alvo_url=None, espera=360):
+    """LOGIN SUPERVISIONADO do app RFB (servicos.receitafederal.gov.br).
+
+    Leva a JANELA VISÍVEL (noVNC) direto pra tela de Pendências. Se a Receita pedir
+    gov.br, ESPERA o Jordan clicar 'Entrar com GovBR' + 2FA no noVNC (até `espera`s),
+    então raspa os dados da fonte. Volta o DET no finally."""
+    alvo_url = alvo_url or PENDENCIAS_URL
+    out = {"etapas": [], "alvo": alvo_url}
+    try:
+        if not _ecac_login_only(page):
+            out["etapas"].append("e-CAC não logou (sessão gov.br caiu) — rode /login/iniciar")
+            out["ok"] = False
+            return out
+        out["etapas"].append("e-CAC logado; abrindo app RFB na janela visível")
+        try:
+            page.goto(alvo_url, wait_until="domcontentloaded", timeout=45000)
+            page.wait_for_timeout(5000)
+        except Exception as e:
+            out["etapas"].append(f"goto app: {str(e)[:50]}")
+        # já autenticado? (session-reuse pode ter resolvido sozinho)
+        u = page.url.lower()
+        if "servicos.receitafederal.gov.br" in u and "/login" not in u and "precisa de autentic" not in page.inner_text("body").lower():
+            out["etapas"].append("app RFB já autenticado (session-reuse) — raspando")
+            out.update(_scrape_pendencias(page))
+            out["ok"] = True
+            return out
+        # AUTO: resolve o hCaptcha da tela de login do app RFB (2Captcha) e submete
+        for tent in range(2):
+            _estado["ultima_msg"] = f"🤖 resolvendo hCaptcha da Receita via 2Captcha (tent {tent+1}/2)…"
+            try:
+                r = _servicos_login_auto(page, alvo_url)
+                out["etapas"].append(f"auto-hcaptcha servicos (t{tent+1}): {r}")
+                _estado["ultima_msg"] = f"hCaptcha t{tent+1}: {str(r)[:60]}"
+            except Exception as e:
+                out["etapas"].append(f"auto-hcaptcha erro: {str(e)[:60]}")
+                _estado["ultima_msg"] = f"hCaptcha t{tent+1} erro: {str(e)[:50]}"
+            page.wait_for_timeout(4000)
+            uu = page.url.lower()
+            try: body = page.inner_text("body").lower()
+            except Exception: body = ""
+            if "servicos.receitafederal.gov.br" in uu and "/login" not in uu and "precisa de autentic" not in body:
+                out["etapas"].append(f"AUTO autenticou! {page.url[:60]}")
+                out.update(_scrape_pendencias(page)); out["ok"] = True
+                _estado["ultima_msg"] = "✅ Pendências e-CAC capturadas (auto hCaptcha)"
+                return out
+        # fallback: login humano no noVNC
+        _estado["ultima_msg"] = ("🖐️ AGUARDANDO você no noVNC: clique 'Entrar com gov.br' na "
+                                 "tela da Receita e confirme o 2FA. Tenho 6 min.")
+        out["etapas"].append("auto falhou → AGUARDANDO login humano no noVNC (até %ds)" % espera)
+        dl = time.time() + espera
+        while time.time() < dl:
+            uu = page.url.lower()
+            try:
+                body = page.inner_text("body").lower()
+            except Exception:
+                body = ""
+            if "servicos.receitafederal.gov.br" in uu and "/login" not in uu and "precisa de autentic" not in body:
+                out["etapas"].append(f"autenticou! {page.url[:60]}")
+                break
+            time.sleep(4)
+        page.wait_for_timeout(3000)
+        uu = page.url.lower()
+        if "servicos.receitafederal.gov.br" in uu and "/login" not in uu:
+            out.update(_scrape_pendencias(page))
+            out["ok"] = True
+            _estado["ultima_msg"] = "✅ Pendências e-CAC capturadas (login supervisionado)"
+        else:
+            out["etapas"].append(f"tempo esgotado; ainda em: {page.url[:60]}")
+            out["ok"] = False
+            _estado["ultima_msg"] = "⏱️ login supervisionado expirou (tente de novo)"
+    except Exception as e:
+        out["etapas"].append(f"erro: {str(e)[:80]}")
+        out["ok"] = False
+    finally:
+        try:
+            page.goto("https://det.sit.trabalho.gov.br/servicos", wait_until="domcontentloaded", timeout=30000)
+        except Exception:
+            pass
+    return out
+
+
 def _loop_comandos(ctx, page):
     """Mantém a sessão VIVA e processa comandos NA MESMA THREAD (Playwright é thread-affine).
     Keep-alive: ping a cada 5 min; auto-coleta+push ao ERP a cada 30 min."""
@@ -487,6 +699,14 @@ def _loop_comandos(ctx, page):
         elif cmd == "ecac_sso":
             try: _RES["ecac_sso"] = _ecac_sso(page)
             except Exception as e: _RES["ecac_sso"] = {"ok": False, "msg": f"erro: {e}"}
+            _RES_EVT.set()
+        elif cmd == "ecac_pend_sup":
+            try: _RES["ecac_pend_sup"] = _ecac_pendencias_sup(page, _estado.get("_ecac_alvo"), _estado.get("_ecac_espera", 360))
+            except Exception as e: _RES["ecac_pend_sup"] = {"ok": False, "msg": f"erro: {e}"}
+            _RES_EVT.set()
+        elif cmd == "ecac_dbg_svc":
+            try: _RES["ecac_dbg_svc"] = _ecac_dbg_servicos(page, _estado.get("_ecac_alvo"))
+            except Exception as e: _RES["ecac_dbg_svc"] = {"ok": False, "msg": f"erro: {e}"}
             _RES_EVT.set()
         elif cmd == "debug_detalhe":
             try: _RES["debug"] = _debug_detalhe(page)
@@ -529,6 +749,39 @@ def _loop_comandos(ctx, page):
             except Exception:
                 pass
     ctx.close()
+
+
+@app.post("/ecac/pendencias-supervisionada")
+def ecac_pendencias_supervisionada(alvo: str = "", espera: int = 360, wait: int = 0):
+    """Dispara a coleta de Pendências (auto hCaptcha + fallback humano no noVNC).
+    Fire-and-forget por padrão (wait=0) — busque o resultado em GET /ecac/ultimo.
+    Passe ?alvo= pra outra URL (parcelamentos); ?wait=1 pra bloquear até terminar."""
+    _estado["_ecac_alvo"] = alvo or None
+    _estado["_ecac_espera"] = min(max(int(espera), 30), 540)
+    _RES.pop("ecac_pend_sup", None)
+    _RES_EVT.clear()
+    _CMD.put("ecac_pend_sup")
+    if not wait:
+        return {"ok": True, "msg": "coleta disparada — acompanhe /login/status e GET /ecac/ultimo"}
+    if not _RES_EVT.wait(timeout=_estado["_ecac_espera"] + 300):
+        return {"ok": False, "msg": "ainda rodando — veja GET /ecac/ultimo"}
+    return _RES.get("ecac_pend_sup", {"ok": False, "msg": "sem resultado"})
+
+
+@app.get("/ecac/ultimo")
+def ecac_ultimo():
+    """Último resultado da coleta de Pendências (após fire-and-forget)."""
+    r = _RES.get("ecac_pend_sup")
+    return {"pronto": r is not None, "resultado": r, "ultima_msg": _estado.get("ultima_msg")}
+
+
+@app.post("/ecac/debug-servicos")
+def ecac_debug_servicos(alvo: str = ""):
+    _estado["_ecac_alvo"] = alvo or None
+    _RES_EVT.clear(); _CMD.put("ecac_dbg_svc")
+    if not _RES_EVT.wait(timeout=120):
+        return {"ok": False, "msg": "timeout"}
+    return _RES.get("ecac_dbg_svc", {"ok": False})
 
 
 @app.post("/login/iniciar")
