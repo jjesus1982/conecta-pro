@@ -56,7 +56,7 @@ export default function AtrasosPage() {
 
   const filtered = ocorrencias.filter((o) => {
     const tipo = o.tipo || o.type || '';
-    const nome = o.colaborador || o.employee_name || '';
+    const nome = o.colaborador || o.employee_nome || o.employee_name || '';
     const matchTipo = filtroTipo === 'todos' || tipo === filtroTipo;
     const matchBusca = !busca || nome.toLowerCase().includes(busca.toLowerCase());
     return matchTipo && matchBusca;
@@ -175,7 +175,7 @@ export default function AtrasosPage() {
                       const justified = o.justificado ?? o.justified ?? false;
                       return (
                         <tr key={o.id ?? idx} className="border-b border-[hsl(var(--border))] hover:bg-[hsl(var(--secondary))]">
-                          <td className="py-3 px-4 font-medium text-[hsl(var(--foreground))]">{o.colaborador || o.employee_name || '--'}</td>
+                          <td className="py-3 px-4 font-medium text-[hsl(var(--foreground))]">{o.colaborador || o.employee_nome || o.employee_name || '--'}</td>
                           <td className="py-3 px-4 text-[hsl(var(--muted-foreground))]">{o.data || o.date || '--'}</td>
                           <td className="py-3 px-4">
                             <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${tipoConfig[tipo]?.classes ?? 'bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]'}`}>

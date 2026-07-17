@@ -106,7 +106,7 @@ async def _next_punch_type(db: AsyncSession, employee_id: str) -> str:
         await db.execute(
             text(
                 "SELECT punch_type FROM gp_clock_punches "
-                "WHERE employee_id = :eid AND DATE(punch_timestamp) = :today "
+                "WHERE employee_id = :eid AND DATE((punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')) = :today "
                 "ORDER BY punch_timestamp ASC"
             ),
             {"eid": employee_id, "today": today},

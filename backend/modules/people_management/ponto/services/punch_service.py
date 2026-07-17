@@ -7,7 +7,7 @@ Valida geofence via coordenadas do posto (Haversine).
 
 import logging
 import math
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -20,6 +20,11 @@ from ..models.monthly_closing import MonthlyClosingModel
 from ..schemas.punch_schemas import JustificationCreate, PunchCreate
 
 logger = logging.getLogger(__name__)
+
+def _ts_local(col):
+    """Coluna punch_timestamp (armazenada em UTC) convertida p/ America/Manaus (leitura)."""
+    return func.timezone("America/Manaus", func.timezone("UTC", col))
+
 
 # Raio padrao de geofence em metros
 GEOFENCE_RADIUS_METERS = 200.0
@@ -61,11 +66,17 @@ class PunchService:
             Dicionario com os dados da batida registrada.
         """
         punch_id = str(uuid4())
-        # wall-clock LOCAL (servidor em America/Manaus) — igual a clock_in/clock_out e ao
-        # Tangerino. utcnow() carimbava +4h → a batida do portal caía no dia seguinte, sumia
-        # da tela "bater ponto" (filtro por data local) e migrava de dia/mês no espelho.
-        now = datetime.now()
-        timestamp = data.timestamp or now.isoformat()
+        # CONVENÇÃO CANÔNICA DA COLUNA: UTC (igual ao acervo do sync Tangerino e ao que a
+        # presença ao vivo do Operacional assume). Os LEITORES convertem p/ Manaus — o bug
+        # antigo ("batida caía no dia seguinte") era leitor cru, já corrigido em todos.
+        now = datetime.utcnow()
+        if data.timestamp:
+            # timestamp vindo do device (offline/app) chega em hora LOCAL Manaus → UTC (+4h;
+            # Manaus não tem horário de verão).
+            ts_local = datetime.fromisoformat(str(data.timestamp))
+            timestamp = (ts_local + timedelta(hours=4)).isoformat() if ts_local.tzinfo is None else ts_local.astimezone(timezone.utc).replace(tzinfo=None).isoformat()
+        else:
+            timestamp = now.isoformat()
 
         # Determinar status — vocabulário REAL do ciclo de vida do ponto: uma batida
         # nova nasce 'pending' (aguardando aprovação) e vira 'approved' na conferência.
@@ -197,7 +208,7 @@ class PunchService:
             select(ClockPunchModel)
             .where(
                 ClockPunchModel.employee_id == employee_id,
-                func.date(ClockPunchModel.punch_timestamp) == func.date(dia),
+                func.date(_ts_local(ClockPunchModel.punch_timestamp)) == func.date(dia),
             )
             .order_by(ClockPunchModel.punch_timestamp)
         )
@@ -218,8 +229,8 @@ class PunchService:
             select(ClockPunchModel)
             .where(
                 ClockPunchModel.employee_id == employee_id,
-                extract("month", ClockPunchModel.punch_timestamp) == month,
-                extract("year", ClockPunchModel.punch_timestamp) == year,
+                extract("month", _ts_local(ClockPunchModel.punch_timestamp)) == month,
+                extract("year", _ts_local(ClockPunchModel.punch_timestamp)) == year,
             )
             .order_by(ClockPunchModel.punch_timestamp)
         )
@@ -509,10 +520,10 @@ class PunchService:
         rows = (
             await self.db.execute(
                 text(
-                    "SELECT punch_type, punch_timestamp FROM gp_clock_punches "
+                    "SELECT punch_type, (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') AS punch_timestamp FROM gp_clock_punches "
                     "WHERE CAST(employee_id AS TEXT) = :e "
-                    "AND EXTRACT(MONTH FROM punch_timestamp) = :m "
-                    "AND EXTRACT(YEAR FROM punch_timestamp) = :y "
+                    "AND EXTRACT(MONTH FROM (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')) = :m "
+                    "AND EXTRACT(YEAR FROM (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')) = :y "
                     # desempate determinístico (saída antes de entrada + punch_id), igual ao espelho
                     "ORDER BY punch_timestamp, CASE WHEN lower(coalesce(punch_type,'')) LIKE 'sa%' THEN 0 ELSE 1 END, punch_id"
                 ),

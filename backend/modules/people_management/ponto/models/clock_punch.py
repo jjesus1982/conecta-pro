@@ -104,12 +104,18 @@ class ClockPunchModel(Base):
     )
 
     def to_dict(self) -> dict[str, Any]:
+        # punch_timestamp é armazenado em UTC (convenção canônica da coluna);
+        # to_dict é o choke point de APRESENTAÇÃO → converte p/ America/Manaus
+        # (UTC-4 fixo, sem horário de verão) para todas as telas/APIs.
+        from datetime import timedelta
+
+        ts_local = (self.punch_timestamp - timedelta(hours=4)) if self.punch_timestamp else None
         return {
             "id": self.id,
             "punch_id": self.punch_id,
             "employee_id": self.employee_id,
             "punch_type": self.punch_type,
-            "punch_timestamp": self.punch_timestamp.isoformat() if self.punch_timestamp else None,
+            "punch_timestamp": ts_local.isoformat() if ts_local else None,
             "status": self.status,
             "facial_match": self.facial_match,
             "facial_confidence": self.facial_confidence,

@@ -163,7 +163,7 @@ def get_dashboard(db: Session) -> dict[str, Any]:
         db.execute(
             text(
                 "SELECT COUNT(DISTINCT employee_id) FROM gp_clock_punches "
-                "WHERE punch_type='entrada' AND DATE(punch_timestamp)=:hoje"
+                "WHERE punch_type='entrada' AND DATE(punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')=:hoje"
             ),
             {"hoje": hoje},
         ).scalar()
@@ -178,7 +178,7 @@ def get_dashboard(db: Session) -> dict[str, Any]:
                 # do 12x36 noturno cai no dia SEGUINTE — parear por DATE() marcava todo
                 # plantão como aberto)
                 "SELECT COUNT(DISTINCT e.employee_id) FROM gp_clock_punches e "
-                "WHERE e.punch_type='entrada' AND DATE(e.punch_timestamp)=:hoje "
+                "WHERE e.punch_type='entrada' AND DATE(e.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')=:hoje "
                 "AND NOT EXISTS ("
                 "  SELECT 1 FROM gp_clock_punches s "
                 "  WHERE s.employee_id=e.employee_id AND s.punch_type='saida' "
@@ -305,10 +305,10 @@ def get_inconsistencias(
         text(
             # 'em aberto' = entrada sem saída cronológica nas 18h seguintes (não por
             # DATE(), que marcava todo plantão noturno 12x36 como aberto)
-            "SELECT e.employee_id, DATE(e.punch_timestamp) as dia "
+            "SELECT e.employee_id, DATE(e.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') as dia "
             "FROM gp_clock_punches e "
             "WHERE e.punch_type='entrada' "
-            "AND DATE(e.punch_timestamp) BETWEEN :ini AND :fim "
+            "AND DATE(e.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') BETWEEN :ini AND :fim "
             "AND NOT EXISTS ("
             "  SELECT 1 FROM gp_clock_punches s "
             "  WHERE s.employee_id=e.employee_id AND s.punch_type='saida' "
@@ -337,7 +337,7 @@ def get_inconsistencias(
             # pareia cada entrada com a PRÓXIMA saída cronológica (LATERAL, janela 18h) —
             # o JOIN por DATE() casava cada entrada com cada saída do dia (pares cruzados,
             # ex. 08:00→22:00=14h que nunca ocorreu) e cegava o plantão noturno real
-            "SELECT ent.employee_id, DATE(ent.punch_timestamp) as dia, "
+            "SELECT ent.employee_id, DATE(ent.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') as dia, "
             "  EXTRACT(EPOCH FROM (nx.saida_ts - ent.punch_timestamp))/3600 as horas "
             "FROM gp_clock_punches ent "
             "JOIN LATERAL ("
@@ -347,7 +347,7 @@ def get_inconsistencias(
             "  AND s.punch_timestamp <= ent.punch_timestamp + interval '18 hours'"
             ") nx ON nx.saida_ts IS NOT NULL "
             "WHERE ent.punch_type='entrada' "
-            "AND DATE(ent.punch_timestamp) BETWEEN :ini AND :fim "
+            "AND DATE(ent.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') BETWEEN :ini AND :fim "
             "AND EXTRACT(EPOCH FROM (nx.saida_ts - ent.punch_timestamp))/3600 > :max_h "
             "ORDER BY dia DESC"
         ),
@@ -377,9 +377,9 @@ def get_inconsistencias(
     _INTRA_TETO_HORAS = 6.0  # separa intervalo intra-turno (curto) da folga entre plantões
     intra_rows = db.execute(
         text(
-            "SELECT employee_id, punch_type, punch_timestamp FROM gp_clock_punches "
+            "SELECT employee_id, punch_type, (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') AS punch_timestamp FROM gp_clock_punches "
             "WHERE punch_type IN ('entrada','saida') "
-            "AND DATE(punch_timestamp) BETWEEN :ini AND :fim "
+            "AND DATE(punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') BETWEEN :ini AND :fim "
             "ORDER BY employee_id, punch_timestamp, CASE WHEN lower(coalesce(punch_type,'')) LIKE 'sa%' THEN 0 ELSE 1 END, punch_id"
         ),
         {"ini": inicio, "fim": fim},

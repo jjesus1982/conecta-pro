@@ -71,13 +71,13 @@ class PontoFolhaPDFService:
         batidas_raw = self.db.execute(
             text("""
             SELECT
-                punch_timestamp::date AS data,
+                (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date AS data,
                 punch_timestamp::time AS hora,
                 punch_type
             FROM gp_clock_punches
             WHERE employee_id = CAST(:emp_id AS uuid)
-              AND punch_timestamp >= :inicio
-              AND punch_timestamp <= :fim
+              AND (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') >= :inicio
+              AND (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') <= :fim
             ORDER BY punch_timestamp
         """),
             {

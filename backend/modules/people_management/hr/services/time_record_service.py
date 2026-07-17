@@ -149,10 +149,10 @@ class TimeRecordService:
             where_clauses.append("employee_id = :emp_id")
             params["emp_id"] = str(employee_id)
         if date_from:
-            where_clauses.append("punch_timestamp::date >= :date_from")
+            where_clauses.append("(punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date >= :date_from")
             params["date_from"] = date_from
         if date_to:
-            where_clauses.append("punch_timestamp::date <= :date_to")
+            where_clauses.append("(punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date <= :date_to")
             params["date_to"] = date_to
 
         where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
