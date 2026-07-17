@@ -75,6 +75,14 @@ export default function FiscalDashboardPage() {
 
   const navigationCards = [
     {
+      title: 'e-CAC',
+      description: 'Situação fiscal, débitos e parcelamentos na Receita (certificado A1)',
+      icon: Landmark,
+      href: '/modulos/fiscal/ecac',
+      color: 'text-rose-600',
+      bgColor: 'bg-rose-50',
+    },
+    {
       title: 'NF-e',
       description: 'Emissão e gestão de Notas Fiscais Eletrônicas (produtos)',
       icon: Receipt,
