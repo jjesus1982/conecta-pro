@@ -1,11 +1,28 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
-import { Landmark, ShieldCheck, ShieldAlert, Lock, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { Landmark, ShieldCheck, ShieldAlert, Lock, CheckCircle2, AlertTriangle, Eye, Download } from 'lucide-react'
 import { PageHeader } from '@/components/ui/page-header'
 
 const brl = (v: number | string | null | undefined) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v) || 0)
+
+// Baixa/abre um PDF protegido por token (o <a href> não carrega o Bearer → usa blob).
+async function abrirGuiaPdf(pdfUrl: string, download: boolean) {
+  const token = typeof window !== 'undefined'
+    ? (localStorage.getItem('access_token') ?? localStorage.getItem('token') ?? '') : ''
+  const res = await fetch(pdfUrl + (download ? '?download=1' : ''), { headers: { Authorization: `Bearer ${token}` } })
+  if (!res.ok) { alert('Não foi possível abrir o PDF da guia.'); return }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  if (download) {
+    const a = document.createElement('a'); a.href = url; a.download = ''
+    document.body.appendChild(a); a.click(); a.remove()
+  } else {
+    window.open(url, '_blank', 'noopener')
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 60000)
+}
 
 const api = async (path: string) => {
   const token = typeof window !== 'undefined'
@@ -114,6 +131,7 @@ export default function EcacPage() {
                   <th className="text-left px-5 py-2 font-medium">Tributo</th>
                   <th className="text-left px-5 py-2 font-medium">Vencimento</th>
                   <th className="text-right px-5 py-2 font-medium">Valor</th>
+                  <th className="text-right px-5 py-2 font-medium">Guia</th>
                 </tr>
               </thead>
               <tbody>
@@ -123,6 +141,22 @@ export default function EcacPage() {
                     <td className="px-5 py-2 font-medium">{d.descricao}</td>
                     <td className="px-5 py-2 text-neutral-500">{d.data_vencimento || '—'}</td>
                     <td className="px-5 py-2 text-right font-semibold">{brl(d.valor_total)}</td>
+                    <td className="px-5 py-2 text-right whitespace-nowrap">
+                      {d.pdf_disponivel ? (
+                        <span className="inline-flex gap-1 justify-end">
+                          <button onClick={() => abrirGuiaPdf(d.pdf_url, false)} title="Ver PDF da guia"
+                            className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800">
+                            <Eye className="h-3.5 w-3.5" /> Ver
+                          </button>
+                          <button onClick={() => abrirGuiaPdf(d.pdf_url, true)} title="Baixar PDF da guia"
+                            className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800">
+                            <Download className="h-3.5 w-3.5" />
+                          </button>
+                        </span>
+                      ) : (
+                        <span className="text-xs text-neutral-400" title="Guia sem PDF (valor da folha, não do Drive)">—</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

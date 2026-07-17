@@ -48,7 +48,7 @@ def _dados_fiscais_reais(cpf_cnpj: str | None = None) -> dict[str, Any]:
         try:
             rows = db.execute(text(
                 "SELECT tipo, nome, competencia_mes, competencia_ano, valor_devido, "
-                "data_vencimento, numero_recibo FROM fiscal_obligations "
+                "data_vencimento, numero_recibo, id, observacoes FROM fiscal_obligations "
                 "WHERE active=true AND lower(status)='pendente' AND coalesce(valor_devido,0) > 0 "
                 "ORDER BY competencia_ano DESC, competencia_mes DESC"
             )).fetchall()
@@ -56,7 +56,9 @@ def _dados_fiscais_reais(cpf_cnpj: str | None = None) -> dict[str, Any]:
                 comp = f"{int(r[3]):04d}-{int(r[2]):02d}" if r[2] and r[3] else None
                 val = Decimal(str(r[4] or 0))
                 total_deb += val
+                tem_pdf = bool(r[8] and "drive_file_id" in r[8])
                 debitos.append({
+                    "id": str(r[7]),
                     "codigo_receita": r[0],
                     "descricao": r[1],
                     "competencia": comp,
@@ -68,6 +70,8 @@ def _dados_fiscais_reais(cpf_cnpj: str | None = None) -> dict[str, Any]:
                     "situacao": "em_aberto",
                     "numero_processo": r[6],
                     "fonte": "erp_puxador_drive",
+                    "pdf_disponivel": tem_pdf,
+                    "pdf_url": f"/api/v1/fiscal/guias-drive/pdf/{r[7]}" if tem_pdf else None,
                 })
             prows = db.execute(text(
                 "SELECT orgao, numero_acordo, descricao, valor_total, num_parcelas, "
