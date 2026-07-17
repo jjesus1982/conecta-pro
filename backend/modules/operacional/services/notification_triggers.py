@@ -148,6 +148,7 @@ class OperacionalNotificationTriggers:
                                       AND coalesce(lu.is_active, true) = true
                     WHERE sh.shift_date = (now() AT TIME ZONE 'America/Manaus')::date
                       AND sh.is_active = TRUE
+                      AND coalesce(e.is_homologacao, false) = false  -- não alerta base de teste
                       AND lower(coalesce(sh.status,'')) IN ('scheduled','agendado','ativo')
                       AND (CURRENT_DATE + sh.planned_start_time)
                           <= (now() AT TIME ZONE 'America/Manaus') - (:tol || ' minutes')::interval

@@ -23,6 +23,7 @@ from .controllers import (
     my_vacations_router,
     portal_auth_router,
     self_service_router,
+    homologacao_router,
 )
 
 logger = logging.getLogger(__name__)
@@ -70,3 +71,4 @@ router.include_router(my_comunicados_router)
 
 # Self-service (login Google / JWT principal — role='funcionario')
 router.include_router(self_service_router)
+router.include_router(homologacao_router)

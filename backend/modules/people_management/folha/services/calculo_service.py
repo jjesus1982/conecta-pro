@@ -550,8 +550,17 @@ def calcular_folha_colaborador(
 
 
 def calcular_folha_batch(db: Session, mes: int, ano: int) -> dict[str, Any]:
-    """Calcula folha para todos os colaboradores ativos."""
-    employees = db.execute(text("SELECT CAST(id AS TEXT) FROM employees WHERE status='ativo' ORDER BY nome")).fetchall()
+    """Calcula folha para todos os colaboradores ativos.
+
+    EXCLUI funcionários de HOMOLOGAÇÃO (is_homologacao) — base de teste isolada da
+    folha/eSocial reais. Ver [[project_ponto_facial_homologacao]].
+    """
+    employees = db.execute(
+        text(
+            "SELECT CAST(id AS TEXT) FROM employees "
+            "WHERE status='ativo' AND coalesce(is_homologacao, false) = false ORDER BY nome"
+        )
+    ).fetchall()
 
     holerites = []
     erros = []
