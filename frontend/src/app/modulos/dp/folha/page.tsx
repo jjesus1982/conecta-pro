@@ -242,6 +242,18 @@ export default function FolhaPage() {
     }
   };
 
+  const handleBaixarVtVr = async (empId: string, nome: string) => {
+    try {
+      await baixarArquivoAutenticado(
+        `/api/v1/people-management/folha/recibo-vt-vr/${empId}/${mes}/${ano}/pdf`,
+        `vt-vr_${((nome || 'colaborador').split(' ')[0] || 'colaborador').toLowerCase()}_${String(mes).padStart(2, '0')}_${ano}.pdf`,
+      );
+      toast.success('Recibo VT/VR baixado', { duration: 3000 });
+    } catch (e: any) {
+      toast.error(e?.message || 'Erro ao baixar recibo VT/VR', { duration: 5000 });
+    }
+  };
+
   const handleExportarFolha = async () => {
     setExportandoFolha(true);
     try {
@@ -541,23 +553,37 @@ export default function FolhaPage() {
                             <TableCell className="font-bold">{fmt(liqVal)}</TableCell>
                             <TableCell><Badge className={st.className}>{st.label}</Badge></TableCell>
                             <TableCell className="text-right">
-                              {payslipId ? (
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  disabled={downloadingId === payslipId}
-                                  onClick={() => handleBaixarContracheque(payslipId, nome)}
-                                  title="Baixar contracheque em PDF"
-                                >
-                                  {downloadingId === payslipId
-                                    ? <Loader2 className="h-4 w-4 animate-spin" />
-                                    : <FileText className="h-4 w-4" />}
-                                  <span className="ml-1 hidden sm:inline">Contracheque</span>
-                                </Button>
-                              ) : (
-                                <span className="text-xs text-muted-foreground">—</span>
-                              )}
+                              <div className="inline-flex gap-1 justify-end">
+                                {payslipId ? (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={downloadingId === payslipId}
+                                    onClick={() => handleBaixarContracheque(payslipId, nome)}
+                                    title="Baixar contracheque em PDF"
+                                  >
+                                    {downloadingId === payslipId
+                                      ? <Loader2 className="h-4 w-4 animate-spin" />
+                                      : <FileText className="h-4 w-4" />}
+                                    <span className="ml-1 hidden sm:inline">Contracheque</span>
+                                  </Button>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground self-center">—</span>
+                                )}
+                                {empId ? (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleBaixarVtVr(empId, nome)}
+                                    title="Baixar recibo VT/VR em PDF"
+                                  >
+                                    <FileDown className="h-4 w-4" />
+                                    <span className="ml-1 hidden sm:inline">VT/VR</span>
+                                  </Button>
+                                ) : null}
+                              </div>
                             </TableCell>
                           </TableRow>
                         );

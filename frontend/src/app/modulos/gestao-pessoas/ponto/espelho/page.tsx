@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { customInstance } from '@/lib/api-client';
+import { abrirPdf } from '@/lib/pdf';
 import { FileText, Download, ChevronLeft, ChevronRight, Printer, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -88,11 +89,21 @@ export default function EspelhoPontoPage() {
           <h1 className="font-display text-2xl font-bold text-[hsl(var(--foreground))]">Espelho de Ponto</h1>
         </div>
         <div className="flex gap-2">
-          <button type="button" className="flex items-center gap-2 px-4 py-2 bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-lg text-sm font-medium hover:bg-[hsl(var(--secondary))] transition-colors">
+          <button type="button"
+            onClick={() => selectedEmployeeId
+              ? abrirPdf(`/api/v1/people-management/hr/ponto/espelho/${selectedEmployeeId}/${month}/${year}/pdf`)
+              : alert('Selecione um funcionário primeiro.')}
+            className="flex items-center gap-2 px-4 py-2 bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-lg text-sm font-medium hover:bg-[hsl(var(--secondary))] transition-colors disabled:opacity-50"
+            disabled={!selectedEmployeeId}>
             <Printer className="h-4 w-4" />
             Imprimir
           </button>
-          <button type="button" className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+          <button type="button"
+            onClick={() => selectedEmployeeId
+              ? abrirPdf(`/api/v1/people-management/hr/ponto/espelho/${selectedEmployeeId}/${month}/${year}/pdf`, { download: true, nome: `espelho-ponto-${month}-${year}.pdf` })
+              : alert('Selecione um funcionário primeiro.')}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
+            disabled={!selectedEmployeeId}>
             <Download className="h-4 w-4" />
             Exportar PDF
           </button>
