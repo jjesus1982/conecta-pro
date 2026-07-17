@@ -7,6 +7,7 @@ Endpoints:
 """
 
 import logging
+import os
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -222,8 +223,15 @@ def _compute_onboarding_status(employee: Any) -> dict[str, Any]:
             ok.append(campo)
         else:
             faltantes.append({"campo": campo, "label": label})
+    # MODO TRANSIÇÃO (rollout do ponto próprio 01/08): enquanto o cadastro completo
+    # não vem da Sólides, o pendente NÃO bloqueia — o funcionário bate ponto e completa
+    # depois (banner persistente). `bloqueante=true` só quando PONTO_ONBOARDING_BLOQUEANTE
+    # for ligado (default false). O DP acompanha a completude pelo painel.
+    bloqueante = os.getenv("PONTO_ONBOARDING_BLOQUEANTE", "false").lower() == "true"
     return {
         "pendente": len(faltantes) > 0,
+        "bloqueante": bloqueante and len(faltantes) > 0,
+        "modo_transicao": not bloqueante,
         "total_obrigatorios": len(ONBOARDING_REQUIRED_FIELDS),
         "total_ok": len(ok),
         "campos_ok": ok,
@@ -280,6 +288,8 @@ async def get_onboarding_status(
         # Sem vínculo/registro: não bloqueia com formulário (nada a preencher aqui).
         return {
             "pendente": False,
+            "bloqueante": False,
+            "modo_transicao": True,
             "total_obrigatorios": len(ONBOARDING_REQUIRED_FIELDS),
             "total_ok": 0,
             "campos_ok": [],

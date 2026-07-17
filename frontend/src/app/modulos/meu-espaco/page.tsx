@@ -60,7 +60,8 @@ interface MeusDados {
 
 interface CampoFaltante { campo: string; label: string; }
 interface OnboardingStatus {
-  pendente: boolean; total_obrigatorios: number; total_ok: number;
+  pendente: boolean; bloqueante?: boolean; modo_transicao?: boolean;
+  total_obrigatorios: number; total_ok: number;
   campos_ok: string[]; campos_faltantes: CampoFaltante[];
 }
 
@@ -110,6 +111,7 @@ export default function MeuEspacoPage() {
   const [tab, setTab] = useState<Tab>('assinar');
   const [onbStatus, setOnbStatus] = useState<OnboardingStatus | null>(null);
   const [onbLoading, setOnbLoading] = useState(true);
+  const [completarAberto, setCompletarAberto] = useState(false);  // modo transição: abre o form sob demanda
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) router.replace('/login');
@@ -139,14 +141,29 @@ export default function MeuEspacoPage() {
     );
   }
 
-  // GATE: onboarding pendente bloqueia o Meu Espaço até completar o cadastro.
-  if (onbStatus?.pendente) {
+  // GATE: só BLOQUEIA quando bloqueante=true (enforce). No modo transição (rollout
+  // 01/08), o funcionário entra e bate ponto — o cadastro pendente vira um banner.
+  if (onbStatus?.bloqueante) {
     return (
       <OnboardingGate
         status={onbStatus}
         userName={user?.name}
         onLogout={logout}
         onDone={(novo) => setOnbStatus(novo)}
+      />
+    );
+  }
+
+  // Modo transição + cadastro pendente + o funcionário clicou em "Completar agora":
+  // mostra o MESMO formulário, mas com opção de voltar (não bloqueia).
+  if (completarAberto && onbStatus?.pendente) {
+    return (
+      <OnboardingGate
+        status={onbStatus}
+        userName={user?.name}
+        onLogout={logout}
+        onDone={(novo) => { setOnbStatus(novo); if (!novo.pendente) setCompletarAberto(false); }}
+        onVoltar={() => setCompletarAberto(false)}
       />
     );
   }
@@ -172,6 +189,24 @@ export default function MeuEspacoPage() {
       </header>
 
       <div className="max-w-3xl mx-auto p-4 lg:p-6">
+        {/* Modo transição: cadastro pendente NÃO bloqueia, mas lembra sempre. */}
+        {onbStatus?.pendente && (
+          <div className="mb-5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-start gap-3">
+            <Clock className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-amber-700">
+                Complete seu cadastro ({onbStatus.total_ok}/{onbStatus.total_obrigatorios} campos)
+              </p>
+              <p className="text-xs text-amber-600/90 mt-0.5">
+                Você já pode bater ponto normalmente. Falta preencher {onbStatus.campos_faltantes.length} dado(s)
+                obrigatório(s) do eSocial — leva 2 minutos.
+              </p>
+            </div>
+            <Button size="sm" onClick={() => setCompletarAberto(true)} className="shrink-0">
+              Completar agora
+            </Button>
+          </div>
+        )}
         {/* Boas-vindas */}
         <div className="mb-5">
           <h1 className="font-display text-xl font-bold text-[hsl(var(--foreground))]">
@@ -226,12 +261,13 @@ export default function MeuEspacoPage() {
 // Onboarding obrigatório (1º acesso) — completar cadastro
 // --------------------------------------------------------------------------- //
 function OnboardingGate({
-  status, userName, onLogout, onDone,
+  status, userName, onLogout, onDone, onVoltar,
 }: {
   status: OnboardingStatus;
   userName?: string | null;
   onLogout: () => void;
   onDone: (novo: OnboardingStatus) => void;
+  onVoltar?: () => void;  // modo transição: volta ao Meu Espaço sem completar
 }) {
   const faltantes = new Set(status.campos_faltantes.map((f) => f.campo));
   const [form, setForm] = useState<Record<string, string>>({});
@@ -313,9 +349,16 @@ function OnboardingGate({
             Meu&nbsp;<span style={{ color: '#f97707' }}>Espaço</span>
           </span>
         </div>
-        <Button variant="outline" size="sm" onClick={onLogout}>
-          <LogOut className="w-4 h-4 mr-1.5" /> Sair
-        </Button>
+        <div className="flex items-center gap-2">
+          {onVoltar && (
+            <Button variant="ghost" size="sm" onClick={onVoltar}>
+              ← Depois
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={onLogout}>
+            <LogOut className="w-4 h-4 mr-1.5" /> Sair
+          </Button>
+        </div>
       </header>
 
       <div className="max-w-2xl mx-auto p-4 lg:p-6">

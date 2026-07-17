@@ -430,7 +430,8 @@ class TimeRecordService:
             "id": punch_id,
             "employee_id": str(employee_id),
             "record_date": str(today),
-            "clock_in": now.strftime("%H:%M"),
+            # confirmação para o funcionário em hora LOCAL Manaus (now é UTC p/ gravar)
+            "clock_in": (now - timedelta(hours=4)).strftime("%H:%M"),
             "clock_out": None,
             "clock_in_lunch": None,
             "clock_out_lunch": None,
@@ -551,9 +552,10 @@ class TimeRecordService:
         return {
             "id": entry["punch_id"],
             "employee_id": entry["employee_id"],
-            "record_date": str(entrada_ts.date()) if entrada_ts else str(date.today()),
-            "clock_in": entrada_ts.strftime("%H:%M") if entrada_ts else None,
-            "clock_out": now.strftime("%H:%M"),
+            # entrada_ts vem do banco (UTC) → local; now é UTC p/ gravar → local
+            "record_date": str((entrada_ts - timedelta(hours=4)).date()) if entrada_ts else str(date.today()),
+            "clock_in": (entrada_ts - timedelta(hours=4)).strftime("%H:%M") if entrada_ts else None,
+            "clock_out": (now - timedelta(hours=4)).strftime("%H:%M"),
             "clock_in_lunch": None,
             "clock_out_lunch": None,
             "total_hours": _format_minutes(total_minutes),

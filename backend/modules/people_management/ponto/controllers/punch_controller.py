@@ -1,6 +1,7 @@
 """Controller de Ponto Eletronico — rotas FastAPI com persistencia no banco."""
 
 import asyncio
+import os
 from datetime import date
 from typing import Any
 
@@ -531,3 +532,56 @@ async def download_folha_pdf(
         filename=filepath.name,
         headers={"Content-Disposition": f'attachment; filename="{filepath.name}"'},
     )
+
+
+# ── Painel de completude do onboarding (DP) — rollout do ponto próprio 01/08 ──
+_ONBOARDING_CAMPOS = {
+    "telefone": "Telefone", "cep": "CEP", "logradouro": "Endereço", "bairro": "Bairro",
+    "cidade": "Cidade", "nome_mae": "Nome da mãe", "naturalidade": "Naturalidade",
+    "nacionalidade": "Nacionalidade", "rg": "RG", "estado_civil": "Estado civil", "pis": "PIS",
+}
+
+
+@router.get("/onboarding/completude", summary="Completude do cadastro (onboarding) por funcionário — painel do DP")
+async def onboarding_completude(
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Lista os funcionários ativos e quantos campos obrigatórios do onboarding já têm
+    preenchidos (fonte: employees). Serve o painel do DP para acompanhar o rollout de
+    01/08 — quem já completou e quem falta. Somente leitura."""
+    cols = ", ".join(_ONBOARDING_CAMPOS.keys())
+    rows = (
+        await db.execute(
+            text(
+                f"SELECT id::text, nome, email, {cols} "
+                "FROM employees WHERE status = 'ativo' ORDER BY nome"
+            )
+        )
+    ).mappings().all()
+    total_campos = len(_ONBOARDING_CAMPOS)
+    itens = []
+    completos = 0
+    for r in rows:
+        faltam = [lbl for c, lbl in _ONBOARDING_CAMPOS.items() if not str(r.get(c) or "").strip()]
+        ok = total_campos - len(faltam)
+        if not faltam:
+            completos += 1
+        itens.append({
+            "employee_id": r["id"],
+            "nome": r["nome"],
+            "email": r["email"],
+            "campos_ok": ok,
+            "total_campos": total_campos,
+            "pct": round(ok * 100 / total_campos),
+            "completo": not faltam,
+            "faltam": faltam,
+        })
+    return {
+        "total_funcionarios": len(itens),
+        "completos": completos,
+        "pendentes": len(itens) - completos,
+        "pct_medio": round(sum(i["pct"] for i in itens) / len(itens)) if itens else 0,
+        "modo_transicao": os.getenv("PONTO_ONBOARDING_BLOQUEANTE", "false").lower() != "true",
+        "funcionarios": itens,
+    }
