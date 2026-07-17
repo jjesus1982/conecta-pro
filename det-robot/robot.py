@@ -211,18 +211,6 @@ def _fluxo_login():
                 except Exception: pass
                 _LIVE.update(ctx=ctx, page=page)
                 _loop_comandos(ctx, page); return
-            # ATALHO: a sessão SSO gov.br costuma continuar viva mesmo quando o authorize do
-            # DET re-desafia. Testa o e-CAC ANTES de gastar minutos no captcha — se logar lá,
-            # a sessão serve p/ tudo (e-CAC + DET) e evitamos o captcha.
-            try:
-                page.goto(ECAC_HOME, wait_until="domcontentloaded", timeout=40000)
-                page.wait_for_timeout(3000)
-                if "cav.receita.fazenda.gov.br" in page.url and "sso" not in page.url:
-                    _estado.update(logado=True, ultima_msg="✅ sessão gov.br VIVA via e-CAC (atalho) — pronto")
-                    _LIVE.update(ctx=ctx, page=page)
-                    _loop_comandos(ctx, page); return
-            except Exception:
-                pass
             _estado["ultima_msg"] = "robô insistindo no captcha (2Captcha)…"
             got = False
             try:
@@ -232,24 +220,7 @@ def _fluxo_login():
             if got:
                 _estado["ultima_msg"] = "✅ CAPTCHA PASSOU! AGORA VOCÊ: digite o código 2FA no noVNC e marque 'não pedir novamente'."
             else:
-                # FALLBACK: o authorize do DET pode re-desafiar mesmo com a sessão gov.br viva.
-                # Testa a sessão SSO indo direto ao e-CAC (mesmo SSO gov.br). Se logar lá,
-                # a sessão está viva e serve tanto p/ e-CAC quanto p/ DET → segue sem captcha.
-                try:
-                    page.goto(ECAC_HOME, wait_until="domcontentloaded", timeout=45000)
-                    page.wait_for_timeout(3500)
-                    if "cav.receita.fazenda.gov.br" in page.url and "sso" not in page.url:
-                        _estado.update(logado=True, ultima_msg="✅ sessão gov.br VIVA via e-CAC — pronto (e-CAC + DET)")
-                        _LIVE.update(ctx=ctx, page=page)
-                        _loop_comandos(ctx, page); return
-                    # tenta o botão certificado na página de login do e-CAC/gov.br
-                    got = _passo_captcha(page)
-                    if got:
-                        _estado["ultima_msg"] = "✅ certificado aceito no e-CAC — aguardando 2FA/redirect."
-                except Exception as _ex:
-                    _estado["ultima_msg"] = f"fallback e-CAC: {_ex}"
-                if not got:
-                    _estado["ultima_msg"] = "captcha não passou (DET e e-CAC) — noVNC 2FA ou reiniciar."
+                _estado["ultima_msg"] = "captcha não passou após 6 tentativas — pode tentar você mesmo no noVNC ou reiniciar."
             # aguarda até 12 min o humano concluir o 2FA
             dl = time.time() + 900
             dentro = False
@@ -281,184 +252,6 @@ def _fluxo_login():
         _estado["ultima_msg"] = f"erro: {e}"
     finally:
         _estado["login_em_andamento"] = False
-
-
-# ═══════════════════════ e-CAC (Receita/PGFN) via certificado A1 ═══════════════
-BACKEND = os.environ.get("ROBO_BACKEND", "http://conecta-pro-backend:8080")
-ECAC_HOME = "https://cav.receita.fazenda.gov.br/ecac/"
-ECAC_STATE = "/state/ecac"
-
-
-def _shot(page, nome):
-    try:
-        os.makedirs(ECAC_STATE, exist_ok=True)
-        page.screenshot(path=f"{ECAC_STATE}/{nome}.png", full_page=True)
-    except Exception:
-        pass
-
-
-def _dump_links(page, limite=120):
-    try:
-        return page.evaluate(
-            """(lim)=>Array.from(document.querySelectorAll('a,button,[role=menuitem]'))
-              .map(e=>({t:(e.innerText||e.getAttribute('title')||'').trim().slice(0,60),
-                        h:(e.getAttribute('href')||'').slice(0,120)}))
-              .filter(x=>x.t).slice(0,lim)""",
-            limite,
-        )
-    except Exception:
-        return []
-
-
-def _st(msg):
-    _estado["ultima_msg"] = f"[e-CAC] {msg}"
-
-
-def _safe_text(page, n=8000):
-    try:
-        return page.locator("body").inner_text()[:n]
-    except Exception:
-        return ""
-
-
-def _ecac_coletar(page):
-    """Exploração + coleta e-CAC com instrumentação por passo (bounded, best-effort)."""
-    res = {"ok": False, "etapas": [], "url": "", "links": [], "texto_home": "",
-           "situacao_fiscal_texto": "", "links_pos": [], "shots": []}
-
-    def etapa(msg):
-        res["etapas"].append(msg)
-        _st(msg)
-
-    def _logado_ecac():
-        # logado = está no e-CAC e NÃO na página de login (form) nem no SSO gov.br.
-        # O callback /autenticacao/login/govbrsso é transitório; o destino final é /ecac/…
-        u = page.url.lower()
-        return ("cav.receita.fazenda.gov.br" in u
-                and "/autenticacao/login" not in u
-                and "sso.acesso.gov.br" not in u)
-
-    try:
-        etapa("goto home")
-        try:
-            page.goto(ECAC_HOME, wait_until="domcontentloaded", timeout=35000)
-        except Exception as e:
-            etapa(f"goto home falhou: {str(e)[:60]}")
-        page.wait_for_timeout(3000)
-        res["url"] = page.url
-        etapa(f"url pós-home: {page.url[:70]}")
-        _shot(page, "01_home")
-        res["shots"].append("01_home.png")
-
-        # ══ LOGIN e-CAC por CERTIFICADO A1 — loop resiliente (2 hops com captcha flaky) ══
-        SITEKEY_ECAC = "903db64c-2422-4230-a22e-5645634d893f"
-
-        def _ecac_hcaptcha_submit():
-            info = page.evaluate(
-                "()=>{const o=(window.__hcap&&window.__hcap.opts)||{}; let s=o.sitekey;"
-                "if(!s){let e=document.querySelector('[data-sitekey]'); if(e)s=e.getAttribute('data-sitekey');}"
-                "return {sitekey:s||'" + SITEKEY_ECAC + "', rqdata:o.rqdata||null};}"
-            )
-            tok = _solve_hcaptcha(info["sitekey"], page.url, info.get("rqdata"))
-            page.evaluate(
-                """(tok)=>{ if(window.__hcap) window.__hcap.injected=tok;
-                  document.querySelectorAll('textarea[name=\\"h-captcha-response\\"],#GoogleCaptchaTokenLoginGovBR,input[name*=\\"aptcha\\"]').forEach(e=>{e.value=tok;});
-                  try{(window.__hcap.cbs||[]).forEach(cb=>{try{cb(tok);}catch(e){}});}catch(e){}
-                  const f=document.querySelector('form[action*=\\"IndexGovBr\\"]'); if(f) f.submit(); }""",
-                tok,
-            )
-            page.wait_for_timeout(6000)
-
-        def _govbr_cert():
-            # A OPÇÃO CERTA é "Seu certificado digital" (mTLS, SEM captcha). O hCaptcha da
-            # página é do login por CPF — resolvê-lo dava "Captcha inválido (ERL0033800)".
-            clicado = False
-            for getter in (
-                lambda: page.get_by_text("Seu certificado digital", exact=True),
-                lambda: page.get_by_role("link", name="Seu certificado digital", exact=True),
-                lambda: page.locator("#login-certificate"),
-                lambda: page.locator("a:has-text('certificado digital'):not(:has-text('nuvem'))"),
-            ):
-                try:
-                    el = getter()
-                    if el.count():
-                        el.first.click(timeout=6000)
-                        clicado = True
-                        etapa("clicou 'Seu certificado digital'")
-                        break
-                except Exception:
-                    continue
-            if not clicado:
-                etapa("link certificado não encontrado no gov.br")
-            page.wait_for_timeout(5000)
-            # o cert presenta em certificado.sso (client_certificates) → redirect ao e-CAC
-            dl = time.time() + 55
-            while time.time() < dl and not _logado_ecac():
-                time.sleep(3)
-
-        for rodada in range(6):
-            if _logado_ecac():
-                break
-            u = page.url.lower()
-            etapa("login rodada " + str(rodada + 1) + ": " + page.url[:55])
-            if "cav.receita.fazenda.gov.br/autenticacao" in u:
-                etapa("hop A: hCaptcha e-CAC + submit")
-                try: _ecac_hcaptcha_submit()
-                except Exception as e: etapa("hopA erro: " + str(e)[:40])
-            u = page.url.lower()
-            if "sso.acesso.gov.br" in u and not _logado_ecac():
-                etapa("hop B: certificado A1 gov.br")
-                try: _govbr_cert()
-                except Exception as e: etapa("hopB erro: " + str(e)[:40])
-                _shot(page, "03_postcert_" + str(rodada + 1))
-                etapa("pós-cert r" + str(rodada + 1) + ": " + page.url[:60])
-            if _logado_ecac():
-                etapa("✅ e-CAC autenticado por certificado A1")
-                break
-            u = page.url.lower()
-            if "cav.receita" not in u and "sso.acesso" not in u:
-                try:
-                    page.goto(ECAC_HOME, wait_until="domcontentloaded", timeout=30000)
-                    page.wait_for_timeout(2500)
-                except Exception:
-                    pass
-        res["url"] = page.url
-        _shot(page, "01b_poslogin")
-        res["shots"].append("01b_poslogin.png")
-
-        dentro = _logado_ecac()
-        etapa(f"dentro do e-CAC: {dentro}")
-        res["texto_home"] = _safe_text(page, 3500)
-        res["links"] = _dump_links(page)
-        if not dentro:
-            return res
-
-        # procura Situação Fiscal / Pendências no menu
-        clicou = None
-        for termo in ("Situação Fiscal", "Situacao Fiscal", "Consulta Pendências",
-                      "Consulta Pendencias", "Certidões e Situação", "Certidoes",
-                      "Diagnóstico Fiscal", "Regularidade Fiscal"):
-            try:
-                el = page.get_by_text(termo, exact=False)
-                if el.count():
-                    etapa(f"clicando '{termo}'")
-                    el.first.click(timeout=6000)
-                    page.wait_for_timeout(4500)
-                    clicou = termo
-                    break
-            except Exception:
-                continue
-        etapa(f"clique situação fiscal: {clicou or 'link não encontrado'}")
-        _shot(page, "02_sitfis")
-        res["shots"].append("02_sitfis.png")
-        res["url"] = page.url
-        res["links_pos"] = _dump_links(page)
-        res["situacao_fiscal_texto"] = _safe_text(page, 8000)
-        res["ok"] = True
-        etapa("coleta concluída")
-    except Exception as e:
-        etapa(f"erro geral: {str(e)[:80]}")
-    return res
 
 
 def _push_backend(res):
@@ -520,10 +313,6 @@ def _loop_comandos(ctx, page):
         if cmd == "coletar":
             try: _RES["coletar"] = _ler_caixa(page)
             except Exception as e: _RES["coletar"] = {"ok": False, "msg": f"erro: {e}"}
-            _RES_EVT.set()
-        elif cmd == "ecac_coletar":
-            try: _RES["ecac"] = _ecac_coletar(page)
-            except Exception as e: _RES["ecac"] = {"ok": False, "msg": f"erro: {e}"}
             _RES_EVT.set()
         elif cmd == "debug_detalhe":
             try: _RES["debug"] = _debug_detalhe(page)
@@ -592,17 +381,6 @@ def coletar():
     if _RES_EVT.wait(timeout=120):
         return _RES.get("coletar", {"ok": False, "msg": "sem resultado"})
     return {"ok": False, "msg": "timeout na leitura"}
-
-
-@app.post("/ecac/coletar")
-def ecac_coletar():
-    if _LIVE.get("page") is None or not _estado.get("logado"):
-        return {"ok": False, "msg": "sem sessao viva - faca o login (/login/iniciar)"}
-    _RES_EVT.clear(); _RES.pop("ecac", None)
-    _CMD.put("ecac_coletar")
-    if _RES_EVT.wait(timeout=200):
-        return _RES.get("ecac", {"ok": False, "msg": "sem resultado"})
-    return {"ok": False, "msg": "timeout na coleta e-CAC"}
 
 
 @app.post("/debug/detalhe")
