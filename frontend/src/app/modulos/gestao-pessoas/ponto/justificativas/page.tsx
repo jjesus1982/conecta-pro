@@ -50,7 +50,8 @@ export default function JustificativasPage() {
   const { data: employees } = useQuery<Employee[]>({
     queryKey: ['ponto', 'employees-list'],
     queryFn: async () => {
-      const res = await customInstance({ url: '/api/v1/people-management/hr/employees', params: { page_size: 100 }  // endpoint aceita <=100 (422 com 200) }) as unknown as { items?: Employee[] } | Employee[];
+      // page_size máx do endpoint é 100 (200 dava 422 e a tela ficava vazia)
+      const res = await customInstance({ url: '/api/v1/people-management/hr/employees', params: { page_size: 100 } }) as unknown as { items?: Employee[] } | Employee[];
       return Array.isArray(res) ? res : res?.items ?? [];
     },
     staleTime: 60000,
