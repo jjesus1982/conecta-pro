@@ -346,10 +346,10 @@ class TimeRecordService:
         Verifica se ja existe entrada aberta no dia. Calcula geofence (haversine)
         contra as coordenadas reais do posto e salva a selfie anti-fraude.
         """
-        # Servidor roda em America/Manaus; gp_clock_punches guarda wall-clock LOCAL
-        # (batidas Tangerino/manuais estao em hora local). utcnow() carimbaria +4h.
-        now = datetime.now()
-        today = now.date()
+        # CONVENÇÃO CANÔNICA: punch_timestamp em UTC (leitores convertem p/ Manaus).
+        # 'today' segue LOCAL (decide o dia da batida do ponto de vista do funcionário).
+        now = datetime.utcnow()
+        today = datetime.now().date()
         punch_id = str(uuid4())
 
         # Verificar se ja existe entrada sem saida hoje
@@ -495,8 +495,8 @@ class TimeRecordService:
                 "ajuste pela origem ou use lancamento manual."
             )
 
-        # Wall-clock LOCAL (America/Manaus), consistente com as demais batidas.
-        now = datetime.now()
+        # CONVENÇÃO CANÔNICA: punch_timestamp em UTC (leitores convertem p/ Manaus).
+        now = datetime.utcnow()
         punch_id = str(uuid4())
 
         # Geofence da SAIDA (mesmo posto da entrada) + selfie anti-fraude.
@@ -616,6 +616,8 @@ class TimeRecordService:
                 if isinstance(ts, datetime)
                 else datetime.combine(record_date, ts.time() if isinstance(ts, datetime) else ts)
             )
+            # operador informa hora LOCAL Manaus → coluna canônica UTC (+4h, sem DST)
+            ts_dt = ts_dt + timedelta(hours=4)
 
             await self.db.execute(
                 text("""

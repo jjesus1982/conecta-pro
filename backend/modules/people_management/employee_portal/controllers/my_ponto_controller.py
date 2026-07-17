@@ -34,7 +34,7 @@ async def get_ponto_historico(
 
     registros = []
     try:
-        from sqlalchemy import extract, select
+        from sqlalchemy import func, extract, select
 
         # [Ponto loop] modelo real e ClockPunchModel (tabela gp_clock_punches); coluna e punch_timestamp
         from modules.people_management.ponto.models.clock_punch import ClockPunchModel as ClockPunch
@@ -43,8 +43,9 @@ async def get_ponto_historico(
             select(ClockPunch)
             .where(
                 ClockPunch.employee_id == employee_id,
-                extract("month", ClockPunch.punch_timestamp) == target_mes,
-                extract("year", ClockPunch.punch_timestamp) == target_ano,
+                # coluna canônica UTC → filtra pelo mês/ano LOCAL Manaus
+                extract("month", func.timezone("America/Manaus", func.timezone("UTC", ClockPunch.punch_timestamp))) == target_mes,
+                extract("year", func.timezone("America/Manaus", func.timezone("UTC", ClockPunch.punch_timestamp))) == target_ano,
             )
             .order_by(ClockPunch.punch_timestamp.desc())
         )

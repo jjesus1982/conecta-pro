@@ -700,10 +700,10 @@ async def _estado_ponto_hoje(db: AsyncSession, employee_id: str) -> dict[str, An
     rows = (
         await db.execute(
             _sqltext(
-                "SELECT punch_id, punch_type, punch_timestamp, dentro_geofence, "
+                "SELECT punch_id, punch_type, (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') AS punch_timestamp, dentro_geofence, "
                 "distancia_posto_metros, foto_capturada_url, posto_nome "
                 "FROM gp_clock_punches "
-                "WHERE employee_id::text = :e AND punch_timestamp::date = :today "
+                "WHERE employee_id::text = :e AND (punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus')::date = :today "
                 "ORDER BY punch_timestamp"
             ),
             {"e": employee_id, "today": _date.today()},
