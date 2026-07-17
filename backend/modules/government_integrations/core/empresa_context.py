@@ -76,31 +76,48 @@ def _so_digitos(v: str | None) -> str:
     return re.sub(r"\D", "", v or "")
 
 
-@lru_cache(maxsize=1)
-def get_empresa_fiscal() -> EmpresaFiscal:
+@lru_cache(maxsize=8)
+def get_empresa_fiscal(slug: str | None = None) -> EmpresaFiscal:
     """
-    Retorna a identificação fiscal da empresa PRINCIPAL (Lucro Real) lida da
-    tabela `empresas`. Resultado cacheado. Nunca lança: em erro, usa o fallback
-    honesto (empresa principal em Manaus/AM).
+    Identificação fiscal POR EMPRESA (Multi-CNPJ E5).
+
+    - `slug=None` (default, compatível com todos os consumidores atuais):
+      empresa PRINCIPAL (Lucro Real) — comportamento idêntico ao histórico,
+      com fallback honesto (CNPJ1 Manaus/AM) se o banco não responder.
+    - `slug='conecta_patrimonial'` (ou outro): identificação daquela empresa.
+      NUNCA usa fallback de outra empresa — em erro, lança LookupError
+      (princípio: espelhar, não assumir; jamais fabricar identidade fiscal).
     """
     dados = dict(_FALLBACK)
+    encontrou = False
     url = _db_url()
     if url:
         try:
             conn = psycopg2.connect(url)
             try:
                 with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        SELECT razao_social, cnpj, inscricao_estadual,
-                               inscricao_municipal, codigo_municipio_ibge
-                        FROM empresas
-                        WHERE status = 'ativa'
-                        ORDER BY (regime_tributario = 'lucro_real') DESC,
-                                 is_principal DESC
-                        LIMIT 1
-                        """
-                    )
+                    if slug:
+                        cur.execute(
+                            """
+                            SELECT razao_social, cnpj, inscricao_estadual,
+                                   inscricao_municipal, codigo_municipio_ibge
+                            FROM empresas
+                            WHERE status = 'ativa' AND slug = %s
+                            """,
+                            (slug,),
+                        )
+                    else:
+                        cur.execute(
+                            """
+                            SELECT razao_social, cnpj, inscricao_estadual,
+                                   inscricao_municipal, codigo_municipio_ibge
+                            FROM empresas
+                            WHERE status = 'ativa'
+                            ORDER BY (regime_tributario = 'lucro_real') DESC,
+                                     is_principal DESC
+                            LIMIT 1
+                            """
+                        )
                     row = cur.fetchone()
             finally:
                 conn.close()
@@ -116,8 +133,17 @@ def get_empresa_fiscal() -> EmpresaFiscal:
                     "uf": _UF_POR_IBGE.get(cod_mun[:2], _FALLBACK["uf"]),
                     "codigo_municipio": cod_mun,
                 }
+                encontrou = True
         except Exception as e:  # noqa: BLE001
+            if slug:
+                raise LookupError(
+                    f"EmpresaContext: falha ao ler empresa '{slug}' ({e}); "
+                    "sem fallback para empresa não-principal"
+                ) from e
             logger.warning("EmpresaContext: falha ao ler tabela empresas (%s); usando fallback Manaus/AM", e)
+
+    if slug and not encontrou:
+        raise LookupError(f"EmpresaContext: empresa ativa '{slug}' não encontrada")
 
     return EmpresaFiscal(
         cnpj=dados["cnpj"],
