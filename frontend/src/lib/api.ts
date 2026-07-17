@@ -11,6 +11,19 @@ const getBaseURL = (): string => {
   return 'https://erp.conectamais.pro';
 };
 
+// Páginas PRÉ-LOGIN (públicas): um 401 de chamada de fundo aqui (ex.: token velho no
+// storage) NÃO pode redirecionar o usuário pro /login — a página é usada sem sessão.
+// Ex.: /homologacao (autocadastro) travava quem tinha sessão antiga de admin no celular.
+const PRE_LOGIN_PATHS = [
+  '/login', '/homologacao', '/cadastro', '/forgot-password',
+  '/reset-password', '/portal-funcionario', '/area-cliente', '/offline',
+];
+function emPaginaPreLogin(): boolean {
+  if (typeof window === 'undefined') return false;
+  const p = window.location.pathname;
+  return PRE_LOGIN_PATHS.some((r) => p === r || p.startsWith(r + '/'));
+}
+
 // Instância Axios configurada
 export const api: AxiosInstance = axios.create({
   baseURL: getBaseURL(),
@@ -58,8 +71,13 @@ api.interceptors.response.use(
     if ((error.response?.status === 401 || error.response?.status === 403) && !originalRequest._retry) {
       originalRequest._retry = true;
 
-      // Não redirecionar se já está na página de login ou se não há token (usuário não logado)
-      if (typeof window !== 'undefined' && window.location.pathname === '/login') {
+      // Nunca redirecionar a partir de páginas pré-login (login/homologação/cadastro…):
+      // limpa tokens velhos e deixa a página pública funcionar sem bounce pro /login.
+      if (emPaginaPreLogin()) {
+        try {
+          localStorage.removeItem('access_token');
+          localStorage.removeItem('refresh_token');
+        } catch { /* storage indisponível */ }
         return Promise.reject(error);
       }
 
