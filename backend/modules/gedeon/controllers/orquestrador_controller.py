@@ -313,6 +313,7 @@ def conferir_kit_endpoint(
 
 
 _ATLAS_LOTE_CACHE: dict = {}  # comp -> (ts, resultado)
+_ATLAS_LOTE_LOCKS: dict = {}  # comp -> Lock (single-flight do lote)
 
 
 @router.get("/conferir-lote", summary="ATLAS — selo de conferência de TODOS os condomínios (dashboard)")
@@ -333,16 +334,24 @@ def conferir_lote_endpoint(
     cached = _ATLAS_LOTE_CACHE.get(comp)
     if cached and not refresh and (time.time() - cached[0]) < _ATLAS_TTL:
         return {**cached[1], "_cache": True}
-    selos: dict = {}
-    for cond in condominios_do_workspace():
-        try:
-            r = conferir_kit(comp, cond)
-            selos[cond] = {"selo": r["selo"], "resumo": r["resumo"]}
-        except Exception as exc:  # um condomínio com erro não derruba o lote
-            selos[cond] = {"selo": "indisponivel", "erro": str(exc)}
-    out = {"competencia": comp, "selos": selos}
-    _ATLAS_LOTE_CACHE[comp] = (time.time(), out)
-    return out
+    # single-flight por competência (mesmo padrão do /completude): sob navegação
+    # concorrente fria, o CIC observou 1×503 transitório aqui — concorrentes agora
+    # esperam o lote em voo e reusam.
+    lk = _ATLAS_LOTE_LOCKS.setdefault(comp, threading.Lock())
+    with lk:
+        cached = _ATLAS_LOTE_CACHE.get(comp)
+        if cached and not refresh and (time.time() - cached[0]) < _ATLAS_TTL:
+            return {**cached[1], "_cache": True}
+        selos: dict = {}
+        for cond in condominios_do_workspace():
+            try:
+                r = conferir_kit(comp, cond)
+                selos[cond] = {"selo": r["selo"], "resumo": r["resumo"]}
+            except Exception as exc:  # um condomínio com erro não derruba o lote
+                selos[cond] = {"selo": "indisponivel", "erro": str(exc)}
+        out = {"competencia": comp, "selos": selos}
+        _ATLAS_LOTE_CACHE[comp] = (time.time(), out)
+        return out
 
 
 class FaturarKitRequest(BaseModel):
