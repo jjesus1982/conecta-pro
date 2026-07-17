@@ -110,7 +110,10 @@ class PunchService:
             posto_id = geofence.get("posto_id") or posto_id
             posto_nome = geofence.get("posto_nome")
 
-            if not dentro_geofence:
+            # Só marca fora_local quando o geofence confirmou que está FORA (False).
+            # dentro=None = posto sem coordenadas/geofence → não há o que validar,
+            # registra normal (ex.: Conecta Base, postos sem geofence configurado).
+            if dentro_geofence is False:
                 status = "fora_local"
 
         # Anti-fraude facial: match NEGATIVO (selfie de outra pessoa) marca a batida p/

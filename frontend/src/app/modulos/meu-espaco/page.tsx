@@ -866,7 +866,10 @@ interface PontoHojeBatida {
   dentro_geofence?: boolean | null;
 }
 interface PontoHoje {
-  proxima_batida?: 'entrada' | 'saida' | string | null;
+  proxima_batida?: 'entrada' | 'saida' | 'saida_almoco' | 'retorno_almoco' | 'concluido' | string | null;
+  proxima_label?: string | null;
+  num_batidas_dia?: number | null;
+  jornada_concluida?: boolean | null;
   batidas?: PontoHojeBatida[];
   horas_trabalhadas?: string | number | null;
   posto?: string | null;
@@ -1036,9 +1039,16 @@ function PontoTab() {
   useEffect(() => { carregarHoje(); }, [carregarHoje]);
   useEffect(() => { carregarMes(); }, [carregarMes]);
 
-  // Tipo da próxima batida: usa ponto-hoje; default entrada.
-  const proximoTipo: 'entrada' | 'saida' =
-    hoje?.proxima_batida === 'saida' ? 'saida' : 'entrada';
+  // Próxima batida: o backend decide o tipo real (2 ou 4 batidas/dia conforme a
+  // intrajornada do posto). proximoTipo = tipo exato; proximoLabel = texto do botão.
+  const proximoTipo: string = hoje?.proxima_batida || 'entrada';
+  const jornadaConcluida = Boolean(hoje?.jornada_concluida) || proximoTipo === 'concluido';
+  const proximoLabel: string =
+    hoje?.proxima_label ||
+    (proximoTipo === 'saida' ? 'Saída'
+      : proximoTipo === 'saida_almoco' ? 'Saída para o almoço'
+      : proximoTipo === 'retorno_almoco' ? 'Volta do almoço'
+      : 'Entrada');
 
   // Passo 1: pedir GPS e abrir a câmera para o reconhecimento facial.
   const iniciarBatida = async () => {
@@ -1139,6 +1149,15 @@ function PontoTab() {
               <Camera className="w-4 h-4" /> Cadastrar meu rosto
             </button>
           </div>
+        ) : jornadaConcluida ? (
+          <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] p-3 text-center">
+            <p className="text-sm font-medium text-emerald-600 flex items-center justify-center gap-2">
+              <CheckCircle2 className="w-4 h-4" /> Jornada de hoje concluída
+            </p>
+            <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
+              Você já registrou todas as batidas do dia ({hoje?.num_batidas_dia ?? 0}).
+            </p>
+          </div>
         ) : (
           <>
             <button
@@ -1161,7 +1180,7 @@ function PontoTab() {
               ) : (
                 <>
                   <Fingerprint className="w-5 h-5" />
-                  {proximoTipo === 'saida' ? 'BATER SAÍDA' : 'BATER ENTRADA'}
+                  BATER {proximoLabel.toUpperCase()}
                 </>
               )}
             </button>
@@ -1195,6 +1214,8 @@ function PontoTab() {
               employeeDescriptor={fase === 'facial' ? (faceRef ?? undefined) : undefined}
               onCapture={fase === 'enroll' ? onEnrollCapture : onFacialCapture}
               onError={(m) => { setBaterErro(m); setFase('idle'); setGeo(null); }}
+              threshold={0.68}
+              maxAttempts={14}
             />
           </div>
         </div>

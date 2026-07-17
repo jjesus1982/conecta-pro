@@ -59,7 +59,7 @@ class AutocadastroBody(BaseModel):
     token: str
     nome: str = Field(..., min_length=3)
     email: str
-    senha: str = Field(..., min_length=6)
+    senha: str | None = None  # ignorada — a senha é o CPF (dígitos)
     cpf: str
     data_nascimento: str
     telefone: str
@@ -173,18 +173,27 @@ def autocadastro(body: AutocadastroBody, db: Session = Depends(get_sync_db_depen
         },
     ).scalar()
 
-    # 2) login vinculado
-    db.execute(
+    # 2) login vinculado — SENHA = CPF (dígitos), decisão do Jordan (ninguém esquece).
+    import re as _re
+
+    from core.auth.jwt import create_access_token
+
+    cpf_digits = _re.sub(r"\D", "", body.cpf or "")
+    user_id = db.execute(
         text(
             "INSERT INTO users (id, email, password_hash, name, role, is_active, employee_id, created_at) "
-            "VALUES (gen_random_uuid(), :email, :ph, :name, 'funcionario', true, :eid, now())"
+            "VALUES (gen_random_uuid(), :email, :ph, :name, 'funcionario', true, :eid, now()) "
+            "RETURNING id::text"
         ),
-        {"email": email, "ph": hash_password(body.senha), "name": body.nome.strip(), "eid": employee_id},
-    )
+        {"email": email, "ph": hash_password(cpf_digits), "name": body.nome.strip(), "eid": employee_id},
+    ).scalar()
 
     # 3) turnos dos próximos dias
     turnos = _gerar_turnos(db, employee_id, posto_id, esc)
     db.commit()
+
+    # auto-login: token p/ o frontend cadastrar o rosto NA MESMA TELA (sem passar por login)
+    token = create_access_token(subject=str(user_id))
 
     return {
         "success": True,
@@ -196,8 +205,10 @@ def autocadastro(body: AutocadastroBody, db: Session = Depends(get_sync_db_depen
         "horario": f'{esc["inicio"]}–{esc["fim"]}',
         "posto": posto_nome,
         "login_email": email,
+        "senha_dica": "sua senha é o seu CPF (só números)",
+        "access_token": token,
         "turnos_gerados": turnos,
-        "proximo_passo": "Faça login no Meu Espaço, cadastre seu rosto (obrigatório) e bata o ponto.",
+        "proximo_passo": "Cadastre seu rosto agora e comece a bater o ponto.",
         "message": "Cadastro de homologação criado. Bem-vindo(a) à Conecta Base!",
     }
 

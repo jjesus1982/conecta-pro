@@ -841,9 +841,9 @@ async def ponto_hoje(
             "posto_nome": b["posto_nome"],
         }
 
-    proxima_acao = "saida" if estado["entrada_aberta"] else "entrada"
-    if entrada and saida and not estado["entrada_aberta"]:
-        proxima_acao = "concluido"
+    # Próxima batida considerando a intrajornada do posto (2 ou 4 batidas/dia).
+    prox = await _proxima_batida_info(db, emp)
+    proxima_acao = prox["tipo"]
 
     # Lista de batidas do dia (para a tela "Hoje" do Meu Espaço).
     batidas_lista = [
@@ -869,6 +869,9 @@ async def ponto_hoje(
         "proxima_acao": proxima_acao,
         # aliases de compatibilidade com o Meu Espaço (lê proxima_batida / batidas[])
         "proxima_batida": proxima_acao,
+        "proxima_label": prox["label"],
+        "num_batidas_dia": prox["num_batidas"],
+        "jornada_concluida": prox["concluido"],
         "batidas": batidas_lista,
         "total_batidas": len(estado["batidas"]),
     }
@@ -1159,6 +1162,57 @@ class _FacialBatidaBody(BaseModel):
 
 
 _PUNCH_SEQ = ["entrada", "saida_almoco", "retorno_almoco", "saida"]
+_PUNCH_SEQ_2 = ["entrada", "saida"]
+_PUNCH_LABEL = {
+    "entrada": "Entrada",
+    "saida_almoco": "Saída para o almoço",
+    "retorno_almoco": "Volta do almoço",
+    "saida": "Saída",
+    "concluido": "Jornada concluída",
+}
+
+
+async def _proxima_batida_info(db: AsyncSession, emp: str) -> dict:
+    """Próxima batida do funcionário HOJE, considerando a INTRAJORNADA do posto.
+
+    Nº de batidas: 44h (escala) → sempre 4 (entrada/saída-almoço/volta/saída);
+    12x36 → 2 (entrada/saída) OU 4, conforme `posts.tem_intervalo_almoco` do posto
+    onde ele trabalha. Ex.: Villa Dei Fiore=2, Ideal Flores=4 (decisão do Jordan).
+    """
+    row = (
+        await db.execute(
+            _sqltext(
+                "SELECT lower(coalesce(e.escala_padrao,'')), "
+                "       coalesce(p.tem_intervalo_almoco, false) "
+                "FROM employees e LEFT JOIN posts p ON p.id = e.posto_atual_id "
+                "WHERE e.id::text = :e"
+            ),
+            {"e": emp},
+        )
+    ).first()
+    escala = (row[0] if row else "") or ""
+    tem_intervalo = bool(row[1]) if row else False
+    quatro = ("44" in escala) or tem_intervalo
+    seq = _PUNCH_SEQ if quatro else _PUNCH_SEQ_2
+
+    feitas = (
+        await db.execute(
+            _sqltext(
+                "SELECT count(*) FROM gp_clock_punches WHERE employee_id::text = :e "
+                "AND (punch_timestamp)::date = (now() AT TIME ZONE 'America/Manaus')::date"
+            ),
+            {"e": emp},
+        )
+    ).scalar() or 0
+    concluido = feitas >= len(seq)
+    tipo = "concluido" if concluido else seq[feitas]
+    return {
+        "tipo": tipo,
+        "label": _PUNCH_LABEL.get(tipo, tipo),
+        "concluido": concluido,
+        "num_batidas": len(seq),
+        "feitas": int(feitas),
+    }
 
 
 @router.post("/facial/cadastrar", status_code=201)
@@ -1236,20 +1290,15 @@ async def facial_batida(
             detail="Rosto não reconhecido. A batida só é confirmada com reconhecimento facial.",
         )
 
-    # próximo tipo (entrada/almoço/retorno/saída) pelas batidas de hoje (fuso Manaus)
-    if body.punch_type:
-        tipo = body.punch_type
-    else:
-        cnt = (
-            await db.execute(
-                _sqltext(
-                    "SELECT count(*) FROM gp_clock_punches WHERE employee_id = :e "
-                    "AND (punch_timestamp)::date = (now() AT TIME ZONE 'America/Manaus')::date"
-                ),
-                {"e": emp},
-            )
-        ).scalar() or 0
-        tipo = _PUNCH_SEQ[cnt] if cnt < len(_PUNCH_SEQ) else "saida"
+    # Tipo é AUTORIDADE do backend (intrajornada do posto → 2 ou 4 batidas/dia).
+    # Não confia no punch_type do device p/ o rótulo — evita saída rotulada errado.
+    prox = await _proxima_batida_info(db, emp)
+    if prox["concluido"]:
+        raise HTTPException(
+            status_code=http_status.HTTP_409_CONFLICT,
+            detail="Jornada de hoje já concluída — todas as batidas do dia foram registradas.",
+        )
+    tipo = prox["tipo"]
 
     location = None
     if body.location is not None:

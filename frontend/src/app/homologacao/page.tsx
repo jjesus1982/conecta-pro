@@ -1,25 +1,26 @@
 'use client';
 
 /**
- * Autocadastro de HOMOLOGAÇÃO (base de teste, posto "Conecta Base").
- * Link tokenizado: /homologacao?token=... — coleta dados com rigor eSocial, cria o
- * funcionário de teste + login + escala, e manda pro Meu Espaço (cadastro facial + ponto).
- * Público (pré-login). Isolado da folha/eSocial reais (is_homologacao).
+ * Autocadastro de HOMOLOGAÇÃO (base de teste, posto "Conecta Base"), em UMA jornada:
+ *   1) dados (rigor eSocial)  →  2) cadastro do ROSTO na mesma tela  →  3) pronto.
+ * Sem senha (a senha é o CPF) e sem passar por login: o autocadastro já devolve um
+ * token (auto-login) que é usado pra cadastrar o rosto. Isolado da folha real.
  */
 import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
+import { FacialCapture, type FacialCaptureResult } from '@/components/ponto/FacialCapture';
 import { Loader2, CheckCircle2, ShieldCheck, Camera } from 'lucide-react';
 
 const API = '/api/v1/people-management/portal/homologacao/autocadastro';
+const FACIAL = '/api/v1/people-management/portal/self-service/facial/cadastrar';
 
 type Campo = { key: string; label: string; type?: string; placeholder?: string; obrig?: boolean; full?: boolean };
 
 const CAMPOS: Campo[] = [
   { key: 'nome', label: 'Nome completo', obrig: true, full: true },
   { key: 'email', label: 'E-mail (será seu login)', type: 'email', obrig: true, full: true },
-  { key: 'senha', label: 'Senha (mín. 6)', type: 'password', obrig: true },
-  { key: 'cpf', label: 'CPF', obrig: true },
+  { key: 'cpf', label: 'CPF (será sua senha)', obrig: true },
   { key: 'data_nascimento', label: 'Nascimento', type: 'date', obrig: true },
   { key: 'telefone', label: 'Telefone/WhatsApp', obrig: true },
   { key: 'rg', label: 'RG', obrig: true },
@@ -38,60 +39,96 @@ const CAMPOS: Campo[] = [
 
 interface Resultado {
   matricula: string; cargo: string; escala: string; turno: string;
-  horario: string; posto: string; login_email: string; proximo_passo: string;
+  horario: string; posto: string; login_email: string; access_token: string;
 }
 
-function Form() {
+function Fluxo() {
   const params = useSearchParams();
   const token = params.get('token') || '';
+  const [step, setStep] = useState<'form' | 'facial' | 'done'>('form');
   const [form, setForm] = useState<Record<string, string>>({});
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState('');
-  const [ok, setOk] = useState<Resultado | null>(null);
+  const [res, setRes] = useState<Resultado | null>(null);
 
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
-  const submit = async () => {
+  const enviarDados = async () => {
     setErro('');
     const faltando = CAMPOS.filter((c) => c.obrig && !(form[c.key] || '').trim());
     if (faltando.length) { setErro(`Preencha: ${faltando.map((c) => c.label).join(', ')}`); return; }
     if (!token) { setErro('Link inválido (sem token). Peça o link correto.'); return; }
     setEnviando(true);
     try {
-      const res = await api.post(API, { token, ...form });
-      setOk(res.data as Resultado);
+      const r = await api.post(API, { token, ...form });
+      const data = r.data as Resultado;
+      // auto-login: guarda o token pra cadastrar o rosto na mesma tela, sem passar por login
+      if (typeof window !== 'undefined' && data.access_token) {
+        localStorage.setItem('access_token', data.access_token);
+      }
+      setRes(data);
+      setStep('facial');
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setErro(typeof msg === 'string' ? msg : 'Não foi possível cadastrar. Verifique os dados e tente de novo.');
+      setErro(typeof msg === 'string' ? msg : 'Não foi possível cadastrar. Verifique os dados.');
     } finally {
       setEnviando(false);
     }
   };
 
-  if (ok) {
+  const cadastrarRosto = async (r: FacialCaptureResult) => {
+    if (!r.descriptor?.length) { setErro('Não consegui ler seu rosto. Tente em local iluminado.'); return; }
+    setEnviando(true); setErro('');
+    try {
+      await api.post(FACIAL, { descriptor: r.descriptor });
+      setStep('done');
+    } catch {
+      setErro('Falha ao salvar o rosto. Toque em tentar de novo.');
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  // ---- Passo 3: concluído ----
+  if (step === 'done' && res) {
     return (
       <div className="max-w-md mx-auto p-6 text-center">
         <CheckCircle2 className="w-16 h-16 text-emerald-500 mx-auto mb-4" />
-        <h1 className="text-xl font-bold mb-1">Cadastro de homologação criado!</h1>
-        <p className="text-sm text-gray-500 mb-4">Bem-vindo(a) à Conecta Base.</p>
+        <h1 className="text-xl font-bold mb-1">Tudo pronto, {res.login_email.split('@')[0]}!</h1>
+        <p className="text-sm text-gray-500 mb-4">Cadastro e rosto concluídos. Você já pode bater o ponto.</p>
         <div className="rounded-xl border border-gray-200 dark:border-gray-700 p-4 text-left text-sm space-y-1 mb-4">
-          <p><b>Matrícula:</b> {ok.matricula}</p>
-          <p><b>Função:</b> {ok.cargo}</p>
-          <p><b>Escala:</b> {ok.escala} — {ok.turno} ({ok.horario})</p>
-          <p><b>Posto:</b> {ok.posto}</p>
-          <p><b>Login:</b> {ok.login_email}</p>
+          <p><b>Matrícula:</b> {res.matricula}</p>
+          <p><b>Função:</b> {res.cargo}</p>
+          <p><b>Escala:</b> {res.escala} — {res.turno} ({res.horario})</p>
+          <p><b>Login:</b> {res.login_email}</p>
+          <p><b>Senha:</b> seu CPF (só números)</p>
         </div>
-        <div className="rounded-xl bg-[#f97707]/10 border border-[#f97707]/25 p-3 text-sm text-left mb-4 flex gap-2">
-          <Camera className="w-5 h-5 text-[#f97707] flex-shrink-0" />
-          <span>Próximo passo: entre no <b>Meu Espaço</b>, <b>cadastre seu rosto</b> (obrigatório) e bata o ponto.</span>
-        </div>
-        <a href="/login" className="block w-full rounded-xl py-3 font-semibold text-white bg-[#f97707] hover:bg-[#e06a00]">
-          Ir para o login
+        <a href="/modulos/meu-espaco" className="block w-full rounded-xl py-3 font-semibold text-white bg-[#f97707] hover:bg-[#e06a00]">
+          Ir bater o ponto
         </a>
       </div>
     );
   }
 
+  // ---- Passo 2: cadastro do rosto (mesma tela, logo após os dados) ----
+  if (step === 'facial') {
+    return (
+      <div className="max-w-md mx-auto p-5 text-center">
+        <div className="flex items-center justify-center gap-2 mb-1">
+          <Camera className="w-6 h-6 text-[#f97707]" />
+          <h1 className="text-xl font-bold">Cadastre seu rosto</h1>
+        </div>
+        <p className="text-sm text-gray-500 mb-5">
+          Centralize o rosto no círculo — a captura é automática. É com ele que você bate o ponto.
+        </p>
+        {erro && <div className="mb-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm p-3">{erro}</div>}
+        <FacialCapture onCapture={cadastrarRosto} onError={(m) => setErro(m)} />
+        {enviando && <p className="mt-3 text-sm text-gray-500 flex items-center justify-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Salvando rosto…</p>}
+      </div>
+    );
+  }
+
+  // ---- Passo 1: dados (rigor eSocial) ----
   return (
     <div className="max-w-md mx-auto p-5">
       <div className="flex items-center gap-2 mb-1">
@@ -99,8 +136,8 @@ function Form() {
         <h1 className="text-xl font-bold">Cadastro — Homologação</h1>
       </div>
       <p className="text-sm text-gray-500 mb-5">
-        Preencha com <b>os mesmos dados que o eSocial exige</b> (é assim na produção real).
-        Sua função e escala são atribuídas automaticamente.
+        Preencha com <b>os mesmos dados que o eSocial exige</b>. Sua <b>senha é o seu CPF</b>.
+        Depois você cadastra o rosto e já bate o ponto.
       </p>
 
       {erro && <div className="mb-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm p-3">{erro}</div>}
@@ -123,11 +160,11 @@ function Form() {
       </div>
 
       <button
-        onClick={submit}
+        onClick={enviarDados}
         disabled={enviando}
         className="mt-5 w-full rounded-xl py-3 font-semibold text-white bg-[#f97707] hover:bg-[#e06a00] disabled:bg-[#f97707]/60 flex items-center justify-center gap-2"
       >
-        {enviando ? <><Loader2 className="w-5 h-5 animate-spin" /> Enviando…</> : 'Criar meu cadastro de teste'}
+        {enviando ? <><Loader2 className="w-5 h-5 animate-spin" /> Enviando…</> : 'Continuar para o rosto'}
       </button>
     </div>
   );
@@ -137,7 +174,7 @@ export default function HomologacaoPage() {
   return (
     <main className="min-h-screen py-6">
       <Suspense fallback={<div className="p-8 text-center text-gray-400">Carregando…</div>}>
-        <Form />
+        <Fluxo />
       </Suspense>
     </main>
   );
