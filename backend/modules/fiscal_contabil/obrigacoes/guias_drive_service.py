@@ -39,6 +39,10 @@ logger = logging.getLogger(__name__)
 # Pasta raiz onde o Jordan despeja o pacote mensal (Documentos Temporários)
 GUIAS_DRIVE_ROOT = os.environ.get("FISCAL_GUIAS_DRIVE_FOLDER", "1YmspqFF9wOol9Uz087xtxv0n3TvnqVlf")
 GUIAS_STORAGE = os.environ.get("FISCAL_GUIAS_STORAGE", "/app/uploads/fiscal_guias")
+# Pasta das guias de PARCELAMENTO (DARF Dívida Ativa PGFN/SISPAR + comprovantes)
+PARCELAMENTOS_DRIVE_FOLDER = os.environ.get(
+    "FISCAL_PARCELAMENTOS_DRIVE_FOLDER", "1wrgjMheUh0uC_LM9yPGb48iQ_TVmvYn7"
+)
 
 MESES_PT = {
     "janeiro": 1, "fevereiro": 2, "marco": 3, "março": 3, "abril": 4,
@@ -174,6 +178,18 @@ def parse_pdf_guia(caminho: str, nome_arquivo: str) -> GuiaParseada:
             detalhe={"transmissao": transm, "recibos_vinculados": {v: k for k, v in recibos_aux.items()}},
         )
 
+    # ── Parcelamento PGFN — DARF de Dívida Ativa do Simples Nacional (SISPAR) ──
+    # Cada PDF é UMA parcela mensal do acordo; agrupamos por SISPAR em fiscal_parcelamentos.
+    m_sispar = re.search(r"SISPAR:?\s*(\d+)", texto)
+    if m_sispar and "DIVIDA ATIVA" in _sem_acento(texto).upper():
+        valor = _dec((re.search(r"Valor Total do Documento\s*\n?\s*" + _VAL, texto) or [None, None])[1])
+        venc = _data_br((re.search(r"Pagar este documento at[eé]\s*\n?\s*(\d{2}/\d{2}/\d{4})", texto) or [None, None])[1])
+        num = (re.search(r"(\d{2}\.\d{2}\.\d{5}\.\d{7}-\d)", texto) or [None, None])[1]
+        return GuiaParseada(
+            tipo="PARCELAMENTO_PGFN", competencia_mes=mes, competencia_ano=ano, valor=valor,
+            vencimento=venc, numero_documento=num, detalhe={"sispar": m_sispar.group(1)},
+        )
+
     # ── DAS (Simples) / ISS Manaus — padrões p/ quando aparecerem no pacote ──
     if re.search(r"\bDAS\b", texto) and "Simples Nacional" in texto:
         valor = _dec((re.search(r"Valor Total(?: do Documento)?\s*\n?\s*" + _VAL, texto) or [None, None])[1])
@@ -269,6 +285,65 @@ def _upsert_obrigacao(db, g: GuiaParseada, meta: dict[str, Any]) -> str:
     return "criada"
 
 
+def _upsert_parcelamento(db, g: GuiaParseada, meta: dict[str, Any]) -> str:
+    """Upsert em fiscal_parcelamentos agrupando por SISPAR. Cada DARF é uma parcela;
+    rastreamos as competências conhecidas (crescem mês a mês). O TOTAL do acordo não
+    consta no DARF → num_parcelas/valor_total refletem o CONHECIDO (honesto)."""
+    sispar = (g.detalhe or {}).get("sispar")
+    if not (sispar and g.valor):
+        return "sem_sispar"
+    numero_acordo = f"SISPAR {sispar}"
+    comp = f"{g.competencia_mes:02d}/{g.competencia_ano}" if g.competencia_mes and g.competencia_ano else None
+
+    row = db.execute(
+        _sql("SELECT id, observacao, parcelas_pagas FROM fiscal_parcelamentos WHERE numero_acordo=:n LIMIT 1"),
+        {"n": numero_acordo},
+    ).first()
+
+    # competências conhecidas ficam num JSON dentro de observacao (idempotente por competência)
+    conhecidas: set[str] = set()
+    pagas = 0
+    if row:
+        pagas = row[2] or 0
+        try:
+            meta_obs = json.loads(row[1]) if row[1] and row[1].strip().startswith("{") else {}
+            conhecidas = set(meta_obs.get("competencias_conhecidas", []))
+        except Exception:  # noqa: BLE001
+            conhecidas = set()
+    if comp:
+        conhecidas.add(comp)
+    n = len(conhecidas) or 1
+    valor_total = round(g.valor * n, 2)
+    obs = json.dumps({
+        "nota": "Parcelamento Dívida Ativa Simples Nacional (PGFN). num_parcelas/valor_total = "
+                "parcelas CONHECIDAS pelo puxador; total do acordo a confirmar no e-CAC/SISPAR.",
+        "sispar": sispar,
+        "parcela_valor": g.valor,
+        "competencias_conhecidas": sorted(conhecidas),
+        "ultimo_arquivo": meta.get("nome"),
+        "sync_em": datetime.utcnow().isoformat(),
+    }, ensure_ascii=False)
+
+    if row:
+        db.execute(
+            _sql("UPDATE fiscal_parcelamentos SET parcela_valor=:pv, num_parcelas=:np, valor_total=:vt, "
+                 "dia_vencimento=COALESCE(:dv, dia_vencimento), status='ativo', observacao=:obs, "
+                 "fonte='drive_pgfn', updated_at=now() WHERE id=:id"),
+            {"pv": g.valor, "np": n, "vt": valor_total,
+             "dv": g.vencimento.day if g.vencimento else None, "obs": obs, "id": row[0]},
+        )
+        return "atualizado"
+    db.execute(
+        _sql("INSERT INTO fiscal_parcelamentos (orgao,numero_acordo,descricao,valor_total,num_parcelas,"
+             "parcela_valor,dia_vencimento,competencia_inicio,parcelas_pagas,status,observacao,fonte,created_by,created_at,updated_at) "
+             "VALUES ('PGFN',:na,:desc,:vt,:np,:pv,:dv,:ci,0,'ativo',:obs,'drive_pgfn','drive_puxador',now(),now())"),
+        {"na": numero_acordo, "desc": "Parcelamento Dívida Ativa — Simples Nacional (PGFN) — total do acordo a confirmar",
+         "vt": valor_total, "np": n, "pv": g.valor,
+         "dv": g.vencimento.day if g.vencimento else None, "ci": comp, "obs": obs},
+    )
+    return "criado"
+
+
 def _marcar_acessorias_cumpridas(db, g: GuiaParseada, meta: dict[str, Any]) -> list[str]:
     """DCTFWeb transmitida (recibo real) = acessórias da competência CUMPRIDAS."""
     if not (g.competencia_mes and g.competencia_ano and g.numero_recibo):
@@ -312,6 +387,7 @@ def sync_guias_drive(forcar: bool = False) -> dict[str, Any]:
     rel: dict[str, Any] = {
         "ok": True, "pastas": [], "baixados": 0, "guias": [], "anexos": [],
         "acessorias_cumpridas": [], "nao_classificados": [], "ja_processados": 0,
+        "parcelamentos": [],
     }
     db = _db_sync()
     try:
@@ -322,9 +398,17 @@ def sync_guias_drive(forcar: bool = False) -> dict[str, Any]:
         for p in pastas:
             rel["pastas"].append(p["name"])
             alvos += [(p["name"], f) for f in svc.listar_arquivos(p["id"]) if f.get("mimeType") == "application/pdf"]
+        # pasta dedicada de PARCELAMENTOS (DARF Dívida Ativa PGFN)
+        if PARCELAMENTOS_DRIVE_FOLDER:
+            alvos += [("parcelamentos", f) for f in svc.listar_arquivos(PARCELAMENTOS_DRIVE_FOLDER)
+                      if f.get("mimeType") == "application/pdf"]
 
+        _vistos: set[str] = set()
         for pasta, f in alvos:
             fid, nome = f["id"], f["name"]
+            if fid in _vistos:   # dedupe: mesmo arquivo listado em 2 pastas
+                continue
+            _vistos.add(fid)
             if not forcar and _ja_processado(db, fid):
                 rel["ja_processados"] += 1
                 continue
@@ -339,7 +423,14 @@ def sync_guias_drive(forcar: bool = False) -> dict[str, Any]:
                 rel.setdefault("erros_parse", []).append(f"{nome}: {exc}")
                 continue
             meta = {"file_id": fid, "nome": nome, "pasta": pasta}
-            if g.tipo in NOMES:
+            if g.tipo == "PARCELAMENTO_PGFN":
+                acao = _upsert_parcelamento(db, g, meta)
+                rel["parcelamentos"].append({
+                    "arquivo": nome, "sispar": (g.detalhe or {}).get("sispar"),
+                    "competencia": f"{g.competencia_mes:02d}/{g.competencia_ano}" if g.competencia_mes else None,
+                    "parcela": g.valor, "acao": acao,
+                })
+            elif g.tipo in NOMES:
                 acao = _upsert_obrigacao(db, g, meta)
                 rel["guias"].append({
                     "arquivo": nome, "tipo": g.tipo, "competencia": f"{g.competencia_mes:02d}/{g.competencia_ano}" if g.competencia_mes else None,
