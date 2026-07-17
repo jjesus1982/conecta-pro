@@ -13,6 +13,7 @@ from core.auth.dependencies import get_current_user
 from modules.fiscal.publishers import publish_nfs_emitida
 from modules.fiscal.services.nfse_multi_empresa_service import (
     EMPRESAS_CONFIG,
+    refresh_empresas_config,
     DadosNFSeMultiEmpresa,
     NfseMultiEmpresaService,
 )
@@ -134,6 +135,7 @@ async def identificar_empresa_nfse(
 ) -> dict[str, Any]:
     """Identifica qual empresa deve emitir NFS-e para o tipo de serviço."""
     empresa = _service.identificar_empresa(tipo_servico)
+    refresh_empresas_config()
     empresa_cfg = EMPRESAS_CONFIG.get(empresa, {})
     return {
         "tipo_servico": tipo_servico,
@@ -171,6 +173,7 @@ async def listar_empresas_nfse(
     current_user=Depends(get_current_user),
 ) -> dict[str, Any]:
     """Lista todas as empresas configuradas e seus status de emissão."""
+    refresh_empresas_config()
     empresas_list = []
     for slug, cfg in EMPRESAS_CONFIG.items():
         empresas_list.append(

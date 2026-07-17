@@ -42,7 +42,9 @@ SERVICOS_ELETRONICOS = [
     "seguranca_eletronica",
 ]
 
-# Dados fixos das empresas (até ter integração completa com DB)
+# Fallback estático usado APENAS se o banco não responder (dados mínimos e
+# HONESTOS — liminares nunca são assumidas aqui; a fonte é a tabela liminares
+# com status concedido). Fonte da verdade em runtime: tabela `empresas`.
 EMPRESAS_CONFIG: dict[str, dict[str, Any]] = {
     "conecta_eletronica": {
         "cnpj": "35710481000103",
@@ -57,16 +59,89 @@ EMPRESAS_CONFIG: dict[str, dict[str, Any]] = {
         "liminares": [],
     },
     "conecta_patrimonial": {
-        "cnpj": None,  # Em abertura
-        "razao_social": "Conecta Mais Patrimonial Ltda",
-        "inscricao_municipal": None,
+        "cnpj": "66014833000110",
+        "razao_social": "CONECTAMAIS PATRIMONIAL LTDA",
+        "inscricao_municipal": "721042001",
         "codigo_municipio": "1302603",
         "regime": "simples_nacional",
-        "certificado_path": None,  # A obter após abertura
+        "certificado_path": "/app/credentials/certificates/patrimonial.pfx",
         "ambiente": "homologacao",
-        "liminares": ["pis_cofins_zero", "inss_nao_retido"],  # A solicitar
+        "liminares": [],  # NUNCA assumir liminar não concedida (notas reais têm INSS retido)
     },
 }
+
+_REFRESH_TTL_S = 60.0
+_ultimo_refresh: list[float] = [0.0]
+
+
+def refresh_empresas_config(force: bool = False) -> None:
+    """Recarrega EMPRESAS_CONFIG da tabela `empresas` (+ liminares CONCEDIDAS).
+
+    Mutação in-place (o dict é importado por referência pelo controller).
+    Falha de banco => mantém o conteúdo atual (fallback honesto).
+    """
+    import os
+    import re
+    import time
+
+    if not force and (time.monotonic() - _ultimo_refresh[0]) < _REFRESH_TTL_S:
+        return
+    url = re.sub(r"\+asyncpg|\+psycopg2?", "", os.getenv("DATABASE_URL", ""))
+    if not url:
+        return
+    try:
+        import psycopg2
+
+        conn = psycopg2.connect(url)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT e.slug, e.cnpj, e.razao_social, e.inscricao_municipal,
+                           e.inscricao_suframa, e.codigo_municipio_ibge,
+                           e.regime_tributario, e.certificado_a1_path,
+                           e.certificado_a1_senha, e.nfse_ambiente,
+                           COALESCE(ARRAY_AGG(l.tipo) FILTER (
+                               WHERE l.data_concessao IS NOT NULL
+                                 AND LOWER(COALESCE(l.status::text,'')) NOT IN
+                                     ('a_solicitar','indeferida','cassada','expirada','suspensa')
+                           ), '{}') AS liminares_concedidas
+                    FROM empresas e
+                    LEFT JOIN liminares l ON l.empresa_id = e.id
+                    WHERE e.status = 'ativa'
+                    GROUP BY e.id
+                    """
+                )
+                for row in cur.fetchall():
+                    (slug, cnpj, razao, im, suframa, cod_mun, regime,
+                     cert_path, cert_senha, ambiente, liminares) = row
+                    cfg = EMPRESAS_CONFIG.setdefault(slug, {})
+                    cfg.update(
+                        {
+                            "cnpj": re.sub(r"\D", "", cnpj or "") or None,
+                            "razao_social": (razao or "").strip() or cfg.get("razao_social"),
+                            "inscricao_municipal": re.sub(r"\D", "", im or "") or None,
+                            "suframa": re.sub(r"\D", "", suframa or "") or None,
+                            "codigo_municipio": (cod_mun or "1302603").strip(),
+                            "regime": (str(regime) or "").replace("RegimeTributarioEnum.", "").lower()
+                            or cfg.get("regime"),
+                            "certificado_path": cert_path or cfg.get("certificado_path"),
+                            "certificado_senha": cert_senha or cfg.get("certificado_senha"),
+                            "ambiente": ambiente or cfg.get("ambiente", "homologacao"),
+                            "liminares": sorted(set(liminares or [])),
+                        }
+                    )
+        finally:
+            conn.close()
+        _ultimo_refresh[0] = time.monotonic()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("EMPRESAS_CONFIG: falha ao recarregar do banco (%s); mantendo atual", e)
+
+
+try:  # carga inicial no import (não derruba o app se o banco estiver fora)
+    refresh_empresas_config(force=True)
+except Exception:  # noqa: BLE001
+    pass
 
 
 @dataclass
