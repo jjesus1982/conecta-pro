@@ -52,6 +52,44 @@ function Fluxo() {
   const [res, setRes] = useState<Resultado | null>(null);
 
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const [cepLoading, setCepLoading] = useState(false);
+
+  // CEP → Brasil API (fallback ViaCEP): preenche endereço, sobra só número/complemento.
+  const buscarCep = async (cepRaw?: string) => {
+    const cep = (cepRaw || '').replace(/\D/g, '');
+    if (cep.length !== 8) return;
+    setCepLoading(true);
+    try {
+      let d: { logradouro?: string; bairro?: string; cidade?: string; uf?: string } | null = null;
+      try {
+        const r = await fetch(`https://brasilapi.com.br/api/cep/v1/${cep}`);
+        if (r.ok) {
+          const j = await r.json();
+          d = { logradouro: j.street, bairro: j.neighborhood, cidade: j.city, uf: j.state };
+        }
+      } catch { /* tenta viacep */ }
+      if (!d?.cidade) {
+        try {
+          const r2 = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+          if (r2.ok) {
+            const j = await r2.json();
+            if (!j.erro) d = { logradouro: j.logradouro, bairro: j.bairro, cidade: j.localidade, uf: j.uf };
+          }
+        } catch { /* silencioso */ }
+      }
+      if (d) {
+        setForm((f) => ({
+          ...f,
+          logradouro: d!.logradouro || f.logradouro,
+          bairro: d!.bairro || f.bairro,
+          cidade: d!.cidade || f.cidade,
+          uf: d!.uf || f.uf,
+        }));
+      }
+    } finally {
+      setCepLoading(false);
+    }
+  };
 
   const enviarDados = async () => {
     setErro('');
@@ -103,7 +141,7 @@ function Fluxo() {
           <p><b>Login:</b> {res.login_email}</p>
           <p><b>Senha:</b> seu CPF (só números)</p>
         </div>
-        <a href="/modulos/meu-espaco" className="block w-full rounded-xl py-3 font-semibold text-white bg-[#f97707] hover:bg-[#e06a00]">
+        <a href="/modulos/meu-espaco" className="block w-full rounded-xl py-3 font-semibold text-white bg-[#F97316] hover:bg-[#EA6A0A]">
           Ir bater o ponto
         </a>
       </div>
@@ -115,7 +153,7 @@ function Fluxo() {
     return (
       <div className="max-w-md mx-auto p-5 text-center">
         <div className="flex items-center justify-center gap-2 mb-1">
-          <Camera className="w-6 h-6 text-[#f97707]" />
+          <Camera className="w-6 h-6 text-[#F97316]" />
           <h1 className="text-xl font-bold">Cadastre seu rosto</h1>
         </div>
         <p className="text-sm text-gray-500 mb-5">
@@ -132,7 +170,7 @@ function Fluxo() {
   return (
     <div className="max-w-md mx-auto p-5">
       <div className="flex items-center gap-2 mb-1">
-        <ShieldCheck className="w-6 h-6 text-[#f97707]" />
+        <ShieldCheck className="w-6 h-6 text-[#F97316]" />
         <h1 className="text-xl font-bold">Cadastro — Homologação</h1>
       </div>
       <p className="text-sm text-gray-500 mb-5">
@@ -147,13 +185,18 @@ function Fluxo() {
           <div key={c.key} className={c.full ? 'col-span-2' : 'col-span-1'}>
             <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">
               {c.label}{c.obrig && <span className="text-red-500"> *</span>}
+              {c.key === 'cep' && cepLoading && <span className="ml-1 text-[#F97316]">buscando…</span>}
             </label>
             <input
               type={c.type || 'text'}
               value={form[c.key] || ''}
               placeholder={c.placeholder}
-              onChange={(e) => set(c.key, e.target.value)}
-              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-transparent px-3 py-2 text-sm focus:border-[#f97707] focus:outline-none"
+              onChange={(e) => {
+                set(c.key, e.target.value);
+                if (c.key === 'cep' && e.target.value.replace(/\D/g, '').length === 8) buscarCep(e.target.value);
+              }}
+              onBlur={c.key === 'cep' ? () => buscarCep(form.cep) : undefined}
+              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-transparent px-3 py-2 text-sm focus:border-[#F97316] focus:outline-none"
             />
           </div>
         ))}
@@ -162,7 +205,7 @@ function Fluxo() {
       <button
         onClick={enviarDados}
         disabled={enviando}
-        className="mt-5 w-full rounded-xl py-3 font-semibold text-white bg-[#f97707] hover:bg-[#e06a00] disabled:bg-[#f97707]/60 flex items-center justify-center gap-2"
+        className="mt-5 w-full rounded-xl py-3 font-semibold text-white bg-[#F97316] hover:bg-[#EA6A0A] disabled:bg-[#F97316]/60 flex items-center justify-center gap-2"
       >
         {enviando ? <><Loader2 className="w-5 h-5 animate-spin" /> Enviando…</> : 'Continuar para o rosto'}
       </button>

@@ -193,9 +193,20 @@ def meu_espelho_pdf(
     emp = _employee_id(current_user)
     esp = ler_espelho(db_sync, emp, mes, ano)
     if not esp:
+        # Ainda não calculado pelo DP → calcula SOB DEMANDA a partir das batidas do mês,
+        # p/ o funcionário sempre poder ver/baixar o dele (não depende do fechamento).
+        try:
+            from modules.people_management.hr.services.espelho_service import calcular_espelho
+
+            calcular_espelho(db_sync, emp, mes, ano)
+            db_sync.commit()
+            esp = ler_espelho(db_sync, emp, mes, ano)
+        except Exception:  # noqa: BLE001
+            esp = None
+    if not esp:
         raise HTTPException(
             status_code=http_status.HTTP_404_NOT_FOUND,
-            detail=f"Seu espelho de ponto de {int(mes):02d}/{ano} ainda não está disponível.",
+            detail=f"Sem batidas de ponto em {int(mes):02d}/{ano} para gerar o espelho.",
         )
     signatarios = None
     try:

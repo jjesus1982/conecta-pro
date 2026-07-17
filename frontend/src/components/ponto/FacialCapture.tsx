@@ -178,7 +178,7 @@ export function FacialCapture({
           <button
             onClick={begin}
             disabled={!isReady}
-            className="px-8 py-3 rounded-xl bg-[#f97707] text-white font-semibold hover:bg-[#e06a00] disabled:opacity-50 flex items-center gap-2"
+            className="px-8 py-3 rounded-xl bg-[#F97316] text-white font-semibold hover:bg-[#EA6A0A] disabled:opacity-50 flex items-center gap-2"
           >
             <Camera className="w-5 h-5" /> Iniciar
           </button>
@@ -189,7 +189,7 @@ export function FacialCapture({
           </p>
         )}
         {(status === 'failed' || status === 'error') && (
-          <button onClick={begin} className="px-8 py-3 rounded-xl bg-[#f97707] text-white font-semibold hover:bg-[#e06a00]">
+          <button onClick={begin} className="px-8 py-3 rounded-xl bg-[#F97316] text-white font-semibold hover:bg-[#EA6A0A]">
             Tentar de novo
           </button>
         )}

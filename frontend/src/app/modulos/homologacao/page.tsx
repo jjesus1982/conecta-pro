@@ -32,13 +32,13 @@ export default function PainelHomologacao() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-[#f97707]" /></div>;
+  if (loading) return <div className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-[#F97316]" /></div>;
   if (erro) return <div className="p-6 text-red-600">{erro}</div>;
 
   return (
     <div className="p-4 max-w-4xl mx-auto">
       <div className="flex items-center gap-2 mb-1">
-        <Users className="w-6 h-6 text-[#f97707]" />
+        <Users className="w-6 h-6 text-[#F97316]" />
         <h1 className="text-xl font-bold">Homologação — Conecta Base</h1>
       </div>
       <p className="text-sm text-gray-500 mb-4">

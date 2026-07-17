@@ -25,7 +25,7 @@ import {
   GraduationCap, User as UserIcon, FolderOpen, Download, Award,
   CalendarClock, Bell, MapPin, Camera, Fingerprint, X,
   Receipt, Wallet, Paperclip, Send,
-  ChevronDown, ChevronRight, History,
+  ChevronDown, ChevronRight, ChevronLeft, History,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
@@ -109,7 +109,7 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
 export default function MeuEspacoPage() {
   const router = useRouter();
   const { user, isLoading, isAuthenticated, logout } = useAuth();
-  const [tab, setTab] = useState<Tab>('assinar');
+  const [tab, setTab] = useState<Tab | null>(null);  // null = home (grid de cards)
   const [onbStatus, setOnbStatus] = useState<OnboardingStatus | null>(null);
   const [onbLoading, setOnbLoading] = useState(true);
   const [completarAberto, setCompletarAberto] = useState(false);  // modo transição: abre o form sob demanda
@@ -170,13 +170,15 @@ export default function MeuEspacoPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[hsl(var(--background))]">
+    <div className="light min-h-screen bg-[hsl(var(--background))]">
+      {/* Faixa laranja da marca (padrão-ouro Conecta Mais) */}
+      <div className="h-1 bg-[#F97316]" />
       {/* Header */}
       <header className="h-14 flex items-center justify-between px-4 lg:px-6 bg-[hsl(var(--card))] border-b border-[hsl(var(--border))]">
         <div className="flex items-center gap-2.5">
           <Image src="/images/logo-icon.png" alt="Conecta PRO" width={26} height={26} />
           <span className="font-display text-sm font-semibold tracking-tight">
-            Meu&nbsp;<span style={{ color: '#f97707' }}>Espaço</span>
+            Meu&nbsp;<span style={{ color: '#F97316' }}>Espaço</span>
           </span>
         </div>
         <div className="flex items-center gap-3">
@@ -192,13 +194,13 @@ export default function MeuEspacoPage() {
       <div className="max-w-3xl mx-auto p-4 lg:p-6">
         {/* Modo transição: cadastro pendente NÃO bloqueia, mas lembra sempre. */}
         {onbStatus?.pendente && (
-          <div className="mb-5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-start gap-3">
-            <Clock className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+          <div className="mb-5 rounded-xl border border-amber-300 bg-amber-100 px-4 py-3 flex items-start gap-3">
+            <Clock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
             <div className="flex-1">
-              <p className="text-sm font-medium text-amber-700">
+              <p className="text-sm font-semibold text-amber-800">
                 Complete seu cadastro ({onbStatus.total_ok}/{onbStatus.total_obrigatorios} campos)
               </p>
-              <p className="text-xs text-amber-600/90 mt-0.5">
+              <p className="text-xs text-amber-700 mt-0.5">
                 Você já pode bater ponto normalmente. Falta preencher {onbStatus.campos_faltantes.length} dado(s)
                 obrigatório(s) do eSocial — leva 2 minutos.
               </p>
@@ -219,40 +221,53 @@ export default function MeuEspacoPage() {
           </p>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 overflow-x-auto mb-5 border-b border-[hsl(var(--border))]">
-          {TABS.map((t) => {
-            const Icon = t.icon;
-            const active = tab === t.id;
-            return (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                className={[
-                  'flex items-center gap-2 px-3 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 -mb-px transition-colors',
-                  active
-                    ? 'border-[#f97707] text-[hsl(var(--foreground))]'
-                    : 'border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]',
-                ].join(' ')}
-              >
-                <Icon className="w-4 h-4" />
-                {t.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {tab === 'assinar' && <AssinarTab />}
-        {tab === 'comunicados' && <ComunicadosTab />}
-        {tab === 'escala' && <EscalaTab />}
-        {tab === 'holerite' && <HoleriteTab />}
-        {tab === 'documentos' && <DocumentosTab onIrAssinar={() => setTab('assinar')} />}
-        {tab === 'ferias' && <FeriasTab />}
-        {tab === 'ponto' && <PontoTab />}
-        {tab === 'beneficios' && <BeneficiosTab />}
-        {tab === 'reembolso' && <ReembolsoTab />}
-        {tab === 'treinamentos' && <TreinamentosTab />}
-        {tab === 'dados' && <DadosTab />}
+        {/* HOME: grid de cards (mais intuitivo). Ponto em destaque. */}
+        {tab === null ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {TABS.map((t) => {
+              const Icon = t.icon;
+              const isPonto = t.id === 'ponto';
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setTab(t.id)}
+                  className={[
+                    'flex flex-col items-center justify-center gap-2.5 rounded-2xl p-4 min-h-[108px] border text-center transition-colors',
+                    isPonto
+                      ? 'bg-[#F97316] border-[#F97316] text-white shadow-sm'
+                      : 'bg-[hsl(var(--card))] border-[hsl(var(--border))] text-[hsl(var(--foreground))] hover:border-[#2D5F8B]',
+                  ].join(' ')}
+                >
+                  <Icon className={isPonto ? 'w-7 h-7 text-white' : 'w-7 h-7 text-[#2D5F8B]'} />
+                  <span className="text-xs font-semibold leading-tight">{t.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div>
+            <button
+              onClick={() => setTab(null)}
+              className="mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-[#F97316]"
+            >
+              <ChevronLeft className="w-4 h-4" /> Voltar
+            </button>
+            <h2 className="font-display text-lg font-bold mb-4 text-[hsl(var(--foreground))]">
+              {TABS.find((t) => t.id === tab)?.label}
+            </h2>
+            {tab === 'assinar' && <AssinarTab />}
+            {tab === 'comunicados' && <ComunicadosTab />}
+            {tab === 'escala' && <EscalaTab />}
+            {tab === 'holerite' && <HoleriteTab />}
+            {tab === 'documentos' && <DocumentosTab onIrAssinar={() => setTab('assinar')} />}
+            {tab === 'ferias' && <FeriasTab />}
+            {tab === 'ponto' && <PontoTab />}
+            {tab === 'beneficios' && <BeneficiosTab />}
+            {tab === 'reembolso' && <ReembolsoTab />}
+            {tab === 'treinamentos' && <TreinamentosTab />}
+            {tab === 'dados' && <DadosTab />}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -324,7 +339,7 @@ function OnboardingGate({
   const inputCls = (c: string) =>
     [
       'w-full rounded-lg border bg-[hsl(var(--background))] px-3 py-2 text-sm outline-none',
-      fieldErr[c] ? 'border-red-500 focus:border-red-500' : 'border-[hsl(var(--border))] focus:border-[#f97707]',
+      fieldErr[c] ? 'border-red-500 focus:border-red-500' : 'border-[hsl(var(--border))] focus:border-[#F97316]',
     ].join(' ');
 
   const Field = ({ campo, label, children }: { campo: string; label: string; children: React.ReactNode }) => (
@@ -342,12 +357,12 @@ function OnboardingGate({
   const grupoDoc = ['nome_mae', 'naturalidade', 'nacionalidade', 'rg', 'estado_civil', 'pis'].filter((c) => faltantes.has(c));
 
   return (
-    <div className="min-h-screen bg-[hsl(var(--background))]">
+    <div className="light min-h-screen bg-[hsl(var(--background))]">
       <header className="h-14 flex items-center justify-between px-4 lg:px-6 bg-[hsl(var(--card))] border-b border-[hsl(var(--border))]">
         <div className="flex items-center gap-2.5">
           <Image src="/images/logo-icon.png" alt="Conecta PRO" width={26} height={26} />
           <span className="font-display text-sm font-semibold tracking-tight">
-            Meu&nbsp;<span style={{ color: '#f97707' }}>Espaço</span>
+            Meu&nbsp;<span style={{ color: '#F97316' }}>Espaço</span>
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -364,8 +379,8 @@ function OnboardingGate({
 
       <div className="max-w-2xl mx-auto p-4 lg:p-6">
         <div className="mb-5 flex items-start gap-3">
-          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#f97707]/10">
-            <ShieldCheck className="h-5 w-5 text-[#f97707]" />
+          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#F97316]/10">
+            <ShieldCheck className="h-5 w-5 text-[#F97316]" />
           </div>
           <div>
             <h1 className="font-display text-xl font-bold">
@@ -381,7 +396,7 @@ function OnboardingGate({
 
         <div className="mb-4 h-1.5 w-full rounded-full bg-[hsl(var(--muted))]/40">
           <div
-            className="h-1.5 rounded-full bg-[#f97707] transition-all"
+            className="h-1.5 rounded-full bg-[#F97316] transition-all"
             style={{ width: `${Math.round((status.total_ok / Math.max(status.total_obrigatorios, 1)) * 100)}%` }}
           />
         </div>
@@ -597,7 +612,7 @@ function AssinarTab() {
     >
       <div className="min-w-0">
         <div className="flex items-center gap-2 mb-1">
-          <FileSignature className={`w-4 h-4 flex-shrink-0 ${opcional ? 'text-[hsl(var(--muted-foreground))]' : 'text-[#f97707]'}`} />
+          <FileSignature className={`w-4 h-4 flex-shrink-0 ${opcional ? 'text-[hsl(var(--muted-foreground))]' : 'text-[#F97316]'}`} />
           <p className="font-medium text-sm text-[hsl(var(--foreground))] truncate">{d.title}</p>
         </div>
         <p className="text-xs text-[hsl(var(--muted-foreground))]">
@@ -635,10 +650,10 @@ function AssinarTab() {
       <section className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-[hsl(var(--foreground))]">
-            <FileSignature className="w-4 h-4 text-[#f97707]" />
+            <FileSignature className="w-4 h-4 text-[#F97316]" />
             A assinar
             {aAssinar.length > 0 && (
-              <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-[#f97707] text-white text-[11px] font-semibold">
+              <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-[#F97316] text-white text-[11px] font-semibold">
                 {aAssinar.length}
               </span>
             )}
@@ -1086,10 +1101,10 @@ function PontoTab() {
   return (
     <div className="space-y-4">
       {/* ---- BATER PONTO (celular-first) ---- */}
-      <div className="rounded-2xl border border-[#f97707]/25 bg-[#f97707]/[0.06] p-4">
+      <div className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <Fingerprint className="w-5 h-5 text-[#f97707]" />
+            <Fingerprint className="w-5 h-5 text-[#F97316]" />
             <span className="font-display text-sm font-semibold">Bater ponto</span>
           </div>
           {postoHoje && (
@@ -1101,8 +1116,8 @@ function PontoTab() {
 
         {/* Resultado da última batida */}
         {resultado?.ok && (
-          <div className="mb-3 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] p-3">
-            <p className="text-sm font-medium text-emerald-600 flex items-center gap-2">
+          <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+            <p className="text-sm font-medium text-emerald-700 flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4" />
               {(resultado.tipo === 'saida' ? 'Saída' : 'Entrada')} registrada
               {resultado.hora ? ` às ${String(resultado.hora).slice(0, 5)}` : ''}
@@ -1118,7 +1133,7 @@ function PontoTab() {
                   <AlertTriangle className="w-3 h-3" /> Localização do posto não configurada — registrado mesmo assim.
                 </p>
               ) : resultado.dentro_geofence === true ? (
-                <p className="text-emerald-600 flex items-center gap-1">
+                <p className="text-emerald-700 flex items-center gap-1">
                   <CheckCircle2 className="w-3 h-3" /> Dentro do posto
                 </p>
               ) : resultado.dentro_geofence === false ? (
@@ -1134,7 +1149,7 @@ function PontoTab() {
 
         {/* Cadastro obrigatório do rosto antes de liberar a batida */}
         {faceEnrolled === false ? (
-          <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.07] p-3">
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
             <p className="text-sm font-medium text-amber-700 flex items-center gap-2">
               <AlertTriangle className="w-4 h-4" /> Cadastre seu reconhecimento facial
             </p>
@@ -1144,14 +1159,14 @@ function PontoTab() {
             <button
               onClick={() => { setBaterErro(''); setResultado(null); setFase('enroll'); }}
               disabled={bloqueado}
-              className="mt-3 w-full rounded-xl py-3 text-sm font-semibold text-white bg-[#f97707] hover:bg-[#e06a00] active:bg-[#c85f00] disabled:bg-[#f97707]/60 flex items-center justify-center gap-2"
+              className="mt-3 w-full rounded-xl py-3 text-sm font-semibold text-white bg-[#F97316] hover:bg-[#EA6A0A] active:bg-[#C2570A] disabled:bg-orange-500 flex items-center justify-center gap-2"
             >
               <Camera className="w-4 h-4" /> Cadastrar meu rosto
             </button>
           </div>
         ) : jornadaConcluida ? (
-          <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] p-3 text-center">
-            <p className="text-sm font-medium text-emerald-600 flex items-center justify-center gap-2">
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-center">
+            <p className="text-sm font-medium text-emerald-700 flex items-center justify-center gap-2">
               <CheckCircle2 className="w-4 h-4" /> Jornada de hoje concluída
             </p>
             <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
@@ -1167,8 +1182,8 @@ function PontoTab() {
                 'w-full rounded-xl py-4 text-base font-semibold text-white transition-colors',
                 'flex items-center justify-center gap-2 shadow-sm',
                 bloqueado || hojeLoading || faceEnrolled === null
-                  ? 'bg-[#f97707]/60 cursor-not-allowed'
-                  : 'bg-[#f97707] hover:bg-[#e06a00] active:bg-[#c85f00]',
+                  ? 'bg-orange-500 cursor-not-allowed'
+                  : 'bg-[#F97316] hover:bg-[#EA6A0A] active:bg-[#C2570A]',
               ].join(' ')}
             >
               {fase === 'gps' ? (
@@ -1296,7 +1311,7 @@ function PontoTab() {
       {/* Baixar o espelho de ponto (mês) — PDF legal, disponível quando o mês foi calculado. */}
       <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
-          <FileText className="w-4 h-4 text-[#f97707] flex-shrink-0" />
+          <FileText className="w-4 h-4 text-[#F97316] flex-shrink-0" />
           <p className="text-xs text-[hsl(var(--muted-foreground))] truncate">
             Espelho de ponto de {String(mes).padStart(2, '0')}/{ano} (PDF legal — Portaria 671).
           </p>
@@ -1419,7 +1434,7 @@ function DefinirLocalizacaoPosto({
         Defina o raio (geofence) {postoNome ? `do posto ${postoNome}` : 'deste posto'} usando sua
         posição atual. Faça isso dentro do posto.
       </p>
-      {msg && <div className="mb-2 text-xs text-emerald-600 flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> {msg}</div>}
+      {msg && <div className="mb-2 text-xs text-emerald-700 flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> {msg}</div>}
       {erro && <div className="mb-2"><ErrorBox msg={erro} /></div>}
       <Button variant="outline" size="sm" disabled={salvando} onClick={definir}>
         {salvando ? <Loader2 className="w-4 h-4 animate-spin" /> : <><MapPin className="w-4 h-4 mr-1.5" /> Definir localização deste posto</>}
@@ -1475,7 +1490,7 @@ function BeneficiosTab() {
               <div key={i} className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium capitalize">{b.tipo || 'Benefício'}</span>
-                  <span className="text-[11px] px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-600 font-medium">
+                  <span className="text-[11px] px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 font-medium">
                     {b.status === 'active' ? 'Ativo' : (b.status || '')}
                   </span>
                 </div>
@@ -1566,7 +1581,7 @@ function DocumentosTab({ onIrAssinar }: { onIrAssinar: () => void }) {
             >
               <div className="min-w-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <FileText className="w-4 h-4 text-[#f97707] flex-shrink-0" />
+                  <FileText className="w-4 h-4 text-[#F97316] flex-shrink-0" />
                   <p className="font-medium text-sm truncate">
                     {d.document_name || String(d.document_type || 'Documento').replace(/_/g, ' ')}
                   </p>
@@ -1574,13 +1589,13 @@ function DocumentosTab({ onIrAssinar }: { onIrAssinar: () => void }) {
                 <div className="text-xs text-[hsl(var(--muted-foreground))] flex flex-wrap items-center gap-2">
                   <span className="capitalize">{String(d.document_type || '').replace(/_/g, ' ')}</span>
                   {d.signed ? (
-                    <span className="inline-flex items-center gap-1 text-emerald-600">
+                    <span className="inline-flex items-center gap-1 text-emerald-700">
                       <CheckCircle2 className="w-3 h-3" /> Assinado
                     </span>
                   ) : (
                     <button
                       onClick={onIrAssinar}
-                      className="inline-flex items-center gap-1 text-[#f97707] hover:underline"
+                      className="inline-flex items-center gap-1 text-[#F97316] hover:underline"
                     >
                       <FileSignature className="w-3 h-3" /> Assinatura pendente
                     </button>
@@ -1697,7 +1712,7 @@ function TreinamentosTab() {
               <div key={c.id || i} className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4 flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <Award className="w-4 h-4 text-[#f97707] flex-shrink-0" />
+                    <Award className="w-4 h-4 text-[#F97316] flex-shrink-0" />
                     <span className="text-sm font-medium truncate">{c.course_name || 'Certificado'}</span>
                   </div>
                   <p className="mt-0.5 text-xs text-[hsl(var(--muted-foreground))]">
@@ -1706,7 +1721,7 @@ function TreinamentosTab() {
                   </p>
                 </div>
                 {c.status && (
-                  <span className="text-[11px] px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-600 font-medium capitalize whitespace-nowrap">
+                  <span className="text-[11px] px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 font-medium capitalize whitespace-nowrap">
                     {c.status === 'valid' ? 'Válido' : c.status}
                   </span>
                 )}
@@ -1785,7 +1800,7 @@ function DadosTab() {
   if (error && !data) return <ErrorBox msg={error} />;
 
   const inputCls =
-    'w-full rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 py-2 text-sm outline-none focus:border-[#f97707]';
+    'w-full rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 py-2 text-sm outline-none focus:border-[#F97316]';
 
   return (
     <div className="space-y-5">
@@ -1894,7 +1909,7 @@ function DadosTab() {
 
       {error && <ErrorBox msg={error} />}
       {ok && (
-        <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3 text-sm text-emerald-600 flex items-center gap-2">
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-sm text-emerald-700 flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4" /> {ok}
         </div>
       )}
@@ -1992,8 +2007,8 @@ function EscalaTab() {
     <div className="space-y-4">
       {/* Próximo turno em destaque */}
       {prox && (
-        <div className="rounded-xl p-4 bg-[#f97707]/8 border border-[#f97707]/25">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-[#f97707] mb-1">
+        <div className="rounded-xl p-4 bg-orange-50 border border-orange-200">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-[#F97316] mb-1">
             Próximo turno
           </p>
           <p className="text-sm font-medium text-[hsl(var(--foreground))]">
@@ -2148,13 +2163,13 @@ function ComunicadosTab() {
             'rounded-xl p-4 border',
             n.lido
               ? 'bg-[hsl(var(--card))] border-[hsl(var(--border))]'
-              : 'bg-[#f97707]/6 border-[#f97707]/25',
+              : 'bg-orange-50 border-orange-200',
           ].join(' ')}
         >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2 mb-0.5">
-                {!n.lido && <span className="inline-block w-2 h-2 rounded-full bg-[#f97707]" />}
+                {!n.lido && <span className="inline-block w-2 h-2 rounded-full bg-[#F97316]" />}
                 <p className="font-medium text-sm text-[hsl(var(--foreground))]">
                   {n.titulo || 'Comunicado'}
                 </p>
@@ -2169,7 +2184,7 @@ function ComunicadosTab() {
             {!n.lido && (
               <button
                 onClick={() => marcarLida(n.id)}
-                className="text-xs text-[#f97707] font-medium whitespace-nowrap hover:underline"
+                className="text-xs text-[#F97316] font-medium whitespace-nowrap hover:underline"
               >
                 Marcar lida
               </button>
@@ -2217,9 +2232,9 @@ function reembStatus(s: string): { label: string; cls: string } {
     pendente: { label: 'Pendente', cls: 'bg-amber-500/15 text-amber-600' },
     em_analise: { label: 'Em análise', cls: 'bg-amber-500/15 text-amber-600' },
     aprovado: { label: 'Aprovado', cls: 'bg-blue-500/15 text-blue-600' },
-    processado: { label: 'Pago', cls: 'bg-emerald-500/15 text-emerald-600' },
-    pago: { label: 'Pago', cls: 'bg-emerald-500/15 text-emerald-600' },
-    rejeitado: { label: 'Rejeitado', cls: 'bg-red-500/15 text-red-600' },
+    processado: { label: 'Pago', cls: 'bg-emerald-100 text-emerald-700' },
+    pago: { label: 'Pago', cls: 'bg-emerald-100 text-emerald-700' },
+    rejeitado: { label: 'Rejeitado', cls: 'bg-red-500/15 text-red-700' },
     cancelado: { label: 'Cancelado', cls: 'bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]' },
   };
   return map[s] || { label: s || '—', cls: 'bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]' };
@@ -2318,7 +2333,7 @@ function ReembolsoTab() {
       {/* Formulário de solicitação */}
       <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl p-4">
         <div className="flex items-center gap-2 mb-1">
-          <Wallet className="w-4 h-4 text-[#f97707]" />
+          <Wallet className="w-4 h-4 text-[#F97316]" />
           <h2 className="font-display text-sm font-semibold">Solicitar reembolso</h2>
         </div>
         <p className="text-xs text-[hsl(var(--muted-foreground))] mb-4">
@@ -2379,7 +2394,7 @@ function ReembolsoTab() {
           {/* Comprovante (foto/PDF via câmera ou upload) */}
           <div>
             <label className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Comprovante (foto ou PDF)</label>
-            <label className="mt-1 flex items-center gap-2 h-11 rounded-xl border border-dashed border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 text-sm cursor-pointer hover:border-[#f97707] transition-colors">
+            <label className="mt-1 flex items-center gap-2 h-11 rounded-xl border border-dashed border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 text-sm cursor-pointer hover:border-[#F97316] transition-colors">
               {comprovante ? (
                 <>
                   <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
@@ -2396,7 +2411,7 @@ function ReembolsoTab() {
                 <>
                   <Paperclip className="w-4 h-4 text-[hsl(var(--muted-foreground))] flex-shrink-0" />
                   <span className="text-[hsl(var(--muted-foreground))]">Toque para tirar foto ou anexar o recibo</span>
-                  <Camera className="w-4 h-4 text-[#f97707] ml-auto flex-shrink-0" />
+                  <Camera className="w-4 h-4 text-[#F97316] ml-auto flex-shrink-0" />
                 </>
               )}
               <input
@@ -2411,7 +2426,7 @@ function ReembolsoTab() {
 
           {formErr && <ErrorBox msg={formErr} />}
           {okMsg && (
-            <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3 text-sm text-emerald-600 flex items-center gap-2">
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-sm text-emerald-700 flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> {okMsg}
             </div>
           )}
@@ -2484,7 +2499,7 @@ function Spinner() {
 
 function ErrorBox({ msg }: { msg: string }) {
   return (
-    <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-3 text-sm text-red-500 flex items-center gap-2">
+    <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-500 flex items-center gap-2">
       <AlertTriangle className="w-4 h-4 flex-shrink-0" /> {msg}
     </div>
   );
@@ -2505,7 +2520,7 @@ function EmptyState({ icon: Icon, title, desc }: { icon: React.ElementType; titl
 function Stat({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-3 text-center">
-      <p className={['text-2xl font-bold font-mono', highlight ? 'text-[#f97707]' : 'text-[hsl(var(--foreground))]'].join(' ')}>
+      <p className={['text-2xl font-bold font-mono', highlight ? 'text-[#F97316]' : 'text-[hsl(var(--foreground))]'].join(' ')}>
         {value}
       </p>
       <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">{label}</p>
