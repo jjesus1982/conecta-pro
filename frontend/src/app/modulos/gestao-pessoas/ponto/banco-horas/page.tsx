@@ -42,6 +42,7 @@ interface BancoHorasEntry {
 export default function BancoHorasPage() {
   const [busca, setBusca] = useState('');
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
+  const [selectedEmployeeName, setSelectedEmployeeName] = useState<string | null>(null);
 
   const { data: employees, isLoading: loadingEmployees } = useQuery<Employee[]>({
     queryKey: ['ponto', 'employees'],
@@ -72,20 +73,21 @@ export default function BancoHorasPage() {
       })
     : entries;
 
-  function formatMinutes(mins: number | undefined): string {
-    if (mins === undefined || mins === null) return '00:00';
-    const sign = mins >= 0 ? '+' : '-';
-    const abs = Math.abs(mins);
-    const h = Math.floor(abs / 60);
-    const m = abs % 60;
-    return `${sign}${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  function formatMinutes(horas: number | undefined): string {
+    // o backend manda HORAS (float) — exibe como ±HHhMM
+    if (horas === undefined || horas === null || isNaN(horas)) return '--';
+    const sign = horas >= 0 ? '+' : '-';
+    const abs = Math.abs(horas);
+    const h = Math.floor(abs);
+    const m = Math.round((abs - h) * 60);
+    return `${sign}${h}h${String(m).padStart(2, '0')}`;
   }
 
   const resumo = [
     { label: 'Total Creditos', value: bancoHoras?.creditos ?? (bancoHoras?.total_credito ? `${bancoHoras.total_credito}h` : '--'), icon: TrendingUp, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
     { label: 'Total Debitos', value: bancoHoras?.debitos ?? (bancoHoras?.total_debito ? `${bancoHoras.total_debito}h` : '--'), icon: TrendingDown, color: 'text-red-500', bg: 'bg-red-500/10' },
     { label: 'Saldo', value: bancoHoras?.saldo ?? (bancoHoras?.saldo_horas !== undefined ? formatMinutes(bancoHoras.saldo_horas) : '--'), icon: Hourglass, color: 'text-blue-500', bg: 'bg-blue-500/10' },
-    { label: 'Colaborador', value: bancoHoras?.employee_name ?? (selectedEmployeeId ? `#${selectedEmployeeId}` : '--'), icon: Minus, color: 'text-[hsl(var(--muted-foreground))]', bg: 'bg-[hsl(var(--secondary))]' },
+    { label: 'Colaborador', value: bancoHoras?.employee_name ?? selectedEmployeeName ?? (selectedEmployeeId ? `#${selectedEmployeeId.slice(0,8)}` : '--'), icon: Minus, color: 'text-[hsl(var(--muted-foreground))]', bg: 'bg-[hsl(var(--secondary))]' },
   ];
 
   return (
@@ -117,7 +119,7 @@ export default function BancoHorasPage() {
         ) : (
           <select
             value={selectedEmployeeId ?? ''}
-            onChange={(e) => setSelectedEmployeeId(e.target.value || null)}
+            onChange={(e) => { setSelectedEmployeeId(e.target.value || null); setSelectedEmployeeName(e.target.selectedOptions?.[0]?.text || null); }}
             className="px-3 py-2 border border-[hsl(var(--border))] rounded-lg text-sm bg-[hsl(var(--card))] focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="">Selecionar colaborador...</option>

@@ -57,11 +57,13 @@ export default function BaterPontoPage() {
   }, []);
 
   // Fetch today's punches — backend resolves employee from auth
+  const [semVinculo, setSemVinculo] = useState(false);
   const { data: todayPunches, isLoading: loadingPunches } = useQuery<PunchRecord[]>({
     queryKey: ['ponto', 'batidas', 'hoje'],
     queryFn: async () => {
       try {
-        const res = await customInstance({ url: '/api/v1/people-management/ponto/batidas/me' }) as unknown as { batidas?: PunchRecord[]; items?: PunchRecord[] } | PunchRecord[];
+        const res = await customInstance({ url: '/api/v1/people-management/ponto/batidas/me' }) as unknown as { employee_id?: string | null; batidas?: PunchRecord[]; items?: PunchRecord[] } | PunchRecord[];
+        if (!Array.isArray(res) && res && 'employee_id' in res) setSemVinculo(res.employee_id == null);
         if (Array.isArray(res)) return res;
         return (res as Record<string, unknown>)?.batidas as PunchRecord[] ?? (res as Record<string, unknown>)?.items as PunchRecord[] ?? [];
       } catch (err) {
@@ -131,11 +133,22 @@ export default function BaterPontoPage() {
             {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}
           </p>
 
+          {semVinculo && (
+            <div className="mb-6 max-w-md text-center text-sm rounded-lg border border-amber-500/40 bg-amber-500/10 text-amber-600 px-4 py-3">
+              Seu usuário não está vinculado a um funcionário — esta tela registra a
+              batida do PRÓPRIO colaborador logado. Funcionários batem pelo
+              <strong> Meu Espaço</strong>; para lançar batida de outra pessoa, use o
+              ajuste manual do DP.
+            </div>
+          )}
           <button
             onClick={handlePunch}
-            disabled={punching}
+            disabled={punching || semVinculo}
+            title={semVinculo ? 'Usuário sem funcionário vinculado' : undefined}
             className={`w-40 h-40 rounded-full flex flex-col items-center justify-center gap-2 text-white font-bold text-lg transition-all duration-300 shadow-lg ${
-              punched
+              semVinculo
+                ? 'bg-gray-400 cursor-not-allowed opacity-60'
+                : punched
                 ? 'bg-green-500 scale-95'
                 : punching
                 ? 'bg-blue-400 animate-pulse scale-105'

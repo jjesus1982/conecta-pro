@@ -46,13 +46,14 @@ const quickLinks = [
   { label: 'Fechamento Mensal', href: '/modulos/gestao-pessoas/ponto/fechamento', icon: Lock, color: 'text-[hsl(var(--muted-foreground))]', bg: 'bg-[hsl(var(--secondary))]' },
 ];
 
-function formatSaldoMedio(minutes: number): string {
-  if (!minutes && minutes !== 0) return '--';
-  const sign = minutes >= 0 ? '+' : '-';
-  const abs = Math.abs(minutes);
-  const h = Math.floor(abs / 60);
-  const m = abs % 60;
-  return `${sign}${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+function formatSaldoMedio(horas: number | undefined): string {
+  // o backend manda HORAS (float, ex.: -40.9) — exibe como ±HHhMM
+  if (horas === undefined || horas === null || isNaN(horas)) return '--';
+  const sign = horas >= 0 ? '+' : '-';
+  const abs = Math.abs(horas);
+  const h = Math.floor(abs);
+  const m = Math.round((abs - h) * 60);
+  return `${sign}${h}h${String(m).padStart(2, '0')}`;
 }
 
 export default function PontoDashboardPage() {
