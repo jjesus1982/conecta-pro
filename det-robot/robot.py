@@ -300,6 +300,98 @@ def _debug_detalhe(page):
             "novas_paginas": novas_paginas, "downloads_hint": "ver se abriu PDF/nova aba"}
 
 
+ECAC_HOME = "https://cav.receita.fazenda.gov.br/ecac/"
+SITEKEY_ECAC = "903db64c-2422-4230-a22e-5645634d893f"
+
+
+def _ecac_logado(page):
+    u = page.url.lower()
+    return ("cav.receita.fazenda.gov.br" in u and "/autenticacao/" not in u
+            and "sso.acesso.gov.br" not in u)
+
+
+def _ecac_form_submit(page):
+    """Resolve o hCaptcha da tela de login do e-CAC e submete o form gov.br (gera o
+    authorize com state VÁLIDO). Com a sessão gov.br do DET viva, o gov.br emite o
+    código SEM cert dance → callback com state válido → e-CAC logado."""
+    info = page.evaluate(
+        "()=>{const o=(window.__hcap&&window.__hcap.opts)||{}; let s=o.sitekey;"
+        "if(!s){let e=document.querySelector('[data-sitekey]'); if(e)s=e.getAttribute('data-sitekey');}"
+        "return {sitekey:s||'" + SITEKEY_ECAC + "', rqdata:o.rqdata||null};}"
+    )
+    tok = _solve_hcaptcha(info["sitekey"], page.url, info.get("rqdata"))
+    page.evaluate(
+        "(tok)=>{ if(window.__hcap) window.__hcap.injected=tok;"
+        "document.querySelectorAll('textarea[name=\"h-captcha-response\"],#GoogleCaptchaTokenLoginGovBR,input[name*=\"aptcha\"]').forEach(e=>{e.value=tok;});"
+        "try{(window.__hcap.cbs||[]).forEach(cb=>{try{cb(tok);}catch(e){}});}catch(e){}"
+        "const f=document.querySelector('form[action*=\"IndexGovBr\"]'); if(f) f.submit(); }", tok)
+    page.wait_for_timeout(8000)
+
+
+def _ecac_sso(page):
+    """Login e-CAC = hCaptcha do e-CAC (gera state válido) + sessão gov.br do DET (sem cert)."""
+    out = {"etapas": []}
+    try:
+        for tent in range(4):
+            if _ecac_logado(page):
+                break
+            try:
+                page.goto(ECAC_HOME, wait_until="domcontentloaded", timeout=40000)
+                page.wait_for_timeout(3500)
+            except Exception as e:
+                out["etapas"].append(f"goto home: {str(e)[:40]}")
+            out["url"] = page.url
+            if _ecac_logado(page):
+                out["etapas"].append("já logado (sessão e-CAC viva)")
+                break
+            if "autenticacao/login" in page.url.lower():
+                out["etapas"].append(f"hCaptcha e-CAC + submit (tent {tent+1})")
+                try:
+                    _ecac_form_submit(page)
+                except Exception as e:
+                    out["etapas"].append(f"hcap: {str(e)[:40]}")
+                out["etapas"].append(f"pós-submit: {page.url[:70]}")
+            # com sessão gov.br viva, o submit deve cair logado no e-CAC direto
+            if _ecac_logado(page):
+                break
+        out["url"] = page.url
+        out["logado"] = _ecac_logado(page)
+        out["etapas"].append(f"final: {page.url[:70]} | logado={out['logado']}")
+        try:
+            os.makedirs("/state/ecac_sso", exist_ok=True)
+            page.screenshot(path="/state/ecac_sso/authz.png", full_page=True)
+        except Exception:
+            pass
+        if out["logado"]:
+            # já dentro → tenta Situação Fiscal
+            for termo in ("Situação Fiscal", "Consulta Pendências", "Certidões e Situação",
+                          "Diagnóstico Fiscal", "Regularidade Fiscal"):
+                try:
+                    el = page.get_by_text(termo, exact=False)
+                    if el.count():
+                        el.first.click(timeout=6000); page.wait_for_timeout(5000)
+                        out["etapas"].append(f"clicou {termo}")
+                        break
+                except Exception:
+                    continue
+            out["url"] = page.url
+            try: out["situacao_fiscal_texto"] = page.locator("body").inner_text()[:9000]
+            except Exception: out["situacao_fiscal_texto"] = ""
+        else:
+            try: out["texto"] = page.locator("body").inner_text()[:1500]
+            except Exception: out["texto"] = ""
+        out["ok"] = out["logado"]
+    except Exception as e:
+        out["etapas"].append(f"erro: {str(e)[:80]}")
+    finally:
+        # volta o DET pra não quebrar a sessão dele
+        try:
+            page.goto("https://det.sit.trabalho.gov.br/servicos", wait_until="domcontentloaded", timeout=30000)
+        except Exception:
+            pass
+    return out
+
+
 def _loop_comandos(ctx, page):
     """Mantém a sessão VIVA e processa comandos NA MESMA THREAD (Playwright é thread-affine).
     Keep-alive: ping a cada 5 min; auto-coleta+push ao ERP a cada 30 min."""
@@ -313,6 +405,10 @@ def _loop_comandos(ctx, page):
         if cmd == "coletar":
             try: _RES["coletar"] = _ler_caixa(page)
             except Exception as e: _RES["coletar"] = {"ok": False, "msg": f"erro: {e}"}
+            _RES_EVT.set()
+        elif cmd == "ecac_sso":
+            try: _RES["ecac_sso"] = _ecac_sso(page)
+            except Exception as e: _RES["ecac_sso"] = {"ok": False, "msg": f"erro: {e}"}
             _RES_EVT.set()
         elif cmd == "debug_detalhe":
             try: _RES["debug"] = _debug_detalhe(page)
@@ -381,6 +477,17 @@ def coletar():
     if _RES_EVT.wait(timeout=120):
         return _RES.get("coletar", {"ok": False, "msg": "sem resultado"})
     return {"ok": False, "msg": "timeout na leitura"}
+
+
+@app.post("/ecac/sso")
+def ecac_sso():
+    if _LIVE.get("page") is None or not _estado.get("logado"):
+        return {"ok": False, "msg": "sem sessao viva"}
+    _RES_EVT.clear(); _RES.pop("ecac_sso", None)
+    _CMD.put("ecac_sso")
+    if _RES_EVT.wait(timeout=150):
+        return _RES.get("ecac_sso", {"ok": False})
+    return {"ok": False, "msg": "timeout"}
 
 
 @app.post("/debug/detalhe")
