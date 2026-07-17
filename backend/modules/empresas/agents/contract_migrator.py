@@ -286,84 +286,196 @@ class ContractMigratorAgent:
             liminares_aplicadas=lim_destino,
         )
 
-    def migrar_contrato(
+    async def migrar_contrato(
         self,
-        contrato_id: int,
+        contrato_id: int | str,
         empresa_origem_slug: str,
         empresa_destino_slug: str,
         data_migracao: date | None = None,
         gerar_aditivo: bool = True,
+        db=None,
+        usuario_id: str | None = None,
     ) -> ResultadoMigracao:
         """
-        Executa a migração do contrato (registra histórico).
-        Em produção: atualiza FK empresa_id no contrato,
-        cria registro de auditoria, gera aditivo.
+        Executa a migração do contrato de verdade (contracts.empresa_id) e grava
+        o aditivo de transferência como ContractAddendum (trilha de auditoria).
+
+        `contrato_id` é o UUID de contracts.id. Sem `db`, mantém o comportamento
+        legado (só log) para compatibilidade.
         """
         data_migracao = data_migracao or date.today()
 
-        # TODO: Quando módulo de contratos expuser empresa_id:
-        # await db.execute(UPDATE contratos SET empresa_id=destino WHERE id=contrato_id)
+        if db is None:
+            logger.info(
+                "Migração (modo legado, sem persistência): contrato=%s %s->%s",
+                contrato_id, empresa_origem_slug, empresa_destino_slug,
+            )
+            return ResultadoMigracao(
+                contrato_id=contrato_id,
+                empresa_origem_slug=empresa_origem_slug,
+                empresa_destino_slug=empresa_destino_slug,
+                data_migracao=data_migracao,
+                sucesso=True,
+                mensagem=f"Contrato {contrato_id}: migração simulada (sem sessão de banco)",
+                aditivo_gerado=False,
+            )
+
+        from sqlalchemy import text
+
+        from modules.empresas.services.empresa_lookup import get_empresa, invalidate_cache
+
+        origem = await get_empresa(db, slug=empresa_origem_slug)
+        destino = await get_empresa(db, slug=empresa_destino_slug)
+
+        row = (await db.execute(
+            text("SELECT id, contract_number, name, empresa_id FROM contracts WHERE id = :cid"),
+            {"cid": str(contrato_id)},
+        )).fetchone()
+        if not row:
+            return ResultadoMigracao(
+                contrato_id=contrato_id,
+                empresa_origem_slug=empresa_origem_slug,
+                empresa_destino_slug=empresa_destino_slug,
+                data_migracao=data_migracao,
+                sucesso=False,
+                mensagem=f"Contrato {contrato_id} não encontrado",
+            )
+        if row.empresa_id and str(row.empresa_id) != str(origem["id"]):
+            return ResultadoMigracao(
+                contrato_id=contrato_id,
+                empresa_origem_slug=empresa_origem_slug,
+                empresa_destino_slug=empresa_destino_slug,
+                data_migracao=data_migracao,
+                sucesso=False,
+                mensagem=(
+                    f"Contrato {row.contract_number} não pertence a {empresa_origem_slug} "
+                    "(empresa atual divergente — conferir antes de migrar)"
+                ),
+            )
+
+        await db.execute(
+            text("UPDATE contracts SET empresa_id = :dest, updated_at = NOW() WHERE id = :cid"),
+            {"dest": str(destino["id"]), "cid": str(row.id)},
+        )
+
+        historico_id: str | None = None
+        if gerar_aditivo:
+            texto = self.gerar_texto_aditivo(
+                contrato_id=row.contract_number or str(row.id),
+                empresa_origem=empresa_origem_slug,
+                empresa_destino=empresa_destino_slug,
+                cnpj_destino=destino.get("cnpj"),
+                data_vigencia=data_migracao,
+                razao_origem=origem.get("razao_social"),
+                cnpj_origem=origem.get("cnpj"),
+                razao_destino=destino.get("razao_social"),
+                nome_contrato=row.name,
+            )
+            addendum = (await db.execute(
+                text(
+                    "INSERT INTO contract_addendums "
+                    "(id, contract_id, addendum_number, addendum_type, effective_date, "
+                    " description, reason, signed, is_active, created_by, created_at, updated_at) "
+                    "VALUES (gen_random_uuid(), :cid, :num, 'other', :eff, :descr, :reason, "
+                    " false, true, :uid, NOW(), NOW()) RETURNING id"
+                ),
+                {
+                    "cid": str(row.id),
+                    "num": f"TRANSF-{row.contract_number}-{data_migracao.strftime('%y%m%d')}"[:30],
+                    "eff": data_migracao,
+                    "descr": texto,
+                    "reason": (
+                        "Transferência de titularidade — segmentação do Grupo Conecta Mais "
+                        "(Nota de Comunicação de 19/05/2026; arts. 421/422 CC)"
+                    ),
+                    "uid": str(usuario_id) if usuario_id else None,
+                },
+            )).fetchone()
+            historico_id = str(addendum.id) if addendum else None
+
+        await db.commit()
+        invalidate_cache()
 
         logger.info(
-            "Migração registrada: contrato=%s origem=%s destino=%s data=%s",
-            contrato_id,
-            empresa_origem_slug,
-            empresa_destino_slug,
-            data_migracao,
+            "Migração PERSISTIDA: contrato=%s (%s) %s->%s aditivo=%s por=%s",
+            row.contract_number, row.id, empresa_origem_slug, empresa_destino_slug,
+            historico_id, usuario_id,
         )
 
         return ResultadoMigracao(
-            contrato_id=contrato_id,
+            contrato_id=str(row.id),
             empresa_origem_slug=empresa_origem_slug,
             empresa_destino_slug=empresa_destino_slug,
             data_migracao=data_migracao,
             sucesso=True,
             mensagem=(
-                f"Contrato {contrato_id} migrado de {empresa_origem_slug} "
+                f"Contrato {row.contract_number} migrado de {empresa_origem_slug} "
                 f"para {empresa_destino_slug} em {data_migracao.isoformat()}"
             ),
-            aditivo_gerado=gerar_aditivo,
+            aditivo_gerado=historico_id is not None,
             notificacao_enviada=False,
+            historico_id=historico_id,
         )
 
     def gerar_texto_aditivo(
         self,
-        contrato_id: int,
+        contrato_id: int | str,
         empresa_origem: str,
         empresa_destino: str,
         cnpj_destino: str | None = None,
         data_vigencia: date | None = None,
+        razao_origem: str | None = None,
+        cnpj_origem: str | None = None,
+        razao_destino: str | None = None,
+        nome_contrato: str | None = None,
     ) -> str:
-        """Gera texto do aditivo contratual para formalizar migração."""
+        """Gera texto do aditivo de transferência.
+
+        Qualificação legal usa a RAZÃO SOCIAL oficial da Receita (regra do PRD:
+        razão exata em campos legais; nome de exibição fica para o restante).
+        """
         data_vigencia = data_vigencia or date.today()
-        cnpj_texto = cnpj_destino or "(CNPJ em processo de abertura)"
+        cedente = razao_origem or empresa_origem.replace("_", " ").title()
+        cessionaria = razao_destino or empresa_destino.replace("_", " ").title()
+        cnpj_cedente = cnpj_origem or "-"
+        cnpj_cessionaria = cnpj_destino or "(CNPJ em processo de abertura)"
+        objeto = f" ({nome_contrato})" if nome_contrato else ""
 
-        return f"""ADITIVO DE TRANSFERÊNCIA CONTRATUAL
+        return f"""ADITIVO DE TRANSFERÊNCIA DE TITULARIDADE CONTRATUAL
 
-Contrato nº: {contrato_id}
+Contrato nº: {contrato_id}{objeto}
 Data de vigência: {data_vigencia.strftime("%d/%m/%Y")}
 
-Por meio deste instrumento, fica estabelecido que:
+Considerando a reorganização societária do Grupo Conecta Mais, comunicada por
+meio da Nota de Comunicação de 19/05/2026, e com fundamento nos princípios da
+autonomia privada e da liberdade contratual (arts. 421 e 422 do Código Civil),
+as partes estabelecem:
 
-1. O presente contrato, até então gerido por {empresa_origem.replace("_", " ").title()},
-   passa a ser administrado por {empresa_destino.replace("_", " ").title()}
-   (CNPJ: {cnpj_texto}), a partir de {data_vigencia.strftime("%d/%m/%Y")}.
+1. O presente contrato, até então de titularidade de {cedente}
+   (CNPJ {cnpj_cedente}), passa à titularidade de {cessionaria}
+   (CNPJ {cnpj_cessionaria}), a partir de {data_vigencia.strftime("%d/%m/%Y")}.
 
-2. Todas as condições comerciais, valores, prazos e obrigações
-   permanecem inalterados.
+2. Todas as condições comerciais, valores, prazos, garantias e obrigações
+   permanecem integralmente inalterados, sem qualquer descontinuidade na
+   execução dos serviços.
 
-3. O faturamento (emissão de NFS-e) passará a ser realizado pelo
-   novo CNPJ a partir da data de vigência deste aditivo.
+3. O faturamento (emissão de NFS-e) e a cobrança passarão a ser realizados
+   pela CESSIONÁRIA a partir da data de vigência deste aditivo.
 
-4. Este aditivo é parte integrante do contrato original, ao qual
-   se vincula para todos os fins legais.
+4. Este aditivo é parte integrante do contrato original, ao qual se vincula
+   para todos os fins legais.
 
 As partes concordam com os termos acima.
 
-Manaus, {date.today().strftime("%d de %B de %Y")}
+Manaus, {data_vigencia.strftime("%d/%m/%Y")}
 
 _______________________________     _______________________________
-CONTRATANTE                         CONTRATADA
+CONTRATANTE                         {cedente}
+                                    (CEDENTE)
+
+                                    _______________________________
+                                    {cessionaria}
+                                    (CESSIONÁRIA)
 """
 
     def analisar_lote_por_tipo(

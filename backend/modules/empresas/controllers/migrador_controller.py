@@ -2,10 +2,12 @@
 
 from datetime import date
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth import CurrentActiveUser
+from core.database import get_db
 from modules.empresas.agents.contract_migrator import ContractMigratorAgent
 
 router = APIRouter(prefix="/migrador", tags=["Migrador de Contratos"])
@@ -40,7 +42,7 @@ class SimularMigracaoRequest(BaseModel):
 
 
 class ExecutarMigracaoRequest(BaseModel):
-    contrato_id: int
+    contrato_id: int | str = Field(..., description="UUID de contracts.id")
     empresa_origem_slug: str
     empresa_destino_slug: str
     data_migracao: date | None = None
@@ -114,19 +116,26 @@ async def simular_migracao(dados: SimularMigracaoRequest, current_user: CurrentA
 
 
 @router.post("/executar")
-async def executar_migracao(dados: ExecutarMigracaoRequest, current_user: CurrentActiveUser):
-    """Executa a migração registrando histórico."""
-    resultado = _agent.migrar_contrato(
+async def executar_migracao(
+    dados: ExecutarMigracaoRequest,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Executa a migração DE VERDADE: contracts.empresa_id + aditivo (ContractAddendum)."""
+    resultado = await _agent.migrar_contrato(
         contrato_id=dados.contrato_id,
         empresa_origem_slug=dados.empresa_origem_slug,
         empresa_destino_slug=dados.empresa_destino_slug,
         data_migracao=dados.data_migracao,
         gerar_aditivo=dados.gerar_aditivo,
+        db=db,
+        usuario_id=str(getattr(current_user, "id", "")) or None,
     )
     return {
         "sucesso": resultado.sucesso,
         "mensagem": resultado.mensagem,
         "aditivo_gerado": resultado.aditivo_gerado,
+        "aditivo_id": resultado.historico_id,
         "data_migracao": resultado.data_migracao.isoformat(),
     }
 
