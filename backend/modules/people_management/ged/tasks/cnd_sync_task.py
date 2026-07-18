@@ -222,11 +222,11 @@ async def _buscar_e_salvar_certidao(
     check = await db.execute(
         _t(
             "SELECT id, expiry_date FROM ged_certidoes "
-            "WHERE document_type = :doc_type "
+            "WHERE document_type = :doc_type AND cnpj = :cnpj "
             "AND expiry_date > CURRENT_DATE + INTERVAL '10 days' "
             "LIMIT 1"
         ),
-        {"doc_type": doc_type},
+        {"doc_type": doc_type, "cnpj": cnpj},
     )
     existing = check.mappings().first()
     if existing:
@@ -256,8 +256,10 @@ async def _buscar_e_salvar_certidao(
                 CNDTTrabalhistaClient,
             )
 
-            async with CNDTTrabalhistaClient() as client:
-                resultado = await client.consultar_cndt(cnpj)
+            # CNDTTrabalhistaClient NÃO é context manager (bug pré-existente:
+            # toda busca CNDT desta task falhava com "object does not support
+            # the asynchronous context manager protocol")
+            resultado = await CNDTTrabalhistaClient().consultar_cndt(cnpj)
         elif tipo == "crf_fgts":
             from modules.bidding.integrations.receita_federal.crf_client import (
                 CRFFGTSClient,
@@ -313,8 +315,8 @@ async def _buscar_e_salvar_certidao(
 
     # Verificar se ja existe registro para este document_type
     existing_row = await db.execute(
-        _t("SELECT id FROM ged_certidoes WHERE document_type = :doc_type LIMIT 1"),
-        {"doc_type": doc_type},
+        _t("SELECT id FROM ged_certidoes WHERE document_type = :doc_type AND cnpj = :cnpj LIMIT 1"),
+        {"doc_type": doc_type, "cnpj": cnpj},
     )
     existing_id = existing_row.scalar_one_or_none()
 
@@ -340,8 +342,8 @@ async def _buscar_e_salvar_certidao(
         await db.execute(
             _t(
                 "INSERT INTO ged_certidoes "
-                "(id, name, document_type, issuing_body, issue_date, expiry_date, notes, created_at, updated_at) "
-                "VALUES (:id, :name, :doc_type, :issuing_body, :issue_date, :expiry_date, :notes, NOW(), NOW())"
+                "(id, name, document_type, issuing_body, issue_date, expiry_date, notes, cnpj, created_at, updated_at) "
+                "VALUES (:id, :name, :doc_type, :issuing_body, :issue_date, :expiry_date, :notes, :cnpj, NOW(), NOW())"
             ),
             {
                 "id": cert_id,
@@ -351,6 +353,7 @@ async def _buscar_e_salvar_certidao(
                 "issue_date": issue_date,
                 "expiry_date": data_validade,
                 "notes": notes,
+                "cnpj": cnpj,
             },
         )
         status = "criada"
@@ -423,6 +426,24 @@ async def buscar_todas_certidoes(db: Any) -> dict[str, Any]:
             cnpj_empresa,
         )
         clientes = [{"id": "", "name": "Conecta Mais", "cnpj": cnpj_empresa}]
+
+    # Multi-CNPJ E6: as empresas DO GRUPO vêm SEMPRE primeiro (as duas — CNPJ1 e
+    # CNPJ2/empregador dos CLT). Cada (cnpj × tipo) tem linha própria em
+    # ged_certidoes; um verde do CNPJ1 nunca mascara o CNPJ2 (pré-mortem F4).
+    try:
+        grupo_rows = await db.execute(
+            _t(
+                "SELECT '' AS id, razao_social AS name, "
+                "REGEXP_REPLACE(cnpj, '[^0-9]', '', 'g') AS cnpj "
+                "FROM empresas WHERE status = 'ativa' AND cnpj IS NOT NULL "
+                "ORDER BY is_principal DESC"
+            )
+        )
+        grupo = list(grupo_rows.mappings().all())
+        cnpjs_grupo = {g["cnpj"] for g in grupo}
+        clientes = grupo + [c for c in clientes if re.sub(r"\D", "", str(c["cnpj"])) not in cnpjs_grupo]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("buscar_todas_certidoes: falha ao carregar empresas do Grupo (%s)", exc)
 
     logger.info(
         "buscar_todas_certidoes iniciado — %d cliente(s) com CNPJ",
