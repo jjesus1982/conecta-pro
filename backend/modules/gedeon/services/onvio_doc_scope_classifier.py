@@ -120,13 +120,26 @@ def match_condominio(nome_arquivo: str, cond_lookup: dict[str, UUID]) -> UUID | 
 # ============================================================================
 # DETECÇÃO DE EMPRESA MATRIZ
 # ============================================================================
-_MATRIZ_CNPJ = re.compile(r"35[\.\s]*710[\.\s]*481")
-_MATRIZ_NAME = re.compile(r"\bconecta\s*mais\b")
+# Multi-CNPJ E6: o Grupo tem DUAS matrizes — Eletrônica (35.710.481) e
+# Patrimonial (66.014.833). Ambas classificam como doc de empresa.
+_MATRIZ_CNPJ = re.compile(r"35[\.\s]*710[\.\s]*481|66[\.\s]*014[\.\s]*833")
+_MATRIZ_NAME = re.compile(r"\bconecta\s*mais\b|\bconectamais\b")
 
 
 def is_matriz(nome_arquivo: str) -> bool:
     normalized = _normalize(nome_arquivo)
     return bool(_MATRIZ_CNPJ.search(nome_arquivo) or _MATRIZ_NAME.search(normalized))
+
+
+def matriz_cnpj(nome_arquivo: str) -> str | None:
+    """Identifica DE QUAL matriz é o documento (14 dígitos) — None se não for."""
+    if re.search(r"66[\.\s]*014[\.\s]*833", nome_arquivo):
+        return "66014833000110"
+    if re.search(r"35[\.\s]*710[\.\s]*481", nome_arquivo):
+        return "35710481000103"
+    if _MATRIZ_NAME.search(_normalize(nome_arquivo)):
+        return "35710481000103"  # marca sem CNPJ = default histórico (CNPJ1)
+    return None
 
 
 # ============================================================================
