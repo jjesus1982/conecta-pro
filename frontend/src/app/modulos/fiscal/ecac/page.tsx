@@ -1,11 +1,26 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
-import { Landmark, ShieldCheck, ShieldAlert, Lock, CheckCircle2, AlertTriangle, Eye, Download } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
+import { Landmark, ShieldCheck, ShieldAlert, Lock, CheckCircle2, AlertTriangle, Eye, Download, CreditCard, KeyRound, Loader2, X } from 'lucide-react'
 import { PageHeader } from '@/components/ui/page-header'
 
 const brl = (v: number | string | null | undefined) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v) || 0)
+
+const bearer = () => (typeof window !== 'undefined'
+  ? (localStorage.getItem('access_token') ?? localStorage.getItem('token') ?? '') : '')
+
+const apiPost = async (path: string, body?: any) => {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer()}` },
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(typeof data?.detail === 'string' ? data.detail : `HTTP ${res.status}`)
+  return data
+}
 
 // Baixa/abre um PDF protegido por token (o <a href> não carrega o Bearer → usa blob).
 async function abrirGuiaPdf(pdfUrl: string, download: boolean) {
@@ -51,6 +66,47 @@ export default function EcacPage() {
   const comPendencia = sf?.situacao === 'com_pendencias'
   const debitos: any[] = deb?.debitos || []
   const parcelamentos: any[] = parc?.parcelamentos || []
+
+  // ── Pagamento com gate OTP (reusa o fluxo Inter: preparar→gerar-otp→aprovar→executar) ──
+  const qc = useQueryClient()
+  const [pay, setPay] = useState<any>(null)
+  const [step, setStep] = useState<'confirmar' | 'otp' | 'processando' | 'ok' | 'erro'>('confirmar')
+  const [otp, setOtp] = useState('')
+  const [msg, setMsg] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function iniciarPagamento(d: any) {
+    setBusy(true); setMsg('')
+    try {
+      const r = await apiPost(`/api/v1/fiscal/guias-drive/${d.id}/preparar-pagamento`)
+      setPay({ paymentId: r.id || r.payment_id, valor: r.valor ?? d.valor_total, descricao: r.descricao || d.descricao, tipo: r.payment_type })
+      setStep('confirmar'); setOtp('')
+    } catch (e: any) { setPay({ paymentId: null }); setStep('erro'); setMsg(e.message) }
+    finally { setBusy(false) }
+  }
+  async function enviarOtp() {
+    setBusy(true); setMsg('')
+    try { await apiPost(`/api/v1/financeiro/inter/payments/${pay.paymentId}/gerar-otp`); setStep('otp') }
+    catch (e: any) { setMsg(e.message) }
+    finally { setBusy(false) }
+  }
+  async function confirmarPagar() {
+    if (otp.length !== 6) { setMsg('Digite o código de 6 dígitos.'); return }
+    setBusy(true); setMsg(''); setStep('processando')
+    try {
+      await apiPost(`/api/v1/financeiro/inter/payments/${pay.paymentId}/aprovar`, { otp_code: otp })
+      await apiPost(`/api/v1/financeiro/inter/payments/${pay.paymentId}/executar`)
+      setStep('ok'); setMsg('Pagamento enviado ao Banco Inter.')
+      qc.invalidateQueries({ queryKey: ['ecac-deb'] })
+    } catch (e: any) { setStep('otp'); setMsg(e.message) }
+    finally { setBusy(false) }
+  }
+  function fecharModal() {
+    if (pay?.paymentId && step !== 'ok') {
+      apiPost(`/api/v1/financeiro/inter/payments/${pay.paymentId}/cancelar`, { motivo: 'cancelado na tela e-CAC' }).catch(() => {})
+    }
+    setPay(null); setStep('confirmar'); setOtp(''); setMsg('')
+  }
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
@@ -152,6 +208,13 @@ export default function EcacPage() {
                             className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800">
                             <Download className="h-3.5 w-3.5" />
                           </button>
+                          {d.pagavel && (
+                            <button onClick={() => iniciarPagamento(d)} disabled={busy}
+                              title="Pagar via Banco Inter (com código de segurança)"
+                              className="inline-flex items-center gap-1 rounded-md border border-emerald-600/40 text-emerald-700 dark:text-emerald-400 px-2 py-1 text-xs hover:bg-emerald-50 dark:hover:bg-emerald-950/40 disabled:opacity-50">
+                              <CreditCard className="h-3.5 w-3.5" /> Pagar
+                            </button>
+                          )}
                         </span>
                       ) : (
                         <span className="text-xs text-neutral-400" title="Guia sem PDF (valor da folha, não do Drive)">—</span>
@@ -201,6 +264,68 @@ export default function EcacPage() {
           </div>
         )}
       </div>
+
+      {/* Modal de pagamento com gate OTP */}
+      {pay && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={fecharModal}>
+          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-neutral-900 shadow-xl border" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <div className="flex items-center gap-2 font-semibold">
+                <CreditCard className="h-4 w-4 text-emerald-600" /> Pagar guia via Banco Inter
+              </div>
+              <button onClick={fecharModal} className="text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="px-5 py-5 space-y-4">
+              <div className="rounded-lg bg-neutral-50 dark:bg-neutral-800/60 p-4">
+                <div className="text-xs text-neutral-500">{pay.descricao} · imposto{pay.tipo ? ` · ${String(pay.tipo).toUpperCase()}` : ''}</div>
+                <div className="text-2xl font-bold tabular-nums mt-1">{brl(pay.valor)}</div>
+              </div>
+
+              {step === 'confirmar' && (
+                <>
+                  <p className="text-sm text-neutral-600 dark:text-neutral-300">Por segurança, um código de 6 dígitos será enviado ao e-mail do responsável antes de mover qualquer valor. <span className="font-medium">Nada é pago sem o código.</span></p>
+                  <button onClick={enviarOtp} disabled={busy}
+                    className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 text-white py-2.5 font-medium hover:bg-emerald-700 disabled:opacity-50">
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />} Enviar código de segurança
+                  </button>
+                </>
+              )}
+              {step === 'otp' && (
+                <>
+                  <p className="text-sm text-neutral-600 dark:text-neutral-300">Digite o código de 6 dígitos enviado ao e-mail do responsável.</p>
+                  <input value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    inputMode="numeric" maxLength={6} placeholder="000000" autoFocus
+                    className="w-full text-center tracking-[0.5em] text-2xl font-mono rounded-lg border py-3 bg-transparent" />
+                  <button onClick={confirmarPagar} disabled={busy || otp.length !== 6}
+                    className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 text-white py-2.5 font-medium hover:bg-emerald-700 disabled:opacity-50">
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} Aprovar e pagar {brl(pay.valor)}
+                  </button>
+                  {msg && <div className="text-sm text-red-500 text-center">{msg}</div>}
+                </>
+              )}
+              {step === 'processando' && (
+                <div className="flex items-center justify-center gap-2 text-sm text-neutral-600 dark:text-neutral-300 py-4"><Loader2 className="h-4 w-4 animate-spin" /> Processando no Banco Inter…</div>
+              )}
+              {step === 'ok' && (
+                <div className="flex flex-col items-center gap-2 py-2 text-center">
+                  <CheckCircle2 className="h-10 w-10 text-emerald-600" />
+                  <div className="font-semibold">Pagamento enviado ao Banco Inter</div>
+                  <div className="text-sm text-neutral-500">{msg}</div>
+                  <button onClick={fecharModal} className="mt-2 rounded-lg border px-4 py-2 text-sm">Fechar</button>
+                </div>
+              )}
+              {step === 'erro' && (
+                <div className="flex flex-col items-center gap-2 py-2 text-center">
+                  <AlertTriangle className="h-10 w-10 text-red-500" />
+                  <div className="font-semibold">Não foi possível preparar o pagamento</div>
+                  <div className="text-sm text-neutral-500">{msg}</div>
+                  <button onClick={fecharModal} className="mt-2 rounded-lg border px-4 py-2 text-sm">Fechar</button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
