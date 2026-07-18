@@ -4,6 +4,7 @@ import { Search, Plus, RefreshCw, AlertCircle, FileText, Eye, XCircle, Filter, D
 import { useState } from 'react';
 ;
 import { Button } from '@/components/ui/button';
+import { abrirPdf } from '@/lib/pdf';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { PageHeader } from '@/components/ui/page-header';
@@ -328,6 +329,16 @@ export default function NfsePage() {
                             >
                               <Eye className="w-4 h-4" />
                             </Button>
+                            {nfse.id && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => abrirPdf(`/api/v1/financial/fiscal/nfse/${nfse.id}/danfse`, { download: true, nome: `danfse_${nfse.numero || nfse.id}.pdf` })}
+                                title="Baixar DANFSe (PDF)"
+                              >
+                                <FileText className="w-4 h-4" />
+                              </Button>
+                            )}
                             {nfse.status === 'emitida' && (
                               <Button
                                 variant="ghost"

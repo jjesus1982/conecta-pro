@@ -1729,3 +1729,29 @@ async def verificar_limite_simples(
     return _tax_agent.verificar_limite_simples(
         rbt12=Decimal(str(dados.rbt12)),
     )
+
+
+@router.get("/nfse/{nfse_id}/danfse", summary="DANFSe (PDF) da NFS-e")
+async def nfse_danfse(
+    nfse_id: str,
+    download: bool = Query(False, description="1 = baixar; 0 = abrir inline"),
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Gera e serve o DANFSe (PDF) da NFS-e a partir dos campos estruturados da tabela nfses."""
+    from fastapi.responses import Response as _Resp
+    from sqlalchemy import text as _t
+
+    from modules.gedeon.services.nfse_danfse_generator import gerar_danfse_de_nfse
+
+    row = (await db.execute(_t("SELECT * FROM nfses WHERE id = :id AND active = true"), {"id": nfse_id})).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="NFS-e não encontrada")
+    try:
+        pdf = gerar_danfse_de_nfse(dict(row))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"falha ao gerar DANFSe: {exc}") from exc
+    disp = "attachment" if download else "inline"
+    nome = f"danfse_{row.get('numero_nfse') or nfse_id}.pdf"
+    return _Resp(content=pdf, media_type="application/pdf",
+                 headers={"Content-Disposition": f'{disp}; filename="{nome}"'})

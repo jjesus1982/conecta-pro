@@ -80,7 +80,51 @@ def parse(xml: str) -> dict:
 
 
 def gerar_danfse_pdf(xml: str) -> bytes:
-    d = parse(xml)
+    """DANFSe a partir do XML oficial (usado pelos kits)."""
+    return _render_danfse(parse(xml))
+
+
+def gerar_danfse_de_nfse(row: dict) -> bytes:
+    """DANFSe a partir dos campos ESTRUTURADOS da tabela nfses (quando não há XML guardado)."""
+    def m(v) -> str:
+        try:
+            return f"{float(v or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        except Exception:  # noqa: BLE001
+            return "0,00"
+
+    def dt(v) -> str:
+        try:
+            return v.strftime("%d/%m/%Y")
+        except Exception:  # noqa: BLE001
+            return str(v or "")
+
+    vserv = float(row.get("valor_servicos") or 0)
+    ded = float(row.get("valor_deducoes") or 0)
+    viss = float(row.get("iss_valor") or 0)
+    vinss = float(row.get("inss_valor") or 0)
+    d = {
+        "numero": str(row.get("numero_nfse") or row.get("numero_rps") or ""),
+        "chave": str(row.get("codigo_verificacao") or ""),
+        "competencia": dt(row.get("data_competencia")),
+        "emissao": dt(row.get("data_emissao")),
+        "local": row.get("tomador_municipio") or "Manaus",
+        "emit_cnpj": row.get("prestador_cnpj") or "",
+        "emit_im": row.get("prestador_inscricao_municipal") or "",
+        "emit_nome": row.get("prestador_razao_social") or "",
+        "toma_cnpj": row.get("tomador_cpf_cnpj") or "",
+        "toma_nome": row.get("tomador_razao_social") or "",
+        "servico": (row.get("descricao_servico") or row.get("codigo_servico") or "—")[:80],
+        "vserv": m(vserv),
+        "vbc": m(vserv - ded),
+        "viss": m(viss),
+        "vinss": m(vinss),
+        "vliq": m(vserv - viss - vinss),
+        "discr": row.get("discriminacao") or row.get("descricao_servico") or "",
+    }
+    return _render_danfse(d)
+
+
+def _render_danfse(d: dict) -> bytes:
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     W, H = A4
