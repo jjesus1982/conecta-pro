@@ -50,7 +50,7 @@ def status_conexao() -> dict[str, Any]:
     """Carrega o A1 e reporta o estado REAL da conexão com o DET (sem fabricar)."""
     try:
         from modules.government_integrations.core.certificate_manager import CertificateManager
-        senha = os.environ.get("CERTIFICATE_PASSWORD", "Conecta123")
+        senha = os.environ.get("CERTIFICATE_PASSWORD", "")
         cm = CertificateManager(pfx_path=CERT_PATH, password=senha)
         if not cm.load():
             return {"certificado_ok": False, "mensagem": "Falha ao carregar o certificado A1."}

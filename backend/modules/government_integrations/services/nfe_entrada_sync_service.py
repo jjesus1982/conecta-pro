@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 CNPJ_EMPRESA = os.getenv("NFSE_MANAUS_CNPJ", "35710481000103")
 CERT_PATH = os.getenv("CERTIFICATE_PATH", "/app/credentials/certificates/certificado.pfx")
-CERT_PASS = os.getenv("CERTIFICATE_PASSWORD", "Conecta123")
+CERT_PASS = os.getenv("CERTIFICATE_PASSWORD", "")  # senha SÓ via env (nunca default em código)
 SEFAZ_DIST = "https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx"
 NS = "http://www.portalfiscal.inf.br/nfe"
 

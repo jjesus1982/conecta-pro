@@ -14,6 +14,7 @@ Fluxo:
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
@@ -54,7 +55,7 @@ EMPRESAS_CONFIG: dict[str, dict[str, Any]] = {
         "codigo_municipio": "1302603",
         "regime": "lucro_real",
         "certificado_path": "/opt/conecta-pro/credentials/certificates/certificado.pfx",
-        "certificado_senha": "Conecta123",
+        "certificado_senha": os.getenv("CERTIFICATE_PASSWORD", ""),
         "ambiente": "homologacao",
         "liminares": [],
     },

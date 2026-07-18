@@ -444,7 +444,7 @@ async def transmitir_s1000(request: TransmitirS1000Request) -> StandardResponse:
 
         # Inicializar transmitter com certificado
         cert_path = os.environ.get("CERTIFICATE_PATH", "/opt/conecta-pro/credentials/certificates/certificado.pfx")
-        cert_password = os.environ.get("CERTIFICATE_PASSWORD", "Conecta123")
+        cert_password = os.environ.get("CERTIFICATE_PASSWORD", "")
 
         transmitter = init_esocial_transmitter(
             environment=env,

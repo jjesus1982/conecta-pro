@@ -30,7 +30,10 @@ echo "== Flip: vínculos VIGENTES -> Patrimonial (ativo + afastado_inss + suspen
 echo "   demitidos/inativos ficam no histórico CNPJ1) =="
 docker exec conecta-pro-postgres psql -U "$U" -d conecta_pro -c "
 UPDATE employees SET empresa_id = '$PATRIMONIAL_ID', updated_at = NOW()
-WHERE LOWER(COALESCE(status::text,'')) IN ('ativo','afastado_inss','suspenso');"
+WHERE LOWER(COALESCE(status::text,'')) IN ('ativo','afastado_inss','suspenso');
+-- Pós-flip: CLT NOVO nasce na Patrimonial (era Eletrônica até a virada)
+ALTER TABLE employees ALTER COLUMN empresa_id SET DEFAULT '$PATRIMONIAL_ID';
+ALTER TABLE hr_payslips ALTER COLUMN empresa_id SET DEFAULT '$PATRIMONIAL_ID';"
 
 echo "== Fronteira anti-reescrita = $FRONTEIRA (holerites < fronteira ficam CNPJ1) =="
 for F in /opt/conecta-pro/.env /opt/conecta-pro/backend/.env; do

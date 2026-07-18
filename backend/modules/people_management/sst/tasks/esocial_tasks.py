@@ -248,7 +248,7 @@ async def _pull_recibos() -> dict[str, Any]:
             certificate_path=os.environ.get(
                 "CERTIFICATE_PATH", "/opt/conecta-pro/credentials/certificates/certificado.pfx"
             ),
-            certificate_password=os.environ.get("CERTIFICATE_PASSWORD", "Conecta123"),
+            certificate_password=os.environ.get("CERTIFICATE_PASSWORD", ""),
         )
         await transmitter.load_certificate()
 

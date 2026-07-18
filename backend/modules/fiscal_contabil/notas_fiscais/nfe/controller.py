@@ -57,7 +57,9 @@ COD_UF_AM = "13"
 COD_MUN_MANAUS = "1302603"
 
 CERT_PATH = "/app/credentials/certificates/certificado.pfx"
-CERT_PASSWORD = "Conecta123"  # pragma: allowlist secret
+import os
+
+CERT_PASSWORD = os.getenv("CERTIFICATE_PASSWORD", "")  # senha só via env
 
 # ---------------------------------------------------------------------------
 # Schemas de entrada

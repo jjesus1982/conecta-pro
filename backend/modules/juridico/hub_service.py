@@ -133,7 +133,26 @@ async def _card_certidoes(db: AsyncSession) -> dict[str, Any]:
     validas = await _scalar(
         db, f"SELECT COUNT(*) FROM ged_certidoes WHERE expiry_date IS NULL OR expiry_date >= DATE '{hoje}'"
     )
-    return {"total": total, "validas": validas, "vencidas": vencidas}
+    # Multi-CNPJ E6: certidões agora são POR EMPRESA — o consolidado sozinho
+    # mascararia o CNPJ2 (pré-mortem F4). Quebra por CNPJ no mesmo card.
+    from sqlalchemy import text as _t
+
+    por = (await db.execute(_t(
+        "SELECT COALESCE(e.nome_fantasia, g.cnpj) AS quem, "
+        "COUNT(*) FILTER (WHERE g.expiry_date IS NULL OR g.expiry_date >= CURRENT_DATE) AS validas, "
+        "COUNT(*) FILTER (WHERE g.expiry_date IS NOT NULL AND g.expiry_date < CURRENT_DATE) AS vencidas "
+        "FROM ged_certidoes g LEFT JOIN empresas e "
+        "ON REGEXP_REPLACE(e.cnpj,'[^0-9]','','g') = g.cnpj AND e.status='ativa' "
+        "GROUP BY 1 ORDER BY 1"
+    ))).fetchall()
+    return {
+        "total": total,
+        "validas": validas,
+        "vencidas": vencidas,
+        "por_empresa": [
+            {"empresa": r.quem, "validas": r.validas, "vencidas": r.vencidas} for r in por
+        ],
+    }
 
 
 async def hub_dashboard(db: AsyncSession) -> dict[str, Any]:

@@ -1019,7 +1019,7 @@ async def transmitir_evento_sst(db: Any, tipo: str, ref_id: Any) -> dict[str, An
     cert_path = os.environ.get(
         "CERTIFICATE_PATH", "/opt/conecta-pro/credentials/certificates/certificado.pfx"
     )
-    cert_password = os.environ.get("CERTIFICATE_PASSWORD", "Conecta123")
+    cert_password = os.environ.get("CERTIFICATE_PASSWORD", "")
 
     transmitter = ESocialTransmitter(
         environment=resolve_environment(),  # default SEGURO: producaorestrita
