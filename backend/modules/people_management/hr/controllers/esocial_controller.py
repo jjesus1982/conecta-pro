@@ -27,6 +27,44 @@ EMPRESA_CNPJ = "35710481000103"
 EMPRESA_RAZAO = "CONECTAMAIS ELETRONICA LTDA"
 
 
+def _empregador_do_cpf(cpf: str) -> tuple[str, str]:
+    """TRAVA SST Multi-CNPJ (RF-05/pré-mortem F3): o evento eSocial sai pelo
+    EMPREGADOR VIGENTE do funcionário (employees.empresa_id), nunca por
+    constante. Fallback = empresa principal (comportamento legado) apenas se o
+    CPF não estiver no cadastro — com aviso no log."""
+    import os
+    import re as _re
+
+    import psycopg2
+
+    digitos = _re.sub(r"\D", "", cpf or "")
+    url = _re.sub(r"\+asyncpg|\+psycopg2?", "", os.getenv("DATABASE_URL", ""))
+    if digitos and url:
+        try:
+            conn = psycopg2.connect(url)
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT REGEXP_REPLACE(e.cnpj,'[^0-9]','','g'), e.razao_social "
+                        "FROM employees emp JOIN empresas e ON e.id = emp.empresa_id "
+                        "WHERE REGEXP_REPLACE(COALESCE(emp.cpf,''),'[^0-9]','','g') = %s "
+                        "LIMIT 1",
+                        (digitos,),
+                    )
+                    row = cur.fetchone()
+            finally:
+                conn.close()
+            if row and row[0]:
+                return row[0], row[1]
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Trava SST: falha ao resolver empregador do CPF (%s)", exc)
+    logger.warning(
+        "Trava SST: CPF %s*** sem vínculo no cadastro — usando empresa principal (legado)",
+        digitos[:3],
+    )
+    return EMPRESA_CNPJ, EMPRESA_RAZAO
+
+
 class AdmissaoESocialRequest(BaseModel):
     """Dados para geração do evento S-2200 (Admissão)."""
 
@@ -86,10 +124,11 @@ async def gerar_s2200(
         "tipo_contrato": request.tipo_contrato,
     }
 
+    empregador_cnpj, empregador_razao = _empregador_do_cpf(request.cpf)
     try:
         xml = ESocialEventService.gerar_s2200(
-            empregador_cnpj=EMPRESA_CNPJ,
-            empregador_razao=EMPRESA_RAZAO,
+            empregador_cnpj=empregador_cnpj,
+            empregador_razao=empregador_razao,
             trabalhador=trabalhador,
             contrato=contrato,
         )
@@ -124,8 +163,9 @@ async def gerar_s2299(
 
     Retorna XML para download.
     """
+    empregador_cnpj, _ = _empregador_do_cpf(request.cpf)
     xml = ESocialEventService.gerar_s2299(
-        empregador_cnpj=EMPRESA_CNPJ,
+        empregador_cnpj=empregador_cnpj,
         trabalhador_cpf=request.cpf,
         matricula=request.matricula,
         data_desligamento=request.data_desligamento,
