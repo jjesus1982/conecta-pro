@@ -76,12 +76,16 @@ async def get_financial_summary() -> dict:
         saldo_inter = float(balances[0].get("balance", 0))
     saude = dashboard.get("saude_financeira", {})
     return {
-        "empresa": "Conecta Mais — Segurança Patrimonial & Eletrônica",
-        "cnpj": "35.710.481/0001-03",
-        "regime": "Lucro Real (jan/2026)",
-        "banco": "Banco Inter 077 (único banco)",
+        "empresa": "GRUPO CONECTA MAIS (2 CNPJs — dados CONSOLIDADOS salvo indicação)",
+        "estrutura": [
+            {"razao": "CONECTAMAIS ELETRONICA LTDA", "papel": "seg. eletrônica/portaria remota",
+             "regime": "Lucro Real", "banco": "Inter 077"},
+            {"razao": "CONECTAMAIS PATRIMONIAL LTDA", "papel": "terceirização de mão de obra",
+             "regime": "Simples Nacional", "banco": "Cora 403"},
+        ],
         "timestamp": datetime.now().isoformat(),
         "saldo_inter": saldo_inter,
+        "nota": "saldo_inter = só conta Inter (Eletrônica); saldo Cora (Patrimonial) via extrato/bank_transactions",
         "mrr_bruto": dashboard.get("mrr", 0),
         "saude_score": saude.get("score", 0),
         "saude_classificacao": saude.get("classificacao", ""),
