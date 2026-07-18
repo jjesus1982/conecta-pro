@@ -768,3 +768,60 @@ async def baixar_foto_checkpoint(
     if not str(alvo).startswith(str(base)) or not alvo.is_file():
         raise HTTPException(status_code=404, detail="Foto não encontrada.")
     return FileResponse(alvo)
+
+
+@router.get("/{round_id}/relatorio/pdf", summary="Relatório da ronda em PDF (marca Conecta)")
+async def round_relatorio_pdf(
+    round_id: str,
+    download: bool = Query(False),
+    service: InspectionRoundService = Depends(get_inspection_service),
+):
+    """Gera o relatório da ronda (dados + checkpoints + resumo) em PDF branded."""
+    from fastapi.responses import Response as _Resp
+
+    from modules.financial.services.relatorio_financeiro_pdf import gerar_relatorio_pdf
+
+    r = await service.get_by_id(str(round_id))
+    if not r:
+        raise HTTPException(status_code=404, detail="ronda não encontrada")
+
+    def g(o, k, d="—"):
+        return getattr(o, k, d) or d
+
+    def dt(v):
+        try:
+            return v.strftime("%d/%m/%Y %H:%M")
+        except Exception:  # noqa: BLE001
+            return str(v or "—")
+
+    code = str(g(r, "code", ""))
+    secoes = [{"titulo": f"Ronda {code}", "linhas": [
+        ("Inspetor", f"{g(r, 'inspector_name')} ({g(r, 'inspector_role', '')})"),
+        ("Status", str(g(r, "status"))),
+        ("Agendada", dt(getattr(r, "scheduled_date", None))),
+        ("Iniciada", dt(getattr(r, "started_at", None))),
+        ("Concluída", dt(getattr(r, "completed_at", None))),
+        ("Duração (min)", str(g(r, "duration_minutes", "—"))),
+        ("Postos visitados", f"{g(r, 'posts_visited', '?')}/{g(r, 'posts_to_visit', '?')}"),
+    ]}]
+    cps = list(getattr(r, "checkpoints", []) or [])
+    linhas_cp = []
+    for cp in sorted(cps, key=lambda c: getattr(c, "sequence", 0) or 0):
+        rot = f"{g(cp, 'post_name')} · {g(cp, 'checkpoint_type', '')}"
+        emp = g(cp, "employee_name", "")
+        val = str(g(cp, "status", "")) + (f" · {emp}" if emp and emp != "—" else "")
+        linhas_cp.append((rot, val))
+    secoes.append({"titulo": f"Checkpoints ({len(cps)})", "linhas": linhas_cp or [("(sem checkpoints)", "")]})
+    secoes.append({"titulo": "Resumo", "linhas": [
+        ("Total de checkpoints", str(g(r, "total_checkpoints", "0"))),
+        ("Ocorrências", str(g(r, "total_occurrences", "0"))),
+        ("Medidas disciplinares", str(g(r, "total_disciplinary_actions", "0"))),
+    ]})
+    obs = g(r, "observations", "")
+    if obs and obs != "—":
+        secoes.append({"titulo": "Observações", "linhas": [("", str(obs)[:400])]})
+
+    pdf = gerar_relatorio_pdf("Relatório de Ronda", f"Ronda {code} · {dt(getattr(r, 'scheduled_date', None))}", secoes)
+    disp = "attachment" if download else "inline"
+    return _Resp(content=pdf, media_type="application/pdf",
+                 headers={"Content-Disposition": f'{disp}; filename="ronda_{code or round_id}.pdf"'})
