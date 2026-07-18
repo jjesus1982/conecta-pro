@@ -26,7 +26,18 @@ def sincronizar_nfse_nacional_task(self):
         from modules.financial.services.nfse_nacional_sync_service import NFSeNacionalSyncService
 
         svc = NFSeNacionalSyncService()
-        emit = svc.sincronizar()
+        # Multi-CNPJ E5: sync das emitidas em LOOP pelas empresas ativas com
+        # certificado (cada CNPJ tem feed/NSU próprios no ADN). A falha de uma
+        # empresa NÃO derruba o sync da outra.
+        emit = svc.sincronizar()  # CNPJ1 (legado/env)
+        try:
+            emit_pat = svc.sincronizar(empresa_slug="conecta_patrimonial")
+            logger.info(
+                "NFS-e nacional sync PATRIMONIAL: %s notas vivas, ultimo_nsu=%s",
+                emit_pat.get("validas_cStat100"), emit_pat.get("ultimo_nsu"),
+            )
+        except Exception as pat_exc:  # noqa: BLE001
+            logger.warning("Sync NFS-e Patrimonial falhou (CNPJ1 segue normal): %s", pat_exc)
         tom = svc.sincronizar_tomadas()
         fechar = LedgerAutoService().fechar()
         # Fecha o fluxo de caixa: corrige sinal dos recebidos + justifica cada saída
