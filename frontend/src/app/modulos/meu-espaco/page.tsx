@@ -173,11 +173,11 @@ export default function MeuEspacoPage() {
     <div className="light min-h-screen bg-[hsl(var(--background))]">
       {/* Faixa laranja da marca (padrão-ouro Conecta Mais) */}
       <div className="h-1.5 bg-[#F97316]" />
-      {/* Header — logo da marca em DESTAQUE (recortada, sem margem) */}
-      <header className="h-[68px] flex items-center justify-between px-4 lg:px-6 bg-white border-b border-[hsl(var(--border))]">
+      {/* Header — logo da marca BEM grande e em destaque (recortada, sem margem) */}
+      <header className="h-24 flex items-center justify-between px-4 lg:px-6 bg-white border-b border-[hsl(var(--border))]">
         <div className="flex items-center gap-3">
-          <Image src="/images/logo-marca-v2.png" alt="Conecta PRO" width={282} height={197} priority className="h-11 w-auto" />
-          <span className="hidden sm:inline text-base font-semibold text-[#1E3A5F] border-l border-[hsl(var(--border))] pl-3">
+          <Image src="/images/logo-marca-v2.png" alt="Conecta PRO" width={282} height={197} priority className="h-16 sm:h-20 w-auto" />
+          <span className="hidden md:inline text-lg font-semibold text-[#1E3A5F] border-l border-[hsl(var(--border))] pl-3">
             Meu&nbsp;<span style={{ color: '#F97316' }}>Espaço</span>
           </span>
         </div>
@@ -360,7 +360,7 @@ function OnboardingGate({
     <div className="light min-h-screen bg-[hsl(var(--background))]">
       <header className="h-14 flex items-center justify-between px-4 lg:px-6 bg-[hsl(var(--card))] border-b border-[hsl(var(--border))]">
         <div className="flex items-center gap-2.5">
-          <Image src="/images/logo-marca-v2.png" alt="Conecta PRO" width={282} height={197} className="h-10 w-auto" />
+          <Image src="/images/logo-marca-v2.png" alt="Conecta PRO" width={282} height={197} className="h-14 w-auto" />
           <span className="font-display text-sm font-semibold tracking-tight">
             Meu&nbsp;<span style={{ color: '#F97316' }}>Espaço</span>
           </span>
