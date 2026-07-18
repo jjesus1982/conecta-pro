@@ -78,9 +78,25 @@ async def _receita_por_empresa(db: AsyncSession, empresas: list[Empresa], mes: i
             "fonte": "sem_dados",
         }
 
-        # 1. Buscar contratos ativos por tipo de servico desta empresa
+        # 1. Contratos ativos POR EMPRESA — fonte real: contracts.empresa_id
+        #    (Multi-CNPJ E2: classificação canônica do Jordan, com aditivos).
+        #    Fallback: heurística legada por tipo de serviço (client_contracts).
         tipos = emp.tipos_servicos or []
-        if tipos:
+        try:
+            contratos_sql = text("""
+                SELECT COUNT(*) as total, COALESCE(SUM(monthly_value), 0) as valor
+                FROM contracts
+                WHERE status = 'active' AND empresa_id = :emp_id
+            """)
+            r = await db.execute(contratos_sql, {"emp_id": str(emp.id)})
+            row = r.fetchone()
+            if row and row[0] > 0:
+                receitas[slug]["contratos_ativos"] = row[0]
+                receitas[slug]["valor_mensal_contratos"] = Decimal(str(row[1]))
+                receitas[slug]["fonte"] = "contratos(empresa_id)"
+        except Exception:
+            await db.rollback()
+        if receitas[slug]["contratos_ativos"] == 0 and tipos:
             try:
                 contratos_sql = text("""
                     SELECT COUNT(*) as total, COALESCE(SUM(monthly_value), 0) as valor
@@ -97,21 +113,16 @@ async def _receita_por_empresa(db: AsyncSession, empresas: list[Empresa], mes: i
             except Exception:
                 await db.rollback()  # Reset transaction after enum error
 
-        # 2. Buscar NFS-e emitidas no mes/ano (fonte da verdade: nfse_emitidas_nacional).
-        #    A tabela nova nao tem prestador_cnpj: e um unico CNPJ (35.710.481/0001-03,
-        #    a empresa principal). Atribuimos as NFS-e emitidas a empresa cujo CNPJ bate
-        #    com o CNPJ prestador dessas notas. competencia e varchar 'YYYY-MM'.
-        cnpj_prestador_nfse = "35.710.481/0001-03"
-        cnpj_emp_limpo = (emp.cnpj or "").replace(".", "").replace("/", "").replace("-", "")
-        cnpj_prestador_limpo = cnpj_prestador_nfse.replace(".", "").replace("/", "").replace("-", "")
-        if emp.cnpj and cnpj_emp_limpo == cnpj_prestador_limpo:
+        # 2. NFS-e emitidas no mes/ano POR EMPRESA (Multi-CNPJ E5: a tabela
+        #    nfse_emitidas_nacional tem empresa_id — cada CNPJ com suas notas).
+        if emp.cnpj:
             competencia = f"{ano:04d}-{mes:02d}"
             nfse_sql = text("""
                 SELECT COUNT(*) as total, COALESCE(SUM(valor_servicos), 0) as valor
                 FROM nfse_emitidas_nacional
-                WHERE competencia = :competencia
+                WHERE competencia = :competencia AND empresa_id = :emp_id
             """)
-            r = await db.execute(nfse_sql, {"competencia": competencia})
+            r = await db.execute(nfse_sql, {"competencia": competencia, "emp_id": str(emp.id)})
             row = r.fetchone()
             if row and row[0] > 0:
                 receitas[slug]["nfse_emitidas"] = row[0]
