@@ -23,6 +23,7 @@ class BankCode(StrEnum):
     SICOOB = "756"  # Sicoob
     SICREDI = "748"  # Sicredi
     INTER = "077"  # Banco Inter
+    CORA = "403"  # Cora SCD (Multi-CNPJ E4 — banco da Conecta Mais Patrimonial)
 
 
 class AccountType(StrEnum):
