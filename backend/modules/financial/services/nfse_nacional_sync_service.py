@@ -103,31 +103,63 @@ class NFSeNacionalSyncService:
         )
         cur.execute("CREATE INDEX IF NOT EXISTS ix_nfse_tom_comp ON nfse_tomadas_nacional (competencia)")
 
-    def sincronizar(self, max_paginas: int = 80) -> dict:
+    def sincronizar(self, max_paginas: int = 80, empresa_slug: str | None = None) -> dict:
         """Puxa as NFS-e emitidas do ADN nacional e faz upsert em nfse_emitidas_nacional.
         SÓ conta cStat 100 (NFS-e válida). cStat 101 = SUBSTITUÍDA (cancelada) → ignorada,
-        senão a receita infla (a mesma nota re-emitida vira várias). Limpa e recarrega."""
+        senão a receita infla (a mesma nota re-emitida vira várias). Limpa e recarrega.
+
+        Multi-CNPJ E5: `empresa_slug` seleciona a empresa (cert+CNPJ próprios no ADN);
+        None = legado (CNPJ1). A recarga limpa é ESCOPADA por empresa_id — o sync de
+        uma empresa nunca apaga notas da outra. Grava checkpoint de NSU por empresa.
+        """
         from modules.gedeon.services.nfse_nacional_adn import distribuir
 
-        r = distribuir(nsu_inicial=0, max_paginas=max_paginas)
+        slug_efetivo = empresa_slug or "conecta_eletronica"
+        r = distribuir(nsu_inicial=0, max_paginas=max_paginas, empresa_slug=empresa_slug)
         emitidas = r.get("emitidas", [])
         conn = self._conn()
         ignoradas = 0
         try:
             with conn.cursor() as cur:
                 self._ensure(cur)
-                # Recarga limpa (autoritativo): remove as antigas antes de inserir só as válidas
-                cur.execute("DELETE FROM nfse_emitidas_nacional WHERE fonte='adn_nacional'")
-                novas = atualizadas = 0
+                cur.execute("SELECT id FROM empresas WHERE slug=%s AND status='ativa'", (slug_efetivo,))
+                row_emp = cur.fetchone()
+                if not row_emp:
+                    raise LookupError(f"nfse sync: empresa ativa '{slug_efetivo}' não encontrada")
+                empresa_id = str(row_emp[0])
+                # Recarga limpa (autoritativo) ESCOPADA na empresa deste sync
+                cur.execute(
+                    "DELETE FROM nfse_emitidas_nacional WHERE fonte='adn_nacional' "
+                    "AND (empresa_id = %s OR (empresa_id IS NULL AND %s = '619a3df1-8bce-49ce-b77a-04f80a0e8491'))",
+                    (empresa_id, empresa_id),
+                )
+                # REGRA DE VALIDADE (corrigida 2026-07-17, provada com as notas reais
+                # da Patrimonial): uma nota é VÁLIDA se a chave dela NÃO é referenciada
+                # como <chSubstda> por nenhum outro documento do feed. O cStat do XML
+                # distribuído marca o DOCUMENTO substituidor (101), não a validade da
+                # nota — filtrar por cStat==100 guardava as notas MORTAS (sem retenção)
+                # e descartava as substitutas vigentes.
+                import re as _re
+
+                chaves_mortas: set[str] = set()
                 for n in emitidas:
+                    m = _re.search(r"<chSubstda>([^<]+)</chSubstda>", n.get("_xml", ""))
+                    if m:
+                        chaves_mortas.add(m.group(1).strip())
+
+                novas = atualizadas = 0
+                vistos: set[str] = set()
+                for n in sorted(emitidas, key=lambda x: int(x.get("nsu") or 0), reverse=True):
                     xml = n.get("_xml", "")
                     chave = n.get("chave_acesso") or n.get("chave") or ""
                     if not chave:
                         continue
-                    cstat = _v(xml, "cStat")
-                    if cstat and cstat != "100":  # 101=substituída, 000/outros=evento → ignora
+                    if chave in chaves_mortas:  # substituída por outra → morta
                         ignoradas += 1
                         continue
+                    if chave in vistos:  # mesma nota redistribuída → fica a de maior NSU
+                        continue
+                    vistos.add(chave)
                     comp = (_v(xml, "dCompet") or n.get("dhProc", "")[:7])[:7]
                     tcnpj, tnome = _tomador(xml)
                     vals = {
@@ -150,24 +182,38 @@ class NFSeNacionalSyncService:
                         INSERT INTO nfse_emitidas_nacional
                             (chave_acesso, numero, competencia, data_emissao, tomador_cnpj,
                              tomador_nome, valor_servicos, iss_valor, iss_aliquota, valor_liquido,
-                             inss_retido, codigo_servico, descricao, nsu)
+                             inss_retido, codigo_servico, descricao, nsu, empresa_id)
                         VALUES (%(chave)s, %(numero)s, %(competencia)s, %(data_emissao)s, %(tomador_cnpj)s,
                                 %(tomador_nome)s, %(valor_servicos)s, %(iss_valor)s, %(iss_aliquota)s,
-                                %(valor_liquido)s, %(inss_retido)s, %(codigo_servico)s, %(descricao)s, %(nsu)s)
+                                %(valor_liquido)s, %(inss_retido)s, %(codigo_servico)s, %(descricao)s, %(nsu)s,
+                                %(empresa_id)s)
                         ON CONFLICT (chave_acesso) DO UPDATE SET
                             valor_servicos=EXCLUDED.valor_servicos, iss_valor=EXCLUDED.iss_valor,
-                            competencia=EXCLUDED.competencia, tomador_nome=EXCLUDED.tomador_nome
+                            competencia=EXCLUDED.competencia, tomador_nome=EXCLUDED.tomador_nome,
+                            empresa_id=EXCLUDED.empresa_id
                         """,
-                        {"chave": chave, **vals},
+                        {"chave": chave, "empresa_id": empresa_id, **vals},
                     )
                     if cur.rowcount == 1:
                         novas += 1
                     else:
                         atualizadas += 1
+                # Checkpoint de NSU por empresa (o NSU do ADN é por CNPJ no gov)
+                cur.execute(
+                    """
+                    INSERT INTO fiscal_nsu_checkpoint (empresa_id, tipo, ultimo_nsu, updated_at)
+                    VALUES (%s, 'nfse_adn', %s, NOW())
+                    ON CONFLICT (empresa_id, tipo)
+                    DO UPDATE SET ultimo_nsu = EXCLUDED.ultimo_nsu, updated_at = NOW()
+                    """,
+                    (empresa_id, str(r.get("ultimo_nsu") or 0)),
+                )
                 conn.commit()
                 cur.execute(
                     "SELECT competencia, count(*), sum(valor_servicos)::numeric(14,2), "
-                    "sum(iss_valor)::numeric(14,2) FROM nfse_emitidas_nacional GROUP BY 1 ORDER BY 1"
+                    "sum(iss_valor)::numeric(14,2) FROM nfse_emitidas_nacional "
+                    "WHERE empresa_id = %s GROUP BY 1 ORDER BY 1",
+                    (empresa_id,),
                 )
                 por_comp = [
                     {"competencia": c, "notas": n, "valor": float(v or 0), "iss": float(i or 0)}
