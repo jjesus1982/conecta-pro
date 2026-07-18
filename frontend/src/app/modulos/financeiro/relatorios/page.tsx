@@ -23,6 +23,7 @@ import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import { abrirPdf } from '@/lib/pdf';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
@@ -401,7 +402,12 @@ export default function RelatoriosPage() {
             <RefreshCw className={cn('w-4 h-4', isLoadingAny && 'animate-spin')} />
           </Button>
 
-          <Button variant="outline" size="sm" onClick={() => window.print()}>
+          <Button variant="outline" size="sm" onClick={() => {
+            const ano = new Date().getFullYear();
+            if (activeTab === 'dre') abrirPdf(`/api/v1/financial/relatorios/dre/pdf?ano=${ano}`);
+            else if (activeTab === 'balancete') abrirPdf(`/api/v1/financial/relatorios/balancete/pdf?ano=${ano}`);
+            else window.print();
+          }}>
             <Download className="w-4 h-4 mr-2" />
             Exportar PDF
           </Button>

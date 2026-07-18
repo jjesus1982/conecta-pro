@@ -1,7 +1,8 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { Shield, Search, Plus, Eye, Edit2, Trash2, ArrowLeft, ChevronLeft, ChevronRight, AlertCircle, CheckCircle, RefreshCw, Clock, Play, Pause, CheckSquare, XCircle, MapPin, Users, Camera } from 'lucide-react';
+import { Shield, Search, Plus, Eye, Edit2, Trash2, ArrowLeft, ChevronLeft, ChevronRight, AlertCircle, CheckCircle, RefreshCw, Clock, Play, Pause, CheckSquare, XCircle, MapPin, Users, Camera, FileText } from 'lucide-react';
+import { abrirPdf } from '@/lib/pdf';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -505,6 +506,14 @@ export default function RondasPage() {
                               title="Ver Detalhes"
                             >
                               <Eye className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => abrirPdf(`/api/v1/operacional/rondas/${round.id}/relatorio/pdf`, { download: true, nome: `ronda_${round.code || round.id}.pdf` })}
+                              title="Baixar relatório da ronda (PDF)"
+                            >
+                              <FileText className="w-4 h-4" />
                             </Button>
                             {round.status === 'agendada' && (
                               <Button
