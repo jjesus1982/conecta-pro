@@ -1,6 +1,35 @@
 # PLANO DE EXECUÇÃO — Multi-CNPJ Grupo Conecta Mais
 
-**Versão:** 1.0 · **Data:** 2026-07-17 · **Status:** AGUARDANDO "PODE EXECUTAR" do Jordan
+**Versão:** 1.1 · **Data:** 2026-07-17 (status 2026-07-18) · **Status:** EM EXECUÇÃO — autorizado 17/07
+
+## STATUS REAL (18/07 ~13h) — ~9 dias à frente do cronograma
+
+| Etapa | Status | Prova |
+|---|---|---|
+| E1 Fundação | ✅ 17/07 | 2 empresas ativas/completas; certs A1+Cora validados; helper único; tenants=instalação |
+| E2 Contratos | ✅ 17/07 | Migração executada: 7→Patrimonial (incl. Pássaros inteiro) + 3→Eletrônica, aditivos TRANSF-* persistidos |
+| E3 Trabalhista | 🟡 ARMADA | Migrations aplicadas (72 empl/107 payslips backfill CNPJ1); flip = `multicnpj_espelhar_funcionarios.sh <YYYY-MM>` — **aguarda data Portte (≤25/07)** |
+| E4 Cora | 🟡 LEITURA ✅ | Saldo R$34.237,67 no sistema; extrato conciliado AUTOMÁTICO (líquido×NFS-e provado com PIX reais do Mirante); beat 08:10. **Saída/cobrança aguarda stage+D7** |
+| E5 Fiscal | ✅ 18/07 | Pipeline 2 empresas (beat 04:30 rodou sozinho ok); regra de substituição CORRIGIDA (bug que afetava CNPJ1: −R$5.886,90 fantasma, +R$5.808,39 INSS retido); Patrimonial: 6 notas/R$187.981,05, NSU=18 |
+| E6 GED/Kits | ✅ 18/07 | Kit híbrido pronto p/ 28/07: CNDs por CNPJ (2 conjuntos), DANFSe das 2 empresas (substituídas fora), classificador 2 matrizes |
+| E7 Proteção | ✅ 18/07 | Guard anti-CNPJ (baseline 61, provado verde→vermelho→verde); rodar via python (pytest fora da imagem) |
+| E8 Grupo/telas | 🟡 ~85% | 8 consultores IA c/ contexto vivo; dashboard Grupo real (Ele 83,9k + Pat 188k = 271,9k jun); MCP corrigido; 5 telas commitadas — **deploy frontend adiado (WIP T1/T2 na árvore)** |
+| WS9 Folha orgânica | ⏳ pós-virada | Conforme plano (ago–out, paralelo Portte) |
+
+**Bugs reais corrigidos de brinde:** substituição NFS-e (fiscal), CNDT nunca funcionava (client sem
+context manager), liminares fantasma no cálculo NFS-e multi, DANFSe morto indo p/ kits.
+
+### RUNBOOK GO-LIVE (rascunho p/ 29–31/07 — executar em ordem)
+1. **D2 chegou (Portte)?** → rodar `scripts/multicnpj_espelhar_funcionarios.sh <competência>` →
+   conferir oráculo CPF×empregador×data contra retorno Portte → `up -d --force-recreate backend`
+   (checar lock+green ANTES) → gate anti-reescrita: holerite de competência anterior re-renderiza CNPJ1.
+2. **Aditivos assinados (D5)?** → marcar `signed=true` nos ContractAddendum TRANSF-*.
+3. **Frontend**: deploy coordenado com T1/T2 (commits dece0ef8+ aguardando carona; árvore precisa limpa).
+4. **Cora stage/D7 chegou?** → ensaio R$0,01 em stage → habilitar cobrança/saída por empresa →
+   corrigir 2 telas pendentes (cobrancas + nfse emissão) → régua de cobrança PIX por empresa.
+5. **Gates finais**: guard anti-CNPJ verde; beats 04:30/08:10/08:30 ok por 2 dias seguidos; kit 28/07
+   conferido pelo Jordan; dashboard Grupo == queries (veracity sweep).
+6. **Backup rotulado `pre_golive`** antes de 31/07; snapshot já automático 03:00.
 **Docs-irmãos:** `PREMORTEM_MULTI_CNPJ_2026-07-17.md` · `PRD_MULTI_CNPJ_2026-07-17.md` · `PLANO_MULTI_CNPJ_GRUPO_CONECTA_2026-07-17.md` (diagnóstico com arquivo:linha de cada ponto)
 
 **Papéis:** `[C]` Claude t1 (executor técnico) · `[J]` Jordan (destravas externas/decisões) · `[P]` Portte (transição trabalhista, folha oficial) · t2/t3 = outros terminais (território próprio, fora deste plano).
