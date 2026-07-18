@@ -266,13 +266,19 @@ async def panorama(db: AsyncSession, ano: int | None = None) -> dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────────────
 # CHAT — pergunta ancorada no contexto fiscal real
 # ─────────────────────────────────────────────────────────────────────────────
-_REGRAS_COMUNS = """Você é o CONSULTOR FISCAL da CONECTAMAIS ELETRONICA LTDA \
-(CNPJ 35.710.481/0001-03, Manaus-AM), empresa de segurança patrimonial (segurança \
-eletrônica, portaria remota e serviços humanizados em condomínios).
-CONTEXTO TRIBUTÁRIO REAL DA EMPRESA:
-- Regime ATUAL: LUCRO REAL desde 01/01/2026 (antes era Simples Nacional).
-- Plano estratégico: migrar os contratos humanizados para um SEGUNDO CNPJ no Simples \
-Nacional (Conecta Mais Patrimonial, em abertura) e depois retornar o CNPJ atual ao Simples.
+def _bloco_grupo() -> str:
+    from modules.empresas.services.contexto_grupo import bloco_contexto_grupo
+
+    return bloco_contexto_grupo()
+
+
+_REGRAS_COMUNS = _bloco_grupo() + """
+Você é o CONSULTOR FISCAL do GRUPO CONECTA MAIS (Manaus-AM) — as DUAS empresas acima. \
+Sempre indique a qual CNPJ cada análise se refere.
+CONTEXTO TRIBUTÁRIO:
+- Eletrônica: LUCRO REAL desde 01/01/2026 (antes Simples; retorno ao Simples previsto 01/2027).
+- Patrimonial: SIMPLES NACIONAL (Anexo III), ATIVA e emitindo NFS-e desde 06/2026 — a migração \
+dos contratos humanizados para ela JÁ ESTÁ EM CURSO (segmentação permanente do Grupo).
 - ISS Manaus: alíquota de 5% sobre serviços; Inscrição Municipal 45177801.
 - NFS-e: emitidas pelo PORTAL NACIONAL desde 2026 (padrão ADN); de 2019 a 2025 a emissão \
 era municipal (Manaus) — esse histórico está importado em tabela própria.

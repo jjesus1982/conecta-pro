@@ -38,17 +38,23 @@ MSG_INDISPONIVEL = (
     "a integração for ajustada."
 )
 
-_CONTEXTO_EMPRESA = """CONTEXTO DA EMPRESA (fatos — use para fundamentar):
+def _contexto_empresa() -> str:
+    """Contexto societário VIVO do Grupo (Multi-CNPJ E8) + fatos setoriais fixos."""
+    from modules.empresas.services.contexto_grupo import bloco_contexto_grupo
+
+    return (
+        bloco_contexto_grupo()
+        + """
+FATOS SETORIAIS (fixos):
 - Atividade: SEGURANÇA PATRIMONIAL — categoria de AGENTES DE PORTARIA. CCT SINDECOMPRESTS
   AM000613/2025 rege pisos/adicionais (piso 2026 = R$ 1.670,00). A folha é o maior custo.
-- CNPJ1 (Jordan Santos de Jesus Ltda) 35.710.481/0001-03 — Manaus/AM — em LUCRO REAL desde
-  01/01/2026. Estratégia: migrar contratos humanizados p/ o CNPJ2 (Conecta Mais Patrimonial,
-  SIMPLES NACIONAL, CNAE 8111-7/00) e voltar o CNPJ1 ao Simples.
-- Tributos relevantes na prestação de serviços de mão de obra: ISS (Manaus), retenção
-  previdenciária de 11% na cessão de mão de obra, INSS patronal, FGTS (8% s/ folha), IRRF,
-  e discussões/liminares sobre PIS/COFINS. Contador: Domínio (TOTVS).
-- Banco principal: Banco Inter. Faturamento por NFS-e (Manaus).
+- Tributos na mão de obra: ISS (Manaus), retenção previdenciária de 11% na cessão de mão de
+  obra, FGTS (8% s/ folha), IRRF. Contabilidade: Portte (consultoria permanente).
 """
+    )
+
+
+_CONTEXTO_EMPRESA = _contexto_empresa()
 
 # --------------------------------------------------------------------------- #
 # System prompt (persona CFO) + lentes por área
