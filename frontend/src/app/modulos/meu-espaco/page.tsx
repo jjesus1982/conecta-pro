@@ -173,16 +173,16 @@ export default function MeuEspacoPage() {
     <div className="light min-h-screen bg-[hsl(var(--background))]">
       {/* Faixa laranja da marca (padrão-ouro Conecta Mais) */}
       <div className="h-1.5 bg-[#F97316]" />
-      {/* Header — logo da marca BEM grande e em destaque (recortada, sem margem) */}
-      <header className="h-24 flex items-center justify-between px-4 lg:px-6 bg-white border-b border-[hsl(var(--border))]">
+      {/* Header — logo da marca CENTRALIZADA e em destaque (Sair fixo à direita) */}
+      <header className="relative h-24 flex items-center justify-center px-4 lg:px-6 bg-white border-b border-[hsl(var(--border))]">
         <div className="flex items-center gap-3">
           <Image src="/images/logo-marca-v2.png" alt="Conecta PRO" width={282} height={197} priority className="h-16 sm:h-20 w-auto" />
           <span className="hidden md:inline text-lg font-semibold text-[#1E3A5F] border-l border-[hsl(var(--border))] pl-3">
             Meu&nbsp;<span style={{ color: '#F97316' }}>Espaço</span>
           </span>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-[hsl(var(--muted-foreground))] hidden sm:inline">
+        <div className="absolute right-4 lg:right-6 flex items-center gap-3">
+          <span className="text-sm text-[hsl(var(--muted-foreground))] hidden lg:inline">
             {user?.name}
           </span>
           <Button variant="outline" size="sm" onClick={logout}>
