@@ -331,12 +331,13 @@ async def guias_do_mes(
 
     # 2) Guias mensais de tributos (das obrigações fiscais da competência)
     obr = (await db.execute(_sql("""
-        SELECT tipo, nome, COALESCE(valor_devido,0) valor, data_vencimento, status
+        SELECT id, tipo, nome, COALESCE(valor_devido,0) valor, data_vencimento, status, observacoes
         FROM fiscal_obligations
         WHERE competencia_mes=:m AND competencia_ano=:a AND COALESCE(valor_devido,0) > 0
         ORDER BY data_vencimento
     """), {"m": mes, "a": ano})).mappings().all()
     for o in obr:
+        tem_pdf = bool(o["observacoes"] and "drive_file_id" in o["observacoes"])
         guias.append({
             "tipo": "mensal",
             "descricao": f"{o['tipo']} — {o['nome'] or 'guia mensal'}",
@@ -344,6 +345,9 @@ async def guias_do_mes(
             "valor": float(o["valor"]),
             "vencimento": o["data_vencimento"].isoformat() if o["data_vencimento"] else None,
             "status": "pago" if (o["status"] or "").lower() == "cumprida" else "a_pagar",
+            "obrigacao_id": str(o["id"]),
+            "pdf_disponivel": tem_pdf,
+            "pdf_url": f"/api/v1/fiscal/guias-drive/pdf/{o['id']}" if tem_pdf else None,
         })
 
     total = round(sum(g["valor"] for g in guias), 2)

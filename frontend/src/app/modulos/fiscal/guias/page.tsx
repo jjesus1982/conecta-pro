@@ -2,8 +2,9 @@
 
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Receipt } from 'lucide-react'
+import { Receipt, Eye, Download } from 'lucide-react'
 import { PageHeader } from '@/components/ui/page-header'
+import { abrirPdf } from '@/lib/pdf'
 
 const brl = (v: number | null | undefined) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0)
@@ -95,7 +96,7 @@ export default function GuiasParcelamentosPage() {
         {(guias?.guias ?? []).length > 0 ? (
           <table className="w-full text-sm">
             <thead className="text-gray-500 border-b text-xs">
-              <tr><th className="text-left py-1">Guia</th><th className="text-left">Tipo</th><th className="text-left">Vence</th><th className="text-right">Valor</th><th className="text-right">Status</th></tr>
+              <tr><th className="text-left py-1">Guia</th><th className="text-left">Tipo</th><th className="text-left">Vence</th><th className="text-right">Valor</th><th className="text-right">Status</th><th className="text-right">PDF</th></tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {(guias?.guias ?? []).map((g: any, i: number) => (
@@ -105,6 +106,18 @@ export default function GuiasParcelamentosPage() {
                   <td className="text-gray-500">{g.vencimento ? g.vencimento.slice(0, 10).split('-').reverse().join('/') : '—'}</td>
                   <td className="text-right font-mono">{brl(g.valor)}</td>
                   <td className="text-right"><span className={`text-[10px] px-1.5 py-0.5 rounded ${g.status === 'pago' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{g.status}</span></td>
+                  <td className="text-right whitespace-nowrap">
+                    {g.pdf_disponivel ? (
+                      <span className="inline-flex gap-1 justify-end">
+                        <button onClick={() => abrirPdf(g.pdf_url)} title="Ver PDF da guia"
+                          className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] hover:bg-gray-100"><Eye className="h-3 w-3" /></button>
+                        <button onClick={() => abrirPdf(g.pdf_url, { download: true, nome: `guia_${g.orgao}_${comp}.pdf` })} title="Baixar PDF da guia"
+                          className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] hover:bg-gray-100"><Download className="h-3 w-3" /></button>
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-gray-300">—</span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
