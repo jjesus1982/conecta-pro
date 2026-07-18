@@ -290,7 +290,7 @@ export default function EmpresasPage() {
             <div className="space-y-3 text-sm">
               <div className="flex justify-between">
                 <span className="text-gray-500">CNPJ</span>
-                <span className="text-gray-400 italic">Em abertura...</span>
+                <span className="font-mono font-medium text-gray-800">66.014.833/0001-10</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-500">Regime</span>

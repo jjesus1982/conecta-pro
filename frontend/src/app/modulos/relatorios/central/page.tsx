@@ -102,7 +102,7 @@ export default function CentralRelatoriosPage() {
       doc.setFontSize(16);
       doc.text('Conecta PRO - Relatorio', 14, 15);
       doc.setFontSize(9);
-      doc.text('CONECTAMAIS ELETRONICA LTDA | CNPJ: 35.710.481/0001-03', 14, 22);
+      doc.text('GRUPO CONECTA MAIS (consolidado) | Eletronica 35.710.481/0001-03 | Patrimonial 66.014.833/0001-10', 14, 22);
       doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')} | Periodo: ${periodLabel}`, 14, 27);
       doc.setTextColor(0, 0, 0);
 

@@ -377,8 +377,8 @@ function TipoCard({
           <div className="space-y-3 text-sm">
             <p className="font-semibold">
               Você vai transmitir {selecionados.length} evento(s) {tipo} LEGAIS REAIS ao
-              eSocial {ambiente === 'producao' ? 'PRODUÇÃO' : ambiente} (CNPJ
-              35.710.481/0001-03).
+              eSocial {ambiente === 'producao' ? 'PRODUÇÃO' : ambiente} (empregador
+              conforme o cadastro vigente de cada funcionário — Grupo Conecta Mais).
             </p>
             <p>
               Isto não é simulação: cada evento entra no registro oficial do governo e a

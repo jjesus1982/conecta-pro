@@ -18,7 +18,7 @@ export default function TermosPage() {
         <section className="space-y-6 text-gray-700 text-sm leading-relaxed">
           <div>
             <h2 className="font-semibold text-base text-gray-900 mb-2">1. Aceitação</h2>
-            <p>Ao utilizar o Conecta PRO, você concorda com estes termos. O sistema é de uso exclusivo das empresas clientes da Conecta Mais — Segurança e Tecnologia (CNPJ 35.710.481/0001-03).</p>
+            <p>Ao utilizar o Conecta PRO, você concorda com estes termos. O sistema é de uso exclusivo das empresas clientes do Grupo Conecta Mais — CONECTAMAIS ELETRONICA LTDA (CNPJ 35.710.481/0001-03) e CONECTAMAIS PATRIMONIAL LTDA (CNPJ 66.014.833/0001-10).</p>
           </div>
           <div>
             <h2 className="font-semibold text-base text-gray-900 mb-2">2. Responsabilidades do usuário</h2>
