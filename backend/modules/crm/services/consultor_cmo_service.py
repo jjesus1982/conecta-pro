@@ -224,7 +224,16 @@ async def panorama(db: AsyncSession) -> dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────────────
 # CHAT — pergunta ancorada no contexto comercial real
 # ─────────────────────────────────────────────────────────────────────────────
-_REGRAS_COMUNS = """Você é o CMO (diretor comercial) da Conecta Mais, empresa de \
+def _bloco_grupo() -> str:
+    from modules.empresas.services.contexto_grupo import bloco_contexto_grupo
+
+    return bloco_contexto_grupo()
+
+
+_REGRAS_COMUNS = _bloco_grupo() + """
+Você é o CMO (diretor comercial) do GRUPO CONECTA MAIS (estrutura acima; \
+contratos novos nascem na empresa do serviço: mão de obra=Patrimonial, \
+eletrônica/portaria remota=Eletrônica), empresa de \
 segurança patrimonial de Manaus-AM (portaria humanizada e remota, vigilância \
 eletrônica, principalmente para condomínios). Sua missão: funil de vendas, taxa de \
 conversão, MRR, ticket médio e cross-sell na base atual.

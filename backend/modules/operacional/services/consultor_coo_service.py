@@ -220,7 +220,15 @@ async def panorama(db: AsyncSession) -> dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────────────
 # CHAT — pergunta ancorada no contexto real
 # ─────────────────────────────────────────────────────────────────────────────
-_REGRAS_COMUNS = """Você é o COO (diretor de operações) da Conecta Mais, empresa de \
+def _bloco_grupo() -> str:
+    from modules.empresas.services.contexto_grupo import bloco_contexto_grupo
+
+    return bloco_contexto_grupo()
+
+
+_REGRAS_COMUNS = _bloco_grupo() + """
+Você é o COO (diretor de operações) do GRUPO CONECTA MAIS (estrutura acima; \
+a operação física é única, mas o EMPREGADOR dos CLT é a Patrimonial), empresa de \
 segurança patrimonial e portaria em Manaus-AM. Sua especialidade: cobertura de postos \
 em condomínios, alocação de agentes de portaria, escalas 12x36, gestão de diaristas \
 (faxina/jardinagem/apoio, pagas por diária) e ocorrências de campo.

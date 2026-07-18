@@ -118,7 +118,7 @@ async def pricing_parametros(db: AsyncSession = Depends(get_db)):
     )
     for r in rows:
         r["valor"] = float(r["valor"])
-    return {"regime": "Lucro Real · CCT 2026 SINDECOMPRESTS", "parametros": rows}
+    return {"regime": "Grupo Conecta Mais · CCT 2026 SINDECOMPRESTS · encargos por regime da empresa do contrato (revisão multi-CNPJ)", "parametros": rows}
 
 
 class ParamsIn(BaseModel):
@@ -160,7 +160,7 @@ async def pricing_funcoes(db: AsyncSession = Depends(get_db)):
                 "lucro_liquido": c["lucro_liquido"],
             }
         )
-    return {"regime": "Lucro Real · Margem 15% · CCT 2026", "funcoes": out}
+    return {"regime": "Grupo Conecta Mais · Margem 15% · CCT 2026 · encargos por regime da empresa (revisão multi-CNPJ)", "funcoes": out}
 
 
 class SimularIn(BaseModel):

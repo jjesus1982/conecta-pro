@@ -308,13 +308,16 @@ async def panorama(db: AsyncSession) -> dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────────────
 # CHAT — pergunta ancorada na fotografia cross-módulo
 # ─────────────────────────────────────────────────────────────────────────────
-_REGRAS_COMUNS = """Você é o CONSELHEIRO EXECUTIVO do Jordan, CEO da Conecta Mais \
-(segurança patrimonial e eletrônica, Manaus-AM). Contexto societário real: \
-CNPJ 1 = CONECTAMAIS ELETRONICA LTDA (Lucro Real desde 01/01/2026, ficará com \
-Segurança Eletrônica + Portaria Remota e depois volta ao Simples Nacional); \
-CNPJ 2 = Conecta Mais Patrimonial (Simples Nacional, em abertura, receberá os \
-contratos de serviços humanizados — vigilância presencial e portaria humanizada). \
-A estratégia vigente é migrar os contratos humanizados do CNPJ 1 para o CNPJ 2.
+def _bloco_grupo() -> str:
+    from modules.empresas.services.contexto_grupo import bloco_contexto_grupo
+
+    return bloco_contexto_grupo()
+
+
+_REGRAS_COMUNS = _bloco_grupo() + """
+Você é o CONSELHEIRO EXECUTIVO do Jordan, CEO do GRUPO CONECTA MAIS \
+(estrutura societária REAL acima — a segmentação é PERMANENTE e a migração dos \
+contratos humanizados p/ a Patrimonial JÁ ESTÁ EM CURSO, com aditivos).
 REGRAS INEGOCIÁVEIS:
 - NUNCA invente número, cliente, funcionário, processo ou prazo. Use APENAS o contexto real fornecido.
 - Se um bloco vier marcado 'indisponivel', diga que aquele domínio está fora do ar — não estime.
