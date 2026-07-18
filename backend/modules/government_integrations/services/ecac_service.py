@@ -57,8 +57,10 @@ def _dados_fiscais_reais(cpf_cnpj: str | None = None) -> dict[str, Any]:
                 val = Decimal(str(r[4] or 0))
                 total_deb += val
                 tem_pdf = bool(r[8] and "drive_file_id" in r[8])
+                pagavel = bool(r[8] and ("codigo_barras" in r[8] or "pix_copia" in r[8]))
                 debitos.append({
                     "id": str(r[7]),
+                    "pagavel": pagavel,
                     "codigo_receita": r[0],
                     "descricao": r[1],
                     "competencia": comp,

@@ -9,13 +9,18 @@ anotações em strings e, junto com CurrentActiveUser = Annotated["User", Depend
 (forward-ref), o FastAPI perde o Depends e passa a exigir current_user como query (422).
 """
 
+import json
+from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
+from sqlalchemy import text as _sqltext
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
-from core.auth.dependencies import CurrentActiveUser
+from core.auth.dependencies import CurrentActiveUser, get_current_user
+from core.database.session import get_db
 
 router = APIRouter(prefix="/guias-drive", tags=["Fiscal - Guias do Drive (Portte/Onvio)"])
 
@@ -83,6 +88,61 @@ async def guia_pdf(
         caminho, media_type="application/pdf",
         headers={"Content-Disposition": f'{disp}; filename="{nome}"'},
     )
+
+
+@router.post("/{obligacao_id}/preparar-pagamento", status_code=201, summary="Preparar pagamento da guia (gate OTP)")
+async def preparar_pagamento_guia(
+    obligacao_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> Any:
+    """Prepara o pagamento da guia via Banco Inter (status='preparado', SEM mover dinheiro).
+    A saída de dinheiro SÓ ocorre depois de: gerar-otp → aprovar(OTP humano) → executar,
+    no fluxo já existente /financeiro/inter/payments/{id}/*. Categoria 'imposto'."""
+    from modules.integrations.inter.services.payment_service import InterPaymentService, PaymentError
+
+    row = (await db.execute(_sqltext(
+        "SELECT tipo, nome, competencia_mes, competencia_ano, valor_devido, "
+        "observacoes, status FROM fiscal_obligations WHERE id = :id AND active = true"
+    ), {"id": obligacao_id})).mappings().first()
+    if not row:
+        raise HTTPException(404, "guia não encontrada")
+    if (row["status"] or "").lower() in ("cumprida", "paga", "pago"):
+        raise HTTPException(409, "esta guia já consta como paga/cumprida")
+    valor = float(row["valor_devido"] or 0)
+    if valor <= 0:
+        raise HTTPException(422, "guia sem valor a pagar")
+    try:
+        obs = json.loads(row["observacoes"]) if row["observacoes"] and row["observacoes"].strip().startswith("{") else {}
+    except Exception:  # noqa: BLE001
+        obs = {}
+    barras = obs.get("codigo_barras")
+    pix = obs.get("pix_copia_cola") or obs.get("pix_copia_e_cola")
+    if barras:
+        payment_type, destinatario = "boleto", {"codigo_barras": barras}
+    elif pix:
+        payment_type, destinatario = "pix", {"pix_copia_e_cola": pix}
+    else:
+        raise HTTPException(422, "esta guia não tem código de barras nem PIX — pague pelo PDF no app do banco")
+    comp = f"{int(row['competencia_mes']):02d}/{row['competencia_ano']}" if row["competencia_mes"] else ""
+    svc = InterPaymentService(db)
+    try:
+        res = await svc.preparar(
+            payment_type=payment_type,
+            destinatario=destinatario,
+            valor=valor,
+            data_pagamento=date.today(),
+            prepared_by=str(current_user.id),
+            observacoes=f"Guia fiscal {row['tipo']} {comp} — {row['nome']} | obrigacao={obligacao_id}",
+            categoria="imposto",
+        )
+    except PaymentError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if isinstance(res, dict):
+        res["obligacao_id"] = obligacao_id
+        res["descricao"] = f"{row['nome']} — {comp}".strip(" —")
+        res["payment_type"] = payment_type
+    return res
 
 
 @router.post("/sync", summary="Puxar guias/parcelamentos da pasta do Drive")
