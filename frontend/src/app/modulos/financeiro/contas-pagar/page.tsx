@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
+import { abrirPdf } from '@/lib/pdf'
 
 interface ContaPagar {
   id: string
@@ -60,7 +61,7 @@ const statusColor: Record<string, string> = {
   overdue: 'bg-red-100 text-red-700',
 }
 
-// Condomínio matriz (ESCRITÓRIO) — todas as contas a pagar da empresa usam este.
+// CondomÃ­nio matriz (ESCRITÃRIO) â todas as contas a pagar da empresa usam este.
 const CONDOMINIO_MATRIZ = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
 
 export default function ContasPagarPage() {
@@ -73,8 +74,8 @@ export default function ContasPagarPage() {
 
   const { data, isLoading, error, refetch } = useQuery<PayablesResponse>({
     queryKey: ['payables'],
-    // busca TODAS as contas; o filtro de status é aplicado no cliente (o status do backend
-    // tem casing/valores próprios — 'vencido' é derivado de is_overdue, não é status salvo).
+    // busca TODAS as contas; o filtro de status Ã© aplicado no cliente (o status do backend
+    // tem casing/valores prÃ³prios â 'vencido' Ã© derivado de is_overdue, nÃ£o Ã© status salvo).
     queryFn: () => fetchWithAuth('/api/v1/financial/payables?page_size=500'),
     staleTime: 2 * 60 * 1000,
     retry: 1,
@@ -91,8 +92,8 @@ export default function ContasPagarPage() {
 
   const items: ContaPagar[] = data?.data ?? data?.items ?? []
 
-  // valores vêm como STRING do backend (Decimal serializado) — coagir SEMPRE p/ número,
-  // senão `0 + "2890.00"` concatena ("02890.00689.00...") e toLocaleString não formata.
+  // valores vÃªm como STRING do backend (Decimal serializado) â coagir SEMPRE p/ nÃºmero,
+  // senÃ£o `0 + "2890.00"` concatena ("02890.00689.00...") e toLocaleString nÃ£o formata.
   const num = (v: unknown) => { const n = Number(v ?? 0); return Number.isFinite(n) ? n : 0 }
   const brl = (v: unknown) => num(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   const valorDe = (i: ContaPagar) => num(i.net_value ?? i.valor ?? i.amount ?? i.balance ?? 0)
@@ -100,7 +101,7 @@ export default function ContasPagarPage() {
   const isPago = (s?: string) => ['pago', 'paid'].includes((s ?? '').toLowerCase())
   const isVencido = (i: ContaPagar) => Boolean(i.is_overdue) && !isPago(i.status)
 
-  // KPIs calculados dos próprios itens (o backend não manda esses campos no topo).
+  // KPIs calculados dos prÃ³prios itens (o backend nÃ£o manda esses campos no topo).
   const total = items.length
   const vencendoHoje = items.filter(i => (i.vencimento ?? i.due_date)?.slice(0, 10) === hoje && !isPago(i.status)).length
   const atrasadas = items.filter(isVencido).length
@@ -118,13 +119,13 @@ export default function ContasPagarPage() {
     return (item.status ?? '').toLowerCase() === statusFilter
   })
 
-  // total exibido = soma dos itens FILTRADOS (bate com o que está na tela)
+  // total exibido = soma dos itens FILTRADOS (bate com o que estÃ¡ na tela)
   const totalAmount = filtered.reduce((s, i) => s + valorDe(i), 0)
 
   const criarConta = async () => {
     setFormErr('')
     if (!form.description.trim() || !form.gross_value || !form.due_date) {
-      setFormErr('Preencha descrição, valor e vencimento.'); return
+      setFormErr('Preencha descriÃ§Ã£o, valor e vencimento.'); return
     }
     if (Number(form.gross_value) <= 0) {  // FIN-05: valor > 0 (espelha a trava gt=0 do backend)
       setFormErr('O valor deve ser maior que zero.'); return
@@ -146,7 +147,7 @@ export default function ContasPagarPage() {
       })
       if (!res.ok) {
         const e = await res.json().catch(() => ({}))
-        setFormErr(typeof e.detail === 'string' ? e.detail : 'Não foi possível criar a conta.'); return
+        setFormErr(typeof e.detail === 'string' ? e.detail : 'NÃ£o foi possÃ­vel criar a conta.'); return
       }
       setShowNew(false)
       setForm({ description: '', supplier_name: '', gross_value: '', due_date: new Date().toISOString().slice(0, 10), category: '' })
@@ -160,7 +161,7 @@ export default function ContasPagarPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
-            <span>↘</span> Contas a Pagar
+            <span>â</span> Contas a Pagar
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
             Gerencie todas as contas a pagar e pagamentos pendentes
@@ -168,10 +169,16 @@ export default function ContasPagarPage() {
         </div>
         <div className="flex gap-2">
           <button
+            onClick={() => abrirPdf('/api/v1/financial/payables/aging/pdf', { download: true, nome: 'aging_contas_pagar.pdf' })}
+            className="flex items-center gap-1.5 px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            ⭳ Aging PDF
+          </button>
+          <button
             onClick={() => refetch()}
             className="flex items-center gap-1.5 px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
           >
-            ↺ Atualizar
+            âº Atualizar
           </button>
           <button
             onClick={() => { setFormErr(''); setShowNew(true) }}
@@ -193,7 +200,7 @@ export default function ContasPagarPage() {
           <div key={card.label} className="bg-white border border-gray-200 rounded-xl p-4">
             <p className="text-sm text-gray-500">{card.label}</p>
             <p className={`text-3xl font-semibold mt-1 ${card.color}`}>
-              {isLoading ? '–' : card.value}
+              {isLoading ? 'â' : card.value}
             </p>
           </div>
         ))}
@@ -203,7 +210,7 @@ export default function ContasPagarPage() {
       <div className="flex gap-3">
         <input
           type="text"
-          placeholder="Buscar por descrição, fornecedor..."
+          placeholder="Buscar por descriÃ§Ã£o, fornecedor..."
           value={search}
           onChange={e => setSearch(e.target.value)}
           className="flex-1 px-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -241,7 +248,7 @@ export default function ContasPagarPage() {
           </div>
         ) : filtered.length === 0 ? (
           <div className="p-8 text-center">
-            <p className="text-2xl mb-2">↘</p>
+            <p className="text-2xl mb-2">â</p>
             <p className="text-sm text-gray-500">Nenhuma conta a pagar encontrada</p>
             <p className="text-xs text-gray-400 mt-1">
               Tente ajustar os filtros ou crie uma nova conta
@@ -251,7 +258,7 @@ export default function ContasPagarPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50">
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">Descrição</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">DescriÃ§Ã£o</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">Fornecedor</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">Vencimento</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-gray-500">Valor</th>
@@ -261,19 +268,19 @@ export default function ContasPagarPage() {
             <tbody>
               {filtered.map((item, idx) => (
                 <tr key={item.id ?? idx} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                  <td className="px-4 py-3 text-gray-900">{item.descricao ?? item.description ?? '—'}</td>
-                  <td className="px-4 py-3 text-gray-600">{item.supplier_name ?? item.fornecedor ?? item.supplier ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-900">{item.descricao ?? item.description ?? 'â'}</td>
+                  <td className="px-4 py-3 text-gray-600">{item.supplier_name ?? item.fornecedor ?? item.supplier ?? 'â'}</td>
                   <td className="px-4 py-3 text-gray-600">
                     {(item.vencimento ?? item.due_date)
                       ? new Date(`${(item.vencimento ?? item.due_date ?? '').slice(0, 10)}T00:00:00`).toLocaleDateString('pt-BR')
-                      : '—'}
+                      : 'â'}
                   </td>
                   <td className="px-4 py-3 text-right font-medium text-gray-900">
                     {brl(valorDe(item))}
                   </td>
                   <td className="px-4 py-3 text-center">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColor[item.status ?? ''] ?? 'bg-gray-100 text-gray-600'}`}>
-                      {statusLabel[item.status ?? ''] ?? item.status ?? '—'}
+                      {statusLabel[item.status ?? ''] ?? item.status ?? 'â'}
                     </span>
                   </td>
                 </tr>
@@ -301,9 +308,9 @@ export default function ContasPagarPage() {
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Nova Conta a Pagar</h3>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm text-gray-600 mb-1">Descrição *</label>
+                <label className="block text-sm text-gray-600 mb-1">DescriÃ§Ã£o *</label>
                 <input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Ex.: Energia — julho" />
+                  className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Ex.: Energia â julho" />
               </div>
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Fornecedor</label>
@@ -333,7 +340,7 @@ export default function ContasPagarPage() {
               <button onClick={() => setShowNew(false)} className="px-4 py-2 text-sm border rounded-lg text-gray-700 hover:bg-gray-50">Cancelar</button>
               <button onClick={criarConta} disabled={saving}
                 className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                {saving ? 'Salvando…' : 'Criar conta'}
+                {saving ? 'Salvandoâ¦' : 'Criar conta'}
               </button>
             </div>
           </div>

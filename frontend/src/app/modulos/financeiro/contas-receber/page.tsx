@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
+import { abrirPdf } from '@/lib/pdf'
 
 interface ContaReceber {
   id: string
@@ -88,7 +89,7 @@ export default function ContasReceberPage() {
 
   const items: ContaReceber[] = data?.data ?? data?.items ?? []
 
-  // valores vêm como STRING do backend — coagir p/ número (senão soma concatena / não formata).
+  // valores vÃªm como STRING do backend â coagir p/ nÃºmero (senÃ£o soma concatena / nÃ£o formata).
   const num = (v: unknown) => { const n = Number(v ?? 0); return Number.isFinite(n) ? n : 0 }
   const brl = (v: unknown) => num(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   const valorDe = (i: ContaReceber) => num(i.net_value ?? i.valor ?? i.amount ?? i.balance ?? 0)
@@ -118,7 +119,7 @@ export default function ContasReceberPage() {
   const criarConta = async () => {
     setFormErr('')
     if (!form.description.trim() || !form.gross_value || !form.due_date) {
-      setFormErr('Preencha descrição, valor e vencimento.'); return
+      setFormErr('Preencha descriÃ§Ã£o, valor e vencimento.'); return
     }
     if (Number(form.gross_value) <= 0) {  // FIN-05: valor > 0 (espelha a trava gt=0 do backend)
       setFormErr('O valor deve ser maior que zero.'); return
@@ -140,7 +141,7 @@ export default function ContasReceberPage() {
       })
       if (!res.ok) {
         const e = await res.json().catch(() => ({}))
-        setFormErr(typeof e.detail === 'string' ? e.detail : 'Não foi possível criar a conta.'); return
+        setFormErr(typeof e.detail === 'string' ? e.detail : 'NÃ£o foi possÃ­vel criar a conta.'); return
       }
       setShowNew(false)
       setForm({ description: '', customer_name: '', gross_value: '', due_date: new Date().toISOString().slice(0, 10), category: '' })
@@ -154,18 +155,24 @@ export default function ContasReceberPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
-            <span>↗</span> Contas a Receber
+            <span>â</span> Contas a Receber
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            Gerencie todas as contas a receber e cobranças pendentes
+            Gerencie todas as contas a receber e cobranÃ§as pendentes
           </p>
         </div>
         <div className="flex gap-2">
           <button
+            onClick={() => abrirPdf('/api/v1/financial/receivables/aging/pdf', { download: true, nome: 'aging_contas_receber.pdf' })}
+            className="flex items-center gap-1.5 px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            ⭳ Aging PDF
+          </button>
+          <button
             onClick={() => refetch()}
             className="flex items-center gap-1.5 px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
           >
-            ↺ Atualizar
+            âº Atualizar
           </button>
           <button
             onClick={() => { setFormErr(''); setShowNew(true) }}
@@ -187,7 +194,7 @@ export default function ContasReceberPage() {
           <div key={card.label} className="bg-white border border-gray-200 rounded-xl p-4">
             <p className="text-sm text-gray-500">{card.label}</p>
             <p className={`text-3xl font-semibold mt-1 ${card.color}`}>
-              {isLoading ? '–' : card.value}
+              {isLoading ? 'â' : card.value}
             </p>
           </div>
         ))}
@@ -197,7 +204,7 @@ export default function ContasReceberPage() {
       <div className="flex gap-3">
         <input
           type="text"
-          placeholder="Buscar por descrição, cliente..."
+          placeholder="Buscar por descriÃ§Ã£o, cliente..."
           value={search}
           onChange={e => setSearch(e.target.value)}
           className="flex-1 px-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -235,7 +242,7 @@ export default function ContasReceberPage() {
           </div>
         ) : filtered.length === 0 ? (
           <div className="p-8 text-center">
-            <p className="text-2xl mb-2">↗</p>
+            <p className="text-2xl mb-2">â</p>
             <p className="text-sm text-gray-500">Nenhuma conta a receber encontrada</p>
             <p className="text-xs text-gray-400 mt-1">
               Tente ajustar os filtros ou crie uma nova conta
@@ -245,7 +252,7 @@ export default function ContasReceberPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50">
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">Descrição</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">DescriÃ§Ã£o</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">Cliente</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">Vencimento</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-gray-500">Valor</th>
@@ -255,19 +262,19 @@ export default function ContasReceberPage() {
             <tbody>
               {filtered.map((item, idx) => (
                 <tr key={item.id ?? idx} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                  <td className="px-4 py-3 text-gray-900">{item.descricao ?? item.description ?? '—'}</td>
-                  <td className="px-4 py-3 text-gray-600">{item.customer_name ?? item.cliente ?? item.customer ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-900">{item.descricao ?? item.description ?? 'â'}</td>
+                  <td className="px-4 py-3 text-gray-600">{item.customer_name ?? item.cliente ?? item.customer ?? 'â'}</td>
                   <td className="px-4 py-3 text-gray-600">
                     {(item.vencimento ?? item.due_date)
                       ? new Date(`${(item.vencimento ?? item.due_date ?? '').slice(0, 10)}T00:00:00`).toLocaleDateString('pt-BR')
-                      : '—'}
+                      : 'â'}
                   </td>
                   <td className="px-4 py-3 text-right font-medium text-gray-900">
                     {brl(valorDe(item))}
                   </td>
                   <td className="px-4 py-3 text-center">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColor[item.status ?? ''] ?? 'bg-gray-100 text-gray-600'}`}>
-                      {statusLabel[item.status ?? ''] ?? item.status ?? '—'}
+                      {statusLabel[item.status ?? ''] ?? item.status ?? 'â'}
                     </span>
                   </td>
                 </tr>
@@ -295,9 +302,9 @@ export default function ContasReceberPage() {
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Nova Conta a Receber</h3>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm text-gray-600 mb-1">Descrição *</label>
+                <label className="block text-sm text-gray-600 mb-1">DescriÃ§Ã£o *</label>
                 <input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Ex.: Mensalidade — julho" />
+                  className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Ex.: Mensalidade â julho" />
               </div>
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Cliente</label>
@@ -327,7 +334,7 @@ export default function ContasReceberPage() {
               <button onClick={() => setShowNew(false)} className="px-4 py-2 text-sm border rounded-lg text-gray-700 hover:bg-gray-50">Cancelar</button>
               <button onClick={criarConta} disabled={saving}
                 className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                {saving ? 'Salvando…' : 'Criar conta'}
+                {saving ? 'Salvandoâ¦' : 'Criar conta'}
               </button>
             </div>
           </div>

@@ -18,9 +18,11 @@ import {
   AlertTriangle,
   CheckCircle2,
   Send,
+  FileText,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { abrirPdf } from '@/lib/pdf';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import {
@@ -485,6 +487,12 @@ export default function ContratosPage() {
                           >
                             <Eye className="h-4 w-4 mr-2" />
                             Ver detalhes
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => abrirPdf(`/api/v1/crm/contracts/${item.id}/pdf`, { download: true, nome: `contrato_${item.number || item.id}.pdf` })}
+                          >
+                            <FileText className="h-4 w-4 mr-2" />
+                            Baixar PDF
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => toast.info('Edição de contrato em desenvolvimento')}

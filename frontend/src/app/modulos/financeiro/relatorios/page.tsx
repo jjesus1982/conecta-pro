@@ -406,6 +406,7 @@ export default function RelatoriosPage() {
             const ano = new Date().getFullYear();
             if (activeTab === 'dre') abrirPdf(`/api/v1/financial/relatorios/dre/pdf?ano=${ano}`);
             else if (activeTab === 'balancete') abrirPdf(`/api/v1/financial/relatorios/balancete/pdf?ano=${ano}`);
+            else if (activeTab === 'projecao') abrirPdf(`/api/v1/financial/relatorios/fluxo-caixa/pdf?ano=${ano}`);
             else window.print();
           }}>
             <Download className="w-4 h-4 mr-2" />

@@ -1,6 +1,7 @@
 'use client';
 
 import { Repeat, Search, RefreshCw, Plus, MoreHorizontal, Eye, Edit, FileSignature, Truck, XCircle, Trash2, AlertCircle } from 'lucide-react';
+import { abrirPdf } from '@/lib/pdf';
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -390,6 +391,14 @@ export default function ComodatosPage() {
                             <DropdownMenuItem onClick={() => handleViewDetail(item)}>
                               <Eye className="w-4 h-4 mr-2" />
                               Ver detalhes
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => abrirPdf(`/api/v1/comodatos/${item.id}/contract-pdf`, { download: true, nome: `comodato_${item.code || item.id}.pdf` })}>
+                              <FileSignature className="w-4 h-4 mr-2" />
+                              Contrato (PDF)
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => abrirPdf(`/api/v1/comodatos/${item.id}/delivery-term`, { download: true, nome: `termo_entrega_${item.code || item.id}.pdf` })}>
+                              <Truck className="w-4 h-4 mr-2" />
+                              Termo de entrega (PDF)
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleEdit(item)}>
                               <Edit className="w-4 h-4 mr-2" />
