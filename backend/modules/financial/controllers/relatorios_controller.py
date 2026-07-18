@@ -1316,3 +1316,24 @@ async def balancete_pdf(
     pdf = gerar_relatorio_pdf("Balancete", f"Exercício {ano}" + (f" · mês {mes:02d}" if mes else ""), secoes)
     return _Resp(content=pdf, media_type="application/pdf",
                  headers={"Content-Disposition": f'inline; filename="balancete_{ano}.pdf"'})
+
+
+@router.get("/fluxo-caixa/pdf", summary="Fluxo de caixa em PDF (marca Conecta)")
+async def fluxo_caixa_pdf(
+    ano: int = Query(2026, ge=2020, le=2100),
+    current_user: dict = Depends(get_current_user),
+):
+    from fastapi.responses import Response as _R
+
+    from modules.financial.services.relatorio_financeiro_pdf import gerar_relatorio_pdf
+
+    dados = await fluxo_caixa_mensal(ano=ano, _user=current_user)
+    meses = dados.get("meses", [])
+    linhas = [(m.get("mes"), m.get("saldo_caixa"), (m.get("saldo_caixa") or 0) < 0) for m in meses]
+    secoes = [{"titulo": f"Saldo de caixa por mês — {ano}", "linhas": linhas or [("(sem dados)", "")]}]
+    secoes.append({"titulo": "Resumo do ano", "linhas": [
+        ("Saídas totais", dados.get("saidas_total_ano", 0)),
+        ("Saídas não categorizadas", dados.get("saidas_nao_categorizadas_ano", 0), True)]})
+    pdf = gerar_relatorio_pdf("Fluxo de Caixa", f"Exercício {ano}", secoes)
+    return _R(content=pdf, media_type="application/pdf",
+              headers={"Content-Disposition": f'inline; filename="fluxo_caixa_{ano}.pdf"'})

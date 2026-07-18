@@ -637,3 +637,27 @@ async def auto_criar_payable_nota(
     else:
         resultado = await criar_payable_de_nfe_entrada(db, nota_id)
     return {"status": "ok", "resultado": resultado}
+
+
+@router.get("/aging/pdf", summary="Aging em PDF (marca Conecta)")
+async def payable_aging_pdf(
+    condominio_id: UUID | None = Query(None),
+    service: PayableService = Depends(get_service),
+    current_user: dict = Depends(get_current_user),
+):
+    from fastapi.responses import Response as _R
+
+    from modules.financial.services.relatorio_financeiro_pdf import gerar_relatorio_pdf
+
+    dados = await get_payables_aging(condominio_id=condominio_id, service=service, current_user=current_user)
+    linhas = [
+        (f"{(fx.get('faixa') or '').replace('_', ' ').capitalize()} ({fx.get('quantidade', 0)})", fx.get("valor_total", 0))
+        for fx in dados.get("faixas", [])
+    ]
+    secoes = [{"titulo": "Por faixa de vencimento", "linhas": linhas or [("(sem títulos em aberto)", "")]}]
+    secoes.append({"titulo": "Totais", "linhas": [
+        ("Total em aberto", dados.get("total_em_aberto", 0)),
+        ("Total vencido", dados.get("total_vencido", 0), True)]})
+    pdf = gerar_relatorio_pdf("Contas a Pagar — Aging", f"Posição em {dados.get('aging_date', '')}", secoes)
+    return _R(content=pdf, media_type="application/pdf",
+              headers={"Content-Disposition": 'inline; filename="aging_payable.pdf"'})
