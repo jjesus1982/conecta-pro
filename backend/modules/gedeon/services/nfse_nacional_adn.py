@@ -135,6 +135,34 @@ def listar_tomadores(forcar: bool = False) -> list[dict]:
     return _TOMADORES_CACHE
 
 
+def filtrar_vivas(emitidas: list[dict]) -> tuple[list[dict], int]:
+    """Regra de validade das NFS-e (fonte única — provada com as notas reais):
+
+    uma nota é VIVA se a chave dela NÃO é referenciada como <chSubstda> por
+    nenhum outro documento do feed (o cStat do XML distribuído marca o DOC
+    substituidor, não a validade). Dedupe por chave ficando a de maior NSU.
+    Retorna (vivas, qtd_mortas).
+    """
+    mortas: set[str] = set()
+    for n in emitidas:
+        m = re.search(r"<chSubstda>([^<]+)</chSubstda>", n.get("_xml", ""))
+        if m:
+            mortas.add(m.group(1).strip())
+    vivas: list[dict] = []
+    vistos: set[str] = set()
+    descartadas = 0
+    for n in sorted(emitidas, key=lambda x: int(x.get("nsu") or 0), reverse=True):
+        chave = n.get("chave_acesso") or n.get("chave") or ""
+        if not chave or chave in mortas:
+            descartadas += 1
+            continue
+        if chave in vistos:
+            continue
+        vistos.add(chave)
+        vivas.append(n)
+    return vivas, descartadas
+
+
 def distribuir(nsu_inicial: int = 0, max_paginas: int = 80, empresa_slug: str | None = None) -> dict:
     """Pagina o ADN e devolve as notas EMITIDAS pelo CNPJ da empresa + o último NSU.
 

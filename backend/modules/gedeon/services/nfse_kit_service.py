@@ -15,7 +15,7 @@ import unicodedata
 from modules.gdrive.services.gdrive_service import gdrive_service
 from modules.gedeon.services.kit_layout import _arquivo_ja_existe, pasta_kit_arquivo
 from modules.gedeon.services.nfse_danfse_generator import gerar_danfse_pdf
-from modules.gedeon.services.nfse_nacional_adn import distribuir
+from modules.gedeon.services.nfse_nacional_adn import distribuir, filtrar_vivas
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +55,21 @@ def arquivar_danfse(competencia: str, mes_emissao: str = "2026-05", dry_run: boo
     """Arquiva o DANFSe de cada nota emitida no mês (mes_emissao=YYYY-MM) no kit do condomínio."""
     if not gdrive_service._service:
         gdrive_service.check_status()
-    r = distribuir(max_paginas=80)
-    notas = [n for n in r["emitidas"] if mes_emissao in (n.get("dhProc", "") + n.get("competencia", ""))]
+    # Multi-CNPJ E6 (kit híbrido): notas das DUAS empresas do Grupo, cada feed
+    # com seu certificado, aplicando a regra de validade (substituídas FORA —
+    # antes o feed cru colocava DANFSe de nota morta no kit).
+    notas_todas: list[dict] = []
+    for slug in (None, "conecta_patrimonial"):  # None = CNPJ1/legado
+        try:
+            feed = distribuir(max_paginas=80, empresa_slug=slug)
+            vivas, mortas = filtrar_vivas(feed.get("emitidas", []))
+            notas_todas.extend(vivas)
+            logger.info("DANFSe kits: %s -> %d vivas (%d substituídas fora)",
+                        slug or "conecta_eletronica", len(vivas), mortas)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("DANFSe kits: feed %s falhou (%s) — segue com o outro",
+                           slug or "conecta_eletronica", exc)
+    notas = [n for n in notas_todas if mes_emissao in (n.get("dhProc", "") + n.get("competencia", ""))]
     rel = {
         "competencia": competencia,
         "mes_emissao": mes_emissao,

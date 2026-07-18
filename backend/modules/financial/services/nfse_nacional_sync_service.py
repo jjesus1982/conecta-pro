@@ -133,33 +133,16 @@ class NFSeNacionalSyncService:
                     "AND (empresa_id = %s OR (empresa_id IS NULL AND %s = '619a3df1-8bce-49ce-b77a-04f80a0e8491'))",
                     (empresa_id, empresa_id),
                 )
-                # REGRA DE VALIDADE (corrigida 2026-07-17, provada com as notas reais
-                # da Patrimonial): uma nota é VÁLIDA se a chave dela NÃO é referenciada
-                # como <chSubstda> por nenhum outro documento do feed. O cStat do XML
-                # distribuído marca o DOCUMENTO substituidor (101), não a validade da
-                # nota — filtrar por cStat==100 guardava as notas MORTAS (sem retenção)
-                # e descartava as substitutas vigentes.
-                import re as _re
+                # REGRA DE VALIDADE (corrigida 2026-07-17, provada com as notas reais):
+                # fonte única em nfse_nacional_adn.filtrar_vivas — viva = chave não
+                # referenciada em <chSubstda>; cStat NÃO indica validade.
+                from modules.gedeon.services.nfse_nacional_adn import filtrar_vivas
 
-                chaves_mortas: set[str] = set()
-                for n in emitidas:
-                    m = _re.search(r"<chSubstda>([^<]+)</chSubstda>", n.get("_xml", ""))
-                    if m:
-                        chaves_mortas.add(m.group(1).strip())
-
+                vivas, ignoradas = filtrar_vivas(emitidas)
                 novas = atualizadas = 0
-                vistos: set[str] = set()
-                for n in sorted(emitidas, key=lambda x: int(x.get("nsu") or 0), reverse=True):
+                for n in vivas:
                     xml = n.get("_xml", "")
                     chave = n.get("chave_acesso") or n.get("chave") or ""
-                    if not chave:
-                        continue
-                    if chave in chaves_mortas:  # substituída por outra → morta
-                        ignoradas += 1
-                        continue
-                    if chave in vistos:  # mesma nota redistribuída → fica a de maior NSU
-                        continue
-                    vistos.add(chave)
                     comp = (_v(xml, "dCompet") or n.get("dhProc", "")[:7])[:7]
                     tcnpj, tnome = _tomador(xml)
                     vals = {
