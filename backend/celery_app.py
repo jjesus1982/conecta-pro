@@ -161,6 +161,12 @@ app.conf.beat_schedule = {
         "schedule": crontab(hour=8, minute=0),
         "options": {"queue": "gov.batch"},
     },
+    # ── Multi-CNPJ E4: extrato Cora (Patrimonial) + conciliação líquido×NFS-e ──
+    "financeiro-extrato-cora-diario": {
+        "task": "financial.cora_sync_extrato",
+        "schedule": crontab(hour=8, minute=10),
+        "options": {"queue": "gov.batch"},
+    },
     # ── Financeiro — Monitor de pagamentos pendentes de aprovação (status vivo do Inter) ──
     "financeiro-monitor-pagamentos-pendentes": {
         "task": "financial.inter_monitorar_pendentes",

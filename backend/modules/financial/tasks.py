@@ -264,3 +264,25 @@ def gedeon_collection_negotiator_task(self):
         return _run_async(run)
     except Exception as exc:
         raise self.retry(exc=exc, countdown=300)
+
+
+@app.task(
+    bind=True,
+    name="financial.cora_sync_extrato",
+    max_retries=2,
+    default_retry_delay=600,
+)
+def cora_sync_extrato_task(self):
+    """Multi-CNPJ E4: extrato da conta Cora (Patrimonial) → bank_transactions,
+    com conciliação automática líquido×NFS-e. Idempotente por external_id."""
+    try:
+        from modules.integrations.banking.services.cora_sync_service import (
+            sincronizar_extrato_cora,
+        )
+
+        rel = sincronizar_extrato_cora(dias=60)
+        logger.info("Cora extrato: %s", rel)
+        return rel
+    except Exception as exc:
+        logger.error("Erro no sync do extrato Cora: %s", exc)
+        raise self.retry(exc=exc)
