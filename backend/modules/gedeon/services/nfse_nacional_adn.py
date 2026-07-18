@@ -32,9 +32,10 @@ CNPJ_PRESTADOR = os.getenv("NFSE_MANAUS_CNPJ", "35710481000103")
 CERT_PATH = os.getenv("CERTIFICATE_PATH", "/app/credentials/certificates/certificado.pfx")
 
 
-def _cert_pem() -> tuple[str, str]:
-    pfx = open(CERT_PATH, "rb").read()
-    key, cert, _ = pkcs12.load_key_and_certificates(pfx, os.getenv("CERTIFICATE_PASSWORD", "").encode())
+def _cert_pem(cert_path: str | None = None, senha: str | None = None) -> tuple[str, str]:
+    pfx = open(cert_path or CERT_PATH, "rb").read()
+    pwd = (senha if senha is not None else os.getenv("CERTIFICATE_PASSWORD", "")).encode()
+    key, cert, _ = pkcs12.load_key_and_certificates(pfx, pwd)
     cf = tempfile.NamedTemporaryFile(suffix=".pem", delete=False)
     kf = tempfile.NamedTemporaryFile(suffix=".pem", delete=False)
     cf.write(cert.public_bytes(Encoding.PEM))
@@ -42,6 +43,22 @@ def _cert_pem() -> tuple[str, str]:
     kf.write(key.private_bytes(Encoding.PEM, PrivateFormat.TraditionalOpenSSL, NoEncryption()))
     kf.flush()
     return cf.name, kf.name
+
+
+def _resolver_empresa(empresa_slug: str | None) -> tuple[str, str | None, str | None]:
+    """(cnpj_prestador, cert_path, cert_senha) — slug None = env/CNPJ1 (legado)."""
+    if not empresa_slug:
+        return CNPJ_PRESTADOR, None, None
+    from modules.fiscal.services.nfse_multi_empresa_service import (
+        EMPRESAS_CONFIG,
+        refresh_empresas_config,
+    )
+
+    refresh_empresas_config()
+    cfg = EMPRESAS_CONFIG.get(empresa_slug) or {}
+    if not cfg.get("cnpj") or not cfg.get("certificado_path"):
+        raise LookupError(f"ADN: empresa '{empresa_slug}' sem CNPJ/certificado configurado")
+    return cfg["cnpj"], cfg["certificado_path"], cfg.get("certificado_senha")
 
 
 def _decode_xml(arquivo_xml: str) -> str:
@@ -118,11 +135,17 @@ def listar_tomadores(forcar: bool = False) -> list[dict]:
     return _TOMADORES_CACHE
 
 
-def distribuir(nsu_inicial: int = 0, max_paginas: int = 80) -> dict:
-    """Pagina o ADN e devolve as notas EMITIDAS pelo nosso CNPJ + o último NSU."""
+def distribuir(nsu_inicial: int = 0, max_paginas: int = 80, empresa_slug: str | None = None) -> dict:
+    """Pagina o ADN e devolve as notas EMITIDAS pelo CNPJ da empresa + o último NSU.
+
+    Multi-CNPJ E5: `empresa_slug` seleciona identidade/certificado da tabela
+    `empresas`; None = comportamento legado (env/CNPJ1). O NSU do ADN é POR
+    CNPJ no gov — use fiscal_nsu_checkpoint por empresa para incrementalidade.
+    """
     import time
 
-    cert = _cert_pem()
+    cnpj_prestador, cert_path, cert_senha = _resolver_empresa(empresa_slug)
+    cert = _cert_pem(cert_path, cert_senha)
     emitidas: list[dict] = []
     total = 0
     nsu = nsu_inicial
@@ -146,7 +169,7 @@ def distribuir(nsu_inicial: int = 0, max_paginas: int = 80) -> dict:
             for doc in lote:
                 total += 1
                 xml = _decode_xml(doc.get("ArquivoXml", ""))
-                if _emit_cnpj(xml) == CNPJ_PRESTADOR:
+                if _emit_cnpj(xml) == cnpj_prestador:
                     n = parse_nota(xml)
                     n["nsu"] = doc.get("NSU")
                     n["chave_acesso"] = doc.get("ChaveAcesso")

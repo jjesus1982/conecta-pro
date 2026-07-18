@@ -49,23 +49,52 @@ class NFSeNacionalService:
     - Mapeamento de codigos de servico
     """
 
-    def __init__(self):
-        """Inicializa o service com configuracoes do ambiente."""
+    def __init__(self, empresa_slug: str | None = None):
+        """Inicializa o service.
+
+        - `empresa_slug=None` (default): configuração via env vars — comportamento
+          histórico (CNPJ1), inalterado para todos os chamadores atuais.
+        - `empresa_slug='conecta_patrimonial'` (Multi-CNPJ E5): identidade fiscal,
+          certificado e ambiente lidos da tabela `empresas` (fonte única) —
+          nunca do env, nunca com fallback de outra empresa.
+        """
         self._manager: NFSeNacionalManager | None = None
         self._cert_manager: CertificateManager | None = None
+        self.empresa_slug = empresa_slug
 
-        # Configuracoes do ambiente
-        self.cnpj = os.getenv("NFSE_NACIONAL_CNPJ", os.getenv("NFSE_MANAUS_CNPJ", "35710481000103"))
-        self.ambiente = os.getenv("NFSE_NACIONAL_ENVIRONMENT", "homologacao")
-        self.inscricao_municipal = os.getenv("NFSE_NACIONAL_IM", os.getenv("NFSE_MANAUS_IM", ""))
-        self.codigo_municipio = os.getenv("NFSE_NACIONAL_COD_MUNICIPIO", "1302603")  # Manaus
-        self.razao_social = os.getenv("NFSE_NACIONAL_RAZAO_SOCIAL", "Conecta Plus Servicos LTDA")
+        if empresa_slug:
+            from modules.fiscal.services.nfse_multi_empresa_service import (
+                EMPRESAS_CONFIG,
+                refresh_empresas_config,
+            )
 
-        # Certificado digital
-        self.cert_path = os.getenv("CERTIFICATE_PATH", "/opt/conecta-pro/credentials/certificates/certificado.pfx")
-        self.cert_password = os.getenv("CERTIFICATE_PASSWORD", "")
+            refresh_empresas_config()
+            cfg = EMPRESAS_CONFIG.get(empresa_slug)
+            if not cfg or not cfg.get("cnpj"):
+                raise LookupError(
+                    f"NFSe Nacional: empresa '{empresa_slug}' sem configuração/CNPJ ativo"
+                )
+            self.cnpj = cfg["cnpj"]
+            self.ambiente = cfg.get("ambiente") or "homologacao"
+            self.inscricao_municipal = cfg.get("inscricao_municipal") or ""
+            self.codigo_municipio = cfg.get("codigo_municipio") or "1302603"
+            self.razao_social = cfg.get("razao_social") or ""
+            self.cert_path = cfg.get("certificado_path") or ""
+            self.cert_password = cfg.get("certificado_senha") or ""
+        else:
+            # Configuracoes do ambiente (legado, CNPJ1)
+            self.cnpj = os.getenv("NFSE_NACIONAL_CNPJ", os.getenv("NFSE_MANAUS_CNPJ", "35710481000103"))
+            self.ambiente = os.getenv("NFSE_NACIONAL_ENVIRONMENT", "homologacao")
+            self.inscricao_municipal = os.getenv("NFSE_NACIONAL_IM", os.getenv("NFSE_MANAUS_IM", ""))
+            self.codigo_municipio = os.getenv("NFSE_NACIONAL_COD_MUNICIPIO", "1302603")  # Manaus
+            self.razao_social = os.getenv("NFSE_NACIONAL_RAZAO_SOCIAL", "Conecta Plus Servicos LTDA")
+            self.cert_path = os.getenv("CERTIFICATE_PATH", "/opt/conecta-pro/credentials/certificates/certificado.pfx")
+            self.cert_password = os.getenv("CERTIFICATE_PASSWORD", "")
 
-        logger.info(f"NFSe Nacional Service inicializado - CNPJ: {self.cnpj}")
+        logger.info(
+            f"NFSe Nacional Service inicializado - CNPJ: {self.cnpj}"
+            + (f" (empresa={empresa_slug})" if empresa_slug else "")
+        )
 
     def _get_manager(self) -> NFSeNacionalManager:
         """Obtem instancia do manager, inicializando se necessario."""
