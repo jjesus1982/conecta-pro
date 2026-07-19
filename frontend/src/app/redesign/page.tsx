@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import {
   Search, Bell, Users, Shield, Handshake, CalendarDays, DollarSign, Megaphone,
   Trophy, Wrench, FolderKanban, HeartPulse, Clock, User, Headset, Calculator,
@@ -9,19 +9,10 @@ import {
 } from 'lucide-react';
 import { rdLogout } from '@/components/redesign/session';
 
-// ── Dados fiéis ao Home Launcher.dc.html (exemplos → trocar por API) ──────────
-const KPIS: { icon: LucideIcon; v: string; l: string }[] = [
-  { icon: Users, v: '51', l: 'Colaboradores' },
-  { icon: Shield, v: '9', l: 'Postos ativos' },
-  { icon: Handshake, v: '10', l: 'Clientes' },
-  { icon: CalendarDays, v: '19', l: 'Escalas' },
-];
-
-const ALERTS = [
-  { title: 'Alvará de Funcionamento', meta: 'Vencido desde 27/02/2026', action: 'Regularizar', dot: 'var(--error)' },
-  { title: 'Certidão Negativa Estadual', meta: 'Vence em 22 dias', action: 'Ver', dot: 'var(--warning)' },
-  { title: 'CRF — FGTS (Caixa)', meta: 'Vence em 22 dias', action: 'Ver', dot: 'var(--warning)' },
-];
+// Ícones fixos dos 4 KPIs (os VALORES vêm reais de GET /redesign/home).
+const KPI_ICONS: LucideIcon[] = [Users, Shield, Handshake, CalendarDays];
+type Kpi = { v: string; l: string };
+type Alert = { title: string; meta: string; action: string; dot: string };
 
 type Mod = { name: string; desc: string; Icon: LucideIcon; org?: boolean };
 const GROUPS: { name: string; mods: Mod[] }[] = [
@@ -112,10 +103,31 @@ function Tile({ m }: { m: Mod }): ReactNode {
 
 export default function RedesignLauncher() {
   const [q, setQ] = useState('');
+  const [kpis, setKpis] = useState<Kpi[] | null>(null);
+  const [alerts, setAlerts] = useState<Alert[] | null>(null);
   const ql = q.trim().toLowerCase();
   const groups = ql
     ? GROUPS.map((g) => ({ ...g, mods: g.mods.filter((m) => m.name.toLowerCase().includes(ql) || m.desc.toLowerCase().includes(ql)) })).filter((g) => g.mods.length)
     : GROUPS;
+
+  // KPIs e Pendências REAIS (GET /redesign/home). Sem dado → mantém skeleton/vazio honesto.
+  useEffect(() => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+    if (!token) return;
+    fetch('/api/v1/redesign/home', { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d) return;
+        if (Array.isArray(d.kpis)) setKpis(d.kpis);
+        if (Array.isArray(d.alerts)) setAlerts(d.alerts);
+      })
+      .catch(() => {});
+  }, []);
+
+  const now = new Date();
+  const hora = now.getHours();
+  const saud = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite';
+  const dataFmt = now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   return (
     <div className="rd-launch">
@@ -153,29 +165,36 @@ export default function RedesignLauncher() {
       <div className="rd-launch-body">
         <div className="rd-launch-inner">
           <div className="rd-launch-hi">
-            <h1>Bom dia, Jordan</h1>
-            <p>Sábado, 18 de julho de 2026 · selecione um módulo para começar</p>
+            <h1>{saud}, Jordan</h1>
+            <p>{dataFmt.charAt(0).toUpperCase() + dataFmt.slice(1)} · selecione um módulo para começar</p>
           </div>
 
-          {/* KPIs + Pendências */}
+          {/* KPIs + Pendências (dados reais de /redesign/home) */}
           <div className="rd-launch-row">
             <div className="rd-kpi-row">
-              {KPIS.map((k) => (
-                <div className="rd-kpi-h" key={k.l}>
-                  <div className="box"><k.icon size={21} strokeWidth={2} /></div>
-                  <div>
-                    <div className="v">{k.v}</div>
-                    <div className="l">{k.l}</div>
+              {(kpis ?? [null, null, null, null]).map((k, i) => {
+                const Icon = KPI_ICONS[i] ?? Users;
+                return (
+                  <div className="rd-kpi-h" key={k ? k.l : i}>
+                    <div className="box"><Icon size={21} strokeWidth={2} /></div>
+                    <div>
+                      <div className="v">{k ? k.v : '—'}</div>
+                      <div className="l">{k ? k.l : 'Carregando…'}</div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
             <div className="rd-pend">
               <div className="rd-pend-h">
                 <span className="t">Pendências</span>
-                <span className="c">3</span>
+                <span className="c">{alerts ? alerts.length : 0}</span>
               </div>
-              {ALERTS.map((a) => (
+              {alerts === null ? (
+                <div className="rd-pend-row"><div className="main"><div className="mt">Carregando…</div></div></div>
+              ) : alerts.length === 0 ? (
+                <div className="rd-pend-row"><div className="main"><div className="tt">Sem pendências</div><div className="mt">Nenhuma certidão vencida ou vencendo</div></div></div>
+              ) : alerts.map((a) => (
                 <div className="rd-pend-row" key={a.title}>
                   <span className="dot" style={{ background: a.dot }} />
                   <div className="main">

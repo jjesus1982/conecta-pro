@@ -2111,6 +2111,54 @@ EXTRA_MENU = {
 }
 
 
+@router.get("/home")
+async def redesign_home(current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)) -> dict:
+    """KPIs e pendências REAIS da Home (launcher). Substitui os exemplos chumbados."""
+    from datetime import date as _date
+
+    async def _sc(q: str):
+        try:
+            return await _scalar(db, q)
+        except Exception:  # noqa: BLE001
+            await db.rollback()
+            return 0
+
+    colaboradores = await _sc("SELECT count(*) FROM employees WHERE status='ativo'")
+    postos = await _sc("SELECT count(*) FROM posts WHERE coalesce(is_active,true)=true")
+    clientes = await _sc("SELECT count(*) FROM clients WHERE status='active'")
+    escalas = await _sc("SELECT count(*) FROM solides_work_schedules")
+
+    kpis = [
+        {"v": str(colaboradores), "l": "Colaboradores"},
+        {"v": str(postos), "l": "Postos ativos"},
+        {"v": str(clientes), "l": "Clientes"},
+        {"v": str(escalas), "l": "Escalas"},
+    ]
+
+    # Pendências REAIS: certidões com vencimento (vencidas ou vencendo em ≤45 dias)
+    alerts: list[dict] = []
+    try:
+        hoje = _date.today()
+        rows = (await db.execute(text(
+            "SELECT name, expiry_date FROM ged_certidoes "
+            "WHERE expiry_date IS NOT NULL ORDER BY expiry_date ASC LIMIT 20"))).fetchall()
+        for name, exp in rows:
+            dias = (exp - hoje).days
+            if dias < 0:
+                meta, level, action = f"Vencido há {abs(dias)} dias", "var(--error)", "Regularizar"
+            elif dias <= 45:
+                meta, level, action = f"Vence em {dias} dias", "var(--warning)", "Ver"
+            else:
+                continue
+            alerts.append({"title": name, "meta": meta, "action": action, "dot": level})
+        alerts = alerts[:4]
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+        alerts = []
+
+    return {"kpis": kpis, "alerts": alerts}
+
+
 @router.get("/data/{slug}")
 async def redesign_data(slug: str, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)) -> dict:
     """Patches de tela com dado real para o módulo <slug>. Telas não cobertas ficam de fora."""
