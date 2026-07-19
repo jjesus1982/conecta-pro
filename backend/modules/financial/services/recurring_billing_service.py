@@ -73,6 +73,61 @@ def _chamar_pix_cobv(txid: str, valor: float, cnpj: str, nome: str, descricao: s
         return {"success": False, "error": str(exc)}
 
 
+def _empresa_credora_do_cliente(cur, client_id) -> str:
+    """Multi-CNPJ E4: a empresa CREDORA vem do contrato ativo do cliente
+    (contracts.empresa_id — classificação canônica). Sem contrato => Eletrônica
+    (legado). Patrimonial cobra pelo CORA; Eletrônica segue no Inter."""
+    try:
+        cur.execute(
+            """
+            SELECT e.slug FROM contracts c JOIN empresas e ON e.id = c.empresa_id
+            WHERE c.client_id = %s AND c.status = 'active'
+            ORDER BY c.monthly_value DESC NULLS LAST LIMIT 1
+            """,
+            (str(client_id),),
+        )
+        row = cur.fetchone()
+        if row:
+            return row["slug"] if isinstance(row, dict) else row[0]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("empresa credora do cliente %s: %s", client_id, exc)
+    return "conecta_eletronica"
+
+
+def _chamar_cobranca_cora(code: str, valor: float, cnpj: str, nome: str, descricao: str, vencimento: str) -> dict:
+    """Emite cobrança (boleto+PIX) pela conta CORA da Patrimonial. Formato de
+    retorno compatível com o do Inter (success/txid/pix_copy_paste)."""
+    try:
+        from datetime import date as _date
+
+        from modules.integrations.banking.adapters.cora import CoraAdapter
+
+        async def _run():
+            a = CoraAdapter()
+            return await a.criar_cobranca(
+                code=code,
+                cliente_nome=nome,
+                cliente_documento=cnpj,
+                valor_centavos=int(round(valor * 100)),
+                descricao=descricao,
+                vencimento=_date.fromisoformat(vencimento),
+            )
+
+        inv = asyncio.run(_run())
+        bs = (inv.get("payment_options") or {}).get("bank_slip") or {}
+        return {
+            "success": True,
+            "banco": "cora",
+            "txid": inv.get("id", code),
+            "pix_copy_paste": ((inv.get("pix") or {}).get("emv") or ""),
+            "boleto_digitavel": bs.get("digitable") or "",
+            "boleto_url": bs.get("url") or "",
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Cobrança Cora erro (%s): %s", code, exc)
+        return {"success": False, "banco": "cora", "error": str(exc)}
+
+
 def gerar_cobrancas_mensais(mes: int, ano: int, apenas_preview: bool = False) -> dict:
     """
     Gera cobranças PIX com vencimento para todos os clientes com MRR.
@@ -142,9 +197,21 @@ def gerar_cobrancas_mensais(mes: int, ano: int, apenas_preview: bool = False) ->
                 resultados.append({"cliente": cliente["name"], "status": "ja_cobrado", "valor": valor})
                 continue
 
-            # Gerar PIX cobv via Inter (se tiver pix_key)
+            # Multi-CNPJ E4: a cobrança sai pelo BANCO DA EMPRESA CREDORA do
+            # contrato — Patrimonial => CORA (boleto+PIX); Eletrônica => Inter
+            # (fluxo legado intocado).
+            empresa_credora = _empresa_credora_do_cliente(cur, cliente["id"])
             resultado_pix: dict = {}
-            if cliente.get("pix_key"):
+            if empresa_credora == "conecta_patrimonial":
+                resultado_pix = _chamar_cobranca_cora(
+                    code=txid,
+                    valor=valor,
+                    cnpj=cliente.get("document_number", ""),
+                    nome=cliente["name"],
+                    descricao=descricao,
+                    vencimento=vencimento,
+                )
+            elif cliente.get("pix_key"):
                 resultado_pix = _chamar_pix_cobv(
                     txid=txid,
                     valor=valor,
@@ -189,6 +256,9 @@ def gerar_cobrancas_mensais(mes: int, ano: int, apenas_preview: bool = False) ->
                         resultado_pix.get("success", False),
                         (
                             f'{{"origem":"cobranca_automatica","client_id":"{cliente["id"]}",'
+                            f'"empresa_credora":"{empresa_credora}",'
+                            f'"banco":"{resultado_pix.get("banco", "inter")}",'
+                            f'"boleto_digitavel":"{resultado_pix.get("boleto_digitavel", "")}",'
                             f'"pix_success":{str(resultado_pix.get("success", False)).lower()}}}'
                         ),
                     ),
