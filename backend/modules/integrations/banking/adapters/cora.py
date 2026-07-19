@@ -187,6 +187,78 @@ class CoraAdapter(BaseBankingAdapter):
         )
 
     # ------------------------------------------------------------------
+    # COBRANÇA (recebimento) — boleto registrado + PIX QR na MESMA emissão
+    # Referência: docs/CORA_API_REFERENCIA_COMPLETA §3 (valores em CENTAVOS;
+    # mínimo R$5,00; Idempotency-Key obrigatório; PIX pago cancela o barcode)
+    # ------------------------------------------------------------------
+
+    async def criar_cobranca(
+        self,
+        *,
+        code: str,
+        cliente_nome: str,
+        cliente_documento: str,
+        valor_centavos: int,
+        descricao: str,
+        vencimento: date,
+        cliente_email: str | None = None,
+        formas: list[str] | None = None,
+    ) -> dict:
+        """Emite cobrança (boleto+PIX) pela conta Cora da Patrimonial.
+
+        `code` = NOSSO id de conciliação (ecoado nas consultas). Retorna o dict
+        da invoice (id inv_..., payment_options.bank_slip, pix.emv).
+        """
+        import uuid
+
+        if valor_centavos < 500:
+            raise BankingAdapterError("Cora: cobrança mínima é R$5,00 (500 centavos)")
+        await self.ensure_authenticated()
+        payload = {
+            "code": code,
+            "customer": {
+                "name": cliente_nome[:60],
+                "document": {"identity": "".join(c for c in cliente_documento if c.isdigit())},
+                **({"email": cliente_email[:60]} if cliente_email else {}),
+            },
+            "services": [{"name": descricao[:60], "description": descricao[:100], "amount": valor_centavos}],
+            "payment_terms": {"due_date": vencimento.isoformat()},
+            "payment_forms": formas or ["BANK_SLIP", "PIX"],
+        }
+        async with self._client() as cli:
+            resp = await cli.post(
+                "/v2/invoices/",
+                headers={**self._auth_headers(), "Idempotency-Key": str(uuid.uuid4()),
+                         "Content-Type": "application/json"},
+                json=payload,
+            )
+        if resp.status_code not in (200, 201):
+            raise BankingAdapterError(f"Cora cobrança HTTP {resp.status_code}: {resp.text[:300]}")
+        return resp.json()
+
+    async def consultar_cobranca(self, invoice_id: str) -> dict:
+        await self.ensure_authenticated()
+        async with self._client() as cli:
+            resp = await cli.get(f"/v2/invoices/{invoice_id}", headers=self._auth_headers())
+        if resp.status_code != 200:
+            raise BankingAdapterError(f"Cora consulta HTTP {resp.status_code}: {resp.text[:200]}")
+        return resp.json()
+
+    async def cancelar_cobranca(self, invoice_id: str) -> bool:
+        """Cancela boleto NÃO pago (204). REC-0006 = já pago (não cancela)."""
+        import uuid
+
+        await self.ensure_authenticated()
+        async with self._client() as cli:
+            resp = await cli.delete(
+                f"/v2/invoices/{invoice_id}",
+                headers={**self._auth_headers(), "Idempotency-Key": str(uuid.uuid4())},
+            )
+        if resp.status_code == 204:
+            return True
+        raise BankingAdapterError(f"Cora cancelamento HTTP {resp.status_code}: {resp.text[:200]}")
+
+    # ------------------------------------------------------------------
     # SAÍDA DE DINHEIRO — bloqueada até D7 (honestidade > conveniência)
     # ------------------------------------------------------------------
 
