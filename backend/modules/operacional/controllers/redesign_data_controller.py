@@ -1362,6 +1362,75 @@ async def _build_seguranca(db: AsyncSession) -> dict:
     return out
 
 
+async def _build_licitacoes(db: AsyncSession) -> dict:
+    out, safe, tbl = _helpers(db)
+    n_opp = await _scalar(db, "SELECT count(*) FROM bidding_opportunities")
+    n_ten = await _scalar(db, "SELECT count(*) FROM bidding_tenders")
+    n_part = await _scalar(db, "SELECT count(*) FROM bidding_tenders WHERE participando=true")
+    n_prop = await _scalar(db, "SELECT count(*) FROM bidding_proposals")
+
+    async def _visao():
+        opp_st = (await db.execute(text("SELECT coalesce(status,'—'), count(*) FROM bidding_opportunities GROUP BY 1 ORDER BY 2 DESC LIMIT 6"))).fetchall()
+        mod = (await db.execute(text("SELECT coalesce(modalidade,'—'), count(*) FROM bidding_tenders GROUP BY 1 ORDER BY 2 DESC LIMIT 6"))).fetchall()
+        val_ctr = await _scalar(db, "SELECT coalesce(sum(valor_contrato),0) FROM bidding_public_contracts WHERE coalesce(ativo,true)=true")
+        return {"title": "Visão geral", "sub": "Licitações — dados reais", "cta": "Atualizar", "type": "dash", "panelGrid": "1fr 1fr",
+                "kpis": [
+                    {"v": str(n_opp), "l": "Oportunidades", "icon": IC["shield"], "color": "#0F1B3A"},
+                    {"v": f"{n_part}/{n_ten}", "l": "Editais (participando)", "icon": IC["cal"], "color": "#0F1B3A"},
+                    {"v": str(n_prop), "l": "Propostas", "icon": _ICF["hand"], "color": "#0F1B3A"},
+                    {"v": brl(val_ctr), "l": "Contratos públicos", "icon": _ICF["money"], "color": "#16A34A"},
+                ],
+                "panels": [
+                    {"title": "Oportunidades por status", "rows": [{"left": (s or "—").capitalize(), "right": str(c), **S["info"]} for s, c in opp_st] or [{"left": "Sem oportunidades", "right": "0", **S["mut"]}]},
+                    {"title": "Editais por modalidade", "rows": [{"left": (m or "—"), "right": str(c), **S["ok"]} for m, c in mod] or [{"left": "Sem editais", "right": "0", **S["mut"]}]},
+                ]}
+
+    await safe("visao", _visao())
+    await safe("oportunidades", tbl(
+        "Oportunidades", f"{n_opp} captadas", "Atualizar",
+        ["Objeto", "Órgão", "UF", "Valor estimado", "Encerra", "Status"], "2.2fr 1.6fr 0.5fr 1fr 1fr 0.9fr",
+        "SELECT objeto, coalesce(orgao_nome,'—'), coalesce(uf,'—'), valor_estimado, data_encerramento, coalesce(status,'—') "
+        "FROM bidding_opportunities ORDER BY data_encerramento DESC NULLS LAST LIMIT 200",
+        lambda r: [t((r[0] or '—')[:80], 600, "#0F1B3A"), t((r[1] or '—')[:40]), t(r[2]), t(brl(r[3]) if r[3] is not None else '—'), t(_fmtdate(r[4])), b((r[5] or '—').capitalize(), "info")]))
+    await safe("editais", tbl(
+        "Editais", f"{n_ten} editais ({n_part} participando)", "Novo edital",
+        ["Nº / Objeto", "Órgão", "Modalidade", "Valor estimado", "Status", "Participa"], "2fr 1.6fr 1.1fr 1fr 0.9fr 0.8fr",
+        "SELECT coalesce(objeto_resumido, objeto, numero, '—'), coalesce(orgao_nome,'—'), coalesce(modalidade,'—'), valor_estimado, coalesce(status,'—'), coalesce(participando,false) "
+        "FROM bidding_tenders ORDER BY data_abertura DESC NULLS LAST LIMIT 200",
+        lambda r: [t((r[0] or '—')[:70], 600, "#0F1B3A"), t((r[1] or '—')[:40]), t(r[2]), t(brl(r[3]) if r[3] is not None else '—'), b((r[4] or '—').capitalize(), "info"), b("Sim", "ok") if r[5] else b("Não", "mut")]))
+    await safe("propostas", tbl(
+        "Propostas", f"{n_prop} propostas", "Nova proposta",
+        ["Nº", "Edital", "Valor total", "Classificação", "Status"], "0.8fr 2.2fr 1fr 1fr 0.9fr",
+        "SELECT coalesce(p.numero,'—'), coalesce(t.objeto_resumido, t.objeto, '—'), p.valor_total, p.posicao_classificacao, coalesce(p.status,'—') "
+        "FROM bidding_proposals p LEFT JOIN bidding_tenders t ON t.id=p.tender_id ORDER BY p.created_at DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—')[:70]), t(brl(r[2]) if r[2] is not None else '—'), t(f"{r[3]}º" if r[3] else '—'), b((r[4] or '—').capitalize(), "info")]))
+    await safe("contratos", tbl(
+        "Contratos públicos", f"{await _scalar(db, 'SELECT count(*) FROM bidding_public_contracts')} contratos", "Novo contrato",
+        ["Contrato", "Objeto", "Órgão", "Valor", "Vigência", "Status"], "1fr 1.8fr 1.4fr 1fr 1.1fr 0.9fr",
+        "SELECT coalesce(numero_contrato,'—'), coalesce(objeto_resumido, objeto, '—'), coalesce(orgao_nome,'—'), valor_contrato, data_vigencia_fim, coalesce(status,'—') "
+        "FROM bidding_public_contracts ORDER BY data_assinatura DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—')[:55]), t((r[2] or '—')[:35]), t(brl(r[3]) if r[3] is not None else '—'), t(_fmtdate(r[4])), b((r[5] or '—').capitalize(), "ok")]))
+    await safe("certidoes", tbl(
+        "Certidões", f"{await _scalar(db, 'SELECT count(*) FROM bidding_certificates')} certidões", "Nova certidão",
+        ["Certidão", "Tipo", "Órgão", "Validade", "Situação"], "1.8fr 1.2fr 1.4fr 1fr 0.9fr",
+        "SELECT coalesce(nome,'—'), coalesce(tipo,'—'), coalesce(orgao_emissor,'—'), data_validade, coalesce(situacao, status, '—') "
+        "FROM bidding_certificates ORDER BY data_validade ASC NULLS LAST LIMIT 200",
+        lambda r: [t((r[0] or '—')[:45], 600, "#0F1B3A"), t(r[1]), t((r[2] or '—')[:35]), t(_fmtdate(r[3])), b((r[4] or '—').capitalize(), "info")]))
+    # disputas (list)
+    drows = (await db.execute(text(
+        "SELECT coalesce(d.status,'—'), coalesce(d.resultado,'—'), d.posicao_final, coalesce(t.objeto_resumido, t.objeto, '—'), d.finished_at "
+        "FROM bidding_disputes d LEFT JOIN bidding_tenders t ON t.id=d.tender_id ORDER BY d.started_at DESC NULLS LAST LIMIT 100"))).fetchall()
+    res_tone = {"vencedor": "ok", "ganhou": "ok", "perdedor": "bad", "perdeu": "bad", "desclassificado": "bad"}
+    ditems = [{"title": (obj or "Disputa")[:70],
+               "meta": f"Resultado: {(resu or '—')} · {(f'{pos}º' if pos else '—')} · {_fmtdate(fin, '%d/%m/%Y %H:%M')}",
+               "dot": "#2563EB", "badge": (st or "—").capitalize(), **S[res_tone.get((resu or "").lower(), "info")]}
+              for st, resu, pos, obj, fin in drows]
+    if not ditems:
+        ditems = [{"title": "Sem disputas", "meta": "aguardando dado", "dot": "#16A34A", "badge": "OK", **S["ok"]}]
+    out["disputas"] = {"title": "Disputas", "sub": f"{len(drows)} disputas", "cta": "Ver", "type": "list", "items": ditems}
+    return out
+
+
 BUILDERS = {
     "operacional": _build_operacional,
     "financeiro": _build_financeiro,
@@ -1382,6 +1451,7 @@ BUILDERS = {
     "relatorios": _build_relatorios,
     "configuracoes": _build_configuracoes,
     "seguranca": _build_seguranca,
+    "licitacoes": _build_licitacoes,
 }
 
 
