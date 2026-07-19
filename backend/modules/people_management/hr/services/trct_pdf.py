@@ -71,6 +71,9 @@ def montar_trct_pdf(calc: dict, funcionario: dict | None = None, meta: dict | No
     meta: {termination_id, notice_type, assinaturas} — contexto do processo.
     """
     funcionario = funcionario or {}
+    # Multi-CNPJ E3: empregador vigente do funcionário (rescisão usa a empresa do vínculo;
+    # demitidos antigos não fizeram flip => resolvem CNPJ1 naturalmente)
+    _empresa_doc = B.empresa_branding_por_cpf(funcionario.get('cpf'))
     meta = meta or {}
     st = B.styles()
     buf = io.BytesIO()
@@ -115,9 +118,9 @@ def montar_trct_pdf(calc: dict, funcionario: dict | None = None, meta: dict | No
         ],
         [
             _cell("Empregador", st, bold=True),
-            _cell(B.EMPRESA["razao"], st),
+            _cell(_empresa_doc["razao"], st),
             _cell("CNPJ", st, bold=True),
-            _cell(B.EMPRESA["cnpj"], st),
+            _cell(_empresa_doc["cnpj"], st),
         ],
     ]
     t_id = Table(ident, colWidths=[26 * mm, W / 2 - 26 * mm, 22 * mm, W / 2 - 22 * mm])
@@ -304,7 +307,7 @@ def montar_trct_pdf(calc: dict, funcionario: dict | None = None, meta: dict | No
     titulo = "TRCT — TERMO DE RESCISÃO"
     doc.build(
         story,
-        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo=titulo),
-        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo=titulo),
+        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo=titulo, empresa=_empresa_doc),
+        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo=titulo, empresa=_empresa_doc),
     )
     return buf.getvalue()

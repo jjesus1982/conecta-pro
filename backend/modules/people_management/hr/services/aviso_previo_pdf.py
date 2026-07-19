@@ -86,6 +86,9 @@ def montar_aviso_previo_pdf(dados: dict, funcionario: dict | None = None) -> byt
     funcionario: dict do employees (cpf, cargo, data_admissao) — ausentes ficam '—'.
     """
     funcionario = funcionario or {}
+    # Multi-CNPJ E3: empregador vigente do funcionário (rescisão usa a empresa do vínculo;
+    # demitidos antigos não fizeram flip => resolvem CNPJ1 naturalmente)
+    _empresa_doc = B.empresa_branding_por_cpf(funcionario.get('cpf'))
     st = B.styles()
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -147,11 +150,11 @@ def montar_aviso_previo_pdf(dados: dict, funcionario: dict | None = None) -> byt
     emp = [
         [
             _cell("Empregador", st, bold=True),
-            _cell(B.EMPRESA["razao"], st),
+            _cell(_empresa_doc["razao"], st),
         ],
         [
             _cell("CNPJ", st, bold=True),
-            _cell(B.EMPRESA["cnpj"], st),
+            _cell(_empresa_doc["cnpj"], st),
         ],
     ]
     t_emp = Table(emp, colWidths=[26 * mm, W - 26 * mm])
@@ -206,7 +209,7 @@ def montar_aviso_previo_pdf(dados: dict, funcionario: dict | None = None) -> byt
 
     # ── Comunicado ──
     texto = _TEXTO_TRABALHADO if modalidade == "trabalhado" else _TEXTO_INDENIZADO
-    story.append(Paragraph(texto.format(empresa=B.EMPRESA["nome"], cnpj=B.EMPRESA["cnpj"]), st["corpo"]))
+    story.append(Paragraph(texto.format(empresa=_empresa_doc["razao"], cnpj=_empresa_doc["cnpj"]), st["corpo"]))
     story.append(Paragraph(_NOTA_LEI_12506, st["corpo"]))
 
     # ── Autenticidade (só quando REALMENTE assinado) ──
@@ -224,7 +227,7 @@ def montar_aviso_previo_pdf(dados: dict, funcionario: dict | None = None) -> byt
 
     doc.build(
         story,
-        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo=modalidade_label),
-        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo=modalidade_label),
+        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo=modalidade_label, empresa=_empresa_doc),
+        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo=modalidade_label, empresa=_empresa_doc),
     )
     return buf.getvalue()

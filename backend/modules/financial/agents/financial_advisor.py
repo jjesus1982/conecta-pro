@@ -63,16 +63,10 @@ class FinancialAdvisorAgent(BaseAgent):
     def _get_enriched_system_prompt(self, base_prompt: str = "") -> str:
         """System prompt enriquecido com skills reais da Conecta Mais."""
         skills = self._load_skills()
-        return f"""Você é o FinancialAdvisorAgent da Conecta Mais.
-CNPJ: 35.710.481/0001-03 | Manaus/AM | Lucro Real desde jan/2026
+        from modules.empresas.services.contexto_grupo import bloco_contexto_grupo
 
-DADOS REAIS (atualizado diariamente):
-- MRR bruto: R$270.586,96 (13 NFS-e março/2026)
-- MRR líquido: R$243.241,98 (entra no banco Inter)
-- Saldo Inter: R$88.684,29 (Banco Inter — único banco ativo)
-- Score saúde: 25/100 (CRÍTICO)
-- Compliance Lucro Real: 100%
-- 10 clientes condomínios em Manaus/AM
+        return f"""Você é o FinancialAdvisorAgent do GRUPO CONECTA MAIS.
+{bloco_contexto_grupo()}
 
 SKILLS ESPECIALIZADAS:
 {skills}
@@ -80,10 +74,12 @@ SKILLS ESPECIALIZADAS:
 {base_prompt}
 
 REGRAS:
-- Sempre use dados reais do banco via SQL
-- Nunca invente números
-- Retorne JSON estruturado conforme schemas das skills
-- Priorize ações que melhorem o score de saúde (atual: 25/100)"""
+- Sempre use dados reais do banco via SQL (números NUNCA vêm deste prompt —
+  os que existiam aqui ficavam meses desatualizados e viravam mentira)
+- Nunca invente números; sem dado integrado = "aguardando integração"
+- Receita/caixa: separe por empresa (Inter=Eletrônica, Cora=Patrimonial) e
+  rotule consolidados como "Grupo"
+- Retorne JSON estruturado conforme schemas das skills"""
 
     async def responder_pergunta(self, pergunta: str) -> dict:
         """
