@@ -198,11 +198,14 @@ class BoletoListResponse(BaseModel):
 class PixChargeRequest(BaseModel):
     bank_code: str = "077"  # "077" = Inter
     amount: float  # Valor em R$
-    description: str = "Cobrança Conecta Mais Patrimonial"
+    description: str = "Cobrança Grupo Conecta Mais"
     payer_name: str | None = None
     payer_document: str | None = None
     receivable_id: str | None = None  # ID do receivable_account para salvar PIX gerado
-    chave_pix: str = "35710481000103"  # CNPJ Conecta Mais como chave PIX padrão
+    # Multi-CNPJ E4: default = chave da ELETRÔNICA (esta rota gera PIX pelo
+    # INTER). Cobranças da PATRIMONIAL saem pelo CORA via recurring_billing/
+    # CoraAdapter.criar_cobranca — NUNCA misturar chave de uma com banco da outra.
+    chave_pix: str = "35710481000103"  # chave PIX Inter (Eletrônica)
     expiracao_horas: int = 24  # Validade em horas
 
 
@@ -558,7 +561,7 @@ async def generate_pix_charge(
     Gera cobrança PIX com QR Code dinâmico via Banco Inter.
 
     - Inter (077): cobrança imediata /pix/v2/cob → retorna copia-e-cola
-    - Chave PIX padrão: CNPJ 35710481000103 (Conecta Mais Patrimonial)
+    - Chave PIX padrão: CNPJ 35710481000103 (Conecta Mais ELETRÔNICA — Inter; Patrimonial cobra pelo Cora)
     """
     from datetime import datetime, timedelta
 

@@ -105,7 +105,11 @@ async def contrato(db: AsyncSession, client_id: str) -> dict:
 
 
 async def boletos(db: AsyncSession, client_id: str) -> dict:
-    """Boletos/cobranças do condomínio (Inter). Vazio enquanto não houver emissão local."""
+    """Boletos/cobranças do condomínio — Multi-CNPJ E4: união dos DOIS bancos.
+
+    Inter (Eletrônica, legado) + Cora (Patrimonial, via receivable_accounts com
+    metadata.banco='cora'). O condomínio vê a fatura da empresa que o atende.
+    """
     _, cliente_id = await _cnpj_e_cliente(db, client_id)
     out = []
     if cliente_id:
@@ -121,12 +125,39 @@ async def boletos(db: AsyncSession, client_id: str) -> dict:
             ).mappings().all()
             out = [
                 {"numero": r["seu_numero"], "valor": float(r["valor"] or 0),
-                 "vencimento": str(r["vencimento"]) if r["vencimento"] else None, "status": r["status"]}
+                 "vencimento": str(r["vencimento"]) if r["vencimento"] else None,
+                 "status": r["status"], "banco": "Inter"}
                 for r in rows
             ]
         except Exception:
             out = []
-    return {"boletos": out, "total": len(out)}
+        try:
+            rows_cora = (
+                await db.execute(
+                    text(
+                        """SELECT ra.pix_txid AS numero, ra.gross_value AS valor,
+                                  ra.due_date AS vencimento, ra.status,
+                                  ra.metadata->>'boleto_digitavel' AS digitavel,
+                                  ra.pix_copy_paste
+                           FROM receivable_accounts ra
+                           WHERE ra.metadata->>'client_id' = :cid
+                             AND ra.metadata->>'banco' = 'cora'
+                           ORDER BY ra.due_date DESC LIMIT 24"""
+                    ),
+                    {"cid": str(cliente_id)},
+                )
+            ).mappings().all()
+            out += [
+                {"numero": r["numero"], "valor": float(r["valor"] or 0),
+                 "vencimento": str(r["vencimento"]) if r["vencimento"] else None,
+                 "status": r["status"], "banco": "Cora",
+                 "boleto_digitavel": r["digitavel"], "pix_copia_cola": r["pix_copy_paste"]}
+                for r in rows_cora
+            ]
+        except Exception:  # noqa: BLE001
+            pass
+        out.sort(key=lambda b: b.get("vencimento") or "", reverse=True)
+    return {"boletos": out[:24], "total": len(out[:24])}
 
 
 async def resumo(db: AsyncSession, client_id: str) -> dict:
