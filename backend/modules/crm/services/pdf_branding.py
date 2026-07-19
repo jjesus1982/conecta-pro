@@ -241,13 +241,15 @@ def _rodape_linha_icones(canvas, w: float, y: float, fonte_sz: float, itens: lis
 
 
 def header_footer(
-    canvas, doc, *, seal_watermark: bool = False, titulo: str | None = None, pular_primeira: bool = False
+    canvas, doc, *, seal_watermark: bool = False, titulo: str | None = None, pular_primeira: bool = False,
+    empresa: dict | None = None,
 ):
     """Cabeçalho limpo (logo COMPLETA à esquerda sobre branco + título/empresa à direita) + rodapé oficial.
     Desenha em TODAS as páginas. pular_primeira=True para docs com capa própria na pág. 1.
     seal_watermark=True desenha o selo claro ao centro (contratos/relatórios)."""
     if pular_primeira and doc.page == 1:
         return
+    emp = empresa or EMPRESA  # Multi-CNPJ E3: identidade por empregador×competência
     canvas.saveState()
     w, h = A4
     if seal_watermark:
@@ -275,7 +277,7 @@ def header_footer(
     if not _desenha_logo_cheia(canvas, 16 * mm, h - 33 * mm, 44 * mm, 25 * mm):
         canvas.setFont(FONTE_B, 12)
         canvas.setFillColor(AZUL_ESCURO)
-        canvas.drawString(16 * mm, h - 18 * mm, EMPRESA["nome"])
+        canvas.drawString(16 * mm, h - 18 * mm, emp["nome"])
     # título + empresa à direita (azul)
     if titulo:
         canvas.setFillColor(AZUL_ESCURO)
@@ -283,8 +285,8 @@ def header_footer(
         canvas.drawRightString(w - 16 * mm, h - 15 * mm, titulo)
     canvas.setFillColor(AZUL_MEDIO)
     canvas.setFont(FONTE, 8)
-    canvas.drawRightString(w - 16 * mm, h - (20 if titulo else 14) * mm, EMPRESA["nome"])
-    canvas.drawRightString(w - 16 * mm, h - (24 if titulo else 18) * mm, f"CNPJ {EMPRESA['cnpj']}")
+    canvas.drawRightString(w - 16 * mm, h - (20 if titulo else 14) * mm, emp["nome"])
+    canvas.drawRightString(w - 16 * mm, h - (24 if titulo else 18) * mm, f"CNPJ {emp['cnpj']}")
     # régua azul sob o cabeçalho + rodapé
     canvas.setStrokeColor(AZUL_ESCURO)
     canvas.setLineWidth(0.6)
@@ -296,13 +298,13 @@ def header_footer(
         w,
         11 * mm,
         6.5,
-        [("bldg", EMPRESA["nome"]), ("doc", f"CNPJ: {EMPRESA['cnpj']}"), ("phone", EMPRESA["fone"])],
+        [("bldg", emp["nome"]), ("doc", f"CNPJ: {emp['cnpj']}"), ("phone", emp["fone"])],
     )
     canvas.setFont(FONTE, 6.5)
     canvas.setFillColor(AZUL_MEDIO)
     # linha 2: site + email + instagram (CENTRALIZADA)
     canvas.drawCentredString(
-        w / 2, 7.5 * mm, f"{EMPRESA['site']}   ·   {EMPRESA['email']}   ·   {EMPRESA['instagram']}"
+        w / 2, 7.5 * mm, f"{emp['site']}   ·   {emp['email']}   ·   {emp['instagram']}"
     )
     # paginação discreta no canto inferior direito (sem sobrepor o bloco centralizado)
     canvas.setFont(FONTE, 6)
