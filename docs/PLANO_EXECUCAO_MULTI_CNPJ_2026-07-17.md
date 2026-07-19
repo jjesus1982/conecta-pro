@@ -8,7 +8,7 @@
 |---|---|---|
 | E1 Fundação | ✅ 17/07 | 2 empresas ativas/completas; certs A1+Cora validados; helper único; tenants=instalação |
 | E2 Contratos | ✅ 17/07 | Migração executada: 7→Patrimonial (incl. Pássaros inteiro) + 3→Eletrônica, aditivos TRANSF-* persistidos |
-| E3 Trabalhista | 🟡 ARMADA | Migrations aplicadas (72 empl/107 payslips backfill CNPJ1); flip = `multicnpj_espelhar_funcionarios.sh <YYYY-MM>` — **aguarda data Portte (≤25/07)** |
+| E3 Trabalhista | ✅ **FLIP EXECUTADO 19/07** (ordem Jordan: "não aguardar ninguém") | 53 vínculos vigentes → Patrimonial; fronteira 2026-07 ativa; holerite/espelho/recibo por empregador×competência PROVADOS (julho=CNPJ2, junho=CNPJ1); trava SST segue o vínculo; DEFAULTs novos=Patrimonial. Pendente: conciliar com retorno Portte + patronal por regime (números c/ Portte consultiva) |
 | E4 Cora | 🟡 LEITURA ✅ | Saldo R$34.237,67 no sistema; extrato conciliado AUTOMÁTICO (líquido×NFS-e provado com PIX reais do Mirante); beat 08:10. **Saída/cobrança aguarda stage+D7** |
 | E5 Fiscal | ✅ 18/07 | Pipeline 2 empresas (beat 04:30 rodou sozinho ok); regra de substituição CORRIGIDA (bug que afetava CNPJ1: −R$5.886,90 fantasma, +R$5.808,39 INSS retido); Patrimonial: 6 notas/R$187.981,05, NSU=18 |
 | E6 GED/Kits | ✅ 18/07 | Kit híbrido pronto p/ 28/07: CNDs por CNPJ (2 conjuntos), DANFSe das 2 empresas (substituídas fora), classificador 2 matrizes |
