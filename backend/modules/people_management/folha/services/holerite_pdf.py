@@ -128,49 +128,13 @@ def _titulo(txt, st, icone="user"):
     return t
 
 
-def _slug_empregador(funcionario: dict) -> str | None:
-    """Empregador VIGENTE do funcionário (employees.empresa_id → empresas.slug).
-
-    Multi-CNPJ E3: o holerite imprime a empresa do vínculo; a competência aplica
-    a regra anti-reescrita (holerites < fronteira ficam CNPJ1 para sempre).
-    Sem match => None (empresa_branding cai no CNPJ1) — com aviso no log.
-    """
-    import logging
-    import os
-    import re as _re
-
-    cpf = _re.sub(r"\D", "", str(funcionario.get("cpf") or ""))
-    if not cpf:
-        return None
-    try:
-        import psycopg2
-
-        url = _re.sub(r"\+asyncpg|\+psycopg2?", "", os.getenv("DATABASE_URL", ""))
-        conn = psycopg2.connect(url)
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT e.slug FROM employees emp JOIN empresas e ON e.id = emp.empresa_id "
-                    "WHERE REGEXP_REPLACE(COALESCE(emp.cpf,''),'[^0-9]','','g') = %s LIMIT 1",
-                    (cpf,),
-                )
-                row = cur.fetchone()
-        finally:
-            conn.close()
-        if row:
-            return row[0]
-    except Exception as exc:  # noqa: BLE001
-        logging.getLogger(__name__).warning("holerite: falha ao resolver empregador (%s)", exc)
-    return None
-
-
 def montar_holerite_pdf(holerite: dict, funcionario: dict | None = None) -> bytes:
     """Gera o PDF completo do holerite (uma folha A4) a partir do dict de calcular_folha_colaborador."""
     funcionario = funcionario or {}
     _mes = int(holerite.get("mes") or 0)
     _ano = int(holerite.get("ano") or 0)
     _competencia = f"{_ano:04d}-{_mes:02d}" if _mes and _ano else None
-    empresa_doc = B.empresa_branding(_slug_empregador(funcionario), _competencia)
+    empresa_doc = B.empresa_branding_por_cpf(funcionario.get('cpf'), _competencia)
     st = B.styles()
     buf = io.BytesIO()
     doc = SimpleDocTemplate(

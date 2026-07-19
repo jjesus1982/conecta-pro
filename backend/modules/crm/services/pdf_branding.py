@@ -92,6 +92,37 @@ def resolve_slug_por_competencia(slug_atual: str, competencia: str | None) -> st
     return slug_atual
 
 
+def empresa_branding_por_cpf(cpf: str | None, competencia: str | None = None) -> dict:
+    """Branding do EMPREGADOR VIGENTE do funcionário (CPF → empresas.slug),
+    com a regra anti-reescrita por competência. Fonte única para holerite,
+    espelho de ponto, recibos e demais docs trabalhistas."""
+    import logging
+    import re as _re
+
+    slug = None
+    digitos = _re.sub(r"\D", "", str(cpf or ""))
+    if digitos:
+        try:
+            import psycopg2
+
+            url = _re.sub(r"\+asyncpg|\+psycopg2?", "", os.getenv("DATABASE_URL", ""))
+            conn = psycopg2.connect(url)
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT e.slug FROM employees emp JOIN empresas e ON e.id = emp.empresa_id "
+                        "WHERE REGEXP_REPLACE(COALESCE(emp.cpf,''),'[^0-9]','','g') = %s LIMIT 1",
+                        (digitos,),
+                    )
+                    row = cur.fetchone()
+            finally:
+                conn.close()
+            slug = row[0] if row else None
+        except Exception as exc:  # noqa: BLE001
+            logging.getLogger(__name__).warning("branding_por_cpf: %s", exc)
+    return empresa_branding(slug, competencia)
+
+
 def empresa_branding(slug: str | None = None, competencia: str | None = None) -> dict:
     """Identidade de marca para documentos, resolvida por empresa e competência.
 

@@ -145,15 +145,19 @@ def montar_espelho_ponto_pdf(esp: dict, *, signatarios: list | None = None) -> b
     mes = int(esp.get("mes") or esp.get("reference_month") or 0)
     ano = esp.get("ano") or esp.get("reference_year") or ""
     comp = f"{_MESES[mes] if 0 < mes < 13 else mes}/{ano}"
+    # Multi-CNPJ E3: empregador vigente × competência (anti-reescrita)
+    _empresa_doc = B.empresa_branding_por_cpf(
+        esp.get("employee_cpf"), f"{int(ano):04d}-{mes:02d}" if mes and str(ano).isdigit() else None
+    )
     story: list = []
 
     # ── EMPREGADOR + EMPREGADO ──
     ident = [
         [
             _cell("Empregador", bold=True),
-            _cell(B.EMPRESA["razao"]),
+            _cell(_empresa_doc["razao"]),
             _cell("CNPJ", bold=True),
-            _cell(B.EMPRESA["cnpj"]),
+            _cell(_empresa_doc["cnpj"]),
         ],
         [
             _cell("Empregado", bold=True),
@@ -340,7 +344,7 @@ def montar_espelho_ponto_pdf(esp: dict, *, signatarios: list | None = None) -> b
 
     doc.build(
         story,
-        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo="ESPELHO DE PONTO"),
-        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo="ESPELHO DE PONTO"),
+        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo="ESPELHO DE PONTO", empresa=_empresa_doc),
+        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo="ESPELHO DE PONTO", empresa=_empresa_doc),
     )
     return buf.getvalue()

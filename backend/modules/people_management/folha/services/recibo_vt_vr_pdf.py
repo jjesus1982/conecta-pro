@@ -44,6 +44,11 @@ def montar_recibo_vt_vr_pdf(
     não informado, o campo fica em branco (aguardando dado) — nunca inventado.
     """
     funcionario = funcionario or {}
+    _mes = int(holerite.get('mes') or 0)
+    _ano = int(holerite.get('ano') or 0)
+    _empresa_doc = B.empresa_branding_por_cpf(
+        funcionario.get('cpf'), f'{_ano:04d}-{_mes:02d}' if _mes and _ano else None
+    )
     st = B.styles()
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -208,7 +213,7 @@ def montar_recibo_vt_vr_pdf(
     nome = holerite.get("employee_nome", "—")
     story.append(
         Paragraph(
-            f"<b>DECLARAÇÃO.</b> Declaro que recebi da <b>{B.EMPRESA['nome']}</b> (CNPJ {B.EMPRESA['cnpj']}) "
+            f"<b>DECLARAÇÃO.</b> Declaro que recebi da <b>{_empresa_doc['nome']}</b> (CNPJ {_empresa_doc['cnpj']}) "
             f"os valores de vale-transporte e vale-refeição referentes à competência <b>{comp}</b>, na forma da "
             f"Lei nº 7.418/1985 e da Convenção Coletiva de Trabalho da categoria, com a co-participação legal "
             f"descontada em folha, nada mais tendo a reclamar quanto a estes benefícios no período.",
@@ -240,7 +245,7 @@ def montar_recibo_vt_vr_pdf(
 
     doc.build(
         story,
-        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo="RECIBO VT / VR"),
-        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo="RECIBO VT / VR"),
+        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo="RECIBO VT / VR", empresa=_empresa_doc),
+        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo="RECIBO VT / VR", empresa=_empresa_doc),
     )
     return buf.getvalue()
