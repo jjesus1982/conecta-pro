@@ -81,6 +81,7 @@ class NFSeNacionalService:
             self.razao_social = cfg.get("razao_social") or ""
             self.cert_path = cfg.get("certificado_path") or ""
             self.cert_password = cfg.get("certificado_senha") or ""
+            self.optante_simples = (cfg.get("regime") or "").lower() == "simples_nacional"
         else:
             # Configuracoes do ambiente (legado, CNPJ1)
             self.cnpj = os.getenv("NFSE_NACIONAL_CNPJ", os.getenv("NFSE_MANAUS_CNPJ", "35710481000103"))
@@ -90,6 +91,7 @@ class NFSeNacionalService:
             self.razao_social = os.getenv("NFSE_NACIONAL_RAZAO_SOCIAL", "Conecta Plus Servicos LTDA")
             self.cert_path = os.getenv("CERTIFICATE_PATH", "/opt/conecta-pro/credentials/certificates/certificado.pfx")
             self.cert_password = os.getenv("CERTIFICATE_PASSWORD", "")
+            self.optante_simples = False  # CNPJ1/legado = Lucro Real (nunca assumir Simples)
 
         logger.info(
             f"NFSe Nacional Service inicializado - CNPJ: {self.cnpj}"
@@ -158,7 +160,7 @@ class NFSeNacionalService:
                 razao_social=prestador_data.get("razao_social", self.razao_social),
                 nome_fantasia=prestador_data.get("nome_fantasia"),
                 regime_especial=RegimeEspecial(prestador_data.get("regime_especial", "6")),
-                optante_simples=prestador_data.get("optante_simples", True),
+                optante_simples=prestador_data.get("optante_simples", self.optante_simples),
             )
         else:
             prestador = PrestadorNacional(
@@ -166,6 +168,7 @@ class NFSeNacionalService:
                 inscricao_municipal=self.inscricao_municipal,
                 codigo_municipio=self.codigo_municipio,
                 razao_social=self.razao_social,
+                optante_simples=self.optante_simples,
             )
 
         # Criar tomador
