@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type ReactNode } from 'react';
-import { PanelLeftClose, PanelLeft, Search, Bell } from 'lucide-react';
+import { PanelLeftClose, PanelLeft, Search, Bell, Menu } from 'lucide-react';
 
 export type NavItem = { key: string; label: string; icon: ReactNode; href?: string };
 
@@ -26,6 +26,7 @@ export function ModuleShell({
   children: ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   useEffect(() => {
     const v = typeof window !== 'undefined' ? localStorage.getItem('rd-sidebar-collapsed') : null;
     if (v === '1') setCollapsed(true);
@@ -41,16 +42,21 @@ export function ModuleShell({
 
   return (
     <div className="rd-shell">
-      <aside className={`rd-sidebar${collapsed ? ' collapsed' : ''}`}>
+      {mobileOpen && <div className="rd-scrim" onClick={() => setMobileOpen(false)} />}
+      <aside className={`rd-sidebar${collapsed ? ' collapsed' : ''}${mobileOpen ? ' open' : ''}`}>
         <div className="rd-brand">
-          <div className="rd-brand-mark">C</div>
-          <div className="rd-brand-name">CONECTA <b>{brand}</b></div>
+          {/* Marca fiel ao roteiro: ícone quadrante (branco) + CONECTA + badge PRO */}
+          <img src="/images/quadrante.png" alt="Conecta" className="rd-brand-logo" />
+          <div className="rd-brand-name">
+            <span className="rd-brand-word">CONECTA</span>
+            <span className="rd-brand-badge">{brand}</span>
+          </div>
         </div>
         <nav className="rd-nav">
           {nav.map((it) => (
             <button key={it.key} type="button"
               className={`rd-nav-item${it.key === active ? ' active' : ''}`}
-              onClick={() => onNav?.(it.key)} title={it.label}>
+              onClick={() => { onNav?.(it.key); setMobileOpen(false); }} title={it.label}>
               {it.icon}<span>{it.label}</span>
             </button>
           ))}
@@ -68,9 +74,15 @@ export function ModuleShell({
 
       <div className="rd-main">
         <header className="rd-topbar">
-          <button type="button" className="rd-icon-btn" onClick={toggle} aria-label="Recolher menu"
+          {/* Desktop: recolher sidebar */}
+          <button type="button" className="rd-icon-btn rd-collapse-btn" onClick={toggle} aria-label="Recolher menu"
             style={{ border: 'none', background: 'transparent' }}>
             {collapsed ? <PanelLeft size={18} /> : <PanelLeftClose size={18} />}
+          </button>
+          {/* Mobile: abrir/fechar menu */}
+          <button type="button" className="rd-icon-btn rd-menu-btn" onClick={() => setMobileOpen((o) => !o)} aria-label="Abrir menu"
+            style={{ border: 'none', background: 'transparent' }}>
+            <Menu size={20} />
           </button>
           <div className="rd-crumb">{crumb}</div>
           <div className="rd-search">

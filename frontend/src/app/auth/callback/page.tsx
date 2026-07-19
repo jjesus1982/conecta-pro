@@ -14,7 +14,11 @@ function AuthCallbackContent() {
     if (accessToken && refreshToken) {
       localStorage.setItem('access_token', accessToken);
       localStorage.setItem('refresh_token', refreshToken);
-      router.replace('/dashboard');
+      // Sincronizar cookie p/ o middleware (antes só salvava no localStorage)
+      const isSecure = window.location.protocol === 'https:';
+      document.cookie = `auth_token=${accessToken}; path=/; max-age=${30 * 60}; SameSite=Lax${isSecure ? '; Secure' : ''}`;
+      // Cutover: cai no redesign por padrão (troque por '/dashboard' para reverter)
+      router.replace('/redesign');
     } else {
       router.replace('/login?error=no_tokens');
     }

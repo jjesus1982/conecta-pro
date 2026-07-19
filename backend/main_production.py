@@ -517,6 +517,9 @@ try:
     from modules.operacional.controllers.grade_controller import router as grade_router
     api_router.include_router(falta_substituto_router, prefix="/operacional", tags=["Operacional - Falta e Substituto"])
     api_router.include_router(grade_router, prefix="/operacional", tags=["Operacional - Grade por pessoa"])
+    # Redesign — dados reais por módulo (READ-ONLY): GET /redesign/data/{slug}
+    from modules.operacional.controllers.redesign_data_controller import router as redesign_data_router
+    api_router.include_router(redesign_data_router, prefix="/redesign", tags=["Redesign - Dados reais"])
     api_router.include_router(post_orders_router, prefix="/operacional", tags=["Operacional - Instruções de Posto"])
     # AI
     api_router.include_router(operacional_ai_router, prefix="/operacional", tags=["Operacional - AI"])

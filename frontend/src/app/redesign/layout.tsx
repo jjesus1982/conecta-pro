@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Sora } from 'next/font/google';
 import './redesign.css';
+import RedesignGuard from './RedesignGuard';
 
 const sora = Sora({
   subsets: ['latin'],
@@ -17,7 +18,7 @@ export const metadata = {
 export default function RedesignLayout({ children }: { children: ReactNode }) {
   return (
     <div className={`${sora.variable} rd-root`}>
-      {children}
+      <RedesignGuard>{children}</RedesignGuard>
     </div>
   );
 }

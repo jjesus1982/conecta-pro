@@ -1,0 +1,341 @@
+'use client';
+
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { PanelLeftClose, PanelLeft, Menu, Search, Bell, Plus, LogOut, LayoutGrid } from 'lucide-react';
+import { MODULES } from './modules';
+import { rdLogout } from './session';
+
+// ── Ícone via path bruto do pacote (lucide, traço 2px) ───────────────────────
+function Ico({ d, size = 17, stroke = 'currentColor' }: { d: string; size?: number; stroke?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke}
+      strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={{ flex: 'none' }}>
+      <path d={d} />
+    </svg>
+  );
+}
+
+type MenuItem = { id: string; label: string; icon: string };
+function normMenu(menu: unknown[]): MenuItem[] {
+  return (menu || []).map((it: unknown) => {
+    if (Array.isArray(it)) return { id: it[0], label: it[1], icon: it[2] };
+    const o = it as { id: string; label: string; icon: string };
+    return { id: o.id, label: o.label, icon: o.icon };
+  }).filter((m) => m.id);
+}
+
+// ── Pílula de status ─────────────────────────────────────────────────────────
+function Pill({ v, color, bg }: { v: ReactNode; color: string; bg: string }) {
+  return <span className="rd-pill" style={{ color, background: bg }}>{v}</span>;
+}
+
+// ── Renderizadores de tela (1:1 com o template dc) ───────────────────────────
+function DashScreen({ scr }: { scr: any }) {
+  return (
+    <div className="rd-dash">
+      <div className="rd-dash-kpis">
+        {(scr.kpis || []).map((k: any, i: number) => (
+          <div className="rd-kpi" key={i}>
+            <div className="rd-kpi-ico"><Ico d={k.icon} size={20} stroke="var(--navy)" /></div>
+            <div className="rd-kpi-v" style={{ color: k.color || 'var(--ink)' }}>{k.v}</div>
+            <div className="rd-kpi-l">{k.l}</div>
+          </div>
+        ))}
+      </div>
+      <div className="rd-panels" style={{ ['--pg' as any]: scr.panelGrid || '1fr' }}>
+        {(scr.panels || []).map((p: any, i: number) => (
+          <div className="rd-panel" key={i}>
+            <div className="rd-panel-h">{p.title}</div>
+            {(p.rows || []).map((r: any, j: number) => (
+              <div className="rd-panel-row" key={j}>
+                <span className="l">{r.left}</span>
+                {r.right != null && <Pill v={r.right} color={r.color || 'var(--ink-weak)'} bg={r.bg || 'var(--fill)'} />}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TableScreen({ scr }: { scr: any }) {
+  return (
+    <div className="rd-tbl-wrap">
+      <div className="rd-tbl-scroll">
+        <div className="rd-tbl-inner">
+          <div className="rd-tbl-head" style={{ gridTemplateColumns: scr.grid }}>
+            {(scr.cols || []).map((c: string, i: number) => <span className="rd-tbl-th" key={i}>{c}</span>)}
+          </div>
+          {(scr.rows || []).map((row: any, i: number) => (
+            <div className="rd-tbl-row" style={{ gridTemplateColumns: scr.grid }} key={i}>
+              {(row.cells || []).map((cell: any, j: number) => (
+                <span className="rd-tbl-cell" key={j}>
+                  {cell.isBadge
+                    ? <Pill v={cell.v} color={cell.color} bg={cell.bg} />
+                    : <>
+                        {cell.ini && <span className="rd-init">{cell.ini}</span>}
+                        <span className="tx" style={{ fontWeight: cell.w || 500, color: cell.tc || '#334155' }}>{cell.v}</span>
+                      </>}
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CardsScreen({ scr }: { scr: any }) {
+  return (
+    <div className="rd-cardgrid">
+      {(scr.cards || []).map((cd: any, i: number) => (
+        <div className="rd-dc-card" key={i}>
+          <div className="rd-dc-card-h">
+            <div style={{ minWidth: 0 }}>
+              <div className="rd-dc-card-t">{cd.title}</div>
+              {cd.sub && <div className="rd-dc-card-s">{cd.sub}</div>}
+            </div>
+            {cd.badge && <Pill v={cd.badge} color={cd.color || 'var(--ink-weak)'} bg={cd.bg || 'var(--fill)'} />}
+          </div>
+          {cd.hasStats && (
+            <div className="rd-dc-stats">
+              {(cd.stats || []).map((s: any, j: number) => (
+                <div key={j}>
+                  <div className="v" style={{ color: s.color || 'var(--ink)' }}>{s.v}</div>
+                  <div className="l">{s.l}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          {cd.hasLines && (
+            <div className="rd-dc-lines">
+              {(cd.lines || []).map((ln: any, j: number) => (
+                <div className="row" key={j}><span className="l">{ln.l}</span><span className="v">{ln.v}</span></div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ListScreen({ scr }: { scr: any }) {
+  return (
+    <div className="rd-list-card">
+      {(scr.items || []).map((it: any, i: number) => (
+        <div className="rd-list-row" key={i}>
+          {it.dot && <span className="dot" style={{ background: it.dot }} />}
+          <div className="main">
+            <div className="tt">{it.title}</div>
+            {it.meta && <div className="mt">{it.meta}</div>}
+          </div>
+          {it.badge && <Pill v={it.badge} color={it.color || 'var(--ink-weak)'} bg={it.bg || 'var(--fill)'} />}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FormScreen({ scr }: { scr: any }) {
+  const [vals, setVals] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const set = (k: string, v: string) => setVals((s) => ({ ...s, [k]: v }));
+
+  async function submit() {
+    if (!scr.submit) return;
+    setBusy(true); setMsg(null);
+    try {
+      let tok: string | null = null;
+      try { tok = localStorage.getItem('access_token'); } catch { /* */ }
+      const res = await fetch(scr.submit.endpoint, {
+        method: scr.submit.method || 'POST',
+        headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
+        body: JSON.stringify(vals),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.detail || 'Não foi possível salvar.');
+      setMsg({ ok: true, text: d.message || scr.submit.okMsg || 'Salvo com sucesso.' });
+      setVals({});
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : 'Erro ao salvar.' });
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="rd-form-card">
+      {msg && (
+        <div className={`rd-badge ${msg.ok ? 'rd-b-success' : 'rd-b-error'}`} style={{ height: 'auto', padding: '8px 12px', fontSize: 12.5, alignSelf: 'flex-start' }}>
+          {msg.text}
+        </div>
+      )}
+      <div className="rd-form-grid">
+        {(scr.fields || []).map((f: any, i: number) => (
+          <div className="rd-field" key={i} style={{ gridColumn: f.span || 'span 1' }}>
+            <label className="rd-label" style={{ textTransform: 'none', letterSpacing: 0, fontSize: 11 }}>{f.label}</label>
+            {f.type === 'select' ? (
+              <select className="rd-input" value={vals[f.key] || ''} onChange={(e) => set(f.key, e.target.value)}>
+                <option value="">{f.ph || 'Selecione…'}</option>
+                {(f.options || []).map((o: any) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            ) : f.type === 'textarea' ? (
+              <textarea className="rd-input" style={{ height: 92, paddingTop: 10, resize: 'vertical' }}
+                placeholder={f.ph} value={vals[f.key] || ''} onChange={(e) => set(f.key, e.target.value)} />
+            ) : (
+              <input className="rd-input" type={f.type === 'date' ? 'date' : 'text'} placeholder={f.ph}
+                value={vals[f.key] || ''} onChange={(e) => set(f.key, e.target.value)} />
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="rd-form-actions">
+        <button className="rd-btn rd-btn-primary" disabled={busy || !scr.submit} onClick={submit}>
+          {busy ? 'Salvando…' : (scr.cta || 'Salvar')}
+        </button>
+        <button className="rd-btn rd-btn-outline" onClick={() => { setVals({}); setMsg(null); }}>Limpar</button>
+      </div>
+      {!scr.submit && <div className="rd-scr-sub" style={{ marginTop: 4 }}>Formulário de exemplo do pacote — escrita ainda não ligada nesta tela.</div>}
+    </div>
+  );
+}
+
+function Screen({ scr }: { scr: any }) {
+  if (!scr) return <div className="rd-card rd-card-pad" style={{ color: 'var(--ink-weak)' }}>Tela em preparação.</div>;
+  switch (scr.type) {
+    case 'dash': return <DashScreen scr={scr} />;
+    case 'table': return <TableScreen scr={scr} />;
+    case 'cards': return <CardsScreen scr={scr} />;
+    case 'list': return <ListScreen scr={scr} />;
+    case 'form': return <FormScreen scr={scr} />;
+    default: return <div className="rd-card rd-card-pad">Tipo não suportado: {scr.type}</div>;
+  }
+}
+
+// ── ModuleView: shell do módulo + tela ativa ────────────────────────────────
+export default function ModuleView({ slug }: { slug: string }) {
+  const data = MODULES[slug];
+  const menu = useMemo(() => normMenu(data?.menu || []), [data]);
+  const screens = data?.screens || {};
+  const mod = data?.mod || { name: slug, desc: '', icon: '' };
+
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [active, setActive] = useState<string>(menu[0]?.id || '');
+  const [patches, setPatches] = useState<Record<string, any>>({});
+  const [extraMenu, setExtraMenu] = useState<any[]>([]);
+  // 'idle' sem token (exemplo direto) · 'loading' buscando · 'done' resolvido
+  const [dataState, setDataState] = useState<'idle' | 'loading' | 'done'>('idle');
+
+  useEffect(() => {
+    try { if (localStorage.getItem('rd-sidebar-collapsed') === '1') setCollapsed(true); } catch { /* */ }
+    const t = new URLSearchParams(window.location.search).get('t');
+    // confia no ?t da URL (telas de ação/extraMenu chegam via patch, depois)
+    if (t) setActive(t);
+  }, [screens]);
+
+  // Dados reais da API (READ-ONLY). Sem token → mantém exemplos do pacote.
+  useEffect(() => {
+    let cancel = false;
+    let tok: string | null = null;
+    try { tok = localStorage.getItem('access_token'); } catch { /* */ }
+    if (!tok) { setDataState('idle'); return; }
+    setDataState('loading');
+    fetch(`/api/v1/redesign/data/${slug}`, { headers: { Authorization: `Bearer ${tok}` } })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((j) => { if (!cancel) { setPatches(j.screens || {}); setExtraMenu(j.extraMenu || []); setDataState('done'); } })
+      .catch(() => { if (!cancel) setDataState('done'); });
+    return () => { cancel = true; };
+  }, [slug]);
+
+  const toggle = () => setCollapsed((c) => { const n = !c; try { localStorage.setItem('rd-sidebar-collapsed', n ? '1' : '0'); } catch { /* */ } return n; });
+  const go = (id: string) => {
+    setActive(id); setMobileOpen(false);
+    try { const u = new URL(window.location.href); u.searchParams.set('t', id); window.history.replaceState(null, '', u); } catch { /* */ }
+  };
+
+  const isReal = !!patches[active];
+  const scr = patches[active] || screens[active] || screens[menu[0]?.id];
+  const initials = 'JJ';
+
+  if (!data) return <div className="rd-content"><div className="rd-card rd-card-pad">Módulo não encontrado: {slug}</div></div>;
+
+  return (
+    <div className="rd-shell">
+      {mobileOpen && <div className="rd-scrim" onClick={() => setMobileOpen(false)} />}
+      <aside className={`rd-sidebar${collapsed ? ' collapsed' : ''}${mobileOpen ? ' open' : ''}`}>
+        <div className="rd-brand">
+          <img src="/images/quadrante.png" alt="Conecta" className="rd-brand-logo" />
+          <div className="rd-brand-name"><span className="rd-brand-word">CONECTA</span><span className="rd-brand-badge">PRO</span></div>
+        </div>
+        <div className="rd-mod-ctx">
+          <div className="ico">{mod.icon && <Ico d={mod.icon} size={16} stroke="#fff" />}</div>
+          <div><div className="nm">{mod.name}</div><div className="ds">{mod.desc}</div></div>
+        </div>
+        <nav className="rd-nav">
+          {[...menu, ...normMenu(extraMenu)].map((m) => (
+            <button key={m.id} type="button" title={m.label}
+              className={`rd-nav-item${m.id === active ? ' active' : ''}`} onClick={() => go(m.id)}>
+              <Ico d={m.icon} size={17} stroke={m.id === active ? '#fff' : '#9DB0D9'} />
+              <span>{m.label}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="rd-side-foot">
+          <div className="rd-avatar">{initials}</div>
+          {!collapsed && (
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="n">Jordan Jesus</div>
+              <div className="r">admin</div>
+            </div>
+          )}
+          {!collapsed && (
+            <div style={{ display: 'flex', gap: 4 }}>
+              <a href="/modulos" title="Sistema clássico" className="rd-foot-ico"><LayoutGrid size={15} /></a>
+              <button type="button" title="Sair" onClick={rdLogout} className="rd-foot-ico"><LogOut size={15} /></button>
+            </div>
+          )}
+        </div>
+      </aside>
+
+      <div className="rd-main">
+        <header className="rd-topbar">
+          <button type="button" className="rd-icon-btn rd-collapse-btn" onClick={toggle} aria-label="Recolher menu"
+            style={{ border: 'none', background: 'transparent' }}>
+            {collapsed ? <PanelLeft size={18} /> : <PanelLeftClose size={18} />}
+          </button>
+          <button type="button" className="rd-icon-btn rd-menu-btn" onClick={() => setMobileOpen((o) => !o)} aria-label="Abrir menu"
+            style={{ border: 'none', background: 'transparent' }}>
+            <Menu size={20} />
+          </button>
+          <div className="rd-crumb">{mod.name} › <b>{scr?.title}</b></div>
+          <span className={`rd-badge ${dataState === 'loading' ? 'rd-b-neutral' : isReal ? 'rd-b-success' : 'rd-b-warning'}`} style={{ height: 20 }}>
+            {dataState === 'loading' ? 'carregando…' : isReal ? 'dados reais' : 'exemplo do pacote'}
+          </span>
+          <div className="rd-search">
+            <Search size={16} color="var(--placeholder)" />
+            <input placeholder={scr?.searchHint || 'Buscar…'} />
+          </div>
+          <button type="button" className="rd-icon-btn" aria-label="Notificações"><Bell size={18} /><span className="rd-dot-badge">3</span></button>
+          {scr?.cta && <button className="rd-btn rd-btn-primary"><Plus size={16} /> {scr.cta}</button>}
+        </header>
+        <main className="rd-content">
+          <div>
+            <div className="rd-scr-title">{scr?.title}</div>
+            {scr?.sub && <div className="rd-scr-sub">{scr.sub}</div>}
+          </div>
+          {dataState === 'loading'
+            ? <div className="rd-dash" aria-busy="true">
+                <div className="rd-dash-kpis">
+                  {[0, 1, 2, 3].map((i) => <div className="rd-skel" key={i} style={{ height: 92 }} />)}
+                </div>
+                <div className="rd-skel" style={{ height: 220 }} />
+              </div>
+            : <Screen scr={scr} />}
+        </main>
+      </div>
+    </div>
+  );
+}

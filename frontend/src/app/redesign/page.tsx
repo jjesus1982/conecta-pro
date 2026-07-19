@@ -1,130 +1,212 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
-  Home, Shield, Users, Wallet, Landmark, FolderArchive, ShieldCheck, Settings,
-  MapPin, Building2, CalendarDays, Plus, ArrowRight, AlertTriangle,
+  Search, Bell, Users, Shield, Handshake, CalendarDays, DollarSign, Megaphone,
+  Trophy, Wrench, FolderKanban, HeartPulse, Clock, User, Headset, Calculator,
+  Scale, BarChart3, LineChart, Package, Settings, Link2, Lock, Building2,
+  Sparkles, Workflow, LogOut, LayoutGrid, type LucideIcon,
 } from 'lucide-react';
-import { ModuleShell, KpiCard, ModuleTile, StatusBadge, Btn, type NavItem } from '@/components/redesign/shell';
+import { rdLogout } from '@/components/redesign/session';
 
-const NAV: NavItem[] = [
-  { key: 'inicio', label: 'Início', icon: <Home size={18} /> },
-  { key: 'operacional', label: 'Operacional', icon: <Shield size={18} /> },
-  { key: 'rh', label: 'Gestão RH', icon: <Users size={18} /> },
-  { key: 'financeiro', label: 'Financeiro', icon: <Wallet size={18} /> },
-  { key: 'fiscal', label: 'Fiscal Contábil', icon: <Landmark size={18} /> },
-  { key: 'ged', label: 'GED', icon: <FolderArchive size={18} /> },
-  { key: 'compliance', label: 'Compliance', icon: <ShieldCheck size={18} /> },
-  { key: 'config', label: 'Configurações', icon: <Settings size={18} /> },
+// ── Dados fiéis ao Home Launcher.dc.html (exemplos → trocar por API) ──────────
+const KPIS: { icon: LucideIcon; v: string; l: string }[] = [
+  { icon: Users, v: '51', l: 'Colaboradores' },
+  { icon: Shield, v: '9', l: 'Postos ativos' },
+  { icon: Handshake, v: '10', l: 'Clientes' },
+  { icon: CalendarDays, v: '19', l: 'Escalas' },
 ];
 
-const PENDENCIAS = [
-  { titulo: 'Alvará de Funcionamento', meta: 'Vencida desde 27/02', tone: 'error' as const, cta: 'Resolver' },
-  { titulo: 'Certidão Estadual', meta: 'Vence em 22 dias', tone: 'warning' as const, cta: 'Ver' },
-  { titulo: 'CRF — FGTS', meta: 'Vence em 22 dias', tone: 'warning' as const, cta: 'Ver' },
+const ALERTS = [
+  { title: 'Alvará de Funcionamento', meta: 'Vencido desde 27/02/2026', action: 'Regularizar', dot: 'var(--error)' },
+  { title: 'Certidão Negativa Estadual', meta: 'Vence em 22 dias', action: 'Ver', dot: 'var(--warning)' },
+  { title: 'CRF — FGTS (Caixa)', meta: 'Vence em 22 dias', action: 'Ver', dot: 'var(--warning)' },
 ];
 
-const ATIVIDADE = [
-  { dot: 'var(--success)', titulo: 'Escala publicada · Posto Centro', meta: 'há 2 horas' },
-  { dot: 'var(--info)', titulo: 'Admissão · Maria Silva', meta: 'há 4 horas' },
-  { dot: 'var(--warning)', titulo: 'Documento vencendo · CRF FGTS', meta: 'ontem' },
+type Mod = { name: string; desc: string; Icon: LucideIcon; org?: boolean };
+const GROUPS: { name: string; mods: Mod[] }[] = [
+  {
+    name: 'Negócios',
+    mods: [
+      { name: 'CRM', desc: 'Leads, propostas e contratos', Icon: Handshake, org: true },
+      { name: 'Marketing', desc: 'Funil, campanhas e conteúdo', Icon: Megaphone },
+      { name: 'Licitações', desc: 'Editais, propostas e disputas', Icon: Trophy },
+      { name: 'Serviços', desc: 'Agendamentos e ordens', Icon: Wrench },
+    ],
+  },
+  {
+    name: 'Gestão de Pessoas',
+    mods: [
+      { name: 'Departamento Pessoal', desc: 'Folha, admissões, férias', Icon: Users },
+      { name: 'Recursos Humanos', desc: 'Recrutamento e T&D', Icon: Users },
+      { name: 'Gestão de Pessoas', desc: 'GED, ponto, RH, SST', Icon: FolderKanban },
+      { name: 'Operacional', desc: 'Postos, escalas e campo', Icon: Shield, org: true },
+      { name: 'Saúde Ocupacional', desc: 'PCMSO, exames, riscos', Icon: HeartPulse },
+      { name: 'Ponto Eletrônico', desc: 'Batida, banco de horas', Icon: Clock },
+      { name: 'Portal do Funcionário', desc: 'Contracheque e documentos', Icon: User },
+      { name: 'Recrutamento', desc: 'Vagas e entrevistas', Icon: Users },
+    ],
+  },
+  {
+    name: 'Financeiro, Fiscal & Jurídico',
+    mods: [
+      { name: 'Financeiro', desc: 'Contas, caixa, compras', Icon: DollarSign, org: true },
+      { name: 'Fiscal & Contábil', desc: 'NFS-e, impostos, SPED', Icon: Calculator },
+      { name: 'Jurídico', desc: 'Processos, contratos, IA', Icon: Scale },
+      { name: 'Empresas', desc: 'Multi-empresa, obrigações', Icon: Building2 },
+    ],
+  },
+  {
+    name: 'Inteligência & Patrimônio',
+    mods: [
+      { name: 'BI', desc: 'Business Intelligence', Icon: BarChart3 },
+      { name: 'Analytics', desc: 'Métricas de uso', Icon: LineChart },
+      { name: 'Relatórios', desc: 'Central de relatórios', Icon: BarChart3 },
+      { name: 'Equipamentos', desc: 'Patrimônio e comodatos', Icon: Package },
+      { name: 'Suprimentos', desc: 'Requisições e almoxarifado', Icon: Package },
+      { name: 'Documentos', desc: 'GED, arquivos, kits', Icon: FolderKanban },
+    ],
+  },
+  {
+    name: 'Administração',
+    mods: [
+      { name: 'Configurações', desc: 'Usuários, permissões', Icon: Settings },
+      { name: 'Integrações', desc: 'APIs, webhooks', Icon: Link2 },
+      { name: 'Automações', desc: 'Workflows', Icon: Workflow },
+      { name: 'Agendador', desc: 'Tarefas agendadas', Icon: Clock },
+      { name: 'Segurança', desc: 'LGPD e auditoria', Icon: Lock },
+      { name: 'Assistente IA', desc: 'IA geral do sistema', Icon: Sparkles, org: true },
+      { name: 'Área do Cliente', desc: 'Portal externo', Icon: Headset },
+      { name: 'Meu Espaço', desc: 'Área pessoal', Icon: User },
+    ],
+  },
 ];
 
-const SEMANA = ['S', 'T', 'Q', 'Q', 'S', 'S', 'D'];
+// Nome do tile → slug do módulo (todos resolvem para um módulo existente)
+const SLUG: Record<string, string> = {
+  'CRM': 'crm', 'Marketing': 'marketing', 'Licitações': 'licitacoes', 'Serviços': 'servicos',
+  'Departamento Pessoal': 'departamento-pessoal', 'Recursos Humanos': 'rh', 'Gestão de Pessoas': 'gestao-de-pessoas',
+  'Operacional': 'operacional', 'Saúde Ocupacional': 'saude-ocupacional', 'Ponto Eletrônico': 'gestao-de-pessoas',
+  'Portal do Funcionário': 'portal-do-funcionario', 'Recrutamento': 'recrutamento',
+  'Financeiro': 'financeiro', 'Fiscal & Contábil': 'fiscal', 'Jurídico': 'juridico', 'Empresas': 'empresas',
+  'BI': 'bi', 'Analytics': 'analytics', 'Relatórios': 'relatorios', 'Equipamentos': 'equipamentos',
+  'Suprimentos': 'suprimentos', 'Documentos': 'documentos',
+  'Configurações': 'configuracoes', 'Integrações': 'integracoes', 'Automações': 'automacoes',
+  'Agendador': 'agendador', 'Segurança': 'seguranca', 'Assistente IA': 'assistente',
+  'Área do Cliente': 'area-do-cliente', 'Meu Espaço': 'meu-espaco',
+};
 
-export default function RedesignHome() {
-  const [active, setActive] = useState('inicio');
+function Tile({ m }: { m: Mod }): ReactNode {
+  const { Icon } = m;
+  const slug = SLUG[m.name];
   return (
-    <ModuleShell
-      brand="PRO"
-      nav={NAV}
-      active={active}
-      onNav={setActive}
-      crumb={<><b>Início</b></>}
-      cta={<Btn variant="primary"><Plus size={16} /> Nova escala</Btn>}
-    >
-      {/* Saudação */}
-      <div>
-        <div className="rd-page-title">Bom dia, Jordan</div>
-        <div className="rd-page-sub">Sábado, 18 de julho de 2026 · <span style={{ color: 'var(--orange-txt)', fontWeight: 700 }}>3 pendências</span></div>
+    <a className="rd-mod" href={slug ? `/redesign/${slug}` : undefined}>
+      <div className={`rd-mod-ico ${m.org ? 'org' : 'navy'}`}>
+        <Icon size={23} strokeWidth={2} />
       </div>
+      <div className="nm">{m.name}</div>
+      <div className="ds">{m.desc}</div>
+    </a>
+  );
+}
 
-      {/* KPIs */}
-      <div className="rd-kpis">
-        <KpiCard icon={<Users size={20} />} value="51" label="Colaboradores" delta="▲ +3" trend="up" />
-        <KpiCard icon={<MapPin size={20} />} value="9" label="Postos ativos" delta="= estável" trend="flat" />
-        <KpiCard icon={<Building2 size={20} />} value="10" label="Clientes pagantes" delta="▲ +1" trend="up" />
-        <KpiCard icon={<CalendarDays size={20} />} value="19" label="Escalas" delta="2 pendentes" trend="flat" />
-      </div>
+export default function RedesignLauncher() {
+  const [q, setQ] = useState('');
+  const ql = q.trim().toLowerCase();
+  const groups = ql
+    ? GROUPS.map((g) => ({ ...g, mods: g.mods.filter((m) => m.name.toLowerCase().includes(ql) || m.desc.toLowerCase().includes(ql)) })).filter((g) => g.mods.length)
+    : GROUPS;
 
-      {/* Acesso rápido */}
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <div className="rd-section-h">Acesso rápido</div>
-          <a href="#" style={{ fontSize: 13, fontWeight: 600 }}>Ver todos →</a>
+  return (
+    <div className="rd-launch">
+      {/* Topbar navy */}
+      <header className="rd-launch-top">
+        <div className="rd-launch-brand">
+          <img src="/images/quadrante.png" alt="Conecta" />
+          <span className="w">CONECTA</span>
+          <span className="b">PRO</span>
         </div>
-        <div className="rd-tiles">
-          <ModuleTile icon={<Shield size={22} />} name="Operacional" sub="9 postos" />
-          <ModuleTile icon={<Users size={22} />} name="Gestão RH" sub="51 pessoas" />
-          <ModuleTile icon={<Wallet size={22} />} name="Financeiro" sub="Contas · fluxo" />
-          <ModuleTile icon={<FolderArchive size={22} />} name="GED" sub="2.539 docs" />
+        <div className="rd-launch-search">
+          <Search size={15} color="rgba(255,255,255,0.6)" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar módulos…" />
         </div>
-      </div>
-
-      {/* Duas colunas: pendências + atividade / escalas */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr)', gap: 'var(--gap)', alignItems: 'start' }}>
-        {/* Pendências */}
-        <div className="rd-card rd-card-pad">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-            <div className="rd-section-h" style={{ fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <AlertTriangle size={17} color="var(--warning)" /> Pendências
-            </div>
-            <a href="#" style={{ fontSize: 12.5, fontWeight: 600 }}>Resolver pendências →</a>
-          </div>
-          <div className="rd-list">
-            {PENDENCIAS.map((p, i) => (
-              <div className="rd-list-item" key={i}>
-                <span className="rd-list-dot" style={{ background: p.tone === 'error' ? 'var(--error)' : 'var(--warning)' }} />
-                <div className="rd-list-main">
-                  <div className="rd-list-title">{p.titulo}</div>
-                  <div className="rd-list-meta">{p.meta}</div>
-                </div>
-                <StatusBadge tone={p.tone} dot={false}>{p.cta}</StatusBadge>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Direita: escalas da semana + atividade */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap)' }}>
-          <div className="rd-card rd-card-pad">
-            <div className="rd-label" style={{ marginBottom: 10 }}>Escalas da semana</div>
-            <div style={{ display: 'flex', gap: 6 }}>
-              {SEMANA.map((d, i) => (
-                <div key={i} style={{
-                  flex: 1, textAlign: 'center', padding: '10px 0', borderRadius: 10,
-                  background: i === 5 ? 'var(--navy)' : 'var(--fill)',
-                  color: i === 5 ? '#fff' : 'var(--ink-weak)', fontWeight: 700, fontSize: 12,
-                }}>{d}</div>
-              ))}
+        <div className="rd-launch-actions">
+          <div className="rd-launch-bell"><Bell size={19} /><span className="dot">3</span></div>
+          <div className="rd-launch-user">
+            <div className="av"><img src="/images/foto-jordan.jpg" alt="Jordan Jesus" /></div>
+            <div>
+              <div className="n">Jordan Jesus</div>
+              <div className="r">admin</div>
             </div>
           </div>
-          <div className="rd-card rd-card-pad">
-            <div className="rd-label" style={{ marginBottom: 6 }}>Atividade recente</div>
-            <div className="rd-list">
-              {ATIVIDADE.map((a, i) => (
-                <div className="rd-list-item" key={i}>
-                  <span className="rd-list-dot" style={{ background: a.dot }} />
-                  <div className="rd-list-main">
-                    <div className="rd-list-title" style={{ fontSize: 13 }}>{a.titulo}</div>
-                    <div className="rd-list-meta">{a.meta}</div>
+          <a href="/modulos" title="Ir para o sistema clássico (para operações)"
+            style={{ display: 'flex', alignItems: 'center', gap: 6, textDecoration: 'none', color: '#fff',
+              background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.16)', borderRadius: 10,
+              padding: '8px 12px', fontSize: 12.5, fontWeight: 600, whiteSpace: 'nowrap' }}>
+            <LayoutGrid size={16} /> Clássico
+          </a>
+          <button type="button" title="Sair" onClick={rdLogout} className="rd-launch-bell" style={{ background: 'transparent', border: 'none' }}><LogOut size={18} /></button>
+        </div>
+      </header>
+
+      {/* Conteúdo */}
+      <div className="rd-launch-body">
+        <div className="rd-launch-inner">
+          <div className="rd-launch-hi">
+            <h1>Bom dia, Jordan</h1>
+            <p>Sábado, 18 de julho de 2026 · selecione um módulo para começar</p>
+          </div>
+
+          {/* KPIs + Pendências */}
+          <div className="rd-launch-row">
+            <div className="rd-kpi-row">
+              {KPIS.map((k) => (
+                <div className="rd-kpi-h" key={k.l}>
+                  <div className="box"><k.icon size={21} strokeWidth={2} /></div>
+                  <div>
+                    <div className="v">{k.v}</div>
+                    <div className="l">{k.l}</div>
                   </div>
                 </div>
               ))}
             </div>
+            <div className="rd-pend">
+              <div className="rd-pend-h">
+                <span className="t">Pendências</span>
+                <span className="c">3</span>
+              </div>
+              {ALERTS.map((a) => (
+                <div className="rd-pend-row" key={a.title}>
+                  <span className="dot" style={{ background: a.dot }} />
+                  <div className="main">
+                    <div className="tt">{a.title}</div>
+                    <div className="mt">{a.meta}</div>
+                  </div>
+                  <span className="ac">{a.action}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Grupos de módulos */}
+          {groups.map((g) => (
+            <div className="rd-group" key={g.name}>
+              <div className="rd-group-h">
+                <span className="bar" />
+                <span className="lbl">{g.name}</span>
+              </div>
+              <div className="rd-mod-grid">
+                {g.mods.map((m) => <Tile m={m} key={m.name} />)}
+              </div>
+            </div>
+          ))}
+
+          <div className="rd-launch-foot">
+            <span>Conecta PRO v2.0</span>
+            <span>By Conecta Mais® · erp.conectamais.pro</span>
           </div>
         </div>
       </div>
-    </ModuleShell>
+    </div>
   );
 }

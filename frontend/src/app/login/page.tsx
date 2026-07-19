@@ -6,6 +6,10 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
 
+// Destino padrão pós-login (cutover 2026-07-18: redesign vira o padrão).
+// Deep-links via ?redirect= são preservados. Para reverter, troque por '/dashboard'.
+const POST_LOGIN_DEFAULT = '/redesign';
+
 const OAUTH_ERROR_MESSAGES: Record<string, string> = {
   google_auth_failed: 'Falha na autenticacao com Google',
   no_code: 'Codigo de autorizacao nao recebido',
@@ -33,7 +37,7 @@ function LoginContent() {
   // auth_token chegue ao middleware — router.push() pode não enviar o cookie
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      const redirect = searchParams.get('redirect') || '/dashboard';
+      const redirect = searchParams.get('redirect') || POST_LOGIN_DEFAULT;
       window.location.href = redirect;
     }
   }, [isLoading, isAuthenticated, searchParams]);
@@ -58,7 +62,7 @@ function LoginContent() {
     setError('');
     const result = await login({ email, password });
     if (result.success) {
-      router.push('/dashboard');
+      window.location.href = searchParams.get('redirect') || POST_LOGIN_DEFAULT;
     } else {
       setError(result.error || 'Erro ao fazer login');
     }
