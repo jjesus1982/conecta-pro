@@ -202,6 +202,18 @@ function FormScreen({ scr }: { scr: any }) {
   );
 }
 
+// Estado vazio honesto: tela sem dado REAL não mostra exemplo — fica vazia ("aguardando dado").
+function EmptyReal() {
+  return (
+    <div className="rd-card rd-card-pad" style={{ textAlign: 'center', padding: '56px 24px', color: 'var(--ink-weak)' }}>
+      <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', marginBottom: 6 }}>Aguardando dado</div>
+      <div style={{ fontSize: 13, maxWidth: 420, margin: '0 auto', lineHeight: 1.5 }}>
+        Esta tela ainda não tem dados reais no sistema. Ela será preenchida automaticamente assim que houver registros — não exibimos exemplos.
+      </div>
+    </div>
+  );
+}
+
 function Screen({ scr }: { scr: any }) {
   if (!scr) return <div className="rd-card rd-card-pad" style={{ color: 'var(--ink-weak)' }}>Tela em preparação.</div>;
   switch (scr.type) {
@@ -311,20 +323,20 @@ export default function ModuleView({ slug }: { slug: string }) {
             <Menu size={20} />
           </button>
           <div className="rd-crumb">{mod.name} › <b>{scr?.title}</b></div>
-          <span className={`rd-badge ${dataState === 'loading' ? 'rd-b-neutral' : isReal ? 'rd-b-success' : 'rd-b-warning'}`} style={{ height: 20 }}>
-            {dataState === 'loading' ? 'carregando…' : isReal ? 'dados reais' : 'exemplo do pacote'}
+          <span className={`rd-badge ${dataState === 'loading' ? 'rd-b-neutral' : isReal ? 'rd-b-success' : 'rd-b-neutral'}`} style={{ height: 20 }}>
+            {dataState === 'loading' ? 'carregando…' : isReal ? 'dados reais' : 'aguardando dado'}
           </span>
           <div className="rd-search">
             <Search size={16} color="var(--placeholder)" />
             <input placeholder={scr?.searchHint || 'Buscar…'} />
           </div>
           <button type="button" className="rd-icon-btn" aria-label="Notificações"><Bell size={18} /><span className="rd-dot-badge">3</span></button>
-          {scr?.cta && <button className="rd-btn rd-btn-primary"><Plus size={16} /> {scr.cta}</button>}
+          {scr?.cta && isReal && <button className="rd-btn rd-btn-primary"><Plus size={16} /> {scr.cta}</button>}
         </header>
         <main className="rd-content">
           <div>
             <div className="rd-scr-title">{scr?.title}</div>
-            {scr?.sub && <div className="rd-scr-sub">{scr.sub}</div>}
+            {scr?.sub && isReal && <div className="rd-scr-sub">{scr.sub}</div>}
           </div>
           {dataState === 'loading'
             ? <div className="rd-dash" aria-busy="true">
@@ -333,7 +345,9 @@ export default function ModuleView({ slug }: { slug: string }) {
                 </div>
                 <div className="rd-skel" style={{ height: 220 }} />
               </div>
-            : <Screen scr={scr} />}
+            : isReal
+              ? <Screen scr={scr} />
+              : <EmptyReal />}
         </main>
       </div>
     </div>
