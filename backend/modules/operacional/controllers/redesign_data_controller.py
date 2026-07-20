@@ -796,6 +796,18 @@ async def _build_fiscal(db: AsyncSession) -> dict:
         "SELECT coalesce(nome,'—'), coalesce(to_char(make_date(competencia_ano, greatest(competencia_mes,1), 1),'MM/YYYY'),'—'), coalesce(valor_devido,0), data_vencimento, status::text "
         "FROM fiscal_obligations ORDER BY data_vencimento DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), t(brl(r[2]), 600), t(_fmtdate(r[3])), b("Pago", "ok") if (r[4] or "").lower() in ("pago", "paga") else b(r[4] or "Pendente", "warn")]))
+
+    # DCTFWeb / EFD-Reinf — status de obrigação (compliance legal, leitura de fiscal_obligations por tipo)
+    def _obrig(tipo, label):
+        return tbl(label, f"{label} — obrigações, prazos e status (fiscal_obligations)", "—",
+            ["Obrigação", "Competência", "Valor devido", "Valor pago", "Vencimento", "Status"], "1.6fr 1fr 1fr 1fr 1fr 0.9fr",
+            "SELECT coalesce(nome, tipo, '—'), coalesce(to_char(make_date(competencia_ano, greatest(competencia_mes,1), 1),'MM/YYYY'),'—'), "
+            "coalesce(valor_devido,0), coalesce(valor_pago,0), data_vencimento, coalesce(status::text,'—') "
+            f"FROM fiscal_obligations WHERE tipo='{tipo}' ORDER BY data_vencimento DESC NULLS LAST LIMIT 200",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), t(brl(r[2]), 600), t(brl(r[3])), t(_fmtdate(r[4])),
+                       b("Cumprida", "ok") if (r[5] or "").lower() in ("cumprida", "pago", "paga") else b((r[5] or "Pendente").capitalize(), "warn")])
+    await safe("dctfweb", _obrig("DCTFWEB", "DCTFWeb"))
+    await safe("reinf", _obrig("EFD_REINF", "EFD-Reinf"))
     return out
 
 
