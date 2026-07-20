@@ -50,18 +50,25 @@ def main():
     check("E2 contratos", d.get("conecta_patrimonial") == 7 and d.get("conecta_eletronica") == 3 and adit >= 7,
           f"Patrimonial={d.get('conecta_patrimonial')} Eletrônica={d.get('conecta_eletronica')} aditivos={adit}")
 
-    # E3 — funcionários vigentes na Patrimonial; nenhum órfão; fronteira ativa
+    # E3 — funcionários vigentes na Patrimonial; nenhum órfão; flip COMPLETO
     tot = _q(cur, "SELECT count(*) n, count(empresa_id) c FROM employees")[0]
     pat = _q(cur, "SELECT count(*) n FROM employees emp JOIN empresas e ON e.id=emp.empresa_id "
                   "WHERE e.slug='conecta_patrimonial' AND LOWER(emp.status::text) IN ('ativo','afastado_inss','suspenso')")[0]["n"]
-    check("E3 funcionários", tot["n"] == tot["c"] and pat >= 50,
-          f"{tot['c']}/{tot['n']} com empresa; {pat} vigentes na Patrimonial")
+    # CORREÇÃO (não só não-nulo): o flip moveu TODA a força de trabalho ATIVA — não pode
+    # sobrar nenhum vigente na Eletrônica (que fica só com PJ/histórico). Prova a REGRA,
+    # não a presença. (Não-vigentes na Patrimonial são OK: demitido pós-flip é correto.)
+    elet_vig = _q(cur, "SELECT count(*) n FROM employees emp JOIN empresas e ON e.id=emp.empresa_id "
+                       "WHERE e.slug='conecta_eletronica' AND LOWER(emp.status::text) IN ('ativo','afastado_inss','suspenso')")[0]["n"]
+    check("E3 funcionários", tot["n"] == tot["c"] and pat >= 50 and elet_vig == 0,
+          f"{tot['c']}/{tot['n']} com empresa; {pat} vigentes Patrimonial; {elet_vig} vigentes órfãos na Eletrônica")
 
     # E4 — Cora: conta registrada + extrato conciliado + webhooks
     conta = _q(cur, "SELECT account_number FROM bank_accounts WHERE bank_code='403'")
     tx = _q(cur, "SELECT count(*) n, count(*) FILTER (WHERE reconciliation_status='conciliado') c "
                  "FROM bank_transactions bt JOIN bank_accounts ba ON ba.id=bt.bank_account_id WHERE ba.bank_code='403'")[0]
-    check("E4 Cora conta+extrato", bool(conta) and tx["n"] >= 8,
+    # CORREÇÃO (não só presença): exige que a conciliação de FATO tenha ocorrido em ao menos
+    # um lançamento (tx.c>=1) — antes só se contava a existência de 8 linhas no extrato.
+    check("E4 Cora conta+extrato", bool(conta) and tx["n"] >= 8 and tx["c"] >= 1,
           f"conta {conta[0]['account_number'] if conta else '—'}; {tx['n']} lançamentos, {tx['c']} conciliados")
 
     # E5 — NFS-e por empresa (emissor deixou de ser implícito)
