@@ -124,14 +124,21 @@ class LedgerAutoService:
         if cur.fetchone()[0] is None:
             return {"receita": 0, "iss": 0, "fonte": "sem tabela nacional"}
 
-        # Purga a receita/ISS antigos (notas manuais, seed) — serão substituídos pelos reais.
+        # Purga a receita/ISS antigos DESTA empresa (idempotência do repost) — ESCOPADO por
+        # empresa_id: sem o filtro, fechar(Patrimonial) apagaria os lançamentos da Eletrônica
+        # (e vice-versa). Multi-CNPJ: cada razão só mexe no que é seu.
         cur.execute(
-            "DELETE FROM accounting_entries WHERE tipo_lancamento IN ('nfse_emitida','tributo_iss')"
+            "DELETE FROM accounting_entries WHERE tipo_lancamento IN ('nfse_emitida','tributo_iss') "
+            "AND empresa_id = %s",
+            (empresa_id,),
         )
 
+        # SÓ as notas DESTA empresa. Sem o filtro empresa_id, as 6 notas da Patrimonial
+        # (Simples) caíam no razão da Eletrônica (Lucro Real) — contaminação de regime.
         cur.execute(
             "SELECT chave_acesso, numero, competencia, data_emissao, valor_servicos, iss_valor "
-            "FROM nfse_emitidas_nacional WHERE COALESCE(valor_servicos,0) > 0"
+            "FROM nfse_emitidas_nacional WHERE COALESCE(valor_servicos,0) > 0 AND empresa_id = %s",
+            (empresa_id,),
         )
         n_rec = n_iss = 0
         for chave, numero, comp, data_emi, vserv, iss in cur.fetchall():
@@ -158,7 +165,8 @@ class LedgerAutoService:
             return {"despesa_tomadas": 0, "fonte": "sem tabela"}
         cur.execute(
             "SELECT chave_acesso, numero, competencia, data_emissao, prestador_nome, valor_servicos "
-            "FROM nfse_tomadas_nacional WHERE COALESCE(valor_servicos,0) > 0"
+            "FROM nfse_tomadas_nacional WHERE COALESCE(valor_servicos,0) > 0 AND empresa_id = %s",
+            (empresa_id,),
         )
         n = 0
         for chave, numero, comp, data_emi, prest, vserv in cur.fetchall():
@@ -372,3 +380,25 @@ class LedgerAutoService:
             }
         finally:
             conn.close()
+
+    def fechar_grupo(self) -> dict:
+        """Fecha o razão de TODAS as empresas ativas (multi-CNPJ). Cada empresa é fechada com
+        o próprio empresa_id — sem isso, só a Eletrônica (default) era fechada e as notas da
+        Patrimonial ficavam sem razão próprio. A falha de uma NÃO derruba a outra."""
+        conn = self._conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id, slug FROM empresas WHERE status = 'ativa' ORDER BY slug")
+                empresas = [(str(r[0]), r[1]) for r in cur.fetchall()]
+        finally:
+            conn.close()
+        if not empresas:  # fallback: pelo menos a principal
+            empresas = [(EMPRESA_PRINCIPAL_ID, "principal")]
+        resultados = {}
+        for eid, slug in empresas:
+            try:
+                resultados[slug] = self.fechar(empresa_id=eid)
+            except Exception as exc:  # noqa: BLE001 — isolamento entre CNPJs
+                logger.error("Fechamento do razão falhou p/ %s: %s", slug, exc)
+                resultados[slug] = {"ok": False, "erro": str(exc)}
+        return {"ok": True, "empresas": resultados}

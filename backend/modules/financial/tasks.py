@@ -39,7 +39,7 @@ def sincronizar_nfse_nacional_task(self):
         except Exception as pat_exc:  # noqa: BLE001
             logger.warning("Sync NFS-e Patrimonial falhou (CNPJ1 segue normal): %s", pat_exc)
         tom = svc.sincronizar_tomadas()
-        fechar = LedgerAutoService().fechar()
+        fechar = LedgerAutoService().fechar_grupo()
         # Fecha o fluxo de caixa: corrige sinal dos recebidos + justifica cada saída
         try:
             from modules.financial.services.fluxo_caixa_service import FluxoCaixaService
@@ -50,7 +50,8 @@ def sincronizar_nfse_nacional_task(self):
         logger.info("NFS-e nacional sync: emitidas=%s tomadas=%s fluxo=%s",
                     emit.get("validas_cStat100"), tom.get("recebidas"), fc.get("reclassificadas"))
         return {"emitidas": emit.get("por_competencia"), "tomadas": tom.get("por_competencia_2026"),
-                "razao": fechar.get("novos_lancamentos"), "fluxo_caixa": fc.get("por_categoria")}
+                "razao": {slug: r.get("novos_lancamentos") for slug, r in fechar.get("empresas", {}).items()},
+                "fluxo_caixa": fc.get("por_categoria")}
     except Exception as exc:
         logger.error("Erro no sync NFS-e nacional: %s", exc)
         raise self.retry(exc=exc)
@@ -70,7 +71,7 @@ def fechar_razao_auto_task(self):
     try:
         from modules.financial.services.ledger_auto_service import LedgerAutoService
 
-        result = LedgerAutoService().fechar()
+        result = LedgerAutoService().fechar_grupo()
         logger.info("Fechamento automático do razão: %s", result)
         return result
     except Exception as exc:
