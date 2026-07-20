@@ -73,12 +73,14 @@ def main():
     check("E4 Cora conta+extrato", bool(conta) and tx["n"] >= 8 and tx["c"] >= 1,
           f"conta {conta[0]['account_number'] if conta else '—'}; {tx['n']} lançamentos, {tx['c']} conciliados")
 
-    # E5 — NFS-e por empresa (emissor deixou de ser implícito)
+    # E5 — NFS-e VIVAS por empresa (emissor deixou de ser implícito; canceladas excluídas)
     rows = _q(cur, "SELECT e.slug, count(*) n, COALESCE(sum(valor_servicos),0) v FROM nfse_emitidas_nacional n "
-                   "JOIN empresas e ON e.id=n.empresa_id GROUP BY e.slug")
+                   "JOIN empresas e ON e.id=n.empresa_id WHERE COALESCE(n.cancelada,FALSE)=FALSE GROUP BY e.slug")
     dn = {r["slug"]: (r["n"], float(r["v"])) for r in rows}
-    check("E5 NFS-e por empresa", "conecta_patrimonial" in dn and dn["conecta_patrimonial"][0] >= 6,
-          f"Eletrônica={dn.get('conecta_eletronica')} Patrimonial={dn.get('conecta_patrimonial')}")
+    # >=1: Patrimonial tem NFS-e própria (a segmentação por emissor existe). Robusto a
+    # cancelamentos (nota cancelada não conta) — a contagem exata vai na evidência.
+    check("E5 NFS-e por empresa", "conecta_patrimonial" in dn and dn["conecta_patrimonial"][0] >= 1,
+          f"Eletrônica={dn.get('conecta_eletronica')} Patrimonial={dn.get('conecta_patrimonial')} (vivas)")
 
     # E6 — certidões por CNPJ (2 conjuntos, sem mascarar o CNPJ2)
     rows = _q(cur, "SELECT cnpj, count(*) n FROM ged_certidoes GROUP BY cnpj")

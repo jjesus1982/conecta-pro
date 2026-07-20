@@ -78,6 +78,8 @@ class NFSeNacionalSyncService:
                 descricao      TEXT,
                 nsu            VARCHAR,
                 empresa_id     UUID,
+                cancelada      BOOLEAN DEFAULT FALSE,
+                cancelada_em   TIMESTAMP,
                 fonte          VARCHAR DEFAULT 'adn_nacional',
                 created_at     TIMESTAMP DEFAULT NOW()
             )
@@ -129,9 +131,13 @@ class NFSeNacionalSyncService:
                 if not row_emp:
                     raise LookupError(f"nfse sync: empresa ativa '{slug_efetivo}' não encontrada")
                 empresa_id = str(row_emp[0])
-                # Recarga limpa (autoritativo) ESCOPADA na empresa deste sync
+                # Recarga limpa (autoritativo) ESCOPADA na empresa deste sync.
+                # PRESERVA as marcadas como CANCELADAS (o ADN ainda entrega a nota; o
+                # cancelamento é evento à parte, mantido localmente até o sync tratar o
+                # evento de cancelamento) — senão a recarga ressuscitaria a nota cancelada.
                 cur.execute(
                     "DELETE FROM nfse_emitidas_nacional WHERE fonte='adn_nacional' "
+                    "AND COALESCE(cancelada, FALSE) = FALSE "
                     "AND (empresa_id = %s OR (empresa_id IS NULL AND %s = '619a3df1-8bce-49ce-b77a-04f80a0e8491'))",
                     (empresa_id, empresa_id),
                 )

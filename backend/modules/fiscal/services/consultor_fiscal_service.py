@@ -106,6 +106,7 @@ async def panorama(db: AsyncSession, ano: int | None = None) -> dict[str, Any]:
                     "round(COALESCE(sum(valor_servicos),0)::numeric,2) receita, "
                     "round(COALESCE(sum(iss_valor),0)::numeric,2) iss "
                     "FROM nfse_emitidas_nacional WHERE competencia LIKE :pref "
+                    "AND COALESCE(cancelada, FALSE) = FALSE "
                     "GROUP BY 1 ORDER BY 1"
                 ),
                 {"pref": f"{ano_ref}-%"},
@@ -253,7 +254,8 @@ async def panorama(db: AsyncSession, ano: int | None = None) -> dict[str, Any]:
                     "round(COALESCE(sum(n.valor_servicos),0)::numeric,2) receita, "
                     "round(COALESCE(sum(n.iss_valor),0)::numeric,2) iss "
                     "FROM nfse_emitidas_nacional n JOIN empresas e ON e.id = n.empresa_id "
-                    "WHERE n.competencia LIKE :pref GROUP BY e.slug ORDER BY e.slug"
+                    "WHERE n.competencia LIKE :pref AND COALESCE(n.cancelada, FALSE) = FALSE "
+                    "GROUP BY e.slug ORDER BY e.slug"
                 ),
                 {"pref": f"{ano_ref}-%"},
             )

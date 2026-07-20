@@ -55,6 +55,7 @@ def get_dashboard_fiscal(mes: int, ano: int, empresa_id: str = EMPRESA_PRINCIPAL
             WHERE CAST(substr(competencia, 6, 2) AS int) = %s
               AND CAST(left(competencia, 4)   AS int) = %s
               AND empresa_id = %s
+              AND COALESCE(cancelada, FALSE) = FALSE
             """,
             (mes, ano, empresa_id),
         )

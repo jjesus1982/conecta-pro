@@ -283,14 +283,15 @@ async def panorama(db: AsyncSession) -> dict[str, Any]:
     p["contratos"] = await _num(db, "SELECT COUNT(*) FROM contracts")
     p["mrr_contratado"] = await _num(db, "SELECT COALESCE(SUM(monthly_value),0) FROM contracts")
     # NFS-e (faturamento) — FONTE REAL nfse_emitidas_nacional (portal nacional, cStat 100, todo 2026)
-    p["nfse_qtd"] = await _num(db, "SELECT COUNT(*) FROM nfse_emitidas_nacional")
-    p["nfse_total"] = await _num(db, "SELECT COALESCE(SUM(valor_servicos),0) FROM nfse_emitidas_nacional")
+    p["nfse_qtd"] = await _num(db, "SELECT COUNT(*) FROM nfse_emitidas_nacional WHERE COALESCE(cancelada,FALSE)=FALSE")
+    p["nfse_total"] = await _num(db, "SELECT COALESCE(SUM(valor_servicos),0) FROM nfse_emitidas_nacional WHERE COALESCE(cancelada,FALSE)=FALSE")
     # Multi-CNPJ: quebra do faturamento por empresa (o CFO é do GRUPO — precisa distinguir
     # Lucro Real × Simples, não só o total somado).
     try:
         _rows = await db.execute(text(
             "SELECT e.slug, COUNT(*) qtd, COALESCE(SUM(n.valor_servicos),0) total "
             "FROM nfse_emitidas_nacional n JOIN empresas e ON e.id = n.empresa_id "
+            "WHERE COALESCE(n.cancelada,FALSE)=FALSE "
             "GROUP BY e.slug ORDER BY e.slug"))
         p["nfse_por_empresa"] = [
             {"empresa": r["slug"], "qtd": int(r["qtd"]), "total": float(r["total"])}

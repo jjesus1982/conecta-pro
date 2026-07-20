@@ -137,7 +137,8 @@ class LedgerAutoService:
         # (Simples) caíam no razão da Eletrônica (Lucro Real) — contaminação de regime.
         cur.execute(
             "SELECT chave_acesso, numero, competencia, data_emissao, valor_servicos, iss_valor "
-            "FROM nfse_emitidas_nacional WHERE COALESCE(valor_servicos,0) > 0 AND empresa_id = %s",
+            "FROM nfse_emitidas_nacional WHERE COALESCE(valor_servicos,0) > 0 AND empresa_id = %s "
+            "AND COALESCE(cancelada, FALSE) = FALSE",  # nota cancelada não vira receita/ISS
             (empresa_id,),
         )
         n_rec = n_iss = 0

@@ -268,7 +268,8 @@ class FluxoCaixaService:
                 # receita real (NFS-e) por competência — da empresa
                 cur.execute(
                     "SELECT competencia, sum(valor_servicos)::float FROM nfse_emitidas_nacional "
-                    "WHERE competencia LIKE %s AND empresa_id = %s GROUP BY 1",
+                    "WHERE competencia LIKE %s AND empresa_id = %s "
+                    "AND COALESCE(cancelada, FALSE) = FALSE GROUP BY 1",
                     (f"{ano}-%", empresa_id),
                 )
                 receita = {c: v for c, v in cur.fetchall()}
@@ -328,7 +329,8 @@ class FluxoCaixaService:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT competencia, count(*), sum(valor_servicos)::float FROM nfse_emitidas_nacional "
-                    "WHERE competencia LIKE %s AND empresa_id = %s GROUP BY 1 ORDER BY 1",
+                    "WHERE competencia LIKE %s AND empresa_id = %s "
+                    "AND COALESCE(cancelada, FALSE) = FALSE GROUP BY 1 ORDER BY 1",
                     (f"{ano}-%", empresa_id))
                 emit = {c: (n, v) for c, n, v in cur.fetchall()}
                 # Recebido por mês de CAIXA (para exibir), cobrindo TODOS os créditos de cliente
