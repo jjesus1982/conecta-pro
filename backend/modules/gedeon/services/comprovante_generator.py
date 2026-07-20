@@ -86,6 +86,7 @@ def gerar_comprovante_pdf(
     _emp_nome = empresa_nome or EMPRESA_NOME
     _emp_cnpj = empresa_cnpj or EMPRESA_CNPJ
     _banco = banco_origem or BANCO_ORIGEM
+    _banco_label = _banco.replace("Banco ", "").split(" S.A")[0].split(" (")[0].strip()
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     W, H = A4
@@ -149,7 +150,7 @@ def gerar_comprovante_pdf(
         ("Descrição", descricao or "-"),
         ("Competência (folha)", competencia or "-"),
         ("Condomínio / Posto", condominio or "-"),
-        ("ID da transação (Inter)", id_transacao or "-"),
+        (f"ID da transação ({_banco_label})", id_transacao or "-"),
     ]
     yy = y - 14 * mm
     c.setFont("Helvetica", 10)
