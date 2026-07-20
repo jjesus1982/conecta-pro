@@ -820,6 +820,19 @@ async def _build_gp(db: AsyncSession) -> dict:
         "SELECT coalesce(e.nome,'—'), to_char(p.punch_timestamp AT TIME ZONE 'America/Manaus','DD/MM HH24:MI'), coalesce(p.punch_type::text,'—'), coalesce(p.status::text,'—') "
         "FROM gp_clock_punches p LEFT JOIN employees e ON e.id=p.employee_id ORDER BY p.punch_timestamp DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0], 600, "#0F1B3A", initials(r[0])), t(r[1]), t((r[2] or "—").replace("_", " ")), b("OK", "ok") if (r[3] or "").lower() in ("valid", "aprovado", "ok", "approved") else b(r[3] or "—", "info")]))
+    # Fechamento de ponto / espelho (Portaria 671) — leitura real de gp_monthly_closings (controle legal)
+    await safe("ponto-espelho", tbl(
+        "Fechamento de ponto (Portaria 671)", f"{await _scalar(db, 'SELECT count(*) FROM gp_monthly_closings')} fechamentos", "Fechar mês",
+        ["Colaborador", "Competência", "Dias", "Horas trab.", "HE 50%", "Faltas", "Atraso (min)", "Status"], "1.8fr 1fr 0.6fr 1fr 0.8fr 0.7fr 0.9fr 0.9fr",
+        "SELECT coalesce(e.nome, m.employee_id, '—'), m.month, m.year, coalesce(m.total_dias_trabalhados,0), "
+        "coalesce(m.total_horas_trabalhadas,0), coalesce(m.total_horas_extras_50,0), coalesce(m.total_faltas,0), "
+        "coalesce(m.total_atrasos_minutos,0), coalesce(m.fechado,false) "
+        "FROM gp_monthly_closings m LEFT JOIN employees e ON e.id::text=m.employee_id::text "
+        "ORDER BY m.year DESC NULLS LAST, m.month DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0], 600, "#0F1B3A", initials(r[0])), t(f"{r[1]:02d}/{r[2]}" if r[1] else "—"), t(str(r[3])),
+                   t(f"{float(r[4]):.0f}h" if r[4] is not None else "—"), t(f"{float(r[5]):.0f}h" if r[5] else "—"),
+                   b(str(r[6]), "bad" if (r[6] or 0) > 0 else "ok"), t(str(r[7])),
+                   b("Fechado", "ok") if r[8] else b("Aberto", "warn")]))
     await safe("saude-exames", tbl("Saúde · Exames (ASO)", f"{n_aso} ASOs", "Agendar exame",
         ["Colaborador", "Tipo", "Validade", "Situação"], "2fr 1.2fr 1fr 0.9fr",
         "SELECT coalesce(e.nome,'—'), coalesce(a.tipo::text,'—'), a.data_validade, a.apto "
