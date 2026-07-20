@@ -7,6 +7,7 @@ no MESMO padrão. Assets vêm do volume persistente /app/uploads/assets (trocáv
 from __future__ import annotations
 
 import os
+import re
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_RIGHT
@@ -87,9 +88,18 @@ def resolve_slug_por_competencia(slug_atual: str, competencia: str | None) -> st
     fronteira = _fronteira_competencia()
     if not fronteira:
         return "conecta_eletronica"
-    if competencia and competencia[:7] < fronteira:
+    # Normaliza p/ 'YYYY-MM' com mês zero-padded ANTES de comparar como string —
+    # sem isso, '2026-6' > '2026-07' lexicograficamente e junho não-padded cairia
+    # ERRADO na empresa nova (auditoria 2026-07-20/B5).
+    if competencia and _norm_competencia(competencia) < _norm_competencia(fronteira):
         return "conecta_eletronica"
     return slug_atual
+
+
+def _norm_competencia(competencia: str | None) -> str:
+    """'YYYY-M' | 'YYYY-MM' | 'YYYY-MM-DD' → 'YYYY-MM' (mês zero-padded)."""
+    m = re.match(r"(\d{4})-(\d{1,2})", competencia or "")
+    return f"{m.group(1)}-{int(m.group(2)):02d}" if m else (competencia or "")[:7]
 
 
 def empresa_branding_por_cpf(cpf: str | None, competencia: str | None = None) -> dict:
