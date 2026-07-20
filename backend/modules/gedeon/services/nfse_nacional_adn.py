@@ -175,6 +175,7 @@ def distribuir(nsu_inicial: int = 0, max_paginas: int = 80, empresa_slug: str | 
     cnpj_prestador, cert_path, cert_senha = _resolver_empresa(empresa_slug)
     cert = _cert_pem(cert_path, cert_senha)
     emitidas: list[dict] = []
+    eventos: list[dict] = []   # eventos de CANCELAMENTO (e105101 puro / e105102 substituição)
     total = 0
     nsu = nsu_inicial
     with httpx.Client(cert=cert, timeout=40) as cli:
@@ -203,9 +204,20 @@ def distribuir(nsu_inicial: int = 0, max_paginas: int = 80, empresa_slug: str | 
                     n["chave_acesso"] = doc.get("ChaveAcesso")
                     n["_xml"] = xml
                     emitidas.append(n)
+                elif "<evento" in xml[:120]:
+                    # Evento de CANCELAMENTO (e105101 = puro; e105102 = por substituição).
+                    # Fonte da verdade do ADN pra nota cancelada — automação (não depende de
+                    # marcação manual). Só o do NOSSO CNPJ (CNPJAutor) e da nota (chNFSe).
+                    m_ch = re.search(r"<chNFSe>([^<]+)</chNFSe>", xml)
+                    m_ev = re.search(r"<e(105101|105102)>", xml)
+                    m_au = re.search(r"<CNPJAutor>([^<]+)</CNPJAutor>", xml)
+                    if m_ch and m_ev and (not m_au or m_au.group(1) == cnpj_prestador):
+                        eventos.append({"chNFSe": m_ch.group(1), "tpEvento": m_ev.group(1),
+                                        "nsu": doc.get("NSU")})
             ultimo = int(lote[-1].get("NSU", nsu))
             nsu = ultimo + 1
             if len(lote) < 50:
                 break
             time.sleep(1.3)  # gentil com o rate-limit do ADN
-    return {"total_processados": total, "ultimo_nsu": nsu - 1, "emitidas": emitidas}
+    return {"total_processados": total, "ultimo_nsu": nsu - 1,
+            "emitidas": emitidas, "eventos": eventos}

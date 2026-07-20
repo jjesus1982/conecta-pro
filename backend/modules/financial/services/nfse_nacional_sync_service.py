@@ -189,6 +189,19 @@ class NFSeNacionalSyncService:
                         novas += 1
                     else:
                         atualizadas += 1
+                # AUTOMAÇÃO de nota CANCELADA: os eventos e105101/e105102 do ADN marcam a
+                # nota referenciada (chNFSe) como cancelada — sem depender de flag manual.
+                # (105102 = substituída: a antiga já sai por filtrar_vivas; flag é rede extra.)
+                canceladas = 0
+                for ev in (r.get("eventos") or []):
+                    cur.execute(
+                        "UPDATE nfse_emitidas_nacional SET cancelada = TRUE, "
+                        "cancelada_em = COALESCE(cancelada_em, NOW()) "
+                        "WHERE chave_acesso = %s AND empresa_id = %s "
+                        "AND COALESCE(cancelada, FALSE) = FALSE",
+                        (ev["chNFSe"], empresa_id),
+                    )
+                    canceladas += cur.rowcount or 0
                 # Checkpoint de NSU por empresa (o NSU do ADN é por CNPJ no gov)
                 cur.execute(
                     """
@@ -214,6 +227,7 @@ class NFSeNacionalSyncService:
                 "ok": True, "processados": r.get("total_processados"),
                 "emitidas_no_feed": len(emitidas), "validas_cStat100": novas,
                 "ignoradas_substituidas": ignoradas,
+                "canceladas_por_evento": canceladas,
                 "ultimo_nsu": r.get("ultimo_nsu"), "por_competencia": por_comp,
             }
         finally:
