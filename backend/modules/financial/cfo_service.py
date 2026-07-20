@@ -711,6 +711,10 @@ async def consultar(
             messages=[{"role": "user", "content": user_content}],
             system_prompt=system_prompt, max_tokens=2500, temperature=0.2,
         )
+        # BUG FIX: llm_ok nunca era setado True após a geração — o CFO caía SEMPRE no
+        # ramo "indisponível" e descartava a resposta real do hub (os outros 5
+        # consultores usam `if not resposta_texto`). Agora reflete o texto gerado.
+        llm_ok = bool((resposta_texto or "").strip())
     except Exception as e:  # noqa: BLE001
         logger.warning("CFO IA: LLM indisponível (%s)", e)
         from modules.ai.conversation.services.llm_credit_alert import alertar_llm_indisponivel
