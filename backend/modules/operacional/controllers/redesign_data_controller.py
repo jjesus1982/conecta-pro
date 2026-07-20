@@ -441,6 +441,18 @@ async def _build_financeiro(db: AsyncSession) -> dict:
         "SELECT coalesce(beneficiario,'—'), valor, coalesce(competencia, to_char(data_referencia,'MM/YYYY')), status "
         "FROM financial_pagamentos_diaristas ORDER BY data_referencia DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0], 600, "#0F1B3A", initials(r[0])), t(brl(r[1]), 600), t(r[2]), b(*paytone(r[3]))]))
+    # Pagamentos Inter — VISIBILIDADE da fila (dinheiro que SAI = SEMPRE gate OTP humano; esta tela NÃO paga).
+    _pay_tone = {"confirmado": "ok", "executado": "ok", "preparado": "warn", "aguardando_otp": "warn", "erro": "bad", "cancelado": "mut"}
+    await safe("inter-pagamentos", _tbl(
+        "Pagamentos Inter", f"{await _scalar(db, 'SELECT count(*) FROM inter_payments')} pagamentos — dinheiro que sai é SEMPRE com gate OTP humano (esta tela só mostra)", "—",
+        ["Tipo", "Destinatário", "Valor", "Data", "Status", "OTP"], "1fr 2fr 1fr 1fr 1fr 0.7fr",
+        "SELECT coalesce(payment_type,'—'), "
+        "coalesce(destinatario->>'nome_recebedor', destinatario->>'condominio', destinatario->>'chave', left(destinatario->>'codigo_barras',18), '—'), "
+        "valor, data_pagamento, coalesce(status::text,'—'), coalesce(approval_otp_used::text,'') "
+        "FROM inter_payments ORDER BY created_at DESC NULLS LAST LIMIT 200",
+        lambda r: [t((r[0] or '—').upper()), t(r[1], 600, "#0F1B3A"), t(brl(r[2]) if r[2] is not None else '—', 600),
+                   t(_fmtdate(r[3])), b((r[4] or '—').capitalize(), _pay_tone.get((r[4] or '').lower(), "info")),
+                   b("OTP ✓", "ok") if (r[5] and str(r[5]).lower() not in ('', 'false', 'nao', 'no', '0', 'none')) else b("—", "mut")]))
     # Registrar conta a pagar (FORM com ESCRITA real → POST /redesign/action/payable) — REGISTRO, não pagamento
     out["registrar-conta-pagar"] = {
         "title": "Registrar conta a pagar", "sub": "Lançar uma conta a pagar (registro — o pagamento é sempre com OTP)",
