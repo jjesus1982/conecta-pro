@@ -77,6 +77,7 @@ class NFSeNacionalSyncService:
                 codigo_servico VARCHAR,
                 descricao      TEXT,
                 nsu            VARCHAR,
+                empresa_id     UUID,
                 fonte          VARCHAR DEFAULT 'adn_nacional',
                 created_at     TIMESTAMP DEFAULT NOW()
             )
@@ -96,6 +97,7 @@ class NFSeNacionalSyncService:
                 iss_valor      NUMERIC,
                 descricao      TEXT,
                 nsu            VARCHAR,
+                empresa_id     UUID,
                 fonte          VARCHAR DEFAULT 'adn_nacional',
                 created_at     TIMESTAMP DEFAULT NOW()
             )
@@ -211,9 +213,14 @@ class NFSeNacionalSyncService:
         finally:
             conn.close()
 
-    def sincronizar_tomadas(self, max_paginas: int = 80) -> dict:
+    def sincronizar_tomadas(self, max_paginas: int = 80, empresa_slug: str = "conecta_eletronica") -> dict:
         """Puxa as NFS-e RECEBIDAS (serviços que compramos, somos o tomador) do ADN nacional
-        e faz upsert em nfse_tomadas_nacional. São CUSTO real dedutível. Só cStat 100."""
+        e faz upsert em nfse_tomadas_nacional. São CUSTO real dedutível. Só cStat 100.
+
+        Multi-CNPJ: o cert (CNPJ_PRESTADOR) define de quem é o feed; as tomadas ganham o
+        empresa_id resolvido pelo slug (default Eletrônica, a que toma serviços). DELETE
+        ESCOPADO por empresa_id (com fallback de legado NULL→Eletrônica) — o sync de uma
+        empresa nunca apaga as tomadas da outra."""
         import time as _time
 
         import httpx
@@ -258,7 +265,17 @@ class NFSeNacionalSyncService:
         try:
             with conn.cursor() as cur:
                 self._ensure(cur)
-                cur.execute("DELETE FROM nfse_tomadas_nacional WHERE fonte='adn_nacional'")
+                cur.execute("SELECT id FROM empresas WHERE slug=%s AND status='ativa'", (empresa_slug,))
+                row_emp = cur.fetchone()
+                if not row_emp:
+                    raise LookupError(f"nfse tomadas: empresa ativa '{empresa_slug}' não encontrada")
+                empresa_id = str(row_emp[0])
+                # Recarga limpa ESCOPADA na empresa deste sync (não apaga tomadas da outra CNPJ)
+                cur.execute(
+                    "DELETE FROM nfse_tomadas_nacional WHERE fonte='adn_nacional' "
+                    "AND (empresa_id = %s OR (empresa_id IS NULL AND %s = '619a3df1-8bce-49ce-b77a-04f80a0e8491'))",
+                    (empresa_id, empresa_id),
+                )
                 n = 0
                 for rec in recebidas:
                     xml = rec["xml"]
@@ -271,14 +288,15 @@ class NFSeNacionalSyncService:
                         """
                         INSERT INTO nfse_tomadas_nacional
                             (chave_acesso, numero, competencia, data_emissao, prestador_cnpj,
-                             prestador_nome, valor_servicos, iss_valor, descricao, nsu)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                             prestador_nome, valor_servicos, iss_valor, descricao, nsu, empresa_id)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                         ON CONFLICT (chave_acesso) DO UPDATE SET
-                            valor_servicos=EXCLUDED.valor_servicos, competencia=EXCLUDED.competencia
+                            valor_servicos=EXCLUDED.valor_servicos, competencia=EXCLUDED.competencia,
+                            empresa_id=EXCLUDED.empresa_id
                         """,
                         (chave, _v(xml, "nNFSe"), comp, _v(xml, "dhProc") or None, emit_cnpj,
                          emit_nome[:120], float(_v(xml, "vServ") or 0), float(_v(xml, "vISSQN") or 0),
-                         (_v(xml, "xTribNac") or "")[:300], str(rec["nsu"] or "")),
+                         (_v(xml, "xTribNac") or "")[:300], str(rec["nsu"] or ""), empresa_id),
                     )
                     n += 1
                 conn.commit()
