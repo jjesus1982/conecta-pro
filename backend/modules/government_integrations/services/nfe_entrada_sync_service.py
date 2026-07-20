@@ -51,6 +51,7 @@ class NFEEntradaSyncService:
         valor_total     NUMERIC(15,2),
         status          VARCHAR(30) DEFAULT 'recebida',
         xml_raw         TEXT,
+        empresa_id      UUID,
         processada      BOOLEAN DEFAULT FALSE,
         created_at      TIMESTAMP DEFAULT NOW()
     );
@@ -495,12 +496,14 @@ class NFEEntradaSyncService:
             cur.execute(
                 """INSERT INTO nfe_entradas
                    (chave_acesso, emitente_cnpj, emitente_nome, destinatario_cnpj,
-                    data_emissao, valor_total, nsu, tipo_doc, resumo)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,'nfe','true')
+                    data_emissao, valor_total, nsu, tipo_doc, resumo, empresa_id)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,'nfe','true',
+                    COALESCE((SELECT id FROM empresas WHERE regexp_replace(cnpj,'[^0-9]','','g')=%s
+                              AND status='ativa'), '619a3df1-8bce-49ce-b77a-04f80a0e8491'::uuid))
                    ON CONFLICT (chave_acesso) DO UPDATE SET nsu=EXCLUDED.nsu
                    WHERE nfe_entradas.nsu IS NULL""",
                 (chave, _t("CNPJ"), _t("xNome"), CNPJ_EMPRESA,
-                 (_t("dhEmi")[:10] or None), float(Decimal(_t("vNF", "0") or "0")), nsu),
+                 (_t("dhEmi")[:10] or None), float(Decimal(_t("vNF", "0") or "0")), nsu, CNPJ_EMPRESA),
             )
         conn.commit()
 
@@ -601,8 +604,10 @@ class NFEEntradaSyncService:
                 """
                 INSERT INTO nfe_entradas
                     (chave_acesso, numero, serie, emitente_cnpj, emitente_nome,
-                     destinatario_cnpj, data_emissao, valor_total, xml_raw, resumo)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, false)
+                     destinatario_cnpj, data_emissao, valor_total, xml_raw, resumo, empresa_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, false,
+                    COALESCE((SELECT id FROM empresas WHERE regexp_replace(cnpj,'[^0-9]','','g')=%s
+                              AND status='ativa'), '619a3df1-8bce-49ce-b77a-04f80a0e8491'::uuid))
                 ON CONFLICT (chave_acesso) DO UPDATE SET
                     numero = COALESCE(NULLIF(EXCLUDED.numero,''), nfe_entradas.numero),
                     serie = COALESCE(NULLIF(EXCLUDED.serie,''), nfe_entradas.serie),
@@ -611,6 +616,7 @@ class NFEEntradaSyncService:
                     data_emissao = COALESCE(EXCLUDED.data_emissao, nfe_entradas.data_emissao),
                     valor_total = EXCLUDED.valor_total,
                     xml_raw = EXCLUDED.xml_raw,
+                    empresa_id = COALESCE(nfe_entradas.empresa_id, EXCLUDED.empresa_id),
                     resumo = false
                 WHERE nfe_entradas.processada IS NOT TRUE
                 RETURNING id
@@ -625,6 +631,7 @@ class NFEEntradaSyncService:
                     data_emissao,
                     float(valor_total),
                     xml_nfe,
+                    destinatario_cnpj,
                 ),
             )
             nfe_row = cur.fetchone()
