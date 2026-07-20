@@ -24,9 +24,9 @@ VR_DIA = 22.00
 DIAS_UTEIS = 22
 VT_MEDIO = 150.0
 REPASSE_PCT = 0.075  # repasse contratual obrigatório CCT Cláusula 2ª §3º
-# Custo all-in/posto = (salário + encargos + VR + VT) × (1 + repasse 7,5%)
+# Custo all-in/posto CLT (portaria/limpeza = Patrimonial/Simples Anexo III) × (1 + repasse 7,5%)
 CUSTO_CLT_POSTO = (
-    PISO_CATEGORIA * (1 + ENCARGOS_PCT) + VR_DIA * DIAS_UTEIS + VT_MEDIO
+    PISO_CATEGORIA * (1 + encargo_pct("simples_nacional")) + VR_DIA * DIAS_UTEIS + VT_MEDIO
 ) * (1 + REPASSE_PCT)
 MARGEM_TARGET = 35.0
 MARGEM_MINIMA = 20.0
@@ -204,7 +204,7 @@ async def get_custeio_abc(
             "cct_2026": {
                 "piso_base_cct": PISO_CATEGORIA,
                 "custo_all_in_posto": round(CUSTO_CLT_POSTO, 2),
-                "encargos_pct": round(ENCARGOS_PCT * 100, 2),
+                "encargos_pct": round(encargo_pct("simples_nacional") * 100, 2),
                 "repasse_pct": round(REPASSE_PCT * 100, 2),
             },
             "custo_por_categoria": [

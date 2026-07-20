@@ -24,9 +24,19 @@ REPASSE_PCT = 0.075  # repasse contratual obrigatório CCT Cláusula 2ª §3º
 VR_DIA = 22.00
 DIAS_UTEIS = 22
 VT_MEDIO = 150.0
-# Custo all-in por posto = (salário + encargos + benefícios) × (1 + repasse 7,5%)
+
+# Posto de mão de obra (portaria/limpeza) = Conecta Patrimonial (Simples Anexo III).
+# Seg. eletrônica/CFTV/remota = Conecta Eletrônica (Lucro Real).
+_TIPOS_MAO_DE_OBRA = {"portaria", "portaria_presencial", "portaria_noturno", "limpeza", "facilities"}
+
+
+def _regime_do_tipo(tipo: str) -> str:
+    return "simples_nacional" if (tipo or "").lower() in _TIPOS_MAO_DE_OBRA else "lucro_real"
+
+
+# Custo all-in por posto CLT (portaria/limpeza = Patrimonial/Simples) × (1 + repasse 7,5%)
 CUSTO_CLT_POSTO = (
-    PISO_CATEGORIA * (1 + ENCARGOS_PCT) + VR_DIA * DIAS_UTEIS + VT_MEDIO
+    PISO_CATEGORIA * (1 + encargo_pct("simples_nacional")) + VR_DIA * DIAS_UTEIS + VT_MEDIO
 ) * (1 + REPASSE_PCT)
 
 # ── Benchmarks Manaus 2026 (por posto/mês) ───────────────────────────────────
@@ -100,7 +110,7 @@ async def get_simulador(
         piso = float(piso_db) if piso_db else PISO_CATEGORIA
 
         sal_base = piso * (1.20 if turno_noturno else 1.0)
-        encargos = sal_base * ENCARGOS_PCT
+        encargos = sal_base * encargo_pct(_regime_do_tipo(tipo_servico))
         vr_mensal = VR_DIA * DIAS_UTEIS
         # Repasse contratual obrigatório 7,5% (CCT Cláusula 2ª §3º) sobre o custo
         custo_sem_repasse = sal_base + encargos + vr_mensal + VT_MEDIO
