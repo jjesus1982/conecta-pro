@@ -338,13 +338,26 @@ async def _build_operacional(db: AsyncSession) -> dict:
         ],
     }
 
+    # Comunicados — leitura real de communication_announcements (menu já existia vazio)
+    crows = (await db.execute(text(
+        "SELECT titulo, coalesce(tipo::text,'—'), coalesce(prioridade::text,'—'), data_publicacao, "
+        "coalesce(total_destinatarios,0), coalesce(total_visualizacoes,0), coalesce(status::text,'—') "
+        "FROM communication_announcements WHERE coalesce(is_active,true)=true ORDER BY data_publicacao DESC NULLS LAST LIMIT 200"))).fetchall()
+    _prio_tone = {"alta": "bad", "urgente": "bad", "media": "warn", "normal": "info", "baixa": "mut"}
+    comunicados_scr = {"title": "Comunicados", "sub": f"{len(crows)} comunicados", "cta": "Novo comunicado",
+        "type": "table", "searchHint": "Buscar comunicado…", "grid": "2.2fr 1fr 0.9fr 1fr 0.9fr 0.7fr 0.9fr",
+        "cols": ["Título", "Tipo", "Prioridade", "Publicação", "Destinatários", "Views", "Status"],
+        "rows": [{"cells": [t(ti, 600, "#0F1B3A"), t((tp or '—').replace('_', ' ')), b((pr or '—').capitalize(), _prio_tone.get((pr or '').lower(), 'info')),
+                  t(dp.strftime('%d/%m/%Y') if dp else '—'), t(str(dest)), t(str(views)), b((st or '—').capitalize(), 'ok' if (st or '').lower() == 'publicado' else 'mut')]}
+                 for ti, tp, pr, dp, dest, views, st in crows]}
+
     return {
         "visao": visao, "postos": postos, "colaboradores": colaboradores_scr,
         "alocacoes": alocacoes, "ocorrencias": ocorrencias, "ocorrencia-rapida": ocorrencia_rapida,
         "resolver-ocorrencia": resolver_ocorrencia, "comentar-ocorrencia": comentar_ocorrencia,
         "lancar-diaria": lancar_diaria, "cadastrar-diarista": cadastrar_diarista,
         "registrar-falta": registrar_falta_scr, "escalar-substituto": escalar_substituto_scr,
-        "diaristas": diaristas_scr, "diarias": diarias_scr,
+        "diaristas": diaristas_scr, "diarias": diarias_scr, "comunicados": comunicados_scr,
     }
 
 
