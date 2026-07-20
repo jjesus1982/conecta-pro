@@ -13,19 +13,32 @@ import psycopg2
 logger = logging.getLogger(__name__)
 DATABASE_URL = os.getenv("DATABASE_URL", "").replace("+asyncpg", "")
 
+# Apuração fiscal É por CNPJ (Lucro Real × Simples). Default = Eletrônica (Lucro Real),
+# dona deste dashboard. Multi-CNPJ: um dia a Patrimonial passa o próprio empresa_id.
+EMPRESA_PRINCIPAL_ID = "619a3df1-8bce-49ce-b77a-04f80a0e8491"
+
 
 def _get_conn():
     return psycopg2.connect(DATABASE_URL)
 
 
-def get_dashboard_fiscal(mes: int, ano: int) -> dict:
+def get_dashboard_fiscal(mes: int, ano: int, empresa_id: str = EMPRESA_PRINCIPAL_ID) -> dict:
     """
-    Retorna dashboard fiscal-financeiro completo para o período.
+    Retorna dashboard fiscal-financeiro completo para o período, ESCOPADO por empresa
+    (apuração é por CNPJ — não mistura Lucro Real com Simples).
     """
     conn = _get_conn()
     cur = conn.cursor()
 
     try:
+        # CNPJ da empresa (para a NF-e produto por emitente) — resolvido do empresa_id,
+        # sem hardcode. Não achou => string vazia (casa 0 NF-e).
+        cur.execute(
+            "SELECT regexp_replace(COALESCE(cnpj,''),'[^0-9]','','g') FROM empresas WHERE id = %s",
+            (empresa_id,),
+        )
+        _row = cur.fetchone()
+        cnpj_emp = _row[0] if _row and _row[0] else ""
         # ------------------------------------------------------------------
         # 1. RECEITAS — NFS-e emitidas (saída)
         #    Fonte autoritativa: nfse_emitidas_nacional (todas validas cStat 100).
@@ -41,8 +54,9 @@ def get_dashboard_fiscal(mes: int, ano: int) -> dict:
             FROM nfse_emitidas_nacional
             WHERE CAST(substr(competencia, 6, 2) AS int) = %s
               AND CAST(left(competencia, 4)   AS int) = %s
+              AND empresa_id = %s
             """,
-            (mes, ano),
+            (mes, ano, empresa_id),
         )
         r = cur.fetchone()
         receita_servicos = {"qtd_nfse": r[0], "valor": float(r[1]), "iss": float(r[2])}
@@ -58,9 +72,9 @@ def get_dashboard_fiscal(mes: int, ano: int) -> dict:
             WHERE EXTRACT(MONTH FROM data_emissao) = %s
               AND EXTRACT(YEAR  FROM data_emissao) = %s
               AND status = 'autorizada'
-              AND emitente_cnpj = '35710481000103'
+              AND regexp_replace(COALESCE(emitente_cnpj,''),'[^0-9]','','g') = %s
             """,
-            (mes, ano),
+            (mes, ano, cnpj_emp),
         )
         r = cur.fetchone()
         receita_vendas = {"qtd_nfe": r[0], "valor": float(r[1])}
@@ -78,8 +92,9 @@ def get_dashboard_fiscal(mes: int, ano: int) -> dict:
             FROM nfse_tomadas_nacional
             WHERE CAST(substr(competencia, 6, 2) AS int) = %s
               AND CAST(left(competencia, 4)   AS int) = %s
+              AND empresa_id = %s
             """,
-            (mes, ano),
+            (mes, ano, empresa_id),
         )
         r = cur.fetchone()
         despesa_servicos = {"qtd": r[0], "valor": float(r[1])}
@@ -94,8 +109,9 @@ def get_dashboard_fiscal(mes: int, ano: int) -> dict:
             FROM nfe_entradas
             WHERE EXTRACT(MONTH FROM created_at) = %s
               AND EXTRACT(YEAR  FROM created_at) = %s
+              AND empresa_id = %s
             """,
-            (mes, ano),
+            (mes, ano, empresa_id),
         )
         r = cur.fetchone()
         despesa_material = {"qtd": r[0], "valor": float(r[1])}
