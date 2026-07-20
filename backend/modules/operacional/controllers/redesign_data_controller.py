@@ -1092,6 +1092,48 @@ async def _build_saude(db: AsyncSession) -> dict:
         ["Categoria", "Descrição", "Nível", "Status"], "1.2fr 2.2fr 0.9fr 0.9fr",
         "SELECT coalesce(categoria::text,'—'), coalesce(descricao,'—'), coalesce(nivel::text,'—'), status::text FROM gp_risks ORDER BY nivel DESC NULLS LAST LIMIT 200",
         lambda r: [t((r[0] or '—').replace('_', ' '), 600, "#0F1B3A"), t(r[1]), b((r[2] or '—').capitalize(), risk_tone.get((r[2] or '').lower(), "mut")), b(r[3] or "—", "info")]))
+
+    # eSocial · Transmissão (VISIBILIDADE real, READ-ONLY) — reusa o acompanhamento do clássico.
+    # Protocolo/recibo SEMPRE do governo; transmitir em lote continua no fluxo gated (não aqui).
+    async def _esocial_screen():
+        from modules.people_management.sst.services.transmissao_central_service import acompanhamento
+        ac = await acompanhamento(db, 200)
+        cont = ac.get("contagem", {})
+        st_tone = {"recibo_casado": "ok", "aguardando_recibo": "warn", "rejeitado_ou_erro": "bad"}
+        rows = [{"cells": [
+            t(ev.get("tipo", "—"), 600, "#0F1B3A"),
+            t(ev.get("funcionario") or "—"),
+            b((ev.get("esocial_status") or "—").capitalize(), st_tone.get(ev.get("grupo"), "info")),
+            t(ev.get("esocial_protocolo") or "—"),
+            t(ev.get("recibo") or "—"),
+        ]} for ev in ac.get("eventos", [])]
+        sub = (f"Aguardando recibo {cont.get('aguardando_recibo', 0)} · Casados {cont.get('recibo_casado', 0)} · "
+               f"Rejeitados {cont.get('rejeitado_ou_erro', 0)} — protocolo/recibo SEMPRE do governo (nada fabricado)")
+        return {"title": "eSocial · Transmissão", "sub": sub, "type": "table", "searchHint": "Buscar evento…",
+                "grid": "0.8fr 2fr 1fr 1.4fr 1.4fr", "cols": ["Evento", "Funcionário", "Status", "Protocolo", "Recibo"],
+                "rows": rows or [{"cells": [t("—"), t("Sem eventos transmitidos"), b("—", "mut"), t("—"), t("—")]}]}
+
+    await safe("esocial", _esocial_screen())
+    # CAT (S-2210) — leitura real de gp_cats
+    _cat_tone = {"grave": "bad", "fatal": "bad", "moderada": "warn", "leve": "info", "tipica": "info"}
+    await safe("cat", tbl(
+        "CAT — Comunicação de Acidente", f"{await _scalar(db, 'SELECT count(*) FROM gp_cats')} CATs (S-2210)", "Nova CAT",
+        ["Colaborador", "Tipo", "Data", "Gravidade", "Nº CAT INSS", "eSocial"], "1.8fr 1.2fr 1fr 0.9fr 1.1fr 0.9fr",
+        "SELECT coalesce(e.nome, c.employee_id::text, '—'), coalesce(c.tipo_acidente,'—'), c.data_acidente, "
+        "coalesce(c.gravidade,'—'), coalesce(c.numero_cat_inss,'—'), coalesce(c.esocial_status::text,'nao_transmitida') "
+        "FROM gp_cats c LEFT JOIN employees e ON e.id::text=c.employee_id::text ORDER BY c.data_acidente DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0], 600, "#0F1B3A", initials(r[0])), t((r[1] or '—').replace('_', ' ')), t(_fmtdate(r[2])),
+                   b((r[3] or '—').capitalize(), _cat_tone.get((r[3] or '').lower(), "info")), t(r[4]),
+                   b((r[5] or '—').replace('_', ' ').capitalize(), "ok" if (r[5] or '').startswith('aceit') else "warn")]))
+    # Afastamentos (S-2230) — leitura real de sst_afastamentos
+    await safe("afastamentos", tbl(
+        "Afastamentos", f"{await _scalar(db, 'SELECT count(*) FROM sst_afastamentos')} afastamentos (S-2230)", "Novo afastamento",
+        ["Colaborador", "Tipo", "Início", "Fim previsto", "Retorno", "CID", "Estabilidade", "Status"], "1.6fr 1fr 0.9fr 1fr 0.9fr 0.7fr 1fr 0.9fr",
+        "SELECT coalesce(employee_nome,'—'), coalesce(tipo::text,'—'), data_inicio, data_fim_prevista, data_retorno, "
+        "coalesce(cid,'—'), gera_estabilidade, estabilidade_ate, coalesce(status::text,'—') FROM sst_afastamentos ORDER BY data_inicio DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0], 600, "#0F1B3A", initials(r[0])), t((r[1] or '—').replace('_', ' ')), t(_fmtdate(r[2])), t(_fmtdate(r[3])),
+                   t(_fmtdate(r[4]) if r[4] else 'em curso'), t(r[5]),
+                   b(f"até {_fmtdate(r[7])}", "warn") if r[6] else b("não", "mut"), b((r[8] or '—').capitalize(), "info")]))
     return out
 
 
@@ -2296,6 +2338,9 @@ EXTRA_MENU = {
     ],
     "recrutamento": [
         {"id": "abrir-vaga", "label": "Abrir vaga", "icon": "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8M19 8v6M22 11h-6"},
+    ],
+    "saude-ocupacional": [
+        {"id": "esocial", "label": "eSocial · Transmissão", "icon": "M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"},
     ],
 }
 
