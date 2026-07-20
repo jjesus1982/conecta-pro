@@ -74,8 +74,18 @@ def gerar_comprovante_pdf(
     condominio: str | None = None,
     tipo: str = "PIX",
     emitido_em: str | None = None,
+    empresa_nome: str | None = None,
+    empresa_cnpj: str | None = None,
+    banco_origem: str | None = None,
 ) -> bytes:
-    """Gera o PDF do comprovante e retorna os bytes."""
+    """Gera o PDF do comprovante e retorna os bytes.
+
+    Multi-CNPJ E4: empresa_nome/cnpj/banco_origem parametrizáveis — default
+    (None) mantém CNPJ1/Inter (comportamento atual). Pagamento da Patrimonial
+    passa a Patrimonial/Cora sem tocar os comprovantes históricos do Inter."""
+    _emp_nome = empresa_nome or EMPRESA_NOME
+    _emp_cnpj = empresa_cnpj or EMPRESA_CNPJ
+    _banco = banco_origem or BANCO_ORIGEM
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     W, H = A4
@@ -109,9 +119,9 @@ def gerar_comprovante_pdf(
     c.drawRightString(x1, H - 15 * mm, "COMPROVANTE DE PAGAMENTO")
     c.setFillColor(_CINZA)
     c.setFont("Helvetica", 8.5)
-    c.drawRightString(x1, H - 20 * mm, EMPRESA_NOME)
-    c.drawRightString(x1, H - 24 * mm, f"CNPJ {EMPRESA_CNPJ}")
-    c.drawRightString(x1, H - 28 * mm, BANCO_ORIGEM)
+    c.drawRightString(x1, H - 20 * mm, _emp_nome)
+    c.drawRightString(x1, H - 24 * mm, f"CNPJ {_emp_cnpj}")
+    c.drawRightString(x1, H - 28 * mm, _banco)
     # régua fina azul separando o cabeçalho
     c.setStrokeColor(_AZUL)
     c.setLineWidth(0.6)
@@ -161,7 +171,7 @@ def gerar_comprovante_pdf(
     c.line(x0, 32 * mm, x1, 32 * mm)
     c.setFillColor(_CINZA)
     c.setFont("Helvetica", 8)
-    c.drawString(x0, 26 * mm, "Documento gerado pelo Conecta PRO a partir do registro de pagamento do Banco Inter.")
+    c.drawString(x0, 26 * mm, f"Documento gerado pelo Conecta PRO a partir do registro de pagamento ({_banco}).")
     c.drawString(
         x0, 22 * mm, "Comprovante de quitação de pagamento — confira o valor e o favorecido com a folha de competência."
     )
