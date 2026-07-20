@@ -16,6 +16,54 @@ from modules.financial.agents.skill_loader import SkillLoader
 from modules.financial.models.customer import Customer
 from modules.financial.models.receivable_account import ReceivableAccount, ReceivableStatus
 
+
+def _bloco_pagamento_e_clientes() -> str:
+    """Bloco DINÂMICO (banco): dados de pagamento por empresa credora + mapa cliente→empresa,
+    de empresas + bank_accounts (E7) + contratos ativos. Substitui a lista/PIX HARDCODED (que
+    ficava stale quando um contrato migrava de CNPJ). Falha de banco = instrução honesta genérica
+    (nunca chuta PIX)."""
+    import os
+    import re
+
+    try:
+        import psycopg2
+
+        url = re.sub(r"\+asyncpg|\+psycopg2?", "", os.getenv("DATABASE_URL", ""))
+        conn = psycopg2.connect(url)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT DISTINCT ON (e.id) e.nome_fantasia, ba.name, ba.bank_code, "
+                    "ba.agency, ba.account_number, COALESCE(ba.pix_key, e.cnpj) "
+                    "FROM empresas e JOIN bank_accounts ba ON ba.empresa_id = e.id "
+                    "WHERE e.status = 'ativa' "
+                    "ORDER BY e.id, CASE WHEN ba.bank_code IN ('077','403') THEN 0 ELSE 1 END, ba.bank_code"
+                )
+                pag = cur.fetchall()
+                cur.execute(
+                    "SELECT e.nome_fantasia, string_agg(DISTINCT COALESCE(cl.name, c.name), ', ') "
+                    "FROM contracts c JOIN empresas e ON e.id = c.empresa_id "
+                    "LEFT JOIN clients cl ON cl.id = c.client_id "
+                    "WHERE c.status = 'active' GROUP BY e.nome_fantasia"
+                )
+                clientes = {r[0]: r[1] for r in cur.fetchall()}
+        finally:
+            conn.close()
+        if not pag:
+            raise LookupError("sem contas ativas")
+        linhas = []
+        for fant, bname, bcode, ag, conta, pix in pag:
+            cli = clientes.get(fant) or "(sem contrato ativo)"
+            linhas.append(
+                f"  · {fant} (contratos: {cli}):\n"
+                f"    PIX {pix} | {bname} ({bcode}) | Ag {ag or '-'} Conta {conta or '-'}"
+            )
+        return "\n".join(linhas)
+    except Exception:  # noqa: BLE001
+        return ("  · (dados de pagamento por empresa indisponíveis agora — consulte o cadastro da "
+                "empresa CREDORA do contrato; NUNCA chute PIX/CNPJ)")
+
+
 # Classificacao por faixa de atraso
 _NIVEIS = [
     (1, 5, "lembrete", "alta", "WhatsApp/Email"),
@@ -89,12 +137,9 @@ class CollectionNegotiatorAgent(BaseAgent):
             "- Condomínios residenciais em Manaus/AM; síndicos eleitos ou profissionais\n"
             "- Contratos anuais com renovação automática\n"
             "- Tom: profissional e parceiro (nunca agressivo antes do D+30)\n"
-            "- DADOS DE PAGAMENTO POR EMPRESA CREDORA (use o da empresa do contrato!):\n"
-            "  · CONECTA MAIS ELETRÔNICA (contratos: Gelain, Parise Village, Green Hills):\n"
-            "    PIX CNPJ 35.710.481/0001-03 | Banco Inter 077 | Conta 370990072-2\n"
-            "  · CONECTA MAIS PATRIMONIAL (contratos: Ideal Flores, Laranjeiras, Mirante,\n"
-            "    Prime Arena, Villa dos Pássaros, Villa Dei Fiori, Michelangelo):\n"
-            "    PIX CNPJ 66.014.833/0001-10 | Banco Cora 403 | Ag 0001 Conta 7382527-7\n"
+            "- DADOS DE PAGAMENTO POR EMPRESA CREDORA (a empresa credora vem do CONTRATO do\n"
+            "  condomínio — use os dados DELA; lista viva do cadastro, não presuma):\n"
+            f"{_bloco_pagamento_e_clientes()}\n"
             "  · NUNCA envie dados de uma empresa para cobrança da outra.\n"
             "- Recebimentos da Patrimonial chegam LÍQUIDOS de INSS 11% retido na fonte "
             "(cessão de mão de obra) — ao conferir 'quanto falta', compare com o líquido.\n\n"
