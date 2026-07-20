@@ -76,6 +76,11 @@ def _db_url() -> str:
     return re.sub(r"\+asyncpg|\+psycopg2?", "", os.getenv("DATABASE_URL", ""))
 
 
+# Fluxo de caixa é por empresa (cada CNPJ tem seu banco: Inter=Eletrônica, Cora=Patrimonial).
+# Default = Eletrônica (principal). Multi-CNPJ E7: bank_accounts.empresa_id segrega o extrato.
+EMPRESA_PRINCIPAL_ID = "619a3df1-8bce-49ce-b77a-04f80a0e8491"
+
+
 class FluxoCaixaService:
     def _conn(self):
         return psycopg2.connect(_db_url())
@@ -235,9 +240,10 @@ class FluxoCaixaService:
         finally:
             conn.close()
 
-    def dfc_mensal(self, ano: int = 2026) -> dict:
-        """Demonstrativo de Fluxo de Caixa mensal: entradas, saídas por categoria, saldo.
-        Entradas de caixa = créditos do Inter; a RECEITA (accrual) vem das NFS-e (à parte)."""
+    def dfc_mensal(self, ano: int = 2026, empresa_id: str = EMPRESA_PRINCIPAL_ID) -> dict:
+        """Demonstrativo de Fluxo de Caixa mensal POR EMPRESA: entradas, saídas por categoria, saldo.
+        Entradas de caixa = créditos do banco DA EMPRESA (Inter/Eletrônica ou Cora/Patrimonial);
+        a RECEITA (accrual) vem das NFS-e da empresa (à parte). Multi-CNPJ: escopado por empresa_id."""
         conn = self._conn()
         try:
             # Garante que o sinal/dedup dos recebimentos esteja aplicado antes de somar o caixa.
@@ -245,23 +251,25 @@ class FluxoCaixaService:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT to_char(transaction_date,'YYYY-MM') mes,
-                           COALESCE(category,'Outros') cat,
-                           sum(CASE WHEN amount < 0 THEN -amount ELSE 0 END)::float saidas,
-                           sum(CASE WHEN amount > 0 THEN amount ELSE 0 END)::float entradas
-                    FROM bank_transactions
-                    WHERE to_char(transaction_date,'YYYY')=%s
-                      AND COALESCE(category,'') <> 'Duplicata boleto (ignorar)'
+                    SELECT to_char(bt.transaction_date,'YYYY-MM') mes,
+                           COALESCE(bt.category,'Outros') cat,
+                           sum(CASE WHEN bt.amount < 0 THEN -bt.amount ELSE 0 END)::float saidas,
+                           sum(CASE WHEN bt.amount > 0 THEN bt.amount ELSE 0 END)::float entradas
+                    FROM bank_transactions bt
+                    JOIN bank_accounts ba ON ba.id = bt.bank_account_id
+                    WHERE to_char(bt.transaction_date,'YYYY')=%s
+                      AND COALESCE(bt.category,'') <> 'Duplicata boleto (ignorar)'
+                      AND ba.empresa_id = %s
                     GROUP BY 1,2 ORDER BY 1,2
                     """,
-                    (str(ano),),
+                    (str(ano), empresa_id),
                 )
                 rows = cur.fetchall()
-                # receita real (NFS-e) por competência
+                # receita real (NFS-e) por competência — da empresa
                 cur.execute(
                     "SELECT competencia, sum(valor_servicos)::float FROM nfse_emitidas_nacional "
-                    "WHERE competencia LIKE %s GROUP BY 1",
-                    (f"{ano}-%",),
+                    "WHERE competencia LIKE %s AND empresa_id = %s GROUP BY 1",
+                    (f"{ano}-%", empresa_id),
                 )
                 receita = {c: v for c, v in cur.fetchall()}
             meses = {}
@@ -305,7 +313,7 @@ class FluxoCaixaService:
         finally:
             conn.close()
 
-    def contas_a_receber(self, ano: int = 2026) -> dict:
+    def contas_a_receber(self, ano: int = 2026, empresa_id: str = EMPRESA_PRINCIPAL_ID) -> dict:
         """A Receber por competência = faturado (NFS-e emitidas) − recebido ALOCADO por AGING FIFO.
 
         O cliente paga 1-2 meses após a emissão, então casar recebido pelo mês da própria
@@ -320,16 +328,20 @@ class FluxoCaixaService:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT competencia, count(*), sum(valor_servicos)::float FROM nfse_emitidas_nacional "
-                    "WHERE competencia LIKE %s GROUP BY 1 ORDER BY 1", (f"{ano}-%",))
+                    "WHERE competencia LIKE %s AND empresa_id = %s GROUP BY 1 ORDER BY 1",
+                    (f"{ano}-%", empresa_id))
                 emit = {c: (n, v) for c, n, v in cur.fetchall()}
-                # Recebido por mês de CAIXA (para exibir), cobrindo TODOS os créditos de cliente.
+                # Recebido por mês de CAIXA (para exibir), cobrindo TODOS os créditos de cliente
+                # DO BANCO DA EMPRESA (Inter/Eletrônica ou Cora/Patrimonial).
                 cur.execute(
-                    "SELECT to_char(transaction_date,'YYYY-MM'), sum(amount)::float "
-                    "FROM bank_transactions "
-                    "WHERE amount > 0 AND to_char(transaction_date,'YYYY')=%s "
-                    "AND lower(COALESCE(category,'')) IN ('recebimento cliente','recebimento de cliente') "
+                    "SELECT to_char(bt.transaction_date,'YYYY-MM'), sum(bt.amount)::float "
+                    "FROM bank_transactions bt JOIN bank_accounts ba ON ba.id = bt.bank_account_id "
+                    "WHERE bt.amount > 0 AND to_char(bt.transaction_date,'YYYY')=%s "
+                    "AND lower(COALESCE(bt.category,'')) IN "
+                    "  ('recebimento cliente','recebimento de cliente','recebimento_cliente') "
+                    "AND ba.empresa_id = %s "
                     "GROUP BY 1 ORDER BY 1",
-                    (str(ano),))
+                    (str(ano), empresa_id))
                 receb_caixa = {m: v for m, v in cur.fetchall()}
             recebido_total = round(sum(receb_caixa.values()), 2)
 
