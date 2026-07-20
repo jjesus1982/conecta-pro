@@ -1664,6 +1664,34 @@ async def _build_suprimentos(db: AsyncSession) -> dict:
     return out
 
 
+async def _build_integracoes(db: AsyncSession) -> dict:
+    out, safe, tbl = _helpers(db)
+    n_sol = await _scalar(db, "SELECT count(*) FROM solides_employees")
+    n_esc = await _scalar(db, "SELECT count(*) FROM solides_work_schedules")
+
+    async def _visao():
+        n_cpf = await _scalar(db, "SELECT count(DISTINCT cpf) FROM solides_employees WHERE cpf IS NOT NULL")
+        return {"title": "Visão geral", "sub": "Integrações — dados reais", "cta": "Atualizar", "type": "dash", "panelGrid": "1fr 1fr",
+                "kpis": [
+                    {"v": str(n_sol), "l": "Colaboradores Sólides", "icon": IC["users"], "color": "#0F1B3A"},
+                    {"v": str(n_esc), "l": "Escalas Sólides", "icon": IC["cal"], "color": "#0F1B3A"},
+                    {"v": str(n_cpf), "l": "CPFs sincronizados", "icon": IC["shield"], "color": "#16A34A"},
+                    {"v": "Ativo", "l": "Conector Sólides", "icon": _ICF["hand"], "color": "#16A34A"},
+                ],
+                "panels": [
+                    {"title": "Conectores ativos", "rows": [{"left": "Sólides (RH/ponto)", "right": "Ativo", **S["ok"]}, {"left": "Banco Inter (financeiro)", "right": "Ativo", **S["ok"]}]},
+                    {"title": "Sólides — escopo do sync", "rows": [{"left": "Identidade (nome/email/CPF)", "right": f"{n_sol}", **S["ok"]}, {"left": "Escalas de trabalho", "right": f"{n_esc}", **S["info"]}]},
+                ]}
+
+    await safe("visao", _visao())
+    await safe("solides", tbl(
+        "Sólides · Colaboradores sincronizados", f"{n_sol} colaboradores · {n_esc} escalas (sync RH/ponto)", "Sincronizar",
+        ["Colaborador", "Email", "CPF"], "1.8fr 2fr 1.2fr",
+        "SELECT coalesce(nome,'—'), coalesce(email,'—'), coalesce(cpf,'—') FROM solides_employees ORDER BY nome LIMIT 300",
+        lambda r: [t(r[0], 600, "#0F1B3A", initials(r[0])), t(r[1]), t(r[2])]))
+    return out
+
+
 BUILDERS = {
     "operacional": _build_operacional,
     "financeiro": _build_financeiro,
@@ -1688,6 +1716,7 @@ BUILDERS = {
     "portal-do-funcionario": _build_portal_funcionario,
     "meu-espaco": _build_meu_espaco,
     "suprimentos": _build_suprimentos,
+    "integracoes": _build_integracoes,
 }
 
 
