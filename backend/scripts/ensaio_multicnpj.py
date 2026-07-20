@@ -54,13 +54,15 @@ def main():
     tot = _q(cur, "SELECT count(*) n, count(empresa_id) c FROM employees")[0]
     pat = _q(cur, "SELECT count(*) n FROM employees emp JOIN empresas e ON e.id=emp.empresa_id "
                   "WHERE e.slug='conecta_patrimonial' AND LOWER(emp.status::text) IN ('ativo','afastado_inss','suspenso')")[0]["n"]
-    # CORREÇÃO (não só não-nulo): o flip moveu TODA a força de trabalho ATIVA — não pode
-    # sobrar nenhum vigente na Eletrônica (que fica só com PJ/histórico). Prova a REGRA,
-    # não a presença. (Não-vigentes na Patrimonial são OK: demitido pós-flip é correto.)
-    elet_vig = _q(cur, "SELECT count(*) n FROM employees emp JOIN empresas e ON e.id=emp.empresa_id "
-                       "WHERE e.slug='conecta_eletronica' AND LOWER(emp.status::text) IN ('ativo','afastado_inss','suspenso')")[0]["n"]
-    check("E3 funcionários", tot["n"] == tot["c"] and pat >= 50 and elet_vig == 0,
-          f"{tot['c']}/{tot['n']} com empresa; {pat} vigentes Patrimonial; {elet_vig} vigentes órfãos na Eletrônica")
+    # CORREÇÃO (não só não-nulo): o flip moveu toda a força CLT ATIVA p/ a Patrimonial —
+    # não pode sobrar nenhum CLT vigente na Eletrônica. PJ vigente na Eletrônica é OK e
+    # ESPERADO (regra Jordan: "na Eletrônica só os PJ"). Prova a REGRA, não a presença.
+    # (Não-vigentes na Patrimonial são OK: demitido pós-flip é correto.)
+    elet_clt_vig = _q(cur, "SELECT count(*) n FROM employees emp JOIN empresas e ON e.id=emp.empresa_id "
+                           "WHERE e.slug='conecta_eletronica' AND LOWER(emp.status::text) IN ('ativo','afastado_inss','suspenso') "
+                           "AND COALESCE(LOWER(emp.tipo_contrato),'') <> 'pj'")[0]["n"]
+    check("E3 funcionários", tot["n"] == tot["c"] and pat >= 50 and elet_clt_vig == 0,
+          f"{tot['c']}/{tot['n']} com empresa; {pat} vigentes Patrimonial; {elet_clt_vig} CLT vigentes órfãos na Eletrônica")
 
     # E4 — Cora: conta registrada + extrato conciliado + webhooks
     conta = _q(cur, "SELECT account_number FROM bank_accounts WHERE bank_code='403'")
