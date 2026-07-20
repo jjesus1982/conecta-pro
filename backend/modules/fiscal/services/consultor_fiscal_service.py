@@ -242,6 +242,24 @@ async def panorama(db: AsyncSession, ano: int | None = None) -> dict[str, Any]:
         "nfe_entrada_valor": float(nfe_mes.get("valor", 0.0)),
     }
 
+    # Multi-CNPJ: receita/ISS por empresa (o consultor é do GRUPO — precisa distinguir
+    # Lucro Real (Eletrônica) × Simples (Patrimonial), não só o total somado do grupo).
+    receita_por_empresa = [
+        {"empresa": r.slug, "qtd": int(r.qtd), "receita": float(r.receita), "iss": float(r.iss)}
+        for r in (
+            await db.execute(
+                text(
+                    "SELECT e.slug, count(*) qtd, "
+                    "round(COALESCE(sum(n.valor_servicos),0)::numeric,2) receita, "
+                    "round(COALESCE(sum(n.iss_valor),0)::numeric,2) iss "
+                    "FROM nfse_emitidas_nacional n JOIN empresas e ON e.id = n.empresa_id "
+                    "WHERE n.competencia LIKE :pref GROUP BY e.slug ORDER BY e.slug"
+                ),
+                {"pref": f"{ano_ref}-%"},
+            )
+        ).fetchall()
+    ]
+
     return {
         "ano": ano_ref,
         "mes_atual": mes_atual,
@@ -251,6 +269,7 @@ async def panorama(db: AsyncSession, ano: int | None = None) -> dict[str, Any]:
         "nfe_entradas_por_mes": nfe_entradas,
         "receita_ano": round(sum(x["receita"] for x in emitidas), 2),
         "iss_ano": round(sum(x["iss"] for x in emitidas), 2),
+        "receita_por_empresa": receita_por_empresa,
         "historico_manaus": historico,
         "certidoes": certidoes,
         "obrigacoes": obrigacoes,
@@ -275,11 +294,10 @@ def _bloco_grupo() -> str:
 _REGRAS_COMUNS = _bloco_grupo() + """
 Você é o CONSULTOR FISCAL do GRUPO CONECTA MAIS (Manaus-AM) — as DUAS empresas acima. \
 Sempre indique a qual CNPJ cada análise se refere.
-CONTEXTO TRIBUTÁRIO:
-- Eletrônica: LUCRO REAL desde 01/01/2026 (antes Simples; retorno ao Simples previsto 01/2027).
-- Patrimonial: SIMPLES NACIONAL (Anexo III), ATIVA e emitindo NFS-e desde 06/2026 — a migração \
-dos contratos humanizados para ela JÁ ESTÁ EM CURSO (segmentação permanente do Grupo).
-- ISS Manaus: alíquota de 5% sobre serviços; Inscrição Municipal 45177801.
+CONTEXTO TRIBUTÁRIO (o regime, a IM e o CNPJ de CADA empresa vêm do bloco do GRUPO acima \
+— use-os, NÃO presuma; assim, quando a estrutura mudar (ex.: retorno ao Simples em 2027), \
+esta resposta continua correta sem reescrever nada aqui):
+- ISS Manaus: alíquota de 5% sobre serviços.
 - NFS-e: emitidas pelo PORTAL NACIONAL desde 2026 (padrão ADN); de 2019 a 2025 a emissão \
 era municipal (Manaus) — esse histórico está importado em tabela própria.
 REGRAS INEGOCIÁVEIS:
@@ -296,7 +314,7 @@ a contabilidade (Portte) antes de pagar ou transmitir.
 
 _LENTES = {
     "notas": "FOCO: notas fiscais — NFS-e emitidas (receita/ISS por mês), serviços tomados, NF-e de entrada e o histórico municipal 2019-2025. Compare meses, aponte quedas/anomalias de emissão e o que ainda não foi emitido no mês corrente.",
-    "apuracao": "FOCO: apuração de tributos no LUCRO REAL — ISS Manaus (5%), PIS/COFINS, IRPJ/CSLL, INSS patronal e retenções. Use receita e ISS reais do contexto; deixe claro o que é estimativa e o que depende da contabilidade. Considere a transição planejada para o Simples (CNPJ2).",
+    "apuracao": "FOCO: apuração de tributos CONFORME O REGIME DE CADA EMPRESA (ver bloco do GRUPO — Lucro Real e Simples convivem) — ISS Manaus (5%), e no Lucro Real também PIS/COFINS, IRPJ/CSLL, INSS patronal e retenções; no Simples, o DAS (Anexo III) engloba a maior parte. Use receita e ISS reais do contexto; deixe claro o que é estimativa e o que depende da contabilidade (Portte).",
     "certidoes": "FOCO: certidões (CNDs) — o que está válido, vencendo em 30 dias e VENCIDO. Certidão vencida trava licitação e contrato público; priorize a renovação e diga qual órgão emite cada uma.",
     "obrigacoes": "FOCO: obrigações acessórias e tributárias — eSocial, DCTFWeb, EFD-Reinf, FGTS, ISS, DARFs. Cruze status pendente/vencido com as datas reais; monte a fila de regularização por urgência e valor.",
 }
