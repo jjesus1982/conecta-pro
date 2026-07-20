@@ -13,6 +13,7 @@ Multi-CNPJ E4 (lado leitura):
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date, timedelta
 
 from sqlalchemy import text
@@ -95,6 +96,38 @@ def sincronizar_extrato_cora(dias: int = 60) -> dict:
                         f"{len(candidatos)} notas candidatas (mesmo líquido+tomador) — "
                         "conciliação manual (ambíguo, não chuto)"
                     )
+            elif t.amount < 0:
+                # DÉBITO: casa com um pagamento da FOLHA PJ pago no app do Cora (o Cora não
+                # paga por chave via API — o Jordan paga no app; aqui conciliamos pelo extrato
+                # e marcamos o item da folha como 'pago'). Só se o match for ÚNICO (nunca chuta):
+                # mesmo valor (ROUND 2) e contraparte por documento OU nome. Fecha o ciclo Cora.
+                if db.execute(text("SELECT to_regclass('financial_pagamentos_pj')")).fetchone()[0]:
+                    valor = float(abs(t.amount))
+                    cp_doc = re.sub(r"\D", "", t.counterpart_document or "")
+                    itens = db.execute(
+                        text(
+                            "SELECT id, beneficiario, competencia FROM financial_pagamentos_pj "
+                            "WHERE banco='Cora' AND status='pagar_no_app' "
+                            "AND ROUND(valor,2) = ROUND(CAST(:valor AS numeric),2) "
+                            "AND ((:doc <> '' AND regexp_replace(COALESCE(pix_key,''),'[^0-9]','','g') = :doc) "
+                            "     OR UPPER(LEFT(beneficiario,15)) = UPPER(LEFT(:cpnome,15))) "
+                            "ORDER BY id"
+                        ),
+                        {"valor": valor, "doc": cp_doc, "cpnome": (t.counterpart_name or "")[:15]},
+                    ).fetchall()
+                    if len(itens) == 1:
+                        it = itens[0]
+                        db.execute(
+                            text("UPDATE financial_pagamentos_pj SET status='pago', e2e_ref=:ref, "
+                                 "updated_at=NOW() WHERE id=:id"),
+                            {"ref": str(t.transaction_id)[:80], "id": it.id},
+                        )
+                        recon_status = "conciliado"
+                        recon_note = (f"Pagamento PJ {it.beneficiario} (folha {it.competencia}) — "
+                                      "pago no app Cora, conciliado pelo extrato")
+                    elif len(itens) > 1:
+                        recon_note = (f"{len(itens)} pagamentos PJ candidatos (mesmo valor) — "
+                                      "conciliação manual (ambíguo, não chuto)")
 
             db.execute(
                 text(
