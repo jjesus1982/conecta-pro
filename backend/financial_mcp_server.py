@@ -75,14 +75,26 @@ async def get_financial_summary() -> dict:
     if balances:
         saldo_inter = float(balances[0].get("balance", 0))
     saude = dashboard.get("saude_financeira", {})
+    # Estrutura societária DINÂMICA (razão/regime do cadastro vivo /empresas — não hardcode
+    # que mente no flip de 2027). Papel/banco = rótulo estável por slug.
+    _PAPEL_BANCO = {
+        "conecta_eletronica": ("seg. eletrônica/portaria remota", "Inter 077"),
+        "conecta_patrimonial": ("terceirização de mão de obra", "Cora 403"),
+    }
+    try:
+        _emp = await _get("/empresas/")
+        estrutura = [
+            {"razao": e.get("razao_social"), "regime": e.get("regime_tributario"),
+             "papel": _PAPEL_BANCO.get(e.get("slug"), ("", ""))[0],
+             "banco": _PAPEL_BANCO.get(e.get("slug"), ("", ""))[1]}
+            for e in (_emp if isinstance(_emp, list) else [])
+            if e.get("status") == "ativa"
+        ]
+    except Exception:  # noqa: BLE001 — estrutura é contexto; não derruba o resumo financeiro
+        estrutura = []
     return {
         "empresa": "GRUPO CONECTA MAIS (2 CNPJs — dados CONSOLIDADOS salvo indicação)",
-        "estrutura": [
-            {"razao": "CONECTAMAIS ELETRONICA LTDA", "papel": "seg. eletrônica/portaria remota",
-             "regime": "Lucro Real", "banco": "Inter 077"},
-            {"razao": "CONECTAMAIS PATRIMONIAL LTDA", "papel": "terceirização de mão de obra",
-             "regime": "Simples Nacional", "banco": "Cora 403"},
-        ],
+        "estrutura": estrutura,
         "timestamp": datetime.now().isoformat(),
         "saldo_inter": saldo_inter,
         "nota": "saldo_inter = só conta Inter (Eletrônica); saldo Cora (Patrimonial) via extrato/bank_transactions",
