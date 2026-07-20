@@ -105,6 +105,7 @@ export const modules: Module[] = [
       { id: 'dp-reembolsos', title: 'Reembolsos', href: '/modulos/dp/reembolsos', icon: 'Receipt', permissions: ['module:dp'] },
       { id: 'dp-esocial', title: 'eSocial', href: '/modulos/dp/esocial', icon: 'Database', permissions: ['module:dp'] },
       { id: 'dp-documentos', title: 'Documentos DP', href: '/modulos/dp/documentos', icon: 'FolderOpen', permissions: ['module:dp'] },
+      { id: 'dp-prestadores-pj', title: 'Prestadores PJ', href: '/modulos/dp/prestadores-pj', icon: 'Link2', permissions: ['module:dp'] },
     ],
   },
 
@@ -123,7 +124,7 @@ export const modules: Module[] = [
     subModules: [
       { id: 'chro-ia', title: 'Consultor de Pessoas IA', href: '/modulos/gestao-pessoas/consultor', icon: 'Bot', permissions: ['module:dp'] },
       { id: 'rh-vagas', title: 'Vagas', href: '/modulos/recrutamento/vagas', icon: 'Briefcase', permissions: ['module:dp'], group: 'Recrutamento' },
-      { id: 'rh-candidatos', title: 'Candidatos', href: '/modulos/recrutamento/candidatos', icon: 'Users', permissions: ['module:dp'], group: 'Recrutamento' },
+      { id: 'rh-candidatos', title: 'Candidatos', href: '/modulos/rh/candidatos', icon: 'Users', permissions: ['module:dp'], group: 'Recrutamento' },
       { id: 'rh-candidaturas', title: 'Candidaturas', href: '/modulos/recrutamento/candidaturas', icon: 'FileText', permissions: ['module:dp'], group: 'Recrutamento' },
       { id: 'rh-entrevistas', title: 'Entrevistas', href: '/modulos/recrutamento/entrevistas', icon: 'Calendar', permissions: ['module:dp'], group: 'Recrutamento' },
       { id: 'rh-cursos', title: 'Cursos', href: '/modulos/rh/cursos', icon: 'BookOpen', permissions: ['module:dp'], group: 'Desenvolvimento' },
@@ -385,6 +386,7 @@ export const modules: Module[] = [
       { id: 'inter-painel', title: 'Banco Inter', href: '/modulos/financeiro/inter', icon: 'Building2', permissions: ['module:financeiro'] },
       { id: 'inter-pagamentos', title: 'Pagamentos & Transferências', href: '/modulos/financeiro/inter/pagamentos', icon: 'Send', permissions: ['module:financeiro'] },
       { id: 'pagamentos-diaristas', title: 'Pagamentos de Diaristas (VT+VR)', href: '/modulos/financeiro/pagamentos-diaristas', icon: 'Coins', permissions: ['module:financeiro'] },
+      { id: 'pagamentos-pj', title: 'Folha de Pagamento PJ', href: '/modulos/financeiro/pagamentos-pj', icon: 'Briefcase', permissions: ['module:financeiro'] },
       { id: 'fornecedores', title: 'Fornecedores', href: '/modulos/financeiro/fornecedores', icon: 'Truck', permissions: ['module:financeiro'] },
       // --- Suprimentos ---
       { id: 'compras', title: 'Compras', href: '/modulos/financeiro/compras', icon: 'ShoppingCart', permissions: ['module:financeiro'] },
