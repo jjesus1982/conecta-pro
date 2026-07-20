@@ -696,6 +696,15 @@ async def _build_crm(db: AsyncSession) -> dict:
         ["Contato", "Cliente", "Cargo", "Telefone"], "1.6fr 1.6fr 1.2fr 1fr",
         "SELECT ct.name, coalesce(cl.name,'—'), coalesce(ct.role,'—'), coalesce(ct.phone, ct.whatsapp, '—') FROM crm_contacts ct LEFT JOIN clients cl ON cl.id=ct.client_id ORDER BY ct.name LIMIT 200",
         lambda r: [t(r[0], 600, "#0F1B3A", initials(r[0])), t(r[1]), t(r[2]), t(r[3])]))
+    # Precificação — Tabela de referência CCT 2026 por função (base legal da folha; era P0 no audit)
+    await safe("precificacao", tbl(
+        "Precificação — Tabela CCT 2026", f"{await _scalar(db, 'SELECT count(*) FROM crm_pricing_funcoes')} funções (piso + adicionais CCT SINDECOMPRESTS)", "—",
+        ["Função", "Salário base", "Jornada", "Noturno", "Ronda", "Periculosidade", "Insalubridade"], "2fr 1.1fr 0.9fr 0.9fr 0.9fr 1fr 1fr",
+        "SELECT nome, coalesce(salario_base,0), coalesce(jornada_dias::text,'—'), coalesce(noturno::text,'—'), "
+        "coalesce(ronda::text,'—'), coalesce(periculosidade::text,'—'), coalesce(insalubridade::text,'—') "
+        "FROM crm_pricing_funcoes WHERE coalesce(ativo,true)=true ORDER BY ordem NULLS LAST LIMIT 60",
+        lambda r: [t(r[0], 600, "#0F1B3A"), t(brl(r[1]), 600), t(f"{r[2]} dias" if r[2] not in (None, '—') else '—'),
+                   *[b("Sim", "ok") if str(v).lower() in ("true", "t", "1", "sim") else t("—") for v in (r[3], r[4], r[5], r[6])]]))
     # Novo lead (FORM com ESCRITA real → POST /redesign/action/lead)
     out["novo-lead"] = {
         "title": "Novo lead", "sub": "Cadastrar um novo lead comercial", "cta": "Cadastrar lead",
