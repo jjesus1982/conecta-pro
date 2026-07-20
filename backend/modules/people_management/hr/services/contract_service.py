@@ -474,6 +474,9 @@ async def gerar_pdf_contrato(db: AsyncSession, contract_id: str) -> bytes:
             story.append(Paragraph(f"<b>CLÁUSULA {titulo_cl}</b>", s_corpo))
             story.append(Paragraph(texto_cl, s_corpo))
 
+    # Multi-CNPJ: contrato de trabalho sai pela empresa dona do vínculo (Patrimonial CLT).
+    _empresa_doc = B.empresa_branding_por_cpf(empregada_cpf)
+
     # Assinaturas (padrão-ouro: funcionário assina digital pelo Portal; empresa = CEO Jordan)
     story += B.campos_assinatura(
         st,
@@ -483,6 +486,7 @@ async def gerar_pdf_contrato(db: AsyncSession, contract_id: str) -> bytes:
         digital_funcionario=True,
         digital_empresa=True,
         espaco_antes=14,
+        empresa=_empresa_doc,
     )
 
     # Autenticidade branded: se já houver assinaturas coletadas (motor universal),
@@ -495,13 +499,15 @@ async def gerar_pdf_contrato(db: AsyncSession, contract_id: str) -> bytes:
         _sig = await UniversalSignatureService(db).status(
             document_type="contract", document_id=str(contract_id)
         )
-        story += B.bloco_autenticidade_assinaturas(st, signatarios=_sig.get("signatarios"))
+        story += B.bloco_autenticidade_assinaturas(
+            st, signatarios=_sig.get("signatarios"), empresa=_empresa_doc
+        )
     except Exception:  # noqa: BLE001
         pass
 
     doc.build(
         story,
-        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo="CONTRATO DE TRABALHO"),
-        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo="CONTRATO DE TRABALHO"),
+        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo="CONTRATO DE TRABALHO", empresa=_empresa_doc),
+        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo="CONTRATO DE TRABALHO", empresa=_empresa_doc),
     )
     return buffer.getvalue()

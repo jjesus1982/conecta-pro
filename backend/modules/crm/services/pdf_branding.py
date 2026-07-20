@@ -410,6 +410,7 @@ def campos_assinatura(
     funcionario_doc_rotulo: str = "CPF",
     incluir_empresa: bool = True,
     incluir_funcionario: bool = True,
+    empresa: dict | None = None,
 ) -> list:
     """Flowables com campos de ASSINATURA (funcionário + responsável pela empresa).
 
@@ -428,8 +429,9 @@ def campos_assinatura(
     Funcionário (Conecta PRO) — o sub-rótulo reflete isso.
     """
     st = st or styles()
-    resp = responsavel_nome or EMPRESA["ceo"]
-    resp_cargo = responsavel_cargo or EMPRESA["ceo_cargo"]
+    emp = empresa or EMPRESA  # multi-CNPJ: coluna de assinatura da empresa dona do doc
+    resp = responsavel_nome or emp["ceo"]
+    resp_cargo = responsavel_cargo or emp["ceo_cargo"]
     hoje = data_str or ""
     linha = "_" * 42
     cel = ParagraphStyle(
@@ -451,7 +453,7 @@ def campos_assinatura(
     if digital_empresa:
         sub_emp = f"Assinatura digital · {data_empresa}" if data_empresa else "Assinatura digital"
     else:
-        sub_emp = EMPRESA["nome"]
+        sub_emp = emp["nome"]
     # espaço em branco ACIMA da linha (room pra caneta) via linhas vazias. NÃO imprimimos
     # marcadores internos no documento final — a assinatura digital é embutida no PDF
     # (SHA-256 eletrônica / PAdES ICP-Brasil), sem depender de âncora de texto.
@@ -501,7 +503,9 @@ def _is_qualified_sig(s: dict) -> bool:
     return False
 
 
-def bloco_autenticidade_assinaturas(st: dict | None = None, *, signatarios: list | None = None) -> list:
+def bloco_autenticidade_assinaturas(
+    st: dict | None = None, *, signatarios: list | None = None, empresa: dict | None = None
+) -> list:
     """Bloco branded de AUTENTICIDADE das assinaturas (padrão-ouro).
 
     Renderiza TODAS as assinaturas já coletadas, distinguindo o nível legal:
@@ -521,6 +525,7 @@ def bloco_autenticidade_assinaturas(st: dict | None = None, *, signatarios: list
     não-repúdio visual ao documento, alinhado à identidade Conecta Mais.
     """
     st = st or styles()
+    emp = empresa or EMPRESA  # multi-CNPJ: não-repúdio carimba a empresa dona do doc
     assinados = [
         s for s in (signatarios or [])
         if (s.get("status") in ("signed", "completed") or s.get("signed_at"))
@@ -529,7 +534,7 @@ def bloco_autenticidade_assinaturas(st: dict | None = None, *, signatarios: list
     if not assinados:
         return []
 
-    papel = {"employee": "Funcionário", "company": EMPRESA["nome"], "customer": "Cliente"}
+    papel = {"employee": "Funcionário", "company": emp["nome"], "customer": "Cliente"}
     small = st.get("small", getSampleStyleSheet()["Normal"])
     linha_st = ParagraphStyle("aut_lin", parent=small, fontSize=7.5, leading=11)
     out: list = [Spacer(1, 4 * mm)]
@@ -545,7 +550,7 @@ def bloco_autenticidade_assinaturas(st: dict | None = None, *, signatarios: list
         h = s.get("signature_hash") or ""
         if _is_qualified_sig(s):
             # EMPRESA — assinatura qualificada ICP-Brasil (certificado A1, PAdES).
-            titular = f"{EMPRESA['razao']} (CNPJ {EMPRESA['cnpj']})"
+            titular = f"{emp['razao']} (CNPJ {emp['cnpj']})"
             emissor = s.get("certificate_issuer") or "AC ICP-Brasil"
             serial = s.get("certificate_serial") or "—"
             out.append(
@@ -568,7 +573,7 @@ def bloco_autenticidade_assinaturas(st: dict | None = None, *, signatarios: list
                     + (f" em {quando}" if quando else "")
                     + f' · Hash SHA-256: <font size="6.5">{h}</font>'
                     + f'<br/><font color="#2D5F8B" size="7">Verifique em '
-                    + f"{EMPRESA['site']}/verificar · /signatures/verify/{h[:16]}…</font>",
+                    + f"{emp['site']}/verificar · /signatures/verify/{h[:16]}…</font>",
                     linha_st,
                 )
             )

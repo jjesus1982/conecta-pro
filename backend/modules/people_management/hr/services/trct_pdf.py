@@ -293,7 +293,9 @@ def montar_trct_pdf(calc: dict, funcionario: dict | None = None, meta: dict | No
         )
 
     # ── Autenticidade (só quando REALMENTE assinado) ──
-    story += B.bloco_autenticidade_assinaturas(st, signatarios=meta.get("assinaturas") or [])
+    story += B.bloco_autenticidade_assinaturas(
+        st, signatarios=meta.get("assinaturas") or [], empresa=_empresa_doc
+    )
 
     # ── Campos de assinatura — EMPLOYEE + COMPANY (política rescisao) ──
     story += B.campos_assinatura(
@@ -302,6 +304,7 @@ def montar_trct_pdf(calc: dict, funcionario: dict | None = None, meta: dict | No
         funcionario_cpf=_fmt_cpf(funcionario.get("cpf")),
         funcionario_label="Assinatura do Empregado",
         espaco_antes=8,
+        empresa=_empresa_doc,
     )
 
     titulo = "TRCT — TERMO DE RESCISÃO"

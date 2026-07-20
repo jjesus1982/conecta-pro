@@ -238,10 +238,11 @@ def montar_recibo_vt_vr_pdf(
         data_empresa=(str(dpag) if dpag else None),
         espaco_antes=8,
         incluir_empresa=False,  # Recibo VT/VR: comprovante de recebimento — só o FUNCIONÁRIO assina
+        empresa=_empresa_doc,
     )
 
     # Autenticidade branded: assinatura já coletada (motor universal) → bloco padrão-ouro.
-    story += B.bloco_autenticidade_assinaturas(st, signatarios=signatarios)
+    story += B.bloco_autenticidade_assinaturas(st, signatarios=signatarios, empresa=_empresa_doc)
 
     doc.build(
         story,

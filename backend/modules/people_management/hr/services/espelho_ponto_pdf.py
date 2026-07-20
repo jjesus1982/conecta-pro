@@ -324,11 +324,12 @@ def montar_espelho_ponto_pdf(esp: dict, *, signatarios: list | None = None) -> b
         digital_funcionario=True,
         espaco_antes=8,
         incluir_empresa=True,
+        empresa=_empresa_doc,
     )
 
     # ── Bloco de autenticidade (pós-assinatura) ──
     if signatarios:
-        story += B.bloco_autenticidade_assinaturas(st, signatarios=signatarios)
+        story += B.bloco_autenticidade_assinaturas(st, signatarios=signatarios, empresa=_empresa_doc)
 
     # nota legal
     story.append(Spacer(1, 3 * mm))

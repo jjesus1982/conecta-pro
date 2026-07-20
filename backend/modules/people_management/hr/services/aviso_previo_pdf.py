@@ -214,7 +214,7 @@ def montar_aviso_previo_pdf(dados: dict, funcionario: dict | None = None) -> byt
 
     # ── Autenticidade (só quando REALMENTE assinado) ──
     assinaturas = dados.get("assinaturas") or []
-    story += B.bloco_autenticidade_assinaturas(st, signatarios=assinaturas)
+    story += B.bloco_autenticidade_assinaturas(st, signatarios=assinaturas, empresa=_empresa_doc)
 
     # ── Campos de assinatura — EMPLOYEE + COMPANY (política aviso_previo) ──
     story += B.campos_assinatura(
@@ -223,6 +223,7 @@ def montar_aviso_previo_pdf(dados: dict, funcionario: dict | None = None) -> byt
         funcionario_cpf=_fmt_cpf(funcionario.get("cpf")),
         funcionario_label="Ciência do Empregado",
         espaco_antes=10,
+        empresa=_empresa_doc,
     )
 
     doc.build(
