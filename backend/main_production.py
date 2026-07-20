@@ -1303,6 +1303,16 @@ try:
 except Exception as _e:  # noqa: BLE001
     logger.warning("Financeiro — Pagamentos Diaristas: %s", _e)
 
+# Financeiro — Folha de PAGAMENTO PJ (prestadores): Eletrônica→Inter (OTP), Patrimonial→Cora (app)
+try:
+    import importlib as _il_pj
+
+    _pj_mod = _il_pj.import_module("modules.financial.controllers.pagamento_pj_controller")
+    api_router.include_router(_pj_mod.router, dependencies=[_FIN_GATE])
+    logger.info("Financeiro — Pagamentos PJ: OK")
+except Exception as _e:  # noqa: BLE001
+    logger.warning("Financeiro — Pagamentos PJ: %s", _e)
+
 # Financeiro — Agenda de beneficiários PIX (favoritos: digitar nome → carrega a chave)
 try:
     import importlib as _il_ben
