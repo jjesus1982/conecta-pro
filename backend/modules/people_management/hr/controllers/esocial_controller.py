@@ -40,26 +40,43 @@ def _empregador_do_cpf(cpf: str) -> tuple[str, str]:
     digitos = _re.sub(r"\D", "", cpf or "")
     url = _re.sub(r"\+asyncpg|\+psycopg2?", "", os.getenv("DATABASE_URL", ""))
     if digitos and url:
-        try:
-            conn = psycopg2.connect(url)
+        erro = None
+        for tentativa in range(2):  # retry p/ blip transitório de banco
             try:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT REGEXP_REPLACE(e.cnpj,'[^0-9]','','g'), e.razao_social "
-                        "FROM employees emp JOIN empresas e ON e.id = emp.empresa_id "
-                        "WHERE REGEXP_REPLACE(COALESCE(emp.cpf,''),'[^0-9]','','g') = %s "
-                        "LIMIT 1",
-                        (digitos,),
-                    )
-                    row = cur.fetchone()
-            finally:
-                conn.close()
-            if row and row[0]:
-                return row[0], row[1]
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Trava SST: falha ao resolver empregador do CPF (%s)", exc)
-    logger.warning(
-        "Trava SST: CPF %s*** sem vínculo no cadastro — usando empresa principal (legado)",
+                conn = psycopg2.connect(url)
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT REGEXP_REPLACE(e.cnpj,'[^0-9]','','g'), e.razao_social "
+                            "FROM employees emp JOIN empresas e ON e.id = emp.empresa_id "
+                            "WHERE REGEXP_REPLACE(COALESCE(emp.cpf,''),'[^0-9]','','g') = %s "
+                            "LIMIT 1",
+                            (digitos,),
+                        )
+                        row = cur.fetchone()
+                finally:
+                    conn.close()
+                if row and row[0]:
+                    return row[0], row[1]
+                erro = None
+                break  # consultou OK, mas CPF não está no cadastro
+            except Exception as exc:  # noqa: BLE001
+                erro = exc
+                logger.warning("Trava SST tentativa %d: falha ao resolver empregador do CPF (%s)",
+                               tentativa + 1, exc)
+        if erro is not None:
+            # FAIL-CLOSED (auditoria 20/07): banco indisponível — NÃO transmitir evento
+            # eSocial (S-2200/2230/2299) sob um CNPJ chutado. Transmissão de gov é difícil
+            # de desfazer; melhor falhar alto do que assinar pela empresa errada.
+            raise RuntimeError(
+                f"Trava SST: banco indisponível ao resolver o empregador do CPF {digitos[:3]}*** "
+                "— recuso transmitir eSocial sob CNPJ possivelmente errado (fail-closed)"
+            ) from erro
+    # CPF não está no cadastro (não é erro de banco): fallback legado com log de ERRO.
+    # Raiz correta = autocadastro setar empresa_id na criação (não chutar aqui).
+    logger.error(
+        "Trava SST: CPF %s*** sem vínculo no cadastro — usando empresa principal (legado). "
+        "Cadastre o empregador (empresa_id) antes de transmitir o eSocial.",
         digitos[:3],
     )
     return EMPRESA_CNPJ, EMPRESA_RAZAO

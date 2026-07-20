@@ -102,34 +102,59 @@ def _norm_competencia(competencia: str | None) -> str:
     return f"{m.group(1)}-{int(m.group(2)):02d}" if m else (competencia or "")[:7]
 
 
+def _is_pos_fronteira(competencia: str | None) -> bool:
+    """True se a competência é >= fronteira multi-CNPJ (doc pertence à empresa nova)."""
+    fronteira = _fronteira_competencia()
+    if not fronteira or not competencia:
+        return False
+    return _norm_competencia(competencia) >= _norm_competencia(fronteira)
+
+
 def empresa_branding_por_cpf(cpf: str | None, competencia: str | None = None) -> dict:
     """Branding do EMPREGADOR VIGENTE do funcionário (CPF → empresas.slug),
     com a regra anti-reescrita por competência. Fonte única para holerite,
-    espelho de ponto, recibos e demais docs trabalhistas."""
+    espelho de ponto, recibos e demais docs trabalhistas.
+
+    FAIL-CLOSED (auditoria 20/07): antes, qualquer erro de banco caía SILENCIOSO no
+    CNPJ1 — um doc da Patrimonial (pós-fronteira) sairia assinado como Eletrônica.
+    Agora: retry p/ blip transitório e, se o banco seguir indisponível numa competência
+    PÓS-fronteira, LEVANTA erro (não emite doc com CNPJ possivelmente errado). Pré-fronteira
+    o CNPJ1 é o correto de qualquer forma, então segue no default sem quebrar."""
     import logging
     import re as _re
 
+    log = logging.getLogger(__name__)
     slug = None
     digitos = _re.sub(r"\D", "", str(cpf or ""))
     if digitos:
-        try:
-            import psycopg2
-
-            url = _re.sub(r"\+asyncpg|\+psycopg2?", "", os.getenv("DATABASE_URL", ""))
-            conn = psycopg2.connect(url)
+        url = _re.sub(r"\+asyncpg|\+psycopg2?", "", os.getenv("DATABASE_URL", ""))
+        erro = None
+        for tentativa in range(2):  # retry p/ blip transitório de conexão
             try:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT e.slug FROM employees emp JOIN empresas e ON e.id = emp.empresa_id "
-                        "WHERE REGEXP_REPLACE(COALESCE(emp.cpf,''),'[^0-9]','','g') = %s LIMIT 1",
-                        (digitos,),
-                    )
-                    row = cur.fetchone()
-            finally:
-                conn.close()
-            slug = row[0] if row else None
-        except Exception as exc:  # noqa: BLE001
-            logging.getLogger(__name__).warning("branding_por_cpf: %s", exc)
+                import psycopg2
+
+                conn = psycopg2.connect(url)
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT e.slug FROM employees emp JOIN empresas e ON e.id = emp.empresa_id "
+                            "WHERE REGEXP_REPLACE(COALESCE(emp.cpf,''),'[^0-9]','','g') = %s LIMIT 1",
+                            (digitos,),
+                        )
+                        row = cur.fetchone()
+                finally:
+                    conn.close()
+                slug = row[0] if row else None
+                erro = None
+                break
+            except Exception as exc:  # noqa: BLE001
+                erro = exc
+                log.warning("branding_por_cpf tentativa %d: %s", tentativa + 1, exc)
+        if erro is not None and _is_pos_fronteira(competencia):
+            raise RuntimeError(
+                f"branding_por_cpf: banco indisponível e competência {competencia} é pós-fronteira "
+                "multi-CNPJ — recuso emitir documento com CNPJ possivelmente errado (fail-closed)"
+            ) from erro
     return empresa_branding(slug, competencia)
 
 
