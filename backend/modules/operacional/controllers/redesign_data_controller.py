@@ -549,6 +549,22 @@ async def _build_dp(db: AsyncSession) -> dict:
         "WHERE (p.reference_year,p.reference_month)=(SELECT reference_year,reference_month FROM hr_payslips ORDER BY reference_year DESC, reference_month DESC LIMIT 1) "
         "ORDER BY e.nome LIMIT 300",
         lambda r: [t(r[0] or '—', 600, "#0F1B3A", initials(r[0] or '')), t(f"{(r[1] or 0):02d}/{r[2] or ''}"), t(brl(r[3])), t(brl(r[4]), 600), b("Processada", "ok") if (r[5] or '').lower() in ("processed", "processada", "fechada", "paga") else b(r[5] or "—", "info")]))
+    # Folha · Rubricas — breakdown de proventos/descontos por rubrica (unnest do JSON earnings/deductions da última competência)
+    await safe("folha-rubricas", _tbl(
+        "Folha · Rubricas", "Proventos e descontos linha-a-linha (última competência)", "—",
+        ["Colaborador", "Competência", "Rubrica", "Tipo", "Valor"], "1.8fr 1fr 2fr 0.9fr 1fr",
+        "SELECT e.nome, p.reference_month, p.reference_year, elem->>'description', 'Provento', (elem->>'value')::numeric "
+        "FROM hr_payslips p LEFT JOIN employees e ON e.id=p.employee_id "
+        "CROSS JOIN LATERAL jsonb_array_elements(p.earnings::jsonb) elem "
+        "WHERE p.earnings IS NOT NULL AND (p.reference_year,p.reference_month)=(SELECT reference_year,reference_month FROM hr_payslips ORDER BY reference_year DESC, reference_month DESC LIMIT 1) "
+        "UNION ALL "
+        "SELECT e.nome, p.reference_month, p.reference_year, elem->>'description', 'Desconto', (elem->>'value')::numeric "
+        "FROM hr_payslips p LEFT JOIN employees e ON e.id=p.employee_id "
+        "CROSS JOIN LATERAL jsonb_array_elements(p.deductions::jsonb) elem "
+        "WHERE p.deductions IS NOT NULL AND (p.reference_year,p.reference_month)=(SELECT reference_year,reference_month FROM hr_payslips ORDER BY reference_year DESC, reference_month DESC LIMIT 1) "
+        "ORDER BY 1, 5 DESC LIMIT 400",
+        lambda r: [t(r[0] or '—', 600, "#0F1B3A", initials(r[0] or '')), t(f"{(r[1] or 0):02d}/{r[2] or ''}"), t(r[3] or '—'),
+                   b(r[4], "ok" if r[4] == "Provento" else "bad"), t(brl(r[5]) if r[5] is not None else '—', 600)]))
     await safe("ferias", _tbl(
         "Férias", f"{n_ferias} solicitações", "Solicitar férias",
         ["Colaborador", "Início", "Fim", "Dias", "Status"], "2fr 1fr 1fr 0.7fr 0.9fr",
