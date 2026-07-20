@@ -1431,6 +1431,122 @@ async def _build_licitacoes(db: AsyncSession) -> dict:
     return out
 
 
+async def _build_portal_funcionario(db: AsyncSession) -> dict:
+    out, safe, tbl = _helpers(db)
+    ativos = await _scalar(db, "SELECT count(*) FROM employees WHERE status='ativo'")
+    n_pay = await _scalar(db, "SELECT count(*) FROM hr_payslips")
+    n_fer = await _scalar(db, "SELECT count(*) FROM employee_vacation_requests")
+    n_reemb = await _scalar(db, "SELECT count(*) FROM reimbursement_requests")
+
+    async def _dash():
+        comp = (await db.execute(text("SELECT reference_year, reference_month FROM hr_payslips ORDER BY reference_year DESC, reference_month DESC LIMIT 1"))).fetchone()
+        comp_lbl = f"{comp[1]:02d}/{comp[0]}" if comp else "—"
+        liq = await _scalar(db, "SELECT coalesce(sum(net_salary),0) FROM hr_payslips WHERE (reference_year,reference_month)=(SELECT reference_year,reference_month FROM hr_payslips ORDER BY reference_year DESC, reference_month DESC LIMIT 1)")
+        fr = (await db.execute(text("SELECT coalesce(status::text,'—'), count(*) FROM employee_vacation_requests GROUP BY 1 ORDER BY 2 DESC LIMIT 5"))).fetchall()
+        return {"title": "Início", "sub": "Portal do Funcionário — dados reais", "cta": "Atualizar", "type": "dash", "panelGrid": "1fr 1fr",
+                "kpis": [
+                    {"v": str(ativos), "l": "Colaboradores", "icon": IC["users"], "color": "#0F1B3A"},
+                    {"v": str(n_pay), "l": "Holerites", "icon": _ICF["money"], "color": "#0F1B3A"},
+                    {"v": str(n_fer), "l": "Férias solicitadas", "icon": IC["cal"], "color": "#0F1B3A"},
+                    {"v": str(n_reemb), "l": "Reembolsos", "icon": _ICF["hand"], "color": "#0F1B3A"},
+                ],
+                "panels": [
+                    {"title": f"Folha — competência {comp_lbl}", "rows": [{"left": "Líquido total", "right": brl(liq), **S["ok"]}]},
+                    {"title": "Férias por status", "rows": [{"left": (s or "—").capitalize(), "right": str(c), **S["info"]} for s, c in fr] or [{"left": "Sem férias", "right": "0", **S["mut"]}]},
+                ]}
+
+    await safe("dashboard", _dash())
+    await safe("contracheque", tbl(
+        "Contracheque", f"{n_pay} holerites", "Ver",
+        ["Colaborador", "Competência", "Líquido", "Status"], "2fr 1fr 1fr 0.9fr",
+        "SELECT coalesce(e.nome,'—'), p.reference_month, p.reference_year, p.net_salary, coalesce(p.status::text,'—') "
+        "FROM hr_payslips p LEFT JOIN employees e ON e.id=p.employee_id ORDER BY p.reference_year DESC, p.reference_month DESC LIMIT 200",
+        lambda r: [t(r[0], 600, "#0F1B3A", initials(r[0])), t(f"{r[1]:02d}/{r[2]}" if r[1] else "—"), t(brl(r[3]) if r[3] is not None else "—"), b((r[4] or "—").capitalize(), "info")]))
+    await safe("ferias", tbl(
+        "Minhas férias", f"{n_fer} solicitações", "Solicitar",
+        ["Colaborador", "Início", "Fim", "Dias", "Status"], "2fr 1fr 1fr 0.7fr 0.9fr",
+        "SELECT coalesce(e.nome,'—'), v.start_date, v.end_date, v.days_requested, coalesce(v.status::text,'—') "
+        "FROM employee_vacation_requests v LEFT JOIN employees e ON e.id=v.employee_id ORDER BY v.start_date DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0], 600, "#0F1B3A", initials(r[0])), t(_fmtdate(r[1])), t(_fmtdate(r[2])), t(str(r[3]) if r[3] is not None else "—"), b((r[4] or "—").capitalize(), "info")]))
+    await safe("documentos", tbl(
+        "Meus documentos", f"{await _scalar(db, 'SELECT count(*) FROM ged_kit_documents')} documentos", "Enviar",
+        ["Documento", "Tipo", "Colaborador", "Assinado"], "2fr 1.4fr 1.6fr 0.9fr",
+        "SELECT coalesce(g.document_name,'—'), coalesce(g.document_type::text,'—'), coalesce(e.nome,'—'), g.is_signed "
+        "FROM ged_kit_documents g LEFT JOIN employees e ON e.id=g.employee_id ORDER BY g.created_at DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or "—").replace("_", " ")), t(r[2]), b("Assinado", "ok") if r[3] else b("Pendente", "warn")]))
+    return out
+
+
+async def _build_meu_espaco(db: AsyncSession) -> dict:
+    out, safe, tbl = _helpers(db)
+    n_not = await _scalar(db, "SELECT count(*) FROM portal_notifications")
+    n_task = await _scalar(db, "SELECT count(*) FROM crm_tasks")
+
+    async def _visao():
+        nlidas = await _scalar(db, "SELECT count(*) FROM portal_notifications WHERE coalesce(is_read,false)=false")
+        n_reemb = await _scalar(db, "SELECT count(*) FROM reimbursement_requests")
+        ty = (await db.execute(text("SELECT coalesce(notification_type::text,'—'), count(*) FROM portal_notifications GROUP BY 1 ORDER BY 2 DESC LIMIT 6"))).fetchall()
+        return {"title": "Meu espaço", "sub": "Área pessoal — dados reais", "cta": "Atualizar", "type": "dash", "panelGrid": "1fr 1fr",
+                "kpis": [
+                    {"v": str(n_not), "l": "Notificações", "icon": IC["cal"], "color": "#0F1B3A"},
+                    {"v": str(nlidas), "l": "Não lidas", "icon": IC["shield"], "color": "#C2410C"},
+                    {"v": str(n_task), "l": "Tarefas", "icon": _ICF["hand"], "color": "#0F1B3A"},
+                    {"v": str(n_reemb), "l": "Reembolsos", "icon": _ICF["money"], "color": "#0F1B3A"},
+                ],
+                "panels": [
+                    {"title": "Notificações por tipo", "rows": [{"left": (x or "—").replace("_", " ").capitalize(), "right": str(c), **S["info"]} for x, c in ty] or [{"left": "Sem notificações", "right": "0", **S["mut"]}]},
+                    {"title": "Tarefas", "rows": [{"left": "Tarefas abertas", "right": str(n_task), **(S["ok"] if n_task == 0 else S["warn"])}]},
+                ]}
+
+    await safe("visao", _visao())
+    await safe("tarefas", tbl(
+        "Minhas tarefas", f"{n_task} tarefas", "Nova tarefa",
+        ["Tarefa", "Prioridade", "Vencimento", "Status"], "2fr 1fr 1fr 0.9fr",
+        "SELECT coalesce(title,'—'), coalesce(priority::text,'—'), due_date, coalesce(status::text,'—') FROM crm_tasks ORDER BY due_date NULLS LAST LIMIT 200",
+        lambda r: [t(r[0], 600, "#0F1B3A"), b((r[1] or "—").capitalize(), "info"), t(_fmtdate(r[2])), b((r[3] or "—").capitalize(), "info")]))
+    nrows = (await db.execute(text(
+        "SELECT coalesce(n.title,'—'), coalesce(n.message,''), coalesce(n.is_read,false), n.created_at, coalesce(e.nome,'—') "
+        "FROM portal_notifications n LEFT JOIN employees e ON e.id=n.employee_id ORDER BY n.created_at DESC NULLS LAST LIMIT 100"))).fetchall()
+    nitems = [{"title": (ti or "—"), "meta": f"{(msg or '')[:70]} · {nm} · {_fmtdate(dt, '%d/%m/%Y %H:%M')}",
+               "dot": "#16A34A" if rd else "#C2410C", "badge": "Lida" if rd else "Nova", **(S["ok"] if rd else S["warn"])}
+              for ti, msg, rd, dt, nm in nrows]
+    if not nitems:
+        nitems = [{"title": "Sem notificações", "meta": "aguardando dado", "dot": "#16A34A", "badge": "OK", **S["ok"]}]
+    out["notificacoes"] = {"title": "Notificações", "sub": f"{len(nrows)} notificações", "cta": "Marcar lidas", "type": "list", "items": nitems}
+    return out
+
+
+async def _build_suprimentos(db: AsyncSession) -> dict:
+    out, safe, tbl = _helpers(db)
+    n_est = await _scalar(db, "SELECT count(*) FROM nfe_compras_estoque")
+    n_req = await _scalar(db, "SELECT count(*) FROM purchase_requisitions")
+
+    async def _visao():
+        val = await _scalar(db, "SELECT coalesce(sum(qty_on_hand*coalesce(avg_cost,unit_cost,0)),0) FROM nfe_compras_estoque")
+        n_fin = await _scalar(db, "SELECT count(*) FROM fin_stock_items")
+        top = (await db.execute(text("SELECT descricao, qty_on_hand, coalesce(avg_cost,unit_cost,0) FROM nfe_compras_estoque ORDER BY qty_on_hand*coalesce(avg_cost,unit_cost,0) DESC NULLS LAST LIMIT 6"))).fetchall()
+        return {"title": "Visão geral", "sub": "Suprimentos — dados reais", "cta": "Atualizar", "type": "dash", "panelGrid": "1fr 1fr",
+                "kpis": [
+                    {"v": str(n_est), "l": "Itens no estoque (NF-e)", "icon": IC["shield"], "color": "#0F1B3A"},
+                    {"v": brl(val), "l": "Valor em estoque", "icon": _ICF["money"], "color": "#16A34A"},
+                    {"v": str(n_req), "l": "Requisições", "icon": IC["cal"], "color": "#0F1B3A"},
+                    {"v": str(n_fin), "l": "Itens financeiros", "icon": _ICF["hand"], "color": "#0F1B3A"},
+                ],
+                "panels": [
+                    {"title": "Itens de maior valor", "rows": [{"left": (d or "—")[:40], "right": brl((q or 0) * (cst or 0)), **S["info"]} for d, q, cst in top] or [{"left": "Sem estoque", "right": brl(0), **S["mut"]}]},
+                    {"title": "Requisições", "rows": [{"left": "Requisições de compra", "right": str(n_req), **(S["ok"] if n_req == 0 else S["warn"])}]},
+                ]}
+
+    await safe("visao", _visao())
+    await safe("almoxarifado", tbl(
+        "Almoxarifado", f"{n_est} itens (NF-e)", "Atualizar",
+        ["Item", "NCM", "Un", "Qtd", "Custo médio", "Última compra"], "2.4fr 1fr 0.5fr 0.7fr 1fr 1fr",
+        "SELECT coalesce(descricao, item_code, '—'), coalesce(ncm,'—'), coalesce(unidade,'—'), qty_on_hand, coalesce(avg_cost,unit_cost,0), last_purchase_date "
+        "FROM nfe_compras_estoque ORDER BY last_purchase_date DESC NULLS LAST LIMIT 200",
+        lambda r: [t((r[0] or "—")[:55], 600, "#0F1B3A"), t(r[1]), t(r[2]), t(str(r[3]) if r[3] is not None else "—"), t(brl(r[4]) if r[4] is not None else "—"), t(_fmtdate(r[5]))]))
+    return out
+
+
 BUILDERS = {
     "operacional": _build_operacional,
     "financeiro": _build_financeiro,
@@ -1452,6 +1568,9 @@ BUILDERS = {
     "configuracoes": _build_configuracoes,
     "seguranca": _build_seguranca,
     "licitacoes": _build_licitacoes,
+    "portal-do-funcionario": _build_portal_funcionario,
+    "meu-espaco": _build_meu_espaco,
+    "suprimentos": _build_suprimentos,
 }
 
 
