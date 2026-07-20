@@ -74,16 +74,23 @@ async def _conciliar_invoice(invoice_id: str, event_type: str) -> None:
     status = (inv.get("status") or "").upper()
     total_pago = int(inv.get("total_paid") or 0) / 100
     async with async_session_factory() as db:
-        await db.execute(
+        # A cobrança Cora é gravada com o invoice_id (inv_...) em pix_txid
+        # (recurring_billing._chamar_cobranca_cora retorna txid=inv.id). Casar
+        # por iid é o caminho certo; code e metadata ficam como fallback.
+        res = await db.execute(
             text(
                 "UPDATE receivable_accounts SET "
                 "status = CASE WHEN :st = 'PAID' THEN 'pago' ELSE status END, "
                 "updated_at = NOW() "
-                "WHERE pix_txid = :code OR metadata->>'cora_invoice_id' = :iid"
+                "WHERE pix_txid = :iid OR pix_txid = :code "
+                "   OR metadata->>'cora_invoice_id' = :iid"
             ),
             {"st": status, "code": inv.get("code") or "", "iid": invoice_id},
         )
         await db.commit()
+        if res.rowcount == 0 and status == "PAID":
+            logger.warning("Webhook Cora invoice %s pago mas 0 receivables casados "
+                           "(cobrança emitida fora do recurring_billing?)", invoice_id)
     logger.info("Webhook Cora invoice %s: %s (pago R$%.2f) — conciliado", invoice_id, event_type, total_pago)
 
 
@@ -94,19 +101,27 @@ async def _atualizar_pagamento(payment_id: str, event_type: str) -> None:
     from core.database import async_session_factory
 
     trigger = event_type.split(".", 1)[-1]
-    mapa = {"approved": "aprovado", "completed": "confirmado",
-            "reproved": "reprovado", "error": "erro", "created": "processando"}
-    novo = mapa.get(trigger)
+    # status enum bank_transactions: pendente | efetivada | cancelada | estornada
+    mapa_status = {
+        "completed": "efetivada",   # liquidado
+        "approved": "pendente",     # aprovado no app, ainda liquidando
+        "created": "pendente",
+        "reproved": "cancelada",    # Jordan rejeitou no app → NÃO vai sair
+        "error": "cancelada",       # falhou no banco
+    }
+    novo = mapa_status.get(trigger)
     if not novo:
         return
     async with async_session_factory() as db:
         await db.execute(
             text(
-                "UPDATE bank_transactions SET status = :st, reconciliation_note = "
-                "COALESCE(reconciliation_note,'') || ' | cora:' || :trig, updated_at = NOW() "
-                "WHERE external_id = :pid"
+                "UPDATE bank_transactions SET status = :st, reconciliation_status = "
+                "CASE WHEN :st = 'efetivada' THEN 'conciliado' "
+                "     WHEN :st = 'cancelada' THEN 'ignorado' ELSE reconciliation_status END, "
+                "reconciliation_note = COALESCE(reconciliation_note,'') || ' | cora:' || :trig, "
+                "updated_at = NOW() WHERE external_id = :pid"
             ),
-            {"st": "efetivada" if novo == "confirmado" else "pendente", "trig": trigger, "pid": payment_id},
+            {"st": novo, "trig": trigger, "pid": payment_id},
         )
         await db.commit()
     logger.info("Webhook Cora payment %s: %s", payment_id, event_type)

@@ -67,23 +67,33 @@ def sincronizar_extrato_cora(dias: int = 60) -> dict:
 
             recon_status, recon_note = "pendente", None
             if t.amount > 0:
-                # Conciliação líquido×nota (padrão provado: Mirante 15/07)
-                nota = db.execute(
+                # Conciliação líquido×nota (padrão provado: Mirante 15/07).
+                # BLINDAGEM (auditoria 20/07): só concilia se o match for ÚNICO —
+                # valor comparado com ROUND(2) (evita fragilidade de float) e
+                # contraparte por prefixo. Múltiplos candidatos = deixa PENDENTE
+                # (nunca aponta a nota errada). Recall menor > precisão errada.
+                candidatos = db.execute(
                     text(
                         "SELECT n.numero, n.tomador_nome, n.valor_servicos FROM nfse_emitidas_nacional n "
                         "JOIN empresas e ON e.id = n.empresa_id "
                         "WHERE e.slug = 'conecta_patrimonial' "
-                        "AND n.valor_liquido = :valor "
-                        "AND UPPER(LEFT(n.tomador_nome, 12)) = UPPER(LEFT(:contraparte, 12)) "
-                        "LIMIT 1"
+                        "AND ROUND(n.valor_liquido, 2) = ROUND(CAST(:valor AS numeric), 2) "
+                        "AND UPPER(LEFT(n.tomador_nome, 15)) = UPPER(LEFT(:contraparte, 15)) "
+                        "ORDER BY n.numero"
                     ),
-                    {"valor": float(t.amount), "contraparte": (t.counterpart_name or "")[:12]},
-                ).fetchone()
-                if nota:
+                    {"valor": float(t.amount), "contraparte": (t.counterpart_name or "")[:15]},
+                ).fetchall()
+                if len(candidatos) == 1:
+                    nota = candidatos[0]
                     recon_status = "conciliado"
                     recon_note = (
                         f"NFS-e {nota.numero} ({nota.tomador_nome}) — bruto R${float(nota.valor_servicos):,.2f}, "
                         f"recebido líquido (retenções na fonte)"
+                    )
+                elif len(candidatos) > 1:
+                    recon_note = (
+                        f"{len(candidatos)} notas candidatas (mesmo líquido+tomador) — "
+                        "conciliação manual (ambíguo, não chuto)"
                     )
 
             db.execute(

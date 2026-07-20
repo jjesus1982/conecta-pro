@@ -109,6 +109,14 @@ class CoraAdapter(BaseBankingAdapter):
     def _auth_headers(self) -> dict:
         return {"Authorization": f"Bearer {self._access_token}"}
 
+    @staticmethod
+    def _idem_key(operacao: str, referencia: str) -> str:
+        """Idempotency-Key DETERMINÍSTICA (UUID v5) por operação+referência de
+        negócio: o RETRY da mesma operação reusa a mesma chave e o Cora
+        deduplica (evita boleto/pagamento em dobro). Formato UUID exigido §0."""
+        import uuid as _uuid
+        return str(_uuid.uuid5(_uuid.NAMESPACE_URL, f"cora:{operacao}:{referencia}"))
+
     async def get_balance(self) -> AccountBalance:
         await self.ensure_authenticated()
         async with self._client() as cli:
@@ -228,7 +236,7 @@ class CoraAdapter(BaseBankingAdapter):
         async with self._client() as cli:
             resp = await cli.post(
                 "/v2/invoices/",
-                headers={**self._auth_headers(), "Idempotency-Key": str(uuid.uuid4()),
+                headers={**self._auth_headers(), "Idempotency-Key": self._idem_key("cobranca", code),
                          "Content-Type": "application/json"},
                 json=payload,
             )
@@ -252,7 +260,7 @@ class CoraAdapter(BaseBankingAdapter):
         async with self._client() as cli:
             resp = await cli.delete(
                 f"/v2/invoices/{invoice_id}",
-                headers={**self._auth_headers(), "Idempotency-Key": str(uuid.uuid4())},
+                headers={**self._auth_headers(), "Idempotency-Key": self._idem_key("cancel-cob", invoice_id)},
             )
         if resp.status_code == 204:
             return True
@@ -279,7 +287,7 @@ class CoraAdapter(BaseBankingAdapter):
         async with self._client() as cli:
             resp = await cli.post(
                 "/payments/initiate",
-                headers={**self._auth_headers(), "Idempotency-Key": str(uuid.uuid4()),
+                headers={**self._auth_headers(), "Idempotency-Key": self._idem_key("pgto-boleto", code),
                          "Content-Type": "application/json"},
                 json=payload,
             )
@@ -297,7 +305,7 @@ class CoraAdapter(BaseBankingAdapter):
         async with self._client() as cli:
             resp = await cli.post(
                 "/payments/darf/initiate",
-                headers={**self._auth_headers(), "Idempotency-Key": str(uuid.uuid4()),
+                headers={**self._auth_headers(), "Idempotency-Key": self._idem_key("darf", code),
                          "Content-Type": "application/json"},
                 json={"code": code, "data": data},
             )
@@ -323,7 +331,7 @@ class CoraAdapter(BaseBankingAdapter):
         async with self._client() as cli:
             resp = await cli.delete(
                 f"/payments/initiate/{payment_id}",
-                headers={**self._auth_headers(), "Idempotency-Key": str(uuid.uuid4())},
+                headers={**self._auth_headers(), "Idempotency-Key": self._idem_key("cancel-pgto", payment_id)},
             )
         return resp.status_code == 204
 
