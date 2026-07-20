@@ -281,6 +281,8 @@ async def gerar_janelas(
                     "  UNION SELECT id::text, 1 FROM employees WHERE status = 'ativo' OR status IS NULL"
                     ") s JOIN employees e ON e.id::text = s.eid "
                     "WHERE e.cpf IS NOT NULL AND length(regexp_replace(e.cpf, '\\D', '', 'g')) = 11 "
+                    # PJ não tem obrigação SST/eSocial como empregado — fora do espelho.
+                    "AND COALESCE(LOWER(e.tipo_contrato),'') <> 'pj' "
                     "ORDER BY prio, cpf"
                 )
             )

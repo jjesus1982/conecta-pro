@@ -152,7 +152,9 @@ def calcular_folha_colaborador(
             "COALESCE(e.adicional_ronda_percentual, 0), "
             "COALESCE(e.recebe_intrajornada, false) "
             "FROM employees e "
-            "WHERE CAST(e.id AS TEXT)=:eid AND e.status='ativo'"
+            # PJ não recebe holerite CLT — guard mesmo se chamado individualmente.
+            "WHERE CAST(e.id AS TEXT)=:eid AND e.status='ativo' "
+            "AND COALESCE(LOWER(e.tipo_contrato),'') <> 'pj'"
         ),
         {"eid": employee_id},
     ).first()
@@ -550,15 +552,18 @@ def calcular_folha_colaborador(
 
 
 def calcular_folha_batch(db: Session, mes: int, ano: int) -> dict[str, Any]:
-    """Calcula folha para todos os colaboradores ativos.
+    """Calcula folha para todos os colaboradores CLT ativos.
 
     EXCLUI funcionários de HOMOLOGAÇÃO (is_homologacao) — base de teste isolada da
     folha/eSocial reais. Ver [[project_ponto_facial_homologacao]].
+    EXCLUI PJ (tipo_contrato='pj') — prestadores não entram na folha CLT (holerite/INSS/
+    FGTS/eSocial); são pagos por fluxo PJ (PIX contra nota fiscal). Multi-CNPJ.
     """
     employees = db.execute(
         text(
             "SELECT CAST(id AS TEXT) FROM employees "
-            "WHERE status='ativo' AND coalesce(is_homologacao, false) = false ORDER BY nome"
+            "WHERE status='ativo' AND coalesce(is_homologacao, false) = false "
+            "AND COALESCE(LOWER(tipo_contrato),'') <> 'pj' ORDER BY nome"
         )
     ).fetchall()
 
