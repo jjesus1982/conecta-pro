@@ -259,23 +259,120 @@ class CoraAdapter(BaseBankingAdapter):
         raise BankingAdapterError(f"Cora cancelamento HTTP {resp.status_code}: {resp.text[:200]}")
 
     # ------------------------------------------------------------------
-    # SAÍDA DE DINHEIRO — bloqueada até D7 (honestidade > conveniência)
+    # SAÍDA DE DINHEIRO (produção) — o gate humano do ERP (OTP) é OBRIGATÓRIO
+    # ANTES de chamar estes métodos. A API do Cora ainda devolve INITIATED até
+    # a aprovação no app (config D7); o webhook payment.approved/completed fecha
+    # o loop. Referência: docs/CORA_API_REFERENCIA_COMPLETA §4.
     # ------------------------------------------------------------------
 
-    async def initiate_payment(self, request: PaymentRequest) -> PaymentResponse:  # noqa: ARG002
-        raise NotImplementedError(_SAIDA_BLOQUEADA)
+    async def iniciar_pagamento_boleto(
+        self, *, linha_digitavel: str, code: str, agendar_para: date | None = None
+    ) -> dict:
+        """Inicia pagamento de boleto por linha digitável. Retorna dict (id pay_...,
+        status INITIATED). NÃO liquida sozinho enquanto D7 não estiver desligado."""
+        import uuid
 
-    async def get_payment_status(self, payment_id: str) -> PaymentResponse:  # noqa: ARG002
-        raise NotImplementedError(_SAIDA_BLOQUEADA)
+        await self.ensure_authenticated()
+        payload: dict = {"digitable_line": "".join(c for c in linha_digitavel if c.isdigit()), "code": code}
+        if agendar_para:
+            payload["scheduled_at"] = agendar_para.isoformat()
+        async with self._client() as cli:
+            resp = await cli.post(
+                "/payments/initiate",
+                headers={**self._auth_headers(), "Idempotency-Key": str(uuid.uuid4()),
+                         "Content-Type": "application/json"},
+                json=payload,
+            )
+        if resp.status_code not in (200, 201):
+            raise BankingAdapterError(f"Cora pagamento HTTP {resp.status_code}: {resp.text[:300]}")
+        return resp.json()
 
-    async def cancel_payment(self, payment_id: str) -> bool:  # noqa: ARG002
-        raise NotImplementedError(_SAIDA_BLOQUEADA)
+    async def iniciar_darf(self, *, code: str, data: dict) -> dict:
+        """Inicia pagamento de DARF (sem código de barras). `data` conforme §4.2:
+        name, code(receita), identity, type='DARF', reference_date, due_date,
+        amount{main,fine?,interest?}."""
+        import uuid
+
+        await self.ensure_authenticated()
+        async with self._client() as cli:
+            resp = await cli.post(
+                "/payments/darf/initiate",
+                headers={**self._auth_headers(), "Idempotency-Key": str(uuid.uuid4()),
+                         "Content-Type": "application/json"},
+                json={"code": code, "data": data},
+            )
+        if resp.status_code not in (200, 201):
+            raise BankingAdapterError(f"Cora DARF HTTP {resp.status_code}: {resp.text[:300]}")
+        return resp.json()
+
+    async def consultar_pagamento(self, payment_id: str) -> dict:
+        """Consulta pagamento por id. Obs (§4.5): a lista /payments só mostra
+        INITIATED — pós-aprovação acompanhe pelo webhook/extrato."""
+        await self.ensure_authenticated()
+        async with self._client() as cli:
+            resp = await cli.get(f"/payments/{payment_id}", headers=self._auth_headers())
+        if resp.status_code != 200:
+            raise BankingAdapterError(f"Cora consulta pagto HTTP {resp.status_code}: {resp.text[:200]}")
+        return resp.json()
+
+    async def cancelar_pagamento(self, payment_id: str) -> bool:
+        """Cancela pagamento ainda não aprovado (204). PAY-0006 = não iniciado."""
+        import uuid
+
+        await self.ensure_authenticated()
+        async with self._client() as cli:
+            resp = await cli.delete(
+                f"/payments/initiate/{payment_id}",
+                headers={**self._auth_headers(), "Idempotency-Key": str(uuid.uuid4())},
+            )
+        return resp.status_code == 204
+
+    # Contrato BaseBankingAdapter: PIX POR CHAVE não existe na API pública do
+    # Cora (§4.4) — para folha/diaristas usa-se transferência por dados
+    # bancários OU o padrão "pago pelo app + conciliação".
+    async def initiate_payment(self, request: PaymentRequest) -> PaymentResponse:
+        if not request.barcode:
+            raise NotImplementedError(
+                "Cora: pagamento genérico exige linha digitável (barcode) — "
+                "PIX por chave não é suportado pela API pública."
+            )
+        raw = await self.iniciar_pagamento_boleto(
+            linha_digitavel=request.barcode,
+            code=request.description or "pagamento",
+            agendar_para=request.scheduled_date,
+        )
+        from modules.integrations.banking.adapters.base import PaymentStatus
+
+        return PaymentResponse(
+            payment_id=raw.get("id", ""),
+            status=PaymentStatus.PENDING,  # INITIATED no Cora = aguardando aprovação
+            amount=Decimal(int(raw.get("amount", 0))) / 100,
+            error_message="Aguardando aprovação (Cora: INITIATED até D7)",
+        )
+
+    async def get_payment_status(self, payment_id: str) -> PaymentResponse:
+        raw = await self.consultar_pagamento(payment_id)
+        from modules.integrations.banking.adapters.base import PaymentStatus
+
+        mapa = {"INITIATED": PaymentStatus.PENDING, "approved": PaymentStatus.PROCESSING,
+                "completed": PaymentStatus.COMPLETED, "reproved": PaymentStatus.CANCELLED,
+                "error": PaymentStatus.FAILED}
+        return PaymentResponse(
+            payment_id=payment_id,
+            status=mapa.get(raw.get("status", ""), PaymentStatus.PENDING),
+            amount=Decimal(int(raw.get("amount", 0))) / 100,
+        )
+
+    async def cancel_payment(self, payment_id: str) -> bool:
+        return await self.cancelar_pagamento(payment_id)
 
     async def validate_pix_key(self, pix_key: str) -> PixKey:  # noqa: ARG002
         raise NotImplementedError(
-            "Cora não expõe validação/envio de PIX por chave na API pública "
-            "(ver referência §4.4) — agenda de beneficiários usa dados bancários."
+            "Cora não expõe validação/envio de PIX por chave na API pública (§4.4)."
         )
 
     async def initiate_pix(self, request: PaymentRequest) -> PaymentResponse:  # noqa: ARG002
-        raise NotImplementedError(_SAIDA_BLOQUEADA)
+        raise NotImplementedError(
+            "Cora: envio de PIX por chave não existe na API pública (§4.4) — "
+            "use transferência por dados bancários ou 'pago pelo app + conciliação'."
+        )
