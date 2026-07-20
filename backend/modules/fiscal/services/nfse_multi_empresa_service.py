@@ -103,9 +103,13 @@ def refresh_empresas_config(force: bool = False) -> None:
                            e.regime_tributario, e.certificado_a1_path,
                            e.certificado_a1_senha, e.nfse_ambiente,
                            COALESCE(ARRAY_AGG(l.tipo) FILTER (
+                               -- ALLOWLIST (auditoria 20/07): só isenta liminar EXPLICITAMENTE
+                               -- concedida. Denylist deixava status novo/ambíguo ('protocolada',
+                               -- 'em_analise') vazar como isento. Direção segura: TRIBUTA por
+                               -- padrão; Patrimonial ('a_solicitar') só isenta quando deferida.
                                WHERE l.data_concessao IS NOT NULL
-                                 AND LOWER(COALESCE(l.status::text,'')) NOT IN
-                                     ('a_solicitar','indeferida','cassada','expirada','suspensa')
+                                 AND LOWER(COALESCE(l.status::text,'')) IN
+                                     ('concedida','deferida','vigente','ativa','ativo')
                            ), '{}') AS liminares_concedidas
                     FROM empresas e
                     LEFT JOIN liminares l ON l.empresa_id = e.id
