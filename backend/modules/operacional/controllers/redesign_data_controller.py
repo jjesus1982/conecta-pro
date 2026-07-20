@@ -578,6 +578,15 @@ async def _build_dp(db: AsyncSession) -> dict:
         "ORDER BY 1, 5 DESC LIMIT 400",
         lambda r: [t(r[0] or '—', 600, "#0F1B3A", initials(r[0] or '')), t(f"{(r[1] or 0):02d}/{r[2] or ''}"), t(r[3] or '—'),
                    b(r[4], "ok" if r[4] == "Provento" else "bad"), t(brl(r[5]) if r[5] is not None else '—', 600)]))
+    # Benefícios CCT — configuração legal dos benefícios obrigatórios/opcionais (cct_beneficios)
+    await safe("beneficios-cct", _tbl(
+        "Benefícios CCT", "Benefícios da convenção — valores e obrigatoriedade (CCT SINDECOMPRESTS)", "—",
+        ["Benefício", "Valor mínimo", "Valor empresa", "Desconto máx.", "Obrigatoriedade"], "2fr 1.1fr 1.1fr 1.1fr 1.1fr",
+        "SELECT tipo_beneficio, valor_minimo, valor_empresa, desconto_maximo_percentual, coalesce(obrigatorio,false) "
+        "FROM cct_beneficios WHERE coalesce(is_active,true)=true ORDER BY obrigatorio DESC NULLS LAST, tipo_beneficio LIMIT 60",
+        lambda r: [t((r[0] or '—').replace('_', ' ').capitalize(), 600, "#0F1B3A"), t(brl(r[1]) if r[1] is not None else '—'),
+                   t(brl(r[2]) if r[2] is not None else '—'), t(f"{float(r[3]):.0f}%" if r[3] is not None else '—'),
+                   b("Obrigatório", "bad") if r[4] else b("Opcional", "mut")]))
     await safe("ferias", _tbl(
         "Férias", f"{n_ferias} solicitações", "Solicitar férias",
         ["Colaborador", "Início", "Fim", "Dias", "Status"], "2fr 1fr 1fr 0.7fr 0.9fr",
@@ -2437,6 +2446,7 @@ EXTRA_MENU = {
         {"id": "registrar-justificativa-ponto", "label": "Justificar ponto", "icon": "M12 8v4l3 2M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"},
     ],
     "departamento-pessoal": [
+        {"id": "beneficios-cct", "label": "Benefícios CCT", "icon": "M20 12v10H4V12M2 7h20v5H2zM12 22V7M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"},
         {"id": "registrar-reembolso", "label": "Registrar reembolso", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
         {"id": "solicitar-ferias", "label": "Solicitar férias", "icon": "M17 8C8 10 5.9 16.2 3.8 21.7c-.3.7.3 1.3 1 1L8 21c9-2 11-8 13-13M12 2v4M20 6l-2 2"},
     ],
