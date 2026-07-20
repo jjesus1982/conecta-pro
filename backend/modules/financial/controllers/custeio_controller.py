@@ -19,7 +19,7 @@ router = APIRouter(prefix="/financial/custeio", tags=["Custeio ABC"])
 
 # CCT SINDECOMPRESTS 2026 (agentes de portaria/serviços, NÃO vigilância)
 PISO_CATEGORIA = 1670.00  # menor piso de cct_cargos
-ENCARGOS_PCT = 0.6124  # INSS 20 + FGTS 8 + RAT 3 + terceiros 5,8 + férias 11,11 + 13º 8,33 + rescisão 5
+from modules.financial.services.encargos import ENCARGOS_PCT, encargo_pct  # noqa: F401 (ponto único por regime)
 VR_DIA = 22.00
 DIAS_UTEIS = 22
 VT_MEDIO = 150.0
