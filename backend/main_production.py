@@ -1236,6 +1236,12 @@ try:
     )
 
     api_router.include_router(_webhook_router, tags=["Webhooks — Inter"])
+    try:
+        from modules.integrations.banking.controllers.cora_webhook_controller import router as _cora_wh
+        api_router.include_router(_cora_wh, tags=["Webhooks — Cora"])
+        logger.info("Webhooks Cora: OK (invoice + payment)")
+    except Exception as _e:
+        logger.warning("Webhooks Cora: %s", _e)
     logger.info("Webhooks Inter: OK (pix + boleto + configurar + status)")
 except Exception as _e:
     logger.warning(f"Webhooks Inter: {_e}")
