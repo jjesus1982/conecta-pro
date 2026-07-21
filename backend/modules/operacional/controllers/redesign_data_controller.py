@@ -900,6 +900,19 @@ async def _build_crm(db: AsyncSession) -> dict:
             {"key": "nota", "label": "Anotação*", "type": "textarea", "span": "span 2", "ph": "Escreva a anotação sobre o cliente…"},
         ],
     }
+    # Aditivos contratuais (reajustes/alterações) — contract_addendums
+    await safe("aditivos", tbl(
+        "Aditivos contratuais", f"{await _scalar(db, 'SELECT count(*) FROM contract_addendums')} aditivos", "—",
+        ["Contrato", "Aditivo", "Tipo", "Valor anterior", "Novo valor", "Reajuste", "Vigência", "Assinado"],
+        "1.2fr 0.7fr 1fr 1fr 1fr 0.8fr 0.9fr 0.8fr",
+        "SELECT coalesce(ct.contract_number, ct.name, '—'), coalesce(a.addendum_number::text,'—'), coalesce(a.addendum_type::text,'—'), "
+        "a.previous_value, a.new_value, a.adjustment_percent, a.effective_date, a.signed "
+        "FROM contract_addendums a LEFT JOIN contracts ct ON ct.id = a.contract_id "
+        "ORDER BY a.effective_date DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), t((r[2] or '—').replace('_', ' ').capitalize()),
+                   t(brl(r[3]) if r[3] is not None else '—'), t(brl(r[4]) if r[4] is not None else '—', 600),
+                   t(f"{r[5]}%" if r[5] is not None else '—'), t(_fmtdate(r[6])),
+                   b("Assinado", "ok") if r[7] else b("Pendente", "warn")]))
     return out
 
 
@@ -965,6 +978,36 @@ async def _build_fiscal(db: AsyncSession) -> dict:
         "FROM inss_guias ORDER BY mes_ref DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0], 600, "#0F1B3A"), b("PDF", "ok") if r[1] else t("—"),
                    b((r[2] or '—').capitalize(), _gtone.get((r[2] or '').lower(), "info"))]))
+    # Certidões CND (compliance fiscal) — ged_certidoes (federal/estadual/municipal/FGTS/trabalhista)
+    from datetime import date as _dtoday
+    _hoje_cnd = _dtoday.today()
+
+    def _cnd_sit(exp):
+        if exp is None:
+            return b("—", "info")
+        d = exp.date() if hasattr(exp, "date") else exp
+        try:
+            dias = (d - _hoje_cnd).days
+        except TypeError:
+            return b("—", "info")
+        if dias < 0:
+            return b("Vencida", "bad")
+        if dias <= 30:
+            return b(f"Vence em {dias}d", "warn")
+        return b("Válida", "ok")
+    await safe("certidoes-cnd", tbl(
+        "Certidões (CND)", f"{await _scalar(db, 'SELECT count(*) FROM ged_certidoes')} certidões", "—",
+        ["Certidão", "Tipo", "Órgão emissor", "Emissão", "Validade", "Situação"], "1.8fr 1.1fr 1.3fr 0.9fr 0.9fr 1fr",
+        "SELECT coalesce(name,'—'), coalesce(document_type,'—'), coalesce(issuing_body,'—'), issue_date, expiry_date "
+        "FROM ged_certidoes ORDER BY expiry_date ASC NULLS LAST LIMIT 200",
+        lambda r: [t((r[0] or '—')[:48], 600, "#0F1B3A"), t(r[1]), t((r[2] or '—')[:32]), t(_fmtdate(r[3])), t(_fmtdate(r[4])), _cnd_sit(r[4])]))
+    # NFS-e tomadas (notas de serviço recebidas) — nfse_tomadas_nacional
+    await safe("nfse-tomadas", tbl(
+        "NFS-e tomadas", f"{await _scalar(db, 'SELECT count(*) FROM nfse_tomadas_nacional')} notas recebidas", "—",
+        ["Número", "Prestador", "CNPJ", "Competência", "Valor", "ISS", "Emissão"], "0.8fr 1.8fr 1.1fr 0.9fr 1fr 0.9fr 0.9fr",
+        "SELECT coalesce(numero::text,'—'), coalesce(prestador_nome,'—'), coalesce(prestador_cnpj,'—'), coalesce(competencia,'—'), valor_servicos, iss_valor, data_emissao "
+        "FROM nfse_tomadas_nacional ORDER BY data_emissao DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0]), t((r[1] or '—')[:42], 600, "#0F1B3A"), t(r[2]), t(r[3]), t(brl(r[4]) if r[4] is not None else '—', 600), t(brl(r[5]) if r[5] is not None else '—'), t(_fmtdate(r[6]))]))
     return out
 
 
@@ -1200,6 +1243,15 @@ async def _build_juridico(db: AsyncSession) -> dict:
         ["Número", "Tipo", "Reclamante", "Status"], "1.4fr 1.2fr 1.8fr 0.9fr",
         "SELECT coalesce(numero,'—'), coalesce(tipo::text,'—'), coalesce(reclamante,'—'), status::text FROM juridico_processos ORDER BY created_at DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—').replace('_', ' ')), t(r[2]), b(r[3] or "—", "info")]))
+    # DET — Comunicações (Domicílio Eletrônico Trabalhista) — juridico_det_comunicacoes
+    _det_tone = {"nova": "warn", "aberta": "warn", "pendente": "warn", "respondida": "ok", "encerrada": "ok", "ciente": "ok", "arquivada": "mut"}
+    await safe("det-comunicacoes", tbl(
+        "DET — Comunicações", f"{await _scalar(db, 'SELECT count(*) FROM juridico_det_comunicacoes')} comunicações", "—",
+        ["Título", "Tipo", "Órgão", "Número", "Prazo", "Status"], "1.9fr 1fr 1.3fr 0.9fr 0.9fr 0.9fr",
+        "SELECT coalesce(titulo,'—'), coalesce(tipo,'—'), coalesce(orgao,'—'), coalesce(numero,'—'), coalesce(prazo,'—'), coalesce(status,'—') "
+        "FROM juridico_det_comunicacoes ORDER BY created_at DESC NULLS LAST LIMIT 200",
+        lambda r: [t((r[0] or '—')[:52], 600, "#0F1B3A"), t(r[1]), t((r[2] or '—')[:30]), t(r[3]), t(r[4]),
+                   b((r[5] or '—').capitalize(), _det_tone.get((r[5] or '').lower(), "info"))]))
     return out
 
 
@@ -2752,6 +2804,7 @@ EXTRA_MENU = {
         {"id": "nova-tarefa", "label": "Nova tarefa", "icon": "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 7v5l3 2"},
         {"id": "anotar-cliente", "label": "Anotar cliente", "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h5"},
         {"id": "simular-preco", "label": "Simular preço", "icon": "M9 7h6M9 11h6M9 15h4M5 3h14a1 1 0 0 1 1 1v16H4V4a1 1 0 0 1 1-1z"},
+        {"id": "aditivos", "label": "Aditivos contratuais", "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 11v6M9 14h6"},
     ],
     "gestao-de-pessoas": [
         {"id": "registrar-entrega-epi", "label": "Registrar entrega de EPI", "icon": "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"},
@@ -2774,6 +2827,11 @@ EXTRA_MENU = {
     "fiscal": [
         {"id": "guias-fgts", "label": "Guias FGTS", "icon": "M3 10h18M7 15h4M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"},
         {"id": "guias-inss", "label": "Guias INSS", "icon": "M3 10h18M7 15h4M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"},
+        {"id": "certidoes-cnd", "label": "Certidões (CND)", "icon": "M9 12l2 2 4-4M12 3l7 3v6c0 5-3.5 8-7 9-3.5-1-7-4-7-9V6l7-3z"},
+        {"id": "nfse-tomadas", "label": "NFS-e tomadas", "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h6"},
+    ],
+    "juridico": [
+        {"id": "det-comunicacoes", "label": "DET · Comunicações", "icon": "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"},
     ],
 }
 
