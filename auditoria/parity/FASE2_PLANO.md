@@ -21,12 +21,14 @@ retorno real do PSP/gov); homologação simula; teto `CONECTA_LIMITE_DIARIO_PAGA
 API: `money_gov(db, ref, amount, otp_code, real_dispatch, is_homologacao)` + `op_write(...)` +
 `is_homologacao_target(db, employee_id)`. Pagamentos com OTP próprio (Inter) DELEGAM ao serviço.
 
-### ⏳ #2 — Kit de ação data-driven (frontend) — PRÓXIMO
+### ✅ #2 — Kit de ação data-driven (frontend) — FEITO (base)
 Estender o `FormScreen` do ModuleView (que JÁ é data-driven: renderiza `scr.fields`, POSTa em
 `scr.submit.endpoint`) p/ cobrir: tipos de campo (select/data/money/máscara), validação inline,
 **diálogo de confirmação + campo de OTP**, preview/dry-run, wizard multi-step, row-actions de
-tabela. Feito UMA vez por T1 → T2/T4 adicionam botões reais editando SÓ o backend (descriptor),
-zero React → dissolve A1 (merge-hell de frontend).
+tabela. FEITO a base: FormScreen estendido com fluxo **confirmar + OTP** (casa com o gate:
+backend responde otp_required → tela pede código e reenvia com otp_code) + confirm humano.
+Retrocompatível (forms atuais inalterados). tsc: ModuleView limpo. Incremental: preview/dry-run,
+wizard multi-step, row-actions. → T2/T4 adicionam botões reais editando SÓ o backend, zero React.
 
 ### ⏳ #3 — Oráculo de fidelidade — DEPOIS
 Ferramenta que compara Clássico × Redesign por tela (screenshot + diff dos campos-chave) →

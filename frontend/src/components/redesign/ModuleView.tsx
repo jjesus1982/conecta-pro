@@ -139,30 +139,53 @@ function ListScreen({ scr }: { scr: any }) {
   );
 }
 
+// FormScreen (Fase 2): data-driven + fluxo confirmar/OTP que casa com o redesign_write_gate.
+// Backend responde { otp_required: true, ref, message } → a tela pede o código e reenvia com
+// otp_code. scr.submit.confirm (string) força uma confirmação humana antes de disparar.
 function FormScreen({ scr }: { scr: any }) {
   const [vals, setVals] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [otp, setOtp] = useState<{ ref: string; code: string } | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const set = (k: string, v: string) => setVals((s) => ({ ...s, [k]: v }));
+  const gated = !!(scr.submit && scr.submit.gated); // ação money/gov (visual de aviso)
 
-  async function submit() {
+  async function fire(extra: Record<string, unknown>) {
+    let tok: string | null = null;
+    try { tok = localStorage.getItem('access_token'); } catch { /* */ }
+    const res = await fetch(scr.submit.endpoint, {
+      method: scr.submit.method || 'POST',
+      headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
+      body: JSON.stringify({ ...vals, ...extra }),
+    });
+    const d = await res.json().catch(() => ({}));
+    return { res, d };
+  }
+
+  async function submit(withOtp = false) {
     if (!scr.submit) return;
     setBusy(true); setMsg(null);
     try {
-      let tok: string | null = null;
-      try { tok = localStorage.getItem('access_token'); } catch { /* */ }
-      const res = await fetch(scr.submit.endpoint, {
-        method: scr.submit.method || 'POST',
-        headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
-        body: JSON.stringify(vals),
-      });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(d.detail || 'Não foi possível salvar.');
-      setMsg({ ok: true, text: d.message || scr.submit.okMsg || 'Salvo com sucesso.' });
-      setVals({});
+      const extra = withOtp && otp ? { otp_code: otp.code, _gate_ref: otp.ref } : {};
+      const { res, d } = await fire(extra);
+      if (d && d.otp_required) { // gate exige OTP humano → entra no modo OTP, mantém os campos
+        setOtp({ ref: d.ref || '', code: '' }); setConfirming(false);
+        setMsg({ ok: true, text: d.message || 'Confirme com o código OTP enviado ao e-mail do Jordan.' });
+        return;
+      }
+      if (!res.ok) throw new Error(d.detail || 'Não foi possível concluir.');
+      // honesto: mostra a mensagem REAL do backend (não inventa sucesso)
+      setMsg({ ok: d.ok !== false, text: d.message || scr.submit.okMsg || 'Concluído.' });
+      setVals({}); setOtp(null); setConfirming(false);
     } catch (e) {
-      setMsg({ ok: false, text: e instanceof Error ? e.message : 'Erro ao salvar.' });
+      setMsg({ ok: false, text: e instanceof Error ? e.message : 'Erro.' });
     } finally { setBusy(false); }
+  }
+
+  function onPrimary() {
+    if (scr.submit && scr.submit.confirm && !confirming) { setConfirming(true); return; }
+    setConfirming(false); submit(false);
   }
 
   return (
@@ -191,12 +214,37 @@ function FormScreen({ scr }: { scr: any }) {
           </div>
         ))}
       </div>
+
+      {confirming && !otp && (
+        <div className="rd-scr-sub" style={{ color: '#B45309', fontWeight: 600 }}>
+          {scr.submit.confirm} — confirme para prosseguir.
+        </div>
+      )}
+
       <div className="rd-form-actions">
-        <button className="rd-btn rd-btn-primary" disabled={busy || !scr.submit} onClick={submit}>
-          {busy ? 'Salvando…' : (scr.cta || 'Salvar')}
-        </button>
-        <button className="rd-btn rd-btn-outline" onClick={() => { setVals({}); setMsg(null); }}>Limpar</button>
+        {otp ? (
+          <>
+            <input className="rd-input" style={{ maxWidth: 190 }} inputMode="numeric" placeholder="Código OTP (6 dígitos)"
+              value={otp.code} onChange={(e) => setOtp({ ...otp, code: e.target.value })} />
+            <button className="rd-btn rd-btn-primary" disabled={busy || !otp.code} onClick={() => submit(true)}>
+              {busy ? 'Confirmando…' : 'Confirmar com OTP'}
+            </button>
+            <button className="rd-btn rd-btn-outline" onClick={() => { setOtp(null); setMsg(null); }}>Cancelar</button>
+          </>
+        ) : (
+          <>
+            <button className="rd-btn rd-btn-primary" disabled={busy || !scr.submit} onClick={onPrimary}>
+              {busy ? 'Enviando…' : confirming ? 'Confirmar' : (scr.cta || 'Salvar')}
+            </button>
+            <button className="rd-btn rd-btn-outline" onClick={() => { setVals({}); setMsg(null); setConfirming(false); }}>
+              {confirming ? 'Cancelar' : 'Limpar'}
+            </button>
+          </>
+        )}
       </div>
+
+      {otp && <div className="rd-scr-sub" style={{ marginTop: 4, color: '#B45309' }}>Ação sensível (dinheiro/gov) — precisa do código OTP enviado ao e-mail do Jordan para liberar. Nada é disparado sem ele.</div>}
+      {gated && !otp && <div className="rd-scr-sub" style={{ marginTop: 4 }}>Ação protegida por OTP humano — ao enviar, um código vai ao e-mail do Jordan.</div>}
       {!scr.submit && <div className="rd-scr-sub" style={{ marginTop: 4 }}>Formulário de exemplo do pacote — escrita ainda não ligada nesta tela.</div>}
     </div>
   );
