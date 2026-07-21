@@ -61,7 +61,7 @@ export default function RHDashboardPage() {
   ];
 
   const navCards = [
-    { title: 'Recrutamento', description: 'Vagas, candidatos e selecao', icon: UserPlus, href: '/modulos/recrutamento', color: 'text-blue-600' },
+    { title: 'Recrutamento', description: 'Vagas, candidatos e selecao', icon: UserPlus, href: '/modulos/rh/recrutamento', color: 'text-blue-600' },
     { title: 'Treinamentos', description: 'Agenda e gestao de treinamentos', icon: GraduationCap, href: '/modulos/rh/treinamentos', color: 'text-green-600' },
     { title: 'Avaliacoes', description: 'Avaliacoes de desempenho', icon: ClipboardCheck, href: '/modulos/rh/avaliacoes', color: 'text-purple-600' },
     { title: 'Plano de Carreira', description: 'Desenvolvimento e progressao', icon: TrendingUp, href: '/modulos/rh/carreira', color: 'text-cyan-600' },

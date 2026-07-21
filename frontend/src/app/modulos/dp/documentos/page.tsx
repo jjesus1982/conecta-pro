@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { msgFromDetail } from '@/lib/string';
+import { abrirPdf } from '@/lib/pdf';
 import { FolderOpen, ArrowLeft, Inbox, Loader2, Eye, Download, X, Save, Upload, Search, Filter, ChevronLeft, ChevronRight as ChevronRightIcon, FileUp } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -366,8 +367,10 @@ export default function DocumentosPage() {
                         <TableCell className="text-xs text-muted-foreground">{item.id ? item.id.slice(0, 8) + '...' : '-'}</TableCell>
                         <TableCell>
                           <div className="flex gap-1">
-                            <Button type="button" variant="outline" size="sm" onClick={() => toast.info('Visualizacao em breve', { duration: 3000 })}><Eye className="h-3 w-3" /></Button>
-                            <Button type="button" variant="outline" size="sm" onClick={() => toast.info('Download em breve', { duration: 3000 })}><Download className="h-3 w-3" /></Button>
+                            <Button type="button" variant="outline" size="sm" title="Visualizar"
+                              onClick={() => abrirPdf(`${API_BASE}/documents/${item.id}/download`)}><Eye className="h-3 w-3" /></Button>
+                            <Button type="button" variant="outline" size="sm" title="Baixar"
+                              onClick={() => abrirPdf(`${API_BASE}/documents/${item.id}/download`, { download: true, nome: (item.file_name || item.title || 'documento') + '.pdf' })}><Download className="h-3 w-3" /></Button>
                           </div>
                         </TableCell>
                       </TableRow>

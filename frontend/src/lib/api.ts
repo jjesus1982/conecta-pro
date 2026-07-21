@@ -15,7 +15,7 @@ const getBaseURL = (): string => {
 // storage) NÃO pode redirecionar o usuário pro /login — a página é usada sem sessão.
 // Ex.: /homologacao (autocadastro) travava quem tinha sessão antiga de admin no celular.
 const PRE_LOGIN_PATHS = [
-  '/login', '/homologacao', '/cadastro', '/forgot-password',
+  '/login', '/homologacao', '/candidato', '/autocadastro-pj', '/cadastro', '/forgot-password',
   '/reset-password', '/portal-funcionario', '/area-cliente', '/offline',
 ];
 function emPaginaPreLogin(): boolean {
