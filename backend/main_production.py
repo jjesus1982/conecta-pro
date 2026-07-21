@@ -320,6 +320,16 @@ from core.auth.dependencies import require_permission
 # passam automático) acessa as APIs de dinheiro. Antes o backend usava só "usuário logado".
 _FIN_GATE = Depends(require_permission("module:financeiro"))
 _FISCAL_GATE = Depends(require_permission("module:fiscal"))
+# Gates dos Consultores de IA (Fase −1 / Task 3 — fecha vazamento LGPD).
+_DP_GATE = Depends(require_permission("module:dp"))
+_GED_GATE = Depends(require_permission("module:ged"))
+_JURIDICO_GATE = Depends(require_permission("module:juridico"))
+_COMERCIAL_GATE = Depends(require_permission("module:comercial"))
+_OPERACIONAL_GATE = Depends(require_permission("module:operacional"))
+# Consultor CEO (cross-módulo folha+financeiro+jurídico) → só diretoria (jjesus+pjesus).
+from modules.ai.consultores.permissions import require_consultor_executivo  # noqa: E402
+
+_CEO_GATE = Depends(require_consultor_executivo)
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -1176,7 +1186,7 @@ except Exception as e:
 try:
     from modules.gedeon.controllers.consultor_controller import router as gedeon_consultor_router
 
-    api_router.include_router(gedeon_consultor_router)
+    api_router.include_router(gedeon_consultor_router, dependencies=[_GED_GATE])
     logger.info("GEDEON Consultor GED IA: router registrado (/gedeon/consultor)")
 except Exception as e:
     logger.warning(f"GEDEON Consultor router: {e}")
@@ -1185,7 +1195,7 @@ except Exception as e:
 try:
     from modules.crm.controllers.consultor_cmo_controller import router as consultor_cmo_router
 
-    api_router.include_router(consultor_cmo_router)
+    api_router.include_router(consultor_cmo_router, dependencies=[_COMERCIAL_GATE])
     logger.info("Consultor CMO: router registrado (/comercial/consultor)")
 except Exception as e:
     logger.warning(f"Consultor CMO router: {e}")
@@ -1193,7 +1203,7 @@ except Exception as e:
 try:
     from modules.operacional.controllers.consultor_coo_controller import router as consultor_coo_router
 
-    api_router.include_router(consultor_coo_router)
+    api_router.include_router(consultor_coo_router, dependencies=[_OPERACIONAL_GATE])
     logger.info("Consultor COO: router registrado (/operacional/consultor)")
 except Exception as e:
     logger.warning(f"Consultor COO router: {e}")
@@ -1201,7 +1211,7 @@ except Exception as e:
 try:
     from modules.people_management.controllers.consultor_chro_controller import router as consultor_chro_router
 
-    api_router.include_router(consultor_chro_router)
+    api_router.include_router(consultor_chro_router, dependencies=[_DP_GATE])
     logger.info("Consultor CHRO: router registrado (/rh/consultor)")
 except Exception as e:
     logger.warning(f"Consultor CHRO router: {e}")
@@ -1209,7 +1219,7 @@ except Exception as e:
 try:
     from modules.fiscal.controllers.consultor_fiscal_controller import router as consultor_fiscal_router
 
-    api_router.include_router(consultor_fiscal_router)
+    api_router.include_router(consultor_fiscal_router, dependencies=[_FISCAL_GATE])
     logger.info("Consultor Fiscal: router registrado (/fiscal/consultor)")
 except Exception as e:
     logger.warning(f"Consultor Fiscal router: {e}")
@@ -1217,7 +1227,7 @@ except Exception as e:
 try:
     from modules.config.controllers.consultor_ceo_controller import router as consultor_ceo_router
 
-    api_router.include_router(consultor_ceo_router)
+    api_router.include_router(consultor_ceo_router, dependencies=[_CEO_GATE])
     logger.info("Consultor CEO: router registrado (/gestao/consultor)")
 except Exception as e:
     logger.warning(f"Consultor CEO router: {e}")
@@ -1278,7 +1288,10 @@ for _mod, _label in [
         import importlib
 
         _m = importlib.import_module(_mod)
-        api_router.include_router(_m.router)
+        # Task 3 (LGPD): o Consultor IA jurídico exige module:juridico (demais controllers
+        # do módulo ficam para um hardening posterior — fora do escopo desta task).
+        _jur_deps = [_JURIDICO_GATE] if _mod == "modules.juridico.consultor_controller" else []
+        api_router.include_router(_m.router, dependencies=_jur_deps)
         logger.info("Jurídico — %s: OK", _label)
     except Exception as _e:  # noqa: BLE001
         logger.warning("Jurídico — %s: %s", _label, _e)
