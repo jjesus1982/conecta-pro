@@ -38,7 +38,27 @@ def sincronizar_nfse_nacional_task(self):
             )
         except Exception as pat_exc:  # noqa: BLE001
             logger.warning("Sync NFS-e Patrimonial falhou (CNPJ1 segue normal): %s", pat_exc)
-        tom = svc.sincronizar_tomadas()
+        # Tomadas (serviços recebidos) das DUAS empresas — cada uma com o próprio cert/CNPJ.
+        tom = svc.sincronizar_tomadas(empresa_slug="conecta_eletronica")
+        try:
+            tom_pat = svc.sincronizar_tomadas(empresa_slug="conecta_patrimonial")
+            logger.info("NFS-e tomadas PATRIMONIAL: %s recebidas", tom_pat.get("recebidas"))
+        except Exception as tpe:  # noqa: BLE001
+            logger.warning("Sync tomadas Patrimonial falhou (Eletrônica segue): %s", tpe)
+        # Cadastra/atualiza os fornecedores REAIS a partir das notas + categoriza (best-effort).
+        try:
+            import asyncio as _asyncio
+
+            from core.database import async_session_factory
+            from modules.financial.services.fornecedor_categoria_service import sincronizar_fornecedores
+
+            async def _forn():
+                async with async_session_factory() as _db:
+                    return await sincronizar_fornecedores(_db)
+            _fr = _asyncio.run(_forn())
+            logger.info("Fornecedores sync: %s", _fr)
+        except Exception as fe2:  # noqa: BLE001
+            logger.warning("Sync fornecedores falhou (segue): %s", fe2)
         fechar = LedgerAutoService().fechar_grupo()
         # Fecha o fluxo de caixa: corrige sinal dos recebidos + justifica cada saída
         try:

@@ -100,6 +100,7 @@ class NFSeNacionalSyncService:
                 descricao      TEXT,
                 nsu            VARCHAR,
                 empresa_id     UUID,
+                xml_raw        TEXT,
                 fonte          VARCHAR DEFAULT 'adn_nacional',
                 created_at     TIMESTAMP DEFAULT NOW()
             )
@@ -247,12 +248,14 @@ class NFSeNacionalSyncService:
 
         from modules.gedeon.services.nfse_nacional_adn import (
             ADN_BASE,
-            CNPJ_PRESTADOR,
             _cert_pem,
             _decode_xml,
+            _resolver_empresa,
         )
 
-        cert = _cert_pem()
+        # Multi-CNPJ: cert + CNPJ da EMPRESA deste sync (Eletrônica ou Patrimonial).
+        cnpj_nosso, cert_path, cert_senha = _resolver_empresa(empresa_slug)
+        cert = _cert_pem(cert_path, cert_senha)
         recebidas: list[dict] = []
         nsu = 0
         with httpx.Client(cert=cert, timeout=40) as cli:
@@ -272,8 +275,8 @@ class NFSeNacionalSyncService:
                     xml = _decode_xml(doc.get("ArquivoXml", ""))
                     emit_cnpj, _emit_nome = _emitente(xml)
                     toma_cnpj, _t = _tomador(xml)
-                    # recebida por nós: emitente é OUTRO e tomador é o nosso CNPJ
-                    if emit_cnpj != CNPJ_PRESTADOR and toma_cnpj == CNPJ_PRESTADOR and _v(xml, "cStat") in ("100", ""):
+                    # recebida por nós: emitente é OUTRO e tomador é o NOSSO CNPJ (da empresa)
+                    if emit_cnpj != cnpj_nosso and toma_cnpj == cnpj_nosso and _v(xml, "cStat") in ("100", ""):
                         recebidas.append({"xml": xml, "nsu": doc.get("NSU"),
                                           "chave": doc.get("ChaveAcesso")})
                 nsu = int(lote[-1].get("NSU", nsu)) + 1
@@ -308,15 +311,16 @@ class NFSeNacionalSyncService:
                         """
                         INSERT INTO nfse_tomadas_nacional
                             (chave_acesso, numero, competencia, data_emissao, prestador_cnpj,
-                             prestador_nome, valor_servicos, iss_valor, descricao, nsu, empresa_id)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                             prestador_nome, valor_servicos, iss_valor, descricao, nsu, empresa_id, xml_raw)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                         ON CONFLICT (chave_acesso) DO UPDATE SET
                             valor_servicos=EXCLUDED.valor_servicos, competencia=EXCLUDED.competencia,
-                            empresa_id=EXCLUDED.empresa_id
+                            empresa_id=EXCLUDED.empresa_id,
+                            xml_raw=COALESCE(nfse_tomadas_nacional.xml_raw, EXCLUDED.xml_raw)
                         """,
                         (chave, _v(xml, "nNFSe"), comp, _v(xml, "dhProc") or None, emit_cnpj,
                          emit_nome[:120], float(_v(xml, "vServ") or 0), float(_v(xml, "vISSQN") or 0),
-                         (_v(xml, "xTribNac") or "")[:300], str(rec["nsu"] or ""), empresa_id),
+                         (_v(xml, "xTribNac") or "")[:300], str(rec["nsu"] or ""), empresa_id, xml),
                     )
                     n += 1
                 conn.commit()
