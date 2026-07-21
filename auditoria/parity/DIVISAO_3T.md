@@ -45,6 +45,7 @@ ninguém faz em paralelo agora).
 - [x] T1: **128 telas wired IDÊNTICAS** ao `BASELINE_PRE_REFACTOR.json` (0 divergência, 8080 healthy).
 - [x] T1: deploy + commit `941f8ab9`.
 - **✅ FUNDAÇÃO PRONTA — T2 e T3 podem começar.** Como escrever seu módulo: copie `redesign_builders/_TEMPLATE.py` → `<seu_modulo>.py`, defina `SLUG`, copie o corpo do `_build_<mod>` atual do monólito como ponto de partida e adicione telas.
+- [x] T1: **caminho de override PROVADO end-to-end** (teste no container, sem deploy): arquivo de módulo real → sem import circular no boot, `BUILDERS[slug]` vira o override, `EXTRA_MENU` mescla, `build()` roda. O mecanismo está battle-tested; pode confiar.
 
 ## GOTCHA DE DEPLOY (aprendido no refactor)
 - Deploy blue-green leva **~7 min** (build+green+recria primário). **NÃO use timeout < 600s** — cortar no meio deixa o nginx apontado pro green e pode servir código stale. Se cortar: `sed -i "0,/server 127.0.0.1:80../s//server 127.0.0.1:8080;/" /etc/nginx/sites-available/erp.conectamais.pro && nginx -t && systemctl reload nginx` volta pro primário; depois `docker rm -f conecta-pro-backend-green`.
