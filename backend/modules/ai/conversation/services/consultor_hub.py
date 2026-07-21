@@ -27,6 +27,9 @@ logger = logging.getLogger(__name__)
 
 # Cadeia de modelos: melhor primeiro (gpt-5 disponível na chave, provado 2026-07-07)
 MODEL_CHAIN = ["gpt-5-chat-latest", "gpt-5", "gpt-4.1", "gpt-4o"]
+# Fase 1 (2026-07-21): cérebro PADRÃO dos consultores = Claude (soberania de escolha de
+# fornecedor + doutrina do projeto). OpenAI (MODEL_CHAIN acima) vira rede de segurança.
+CLAUDE_MODEL = os.getenv("CONSULTOR_CLAUDE_MODEL", "claude-sonnet-4-6")
 
 # Tabelas de consultas de cada consultor (p/ conversa cruzada entre os chats)
 TABELAS_CONSULTAS = {
@@ -87,6 +90,11 @@ async def gerar(
     """Gera com o melhor modelo disponível. Levanta RuntimeError se TODOS falharem."""
     from modules.ai.conversation.services.llm_provider import ClaudeProvider, OpenAIProvider
 
+    # DECISÃO Jordan (2026-07-21): o cérebro de RACIOCÍNIO usa OpenAI, NÃO Anthropic (a conta
+    # Anthropic está sem crédito e não vamos usá-la). OpenAI é PRIMÁRIO; Claude fica só como
+    # fallback de emergência (não dispara sem crédito). A SOBERANIA real não vem de trocar de
+    # fornecedor externo (ambos são externos) — vem do modelo LOCAL de embeddings (Fase 2) e,
+    # no futuro, do raciocínio local (Fase 5, exige GPU).
     chain = list(MODEL_CHAIN)
     override = os.getenv("CONSULTOR_LLM_MODEL", "").strip()
     if override and override not in chain:
@@ -108,9 +116,9 @@ async def gerar(
             erros.append(f"{model}: resposta vazia")
         except Exception as e:  # noqa: BLE001
             erros.append(f"{model}: {str(e)[:120]}")
-    # Fallback final: Claude (se houver chave/crédito)
+    # Fallback: Claude (com o modelo bom quando houver crédito).
     try:
-        p = ClaudeProvider()
+        p = ClaudeProvider(model=CLAUDE_MODEL)
         if p.api_key:
             r = await p.generate(
                 messages=messages, system_prompt=system_prompt,
@@ -118,7 +126,7 @@ async def gerar(
             )
             texto = (r.content or "").strip()
             if texto:
-                return texto, {"model": getattr(r, "model", "claude")}
+                return texto, {"model": getattr(r, "model", CLAUDE_MODEL)}
     except Exception as e:  # noqa: BLE001
         erros.append(f"claude: {str(e)[:120]}")
     raise RuntimeError("; ".join(erros[-3:]))
@@ -169,6 +177,28 @@ async def contexto_compartilhado(db: AsyncSession, origem_atual: str, *, max_mem
         partes.append("")
         partes.append("=== O QUE OS OUTROS CONSULTORES RESPONDERAM RECENTEMENTE (contexto cruzado) ===")
         partes.extend(cruzadas)
+
+    # Fase 1 (ponte consultor→sino): o consultor passa a SABER dos alertas ativos que a
+    # Fase 0 materializou (RiskMonitor, aging, documentos, SST). Antes não lia nenhum.
+    try:
+        alertas = (
+            await db.execute(
+                text(
+                    "SELECT category, subject FROM notification_queue "
+                    "WHERE coalesce(opened,false)=false AND correlation_id IS NOT NULL "
+                    "AND (category LIKE 'risco_%' OR category LIKE 'financeiro_%' "
+                    "OR category LIKE 'documento_%' OR category LIKE 'contrato_%' OR category = 'sst') "
+                    "ORDER BY created_at DESC LIMIT 20"
+                )
+            )
+        ).fetchall()
+        if alertas:
+            partes.append("")
+            partes.append("=== ALERTAS ATIVOS DO SISTEMA (o sino — o que está acontecendo AGORA) ===")
+            for a in alertas:
+                partes.append(f"- [{a.category}] {a.subject}")
+    except Exception:  # noqa: BLE001
+        await db.rollback()
 
     return "\n".join(partes)
 
