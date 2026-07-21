@@ -727,6 +727,14 @@ async def _build_crm(db: AsyncSession) -> dict:
         "FROM crm_pricing_funcoes WHERE coalesce(ativo,true)=true ORDER BY ordem NULLS LAST LIMIT 60",
         lambda r: [t(r[0], 600, "#0F1B3A"), t(brl(r[1]), 600), t(f"{r[2]} dias" if r[2] not in (None, '—') else '—'),
                    *[b("Sim", "ok") if str(v).lower() in ("true", "t", "1", "sim") else t("—") for v in (r[3], r[4], r[5], r[6])]]))
+    # Atividades — timeline real do CRM (crm_activities; menu já existia)
+    await safe("atividades", tbl(
+        "Atividades", f"{await _scalar(db, 'SELECT count(*) FROM crm_activities')} atividades", "Nova atividade",
+        ["Assunto", "Tipo", "Cliente", "Agendada", "Concluída", "Resultado"], "2fr 1fr 1.6fr 1fr 1fr 1.2fr",
+        "SELECT coalesce(a.subject,'—'), coalesce(a.type::text,'—'), coalesce(cl.name,'—'), a.scheduled_at, a.completed_at, coalesce(a.outcome,'—') "
+        "FROM crm_activities a LEFT JOIN clients cl ON cl.id=a.client_id ORDER BY coalesce(a.scheduled_at, a.created_at) DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0], 600, "#0F1B3A"), b((r[1] or '—').replace('_', ' ').capitalize(), "info"), t(r[2]),
+                   t(_fmtdate(r[3], '%d/%m/%Y %H:%M') if r[3] else '—'), b("Concluída", "ok") if r[4] else b("Aberta", "warn"), t(r[5])]))
     # Novo lead (FORM com ESCRITA real → POST /redesign/action/lead)
     out["novo-lead"] = {
         "title": "Novo lead", "sub": "Cadastrar um novo lead comercial", "cta": "Cadastrar lead",
