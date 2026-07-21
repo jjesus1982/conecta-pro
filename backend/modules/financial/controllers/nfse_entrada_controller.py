@@ -11,7 +11,7 @@ import logging
 import re
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,46 +34,78 @@ async def listar_nfse_entrada(
     competencia: str | None = Query(None),
     fornecedor_cnpj: str | None = Query(None),
     categoria: str | None = Query(None),
+    empresa: str | None = Query(None, description="slug: conecta_eletronica | conecta_patrimonial"),
     db: AsyncSession = Depends(get_session),
     _user: dict = Depends(get_current_user),
 ) -> dict:
-    """Lista NFS-e recebidas de fornecedores (Lucro Real).
-
-    FONTE REAL: nfse_tomadas_nacional (portal nacional gov.br, 182 notas em 2026).
-    competencia é VARCHAR 'YYYY-MM' (não é date) => filtro de ano via LIKE :ano||'%'.
-    Colunas: valor_servicos (plural!), iss_valor, prestador_cnpj/prestador_nome, descricao.
-    Não existe 'categoria' nem 'valor_liquido' na fonte nacional.
-    """
-    conds = ["competencia LIKE :ano_like"]
+    """Lista NFS-e RECEBIDAS (tomadas) dos 2 CNPJs, com CATEGORIA (via suppliers), EMPRESA
+    e flag de PDF. FONTE REAL: nfse_tomadas_nacional (portal nacional gov.br).
+    A categoria vem de suppliers.category (editável = override manual do Jordan)."""
+    conds = ["nt.competencia LIKE :ano_like"]
     params: dict = {"ano": ano, "ano_like": f"{ano}%"}
-
     if competencia:
-        conds.append("competencia = :comp")
+        conds.append("nt.competencia = :comp")
         params["comp"] = competencia
     if fornecedor_cnpj:
-        conds.append("prestador_cnpj = :cnpj")
+        conds.append("regexp_replace(COALESCE(nt.prestador_cnpj,''),'[^0-9]','','g') = :cnpj")
         params["cnpj"] = re.sub(r"\D", "", fornecedor_cnpj)
-    # NOTA: nfse_tomadas_nacional não tem coluna 'categoria'; o filtro é ignorado
-    # (mantido na assinatura por compatibilidade de API).
+    if empresa:
+        conds.append("e.slug = :empresa")
+        params["empresa"] = empresa
+    if categoria:
+        conds.append("COALESCE(s.category,'outros') = :categoria")
+        params["categoria"] = categoria
 
     where = " AND ".join(conds)
-    rows = (
-        await db.execute(
-            text(
-                f"SELECT chave_acesso, numero, competencia, data_emissao, "
-                f"prestador_cnpj, prestador_nome, valor_servicos, iss_valor, descricao "
-                f"FROM nfse_tomadas_nacional WHERE {where} ORDER BY data_emissao DESC"
-            ),
-            params,
-        )
-    ).fetchall()
+    rows = (await db.execute(text(
+        f"SELECT nt.chave_acesso, nt.numero, nt.competencia, nt.data_emissao, "
+        f"nt.prestador_cnpj, nt.prestador_nome, nt.valor_servicos, nt.iss_valor, nt.descricao, "
+        f"COALESCE(e.slug,'-') AS empresa, COALESCE(s.category,'outros') AS categoria, "
+        f"(nt.xml_raw IS NOT NULL) AS tem_xml "
+        f"FROM nfse_tomadas_nacional nt "
+        f"LEFT JOIN empresas e ON e.id = nt.empresa_id "
+        f"LEFT JOIN suppliers s ON regexp_replace(COALESCE(s.cpf_cnpj,''),'[^0-9]','','g') = "
+        f"          regexp_replace(COALESCE(nt.prestador_cnpj,''),'[^0-9]','','g') "
+        f"WHERE {where} ORDER BY nt.data_emissao DESC"), params)).fetchall()
 
+    itens = [dict(r._mapping) for r in rows]
     total_valor = sum(float(r.valor_servicos or 0) for r in rows)
+    por_cat: dict[str, dict] = {}
+    for it in itens:
+        c = it["categoria"]
+        por_cat.setdefault(c, {"qtd": 0, "total": 0.0})
+        por_cat[c]["qtd"] += 1
+        por_cat[c]["total"] = round(por_cat[c]["total"] + float(it["valor_servicos"] or 0), 2)
     return {
-        "total": len(rows),
+        "total": len(itens),
         "total_valor_bruto": round(total_valor, 2),
-        "nfse_entrada": [dict(r._mapping) for r in rows],
+        "por_categoria": por_cat,
+        "nfse_entrada": itens,
     }
+
+
+@router.get("/nfse-entrada/{chave}/pdf", summary="PDF (DANFSe) da NFS-e recebida")
+async def pdf_nfse_entrada(
+    chave: str,
+    db: AsyncSession = Depends(get_session),
+    _user: dict = Depends(get_current_user),
+):
+    """Gera o PDF da nota tomada: do XML guardado (fiel) ou dos campos (fallback)."""
+    from modules.gedeon.services.nfse_danfse_generator import gerar_danfse_de_nfse, gerar_danfse_pdf
+
+    row = (await db.execute(text(
+        "SELECT chave_acesso, numero, competencia, data_emissao, prestador_cnpj, prestador_nome, "
+        "valor_servicos, iss_valor, descricao, xml_raw FROM nfse_tomadas_nacional "
+        "WHERE chave_acesso = :c LIMIT 1"), {"c": chave})).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Nota não encontrada.")
+    try:
+        pdf = gerar_danfse_pdf(row["xml_raw"]) if row.get("xml_raw") else gerar_danfse_de_nfse(dict(row))
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Falha ao gerar PDF da nota tomada %s: %s", chave, exc)
+        raise HTTPException(status_code=500, detail="Falha ao gerar o PDF da nota.") from exc
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="nfse-recebida-{chave[:14]}.pdf"'})
 
 
 @router.post("/nfse-entrada/auto-criar-payables", status_code=200)
