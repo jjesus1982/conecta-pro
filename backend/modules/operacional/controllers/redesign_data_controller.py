@@ -2892,3 +2892,43 @@ async def redesign_data(slug: str, current_user: CurrentActiveUser, db: AsyncSes
         return {"slug": slug, "screens": {}, "wired": [], "extraMenu": []}
     screens = await builder(db)
     return {"slug": slug, "screens": screens, "wired": list(screens.keys()), "extraMenu": EXTRA_MENU.get(slug, [])}
+
+
+# =============================================================================
+# FANOUT 3 TERMINAIS — descoberta de builders por módulo (override + merge).
+# Cada redesign_builders/<mod>.py define SLUG, build(db), EXTRA_MENU e (opcional) router.
+# O build() do arquivo SOBRESCREVE o _build_<mod> do monólito (fallback); EXTRA_MENU e
+# routers são SOMADOS. Assim T1/T2/T3 adicionam telas SEM tocar este arquivo.
+# Um módulo quebrado é logado e ignorado — nunca derruba o boot. Ver DIVISAO_3T.md.
+# =============================================================================
+def _discover_module_builders() -> list[str]:
+    import importlib
+    import logging
+    import pkgutil
+
+    loaded: list[str] = []
+    try:
+        from . import redesign_builders as _pkg
+    except Exception:  # noqa: BLE001 — pacote ausente → no-op
+        return loaded
+    for _mi in pkgutil.iter_modules(_pkg.__path__):
+        if _mi.name.startswith("_"):
+            continue
+        try:
+            _m = importlib.import_module(f"{_pkg.__name__}.{_mi.name}")
+        except Exception as _e:  # noqa: BLE001 — módulo WIP não derruba o app
+            logging.getLogger(__name__).error("redesign_builders/%s falhou: %s", _mi.name, _e)
+            continue
+        slug = getattr(_m, "SLUG", _mi.name)
+        if hasattr(_m, "build"):
+            BUILDERS[slug] = _m.build
+        if hasattr(_m, "EXTRA_MENU"):
+            EXTRA_MENU.setdefault(slug, [])
+            EXTRA_MENU[slug].extend(_m.EXTRA_MENU)
+        if hasattr(_m, "router"):
+            router.include_router(_m.router)
+        loaded.append(slug)
+    return loaded
+
+
+_LOADED_MODULE_BUILDERS = _discover_module_builders()
