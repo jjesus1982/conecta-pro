@@ -1,0 +1,358 @@
+{
+ "agendador": {
+  "wired": [],
+  "extraMenu": [],
+  "err": null
+ },
+ "analytics": {
+  "wired": [
+   "visao"
+  ],
+  "extraMenu": [],
+  "err": null
+ },
+ "area-do-cliente": {
+  "wired": [],
+  "extraMenu": [],
+  "err": null
+ },
+ "assistente": {
+  "wired": [],
+  "extraMenu": [],
+  "err": null
+ },
+ "automacoes": {
+  "wired": [],
+  "extraMenu": [],
+  "err": null
+ },
+ "bi": {
+  "wired": [
+   "dashboard"
+  ],
+  "extraMenu": [],
+  "err": null
+ },
+ "campo": {
+  "wired": [
+   "checkin",
+   "ordens-servico",
+   "visao"
+  ],
+  "extraMenu": [],
+  "err": null
+ },
+ "configuracoes": {
+  "wired": [
+   "usuarios",
+   "visao"
+  ],
+  "extraMenu": [],
+  "err": null
+ },
+ "crm": {
+  "wired": [
+   "aditivos",
+   "anotar-cliente",
+   "atividades",
+   "comissoes",
+   "contatos",
+   "contratos",
+   "dashboard",
+   "leads",
+   "mover-oportunidade",
+   "nova-proposta",
+   "nova-tarefa",
+   "novo-lead",
+   "oportunidades",
+   "precificacao",
+   "propostas",
+   "simular-preco"
+  ],
+  "extraMenu": [
+   "aditivos",
+   "anotar-cliente",
+   "mover-oportunidade",
+   "nova-proposta",
+   "nova-tarefa",
+   "novo-lead",
+   "simular-preco"
+  ],
+  "err": null
+ },
+ "departamento-pessoal": {
+  "wired": [
+   "beneficios",
+   "beneficios-cct",
+   "calcular-ferias",
+   "calcular-rescisao",
+   "ferias",
+   "folha",
+   "folha-rubricas",
+   "funcionarios",
+   "registrar-reembolso",
+   "rescisao",
+   "saldo-ferias",
+   "solicitar-ferias",
+   "visao"
+  ],
+  "extraMenu": [
+   "beneficios-cct",
+   "calcular-ferias",
+   "calcular-rescisao",
+   "registrar-reembolso",
+   "saldo-ferias",
+   "solicitar-ferias"
+  ],
+  "err": null
+ },
+ "documentos": {
+  "wired": [
+   "arquivos",
+   "visao"
+  ],
+  "extraMenu": [],
+  "err": null
+ },
+ "empresas": {
+  "wired": [
+   "dashboard",
+   "obrigacoes",
+   "visao"
+  ],
+  "extraMenu": [],
+  "err": null
+ },
+ "equipamentos": {
+  "wired": [],
+  "extraMenu": [],
+  "err": null
+ },
+ "financeiro": {
+  "wired": [
+   "clientes",
+   "contas-pagar",
+   "contas-receber",
+   "custeio-cct",
+   "dashboard",
+   "fornecedores",
+   "inter-pagamentos",
+   "pagamentos-diaristas",
+   "registrar-conta-pagar",
+   "registrar-conta-receber"
+  ],
+  "extraMenu": [
+   "custeio-cct",
+   "registrar-conta-pagar",
+   "registrar-conta-receber"
+  ],
+  "err": null
+ },
+ "fiscal": {
+  "wired": [
+   "certidoes-cnd",
+   "dctfweb",
+   "guias",
+   "guias-fgts",
+   "guias-inss",
+   "nfse",
+   "nfse-tomadas",
+   "painel",
+   "reinf"
+  ],
+  "extraMenu": [
+   "certidoes-cnd",
+   "guias-fgts",
+   "guias-inss",
+   "nfse-tomadas"
+  ],
+  "err": null
+ },
+ "gestao-de-pessoas": {
+  "wired": [
+   "ged",
+   "ponto",
+   "ponto-espelho",
+   "registrar-entrega-epi",
+   "registrar-justificativa-ponto",
+   "saude-exames",
+   "sst",
+   "visao"
+  ],
+  "extraMenu": [
+   "registrar-entrega-epi",
+   "registrar-justificativa-ponto"
+  ],
+  "err": null
+ },
+ "homologacao": {
+  "wired": [],
+  "extraMenu": [],
+  "err": null
+ },
+ "integracoes": {
+  "wired": [
+   "solides",
+   "visao"
+  ],
+  "extraMenu": [],
+  "err": null
+ },
+ "juridico": {
+  "wired": [
+   "det-comunicacoes",
+   "processos",
+   "visao"
+  ],
+  "extraMenu": [
+   "det-comunicacoes"
+  ],
+  "err": null
+ },
+ "licitacoes": {
+  "wired": [
+   "certidoes",
+   "contratos",
+   "disputas",
+   "editais",
+   "oportunidades",
+   "propostas",
+   "visao"
+  ],
+  "extraMenu": [],
+  "err": null
+ },
+ "marketing": {
+  "wired": [],
+  "extraMenu": [],
+  "err": null
+ },
+ "meu-espaco": {
+  "wired": [
+   "notificacoes",
+   "tarefas",
+   "visao"
+  ],
+  "extraMenu": [],
+  "err": null
+ },
+ "operacional": {
+  "wired": [
+   "alocacoes",
+   "cadastrar-diarista",
+   "colaboradores",
+   "comentar-ocorrencia",
+   "comunicados",
+   "diarias",
+   "diaristas",
+   "escalar-substituto",
+   "lancar-diaria",
+   "ocorrencia-rapida",
+   "ocorrencias",
+   "postos",
+   "registrar-falta",
+   "resolver-ocorrencia",
+   "visao"
+  ],
+  "extraMenu": [
+   "cadastrar-diarista",
+   "comentar-ocorrencia",
+   "escalar-substituto",
+   "lancar-diaria",
+   "registrar-falta",
+   "resolver-ocorrencia"
+  ],
+  "err": null
+ },
+ "portal-do-funcionario": {
+  "wired": [
+   "contracheque",
+   "dashboard",
+   "documentos",
+   "ferias"
+  ],
+  "extraMenu": [],
+  "err": null
+ },
+ "recrutamento": {
+  "wired": [
+   "abrir-vaga",
+   "candidatos",
+   "entrevistas",
+   "vagas",
+   "visao"
+  ],
+  "extraMenu": [
+   "abrir-vaga"
+  ],
+  "err": null
+ },
+ "relatorios": {
+  "wired": [
+   "central",
+   "comercial",
+   "financeiro",
+   "operacional"
+  ],
+  "extraMenu": [],
+  "err": null
+ },
+ "rh": {
+  "wired": [
+   "candidatos",
+   "certificados",
+   "dashboard",
+   "entrevistas"
+  ],
+  "extraMenu": [],
+  "err": null
+ },
+ "saude-ocupacional": {
+  "wired": [
+   "afastamentos",
+   "cat",
+   "epi",
+   "esocial",
+   "exames",
+   "riscos",
+   "visao"
+  ],
+  "extraMenu": [
+   "esocial"
+  ],
+  "err": null
+ },
+ "seguranca": {
+  "wired": [
+   "auditoria",
+   "visao"
+  ],
+  "extraMenu": [],
+  "err": null
+ },
+ "servicos": {
+  "wired": [
+   "ordens",
+   "visao"
+  ],
+  "extraMenu": [],
+  "err": null
+ },
+ "suprimentos": {
+  "wired": [
+   "almoxarifado",
+   "visao"
+  ],
+  "extraMenu": [],
+  "err": null
+ },
+ "__home__": {
+  "kpis": [
+   "Colaboradores",
+   "Postos ativos",
+   "Clientes",
+   "Escalas"
+  ],
+  "alerts": 4
+ }
+}
