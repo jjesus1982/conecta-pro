@@ -123,6 +123,20 @@ async def build(db) -> dict:
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]), t(_d(r[2])),
                    _completude_cell(r[4]), _badge_status(r[3])]))
 
+    # 0b) Folha — SOBRESCREVE a base p/ trazer o BREAKDOWN do clássico (INSS/FGTS/Descontos),
+    #     que o redesign perdeu (só mostrava base+líquido). Mesmas colunas do clássico.
+    await safe("folha", tbl(
+        "Folha de pagamento", "Última competência — proventos, encargos e descontos", "—",
+        ["Colaborador", "Cargo", "Salário base", "INSS", "FGTS 8%", "Descontos", "Líquido", "Status"],
+        "1.8fr 1.3fr 1fr 0.9fr 0.9fr 1fr 1fr 0.9fr",
+        "SELECT e.nome, coalesce(e.cargo,'—'), p.base_salary, p.inss_value, p.fgts_value, "
+        "p.total_deductions, p.net_salary, p.status::text "
+        "FROM hr_payslips p LEFT JOIN employees e ON e.id=p.employee_id "
+        "WHERE (p.reference_year,p.reference_month)=(SELECT reference_year,reference_month FROM hr_payslips "
+        "ORDER BY reference_year DESC, reference_month DESC LIMIT 1) ORDER BY e.nome LIMIT 300",
+        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]), t(brl(r[2])),
+                   t(brl(r[3])), t(brl(r[4])), t(brl(r[5])), t(brl(r[6]), 600), _badge_status(r[7])]))
+
     # 1) Admissão — admission_processes
     await safe("admissao", tbl(
         "Admissão", "Processos de admissão", "Nova admissão",
