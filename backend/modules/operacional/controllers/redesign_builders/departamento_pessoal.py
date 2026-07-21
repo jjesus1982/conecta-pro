@@ -50,6 +50,53 @@ def _badge_bool(v, sim="Sim", nao="Não", tone_sim="ok", tone_nao="mut"):
     return b(sim, tone_sim) if v else b(nao, tone_nao)
 
 
+# Completude do cadastro (S-2200) — MESMA fórmula do clássico (dp/funcionarios/page.tsx):
+# 15 campos eSocial; % = preenchidos/15; mostra os campos faltantes (fidelidade).
+_ESOCIAL_15 = 15
+
+
+async def _scalar_dp(db):
+    from sqlalchemy import text as _sqltext
+    try:
+        r = await db.execute(_sqltext("SELECT count(*) FROM employees WHERE status='ativo'"))
+        return r.scalar() or 0
+    except Exception:
+        return 0
+
+
+def _completude_cell(faltantes):
+    """faltantes = array (do SQL) com os rótulos dos campos vazios."""
+    fal = [x for x in (faltantes or []) if x]
+    pct = round((_ESOCIAL_15 - len(fal)) / _ESOCIAL_15 * 100)
+    if not fal:
+        return t("100% · completo", 600, "#0E7C57")
+    lbl = ", ".join(fal[:3]) + (f" +{len(fal) - 3}" if len(fal) > 3 else "")
+    cor = "#0E7C57" if pct >= 80 else "#B4690E" if pct >= 50 else "#DC2626"
+    return t(f"{pct}% · {lbl}", 600, cor)
+
+
+# SQL que devolve os rótulos faltantes (ordem/nomes iguais ao FIELD_LABELS do clássico)
+_FALTANTES_SQL = (
+    "array_remove(ARRAY["
+    "CASE WHEN nullif(trim(coalesce(nome,'')),'') IS NULL THEN 'Nome' END,"
+    "CASE WHEN nullif(trim(coalesce(cpf,'')),'') IS NULL THEN 'CPF' END,"
+    "CASE WHEN data_nascimento IS NULL THEN 'Data de Nascimento' END,"
+    "CASE WHEN nullif(trim(coalesce(sexo,'')),'') IS NULL THEN 'Sexo' END,"
+    "CASE WHEN nullif(trim(coalesce(estado_civil,'')),'') IS NULL THEN 'Estado Civil' END,"
+    "CASE WHEN nullif(trim(coalesce(nome_mae,'')),'') IS NULL THEN 'Nome da Mãe' END,"
+    "CASE WHEN nullif(trim(coalesce(rg,'')),'') IS NULL THEN 'RG' END,"
+    "CASE WHEN nullif(trim(coalesce(pis,'')),'') IS NULL THEN 'PIS/PASEP' END,"
+    "CASE WHEN nullif(trim(coalesce(ctps_numero,'')),'') IS NULL THEN 'CTPS Número' END,"
+    "CASE WHEN nullif(trim(coalesce(nacionalidade,'')),'') IS NULL THEN 'Nacionalidade' END,"
+    "CASE WHEN nullif(trim(coalesce(naturalidade,'')),'') IS NULL THEN 'Naturalidade' END,"
+    "CASE WHEN nullif(trim(coalesce(cep,'')),'') IS NULL THEN 'CEP' END,"
+    "CASE WHEN nullif(trim(coalesce(logradouro,'')),'') IS NULL THEN 'Logradouro' END,"
+    "CASE WHEN nullif(trim(coalesce(cidade,'')),'') IS NULL THEN 'Cidade' END,"
+    "CASE WHEN nullif(trim(coalesce(uf,'')),'') IS NULL THEN 'UF' END"
+    "], NULL)"
+)
+
+
 async def build(db) -> dict:
     # Base = tudo que o _build_dp já entrega (telas VIVAS + ferramentas).
     out = await _build_dp(db)
@@ -64,6 +111,17 @@ async def build(db) -> dict:
                 await db.rollback()
             except Exception:
                 pass
+
+    # 0) Funcionários — SOBRESCREVE a tela base p/ trazer a COMPLETUDE do cadastro (%/faltantes),
+    #    que o clássico mostra e o redesign não (fidelidade). Mesma fórmula: 15 campos S-2200.
+    await safe("funcionarios", tbl(
+        "Funcionários", f"{await _scalar_dp(db)} ativos", "Nova admissão",
+        ["Colaborador", "Cargo", "Admissão", "Cadastro (eSocial)", "Status"],
+        "2fr 1.3fr 1fr 1.7fr 0.9fr",
+        "SELECT nome, coalesce(cargo,'—'), data_admissao, status::text, " + _FALTANTES_SQL + " AS faltantes "
+        "FROM employees WHERE status='ativo' ORDER BY nome LIMIT 300",
+        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]), t(_d(r[2])),
+                   _completude_cell(r[4]), _badge_status(r[3])]))
 
     # 1) Admissão — admission_processes
     await safe("admissao", tbl(
