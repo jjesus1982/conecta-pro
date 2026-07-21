@@ -39,3 +39,11 @@
 - Telas raio-x/relatórios: valor só é honrado com prova de cálculo (timestamp), senão
   "não calculado"; nova coluna "Atualizado". Commit `2ab0b3a5` (deploy blue-green).
 - **NÃO** inventou fórmula p/ os 3 placeholders (seria repetir o erro). Ficam sinalizados.
+
+## Adendo — saldos bancários (bank_accounts) têm o MESMO problema (2026-07-21)
+| Conta | Stored (ERP) | Real ao vivo | last_balance_update | Fix |
+|---|---|---|---|---|
+| **Inter** (CNPJ1) | ~~R$67.757~~ | **R$15.270,74** | estava 16/07 (velho) | corrigido; sync existe (parou c/ beat) |
+| **Cora** (CNPJ2 Patrimonial) | ~~R$0,00~~ | **R$34.237,37** | **NULL = NUNCA** | corrigido ao vivo; `cora_sync_service` nunca firou |
+
+Ambos os saldos vêm de adapters mTLS que FUNCIONAM (`InterClient.consultar_saldo`, `CoraAdapter.get_balance` — READ-only, visibilidade). O buraco é orquestração: os jobs de sync de saldo não rodam de forma confiável → o `bank_accounts.current_balance` fica velho/zero e se passa por real. **Conserto (item separado):** agendar+monitorar `cora_sync_service` e o sync Inter junto do `analytics.recalcular_kpis`, sempre gravando `last_balance_update` (a régua: sem timestamp fresco, o saldo NÃO é confiável).
