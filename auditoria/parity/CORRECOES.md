@@ -64,3 +64,19 @@ Estratégia aprovada (2026-07-20): B+C — clássico segue operacional; corrijo 
 | 36 | integracoes | Logs de integração invisíveis | tela `logs` (integration_logs, 81) | build(): POST /webhooks/inter/boleto | ✅ FECHADO (fundação) |
 | 37 | integracoes | Histórico de sync invisível | tela `sync` (solides_sync_log, 7353) | build(): punches Sólides→Conecta 180 | ✅ FECHADO (fundação) |
 | 38 | homologacao | Módulo morto (sem builder) | módulo NOVO `homologacao` c/ visao (base isolada: 2 colab homolog, 7 batidas teste) | build(): dash homolog | ✅ FECHADO (fundação) |
+
+---
+## Integridade de dado real — saldos, KPIs e scheduler (2026-07-21, T4)
+> Nasceu do Jordan flagrar "Saldo Inter" exibindo um valor velho. Ao puxar a fonte, caiu a raiz: o **scheduler estava morto** havia dias. Régua reforçada: **cache ≠ verificado; só é "real" o que se confere na fonte na hora, e cache mostra a data.** Detalhe completo em `auditoria/KPI_STALENESS_FINDINGS.md`.
+
+| # | Área | Problema | Como | Prova | Status |
+|---|------|----------|------|-------|--------|
+| 39 | financeiro/scheduler | **RAIZ:** `celery-beat` em crash-loop (RestartCount=**7464**) por imagem velha sem `fiscal_contabil/obrigacoes/tasks.py` → NENHUMA tarefa agendada firava (KPIs, saldos, fiscal, eSocial-espelho, Sólides, CRM, SST…) | recriei a frota celery (beat+workers) na imagem nova | beat RestartCount=0 firando o schedule; provado disparando `recalcular_kpis` (worker executou) + rodada 19:25 autônoma | ✅ FECHADO + DEPLOYADO |
+| 40 | financeiro | Saldo Inter exibia snapshot de 5 dias (R$67.757) vs real ao vivo | puxei `InterClient.consultar_saldo` (mTLS, READ) e corrigi `bank_accounts`+`financial_kpis` | R$15.270,74 (depois 14.822,74 com movimento) batendo com Jordan | ✅ FECHADO |
+| 41 | financeiro | Saldo Cora **nunca** sincronizou (R$0, last_balance_update NULL) + `cora_sync_service` puxava saldo mas **não gravava** | fix: grava saldo em `bank_accounts`; puxei o real ao vivo | R$34.237,37 (CoraAdapter.get_balance) | ✅ FECHADO + DEPLOYADO |
+| 42 | analytics | 3 KPIs placeholder (Compliance 100%/Inadimplência 17,04%/Score 68,5) — nada calculava | coletores reais em `kpi_recalc_service.FINANCIAL_MAP` (fiscal_obligations / receivable_accounts / composto documentado) | clássico `/financial/bi/kpis` e redesign raio-x: 83,87% / 45,75% / 48,6 | ✅ FECHADO + DEPLOYADO |
+| 43 | analytics | KPI-002 "Saldo Inter" na verdade somava TODAS as contas (só batia c/ Cora=0) | renomeado p/ "Saldo em bancos" (valor = total correto); tela `saldos` mostra por conta | R$49.508,11 = Inter+Cora | ✅ FECHADO |
+| 44 | financeiro (regressão) | Minha tela `saldos` fazia fetch mTLS ao vivo NO RENDER → derrubava o worker uvicorn → **502 no módulo inteiro** + colateral | `_build_saldos` lê SÓ o cache (build 4s→0,29s); NOVA task `financial.sync_bank_balances` (beat */15, no worker) mantém o cache fresco | browser: HTTP200 578ms, 0 erros; 3 ciclos autônomos (20:00/15/30) | ✅ FECHADO + DEPLOYADO + PROVADO NO BROWSER |
+| 45 | financeiro | Conta de teste `ZZE2E_TestBank_001` ativa entrava na soma do saldo | marcada `ativo=false` (reversível) | soma agora só Inter+Cora | ✅ FECHADO |
+
+**Commits:** `2ab0b3a5` (KPI "não calculado"+coluna Atualizado) · `fa1c3860` (3 coletores reais) · `c5a4b41f` (fix 502 + sync background) · docs `1f3aa795`/`92e4ed37`/`179bb54c`. Frota celery recriada na imagem `fb37e651`. Provado no browser (Playwright): telas `saldos` e `raio-x` com dado real, screenshots salvos.
