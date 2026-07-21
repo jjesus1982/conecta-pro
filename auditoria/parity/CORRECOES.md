@@ -25,3 +25,7 @@ Estratégia aprovada (2026-07-20): B+C — clássico segue operacional; corrijo 
 | 17 | fiscal | Guias INSS invisíveis no redesign | tela `guias-inss` (inss_guias Onvio) | curl: 6 guias, 1ª=11.2025 PDF Pendente | ✅ FECHADO + DEPLOYADO |
 | 18 | financeiro | Sem custeio de encargos CCT | ferramenta `custeio-cct` (compute PricingEngine, nada gravado) | curl: 10 colab → encargos R$146.512,44 detalhado | ✅ FECHADO + DEPLOYADO |
 | 19 | departamento-pessoal | Saldo de férias invisível | tela `saldo-ferias` (employee_vacation_periods, 67 períodos) | curl: ANDREA 30d disponíveis, vence 31/12/2026 | ✅ FECHADO + DEPLOYADO |
+| 20 | fiscal | Certidões CND fiscais invisíveis (screen "certidoes" era de licitações) | tela `certidoes-cnd` (ged_certidoes + cálculo situação p/ vencimento) | curl: 9 CNDs, Alvará=Vencida | ✅ FECHADO + DEPLOYADO |
+| 21 | fiscal | NFS-e tomadas só num KPI | tela `nfse-tomadas` (nfse_tomadas_nacional) | curl: 292 notas, SOLIDES R$236 | ✅ FECHADO + DEPLOYADO |
+| 22 | juridico | DET/comunicações trabalhistas invisíveis | tela `det-comunicacoes` (juridico_det_comunicacoes) | curl: 11 comunicações c/ prazo legal | ✅ FECHADO + DEPLOYADO |
+| 23 | crm | Aditivos contratuais invisíveis | tela `aditivos` (contract_addendums, gotcha enum::text) | curl: 7 aditivos, CTR-2026-00008 | ✅ FECHADO + DEPLOYADO |
