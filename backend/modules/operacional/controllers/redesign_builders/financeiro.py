@@ -11,6 +11,7 @@ Ver auditoria/parity/DIVISAO_3T.md + BRIEFING_T4.md.
 from sqlalchemy import text  # noqa: F401
 
 from modules.operacional.controllers.redesign_data_controller import (  # noqa: F401
+    S,
     _build_financeiro as _base,
     _fmtdate,
     _helpers,
@@ -114,6 +115,27 @@ async def build(db) -> dict:
     out, safe, tbl = _helpers(db)
     # Base do monólito (10 telas já provadas) — reusa sem duplicar.
     out.update(await _base(db))
+
+    # ---- Fidelidade dashboard: o clássico exibe Faturamento Bruto/Líquido/ISS Retido/Ticket
+    #      Médio (NFS-e 12m). Trago como painel ADITIVO — mantém os KPIs de caixa do redesign. ----
+    try:
+        _fat = (await db.execute(text(
+            "SELECT coalesce(sum(valor_servicos),0), coalesce(sum(valor_liquido),0), coalesce(sum(iss_valor),0), count(*) "
+            "FROM nfse_emitidas_nacional WHERE coalesce(cancelada,false)=false "
+            "AND data_emissao >= (SELECT max(data_emissao) FROM nfse_emitidas_nacional) - interval '12 months'"))).fetchone()
+        _bruto, _liq, _iss, _n = float(_fat[0] or 0), float(_fat[1] or 0), float(_fat[2] or 0), (_fat[3] or 0)
+        _dash = out.get("dashboard")
+        if isinstance(_dash, dict) and _dash.get("type") == "dash":
+            _dash["panelGrid"] = "1fr 1fr 1fr"
+            _dash.setdefault("panels", []).append({
+                "title": "Faturamento NFS-e (12m)", "rows": [
+                    {"left": "Faturamento Bruto", "right": brl(_bruto), **S["info"]},
+                    {"left": "Faturamento Líquido", "right": brl(_liq), **S["ok"]},
+                    {"left": "ISS Retido", "right": brl(_iss), **S["warn"]},
+                    {"left": "Ticket Médio", "right": brl(_bruto / _n if _n else 0), **S["mut"]},
+                ]})
+    except Exception:  # noqa: BLE001 — enriquecimento nunca quebra o dashboard
+        await db.rollback()
 
     # ---- Saldos por conta (Inter + Cora ao vivo, com fonte/data) ----
     await safe("saldos", _build_saldos(db))
