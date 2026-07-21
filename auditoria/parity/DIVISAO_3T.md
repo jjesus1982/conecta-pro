@@ -55,3 +55,5 @@ ninguém faz em paralelo agora).
 ## CHECKLIST AO VIVO (marque `[x] <terminal> <tela>` quando fechar)
 <!-- ex.: - [x] T1 fiscal/certidoes-cnd (curl 9 CNDs) commit abc123 -->
 - [x] T1 juridico: 1º módulo via fundação — contratos·conhecimento·analise·processos-det (+visao/processos/det). escritorio=probe→honesto vazio. build() 7 telas provado no container.
+- [x] T3 departamento-pessoal (10/10): admissao(admission_processes 3)·aviso-previo(employees, 0=honesto)·ponto(gp_clock_punches 300)·fechamento-ponto(gp_monthly_closings 50)·licencas(sst_afastamentos 8)·reembolsos(reimbursement_requests 20)·contratos(employment_contracts 43)·documentos(hr_employee_documents 32)·certificacao(hr_certifications 51)·esocial(esocial_eventos_espelho 36). build() estende _build_dp. Deploy blue-green OK + HTTP 200 autenticado provado. commit na branch.
+- [x] T1 documentos: kits(58 ged_document_kits) + pastas(8 ged_folders). campo pulado (monitoramento/comunicados sem tabela → honesto vazio).
