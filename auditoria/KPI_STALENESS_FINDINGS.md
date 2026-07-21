@@ -73,3 +73,21 @@ imagem de 2 dias (o deploy blue-green só recria o `backend`, nunca a frota cele
 (hoje R$0, inofensivo; se ganhar saldo, polui). E o dashboard executivo do CLÁSSICO ainda mostra
 os 3 placeholders (Compliance/Inadimplência/Score) como reais — dono do analytics precisa dar
 fórmula ou remover. Beat vivo agora recalcula tudo de hora em hora.
+
+## Os 3 placeholders — RESOLVIDOS com fórmula real (2026-07-21)
+Deixaram de ser valores fabricados; agora têm coletor real em `kpi_recalc_service.FINANCIAL_MAP`
+(recalculados de hora em hora pelo beat). Provado no dashboard CLÁSSICO `/financial/bi/kpis` e no
+redesign raio-x. Os placeholders escondiam um quadro MELHOR que o real:
+| KPI | Placeholder | Real (fórmula) | Fórmula |
+|---|---|---|---|
+| Compliance Lucro Real | 100% | **83,87%** | % de `fiscal_obligations` com status 'cumprida' (26/31) |
+| Inadimplência | 17,04% | **45,75%** | Σ vencido em aberto ÷ Σ exigível (pago+aberto), `receivable_accounts` |
+| Score Saúde Financeira | 68,5 | **48,6** | composto: 40% margem + 35% adimplência + 25% liquidez (saldo÷a pagar) |
+
+**Score — metodologia explícita (não é caixa-preta):** pesos 40/35/25 são uma definição INICIAL
+ajustável; cada componente vem de dado real (margem=executive MARGEM; adimplência=100−inadimplência;
+liquidez=saldo em bancos÷contas a pagar em aberto, teto 100). Documentado no docstring de
+`src_score_saude_financeira`. Jordan pode retunar os pesos.
+
+**Durabilidade:** commit `fa1c3860` + bake + recriação do worker `celery-batch` (imagem nova) →
+o recalcular_kpis agendado passa a computar os 6 KPIs (antes pulava KPI-003/004/006).
