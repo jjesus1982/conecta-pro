@@ -57,3 +57,13 @@ ninguém faz em paralelo agora).
 - [x] T1 juridico: 1º módulo via fundação — contratos·conhecimento·analise·processos-det (+visao/processos/det). escritorio=probe→honesto vazio. build() 7 telas provado no container.
 - [x] T3 departamento-pessoal (10/10): admissao(admission_processes 3)·aviso-previo(employees, 0=honesto)·ponto(gp_clock_punches 300)·fechamento-ponto(gp_monthly_closings 50)·licencas(sst_afastamentos 8)·reembolsos(reimbursement_requests 20)·contratos(employment_contracts 43)·documentos(hr_employee_documents 32)·certificacao(hr_certifications 51)·esocial(esocial_eventos_espelho 36). build() estende _build_dp. Deploy blue-green OK + HTTP 200 autenticado provado. commit na branch.
 - [x] T1 documentos: kits(58 ged_document_kits) + pastas(8 ged_folders). campo pulado (monitoramento/comunicados sem tabela → honesto vazio).
+- [x] T4 financeiro (21/21): fluxo-caixa·conciliacao·boletos·cobrancas·banking·inter·compras·estoque·faturamento·fiscal·nfse-entrada·orcamentos·precificacao·custos·contabilidade·contratos·raio-x·cfo·agentes·relatorios·custeio. `redesign_builders/financeiro.py` estende `_build_financeiro`. HTTP 200 8080+público, rows reais. commit c74072a8. Dinheiro que SAI = gated.
+- [x] T4 gestao-de-pessoas (9/9): ged-kits(58)·ged-envios(49)·ged-assinaturas(200)·ponto-banco(0 honesto)·rh(66)·rh-treinamentos(0 honesto)·rh-cargos(51)·saude(96)·consultor(4). commit c74072a8.
+- [x] T4 crm (3/3): clientes(20)·growth(6)·consultor(69). commit c74072a8.
+- [x] T4 empresas (4/4): demonstrativos(7)·rentabilidade(20)·liminares(3)·migrador(4, só visibilidade). commit c74072a8.
+- [x] T4 seguranca/LGPD (5/5): consentimento(5)·esquecimento(1)·mascaramento/criptografia/pia-dpia(0 honesto). só visibilidade. commit c74072a8.
+- [x] T4 recrutamento (1/1): candidaturas(10). commit c74072a8.
+- [x] T4 servicos (2/2): contratos(12)·agendamentos(0 honesto). commit c74072a8.
+- [x] T4 agendador (3/3 NOVO): visao(dash)·tarefas(0)·execucoes(0). commit c74072a8.
+- [x] T4 assistente (2/2 NOVO): chat(3)·historico(1). commit c74072a8.
+- ⚠️ T4: 50 telas VIVAS no primário via cp (volátil). BAKE pendente — árvore suja com WIP não-commitado de people_management (outro terminal); blue-green assa a árvore inteira. Próximo deploy com árvore limpa torna durável (arquivos já commitados).
