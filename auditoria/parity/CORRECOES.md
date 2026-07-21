@@ -63,3 +63,4 @@ Estratégia aprovada (2026-07-20): B+C — clássico segue operacional; corrijo 
 | 36 | automacoes | Módulo 100% mock (sem builder) | NOVO `automacoes.py` 3 telas (crm_workflow*) | HTTP200: visao 3 métricas + workflows/execucoes reais | ✅ FECHADO + DEPLOYADO (T3) |
 | 36 | integracoes | Logs de integração invisíveis | tela `logs` (integration_logs, 81) | build(): POST /webhooks/inter/boleto | ✅ FECHADO (fundação) |
 | 37 | integracoes | Histórico de sync invisível | tela `sync` (solides_sync_log, 7353) | build(): punches Sólides→Conecta 180 | ✅ FECHADO (fundação) |
+| 38 | homologacao | Módulo morto (sem builder) | módulo NOVO `homologacao` c/ visao (base isolada: 2 colab homolog, 7 batidas teste) | build(): dash homolog | ✅ FECHADO (fundação) |
