@@ -649,6 +649,29 @@ async def _build_dp(db: AsyncSession) -> dict:
             {"key": "employee_notes", "label": "Observações", "type": "textarea", "span": "span 2", "ph": "Opcional… (5 a 30 dias corridos)"},
         ],
     }
+    # Calcular rescisão (calculadora CLT — cálculo PURO; não gera rescisão nem transmite/paga)
+    try:
+        _resc_rows = (await db.execute(text("SELECT id, nome FROM employees WHERE status='ativo' AND salario_base IS NOT NULL AND data_admissao IS NOT NULL ORDER BY nome LIMIT 400"))).fetchall()
+        _resc_opts = [{"value": str(eid), "label": nm} for eid, nm in _resc_rows]
+    except Exception:
+        await db.rollback()
+        _resc_opts = []
+    out["calcular-rescisao"] = {
+        "title": "Calcular rescisão (CLT)", "sub": "Calculadora de verbas rescisórias — cálculo, NÃO gera rescisão nem transmite/paga",
+        "cta": "Calcular", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/rescisao-calc", "okMsg": "Rescisão calculada"},
+        "fields": [
+            {"key": "employee_id", "label": "Colaborador*", "type": "select", "span": "span 2", "ph": "Selecione o colaborador", "options": _resc_opts},
+            {"key": "tipo_rescisao", "label": "Motivo*", "type": "select", "span": "span 1", "ph": "Motivo",
+             "options": [{"value": v, "label": l} for v, l in [
+                 ("sem_justa_causa", "Sem justa causa"), ("pedido_demissao", "Pedido de demissão"),
+                 ("acordo", "Acordo (art. 484-A)"), ("justa_causa", "Justa causa")]]},
+            {"key": "data_desligamento", "label": "Data de desligamento*", "type": "date", "span": "span 1"},
+            {"key": "dias_trabalhados_mes", "label": "Dias trabalhados no mês", "type": "text", "span": "span 1", "ph": "0"},
+            {"key": "ferias_vencidas_dias", "label": "Dias de férias vencidas", "type": "text", "span": "span 1", "ph": "0"},
+            {"key": "saldo_fgts", "label": "Saldo FGTS (R$)", "type": "text", "span": "span 1", "ph": "0,00 (p/ multa 40%)"},
+        ],
+    }
 
     return out
 
@@ -2428,6 +2451,67 @@ async def rd_action_vacation_request(
             "message": f"Férias solicitadas para {row[0]} — {dias} dias (rascunho, pendente de aprovação)"}
 
 
+@router.post("/action/rescisao-calc")
+async def rd_action_rescisao_calc(
+    current_user: CurrentActiveUser,
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    # Calculadora de rescisão (CLT) — cálculo PURO, sem gravar/transmitir/pagar. Reusa clt_calculator.
+    import uuid as _uuid
+    from datetime import date as _date
+    from decimal import Decimal, InvalidOperation
+
+    from modules.people_management.common.utils.clt_calculator import calcular_rescisao
+
+    try:
+        emp_uuid = _uuid.UUID((payload.get("employee_id") or "").strip())
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Selecione o colaborador.")
+    row = (await db.execute(text("SELECT nome, salario_base, data_admissao FROM employees WHERE id=:i"), {"i": emp_uuid})).first()
+    if not row:
+        raise HTTPException(status_code=400, detail="Colaborador não encontrado.")
+    nome, sal, adm = row
+    if not sal or not adm:
+        raise HTTPException(status_code=400, detail="Colaborador sem salário base ou data de admissão cadastrados.")
+    tipo = (payload.get("tipo_rescisao") or "sem_justa_causa").strip()
+    try:
+        demissao = _date.fromisoformat((payload.get("data_desligamento") or "").strip())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Data de desligamento inválida.")
+    if demissao < adm:
+        raise HTTPException(status_code=400, detail="Desligamento não pode ser antes da admissão.")
+
+    def _int(k):
+        try:
+            return max(int(payload.get(k) or 0), 0)
+        except (ValueError, TypeError):
+            return 0
+
+    def _money(k):
+        raw = (payload.get(k) or "").strip()
+        if not raw:
+            return Decimal("0")
+        try:
+            return Decimal(raw.replace(".", "").replace(",", "."))
+        except (InvalidOperation, ValueError):
+            return Decimal("0")
+
+    try:
+        r = calcular_rescisao(Decimal(str(sal)), tipo, adm, demissao,
+                              _money("saldo_fgts"), _int("ferias_vencidas_dias"), _int("dias_trabalhados_mes"))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Não foi possível calcular: {e}")
+    ferias_tot = (r["ferias_proporcionais"] + r["terco_ferias_proporcionais"]
+                  + r["ferias_vencidas"] + r["terco_ferias_vencidas"])
+    msg = (f"Rescisão de {nome} ({tipo.replace('_', ' ')}) — LÍQUIDO {brl(r['total_liquido'])} | "
+           f"Saldo salário {brl(r['saldo_salario'])} · Aviso {brl(r['aviso_previo_indenizado'])} ({r['aviso_previo_dias']}d) · "
+           f"Férias+1/3 {brl(ferias_tot)} · 13º {brl(r['decimo_terceiro_proporcional'])} · "
+           f"Multa FGTS {brl(r['multa_fgts'])} · INSS −{brl(r['inss'])} · IRRF −{brl(r['irrf'])} "
+           f"({r['anos_servico']} anos de serviço). Cálculo — não gera rescisão.")
+    return {"ok": True, "message": msg}
+
+
 # Itens de menu extras (telas de ação/escrita) que o ModuleView anexa à nav.
 EXTRA_MENU = {
     "financeiro": [
@@ -2454,6 +2538,7 @@ EXTRA_MENU = {
         {"id": "registrar-justificativa-ponto", "label": "Justificar ponto", "icon": "M12 8v4l3 2M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"},
     ],
     "departamento-pessoal": [
+        {"id": "calcular-rescisao", "label": "Calcular rescisão", "icon": "M9 7h6M9 11h6M9 15h4M5 3h14a1 1 0 0 1 1 1v16l-3-2-2 2-2-2-2 2-2-2-3 2V4a1 1 0 0 1 1-1z"},
         {"id": "beneficios-cct", "label": "Benefícios CCT", "icon": "M20 12v10H4V12M2 7h20v5H2zM12 22V7M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"},
         {"id": "registrar-reembolso", "label": "Registrar reembolso", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
         {"id": "solicitar-ferias", "label": "Solicitar férias", "icon": "M17 8C8 10 5.9 16.2 3.8 21.7c-.3.7.3 1.3 1 1L8 21c9-2 11-8 13-13M12 2v4M20 6l-2 2"},
