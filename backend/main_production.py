@@ -1229,6 +1229,13 @@ try:
 
     api_router.include_router(consultor_ceo_router, dependencies=[_CEO_GATE])
     logger.info("Consultor CEO: router registrado (/gestao/consultor)")
+    # Fase 4: feedback + placar de aprendizado (compartilhado entre os 8 consultores).
+    from modules.ai.conversation.controllers.consultor_feedback_controller import (
+        router as consultor_feedback_router,
+    )
+
+    api_router.include_router(consultor_feedback_router)
+    logger.info("Consultores: feedback/placar registrado (/ai/consultor)")
 except Exception as e:
     logger.warning(f"Consultor CEO router: {e}")
 
