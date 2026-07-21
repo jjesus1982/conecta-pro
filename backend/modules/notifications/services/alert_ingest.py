@@ -62,7 +62,7 @@ async def enqueue_alert(
             VALUES
               (gen_random_uuid(), :tid, :nid, :corr, :set, CAST(:sid AS uuid), :cat,
                'push', 'push', 'pending', :prio, :subj, :body, now(), now(), now())
-            ON CONFLICT (tenant_id, correlation_id) WHERE correlation_id IS NOT NULL
+            ON CONFLICT (tenant_id, correlation_id, user_id) WHERE correlation_id IS NOT NULL
             DO UPDATE SET subject = EXCLUDED.subject, body = EXCLUDED.body,
                           priority = EXCLUDED.priority, status = 'pending', updated_at = now()
             RETURNING id;
