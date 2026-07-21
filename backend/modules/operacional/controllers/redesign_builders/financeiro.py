@@ -55,49 +55,42 @@ async def _fetch_live_balance(bank_code, bank_name):
 
 
 async def _build_saldos(db):
-    """Saldos por conta. Se o cache (bank_accounts) estiver velho (> GATE), puxa o
-    saldo REAL do banco na hora, atualiza o cache e mostra 'ao vivo'; senão usa o
-    cache e mostra a data. Sempre expõe 'Atualizado' e 'Fonte' — sem timestamp
-    fresco, o número NÃO é tratado como confiável."""
+    """Saldos por conta — lê SÓ o cache (bank_accounts): rápido e seguro. NÃO faz
+    chamada ao banco aqui: I/O externo no render bloqueava/derrubava o worker
+    (502 no módulo inteiro, aprendido 21/07). A frescura vem do sync agendado
+    (celery `financial.sync_bank_balances`, a cada 15 min); a coluna 'Atualizado'
+    mostra o quão fresco está — sem carimbo recente, o saldo é sinalizado."""
     from datetime import datetime, timezone
-    GATE = 180  # s — se o cache for mais velho que isso, refaz ao vivo
     now = datetime.now(timezone.utc)
     rows = (await db.execute(text(
-        "SELECT id, name, bank_name, bank_code, current_balance, last_balance_update "
+        "SELECT name, bank_name, current_balance, last_balance_update "
         "FROM bank_accounts WHERE ativo IS NOT FALSE "
         "AND (bank_code IN ('077','403') OR bank_name ILIKE '%inter%' OR bank_name ILIKE '%cora%') "
         "ORDER BY is_main_account DESC NULLS LAST, name"))).fetchall()
     cells = []
-    for acc_id, name, bank_name, bank_code, bal, upd in rows:
-        val, ts, fonte = bal, upd, "cache"
+    for name, bank_name, bal, upd in rows:
         upd_utc = upd.replace(tzinfo=timezone.utc) if (upd and upd.tzinfo is None) else upd
-        stale = (upd_utc is None) or ((now - upd_utc).total_seconds() > GATE)
-        if stale:
-            live = await _fetch_live_balance(bank_code, bank_name)
-            if live is not None:
-                val, ts, fonte = live, now, "ao vivo"
-                try:
-                    await db.execute(text(
-                        "UPDATE bank_accounts SET current_balance=:b, available_balance=:b, "
-                        "last_balance_update=now(), updated_at=now() WHERE id=:id"),
-                        {"b": float(live), "id": str(acc_id)})
-                    await db.commit()
-                except Exception:  # noqa: BLE001
-                    await db.rollback()
-        # freshness do carimbo (só p/ colorir a fonte quando é cache)
-        idade_dias = None if ts is None else (now - (ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc))).days
-        fonte_tone = "ok" if fonte == "ao vivo" else ("warn" if (idade_dias is None or idade_dias >= 1) else "info")
+        if upd_utc is None:
+            status, tone = "Nunca sincronizado", "bad"
+        else:
+            age_min = (now - upd_utc).total_seconds() / 60
+            if age_min < 90:
+                status, tone = "Atualizado", "ok"
+            elif age_min < 60 * 26:
+                status, tone = "Recente", "info"
+            else:
+                status, tone = "Desatualizado", "warn"
         cells.append({"cells": [
             t(name or "—", 600, "#0F1B3A"), t(bank_name or "—"),
-            t(brl(val) if val is not None else "aguardando dado", 600, "#0F1B3A" if val is not None else "#64748B"),
-            t(_fmtdate(ts, "%d/%m %H:%M") if ts else "nunca"),
-            b("Ao vivo" if fonte == "ao vivo" else "Cache", fonte_tone),
+            t(brl(bal) if bal is not None else "aguardando dado", 600, "#0F1B3A" if bal is not None else "#64748B"),
+            t(_fmtdate(upd, "%d/%m %H:%M") if upd else "nunca"),
+            b(status, tone),
         ]})
     return {"title": "Saldos por conta",
-            "sub": "Inter e Cora — puxa o saldo real ao vivo quando o cache passa de 3 min; sempre mostra a data e a fonte",
+            "sub": "Inter e Cora — saldo do último sync (a cada 15 min); a data mostra o quão fresco está",
             "cta": "—", "type": "table", "searchHint": "Buscar…",
-            "grid": "1.6fr 1.2fr 1.1fr 1.1fr 0.8fr",
-            "cols": ["Conta", "Banco", "Saldo", "Atualizado", "Fonte"], "rows": cells}
+            "grid": "1.6fr 1.2fr 1.1fr 1.1fr 0.9fr",
+            "cols": ["Conta", "Banco", "Saldo", "Atualizado", "Status"], "rows": cells}
 
 
 def _simnao(v) -> dict:

@@ -307,3 +307,52 @@ def cora_sync_extrato_task(self):
     except Exception as exc:
         logger.error("Erro no sync do extrato Cora: %s", exc)
         raise self.retry(exc=exc)
+
+
+@app.task(bind=True, name="financial.sync_bank_balances", max_retries=1, default_retry_delay=300)
+def sync_bank_balances_task(self):
+    """Atualiza SÓ o saldo (bank_accounts) de Inter e Cora com o valor REAL ao vivo
+    (mTLS, READ-only). Roda no worker a cada 15 min, FORA do caminho de render das
+    telas — I/O de banco no render derrubava o web (502). Não move dinheiro."""
+    import asyncio
+
+    from sqlalchemy import text
+
+    from core.database.session import get_sync_db
+
+    async def _inter():
+        from modules.integrations.inter.client import InterClient
+        async with InterClient() as cli:
+            return await asyncio.wait_for(cli.consultar_saldo(), timeout=15)
+
+    async def _cora():
+        from modules.integrations.banking.adapters.cora import CoraAdapter
+        ad = CoraAdapter()
+        if not await asyncio.wait_for(ad.authenticate(), timeout=15):
+            return None
+        return await asyncio.wait_for(ad.get_balance(), timeout=15)
+
+    out: dict = {}
+    with get_sync_db() as db:
+        for nome, coro, like in (("inter", _inter, "%inter%"), ("cora", _cora, "%cora%")):
+            try:
+                saldo = asyncio.run(coro())
+                if saldo is None:
+                    out[nome] = "sem saldo"
+                    continue
+                total = float(getattr(saldo, "total", None) or getattr(saldo, "available", 0) or 0)
+                avail = float(getattr(saldo, "available", None) or total)
+                blk = float(getattr(saldo, "blocked", 0) or 0)
+                db.execute(text(
+                    "UPDATE bank_accounts SET current_balance=:t, available_balance=:a, "
+                    "blocked_balance=:b, last_balance_update=NOW(), updated_at=NOW() "
+                    "WHERE ativo IS NOT FALSE AND bank_name ILIKE :like"),
+                    {"t": total, "a": avail, "b": blk, "like": like})
+                db.commit()
+                out[nome] = total
+            except Exception as exc:  # noqa: BLE001 — um banco falhar não derruba o outro
+                db.rollback()
+                out[nome] = f"erro: {exc}"
+                logger.warning("sync_bank_balances %s falhou: %s", nome, exc)
+    logger.info("sync_bank_balances: %s", out)
+    return out

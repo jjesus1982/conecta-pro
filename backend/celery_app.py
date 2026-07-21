@@ -167,6 +167,14 @@ app.conf.beat_schedule = {
         "schedule": crontab(hour=8, minute=10),
         "options": {"queue": "gov.batch"},
     },
+    # ── Saldos Inter+Cora frescos (bank_accounts) a cada 15 min, no worker ──
+    # A tela "Saldos por conta" lê esse cache; o fetch ao vivo fica AQUI (worker),
+    # nunca no render das telas (I/O externo no web derrubava o worker → 502).
+    "financeiro-sync-saldos-15min": {
+        "task": "financial.sync_bank_balances",
+        "schedule": crontab(minute="*/15"),
+        "options": {"queue": "gov.batch"},
+    },
     # ── Financeiro — Monitor de pagamentos pendentes de aprovação (status vivo do Inter) ──
     "financeiro-monitor-pagamentos-pendentes": {
         "task": "financial.inter_monitorar_pendentes",
