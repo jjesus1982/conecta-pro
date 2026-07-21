@@ -65,3 +65,4 @@ Para cada tela dos SEUS módulos:
 - FERRAMENTA: oráculo agora normaliza texto (ignora pontuação/acento) → só flaga gap REAL, sem ruído. Vale p/ T2/T4.
 - [x] T4 financeiro/dashboard — fidelidade: painel ADITIVO "Faturamento NFS-e (12m)" (Bruto 1.615.707,19 · Líquido 1.451.894,06 · ISS 76.805,71 · Ticket 19.234,61) que o clássico exibe e o redesign não tinha. Mantém os KPIs de caixa. curl público confirma. commit 79359a58
 - [x] T2 departamento-pessoal/folha — trouxe breakdown INSS/FGTS 8%/Descontos/Líquido por colaborador (hr_payslips), override no builder; redesign só tinha base+líquido. Provado no público (ADAILSON INSS 79,82/FGTS 208,71 batem com o clássico). commit (folha), blue-green OK.
+- [x] T4 bi — fidelidade: NOVO bi.py com "Receita × Despesa (6m)" (bank_transactions, 6 meses reais) + "DRE do mês" (pivot, 'Outros custos' fecha com resultado). Clássico /financial/bi/overview mostrava; redesign só tinha 4 KPIs. curl público confirma. commit 72a23117
