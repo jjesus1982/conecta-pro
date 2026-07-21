@@ -72,3 +72,10 @@ ninguém faz em paralelo agora).
 - [x] T1 saude-ocupacional: estabilidade(1 real, CINTIA) + alertas(88 ASOs vencidos). Padrão delegar+estender (build() chama _build_saude e adiciona). ajuda-medicamento pulado (sem tabela).
 - ✅ T4 BAKE CONCLUÍDO (2026-07-21 11:56, blue-green RC=0, zero downtime): imagem baked 881747… contém os 9 arquivos; 50 telas DURÁVEIS. Verificado no domínio público pós-recreate: financeiro 26 c/dados·gp 12·crm 12·empresas 5·seguranca 2·recrutamento 3·servicos 2·assistente 2 (+ honestas-vazias). Oráculo raio-x=financial_kpis batendo (Saldo Inter R$67.757,29 == banco). commits c74072a8 (build) + a627bfcd (docs).
 - [x] T1 operacional: presenca(200 batidas)·escalas(20)·turnos(200)·reembolsos(22) — TUDO leitura (curadoria do Jordan respeitada). disciplinar pulado (RBAC-sensível); escalas-grade/visual/rondas/AI = capacidade, não wireáveis.
+- [x] T3 area-do-cliente (6/6, era 100% mock): dashboard(clients 20)·operacao(inspection_rounds 3)·chamados(occurrences 4)·financeiro(receivable_accounts 21)·kits(ged_document_kits 58)·analytics(agregado). Deploy+HTTP200.
+- [x] T3 portal-do-funcionario (5/5): ponto(gp_clock_punches)·beneficios(employee_benefits 159)·escalas(shifts)·treinamentos(trainings)·dados-pessoais(employees 52). Estende _build_portal_funcionario. Deploy+HTTP200.
+- [x] T3 licitacoes (3/3): disputas(bidding_tenders 9)·documentos(bidding_tender_documents 8)·resultados(bidding_tenders). Estende _build_licitacoes. ia sem tabela→não fabricado. Deploy+HTTP200.
+- [x] T3 configuracoes (6/6): tenants(1)·integracoes(integration_logs 81)·templates-notificacao·feature-flags·configuracoes-sistema(limites/uso tenant)·consultor(consultor_memorias 24). Estende _build_configuracoes. Deploy+HTTP200.
+- [x] T3 equipamentos (4/4, NOVO): visao·patrimonio·comodatos·manutencoes (equipment* reais, hoje 0=honesto). Deploy+HTTP200.
+- [x] T3 automacoes (3/3, NOVO): visao(resumo 3 métricas)·workflows·execucoes (crm_workflow* reais). Deploy+HTTP200.
+- ✅ **T3 CLUSTER PESSOAS 100% — 9 módulos / 54 telas ligadas, deployadas e provadas por HTTP 200 autenticado.**

@@ -55,3 +55,9 @@ Estratégia aprovada (2026-07-20): B+C — clássico segue operacional; corrijo 
 | 33 | operacional | Escalas invisíveis | tela `escalas` (solides_work_schedules) | build(): 20, "12/36 Limpeza" | ✅ FECHADO (fundação) |
 | 34 | operacional | Turnos invisíveis | tela `turnos` (shifts) | build(): 200, 12h noturno | ✅ FECHADO (fundação) |
 | 35 | operacional | Reembolsos invisíveis (read-only) | tela `reembolsos` (reimbursement_requests, sem aprovar/pagar) | build(): 22, REI-2026-002 R$83,50 | ✅ FECHADO (fundação) |
+| 31 | area-do-cliente | Portal do cliente 100% mock (sem builder) | NOVO `redesign_builders/area_do_cliente.py` 6 telas | HTTP200: dashboard 20·operacao 3·chamados 4·financeiro 21·kits 58·analytics 3 | ✅ FECHADO + DEPLOYADO (T3) |
+| 32 | portal-do-funcionario | 5 telas sem wiring (ponto/beneficios/escalas/treinamentos/dados-pessoais) | `portal_do_funcionario.py` estende `_build_portal_funcionario` | HTTP200: ponto 300·beneficios 159·escalas 300·treinamentos 5·dados-pessoais 52 | ✅ FECHADO + DEPLOYADO (T3) |
+| 33 | licitacoes | 3 telas sem wiring (disputas/documentos/resultados) | `licitacoes.py` estende `_build_licitacoes` (bidding_*) | HTTP200: disputas 9·documentos 8·resultados 0 | ✅ FECHADO + DEPLOYADO (T3) |
+| 34 | configuracoes | 6 telas sem wiring (tenants/integracoes/templates/feature-flags/config-sistema/consultor) | `configuracoes.py` estende `_build_configuracoes` | HTTP200: tenants 1·integracoes 81·consultor 24 (+3 reais vazias) | ✅ FECHADO + DEPLOYADO (T3) |
+| 35 | equipamentos | Módulo 100% mock (sem builder) | NOVO `equipamentos.py` 4 telas (equipment*) | HTTP200: 4/4 wired, 0=honesto (módulo não alimentado) | ✅ FECHADO + DEPLOYADO (T3) |
+| 36 | automacoes | Módulo 100% mock (sem builder) | NOVO `automacoes.py` 3 telas (crm_workflow*) | HTTP200: visao 3 métricas + workflows/execucoes reais | ✅ FECHADO + DEPLOYADO (T3) |
