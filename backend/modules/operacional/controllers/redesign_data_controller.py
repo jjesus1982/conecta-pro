@@ -758,6 +758,25 @@ async def _build_crm(db: AsyncSession) -> dict:
         "FROM crm_activities a LEFT JOIN clients cl ON cl.id=a.client_id ORDER BY coalesce(a.scheduled_at, a.created_at) DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0], 600, "#0F1B3A"), b((r[1] or '—').replace('_', ' ').capitalize(), "info"), t(r[2]),
                    t(_fmtdate(r[3], '%d/%m/%Y %H:%M') if r[3] else '—'), b("Concluída", "ok") if r[4] else b("Aberta", "warn"), t(r[5])]))
+    # Simular preço (calculadora de precificação — cálculo puro, não gera proposta/contrato)
+    out["simular-preco"] = {
+        "title": "Simular preço", "sub": "Calculadora de precificação (CCT + custos + margem) — simulação, não gera proposta",
+        "cta": "Simular", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/simular-preco", "okMsg": "Preço simulado"},
+        "fields": [
+            {"key": "service_type", "label": "Serviço*", "type": "select", "span": "span 1", "ph": "Tipo",
+             "options": [{"value": v, "label": l} for v, l in [
+                 ("portaria", "Portaria"), ("vigilancia", "Vigilância"), ("limpeza", "Limpeza"),
+                 ("seguranca_eletronica", "Segurança eletrônica"), ("portaria_remota", "Portaria remota")]]},
+            {"key": "base_salary", "label": "Salário base (R$)", "type": "text", "span": "span 1", "ph": "1670,00 (piso CCT)"},
+            {"key": "headcount", "label": "Nº de postos", "type": "text", "span": "span 1", "ph": "1"},
+            {"key": "contract_months", "label": "Meses de contrato", "type": "text", "span": "span 1", "ph": "12"},
+            {"key": "margin_target", "label": "Margem alvo (%)", "type": "text", "span": "span 1", "ph": "35"},
+            {"key": "client_state", "label": "UF do cliente", "type": "text", "span": "span 1", "ph": "AM"},
+            {"key": "benefits_value", "label": "Benefícios/posto (R$)", "type": "text", "span": "span 1", "ph": "0,00"},
+            {"key": "equipment_value", "label": "Equipamentos (R$)", "type": "text", "span": "span 1", "ph": "0,00"},
+        ],
+    }
     # Novo lead (FORM com ESCRITA real → POST /redesign/action/lead)
     out["novo-lead"] = {
         "title": "Novo lead", "sub": "Cadastrar um novo lead comercial", "cta": "Cadastrar lead",
@@ -2512,6 +2531,50 @@ async def rd_action_rescisao_calc(
     return {"ok": True, "message": msg}
 
 
+@router.post("/action/simular-preco")
+async def rd_action_simular_preco(
+    current_user: CurrentActiveUser,
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    # Simulador de preço (precificação) — cálculo PURO via PricingEngine. Não grava proposta/contrato.
+    from decimal import Decimal, InvalidOperation
+
+    from modules.crm.services.pricing_engine import PricingEngine, PricingInput
+
+    def _money(k, default):
+        raw = (payload.get(k) or "").strip()
+        if not raw:
+            return Decimal(default)
+        try:
+            return Decimal(raw.replace(".", "").replace(",", "."))
+        except (InvalidOperation, ValueError):
+            raise HTTPException(status_code=400, detail=f"Valor inválido em '{k}'.")
+
+    def _int(k, default):
+        try:
+            return int(payload.get(k) or default)
+        except (ValueError, TypeError):
+            return default
+
+    stype = (payload.get("service_type") or "portaria").strip()
+    hc = max(_int("headcount", 1), 1)
+    months = _int("contract_months", 12) or 12
+    state = ((payload.get("client_state") or "AM").strip()[:2].upper() or "AM")
+    try:
+        inp = PricingInput(base_salary=_money("base_salary", "1670"), headcount=hc, contract_months=months,
+                           service_type=stype, client_state=state, margin_target=_money("margin_target", "35"),
+                           benefits_value=_money("benefits_value", "0"), equipment_value=_money("equipment_value", "0"))
+        res = PricingEngine().calculate(inp)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Não foi possível simular: {e}")
+    msg = (f"Preço simulado ({stype.replace('_', ' ')}, {hc} posto(s), {months}m) — "
+           f"PREÇO/POSTO {brl(res.unit_price)} · MENSAL {brl(res.total_monthly)} · CONTRATO {brl(res.total_contract)} | "
+           f"Custo total {brl(res.total_cost)} · CCT {res.cct_percent}% · Margem {res.margin_percent}% ({brl(res.margin_value)}) · "
+           f"Impostos {brl(res.tax_amount)}. Simulação — não gera proposta.")
+    return {"ok": True, "message": msg}
+
+
 # Itens de menu extras (telas de ação/escrita) que o ModuleView anexa à nav.
 EXTRA_MENU = {
     "financeiro": [
@@ -2532,6 +2595,7 @@ EXTRA_MENU = {
         {"id": "mover-oportunidade", "label": "Mover no funil", "icon": "M3 3v18h18M7 14l3-3 3 3 5-6"},
         {"id": "nova-tarefa", "label": "Nova tarefa", "icon": "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 7v5l3 2"},
         {"id": "anotar-cliente", "label": "Anotar cliente", "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h5"},
+        {"id": "simular-preco", "label": "Simular preço", "icon": "M9 7h6M9 11h6M9 15h4M5 3h14a1 1 0 0 1 1 1v16H4V4a1 1 0 0 1 1-1z"},
     ],
     "gestao-de-pessoas": [
         {"id": "registrar-entrega-epi", "label": "Registrar entrega de EPI", "icon": "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"},
