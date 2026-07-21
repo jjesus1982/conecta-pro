@@ -79,3 +79,4 @@ ninguém faz em paralelo agora).
 - [x] T3 equipamentos (4/4, NOVO): visao·patrimonio·comodatos·manutencoes (equipment* reais, hoje 0=honesto). Deploy+HTTP200.
 - [x] T3 automacoes (3/3, NOVO): visao(resumo 3 métricas)·workflows·execucoes (crm_workflow* reais). Deploy+HTTP200.
 - ✅ **T3 CLUSTER PESSOAS 100% — 9 módulos / 54 telas ligadas, deployadas e provadas por HTTP 200 autenticado.**
+- [x] T1 integracoes: logs(81 integration_logs) + sync(solides_sync_log). conectores/webhooks/api-keys sem tabela → honesto vazio.

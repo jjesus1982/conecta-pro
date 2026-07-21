@@ -61,3 +61,5 @@ Estratégia aprovada (2026-07-20): B+C — clássico segue operacional; corrijo 
 | 34 | configuracoes | 6 telas sem wiring (tenants/integracoes/templates/feature-flags/config-sistema/consultor) | `configuracoes.py` estende `_build_configuracoes` | HTTP200: tenants 1·integracoes 81·consultor 24 (+3 reais vazias) | ✅ FECHADO + DEPLOYADO (T3) |
 | 35 | equipamentos | Módulo 100% mock (sem builder) | NOVO `equipamentos.py` 4 telas (equipment*) | HTTP200: 4/4 wired, 0=honesto (módulo não alimentado) | ✅ FECHADO + DEPLOYADO (T3) |
 | 36 | automacoes | Módulo 100% mock (sem builder) | NOVO `automacoes.py` 3 telas (crm_workflow*) | HTTP200: visao 3 métricas + workflows/execucoes reais | ✅ FECHADO + DEPLOYADO (T3) |
+| 36 | integracoes | Logs de integração invisíveis | tela `logs` (integration_logs, 81) | build(): POST /webhooks/inter/boleto | ✅ FECHADO (fundação) |
+| 37 | integracoes | Histórico de sync invisível | tela `sync` (solides_sync_log, 7353) | build(): punches Sólides→Conecta 180 | ✅ FECHADO (fundação) |
