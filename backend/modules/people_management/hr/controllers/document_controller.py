@@ -14,9 +14,12 @@ a employee_id, ou à categoria RH, ignorando soft-deletados.
 """
 
 import logging
+import os
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
@@ -25,6 +28,31 @@ from core.database import get_db
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/documents", tags=["DP - Documentos"])
+
+
+@router.get("/{doc_id}/download", summary="Baixar/visualizar documento do funcionário")
+async def download_document(
+    doc_id: str,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Serve o arquivo (PDF/imagem) de um documento — hr_employee_documents ou ged_documents."""
+    row = (await db.execute(
+        text("SELECT file_path, file_name, mime_type FROM hr_employee_documents WHERE id::text=:d"),
+        {"d": doc_id},
+    )).mappings().first()
+    if not row:
+        row = (await db.execute(
+            text("SELECT file_path, file_name, mime_type FROM ged_documents WHERE id::text=:d AND deleted_at IS NULL"),
+            {"d": doc_id},
+        )).mappings().first()
+    if not row or not row["file_path"] or not os.path.exists(row["file_path"]):
+        raise HTTPException(status_code=404, detail="Documento não encontrado.")
+    return FileResponse(
+        row["file_path"],
+        media_type=row["mime_type"] or "application/pdf",
+        filename=row["file_name"] or f"documento_{doc_id}.pdf",
+    )
 
 
 @router.get(

@@ -156,6 +156,9 @@ def painel_fechamento(db: Session, mes: int, ano: int) -> dict[str, Any]:
             FROM time_sheets
             WHERE reference_month = :m AND reference_year = :y
               AND COALESCE(is_deleted, false) = false
+              -- Homologação NÃO entra no painel de fechamento de produção (isolamento de teste)
+              -- (time_sheets.employee_id é VARCHAR; employees.id é uuid → cast p/ texto)
+              AND employee_id NOT IN (SELECT CAST(id AS TEXT) FROM employees WHERE coalesce(is_homologacao, false) = true)
             ORDER BY employee_name
             """
         ),

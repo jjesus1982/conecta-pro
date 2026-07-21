@@ -153,6 +153,7 @@ async def _batidas_por_funcionario(db: AsyncSession, dia: date) -> dict[str, lis
             WHERE (cp.punch_timestamp) >= :ini
               AND (cp.punch_timestamp) < :fim
               AND {_PUNCH_VALIDO}
+              AND cp.employee_id NOT IN (SELECT id FROM employees WHERE coalesce(is_homologacao, false) = true)
             ORDER BY cp.employee_id, (cp.punch_timestamp) ASC
             """
         ),
@@ -206,6 +207,8 @@ async def quadro_presenca_hoje(
             SELECT p.id::text AS post_id, p.name AS post_nome
             FROM posts p
             WHERE p.is_active = TRUE{scope_filter_posts}
+              -- Posto-base de homologação NÃO entra no quadro operacional de produção
+              AND coalesce(p.code, '') <> 'CONECTA-BASE'
             ORDER BY p.name
             """
         ),
@@ -256,6 +259,7 @@ async def quadro_presenca_hoje(
             ) sub ON TRUE
             WHERE sh.shift_date = :dia
               AND {_SHIFT_ESPERADO}{scope_filter_shifts}
+              AND coalesce(e.is_homologacao, false) = false
             ORDER BY p.name, sh.planned_start_time, e.nome
             """
         ),

@@ -148,6 +148,12 @@ class TimeRecordService:
         if employee_id:
             where_clauses.append("employee_id = :emp_id")
             params["emp_id"] = str(employee_id)
+        else:
+            # Visão agregada (todos os funcionários): homologação NÃO vaza p/ produção.
+            # Consulta por employee_id específico continua funcionando (validação de teste).
+            where_clauses.append(
+                "employee_id NOT IN (SELECT id FROM employees WHERE coalesce(is_homologacao, false) = true)"
+            )
         if date_from:
             where_clauses.append("(punch_timestamp)::date >= :date_from")
             params["date_from"] = date_from
@@ -918,6 +924,7 @@ class TimeRecordService:
                 created_at, updated_at
             FROM gp_clock_punches
             WHERE (punch_timestamp)::date = :pdate
+              AND employee_id NOT IN (SELECT id FROM employees WHERE coalesce(is_homologacao, false) = true)
             ORDER BY employee_id, punch_timestamp
         """)
         result = await self.db.execute(sql, {"pdate": record_date})

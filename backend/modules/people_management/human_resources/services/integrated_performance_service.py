@@ -88,6 +88,9 @@ class IntegratedPerformanceService:
         avisos: list[str] = []
 
         filtro_emp = "AND e.id = :emp" if employee_id else ""
+        # Visão agregada NÃO inclui homologação (isolamento de teste); lookup por
+        # employee_id específico continua funcionando. Mesmo padrão do isolamento de ponto.
+        filtro_homo = "" if employee_id else "AND coalesce(e.is_homologacao, false) = false"
         params_emp = {"emp": employee_id} if employee_id else {}
         employees = (
             (
@@ -97,7 +100,7 @@ class IntegratedPerformanceService:
                         "e.data_admissao, "
                         "EXTRACT(YEAR FROM AGE(CURRENT_DATE, e.data_admissao)) * 12 + "
                         "EXTRACT(MONTH FROM AGE(CURRENT_DATE, e.data_admissao)) AS tempo_casa_meses "
-                        f"FROM employees e WHERE e.status = 'ativo' {filtro_emp} ORDER BY e.nome"
+                        f"FROM employees e WHERE e.status = 'ativo' {filtro_emp} {filtro_homo} ORDER BY e.nome"
                     ),
                     params_emp,
                 )

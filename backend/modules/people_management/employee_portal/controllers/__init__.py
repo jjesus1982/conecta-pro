@@ -17,11 +17,15 @@ from .my_vacations_controller import router as my_vacations_router
 from .portal_controller import router as portal_auth_router
 from .self_service_controller import router as self_service_router
 from .homologacao_controller import router as homologacao_router
+from .candidato_controller import router as candidato_router
+from .pj_autocadastro_controller import router as pj_autocadastro_router
 
 __all__ = [
     "portal_auth_router",
     "self_service_router",
     "homologacao_router",
+    "candidato_router",
+    "pj_autocadastro_router",
     "my_profile_router",
     "my_schedules_router",
     "my_payslips_router",

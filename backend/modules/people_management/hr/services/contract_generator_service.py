@@ -186,7 +186,7 @@ class ContractGeneratorService:
                 SELECT nome, cpf, cargo, data_admissao, salario_base
                 FROM employees
                 WHERE id = CAST(:eid AS uuid)
-                  AND is_active = true
+                  AND status = 'ativo'
                 LIMIT 1
             """),
             {"eid": employee_id},

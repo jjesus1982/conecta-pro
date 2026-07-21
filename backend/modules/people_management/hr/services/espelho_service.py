@@ -781,7 +781,9 @@ def _employees_com_batida(db: Session, mes: int, ano: int) -> list[str]:
     rows = db.execute(
         text(
             "SELECT DISTINCT CAST(employee_id AS TEXT) AS e FROM gp_clock_punches "
-            "WHERE EXTRACT(MONTH FROM (punch_timestamp))=:m AND EXTRACT(YEAR FROM (punch_timestamp))=:y"
+            "WHERE EXTRACT(MONTH FROM (punch_timestamp))=:m AND EXTRACT(YEAR FROM (punch_timestamp))=:y "
+            # Homologação NÃO entra no fechamento/folha de produção (isolamento de teste)
+            "  AND employee_id NOT IN (SELECT id FROM employees WHERE coalesce(is_homologacao, false) = true)"
         ),
         {"m": int(mes), "y": int(ano)},
     ).fetchall()

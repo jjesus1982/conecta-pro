@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 CNPJ = os.getenv("NFSE_MANAUS_CNPJ", "35710481000103")
 CERT_PATH = os.getenv("CERTIFICATE_PATH", "/app/credentials/certificates/certificado.pfx")
-CERT_PASS = os.getenv("CERTIFICATE_PASSWORD", "Conecta123")
+CERT_PASS = os.getenv("CERTIFICATE_PASSWORD", "")
 PORTAL_URL = "https://sefin.nfse.gov.br/sefinnacional"
 
 

@@ -232,11 +232,16 @@ async def grade_do_posto(
         )
     ).all()
 
-    def _tipo(horas, inicio) -> dict:
-        # turno derivado do horário-moda REAL (>=15h = noturno), não da flag is_night
-        # acumulada (bool_or pega histórico antigo de quem trocou de turno no mês)
-        if float(horas) >= 12:
-            return {"padrao": "12x36", "turno": "noturno" if inicio.hour >= 15 else "diurno"}
+    def _eh_12x36(cargo) -> bool:
+        # REGRA DO JORDAN: SÓ portaria (Agente/Líder de Portaria) trabalha 12x36.
+        # ASG, Jardineiro, Artífice e demais = comercial 44h semanais — mesmo que tenham
+        # coberto um turno de 12h avulso (o max(horas) do mês NÃO define o padrão do cargo).
+        return "PORTARIA" in (cargo or "").upper()
+
+    def _tipo(cargo, inicio) -> dict:
+        # padrão pelo CARGO; turno (só p/ 12x36) derivado do horário-moda REAL (>=15h = noturno)
+        if _eh_12x36(cargo):
+            return {"padrao": "12x36", "turno": "noturno" if (inicio and inicio.hour >= 15) else "diurno"}
         return {"padrao": "comercial", "turno": "diurno"}
 
     return {
@@ -250,12 +255,12 @@ async def grade_do_posto(
                 "employee_id": r[0],
                 "nome": r[1],
                 "cargo": r[2],
-                **_tipo(r[3], r[5]),
+                **_tipo(r[2], r[5]),
                 "inicio": str(r[5])[:5],
                 "fim": str(r[6])[:5],
-                "paridade": ("impares" if int(r[7]) == 1 else "pares") if float(r[3]) >= 12 else None,
+                "paridade": ("impares" if int(r[7]) == 1 else "pares") if _eh_12x36(r[2]) else None,
                 "fim_de_semana": (
-                    None if float(r[3]) >= 12
+                    None if _eh_12x36(r[2])
                     else "domingo" if r[11] else "sabado" if r[10] else "nenhum"
                 ),
                 "turnos_no_mes": int(r[8]),

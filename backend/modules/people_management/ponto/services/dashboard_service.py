@@ -99,7 +99,7 @@ def _horas_trab_por_escala(db: Session, month: int, year: int) -> dict[str, dict
             "       p.punch_type, p.punch_timestamp "
             "FROM gp_clock_punches p "
             "JOIN employees e ON CAST(e.id AS text)=CAST(p.employee_id AS text) "
-            "WHERE e.status='ativo' "
+            "WHERE e.status='ativo' AND coalesce(e.is_homologacao, false) = false "
             "  AND EXTRACT(MONTH FROM p.punch_timestamp)=:m "
             "  AND EXTRACT(YEAR FROM p.punch_timestamp)=:y "
             "ORDER BY p.employee_id, p.punch_timestamp, CASE WHEN lower(coalesce(p.punch_type,'')) LIKE 'sa%' THEN 0 ELSE 1 END, p.punch_id"
@@ -163,7 +163,8 @@ def get_dashboard(db: Session) -> dict[str, Any]:
         db.execute(
             text(
                 "SELECT COUNT(DISTINCT employee_id) FROM gp_clock_punches "
-                "WHERE punch_type='entrada' AND DATE(punch_timestamp)=:hoje"
+                "WHERE punch_type='entrada' AND DATE(punch_timestamp)=:hoje "
+                "  AND employee_id NOT IN (SELECT id FROM employees WHERE coalesce(is_homologacao, false) = true)"
             ),
             {"hoje": hoje},
         ).scalar()
@@ -179,6 +180,7 @@ def get_dashboard(db: Session) -> dict[str, Any]:
                 # plantão como aberto)
                 "SELECT COUNT(DISTINCT e.employee_id) FROM gp_clock_punches e "
                 "WHERE e.punch_type='entrada' AND DATE(e.punch_timestamp)=:hoje "
+                "AND e.employee_id NOT IN (SELECT id FROM employees WHERE coalesce(is_homologacao, false) = true) "
                 "AND NOT EXISTS ("
                 "  SELECT 1 FROM gp_clock_punches s "
                 "  WHERE s.employee_id=e.employee_id AND s.punch_type='saida' "
@@ -309,6 +311,7 @@ def get_inconsistencias(
             "FROM gp_clock_punches e "
             "WHERE e.punch_type='entrada' "
             "AND DATE(e.punch_timestamp) BETWEEN :ini AND :fim "
+            "AND e.employee_id NOT IN (SELECT id FROM employees WHERE coalesce(is_homologacao, false) = true) "
             "AND NOT EXISTS ("
             "  SELECT 1 FROM gp_clock_punches s "
             "  WHERE s.employee_id=e.employee_id AND s.punch_type='saida' "
@@ -348,6 +351,7 @@ def get_inconsistencias(
             ") nx ON nx.saida_ts IS NOT NULL "
             "WHERE ent.punch_type='entrada' "
             "AND DATE(ent.punch_timestamp) BETWEEN :ini AND :fim "
+            "AND ent.employee_id NOT IN (SELECT id FROM employees WHERE coalesce(is_homologacao, false) = true) "
             "AND EXTRACT(EPOCH FROM (nx.saida_ts - ent.punch_timestamp))/3600 > :max_h "
             "ORDER BY dia DESC"
         ),
@@ -380,6 +384,7 @@ def get_inconsistencias(
             "SELECT employee_id, punch_type, (punch_timestamp) AS punch_timestamp FROM gp_clock_punches "
             "WHERE punch_type IN ('entrada','saida') "
             "AND DATE(punch_timestamp) BETWEEN :ini AND :fim "
+            "AND employee_id NOT IN (SELECT id FROM employees WHERE coalesce(is_homologacao, false) = true) "
             "ORDER BY employee_id, punch_timestamp, CASE WHEN lower(coalesce(punch_type,'')) LIKE 'sa%' THEN 0 ELSE 1 END, punch_id"
         ),
         {"ini": inicio, "fim": fim},

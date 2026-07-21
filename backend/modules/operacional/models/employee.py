@@ -71,7 +71,18 @@ class Employee(Base):
     gestor_nome = Column(String(255), nullable=True)
     data_admissao = Column(Date, nullable=True)
     data_demissao = Column(Date, nullable=True)
-    tipo_contrato = Column(String(50), nullable=True)
+    tipo_contrato = Column(String(50), nullable=True)  # 'clt' | 'pj' | ...
+    # Multi-CNPJ: empresa dona do vínculo (folha/pagamento). NÃO era mapeada → Employee(empresa_id=)
+    # não persistia (o banco tem DEFAULT cego = Patrimonial). Mapear é aditivo e corrige o gotcha.
+    empresa_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    # Prestador PJ (3º trilho) — autocadastro PJ tokenizado
+    cnpj = Column(String(18), nullable=True, index=True)
+    razao_social = Column(String(255), nullable=True)
+    regime_tributario = Column(String(50), nullable=True)
+    inscricao_municipal = Column(String(50), nullable=True)
+    papel_pj = Column(String(100), nullable=True)
+    cnpj_pendente = Column(Boolean, nullable=True, default=False)
+    autocadastro_token = Column(String(80), nullable=True, index=True)
     regime_trabalho = Column(String(50), nullable=True)
     jornada_trabalho = Column(String(100), nullable=True)
     carga_horaria_semanal = Column(Integer, nullable=True)

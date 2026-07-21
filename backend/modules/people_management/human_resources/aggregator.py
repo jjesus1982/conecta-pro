@@ -46,6 +46,28 @@ try:
 except ImportError:
     logger.warning("RH: Modulo de recrutamento nao disponivel.")
 
+# Re-export: Esteira de candidatos (funil candidato→colaborador, fase 3)
+try:
+    from modules.people_management.human_resources.controllers.candidatos_esteira_controller import (
+        router as candidatos_esteira_router,
+    )
+
+    router.include_router(candidatos_esteira_router)
+    logger.info("RH: Router de esteira de candidatos carregado.")
+except ImportError:
+    logger.warning("RH: Modulo de esteira de candidatos nao disponivel.")
+
+# Re-export: Gerador de link de Prestadores PJ (3º trilho)
+try:
+    from modules.people_management.human_resources.controllers.prestadores_pj_controller import (
+        router as prestadores_pj_router,
+    )
+
+    router.include_router(prestadores_pj_router)
+    logger.info("RH: Router de prestadores PJ (gerador de link) carregado.")
+except ImportError:
+    logger.warning("RH: Modulo de prestadores PJ nao disponivel.")
+
 # Re-export: Clima Organizacional
 try:
     from modules.people_management.human_resources.controllers.climate_controller import (
