@@ -18,6 +18,9 @@ from core.database.session import get_sync_db_dependency
 router = APIRouter(prefix="/painel-ponto", tags=["Painel Ponto (público, token)"])
 
 _TOKEN = os.environ.get("PAINEL_PONTO_TOKEN", "ponto-live-2026-a7f3k9d2")
+# Só batidas pelo CONECTA PRO (rollout). Sólides/Tangerino continuam sendo puxados
+# (ponto oficial na transição), mas NÃO entram neste acompanhamento.
+_CONECTA = "coalesce(device_type,'') NOT IN ('tangerino','web')"
 _COHORT = (
     "e.status='ativo' AND coalesce(e.is_homologacao,false)=false "
     "AND (e.tipo_contrato='clt' OR e.tipo_contrato IS NULL) AND (e.tipo_contrato IS DISTINCT FROM 'pj')"
@@ -44,7 +47,7 @@ def painel(
             f"FROM employees e "
             f"LEFT JOIN ( "
             f"  SELECT employee_id, count(*) AS n, to_char(max(punch_timestamp), 'HH24:MI') AS ultima "
-            f"  FROM gp_clock_punches WHERE punch_timestamp::date = {hoje} GROUP BY employee_id "
+            f"  FROM gp_clock_punches WHERE punch_timestamp::date = {hoje} AND {_CONECTA} GROUP BY employee_id "
             f") b ON b.employee_id = e.id "
             f"WHERE {_COHORT} ORDER BY e.nome"
         )
@@ -67,14 +70,15 @@ def painel(
     b = db.execute(text(
         f"SELECT count(*) AS total, count(DISTINCT employee_id) AS pessoas, "
         f"  count(*) FILTER (WHERE status='pending_contingencia') AS validar "
-        f"FROM gp_clock_punches WHERE punch_timestamp::date = {hoje} "
+        f"FROM gp_clock_punches WHERE punch_timestamp::date = {hoje} AND {_CONECTA} "
         f"  AND employee_id IN (SELECT id FROM employees e WHERE {_COHORT})"
     )).mappings().first()
 
     feed = db.execute(text(
         f"SELECT e.nome, p.punch_type, p.device_type, p.status, to_char(p.punch_timestamp,'HH24:MI') AS hora "
         f"FROM gp_clock_punches p JOIN employees e ON e.id=p.employee_id "
-        f"WHERE p.punch_timestamp::date = {hoje} AND p.employee_id IN (SELECT id FROM employees e2 WHERE "
+        f"WHERE p.punch_timestamp::date = {hoje} AND coalesce(p.device_type,'') NOT IN ('tangerino','web') "
+        f"  AND p.employee_id IN (SELECT id FROM employees e2 WHERE "
         + _COHORT.replace("e.", "e2.") +
         f") ORDER BY p.punch_timestamp DESC LIMIT 20"
     )).mappings().all()

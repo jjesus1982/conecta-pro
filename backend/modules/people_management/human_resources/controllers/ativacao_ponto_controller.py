@@ -218,6 +218,7 @@ def monitor(
         f"  count(*) FILTER (WHERE lower(coalesce(punch_type,'')) LIKE 'entrada%') AS entradas, "
         f"  count(*) FILTER (WHERE lower(coalesce(punch_type,'')) LIKE 'saida%' OR lower(coalesce(punch_type,'')) LIKE 'saída%') AS saidas "
         f"FROM gp_clock_punches WHERE punch_timestamp::date = {hoje} "
+        f"  AND coalesce(device_type,'') NOT IN ('tangerino','web') "
         f"  AND employee_id IN (SELECT id FROM employees WHERE {_COHORT})"
     )).mappings().first()
 
@@ -226,6 +227,7 @@ def monitor(
         f"  to_char(p.punch_timestamp, 'HH24:MI') AS hora "
         f"FROM gp_clock_punches p JOIN employees e ON e.id = p.employee_id "
         f"WHERE p.punch_timestamp::date = {hoje} "
+        f"  AND coalesce(p.device_type,'') NOT IN ('tangerino','web') "
         f"  AND p.employee_id IN (SELECT id FROM employees WHERE {_COHORT}) "
         f"ORDER BY p.punch_timestamp DESC LIMIT 15"
     )).mappings().all()
