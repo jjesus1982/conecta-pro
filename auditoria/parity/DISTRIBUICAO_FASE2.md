@@ -58,3 +58,4 @@ Para cada tela dos SEUS módulos:
 
 ## 5. CHECKLIST AO VIVO (marque `[x] <T> <modulo>/<tela>` ao fechar)
 <!-- ex.: - [x] T1 fiscal/certidoes — trouxe abas de filtro + rótulo "Vencendo" (oráculo fecha) commit abc -->
+- [x] T1 juridico/riscos — trouxe Exposição trabalhista (53 colab, R$242k) reusando riscos_service; oráculo fecha (números batem clássico).

@@ -80,3 +80,4 @@ Estratégia aprovada (2026-07-20): B+C — clássico segue operacional; corrijo 
 | 45 | financeiro | Conta de teste `ZZE2E_TestBank_001` ativa entrava na soma do saldo | marcada `ativo=false` (reversível) | soma agora só Inter+Cora | ✅ FECHADO |
 
 **Commits:** `2ab0b3a5` (KPI "não calculado"+coluna Atualizado) · `fa1c3860` (3 coletores reais) · `c5a4b41f` (fix 502 + sync background) · docs `1f3aa795`/`92e4ed37`/`179bb54c`. Frota celery recriada na imagem `fb37e651`. Provado no browser (Playwright): telas `saldos` e `raio-x` com dado real, screenshots salvos.
+| 39 | juridico | Riscos jurídicos VAZIO (clássico mostra 53 colab) | tela `riscos` reusa riscos_service.riscos_trabalhista (números batem) | oráculo+build: 53 colab, total R$242.007,79, 1ª linha idêntica ao clássico | ✅ FECHADO (Fase 2, fidelidade) |

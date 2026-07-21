@@ -88,4 +88,46 @@ async def build(db) -> dict:
         "FROM juridico_analises ORDER BY created_at DESC NULLS LAST LIMIT 200",
         lambda r: [t((r[0] or '—')[:48], 600, "#0F1B3A"), t((r[1] or '—').replace('_', ' ')), t((r[2] or '—')[:75]), _risk_b(r[3])]))
 
+    # Riscos jurídicos — Exposição trabalhista por funcionário. FIDELIDADE: reusa o MESMO
+    # serviço do clássico (riscos_service.riscos_trabalhista) → os números batem. Sync → thread.
+    try:
+        import asyncio
+
+        from core.database.session import SyncSessionLocal
+        from modules.juridico import riscos_service
+
+        def _sync_riscos():
+            sdb = SyncSessionLocal()
+            try:
+                return riscos_service.riscos_trabalhista(sdb)
+            finally:
+                sdb.close()
+
+        rk = await asyncio.to_thread(_sync_riscos)
+        det = rk.get("detalhado", []) or []
+
+        def _verbas_tags(v: dict) -> str:
+            xs = [k.replace('_', ' ') for k, vv in (v or {}).items()
+                  if isinstance((vv or {}).get('valor'), (int, float)) and (vv or {}).get('valor')]
+            return " · ".join(xs)
+
+        out["riscos"] = {
+            "title": "Riscos Jurídicos — Exposição trabalhista",
+            "sub": (f"Exposição estimada total {brl(rk.get('total_exposicao_estimada', 0))} · "
+                    f"{rk.get('funcionarios_com_risco', 0)} de {rk.get('funcionarios_analisados', 0)} "
+                    f"colaboradores com risco (estimativa, não provisão)"),
+            "cta": "—", "type": "table", "searchHint": "Buscar colaborador…",
+            "grid": "1.8fr 1.3fr 0.8fr 1fr 1.9fr",
+            "cols": ["Colaborador", "Cargo", "Meses casa", "Exposição estimada", "Verbas"],
+            "rows": [{"cells": [
+                t(d.get("nome") or "—", 600, "#0F1B3A"),
+                t(d.get("cargo") or "—"),
+                t(str(d.get("meses_de_casa")) if d.get("meses_de_casa") is not None else "—"),
+                t(brl(d.get("exposicao_estimada") or 0), 600, "#0F1B3A"),
+                t(_verbas_tags(d.get("verbas")) or "—"),
+            ]} for d in det[:300]],
+        }
+    except Exception:  # noqa: BLE001 — riscos não derruba o resto do módulo
+        pass
+
     return out
