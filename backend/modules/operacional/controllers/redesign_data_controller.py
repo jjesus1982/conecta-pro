@@ -490,6 +490,17 @@ async def _build_financeiro(db: AsyncSession) -> dict:
             {"key": "notes", "label": "Observações", "type": "textarea", "span": "span 2", "ph": "Opcional…"},
         ],
     }
+    # Custeio CCT — simulador de encargos (cálculo PURO reusando PricingEngine; nada é gravado)
+    out["custeio-cct"] = {
+        "title": "Custeio CCT (encargos)", "sub": "Provisões e encargos CCT sobre a folha — cálculo, nada é gravado",
+        "cta": "Calcular", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/custeio-cct", "okMsg": "Custeio calculado"},
+        "fields": [
+            {"key": "salario_base", "label": "Salário base (R$)*", "type": "text", "span": "span 1", "ph": "1.670,00 (piso CCT)"},
+            {"key": "headcount", "label": "Nº de colaboradores*", "type": "text", "span": "span 1", "ph": "1"},
+            {"key": "meses", "label": "Meses do contrato", "type": "text", "span": "span 1", "ph": "12"},
+        ],
+    }
 
     return out
 
@@ -683,6 +694,26 @@ async def _build_dp(db: AsyncSession) -> dict:
             {"key": "dias_abono", "label": "Dias de abono (venda, máx 10)", "type": "text", "span": "span 1", "ph": "0"},
         ],
     }
+    # Saldo de férias — leitura real dos períodos aquisitivos (employee_vacation_periods)
+    def _ferstatus(r):
+        if r[8]:  # is_expired
+            return b("Vencido", "bad")
+        if r[9]:  # is_fully_used
+            return b("Gozado", "ok")
+        if (r[6] or 0) > 0:
+            return b(f"{int(r[6])}d disponíveis", "warn")
+        return b("Em curso", "info")
+    await safe("saldo-ferias", _tbl(
+        "Saldo de férias", f"{await _scalar(db, 'SELECT count(*) FROM employee_vacation_periods')} períodos aquisitivos", "—",
+        ["Colaborador", "Período aquisitivo", "Direito", "Gozados", "Vendidos", "Saldo", "Vence em", "Status"],
+        "1.6fr 1.4fr 0.7fr 0.7fr 0.7fr 0.7fr 0.9fr 1fr",
+        "SELECT e.nome, p.start_date, p.end_date, p.total_days_entitled, p.days_used, p.days_sold, "
+        "p.days_remaining, p.expires_at, p.is_expired, p.is_fully_used "
+        "FROM employee_vacation_periods p JOIN employees e ON e.id = p.employee_id "
+        "ORDER BY p.expires_at ASC NULLS LAST, e.nome LIMIT 200",
+        lambda r: [t(r[0], 600, "#0F1B3A"), t(f"{_fmtdate(r[1])} – {_fmtdate(r[2])}"),
+                   t(f"{int(r[3] or 0)}d"), t(f"{int(r[4] or 0)}d"), t(f"{int(r[5] or 0)}d"),
+                   t(f"{int(r[6] or 0)}d", 600, "#0F1B3A"), t(_fmtdate(r[7])), _ferstatus(r)]))
 
     return out
 
@@ -916,6 +947,24 @@ async def _build_fiscal(db: AsyncSession) -> dict:
                        b("Cumprida", "ok") if (r[5] or "").lower() in ("cumprida", "pago", "paga") else b((r[5] or "Pendente").capitalize(), "warn")])
     await safe("dctfweb", _obrig("DCTFWEB", "DCTFWeb"))
     await safe("reinf", _obrig("EFD_REINF", "EFD-Reinf"))
+    # Guias FGTS / INSS — leitura real das guias puxadas do Onvio (fgts_guias / inss_guias).
+    # Colunas espelham só o dado real: competência/tipo/status + documento PDF (valor/vencimento
+    # ainda não são extraídos → omitidos p/ não exibir colunas 100% vazias).
+    _gtone = {"pago": "ok", "paga": "ok", "conciliado": "ok", "pendente": "warn", "vencido": "bad", "vencida": "bad"}
+    await safe("guias-fgts", tbl(
+        "Guias FGTS", f"{await _scalar(db, 'SELECT count(*) FROM fgts_guias')} guias (Onvio)", "—",
+        ["Competência", "Tipo", "Documento", "Status"], "1fr 1.4fr 0.9fr 0.9fr",
+        "SELECT coalesce(mes_ref,'—'), coalesce(tipo,'—'), (arquivo_pdf IS NOT NULL AND arquivo_pdf<>''), coalesce(status,'—') "
+        "FROM fgts_guias ORDER BY mes_ref DESC NULLS LAST, tipo LIMIT 200",
+        lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—').replace('_', ' ').capitalize()),
+                   b("PDF", "ok") if r[2] else t("—"), b((r[3] or '—').capitalize(), _gtone.get((r[3] or '').lower(), "info"))]))
+    await safe("guias-inss", tbl(
+        "Guias INSS", f"{await _scalar(db, 'SELECT count(*) FROM inss_guias')} guias (Onvio)", "—",
+        ["Competência", "Documento", "Status"], "1.2fr 0.9fr 0.9fr",
+        "SELECT coalesce(competencia, mes_ref, '—'), (arquivo_pdf IS NOT NULL AND arquivo_pdf<>''), coalesce(status,'—') "
+        "FROM inss_guias ORDER BY mes_ref DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0], 600, "#0F1B3A"), b("PDF", "ok") if r[1] else t("—"),
+                   b((r[2] or '—').capitalize(), _gtone.get((r[2] or '').lower(), "info"))]))
     return out
 
 
@@ -2634,11 +2683,59 @@ async def rd_action_ferias_calc(
     return {"ok": True, "message": msg}
 
 
+@router.post("/action/custeio-cct")
+async def rd_action_custeio_cct(
+    current_user: CurrentActiveUser,
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    # Custeio CCT — encargos/provisões sobre a folha (cálculo PURO via PricingEngine). Nada é gravado.
+    from decimal import Decimal, InvalidOperation
+
+    from modules.crm.services.pricing_engine import PricingEngine
+
+    def _money(k, default):
+        raw = (payload.get(k) or "").strip()
+        if not raw:
+            return Decimal(default)
+        try:
+            return Decimal(raw.replace(".", "").replace(",", "."))
+        except (InvalidOperation, ValueError):
+            raise HTTPException(status_code=400, detail=f"Valor inválido em '{k}'.")
+
+    def _int(k, default):
+        try:
+            return int(payload.get(k) or default)
+        except (ValueError, TypeError):
+            return default
+
+    sal = _money("salario_base", "1670")
+    if sal <= 0:
+        raise HTTPException(status_code=400, detail="Informe o salário base.")
+    headcount = max(_int("headcount", 1), 1)
+    meses = _int("meses", 12) or 12
+    try:
+        r = PricingEngine().calculate_cct_breakdown(sal, headcount, meses)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Não foi possível calcular: {e}")
+    total = sum(Decimal(str(v)) for v in r.values())
+    por_col_mes = total / Decimal(headcount) / Decimal(meses) if headcount and meses else Decimal(0)
+    _lbls = {"inss_empresa": "INSS patronal", "fgts": "FGTS", "sat_rat": "SAT/RAT", "terceiros": "Terceiros",
+             "ferias": "Férias", "ferias_terco": "1/3 férias", "decimo_terceiro": "13º",
+             "aviso_previo": "Aviso prévio", "multa_fgts": "Multa FGTS 40%", "provisao_rescisao": "Provisão rescisão"}
+    partes = " · ".join(f"{_lbls.get(k, k)} {brl(v)}" for k, v in r.items())
+    msg = (f"Custeio CCT ({headcount} colaborador(es), sal. base {brl(sal)}, {meses}m) — "
+           f"ENCARGOS TOTAIS {brl(total)} · {brl(por_col_mes)}/colab./mês | {partes}. "
+           f"Cálculo — nada é gravado.")
+    return {"ok": True, "message": msg}
+
+
 # Itens de menu extras (telas de ação/escrita) que o ModuleView anexa à nav.
 EXTRA_MENU = {
     "financeiro": [
         {"id": "registrar-conta-pagar", "label": "Registrar conta a pagar", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
         {"id": "registrar-conta-receber", "label": "Registrar conta a receber", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+        {"id": "custeio-cct", "label": "Custeio CCT (encargos)", "icon": "M9 7h6M9 11h6M9 15h4M5 3h14a1 1 0 0 1 1 1v16H4V4a1 1 0 0 1 1-1z"},
     ],
     "operacional": [
         {"id": "lancar-diaria", "label": "Lançar diária", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
@@ -2664,6 +2761,7 @@ EXTRA_MENU = {
         {"id": "calcular-rescisao", "label": "Calcular rescisão", "icon": "M9 7h6M9 11h6M9 15h4M5 3h14a1 1 0 0 1 1 1v16l-3-2-2 2-2-2-2 2-2-2-3 2V4a1 1 0 0 1 1-1z"},
         {"id": "calcular-ferias", "label": "Calcular férias", "icon": "M17 8C8 10 5.9 16.2 3.8 21.7c-.3.7.3 1.3 1 1L8 21c9-2 11-8 13-13M12 2v4M20 6l-2 2"},
         {"id": "beneficios-cct", "label": "Benefícios CCT", "icon": "M20 12v10H4V12M2 7h20v5H2zM12 22V7M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"},
+        {"id": "saldo-ferias", "label": "Saldo de férias", "icon": "M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"},
         {"id": "registrar-reembolso", "label": "Registrar reembolso", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
         {"id": "solicitar-ferias", "label": "Solicitar férias", "icon": "M17 8C8 10 5.9 16.2 3.8 21.7c-.3.7.3 1.3 1 1L8 21c9-2 11-8 13-13M12 2v4M20 6l-2 2"},
     ],
@@ -2672,6 +2770,10 @@ EXTRA_MENU = {
     ],
     "saude-ocupacional": [
         {"id": "esocial", "label": "eSocial · Transmissão", "icon": "M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"},
+    ],
+    "fiscal": [
+        {"id": "guias-fgts", "label": "Guias FGTS", "icon": "M3 10h18M7 15h4M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"},
+        {"id": "guias-inss", "label": "Guias INSS", "icon": "M3 10h18M7 15h4M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"},
     ],
 }
 
