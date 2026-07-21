@@ -672,6 +672,17 @@ async def _build_dp(db: AsyncSession) -> dict:
             {"key": "saldo_fgts", "label": "Saldo FGTS (R$)", "type": "text", "span": "span 1", "ph": "0,00 (p/ multa 40%)"},
         ],
     }
+    # Calcular férias (calculadora CLT — cálculo PURO; não solicita/agenda/paga férias)
+    out["calcular-ferias"] = {
+        "title": "Calcular férias (CLT)", "sub": "Calculadora de férias + 1/3 + abono — cálculo, NÃO solicita/paga férias",
+        "cta": "Calcular", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/ferias-calc", "okMsg": "Férias calculadas"},
+        "fields": [
+            {"key": "employee_id", "label": "Colaborador*", "type": "select", "span": "span 2", "ph": "Selecione o colaborador", "options": _resc_opts},
+            {"key": "dias_gozo", "label": "Dias de gozo", "type": "text", "span": "span 1", "ph": "30"},
+            {"key": "dias_abono", "label": "Dias de abono (venda, máx 10)", "type": "text", "span": "span 1", "ph": "0"},
+        ],
+    }
 
     return out
 
@@ -2575,6 +2586,54 @@ async def rd_action_simular_preco(
     return {"ok": True, "message": msg}
 
 
+@router.post("/action/ferias-calc")
+async def rd_action_ferias_calc(
+    current_user: CurrentActiveUser,
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    # Calculadora de férias (CLT) — cálculo PURO. Não solicita/agenda/paga férias.
+    import uuid as _uuid
+    from decimal import Decimal
+
+    from modules.people_management.common.utils.clt_calculator import (
+        calcular_ferias, calcular_inss, calcular_irrf)
+
+    try:
+        emp_uuid = _uuid.UUID((payload.get("employee_id") or "").strip())
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Selecione o colaborador.")
+    row = (await db.execute(text("SELECT nome, salario_base FROM employees WHERE id=:i"), {"i": emp_uuid})).first()
+    if not row:
+        raise HTTPException(status_code=400, detail="Colaborador não encontrado.")
+    nome, sal = row
+    if not sal:
+        raise HTTPException(status_code=400, detail="Colaborador sem salário base cadastrado.")
+
+    def _int(k, default):
+        try:
+            return max(int(payload.get(k) or default), 0)
+        except (ValueError, TypeError):
+            return default
+
+    dias_gozo = min(_int("dias_gozo", 30), 30)
+    dias_abono = min(_int("dias_abono", 0), 10)
+    try:
+        r = calcular_ferias(Decimal(str(sal)), dias_gozo, dias_abono)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Não foi possível calcular: {e}")
+    # INSS/IRRF incidem sobre férias + 1/3 (abono pecuniário é isento).
+    base = r["valor_ferias"] + r["terco_constitucional"]
+    inss = calcular_inss(base)
+    irrf = calcular_irrf(base - inss)
+    liquido = r["total_bruto"] - inss - irrf
+    msg = (f"Férias de {nome} — {dias_gozo}d gozo + {dias_abono}d abono — LÍQUIDO {brl(liquido)} | "
+           f"Férias {brl(r['valor_ferias'])} + 1/3 {brl(r['terco_constitucional'])}"
+           f"{f' + abono {brl(r['abono_pecuniario'])}+1/3 {brl(r['terco_abono'])}' if dias_abono else ''} · "
+           f"INSS −{brl(inss)} · IRRF −{brl(irrf)}. Cálculo — não solicita/paga férias.")
+    return {"ok": True, "message": msg}
+
+
 # Itens de menu extras (telas de ação/escrita) que o ModuleView anexa à nav.
 EXTRA_MENU = {
     "financeiro": [
@@ -2603,6 +2662,7 @@ EXTRA_MENU = {
     ],
     "departamento-pessoal": [
         {"id": "calcular-rescisao", "label": "Calcular rescisão", "icon": "M9 7h6M9 11h6M9 15h4M5 3h14a1 1 0 0 1 1 1v16l-3-2-2 2-2-2-2 2-2-2-3 2V4a1 1 0 0 1 1-1z"},
+        {"id": "calcular-ferias", "label": "Calcular férias", "icon": "M17 8C8 10 5.9 16.2 3.8 21.7c-.3.7.3 1.3 1 1L8 21c9-2 11-8 13-13M12 2v4M20 6l-2 2"},
         {"id": "beneficios-cct", "label": "Benefícios CCT", "icon": "M20 12v10H4V12M2 7h20v5H2zM12 22V7M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"},
         {"id": "registrar-reembolso", "label": "Registrar reembolso", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
         {"id": "solicitar-ferias", "label": "Solicitar férias", "icon": "M17 8C8 10 5.9 16.2 3.8 21.7c-.3.7.3 1.3 1 1L8 21c9-2 11-8 13-13M12 2v4M20 6l-2 2"},
