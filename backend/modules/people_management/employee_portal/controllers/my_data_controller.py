@@ -38,11 +38,13 @@ ONBOARDING_REQUIRED_FIELDS: dict[str, str] = {
     "bairro": "Bairro",
     "cidade": "Cidade",
     "nome_mae": "Nome da mãe",
+    "nome_pai": "Nome do pai",
     "naturalidade": "Naturalidade (cidade de nascimento)",
     "nacionalidade": "Nacionalidade",
     "rg": "RG",
     "estado_civil": "Estado civil",
-    "pis": "PIS/PASEP",
+    # PIS NÃO é obrigatório (regra do Jordan: nem todo mundo tem PIS — é a única
+    # exceção). Continua coletável (SELF_EDITABLE_FIELDS), só não bloqueia/nag.
 }
 
 # Campos que o funcionário pode gravar (dados pessoais/contato do PRÓPRIO cadastro).

@@ -26,6 +26,8 @@ from .controllers import (
     homologacao_router,
     candidato_router,
     pj_autocadastro_router,
+    primeiro_acesso_router,
+    login_facial_router,
 )
 
 logger = logging.getLogger(__name__)
@@ -78,3 +80,5 @@ router.include_router(homologacao_router)
 # Funil de candidato (autocadastro público de vaga — fase 1)
 router.include_router(candidato_router)
 router.include_router(pj_autocadastro_router)
+router.include_router(primeiro_acesso_router)
+router.include_router(login_facial_router)

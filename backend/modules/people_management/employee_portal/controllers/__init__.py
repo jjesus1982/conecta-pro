@@ -19,6 +19,8 @@ from .self_service_controller import router as self_service_router
 from .homologacao_controller import router as homologacao_router
 from .candidato_controller import router as candidato_router
 from .pj_autocadastro_controller import router as pj_autocadastro_router
+from .primeiro_acesso_controller import router as primeiro_acesso_router
+from .primeiro_acesso_controller import router_auth as login_facial_router
 
 __all__ = [
     "portal_auth_router",
@@ -26,6 +28,8 @@ __all__ = [
     "homologacao_router",
     "candidato_router",
     "pj_autocadastro_router",
+    "primeiro_acesso_router",
+    "login_facial_router",
     "my_profile_router",
     "my_schedules_router",
     "my_payslips_router",

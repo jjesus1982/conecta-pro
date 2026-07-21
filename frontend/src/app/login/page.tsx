@@ -1,10 +1,11 @@
 'use client';
 
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, ScanFace, X, Loader2 } from 'lucide-react';
 import { Suspense, useState, useMemo, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
+import { FacialCapture, type FacialCaptureResult } from '@/components/ponto/FacialCapture';
 
 // Destino padrão pós-login (cutover 2026-07-18: redesign vira o padrão).
 // Deep-links via ?redirect= são preservados. Para reverter, troque por '/dashboard'.
@@ -31,6 +32,27 @@ function LoginContent() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [facialOpen, setFacialOpen] = useState(false);
+  const [facialLoading, setFacialLoading] = useState(false);
+
+  // Login por reconhecimento facial (1:N) — funcionário que já cadastrou o rosto.
+  const handleFacialLogin = async (res: FacialCaptureResult) => {
+    if (!res?.descriptor?.length) { setError('Não deu pra ler o rosto. Tente de novo.'); return; }
+    setFacialLoading(true); setError('');
+    try {
+      const r = await fetch('/api/v1/people-management/portal/login-facial', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ descriptor: res.descriptor }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d.access_token) { setError(d.detail || 'Rosto não reconhecido. Use e-mail e CPF.'); setFacialLoading(false); setFacialOpen(false); return; }
+      localStorage.setItem('access_token', d.access_token);
+      if (d.refresh_token) localStorage.setItem('refresh_token', d.refresh_token);
+      const isSecure = window.location.protocol === 'https:';
+      document.cookie = `auth_token=${d.access_token}; path=/; max-age=${30 * 60}; SameSite=Lax${isSecure ? '; Secure' : ''}`;
+      window.location.href = searchParams.get('redirect') || POST_LOGIN_DEFAULT;
+    } catch { setError('Falha na conexão. Tente de novo.'); setFacialLoading(false); setFacialOpen(false); }
+  };
 
   // Redirecionar para dashboard se já autenticado
   // Usa window.location.href (hard redirect) para garantir que o cookie
@@ -418,11 +440,25 @@ function LoginContent() {
             Entrar com Google
           </a>
 
-          {/* Criar conta */}
+          {/* Entrar com o rosto (funcionário) */}
+          <button
+            type="button"
+            onClick={() => { setError(''); setFacialOpen(true); }}
+            style={{
+              width: '100%', height: 44, marginTop: 10, background: '#fff',
+              border: '1.5px solid #16277D', borderRadius: 10, fontSize: 13.5, fontWeight: 600,
+              color: '#16277D', cursor: 'pointer', display: 'flex', alignItems: 'center',
+              justifyContent: 'center', gap: 8, fontFamily: 'inherit',
+            }}
+          >
+            <ScanFace size={18} /> Entrar com o rosto
+          </button>
+
+          {/* Primeiro acesso do funcionário */}
           <p style={{ marginTop: 16, textAlign: 'center', fontSize: 13, color: '#6B7280' }}>
-            Ainda não tem conta?{' '}
-            <Link href="/cadastro" style={{ color: '#F97316', fontWeight: 600, textDecoration: 'none' }}>
-              Criar conta
+            Funcionário no 1º acesso?{' '}
+            <Link href="/primeiro-acesso" style={{ color: '#F97316', fontWeight: 600, textDecoration: 'none' }}>
+              Cadastre-se aqui
             </Link>
           </p>
 
@@ -440,7 +476,31 @@ function LoginContent() {
         </div>
       </div>
 
+      {/* Modal: login por rosto */}
+      {facialOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 20, width: '100%', maxWidth: 400 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: '#16277D', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <ScanFace size={18} /> Entrar com o rosto
+              </span>
+              <button onClick={() => { setFacialOpen(false); setFacialLoading(false); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8' }}><X size={20} /></button>
+            </div>
+            <p style={{ fontSize: 13, color: '#64748B', marginBottom: 12 }}>Olhe pra câmera num lugar iluminado.</p>
+            {facialLoading ? (
+              <div style={{ padding: '40px 0', textAlign: 'center', color: '#64748B' }}>
+                <Loader2 size={28} style={{ animation: 'spin 1s linear infinite', margin: '0 auto 8px' }} /> Reconhecendo…
+              </div>
+            ) : (
+              <FacialCapture onCapture={handleFacialLogin} onError={(e) => setError(e)} />
+            )}
+          </div>
+        </div>
+      )}
+
       {/* CSS pulse */}
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }`}</style>
       <style>{`
         @keyframes login-pulse {
           0%, 100% { opacity: 1; transform: scale(1); }

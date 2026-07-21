@@ -354,7 +354,7 @@ function OnboardingGate({
 
   const grupoEndereco = ['cep', 'logradouro', 'numero', 'bairro', 'cidade', 'uf'].filter((c) => faltantes.has(c));
   const grupoContato = ['telefone'].filter((c) => faltantes.has(c));
-  const grupoDoc = ['nome_mae', 'naturalidade', 'nacionalidade', 'rg', 'estado_civil', 'pis'].filter((c) => faltantes.has(c));
+  const grupoDoc = ['nome_mae', 'nome_pai', 'naturalidade', 'nacionalidade', 'rg', 'estado_civil', 'pis'].filter((c) => faltantes.has(c));
 
   return (
     <div className="light min-h-screen bg-[hsl(var(--background))]">
@@ -469,6 +469,14 @@ function OnboardingGate({
                     <Field campo="nome_mae" label="Nome da mãe">
                       <input className={inputCls('nome_mae')} value={form.nome_mae || ''}
                         onChange={(e) => set('nome_mae', e.target.value)} />
+                    </Field>
+                  </div>
+                )}
+                {faltantes.has('nome_pai') && (
+                  <div className="sm:col-span-2">
+                    <Field campo="nome_pai" label="Nome do pai">
+                      <input className={inputCls('nome_pai')} value={form.nome_pai || ''}
+                        onChange={(e) => set('nome_pai', e.target.value)} />
                     </Field>
                   </div>
                 )}
