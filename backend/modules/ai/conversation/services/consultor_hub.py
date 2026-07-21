@@ -283,3 +283,76 @@ async def aprender(db: AsyncSession, origem: str, pergunta: str, resposta: str) 
         logger.info("Consultor %s aprendeu memória(s) nova(s)", origem)
     except Exception as e:  # noqa: BLE001
         logger.warning("aprender(%s): %s", origem, e)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FASE 4 — FEEDBACK HUMANO + PLACAR DE APRENDIZADO ("certificar que aprendem")
+# ─────────────────────────────────────────────────────────────────────────────
+async def registrar_feedback(
+    db: AsyncSession, origem: str, consulta_id: int, util: bool, correcao: str | None = None
+) -> dict:
+    """Grava 👍/👎 (+ correção) numa consulta. A correção do gestor vira MEMÓRIA PERMANENTE
+    (o consultor passa a respeitá-la) — é o aprendizado com feedback. Best-effort."""
+    tabela, _ = TABELAS_CONSULTAS.get(origem, (None, None))
+    if not tabela:
+        return {"ok": False, "erro": "origem desconhecida"}
+    try:
+        await _ensure_schema(db)
+        await db.execute(
+            text(  # noqa: S608 — tabela de whitelist interna
+                f"UPDATE {tabela} SET util=:u, correcao=:c, feedback_em=now() WHERE id=:id"
+            ),
+            {"u": util, "c": (correcao or None), "id": consulta_id},
+        )
+        # 👎 com correção → o gestor está ENSINANDO: grava como memória durável (fonte confiável).
+        if correcao and correcao.strip():
+            await db.execute(
+                text(
+                    "INSERT INTO consultor_memorias (origem, conteudo, fonte, ativo, created_at) "
+                    "VALUES (:o, :c, 'feedback_gestor', true, now())"
+                ),
+                {"o": origem, "c": f"CORREÇÃO DO GESTOR: {correcao.strip()[:400]}"},
+            )
+        await db.commit()
+        return {"ok": True, "virou_memoria": bool(correcao and correcao.strip())}
+    except Exception as e:  # noqa: BLE001
+        await db.rollback()
+        return {"ok": False, "erro": str(e)[:120]}
+
+
+async def placar_aprendizado(db: AsyncSession) -> dict:
+    """O PLACAR: prova que os consultores aprendem — taxa de 👍, feedback dado, memórias,
+    correções que viraram conhecimento. Números, não promessa."""
+    await _ensure_schema(db)
+    por_origem = []
+    tot = com_fb = uteis = 0
+    for origem, (tabela, rotulo) in TABELAS_CONSULTAS.items():
+        try:
+            r = (
+                await db.execute(
+                    text(  # noqa: S608
+                        f"SELECT count(*) t, count(*) FILTER (WHERE feedback_em IS NOT NULL) fb, "
+                        f"count(*) FILTER (WHERE util) ok FROM {tabela}"
+                    )
+                )
+            ).fetchone()
+            t_, fb_, ok_ = int(r.t or 0), int(r.fb or 0), int(r.ok or 0)
+            tot += t_; com_fb += fb_; uteis += ok_
+            por_origem.append({"consultor": rotulo, "consultas": t_, "com_feedback": fb_, "uteis": ok_})
+        except Exception:  # noqa: BLE001
+            await db.rollback()
+            continue
+    mem = int((await db.execute(text("SELECT count(*) FROM consultor_memorias WHERE ativo"))).scalar() or 0)
+    corr = int(
+        (await db.execute(text("SELECT count(*) FROM consultor_memorias WHERE ativo AND fonte='feedback_gestor'"))).scalar()
+        or 0
+    )
+    taxa = round(uteis / com_fb * 100) if com_fb else None
+    return {
+        "consultas_totais": tot,
+        "com_feedback": com_fb,
+        "taxa_util_pct": taxa,
+        "memorias_ativas": mem,
+        "correcoes_do_gestor": corr,
+        "por_consultor": por_origem,
+    }
