@@ -176,7 +176,6 @@ app.conf.beat_schedule = {
     # ── Financeiro — Conciliação bancária diária (extrato Inter → bridge → categoriza) ──
     "financeiro-conciliacao-inter-diaria": {
         "task": "financial.inter_reconciliacao_diaria",
-        "task": "financial.inter_reconciliacao_diaria",
         "schedule": crontab(hour=8, minute=0),
         "options": {"queue": "gov.batch"},
     },

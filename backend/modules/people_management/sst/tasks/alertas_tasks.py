@@ -44,6 +44,10 @@ def _upsert_notificacao(db, user_id, correlation_id: str, titulo: str, corpo: st
 
     content_data = {"action_url": action_url, "custom_data": {"origem": "sst.alertas_diarios"}}
 
+    # Busca a linha ÚNICA por (tenant,user,correlation) — SEM filtrar opened.
+    # O índice único uq_notification_correlation (tenant_id,correlation_id,user_id)
+    # garante no máx. 1 linha; filtrar opened=False fazia o db.add abaixo colidir
+    # quando o admin já tinha LIDO o alerta (regressão da Fase 0 — auditoria 2026-07-21).
     existente = (
         db.query(NotificationQueue)
         .filter(
@@ -51,18 +55,19 @@ def _upsert_notificacao(db, user_id, correlation_id: str, titulo: str, corpo: st
             NotificationQueue.user_id == user_id,
             NotificationQueue.channel_type == "push",
             NotificationQueue.correlation_id == correlation_id,
-            NotificationQueue.opened.is_(False),
         )
         .order_by(NotificationQueue.created_at.desc())
         .first()
     )
     if existente is not None:
-        if existente.subject == titulo and existente.body == corpo:
-            return "igual"  # não recriar notificação igual não-lida (anti-spam)
+        if existente.opened is False and existente.subject == titulo and existente.body == corpo:
+            return "igual"  # não-lida idêntica → anti-spam
+        # Atualiza (e RE-ALERTA: volta para não-lida) — nunca insere duplicata.
         existente.subject = titulo
         existente.body = corpo
         existente.content_data = content_data
         existente.created_at = datetime.utcnow()
+        existente.opened = False
         return "atualizada"
 
     db.add(

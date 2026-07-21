@@ -324,7 +324,7 @@ _FISCAL_GATE = Depends(require_permission("module:fiscal"))
 _DP_GATE = Depends(require_permission("module:dp"))
 _GED_GATE = Depends(require_permission("module:ged"))
 _JURIDICO_GATE = Depends(require_permission("module:juridico"))
-_COMERCIAL_GATE = Depends(require_permission("module:comercial"))
+_COMERCIAL_GATE = Depends(require_permission("module:crm"))  # módulo comercial = 'crm' (auditoria 2026-07-21)
 _OPERACIONAL_GATE = Depends(require_permission("module:operacional"))
 # Consultor CEO (cross-módulo folha+financeiro+jurídico) → só diretoria (jjesus+pjesus).
 from modules.ai.consultores.permissions import require_consultor_executivo  # noqa: E402
