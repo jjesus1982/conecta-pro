@@ -40,7 +40,7 @@ cleanup_green() { $COMPOSE_BG rm -sf backend-green >/dev/null 2>&1; }
 if ! mkdir "$LOCK" 2>/dev/null; then
   log "ERRO: lock ocupado ($LOCK) — outro deploy em andamento"; exit 1
 fi
-trap 'rmdir "$LOCK" 2>/dev/null' EXIT
+trap 'rm -rf "$LOCK" 2>/dev/null' EXIT  # rm -rf (não rmdir): libera mesmo se houver owner file dentro (senão o lock vaza e trava o fanout)
 
 log "═══ BLUE/GREEN INICIADO ═══"
 
