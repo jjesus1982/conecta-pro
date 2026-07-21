@@ -47,3 +47,29 @@
 | **Cora** (CNPJ2 Patrimonial) | ~~R$0,00~~ | **R$34.237,37** | **NULL = NUNCA** | corrigido ao vivo; `cora_sync_service` nunca firou |
 
 Ambos os saldos vêm de adapters mTLS que FUNCIONAM (`InterClient.consultar_saldo`, `CoraAdapter.get_balance` — READ-only, visibilidade). O buraco é orquestração: os jobs de sync de saldo não rodam de forma confiável → o `bank_accounts.current_balance` fica velho/zero e se passa por real. **Conserto (item separado):** agendar+monitorar `cora_sync_service` e o sync Inter junto do `analytics.recalcular_kpis`, sempre gravando `last_balance_update` (a régua: sem timestamp fresco, o saldo NÃO é confiável).
+
+## RAIZ REAL encontrada e RESOLVIDA (2026-07-21) — o scheduler estava MORTO
+Investigando o "job não fira", achei a causa de TUDO: **`conecta-pro-celery-beat` estava em
+crash-loop — RestartCount=7464** — rodando uma **imagem velha** (de dias atrás) que não tinha
+`modules/fiscal_contabil/obrigacoes/tasks.py` (arquivo que o `celery_app.py` inclui). Beat
+quebrava no boot com `ModuleNotFoundError` → reiniciava → quebrava, 7464×. **Nenhuma tarefa
+agendada NUNCA firava** → não só saldos/KPIs: fiscal, eSocial-espelho, Solides, CRM, SST, gedeon,
+operacional — TODA a automação estava parada. Os workers (batch/priority/…) também rodavam
+imagem de 2 dias (o deploy blue-green só recria o `backend`, nunca a frota celery).
+
+**Conserto aplicado:**
+1. `docker compose -f docker-compose.yml -f docker-compose.celery.yml up -d --force-recreate`
+   em beat + TODOS os workers → frota inteira na imagem atual (`fb37e651`). Beat: **RestartCount=0**,
+   estável, e voltou a firar todo o schedule (visto no log: inter_reconciliacao, nfse, esocial,
+   solides, crm, sst, gedeon…). Provado end-to-end: disparei `analytics.recalcular_kpis` → batch
+   worker executou (financial=3, executive=10).
+2. `cora_sync_service` agora grava o saldo em `bank_accounts` (bug: puxava e não persistia).
+3. **KPI-002 estava MAL ROTULADO**: `src_saldo` = `SUM(current_balance)` de TODAS as contas ativas,
+   mas o rótulo era "Saldo Inter". Só "batia" porque Cora era 0. Com Cora corrigido, virou
+   Inter(15.270,74)+Cora(34.237,37)=**49.508,11** = total em bancos, não Inter. **Renomeei o KPI-002
+   para "Saldo em bancos"** (o valor está certo como total; a tela `saldos` mostra por conta).
+
+**Aberto (não crítico, flag):** conta `ZZE2E_TestBank_001` está ativa e entra na soma do KPI
+(hoje R$0, inofensivo; se ganhar saldo, polui). E o dashboard executivo do CLÁSSICO ainda mostra
+os 3 placeholders (Compliance/Inadimplência/Score) como reais — dono do analytics precisa dar
+fórmula ou remover. Beat vivo agora recalcula tudo de hora em hora.
