@@ -47,3 +47,5 @@ Estratégia aprovada (2026-07-20): B+C — clássico segue operacional; corrijo 
 | 38 | assistente (T4) | chat·historico (módulo NOVO) | `redesign_builders/assistente.py` build() fresh; só READ | chat 3(assistant_conversations)·historico 1(por sessão) | ✅ WIRED + VIVO |
 
 **T4 — commit `c74072a8`** (9 arquivos disjuntos em `redesign_builders/`). 50 telas ligadas ao dado real do clássico, 0 fabricação, enum/json com `::text`. VIVO no primário 8080 + domínio público (via cp — volátil). **Durabilidade pendente de bake blue-green** — bloqueado pela árvore suja (WIP não-commitado de `people_management` de outro terminal; a build assa a árvore inteira). Assim que a árvore fechar, o próximo deploy assa os arquivos commitados e torna durável.
+| 30 | saude-ocupacional | Estabilidade (garantia emprego) invisível | tela `estabilidade` (sst_afastamentos gera_estabilidade) | probe: CINTIA acidente_trajeto estável até 2027-05-21 | ✅ FECHADO (fundação) |
+| 31 | saude-ocupacional | Alertas SST (ASOs vencidos) invisíveis | tela `alertas` (gp_asos data_validade<now) | probe: 88 ASOs vencidos | ✅ FECHADO (fundação) |

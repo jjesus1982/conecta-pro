@@ -67,3 +67,4 @@ ninguém faz em paralelo agora).
 - [x] T4 agendador (3/3 NOVO): visao(dash)·tarefas(0)·execucoes(0). commit c74072a8.
 - [x] T4 assistente (2/2 NOVO): chat(3)·historico(1). commit c74072a8.
 - ⚠️ T4: 50 telas VIVAS no primário via cp (volátil). BAKE pendente — árvore suja com WIP não-commitado de people_management (outro terminal); blue-green assa a árvore inteira. Próximo deploy com árvore limpa torna durável (arquivos já commitados).
+- [x] T1 saude-ocupacional: estabilidade(1 real, CINTIA) + alertas(88 ASOs vencidos). Padrão delegar+estender (build() chama _build_saude e adiciona). ajuda-medicamento pulado (sem tabela).
