@@ -58,11 +58,23 @@ def run(classic_path, redesign_path, label, out_dir):
                 data[tag] = [f"__ERRO__ {str(e)[:80]}"]
         ctx.close()
         b.close()
+    import re as _re
+
+    def _norm(s):  # normaliza p/ diff: minúsculas, sem acento-leve/pontuação/separadores, espaços colapsados
+        s = (s or "").lower()
+        for a, b in [("á", "a"), ("â", "a"), ("ã", "a"), ("é", "e"), ("ê", "e"), ("í", "i"),
+                     ("ó", "o"), ("ô", "o"), ("õ", "o"), ("ú", "u"), ("ç", "c")]:
+            s = s.replace(a, b)
+        s = _re.sub(r"[·•\-–—/|.,:;]+", " ", s)
+        return _re.sub(r"\s+", " ", s).strip()
+
+    cn = {_norm(x) for x in data.get("classico", [])}
+    rn = {_norm(x) for x in data.get("redesign", [])}
     c, r = set(data.get("classico", [])), set(data.get("redesign", []))
     print(f"=== ORÁCULO: {label} ===")
-    print(f"clássico: {len(c)} elementos | redesign: {len(r)} elementos")
-    so_classico = [x for x in data.get("classico", []) if x not in r][:25]
-    so_redesign = [x for x in data.get("redesign", []) if x not in c][:25]
+    print(f"clássico: {len(c)} elementos | redesign: {len(r)} elementos (diff normalizado — ignora pontuação/acento)")
+    so_classico = [x for x in data.get("classico", []) if _norm(x) not in rn][:25]
+    so_redesign = [x for x in data.get("redesign", []) if _norm(x) not in cn][:25]
     print(f"\n[!] SÓ no CLÁSSICO (fidelidade pede trazer p/ o redesign) — {len(so_classico)}:")
     for x in so_classico:
         print(f"   - {x[:110]}")

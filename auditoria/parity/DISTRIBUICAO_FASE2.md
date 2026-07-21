@@ -61,3 +61,5 @@ Para cada tela dos SEUS módulos:
 - [x] T1 juridico/riscos — trouxe Exposição trabalhista (53 colab, R$242k) reusando riscos_service; oráculo fecha (números batem clássico).
 - [x] T4 financeiro/pagamentos-pj — trouxe a tela que faltava (clássico tinha, redesign não): lista financial_pagamentos_pj (9 reais: competência/beneficiário/empresa/valor/NF/status) via EXTRA_MENU. Money-out (pagar) fica no fluxo gated OTP do clássico. Oráculo de menu fecha; curl público 9 rows. commit b9ff4184
 - [x] T2 departamento-pessoal/funcionarios — trouxe completude do cadastro eSocial (% + campos faltantes, mesma fórmula 15 campos S-2200); override no builder, dado real. Provado no público (ADAILSON 60%, ADEILSON 47%, ANGELA 40% batem com o clássico). commit f8ac6328, blue-green OK.
+- [~] T1 juridico/riscos — trabalhista (53 colab) FIEL (oráculo fecha as linhas). FALTA seção Tributário (riscos_tributario: Simples×Lucro Real + retenções + 3 riscos) + agregação por tipo de verba → próximo passo (dash multi-painel).
+- FERRAMENTA: oráculo agora normaliza texto (ignora pontuação/acento) → só flaga gap REAL, sem ruído. Vale p/ T2/T4.
