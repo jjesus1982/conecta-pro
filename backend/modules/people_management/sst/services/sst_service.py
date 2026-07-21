@@ -1235,6 +1235,32 @@ class SSTService:
             )
         ).scalar() or 0
 
+        # NR-1 — RISCO PSICOSSOCIAL: canal de escuta (ouvidoria) + inventário (gp_risks).
+        # Fatos no banco (nunca inventado): inventário = riscos psicossociais mapeados;
+        # indicadores = nº de manifestações por fator (ANONIMIZADO, sem identidade).
+        psico_inv = (await self.db.execute(text(
+            "SELECT descricao, coalesce(nivel,'a avaliar') AS nivel, coalesce(status,'identificado') AS status, "
+            "coalesce(nullif(medidas_controle::text,'null'),'') AS medidas FROM gp_risks "
+            "WHERE categoria='psicossocial' AND coalesce(status,'') <> 'encerrado' ORDER BY descricao"
+        ))).mappings().all()
+        ouv_tab = (await self.db.execute(text("SELECT to_regclass('ouvidoria_manifestacoes')::text"))).scalar()
+        ouv_ind: list[dict[str, Any]] = []
+        ouv_total = 0
+        if ouv_tab:
+            ind = (await self.db.execute(text(
+                "SELECT coalesce(nullif(categoria,''),'não classificado') AS fator, count(*) AS n "
+                "FROM ouvidoria_manifestacoes GROUP BY 1 ORDER BY 2 DESC"
+            ))).mappings().all()
+            ouv_ind = [dict(r) for r in ind]
+            ouv_total = sum(int(r["n"]) for r in ind)
+        psicossocial = {
+            "canal_ativo": bool(ouv_tab),
+            "canal_desc": "Canal de escuta sigiloso (ouvidoria) — manifestação anônima ou identificada.",
+            "total_manifestacoes": ouv_total,
+            "indicadores": ouv_ind,
+            "inventario": [dict(r) for r in psico_inv],
+        }
+
         return {
             "resumo": {
                 "total_funcionarios_ativos": len(employees),
@@ -1250,6 +1276,7 @@ class SSTService:
                 "funcionarios_nr1_treinamento_pendente": len(employees) - treinos_nr1_validos,
             },
             "funcionarios": funcionarios,
+            "psicossocial": psicossocial,
         }
 
     # ================================================================

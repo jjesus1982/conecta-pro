@@ -127,6 +127,40 @@ def upload_documento(
 # ─────────────────────────────────────────────────────────────────────────────
 # 2) OUVIDORIA — reclamação sigilosa (anônima ou identificada)
 # ─────────────────────────────────────────────────────────────────────────────
+# NR-1 — fatores de risco psicossocial (a ouvidoria é o canal de IDENTIFICAÇÃO).
+# Uma manifestação de qualquer destes alimenta o inventário de riscos (gp_risks).
+_FATORES_PSICOSSOCIAIS = {
+    "assedio_moral": "Assédio moral",
+    "assedio_sexual": "Assédio sexual",
+    "sobrecarga": "Sobrecarga / jornada excessiva",
+    "violencia": "Violência / agressão no trabalho",
+    "discriminacao": "Discriminação",
+    "relacao_lideranca": "Conflitos / relação com a liderança",
+    "saude_mental": "Saúde mental / estresse",
+}
+
+
+def _registrar_risco_psicossocial(db: Session, fator_slug: str) -> None:
+    """NR-1: garante um item de risco psicossocial no inventário (gp_risks) para o fator.
+    O SST depois avalia nível + define medidas de controle. Idempotente por risk_id —
+    o volume de manifestações vira o INDICADOR (contado a partir de ouvidoria_manifestacoes)."""
+    label = _FATORES_PSICOSSOCIAIS.get(fator_slug)
+    if not label:
+        return
+    rid = "PSICO-" + fator_slug
+    if db.execute(text("SELECT 1 FROM gp_risks WHERE risk_id = :r"), {"r": rid}).fetchone():
+        db.execute(text("UPDATE gp_risks SET updated_at = now() WHERE risk_id = :r"), {"r": rid})
+        return
+    db.execute(
+        text(
+            "INSERT INTO gp_risks (risk_id, categoria, descricao, nivel, status, fonte_geradora, created_at, updated_at) "
+            "VALUES (:r, 'psicossocial', :d, 'baixo', 'identificado', "
+            "'Canal de escuta / ouvidoria (NR-1 — risco psicossocial)', now(), now())"
+        ),
+        {"r": rid, "d": label},
+    )
+
+
 class OuvidoriaBody(BaseModel):
     categoria: str | None = None
     mensagem: str
@@ -154,6 +188,9 @@ def abrir_manifestacao(
         {"p": protocolo, "e": (emp if emp else None), "a": bool(body.anonimo),
          "c": (body.categoria or None), "m": msg},
     )
+    # NR-1: fator psicossocial → alimenta o inventário de riscos (identificação documentada)
+    if body.categoria in _FATORES_PSICOSSOCIAIS:
+        _registrar_risco_psicossocial(db, body.categoria)
     db.commit()
     return {
         "success": True, "protocolo": protocolo, "anonimo": bool(body.anonimo),

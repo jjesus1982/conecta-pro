@@ -1585,10 +1585,13 @@ function OuvidoriaTab() {
           <select value={categoria} onChange={(e) => setCategoria(e.target.value)}
             className="w-full rounded-xl border-2 border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 py-2.5 text-[15px] outline-none">
             <option value="">Selecione…</option>
-            <option value="assedio">Assédio</option>
+            <option value="assedio_moral">Assédio moral</option>
+            <option value="assedio_sexual">Assédio sexual</option>
+            <option value="sobrecarga">Sobrecarga / jornada excessiva</option>
+            <option value="violencia">Violência / agressão no trabalho</option>
             <option value="discriminacao">Discriminação</option>
-            <option value="seguranca">Segurança no trabalho</option>
-            <option value="conduta">Conduta / ética</option>
+            <option value="relacao_lideranca">Conflitos / relação com a liderança</option>
+            <option value="saude_mental">Saúde mental / estresse</option>
             <option value="sugestao">Sugestão</option>
             <option value="outros">Outros</option>
           </select>

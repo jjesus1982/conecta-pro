@@ -170,6 +170,42 @@ def montar_nr1_compliance_pdf(compliance: dict) -> bytes:
     story.append(_titulo("COMPLIANCE POR FUNCIONÁRIO (NR-1 / NR-6 / NR-7 / PGR)", st, "user"))
     story.append(_grade(t_func, header_row=True))
 
+    # ── NR-1: RISCOS PSICOSSOCIAIS (canal de escuta sigiloso + inventário PGR) ──
+    psico = compliance.get("psicossocial") or {}
+    story.append(Spacer(1, 4 * mm))
+    story.append(_titulo("RISCOS PSICOSSOCIAIS (NR-1)", st, "calc"))
+    _canal = "ATIVO" if psico.get("canal_ativo") else "não configurado"
+    story.append(
+        Paragraph(
+            f"<b>Canal de escuta:</b> {_canal} — {psico.get('canal_desc', '')} "
+            f"Manifestações recebidas: <b>{psico.get('total_manifestacoes', 0)}</b>. "
+            "A identidade do manifestante é preservada (sigilo/anonimato); os indicadores abaixo "
+            "são anonimizados, atendendo à NR-1 (identificação de fatores de risco psicossocial).",
+            st["small"],
+        )
+    )
+    story.append(Spacer(1, 2 * mm))
+    story.append(Paragraph("<b>Inventário de riscos psicossociais (PGR)</b>", st["small"]))
+    _inv = psico.get("inventario") or []
+    _linhas_inv = [[_cell("Fator de risco psicossocial", st), _cell("Nível", st), _cell("Status", st), _cell("Medidas de controle", st)]]
+    if _inv:
+        for r in _inv:
+            _linhas_inv.append([
+                _cell(str(r.get("descricao", "")), st), _cell(str(r.get("nivel", "")), st),
+                _cell(str(r.get("status", "")), st), _cell(str(r.get("medidas") or "— a definir pelo SST —"), st),
+            ])
+    else:
+        _linhas_inv.append([_cell("— nenhum risco psicossocial inventariado ainda —", st), _cell("", st), _cell("", st), _cell("", st)])
+    story.append(_grade(Table(_linhas_inv, colWidths=[W - 90 * mm, 20 * mm, 24 * mm, 46 * mm], repeatRows=1), header_row=True))
+    _ind = psico.get("indicadores") or []
+    if _ind:
+        story.append(Spacer(1, 2 * mm))
+        story.append(Paragraph("<b>Indicadores do canal — nº por assunto (anonimizado)</b>", st["small"]))
+        _linhas_ind = [[_cell("Assunto da manifestação", st), _cell("Nº", st)]]
+        for r in _ind:
+            _linhas_ind.append([_cell(str(r.get("fator", "")), st), _cell(str(r.get("n", "")), st)])
+        story.append(_grade(Table(_linhas_ind, colWidths=[W - 25 * mm, 25 * mm], repeatRows=1), header_row=True))
+
     # ── Nota de honestidade ──
     story.append(Spacer(1, 3 * mm))
     fonte_riscos = ((funcionarios[0].get("checks") or {}).get("riscos") or {}).get("fonte") if funcionarios else None
