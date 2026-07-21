@@ -30,10 +30,14 @@ backend responde otp_required → tela pede código e reenvia com otp_code) + co
 Retrocompatível (forms atuais inalterados). tsc: ModuleView limpo. Incremental: preview/dry-run,
 wizard multi-step, row-actions. → T2/T4 adicionam botões reais editando SÓ o backend, zero React.
 
-### ⏳ #3 — Oráculo de fidelidade — DEPOIS
+### ✅ #3 — Oráculo de fidelidade — FEITO + PROVADO
 Ferramenta que compara Clássico × Redesign por tela (screenshot + diff dos campos-chave) →
-pass/fail objetivo. Mata A2/A3 (o "acesso e vejo coisa diferente"). Todos os terminais + o
-verificador usam antes de declarar uma tela fiel.
+pass/fail objetivo. `auditoria/parity/oraculo_fidelidade.py <classic> <redesign> <label>` —
+login, screenshot dos 2 lados + extrai texto, imprime SÓ-no-clássico / SÓ-no-redesign. PROVADO
+em fiscal/certidoes: pegou botões faltando (Sincronizar/Emitir CNDs), abas de filtro e divergência
+de rótulo (Vencendo × Vence em 19d). Mata A2/A3. Rodar ANTES de declarar tela fiel.
+
+## ✅ AS 3 FUNDAÇÕES ESTÃO PRONTAS E PROVADAS. Falta: plano de ação + divisão T1/T2/T4 (Jordan), então fanout.
 
 ## Buracos do pré-mortem — status
 - C1 quebrar clássico → guarda: aditivo + regressão do clássico ao tocar serviço compartilhado (protocolo a escrever no plano de ação).
