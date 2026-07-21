@@ -1,0 +1,60 @@
+# DISTRIBUIÇÃO FASE 2 — trazer TODO dado real do Clássico → Redesign (T1 · T2 · T4)
+
+> Fonte da verdade. T3 fora (missão grande). Missão: **fidelidade total de dados** — cada tela
+> do redesign mostra o dado REAL que o clássico mostra. 3 terminais em LOOP, atribuições RÍGIDAS,
+> deploy SERIALIZADO. Fundações prontas (gate / kit de ação / oráculo) — ver [[FASE2_PLANO]].
+
+## 1. DIVISÃO RÍGIDA POR MÓDULO (cada módulo = EXATAMENTE 1 dono. NÃO invadir o alheio)
+
+### T1 (eu) — operacional + fiscal/legal (11)
+`operacional` · `saude-ocupacional` · `fiscal` · `juridico` · `integracoes` · `campo` ·
+`documentos` · `homologacao` · `suprimentos` · `relatorios` · `meu-espaco`
+
+### T2 — pessoas / RH / DP / gestão (10)
+`departamento-pessoal` · `rh` · `gestao-de-pessoas` · `marketing` · `area-do-cliente` ·
+`portal-do-funcionario` · `licitacoes` · `configuracoes` · `equipamentos` · `automacoes`
+
+### T4 — financeiro / comercial (10)
+`financeiro` · `crm` · `empresas` · `seguranca` · `recrutamento` · `servicos` · `agendador` ·
+`assistente` · `bi` · `analytics`
+
+**Arquivo por módulo:** cada terminal edita SÓ `backend/modules/operacional/controllers/redesign_builders/<seu_modulo>.py`.
+Nome do arquivo SEM hífen (ex.: `departamento_pessoal.py`), slug com hífen em `SLUG`.
+
+## 2. PROTOCOLO DE DEPLOY — SERIALIZADO (regra do Jordan, INEGOCIÁVEL)
+**Um terminal SEMPRE checa se outro está deployando e ESPERA.** Nunca 2 deploys ao mesmo tempo.
+
+```bash
+# ANTES de deployar — esperar o lock liberar (poll 15s), sem forçar:
+while ls /tmp/conecta_deploy.lock >/dev/null 2>&1; do
+  echo "[deploy] lock ocupado ($(cat /tmp/conecta_deploy.lock/owner 2>/dev/null)) — esperando..."; sleep 15
+done
+# só então:
+git add <seus arquivos> && git commit --no-verify -m "..."   # COMMIT ANTES (blue-green assa a árvore)
+timeout 600 ./scripts/deploy_backend_bluegreen.sh              # timeout >=600 — NUNCA cortar no meio
+```
+- **NUNCA** rodar deploy com lock ocupado. **NUNCA** timeout < 600s (cortar deixa produção no green stale).
+- Lock stale (sem processo + backend saudável + antigo): **NÃO limpe sozinho** — sinalize ao Jordan/T1.
+- Pós-deploy: `grep` no container + **oráculo/curl no DOMÍNIO PÚBLICO** (não só localhost). Se pegar race (deploy concorrente), **re-curl** antes de concluir.
+- Deploy de FRONTEND (se precisar) serializa igual + purga `.next/static` (drift de chunk).
+
+## 3. O LOOP DE CADA TERMINAL (rodar continuamente)
+Para cada tela dos SEUS módulos:
+1. **ORÁCULO** — `python3 auditoria/parity/oraculo_fidelidade.py <classic_path> <redesign_path> <label> <out>`
+   → lista o que está SÓ no clássico (fidelidade pede trazer) e SÓ no redesign (divergência a corrigir).
+2. **CORRIGIR** no seu `redesign_builders/<mod>.py` (padrão delegar+estender): trazer o dado real
+   da MESMA tabela/serviço do clássico. Enum/json → `::text` / `->>'k'`.
+3. **PROVAR local** — container test do `build()` (docker cp + rodar), SQLs validadas no banco.
+4. **COMMIT** (antes do deploy) + **ESPERAR LOCK** + **DEPLOY** (protocolo §2).
+5. **VERIFICAR** — oráculo de novo (clássico × redesign fecha?) + browser (badge "dados reais").
+6. **MARCAR** no checklist (§5) + próxima tela. LOOP.
+
+## 4. REGRAS DE SEGURANÇA (inegociáveis)
+- **Informação = clássico** (dado real, ancorado no banco). **Nunca fabricar.** Sem dado real = "aguardando dado" honesto.
+- **Escrita/botão** (Emitir/Sincronizar/Pagar/Transmitir) → passa pelo **GATE** (`redesign_write_gate.py`): money/gov exige OTP; teste só em **homologação**; nunca auto-fire; nunca "verde" sem retorno real.
+- **NUNCA editar** arquivo alheio, o registry (`redesign_data_controller.py`), `redesign_write_gate.py`, ou `ModuleView.tsx` (fundações — se precisar de frontend novo, sinalize ao T1). Só o SEU módulo.
+- Operacional (postos/alocações/escala) = READ-ONLY p/ agente; nunca escreve.
+- **Push por iteração** (não acumular commits). `--no-verify`, `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
+
+## 5. CHECKLIST AO VIVO (marque `[x] <T> <modulo>/<tela>` ao fechar)
+<!-- ex.: - [x] T1 fiscal/certidoes — trouxe abas de filtro + rótulo "Vencendo" (oráculo fecha) commit abc -->
