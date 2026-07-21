@@ -107,6 +107,7 @@ export const modules: Module[] = [
       { id: 'dp-documentos', title: 'Documentos DP', href: '/modulos/dp/documentos', icon: 'FolderOpen', permissions: ['module:dp'] },
       { id: 'dp-prestadores-pj', title: 'Prestadores PJ', href: '/modulos/dp/prestadores-pj', icon: 'Link2', permissions: ['module:dp'] },
       { id: 'dp-ativacao-ponto', title: 'Ativação do Ponto', href: '/modulos/dp/ativacao-ponto', icon: 'Fingerprint', permissions: ['module:dp'] },
+      { id: 'dp-monitor-ponto', title: 'Monitor do Ponto (ao vivo)', href: '/modulos/dp/monitor-ponto', icon: 'Activity', permissions: ['module:dp'] },
     ],
   },
 

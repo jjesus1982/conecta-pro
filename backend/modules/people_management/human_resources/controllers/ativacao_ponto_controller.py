@@ -190,3 +190,50 @@ async def reenviar(
 ) -> dict[str, Any]:
     """Reenvia o link a UMA pessoa (cobrar quem ainda não fez)."""
     return await _disparar(db, [employee_id], ["email", "whatsapp"], dry_run=False)
+
+
+@router.get("/monitor")
+def monitor(
+    db: Session = Depends(get_sync_db_dependency),
+    current_user: User = Depends(get_current_active_user),
+) -> dict[str, Any]:
+    """Painel AO VIVO do rollout: adesão (ativação/rosto/contingência), batidas de hoje
+    e feed das últimas atividades. Tudo é FATO no banco (nunca estimado)."""
+    hoje = "(now() AT TIME ZONE 'America/Manaus')::date"
+    a = db.execute(text(
+        f"SELECT count(*) AS total, "
+        f"  count(*) FILTER (WHERE face_descriptor IS NOT NULL) AS com_rosto, "
+        f"  count(*) FILTER (WHERE primeiro_acesso_em IS NOT NULL) AS primeiro_acesso, "
+        f"  count(*) FILTER (WHERE primeiro_acesso_em IS NOT NULL AND face_descriptor IS NULL) AS rosto_pendente, "
+        f"  count(*) FILTER (WHERE primeiro_acesso_em::date = {hoje}) AS ativados_hoje "
+        f"FROM employees WHERE {_COHORT}"
+    )).mappings().first()
+    ativacao = dict(a)
+    ativacao["pendentes"] = int(ativacao["total"]) - int(ativacao["primeiro_acesso"])
+
+    b = db.execute(text(
+        f"SELECT count(*) AS total, count(DISTINCT employee_id) AS funcionarios, "
+        f"  count(*) FILTER (WHERE device_type = 'contingencia') AS contingencia, "
+        f"  count(*) FILTER (WHERE status = 'pending_contingencia') AS pendente_validar, "
+        f"  count(*) FILTER (WHERE lower(coalesce(punch_type,'')) LIKE 'entrada%') AS entradas, "
+        f"  count(*) FILTER (WHERE lower(coalesce(punch_type,'')) LIKE 'saida%' OR lower(coalesce(punch_type,'')) LIKE 'saída%') AS saidas "
+        f"FROM gp_clock_punches WHERE punch_timestamp::date = {hoje} "
+        f"  AND employee_id IN (SELECT id FROM employees WHERE {_COHORT})"
+    )).mappings().first()
+
+    feed = db.execute(text(
+        f"SELECT e.nome, p.punch_type, p.device_type, p.status, "
+        f"  to_char(p.punch_timestamp, 'HH24:MI') AS hora "
+        f"FROM gp_clock_punches p JOIN employees e ON e.id = p.employee_id "
+        f"WHERE p.punch_timestamp::date = {hoje} "
+        f"  AND p.employee_id IN (SELECT id FROM employees WHERE {_COHORT}) "
+        f"ORDER BY p.punch_timestamp DESC LIMIT 15"
+    )).mappings().all()
+
+    agora = db.execute(text("SELECT to_char(now() AT TIME ZONE 'America/Manaus', 'HH24:MI:SS')")).scalar()
+    return {
+        "ativacao": ativacao,
+        "batidas_hoje": dict(b),
+        "feed": [dict(x) for x in feed],
+        "atualizado_em": agora,
+    }

@@ -217,7 +217,8 @@ def concluir(
     db.execute(
         text(
             "UPDATE employees SET face_descriptor = :d, biometria_facial = true, "
-            "face_enrolled_at = (now() AT TIME ZONE 'America/Manaus'), updated_at = now() "
+            "face_enrolled_at = (now() AT TIME ZONE 'America/Manaus'), "
+            "primeiro_acesso_em = COALESCE(primeiro_acesso_em, now()), updated_at = now() "
             "WHERE CAST(id AS TEXT) = :e"
         ),
         {"d": json.dumps(body.descriptor), "e": emp_id},  # MESMO formato do enroll oficial (JSON)
@@ -256,9 +257,10 @@ def contingencia_rosto(
     ).mappings().first()
     if not emp or not emp["email"]:
         raise HTTPException(status_code=409, detail="Cadastro sem e-mail — fale com o RH.")
-    # marca rosto pendente (biometria_facial=false, sem descriptor) — DP cadastra depois
+    # marca rosto pendente (biometria_facial=false, sem descriptor) + registra o 1º acesso — DP cadastra o rosto depois
     db.execute(
-        text("UPDATE employees SET biometria_facial=false, updated_at=now() WHERE CAST(id AS TEXT)=:e"),
+        text("UPDATE employees SET biometria_facial=false, "
+             "primeiro_acesso_em = COALESCE(primeiro_acesso_em, now()), updated_at=now() WHERE CAST(id AS TEXT)=:e"),
         {"e": emp_id},
     )
     upd = db.execute(
