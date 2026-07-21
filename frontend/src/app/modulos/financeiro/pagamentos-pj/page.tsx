@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Briefcase, Loader2, Send, AlertTriangle, CheckCircle2, Building2, Landmark, Clock } from 'lucide-react';
+import { Briefcase, Loader2, Send, AlertTriangle, CheckCircle2, Building2, Landmark, Clock, FileCheck } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -72,6 +72,16 @@ export default function PagamentosPJPage() {
       await carregarLote();
     } catch { setOtpMsg('Falha ao executar o pagamento.'); }
     finally { setPagando(false); }
+  };
+
+  const [nfBusy, setNfBusy] = useState<number | null>(null);
+  const marcarNF = async (id: number) => {
+    setNfBusy(id); setMsg(null);
+    try {
+      await fetch(`${API}/item/${id}/nota-fiscal`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ ok: true }) }).then(x => x.json());
+      await carregarLote(); // item sai de 'aguardando_nf' e vira pagável (Inter) ou lista (Cora)
+    } catch { setMsg('Falha ao marcar a nota fiscal.'); }
+    finally { setNfBusy(null); }
   };
 
   const inter = (lote?.inter_pagaveis || []) as any[];
@@ -180,6 +190,13 @@ export default function PagamentosPJPage() {
                     <td className="py-1">{i.beneficiario}</td>
                     <td><Badge variant="outline" className="text-xs">{i.status === 'sem_pix' ? 'aguardando autocadastro (PIX)' : 'aguardando nota fiscal'}</Badge></td>
                     <td className="text-right text-gray-500">{brl(i.valor)}</td>
+                    <td className="text-right w-40">
+                      {i.status === 'aguardando_nf' && (
+                        <Button onClick={() => marcarNF(i.id)} disabled={nfBusy === i.id} variant="outline" size="sm">
+                          {nfBusy === i.id ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <FileCheck className="h-3.5 w-3.5 mr-1" />} Nota recebida
+                        </Button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
