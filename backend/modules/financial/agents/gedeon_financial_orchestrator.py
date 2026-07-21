@@ -143,9 +143,33 @@ class GedeonFinancialOrchestrator:
             context = await self._get_context()
             agent = RiskMonitorAgent(self.db)
             alerts = await agent.scan()
+            # Fase 0 (Task 6): persiste no sino (fim do "cérebro amnésico"). Idempotente
+            # por categoria de risco (o risco que persiste ATUALIZA a linha, não spamma).
+            # Best-effort: falha de persistência nunca derruba a varredura.
+            persistidos = 0
+            try:
+                from modules.notifications.services.alert_ingest import enqueue_alert
+
+                for a in alerts:
+                    acao = a.get("action")
+                    await enqueue_alert(
+                        self.db,
+                        category=f"risco_{a.get('category', 'geral')}",
+                        source_entity_type="portfolio",
+                        source_entity_id=None,
+                        severity=a.get("level", "atencao"),
+                        title=a.get("title", "Risco financeiro"),
+                        body=(a.get("description") or "") + (f" | Ação: {acao}" if acao else ""),
+                    )
+                    persistidos += 1
+                await self.db.commit()
+            except Exception as _pe:  # noqa: BLE001
+                logger.warning("[Gedeon] RiskMonitor persistência falhou (segue): %s", _pe)
+                await self.db.rollback()
             return {
                 "agent": "RiskMonitorAgent",
                 "alerts": alerts,
+                "persistidos": persistidos,
                 "context": context,
                 "status": "ok",
             }
