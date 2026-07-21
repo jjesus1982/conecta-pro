@@ -160,6 +160,16 @@ def sincronizar_extrato_cora(dias: int = 60) -> dict:
                 rel["conciliados"] += 1
             else:
                 rel["pendentes"] += 1
+
+        # Persistir o SALDO no bank_accounts. Sem isso o extrato entra mas o saldo da conta
+        # fica velho/zero e se passa por real (bug flagrado 21/07: Cora mostrava R$0). Não move
+        # dinheiro — só grava o saldo LIVE já consultado + o carimbo de quando foi.
+        db.execute(
+            text("UPDATE bank_accounts SET current_balance=:t, available_balance=:a, "
+                 "blocked_balance=:b, last_balance_update=NOW(), updated_at=NOW() WHERE id=:acc"),
+            {"t": float(saldo.total), "a": float(saldo.available),
+             "b": float(getattr(saldo, "blocked", 0) or 0), "acc": conta["id"]},
+        )
         db.commit()
 
     logger.info("Cora sync: %s", rel)

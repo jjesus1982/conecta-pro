@@ -8,6 +8,8 @@ Regra de ouro: dinheiro que SAI e transmissão legal = GATED (só visibilidade).
 Nunca fabricar dado — vazio real = tabela honesta "aguardando dado".
 Ver auditoria/parity/DIVISAO_3T.md + BRIEFING_T4.md.
 """
+from sqlalchemy import text  # noqa: F401
+
 from modules.operacional.controllers.redesign_data_controller import (  # noqa: F401
     _build_financeiro as _base,
     _fmtdate,
@@ -20,6 +22,82 @@ from modules.operacional.controllers.redesign_data_controller import (  # noqa: 
 )
 
 SLUG = "financeiro"
+
+# Menu extra do módulo (mesclado pelo registry) — tela de saldos ao vivo.
+EXTRA_MENU: list[dict] = [
+    {"id": "saldos", "label": "Saldos por conta",
+     "icon": "M3 21h18M4 10h16M5 10 12 4l7 6M6 10v11M18 10v11M10 10v11M14 10v11"},
+]
+
+
+async def _fetch_live_balance(bank_code, bank_name):
+    """Saldo REAL do banco ao vivo (READ-only=visibilidade, NÃO move dinheiro).
+    Timeout curto + tudo em try/except → nunca trava/derruba a tela; falhou → None
+    (a tela cai pro cache com a data). Inter=OAuth2+mTLS; Cora=mTLS."""
+    import asyncio
+    nome = (bank_name or "").lower()
+    try:
+        if bank_code == "077" or "inter" in nome:
+            from modules.integrations.inter.client import InterClient
+            async with InterClient() as cli:
+                s = await asyncio.wait_for(cli.consultar_saldo(), timeout=5)
+            return float(getattr(s, "total", None) or getattr(s, "available", 0) or 0)
+        if bank_code == "403" or "cora" in nome:
+            from modules.integrations.banking.adapters.cora import CoraAdapter
+            ad = CoraAdapter()
+            if not await asyncio.wait_for(ad.authenticate(), timeout=5):
+                return None
+            s = await asyncio.wait_for(ad.get_balance(), timeout=5)
+            return float(getattr(s, "total", None) or getattr(s, "available", 0) or 0)
+    except Exception:  # noqa: BLE001 — qualquer falha → cai pro cache
+        return None
+    return None
+
+
+async def _build_saldos(db):
+    """Saldos por conta. Se o cache (bank_accounts) estiver velho (> GATE), puxa o
+    saldo REAL do banco na hora, atualiza o cache e mostra 'ao vivo'; senão usa o
+    cache e mostra a data. Sempre expõe 'Atualizado' e 'Fonte' — sem timestamp
+    fresco, o número NÃO é tratado como confiável."""
+    from datetime import datetime, timezone
+    GATE = 180  # s — se o cache for mais velho que isso, refaz ao vivo
+    now = datetime.now(timezone.utc)
+    rows = (await db.execute(text(
+        "SELECT id, name, bank_name, bank_code, current_balance, last_balance_update "
+        "FROM bank_accounts WHERE ativo IS NOT FALSE "
+        "AND (bank_code IN ('077','403') OR bank_name ILIKE '%inter%' OR bank_name ILIKE '%cora%') "
+        "ORDER BY is_main_account DESC NULLS LAST, name"))).fetchall()
+    cells = []
+    for acc_id, name, bank_name, bank_code, bal, upd in rows:
+        val, ts, fonte = bal, upd, "cache"
+        upd_utc = upd.replace(tzinfo=timezone.utc) if (upd and upd.tzinfo is None) else upd
+        stale = (upd_utc is None) or ((now - upd_utc).total_seconds() > GATE)
+        if stale:
+            live = await _fetch_live_balance(bank_code, bank_name)
+            if live is not None:
+                val, ts, fonte = live, now, "ao vivo"
+                try:
+                    await db.execute(text(
+                        "UPDATE bank_accounts SET current_balance=:b, available_balance=:b, "
+                        "last_balance_update=now(), updated_at=now() WHERE id=:id"),
+                        {"b": float(live), "id": str(acc_id)})
+                    await db.commit()
+                except Exception:  # noqa: BLE001
+                    await db.rollback()
+        # freshness do carimbo (só p/ colorir a fonte quando é cache)
+        idade_dias = None if ts is None else (now - (ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc))).days
+        fonte_tone = "ok" if fonte == "ao vivo" else ("warn" if (idade_dias is None or idade_dias >= 1) else "info")
+        cells.append({"cells": [
+            t(name or "—", 600, "#0F1B3A"), t(bank_name or "—"),
+            t(brl(val) if val is not None else "aguardando dado", 600, "#0F1B3A" if val is not None else "#64748B"),
+            t(_fmtdate(ts, "%d/%m %H:%M") if ts else "nunca"),
+            b("Ao vivo" if fonte == "ao vivo" else "Cache", fonte_tone),
+        ]})
+    return {"title": "Saldos por conta",
+            "sub": "Inter e Cora — puxa o saldo real ao vivo quando o cache passa de 3 min; sempre mostra a data e a fonte",
+            "cta": "—", "type": "table", "searchHint": "Buscar…",
+            "grid": "1.6fr 1.2fr 1.1fr 1.1fr 0.8fr",
+            "cols": ["Conta", "Banco", "Saldo", "Atualizado", "Fonte"], "rows": cells}
 
 
 def _simnao(v) -> dict:
@@ -41,6 +119,9 @@ async def build(db) -> dict:
     out, safe, tbl = _helpers(db)
     # Base do monólito (10 telas já provadas) — reusa sem duplicar.
     out.update(await _base(db))
+
+    # ---- Saldos por conta (Inter + Cora ao vivo, com fonte/data) ----
+    await safe("saldos", _build_saldos(db))
 
     # ---- Fluxo de caixa (bank_transactions — entradas/saídas reais) ----
     await safe("fluxo-caixa", tbl(
