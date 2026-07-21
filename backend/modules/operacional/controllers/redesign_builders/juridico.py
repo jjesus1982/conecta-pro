@@ -106,8 +106,15 @@ async def build(db) -> dict:
         rk = await asyncio.to_thread(_sync_riscos)
         det = rk.get("detalhado", []) or []
 
+        _VLBL = {  # rótulos do clássico (fidelidade — o clássico vence)
+            "fgts_multa_40": "FGTS + multa 40%", "aviso_previo": "Aviso prévio",
+            "ferias_prop_mais_terco": "Férias prop. + 1/3", "decimo_terceiro_prop": "13º proporcional",
+            "diferenca_piso_retroativa": "Diferença de piso", "horas_extras_noturno": "Horas extras/noturno",
+            "adicionais_risco": "Adicionais de risco",
+        }
+
         def _verbas_tags(v: dict) -> str:
-            xs = [k.replace('_', ' ') for k, vv in (v or {}).items()
+            xs = [_VLBL.get(k, k.replace('_', ' ')) for k, vv in (v or {}).items()
                   if isinstance((vv or {}).get('valor'), (int, float)) and (vv or {}).get('valor')]
             return " · ".join(xs)
 
