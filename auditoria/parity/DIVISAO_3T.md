@@ -9,19 +9,20 @@ Ligar (wire) ao DADO REAL do clássico as **161 telas não-wired** do redesign, 
 (transmitir eSocial, pagar, OTP) fica SEMPRE **GATED** — nunca disparada em teste.
 Fase 2 (reconstrução das ~611 capacidades de escrita) vem depois, com outro placar.
 
-## Identidades (TRAVADAS — não confundir)
+## Identidades (TRAVADAS — não confundir) — atualizado 2026-07-21
 | Terminal | Papel | tmux |
 |---|---|---|
-| **T1** | Orquestrador + fundação (refactor) + seus módulos | (sessão que fez telas 1-24) |
-| **T2** | Trabalhador — cluster financeiro/comercial | ponto CLT (termina e migra) |
+| **T1** | Orquestrador + fundação (feita) + seus módulos | (sessão que fez telas 1-24) |
+| ~~T2~~ | **Realocado p/ outra missão crítica** — seus módulos foram p/ T4 | — |
 | **T3** | Trabalhador — cluster pessoas | já com diagnóstico na mão |
-| **T4** | Monitor (NÃO codifica) | sessão nova |
+| **T4** | Trabalhador — cluster financeiro/comercial (assumiu o do T2) | sessão nova |
+| **T5** | Monitor (NÃO codifica) — observa T1/T3/T4 | sessão nova |
 
 ## Divisão por módulo (cada módulo pertence a EXATAMENTE um terminal)
 | Terminal | Módulos (gap = telas não-wired) | ~telas |
 |---|---|---|
 | **T1** | operacional(28) · saude-ocupacional(3) · fiscal(6) · juridico(8) · integracoes(5) · campo(2) · documentos(2) · relatorios(1) · meu-espaco(0) · suprimentos(1) · homologacao(1) | **~57** |
-| **T2** | financeiro(21) · gestao-de-pessoas(9) · crm(3) · empresas(4) · seguranca(5) · recrutamento(1) · servicos(2) · agendador(3) · assistente(2) · bi(0) · analytics(0) | **~50** |
+| **T4** | financeiro(21) · gestao-de-pessoas(9) · crm(3) · empresas(4) · seguranca(5) · recrutamento(1) · servicos(2) · agendador(3) · assistente(2) · bi(0) · analytics(0) | **~50** |
 | **T3** | departamento-pessoal(10) · rh(10) · marketing(7) · area-do-cliente(6) · portal-do-funcionario(5) · licitacoes(3) · configuracoes(6) · equipamentos(4) · automacoes(3) | **~54** |
 
 Denominador = **telas wireable** (não P0 cru: P0 mede o buraco total, inclui escrita GATED que
@@ -53,3 +54,4 @@ ninguém faz em paralelo agora).
 
 ## CHECKLIST AO VIVO (marque `[x] <terminal> <tela>` quando fechar)
 <!-- ex.: - [x] T1 fiscal/certidoes-cnd (curl 9 CNDs) commit abc123 -->
+- [x] T1 juridico: 1º módulo via fundação — contratos·conhecimento·analise·processos-det (+visao/processos/det). escritorio=probe→honesto vazio. build() 7 telas provado no container.

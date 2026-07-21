@@ -29,3 +29,7 @@ Estratégia aprovada (2026-07-20): B+C — clássico segue operacional; corrijo 
 | 21 | fiscal | NFS-e tomadas só num KPI | tela `nfse-tomadas` (nfse_tomadas_nacional) | curl: 292 notas, SOLIDES R$236 | ✅ FECHADO + DEPLOYADO |
 | 22 | juridico | DET/comunicações trabalhistas invisíveis | tela `det-comunicacoes` (juridico_det_comunicacoes) | curl: 11 comunicações c/ prazo legal | ✅ FECHADO + DEPLOYADO |
 | 23 | crm | Aditivos contratuais invisíveis | tela `aditivos` (contract_addendums, gotcha enum::text) | curl: 7 aditivos, CTR-2026-00008 | ✅ FECHADO + DEPLOYADO |
+| 24 | juridico | Contratos jurídicos invisíveis | tela `contratos` (client_contracts, redesign_builders/juridico.py) | build(): 10 contratos, CTR-2026-00011 portaria_remota | ✅ FECHADO (via fundação) |
+| 25 | juridico | Base de conhecimento jurídico invisível | tela `conhecimento` (juridico_conhecimento) | build(): 4 casos reais (Ermeson/Thais) | ✅ FECHADO (via fundação) |
+| 26 | juridico | Análises de contrato invisíveis | tela `analise` (juridico_analises, resultado JSON→resumo) | build(): parecer crítico, risco 89 | ✅ FECHADO (via fundação) |
+| 27 | juridico | Menu processos-det (DET) vazio | tela `processos-det` (juridico_det_comunicacoes) | build(): 11 comunicações | ✅ FECHADO (via fundação) |
