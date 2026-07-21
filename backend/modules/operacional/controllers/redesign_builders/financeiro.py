@@ -26,6 +26,17 @@ def _simnao(v) -> dict:
     return b("Sim", "info") if v else b("—", "mut")
 
 
+def _kpi_valor(nome, valor, unidade, atualizado) -> dict:
+    """KPI sem timestamp de cálculo = nunca recalculado → mostra 'não calculado'
+    em vez de deixar um placeholder velho se passar por métrica real. Só honra o
+    valor quando há prova de que foi computado/sincronizado (atualizado != NULL)."""
+    if atualizado is None:
+        return b("não calculado", "mut")
+    if (unidade or "") == "R$":
+        return t(brl(valor), 600)
+    return t(f"{float(valor):g}" if valor is not None else "—", 600)
+
+
 async def build(db) -> dict:
     out, safe, tbl = _helpers(db)
     # Base do monólito (10 telas já provadas) — reusa sem duplicar.
@@ -174,15 +185,16 @@ async def build(db) -> dict:
                    b((r[3] or '—').capitalize(), "ok" if (r[3] or '').lower() in ("active", "ativo", "assinado", "signed") else "info"),
                    t(_fmtdate(r[4]))]))
 
-    # ---- Raio-X (KPIs financeiros reais) ----
+    # ---- Raio-X (KPIs financeiros — só honra valor com prova de cálculo/sync) ----
     await safe("raio-x", tbl(
-        "Raio-X financeiro", "Indicadores-chave (financial_kpis)",
-        "—", ["Indicador", "Valor", "Unidade", "Status"], "2fr 1fr 1fr 0.9fr",
-        "SELECT coalesce(nome,'—'), valor_atual, coalesce(unidade,'—'), coalesce(status::text,'—') "
+        "Raio-X financeiro", "Indicadores-chave — 'não calculado' = KPI sem cálculo/sync (não é métrica real ainda)",
+        "—", ["Indicador", "Valor", "Unidade", "Atualizado", "Status"], "2fr 1fr 0.8fr 1.1fr 0.9fr",
+        "SELECT coalesce(nome,'—'), valor_atual, coalesce(unidade,'—'), coalesce(status::text,'—'), "
+        "coalesce(ultima_atualizacao, ultimo_calculo_at) "
         'FROM financial_kpis WHERE ativo=true ORDER BY "order" NULLS LAST LIMIT 50',
-        lambda r: [t(r[0], 600, "#0F1B3A"),
-                   t((brl(r[1]) if (r[2] or '') == 'R$' else (f"{float(r[1]):g}" if r[1] is not None else '—')), 600),
-                   t(r[2]), b((r[3] or '—').capitalize(), "ok" if (r[3] or '').upper() == "ACTIVE" else "mut")]))
+        lambda r: [t(r[0], 600, "#0F1B3A"), _kpi_valor(r[0], r[1], r[2], r[4]), t(r[2]),
+                   t(_fmtdate(r[4], '%d/%m %H:%M') if r[4] else '—'),
+                   b((r[3] or '—').capitalize(), "ok" if (r[3] or '').upper() == "ACTIVE" else "mut")]))
 
     # ---- CFO IA (histórico de consultas — READ) ----
     await safe("cfo", tbl(
@@ -199,14 +211,16 @@ async def build(db) -> dict:
         "SELECT coalesce(area,'—'), count(*), max(created_at) FROM financial_cfo_consultas GROUP BY area ORDER BY count(*) DESC",
         lambda r: [t((r[0] or '—').capitalize(), 600, "#0F1B3A"), b(f"{r[1]} consultas", "info"), t(_fmtdate(r[2]))]))
 
-    # ---- Relatórios (indicadores disponíveis para relatórios — real) ----
+    # ---- Relatórios (indicadores para relatórios — marca não calculados) ----
     await safe("relatorios", tbl(
-        "Relatórios", "Indicadores disponíveis para relatórios",
-        "—", ["Indicador", "Categoria", "Valor atual", "Frequência"], "2fr 1.2fr 1fr 1fr",
-        "SELECT coalesce(nome,'—'), coalesce(categoria::text,'—'), valor_atual, coalesce(frequencia::text,'—') "
+        "Relatórios", "Indicadores para relatórios — 'não calculado' = sem cálculo/sync ainda",
+        "—", ["Indicador", "Categoria", "Valor atual", "Atualizado", "Frequência"], "2fr 1.1fr 1fr 1.1fr 0.9fr",
+        "SELECT coalesce(nome,'—'), coalesce(categoria::text,'—'), valor_atual, coalesce(frequencia::text,'—'), "
+        "coalesce(ultima_atualizacao, ultimo_calculo_at) "
         'FROM financial_kpis WHERE ativo=true ORDER BY "order" NULLS LAST LIMIT 50',
         lambda r: [t(r[0], 600, "#0F1B3A"), b((r[1] or '—').capitalize(), "mut"),
-                   t(f"{float(r[2]):g}" if r[2] is not None else '—', 600), t((r[3] or '—').capitalize())]))
+                   _kpi_valor(r[0], r[2], None, r[4]),
+                   t(_fmtdate(r[4], '%d/%m %H:%M') if r[4] else '—'), t((r[3] or '—').capitalize())]))
 
     # ---- Custeio CCT — o form de compute já existe no monólito sob 'custeio-cct';
     #      o menu-id real é 'custeio' → aponta a mesma ferramenta (compute puro, nada é gravado).
