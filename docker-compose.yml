@@ -57,10 +57,14 @@ services:
     container_name: conecta-pro-backend
     restart: unless-stopped
     stop_grace_period: 30s
-    # Concorrência p/ 100 usuários simultâneos (rollout ponto 08/2026): 4 workers uvicorn
-    # (8 CPUs no host). Pool de banco reduzido no .env (DATABASE_POOL_SIZE/MAX_OVERFLOW=6)
-    # p/ 4 workers × 2 engines × (6+6) ≈ 96 conexões < max_connections=150 do Postgres.
-    command: ["uvicorn", "main_production:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "4", "--timeout-graceful-shutdown", "25"]
+    # 2 workers uvicorn (era 4). FastAPI é ASYNC: 1 worker já atende muitos usuários
+    # concorrentes por I/O; workers são só p/ paralelismo de CPU. 4 workers = ~8GB RAM e,
+    # no blue-green (2 backends), ~16GB → causou OOM/timeout no deploy 2026-07-21. Com 2:
+    # ~4GB e spike de deploy ~8GB. Pool de banco fica folgado: 2×2×(6+6)≈48 < 150.
+    command: ["uvicorn", "main_production:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "2", "--timeout-graceful-shutdown", "25"]
+    # Teto de memória (auditoria OOM 2026-07-21): impede o backend de balonar e faz o
+    # OOM-kill cair NESTE container (reinicia) em vez de matar o frontend (earlyoom).
+    mem_limit: 6g
     # env_file injeta o .env inteiro (inclui AGENT_ENABLED/CHATWOOT_*/WHATSAPP_WEBHOOK_SECRET
     # que faltavam). Lido ANTES de environment: -> environment: VENCE em colisao (blindagem
     # das criticas: DATABASE_URL/OPENAI_API_KEY/REDIS_URL/SMTP_*/PORT permanecem do environment:).

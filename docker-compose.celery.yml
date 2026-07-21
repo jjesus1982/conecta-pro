@@ -11,8 +11,9 @@ services:
     image: conecta-pro-backend:latest
     container_name: conecta-pro-celery-priority
     restart: unless-stopped
+    mem_limit: 2g
     stop_grace_period: 30s
-    command: celery -A celery_app worker --hostname=priority@%h --queues=gov.esocial,gov.fgts --concurrency=2 --loglevel=INFO
+    command: celery -A celery_app worker --hostname=priority@%h --queues=gov.esocial,gov.fgts --concurrency=2 --loglevel=INFO --max-tasks-per-child=100 --max-memory-per-child=350000
     environment:
       ESOCIAL_AMBIENTE: ${ESOCIAL_AMBIENTE:-producaorestrita}
       TZ: ${TZ:-America/Manaus}
@@ -49,8 +50,9 @@ services:
     image: conecta-pro-backend:latest
     container_name: conecta-pro-celery-sefaz
     restart: unless-stopped
+    mem_limit: 2g
     stop_grace_period: 30s
-    command: celery -A celery_app worker --hostname=sefaz@%h --queues=gov.sefaz.nfe,gov.sefaz.cte,gov.sefaz.mdfe --concurrency=3 --loglevel=INFO
+    command: celery -A celery_app worker --hostname=sefaz@%h --queues=gov.sefaz.nfe,gov.sefaz.cte,gov.sefaz.mdfe --concurrency=3 --loglevel=INFO --max-tasks-per-child=100 --max-memory-per-child=350000
     environment:
       ESOCIAL_AMBIENTE: ${ESOCIAL_AMBIENTE:-producaorestrita}
       TZ: ${TZ:-America/Manaus}
@@ -87,8 +89,9 @@ services:
     image: conecta-pro-backend:latest
     container_name: conecta-pro-celery-nfse
     restart: unless-stopped
+    mem_limit: 2g
     stop_grace_period: 30s
-    command: celery -A celery_app worker --hostname=nfse@%h --queues=gov.nfse --concurrency=2 --loglevel=INFO
+    command: celery -A celery_app worker --hostname=nfse@%h --queues=gov.nfse --concurrency=2 --loglevel=INFO --max-tasks-per-child=100 --max-memory-per-child=350000
     environment:
       ESOCIAL_AMBIENTE: ${ESOCIAL_AMBIENTE:-producaorestrita}
       TZ: ${TZ:-America/Manaus}
@@ -125,8 +128,9 @@ services:
     image: conecta-pro-backend:latest
     container_name: conecta-pro-celery-batch
     restart: unless-stopped
+    mem_limit: 2g
     stop_grace_period: 30s
-    command: celery -A celery_app worker --hostname=batch@%h --queues=gov.batch --concurrency=2 --loglevel=INFO
+    command: celery -A celery_app worker --hostname=batch@%h --queues=gov.batch --concurrency=2 --loglevel=INFO --max-tasks-per-child=100 --max-memory-per-child=350000
     # env_file injeta o .env (OPENAI_API_KEY, TELEGRAM_*, AGENT_*) — necessário p/ as tasks
     # whatsapp.auditar_qualidade e whatsapp.followup_conversas (auditor + follow-up do José Luís).
     # O environment: abaixo sobrescreve as infra-URLs p/ a rede de containers.
@@ -168,8 +172,9 @@ services:
     image: conecta-pro-backend:latest
     container_name: conecta-pro-celery-integrations
     restart: unless-stopped
+    mem_limit: 2g
     stop_grace_period: 30s
-    command: celery -A celery_app worker --hostname=integrations@%h --queues=integrations,webhooks,maintenance --concurrency=2 --loglevel=INFO
+    command: celery -A celery_app worker --hostname=integrations@%h --queues=integrations,webhooks,maintenance --concurrency=2 --loglevel=INFO --max-tasks-per-child=100 --max-memory-per-child=350000
     environment:
       ESOCIAL_AMBIENTE: ${ESOCIAL_AMBIENTE:-producaorestrita}
       TZ: ${TZ:-America/Manaus}
@@ -208,8 +213,9 @@ services:
     image: conecta-pro-backend:latest
     container_name: conecta-pro-celery-operacional
     restart: unless-stopped
+    mem_limit: 2g
     stop_grace_period: 30s
-    command: celery -A celery_app worker --hostname=operacional@%h --queues=operacional --concurrency=2 --loglevel=INFO
+    command: celery -A celery_app worker --hostname=operacional@%h --queues=operacional --concurrency=2 --loglevel=INFO --max-tasks-per-child=100 --max-memory-per-child=350000
     environment:
       ESOCIAL_AMBIENTE: ${ESOCIAL_AMBIENTE:-producaorestrita}
       TZ: ${TZ:-America/Manaus}
@@ -245,6 +251,7 @@ services:
     image: conecta-pro-backend:latest
     container_name: conecta-pro-celery-beat
     restart: unless-stopped
+    mem_limit: 2g
     stop_grace_period: 30s
     command: celery -A celery_app beat --loglevel=INFO --schedule=/var/run/celery/celerybeat-schedule
     user: root
