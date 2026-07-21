@@ -106,6 +106,7 @@ export const modules: Module[] = [
       { id: 'dp-esocial', title: 'eSocial', href: '/modulos/dp/esocial', icon: 'Database', permissions: ['module:dp'] },
       { id: 'dp-documentos', title: 'Documentos DP', href: '/modulos/dp/documentos', icon: 'FolderOpen', permissions: ['module:dp'] },
       { id: 'dp-prestadores-pj', title: 'Prestadores PJ', href: '/modulos/dp/prestadores-pj', icon: 'Link2', permissions: ['module:dp'] },
+      { id: 'dp-ativacao-ponto', title: 'Ativação do Ponto', href: '/modulos/dp/ativacao-ponto', icon: 'Fingerprint', permissions: ['module:dp'] },
     ],
   },
 

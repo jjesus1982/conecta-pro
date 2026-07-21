@@ -21,6 +21,8 @@ from .candidato_controller import router as candidato_router
 from .pj_autocadastro_controller import router as pj_autocadastro_router
 from .primeiro_acesso_controller import router as primeiro_acesso_router
 from .primeiro_acesso_controller import router_auth as login_facial_router
+from .portal_docs_ouvidoria_controller import router as portal_docs_router
+from .portal_docs_ouvidoria_controller import router_admin as ouvidoria_admin_router
 
 __all__ = [
     "portal_auth_router",
@@ -30,6 +32,8 @@ __all__ = [
     "pj_autocadastro_router",
     "primeiro_acesso_router",
     "login_facial_router",
+    "portal_docs_router",
+    "ouvidoria_admin_router",
     "my_profile_router",
     "my_schedules_router",
     "my_payslips_router",

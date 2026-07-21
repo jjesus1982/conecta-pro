@@ -26,6 +26,7 @@ import {
   CalendarClock, Bell, MapPin, Camera, Fingerprint, X,
   Receipt, Wallet, Paperclip, Send,
   ChevronDown, ChevronRight, ChevronLeft, History,
+  Megaphone, Upload, Lock, EyeOff,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
@@ -90,7 +91,7 @@ const SS_BASE = '/api/v1/people-management/portal/self-service';
 type Tab =
   | 'assinar' | 'holerite' | 'ferias' | 'ponto' | 'beneficios'
   | 'documentos' | 'treinamentos' | 'dados'
-  | 'escala' | 'comunicados' | 'reembolso';
+  | 'escala' | 'comunicados' | 'reembolso' | 'ouvidoria';
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'assinar', label: 'Documentos a assinar', icon: FileSignature },
@@ -103,6 +104,7 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'beneficios', label: 'Benefícios', icon: Gift },
   { id: 'reembolso', label: 'Reembolso', icon: Receipt },
   { id: 'treinamentos', label: 'Treinamentos', icon: GraduationCap },
+  { id: 'ouvidoria', label: 'Ouvidoria', icon: Megaphone },
   { id: 'dados', label: 'Meus dados', icon: UserIcon },
 ];
 
@@ -265,6 +267,7 @@ export default function MeuEspacoPage() {
             {tab === 'beneficios' && <BeneficiosTab />}
             {tab === 'reembolso' && <ReembolsoTab />}
             {tab === 'treinamentos' && <TreinamentosTab />}
+            {tab === 'ouvidoria' && <OuvidoriaTab />}
             {tab === 'dados' && <DadosTab />}
           </div>
         )}
@@ -1532,25 +1535,152 @@ interface MeuDocumento {
   file_path: string | null;
 }
 
+// Ouvidoria — canal sigiloso (anônimo ou identificado)
+function OuvidoriaTab() {
+  const [categoria, setCategoria] = useState('');
+  const [mensagem, setMensagem] = useState('');
+  const [anonimo, setAnonimo] = useState(true);
+  const [enviando, setEnviando] = useState(false);
+  const [protocolo, setProtocolo] = useState('');
+  const [erro, setErro] = useState('');
+  const [minhas, setMinhas] = useState<Array<{ protocolo: string; categoria: string | null; mensagem: string; status: string; resposta: string | null }>>([]);
+
+  const carregarMinhas = async () => {
+    try { const r = await api.get(`${SS_BASE}/ouvidoria/minhas`); setMinhas(r.data?.manifestacoes || []); } catch { /* noop */ }
+  };
+  useEffect(() => { carregarMinhas(); }, []);
+
+  const enviar = async () => {
+    if (mensagem.trim().length < 5) { setErro('Descreva sua manifestação (mínimo 5 caracteres).'); return; }
+    setEnviando(true); setErro(''); setProtocolo('');
+    try {
+      const r = await api.post(`${SS_BASE}/ouvidoria`, { categoria: categoria || null, mensagem: mensagem.trim(), anonimo });
+      setProtocolo(r.data?.protocolo || '');
+      setMensagem('');
+      if (!anonimo) carregarMinhas();
+    } catch { setErro('Não foi possível enviar sua manifestação. Tente de novo.'); }
+    finally { setEnviando(false); }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl bg-[#16277D]/5 border border-[#16277D]/20 p-4 flex items-start gap-3">
+        <Lock className="w-5 h-5 text-[#16277D] mt-0.5 shrink-0" />
+        <p className="text-[13px] text-[hsl(var(--muted-foreground))]">
+          Canal <b>sigiloso</b> pra você relatar problemas, denúncias ou sugestões. Você escolhe se quer
+          se <b>identificar</b> ou enviar de forma <b>anônima</b> — no anônimo, ninguém fica sabendo que foi você.
+        </p>
+      </div>
+
+      {erro && <ErrorBox msg={erro} />}
+      {protocolo && (
+        <div className="rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[14px] px-4 py-3">
+          ✓ Manifestação registrada com sigilo. Seu protocolo: <b>{protocolo}</b> — guarde para acompanhar.
+        </div>
+      )}
+
+      <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4 space-y-3">
+        <div>
+          <label className="text-[12px] text-[hsl(var(--muted-foreground))]">Assunto</label>
+          <select value={categoria} onChange={(e) => setCategoria(e.target.value)}
+            className="w-full rounded-xl border-2 border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 py-2.5 text-[15px] outline-none">
+            <option value="">Selecione…</option>
+            <option value="assedio">Assédio</option>
+            <option value="discriminacao">Discriminação</option>
+            <option value="seguranca">Segurança no trabalho</option>
+            <option value="conduta">Conduta / ética</option>
+            <option value="sugestao">Sugestão</option>
+            <option value="outros">Outros</option>
+          </select>
+        </div>
+        <div>
+          <label className="text-[12px] text-[hsl(var(--muted-foreground))]">Sua manifestação</label>
+          <textarea value={mensagem} onChange={(e) => setMensagem(e.target.value)} rows={5} placeholder="Descreva o que aconteceu…"
+            className="w-full rounded-xl border-2 border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 py-2.5 text-[15px] outline-none resize-y" />
+        </div>
+        <button type="button" onClick={() => setAnonimo((v) => !v)}
+          className="flex items-center gap-2 text-[14px] font-medium text-[hsl(var(--foreground))]">
+          <span className={`w-10 h-6 rounded-full transition-colors relative ${anonimo ? 'bg-[#16277D]' : 'bg-slate-300'}`}>
+            <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-all ${anonimo ? 'left-[18px]' : 'left-0.5'}`} />
+          </span>
+          {anonimo ? <><EyeOff className="w-4 h-4" /> Enviar anonimamente</> : <>Enviar identificado (poderei receber resposta)</>}
+        </button>
+        <button onClick={enviar} disabled={enviando}
+          className="rounded-xl bg-[#F97316] text-white text-[15px] font-bold px-5 py-2.5 flex items-center gap-2 disabled:opacity-50">
+          {enviando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Enviar manifestação
+        </button>
+      </div>
+
+      {minhas.length > 0 && (
+        <div>
+          <p className="text-[13px] font-semibold text-[hsl(var(--muted-foreground))] mb-2 mt-4">Minhas manifestações identificadas</p>
+          <div className="space-y-2">
+            {minhas.map((m) => (
+              <div key={m.protocolo} className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-3.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[12px] font-mono text-[hsl(var(--muted-foreground))]">{m.protocolo}</span>
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{m.status}</span>
+                </div>
+                <p className="text-[14px] text-[hsl(var(--foreground))] mt-1">{m.mensagem}</p>
+                {m.resposta && <p className="text-[13px] text-emerald-700 mt-2 border-t border-[hsl(var(--border))] pt-2"><b>Resposta:</b> {m.resposta}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DocumentosTab({ onIrAssinar }: { onIrAssinar: () => void }) {
   const [docs, setDocs] = useState<MeuDocumento[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [baixandoId, setBaixandoId] = useState<string | null>(null);
+  const [upTipo, setUpTipo] = useState('atestado_medico');
+  const [upFile, setUpFile] = useState<File | null>(null);
+  const [upIni, setUpIni] = useState('');
+  const [upFim, setUpFim] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const [okMsg, setOkMsg] = useState('');
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await api.get('/api/v1/people-management/portal/self-service/meus-documentos');
-        setDocs(Array.isArray(res.data?.documentos) ? res.data.documentos : []);
-      } catch (e: unknown) {
-        const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-        setError(msg || 'Não foi possível carregar seus documentos.');
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+  const recarregar = async () => {
+    try {
+      const res = await api.get('/api/v1/people-management/portal/self-service/meus-documentos');
+      setDocs(Array.isArray(res.data?.documentos) ? res.data.documentos : []);
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(msg || 'Não foi possível carregar seus documentos.');
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { recarregar(); }, []);
+
+  const enviarDoc = async () => {
+    if (!upFile) { setError('Escolha um arquivo (foto ou PDF).'); return; }
+    setEnviando(true); setError(''); setOkMsg('');
+    try {
+      const token = localStorage.getItem('access_token');
+      const base = process.env.NEXT_PUBLIC_API_URL || 'https://erp.conectamais.pro';
+      const fd = new FormData();
+      fd.append('tipo', upTipo);
+      fd.append('arquivo', upFile);
+      if (upTipo === 'atestado_medico') { if (upIni) fd.append('data_inicio', upIni); if (upFim) fd.append('data_fim', upFim); }
+      const r = await fetch(`${base}/api/v1/people-management/portal/self-service/documentos/upload`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(msgFromDetail(j.detail) || 'Não foi possível enviar o documento.');
+      setOkMsg(j.mensagem || 'Documento enviado e anexado à sua ficha.');
+      setUpFile(null); setUpIni(''); setUpFim('');
+      recarregar();
+    } catch (e: unknown) {
+      setError((e as Error)?.message || 'Falha ao enviar o documento.');
+    } finally {
+      setEnviando(false);
+    }
+  };
 
   const baixar = async (id: string) => {
     setBaixandoId(id);
@@ -1578,6 +1708,57 @@ function DocumentosTab({ onIrAssinar }: { onIrAssinar: () => void }) {
   return (
     <div className="space-y-3">
       {error && <ErrorBox msg={error} />}
+      {okMsg && (
+        <div className="rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[14px] px-4 py-3">{okMsg}</div>
+      )}
+
+      {/* Enviar documento → cai na ficha; atestado abona o ponto (via DP) */}
+      <div className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Upload className="w-5 h-5 text-[#F97316]" />
+          <p className="text-[15px] font-semibold text-[hsl(var(--foreground))]">Enviar um documento</p>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label className="text-[12px] text-[hsl(var(--muted-foreground))]">Tipo</label>
+            <select value={upTipo} onChange={(e) => setUpTipo(e.target.value)}
+              className="w-full rounded-xl border-2 border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 py-2.5 text-[15px] outline-none">
+              <option value="atestado_medico">Atestado médico</option>
+              <option value="comprovante">Comprovante</option>
+              <option value="rg">RG / Documento</option>
+              <option value="declaracao">Declaração</option>
+              <option value="outros">Outros</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-[12px] text-[hsl(var(--muted-foreground))]">Arquivo (foto ou PDF)</label>
+            <input type="file" accept="image/*,application/pdf" onChange={(e) => setUpFile(e.target.files?.[0] || null)}
+              className="w-full rounded-xl border-2 border-[hsl(var(--border))] px-3 py-2 text-[13px] outline-none file:mr-2 file:rounded-lg file:border-0 file:bg-[#F97316]/10 file:text-[#F97316] file:px-3 file:py-1.5 file:text-[13px] file:font-semibold" />
+          </div>
+          {upTipo === 'atestado_medico' && (
+            <>
+              <div>
+                <label className="text-[12px] text-[hsl(var(--muted-foreground))]">Afastamento — início</label>
+                <input type="date" value={upIni} onChange={(e) => setUpIni(e.target.value)}
+                  className="w-full rounded-xl border-2 border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 py-2.5 text-[15px] outline-none" />
+              </div>
+              <div>
+                <label className="text-[12px] text-[hsl(var(--muted-foreground))]">Afastamento — fim</label>
+                <input type="date" value={upFim} onChange={(e) => setUpFim(e.target.value)}
+                  className="w-full rounded-xl border-2 border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 py-2.5 text-[15px] outline-none" />
+              </div>
+            </>
+          )}
+        </div>
+        {upTipo === 'atestado_medico' && (
+          <p className="text-[12px] text-[hsl(var(--muted-foreground))] mt-2">O atestado vai pra sua ficha e é enviado ao DP para abonar seu ponto.</p>
+        )}
+        <button onClick={enviarDoc} disabled={enviando || !upFile}
+          className="mt-3 rounded-xl bg-[#F97316] text-white text-[15px] font-bold px-5 py-2.5 flex items-center gap-2 disabled:opacity-50">
+          {enviando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Enviar
+        </button>
+      </div>
+
       {docs.length === 0 ? (
         <EmptyState icon={FolderOpen} title="Sem documentos" desc="Nenhum documento disponível ainda." />
       ) : (

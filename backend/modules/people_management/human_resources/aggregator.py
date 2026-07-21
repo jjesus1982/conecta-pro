@@ -68,6 +68,17 @@ try:
 except ImportError:
     logger.warning("RH: Modulo de prestadores PJ nao disponivel.")
 
+# Re-export: Ativação do Ponto (painel + disparo do link de primeiro acesso)
+try:
+    from modules.people_management.human_resources.controllers.ativacao_ponto_controller import (
+        router as ativacao_ponto_router,
+    )
+
+    router.include_router(ativacao_ponto_router)
+    logger.info("RH: Router de Ativacao do Ponto carregado.")
+except ImportError:
+    logger.warning("RH: Modulo de Ativacao do Ponto nao disponivel.")
+
 # Re-export: Clima Organizacional
 try:
     from modules.people_management.human_resources.controllers.climate_controller import (
