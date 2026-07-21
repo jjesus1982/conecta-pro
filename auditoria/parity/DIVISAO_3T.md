@@ -40,11 +40,15 @@ ninguém faz em paralelo agora).
 4. Deploy blue-green → grep container → `curl /redesign/data/<slug>` prova dado real → commit atômico + linha no CORRECOES.md.
 5. Ação de escrita legal (transmitir/pagar) = form GATED, NUNCA dispara.
 
-## STATUS DA FUNDAÇÃO
-- [ ] T1: refactor monólito → `redesign_builders/` (helpers em `_shared.py` + registry por descoberta + EXTRA_MENU/router por módulo)
-- [ ] T1: provar as 128 telas wired idênticas ao `BASELINE_PRE_REFACTOR.json` (curl)
-- [ ] T1: deploy + commit + **avisar** "FUNDAÇÃO PRONTA"
-- **T2 e T3 NÃO começam antes desse aviso.**
+## STATUS DA FUNDAÇÃO — ✅ PRONTA (2026-07-21, commit 941f8ab9)
+- [x] T1: registry aditivo `_discover_module_builders()` (override + merge + router). Helpers ficaram no monólito (importados pelos módulos) — mais seguro que mover. Não usei `_shared.py`; os módulos importam de `redesign_data_controller`.
+- [x] T1: **128 telas wired IDÊNTICAS** ao `BASELINE_PRE_REFACTOR.json` (0 divergência, 8080 healthy).
+- [x] T1: deploy + commit `941f8ab9`.
+- **✅ FUNDAÇÃO PRONTA — T2 e T3 podem começar.** Como escrever seu módulo: copie `redesign_builders/_TEMPLATE.py` → `<seu_modulo>.py`, defina `SLUG`, copie o corpo do `_build_<mod>` atual do monólito como ponto de partida e adicione telas.
+
+## GOTCHA DE DEPLOY (aprendido no refactor)
+- Deploy blue-green leva **~7 min** (build+green+recria primário). **NÃO use timeout < 600s** — cortar no meio deixa o nginx apontado pro green e pode servir código stale. Se cortar: `sed -i "0,/server 127.0.0.1:80../s//server 127.0.0.1:8080;/" /etc/nginx/sites-available/erp.conectamais.pro && nginx -t && systemctl reload nginx` volta pro primário; depois `docker rm -f conecta-pro-backend-green`.
+- SEMPRE `grep container` + curl no domínio público pós-deploy (não só localhost:8080).
 
 ## CHECKLIST AO VIVO (marque `[x] <terminal> <tela>` quando fechar)
 <!-- ex.: - [x] T1 fiscal/certidoes-cnd (curl 9 CNDs) commit abc123 -->
