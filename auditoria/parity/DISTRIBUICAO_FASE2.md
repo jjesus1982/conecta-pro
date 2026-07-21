@@ -59,3 +59,4 @@ Para cada tela dos SEUS módulos:
 ## 5. CHECKLIST AO VIVO (marque `[x] <T> <modulo>/<tela>` ao fechar)
 <!-- ex.: - [x] T1 fiscal/certidoes — trouxe abas de filtro + rótulo "Vencendo" (oráculo fecha) commit abc -->
 - [x] T1 juridico/riscos — trouxe Exposição trabalhista (53 colab, R$242k) reusando riscos_service; oráculo fecha (números batem clássico).
+- [x] T4 financeiro/pagamentos-pj — trouxe a tela que faltava (clássico tinha, redesign não): lista financial_pagamentos_pj (9 reais: competência/beneficiário/empresa/valor/NF/status) via EXTRA_MENU. Money-out (pagar) fica no fluxo gated OTP do clássico. Oráculo de menu fecha; curl público 9 rows. commit b9ff4184
