@@ -69,8 +69,8 @@ imagem de 2 dias (o deploy blue-green só recria o `backend`, nunca a frota cele
    Inter(15.270,74)+Cora(34.237,37)=**49.508,11** = total em bancos, não Inter. **Renomeei o KPI-002
    para "Saldo em bancos"** (o valor está certo como total; a tela `saldos` mostra por conta).
 
-**Aberto (não crítico, flag):** conta `ZZE2E_TestBank_001` está ativa e entra na soma do KPI
-(hoje R$0, inofensivo; se ganhar saldo, polui). E o dashboard executivo do CLÁSSICO ainda mostra
+**~~Aberto~~ RESOLVIDO 2026-07-21:** conta de teste `ZZE2E_TestBank_001` marcada `ativo=false`
+(reversível) → sai da soma do KPI. Contas ativas agora só Cora + Inter. E o dashboard executivo do CLÁSSICO ainda mostra
 os 3 placeholders (Compliance/Inadimplência/Score) como reais — dono do analytics precisa dar
 fórmula ou remover. Beat vivo agora recalcula tudo de hora em hora.
 
