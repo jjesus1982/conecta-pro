@@ -70,3 +70,4 @@ ninguém faz em paralelo agora).
 - [x] T4 assistente (2/2 NOVO): chat(3)·historico(1). commit c74072a8.
 - ⚠️ T4: 50 telas VIVAS no primário via cp (volátil). BAKE pendente — árvore suja com WIP não-commitado de people_management (outro terminal); blue-green assa a árvore inteira. Próximo deploy com árvore limpa torna durável (arquivos já commitados).
 - [x] T1 saude-ocupacional: estabilidade(1 real, CINTIA) + alertas(88 ASOs vencidos). Padrão delegar+estender (build() chama _build_saude e adiciona). ajuda-medicamento pulado (sem tabela).
+- ✅ T4 BAKE CONCLUÍDO (2026-07-21 11:56, blue-green RC=0, zero downtime): imagem baked 881747… contém os 9 arquivos; 50 telas DURÁVEIS. Verificado no domínio público pós-recreate: financeiro 26 c/dados·gp 12·crm 12·empresas 5·seguranca 2·recrutamento 3·servicos 2·assistente 2 (+ honestas-vazias). Oráculo raio-x=financial_kpis batendo (Saldo Inter R$67.757,29 == banco). commits c74072a8 (build) + a627bfcd (docs).
