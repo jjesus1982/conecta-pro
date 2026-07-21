@@ -186,13 +186,60 @@ EXECUTIVE_MAP = {
     "ISS_TOTAL": src_iss_total,
 }
 
+async def src_compliance_lucro_real(db: AsyncSession) -> Decimal | None:
+    """Compliance = % de obrigações fiscais cumpridas (fiscal_obligations).
+    Deixa de ser placeholder (era 100% fixo): reflete pendências reais."""
+    row = (await db.execute(text(
+        "SELECT count(*) FILTER (WHERE status = 'cumprida'), count(*) "
+        "FROM fiscal_obligations WHERE active IS NOT FALSE"))).fetchone()
+    total = row[1] or 0
+    if not total:
+        return None
+    return (Decimal(row[0]) / Decimal(total) * Decimal("100")).quantize(Decimal("0.01"))
+
+
+async def src_inadimplencia(db: AsyncSession) -> Decimal | None:
+    """Inadimplência = valor vencido em aberto / valor exigível (pago + aberto,
+    exclui cancelado). Fonte: receivable_accounts. Era 17,04% fixo (placeholder)."""
+    venc = await _scalar(
+        db, "SELECT COALESCE(SUM(net_value), 0) FROM receivable_accounts "
+            "WHERE status IN ('pendente','parcial') AND due_date < current_date")
+    base = await _scalar(
+        db, "SELECT COALESCE(SUM(net_value), 0) FROM receivable_accounts "
+            "WHERE status IN ('pendente','parcial','paga')")
+    if not base or Decimal(str(base)) == 0:
+        return None
+    return (Decimal(str(venc)) / Decimal(str(base)) * Decimal("100")).quantize(Decimal("0.01"))
+
+
+async def src_score_saude_financeira(db: AsyncSession) -> Decimal | None:
+    """Score de saúde financeira 0–100 = composto TRANSPARENTE de dado real:
+      40% margem bruta + 35% adimplência (100 − inadimplência) + 25% liquidez
+      (saldo em bancos ÷ contas a pagar em aberto, teto 100).
+    Os pesos são uma definição inicial AJUSTÁVEL (documentada em
+    auditoria/KPI_STALENESS_FINDINGS.md) — não um número fabricado. Era 68,5 fixo."""
+    margem_raw = await _scalar(db, "SELECT current_value FROM executive_kpis WHERE code = 'MARGEM'")
+    margem = max(Decimal(0), min(Decimal(100), Decimal(str(margem_raw or 0))))
+    inad = await src_inadimplencia(db)
+    adimpl = max(Decimal(0), Decimal(100) - inad) if inad is not None else Decimal(0)
+    saldo = await _scalar(db, "SELECT COALESCE(SUM(current_balance), 0) FROM bank_accounts WHERE ativo = TRUE")
+    apagar = await _scalar(db, "SELECT COALESCE(SUM(net_value), 0) FROM payable_accounts WHERE status IN ('pendente','parcial')")
+    if apagar and Decimal(str(apagar)) > 0:
+        liq = min(Decimal(100), Decimal(str(saldo)) / Decimal(str(apagar)) * Decimal(100))
+    else:
+        liq = Decimal(100)
+    score = Decimal("0.40") * margem + Decimal("0.35") * adimpl + Decimal("0.25") * liq
+    return score.quantize(Decimal("0.1"))
+
+
 # financial_kpis.codigo -> coletor
 FINANCIAL_MAP = {
     "KPI-001": src_mrr,  # MRR
-    "KPI-002": src_saldo,  # Saldo Inter
+    "KPI-002": src_saldo,  # Saldo em bancos (soma das contas ativas)
+    "KPI-003": src_compliance_lucro_real,  # Compliance = % obrigações fiscais cumpridas
+    "KPI-004": src_inadimplencia,  # Inadimplência = vencido aberto / exigível
     "KPI-005": src_contratos_ativos,  # Contratos Ativos
-    # KPI-003 (Compliance Lucro Real), KPI-004 (Inadimplência),
-    # KPI-006 (Score Saúde Financeira) — sem fonte real definida: NÃO tocar.
+    "KPI-006": src_score_saude_financeira,  # Score saúde financeira (composto real)
 }
 
 
