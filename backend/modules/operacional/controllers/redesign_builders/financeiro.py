@@ -23,10 +23,12 @@ from modules.operacional.controllers.redesign_data_controller import (  # noqa: 
 
 SLUG = "financeiro"
 
-# Menu extra do módulo (mesclado pelo registry) — tela de saldos ao vivo.
+# Menu extra do módulo (mesclado pelo registry) — telas que o clássico tem e o menu do redesign não.
 EXTRA_MENU: list[dict] = [
     {"id": "saldos", "label": "Saldos por conta",
      "icon": "M3 21h18M4 10h16M5 10 12 4l7 6M6 10v11M18 10v11M10 10v11M14 10v11"},
+    {"id": "pagamentos-pj", "label": "Pagamentos PJ",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
 ]
 
 
@@ -115,6 +117,21 @@ async def build(db) -> dict:
 
     # ---- Saldos por conta (Inter + Cora ao vivo, com fonte/data) ----
     await safe("saldos", _build_saldos(db))
+
+    # ---- Pagamentos PJ (folha PJ — VISIBILIDADE; o pagar money-out fica no fluxo gated do clássico) ----
+    def _nf(exig, ok):
+        if not exig:
+            return b("—", "mut")
+        return b("NF OK", "ok") if ok else b("NF pendente", "warn")
+    _pj_tone = {"pago": "ok", "pendente": "warn", "programado": "info", "sem_pix": "bad", "erro": "bad", "cancelado": "mut"}
+    await safe("pagamentos-pj", tbl(
+        "Pagamentos PJ", f"{await _scalar(db, 'SELECT count(*) FROM financial_pagamentos_pj')} pagamentos (folha PJ) — visibilidade; o pagamento é sempre com gate OTP humano",
+        "—", ["Competência", "Beneficiário", "Empresa", "Valor", "NF", "Status"], "1fr 2fr 1.3fr 1fr 1fr 1fr",
+        "SELECT coalesce(competencia,'—'), coalesce(beneficiario,'—'), coalesce(empresa_slug,'—'), valor, coalesce(status,'—'), nf_exigida, nf_ok "
+        "FROM financial_pagamentos_pj ORDER BY competencia DESC NULLS LAST, valor DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1], 600, "#0F1B3A", initials(r[1])),
+                   t((r[2] or '—').replace('_', ' ').title()), t(brl(r[3]), 600),
+                   _nf(r[5], r[6]), b((r[4] or '—').replace('_', ' ').capitalize(), _pj_tone.get((r[4] or '').lower(), "info"))]))
 
     # ---- Fluxo de caixa (bank_transactions — entradas/saídas reais) ----
     await safe("fluxo-caixa", tbl(
