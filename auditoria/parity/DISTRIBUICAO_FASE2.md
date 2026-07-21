@@ -63,3 +63,4 @@ Para cada tela dos SEUS módulos:
 - [x] T2 departamento-pessoal/funcionarios — trouxe completude do cadastro eSocial (% + campos faltantes, mesma fórmula 15 campos S-2200); override no builder, dado real. Provado no público (ADAILSON 60%, ADEILSON 47%, ANGELA 40% batem com o clássico). commit f8ac6328, blue-green OK.
 - [~] T1 juridico/riscos — trabalhista (53 colab) FIEL (oráculo fecha as linhas). FALTA seção Tributário (riscos_tributario: Simples×Lucro Real + retenções + 3 riscos) + agregação por tipo de verba → próximo passo (dash multi-painel).
 - FERRAMENTA: oráculo agora normaliza texto (ignora pontuação/acento) → só flaga gap REAL, sem ruído. Vale p/ T2/T4.
+- [x] T4 financeiro/dashboard — fidelidade: painel ADITIVO "Faturamento NFS-e (12m)" (Bruto 1.615.707,19 · Líquido 1.451.894,06 · ISS 76.805,71 · Ticket 19.234,61) que o clássico exibe e o redesign não tinha. Mantém os KPIs de caixa. curl público confirma. commit 79359a58
