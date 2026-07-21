@@ -30,6 +30,7 @@ from .controllers import (
     login_facial_router,
     portal_docs_router,
     ouvidoria_admin_router,
+    painel_ponto_router,
 )
 
 logger = logging.getLogger(__name__)
@@ -86,3 +87,4 @@ router.include_router(primeiro_acesso_router)
 router.include_router(login_facial_router)
 router.include_router(portal_docs_router)
 router.include_router(ouvidoria_admin_router)
+router.include_router(painel_ponto_router)
