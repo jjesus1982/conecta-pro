@@ -1012,15 +1012,26 @@ function PontoTab() {
     setFase('sending');
     setBaterErro('');
     try {
-      const res = await api.post(`${PONTO_BASE}/facial/batida`, {
+      // Retry resiliente: a batida é IDEMPOTENTE no backend (janela de 90s não duplica),
+      // então repetir em soluço (rede/backend reiniciando) é seguro e evita "falha ao salvar".
+      const payload = {
         match: true,
         confidence: r.confidence,
         liveness_check: true,
         foto_base64: r.imageData,
         location: { latitude: geo.latitude, longitude: geo.longitude, accuracy: 0 },
         punch_type: proximoTipo,
-      });
-      setResultado({ ok: true, ...(res.data || {}) });
+      };
+      let res;
+      for (let i = 0; i < 3; i++) {
+        try { res = await api.post(`${PONTO_BASE}/facial/batida`, payload); break; }
+        catch (e: unknown) {
+          const st = (e as { response?: { status?: number } })?.response?.status;
+          if ((!st || st >= 500) && i < 2) { await new Promise((rs) => setTimeout(rs, 600 * (i + 1))); continue; }
+          throw e;
+        }
+      }
+      setResultado({ ok: true, ...(res?.data || {}) });
       await carregarHoje();
       if (mes === now.getMonth() + 1 && ano === now.getFullYear()) await carregarMes();
     } catch (e: unknown) {
@@ -1030,6 +1041,20 @@ function PontoTab() {
       setFase('idle');
       setGeo(null);
     }
+  };
+
+  // Contingência: não conseguiu bater pelo rosto (câmera/celular) → registra p/ o DP validar.
+  const baterContingencia = async () => {
+    if (!window.confirm('Não conseguiu bater pelo rosto? Vamos registrar sua batida para o DP validar — você não perde o ponto. Continuar?')) return;
+    setFase('sending'); setBaterErro('');
+    try {
+      const res = await api.post(`${PONTO_BASE}/batida-contingencia`, {});
+      setResultado({ ok: true, contingencia: true, ...(res.data || {}) });
+      await carregarHoje();
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setBaterErro(typeof msg === 'string' ? msg : 'Não foi possível registrar a contingência.');
+    } finally { setFase('idle'); setGeo(null); }
   };
 
   const isLider = ['lider', 'líder', 'supervisor', 'gerente', 'gestor', 'coordenador', 'admin', 'all']
@@ -1213,6 +1238,12 @@ function PontoTab() {
             <p className="text-[11px] text-[hsl(var(--muted-foreground))]/80 text-center mt-2">
               Ao bater, pediremos sua localização e o reconhecimento facial (anti-fraude).
             </p>
+            {faceEnrolled && fase !== 'sending' && (
+              <button onClick={baterContingencia}
+                className="w-full text-center text-[12px] text-[hsl(var(--muted-foreground))] underline mt-2 hover:text-[hsl(var(--foreground))]">
+                Não consegui bater pelo rosto — registrar para o DP validar
+              </button>
+            )}
           </>
         )}
       </div>

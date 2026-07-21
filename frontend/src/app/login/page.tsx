@@ -5,6 +5,7 @@ import { Suspense, useState, useMemo, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
+import { fetchRetry } from '@/lib/api';
 import { FacialCapture, type FacialCaptureResult } from '@/components/ponto/FacialCapture';
 
 // Destino padrão pós-login (cutover 2026-07-18: redesign vira o padrão).
@@ -40,7 +41,7 @@ function LoginContent() {
     if (!res?.descriptor?.length) { setError('Não deu pra ler o rosto. Tente de novo.'); return; }
     setFacialLoading(true); setError('');
     try {
-      const r = await fetch('/api/v1/people-management/portal/login-facial', {
+      const r = await fetchRetry('/api/v1/people-management/portal/login-facial', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ descriptor: res.descriptor }),
       });

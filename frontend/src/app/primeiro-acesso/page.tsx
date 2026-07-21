@@ -11,6 +11,7 @@ import { useState, useCallback } from 'react';
 import { Loader2, ShieldCheck, IdCard, ArrowRight, ScanFace, Search } from 'lucide-react';
 import { FacialCapture, type FacialCaptureResult } from '@/components/ponto/FacialCapture';
 import { useAuth } from '@/hooks/useAuth';
+import { fetchRetry } from '@/lib/api';
 
 const BASE = '/api/v1/people-management/portal/primeiro-acesso';
 
@@ -59,7 +60,7 @@ export default function PrimeiroAcessoPage() {
     if (soDigitos(cpf).length !== 11) { setErro('Informe os 11 dígitos do CPF.'); return; }
     setLoading(true);
     try {
-      const r = await fetch(`${BASE}/identificar`, {
+      const r = await fetchRetry(`${BASE}/identificar`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cpf: soDigitos(cpf) }),
       });
@@ -76,7 +77,7 @@ export default function PrimeiroAcessoPage() {
   const buscarPis = async () => {
     setBuscandoPis(true); setErro('');
     try {
-      const r = await fetch(`${BASE}/buscar-pis`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      const r = await fetchRetry(`${BASE}/buscar-pis`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
       const d = await r.json();
       if (d.encontrado && d.pis) { set('pis', d.pis); }
       else { setErro(d.mensagem || 'PIS não encontrado — preencha manualmente ou deixe em branco.'); }
@@ -96,7 +97,7 @@ export default function PrimeiroAcessoPage() {
     try {
       const campos: Record<string, string> = {};
       for (const c of CAMPOS) if (String(form[c.key] || '').trim()) campos[c.key] = String(form[c.key]).trim();
-      const r = await fetch(`${BASE}/completar`, {
+      const r = await fetchRetry(`${BASE}/completar`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ campos }),
       });
@@ -114,7 +115,7 @@ export default function PrimeiroAcessoPage() {
     if (!res?.descriptor?.length) { setErro('Não deu pra ler o rosto. Tente de novo.'); return; }
     setLoading(true); setErro('');
     try {
-      const r = await fetch(`${BASE}/concluir`, {
+      const r = await fetchRetry(`${BASE}/concluir`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ descriptor: res.descriptor }),
       });
@@ -125,6 +126,22 @@ export default function PrimeiroAcessoPage() {
       if (ok.success) window.location.href = d.portal_url || '/modulos/meu-espaco';
       else { setErro('Cadastro concluído, mas o login falhou. Vá em Entrar e use e-mail + CPF.'); setLoading(false); }
     } catch { setErro('Falha ao concluir. Tente de novo.'); setLoading(false); }
+  }, [token, cpf, login]);
+
+  // Contingência: não conseguiu o rosto (câmera/celular) → entra e o DP cadastra depois.
+  const contingenciaRosto = useCallback(async () => {
+    if (!window.confirm('Não conseguiu cadastrar o rosto agora? Você já entra no portal e o DP cadastra seu rosto depois. Continuar?')) return;
+    setLoading(true); setErro('');
+    try {
+      const r = await fetchRetry(`${BASE}/contingencia-rosto`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+      });
+      const d = await r.json();
+      if (!r.ok) { setErro(d.detail || 'Não foi possível continuar.'); setLoading(false); return; }
+      const ok = await login({ email: d.email, password: soDigitos(cpf) });
+      if (ok.success) window.location.href = d.portal_url || '/modulos/meu-espaco';
+      else { setErro('Acesso liberado, mas o login falhou. Vá em Entrar e use e-mail + CPF.'); setLoading(false); }
+    } catch { setErro('Falha ao continuar. Tente de novo.'); setLoading(false); }
   }, [token, cpf, login]);
 
   const grupo = (g: 'contato' | 'endereco' | 'doc') => CAMPOS.filter((c) => c.grupo === g);
@@ -219,6 +236,12 @@ export default function PrimeiroAcessoPage() {
               <div className="py-12 text-center text-slate-500"><Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" />Concluindo…</div>
             ) : (
               <FacialCapture onCapture={aoCapturarRosto} onError={(e) => setErro(e)} />
+            )}
+            {!loading && (
+              <button onClick={contingenciaRosto}
+                className="mt-3 w-full text-center text-[13px] text-slate-400 underline hover:text-slate-600">
+                Não consegui cadastrar meu rosto — entrar e o DP me ajuda depois
+              </button>
             )}
           </div>
         )}

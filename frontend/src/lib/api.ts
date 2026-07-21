@@ -24,6 +24,37 @@ function emPaginaPreLogin(): boolean {
   return PRE_LOGIN_PATHS.some((r) => p === r || p.startsWith(r + '/'));
 }
 
+// fetch RESILIENTE p/ chamadas críticas (primeiro acesso, batida): repete em soluço
+// transitório — rede caiu, ou o backend reiniciando (500/502/503/504) — com backoff.
+// NÃO repete 4xx (erro real do cliente). Usar só em chamadas idempotentes/safe-retry
+// (a batida ficou idempotente no backend: janela de 90s não duplica).
+export async function fetchRetry(
+  url: string,
+  opts: RequestInit = {},
+  tries = 3,
+  baseDelayMs = 600,
+): Promise<Response> {
+  let lastErr: unknown;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(url, opts);
+      if (r.status >= 500 && r.status <= 504 && i < tries - 1) {
+        await new Promise((res) => setTimeout(res, baseDelayMs * (i + 1)));
+        continue;
+      }
+      return r;
+    } catch (e) {
+      lastErr = e;
+      if (i < tries - 1) {
+        await new Promise((res) => setTimeout(res, baseDelayMs * (i + 1)));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr;
+}
+
 // Instância Axios configurada
 export const api: AxiosInstance = axios.create({
   baseURL: getBaseURL(),

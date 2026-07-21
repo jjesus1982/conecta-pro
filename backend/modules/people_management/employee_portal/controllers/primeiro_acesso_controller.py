@@ -235,6 +235,46 @@ def concluir(
     return {"success": True, "email": emp["email"], "portal_url": "/modulos/meu-espaco"}
 
 
+@router.post("/contingencia-rosto")
+def contingencia_rosto(
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_sync_db_dependency),
+) -> dict[str, Any]:
+    """CONTINGÊNCIA: o funcionário não conseguiu cadastrar o rosto (câmera/celular fraco).
+    Ativa o acesso (senha = CPF) SEM rosto e deixa o cadastro do rosto PENDENTE para o DP
+    fazer presencialmente — ninguém fica preso na tela do facial. Exige cadastro 100%."""
+    emp_id = _emp_do_token(authorization)
+    _, faltantes = _dados_e_faltantes(db, emp_id)
+    if faltantes:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Complete o cadastro antes — faltam: {', '.join(f['label'] for f in faltantes)}.",
+        )
+    emp = db.execute(
+        text("SELECT email, regexp_replace(coalesce(cpf,''),'\\D','','g') AS cpf FROM employees WHERE CAST(id AS TEXT)=:e"),
+        {"e": emp_id},
+    ).mappings().first()
+    if not emp or not emp["email"]:
+        raise HTTPException(status_code=409, detail="Cadastro sem e-mail — fale com o RH.")
+    # marca rosto pendente (biometria_facial=false, sem descriptor) — DP cadastra depois
+    db.execute(
+        text("UPDATE employees SET biometria_facial=false, updated_at=now() WHERE CAST(id AS TEXT)=:e"),
+        {"e": emp_id},
+    )
+    upd = db.execute(
+        text("UPDATE users SET password_hash=:p, is_active=true, updated_at=now() "
+             "WHERE CAST(employee_id AS TEXT)=:e"),
+        {"p": get_password_hash(emp["cpf"]), "e": emp_id},
+    )
+    if upd.rowcount == 0:
+        raise HTTPException(status_code=409, detail="Sua conta de acesso não está criada — fale com o RH.")
+    db.commit()
+    return {
+        "success": True, "email": emp["email"], "portal_url": "/modulos/meu-espaco", "rosto_pendente": True,
+        "message": "Acesso liberado. O DP vai te ajudar a cadastrar o rosto — até lá você bate o ponto pela contingência.",
+    }
+
+
 # ─── Login por reconhecimento facial (1:N — tipo desbloqueio de celular) ─────
 router_auth = APIRouter(tags=["Portal - Login facial"])
 

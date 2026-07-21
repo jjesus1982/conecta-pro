@@ -1301,6 +1301,30 @@ async def facial_batida(
             detail="Rosto não reconhecido. A batida só é confirmada com reconhecimento facial.",
         )
 
+    # IDEMPOTÊNCIA (retry-safe + anti double-tap): se já houve batida nos últimos 90s,
+    # devolve a MESMA (não cria outra). Assim o retry automático do app e o toque duplo
+    # em rede lenta NÃO duplicam ponto. Janela de 90s: ninguém bate 2x de verdade tão rápido.
+    recente = (
+        await db.execute(
+            _sqltext(
+                "SELECT punch_id, punch_type, punch_timestamp, status FROM gp_clock_punches "
+                "WHERE CAST(employee_id AS TEXT) = :e "
+                "  AND punch_timestamp > (now() AT TIME ZONE 'America/Manaus') - interval '90 seconds' "
+                "ORDER BY punch_timestamp DESC LIMIT 1"
+            ),
+            {"e": str(emp)},
+        )
+    ).fetchone()
+    if recente:
+        _ts = recente[2]
+        return {
+            "success": True, "punch_id": recente[0], "punch_type": recente[1], "tipo": recente[1],
+            "hora": _ts.strftime("%H:%M") if hasattr(_ts, "strftime") else None,
+            "punch_timestamp": _ts.isoformat() if hasattr(_ts, "isoformat") else _ts,
+            "status": recente[3], "duplicada_ignorada": True,
+            "message": "Batida já registrada agora mesmo.",
+        }
+
     # Tipo é AUTORIDADE do backend (intrajornada do posto → 2 ou 4 batidas/dia).
     # Não confia no punch_type do device p/ o rótulo — evita saída rotulada errado.
     prox = await _proxima_batida_info(db, emp)
@@ -1330,14 +1354,55 @@ async def facial_batida(
     )
     result = await PunchService(db).registrar_batida(data)
     await db.commit()
+    _rt = result.get("punch_timestamp")
     return {
         "success": True,
         "punch_id": result["punch_id"],
         "punch_type": result.get("punch_type"),
+        "tipo": result.get("punch_type"),
+        "hora": _rt.strftime("%H:%M") if hasattr(_rt, "strftime") else (str(_rt)[11:16] if _rt else None),
         "punch_timestamp": result.get("punch_timestamp"),
         "status": result.get("status"),
         "facial_match": result.get("facial_match"),
         "facial_confidence": result.get("facial_confidence"),
         "dentro_geofence": result.get("dentro_geofence"),
         "message": "Ponto registrado com reconhecimento facial",
+    }
+
+
+class _ContingenciaBatidaBody(BaseModel):
+    motivo: str | None = None
+
+
+@router.post("/batida-contingencia", status_code=201)
+async def batida_contingencia(
+    body: _ContingenciaBatidaBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """CONTINGÊNCIA: o funcionário não conseguiu bater pelo rosto (câmera/celular fraco).
+    Registra uma batida PENDENTE (device 'contingencia', status 'pending_contingencia') para o
+    DP VALIDAR — ninguém perde o ponto. O gate humano do DP substitui o facial neste caso."""
+    import uuid as _uuid
+    emp = _employee_id(current_user)
+    prox = await _proxima_batida_info(db, emp)
+    if prox["concluido"]:
+        raise HTTPException(
+            status_code=http_status.HTTP_409_CONFLICT,
+            detail="Jornada de hoje já concluída — todas as batidas do dia foram registradas.",
+        )
+    pid = str(_uuid.uuid4())
+    await db.execute(
+        _sqltext(
+            "INSERT INTO gp_clock_punches (punch_id, employee_id, punch_type, punch_timestamp, "
+            " server_timestamp, status, device_type, created_at, updated_at) "
+            "VALUES (:pid, CAST(:e AS uuid), :t, (now() AT TIME ZONE 'America/Manaus'), "
+            " (now() AT TIME ZONE 'America/Manaus'), 'pending_contingencia', 'contingencia', now(), now())"
+        ),
+        {"pid": pid, "e": emp, "t": prox["tipo"]},
+    )
+    await db.commit()
+    return {
+        "success": True, "punch_id": pid, "punch_type": prox["tipo"], "status": "pending_contingencia",
+        "message": "Registramos sua tentativa. O DP vai validar sua batida — você não perdeu o ponto.",
     }
