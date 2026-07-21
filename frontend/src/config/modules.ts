@@ -123,10 +123,10 @@ export const modules: Module[] = [
     enabled: true,
     subModules: [
       { id: 'chro-ia', title: 'Consultor de Pessoas IA', href: '/modulos/gestao-pessoas/consultor', icon: 'Bot', permissions: ['module:dp'] },
-      { id: 'rh-vagas', title: 'Vagas', href: '/modulos/recrutamento/vagas', icon: 'Briefcase', permissions: ['module:dp'], group: 'Recrutamento' },
+      { id: 'rh-vagas', title: 'Vagas', href: '/modulos/rh/recrutamento/vagas', icon: 'Briefcase', permissions: ['module:dp'], group: 'Recrutamento' },
       { id: 'rh-candidatos', title: 'Candidatos', href: '/modulos/rh/candidatos', icon: 'Users', permissions: ['module:dp'], group: 'Recrutamento' },
-      { id: 'rh-candidaturas', title: 'Candidaturas', href: '/modulos/recrutamento/candidaturas', icon: 'FileText', permissions: ['module:dp'], group: 'Recrutamento' },
-      { id: 'rh-entrevistas', title: 'Entrevistas', href: '/modulos/recrutamento/entrevistas', icon: 'Calendar', permissions: ['module:dp'], group: 'Recrutamento' },
+      { id: 'rh-candidaturas', title: 'Candidaturas', href: '/modulos/rh/recrutamento/candidaturas', icon: 'FileText', permissions: ['module:dp'], group: 'Recrutamento' },
+      { id: 'rh-entrevistas', title: 'Entrevistas', href: '/modulos/rh/recrutamento/entrevistas', icon: 'Calendar', permissions: ['module:dp'], group: 'Recrutamento' },
       { id: 'rh-cursos', title: 'Cursos', href: '/modulos/rh/cursos', icon: 'BookOpen', permissions: ['module:dp'], group: 'Desenvolvimento' },
       { id: 'rh-treinamentos', title: 'Treinamentos', href: '/modulos/rh/treinamentos', icon: 'GraduationCap', permissions: ['module:dp'], group: 'Desenvolvimento' },
       { id: 'rh-certificados', title: 'Certificados', href: '/modulos/rh/certificados', icon: 'Award', permissions: ['module:dp'], group: 'Desenvolvimento' },
@@ -389,6 +389,7 @@ export const modules: Module[] = [
       { id: 'pagamentos-pj', title: 'Folha de Pagamento PJ', href: '/modulos/financeiro/pagamentos-pj', icon: 'Briefcase', permissions: ['module:financeiro'] },
       { id: 'fornecedores', title: 'Fornecedores', href: '/modulos/financeiro/fornecedores', icon: 'Truck', permissions: ['module:financeiro'] },
       // --- Suprimentos ---
+      { id: 'notas-recebidas', title: 'Notas Recebidas', href: '/modulos/financeiro/nfse-entrada', icon: 'Receipt', permissions: ['module:financeiro'] },
       { id: 'compras', title: 'Compras', href: '/modulos/financeiro/compras', icon: 'ShoppingCart', permissions: ['module:financeiro'] },
       { id: 'estoque', title: 'Estoque', href: '/modulos/financeiro/estoque', icon: 'Package', permissions: ['module:financeiro'] },
       // --- Custos e Precificacao ---
