@@ -122,6 +122,27 @@ async def _check_expiry_async() -> dict:
                             title,
                             valid_until,
                         )
+                        # Fase 0 (Task 7): materializa no sino (antes só logava). Idempotente.
+                        try:
+                            from modules.notifications.services.alert_ingest import (
+                                enqueue_alert,
+                            )
+
+                            sev = "critico" if days <= 1 else ("atencao" if days <= 7 else "info")
+                            await enqueue_alert(
+                                db,
+                                category="documento_vencendo",
+                                source_entity_type="document",
+                                source_entity_id=doc_id,
+                                severity=sev,
+                                title=f"Documento vence em {days}d: {title}",
+                                body=f"'{title}' expira em {valid_until}.",
+                            )
+                        except Exception as _pe:  # noqa: BLE001
+                            logger.warning("GED Expiry: enqueue_alert falhou (segue): %s", _pe)
+
+            # Persiste os alertas de vencimento materializados acima (Task 7).
+            await db.commit()
 
             # Marcar documentos ja expirados
             expired_query = select(Document).where(

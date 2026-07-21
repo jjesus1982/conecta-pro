@@ -39,6 +39,9 @@ app = Celery(
         "modules.crm.tasks",
         "modules.integrations.connectors.whatsapp.tasks",
         "modules.analytics.tasks",
+        # Fase 0 (Task 7/8): sino canônico + reconciliação + GED expiry (era órfã).
+        "modules.notifications.tasks",
+        "modules.ged.tasks.expiry_alerts",
     ],
 )
 
@@ -155,8 +158,24 @@ app.conf.update(
 
 # Beat Schedule (tarefas agendadas)
 app.conf.beat_schedule = {
+    # ── Fase 0: reconciliação do sino (espinha de completude, imune a evento perdido) ──
+    "notificacoes-reconciliar-alertas": {
+        "task": "notifications.reconciliar_alertas",
+        "schedule": crontab(minute="*/15"),
+    },
+    # ── Fase 0: retenção leve do sino (expira não-alertas antigos; alertas retidos) ──
+    "notificacoes-purgar": {
+        "task": "notifications.purgar_notificacoes",
+        "schedule": crontab(hour=3, minute=0),
+    },
+    # ── GED: alertas de vencimento de documento (task era órfã; agora agendada) ──
+    "ged-check-document-expiry": {
+        "task": "ged.check_document_expiry",
+        "schedule": crontab(hour=8, minute=15),
+    },
     # ── Financeiro — Conciliação bancária diária (extrato Inter → bridge → categoriza) ──
     "financeiro-conciliacao-inter-diaria": {
+        "task": "financial.inter_reconciliacao_diaria",
         "task": "financial.inter_reconciliacao_diaria",
         "schedule": crontab(hour=8, minute=0),
         "options": {"queue": "gov.batch"},
