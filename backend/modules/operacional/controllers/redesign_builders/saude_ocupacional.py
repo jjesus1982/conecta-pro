@@ -77,4 +77,19 @@ async def build(db) -> dict:
     except Exception:  # noqa: BLE001
         pass
 
+    # CAT: indicadores de acidente (composite) — mesma fórmula do clássico (calcular_taxa_acidente)
+    try:
+        tot_cats = await _scalar(db, "SELECT count(*) FROM gp_cats")
+        tot_colab = await _scalar(db, "SELECT count(*) FROM employees WHERE status='ativo'")
+        taxa = round((tot_cats / tot_colab * 100) if tot_colab else 0, 2)
+        if "cat" in out and isinstance(out["cat"], dict):
+            out["cat"].setdefault("panelGrid", "1fr")
+            out["cat"]["panels"] = [{"title": "Indicadores de acidentes", "rows": [
+                {"left": "Total de CATs", "right": str(tot_cats or 0), **S["info"]},
+                {"left": "Total de colaboradores", "right": str(tot_colab or 0), **S["info"]},
+                {"left": "Taxa de acidente", "right": f"{taxa}%", **S["warn"]},
+            ]}]
+    except Exception:  # noqa: BLE001
+        pass
+
     return out
