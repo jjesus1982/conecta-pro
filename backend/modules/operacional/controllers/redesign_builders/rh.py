@@ -210,6 +210,42 @@ async def build(db) -> dict:
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]), t(_d(r[2])),
                    t(r[3] or "aguardando dado", 500, "#334155" if r[3] else "#94A3B8")]))
 
+    # 9b) Registrar motivo de desligamento (ESCRITA real → POST /human-resources/turnover/registrar-motivo)
+    #     Fecha o data_gap do turnover: o RH informa o motivo REAL (vocabulário CLT). Não fabrica.
+    try:
+        from sqlalchemy import text as _sqltext
+        from modules.people_management.human_resources.controllers.turnover_controller import (
+            MOTIVOS_DESLIGAMENTO as _MOT,
+        )
+        _desl = (await db.execute(_sqltext(
+            "SELECT CAST(id AS TEXT), nome, coalesce(cargo,'—'), to_char(data_demissao,'DD/MM/YYYY') "
+            "FROM employees WHERE data_demissao IS NOT NULL "
+            "AND nullif(trim(coalesce(motivo_desligamento,'')),'') IS NULL "
+            "ORDER BY data_demissao DESC"
+        ))).all()
+        _opts = [{"value": r[0], "label": f"{r[1]} · {r[2]} · desl. {r[3]}"} for r in _desl]
+        _sub = (f"{len(_opts)} desligado(s) aguardando motivo — informe a causa real (alimenta a análise)"
+                if _opts else "Todos os desligados já têm motivo informado. ✓")
+        out["registrar-motivo-desligamento"] = {
+            "title": "Registrar motivo de desligamento",
+            "sub": _sub, "cta": "Registrar", "type": "form",
+            "submit": {"endpoint": "/api/v1/human-resources/turnover/registrar-motivo",
+                       "okMsg": "Motivo registrado"},
+            "fields": [
+                {"key": "employee_id", "label": "Colaborador desligado*", "type": "select",
+                 "span": "span 2", "ph": "Selecione o desligado", "options": _opts},
+                {"key": "motivo", "label": "Motivo (CLT)*", "type": "select", "span": "span 2",
+                 "ph": "Selecione o motivo", "options": [{"value": k, "label": v} for k, v in _MOT.items()]},
+                {"key": "observacao", "label": "Observação", "type": "textarea", "span": "span 2",
+                 "ph": "Opcional — detalhe da rescisão"},
+            ],
+        }
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
     # 10) RH IA — rh_consultas
     await safe("ia", tbl(
         "RH IA", "Consultas ao assistente de RH", "—",
