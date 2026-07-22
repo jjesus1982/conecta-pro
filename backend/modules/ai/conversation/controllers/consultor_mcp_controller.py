@@ -38,6 +38,12 @@ class ConsultaIn(BaseModel):
     pergunta: str
 
 
+class FeedbackIn(BaseModel):
+    origem: str
+    correcao: str
+    consulta_id: int | None = None
+
+
 async def _persistir_consulta(db: AsyncSession, origem: str, pergunta: str, resposta: str, user) -> int | None:
     """Persiste na tabela de consultas da Fase −1 (via TABELAS_CONSULTAS) e devolve o id.
     Se a origem não tiver tabela mapeada, devolve None (feedback aceita consulta_id=None)."""
@@ -78,3 +84,17 @@ async def consultar(
     except Exception:
         pass  # persistência é best-effort; não quebra a resposta
     return {"resposta": resposta, "consulta_id": consulta_id, "origem": origem}
+
+
+@router.post("/feedback")
+async def feedback(payload: FeedbackIn, db: AsyncSession = Depends(get_db)):
+    """Registra a correção do gestor como memória permanente (realimenta a Fase 4).
+    consulta_id=0 (quando None) é seguro: registrar_feedback só faz um UPDATE...WHERE id=:id
+    que afeta 0 linhas, e mesmo assim insere a memória em consultor_memorias
+    (fonte='feedback_gestor'; não é FK — confirmado consultor_hub.py:310-341)."""
+    if payload.origem not in PERSONAS:
+        raise HTTPException(status_code=422, detail=f"origem inválida: {payload.origem}")
+    res = await _hub.registrar_feedback(
+        db, payload.origem, payload.consulta_id or 0, util=False, correcao=payload.correcao,
+    )
+    return {"ok": bool(res.get("ok")), "resultado": res}

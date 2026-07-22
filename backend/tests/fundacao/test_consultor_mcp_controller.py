@@ -41,8 +41,17 @@ def test_consulta_cfo_responde():
     asyncio.run(run())
 
 
+def test_feedback_grava_memoria():
+    async def run():
+        r = await _post("/consultores/mcp/feedback",
+                        {"origem": "cfo", "correcao": "O comunicado assina só funcionário.", "consulta_id": None})
+        assert r.status_code == 200, r.text
+        assert r.json().get("ok") is True
+    asyncio.run(run())
+
+
 # funções de teste das Tasks 4/5/6 são ADICIONADAS abaixo neste mesmo arquivo.
-_TESTS = [test_origem_invalida_recusada, test_consulta_cfo_responde]
+_TESTS = [test_origem_invalida_recusada, test_consulta_cfo_responde, test_feedback_grava_memoria]
 
 if __name__ == "__main__":  # runner standalone, sem pytest
     import sys, traceback
