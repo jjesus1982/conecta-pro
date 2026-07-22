@@ -63,8 +63,41 @@ def reconciliar_alertas_task(self):
                 body=f"Total vencido: R$ {total:,.2f}. Re-derivado da fonte (reconciliação).",
             )
             materializados += 1
+
+        # Fase 3 — PROATIVIDADE CRUZADA (por entidade): cliente cujo colaborador ALOCADO
+        # está AFASTADO (SST). Cruza operacional (alocação) × SST × cliente — ancorado no
+        # cliente (source_entity_id). É o "cutucão" cross-domínio no sino, idempotente.
+        cruz = (
+            await db.execute(
+                text(
+                    "SELECT cd.client_id, cl.name, count(DISTINCT af.employee_id) n "
+                    "FROM sst_afastamentos af "
+                    "JOIN employee_alocacoes a ON a.employee_id::text=af.employee_id::text AND coalesce(a.ativo,true) "
+                    "JOIN condominios cd ON cd.id=a.condominio_id "
+                    "JOIN clients cl ON cl.id=cd.client_id "
+                    "WHERE lower(coalesce(af.status,'')) IN ('ativo','em_andamento') OR af.data_retorno IS NULL "
+                    "GROUP BY cd.client_id, cl.name"
+                )
+            )
+        ).fetchall()
+        for r in cruz:
+            await enqueue_alert(
+                db,
+                category="cliente_cobertura",
+                source_entity_type="client",
+                source_entity_id=str(r.client_id),
+                severity="atencao",
+                title=f"{r.name}: {int(r.n)} colaborador(es) afastado(s) — verificar cobertura",
+                body="Cruzamento operacional×SST: há afastamento ativo em colaborador alocado neste cliente.",
+            )
+            materializados += 1
+
         await db.commit()
-        return {"materializados": materializados, "recebiveis_vencidos": n_venc}
+        return {
+            "materializados": materializados,
+            "recebiveis_vencidos": n_venc,
+            "clientes_cobertura": len(cruz),
+        }
 
     try:
         res = _run_async(run)
