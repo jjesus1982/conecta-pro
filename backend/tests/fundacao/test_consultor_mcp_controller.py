@@ -42,11 +42,25 @@ def test_consulta_cfo_responde():
 
 
 def test_feedback_grava_memoria():
+    # ⚠️ green compartilha o banco vivo E registrar_feedback grava em consultor_memorias, que
+    # contexto_compartilhado injeta como "memória permanente" em TODOS os 8 consultores. Usa um
+    # marcador de teste e DELETA no finally — nunca deixar correção-fake na memória viva.
+    _MARK = "TESTE 5.1 (apagar) feedback automatizado"
     async def run():
+        from core.database import async_session_factory
+        from sqlalchemy import text
         r = await _post("/consultores/mcp/feedback",
-                        {"origem": "cfo", "correcao": "O comunicado assina só funcionário.", "consulta_id": None})
-        assert r.status_code == 200, r.text
-        assert r.json().get("ok") is True
+                        {"origem": "cfo", "correcao": _MARK, "consulta_id": None})
+        try:
+            assert r.status_code == 200, r.text
+            assert r.json().get("ok") is True
+        finally:
+            async with async_session_factory() as db:
+                await db.execute(
+                    text("DELETE FROM consultor_memorias WHERE fonte='feedback_gestor' AND conteudo LIKE :m"),
+                    {"m": f"%{_MARK}%"},
+                )
+                await db.commit()
     asyncio.run(run())
 
 
