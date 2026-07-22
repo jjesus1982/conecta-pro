@@ -2,7 +2,7 @@
 estabilidade (garantia de emprego) e alertas (ASOs vencidos). Leitura real; ação
 legal (transmitir eSocial) segue GATED."""
 from modules.operacional.controllers.redesign_data_controller import (
-    S, _build_saude, _fmtdate, _helpers, _scalar, b, t,
+    S, _build_saude, _fmtdate, _helpers, _scalar, b, brl, t,
 )
 
 SLUG = "saude-ocupacional"
@@ -58,6 +58,21 @@ async def build(db) -> dict:
                 {"left": "ASOs válidos", "right": str(validos or 0), **S["ok"]},
                 {"left": "Colaboradores com ASO vencido", "right": str(vencidos or 0), **S["bad"]},
                 {"left": "Pendentes (sem ASO válido)", "right": str(max(0, (ativos or 0) - (validos or 0))), **S["warn"]},
+            ]}]
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Afastamentos: indicadores (composite) — reusa SSTService.get_dashboard (números batem clássico)
+    try:
+        from modules.people_management.sst.services.sst_service import SSTService
+        dash = await SSTService(db).get_dashboard()
+        if "afastamentos" in out and isinstance(out["afastamentos"], dict):
+            out["afastamentos"].setdefault("panelGrid", "1fr")
+            out["afastamentos"]["panels"] = [{"title": "Indicadores de afastamento", "rows": [
+                {"left": "Afastados ativos", "right": str(dash.get("afastados_ativos", 0)), **S["warn"]},
+                {"left": "Taxa de afastamento", "right": str(dash.get("taxa_afastamento", "—")), **S["info"]},
+                {"left": "Ajuda-medicamento ativa", "right": str(dash.get("ajuda_medicamento_ativa", 0)), **S["info"]},
+                {"left": "Custo de afastamentos (mês)", "right": brl(dash.get("custo_afastamentos_mes", 0)), **S["bad"]},
             ]}]
     except Exception:  # noqa: BLE001
         pass
