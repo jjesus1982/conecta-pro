@@ -8,8 +8,11 @@ Regra de ouro: dinheiro que SAI e transmissão legal = GATED (só visibilidade).
 Nunca fabricar dado — vazio real = tabela honesta "aguardando dado".
 Ver auditoria/parity/DIVISAO_3T.md + BRIEFING_T4.md.
 """
+from fastapi import APIRouter, Body, Depends, HTTPException  # noqa: F401
 from sqlalchemy import text  # noqa: F401
 
+from core.auth.dependencies import CurrentActiveUser  # noqa: F401
+from core.database import get_db  # noqa: F401
 from modules.operacional.controllers.redesign_data_controller import (  # noqa: F401
     S,
     _build_financeiro as _base,
@@ -29,6 +32,8 @@ EXTRA_MENU: list[dict] = [
     {"id": "saldos", "label": "Saldos por conta",
      "icon": "M3 21h18M4 10h16M5 10 12 4l7 6M6 10v11M18 10v11M10 10v11M14 10v11"},
     {"id": "pagamentos-pj", "label": "Pagamentos PJ",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "pagar-folha-pj", "label": "Pagar folha PJ",
      "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
 ]
 
@@ -385,4 +390,54 @@ async def build(db) -> dict:
     if "custeio-cct" in out:
         out["custeio"] = out["custeio-cct"]
 
+    # ---- ESCRITA GATED: Pagar folha PJ (money-out). Delega ao serviço PROVADO
+    #      pagamento_pj (que tem OTP próprio: gerar código → executar). NUNCA dispara
+    #      sozinho — 2 etapas + confirmação humana + OTP do Jordan. ----
+    out["pagar-folha-pj"] = {
+        "title": "Pagar folha PJ (Inter)",
+        "sub": "Dinheiro que SAI — 2 etapas: gera o código OTP (e-mail ao Jordan) e só paga ao confirmar com o código. Nunca dispara sozinho.",
+        "cta": "Gerar código de pagamento", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/pagar-folha-pj", "gated": True,
+                   "confirm": "Isto vai PAGAR a folha PJ (Inter) do mês via PIX. Gerar o código OTP para o Jordan confirmar?",
+                   "okMsg": "Lote processado."},
+        "fields": [
+            {"key": "mes", "label": "Mês* (1-12)", "type": "text", "span": "span 1", "ph": "7"},
+            {"key": "ano", "label": "Ano*", "type": "text", "span": "span 1", "ph": "2026"},
+        ],
+    }
+
     return out
+
+
+# ── ESCRITA (router incluído pelo registry). Dinheiro que SAI = SEMPRE gate humano.
+router = APIRouter()
+
+
+@router.post("/action/pagar-folha-pj")
+async def _rd_pagar_folha_pj(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Pagar folha PJ (Inter) — DELEGA ao serviço provado (OTP próprio). 1ª chamada sem
+    otp_code → gera o código (e-mail Jordan) e devolve otp_required; 2ª com otp_code →
+    executa o pagamento REAL. Sem OTP válido, nada é pago (o serviço garante)."""
+    from modules.financial.services import pagamento_pj_service as svc
+    try:
+        mes = int(payload.get("mes") or 0)
+        ano = int(payload.get("ano") or 0)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Mês e ano devem ser números.")
+    if not (1 <= mes <= 12) or ano < 2025:
+        raise HTTPException(status_code=400, detail="Informe mês (1-12) e ano (>=2025) válidos.")
+    otp_code = (payload.get("otp_code") or "").strip()
+    lote_id = (payload.get("_gate_ref") or "").strip()
+    if not otp_code:
+        r = await svc.gerar_otp_lote(db, mes, ano)
+        if not r.get("ok"):
+            raise HTTPException(status_code=400, detail=r.get("mensagem") or "Nenhum item Inter elegível.")
+        return {"otp_required": True, "ref": r.get("lote_id", ""),
+                "message": f"{r.get('quantidade')} prestador(es) · R$ {float(r.get('total') or 0):.2f}. "
+                           f"{r.get('message', '')}. Confirme com o código OTP."}
+    r = await svc.executar_lote(db, mes, ano, confirmar=True, otp_code=otp_code, lote_id=lote_id or None)
+    if r.get("otp_invalido") or r.get("otp_requerido"):
+        raise HTTPException(status_code=400, detail=r.get("mensagem") or "OTP inválido ou obrigatório.")
+    if not r.get("ok"):
+        raise HTTPException(status_code=400, detail=r.get("mensagem") or "Não foi possível executar o lote.")
+    return {"ok": True, "message": f"Lote pago: {r.get('pagos', 0)} pago(s), {r.get('falhas', 0)} falha(s)."}
