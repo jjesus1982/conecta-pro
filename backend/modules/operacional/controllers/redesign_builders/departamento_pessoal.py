@@ -152,6 +152,16 @@ def _rei_status(v):
     return b(lbl, tone)
 
 
+# Certificação — espelha statusBadge do clássico (dp/certificacao/page.tsx)
+_CERT_ST = {"pendente": ("Pendente", "warn"), "certificado": ("Certificado", "ok"),
+            "rejeitado": ("Rejeitado", "bad")}
+
+
+def _cert_status(v):
+    lbl, tone = _CERT_ST.get((v or "").lower(), (v or "—", "info"))
+    return b(lbl, tone)
+
+
 def _completude_cell(faltantes):
     """faltantes = array (do SQL) com os rótulos dos campos vazios."""
     fal = [x for x in (faltantes or []) if x]
@@ -372,16 +382,20 @@ async def build(db) -> dict:
         "coalesce(calculado_valor,0), coalesce(divergencia,false), coalesce(status,'—') "
         "FROM hr_certifications ORDER BY competencia DESC NULLS LAST, created_at DESC LIMIT 300",
         lambda r: [t(r[0]), t((r[1] or "—").replace("_", " ")), t(brl(r[2])),
-                   _badge_bool(r[3], "Sim", "Não", "bad", "ok"), _badge_status(r[4])]))
+                   _badge_bool(r[3], "Sim", "Não", "bad", "ok"), _cert_status(r[4])]))
 
     # 10) eSocial — esocial_eventos_espelho (espelho do ambiente nacional)
     await safe("esocial", tbl(
         "eSocial", "Eventos transmitidos (espelho)", "—",
-        ["Evento", "Tipo", "CPF", "Data evento", "Recibo"],
-        "1.2fr 1fr 1.2fr 1fr 1.4fr",
-        "SELECT coalesce(id_evento,'—'), coalesce(tipo,'—'), coalesce(cpf_trabalhador,'—'), "
-        "dt_evento, coalesce(nr_recibo,'—') FROM esocial_eventos_espelho "
-        "ORDER BY dt_evento DESC NULLS LAST, dt_recepcao DESC NULLS LAST LIMIT 300",
-        lambda r: [t(r[0], 600, _ND), t(r[1]), t(r[2]), t(_d(r[3])), t(r[4])]))
+        ["Evento", "Tipo", "Colaborador", "CPF", "Data evento", "Recibo"],
+        "1.2fr 0.8fr 1.6fr 1.1fr 1fr 1.4fr",
+        "SELECT coalesce(ev.id_evento,'—'), coalesce(ev.tipo,'—'), e.nome, ev.cpf_trabalhador, "
+        "ev.dt_evento, coalesce(ev.nr_recibo,'—') FROM esocial_eventos_espelho ev "
+        "LEFT JOIN employees e ON regexp_replace(coalesce(e.cpf,''),'\\D','','g') "
+        "= regexp_replace(coalesce(ev.cpf_trabalhador,''),'\\D','','g') "
+        "ORDER BY ev.dt_evento DESC NULLS LAST, ev.dt_recepcao DESC NULLS LAST LIMIT 300",
+        lambda r: [t(r[0], 600, _ND), t(r[1]),
+                   t(r[2] or "—", 600, _ND, initials(r[2] or "")), t(_cpf_fmt(r[3])),
+                   t(_d(r[4])), t(r[5])]))
 
     return out
