@@ -10,10 +10,11 @@ CMD `--port 8080`; socket connect a 127.0.0.1:8080 = sucesso, a 127.0.0.1:8081 =
 Esse 8080 é o loopback INTERNO do próprio green — não tem nenhuma relação com o :8080 público
 do host (container conecta-pro-backend, produção), que continua intocado."""
 import asyncio
+import os
 from httpx import AsyncClient
 from tests.fundacao._mcp_token import make_token
 
-BASE = "http://127.0.0.1:8080/api/v1"  # loopback INTERNO do green (não é o público do host)
+BASE = os.environ["MCP_TEST_BASE"]  # obrigatório; setado só no docker exec sancionado dentro do green
 
 
 async def _post(path, json):
