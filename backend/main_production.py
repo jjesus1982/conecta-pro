@@ -327,9 +327,11 @@ _JURIDICO_GATE = Depends(require_permission("module:juridico"))
 _COMERCIAL_GATE = Depends(require_permission("module:crm"))  # módulo comercial = 'crm' (auditoria 2026-07-21)
 _OPERACIONAL_GATE = Depends(require_permission("module:operacional"))
 # Consultor CEO (cross-módulo folha+financeiro+jurídico) → só diretoria (jjesus+pjesus).
-from modules.ai.consultores.permissions import require_consultor_executivo  # noqa: E402
+from modules.ai.consultores.permissions import require_consultor_executivo, require_mcp_consultor  # noqa: E402
 
 _CEO_GATE = Depends(require_consultor_executivo)
+# Superfície MCP dos consultores (Fase 5 / Task 3): conta de serviço do conector + diretoria.
+_MCP_CONSULTOR_GATE = Depends(require_mcp_consultor)
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -1054,6 +1056,16 @@ try:
         logger.info("Banking Payments: OK (barcode + DARF + lote)")
     except Exception as _e:
         logger.warning(f"Banking Payments: {_e}")
+    # Consultor MCP (Fase 5 / Task 3): superfície que o conector MCP chama (consulta unificada 🟢).
+    try:
+        from modules.ai.conversation.controllers.consultor_mcp_controller import (
+            router as _consultor_mcp_router,
+        )
+
+        api_router.include_router(_consultor_mcp_router, dependencies=[_MCP_CONSULTOR_GATE])
+        logger.info("Consultor MCP controller: OK")
+    except Exception as _e:
+        logger.warning(f"Consultor MCP controller: {_e}")
     # WhatsApp (Evolution API)
     if whatsapp_router:
         api_router.include_router(whatsapp_router, tags=["WhatsApp - Evolution API"])
