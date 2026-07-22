@@ -96,3 +96,4 @@ Por tela:
 - [x] T2 departamento-pessoal/certificacao — status capitalizado (pendente→Pendente, espelha statusBadge). Provado público. blue-green OK.
 - [x] T4 empresas/liminares — oráculo: clássico destaca a Descrição/base legal (Não retenção INSS, Não cobrança PIS/COFINS); redesign só tinha Tipo. Override + coluna Descrição. curl público confirma. financeiro/fiscal (redesign mais rico) e custos (categoria já no bi/DRE) = sem gap fechável. commit 0dd2c169
 - [x] T1 saude/afastamentos — painel Indicadores (composite) reusando SSTService.get_dashboard: afastados 4 · taxa 7,5% · ajuda-medicamento 3 · custo/mês R$900. Números batem o clássico.
+- [x] T4 crm/comissoes — oráculo: clássico mostra KPIs (Total/Valor Total/Pendentes); trazidos no subtítulo (commissions). financeiro/inter+boletos = só cabeçalho/detalhe (sem coluna faltando). curl público confirma. commit 1aef6b0e
