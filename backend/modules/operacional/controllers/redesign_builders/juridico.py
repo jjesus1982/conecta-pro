@@ -105,6 +105,12 @@ async def build(db) -> dict:
 
         rk = await asyncio.to_thread(_sync_riscos)
         det = rk.get("detalhado", []) or []
+        _VLBL0 = {"fgts_multa_40": "FGTS+multa 40%", "aviso_previo": "Aviso prévio",
+                  "ferias_prop_mais_terco": "Férias+1/3", "decimo_terceiro_prop": "13º",
+                  "diferenca_piso_retroativa": "Dif. piso"}
+        _por_tipo = " · ".join(f"{_VLBL0.get(k, k)} {brl(v)}"
+                               for k, v in sorted((rk.get("por_tipo") or {}).items(), key=lambda x: -(x[1] or 0))
+                               if v)
 
         _VLBL = {  # rótulos do clássico (fidelidade — o clássico vence)
             "fgts_multa_40": "FGTS + multa 40%", "aviso_previo": "Aviso prévio",
@@ -122,7 +128,8 @@ async def build(db) -> dict:
             "title": "Riscos Jurídicos — Exposição trabalhista",
             "sub": (f"Exposição estimada total {brl(rk.get('total_exposicao_estimada', 0))} · "
                     f"{rk.get('funcionarios_com_risco', 0)} de {rk.get('funcionarios_analisados', 0)} "
-                    f"colaboradores com risco (estimativa, não provisão)"),
+                    f"colaboradores com risco (estimativa, não provisão)"
+                    + (f" · Por tipo de verba: {_por_tipo}" if _por_tipo else "")),
             "cta": "—", "type": "table", "searchHint": "Buscar colaborador…",
             "grid": "1.8fr 1.3fr 0.8fr 1fr 1.9fr",
             "cols": ["Colaborador", "Cargo", "Meses casa", "Exposição estimada", "Verbas"],
