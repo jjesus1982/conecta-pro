@@ -77,17 +77,22 @@ async def build(db) -> dict:
     except Exception:  # noqa: BLE001
         pass
 
-    # Afastamentos: indicadores (composite) — reusa SSTService.get_dashboard (números batem clássico)
+    # Afastamentos: indicadores (composite). FIDELIDADE ao clássico (afastamentos/page.tsx:213):
+    # taxaAfastamento = ATIVOS / TOTAL_REGISTROS (não / headcount). O SSTService dava 4/50=8%,
+    # mas o clássico exibe 4/8=50.0%. Replicar a fórmula da tela. Custo = ajuda-medicamento (R$900).
     try:
         from modules.people_management.sst.services.sst_service import SSTService
         dash = await SSTService(db).get_dashboard()
+        tot_afast = await _scalar(db, "SELECT count(*) FROM sst_afastamentos") or 0
+        ativ_afast = await _scalar(db, "SELECT count(*) FROM sst_afastamentos WHERE lower(status::text)='ativo'") or 0
+        taxa_afast = round((ativ_afast / tot_afast * 100) if tot_afast else 0, 1)
         if "afastamentos" in out and isinstance(out["afastamentos"], dict):
             out["afastamentos"].setdefault("panelGrid", "1fr")
             out["afastamentos"]["panels"] = [{"title": "Indicadores de afastamento", "rows": [
-                {"left": "Afastados ativos", "right": str(dash.get("afastados_ativos", 0)), **S["warn"]},
-                {"left": "Taxa de afastamento", "right": str(dash.get("taxa_afastamento", "—")), **S["info"]},
+                {"left": "Afastados ativos", "right": str(ativ_afast), **S["warn"]},
+                {"left": "Taxa de afastamento", "right": f"{taxa_afast}%", **S["info"]},
                 {"left": "Ajuda-medicamento ativa", "right": str(dash.get("ajuda_medicamento_ativa", 0)), **S["info"]},
-                {"left": "Custo de afastamentos (mês)", "right": brl(dash.get("custo_afastamentos_mes", 0)), **S["bad"]},
+                {"left": "Custo mensal (ajuda-medicamento)", "right": brl(dash.get("custo_afastamentos_mes", 0)), **S["bad"]},
             ]}]
     except Exception:  # noqa: BLE001
         pass
