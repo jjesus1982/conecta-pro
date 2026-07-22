@@ -140,6 +140,18 @@ def _doc_status(v):
     return b(lbl, tone)
 
 
+# Reembolsos — espelha statusConfig do clássico (dp/reembolsos/page.tsx, PT + sinônimos EN)
+_REI_ST = {"rascunho": ("Rascunho", "mut"), "pendente": ("Pendente", "warn"), "aprovado": ("Aprovado", "ok"),
+           "rejeitado": ("Rejeitado", "bad"), "pago": ("Pago", "info"),
+           "submitted": ("Pendente", "warn"), "pending": ("Pendente", "warn"), "approved": ("Aprovado", "ok"),
+           "rejected": ("Rejeitado", "bad"), "paid": ("Pago", "info")}
+
+
+def _rei_status(v):
+    lbl, tone = _REI_ST.get((v or "").lower(), (v or "—", "info"))
+    return b(lbl, tone)
+
+
 def _completude_cell(faltantes):
     """faltantes = array (do SQL) com os rótulos dos campos vazios."""
     fal = [x for x in (faltantes or []) if x]
@@ -323,7 +335,7 @@ async def build(db) -> dict:
         "submitted_at, coalesce(status,'—') FROM reimbursement_requests "
         "WHERE coalesce(is_active,true) ORDER BY created_at DESC LIMIT 200",
         lambda r: [t(r[0]), t(r[1] or "—", 600, _ND), t(brl(r[2]), 600),
-                   t(_d(r[3])), _badge_status(r[4])]))
+                   t(_d(r[3])), _rei_status(r[4])]))
 
     # 7) Contratos — employment_contracts
     await safe("contratos", tbl(

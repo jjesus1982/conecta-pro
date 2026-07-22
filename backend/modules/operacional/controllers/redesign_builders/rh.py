@@ -48,6 +48,16 @@ def _adm_status(v):
     return b(lbl, tone)
 
 
+# Cursos — espelha categoryLabels do clássico (rh/cursos/page.tsx, sem acento p/ fidelidade)
+_CURSO_CAT = {"mandatory_security": "Obrigatorio Seguranca", "mandatory_safety": "Obrigatorio SST",
+              "technical": "Tecnico", "behavioral": "Comportamental", "leadership": "Lideranca",
+              "compliance": "Compliance", "onboarding": "Integracao", "other": "Outros"}
+
+
+def _curso_cat(v):
+    return _CURSO_CAT.get((v or "").lower(), v or "—")
+
+
 def _bs(v):
     s = (v or "").lower()
     if s in ("ativo", "active", "concluido", "concluida", "aprovado", "hired",
@@ -129,7 +139,7 @@ async def build(db) -> dict:
         "SELECT coalesce(name,'—'), coalesce(category::text,'—'), coalesce(duration_hours,0), "
         "coalesce(is_mandatory,false), coalesce(provider,'—') FROM training_courses "
         "WHERE coalesce(is_active,true) ORDER BY name LIMIT 200",
-        lambda r: [t(r[0] or "—", 600, _ND), t(r[1]), t(str(r[2])), _bb(r[3], "Sim", "Não", "warn", "mut"), t(r[4])]))
+        lambda r: [t(r[0] or "—", 600, _ND), t(_curso_cat(r[1])), t(str(r[2])), _bb(r[3], "Sim", "Não", "warn", "mut"), t(r[4])]))
 
     # 6) Avaliações — operacional_avaliacoes_equipe
     await safe("avaliacoes", tbl(
