@@ -36,6 +36,29 @@ def _bs(v):
     return b(v or "—", "info")
 
 
+# Traduções — plano/status do tenant e nível de log
+_PLANO = {"enterprise": "Enterprise", "professional": "Profissional", "pro": "Pro",
+          "basic": "Básico", "starter": "Starter", "free": "Grátis", "trial": "Trial"}
+_TENANT_ST = {"active": ("Ativo", "ok"), "ativo": ("Ativo", "ok"), "inactive": ("Inativo", "mut"),
+              "suspended": ("Suspenso", "bad"), "trial": ("Trial", "warn"), "cancelled": ("Cancelado", "bad")}
+_LEVEL = {"info": ("Info", "info"), "error": ("Erro", "bad"), "warning": ("Aviso", "warn"),
+          "warn": ("Aviso", "warn"), "debug": ("Debug", "mut"), "critical": ("Crítico", "bad")}
+
+
+def _plano(v):
+    return _PLANO.get((v or "").lower(), (v or "—").replace("_", " ").capitalize())
+
+
+def _tenant_status(v):
+    lbl, tone = _TENANT_ST.get((v or "").lower(), (v or "—", "info"))
+    return b(lbl, tone)
+
+
+def _level(v):
+    lbl, tone = _LEVEL.get((v or "").lower(), ((v or "—").capitalize(), "info"))
+    return b(lbl, tone)
+
+
 async def build(db) -> dict:
     out = await _build_configuracoes(db)
     _o2, _s2, tbl = _helpers(db)
@@ -57,7 +80,7 @@ async def build(db) -> dict:
         "SELECT coalesce(codigo,'—'), coalesce(nome,'—'), coalesce(documento,'—'), "
         "coalesce(plano::text,'—'), coalesce(status::text,'—') FROM tenants "
         "WHERE coalesce(ativo,true) ORDER BY created_at DESC LIMIT 100",
-        lambda r: [t(r[0], 600, _ND), t(r[1]), t(r[2]), t((r[3] or "—").replace("_", " ")), _bs(r[4])]))
+        lambda r: [t(r[0], 600, _ND), t(r[1]), t(r[2]), t(_plano(r[3])), _tenant_status(r[4])]))
 
     # 2) Integrações — integration_logs (atividade real)
     await safe("integracoes", tbl(
@@ -67,7 +90,7 @@ async def build(db) -> dict:
         "SELECT coalesce(log_type::text,'—'), coalesce(level::text,'—'), coalesce(method::text,'—'), "
         "coalesce(path,'—'), coalesce(response_status_code::text,'—'), timestamp "
         "FROM integration_logs ORDER BY timestamp DESC NULLS LAST LIMIT 200",
-        lambda r: [t(r[0], 600, _ND), _bs(r[1]), t(r[2]), t((r[3] or "—")[:60]), t(r[4]), t(_d(r[5]))]))
+        lambda r: [t((r[0] or "—").replace("_", " ").capitalize(), 600, _ND), _level(r[1]), t(r[2]), t((r[3] or "—")[:60]), t(r[4]), t(_d(r[5]))]))
 
     # 3) Templates de notificação — ai_email_templates
     await safe("templates-notificacao", tbl(
@@ -99,7 +122,7 @@ async def build(db) -> dict:
         "SELECT coalesce(nome,'—'), coalesce(plano::text,'—'), coalesce(uso_usuarios_ativos,0), "
         "coalesce(limite_usuarios,0), coalesce(status::text,'—') FROM tenants "
         "ORDER BY created_at DESC LIMIT 100",
-        lambda r: [t(r[0] or "—", 600, _ND), t((r[1] or "—").replace("_", " ")), t(str(r[2])), t(str(r[3])), _bs(r[4])]))
+        lambda r: [t(r[0] or "—", 600, _ND), t(_plano(r[1])), t(str(r[2])), t(str(r[3])), _tenant_status(r[4])]))
 
     # 6) Consultor — consultor_memorias
     await safe("consultor", tbl(
