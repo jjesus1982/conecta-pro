@@ -135,8 +135,11 @@ async def gerar(
 # ─────────────────────────────────────────────────────────────────────────────
 # MEMÓRIA COMPARTILHADA + CONVERSA CRUZADA
 # ─────────────────────────────────────────────────────────────────────────────
-async def contexto_compartilhado(db: AsyncSession, origem_atual: str, *, max_memorias: int = 30) -> str:
-    """Bloco de prompt: memórias permanentes (todas as origens) + últimas consultas dos OUTROS consultores."""
+async def contexto_compartilhado(
+    db: AsyncSession, origem_atual: str, pergunta: str | None = None, *, max_memorias: int = 30
+) -> str:
+    """Bloco de prompt: memórias permanentes + consultas cruzadas + alertas do sino +
+    (se a pergunta cita um cliente) o RETRATO CRUZADO desse cliente (Fase 2, grafo)."""
     await _ensure_schema(db)
     partes: list[str] = []
 
@@ -199,6 +202,18 @@ async def contexto_compartilhado(db: AsyncSession, origem_atual: str, *, max_mem
                 partes.append(f"- [{a.category}] {a.subject}")
     except Exception:  # noqa: BLE001
         await db.rollback()
+
+    # Fase 2 (grafo): se a pergunta menciona um cliente, injeta o RETRATO CRUZADO dele.
+    if pergunta:
+        try:
+            cli = await resolver_cliente(db, pergunta)
+            if cli:
+                ent = await contexto_entidade(db, cli["client_key"])
+                if ent:
+                    partes.append("")
+                    partes.append(ent)
+        except Exception:  # noqa: BLE001
+            await db.rollback()
 
     return "\n".join(partes)
 
@@ -356,3 +371,88 @@ async def placar_aprendizado(db: AsyncSession) -> dict:
         "correcoes_do_gestor": corr,
         "por_consultor": por_origem,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FASE 2 — GRAFO POR ENTIDADE ("tudo se cruza"): navega dos IDs já resolvidos
+# (views entity_client + entity_client_override) pelos domínios que LIGAM de fato.
+# Honesto: aging→cliente e processo→cliente ficam quebrados na ORIGEM (recebível
+# sem documento; processo sem link) — não fabricamos; mostramos o que conecta.
+# ─────────────────────────────────────────────────────────────────────────────
+async def resolver_cliente(db: AsyncSession, termo: str) -> dict | None:
+    """Resolve um cliente a partir de um trecho (nome ou CNPJ) → client_key canônico."""
+    if not termo or len(termo.strip()) < 3:
+        return None
+    try:
+        r = (
+            await db.execute(
+                text(
+                    "SELECT id, name, document_number FROM clients "
+                    "WHERE ativo IS NOT false AND ("
+                    # CNPJ (14 díg) aparece no texto:
+                    "  (length(regexp_replace(coalesce(document_number,''),'[^0-9]','','g'))=14 "
+                    "   AND regexp_replace(:t,'[^0-9]','','g') LIKE '%' || regexp_replace(document_number,'[^0-9]','','g') || '%') "
+                    # nome do cliente (>6 letras) aparece no texto — com prefixo de condomínio
+                    # removido (ex.: 'CONDOMINIO IDEAL FLORES' casa a pergunta 'IDEAL FLORES'):
+                    "  OR (length(regexp_replace(name,'^(CONDOMINIO|COND|EDIFICIO|EDIF|RESIDENCIAL|RES|CONJUNTO)\\s+','','i'))>6 "
+                    "      AND :t ILIKE '%' || regexp_replace(name,'^(CONDOMINIO|COND|EDIFICIO|EDIF|RESIDENCIAL|RES|CONJUNTO)\\s+','','i') || '%') "
+                    "  OR (length(name)>6 AND :t ILIKE '%' || name || '%') "
+                    # o texto é um trecho do nome (busca explícita curta):
+                    "  OR name ILIKE '%' || :t || '%') "
+                    "ORDER BY length(name) DESC LIMIT 1"
+                ),
+                {"t": termo.strip()},
+            )
+        ).fetchone()
+        return {"client_key": str(r.id), "name": r.name, "cnpj": r.document_number} if r else None
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+        return None
+
+
+async def contexto_entidade(db: AsyncSession, client_key: str) -> str:
+    """Bloco de prompt: retrato CRUZADO de um cliente (condomínios, equipe alocada,
+    NF-e emitidas, alertas ancorados) pelos links que funcionam. Vazio-real = honesto."""
+    partes: list[str] = []
+
+    async def _q(sql, **kw):
+        try:
+            return (await db.execute(text(sql), {"ck": client_key, **kw})).fetchall()
+        except Exception:  # noqa: BLE001
+            await db.rollback()
+            return []
+
+    cab = await _q("SELECT name, document_number, coalesce(mrr,0) mrr, status::text st FROM clients WHERE id=CAST(:ck AS uuid)")
+    if not cab:
+        return ""
+    c = cab[0]
+    partes.append(f"=== RETRATO CRUZADO DO CLIENTE: {c.name} (CNPJ {c.document_number}) — MRR R$ {float(c.mrr):.2f} · {c.st} ===")
+
+    conds = await _q("SELECT nome FROM condominios WHERE client_id=CAST(:ck AS uuid) LIMIT 20")
+    if conds:
+        partes.append("Condomínios/postos: " + ", ".join(x.nome for x in conds if x.nome))
+
+    equipe = await _q(
+        "SELECT e.nome, coalesce(e.cargo,'—') cargo FROM employee_alocacoes a "
+        "JOIN condominios cd ON cd.id=a.condominio_id JOIN employees e ON e.id=a.employee_id "
+        "WHERE cd.client_id=CAST(:ck AS uuid) AND coalesce(a.ativo,true) LIMIT 30"
+    )
+    if equipe:
+        partes.append(f"Equipe alocada ({len(equipe)}): " + ", ".join(f"{x.nome} ({x.cargo})" for x in equipe[:12]))
+
+    nfs = await _q(
+        "SELECT count(*) q, coalesce(sum(n.valor_servicos),0) v FROM nfses n "
+        "JOIN entity_client_override o ON o.satellite_type='nfse' AND o.satellite_id=n.id::text "
+        "WHERE o.client_key=CAST(:ck AS uuid)"
+    )
+    if nfs and int(nfs[0].q or 0) > 0:
+        partes.append(f"NF-e emitidas a este cliente: {int(nfs[0].q)} (R$ {float(nfs[0].v):.2f})")
+
+    al = await _q(
+        "SELECT category, subject FROM notification_queue WHERE source_entity_id=CAST(:ck AS uuid) "
+        "AND coalesce(opened,false)=false ORDER BY created_at DESC LIMIT 10"
+    )
+    if al:
+        partes.append("Alertas ativos deste cliente: " + "; ".join(f"[{x.category}] {x.subject}" for x in al))
+
+    return "\n".join(partes)

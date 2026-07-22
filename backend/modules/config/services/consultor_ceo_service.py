@@ -458,7 +458,7 @@ async def consultar(
     try:
         from modules.ai.conversation.services import consultor_hub as _hub
 
-        _extra = await _hub.contexto_compartilhado(db, "ceo")
+        _extra = await _hub.contexto_compartilhado(db, "ceo", pergunta)
         _conversa = await _hub.conversa_recente(db, "ceo")
         if not _conversa:
             _conversa = await _conversa_recente_local(db)

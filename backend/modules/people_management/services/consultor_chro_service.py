@@ -389,7 +389,7 @@ async def consultar(
     llm_meta: dict[str, Any] = {}
     try:
         from modules.ai.conversation.services import consultor_hub as _hub
-        _extra = await _hub.contexto_compartilhado(db, 'rh')
+        _extra = await _hub.contexto_compartilhado(db, 'rh', pergunta)
         _conversa = await _hub.conversa_recente(db, 'rh')
         if _extra:
             system_prompt = f"{system_prompt}\n\n{_extra}"

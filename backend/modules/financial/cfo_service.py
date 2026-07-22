@@ -702,7 +702,7 @@ async def consultar(
         import os as _os
 
         from modules.ai.conversation.services import consultor_hub as _hub
-        _extra = await _hub.contexto_compartilhado(db, 'cfo')
+        _extra = await _hub.contexto_compartilhado(db, 'cfo', pergunta)
         _conversa = await _hub.conversa_recente(db, 'cfo')
         if _extra:
             system_prompt = f"{system_prompt}\n\n{_extra}"
