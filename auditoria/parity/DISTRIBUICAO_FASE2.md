@@ -90,3 +90,4 @@ Por tela:
 - [x] T2 rh/cursos — Categoria traduzida p/ PT (behavioral→Comportamental, espelha categoryLabels do clássico). Provado público. blue-green OK.
 - [x] T2 departamento-pessoal/reembolsos — status traduzido (rascunho→Rascunho, espelha statusConfig PT+sinônimos EN); antes minúsculo cru. Provado público. blue-green OK.
 - NOTA T2 (fontes divergentes p/ passo dedicado): rh/onboarding (progresso/etapas via /onboarding/dashboard), dp/licencas (sst_afastamentos vs /leaves), rh/turnover (lê log de atividade, não métricas). rh/carreira status 'active' já é fiel (clássico também cai no fallback cru).
+- [x] T4 financeiro/nfse-entrada — oráculo: clássico mostra CNPJ do prestador + Empresa (Eletrônica/Patrimonial); redesign não. Override + CNPJ + Empresa (join empresas). curl público confirma. compras (req.=0, redesign mais rico) e estoque (fonte EPI diferente) = sem gap fechável. commit 7317c677
