@@ -141,6 +141,35 @@ async def build(db) -> dict:
                 t(_verbas_tags(d.get("verbas")) or "—"),
             ]} for d in det[:300]],
         }
+        # Seção Tributário (mesmo serviço do clássico) → painéis abaixo da tabela (tela composta)
+        try:
+            def _sync_trib():
+                sdb = SyncSessionLocal()
+                try:
+                    return riscos_service.riscos_tributario(sdb)
+                finally:
+                    sdb.close()
+
+            tb = await asyncio.to_thread(_sync_trib)
+            enq = tb.get("enquadramento", {}) or {}
+            _nt = {"alto": "bad", "atenção": "warn", "atencao": "warn", "medio": "warn", "baixo": "ok"}
+            out["riscos"]["panelGrid"] = "1fr 1fr"
+            out["riscos"]["panels"] = [
+                {"title": "Tributário — Enquadramento (Simples × Lucro Real)", "rows": [
+                    {"left": "Faturamento anualizado", "right": brl(enq.get("faturamento_anualizado", 0)), **S["info"]},
+                    {"left": "Teto do Simples (anual)", "right": brl(enq.get("teto_simples_anual", 0)), **S["info"]},
+                    {"left": "Ocupação do teto", "right": f"{enq.get('ocupacao_teto_pct', '—')}%", **S["warn"]},
+                    {"left": "Pode optar pelo Simples?", "right": "Sim" if enq.get("pode_simples") else "Não",
+                     **(S["ok"] if enq.get("pode_simples") else S["bad"])},
+                ]},
+                {"title": "Riscos tributários identificados", "rows": [
+                    {"left": (r.get("tema") or "—")[:64], "right": (r.get("nivel") or "—").capitalize(),
+                     **S[_nt.get((r.get("nivel") or "").lower(), "info")]}
+                    for r in (tb.get("riscos") or [])
+                ] or [{"left": "Nenhum risco tributário", "right": "OK", **S["ok"]}]},
+            ]
+        except Exception:  # noqa: BLE001 — tributário não derruba a tabela trabalhista
+            pass
     except Exception:  # noqa: BLE001 — riscos não derruba o resto do módulo
         pass
 

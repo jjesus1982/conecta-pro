@@ -59,6 +59,8 @@ function DashScreen({ scr }: { scr: any }) {
   );
 }
 
+// TableScreen — tabela + (opcional) painéis de contexto abaixo (tela COMPOSTA, p/ fidelidade
+// de telas do clássico que têm tabela + seções: ex. riscos trabalhista + tributário).
 function TableScreen({ scr }: { scr: any }) {
   return (
     <div className="rd-tbl-wrap">
@@ -83,6 +85,21 @@ function TableScreen({ scr }: { scr: any }) {
           ))}
         </div>
       </div>
+      {Array.isArray(scr.panels) && scr.panels.length > 0 && (
+        <div className="rd-panels" style={{ ['--pg' as any]: scr.panelGrid || '1fr 1fr', marginTop: 16 }}>
+          {scr.panels.map((p: any, i: number) => (
+            <div className="rd-panel" key={i}>
+              <div className="rd-panel-h">{p.title}</div>
+              {(p.rows || []).map((r: any, j: number) => (
+                <div className="rd-panel-row" key={j}>
+                  <span className="l">{r.left}</span>
+                  {r.right != null && <Pill v={r.right} color={r.color || 'var(--ink-weak)'} bg={r.bg || 'var(--fill)'} />}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -317,7 +334,7 @@ export default function ModuleView({ slug }: { slug: string }) {
   };
 
   const isReal = !!patches[active];
-  const scr = patches[active] || screens[active] || screens[menu[0]?.id];
+  const scr = patches[active] || screens[active] || screens[menu[0]?.id ?? ''];
   const initials = 'JJ';
 
   if (!data) return <div className="rd-content"><div className="rd-card rd-card-pad">Módulo não encontrado: {slug}</div></div>;
