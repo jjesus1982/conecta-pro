@@ -177,6 +177,31 @@ def _lic_status(v):
     return b(lbl, tone)
 
 
+# Fechamento de ponto — MESMA derivação do painel do clássico (espelho_ponto_service.painel_fechamento):
+# status fechado = enum ∈ STATUS_FECHADO; assinatura via sig_signature_requests.
+_STATUS_FECHADO = {"fechado", "aprovado", "revisado", "enviado_folha"}
+
+
+def _hm(minutes):
+    m = int(minutes or 0)
+    return f"{m // 60:02d}:{m % 60:02d}"
+
+
+def _fech_status(status, anomalias, approved, sig_status, sig_signed):
+    """Deriva o badge igual ao clássico: Homologado / Aguardando assinatura / Fechado / N anomalia(s) / Calculado."""
+    fechado = (status or "").lower() in _STATUS_FECHADO
+    assinado = bool(approved) or (str(sig_status or "").lower() in ("signed", "completed")) or bool(sig_signed)
+    if fechado and assinado:
+        return b("Homologado", "ok")
+    if fechado and sig_status is not None:
+        return b("Aguardando assinatura", "info")
+    if fechado:
+        return b("Fechado", "info")
+    if (anomalias or 0) > 0:
+        return b(f"{anomalias} anomalia(s)", "warn")
+    return b("Calculado", "mut")
+
+
 def _completude_cell(faltantes):
     """faltantes = array (do SQL) com os rótulos dos campos vazios."""
     fal = [x for x in (faltantes or []) if x]
@@ -326,18 +351,32 @@ async def build(db) -> dict:
                    t(_d(r[2], "%d/%m/%Y %H:%M")), t(r[3]),
                    _badge_bool(r[4], "OK", "—", "ok", "mut")]))
 
-    # 4) Fechamento de ponto — gp_monthly_closings (employee_id é varchar → cast no join)
+    # 4) Fechamento de ponto — MESMA fonte do clássico (time_sheets via painel_fechamento), NÃO
+    #    gp_monthly_closings. Última competência com dado; status derivado (Homologado/Aguardando
+    #    assinatura/Fechado/N anomalia(s)/Calculado). Assinatura via sig_signature_requests. Exclui homologação.
     await safe("fechamento-ponto", tbl(
-        "Fechamento de ponto", "Espelhos mensais", "—",
-        ["Colaborador", "Competência", "Horas", "Faltas", "Status"],
-        "2fr 1fr 1fr 0.8fr 0.9fr",
-        "SELECT coalesce(e.nome, c.employee_id), c.month, c.year, "
-        "coalesce(c.total_horas_trabalhadas,0), coalesce(c.total_faltas,0), coalesce(c.fechado,false) "
-        "FROM gp_monthly_closings c LEFT JOIN employees e ON e.id::text = c.employee_id "
-        "ORDER BY c.year DESC, c.month DESC LIMIT 300",
+        "Fechamento de ponto", "Espelhos mensais — última competência", "—",
+        ["Colaborador", "Competência", "Horas", "Extras", "Faltas", "Status"],
+        "1.8fr 1fr 1fr 1fr 0.8fr 1.3fr",
+        "SELECT ts.employee_name, ts.reference_month, ts.reference_year, ts.status, "
+        "ts.hours_worked_minutes, ts.overtime_total_minutes, ts.absent_days, "
+        "greatest(coalesce(ts.anomaly_count,0)-coalesce(ts.anomaly_resolved_count,0),0) AS anomalias, "
+        "ts.approved_by_employee, sig.status AS sig_status, sig.signed_at AS sig_signed "
+        "FROM time_sheets ts "
+        "LEFT JOIN LATERAL (SELECT status, signed_at FROM sig_signature_requests s "
+        "  WHERE s.document_type='espelho_ponto' AND s.signer_type='employee' "
+        "  AND (CAST(s.document_id AS TEXT)=CAST(ts.id AS TEXT) "
+        "       OR s.custom_fields->>'document_id_raw'=CAST(ts.id AS TEXT)) "
+        "  ORDER BY s.created_at DESC LIMIT 1) sig ON true "
+        "WHERE coalesce(ts.is_deleted,false)=false "
+        "  AND (ts.reference_year, ts.reference_month) = (SELECT reference_year, reference_month "
+        "       FROM time_sheets WHERE coalesce(is_deleted,false)=false "
+        "       ORDER BY reference_year DESC, reference_month DESC LIMIT 1) "
+        "  AND ts.employee_id NOT IN (SELECT CAST(id AS TEXT) FROM employees WHERE coalesce(is_homologacao,false)=true) "
+        "ORDER BY ts.employee_name LIMIT 300",
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")),
-                   t(f"{(r[1] or 0):02d}/{r[2] or ''}"), t(f"{r[3]:.0f}h"),
-                   t(str(r[4])), _badge_bool(r[5], "Fechado", "Aberto", "ok", "warn")]))
+                   t(f"{(r[1] or 0):02d}/{r[2] or ''}"), t(_hm(r[4])), t(_hm(r[5])),
+                   t(str(r[6] or 0)), _fech_status(r[3], r[7], r[8], r[9], r[10])]))
 
     # 5) Licenças / afastamentos — sst_afastamentos (nome/cargo denormalizados)
     await safe("licencas", tbl(

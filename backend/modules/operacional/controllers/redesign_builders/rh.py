@@ -111,14 +111,18 @@ async def build(db) -> dict:
         "ORDER BY a.applied_at DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0], w=600, tc='#0f172a'), t(r[1]), t(str(r[2])), t(str(r[3])), t(_d(r[4])), _bs(r[5])]))
 
-    # 3) Onboarding — admission_processes (status traduzido, espelha statusConfig do clássico)
+    # 3) Onboarding — MESMA fonte do clássico (/onboarding/dashboard): colaboradores em período
+    #    de experiência (admitidos há até 90 dias, ativos). O endpoint clássico NÃO popula
+    #    progresso/etapas (vêm 0) — não fabrico barra; mostro o dado real (admissão + dias na empresa).
     await safe("onboarding", tbl(
-        "Onboarding", "Processos de integração", "—",
-        ["Candidato", "Cargo", "Início previsto", "Status"],
-        "2fr 1.4fr 1fr 0.9fr",
-        "SELECT coalesce(candidate_name,'—'), coalesce(position,'—'), expected_start_date, "
-        "coalesce(status,'—') FROM admission_processes ORDER BY created_at DESC LIMIT 200",
-        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]), t(_d(r[2])), _adm_status(r[3])]))
+        "Onboarding", "Colaboradores em período de experiência (admitidos há até 90 dias)", "—",
+        ["Colaborador", "Cargo", "Data Admissão", "Dias na empresa"],
+        "2fr 1.6fr 1fr 1fr",
+        "SELECT nome, coalesce(cargo,'—'), data_admissao, (CURRENT_DATE - data_admissao) AS dias "
+        "FROM employees WHERE data_admissao >= CURRENT_DATE - INTERVAL '90 days' AND status='ativo' "
+        "ORDER BY data_admissao DESC LIMIT 200",
+        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]), t(_d(r[2])),
+                   t(f"{int(r[3])} dias" if r[3] is not None else "—")]))
 
     # 4) Treinamentos — trainings (real; 0 = honesto)
     await safe("treinamentos", tbl(
