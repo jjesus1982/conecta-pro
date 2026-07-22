@@ -281,12 +281,21 @@ async def build(db) -> dict:
                    t(brl(r[5]) if r[5] is not None else brl(0))]))
 
     # ---- Orçamentos (financial_orcamentos — chaves orçamentárias) ----
+    # Orçado × Realizado mensal — orçado = MRR real (baseline, não projeção fabricada);
+    # realizado = receita real do extrato no mês. Estrutura do clássico, sem inventar crescimento.
+    _mrr_base = float(await _scalar(db, "SELECT coalesce(sum(mrr),0) FROM clients WHERE ativo=true AND coalesce(mrr,0)>0") or 0)
     await safe("orcamentos", tbl(
-        "Orçamentos", f"{await _scalar(db, 'SELECT count(*) FROM financial_orcamentos')} chaves orçamentárias",
-        "—", ["Chave", "Valor", "Atualizado por", "Data"], "2fr 1fr 1.3fr 1fr",
-        "SELECT coalesce(chave,'—'), valor, coalesce(updated_by,'—'), updated_at "
-        "FROM financial_orcamentos ORDER BY updated_at DESC NULLS LAST LIMIT 200",
-        lambda r: [t(r[0], 600, "#0F1B3A"), t(brl(r[1]), 600), t(r[2]), t(_fmtdate(r[3]))]))
+        "Orçamentos", f"Orçado × Realizado mensal — orçado = MRR ({brl(_mrr_base)}, baseline real); realizado = receita do extrato",
+        "—", ["Mês", "Orçado (MRR)", "Realizado", "Diferença", "%"], "1fr 1.3fr 1.3fr 1.3fr 0.9fr",
+        "SELECT to_char(date_trunc('month', transaction_date), 'MM/YYYY'), "
+        "ROUND(SUM(CASE WHEN amount>0 THEN amount ELSE 0 END)::numeric,2) "
+        "FROM bank_transactions WHERE transaction_date >= date_trunc('month', CURRENT_DATE - interval '11 months') "
+        "GROUP BY 1, date_trunc('month', transaction_date) ORDER BY date_trunc('month', transaction_date) DESC",
+        lambda r: [t(r[0], 600, "#0F1B3A"), t(brl(_mrr_base), 600),
+                   t(brl(r[1]), 600, "#16A34A"),
+                   b(f"{'+' if (float(r[1] or 0) - _mrr_base) >= 0 else ''}{brl(float(r[1] or 0) - _mrr_base)}",
+                     "ok" if (float(r[1] or 0) - _mrr_base) >= 0 else "bad"),
+                   t(f"{((float(r[1] or 0) - _mrr_base) / _mrr_base * 100):+.1f}%" if _mrr_base else "—")]))
 
     # ---- Precificação (crm_pricing_funcoes — tabela CCT de funções) ----
     await safe("precificacao", tbl(
