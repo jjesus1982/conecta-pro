@@ -58,6 +58,19 @@ def _curso_cat(v):
     return _CURSO_CAT.get((v or "").lower(), v or "—")
 
 
+# Avaliações — espelha statusLabels + tipos do clássico (rh/avaliacoes/page.tsx)
+_AVAL_ST = {"draft": ("Rascunho", "mut"), "self_assessment": ("Auto-Avaliação", "info"),
+            "manager_review": ("Revisão Gestor", "warn"), "completed": ("Concluída", "ok"),
+            "in_progress": ("Em Andamento", "warn")}
+_AVAL_TIPO = {"annual": "Anual", "quarterly": "Trimestral", "semiannual": "Semestral",
+              "monthly": "Mensal", "probation": "Experiência"}
+
+
+def _aval_status(v):
+    lbl, tone = _AVAL_ST.get((v or "").lower(), (v or "—", "info"))
+    return b(lbl, tone)
+
+
 def _bs(v):
     s = (v or "").lower()
     if s in ("ativo", "active", "concluido", "concluida", "aprovado", "hired",
@@ -146,15 +159,21 @@ async def build(db) -> dict:
         lambda r: [t(r[0] or "—", 600, _ND), t(_curso_cat(r[1])), t(str(r[2])), _bb(r[3], "Sim", "Não", "warn", "mut"), t(r[4])]))
 
     # 6) Avaliações — operacional_avaliacoes_equipe
+    # MESMA fonte do clássico (/human-resources/performance/reviews = performance_reviews), NÃO
+    # operacional_avaliacoes_equipe (tabela operacional). Colunas iguais: Colaborador/Avaliador/Tipo/Score/Status.
     await safe("avaliacoes", tbl(
-        "Avaliações", "Avaliações de equipe", "—",
-        ["Colaborador", "Avaliador", "Nota", "Competência", "Data"],
-        "1.8fr 1.5fr 0.7fr 1fr 1fr",
-        "SELECT coalesce(e.nome, a.employee_id::text), coalesce(a.avaliador_nome,'—'), "
-        "coalesce(a.nota,0), coalesce(to_char(a.competencia,'MM/YYYY'),'—'), a.criada_em "
-        "FROM operacional_avaliacoes_equipe a LEFT JOIN employees e ON e.id::text = a.employee_id::text "
-        "ORDER BY a.criada_em DESC LIMIT 200",
-        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]), t(str(r[2])), t(r[3]), t(_d(r[4]))]))
+        "Avaliações", "Avaliações de desempenho (RH)", "—",
+        ["Colaborador", "Avaliador", "Tipo", "Score", "Status"],
+        "1.8fr 1.6fr 1fr 0.8fr 1fr",
+        "SELECT emp.nome, rev.nome, pr.type::text, coalesce(pr.calibrated_score, pr.overall_score), pr.status::text "
+        "FROM performance_reviews pr "
+        "LEFT JOIN employees emp ON emp.id::text = pr.employee_id::text "
+        "LEFT JOIN employees rev ON rev.id::text = pr.reviewer_id::text "
+        "ORDER BY pr.created_at DESC LIMIT 200",
+        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1] or "—"),
+                   t(_AVAL_TIPO.get((r[2] or "").lower(), (r[2] or "—").capitalize())),
+                   t(f"{float(r[3]):.1f}" if r[3] is not None else "—", 600),
+                   _aval_status(r[4])]))
 
     # 7) Carreira — career_plans (real; 0 = honesto)
     await safe("carreira", tbl(

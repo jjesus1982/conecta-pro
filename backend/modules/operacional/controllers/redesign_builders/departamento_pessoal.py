@@ -339,17 +339,26 @@ async def build(db) -> dict:
                    t(_d(r[2])), _badge_status(r[3])]))
 
     # 3) Ponto — gp_clock_punches
+    # Ponto — registro DIÁRIO como o clássico (/hr/time-records): batidas de gp_clock_punches
+    # pareadas por (colaborador, dia) → Entrada/Saída/Total. Não 1 linha por batida. Exclui homologação.
+    # punch_timestamp é Manaus-local naive (writers usam now()) → NÃO converter fuso.
     await safe("ponto", tbl(
-        "Ponto", "Últimas batidas", "—",
-        ["Colaborador", "Tipo", "Data/hora", "Posto", "Facial"],
-        "2fr 1fr 1.2fr 1.4fr 0.8fr",
-        "SELECT coalesce(e.nome, p.employee_id::text), coalesce(p.punch_type,'—'), "
-        "p.punch_timestamp, coalesce(p.posto_nome,'—'), p.facial_match "
-        "FROM gp_clock_punches p LEFT JOIN employees e ON e.id = p.employee_id "
-        "ORDER BY p.punch_timestamp DESC LIMIT 300",
-        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]),
-                   t(_d(r[2], "%d/%m/%Y %H:%M")), t(r[3]),
-                   _badge_bool(r[4], "OK", "—", "ok", "mut")]))
+        "Ponto", "Registros diários — entrada, saída e total", "—",
+        ["Colaborador", "Data", "Entrada", "Saída", "Total Horas"],
+        "2fr 1fr 0.9fr 0.9fr 1fr",
+        "SELECT e.nome, d.dia, d.entrada, d.saida, d.n, d.total_min FROM ("
+        "  SELECT employee_id, (punch_timestamp)::date AS dia, "
+        "    min(punch_timestamp) AS entrada, max(punch_timestamp) AS saida, count(*) AS n, "
+        "    (extract(epoch FROM (max(punch_timestamp)-min(punch_timestamp)))/60)::int AS total_min "
+        "  FROM gp_clock_punches "
+        "  WHERE employee_id NOT IN (SELECT id FROM employees WHERE coalesce(is_homologacao,false)=true) "
+        "  GROUP BY employee_id, (punch_timestamp)::date"
+        ") d LEFT JOIN employees e ON e.id = d.employee_id "
+        "ORDER BY d.dia DESC, e.nome LIMIT 300",
+        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(_d(r[1])),
+                   t(r[2].strftime("%H:%M") if r[2] else "—"),
+                   t(r[3].strftime("%H:%M") if (r[3] and (r[4] or 0) > 1) else "—"),
+                   t(_hm(r[5]) if (r[4] or 0) > 1 else "—")]))
 
     # 4) Fechamento de ponto — MESMA fonte do clássico (time_sheets via painel_fechamento), NÃO
     #    gp_monthly_closings. Última competência com dado; status derivado (Homologado/Aguardando
