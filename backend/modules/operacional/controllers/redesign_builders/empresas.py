@@ -18,9 +18,34 @@ from modules.operacional.controllers.redesign_data_controller import (  # noqa: 
 SLUG = "empresas"
 
 
+def _obr_tone(s):
+    return {"atrasada": "bad", "pendente": "warn", "concluida": "ok", "concluída": "ok"}.get((s or "").lower(), "info")
+
+
 async def build(db) -> dict:
     out, safe, tbl = _helpers(db)
     out.update(await _base(db))
+
+    # ---- Obrigações fiscais multi-empresa (reusa o MESMO agente do clássico
+    #      /empresas/obrigacoes/calendario/grupo — computação pura, 0ms, A5-safe) ----
+    try:
+        from datetime import date as _date
+        from modules.empresas.agents.obligations_monitor import ObligationsMonitorAgent
+        _h = _date.today()
+        _cal = ObligationsMonitorAgent().gerar_calendario_grupo(_h.month, _h.year)
+        out["obrigacoes"] = {
+            "title": "Obrigações fiscais (multi-empresa)",
+            "sub": f"{_cal.total_obrigacoes} obrigações · Atrasadas {_cal.atrasadas} · Pendentes {_cal.pendentes} · Concluídas {_cal.concluidas}",
+            "cta": "—", "type": "table", "searchHint": "Buscar…",
+            "grid": "1.4fr 1.2fr 2fr 1fr 1fr", "cols": ["Empresa", "Tipo", "Descrição", "Vencimento", "Status"],
+            "rows": [{"cells": [
+                t(o.empresa_nome, 600, "#0F1B3A"), b((o.tipo or "—").replace("_", " "), "info"),
+                t(o.descricao), t(o.data_vencimento.strftime("%d/%m/%Y") if o.data_vencimento else "—"),
+                b((o.status or "—").capitalize(), _obr_tone(o.status)),
+            ]} for o in _cal.consolidado],
+        }
+    except Exception:  # noqa: BLE001 — nunca quebra o módulo
+        await db.rollback()
 
     # ---- Demonstrativos (faturamento NFS-e por competência — DRE-ish real) ----
     await safe("demonstrativos", tbl(
