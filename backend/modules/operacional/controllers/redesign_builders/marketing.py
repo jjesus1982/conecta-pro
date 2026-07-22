@@ -35,6 +35,27 @@ def _bs(v):
     return b(v or "—", "info")
 
 
+# Lead status/source — espelha constants/crm/leadStatus.ts (LEAD_STATUS_LABELS / LEAD_SOURCE_LABELS)
+_LEAD_ST = {"new": ("Novo", "info"), "novo": ("Novo", "info"), "contacted": ("Em contato", "info"),
+            "qualified": ("Qualificado", "info"), "qualificado": ("Qualificado", "info"),
+            "proposal": ("Proposta", "warn"), "proposta": ("Proposta", "warn"),
+            "negotiation": ("Negociação", "warn"), "negociacao": ("Negociação", "warn"),
+            "won": ("Convertido", "ok"), "converted": ("Convertido", "ok"), "ganho": ("Convertido", "ok"),
+            "lost": ("Perdido", "bad"), "perdido": ("Perdido", "bad")}
+_LEAD_SRC = {"website": "Website", "referral": "Indicação", "indicacao": "Indicação",
+             "social_media": "Redes sociais", "cold_call": "Ligação fria", "event": "Evento",
+             "evento": "Evento", "whatsapp": "WhatsApp", "other": "Outros", "outro": "Outros"}
+
+
+def _lead_status(v):
+    lbl, tone = _LEAD_ST.get((v or "").lower(), (v or "—", "info"))
+    return b(lbl, tone)
+
+
+def _lead_src(v):
+    return _LEAD_SRC.get((v or "").lower(), (v or "—").capitalize())
+
+
 async def build(db) -> dict:
     out, safe, tbl = _helpers(db)
 
@@ -46,7 +67,7 @@ async def build(db) -> dict:
         "SELECT coalesce(name,'—'), coalesce(company,'—'), coalesce(source,'—'), "
         "coalesce(score,0), coalesce(status,'—') FROM leads WHERE coalesce(is_active,true) "
         "ORDER BY score DESC NULLS LAST, created_at DESC LIMIT 200",
-        lambda r: [t(r[0] or "—", 600, _ND), t(r[1]), t(r[2]), t(str(r[3])), _bs(r[4])]))
+        lambda r: [t(r[0] or "—", 600, _ND), t(r[1]), t(_lead_src(r[2])), t(str(r[3])), _lead_status(r[4])]))
 
     # 2) Campanhas — marketing_campaigns (real; hoje 0 = honesto)
     await safe("campanhas", tbl(
