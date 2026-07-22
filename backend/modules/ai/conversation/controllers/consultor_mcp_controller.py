@@ -6,6 +6,7 @@ POST /consultores/mcp/{origem}/consultar. Tasks 4/5/6 adicionam feedback/
 propor-pagamento/propor-comunicado neste mesmo router — mantenha extensível.
 """
 import json
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel
@@ -42,6 +43,12 @@ class FeedbackIn(BaseModel):
     origem: str
     correcao: str
     consulta_id: int | None = None
+
+
+class ProporPagamentoIn(BaseModel):
+    valor: float
+    pix_key: str
+    descricao: str = ""
 
 
 async def _persistir_consulta(db: AsyncSession, origem: str, pergunta: str, resposta: str, user) -> int | None:
@@ -98,3 +105,33 @@ async def feedback(payload: FeedbackIn, db: AsyncSession = Depends(get_db)):
         db, payload.origem, payload.consulta_id or 0, util=False, correcao=payload.correcao,
     )
     return {"ok": bool(res.get("ok")), "resultado": res}
+
+
+@router.post("/propor-pagamento")
+async def propor_pagamento(
+    payload: ProporPagamentoIn,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_active_user),
+):
+    """🟡 PROPOR (gated): grava PENDENTE (status='preparado' via server_default).
+    NUNCA aprova, NUNCA executa, NUNCA chama a API do Inter. O gate OTP humano
+    fica downstream (payment_controller.py:115). 'id' e 'status' vêm de
+    server_default — não os setamos aqui, garantindo que nasce 'preparado'."""
+    if payload.valor <= 0:
+        raise HTTPException(status_code=422, detail="valor deve ser > 0")
+    # colunas obrigatórias sem default (confirmado sprint87_d7_payments.py):
+    #   payment_type, destinatario, valor, data_pagamento, prepared_by (FK users.id NOT NULL).
+    row = await db.execute(text("""
+        INSERT INTO inter_payments (payment_type, destinatario, valor, data_pagamento, prepared_by, observacoes)
+        VALUES ('pix', CAST(:dest AS jsonb), :valor, :dt, :prep, :obs)
+        RETURNING id, status
+    """), {
+        "dest": json.dumps({"pix_key": payload.pix_key}),
+        "valor": payload.valor,
+        "dt": date.today(),
+        "prep": str(user.id),   # prepared_by = quem propôs (conta de serviço MCP / diretoria)
+        "obs": f"proposta via consultor MCP — requer aprovação humana + OTP. {payload.descricao}",
+    })
+    await db.commit()
+    rec = row.first()
+    return {"payment_id": str(rec[0]), "status": rec[1]}  # status = 'preparado' (server_default)

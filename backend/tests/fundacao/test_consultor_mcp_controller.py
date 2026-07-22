@@ -50,8 +50,33 @@ def test_feedback_grava_memoria():
     asyncio.run(run())
 
 
+def test_propor_pagamento_nasce_preparado():
+    # ⚠️ green compartilha o BANCO VIVO: esta proposta apareceria na fila real de OTP do Jordan.
+    # O teste DELETA a linha no fim (bloco finally) — não deixar pagamento-teste na produção.
+    async def run():
+        from core.database import async_session_factory   # confirmado: core/database/session.py:25
+        from sqlalchemy import text
+        r = await _post("/consultores/mcp/propor-pagamento",
+                        {"valor": 1.23, "pix_key": "teste@conectapro.com.br", "descricao": "TESTE 5.1 (apagar)"})
+        assert r.status_code == 200, r.text
+        pid = r.json()["payment_id"]
+        try:
+            assert r.json()["status"] == "preparado"
+            # oráculo de segurança: nasce 'preparado', JAMAIS 'aprovado'/'executado'
+            async with async_session_factory() as db:
+                row = (await db.execute(text("SELECT status FROM inter_payments WHERE id=:i"), {"i": pid})).first()
+                assert row is not None and row[0] == "preparado"
+        finally:
+            # limpeza OBRIGATÓRIA: remove o pagamento-teste da fila de produção
+            async with async_session_factory() as db:
+                await db.execute(text("DELETE FROM inter_payments WHERE id=:i AND status='preparado'"), {"i": pid})
+                await db.commit()
+    asyncio.run(run())
+
+
 # funções de teste das Tasks 4/5/6 são ADICIONADAS abaixo neste mesmo arquivo.
-_TESTS = [test_origem_invalida_recusada, test_consulta_cfo_responde, test_feedback_grava_memoria]
+_TESTS = [test_origem_invalida_recusada, test_consulta_cfo_responde, test_feedback_grava_memoria,
+          test_propor_pagamento_nasce_preparado]
 
 if __name__ == "__main__":  # runner standalone, sem pytest
     import sys, traceback
