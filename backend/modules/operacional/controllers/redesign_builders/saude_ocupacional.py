@@ -1,6 +1,8 @@
 """Saúde ocupacional (T1) — delega ao _build_saude do monólito e ESTENDE com
 estabilidade (garantia de emprego) e alertas (ASOs vencidos). Leitura real; ação
 legal (transmitir eSocial) segue GATED."""
+from sqlalchemy import text
+
 from modules.operacional.controllers.redesign_data_controller import (
     S, _build_saude, _fmtdate, _helpers, _scalar, b, brl, t,
 )
@@ -52,13 +54,26 @@ async def build(db) -> dict:
                 "SELECT count(*) FROM ultimo_aso u JOIN employees e ON e.id=u.employee_id AND e.status='ativo' "
                 "WHERE u.data_validade < current_date")
         ativos = await _scalar(db, "SELECT count(*) FROM employees WHERE status='ativo'")
+        # Lista dos colaboradores com ASO vencido (bate os 25 do clássico): último ASO por
+        # colaborador ativo, expirado → nome/cargo/dias vencido.
+        desc = (await db.execute(text(
+            "WITH ultimo AS (SELECT DISTINCT ON (a.employee_id) a.employee_id, a.data_validade "
+            "FROM gp_asos a WHERE a.data_validade IS NOT NULL ORDER BY a.employee_id, a.data_validade DESC) "
+            "SELECT e.nome, coalesce(e.cargo,'—'), (CURRENT_DATE - u.data_validade) AS dias "
+            "FROM ultimo u JOIN employees e ON e.id=u.employee_id AND e.status='ativo' "
+            "WHERE u.data_validade < CURRENT_DATE ORDER BY u.data_validade ASC LIMIT 40"))).fetchall()
         if "exames" in out and isinstance(out["exames"], dict):
-            out["exames"].setdefault("panelGrid", "1fr")
-            out["exames"]["panels"] = [{"title": "Regularização PCMSO (por colaborador ativo)", "rows": [
-                {"left": "ASOs válidos", "right": str(validos or 0), **S["ok"]},
-                {"left": "Colaboradores com ASO vencido", "right": str(vencidos or 0), **S["bad"]},
-                {"left": "Pendentes (sem ASO válido)", "right": str(max(0, (ativos or 0) - (validos or 0))), **S["warn"]},
-            ]}]
+            out["exames"]["panelGrid"] = "1fr 1.4fr"
+            out["exames"]["panels"] = [
+                {"title": "Regularização PCMSO (por colaborador ativo)", "rows": [
+                    {"left": "ASOs válidos", "right": str(validos or 0), **S["ok"]},
+                    {"left": "Colaboradores com ASO vencido", "right": str(vencidos or 0), **S["bad"]},
+                    {"left": "Pendentes (sem ASO válido)", "right": str(max(0, (ativos or 0) - (validos or 0))), **S["warn"]},
+                ]},
+                {"title": f"Colaboradores a regularizar ({len(desc)})", "rows": [
+                    {"left": f"{d[0]} · {d[1]}", "right": f"{int(d[2])} dias", **S["warn"]} for d in desc
+                ] or [{"left": "Todos regularizados", "right": "OK", **S["ok"]}]},
+            ]
     except Exception:  # noqa: BLE001
         pass
 
