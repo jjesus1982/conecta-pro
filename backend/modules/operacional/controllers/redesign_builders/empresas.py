@@ -4,6 +4,11 @@ Sobrescreve _build_empresas: reusa a base e ADICIONA demonstrativos (faturamento
 por competência), rentabilidade (clientes por MRR/receita), liminares fiscais e
 migrador (segmentação CNPJ1→CNPJ2). Só leitura — migração é curada pelo Jordan.
 """
+from fastapi import APIRouter, Body, Depends, HTTPException  # noqa: F401
+from sqlalchemy import text  # noqa: F401
+
+from core.auth.dependencies import CurrentActiveUser  # noqa: F401
+from core.database import get_db  # noqa: F401
 from modules.operacional.controllers.redesign_data_controller import (  # noqa: F401
     _build_empresas as _base,
     _fmtdate,
@@ -16,6 +21,10 @@ from modules.operacional.controllers.redesign_data_controller import (  # noqa: 
 )
 
 SLUG = "empresas"
+
+EXTRA_MENU: list[dict] = [
+    {"id": "nova-liminar", "label": "Nova Liminar", "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 15h6M9 11h6"},
+]
 
 
 def _obr_tone(s):
@@ -80,4 +89,48 @@ async def build(db) -> dict:
         "SELECT coalesce(tipo_contrato,'—'), count(*) FROM employees WHERE is_active=true GROUP BY tipo_contrato ORDER BY count(*) DESC",
         lambda r: [t((r[0] or '—').upper(), 600, "#0F1B3A"), b(f"{r[1]} colaboradores", "info")]))
 
+    # ---- ESCRITA op_write: registrar liminar (aditivo, sem dinheiro/OTP) ----
+    out["nova-liminar"] = {
+        "title": "Nova Liminar", "sub": "Registrar uma liminar/decisão tributária (escrita real)",
+        "cta": "Registrar liminar", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/nova-liminar", "okMsg": "Liminar registrada."},
+        "fields": [
+            {"key": "tributo", "label": "Tributo*", "type": "text", "span": "span 1", "ph": "PIS/COFINS, INSS, ISS…"},
+            {"key": "empresa", "label": "Empresa", "type": "text", "span": "span 1", "ph": "Patrimonial / Eletrônica"},
+            {"key": "tipo", "label": "Tipo", "type": "text", "span": "span 1", "ph": "liminar / decisão"},
+            {"key": "processo", "label": "Processo", "type": "text", "span": "span 1", "ph": "nº do processo"},
+            {"key": "descricao", "label": "Descrição*", "type": "textarea", "span": "span 2", "ph": "Base legal / o que a liminar garante"},
+        ],
+    }
+
     return out
+
+
+# ── ESCRITA op_write (router incluído pelo registry) ──
+router = APIRouter()
+
+
+@router.post("/action/nova-liminar")
+async def _rd_nova_liminar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Registra uma liminar em fiscal_liminares (op_write — cria registro, reversível)."""
+    from modules.operacional.controllers.redesign_write_gate import GateError, op_write
+    tributo = (payload.get("tributo") or "").strip()
+    descricao = (payload.get("descricao") or "").strip()
+    if not tributo or len(descricao) < 5:
+        raise HTTPException(status_code=400, detail="Informe o tributo e a descrição (mín. 5 caracteres).")
+
+    async def _write():
+        r = await db.execute(text(
+            "INSERT INTO fiscal_liminares (tipo, tributo, empresa, descricao, processo, status, created_at, updated_at) "
+            "VALUES (:tipo, :trib, :emp, :desc, :proc, :st, now(), now()) RETURNING id"),
+            {"tipo": (payload.get("tipo") or "liminar").strip()[:60], "trib": tributo[:60],
+             "emp": (payload.get("empresa") or "").strip()[:120] or None, "desc": descricao,
+             "proc": (payload.get("processo") or "").strip()[:120] or None, "st": "a_solicitar"})
+        new_id = r.scalar()
+        await db.commit()
+        return {"ok": True, "id": new_id, "message": "Liminar registrada com sucesso."}
+
+    try:
+        return await op_write(db, real_write=_write)
+    except GateError as e:
+        raise HTTPException(status_code=400, detail=str(e))
