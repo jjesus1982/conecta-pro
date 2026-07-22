@@ -18,10 +18,8 @@ from modules.operacional.controllers.redesign_data_controller import (  # noqa: 
 
 SLUG = "crm"
 
-EXTRA_MENU: list[dict] = [
-    {"id": "novo-lead", "label": "Novo Lead", "icon": "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8M19 8v6M22 11h-6"},
-    {"id": "nova-tarefa", "label": "Nova Tarefa", "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
-]
+# Nota: o base _build_crm JÁ tem os forms de escrita (novo-lead, nova-tarefa,
+# nova-proposta, mover-oportunidade, anotar-cliente, simular-preco). Não duplicar.
 
 
 async def _build_precificacao(db, tbl_t, tbl_b, tbl_brl):
@@ -65,33 +63,6 @@ async def build(db) -> dict:
         out["precificacao"] = await _build_precificacao(db, t, b, brl)
     except Exception:  # noqa: BLE001
         await db.rollback()
-
-    # ---- ESCRITA op_write (sem dinheiro/OTP): criar lead / tarefa (delega aos
-    #      endpoints já provados /action/lead e /action/task do monólito). ----
-    out["novo-lead"] = {
-        "title": "Novo Lead", "sub": "Cadastrar um lead no funil comercial (escrita real)",
-        "cta": "Criar lead", "type": "form",
-        "submit": {"endpoint": "/api/v1/redesign/action/lead", "okMsg": "Lead criado com sucesso."},
-        "fields": [
-            {"key": "name", "label": "Nome*", "type": "text", "span": "span 2", "ph": "Nome do lead"},
-            {"key": "company", "label": "Empresa", "type": "text", "span": "span 1", "ph": "Empresa"},
-            {"key": "phone", "label": "Telefone", "type": "text", "span": "span 1", "ph": "(92) 9…"},
-            {"key": "email", "label": "E-mail", "type": "text", "span": "span 1", "ph": "email@…"},
-            {"key": "source", "label": "Origem", "type": "text", "span": "span 1", "ph": "whatsapp / website / indicação"},
-            {"key": "notes", "label": "Observações", "type": "textarea", "span": "span 2", "ph": "Opcional…"},
-        ],
-    }
-    out["nova-tarefa"] = {
-        "title": "Nova Tarefa", "sub": "Criar uma tarefa comercial (escrita real)",
-        "cta": "Criar tarefa", "type": "form",
-        "submit": {"endpoint": "/api/v1/redesign/action/task", "okMsg": "Tarefa criada com sucesso."},
-        "fields": [
-            {"key": "title", "label": "Título*", "type": "text", "span": "span 2", "ph": "Ex.: Follow-up proposta"},
-            {"key": "due_date", "label": "Vencimento", "type": "date", "span": "span 1"},
-            {"key": "priority", "label": "Prioridade", "type": "text", "span": "span 1", "ph": "low / medium / high"},
-            {"key": "description", "label": "Descrição", "type": "textarea", "span": "span 2", "ph": "Opcional…"},
-        ],
-    }
 
     # ---- Leads (override: + coluna Origem, que o clássico mostra e a base não) ----
     await safe("leads", tbl(
