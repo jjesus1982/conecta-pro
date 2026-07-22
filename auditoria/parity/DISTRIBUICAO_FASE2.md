@@ -85,3 +85,4 @@ Por tela:
 - [x] T4 financeiro/contratos — oráculo: clássico mostra Cliente (nome/CNPJ) + Retenções (ISS/INSS/CSLL ou Nenhuma) por contrato; base só tinha Nº/Contrato/Mensal/Status/Início. Override + Cliente + Retenções. curl público confirma. contas-pagar/faturamento: só formatação/resumo (sem coluna faltando). commit c379d681
 - [x] T2 departamento-pessoal/contratos — Tipo traduzido p/ PT (clt_indeterminate→CLT Indeterminado, espelha contractTypeLabels); antes enum cru. Provado público. blue-green OK.
 - [x] T2 departamento-pessoal/documentos — status normalizado (ativo/active→Ativo, espelha statusConfig draft/valid/expired/…); _badge_status deixava 'active' cru. Provado público. blue-green OK.
+- [x] T4 financeiro/clientes + financeiro/fornecedores — oráculo: clássico mostra CNPJ; base não. Override + coluna CNPJ formatada (clients.document_number / suppliers.cpf_cnpj). curl público confirma. contas-receber: descrição detalhada mas colunas batem. commit e6188e38
