@@ -27,6 +27,16 @@ def _d(v, fmt="%d/%m/%Y"):
         return "—"
 
 
+_TR_ST = {"scheduled": ("Agendado", "info"), "completed": ("Concluído", "ok"),
+          "in_progress": ("Em andamento", "warn"), "cancelled": ("Cancelado", "mut"),
+          "canceled": ("Cancelado", "mut"), "confirmed": ("Confirmado", "ok")}
+
+
+def _tr_status(v):
+    lbl, tone = _TR_ST.get((v or "").lower(), (v or "—", "info"))
+    return b(lbl, tone)
+
+
 def _bs(v):
     s = (v or "").lower()
     if s in ("ativo", "active", "concluido", "concluida", "aprovado", "hired",
@@ -88,12 +98,14 @@ async def build(db) -> dict:
 
     # 4) Treinamentos — trainings (real; 0 = honesto)
     await safe("treinamentos", tbl(
-        "Treinamentos", "Turmas de treinamento", "—",
-        ["Treinamento", "Início", "Fim", "Participantes", "Status"],
-        "2fr 1fr 1fr 1fr 0.9fr",
-        "SELECT coalesce(title,'—'), start_date, end_date, coalesce(current_participants,0), "
+        "Treinamentos", "Turmas de treinamento — local, instrutor e vagas", "—",
+        ["Treinamento", "Início", "Fim", "Local", "Instrutor", "Vagas", "Status"],
+        "1.9fr 0.9fr 0.9fr 1.4fr 1.2fr 0.7fr 0.9fr",
+        "SELECT coalesce(title,'—'), start_date, end_date, coalesce(location,'—'), "
+        "coalesce(instructor_name,'—'), coalesce(current_participants,0), coalesce(max_participants,0), "
         "coalesce(status::text,'—') FROM trainings ORDER BY start_date DESC NULLS LAST LIMIT 200",
-        lambda r: [t(r[0] or "—", 600, _ND), t(_d(r[1])), t(_d(r[2])), t(str(r[3])), _bs(r[4])]))
+        lambda r: [t(r[0] or "—", 600, _ND), t(_d(r[1])), t(_d(r[2])), t(r[3]), t(r[4]),
+                   t(f"{r[5]}/{r[6]}"), _tr_status(r[7])]))
 
     # 5) Cursos — training_courses (real; 0 = honesto)
     await safe("cursos", tbl(

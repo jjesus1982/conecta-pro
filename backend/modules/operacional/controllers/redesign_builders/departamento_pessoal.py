@@ -64,6 +64,16 @@ async def _scalar_dp(db):
         return 0
 
 
+_BEN_ST = {"active": ("Ativo", "ok"), "ativo": ("Ativo", "ok"), "cancelled": ("Cancelado", "mut"),
+           "canceled": ("Cancelado", "mut"), "cancelado": ("Cancelado", "mut"),
+           "inactive": ("Inativo", "mut"), "suspended": ("Suspenso", "warn")}
+
+
+def _ben_status(v):
+    lbl, tone = _BEN_ST.get((v or "").lower(), (v or "—", "info"))
+    return b(lbl, tone)
+
+
 def _fer_status(status, cancelled_at):
     """Status de férias em PT, mesma derivação do clássico (enum é SUBMITTED/APPROVED)."""
     if cancelled_at:
@@ -165,6 +175,19 @@ async def build(db) -> dict:
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")),
                    t(f"{_d(r[1])} – {_d(r[2])}"), t(str(r[3] or "—")),
                    _fer_status(r[4], r[5]), t(_d(r[6], "%d/%m/%Y %H:%M"))]))
+
+    # 0d) Benefícios — SOBRESCREVE p/ trazer operadora + valores (empresa/desconto) + vigência,
+    #     que o clássico mostra e o redesign resumia (só tipo/plano/status). employee_benefits.
+    await safe("beneficios", tbl(
+        "Gestão de Benefícios", "Benefícios por colaborador — operadora, valores e vigência", "—",
+        ["Colaborador", "Tipo", "Operadora", "Plano", "Empresa", "Desconto", "Vigência", "Status"],
+        "1.7fr 1.1fr 1.1fr 1.1fr 0.8fr 0.8fr 1.2fr 0.9fr",
+        "SELECT e.nome, coalesce(bf.type,'—'), coalesce(bf.provider,'—'), coalesce(bf.plan_name,'—'), "
+        "bf.company_contribution, bf.employee_contribution, bf.start_date, bf.end_date, coalesce(bf.status,'—') "
+        "FROM employee_benefits bf LEFT JOIN employees e ON e.id=bf.employee_id ORDER BY e.nome, bf.type LIMIT 400",
+        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]), t(r[2]), t(r[3]),
+                   t(brl(r[4])), t(brl(r[5])),
+                   t(f"{_d(r[6])} – {'Indeterminado' if not r[7] else _d(r[7])}"), _ben_status(r[8])]))
 
     # 1) Admissão — admission_processes
     await safe("admissao", tbl(
