@@ -87,3 +87,6 @@ Por tela:
 - [x] T2 departamento-pessoal/documentos — status normalizado (ativo/active→Ativo, espelha statusConfig draft/valid/expired/…); _badge_status deixava 'active' cru. Provado público. blue-green OK.
 - [x] T4 financeiro/clientes + financeiro/fornecedores — oráculo: clássico mostra CNPJ; base não. Override + coluna CNPJ formatada (clients.document_number / suppliers.cpf_cnpj). curl público confirma. contas-receber: descrição detalhada mas colunas batem. commit e6188e38
 - [x] T1 operacional/presenca — QUADRO por posto/condomínio (composite: tabela+resumo) reusando quadro_presenca_hoje; números batem o clássico (Ideal Flores 7/0/2/5 etc). Substituiu o log de batidas. build 0.18s.
+- [x] T2 rh/cursos — Categoria traduzida p/ PT (behavioral→Comportamental, espelha categoryLabels do clássico). Provado público. blue-green OK.
+- [x] T2 departamento-pessoal/reembolsos — status traduzido (rascunho→Rascunho, espelha statusConfig PT+sinônimos EN); antes minúsculo cru. Provado público. blue-green OK.
+- NOTA T2 (fontes divergentes p/ passo dedicado): rh/onboarding (progresso/etapas via /onboarding/dashboard), dp/licencas (sst_afastamentos vs /leaves), rh/turnover (lê log de atividade, não métricas). rh/carreira status 'active' já é fiel (clássico também cai no fallback cru).
