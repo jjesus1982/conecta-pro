@@ -2,7 +2,7 @@
 (presença ao vivo, escalas, turnos, reembolsos). Operacional é curado pelo Jordan →
 SÓ visibilidade, NUNCA escreve/altera escala/alocação. Reembolso é read-only (sem aprovar/pagar)."""
 from modules.operacional.controllers.redesign_data_controller import (
-    S, _build_operacional, _fmtdate, _helpers, b, brl, t,
+    S, _build_operacional, _fmtdate, _helpers, _scalar, b, brl, t,
 )
 
 SLUG = "operacional"
@@ -87,6 +87,34 @@ async def build(db) -> dict:
             "FROM reimbursement_requests ORDER BY submitted_at DESC NULLS LAST LIMIT 200",
             lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—')[:60]), t(brl(r[2]) if r[2] is not None else '—', 600),
                        b((r[3] or '—').replace('_', ' ').capitalize(), _rt.get((r[3] or '').lower(), "info"))])
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Colaboradores — ENRIQUECIDO (fidelidade: Email/Matrícula/Departamento/Admissão + KPIs)
+    try:
+        _tot = await _scalar(db, "SELECT count(*) FROM employees")
+        _atv = await _scalar(db, "SELECT count(*) FROM employees WHERE status='ativo'")
+        _colab = await tbl(
+            "Colaboradores", f"{_tot or 0} colaboradores · {_atv or 0} ativos", "—",
+            ["Colaborador", "Email", "Matrícula", "Cargo", "Departamento", "Admissão", "Status"],
+            "1.6fr 1.8fr 0.8fr 1.3fr 1.1fr 0.9fr 0.8fr",
+            "SELECT coalesce(nome,'—'), coalesce(email,'—'), coalesce(matricula,'—'), coalesce(cargo,'—'), "
+            "coalesce(departamento, setor, '—'), data_admissao, coalesce(status,'—') "
+            "FROM employees ORDER BY nome LIMIT 300",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), t(r[2]), t(r[3]), t(r[4]), t(_fmtdate(r[5])),
+                       b((r[6] or '—').capitalize(), "ok" if (r[6] or '') == "ativo" else "mut")])
+        try:
+            from modules.people_management.sst.services.sst_service import SSTService
+            _afast = (await SSTService(db).get_dashboard()).get("afastados_ativos", 0)
+        except Exception:  # noqa: BLE001
+            _afast = 0
+        _colab["panelGrid"] = "1fr"
+        _colab["panels"] = [{"title": "Resumo", "rows": [
+            {"left": "Total", "right": str(_tot or 0), **S["info"]},
+            {"left": "Ativos", "right": str(_atv or 0), **S["ok"]},
+            {"left": "Afastados", "right": str(_afast), **S["warn"]},
+        ]}]
+        out["colaboradores"] = _colab
     except Exception:  # noqa: BLE001
         pass
 

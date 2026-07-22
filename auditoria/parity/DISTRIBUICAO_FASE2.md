@@ -102,3 +102,4 @@ Por tela:
 - NOTA T2: rh/avaliacoes lê operacional_avaliacoes_equipe (tabela OPERACIONAL, read-only/curada Jordan) vs fonte RH do clássico (colunas Tipo/Status) — divergência de fonte, não mexer sem decisão.
 - [x] T4 seguranca/esquecimento — resumo (Total/Pendentes/Concluídas) no subtítulo. commit c4323cd1
 - [x] T4 empresas/obrigacoes — oráculo: clássico tem calendário multi-empresa (Eletrônica/Patrimonial + tipo + descrição + vencimento + status). REUSEI o mesmo agente ObligationsMonitorAgent.gerar_calendario_grupo (computação pura 0ms, A5) → 12 obrigações, 10 atrasadas. commit (empresas.py acima)
+- [x] T1 operacional/colaboradores — enriquecido p/ bater o clássico: +Email/Matrícula/Departamento/Admissão (7 cols, 83 colab) + painel Total/Ativos/Afastados. GOTCHA: faltava importar _scalar no operacional.py → bloco falhava mudo (except). LIÇÃO: módulo deve importar TODOS os helpers que usa.
