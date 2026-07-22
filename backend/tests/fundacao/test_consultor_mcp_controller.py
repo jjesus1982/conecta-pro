@@ -12,6 +12,7 @@ do host (container conecta-pro-backend, produção), que continua intocado."""
 import asyncio
 import os
 from httpx import AsyncClient
+from sqlalchemy import text
 from tests.fundacao._mcp_token import make_token
 
 BASE = os.environ["MCP_TEST_BASE"]  # obrigatório; setado só no docker exec sancionado dentro do green
@@ -20,6 +21,28 @@ BASE = os.environ["MCP_TEST_BASE"]  # obrigatório; setado só no docker exec sa
 async def _post(path, json):
     async with AsyncClient(base_url=BASE, timeout=60) as ac:
         return await ac.post(path, json=json, headers={"Authorization": f"Bearer {make_token()}"})
+
+
+async def _db_exec(sql, params):
+    """Executa um write no banco de forma robusta a event-loops (dispose do pool estagnado antes).
+
+    Cada teste roda seu próprio asyncio.run() (loop novo); connections pooladas por um
+    teste anterior ficam presas ao loop antigo já fechado, e pool_pre_ping=True derruba
+    com "Future attached to a different loop" no checkout. Descarta o pool antes de usar.
+    """
+    from core.database import async_session_factory, engine
+    await engine.dispose()  # descarta conexões presas a loops de testes anteriores
+    async with async_session_factory() as db:
+        await db.execute(text(sql), params)
+        await db.commit()
+
+
+async def _db_scalar(sql, params):
+    """Lê uma linha do banco, robusto a event-loops (mesmo contorno de _db_exec)."""
+    from core.database import async_session_factory, engine
+    await engine.dispose()
+    async with async_session_factory() as db:
+        return (await db.execute(text(sql), params)).first()
 
 
 def test_origem_invalida_recusada():
@@ -47,20 +70,16 @@ def test_feedback_grava_memoria():
     # marcador de teste e DELETA no finally — nunca deixar correção-fake na memória viva.
     _MARK = "TESTE 5.1 (apagar) feedback automatizado"
     async def run():
-        from core.database import async_session_factory
-        from sqlalchemy import text
         r = await _post("/consultores/mcp/feedback",
                         {"origem": "cfo", "correcao": _MARK, "consulta_id": None})
         try:
             assert r.status_code == 200, r.text
             assert r.json().get("ok") is True
         finally:
-            async with async_session_factory() as db:
-                await db.execute(
-                    text("DELETE FROM consultor_memorias WHERE fonte='feedback_gestor' AND conteudo LIKE :m"),
-                    {"m": f"%{_MARK}%"},
-                )
-                await db.commit()
+            await _db_exec(
+                "DELETE FROM consultor_memorias WHERE fonte='feedback_gestor' AND conteudo LIKE :m",
+                {"m": f"%{_MARK}%"},
+            )
     asyncio.run(run())
 
 
@@ -68,8 +87,6 @@ def test_propor_pagamento_nasce_preparado():
     # ⚠️ green compartilha o BANCO VIVO: esta proposta apareceria na fila real de OTP do Jordan.
     # O teste DELETA a linha no fim (bloco finally) — não deixar pagamento-teste na produção.
     async def run():
-        from core.database import async_session_factory   # confirmado: core/database/session.py:25
-        from sqlalchemy import text
         r = await _post("/consultores/mcp/propor-pagamento",
                         {"valor": 1.23, "pix_key": "teste@conectapro.com.br", "descricao": "TESTE 5.1 (apagar)"})
         assert r.status_code == 200, r.text
@@ -77,42 +94,32 @@ def test_propor_pagamento_nasce_preparado():
         try:
             assert r.json()["status"] == "preparado"
             # oráculo de segurança: nasce 'preparado', JAMAIS 'aprovado'/'executado'
-            async with async_session_factory() as db:
-                row = (await db.execute(text("SELECT status FROM inter_payments WHERE id=:i"), {"i": pid})).first()
-                assert row is not None and row[0] == "preparado"
+            row = await _db_scalar("SELECT status FROM inter_payments WHERE id=:i", {"i": pid})
+            assert row is not None and row[0] == "preparado"
         finally:
             # limpeza OBRIGATÓRIA: remove o pagamento-teste da fila de produção
-            async with async_session_factory() as db:
-                await db.execute(text("DELETE FROM inter_payments WHERE id=:i AND status='preparado'"), {"i": pid})
-                await db.commit()
+            await _db_exec("DELETE FROM inter_payments WHERE id=:i AND status='preparado'", {"i": pid})
     asyncio.run(run())
 
 
 def test_propor_comunicado_nasce_rascunho():
     # ⚠️ green compartilha o BANCO VIVO: o rascunho apareceria nos comunicados reais. DELETA no fim.
     async def run():
-        from core.database import async_session_factory, engine
-        from sqlalchemy import text
-        # dispose: cada teste roda seu próprio asyncio.run() (loop novo); connections
-        # pooladas por um teste anterior (ex.: test_propor_pagamento_nasce_preparado)
-        # ficam presas ao loop antigo já fechado, e pool_pre_ping=True derruba com
-        # "Future attached to a different loop" no checkout. Descarta o pool antes de usar.
-        await engine.dispose()
         r = await _post("/consultores/mcp/propor-comunicado",
                         {"titulo": "TESTE 5.1 (apagar)", "corpo": "corpo de teste"})
         assert r.status_code == 200, r.text
         aid = r.json()["announcement_id"]
         try:
             assert r.json()["status"] == "rascunho"
-            async with async_session_factory() as db:
-                row = (await db.execute(text("SELECT status, enviar_push, enviar_email FROM communication_announcements WHERE id=:i"), {"i": aid})).first()
-                assert row is not None and row[0] == "rascunho"
-                assert not row[1] and not row[2]
+            row = await _db_scalar(
+                "SELECT status, enviar_push, enviar_email FROM communication_announcements WHERE id=:i",
+                {"i": aid},
+            )
+            assert row is not None and row[0] == "rascunho"
+            assert not row[1] and not row[2]
         finally:
             # limpeza OBRIGATÓRIA: remove o comunicado-teste da produção (só se ainda rascunho)
-            async with async_session_factory() as db:
-                await db.execute(text("DELETE FROM communication_announcements WHERE id=:i AND status='rascunho'"), {"i": aid})
-                await db.commit()
+            await _db_exec("DELETE FROM communication_announcements WHERE id=:i AND status='rascunho'", {"i": aid})
     asyncio.run(run())
 
 
