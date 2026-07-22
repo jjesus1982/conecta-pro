@@ -74,9 +74,37 @@ def test_propor_pagamento_nasce_preparado():
     asyncio.run(run())
 
 
+def test_propor_comunicado_nasce_rascunho():
+    # ⚠️ green compartilha o BANCO VIVO: o rascunho apareceria nos comunicados reais. DELETA no fim.
+    async def run():
+        from core.database import async_session_factory, engine
+        from sqlalchemy import text
+        # dispose: cada teste roda seu próprio asyncio.run() (loop novo); connections
+        # pooladas por um teste anterior (ex.: test_propor_pagamento_nasce_preparado)
+        # ficam presas ao loop antigo já fechado, e pool_pre_ping=True derruba com
+        # "Future attached to a different loop" no checkout. Descarta o pool antes de usar.
+        await engine.dispose()
+        r = await _post("/consultores/mcp/propor-comunicado",
+                        {"titulo": "TESTE 5.1 (apagar)", "corpo": "corpo de teste"})
+        assert r.status_code == 200, r.text
+        aid = r.json()["announcement_id"]
+        try:
+            assert r.json()["status"] == "rascunho"
+            async with async_session_factory() as db:
+                row = (await db.execute(text("SELECT status, enviar_push, enviar_email FROM communication_announcements WHERE id=:i"), {"i": aid})).first()
+                assert row is not None and row[0] == "rascunho"
+                assert not row[1] and not row[2]
+        finally:
+            # limpeza OBRIGATÓRIA: remove o comunicado-teste da produção (só se ainda rascunho)
+            async with async_session_factory() as db:
+                await db.execute(text("DELETE FROM communication_announcements WHERE id=:i AND status='rascunho'"), {"i": aid})
+                await db.commit()
+    asyncio.run(run())
+
+
 # funções de teste das Tasks 4/5/6 são ADICIONADAS abaixo neste mesmo arquivo.
 _TESTS = [test_origem_invalida_recusada, test_consulta_cfo_responde, test_feedback_grava_memoria,
-          test_propor_pagamento_nasce_preparado]
+          test_propor_pagamento_nasce_preparado, test_propor_comunicado_nasce_rascunho]
 
 if __name__ == "__main__":  # runner standalone, sem pytest
     import sys, traceback

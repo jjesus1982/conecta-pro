@@ -17,6 +17,7 @@ from core.auth.dependencies import get_current_active_user
 from core.database import get_db
 from modules.ai.conversation.services import consultor_hub as _hub
 from modules.ai.conversation.services.consultor_hub import TABELAS_CONSULTAS  # origem -> (tabela, rótulo)
+from modules.operacional.communication.models.announcement import Announcement, AnnouncementStatus
 
 router = APIRouter(prefix="/consultores/mcp", tags=["Consultores MCP"])
 
@@ -49,6 +50,18 @@ class ProporPagamentoIn(BaseModel):
     valor: float
     pix_key: str
     descricao: str = ""
+
+
+class ProporComunicadoIn(BaseModel):
+    titulo: str
+    corpo: str   # entrada da API; mapeia p/ a coluna `conteudo` do model Announcement
+
+
+def _tenant_id_de(user) -> str:
+    """Mesma convenção do announcement_controller.py (_get_tenant_id): usa user.tenant_id
+    se existir; senão cai no id do próprio usuário — confirmado batendo com os 10 comunicados
+    reais em produção (tenant_id == id de jjesus@conectamais.pro)."""
+    return str(getattr(user, "tenant_id", None) or user.id)
 
 
 async def _persistir_consulta(db: AsyncSession, origem: str, pergunta: str, resposta: str, user) -> int | None:
@@ -135,3 +148,27 @@ async def propor_pagamento(
     await db.commit()
     rec = row.first()
     return {"payment_id": str(rec[0]), "status": rec[1]}  # status = 'preparado' (server_default)
+
+
+@router.post("/propor-comunicado")
+async def propor_comunicado(
+    payload: ProporComunicadoIn,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_active_user),
+):
+    """🟡 PROPOR (gated): grava RASCUNHO pendente de aprovação humana.
+    NUNCA publica, NUNCA envia (push/email ficam False). O gate de aprovação +
+    disparo real fica no announcement_controller.py (fluxo humano existente)."""
+    ann = Announcement(
+        tenant_id=_tenant_id_de(user),
+        titulo=payload.titulo,
+        conteudo=payload.corpo,
+        created_by=str(user.id),
+        status=AnnouncementStatus.RASCUNHO.value,
+        enviar_push=False,
+        enviar_email=False,
+    )
+    db.add(ann)
+    await db.commit()
+    await db.refresh(ann)
+    return {"announcement_id": str(ann.id), "status": ann.status}
