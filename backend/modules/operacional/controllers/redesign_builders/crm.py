@@ -17,9 +17,24 @@ from modules.operacional.controllers.redesign_data_controller import (  # noqa: 
 SLUG = "crm"
 
 
+_LEAD_TONE = {"novo": "info", "new": "info", "em_contato": "warn", "contacted": "warn",
+              "qualificado": "ok", "qualified": "ok", "convertido": "ok", "converted": "ok",
+              "perdido": "bad", "lost": "bad"}
+
+
 async def build(db) -> dict:
     out, safe, tbl = _helpers(db)
     out.update(await _base(db))
+
+    # ---- Leads (override: + coluna Origem, que o clássico mostra e a base não) ----
+    await safe("leads", tbl(
+        "Leads", f"{await _scalar(db, 'SELECT count(*) FROM leads')} leads", "Novo lead",
+        ["Lead", "Empresa", "Origem", "Valor estimado", "Status"], "2fr 1.5fr 1fr 1fr 0.9fr",
+        "SELECT name, coalesce(company,'—'), coalesce(source,'—'), coalesce(expected_value,0), coalesce(status::text,'—') "
+        "FROM leads ORDER BY created_at DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0], 600, "#0F1B3A", initials(r[0])), t(r[1]),
+                   b((r[2] or '—').replace('_', ' ').capitalize(), "mut"), t(brl(r[3]), 600),
+                   b((r[4] or '—').replace('_', ' ').capitalize(), _LEAD_TONE.get((r[4] or '').lower(), "info"))]))
 
     # ---- Clientes (clients) ----
     await safe("clientes", tbl(
