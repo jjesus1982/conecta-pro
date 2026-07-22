@@ -103,11 +103,9 @@ async def build(db) -> dict:
             "FROM employees ORDER BY nome LIMIT 300",
             lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), t(r[2]), t(r[3]), t(r[4]), t(_fmtdate(r[5])),
                        b((r[6] or '—').capitalize(), "ok" if (r[6] or '') == "ativo" else "mut")])
-        try:
-            from modules.people_management.sst.services.sst_service import SSTService
-            _afast = (await SSTService(db).get_dashboard()).get("afastados_ativos", 0)
-        except Exception:  # noqa: BLE001
-            _afast = 0
+        # Afastados: MESMA definição do clássico (colaboradores page filtra status LIKE 'afastado%'
+        # → afastado_inss), NÃO o afastados_ativos do SSTService (que conta afastamentos-registro).
+        _afast = await _scalar(db, "SELECT count(*) FROM employees WHERE lower(coalesce(status,'')) LIKE 'afastado%'")
         _colab["panelGrid"] = "1fr"
         _colab["panels"] = [{"title": "Resumo", "rows": [
             {"left": "Total", "right": str(_tot or 0), **S["info"]},
