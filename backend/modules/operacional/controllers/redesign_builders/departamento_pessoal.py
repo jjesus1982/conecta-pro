@@ -64,6 +64,20 @@ async def _scalar_dp(db):
         return 0
 
 
+def _fer_status(status, cancelled_at):
+    """Status de férias em PT, mesma derivação do clássico (enum é SUBMITTED/APPROVED)."""
+    if cancelled_at:
+        return b("Cancelado", "mut")
+    s = (status or "").upper()
+    if s == "APPROVED":
+        return b("Aprovado", "ok")
+    if s == "REJECTED":
+        return b("Rejeitado", "bad")
+    if s == "CANCELLED":
+        return b("Cancelado", "mut")
+    return b("Pendente", "warn")
+
+
 def _completude_cell(faltantes):
     """faltantes = array (do SQL) com os rótulos dos campos vazios."""
     fal = [x for x in (faltantes or []) if x]
@@ -136,6 +150,21 @@ async def build(db) -> dict:
         "ORDER BY reference_year DESC, reference_month DESC LIMIT 1) ORDER BY e.nome LIMIT 300",
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]), t(brl(r[2])),
                    t(brl(r[3])), t(brl(r[4])), t(brl(r[5])), t(brl(r[6]), 600), _badge_status(r[7])]))
+
+    # 0c) Férias — SOBRESCREVE p/ traduzir o status (redesign mostrava cru SUBMITTED/APPROVED)
+    #     e trazer a data de solicitação, como o clássico. Status derivado igual ao clássico:
+    #     cancelled_at→Cancelado; APPROVED→Aprovado; senão Pendente.
+    await safe("ferias", tbl(
+        "Gestão de Férias", "Solicitações de férias dos colaboradores", "—",
+        ["Colaborador", "Período", "Dias", "Status", "Solicitado em"],
+        "2fr 1.8fr 0.6fr 1fr 1.1fr",
+        "SELECT e.nome, r.start_date, r.end_date, r.days_requested, r.status::text, r.cancelled_at, "
+        "(coalesce(r.submitted_at, r.created_at) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') AS sol "
+        "FROM employee_vacation_requests r LEFT JOIN employees e ON e.id=r.employee_id "
+        "ORDER BY coalesce(r.submitted_at, r.created_at) DESC LIMIT 300",
+        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")),
+                   t(f"{_d(r[1])} – {_d(r[2])}"), t(str(r[3] or "—")),
+                   _fer_status(r[4], r[5]), t(_d(r[6], "%d/%m/%Y %H:%M"))]))
 
     # 1) Admissão — admission_processes
     await safe("admissao", tbl(
