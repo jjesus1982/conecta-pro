@@ -270,14 +270,15 @@ async def build(db) -> dict:
         lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), t(brl(r[2])), t(brl(r[3])),
                    t(brl(r[4]) if r[4] is not None else brl(0))]))
 
-    # ---- NFS-e entrada (notas tomadas) ----
+    # ---- NFS-e entrada (notas tomadas + CNPJ prestador e Empresa, que o clássico mostra) ----
     await safe("nfse-entrada", tbl(
         "NFS-e entrada", f"{await _scalar(db, 'SELECT count(*) FROM nfse_tomadas_nacional')} notas tomadas",
-        "—", ["Número", "Competência", "Prestador", "Serviços", "ISS"], "1fr 1fr 2fr 1fr 1fr",
-        "SELECT coalesce(numero,'—'), coalesce(competencia,'—'), coalesce(prestador_nome,'—'), valor_servicos, iss_valor "
-        "FROM nfse_tomadas_nacional ORDER BY data_emissao DESC NULLS LAST LIMIT 200",
-        lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), t(r[2]), t(brl(r[3]), 600),
-                   t(brl(r[4]) if r[4] is not None else brl(0))]))
+        "—", ["Prestador", "CNPJ", "Empresa", "Competência", "Serviços", "ISS"], "1.8fr 1.3fr 1.6fr 1fr 1fr 1fr",
+        "SELECT coalesce(nt.prestador_nome,'—'), coalesce(nt.prestador_cnpj,'—'), "
+        "coalesce(e.razao_social, e.nome_fantasia, e.slug, '—'), coalesce(nt.competencia,'—'), nt.valor_servicos, nt.iss_valor "
+        "FROM nfse_tomadas_nacional nt LEFT JOIN empresas e ON e.id=nt.empresa_id ORDER BY nt.data_emissao DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0], 600, "#0F1B3A"), t(_cnpj(r[1])), t(r[2]), t(r[3]), t(brl(r[4]), 600),
+                   t(brl(r[5]) if r[5] is not None else brl(0))]))
 
     # ---- Orçamentos (financial_orcamentos — chaves orçamentárias) ----
     await safe("orcamentos", tbl(
