@@ -70,6 +70,29 @@ def _is_uuid(s):
     return len(s) == 36 and s.count("-") == 4 and " " not in s
 
 
+def _health(paga, vencida, n_contrato, n_ativo):
+    """Health score 0-100 de sinais REAIS (aprovado Jordan): Pagamento 70% + Contrato 30%,
+    rescalonado pelos sinais disponíveis. Sem nenhum sinal → None (exibe 'n/d', não fabrica).
+    - Pagamento: pagas / (pagas + vencidas)  [vencida = pendente com vencimento passado]
+    - Contrato: 100 se há contrato ativo; 40 se só há contrato não-ativo.
+    """
+    paga, vencida, n_contrato, n_ativo = int(paga or 0), int(vencida or 0), int(n_contrato or 0), int(n_ativo or 0)
+    sinais = []
+    if (paga + vencida) > 0:
+        sinais.append((100.0 * paga / (paga + vencida), 0.7))
+    if n_contrato > 0:
+        sinais.append((100.0 if n_ativo > 0 else 40.0, 0.3))
+    if not sinais:
+        return None
+    return round(sum(s * w for s, w in sinais) / sum(w for _, w in sinais))
+
+
+def _health_cell(h):
+    if h is None:
+        return t("n/d", 500, "#94A3B8")
+    return b(str(h), "ok" if h >= 70 else ("warn" if h >= 40 else "bad"))
+
+
 async def build(db) -> dict:
     out, safe, tbl = _helpers(db)
 
@@ -78,12 +101,14 @@ async def build(db) -> dict:
         "Início", "Carteira de clientes", "—",
         ["Cliente", "Segmento", "Status", "MRR", "Saúde"],
         "2fr 1.2fr 0.9fr 1fr 0.7fr",
-        "SELECT coalesce(name,'—'), coalesce(segment::text,'—'), coalesce(status::text,'—'), "
-        "coalesce(mrr,0), health_score FROM clients WHERE coalesce(ativo,true) "
-        "ORDER BY mrr DESC NULLS LAST LIMIT 200",
+        "SELECT c.name, coalesce(c.segment::text,'—'), coalesce(c.status::text,'—'), coalesce(c.mrr,0), "
+        "(SELECT count(*) FROM receivable_accounts r WHERE upper(trim(r.customer_name))=upper(trim(c.name)) AND r.status::text='paga'), "
+        "(SELECT count(*) FROM receivable_accounts r WHERE upper(trim(r.customer_name))=upper(trim(c.name)) AND r.status::text='pendente' AND r.due_date < CURRENT_DATE), "
+        "(SELECT count(*) FROM contracts ct WHERE ct.client_id=c.id), "
+        "(SELECT count(*) FROM contracts ct WHERE ct.client_id=c.id AND (ct.status='active' OR ct.is_active=true)) "
+        "FROM clients c WHERE coalesce(c.ativo,true) ORDER BY c.mrr DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0] or "—", 600, _ND), t(_seg(r[1])), _st(r[2]), t(brl(r[3])),
-                   t("n/d" if r[4] is None else f"{float(r[4]):.0f}", 500,
-                     "#94A3B8" if r[4] is None else "#334155")]))
+                   _health_cell(_health(r[4], r[5], r[6], r[7]))]))
 
     # 2) Operação — inspection_rounds (posts_visited é jsonb → uso jsonb_array_length)
     await safe("operacao", tbl(
