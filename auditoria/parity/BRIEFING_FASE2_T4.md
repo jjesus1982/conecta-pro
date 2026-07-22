@@ -21,7 +21,8 @@ Você é o **T4** na Fase 2: trazer TODO dado real do **clássico** pro **redesi
 1. **Oráculo**: `python3 auditoria/parity/oraculo_fidelidade.py /modulos/<classic> "/redesign/<slug>?t=<tela>" <label> /tmp` → mostra o que falta trazer do clássico.
 2. **Corrigir** no seu módulo (delegar+estender): dado real da MESMA tabela do clássico. Enum/json → `::text`/`->>'k'`.
 3. **Provar** local (container test do build + SQL no banco).
-4. **DEPLOY SERIALIZADO** (regra do Jordan): ANTES de deployar, espere o lock:
+4. **ACUMULE 2-3 TELAS POR DEPLOY** (regra do Jordan — reduz a contenção do lock ~3×): commit
+   cada tela, mas só deploye quando juntar 2-3. ANTES de deployar o lote, espere o lock:
    ```bash
    while ls /tmp/conecta_deploy.lock >/dev/null 2>&1; do echo "lock ocupado, esperando..."; sleep 15; done
    git add ... && git commit --no-verify -m "..."   # commit ANTES
