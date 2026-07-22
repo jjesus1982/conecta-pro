@@ -36,6 +36,24 @@ async def build(db) -> dict:
                    b((r[2] or '—').replace('_', ' ').capitalize(), "mut"), t(brl(r[3]), 600),
                    b((r[4] or '—').replace('_', ' ').capitalize(), _LEAD_TONE.get((r[4] or '').lower(), "info"))]))
 
+    # ---- Fidelidade: oportunidades e propostas mostram KPIs de resumo no clássico.
+    #      Tela 'table' não tem KPI-card (não edito ModuleView) → trago no subtítulo. ----
+    try:
+        _ot = await _scalar(db, "SELECT count(*) FROM opportunities")
+        _oneg = await _scalar(db, "SELECT count(*) FROM opportunities WHERE stage::text='negotiation'")
+        _oprop = await _scalar(db, "SELECT count(*) FROM opportunities WHERE stage::text='proposal'")
+        _opipe = await _scalar(db, "SELECT coalesce(sum(value),0) FROM opportunities WHERE stage::text NOT IN ('closed_won','closed_lost')")
+        if isinstance(out.get("oportunidades"), dict):
+            out["oportunidades"]["sub"] = f"{_ot} oportunidades · Em negociação {_oneg} · Em proposta {_oprop} · Pipeline {brl(_opipe)}"
+        _pt = await _scalar(db, "SELECT count(*) FROM proposals")
+        _pd = await _scalar(db, "SELECT count(*) FROM proposals WHERE status::text='draft'")
+        _ps = await _scalar(db, "SELECT count(*) FROM proposals WHERE status::text='sent'")
+        _pa = await _scalar(db, "SELECT count(*) FROM proposals WHERE status::text='accepted'")
+        if isinstance(out.get("propostas"), dict):
+            out["propostas"]["sub"] = f"{_pt} propostas · Rascunho {_pd} · Enviadas {_ps} · Aprovadas {_pa}"
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+
     # ---- Clientes (clients) ----
     await safe("clientes", tbl(
         "Clientes", f"{await _scalar(db, 'SELECT count(*) FROM clients WHERE ativo=true')} clientes ativos",
