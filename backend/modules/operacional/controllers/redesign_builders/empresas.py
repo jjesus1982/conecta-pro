@@ -42,11 +42,11 @@ async def build(db) -> dict:
     # ---- Liminares (fiscal_liminares) ----
     await safe("liminares", tbl(
         "Liminares", f"{await _scalar(db, 'SELECT count(*) FROM fiscal_liminares')} liminares fiscais",
-        "—", ["Tipo", "Tributo", "Processo", "Empresa", "Status"], "1.2fr 1fr 1.3fr 1.3fr 0.9fr",
-        "SELECT coalesce(tipo,'—'), coalesce(tributo,'—'), coalesce(processo,'—'), coalesce(empresa,'—'), coalesce(status,'—') "
+        "—", ["Empresa", "Tributo", "Descrição", "Processo", "Status"], "1.2fr 1fr 2.2fr 1.3fr 0.9fr",
+        "SELECT coalesce(empresa,'—'), coalesce(tributo,'—'), coalesce(descricao, tipo, '—'), coalesce(processo,'—'), coalesce(status,'—') "
         "FROM fiscal_liminares ORDER BY created_at DESC NULLS LAST LIMIT 200",
-        lambda r: [t((r[0] or '—').capitalize(), 600, "#0F1B3A"), b((r[1] or '—').upper(), "info"),
-                   t(r[2]), t(r[3]), b((r[4] or '—').capitalize(), "ok" if (r[4] or '').lower() in ("deferida", "ativa", "vigente") else "warn")]))
+        lambda r: [t(r[0], 600, "#0F1B3A"), b((r[1] or '—').upper(), "info"), t(r[2]),
+                   t(r[3]), b((r[4] or '—').capitalize(), "ok" if (r[4] or '').lower() in ("deferida", "ativa", "vigente") else "warn")]))
 
     # ---- Migrador (segmentação CNPJ1→CNPJ2 por tipo de contrato — visibilidade) ----
     await safe("migrador", tbl(
