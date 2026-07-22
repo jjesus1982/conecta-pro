@@ -229,7 +229,7 @@ async def build(db) -> dict:
         out["registrar-motivo-desligamento"] = {
             "title": "Registrar motivo de desligamento",
             "sub": _sub, "cta": "Registrar", "type": "form",
-            "submit": {"endpoint": "/api/v1/human-resources/turnover/registrar-motivo",
+            "submit": {"endpoint": "/api/v1/people-management/human-resources/turnover/registrar-motivo",
                        "okMsg": "Motivo registrado"},
             "fields": [
                 {"key": "employee_id", "label": "Colaborador desligado*", "type": "select",
