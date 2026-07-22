@@ -241,6 +241,14 @@ TOOL_RISK: dict[str, str] = {
     "upload_asset": "read",
     "vagas_abertas": "read",
     "ver_ficha_cliente": "read",
+    # --- Fase 5.1: consultores (🟢) ---
+    "consultor_ceo": "read", "consultor_cfo": "read", "consultor_fiscal": "read",
+    "consultor_dp": "read", "consultor_juridico": "read", "consultor_comercial": "read",
+    "consultor_operacional": "read", "consultor_ged": "read",
+    # --- Fase 5.1: ações ---
+    "registrar_feedback": "write_low",   # 🔵
+    "propor_pagamento": "propose",       # 🟡
+    "propor_comunicado": "propose",      # 🟡
 }
 
 
