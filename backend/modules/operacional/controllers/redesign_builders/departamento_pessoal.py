@@ -74,6 +74,16 @@ def _ben_status(v):
     return b(lbl, tone)
 
 
+_BEN_TYPE = {"vale_refeicao": "Vale Refeição", "vale_transporte": "Vale Transporte",
+             "vr": "Vale Refeição", "vt": "Vale Transporte", "plano_saude": "Plano de Saúde",
+             "plano_odontologico": "Plano Odontológico", "seguro_vida": "Seguro de Vida",
+             "emprestimo_consignado": "Empréstimo Consignado"}
+
+
+def _ben_type(v):
+    return _BEN_TYPE.get((v or "").lower(), (v or "—").replace("_", " ").capitalize() if "_" in (v or "") else (v or "—"))
+
+
 def _fer_status(status, cancelled_at):
     """Status de férias em PT, mesma derivação do clássico (enum é SUBMITTED/APPROVED)."""
     if cancelled_at:
@@ -299,7 +309,7 @@ async def build(db) -> dict:
         "SELECT e.nome, coalesce(bf.type,'—'), coalesce(bf.provider,'—'), coalesce(bf.plan_name,'—'), "
         "bf.company_contribution, bf.employee_contribution, bf.start_date, bf.end_date, coalesce(bf.status,'—') "
         "FROM employee_benefits bf LEFT JOIN employees e ON e.id=bf.employee_id ORDER BY e.nome, bf.type LIMIT 400",
-        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]), t(r[2]), t(r[3]),
+        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(_ben_type(r[1])), t(r[2]), t(r[3]),
                    t(brl(r[4])), t(brl(r[5])),
                    t(f"{_d(r[6])} – {'Indeterminado' if not r[7] else _d(r[7])}"), _ben_status(r[8])]))
 

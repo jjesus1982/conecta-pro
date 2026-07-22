@@ -55,6 +55,22 @@ def _modal(v):
     return _MODAL.get((v or "").lower(), (v or "—").replace("_", " ").capitalize())
 
 
+_PROP_ST = {"draft": ("Rascunho", "mut"), "sent": ("Enviada", "warn"), "accepted": ("Aceita", "ok"),
+            "rejected": ("Recusada", "bad"), "expired": ("Expirada", "bad")}
+_CONTR_ST = {"draft": ("Rascunho", "mut"), "active": ("Ativo", "ok"), "suspended": ("Suspenso", "warn"),
+             "cancelled": ("Cancelado", "bad"), "expired": ("Expirado", "bad"), "finished": ("Encerrado", "mut")}
+
+
+def _prop_status(v):
+    lbl, tone = _PROP_ST.get((v or "").lower(), ((v or "—").capitalize(), "info"))
+    return b(lbl, tone)
+
+
+def _contr_status(v):
+    lbl, tone = _CONTR_ST.get((v or "").lower(), ((v or "—").capitalize(), "info"))
+    return b(lbl, tone)
+
+
 async def build(db) -> dict:
     out = await _build_licitacoes(db)
     _o2, _s2, tbl = _helpers(db)
@@ -98,5 +114,33 @@ async def build(db) -> dict:
         "WHERE (status IN ('won','lost') OR data_resultado IS NOT NULL OR coalesce(valor_homologado,0)>0) "
         "ORDER BY coalesce(data_resultado, data_abertura) DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0] or "—", 600, _ND), t(r[1]), t((r[2] or "—")[:80]), t(brl(r[3]), 600), _bid_status(r[4])]))
+
+    # Editais — SOBRESCREVE a base (Modalidade+Status crus) → PT
+    await safe("editais", tbl(
+        "Editais", "Editais monitorados", "—",
+        ["Nº / Objeto", "Órgão", "Modalidade", "Valor estimado", "Status", "Participa"],
+        "2fr 1.6fr 1.1fr 1fr 0.9fr 0.8fr",
+        "SELECT coalesce(objeto_resumido, objeto, numero, '—'), coalesce(orgao_nome,'—'), "
+        "coalesce(modalidade,'—'), valor_estimado, coalesce(status,'—'), coalesce(participando,false) "
+        "FROM bidding_tenders ORDER BY data_abertura DESC NULLS LAST LIMIT 200",
+        lambda r: [t((r[0] or "—")[:70], 600, _ND), t(r[1]), t(_modal(r[2])), t(brl(r[3] or 0)),
+                   _bid_status(r[4]), (b("Sim", "ok") if r[5] else b("Não", "mut"))]))
+
+    # Propostas — SOBRESCREVE a base (Status cru) → PT
+    await safe("propostas", tbl(
+        "Propostas", "Propostas comerciais", "—",
+        ["Número", "Cliente", "Título", "Valor", "Status"], "1fr 1.6fr 1.6fr 1fr 0.9fr",
+        "SELECT coalesce(number,'—'), coalesce(client_name,'—'), coalesce(title,'—'), "
+        "coalesce(total,subtotal,0), status::text FROM proposals ORDER BY created_at DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0], 600, _ND), t(r[1]), t(r[2]), t(brl(r[3]), 600), _prop_status(r[4])]))
+
+    # Contratos — SOBRESCREVE a base (Status cru 'Active') → PT
+    await safe("contratos", tbl(
+        "Contratos", "Contratos de prestação", "—",
+        ["Contrato", "Cliente", "Mensal", "Total", "Status"], "1.2fr 1.6fr 1fr 1fr 0.9fr",
+        "SELECT coalesce(ct.contract_number,'—'), coalesce(cl.name, ct.name, '—'), "
+        "coalesce(ct.monthly_value,0), coalesce(ct.total_value,0), ct.status::text "
+        "FROM contracts ct LEFT JOIN clients cl ON cl.id=ct.client_id ORDER BY ct.start_date DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0], 600, _ND), t(r[1]), t(brl(r[2]), 600), t(brl(r[3])), _contr_status(r[4])]))
 
     return out

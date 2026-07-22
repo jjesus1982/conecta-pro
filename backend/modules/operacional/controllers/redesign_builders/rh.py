@@ -71,6 +71,22 @@ def _aval_status(v):
     return b(lbl, tone)
 
 
+_CAREER_ST = {"active": ("Ativo", "ok"), "completed": ("Concluído", "ok"),
+              "in_progress": ("Em andamento", "warn"), "paused": ("Pausado", "warn"),
+              "cancelled": ("Cancelado", "bad")}
+_AREA = {"rh": "RH", "operacional": "Operacional", "folha": "Folha", "financeiro": "Financeiro",
+         "beneficios_sst": "Benefícios/SST", "juridico": "Jurídico", "fiscal": "Fiscal", "dp": "DP"}
+
+
+def _career_status(v):
+    lbl, tone = _CAREER_ST.get((v or "").lower(), ((v or "—").capitalize(), "info"))
+    return b(lbl, tone)
+
+
+def _area(v):
+    return _AREA.get((v or "").lower(), (v or "—").replace("_", " ").capitalize())
+
+
 def _bs(v):
     s = (v or "").lower()
     if s in ("ativo", "active", "concluido", "concluida", "aprovado", "hired",
@@ -184,7 +200,7 @@ async def build(db) -> dict:
         "coalesce(c.target_position,'—'), coalesce(c.estimated_timeline_months,0), coalesce(c.status::text,'—') "
         "FROM career_plans c LEFT JOIN employees e ON e.id::text = c.employee_id::text "
         "ORDER BY c.created_at DESC LIMIT 200",
-        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]), t(r[2]), t(str(r[3])), _bs(r[4])]))
+        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]), t(r[2]), t(str(r[3])), _career_status(r[4])]))
 
     # 8) Clima — climate_surveys (real; 0 = honesto)
     await safe("clima", tbl(
@@ -194,7 +210,7 @@ async def build(db) -> dict:
         "SELECT coalesce(nome,'—'), coalesce(frequencia,'—'), coalesce(total_respostas,0), "
         "coalesce(score_medio,0), coalesce(ativo,false) FROM climate_surveys "
         "ORDER BY created_at DESC LIMIT 200",
-        lambda r: [t(r[0] or "—", 600, _ND), t(r[1]), t(str(r[2])), t(f"{float(r[3]):.1f}"), _bb(r[4], "Ativo", "—", "ok", "mut")]))
+        lambda r: [t(r[0] or "—", 600, _ND), t(r[1]), t(str(r[2])), t("n/d" if (r[2] or 0)==0 else f"{float(r[3]):.1f}", 500, "#94A3B8" if (r[2] or 0)==0 else "#334155"), _bb(r[4], "Ativo", "—", "ok", "mut")]))
 
     # 9) Turnover — turnover_audit_logs
     # MESMA base do clássico (/human-resources/turnover/dashboard = employees): o dashboard NÃO
@@ -253,6 +269,6 @@ async def build(db) -> dict:
         "1fr 0.9fr 2fr 0.8fr 1fr",
         "SELECT coalesce(area,'—'), coalesce(competencia,'—'), coalesce(pergunta,'—'), "
         "coalesce(escalonar,false), created_at FROM rh_consultas ORDER BY created_at DESC LIMIT 200",
-        lambda r: [t(r[0], 600, _ND), t(r[1]), t((r[2] or "—")[:90]), _bb(r[3], "Sim", "Não", "bad", "ok"), t(_d(r[4]))]))
+        lambda r: [t(_area(r[0]), 600, _ND), t(r[1]), t((r[2] or "—")[:90]), _bb(r[3], "Sim", "Não", "bad", "ok"), t(_d(r[4]))]))
 
     return out

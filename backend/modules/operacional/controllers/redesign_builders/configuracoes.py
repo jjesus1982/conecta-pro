@@ -10,6 +10,7 @@ from modules.operacional.controllers.redesign_data_controller import (
     _build_configuracoes,
     _helpers,
     b,
+    initials,
     t,
 )
 
@@ -59,6 +60,16 @@ def _level(v):
     return b(lbl, tone)
 
 
+_ROLE = {"funcionario": "Funcionário", "staff": "Equipe", "developer": "Desenvolvedor",
+         "gerente_operacional": "Gerente Operacional", "supervisor": "Supervisor", "user": "Usuário",
+         "admin": "Administrador", "lider": "Líder", "suporte": "Suporte", "operator": "Operador",
+         "all": "Todos", "gestor": "Gestor", "financeiro": "Financeiro", "rh": "RH"}
+
+
+def _role(v):
+    return _ROLE.get((v or "").lower(), (v or "—").replace("_", " ").capitalize())
+
+
 async def build(db) -> dict:
     out = await _build_configuracoes(db)
     _o2, _s2, tbl = _helpers(db)
@@ -73,6 +84,14 @@ async def build(db) -> dict:
                 pass
 
     # 1) Tenants — tenants
+    # Usuários — SOBRESCREVE a base (Perfil vinha cru em snake_case) → rótulo PT
+    await safe("usuarios", tbl(
+        "Usuários", "Usuários do sistema", "—",
+        ["Usuário", "E-mail", "Perfil", "Status"], "1.6fr 1.8fr 1fr 0.9fr",
+        "SELECT coalesce(name,'—'), coalesce(email,'—'), coalesce(role::text,'—'), is_active FROM users ORDER BY name LIMIT 300",
+        lambda r: [t(r[0], 600, "#0F1B3A", initials(r[0] or '')), t(r[1]), t(_role(r[2])),
+                   b("Ativo", "ok") if r[3] else b("Inativo", "mut")]))
+
     await safe("tenants", tbl(
         "Tenants", "Empresas / tenants", "—",
         ["Código", "Nome", "Documento", "Plano", "Status"],

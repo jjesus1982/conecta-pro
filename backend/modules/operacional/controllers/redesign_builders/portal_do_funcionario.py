@@ -44,7 +44,10 @@ _PF_ST = {"active": ("Ativo", "ok"), "ativo": ("Ativo", "ok"),
           "scheduled": ("Agendado", "warn"), "agendado": ("Agendado", "warn"),
           "completed": ("Concluído", "ok"), "concluido": ("Concluído", "ok"),
           "in_progress": ("Em andamento", "warn"), "confirmed": ("Confirmado", "ok"),
-          "absent": ("Falta", "bad"), "suspended": ("Suspenso", "warn")}
+          "absent": ("Falta", "bad"), "suspended": ("Suspenso", "warn"),
+          "approved": ("Aprovado", "ok"), "aprovado": ("Aprovado", "ok"),
+          "submitted": ("Pendente", "warn"), "pending": ("Pendente", "warn"),
+          "rejected": ("Rejeitado", "bad"), "rejeitado": ("Rejeitado", "bad")}
 
 
 def _pf_status(v):
@@ -73,6 +76,16 @@ async def build(db) -> dict:
                 await db.rollback()
             except Exception:
                 pass
+
+    # 0) Férias — SOBRESCREVE a base (Status vinha cru 'Approved') → PT
+    await safe("ferias", tbl(
+        "Minhas férias", "Solicitações de férias", "—",
+        ["Colaborador", "Início", "Fim", "Dias", "Status"], "2fr 1fr 1fr 0.7fr 0.9fr",
+        "SELECT e.nome, v.start_date, v.end_date, v.days_requested, coalesce(v.status::text,'—') "
+        "FROM employee_vacation_requests v LEFT JOIN employees e ON e.id=v.employee_id "
+        "ORDER BY v.start_date DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(_d(r[1])), t(_d(r[2])),
+                   t(str(r[3] or "—")), _pf_status(r[4])]))
 
     # 1) Meu ponto — gp_clock_punches
     await safe("ponto", tbl(
