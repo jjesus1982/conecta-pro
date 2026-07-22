@@ -100,6 +100,15 @@ def _simnao(v) -> dict:
     return b("Sim", "info") if v else b("—", "mut")
 
 
+def _cnpj(v) -> str:
+    d = "".join(ch for ch in (v or "") if ch.isdigit())
+    if len(d) == 14:
+        return f"{d[:2]}.{d[2:5]}.{d[5:8]}/{d[8:12]}-{d[12:]}"
+    if len(d) == 11:
+        return f"{d[:3]}.{d[3:6]}.{d[6:9]}-{d[9:]}"
+    return v or "—"
+
+
 def _kpi_valor(nome, valor, unidade, atualizado) -> dict:
     """KPI sem timestamp de cálculo = nunca recalculado → mostra 'não calculado'
     em vez de deixar um placeholder velho se passar por métrica real. Só honra o
@@ -136,6 +145,22 @@ async def build(db) -> dict:
                 ]})
     except Exception:  # noqa: BLE001 — enriquecimento nunca quebra o dashboard
         await db.rollback()
+
+    # ---- Clientes / Fornecedores (override: + CNPJ, que o clássico mostra) ----
+    await safe("clientes", tbl(
+        "Clientes", f"{await _scalar(db, 'SELECT count(*) FROM clients')} clientes", "Novo cliente",
+        ["Cliente", "CNPJ", "Segmento", "MRR", "Status"], "2fr 1.3fr 1.2fr 1fr 0.9fr",
+        "SELECT name, coalesce(document_number,'—'), coalesce(segment::text,'—'), coalesce(mrr,0), status::text "
+        "FROM clients ORDER BY mrr DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0], 600, "#0F1B3A", initials(r[0])), t(_cnpj(r[1])), t((r[2] or '—').capitalize()),
+                   t(brl(r[3]), 600), b("Ativo", "ok") if r[4] == "active" else b((r[4] or '—').capitalize(), "mut")]))
+    await safe("fornecedores", tbl(
+        "Fornecedores", f"{await _scalar(db, 'SELECT count(*) FROM suppliers')} fornecedores", "Novo fornecedor",
+        ["Fornecedor", "CNPJ", "Categoria", "Cidade", "Status"], "2fr 1.3fr 1.2fr 1fr 0.9fr",
+        "SELECT name, coalesce(cpf_cnpj,'—'), coalesce(category,'—'), coalesce(address_city,'—'), status "
+        "FROM suppliers ORDER BY name LIMIT 200",
+        lambda r: [t(r[0], 600, "#0F1B3A"), t(_cnpj(r[1])), t(r[2]), t(r[3]),
+                   b("Ativo", "ok") if (r[4] or '').lower() in ("active", "ativo") else b(r[4] or '—', "mut")]))
 
     # ---- Saldos por conta (Inter + Cora ao vivo, com fonte/data) ----
     await safe("saldos", _build_saldos(db))
