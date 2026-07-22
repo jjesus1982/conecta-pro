@@ -382,6 +382,19 @@ services:
     volumes:
       - evolution_data:/evolution/instances
 
+  # Fase 2.B — sidecar de embedding LOCAL (soberania do "saber"): CPU/ONNX, isolado,
+  # com teto de memória (lição do OOM). NÃO toca no Postgres de produção.
+  embedding:
+    build:
+      context: ./embedding_service
+      dockerfile: Dockerfile
+    image: conecta-pro-embedding:latest
+    container_name: conecta-pro-embedding
+    restart: unless-stopped
+    mem_limit: 1g
+    networks:
+      - conecta-pro-network
+
 volumes:
   postgres_data:
     driver: local

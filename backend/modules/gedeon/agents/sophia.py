@@ -432,6 +432,19 @@ def _gerar_embedding(texto: str, client: Any | None) -> tuple[list[float], str]:
 
     `client` é um cliente OpenAI (openai.OpenAI) ou None.
     """
+    # Fase 2.B — caminho LOCAL (soberano, sidecar 384d). OPT-IN por env até o re-embed
+    # dos docs em 384d estar feito (senão mistura dimensão com o índice 1536d vivo).
+    import os as _os
+
+    if _os.getenv("SOPHIA_EMBED_LOCAL", "").strip().lower() in ("1", "true", "on"):
+        try:
+            from modules.ai.conversation.services.embedding_local import embed_local
+
+            _v = embed_local([texto[:8000]])
+            if _v and _v[0]:
+                return _v[0], "local_minilm_384"
+        except Exception:  # noqa: BLE001
+            pass
     if client is not None:
         try:
             response = client.embeddings.create(
