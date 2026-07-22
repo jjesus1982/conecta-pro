@@ -27,8 +27,8 @@ logger = logging.getLogger(__name__)
 
 # Cadeia de modelos: melhor primeiro (gpt-5 disponível na chave, provado 2026-07-07)
 MODEL_CHAIN = ["gpt-5-chat-latest", "gpt-5", "gpt-4.1", "gpt-4o"]
-# Fase 1 (2026-07-21): cérebro PADRÃO dos consultores = Claude (soberania de escolha de
-# fornecedor + doutrina do projeto). OpenAI (MODEL_CHAIN acima) vira rede de segurança.
+# DECISÃO Jordan (2026-07-21): cérebro de raciocínio = OpenAI (MODEL_CHAIN acima); Anthropic
+# NÃO é usada (conta sem crédito). CLAUDE_MODEL é só o modelo do fallback de emergência em gerar().
 CLAUDE_MODEL = os.getenv("CONSULTOR_CLAUDE_MODEL", "claude-sonnet-4-6")
 
 # Tabelas de consultas de cada consultor (p/ conversa cruzada entre os chats)
@@ -204,7 +204,11 @@ async def contexto_compartilhado(
         await db.rollback()
 
     # Fase 2 (grafo): se a pergunta menciona um cliente, injeta o RETRATO CRUZADO dele.
-    if pergunta:
+    # LGPD (auditoria 2026-07-21): SÓ no Consultor CEO (cross-módulo, já restrito à diretoria
+    # jjesus+pjesus). Nos outros consultores o retrato cruzado (RH+financeiro+NF-e de um cliente)
+    # quebraria finalidade (ex.: CMO veria roster de RH). Escopo por domínio virá com o plumbing
+    # de current_user (Fase 1.D). Até lá, cross-entidade fica no consultor autorizado a ver tudo.
+    if pergunta and origem_atual == "ceo":
         try:
             cli = await resolver_cliente(db, pergunta)
             if cli:
@@ -384,27 +388,28 @@ async def resolver_cliente(db: AsyncSession, termo: str) -> dict | None:
     if not termo or len(termo.strip()) < 3:
         return None
     try:
-        r = (
+        # LGPD (auditoria 2026-07-21): casa SÓ por CNPJ no texto OU pelo NOME COMPLETO do cliente
+        # (prefixo de condomínio removido) contido na pergunta. REMOVIDA a cláusula reversa
+        # `name ILIKE '%termo%'`, que casava cliente errado em termo curto. E se >1 cliente casar
+        # (ambiguidade real, ex. 'FLORES' → IDEAL FLORES vs MIRANTE DAS FLORES), NÃO resolve.
+        rows = (
             await db.execute(
                 text(
                     "SELECT id, name, document_number FROM clients "
                     "WHERE ativo IS NOT false AND ("
-                    # CNPJ (14 díg) aparece no texto:
                     "  (length(regexp_replace(coalesce(document_number,''),'[^0-9]','','g'))=14 "
                     "   AND regexp_replace(:t,'[^0-9]','','g') LIKE '%' || regexp_replace(document_number,'[^0-9]','','g') || '%') "
-                    # nome do cliente (>6 letras) aparece no texto — com prefixo de condomínio
-                    # removido (ex.: 'CONDOMINIO IDEAL FLORES' casa a pergunta 'IDEAL FLORES'):
                     "  OR (length(regexp_replace(name,'^(CONDOMINIO|COND|EDIFICIO|EDIF|RESIDENCIAL|RES|CONJUNTO)\\s+','','i'))>6 "
-                    "      AND :t ILIKE '%' || regexp_replace(name,'^(CONDOMINIO|COND|EDIFICIO|EDIF|RESIDENCIAL|RES|CONJUNTO)\\s+','','i') || '%') "
-                    "  OR (length(name)>6 AND :t ILIKE '%' || name || '%') "
-                    # o texto é um trecho do nome (busca explícita curta):
-                    "  OR name ILIKE '%' || :t || '%') "
-                    "ORDER BY length(name) DESC LIMIT 1"
+                    "      AND :t ILIKE '%' || regexp_replace(name,'^(CONDOMINIO|COND|EDIFICIO|EDIF|RESIDENCIAL|RES|CONJUNTO)\\s+','','i') || '%')) "
+                    "ORDER BY length(name) DESC LIMIT 2"
                 ),
                 {"t": termo.strip()},
             )
-        ).fetchone()
-        return {"client_key": str(r.id), "name": r.name, "cnpj": r.document_number} if r else None
+        ).fetchall()
+        if len(rows) != 1:  # 0 = ninguém; >1 = ambíguo → não injeta dado do cliente errado
+            return None
+        r = rows[0]
+        return {"client_key": str(r.id), "name": r.name, "cnpj": r.document_number}
     except Exception:  # noqa: BLE001
         await db.rollback()
         return None
