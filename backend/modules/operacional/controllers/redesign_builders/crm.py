@@ -54,6 +54,17 @@ async def build(db) -> dict:
     except Exception:  # noqa: BLE001
         await db.rollback()
 
+    # ---- Contatos (override: + Email e Principal, que o clássico mostra) ----
+    await safe("contatos", tbl(
+        "Contatos", f"{await _scalar(db, 'SELECT count(*) FROM crm_contacts')} contatos",
+        "—", ["Contato", "Cliente", "Cargo", "Email", "Telefone", "Principal"], "1.6fr 1.8fr 1fr 1.8fr 1.1fr 0.8fr",
+        "SELECT c.name, coalesce(cl.name,'—'), coalesce(c.role,'—'), coalesce(c.email,'—'), "
+        "coalesce(nullif(c.phone,''), c.whatsapp, '—'), c.is_primary "
+        "FROM crm_contacts c LEFT JOIN clients cl ON cl.id=c.client_id "
+        "ORDER BY c.is_primary DESC NULLS LAST, c.name LIMIT 200",
+        lambda r: [t(r[0], 600, "#0F1B3A", initials(r[0])), t(r[1]), t((r[2] or '—').capitalize()),
+                   t(r[3]), t(r[4]), b("Principal", "ok") if r[5] else b("—", "mut")]))
+
     # ---- Clientes (clients) ----
     await safe("clientes", tbl(
         "Clientes", f"{await _scalar(db, 'SELECT count(*) FROM clients WHERE ativo=true')} clientes ativos",
