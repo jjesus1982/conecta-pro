@@ -50,8 +50,12 @@ async def build(db) -> dict:
                    t(r[2], 500, "#0F1B3A"), t(_fmtdate(r[3]))]))
 
     # ---- Direito ao esquecimento (lgpd_erasure_requests) ----
+    _esq_done = "status::text IN ('completed','concluido','concluído')"
+    _et = await _scalar(db, "SELECT count(*) FROM lgpd_erasure_requests")
+    _ec = await _scalar(db, f"SELECT count(*) FROM lgpd_erasure_requests WHERE {_esq_done}")
     await safe("esquecimento", tbl(
-        "Direito ao esquecimento", f"{await _scalar(db, 'SELECT count(*) FROM lgpd_erasure_requests')} solicitações",
+        "Direito ao esquecimento",
+        f"{_et} solicitações · Pendentes {(_et or 0) - (_ec or 0)} · Concluídas {_ec or 0}",
         "—", ["Titular", "Escopo", "Status", "Prazo", "Solicitado"], "1.6fr 1fr 1fr 1.1fr 1.1fr",
         "SELECT coalesce(titular_email,'—'), coalesce(scope::text,'—'), coalesce(status::text,'—'), deadline_at, created_at "
         "FROM lgpd_erasure_requests ORDER BY created_at DESC NULLS LAST LIMIT 200",
