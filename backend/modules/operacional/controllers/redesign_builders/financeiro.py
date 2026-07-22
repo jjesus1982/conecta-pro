@@ -288,15 +288,19 @@ async def build(db) -> dict:
         lambda r: [t(_fmtdate(r[0])), t((r[1] or '—').replace('_', ' ').capitalize(), 600, "#0F1B3A"),
                    t(r[2]), b((r[3] or '—').replace('_', ' ').capitalize(), "info"), t(brl(r[4]), 600)]))
 
-    # ---- Contratos (contracts — carteira financeira) ----
+    # ---- Contratos (contracts + Cliente/CNPJ e Retenções, que o clássico mostra) ----
+    def _reten(iss, inss, csll):
+        tags = [x for x, on in (("ISS", iss), ("INSS", inss), ("CSLL", csll)) if on]
+        return b(" ".join(tags), "warn") if tags else b("Nenhuma", "mut")
     await safe("contratos", tbl(
         "Contratos", f"{await _scalar(db, 'SELECT count(*) FROM contracts')} contratos",
-        "—", ["Nº", "Contrato", "Mensal", "Status", "Início"], "1fr 2fr 1fr 0.9fr 1fr",
-        "SELECT coalesce(contract_number,'—'), coalesce(name,'—'), monthly_value, coalesce(status::text,'—'), start_date "
-        "FROM contracts ORDER BY start_date DESC NULLS LAST LIMIT 200",
-        lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), t(brl(r[2]) if r[2] is not None else '—', 600),
-                   b((r[3] or '—').capitalize(), "ok" if (r[3] or '').lower() in ("active", "ativo", "assinado", "signed") else "info"),
-                   t(_fmtdate(r[4]))]))
+        "—", ["Nº", "Cliente", "Contrato", "Mensal", "Retenções", "Status"], "1fr 1.8fr 1.8fr 1fr 1fr 0.9fr",
+        "SELECT coalesce(ct.contract_number,'—'), coalesce(cl.name,'—'), coalesce(ct.name,'—'), ct.monthly_value, "
+        "ct.retencao_iss, ct.retencao_inss, ct.retencao_csll, coalesce(ct.status::text,'—') "
+        "FROM contracts ct LEFT JOIN clients cl ON cl.id=ct.client_id ORDER BY ct.monthly_value DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1], 600, "#0F1B3A"), t(r[2]),
+                   t(brl(r[3]) if r[3] is not None else '—', 600), _reten(r[4], r[5], r[6]),
+                   b((r[7] or '—').capitalize(), "ok" if (r[7] or '').lower() in ("active", "ativo", "assinado", "signed") else "info")]))
 
     # ---- Raio-X (KPIs financeiros — só honra valor com prova de cálculo/sync) ----
     await safe("raio-x", tbl(
