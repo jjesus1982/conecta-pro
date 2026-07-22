@@ -2484,6 +2484,79 @@ async def baixar_espelho_ponto_pdf(employee_id: str, mes: int, ano: int) -> dict
     return await _pdf_b64(f"/people-management/hr/ponto/espelho/{employee_id}/{mes}/{ano}/pdf")
 
 
+_ORIGENS = ("ceo", "cfo", "fiscal", "rh", "juridico", "comercial", "operacional", "ged")
+
+
+async def _consultar(origem: str, pergunta: str) -> dict:
+    return await erp.post(f"/consultores/mcp/{origem}/consultar", json={"pergunta": pergunta})
+
+
+@mcp.tool
+async def consultor_ceo(pergunta: str) -> dict:
+    """Consultor executivo (CEO): visão estratégica, runway, decisão. Único que cruza dinheiro+legal+gente por cliente (gated). READ."""
+    return await _consultar("ceo", pergunta)
+
+
+@mcp.tool
+async def consultor_cfo(pergunta: str) -> dict:
+    """Consultor financeiro (CFO): caixa, aging, o que vence, saúde financeira. READ."""
+    return await _consultar("cfo", pergunta)
+
+
+@mcp.tool
+async def consultor_fiscal(pergunta: str) -> dict:
+    """Consultor fiscal/contábil: notas, guias, regime, obrigações. READ."""
+    return await _consultar("fiscal", pergunta)
+
+
+@mcp.tool
+async def consultor_dp(pergunta: str) -> dict:
+    """Consultor de DP/RH: folha, ponto, colaboradores, CCT. READ."""
+    return await _consultar("rh", pergunta)
+
+
+@mcp.tool
+async def consultor_juridico(pergunta: str) -> dict:
+    """Consultor jurídico (READ-ONLY): processos, dossiê. Aconselha, nunca protocola. READ."""
+    return await _consultar("juridico", pergunta)
+
+
+@mcp.tool
+async def consultor_comercial(pergunta: str) -> dict:
+    """Consultor comercial/CRM: funil, propostas, clientes. READ."""
+    return await _consultar("comercial", pergunta)
+
+
+@mcp.tool
+async def consultor_operacional(pergunta: str) -> dict:
+    """Consultor operacional (READ-ONLY): postos, escalas, presença. Nunca altera escala. READ."""
+    return await _consultar("operacional", pergunta)
+
+
+@mcp.tool
+async def consultor_ged(pergunta: str) -> dict:
+    """Consultor de GED/documentos: kits, panorama documental. READ."""
+    return await _consultar("ged", pergunta)
+
+
+@mcp.tool
+async def registrar_feedback(origem: str, correcao: str, consulta_id: int | None = None) -> dict:
+    """🔵 Registra uma correção do gestor como memória permanente do consultor (realimenta o ERP). origem ∈ ceo/cfo/fiscal/rh/juridico/comercial/operacional/ged."""
+    return await erp.post("/consultores/mcp/feedback", json={"origem": origem, "correcao": correcao, "consulta_id": consulta_id})
+
+
+@mcp.tool
+async def propor_pagamento(valor: float, pix_key: str, descricao: str = "") -> dict:
+    """🟡 PROPÕE um pagamento PIX — grava PENDENTE ('preparado'). NÃO executa: requer aprovação humana + OTP. Nunca move dinheiro sozinho."""
+    return await erp.post("/consultores/mcp/propor-pagamento", json={"valor": valor, "pix_key": pix_key, "descricao": descricao})
+
+
+@mcp.tool
+async def propor_comunicado(titulo: str, corpo: str) -> dict:
+    """🟡 PROPÕE um comunicado — grava RASCUNHO. NÃO publica/envia: requer aprovação humana."""
+    return await erp.post("/consultores/mcp/propor-comunicado", json={"titulo": titulo, "corpo": corpo})
+
+
 _mcp_app = mcp.http_app(path="/mcp")
 
 
