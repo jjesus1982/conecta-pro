@@ -38,16 +38,20 @@ timeout 600 ./scripts/deploy_backend_bluegreen.sh              # timeout >=600 �
 - Pós-deploy: `grep` no container + **oráculo/curl no DOMÍNIO PÚBLICO** (não só localhost). Se pegar race (deploy concorrente), **re-curl** antes de concluir.
 - Deploy de FRONTEND (se precisar) serializa igual + purga `.next/static` (drift de chunk).
 
-## 3. O LOOP DE CADA TERMINAL (rodar continuamente)
-Para cada tela dos SEUS módulos:
+## 3. O LOOP DE CADA TERMINAL — ACUMULAR 2-3 TELAS POR DEPLOY (regra do Jordan)
+**NÃO deploye 1 tela por vez** — com 3 terminais isso sufoca o lock. Acumule **2-3 telas
+(cada uma commitada + provada local) e faça UM deploy** pro lote. Reduz a frequência ~3×.
+
+Por tela:
 1. **ORÁCULO** — `python3 auditoria/parity/oraculo_fidelidade.py <classic_path> <redesign_path> <label> <out>`
-   → lista o que está SÓ no clássico (fidelidade pede trazer) e SÓ no redesign (divergência a corrigir).
-2. **CORRIGIR** no seu `redesign_builders/<mod>.py` (padrão delegar+estender): trazer o dado real
-   da MESMA tabela/serviço do clássico. Enum/json → `::text` / `->>'k'`.
-3. **PROVAR local** — container test do `build()` (docker cp + rodar), SQLs validadas no banco.
-4. **COMMIT** (antes do deploy) + **ESPERAR LOCK** + **DEPLOY** (protocolo §2).
-5. **VERIFICAR** — oráculo de novo (clássico × redesign fecha?) + browser (badge "dados reais").
-6. **MARCAR** no checklist (§5) + próxima tela. LOOP.
+   → SÓ no clássico (fidelidade pede trazer) / SÓ no redesign (divergência).
+2. **CORRIGIR** no seu `redesign_builders/<mod>.py` (delegar+estender): dado real da MESMA
+   tabela/serviço do clássico. Enum/json → `::text` / `->>'k'`.
+3. **PROVAR local** — container test do `build()` (docker cp + rodar), SQL no banco.
+4. **COMMIT** (atômico, por tela — commit sempre, deploy não).
+5. Voltar ao passo 1 pra próxima tela. **Ao juntar 2-3 telas commitadas:**
+6. **ESPERAR LOCK + DEPLOY** o lote (protocolo §2) → **VERIFICAR** as 2-3 (oráculo + browser)
+   → **push** → **marcar** no checklist (§5). Recomeça o loop.
 
 ## 4. REGRAS DE SEGURANÇA (inegociáveis)
 - **Informação = clássico** (dado real, ancorado no banco). **Nunca fabricar.** Sem dado real = "aguardando dado" honesto.
@@ -70,3 +74,4 @@ Para cada tela dos SEUS módulos:
 - [x] T4 crm/leads — oráculo pegou: clássico mostra Origem (source) por lead; base do redesign não. Override + coluna Origem (whatsapp/website/…). curl público confirma. Nota: crm/dashboard clássico=404 (redesign tem a mais, sem gap). commit 975b1ad5
 - [x] T2 departamento-pessoal/beneficios — trouxe operadora + valores (empresa/desconto) + vigência (employee_benefits), status active→Ativo; redesign só tinha tipo/plano/status. Provado no público (ADAILSON Plano Odont. CCT 2026 R$9/R$9). blue-green OK.
 - [x] T2 rh/treinamentos — trouxe local/instrutor/vagas (0/20) + status traduzido (Agendado/Concluído); trainings. Provado (Uso EPI · Sala Conecta Mais · Amanda Reis · 0/20). blue-green OK.
+- [x] T4 crm/oportunidades + crm/propostas — oráculo: clássico mostra KPIs de resumo (opp: Total/Em Negociação/Propostas/Pipeline; prop: Total/Rascunho/Enviadas/Aprovadas). Trazidos no subtítulo (tela table não tem KPI-card; não toco ModuleView). curl público confirma. commit 11ecc1be
