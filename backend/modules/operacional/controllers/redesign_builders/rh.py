@@ -80,12 +80,15 @@ async def build(db) -> dict:
     # 2) Candidaturas — applications (real; hoje 0 = honesto "sem candidatura")
     await safe("candidaturas", tbl(
         "Candidaturas", "Aplicações às vagas", "—",
-        ["Etapa", "Ordem", "Rating", "Aplicada", "Status"],
-        "1.6fr 0.7fr 0.7fr 1fr 0.9fr",
-        "SELECT coalesce(current_step,'—'), coalesce(step_order,0), coalesce(rating,0), "
-        "applied_at, coalesce(status,'—') FROM applications WHERE coalesce(is_active,true) "
-        "ORDER BY applied_at DESC NULLS LAST LIMIT 200",
-        lambda r: [t(r[0]), t(str(r[1])), t(str(r[2])), t(_d(r[3])), _bs(r[4])]))
+        ["Candidato", "Etapa", "Ordem", "Rating", "Aplicada", "Status"],
+        "1.6fr 1.3fr 0.6fr 0.6fr 1fr 0.9fr",
+        "SELECT coalesce(nullif(trim(c.name),''),'aguardando dado'), "
+        "coalesce(a.current_step,'—'), coalesce(a.step_order,0), coalesce(a.rating,0), "
+        "a.applied_at, coalesce(a.status,'—') "
+        "FROM applications a LEFT JOIN candidates c ON c.id = a.candidate_id "
+        "WHERE coalesce(a.is_active,true) "
+        "ORDER BY a.applied_at DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0], w=600, tc='#0f172a'), t(r[1]), t(str(r[2])), t(str(r[3])), t(_d(r[4])), _bs(r[5])]))
 
     # 3) Onboarding — admission_processes
     await safe("onboarding", tbl(

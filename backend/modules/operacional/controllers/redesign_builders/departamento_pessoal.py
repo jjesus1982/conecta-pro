@@ -88,6 +88,20 @@ def _fer_status(status, cancelled_at):
     return b("Pendente", "warn")
 
 
+# Rescisão — espelham tipoConfig/statusConfig do clássico (dp/rescisao/page.tsx)
+_TERM_TYPE = {"voluntary": "Voluntária", "involuntary": "Involuntária", "just_cause": "Justa Causa",
+              "mutual_agreement": "Acordo Mútuo", "contract_end": "Fim de Contrato",
+              "retirement": "Aposentadoria"}
+_TERM_ST = {"initiated": ("Iniciado", "info"), "notice_period": ("Aviso Prévio", "warn"),
+            "calculating": ("Calculando", "warn"), "pending_payment": ("Pgto Pendente", "warn"),
+            "completed": ("Concluída", "ok"), "cancelled": ("Cancelada", "mut")}
+
+
+def _term_status(v):
+    lbl, tone = _TERM_ST.get((v or "").lower(), (v or "—", "info"))
+    return b(lbl, tone)
+
+
 def _completude_cell(faltantes):
     """faltantes = array (do SQL) com os rótulos dos campos vazios."""
     fal = [x for x in (faltantes or []) if x]
@@ -188,6 +202,20 @@ async def build(db) -> dict:
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]), t(r[2]), t(r[3]),
                    t(brl(r[4])), t(brl(r[5])),
                    t(f"{_d(r[6])} – {'Indeterminado' if not r[7] else _d(r[7])}"), _ben_status(r[8])]))
+
+    # 0e) Rescisão — SOBRESCREVE p/ ler de termination_processes (MESMA fonte do clássico
+    #     /terminations), com Tipo/Status/Valor. A base lia employees WHERE status='demitido'
+    #     (fonte errada, sem valores). Colunas iguais ao clássico: Colaborador/Tipo/Status/Último Dia/Valor.
+    await safe("rescisao", tbl(
+        "Rescisão", "Processos de desligamento — tipo, status e verbas", "Nova rescisão",
+        ["Colaborador", "Tipo", "Status", "Último Dia", "Valor Total"],
+        "2fr 1.2fr 1fr 1fr 1.1fr",
+        "SELECT e.nome, tp.type::text, tp.status::text, tp.last_working_day, tp.total_amount "
+        "FROM termination_processes tp LEFT JOIN employees e ON e.id=tp.employee_id "
+        "ORDER BY tp.last_working_day DESC NULLS LAST, tp.created_at DESC LIMIT 200",
+        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")),
+                   t(_TERM_TYPE.get((r[1] or "").lower(), r[1] or "—")),
+                   _term_status(r[2]), t(_d(r[3])), t(brl(r[4]), 600)]))
 
     # 1) Admissão — admission_processes
     await safe("admissao", tbl(
