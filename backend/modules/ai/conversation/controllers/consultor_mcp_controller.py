@@ -6,6 +6,7 @@ POST /consultores/mcp/{origem}/consultar. Tasks 4/5/6 adicionam feedback/
 propor-pagamento/propor-comunicado neste mesmo router — mantenha extensível.
 """
 import json
+import os
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Path
@@ -132,6 +133,15 @@ async def propor_pagamento(
     server_default — não os setamos aqui, garantindo que nasce 'preparado'."""
     if payload.valor <= 0:
         raise HTTPException(status_code=422, detail="valor deve ser > 0")
+    # teto de PROPOSTA = mesmo teto diário do Inter (CONECTA_LIMITE_DIARIO_PAGAMENTOS, R$100k).
+    # Defesa em profundidade: rejeita já na proposta valores acima do teto (o gate OTP + a trava
+    # real ficam downstream, mas uma proposta acima do teto nunca aprovaria — melhor recusar cedo).
+    _teto = float(os.environ.get("CONECTA_LIMITE_DIARIO_PAGAMENTOS") or "100000")
+    if payload.valor > _teto:
+        raise HTTPException(
+            status_code=422,
+            detail=f"valor acima do teto de proposta (R$ {_teto:,.2f}); use o fluxo manual/OTP",
+        )
     # colunas obrigatórias sem default (confirmado sprint87_d7_payments.py):
     #   payment_type, destinatario, valor, data_pagamento, prepared_by (FK users.id NOT NULL).
     row = await db.execute(text("""
