@@ -2,7 +2,7 @@
 (presença ao vivo, escalas, turnos, reembolsos). Operacional é curado pelo Jordan →
 SÓ visibilidade, NUNCA escreve/altera escala/alocação. Reembolso é read-only (sem aprovar/pagar)."""
 from modules.operacional.controllers.redesign_data_controller import (
-    _build_operacional, _fmtdate, _helpers, b, brl, t,
+    S, _build_operacional, _fmtdate, _helpers, b, brl, t,
 )
 
 SLUG = "operacional"
@@ -13,19 +13,43 @@ async def build(db) -> dict:
     out = await _build_operacional(db)
     _, _safe, tbl = _helpers(db)
 
-    # Presença ao vivo — gp_clock_punches (batidas; punch_timestamp=UTC → -4h Manaus)
+    # Presença Hoje — QUADRO por posto/condomínio (FIDELIDADE: reusa o MESMO serviço do
+    # clássico, quadro_presenca_hoje → os números batem). Composite: tabela + resumo do dia.
     try:
-        out["presenca"] = await tbl(
-            "Presença ao vivo", "Batidas recentes (horário de Manaus)", "—",
-            ["Colaborador", "Tipo", "Horário", "Facial", "Geofence"], "1.8fr 0.9fr 1fr 0.8fr 0.9fr",
-            "SELECT coalesce(e.nome,'—'), coalesce(p.punch_type::text,'—'), "
-            "to_char(p.punch_timestamp - interval '4 hours','DD/MM HH24:MI'), p.facial_match, p.dentro_geofence "
-            "FROM gp_clock_punches p LEFT JOIN employees e ON e.id=p.employee_id "
-            "ORDER BY p.punch_timestamp DESC LIMIT 200",
-            lambda r: [t(r[0], 600, "#0F1B3A"), b((r[1] or '—').capitalize(), "ok" if r[1] == "entrada" else "info"),
-                       t(r[2] or '—'), b("OK", "ok") if r[3] else t("—"),
-                       (b("Dentro", "ok") if r[4] else b("Fora", "warn")) if r[4] is not None else t("—")])
-    except Exception:  # noqa: BLE001
+        from modules.operacional.presence.controllers.presence_controller import quadro_presenca_hoje
+        from modules.operacional.scope import OperationalScope
+        _scope = OperationalScope(all_posts=True, post_ids=[], employee_id=None,
+                                  user_id="redesign", user_name="redesign", is_manager=True)
+        q = await quadro_presenca_hoje(data=None, scope=_scope, db=db)
+        qd = q.model_dump() if hasattr(q, "model_dump") else (q.dict() if hasattr(q, "dict") else q)
+        res = qd.get("resumo", {}) or {}
+        postos = qd.get("postos", []) or []
+
+        def _cnt(v, tone):
+            return b(str(v or 0), tone if (v or 0) > 0 else "mut")
+        out["presenca"] = {
+            "title": "Presença Hoje",
+            "sub": (f"Quadro do dia por posto/condomínio (Manaus) · {res.get('presentes', 0)} presente(s) · "
+                    f"{res.get('atrasados', 0)} atrasado(s) · {res.get('ausentes', 0)} ausente(s) de "
+                    f"{res.get('esperados', 0)} esperado(s)"),
+            "cta": "—", "type": "table", "searchHint": "Buscar posto…",
+            "grid": "2fr 0.9fr 0.9fr 0.9fr 0.9fr",
+            "cols": ["Posto / Condomínio", "Esperados", "Presentes", "Atrasados", "Ausentes"],
+            "rows": [{"cells": [
+                t(p.get("post_nome") or "—", 600, "#0F1B3A"),
+                t(str(p.get("esperados", 0))),
+                _cnt(p.get("presentes"), "ok"), _cnt(p.get("atrasados"), "warn"), _cnt(p.get("ausentes"), "bad"),
+            ]} for p in postos],
+            "panelGrid": "1fr",
+            "panels": [{"title": "Resumo do dia", "rows": [
+                {"left": "Esperados", "right": str(res.get("esperados", 0)), **S["info"]},
+                {"left": "Presentes", "right": str(res.get("presentes", 0)), **S["ok"]},
+                {"left": "Atrasados", "right": str(res.get("atrasados", 0)), **S["warn"]},
+                {"left": "Ausentes", "right": str(res.get("ausentes", 0)), **S["bad"]},
+                {"left": "Aguardando", "right": str(res.get("aguardando", 0)), **S["mut"]},
+            ]}],
+        }
+    except Exception:  # noqa: BLE001 — presença não derruba o resto do módulo
         pass
 
     # Escalas — solides_work_schedules (curado; leitura)
