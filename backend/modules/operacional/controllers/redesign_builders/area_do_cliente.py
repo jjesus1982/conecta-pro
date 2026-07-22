@@ -79,9 +79,11 @@ async def build(db) -> dict:
         ["Cliente", "Segmento", "Status", "MRR", "Saúde"],
         "2fr 1.2fr 0.9fr 1fr 0.7fr",
         "SELECT coalesce(name,'—'), coalesce(segment::text,'—'), coalesce(status::text,'—'), "
-        "coalesce(mrr,0), coalesce(health_score,0) FROM clients WHERE coalesce(ativo,true) "
+        "coalesce(mrr,0), health_score FROM clients WHERE coalesce(ativo,true) "
         "ORDER BY mrr DESC NULLS LAST LIMIT 200",
-        lambda r: [t(r[0] or "—", 600, _ND), t(_seg(r[1])), _st(r[2]), t(brl(r[3])), t(str(r[4]))]))
+        lambda r: [t(r[0] or "—", 600, _ND), t(_seg(r[1])), _st(r[2]), t(brl(r[3])),
+                   t("n/d" if r[4] is None else f"{float(r[4]):.0f}", 500,
+                     "#94A3B8" if r[4] is None else "#334155")]))
 
     # 2) Operação — inspection_rounds (posts_visited é jsonb → uso jsonb_array_length)
     await safe("operacao", tbl(
