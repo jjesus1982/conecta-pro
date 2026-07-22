@@ -3,6 +3,8 @@ redesign_builders/crm.py — T4.
 Sobrescreve _build_crm: reusa a base e ADICIONA clientes, growth (funil de
 atividades) e consultor comercial (histórico de interações). Só leitura.
 """
+from sqlalchemy import text  # noqa: F401
+
 from modules.operacional.controllers.redesign_data_controller import (  # noqa: F401
     _build_crm as _base,
     _fmtdate,
@@ -15,6 +17,24 @@ from modules.operacional.controllers.redesign_data_controller import (  # noqa: 
 )
 
 SLUG = "crm"
+
+
+async def _build_precificacao(db, tbl_t, tbl_b, tbl_brl):
+    """Tabela de preços por função com custo/preço/margem — reusa o MESMO
+    calcular_funcao do clássico /crm/pricing/funcoes (0,01s p/ 10 funções, A5)."""
+    from modules.crm.services.pricing_cct import calcular_funcao
+    rows = (await db.execute(text("SELECT * FROM crm_pricing_funcoes WHERE ativo ORDER BY ordem"))).mappings().all()
+    cells = []
+    for r in rows:
+        c = await calcular_funcao(db, dict(r))
+        cells.append({"cells": [
+            tbl_t(c["funcao"], 600, "#0F1B3A"), tbl_t(tbl_brl(c["salario_base"]), 600),
+            tbl_t(tbl_brl(c["custo_total"])), tbl_t(tbl_brl(c["preco"]), 600, "#16A34A"),
+            tbl_b(f"{float(c['markup_pct']) * 100:.2f}%", "ok"),
+        ]})
+    return {"title": "Precificação", "sub": f"{len(rows)} funções · CCT 2026 · custo/preço/margem por função (PricingEngine)",
+            "cta": "—", "type": "table", "searchHint": "Buscar…",
+            "grid": "2fr 1fr 1.2fr 1.2fr 1fr", "cols": ["Função", "Piso", "Custo", "Preço", "Margem"], "rows": cells}
 
 
 _LEAD_TONE = {"novo": "info", "new": "info", "em_contato": "warn", "contacted": "warn",
@@ -34,6 +54,12 @@ def _cnpj(v) -> str:
 async def build(db) -> dict:
     out, safe, tbl = _helpers(db)
     out.update(await _base(db))
+
+    # ---- Precificação (custo/preço/margem por função — reusa calcular_funcao) ----
+    try:
+        out["precificacao"] = await _build_precificacao(db, t, b, brl)
+    except Exception:  # noqa: BLE001
+        await db.rollback()
 
     # ---- Leads (override: + coluna Origem, que o clássico mostra e a base não) ----
     await safe("leads", tbl(

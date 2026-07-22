@@ -298,12 +298,18 @@ async def build(db) -> dict:
                    t(f"{((float(r[1] or 0) - _mrr_base) / _mrr_base * 100):+.1f}%" if _mrr_base else "—")]))
 
     # ---- Precificação (crm_pricing_funcoes — tabela CCT de funções) ----
-    await safe("precificacao", tbl(
-        "Precificação", f"{await _scalar(db, 'SELECT count(*) FROM crm_pricing_funcoes WHERE ativo=true')} funções (base CCT)",
-        "—", ["Função", "Piso", "Noturno", "Periculosidade", "Insalubridade"], "2fr 1fr 1fr 1fr 1fr",
-        "SELECT nome, salario_base, noturno, periculosidade, insalubridade "
-        "FROM crm_pricing_funcoes WHERE ativo=true ORDER BY ordem NULLS LAST LIMIT 50",
-        lambda r: [t(r[0], 600, "#0F1B3A"), t(brl(r[1]), 600), _simnao(r[2]), _simnao(r[3]), _simnao(r[4])]))
+    # Precificação — custo/preço/margem por função (mesma tabela do clássico, reusa calcular_funcao)
+    try:
+        from modules.operacional.controllers.redesign_builders.crm import _build_precificacao as _bp
+        out["precificacao"] = await _bp(db, t, b, brl)
+    except Exception:  # noqa: BLE001 — fallback: mantém o config CCT
+        await db.rollback()
+        await safe("precificacao", tbl(
+            "Precificação", f"{await _scalar(db, 'SELECT count(*) FROM crm_pricing_funcoes WHERE ativo=true')} funções (base CCT)",
+            "—", ["Função", "Piso", "Noturno", "Periculosidade", "Insalubridade"], "2fr 1fr 1fr 1fr 1fr",
+            "SELECT nome, salario_base, noturno, periculosidade, insalubridade "
+            "FROM crm_pricing_funcoes WHERE ativo=true ORDER BY ordem NULLS LAST LIMIT 50",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t(brl(r[1]), 600), _simnao(r[2]), _simnao(r[3]), _simnao(r[4])]))
 
     # ---- Custos (financial_custos_recorrentes) ----
     await safe("custos", tbl(
