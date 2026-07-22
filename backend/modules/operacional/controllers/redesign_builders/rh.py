@@ -197,15 +197,18 @@ async def build(db) -> dict:
         lambda r: [t(r[0] or "—", 600, _ND), t(r[1]), t(str(r[2])), t(f"{float(r[3]):.1f}"), _bb(r[4], "Ativo", "—", "ok", "mut")]))
 
     # 9) Turnover — turnover_audit_logs
+    # MESMA base do clássico (/human-resources/turnover/dashboard = employees): o dashboard NÃO
+    # entrega predições por colaborador (tabela de risco vazia no clássico). O dado real de turnover
+    # são os DESLIGAMENTOS + motivo; motivo nulo = data_gap honesto ("aguardando dado"), não fabrico.
     await safe("turnover", tbl(
-        "Turnover", "Trilha de auditoria de turnover", "—",
-        ["Ação", "Recurso", "Funcionário", "Data"],
-        "1.4fr 1.2fr 1.6fr 1.2fr",
-        "SELECT coalesce(l.acao,'—'), coalesce(l.recurso,'—'), "
-        "coalesce(e.nome, l.funcionario_id::text, '—'), l.created_at "
-        "FROM turnover_audit_logs l LEFT JOIN employees e ON e.id::text = l.funcionario_id::text "
-        "ORDER BY l.created_at DESC LIMIT 200",
-        lambda r: [t((r[0] or "—").replace("_", " ")), t(r[1]), t(r[2] or "—"), t(_d(r[3], "%d/%m/%Y %H:%M"))]))
+        "Turnover", "Desligamentos recentes — o motivo alimenta a análise de causas", "—",
+        ["Colaborador", "Cargo", "Data Desligamento", "Motivo"],
+        "2fr 1.5fr 1.2fr 1.6fr",
+        "SELECT nome, coalesce(cargo,'—'), data_demissao, "
+        "nullif(trim(coalesce(motivo_desligamento,'')),'') AS motivo "
+        "FROM employees WHERE data_demissao IS NOT NULL ORDER BY data_demissao DESC LIMIT 200",
+        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]), t(_d(r[2])),
+                   t(r[3] or "aguardando dado", 500, "#334155" if r[3] else "#94A3B8")]))
 
     # 10) RH IA — rh_consultas
     await safe("ia", tbl(

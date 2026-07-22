@@ -17,6 +17,22 @@ from modules.operacional.controllers.redesign_data_controller import (  # noqa: 
 
 SLUG = "gestao-de-pessoas"
 
+# GED · Envios — ação em PT + ator legível (nome real, ou rótulo do tipo quando é UUID cru no log)
+_GED_ACTION = {"viewed": "Visualizado", "downloaded": "Baixado", "sent": "Enviado",
+               "uploaded": "Enviado", "signed": "Assinado", "created": "Criado"}
+_GED_ACTOR = {"client": "Cliente", "internal": "Interno", "employee": "Colaborador"}
+
+
+def _is_uuid(s):
+    s = (s or "").strip()
+    return len(s) == 36 and s.count("-") == 4 and " " not in s
+
+
+def _ged_actor(name, tipo):
+    if not name or _is_uuid(name):
+        return _GED_ACTOR.get((tipo or "").lower(), "—")
+    return name
+
 
 async def build(db) -> dict:
     out, safe, tbl = _helpers(db)
@@ -39,10 +55,11 @@ async def build(db) -> dict:
     await safe("ged-envios", tbl(
         "GED · Envios", f"{await _scalar(db, 'SELECT count(*) FROM ged_kit_access_logs')} eventos de acesso/entrega",
         "—", ["Ação", "Ator", "Tipo", "Data"], "1.2fr 1.6fr 1fr 1.2fr",
-        "SELECT coalesce(action,'—'), coalesce(actor_name,'—'), coalesce(actor_type,'—'), created_at "
+        "SELECT action, actor_name, actor_type, created_at "
         "FROM ged_kit_access_logs ORDER BY created_at DESC NULLS LAST LIMIT 200",
-        lambda r: [b((r[0] or '—').replace('_', ' ').capitalize(), "info"), t(r[1], 600, "#0F1B3A"),
-                   t((r[2] or '—').capitalize()), t(_fmtdate(r[3]))]))
+        lambda r: [b(_GED_ACTION.get((r[0] or '').lower(), (r[0] or '—').replace('_', ' ').capitalize()), "info"),
+                   t(_ged_actor(r[1], r[2]), 600, "#0F1B3A"),
+                   t(_GED_ACTOR.get((r[2] or '').lower(), (r[2] or '—').capitalize())), t(_fmtdate(r[3]))]))
 
     # ---- GED · Assinaturas (ged_kit_documents — status de assinatura) ----
     await safe("ged-assinaturas", tbl(
