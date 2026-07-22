@@ -22,6 +22,15 @@ _LEAD_TONE = {"novo": "info", "new": "info", "em_contato": "warn", "contacted": 
               "perdido": "bad", "lost": "bad"}
 
 
+def _cnpj(v) -> str:
+    d = "".join(ch for ch in (v or "") if ch.isdigit())
+    if len(d) == 14:
+        return f"{d[:2]}.{d[2:5]}.{d[5:8]}/{d[8:12]}-{d[12:]}"
+    if len(d) == 11:
+        return f"{d[:3]}.{d[3:6]}.{d[6:9]}-{d[9:]}"
+    return v or "—"
+
+
 async def build(db) -> dict:
     out, safe, tbl = _helpers(db)
     out.update(await _base(db))
@@ -71,12 +80,18 @@ async def build(db) -> dict:
                    t(r[3]), t(r[4]), b("Principal", "ok") if r[5] else b("—", "mut")]))
 
     # ---- Clientes (clients) ----
+    _cl_tot = await _scalar(db, "SELECT count(*) FROM clients WHERE ativo=true")
+    _cl_ativos = await _scalar(db, "SELECT count(*) FROM clients WHERE status::text='active'")
+    _cl_cond = await _scalar(db, "SELECT count(*) FROM clients WHERE ativo=true AND client_type::text='condominium'")
+    _cl_bloq = await _scalar(db, "SELECT count(*) FROM clients WHERE ativo=true AND coalesce(is_defaulter,false)=true")
     await safe("clientes", tbl(
-        "Clientes", f"{await _scalar(db, 'SELECT count(*) FROM clients WHERE ativo=true')} clientes ativos",
-        "—", ["Cliente", "Segmento", "MRR", "Status"], "2fr 1.4fr 1fr 0.9fr",
-        "SELECT name, coalesce(segment::text,'—'), coalesce(mrr,0), status::text FROM clients ORDER BY mrr DESC NULLS LAST LIMIT 200",
-        lambda r: [t(r[0], 600, "#0F1B3A", initials(r[0])), t((r[1] or '—').capitalize()), t(brl(r[2]), 600),
-                   b("Ativo", "ok") if r[3] == "active" else b((r[3] or '—').capitalize(), "mut")]))
+        "Clientes",
+        f"{_cl_tot} clientes · Ativos {_cl_ativos} · Condomínios {_cl_cond} · Bloqueados {_cl_bloq}",
+        "—", ["Cliente", "CNPJ", "Email", "Segmento", "MRR", "Status"], "1.8fr 1.3fr 1.8fr 1.1fr 1fr 0.8fr",
+        "SELECT name, coalesce(document_number,'—'), coalesce(email,'—'), coalesce(segment::text,'—'), coalesce(mrr,0), status::text "
+        "FROM clients ORDER BY mrr DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0], 600, "#0F1B3A", initials(r[0])), t(_cnpj(r[1])), t(r[2]), t((r[3] or '—').capitalize()),
+                   t(brl(r[4]), 600), b("Ativo", "ok") if r[5] == "active" else b((r[5] or '—').capitalize(), "mut")]))
 
     # ---- Growth · funil de atividades (crm_activities agregado — real) ----
     await safe("growth", tbl(
