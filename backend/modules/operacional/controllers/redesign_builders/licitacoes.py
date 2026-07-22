@@ -37,6 +37,24 @@ def _bs(v):
     return b(v or "—", "info")
 
 
+# Status/modalidade — espelha statusLabel do clássico (licitacoes/page.tsx)
+_BID_ST = {"draft": ("Rascunho", "mut"), "analyzing": ("Em Análise", "info"),
+           "decided_go": ("Participar", "info"), "proposal_ready": ("Proposta Pronta", "warn"),
+           "in_dispute": ("Em Disputa", "warn"), "won": ("GANHA", "ok"), "lost": ("Perdida", "bad")}
+_MODAL = {"pregao_eletronico": "Pregão Eletrônico", "pregao_presencial": "Pregão Presencial",
+          "concorrencia": "Concorrência", "tomada_precos": "Tomada de Preços",
+          "convite": "Convite", "dispensa": "Dispensa", "inexigibilidade": "Inexigibilidade"}
+
+
+def _bid_status(v):
+    lbl, tone = _BID_ST.get((v or "").lower(), (v or "—", "info"))
+    return b(lbl, tone)
+
+
+def _modal(v):
+    return _MODAL.get((v or "").lower(), (v or "—").replace("_", " ").capitalize())
+
+
 async def build(db) -> dict:
     out = await _build_licitacoes(db)
     _o2, _s2, tbl = _helpers(db)
@@ -58,7 +76,7 @@ async def build(db) -> dict:
         "SELECT coalesce(numero,'—'), coalesce(orgao_nome,'—'), coalesce(modalidade::text,'—'), "
         "data_abertura, coalesce(status::text,'—') FROM bidding_tenders WHERE coalesce(participando,false) "
         "ORDER BY data_abertura DESC NULLS LAST LIMIT 200",
-        lambda r: [t(r[0] or "—", 600, _ND), t(r[1]), t((r[2] or "—").replace("_", " ")), t(_d(r[3])), _bs(r[4])]))
+        lambda r: [t(r[0] or "—", 600, _ND), t(r[1]), t(_modal(r[2])), t(_d(r[3])), _bid_status(r[4])]))
 
     # 2) Documentos — bidding_tender_documents
     await safe("documentos", tbl(
@@ -77,7 +95,8 @@ async def build(db) -> dict:
         "1fr 1.5fr 2fr 1.2fr 0.9fr",
         "SELECT coalesce(numero,'—'), coalesce(orgao_nome,'—'), coalesce(objeto_resumido, objeto, '—'), "
         "coalesce(valor_homologado,0), coalesce(status::text,'—') FROM bidding_tenders "
-        "WHERE data_resultado IS NOT NULL ORDER BY data_resultado DESC LIMIT 200",
-        lambda r: [t(r[0] or "—", 600, _ND), t(r[1]), t((r[2] or "—")[:80]), t(brl(r[3]), 600), _bs(r[4])]))
+        "WHERE (status IN ('won','lost') OR data_resultado IS NOT NULL OR coalesce(valor_homologado,0)>0) "
+        "ORDER BY coalesce(data_resultado, data_abertura) DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0] or "—", 600, _ND), t(r[1]), t((r[2] or "—")[:80]), t(brl(r[3]), 600), _bid_status(r[4])]))
 
     return out
