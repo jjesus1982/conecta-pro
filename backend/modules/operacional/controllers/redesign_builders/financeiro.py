@@ -140,9 +140,14 @@ async def build(db) -> dict:
             "FROM nfse_emitidas_nacional WHERE coalesce(cancelada,false)=false "
             "AND data_emissao >= (SELECT max(data_emissao) FROM nfse_emitidas_nacional) - interval '12 months'"))).fetchone()
         _bruto, _liq, _iss, _n = float(_fat[0] or 0), float(_fat[1] or 0), float(_fat[2] or 0), (_fat[3] or 0)
+        # Faturamento por Cliente (12m) — o clássico exibe; dado real de nfse
+        _porcli = (await db.execute(text(
+            "SELECT coalesce(tomador_nome,'—'), sum(valor_servicos) FROM nfse_emitidas_nacional "
+            "WHERE coalesce(cancelada,false)=false AND data_emissao >= (SELECT max(data_emissao) FROM nfse_emitidas_nacional) - interval '12 months' "
+            "GROUP BY tomador_nome ORDER BY sum(valor_servicos) DESC LIMIT 6"))).fetchall()
         _dash = out.get("dashboard")
         if isinstance(_dash, dict) and _dash.get("type") == "dash":
-            _dash["panelGrid"] = "1fr 1fr 1fr"
+            _dash["panelGrid"] = "1fr 1fr"
             _dash.setdefault("panels", []).append({
                 "title": "Faturamento NFS-e (12m)", "rows": [
                     {"left": "Faturamento Bruto", "right": brl(_bruto), **S["info"]},
@@ -150,6 +155,10 @@ async def build(db) -> dict:
                     {"left": "ISS Retido", "right": brl(_iss), **S["warn"]},
                     {"left": "Ticket Médio", "right": brl(_bruto / _n if _n else 0), **S["mut"]},
                 ]})
+            _dash["panels"].append({
+                "title": "Faturamento por Cliente (12m)",
+                "rows": [{"left": (nm or "—")[:32], "right": brl(v), **S["info"]} for nm, v in _porcli]
+                or [{"left": "Sem NFS-e", "right": "—", **S["mut"]}]})
     except Exception:  # noqa: BLE001 — enriquecimento nunca quebra o dashboard
         await db.rollback()
 
