@@ -29,7 +29,9 @@ async def build(db) -> dict:
         "SELECT reference_month, coalesce(status,'—'), total_employees, total_documents, completion_percentage "
         "FROM ged_document_kits ORDER BY reference_month DESC NULLS LAST LIMIT 200",
         lambda r: [t(_fmtdate(r[0], '%m/%Y'), 600, "#0F1B3A"),
-                   b((r[1] or '—').capitalize(), "ok" if (r[1] or '').lower() in ("aprovado", "approved", "enviado", "sent") else "info"),
+                   b({"em_montagem": "Em montagem", "enviado": "Enviado", "completo": "Completo"}.get(
+                       (r[1] or "").lower(), (r[1] or "—").replace("_", " ").capitalize()),
+                     "ok" if (r[1] or "").lower() in ("aprovado", "approved", "enviado", "sent", "completo") else "warn"),
                    t(str(r[2]) if r[2] is not None else '—'), t(str(r[3]) if r[3] is not None else '—'),
                    t(f"{float(r[4]):.0f}%" if r[4] is not None else '—', 600)]))
 
