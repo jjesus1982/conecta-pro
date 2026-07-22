@@ -37,6 +37,17 @@ def _tr_status(v):
     return b(lbl, tone)
 
 
+# Admissão/Onboarding — espelha statusConfig do clássico (dp/admissao/page.tsx)
+_ADM_ST = {"documents_pending": ("Documentos Pendentes", "warn"), "medical_exam": ("Exame Médico", "info"),
+           "contract_signing": ("Assinatura de Contrato", "warn"), "in_progress": ("Em Andamento", "info"),
+           "completed": ("Concluída", "ok"), "cancelled": ("Cancelada", "mut")}
+
+
+def _adm_status(v):
+    lbl, tone = _ADM_ST.get((v or "").lower(), (v or "—", "info"))
+    return b(lbl, tone)
+
+
 def _bs(v):
     s = (v or "").lower()
     if s in ("ativo", "active", "concluido", "concluida", "aprovado", "hired",
@@ -90,14 +101,14 @@ async def build(db) -> dict:
         "ORDER BY a.applied_at DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0], w=600, tc='#0f172a'), t(r[1]), t(str(r[2])), t(str(r[3])), t(_d(r[4])), _bs(r[5])]))
 
-    # 3) Onboarding — admission_processes
+    # 3) Onboarding — admission_processes (status traduzido, espelha statusConfig do clássico)
     await safe("onboarding", tbl(
         "Onboarding", "Processos de integração", "—",
         ["Candidato", "Cargo", "Início previsto", "Status"],
         "2fr 1.4fr 1fr 0.9fr",
         "SELECT coalesce(candidate_name,'—'), coalesce(position,'—'), expected_start_date, "
         "coalesce(status,'—') FROM admission_processes ORDER BY created_at DESC LIMIT 200",
-        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]), t(_d(r[2])), _bs(r[3])]))
+        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]), t(_d(r[2])), _adm_status(r[3])]))
 
     # 4) Treinamentos — trainings (real; 0 = honesto)
     await safe("treinamentos", tbl(

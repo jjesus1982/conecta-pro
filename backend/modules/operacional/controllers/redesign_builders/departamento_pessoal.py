@@ -102,6 +102,22 @@ def _term_status(v):
     return b(lbl, tone)
 
 
+# Admissão/Onboarding — espelha statusConfig do clássico (dp/admissao/page.tsx)
+_ADM_ST = {"documents_pending": ("Documentos Pendentes", "warn"), "medical_exam": ("Exame Médico", "info"),
+           "contract_signing": ("Assinatura de Contrato", "warn"), "in_progress": ("Em Andamento", "info"),
+           "completed": ("Concluída", "ok"), "cancelled": ("Cancelada", "mut")}
+
+
+def _adm_status(v):
+    lbl, tone = _ADM_ST.get((v or "").lower(), (v or "—", "info"))
+    return b(lbl, tone)
+
+
+def _cpf_fmt(v):
+    d = "".join(ch for ch in (v or "") if ch.isdigit())
+    return f"{d[:3]}.{d[3:6]}.{d[6:9]}-{d[9:11]}" if len(d) == 11 else (v or "—")
+
+
 def _completude_cell(faltantes):
     """faltantes = array (do SQL) com os rótulos dos campos vazios."""
     fal = [x for x in (faltantes or []) if x]
@@ -220,13 +236,13 @@ async def build(db) -> dict:
     # 1) Admissão — admission_processes
     await safe("admissao", tbl(
         "Admissão", "Processos de admissão", "Nova admissão",
-        ["Candidato", "Cargo", "Departamento", "Início previsto", "Status"],
-        "2fr 1.4fr 1.2fr 1fr 0.9fr",
-        "SELECT coalesce(candidate_name,'—'), coalesce(position,'—'), "
+        ["Candidato", "CPF", "Cargo", "Departamento", "Início previsto", "Status"],
+        "1.8fr 1.1fr 1.3fr 1.1fr 1fr 0.9fr",
+        "SELECT coalesce(candidate_name,'—'), cpf, coalesce(position,'—'), "
         "coalesce(department,'—'), expected_start_date, coalesce(status,'—') "
         "FROM admission_processes ORDER BY created_at DESC LIMIT 200",
-        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]), t(r[2]),
-                   t(_d(r[3])), _badge_status(r[4])]))
+        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(_cpf_fmt(r[1])),
+                   t(r[2]), t(r[3]), t(_d(r[4])), _adm_status(r[5])]))
 
     # 2) Aviso prévio — employees em aviso (query real; hoje 0 = honesto "nenhum")
     await safe("aviso-previo", tbl(
