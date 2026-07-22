@@ -162,6 +162,21 @@ def _cert_status(v):
     return b(lbl, tone)
 
 
+# Licenças — espelha statusConfig + synonyms EN do clássico (dp/licencas/page.tsx)
+_LIC_ST = {"ativo": ("Ativo", "info"), "ativa": ("Ativo", "info"), "active": ("Ativo", "info"),
+           "em_andamento": ("Em Andamento", "warn"), "in_progress": ("Em Andamento", "warn"),
+           "ongoing": ("Em Andamento", "warn"),
+           "encerrado": ("Encerrado", "mut"), "encerrada": ("Encerrado", "mut"),
+           "ended": ("Encerrado", "mut"), "closed": ("Encerrado", "mut"),
+           "cancelado": ("Cancelado", "bad"), "cancelada": ("Cancelado", "bad"),
+           "cancelled": ("Cancelado", "bad"), "canceled": ("Cancelado", "bad")}
+
+
+def _lic_status(v):
+    lbl, tone = _LIC_ST.get((v or "").lower(), (v or "—", "info"))
+    return b(lbl, tone)
+
+
 def _completude_cell(faltantes):
     """faltantes = array (do SQL) com os rótulos dos campos vazios."""
     fal = [x for x in (faltantes or []) if x]
@@ -334,7 +349,7 @@ async def build(db) -> dict:
         "ORDER BY data_inicio DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")),
                    t((r[1] or "—").replace("_", " ")), t(r[2]), t(_d(r[3])),
-                   _badge_status(r[4])]))
+                   _lic_status(r[4])]))
 
     # 6) Reembolsos — reimbursement_requests
     await safe("reembolsos", tbl(
