@@ -41,15 +41,18 @@ async def build(db) -> dict:
     # ---- GED · Kits (ged_document_kits) ----
     await safe("ged-kits", tbl(
         "GED · Kits", f"{await _scalar(db, 'SELECT count(*) FROM ged_document_kits')} kits documentais",
-        "—", ["Competência", "Status", "Colaboradores", "Documentos", "Conclusão"], "1fr 1fr 1fr 1fr 1fr",
-        "SELECT reference_month, coalesce(status,'—'), total_employees, total_documents, completion_percentage "
-        "FROM ged_document_kits ORDER BY reference_month DESC NULLS LAST LIMIT 200",
-        lambda r: [t(_fmtdate(r[0], '%m/%Y'), 600, "#0F1B3A"),
+        "—", ["Condomínio", "Competência", "Status", "Colaboradores", "Documentos", "Conclusão"],
+        "1.8fr 1fr 1fr 1fr 1fr 1fr",
+        "SELECT coalesce(gc.name, k.client_id::text), k.reference_month, coalesce(k.status,'—'), "
+        "k.total_employees, k.total_documents, k.completion_percentage "
+        "FROM ged_document_kits k LEFT JOIN ged_clients gc ON gc.id = k.client_id "
+        "ORDER BY k.reference_month DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0] or "—", 600, "#0F1B3A"), t(_fmtdate(r[1], '%m/%Y'), 600, "#0F1B3A"),
                    b({"em_montagem": "Em montagem", "enviado": "Enviado", "completo": "Completo"}.get(
-                       (r[1] or "").lower(), (r[1] or "—").replace("_", " ").capitalize()),
-                     "ok" if (r[1] or "").lower() in ("aprovado", "approved", "enviado", "sent", "completo") else "warn"),
-                   t(str(r[2]) if r[2] is not None else '—'), t(str(r[3]) if r[3] is not None else '—'),
-                   t(f"{float(r[4]):.0f}%" if r[4] is not None else '—', 600)]))
+                       (r[2] or "").lower(), (r[2] or "—").replace("_", " ").capitalize()),
+                     "ok" if (r[2] or "").lower() in ("aprovado", "approved", "enviado", "sent", "completo") else "warn"),
+                   t(str(r[3]) if r[3] is not None else '—'), t(str(r[4]) if r[4] is not None else '—'),
+                   t(f"{float(r[5]):.0f}%" if r[5] is not None else '—', 600)]))
 
     # ---- GED · Envios (ged_kit_access_logs — eventos de entrega/acesso) ----
     await safe("ged-envios", tbl(

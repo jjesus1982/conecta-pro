@@ -122,7 +122,7 @@ async def build(db) -> dict:
         "SELECT coalesce(c.name, k.client_id::text), coalesce(to_char(k.reference_month,'MM/YYYY'),'—'), "
         "coalesce(k.total_documents,0), coalesce(k.documents_signed,0), "
         "coalesce(k.completion_percentage,0), coalesce(k.status::text,'—') "
-        "FROM ged_document_kits k LEFT JOIN clients c ON c.id = k.client_id "
+        "FROM ged_document_kits k LEFT JOIN ged_clients c ON c.id = k.client_id "
         "ORDER BY k.created_at DESC LIMIT 200",
         lambda r: [t("—" if _is_uuid(r[0]) else (r[0] or "—"), 600, _ND), t(r[1]), t(str(r[2])), t(str(r[3])),
                    t(f"{float(r[4]):.0f}%"), _st(r[5])]))
