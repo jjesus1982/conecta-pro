@@ -51,6 +51,11 @@ async def build(db) -> dict:
         _pa = await _scalar(db, "SELECT count(*) FROM proposals WHERE status::text='accepted'")
         if isinstance(out.get("propostas"), dict):
             out["propostas"]["sub"] = f"{_pt} propostas · Rascunho {_pd} · Enviadas {_ps} · Aprovadas {_pa}"
+        _ct = await _scalar(db, "SELECT count(*) FROM commissions")
+        _cval = await _scalar(db, "SELECT coalesce(sum(final_commission),0) FROM commissions")
+        _cpend = await _scalar(db, "SELECT count(*) FROM commissions WHERE status::text NOT IN ('paid','pago','cancelled','cancelada')")
+        if isinstance(out.get("comissoes"), dict):
+            out["comissoes"]["sub"] = f"{_ct} comissões · Valor total {brl(_cval)} · Pendentes {_cpend}"
     except Exception:  # noqa: BLE001
         await db.rollback()
 
