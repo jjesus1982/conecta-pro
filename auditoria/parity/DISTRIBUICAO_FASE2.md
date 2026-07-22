@@ -97,3 +97,6 @@ Por tela:
 - [x] T4 empresas/liminares — oráculo: clássico destaca a Descrição/base legal (Não retenção INSS, Não cobrança PIS/COFINS); redesign só tinha Tipo. Override + coluna Descrição. curl público confirma. financeiro/fiscal (redesign mais rico) e custos (categoria já no bi/DRE) = sem gap fechável. commit 0dd2c169
 - [x] T1 saude/afastamentos — painel Indicadores (composite) reusando SSTService.get_dashboard: afastados 4 · taxa 7,5% · ajuda-medicamento 3 · custo/mês R$900. Números batem o clássico.
 - [x] T4 crm/comissoes — oráculo: clássico mostra KPIs (Total/Valor Total/Pendentes); trazidos no subtítulo (commissions). financeiro/inter+boletos = só cabeçalho/detalhe (sem coluna faltando). curl público confirma. commit 1aef6b0e
+- [x] T2 gestao-de-pessoas/ged-kits — status legível (em_montagem→Em montagem/Enviado/Completo); capitalize() deixava underscore. Provado público. blue-green OK.
+- [x] T2 departamento-pessoal/licencas — status PT (Ativo/Em Andamento/Encerrado/Cancelado, espelha statusConfig+synonyms EN); fonte = mesma base (clássico /leaves mapeia os mesmos afastamentos). Provado público (CINTIA · Em Andamento). blue-green OK.
+- NOTA T2: rh/avaliacoes lê operacional_avaliacoes_equipe (tabela OPERACIONAL, read-only/curada Jordan) vs fonte RH do clássico (colunas Tipo/Status) — divergência de fonte, não mexer sem decisão.
