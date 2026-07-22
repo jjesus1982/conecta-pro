@@ -35,6 +35,8 @@ EXTRA_MENU: list[dict] = [
      "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
     {"id": "pagar-folha-pj", "label": "Pagar folha PJ",
      "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "pagar-diaristas", "label": "Pagar diaristas",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
 ]
 
 
@@ -405,6 +407,17 @@ async def build(db) -> dict:
             {"key": "ano", "label": "Ano*", "type": "text", "span": "span 1", "ph": "2026"},
         ],
     }
+    out["pagar-diaristas"] = {
+        "title": "Pagar diaristas (Inter)",
+        "sub": "Dinheiro que SAI — 2 etapas: gera o código OTP (e-mail ao Jordan) e só paga ao confirmar. Nunca dispara sozinho. Paga o lote 'a_revisar' do dia.",
+        "cta": "Gerar código de pagamento", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/pagar-diaristas", "gated": True,
+                   "confirm": "Isto vai PAGAR o lote de diaristas (Inter) do dia via PIX. Gerar o código OTP para o Jordan confirmar?",
+                   "okMsg": "Lote processado."},
+        "fields": [
+            {"key": "data", "label": "Data* (AAAA-MM-DD)", "type": "date", "span": "span 2"},
+        ],
+    }
 
     return out
 
@@ -436,6 +449,32 @@ async def _rd_pagar_folha_pj(current_user: CurrentActiveUser, payload: dict = Bo
                 "message": f"{r.get('quantidade')} prestador(es) · R$ {float(r.get('total') or 0):.2f}. "
                            f"{r.get('message', '')}. Confirme com o código OTP."}
     r = await svc.executar_lote(db, mes, ano, confirmar=True, otp_code=otp_code, lote_id=lote_id or None)
+    if r.get("otp_invalido") or r.get("otp_requerido"):
+        raise HTTPException(status_code=400, detail=r.get("mensagem") or "OTP inválido ou obrigatório.")
+    if not r.get("ok"):
+        raise HTTPException(status_code=400, detail=r.get("mensagem") or "Não foi possível executar o lote.")
+    return {"ok": True, "message": f"Lote pago: {r.get('pagos', 0)} pago(s), {r.get('falhas', 0)} falha(s)."}
+
+
+@router.post("/action/pagar-diaristas")
+async def _rd_pagar_diaristas(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Pagar lote de diaristas (Inter) — DELEGA ao serviço provado (OTP próprio). Mesmo
+    padrão do pagar-folha-pj: sem otp_code → gera código; com otp_code → paga real.
+    Sem OTP válido, nada é pago."""
+    import modules.financial.pagamentos_diaristas_service as svc
+    data = (payload.get("data") or "").strip()
+    if not data or len(data) < 8:
+        raise HTTPException(status_code=400, detail="Informe a data (AAAA-MM-DD) do lote.")
+    otp_code = (payload.get("otp_code") or "").strip()
+    lote_id = (payload.get("_gate_ref") or "").strip()
+    if not otp_code:
+        r = await svc.gerar_otp_lote(db, data=data)
+        if not r.get("ok"):
+            raise HTTPException(status_code=400, detail=r.get("mensagem") or "Nenhum item elegível.")
+        return {"otp_required": True, "ref": r.get("lote_id", ""),
+                "message": f"{r.get('quantidade')} diarista(s) · R$ {float(r.get('total') or 0):.2f}. Confirme com o código OTP."}
+    r = await svc.executar_lote(db, data=data, confirmar=True, otp_code=otp_code,
+                                lote_id=lote_id or None, user_id=str(getattr(current_user, "id", "")))
     if r.get("otp_invalido") or r.get("otp_requerido"):
         raise HTTPException(status_code=400, detail=r.get("mensagem") or "OTP inválido ou obrigatório.")
     if not r.get("ok"):
