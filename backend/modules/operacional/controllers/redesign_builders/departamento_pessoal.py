@@ -118,6 +118,28 @@ def _cpf_fmt(v):
     return f"{d[:3]}.{d[3:6]}.{d[6:9]}-{d[9:11]}" if len(d) == 11 else (v or "—")
 
 
+# Contratos — espelha contractTypeLabels do clássico (dp/contratos/page.tsx)
+_CONTRACT_TYPE = {"clt_indeterminate": "CLT Indeterminado", "clt_determinate": "CLT Determinado",
+                  "temporary": "Temporário", "internship": "Estágio", "apprentice": "Aprendiz",
+                  "clt": "CLT"}
+
+
+def _contract_type(v):
+    return _CONTRACT_TYPE.get((v or "").lower(), v or "—")
+
+
+# Documentos — espelha statusConfig do clássico (dp/documentos/page.tsx)
+_DOC_ST = {"draft": ("Rascunho", "warn"), "active": ("Ativo", "ok"), "ativo": ("Ativo", "ok"),
+           "valid": ("Válido", "ok"), "valido": ("Válido", "ok"), "expired": ("Vencido", "bad"),
+           "vencido": ("Vencido", "bad"), "pending": ("Pendente", "warn"), "pendente": ("Pendente", "warn"),
+           "archived": ("Arquivado", "mut")}
+
+
+def _doc_status(v):
+    lbl, tone = _DOC_ST.get((v or "").lower(), (v or "—", "info"))
+    return b(lbl, tone)
+
+
 def _completude_cell(faltantes):
     """faltantes = array (do SQL) com os rótulos dos campos vazios."""
     fal = [x for x in (faltantes or []) if x]
@@ -312,7 +334,7 @@ async def build(db) -> dict:
         "c.start_date, coalesce(c.base_salary,0), coalesce(c.is_current,false) "
         "FROM employment_contracts c LEFT JOIN employees e ON e.id = c.employee_id "
         "ORDER BY c.start_date DESC NULLS LAST LIMIT 200",
-        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]), t(r[2]),
+        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(_contract_type(r[1])), t(r[2]),
                    t(_d(r[3])), t(brl(r[4])),
                    _badge_bool(r[5], "Vigente", "Encerrado", "ok", "mut")]))
 
@@ -326,7 +348,7 @@ async def build(db) -> dict:
         "FROM hr_employee_documents d LEFT JOIN employees e ON e.id = d.employee_id "
         "ORDER BY d.created_at DESC LIMIT 300",
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]),
-                   t((r[2] or "—").replace("_", " ")), _badge_status(r[3]),
+                   t((r[2] or "—").replace("_", " ")), _doc_status(r[3]),
                    _badge_bool(r[4], "Sim", "Não", "ok", "mut")]))
 
     # 9) Certificação — hr_certifications (certificação de cálculos DP)
