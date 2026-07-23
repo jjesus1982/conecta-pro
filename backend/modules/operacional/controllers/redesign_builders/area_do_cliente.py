@@ -9,6 +9,7 @@ from modules.operacional.controllers.redesign_data_controller import (
     _helpers,
     b,
     brl,
+    doc,
     t,
 )
 
@@ -141,18 +142,20 @@ async def build(db) -> dict:
         "FROM receivable_accounts WHERE coalesce(ativo,true) ORDER BY due_date DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0]), t(r[1] or "—", 600, _ND), t(r[2]), t(brl(r[3]), 600), t(_d(r[4])), _st(r[5])]))
 
-    # 5) Documentos / kits — ged_document_kits
+    # 5) Documentos / kits — ged_document_kits. Documento POR-LINHA: ZIP real do kit via
+    #    /api/v1/ged/kits/{id}/download-zip (rota nativa GED, curl 200 application/zip). id 1ª col.
     await safe("kits", tbl(
         "Documentos", "Kits de documentos entregues", "—",
         ["Cliente", "Competência", "Docs", "Assinados", "Conclusão", "Status"],
         "1.8fr 1fr 0.7fr 0.8fr 0.9fr 0.9fr",
-        "SELECT coalesce(c.name, k.client_id::text), coalesce(to_char(k.reference_month,'MM/YYYY'),'—'), "
+        "SELECT k.id, coalesce(c.name, k.client_id::text), coalesce(to_char(k.reference_month,'MM/YYYY'),'—'), "
         "coalesce(k.total_documents,0), coalesce(k.documents_signed,0), "
         "coalesce(k.completion_percentage,0), coalesce(k.status::text,'—') "
         "FROM ged_document_kits k LEFT JOIN ged_clients c ON c.id = k.client_id "
         "ORDER BY k.created_at DESC LIMIT 200",
-        lambda r: [t("—" if _is_uuid(r[0]) else (r[0] or "—"), 600, _ND), t(r[1]), t(str(r[2])), t(str(r[3])),
-                   t(f"{float(r[4]):.0f}%"), _st(r[5])]))
+        lambda r: [t("—" if _is_uuid(r[1]) else (r[1] or "—"), 600, _ND), t(r[2]), t(str(r[3])), t(str(r[4])),
+                   t(f"{float(r[5]):.0f}%"), _st(r[6])],
+        docsfn=lambda r: [doc("Kit ZIP", f"/api/v1/ged/kits/{r[0]}/download-zip", fmt="zip", mode="blob")]))
 
     # 6) Relatórios / analytics — agregado real de recebíveis por status
     await safe("analytics", tbl(
