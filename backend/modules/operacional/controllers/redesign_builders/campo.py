@@ -1,6 +1,6 @@
 """Campo (T1) — delega ao _build_campo e CORRIGE o 'checkin': o clássico mostra registros
 de check-in/check-out de campo (gp_clock_punches), não visitas. Fidelidade da FONTE de dados."""
-from modules.operacional.controllers.redesign_data_controller import _build_campo, _helpers, b, t
+from modules.operacional.controllers.redesign_data_controller import _build_campo, _helpers, b, doc, t
 
 SLUG = "campo"
 EXTRA_MENU: list[dict] = []
@@ -9,6 +9,17 @@ EXTRA_MENU: list[dict] = []
 async def build(db) -> dict:
     out = await _build_campo(db)
     _, _safe, tbl = _helpers(db)
+
+    # Relatório de visita (por-visita) = ⛔ NÃO ligar: a rota /campo/visitas/{id}/pdf está SEM
+    # autenticação (risco). Chip disabled honesto na visão até o backend corrigir (CurrentActiveUser).
+    try:
+        if "visao" in out and isinstance(out["visao"], dict):
+            out["visao"].setdefault("docs", [])
+            out["visao"]["docs"].append(
+                doc("Relatório de visita (indisponível)", disabled=True,
+                    motivo="Rota /campo/visitas/{id}/pdf sem autenticação — aguardando correção do backend"))
+    except Exception:  # noqa: BLE001
+        pass
     # 'checkin' estava ligado a visitas (fonte errada). O clássico mostra check-in/out de campo
     # = gp_clock_punches (batidas). FIDELIDADE TZ: o container roda em America/Manaus e o import
     # Tangerino grava via datetime.fromtimestamp(ts/1000) SEM tz → punch_timestamp é naïve em
