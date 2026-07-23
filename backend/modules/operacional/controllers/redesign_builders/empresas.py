@@ -16,6 +16,7 @@ from modules.operacional.controllers.redesign_data_controller import (  # noqa: 
     _scalar,
     b,
     brl,
+    doc,
     initials,
     t,
 )
@@ -63,6 +64,12 @@ async def build(db) -> dict:
         "SELECT coalesce(competencia,'—'), count(*), coalesce(sum(valor_servicos),0), coalesce(sum(valor_liquido),0) "
         "FROM nfse_emitidas_nacional WHERE coalesce(cancelada,false)=false GROUP BY competencia ORDER BY competencia DESC LIMIT 24",
         lambda r: [t(r[0], 600, "#0F1B3A"), b(f"{r[1]}", "info"), t(brl(r[2]), 600), t(brl(r[3]))]))
+    # DRE/Balanço/DFC em PDF: sem rota /pdf real no módulo empresas (só-JSON) → botão honesto off.
+    # 🔨 orquestrador: criar /api/v1/empresas/demonstrativos/{tipo}/pdf reusando gerar_relatorio_pdf.
+    if "demonstrativos" in out:
+        out["demonstrativos"]["docs"] = [doc(
+            "DRE / Balanço / DFC (PDF)", disabled=True,
+            motivo="Sem rota /pdf de demonstrativos no módulo empresas — aguardando gerador PDF")]
 
     # ---- Rentabilidade (clientes por MRR/receita/health) ----
     await safe("rentabilidade", tbl(
@@ -88,6 +95,17 @@ async def build(db) -> dict:
         "—", ["Tipo de contrato", "Colaboradores"], "2fr 1fr",
         "SELECT coalesce(tipo_contrato,'—'), count(*) FROM employees WHERE is_active=true GROUP BY tipo_contrato ORDER BY count(*) DESC",
         lambda r: [t((r[0] or '—').upper(), 600, "#0F1B3A"), b(f"{r[1]} colaboradores", "info")]))
+    # Export Domínio: plano de contas é GET real (curl 200 text/plain) → botão TXT ligado.
+    # Lançamentos/NFS-e Domínio são POST com payload HARDCODED (sem dados reais no GET) e o
+    # "Exportar Agora" do clássico não tem onClick → botões honestos off.
+    if "migrador" in out:
+        out["migrador"]["docs"] = [
+            doc("Plano de contas (Domínio TXT)", "/api/v1/empresas/dominio/download/plano-contas/conectamais", fmt="txt"),
+            doc("Lançamentos Domínio (indisponível)", disabled=True,
+                motivo="Export por POST com payload hardcoded — sem dados reais para baixar"),
+            doc("NFS-e Domínio (indisponível)", disabled=True,
+                motivo="Export por POST com payload hardcoded — sem dados reais para baixar"),
+        ]
 
     # ---- ESCRITA op_write: registrar liminar (aditivo, sem dinheiro/OTP) ----
     out["nova-liminar"] = {
