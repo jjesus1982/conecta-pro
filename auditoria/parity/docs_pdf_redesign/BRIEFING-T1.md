@@ -1,42 +1,52 @@
-# BRIEFING — TERMINAL 1 (T1) · Operacional + Campo + Saúde + Jurídico + Relatórios + GED/Docs + BI
+# BRIEFING — TERMINAL 1 (T1) · Financeiro + Fiscal + Empresas + CRM + Comercial + Licitações + Governo (PESADO/CRÍTICO)
 
 > Missão: ligar botões **abrir HTML + baixar PDF** em TODO documento do seu território no **redesign**.
-> Trabalhe em **LOOP** até fechar o checklist. **NÃO faça deploy** (o release é único, feito pelo orquestrador/T1-release). Leia antes: `CONTRATO-FUNDACAO.md`, `MATRIZ-MESTRE-REDESIGN.md`, `PRE-MORTEM.md`.
+> Trabalhe em **LOOP** até fechar o checklist. **NÃO faça deploy nem use o browser** (release + E2E são do orquestrador).
+> Leia antes: `REGRAS-SESSAO.md`, `CONTRATO-FUNDACAO.md`, `MATRIZ-MESTRE-REDESIGN.md`, `PRE-MORTEM.md`.
+> **Commit por etapa com PATHSPEC**: `git commit --no-verify -- <seu_builder.py>` (retry 2s se `index.lock`).
 
-## Seu território (edite SÓ estes builders)
-`redesign_builders/`: **operacional.py · campo.py · saude_ocupacional.py · juridico.py · relatorios.py · documentos.py · bi.py**
-Módulos redesign correspondentes: operacional (37 telas), campo, saude-ocupacional, juridico, relatorios, documentos, bi.
+## Seu território (edite SÓ estes builders) — MAIOR VOLUME, muitos gated 💰🏛️
+`redesign_builders/`: **financeiro.py · fiscal.py · empresas.py · crm.py · comercial.py · licitacoes.py · integracoes.py · area_do_cliente.py**
+Módulos redesign: financeiro (28), fiscal (11), empresas (7), crm (12), comercial, licitacoes (10), integracoes (governo), area-do-cliente (6). Priorize os ✅ ready primeiro; os 🔨 só-JSON sinalize ao orquestrador.
 
-> **NUNCA** edite arquivo fora desta lista, nem a fundação (`ModuleView.tsx`, `docsource.ts`, `DocButtons.tsx`, `doc()`/`tbl` no `redesign_data_controller.py`). Precisa de caso novo → fale com o orquestrador.
+> **NUNCA** edite fora da lista nem a fundação. Caso novo → orquestrador.
 
-## Documentos a ligar (da MATRIZ — confira a rota EXATA no código antes)
-**✅ ready (rota real, só ligar):**
-- operacional/rondas → `GET /api/v1/operacional/rondas/{id}/relatorio/pdf` (por-linha, PDF) — **provado 200**.
-- operacional (ocorrencias/turnos/colaboradores/escalas/alocacoes/rondas/postos) → export da lista (client-side `<ExportMenu>` — ver nota abaixo).
-- documentos/kits → ZIP por kit `/api/v1/ged/kits/{id}/download-zip` (**já feito na piloto** — expanda o padrão).
-- juridico/pareceres → `/api/v1/juridico/pareceres/{id}/pdf` (por-linha).
-- juridico/det → `/api/v1/juridico/det/comunicacoes/{id}/pdf` (por-linha).
-- saude (SST) → ASO/EPI/NR-1/PPP via `lib/services/sst.ts` equivalentes: `/api/v1/people-management/sst/nr1/compliance/pdf`, `/sst/epi/fichas/{id}/pdf`, etc. (confirme cada uma).
-- relatorios/central → relatórios PDF do hub.
+## Documentos a ligar (rota EXATA — curl-verifique 200+type antes; muitos gated)
+**✅ ready:**
+- financeiro/relatorios → **DRE, Balancete, Fluxo de Caixa** `/api/v1/financial/relatorio?tipo=...` (por-tela, 🔒 financeiro).
+- financeiro/contas-a-receber → **Aging Receber** `/api/v1/financial/receivables/aging/pdf` (🔒).
+- financeiro/contas-a-pagar → **Aging Pagar** `/api/v1/financial/payables/aging/pdf` (🔒).
+- financeiro/conciliacao → **Export** `/api/v1/financial/bank-reconciliations/{id}/export?export_format=csv` — **modo `json`** (L9, `{content,filename}`) — **provado 200** na piloto. Por-linha.
+- financeiro/nfs-e-entrada → **DANFSe recebida** `/api/v1/financial/nfse-entrada/{chave}/pdf` (🏛️ por-linha).
+- financeiro/boletos + cobrancas → **Boleto** (Inter URL, 💰 por-linha).
+- financeiro/inter|pagamentos → **Comprovante Inter** `/api/v1/financeiro/inter/payments/{id}/comprovante` (💰, gate: só após pago — por-linha).
+- fiscal/nfs-e → **DANFSe emitida** `/api/v1/financial/fiscal/nfse/{id}/danfse` (🏛️ por-linha).
+- fiscal/guias → **Guia fiscal (Drive)** `/api/v1/fiscal/guias-drive/pdf/{id}` (🏛️ por-linha).
+- fiscal/certidoes → **CND** `/api/v1/gedeon/cnd/pdf/{type}` (🏛️).
+- fiscal → **XML de nota** `xml_raw` (L4: **1.175 notas** sem endpoint → criar `/.../{id}/xml`; sinalize).
+- crm/propostas → `/api/v1/crm/proposals/{id}/pdf` (por-linha).
+- crm/contratos → `/api/v1/crm/contracts/{id}/pdf` (por-linha).
+- crm → **relatório comercial** `/api/v1/crm/growth/reports/comercial/pdf`, **relatório de visita** `/api/v1/crm/.../visitas/pdf` (L8).
+- crm/growth → doc registrado `/api/v1/crm/growth/docs/download/{id}?t=`.
+- empresas/migrador → **Plano de contas Domínio** (TXT).
+- governo (integracoes) → **comprovante Inter, guia Portte, SPED (TXT), CT-e/MDF-e (XML)**.
+- area-do-cliente/documentos → doc do portal.
 
-**🔨 criar rota/render (só-JSON hoje — sinalize se precisar de rota nova no backend):**
-- operacional: cobertura, horas, custos, diárias, fechamento diaristas, passagem de turno, instruções de posto, presença, banco de horas, grade, OS, avaliação — **buraco grande**, hoje só JSON. Para cada: ou o backend ganha `/pdf` (peça ao orquestrador), ou exporta a lista client-side (`<ExportMenu>`).
-- juridico: dossiês/processos/análise (só-JSON).
+**🔨 criar rota/render (só-JSON, ~60 — sinalize ao orquestrador):**
+- financeiro/fiscal: DRE/Balancete/Fluxo/Balanço/Apuração Lucro Real/DAS/retenções/painéis (peça `/pdf` gêmea reusando `gerar_relatorio_pdf`).
+- governo: DAS/PGDAS/GRFGTS/DARF/e-CAC/certidão (~19).
+- empresas/demonstrativos: DRE/Balanço/DFC/Consolidado.
+- **onvio_documents (803 arquivos)** — L3: sem rota de download → sinalize.
+- **ai/report_generator** — L1: motor de export completo NÃO montado em produção → decidir com orquestrador.
 
-**⛔ NÃO ligar (corrigir antes / desabilitar honesto):**
-- `/campo/visitas/{id}/pdf` — **SEM auth**. Deixe `disabled=True, motivo="rota sem autenticação — aguardando correção"` até o backend adicionar `CurrentActiveUser`.
-- documentos/arquivos (ged_kit_documents) — **sem rota de download por-doc** (a `/ged/documents/{id}/download` serve tabela vazia). Não invente botão por-doc; o download real é o ZIP do kit. (Gap registrado: se quiser download por-doc, peça rota nova ao backend.)
+**⛔ NÃO ligar (disabled honesto):**
+- **DANFE e XML NFC-e** = placeholder fake. **SPED `/sped/gerar`** = stub. fiscal/DCTFWeb/EFD-Reinf/eSocial — sem download na tela.
+- **empresas** "Exportar Agora" (sem onClick) e exports Domínio lançamentos/nfse (**payload hardcoded**).
+- **licitacoes/propostas** — PDFs em `media/bidding/proposals/` **sem rota** + "Gerar PDF" sem onClick.
+- **conciliação**: use `mode="json"` (NÃO blob).
 
-## Ferramenta a construir/portar (fale com orquestrador antes — pode virar fundação)
-`<ExportMenu>` (Excel/PDF/CSV client-side, libs `xlsx`/`jspdf`/`jspdf-autotable` já instaladas) para as 7 telas operacionais que exportam a lista. Se for genérico, o orquestrador coloca na fundação.
+## Cuidado especial (pré-mortem)
+🔒 financeiro = só Jordan+Pyetra; fiscal idem — **gate no backend** (QA chama com perfil sem permissão → espera 403). Documento fiscal/gov jamais diz "transmitido" sem transmissão real. Comprovante/boleto é LEITURA (seguro); pagar/faturar = OTP (não é seu escopo).
 
 ## Fluxo do loop
-1. Pegue a próxima tela do checklist. Confirme a rota REAL no backend (grep + montada em `main_production.py`).
-2. Adicione `scr["docs"]` (nível-tela) ou `docsfn` (por-linha) no seu builder — importe `doc` no topo.
-3. `python3 -m py_compile <seu_builder>.py`.
-4. Rode o oráculo in-process (`documentos.build(db)` → confira os docs emitidos).
-5. `git add <seu_builder>.py` (só o seu) + commit por etapa (2-3 telas/commit, `--no-verify`, `Co-Authored-By: Claude Opus 4.8`).
-6. Marque no checklist. Repita. **Sem deploy.**
-
-## Regras de ouro (pré-mortem)
-Rota EXATA · nunca fabricar (⛔=disabled honesto) · gate é no backend · importe todos os helpers · id na 1ª coluna p/ por-linha · modo certo (json vs blob).
+rota real (montada em `main_production.py`) + curl 200 → `scr.docs`/`docsfn` (`mode="json"` onde aplicável) → py_compile → `git commit -- financeiro.py` (só o seu) → checklist. **Sem deploy, sem browser.** Ao terminar, reporte o checklist ao orquestrador.
