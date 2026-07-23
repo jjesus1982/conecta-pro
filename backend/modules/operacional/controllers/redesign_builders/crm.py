@@ -12,6 +12,7 @@ from modules.operacional.controllers.redesign_data_controller import (  # noqa: 
     _scalar,
     b,
     brl,
+    doc,
     initials,
     t,
 )
@@ -139,5 +140,28 @@ async def build(db) -> dict:
         "FROM crm_activities ORDER BY coalesce(completed_at, scheduled_at, created_at) DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0], 600, "#0F1B3A"), b((r[1] or '—').replace('_', ' ').capitalize(), "info"),
                    t((r[2] or '—').capitalize()), t(_fmtdate(r[3]))]))
+
+    # ---- DOCUMENTOS: proposta e contrato em PDF por-linha (rotas curl-provadas 200 application/pdf)
+    # /api/v1/crm/proposals/{id}/pdf e /api/v1/crm/contracts/{id}/pdf. Rebuild das telas base
+    # (mesmas colunas) + id na 1ª coluna do SELECT + docsfn.
+    try:
+        await safe("propostas", tbl("Propostas", f"{await _scalar(db, 'SELECT count(*) FROM proposals')} propostas", "Nova proposta",
+            ["Número", "Cliente", "Título", "Valor", "Status"], "1fr 1.6fr 1.6fr 1fr 0.9fr",
+            "SELECT id, coalesce(number,'—'), coalesce(client_name,'—'), coalesce(title,'—'), coalesce(total,subtotal,0), status::text "
+            "FROM proposals ORDER BY created_at DESC NULLS LAST LIMIT 200",
+            lambda r: [t(r[1], 600, "#0F1B3A"), t(r[2]), t(r[3]), t(brl(r[4]), 600), b(r[5] or "—", "info")],
+            docsfn=lambda r: [doc("Proposta", f"/api/v1/crm/proposals/{r[0]}/pdf", fmt="pdf")]))
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+    try:
+        await safe("contratos", tbl("Contratos", f"{await _scalar(db, 'SELECT count(*) FROM contracts')} contratos", "Novo contrato",
+            ["Contrato", "Cliente", "Mensal", "Total", "Status"], "1.2fr 1.6fr 1fr 1fr 0.9fr",
+            "SELECT ct.id, coalesce(ct.contract_number,'—'), coalesce(cl.name, ct.name, '—'), coalesce(ct.monthly_value,0), coalesce(ct.total_value,0), ct.status::text "
+            "FROM contracts ct LEFT JOIN clients cl ON cl.id=ct.client_id ORDER BY ct.start_date DESC NULLS LAST LIMIT 200",
+            lambda r: [t(r[1], 600, "#0F1B3A"), t(r[2]), t(brl(r[3])), t(brl(r[4]), 600),
+                       b("Ativo", "ok") if (r[5] or "").lower() in ("active", "ativo", "vigente") else b(r[5] or "—", "mut")],
+            docsfn=lambda r: [doc("Contrato", f"/api/v1/crm/contracts/{r[0]}/pdf", fmt="pdf")]))
+    except Exception:  # noqa: BLE001
+        await db.rollback()
 
     return out
