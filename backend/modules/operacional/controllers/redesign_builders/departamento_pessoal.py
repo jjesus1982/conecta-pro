@@ -528,7 +528,7 @@ async def build(db) -> dict:
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]),
                    t((r[2] or "—").replace("_", " ")), _doc_status(r[3]),
                    _badge_bool(r[4], "Sim", "Não", "ok", "mut")],
-        docsfn=lambda r: ([doc("Baixar documento", f"/api/v1/people-management/hr/documents/{r[5]}/download", fmt="pdf", gate="dp")]
+        docsfn=lambda r: ([doc("Documento", f"/api/v1/people-management/hr/documents/{r[5]}/download", fmt="pdf", gate="dp")]
                           if r[6] else [])))
 
     # 9) Certificação — hr_certifications (certificação de cálculos DP)
