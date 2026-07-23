@@ -410,7 +410,24 @@ export default function ModuleView({ slug }: { slug: string }) {
             <input placeholder={scr?.searchHint || 'Buscar…'} />
           </div>
           <button type="button" className="rd-icon-btn" aria-label="Notificações"><Bell size={18} /><span className="rd-dot-badge">3</span></button>
-          {scr?.cta && isReal && <button className="rd-btn rd-btn-primary"><Plus size={16} /> {scr.cta}</button>}
+          {scr?.cta && isReal && (scr.type === 'form' || (scr.ctaTo && (patches[scr.ctaTo] || screens[scr.ctaTo]))) && (
+            <button
+              type="button"
+              className="rd-btn rd-btn-primary"
+              onClick={() => {
+                if (scr.type === 'form') {
+                  // Tela de formulário: o cta do topo rola/foca o form (não é mais gêmeo morto do submit).
+                  const el = document.querySelector('.rd-content input, .rd-content textarea, .rd-content select') as HTMLElement | null;
+                  if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus(); }
+                } else if (scr.ctaTo) {
+                  // Tela com ação: navega para o formulário-alvo declarado pelo builder.
+                  go(scr.ctaTo);
+                }
+              }}
+            >
+              <Plus size={16} /> {scr.cta}
+            </button>
+          )}
         </header>
         <main className="rd-content">
           <div>
