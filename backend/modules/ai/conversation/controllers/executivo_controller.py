@@ -74,12 +74,6 @@ def _fonte_robusta(fonte: dict[str, Any]) -> dict[str, Any]:
     return fonte
 
 
-async def _cfo_panorama(db: AsyncSession) -> dict[str, Any]:
-    from modules.financial import cfo_service
-
-    return await cfo_service.panorama(db)
-
-
 async def _coo_panorama(db: AsyncSession) -> dict[str, Any]:
     from modules.operacional.services import consultor_coo_service
 
