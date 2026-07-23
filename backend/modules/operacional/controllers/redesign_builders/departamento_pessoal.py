@@ -14,6 +14,7 @@ from modules.operacional.controllers.redesign_data_controller import (
     _helpers,
     b,
     brl,
+    doc,
     initials,
     t,
 )
@@ -264,7 +265,7 @@ async def _rescisao_screen(db):
     from sqlalchemy import text as _sqltext
     rows = (await db.execute(_sqltext(
         "SELECT CAST(tp.employee_id AS TEXT), e.nome, tp.type::text, tp.status::text, "
-        "tp.last_working_day, tp.total_amount "
+        "tp.last_working_day, tp.total_amount, CAST(tp.id AS TEXT) "
         "FROM termination_processes tp LEFT JOIN employees e ON e.id=tp.employee_id "
         "ORDER BY tp.last_working_day DESC NULLS LAST, tp.created_at DESC LIMIT 200"))).all()
     svc = TT = None
@@ -275,7 +276,7 @@ async def _rescisao_screen(db):
     except Exception:
         pass
     out_rows = []
-    for emp_id, nome, tp_type, tp_status, lwd, total in rows:
+    for emp_id, nome, tp_type, tp_status, lwd, total, tid in rows:
         val = float(total) if total not in (None,) else None
         if (val is None or val == 0) and svc and emp_id and lwd:
             try:
@@ -292,7 +293,11 @@ async def _rescisao_screen(db):
             t(nome or "—", 600, _ND, initials(nome or "")),
             t(_TERM_TYPE.get((tp_type or "").lower(), tp_type or "—")),
             _term_status(tp_status), t(_d(lwd)),
-            t(brl(val) if val is not None else "a calcular", 600)]})
+            t(brl(val) if val is not None else "a calcular", 600)],
+            "docs": [
+                doc("TRCT", f"/api/v1/people-management/hr/terminations/{tid}/trct/pdf", fmt="pdf", gate="dp"),
+                doc("Aviso prévio", f"/api/v1/people-management/hr/terminations/{tid}/aviso-previo/pdf", fmt="pdf", gate="dp"),
+            ]})
     return {"title": "Rescisão", "sub": "Processos de desligamento — tipo, status e verbas",
             "cta": "Nova rescisão", "type": "table", "searchHint": "Buscar…",
             "grid": "2fr 1.2fr 1fr 1fr 1.1fr",
@@ -333,12 +338,34 @@ async def build(db) -> dict:
         ["Colaborador", "Cargo", "Salário base", "INSS", "FGTS 8%", "Descontos", "Líquido", "Status"],
         "1.8fr 1.3fr 1fr 0.9fr 0.9fr 1fr 1fr 0.9fr",
         "SELECT e.nome, coalesce(e.cargo,'—'), p.base_salary, p.inss_value, p.fgts_value, "
-        "p.total_deductions, p.net_salary, p.status::text "
+        "p.total_deductions, p.net_salary, p.status::text, "
+        "CAST(p.id AS TEXT), CAST(p.employee_id AS TEXT), p.reference_month, p.reference_year "
         "FROM hr_payslips p LEFT JOIN employees e ON e.id=p.employee_id "
         "WHERE (p.reference_year,p.reference_month)=(SELECT reference_year,reference_month FROM hr_payslips "
         "ORDER BY reference_year DESC, reference_month DESC LIMIT 1) ORDER BY e.nome LIMIT 300",
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]), t(brl(r[2])),
-                   t(brl(r[3])), t(brl(r[4])), t(brl(r[5])), t(brl(r[6]), 600), _folha_status(r[7])]))
+                   t(brl(r[3])), t(brl(r[4])), t(brl(r[5])), t(brl(r[6]), 600), _folha_status(r[7])],
+        docsfn=lambda r: [
+            doc("Holerite", f"/api/v1/people-management/dp/payslips/{r[8]}/pdf", fmt="pdf", gate="financeiro"),
+            doc("Recibo VT/VR", f"/api/v1/people-management/folha/recibo-vt-vr/{r[9]}/{r[10]}/{r[11]}/pdf", fmt="pdf", gate="financeiro"),
+        ]))
+    # Folha — docs de TELA (consolidada do mês + export Domínio), na última competência real
+    try:
+        from sqlalchemy import text as _sqltext
+        _cmp = (await db.execute(_sqltext(
+            "SELECT reference_month, reference_year FROM hr_payslips "
+            "ORDER BY reference_year DESC, reference_month DESC LIMIT 1"))).first()
+        if _cmp and out.get("folha"):
+            _m, _a = int(_cmp[0]), int(_cmp[1])
+            out["folha"]["docs"] = [
+                doc("Folha consolidada (PDF)", f"/api/v1/people-management/folha/{_m}/{_a}/pdf", fmt="pdf", gate="financeiro"),
+                doc("Export Domínio (TXT)", f"/api/v1/people-management/hr/payroll-export/dominio/{_a}-{_m:02d}", fmt="txt", gate="financeiro"),
+            ]
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
 
     # 0c) Férias — SOBRESCREVE p/ traduzir o status (redesign mostrava cru SUBMITTED/APPROVED)
     #     e trazer a data de solicitação, como o clássico. Status derivado igual ao clássico:
@@ -432,7 +459,8 @@ async def build(db) -> dict:
         "SELECT ts.employee_name, coalesce(ts.condominium_name,'—'), ts.reference_year, ts.status, "
         "ts.hours_worked_minutes, ts.overtime_total_minutes, ts.absent_days, "
         "greatest(coalesce(ts.anomaly_count,0)-coalesce(ts.anomaly_resolved_count,0),0) AS anomalias, "
-        "ts.approved_by_employee, sig.status AS sig_status, sig.signed_at AS sig_signed "
+        "ts.approved_by_employee, sig.status AS sig_status, sig.signed_at AS sig_signed, "
+        "CAST(ts.employee_id AS TEXT) AS emp, ts.reference_month AS mes "
         "FROM time_sheets ts "
         "LEFT JOIN LATERAL (SELECT status, signed_at FROM sig_signature_requests s "
         "  WHERE s.document_type='espelho_ponto' AND s.signer_type='employee' "
@@ -447,7 +475,8 @@ async def build(db) -> dict:
         "ORDER BY ts.employee_name LIMIT 300",
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")),
                    t(r[1] or "—"), t(_hm(r[4])), t(_hm(r[5])),
-                   t(str(r[6] or 0)), _fech_status(r[3], r[7], r[8], r[9], r[10])]))
+                   t(str(r[6] or 0)), _fech_status(r[3], r[7], r[8], r[9], r[10])],
+        docsfn=lambda r: [doc("Espelho de ponto (671)", f"/api/v1/people-management/hr/ponto/espelho/{r[11]}/{r[12]}/{r[2]}/pdf", fmt="pdf", gate="dp")]))
 
     # 5) Licenças / afastamentos — sst_afastamentos (nome/cargo denormalizados)
     await safe("licencas", tbl(
@@ -478,12 +507,13 @@ async def build(db) -> dict:
         ["Colaborador", "Tipo", "Cargo", "Início", "Salário base", "Vigente"],
         "1.8fr 1fr 1.3fr 1fr 1fr 0.8fr",
         "SELECT coalesce(e.nome,'—'), coalesce(c.type,'—'), coalesce(c.job_title,'—'), "
-        "c.start_date, coalesce(c.base_salary,0), coalesce(c.is_current,false) "
+        "c.start_date, coalesce(c.base_salary,0), coalesce(c.is_current,false), CAST(c.id AS TEXT) "
         "FROM employment_contracts c LEFT JOIN employees e ON e.id = c.employee_id "
         "ORDER BY c.start_date DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(_contract_type(r[1])), t(r[2]),
                    t(_d(r[3])), t(brl(r[4])),
-                   _badge_bool(r[5], "Vigente", "Encerrado", "ok", "mut")]))
+                   _badge_bool(r[5], "Vigente", "Encerrado", "ok", "mut")],
+        docsfn=lambda r: [doc("Contrato CLT", f"/api/v1/people-management/hr/contracts/{r[6]}/pdf", fmt="pdf", gate="dp")]))
 
     # 8) Documentos — hr_employee_documents
     await safe("documentos", tbl(
@@ -491,12 +521,15 @@ async def build(db) -> dict:
         ["Colaborador", "Documento", "Tipo", "Status", "Publicado"],
         "1.6fr 1.8fr 1fr 0.9fr 0.8fr",
         "SELECT coalesce(e.nome,'—'), coalesce(d.title, d.file_name, '—'), "
-        "coalesce(d.document_type,'—'), coalesce(d.status,'—'), coalesce(d.is_published,false) "
+        "coalesce(d.document_type,'—'), coalesce(d.status,'—'), coalesce(d.is_published,false), "
+        "CAST(d.id AS TEXT), nullif(trim(coalesce(d.file_path,'')),'') "
         "FROM hr_employee_documents d LEFT JOIN employees e ON e.id = d.employee_id "
         "ORDER BY d.created_at DESC LIMIT 300",
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]),
                    t((r[2] or "—").replace("_", " ")), _doc_status(r[3]),
-                   _badge_bool(r[4], "Sim", "Não", "ok", "mut")]))
+                   _badge_bool(r[4], "Sim", "Não", "ok", "mut")],
+        docsfn=lambda r: ([doc("Baixar documento", f"/api/v1/people-management/hr/documents/{r[5]}/download", fmt="pdf", gate="dp")]
+                          if r[6] else [])))
 
     # 9) Certificação — hr_certifications (certificação de cálculos DP)
     await safe("certificacao", tbl(
@@ -522,5 +555,10 @@ async def build(db) -> dict:
         lambda r: [t(r[0], 600, _ND), t(r[1]),
                    t(r[2] or "—", 600, _ND, initials(r[2] or "")), t(_cpf_fmt(r[3])),
                    t(_d(r[4])), t(r[5])]))
+    # eSocial — XML transmitido, mas SEM rota de preview/download no backend (só POST evento).
+    # Honesto: botão desabilitado até o backend expor GET do XML (sinalizado ao orquestrador).
+    if out.get("esocial"):
+        out["esocial"]["docs"] = [doc("XML do evento", disabled=True,
+                                      motivo="XML transmitido, sem rota de preview no backend — pendente criar GET do XML do evento")]
 
     return out
