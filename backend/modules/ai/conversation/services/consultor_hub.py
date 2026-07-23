@@ -86,8 +86,31 @@ async def _ensure_schema(db: AsyncSession) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 async def gerar(
     *, messages: list[dict], system_prompt: str, max_tokens: int = 2500, temperature: float = 0.2,
+    origem: str | None = None, direct: bool = False,
 ) -> tuple[str, dict[str, Any]]:
-    """Gera com o melhor modelo disponível. Levanta RuntimeError se TODOS falharem."""
+    """Gera com o melhor modelo disponível. Levanta RuntimeError se TODOS falharem.
+
+    Fase 5.2a.2 — PONTE Hermes: quando `HERMES_BRIDGE_ENABLED=true` E `origem=="executivo"`
+    (o orquestrador cross-domínio) E `direct is False`, roteia pro Hermes local primeiro.
+    Os 8 consultores existentes (origem cfo/juridico/rh/etc., ou sem origem) NUNCA entram
+    aqui — caminho intocado. `direct=True` é o guard de re-entrância: quando o próprio
+    Hermes chama um tool `consultor_*` (que cai neste `gerar()` de novo), o call-site passa
+    direct=True pra NUNCA re-rotear pro Hermes (evita loop infinito). Qualquer falha do
+    Hermes (indisponível, timeout, formato inesperado) degrada silenciosamente pro caminho
+    atual (MODEL_CHAIN) — nunca quebra o consultor.
+    """
+    if (
+        os.getenv("HERMES_BRIDGE_ENABLED", "false").lower() == "true"
+        and origem == "executivo" and not direct
+    ):
+        try:
+            from modules.ai.conversation.services import hermes_client
+
+            if await hermes_client.hermes_disponivel():
+                return await hermes_client.perguntar_hermes(messages, system_prompt, model="gpt-5")
+        except Exception:  # noqa: BLE001 — degradação graciosa → cai no caminho atual
+            pass
+
     from modules.ai.conversation.services.llm_provider import ClaudeProvider, OpenAIProvider
 
     # DECISÃO Jordan (2026-07-21): o cérebro de RACIOCÍNIO usa OpenAI, NÃO Anthropic (a conta

@@ -95,9 +95,14 @@ async def consultar(
         raise HTTPException(status_code=422, detail=f"origem inválida: {origem}")
     extra = await _hub.contexto_compartilhado(db, origem, payload.pergunta)  # retrato de entidade só p/ 'ceo' (LGPD)
     system_prompt = PERSONAS[origem] + "\n\n" + extra
+    # direct=True — guard de re-entrância (Fase 5.2a.2): esta rota é a que o Hermes chama
+    # via tool consultor_*; mesmo se origem vier 'executivo' um dia, NUNCA re-roteia pro
+    # Hermes aqui (evitaria loop infinito Hermes→tool→gerar→Hermes→...).
     resposta, _meta = await _hub.gerar(
         messages=[{"role": "user", "content": payload.pergunta}],
         system_prompt=system_prompt,
+        origem=origem,
+        direct=True,
     )
     consulta_id = None
     try:

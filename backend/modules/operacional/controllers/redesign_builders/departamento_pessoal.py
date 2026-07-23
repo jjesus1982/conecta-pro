@@ -84,6 +84,18 @@ def _ben_type(v):
     return _BEN_TYPE.get((v or "").lower(), (v or "—").replace("_", " ").capitalize() if "_" in (v or "") else (v or "—"))
 
 
+# Folha — espelha statusConfig do clássico (dp/folha/page.tsx): published→Calculada
+_FOLHA_ST = {"published": ("Calculada", "ok"), "calculada": ("Calculada", "ok"),
+             "calculated": ("Calculada", "ok"), "contested": ("Contestada", "warn"),
+             "processing": ("Processando", "info"), "paid": ("Pago", "ok"),
+             "draft": ("Rascunho", "mut"), "closed": ("Fechada", "ok")}
+
+
+def _folha_status(v):
+    lbl, tone = _FOLHA_ST.get((v or "").lower(), (v or "—", "info"))
+    return b(lbl, tone)
+
+
 def _fer_status(status, cancelled_at):
     """Status de férias em PT, mesma derivação do clássico (enum é SUBMITTED/APPROVED)."""
     if cancelled_at:
@@ -245,6 +257,49 @@ _FALTANTES_SQL = (
 )
 
 
+async def _rescisao_screen(db):
+    """Rescisão — MESMA fonte (termination_processes) e MESMO cálculo do clássico:
+    quando total_amount é NULL (todos hoje), o clássico computa ao vivo via
+    service.calculate_severance. Replico isso (senão exibia R$ 0,00 = NULL como zero)."""
+    from sqlalchemy import text as _sqltext
+    rows = (await db.execute(_sqltext(
+        "SELECT CAST(tp.employee_id AS TEXT), e.nome, tp.type::text, tp.status::text, "
+        "tp.last_working_day, tp.total_amount "
+        "FROM termination_processes tp LEFT JOIN employees e ON e.id=tp.employee_id "
+        "ORDER BY tp.last_working_day DESC NULLS LAST, tp.created_at DESC LIMIT 200"))).all()
+    svc = TT = None
+    try:
+        from modules.people_management.hr.services.termination_service import TerminationService
+        from modules.people_management.hr.models.termination import TerminationType as _TT
+        svc, TT = TerminationService(db), _TT
+    except Exception:
+        pass
+    out_rows = []
+    for emp_id, nome, tp_type, tp_status, lwd, total in rows:
+        val = float(total) if total not in (None,) else None
+        if (val is None or val == 0) and svc and emp_id and lwd:
+            try:
+                try:
+                    _tp = TT(tp_type)
+                except Exception:
+                    _tp = TT.INVOLUNTARY
+                calc = await svc.calculate_severance(employee_id=emp_id, termination_type=_tp, last_working_day=lwd)
+                v = calc.get("total_liquido") or calc.get("total_proventos")
+                val = float(v) if v is not None else None
+            except Exception:
+                val = None
+        out_rows.append({"cells": [
+            t(nome or "—", 600, _ND, initials(nome or "")),
+            t(_TERM_TYPE.get((tp_type or "").lower(), tp_type or "—")),
+            _term_status(tp_status), t(_d(lwd)),
+            t(brl(val) if val is not None else "a calcular", 600)]})
+    return {"title": "Rescisão", "sub": "Processos de desligamento — tipo, status e verbas",
+            "cta": "Nova rescisão", "type": "table", "searchHint": "Buscar…",
+            "grid": "2fr 1.2fr 1fr 1fr 1.1fr",
+            "cols": ["Colaborador", "Tipo", "Status", "Último Dia", "Valor Total"],
+            "rows": out_rows}
+
+
 async def build(db) -> dict:
     # Base = tudo que o _build_dp já entrega (telas VIVAS + ferramentas).
     out = await _build_dp(db)
@@ -283,22 +338,24 @@ async def build(db) -> dict:
         "WHERE (p.reference_year,p.reference_month)=(SELECT reference_year,reference_month FROM hr_payslips "
         "ORDER BY reference_year DESC, reference_month DESC LIMIT 1) ORDER BY e.nome LIMIT 300",
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]), t(brl(r[2])),
-                   t(brl(r[3])), t(brl(r[4])), t(brl(r[5])), t(brl(r[6]), 600), _badge_status(r[7])]))
+                   t(brl(r[3])), t(brl(r[4])), t(brl(r[5])), t(brl(r[6]), 600), _folha_status(r[7])]))
 
     # 0c) Férias — SOBRESCREVE p/ traduzir o status (redesign mostrava cru SUBMITTED/APPROVED)
     #     e trazer a data de solicitação, como o clássico. Status derivado igual ao clássico:
     #     cancelled_at→Cancelado; APPROVED→Aprovado; senão Pendente.
+    # MESMA fonte do clássico (/hr/vacations = hr_vacation_requests), NÃO employee_vacation_requests
+    # (que a base usava e tem outro dataset). Tipo constante "Férias"; status via _fer_status (APPROVED→Aprovado).
     await safe("ferias", tbl(
         "Gestão de Férias", "Solicitações de férias dos colaboradores", "—",
-        ["Colaborador", "Período", "Dias", "Status", "Solicitado em"],
-        "2fr 1.8fr 0.6fr 1fr 1.1fr",
-        "SELECT e.nome, r.start_date, r.end_date, r.days_requested, r.status::text, r.cancelled_at, "
-        "(coalesce(r.submitted_at, r.created_at) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Manaus') AS sol "
-        "FROM employee_vacation_requests r LEFT JOIN employees e ON e.id=r.employee_id "
-        "ORDER BY coalesce(r.submitted_at, r.created_at) DESC LIMIT 300",
-        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")),
+        ["Colaborador", "Tipo", "Período", "Dias", "Status", "Criado em"],
+        "1.8fr 0.9fr 1.6fr 0.6fr 1fr 1.1fr",
+        "SELECT e.nome, h.start_date, h.end_date, h.days_requested, h.status::text, h.cancelled_at, "
+        "to_char(h.created_at AT TIME ZONE 'America/Manaus','DD/MM/YYYY HH24:MI') AS criado "
+        "FROM hr_vacation_requests h LEFT JOIN employees e ON e.id=h.employee_id "
+        "ORDER BY h.created_at DESC LIMIT 300",
+        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t("Férias"),
                    t(f"{_d(r[1])} – {_d(r[2])}"), t(str(r[3] or "—")),
-                   _fer_status(r[4], r[5]), t(_d(r[6], "%d/%m/%Y %H:%M"))]))
+                   _fer_status(r[4], r[5]), t(r[6] or "—")]))
 
     # 0d) Benefícios — SOBRESCREVE p/ trazer operadora + valores (empresa/desconto) + vigência,
     #     que o clássico mostra e o redesign resumia (só tipo/plano/status). employee_benefits.
@@ -316,16 +373,7 @@ async def build(db) -> dict:
     # 0e) Rescisão — SOBRESCREVE p/ ler de termination_processes (MESMA fonte do clássico
     #     /terminations), com Tipo/Status/Valor. A base lia employees WHERE status='demitido'
     #     (fonte errada, sem valores). Colunas iguais ao clássico: Colaborador/Tipo/Status/Último Dia/Valor.
-    await safe("rescisao", tbl(
-        "Rescisão", "Processos de desligamento — tipo, status e verbas", "Nova rescisão",
-        ["Colaborador", "Tipo", "Status", "Último Dia", "Valor Total"],
-        "2fr 1.2fr 1fr 1fr 1.1fr",
-        "SELECT e.nome, tp.type::text, tp.status::text, tp.last_working_day, tp.total_amount "
-        "FROM termination_processes tp LEFT JOIN employees e ON e.id=tp.employee_id "
-        "ORDER BY tp.last_working_day DESC NULLS LAST, tp.created_at DESC LIMIT 200",
-        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")),
-                   t(_TERM_TYPE.get((r[1] or "").lower(), r[1] or "—")),
-                   _term_status(r[2]), t(_d(r[3])), t(brl(r[4]), 600)]))
+    await safe("rescisao", _rescisao_screen(db))
 
     # 1) Admissão — admission_processes
     await safe("admissao", tbl(
@@ -352,32 +400,36 @@ async def build(db) -> dict:
     # Ponto — registro DIÁRIO como o clássico (/hr/time-records): batidas de gp_clock_punches
     # pareadas por (colaborador, dia) → Entrada/Saída/Total. Não 1 linha por batida. Exclui homologação.
     # punch_timestamp é Manaus-local naive (writers usam now()) → NÃO converter fuso.
+    _ENT = "lower(coalesce(punch_type,'')) LIKE 'entrada%'"
+    _SAI = "(lower(coalesce(punch_type,'')) LIKE 'saida%' OR lower(coalesce(punch_type,'')) LIKE 'saída%')"
     await safe("ponto", tbl(
         "Ponto", "Registros diários — entrada, saída e total", "—",
         ["Colaborador", "Data", "Entrada", "Saída", "Total Horas"],
         "2fr 1fr 0.9fr 0.9fr 1fr",
-        "SELECT e.nome, d.dia, d.entrada, d.saida, d.n, d.total_min FROM ("
+        "SELECT e.nome, d.dia, d.entrada, d.saida, d.total_min FROM ("
         "  SELECT employee_id, (punch_timestamp)::date AS dia, "
-        "    min(punch_timestamp) AS entrada, max(punch_timestamp) AS saida, count(*) AS n, "
-        "    (extract(epoch FROM (max(punch_timestamp)-min(punch_timestamp)))/60)::int AS total_min "
+        f"    min(punch_timestamp) FILTER (WHERE {_ENT}) AS entrada, "
+        f"    max(punch_timestamp) FILTER (WHERE {_SAI}) AS saida, "
+        f"    (extract(epoch FROM (max(punch_timestamp) FILTER (WHERE {_SAI}) "
+        f"       - min(punch_timestamp) FILTER (WHERE {_ENT})))/60)::int AS total_min "
         "  FROM gp_clock_punches "
         "  WHERE employee_id NOT IN (SELECT id FROM employees WHERE coalesce(is_homologacao,false)=true) "
         "  GROUP BY employee_id, (punch_timestamp)::date"
         ") d LEFT JOIN employees e ON e.id = d.employee_id "
         "ORDER BY d.dia DESC, e.nome LIMIT 300",
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(_d(r[1])),
-                   t(r[2].strftime("%H:%M") if r[2] else "—"),
-                   t(r[3].strftime("%H:%M") if (r[3] and (r[4] or 0) > 1) else "—"),
-                   t(_hm(r[5]) if (r[4] or 0) > 1 else "—")]))
+                   t(r[2].strftime("%H:%M") if r[2] else "--:--"),
+                   t(r[3].strftime("%H:%M") if r[3] else "--:--"),
+                   t(_hm(r[4]) if (r[4] is not None and r[4] > 0) else "--:--")]))
 
     # 4) Fechamento de ponto — MESMA fonte do clássico (time_sheets via painel_fechamento), NÃO
     #    gp_monthly_closings. Última competência com dado; status derivado (Homologado/Aguardando
     #    assinatura/Fechado/N anomalia(s)/Calculado). Assinatura via sig_signature_requests. Exclui homologação.
     await safe("fechamento-ponto", tbl(
         "Fechamento de ponto", "Espelhos mensais — última competência", "—",
-        ["Colaborador", "Competência", "Horas", "Extras", "Faltas", "Status"],
-        "1.8fr 1fr 1fr 1fr 0.8fr 1.3fr",
-        "SELECT ts.employee_name, ts.reference_month, ts.reference_year, ts.status, "
+        ["Colaborador", "Posto", "Horas", "Extras", "Faltas", "Status"],
+        "1.8fr 1.4fr 1fr 1fr 0.8fr 1.3fr",
+        "SELECT ts.employee_name, coalesce(ts.condominium_name,'—'), ts.reference_year, ts.status, "
         "ts.hours_worked_minutes, ts.overtime_total_minutes, ts.absent_days, "
         "greatest(coalesce(ts.anomaly_count,0)-coalesce(ts.anomaly_resolved_count,0),0) AS anomalias, "
         "ts.approved_by_employee, sig.status AS sig_status, sig.signed_at AS sig_signed "
@@ -394,7 +446,7 @@ async def build(db) -> dict:
         "  AND ts.employee_id NOT IN (SELECT CAST(id AS TEXT) FROM employees WHERE coalesce(is_homologacao,false)=true) "
         "ORDER BY ts.employee_name LIMIT 300",
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")),
-                   t(f"{(r[1] or 0):02d}/{r[2] or ''}"), t(_hm(r[4])), t(_hm(r[5])),
+                   t(r[1] or "—"), t(_hm(r[4])), t(_hm(r[5])),
                    t(str(r[6] or 0)), _fech_status(r[3], r[7], r[8], r[9], r[10])]))
 
     # 5) Licenças / afastamentos — sst_afastamentos (nome/cargo denormalizados)
