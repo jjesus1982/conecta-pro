@@ -24,6 +24,7 @@ serviço do conector + diretoria) — `_MCP_CONSULTOR_GATE`.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -652,3 +653,231 @@ async def margem_condominio(
         contexto_llm=fallback, fallback=fallback,
     )
     return {"dados": dados, "sintese": sintese, "groundedness": gnd, "disclaimer": _DISCLAIMER}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5) ORQUESTRADOR — POST /consultar  (o que "ACENDE" o Hermes: direct=False)
+# ─────────────────────────────────────────────────────────────────────────────
+# Diferente dos 4 quick-wins acima (que passam direct=True — guard de re-entrância, síntese
+# curta OpenAI direta e groundedness DURO que descarta a síntese suspeita), este é o CHAT
+# LIVRE executivo. Com `direct=False`, a ponte em consultor_hub.gerar roteia pro Hermes local
+# quando HERMES_BRIDGE_ENABLED=true e o Hermes está vivo — o cérebro encadeia as ~243 tools MCP
+# CNPJ-aware. Se o Hermes cair, `gerar` já degrada pro MODEL_CHAIN (OpenAI) sobre o LASTRO
+# ancorado (a degradação é da PONTE — não reimplementamos aqui). Groundedness em modo BRANDO:
+# rebaixa/flag, não bloqueia (o orquestrador legitimamente puxa de tools que o lastro
+# pré-buscado não cobre); só reforça o lastro em caso de CONTRADIÇÃO clara com um saldo real.
+# NÃO é exposto como tool MCP (seria loop Hermes→tool→gerar→Hermes) — é endpoint p/ o dono.
+
+class ConsultarIn(BaseModel):
+    pergunta: str = Field(..., min_length=3, max_length=2000, description="Pergunta executiva livre")
+
+
+def _fmt_brl(v: Any) -> str:
+    if v is None:
+        return "aguardando dado"
+    return "R$ " + f"{float(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _detectar_contradicao(resposta: str, anchors: list[tuple[list[str], float]]) -> list[str]:
+    """Contradição CLARA (única condição em que o modo brando reforça o lastro): uma frase
+    que fala de 'saldo' de uma conta âncora (Inter/Cora/consolidado) citando um valor
+    MONETÁRIO da MESMA ordem de grandeza do saldo real, porém divergente. Conservador de
+    propósito — exige 'saldo' + o rótulo da conta na MESMA frase e o valor dentro de ±50%
+    do real (senão é outra grandeza, ex. folha, não uma contradição do saldo)."""
+    contras: list[str] = []
+    # Split de frases que NÃO quebra números BR: um '.' entre dígitos (milhar, ex. 30.813,63)
+    # não é fim de frase — só '.'/';'/quebra fora de dígitos delimita.
+    for frase in re.split(r"(?<!\d)[.;\n]+(?!\d)", resposta or ""):
+        fl = frase.lower()
+        if "saldo" not in fl:
+            continue
+        for rotulos, val_real in anchors:
+            if not any(r in fl for r in rotulos):
+                continue
+            for n in groundedness.extrair_numeros(frase, ignorar_anos=True, ignorar_percentuais=True):
+                try:
+                    v = float(groundedness._canon(n))  # noqa: SLF001 — reuso do canonizador da garantia
+                except ValueError:
+                    continue
+                if v < 1000:  # contagens/inteiros pequenos não são saldo
+                    continue
+                if not (0.5 * val_real <= v <= 1.5 * val_real):
+                    continue  # ordem de grandeza diferente → outra grandeza, não contradição do saldo
+                if abs(v - val_real) > max(1.0, val_real * 0.005):
+                    contras.append(f"{rotulos[0]}: citou R$ {n}, mas o saldo real é {_fmt_brl(val_real)}")
+    return contras
+
+
+@router.post("/consultar")
+async def consultar(
+    payload: ConsultarIn,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_active_user),
+):
+    """🟢 READ — ORQUESTRADOR EXECUTIVO (chat livre do dono). "Acende" o Hermes via a ponte
+    (direct=False): o cérebro cruza caixa/folha/postos/deals encadeando as tools MCP CNPJ-aware.
+    Pré-busca o LASTRO real (caixa por CNPJ + postos descobertos) que ancora o groundedness E
+    dá contexto ao cérebro mesmo em degradação. Groundedness BRANDO: rebaixa/flag, não bloqueia;
+    só reforça o lastro em contradição clara com um saldo real. Money-out/ato legal = propõe, nunca executa."""
+    pergunta = payload.pergunta.strip()
+
+    # 1) LASTRO (fonte real) — ancora o groundedness e alimenta o cérebro na degradação.
+    caixa = await _caixa_cnpj(db)
+    ele, patr, cons = caixa["eletronica"], caixa["patrimonial"], caixa["consolidado"]
+    saldo_ele, saldo_patr = ele["saldo"], patr["saldo"]
+    saldo_total = cons["saldo_total"]["valor"]
+    folha_ele, folha_patr = ele["folha"], patr["folha"]
+    folha_total = cons["folha_total"]["valor"]
+
+    # Postos descobertos (COO) — aditivo/best-effort; nunca derruba a consulta.
+    qtd_postos = None
+    postos_desc: list[Any] = []
+    try:
+        coo = await _coo_panorama(db)
+        postos_desc = list((coo.get("cobertura") or {}).get("postos_descobertos") or [])
+        qtd_postos = len(postos_desc)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("consultar: COO indisponível (aditivo): %s", e)
+
+    # 2) Contexto ancorado (números reais) — anexado ao system prompt E usado como template.
+    linhas_ctx = [
+        f"Conecta Eletrônica (Banco {ele['banco']}): saldo {_fmt_brl(saldo_ele)} ({ele['saldo_fonte']}); "
+        f"folha {_fmt_brl(folha_ele)} ({ele['funcionarios_ativos'] or 0} colaboradores ativos).",
+        f"Conecta Patrimonial (Banco {patr['banco']}): saldo {_fmt_brl(saldo_patr)} ({patr['saldo_fonte']}); "
+        f"folha {_fmt_brl(folha_patr)} ({patr['funcionarios_ativos'] or 0} colaboradores ativos).",
+        f"Consolidado: saldo {_fmt_brl(saldo_total)}; folha {_fmt_brl(folha_total)}.",
+    ]
+    if qtd_postos is not None:
+        linhas_ctx.append(
+            f"Postos descobertos hoje: {qtd_postos}"
+            + (f" ({', '.join(str(p) for p in postos_desc[:5])})" if postos_desc else "")
+            + "."
+        )
+    contexto_caixa = "\n".join(linhas_ctx)
+
+    system_prompt = (
+        "Você é o Orquestrador Executivo da Conecta PRO — a visão do dono. Cruze caixa, folha, "
+        "postos, prazos e deals para responder à diretoria com precisão.\n\n"
+        "DUAS empresas/contas — NUNCA misture:\n"
+        "- Conecta Eletrônica → Banco Inter (segurança eletrônica / portaria remota / "
+        "monitoramento; quadro ativo = PJ/técnico).\n"
+        "- Conecta Patrimonial → Banco Cora (mão de obra humanizada: agente de portaria, "
+        "serviços gerais, artífice, jardineiro; 50 CLT).\n"
+        "Uma decisão de MÃO DE OBRA olha Patrimonial/Cora; segurança ELETRÔNICA olha "
+        "Eletrônica/Inter. Nunca misture as contas.\n\n"
+        "REGRAS:\n"
+        "- Use as tools para buscar CADA número no banco; CITE a fonte de cada número; NUNCA "
+        "fabrique — se faltar, diga 'aguardando dado'.\n"
+        "- Dinheiro que SAI e ato legal SEMPRE exigem gate humano + OTP — você PROPÕE, nunca executa.\n\n"
+        "=== LASTRO ANCORADO (números reais do banco, agora) ===\n" + contexto_caixa
+    )
+
+    # 3) CÉREBRO via a ponte (direct=False → Hermes quando vivo; senão MODEL_CHAIN sobre o lastro).
+    template = (
+        "Segue o lastro real do banco (cérebro executivo indisponível no momento): "
+        + contexto_caixa.replace("\n", " ")
+    )
+    provider, modelo = "template", "n/a"
+    resposta = template
+    try:
+        from modules.ai.conversation.services import consultor_hub as _hub
+
+        texto, meta = await _hub.gerar(
+            messages=[{"role": "user", "content": pergunta}],
+            system_prompt=system_prompt, origem="executivo", direct=False,
+            max_tokens=1200, temperature=0.3,
+        )
+        texto = (texto or "").strip()
+        if texto:
+            resposta = texto
+            provider = str(meta.get("provider") or "model_chain")
+            modelo = str(meta.get("model") or "openai")
+    except Exception as e:  # noqa: BLE001 — cérebro totalmente fora → template ancorado (nunca quebra)
+        logger.warning("consultar: cérebro indisponível, usando template ancorado: %s", e)
+
+    # 4) GROUNDEDNESS BRANDO — fonte = só números reais (omite None). Rebaixa/flag, não bloqueia.
+    fonte: dict[str, Any] = {}
+    if saldo_ele is not None:
+        fonte["saldo_inter"] = float(saldo_ele)
+    if saldo_patr is not None:
+        fonte["saldo_cora"] = float(saldo_patr)
+    if saldo_total is not None:
+        fonte["saldo_consolidado"] = float(saldo_total)
+    if folha_ele is not None:
+        fonte["folha_eletronica"] = float(folha_ele)
+    if folha_patr is not None:
+        fonte["folha_patrimonial"] = float(folha_patr)
+    if folha_total is not None:
+        fonte["folha_total"] = float(folha_total)
+    if qtd_postos is not None:
+        fonte["postos_descobertos"] = qtd_postos
+    fonte = _fonte_robusta(fonte)
+
+    g = groundedness.verificar(resposta, fonte)
+    suspeitos = list(g.get("suspeitos") or [])
+
+    # Contradição CLARA com um saldo real (única condição que REFORÇA o lastro no modo brando).
+    anchors: list[tuple[list[str], float]] = []
+    if saldo_ele is not None:
+        anchors.append((["inter", "eletrônica", "eletronica"], float(saldo_ele)))
+    if saldo_patr is not None:
+        anchors.append((["cora", "patrimonial"], float(saldo_patr)))
+    if saldo_total is not None:
+        anchors.append((["consolidado"], float(saldo_total)))
+    contradicoes = _detectar_contradicao(resposta, anchors)
+
+    flags: list[str] = []
+    if contradicoes:
+        # Reforça o lastro: prefixa a resposta com a correção autoritativa (não a descarta inteira,
+        # mas o número certo passa a vir primeiro e em destaque). grounded=False.
+        correcao = "⚠️ CORREÇÃO (dados reais do banco): " + "; ".join(contradicoes) + "."
+        resposta = correcao + "\n\n" + resposta
+        flags.append("contradicao_saldo_corrigida")
+    if suspeitos and not contradicoes:
+        # Números não verificáveis contra o lastro pré-buscado → flag "confira", SEM descartar.
+        flags.append(
+            "confira: alguns números não puderam ser verificados automaticamente contra o "
+            "lastro do banco (" + ", ".join(suspeitos[:8]) + ") — confira antes de decidir"
+        )
+        resposta = (
+            resposta
+            + "\n\n[Aviso: alguns números acima não puderam ser verificados automaticamente "
+            "contra o lastro do banco — confira antes de decidir.]"
+        )
+    grounded = not contradicoes and not suspeitos
+
+    # 5) Auditoria append-only (best-effort — nunca derruba o endpoint de leitura).
+    try:
+        await agent_audit.registrar_acao_agente(
+            db, origem="executivo", pergunta=pergunta, resposta=resposta,
+            modelo=modelo, tier="orquestrador", provider=provider,
+            groundedness_ok=grounded, trace_id="executivo.consultar",
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("consultar: falha ao auditar: %s", e)
+
+    caixa_resumo = {
+        "eletronica": {
+            "nome": ele["nome"], "banco": ele["banco"], "saldo": saldo_ele,
+            "folha": folha_ele, "ativos": ele["funcionarios_ativos"],
+            "as_of": ele["as_of"], "saldo_fonte": ele["saldo_fonte"],
+        },
+        "patrimonial": {
+            "nome": patr["nome"], "banco": patr["banco"], "saldo": saldo_patr,
+            "folha": folha_patr, "ativos": patr["funcionarios_ativos"],
+            "as_of": patr["as_of"], "saldo_fonte": patr["saldo_fonte"],
+        },
+        "consolidado": {"saldo_total": saldo_total, "folha_total": folha_total},
+        "postos_descobertos": qtd_postos,
+    }
+
+    return {
+        "resposta": resposta,
+        "provider": provider,
+        "modelo": modelo,
+        "grounded": grounded,
+        "flags": flags,
+        "caixa_resumo": caixa_resumo,
+        "origem": "executivo",
+        "disclaimer": _DISCLAIMER,
+    }
