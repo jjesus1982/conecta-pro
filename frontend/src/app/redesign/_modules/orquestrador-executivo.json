@@ -1,0 +1,33 @@
+{
+  "menu": [
+    {
+      "id": "chat",
+      "label": "Orquestrador Executivo",
+      "icon": "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+    }
+  ],
+  "screens": {
+    "chat": {
+      "title": "Orquestrador Executivo",
+      "sub": "Pergunte qualquer coisa — caixa por CNPJ, folha, contratação, runway, briefing. As respostas cruzam os dados reais do ERP.",
+      "type": "chat",
+      "chat": {
+        "endpoint": "/api/v1/consultores/mcp/executivo/consultar",
+        "field": "pergunta",
+        "placeholder": "Ex.: posso contratar 5 agentes de portaria este mês?",
+        "suggestions": [
+          "Posso contratar 5 agentes de portaria este mês?",
+          "Qual o caixa por CNPJ hoje?",
+          "Qual o runway atual?",
+          "Faça o briefing executivo"
+        ],
+        "disclaimer": "Respostas ancoradas nos números reais do ERP (caixa Inter/Cora por CNPJ, folha, postos). Confira antes de decidir. Dinheiro que sai e ato legal exigem sua aprovação humana + OTP — o orquestrador só propõe, nunca executa."
+      }
+    }
+  },
+  "mod": {
+    "icon": "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
+    "name": "Orquestrador Executivo",
+    "desc": "Cérebro executivo cross-domínio (Hermes)"
+  }
+}

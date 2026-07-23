@@ -5,6 +5,7 @@ import { PanelLeftClose, PanelLeft, Menu, Search, Bell, Plus, LogOut, LayoutGrid
 import { MODULES } from './modules';
 import { rdLogout } from './session';
 import { DocButtons } from './DocButtons';
+import ChatScreen from './ChatScreen';
 
 // ── Ícone via path bruto do pacote (lucide, traço 2px) ───────────────────────
 function Ico({ d, size = 17, stroke = 'currentColor' }: { d: string; size?: number; stroke?: string }) {
@@ -299,6 +300,7 @@ function Screen({ scr }: { scr: any }) {
     case 'cards': return <CardsScreen scr={scr} />;
     case 'list': return <ListScreen scr={scr} />;
     case 'form': return <FormScreen scr={scr} />;
+    case 'chat': return <ChatScreen scr={scr} />;
     default: return <div className="rd-card rd-card-pad">Tipo não suportado: {scr.type}</div>;
   }
 }
@@ -446,7 +448,7 @@ export default function ModuleView({ slug }: { slug: string }) {
                 </div>
                 <div className="rd-skel" style={{ height: 220 }} />
               </div>
-            : isReal
+            : (isReal || scr?.type === 'chat')
               ? <Screen scr={scr} />
               : <EmptyReal />}
         </main>

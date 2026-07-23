@@ -22,6 +22,7 @@ import licitacoes from '@/app/redesign/_modules/licitacoes.json';
 import marketing from '@/app/redesign/_modules/marketing.json';
 import meu_espaco from '@/app/redesign/_modules/meu-espaco.json';
 import operacional from '@/app/redesign/_modules/operacional.json';
+import orquestrador_executivo from '@/app/redesign/_modules/orquestrador-executivo.json';
 import portal_do_funcionario from '@/app/redesign/_modules/portal-do-funcionario.json';
 import recrutamento from '@/app/redesign/_modules/recrutamento.json';
 import relatorios from '@/app/redesign/_modules/relatorios.json';
@@ -55,6 +56,7 @@ export const MODULES: Record<string, any> = {
   'marketing': marketing,
   'meu-espaco': meu_espaco,
   'operacional': operacional,
+  'orquestrador-executivo': orquestrador_executivo,
   'portal-do-funcionario': portal_do_funcionario,
   'recrutamento': recrutamento,
   'relatorios': relatorios,
