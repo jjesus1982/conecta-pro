@@ -321,14 +321,18 @@ async def build(db) -> dict:
                    t(brl(r[4]) if r[4] is not None else brl(0))]))
 
     # ---- NFS-e entrada (notas tomadas + CNPJ prestador e Empresa, que o clássico mostra) ----
+    # NFS-e entrada (Notas Recebidas) — DANFSe por-linha (download/ver nota), paridade com o clássico.
+    # Rota curl-provada 200 application/pdf: /api/v1/financial/nfse-entrada/{chave}/pdf (gera do
+    # xml_raw fiel ou dos campos como fallback). Só liga onde há chave_acesso.
     await safe("nfse-entrada", tbl(
         "NFS-e entrada", f"{await _scalar(db, 'SELECT count(*) FROM nfse_tomadas_nacional')} notas tomadas",
         "—", ["Prestador", "CNPJ", "Empresa", "Competência", "Serviços", "ISS"], "1.8fr 1.3fr 1.6fr 1fr 1fr 1fr",
-        "SELECT coalesce(nt.prestador_nome,'—'), coalesce(nt.prestador_cnpj,'—'), "
+        "SELECT nt.chave_acesso, coalesce(nt.prestador_nome,'—'), coalesce(nt.prestador_cnpj,'—'), "
         "coalesce(e.razao_social, e.nome_fantasia, e.slug, '—'), coalesce(nt.competencia,'—'), nt.valor_servicos, nt.iss_valor "
         "FROM nfse_tomadas_nacional nt LEFT JOIN empresas e ON e.id=nt.empresa_id ORDER BY nt.data_emissao DESC NULLS LAST LIMIT 500",
-        lambda r: [t(r[0], 600, "#0F1B3A"), t(_cnpj(r[1])), t(r[2]), t(r[3]), t(brl(r[4]), 600),
-                   t(brl(r[5]) if r[5] is not None else brl(0))]))
+        lambda r: [t(r[1], 600, "#0F1B3A"), t(_cnpj(r[2])), t(r[3]), t(r[4]), t(brl(r[5]), 600),
+                   t(brl(r[6]) if r[6] is not None else brl(0))],
+        docsfn=lambda r: [doc("DANFSe", f"/api/v1/financial/nfse-entrada/{r[0]}/pdf", fmt="pdf")] if r[0] else []))
 
     # ---- Orçamentos (financial_orcamentos — chaves orçamentárias) ----
     # Orçado × Realizado mensal — orçado = MRR real (baseline, não projeção fabricada);
