@@ -90,6 +90,55 @@ async def guia_pdf(
     )
 
 
+def _localizar_pdf_onvio(fonte: str, guia_id: str) -> tuple[str | None, str, str | None]:
+    """PDF real de uma guia FGTS/INSS puxada do Onvio (fgts_guias/inss_guias.arquivo_pdf).
+    Read-only; o caminho vem do nosso puller (não de input do usuário), e mesmo assim é
+    validado para ficar sob /app/uploads (anti-traversal). Retorna (caminho, nome, erro)."""
+    import os
+
+    from core.database.session import SyncSessionLocal
+
+    tabela = {"fgts": "fgts_guias", "inss": "inss_guias"}.get(fonte)
+    if not tabela:
+        return None, "", "fonte inválida (use fgts ou inss)"
+    db = SyncSessionLocal()
+    try:
+        row = db.execute(
+            _sqltext(f"SELECT arquivo_pdf, coalesce(mes_ref, 'guia') FROM {tabela} WHERE id = :id"),
+            {"id": guia_id},
+        ).first()
+    except Exception:  # noqa: BLE001 — id inválido (não-uuid) etc. → trata como não encontrado
+        return None, "", "guia não encontrada"
+    finally:
+        db.close()
+    if not row or not row[0]:
+        return None, "", "guia não encontrada ou sem PDF"
+    caminho = os.path.realpath(row[0])
+    base = os.path.realpath("/app/uploads")
+    if not caminho.startswith(base + os.sep) or not os.path.exists(caminho):
+        return None, "", "arquivo da guia não encontrado no sistema"
+    nome = f"guia_{fonte}_{(str(row[1]) or '').replace('/', '-').replace(' ', '')}.pdf"
+    return caminho, nome, None
+
+
+@router.get("/guia-onvio/{fonte}/{guia_id}/pdf", summary="PDF real da guia FGTS/INSS (Onvio)")
+async def guia_onvio_pdf(
+    fonte: str,
+    guia_id: str,
+    current_user: CurrentActiveUser,
+    download: bool = Query(False, description="1 = força download; 0 = abre inline"),
+) -> Any:
+    """Serve o PDF da guia FGTS/INSS puxada do Onvio (arquivo_pdf em disco). Leitura."""
+    caminho, nome, erro = await run_in_threadpool(_localizar_pdf_onvio, fonte, guia_id)
+    if erro:
+        raise HTTPException(status_code=404, detail=erro)
+    disp = "attachment" if download else "inline"
+    return FileResponse(
+        caminho, media_type="application/pdf",
+        headers={"Content-Disposition": f'{disp}; filename="{nome}"'},
+    )
+
+
 @router.post("/{obligacao_id}/preparar-pagamento", status_code=201, summary="Preparar pagamento da guia (gate OTP)")
 async def preparar_pagamento_guia(
     obligacao_id: str,
