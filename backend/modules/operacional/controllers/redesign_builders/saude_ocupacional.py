@@ -4,11 +4,14 @@ legal (transmitir eSocial) segue GATED."""
 from sqlalchemy import text
 
 from modules.operacional.controllers.redesign_data_controller import (
-    S, _build_saude, _fmtdate, _helpers, _scalar, b, brl, t,
+    S, _build_saude, _fmtdate, _helpers, _scalar, b, brl, doc, t,
 )
 
 SLUG = "saude-ocupacional"
-EXTRA_MENU: list[dict] = []
+EXTRA_MENU: list[dict] = [
+    {"id": "fichas-epi", "label": "Fichas de EPI",
+     "icon": "M9 12l2 2 4-4M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"},
+]
 
 
 async def build(db) -> dict:
@@ -109,6 +112,35 @@ async def build(db) -> dict:
                 {"left": "Total de colaboradores", "right": str(tot_colab or 0), **S["info"]},
                 {"left": "Taxa de acidente", "right": f"{taxa}%", **S["warn"]},
             ]}]
+    except Exception:  # noqa: BLE001
+        pass
+
+    # DOCUMENTOS SST — rotas curl-provadas (200 application/pdf):
+    # NR-1 compliance (nível-tela, sem id) na visão; Ficha EPI + PPP por-linha na tela nova.
+    try:
+        if "visao" in out and isinstance(out["visao"], dict):
+            out["visao"].setdefault("docs", [])
+            out["visao"]["docs"].append(
+                doc("NR-1 Compliance (PDF)", "/api/v1/people-management/sst/nr1/compliance/pdf",
+                    fmt="pdf", gate="sst"))
+    except Exception:  # noqa: BLE001
+        pass
+
+    try:
+        n_epi = await _scalar(db, "SELECT count(*) FROM sst_fichas_epi") or 0
+        out["fichas-epi"] = await tbl(
+            "Fichas de EPI", f"{n_epi} ficha(s)", "—",
+            ["Colaborador", "Status", "Emitida"], "2fr 1.3fr 1fr",
+            "SELECT id, employee_id, coalesce(employee_nome,'—'), coalesce(status::text,'—'), created_at "
+            "FROM sst_fichas_epi ORDER BY created_at DESC NULLS LAST LIMIT 200",
+            lambda r: [t(r[2], 600, "#0F1B3A"),
+                       b((r[3] or '—').replace('_', ' ').capitalize(),
+                         "ok" if 'assinad' in (r[3] or '').lower() else "warn"),
+                       t(_fmtdate(r[4]))],
+            docsfn=lambda r: [
+                doc("Ficha EPI (PDF)", f"/api/v1/people-management/sst/epi/fichas/{r[0]}/pdf", fmt="pdf"),
+                doc("PPP (PDF)", f"/api/v1/people-management/sst/ppp/{r[1]}/pdf", fmt="pdf"),
+            ])
     except Exception:  # noqa: BLE001
         pass
 
