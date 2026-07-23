@@ -395,6 +395,41 @@ services:
     networks:
       - conecta-pro-network
 
+  # Fase 5.2a.1 — conector-IRMÃO do MCP em modo BEARER (interno, sem ports).
+  # MESMA imagem do conector de produção; o Hermes fala com ele por Bearer.
+  # Puxa ERP creds + MCP_AUTH_TOKEN do mcp-server/.env (mesma origem do prod);
+  # AUTH_MODE sobrescrito p/ bearer e ERP_BASE_URL aponta pro backend interno.
+  mcp-internal:
+    image: conecta-pro-mcp:latest
+    container_name: conecta-pro-mcp-internal
+    restart: unless-stopped
+    mem_limit: 400m
+    env_file:
+      - ./mcp-server/.env
+    environment:
+      AUTH_MODE: bearer
+      ERP_BASE_URL: "http://conecta-pro-backend:8080"
+    networks:
+      - conecta-pro-network
+
+  # Fase 5.2a.1 — Hermes Agent (NousResearch), gateway OpenAI-compat :8642.
+  # Cérebro=OpenAI; fala MCP com o irmão bearer; approvals.deny (money-out fora).
+  hermes:
+    image: conecta-pro-hermes:latest
+    container_name: conecta-pro-hermes
+    restart: unless-stopped
+    mem_limit: 512m
+    env_file:
+      - .env
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      HERMES_API_KEY: ${HERMES_API_KEY}
+      MCP_BEARER: ${MCP_BEARER}
+    depends_on:
+      - mcp-internal
+    networks:
+      - conecta-pro-network
+
 volumes:
   postgres_data:
     driver: local
