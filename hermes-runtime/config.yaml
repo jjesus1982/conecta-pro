@@ -1,0 +1,61 @@
+# ============================================================================
+# Conecta PRO — Hermes Agent config (Fase 5.2a)
+# HERMES_HOME=/data ; este arquivo = /data/config.yaml
+# Segredos NUNCA ficam aqui: chegam por ENV (${VAR}) no container.
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# Modelo / provedor de inferencia — OpenAI direto.
+#   O default e gpt-5; o cliente pode sobrescrever por request (ex.: gpt-5-mini)
+#   via o campo `model` da API OpenAI-compat.
+# ---------------------------------------------------------------------------
+model:
+  default: "gpt-5"
+  provider: "openai-api"          # provider canonico do Hermes p/ OpenAI direto
+                                   # (o alias "openai" roteia p/ openrouter — nao usar)
+  base_url: "https://api.openai.com/v1"
+  # OPENAI_API_KEY chega por ENV (.env do container / -e).
+
+# ---------------------------------------------------------------------------
+# Conectores MCP — o conector-IRMAO em modo bearer (conecta-pro-mcp-internal).
+#   O conector de PRODUCAO (conecta-pro-mcp) usa Google OAuth de entrada, que
+#   o Hermes nao fala. Por isso subimos um irmao com a MESMA imagem
+#   (conecta-pro-mcp:latest) em AUTH_MODE=bearer (MCP_AUTH_TOKEN), interno.
+#   URL interna na rede docker; auth por Bearer (MCP_BEARER == MCP_AUTH_TOKEN).
+#   include: [] => TODAS as tools expostas pelo conector ficam visiveis.
+# ---------------------------------------------------------------------------
+mcp_servers:
+  conecta:
+    url: "http://conecta-pro-mcp-internal:8788/mcp"
+    headers:
+      Authorization: "Bearer ${MCP_BEARER}"
+    tools:
+      include: []          # vazio = todas as tools do conector
+    supports_parallel_tool_calls: false
+    timeout: 120
+    connect_timeout: 60
+    enabled: true
+
+# ---------------------------------------------------------------------------
+# Aprovacoes — defesa em profundidade.
+#   mode: smart      -> avalia risco por chamada.
+#   cron_mode: deny  -> jobs agendados NUNCA executam acao sensivel sozinhos.
+#   deny: glob dos verbos de "dinheiro que sai" e execucao/aprovacao.
+#         O Hermes so PROPOE; execucao real de PIX/pagamento = gate humano+OTP
+#         no ERP, fora deste agente.
+# ---------------------------------------------------------------------------
+approvals:
+  mode: smart
+  cron_mode: deny
+  deny:
+    - "*pix*"
+    - "*pagar*"
+    - "*pagamento*"
+    - "*transfer*"
+    - "*executar*"
+    - "*aprovar*"
+
+# ---------------------------------------------------------------------------
+# Constituicao do agente: /data/SOUL.md (auto-carregada do HERMES_HOME=/data
+# como identidade / slot #1 do system prompt). Nao precisa de chave aqui.
+# ---------------------------------------------------------------------------
