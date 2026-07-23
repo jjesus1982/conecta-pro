@@ -145,12 +145,14 @@ async def build(db) -> dict:
     # /api/v1/crm/proposals/{id}/pdf e /api/v1/crm/contracts/{id}/pdf. Rebuild das telas base
     # (mesmas colunas) + id na 1ª coluna do SELECT + docsfn.
     try:
+        # Botão PDF SÓ nas propostas is_active=true — a rota (ProposalRepository.get_by_id) filtra
+        # is_active e 404 nas inativas. Sem isso, 17 de 30 dariam botão-404. (bug pego no E2E)
         await safe("propostas", tbl("Propostas", f"{await _scalar(db, 'SELECT count(*) FROM proposals')} propostas", "Nova proposta",
             ["Número", "Cliente", "Título", "Valor", "Status"], "1fr 1.6fr 1.6fr 1fr 0.9fr",
-            "SELECT id, coalesce(number,'—'), coalesce(client_name,'—'), coalesce(title,'—'), coalesce(total,subtotal,0), status::text "
+            "SELECT id, coalesce(number,'—'), coalesce(client_name,'—'), coalesce(title,'—'), coalesce(total,subtotal,0), status::text, coalesce(is_active,false) "
             "FROM proposals ORDER BY created_at DESC NULLS LAST LIMIT 200",
             lambda r: [t(r[1], 600, "#0F1B3A"), t(r[2]), t(r[3]), t(brl(r[4]), 600), b(r[5] or "—", "info")],
-            docsfn=lambda r: [doc("Proposta", f"/api/v1/crm/proposals/{r[0]}/pdf", fmt="pdf")]))
+            docsfn=lambda r: [doc("Proposta", f"/api/v1/crm/proposals/{r[0]}/pdf", fmt="pdf")] if r[6] else []))
     except Exception:  # noqa: BLE001
         await db.rollback()
     try:
