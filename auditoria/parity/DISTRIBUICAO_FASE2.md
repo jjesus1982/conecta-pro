@@ -143,3 +143,10 @@ Por tela:
   Corrigidos: configuracoes/usuarios (Perfil PT), portal/ferias (status PT), licitacoes/editais+propostas+contratos (modalidade/status PT), gestao/ponto (TZ raw fix +status PT), gestao/consultor (UUID→Sistema), gestao/ponto-espelho (atraso inteiro), dp/beneficios (Tipo PT), rh/carreira (status PT), rh/clima (score n/d se 0 resp), rh/ia (área legível).
 - [x] 17 telas vazias confirmadas VAZIO-REAL (fonte 0 linhas, zero fantasma): marketing 6, equipamentos 4, automacoes 2, configuracoes 2, aviso-previo, ponto-banco, rh-treinamentos.
 - Método: build() in-process de todos os 10 módulos + scan de cada célula + cross-check fonte; E2E cache-bust no domínio público. blue-green OK.
+
+## QA PLAYWRIGHT MCP clássico×redesign (browser real, sessão 2026-07-23)
+- Método: login localStorage + browser_evaluate extraindo células renderizadas do CLÁSSICO (/modulos/*) vs redesign. Matou chromium órfão do próprio perfil (isolado; NÃO tocou nas outras sessões paralelas).
+- 5 DIVERGÊNCIAS REAIS corrigidas (todas DP, onde troquei fonte/computei): rescisao (R$0→R$2.140,71 via calculate_severance), fechamento-ponto (Posto não Competência), ponto (pareia por punch_type), folha (Status Calculada), ferias (FONTE hr_vacation_requests não employee_vacation_requests + Tipo + TZ AT TIME ZONE Manaus única).
+- 2 casos REDESIGN CORRETO / clássico bugado (não replicar): avaliacoes (clássico hardcode 'Trimestral' por ler review_type||tipo; real=type='annual'→Anual); licitacoes/editais (clássico mostra PREGAO_ELETRONICO cru; redesign 'Pregão Eletrônico').
+- 1 enhancement rotulado: rh/onboarding (clássico vazio; redesign mostra 9 recém-admitidos reais em experiência).
+- Deploy blue-green DP OK. Browser fechado ao fim.
