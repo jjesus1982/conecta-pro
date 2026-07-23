@@ -10,6 +10,8 @@ from modules.operacional.controllers.redesign_data_controller import (
     _build_portal_funcionario,
     _helpers,
     b,
+    brl,
+    doc,
     initials,
     t,
 )
@@ -76,6 +78,18 @@ async def build(db) -> dict:
                 await db.rollback()
             except Exception:
                 pass
+
+    # 0a) Contracheque — SOBRESCREVE a base p/ ligar o botão Holerite por-linha (rota DP verificada)
+    await safe("contracheque", tbl(
+        "Contracheque", "Holerites do colaborador", "—",
+        ["Colaborador", "Competência", "Líquido", "Status"], "2fr 1fr 1fr 0.9fr",
+        "SELECT coalesce(e.nome,'—'), p.reference_month, p.reference_year, p.net_salary, "
+        "coalesce(p.status::text,'—'), CAST(p.id AS TEXT) "
+        "FROM hr_payslips p LEFT JOIN employees e ON e.id=p.employee_id "
+        "ORDER BY p.reference_year DESC, p.reference_month DESC LIMIT 200",
+        lambda r: [t(r[0], 600, _ND, initials(r[0] or "")), t(f"{r[1]:02d}/{r[2]}" if r[1] else "—"),
+                   t(brl(r[3]) if r[3] is not None else "—"), b((r[4] or "—").capitalize(), "info")],
+        docsfn=lambda r: [doc("Holerite", f"/api/v1/people-management/dp/payslips/{r[5]}/pdf", fmt="pdf", gate="financeiro")]))
 
     # 0) Férias — SOBRESCREVE a base (Status vinha cru 'Approved') → PT
     await safe("ferias", tbl(
