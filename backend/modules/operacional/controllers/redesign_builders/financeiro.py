@@ -21,6 +21,7 @@ from modules.operacional.controllers.redesign_data_controller import (  # noqa: 
     _scalar,
     b,
     brl,
+    doc,
     initials,
     t,
 )
@@ -586,6 +587,24 @@ async def build(db) -> dict:
             {"key": "payment_id", "label": "ID do pagamento*", "type": "text", "span": "span 2", "ph": "identificador do pagamento"},
         ],
     }
+
+    # ---- DOCUMENTOS (botões abrir HTML + baixar PDF) — paridade com o clássico. Rotas curl-provadas
+    # 200 application/pdf. Nível-tela (sem id) nas telas de relatório/aging; conciliação = modo json.
+    from datetime import date as _dt
+    _ano = _dt.today().year
+    try:
+        if isinstance(out.get("relatorios"), dict):
+            out["relatorios"]["docs"] = [
+                doc("DRE (PDF)", f"/api/v1/financial/relatorios/dre/pdf?ano={_ano}", fmt="pdf", gate="financeiro"),
+                doc("Balancete (PDF)", f"/api/v1/financial/relatorios/balancete/pdf?ano={_ano}", fmt="pdf", gate="financeiro"),
+                doc("Fluxo de Caixa (PDF)", f"/api/v1/financial/relatorios/fluxo-caixa/pdf?ano={_ano}", fmt="pdf", gate="financeiro"),
+            ]
+        if isinstance(out.get("contas-pagar"), dict):
+            out["contas-pagar"]["docs"] = [doc("Aging Contas a Pagar (PDF)", "/api/v1/financial/payables/aging/pdf", fmt="pdf", gate="financeiro")]
+        if isinstance(out.get("contas-receber"), dict):
+            out["contas-receber"]["docs"] = [doc("Aging Contas a Receber (PDF)", "/api/v1/financial/receivables/aging/pdf", fmt="pdf", gate="financeiro")]
+    except Exception:  # noqa: BLE001 — documentos não derrubam o módulo
+        pass
 
     return out
 
