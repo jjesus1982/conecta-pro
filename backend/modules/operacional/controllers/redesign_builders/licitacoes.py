@@ -11,6 +11,7 @@ from modules.operacional.controllers.redesign_data_controller import (
     _helpers,
     b,
     brl,
+    doc,
     t,
 )
 
@@ -94,7 +95,8 @@ async def build(db) -> dict:
         "ORDER BY data_abertura DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0] or "—", 600, _ND), t(r[1]), t(_modal(r[2])), t(_d(r[3])), _bid_status(r[4])]))
 
-    # 2) Documentos — bidding_tender_documents
+    # 2) Documentos — bidding_tender_documents. arquivo_url NULL em 100% (8/8) e o
+    #    document_controller só expõe metadados (sem FileResponse) → sem arquivo servível.
     await safe("documentos", tbl(
         "Documentos", "Documentos de licitação", "—",
         ["Documento", "Tipo", "Obrigatório", "Criado"],
@@ -103,6 +105,10 @@ async def build(db) -> dict:
         "FROM bidding_tender_documents ORDER BY created_at DESC LIMIT 200",
         lambda r: [t(r[0] or "—", 600, _ND), t((r[1] or "—").replace("_", " ")),
                    (b("Sim", "warn") if r[2] else b("Não", "mut")), t(_d(r[3]))]))
+    if "documentos" in out:
+        out["documentos"]["docs"] = [doc(
+            "Arquivo do documento (indisponível)", disabled=True,
+            motivo="bidding_tender_documents.arquivo_url vazio e sem rota de download — falta upload/servir o arquivo")]
 
     # 3) Resultados — bidding_tenders homologadas/com resultado
     await safe("resultados", tbl(
@@ -126,21 +132,33 @@ async def build(db) -> dict:
         lambda r: [t((r[0] or "—")[:70], 600, _ND), t(r[1]), t(_modal(r[2])), t(brl(r[3] or 0)),
                    _bid_status(r[4]), (b("Sim", "ok") if r[5] else b("Não", "mut"))]))
 
-    # Propostas — SOBRESCREVE a base (Status cru) → PT
+    # Propostas — SOBRESCREVE a base (Status cru) → PT. Documento POR-LINHA: PDF real da
+    # proposta via /api/v1/crm/proposals/{id}/pdf (curl 200 application/pdf ~371KB, mesma
+    # tabela `proposals`). id na 1ª coluna do SELECT.
     await safe("propostas", tbl(
         "Propostas", "Propostas comerciais", "—",
         ["Número", "Cliente", "Título", "Valor", "Status"], "1fr 1.6fr 1.6fr 1fr 0.9fr",
-        "SELECT coalesce(number,'—'), coalesce(client_name,'—'), coalesce(title,'—'), "
+        "SELECT id, coalesce(number,'—'), coalesce(client_name,'—'), coalesce(title,'—'), "
         "coalesce(total,subtotal,0), status::text FROM proposals ORDER BY created_at DESC NULLS LAST LIMIT 200",
-        lambda r: [t(r[0], 600, _ND), t(r[1]), t(r[2]), t(brl(r[3]), 600), _prop_status(r[4])]))
+        lambda r: [t(r[1], 600, _ND), t(r[2]), t(r[3]), t(brl(r[4]), 600), _prop_status(r[5])],
+        docsfn=lambda r: [doc("Proposta (PDF)", f"/api/v1/crm/proposals/{r[0]}/pdf", fmt="pdf")]))
 
-    # Contratos — SOBRESCREVE a base (Status cru 'Active') → PT
+    # Contratos — SOBRESCREVE a base (Status cru 'Active') → PT. Documento POR-LINHA: PDF real
+    # do contrato via /api/v1/crm/contracts/{id}/pdf (curl 200 application/pdf ~463KB). id 1ª col.
     await safe("contratos", tbl(
         "Contratos", "Contratos de prestação", "—",
         ["Contrato", "Cliente", "Mensal", "Total", "Status"], "1.2fr 1.6fr 1fr 1fr 0.9fr",
-        "SELECT coalesce(ct.contract_number,'—'), coalesce(cl.name, ct.name, '—'), "
+        "SELECT ct.id, coalesce(ct.contract_number,'—'), coalesce(cl.name, ct.name, '—'), "
         "coalesce(ct.monthly_value,0), coalesce(ct.total_value,0), ct.status::text "
         "FROM contracts ct LEFT JOIN clients cl ON cl.id=ct.client_id ORDER BY ct.start_date DESC NULLS LAST LIMIT 200",
-        lambda r: [t(r[0], 600, _ND), t(r[1]), t(brl(r[2]), 600), t(brl(r[3])), _contr_status(r[4])]))
+        lambda r: [t(r[1], 600, _ND), t(r[2]), t(brl(r[3]), 600), t(brl(r[4])), _contr_status(r[5])],
+        docsfn=lambda r: [doc("Contrato (PDF)", f"/api/v1/crm/contracts/{r[0]}/pdf", fmt="pdf")]))
+
+    # Certidões — bidding_certificates.arquivo_url NULL em 100% (8/8) e o certificate_controller
+    # não serve arquivo → sinal honesto de indisponibilidade (sem botão que abre lixo).
+    if "certidoes" in out and isinstance(out.get("certidoes"), dict):
+        out["certidoes"]["docs"] = [doc(
+            "Certidão (arquivo indisponível)", disabled=True,
+            motivo="bidding_certificates.arquivo_url vazio e sem rota de download — CND só como metadado")]
 
     return out
