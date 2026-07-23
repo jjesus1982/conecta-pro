@@ -1,8 +1,10 @@
 """Fiscal (T1) — delega ao _build_fiscal e liga o menu json 'certidoes' às CNDs reais
 (ged_certidoes) que já são montadas como 'certidoes-cnd'. Ação fiscal (transmitir) segue GATED.
 nfse-multi/sped/ecac/consultor = capacidade sem tabela → honesto vazio."""
+from datetime import date as _date
+
 from modules.operacional.controllers.redesign_data_controller import (
-    IC, _ICF, _build_fiscal, _scalar, brl,
+    IC, _ICF, _build_fiscal, _fmtdate, _helpers, _scalar, b, brl, doc, t,
 )
 
 SLUG = "fiscal"
@@ -11,7 +13,36 @@ EXTRA_MENU: list[dict] = []
 
 async def build(db) -> dict:
     out = await _build_fiscal(db)
-    # O item de menu json 'certidoes' estava vazio; aponta pras mesmas CNDs reais.
+    _, _safe, tbl = _helpers(db)
+
+    # DOCUMENTOS — Certidões (CND): baixar/abrir o PDF real por certidão. Rota provada 200:
+    # /api/v1/gedeon/cnd/pdf/{document_type} (FileResponse de ged_certidoes.file_path). Só liga o
+    # botão onde o arquivo EXISTE (file_path preenchido) — senão o endpoint 404 (nunca botão-lixo).
+    _hoje = _date.today()
+
+    def _cnd_sit(exp):
+        if exp is None:
+            return b("—", "info")
+        d = exp.date() if hasattr(exp, "date") else exp
+        try:
+            dias = (d - _hoje).days
+        except TypeError:
+            return b("—", "info")
+        return b("Vencida", "bad") if dias < 0 else (b(f"Vence em {dias}d", "warn") if dias <= 30 else b("Válida", "ok"))
+
+    try:
+        out["certidoes-cnd"] = await tbl(
+            "Certidões (CND)", f"{await _scalar(db, 'SELECT count(*) FROM ged_certidoes')} certidões", "—",
+            ["Certidão", "Tipo", "Órgão emissor", "Emissão", "Validade", "Situação"], "1.8fr 1.1fr 1.3fr 0.9fr 0.9fr 1fr",
+            "SELECT coalesce(name,'—'), coalesce(document_type,'—'), coalesce(issuing_body,'—'), issue_date, expiry_date, "
+            "(file_path IS NOT NULL AND file_path<>''), document_type FROM ged_certidoes ORDER BY expiry_date ASC NULLS LAST LIMIT 200",
+            lambda r: [t((r[0] or '—')[:48], 600, "#0F1B3A"), t((r[1] or '—').replace('certidao_negativa_', 'CND ').replace('_', ' ')),
+                       t((r[2] or '—')[:32]), t(_fmtdate(r[3])), t(_fmtdate(r[4])), _cnd_sit(r[4])],
+            docsfn=lambda r: [doc("CND", f"/api/v1/gedeon/cnd/pdf/{r[6]}", fmt="pdf")] if r[5] else [])
+    except Exception:  # noqa: BLE001
+        pass
+
+    # O item de menu json 'certidoes' estava vazio; aponta pras mesmas CNDs reais (agora com PDF).
     if "certidoes-cnd" in out:
         out["certidoes"] = out["certidoes-cnd"]
 
