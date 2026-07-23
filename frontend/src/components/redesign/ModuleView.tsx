@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { PanelLeftClose, PanelLeft, Menu, Search, Bell, Plus, LogOut, LayoutGrid } from 'lucide-react';
 import { MODULES } from './modules';
 import { rdLogout } from './session';
+import { DocButtons } from './DocButtons';
 
 // ── Ícone via path bruto do pacote (lucide, traço 2px) ───────────────────────
 function Ico({ d, size = 17, stroke = 'currentColor' }: { d: string; size?: number; stroke?: string }) {
@@ -62,15 +63,21 @@ function DashScreen({ scr }: { scr: any }) {
 // TableScreen — tabela + (opcional) painéis de contexto abaixo (tela COMPOSTA, p/ fidelidade
 // de telas do clássico que têm tabela + seções: ex. riscos trabalhista + tributário).
 function TableScreen({ scr }: { scr: any }) {
+  const rows = scr.rows || [];
+  // Documentos por-LINHA (holerite por colaborador, DANFSe por nota…): se alguma linha declara
+  // docs, anexa uma coluna "Documento" ao grid — retrocompatível (telas sem row.docs não mudam).
+  const hasRowDocs = rows.some((r: any) => Array.isArray(r.docs) && r.docs.length > 0);
+  const grid = hasRowDocs ? `${scr.grid} minmax(150px, auto)` : scr.grid;
+  const cols = hasRowDocs ? [...(scr.cols || []), 'Documento'] : (scr.cols || []);
   return (
     <div className="rd-tbl-wrap">
       <div className="rd-tbl-scroll">
         <div className="rd-tbl-inner">
-          <div className="rd-tbl-head" style={{ gridTemplateColumns: scr.grid }}>
-            {(scr.cols || []).map((c: string, i: number) => <span className="rd-tbl-th" key={i}>{c}</span>)}
+          <div className="rd-tbl-head" style={{ gridTemplateColumns: grid }}>
+            {cols.map((c: string, i: number) => <span className="rd-tbl-th" key={i}>{c}</span>)}
           </div>
-          {(scr.rows || []).map((row: any, i: number) => (
-            <div className="rd-tbl-row" style={{ gridTemplateColumns: scr.grid }} key={i}>
+          {rows.map((row: any, i: number) => (
+            <div className="rd-tbl-row" style={{ gridTemplateColumns: grid }} key={i}>
               {(row.cells || []).map((cell: any, j: number) => (
                 <span className="rd-tbl-cell" key={j}>
                   {cell.isBadge
@@ -81,6 +88,11 @@ function TableScreen({ scr }: { scr: any }) {
                       </>}
                 </span>
               ))}
+              {hasRowDocs && (
+                <span className="rd-tbl-cell" style={{ justifyContent: 'flex-end' }}>
+                  {Array.isArray(row.docs) && row.docs.length > 0 && <DocButtons docs={row.docs} compact />}
+                </span>
+              )}
             </div>
           ))}
         </div>
@@ -403,6 +415,11 @@ export default function ModuleView({ slug }: { slug: string }) {
             <div className="rd-scr-title">{scr?.title}</div>
             {scr?.sub && isReal && <div className="rd-scr-sub">{scr.sub}</div>}
           </div>
+          {isReal && Array.isArray(scr?.docs) && scr.docs.length > 0 && (
+            <div style={{ marginTop: 12, marginBottom: 2 }}>
+              <DocButtons docs={scr.docs} />
+            </div>
+          )}
           {dataState === 'loading'
             ? <div className="rd-dash" aria-busy="true">
                 <div className="rd-dash-kpis">

@@ -727,12 +727,46 @@ def _helpers(db: AsyncSession):
         except Exception:
             await db.rollback()
 
-    async def tbl(title, sub, cta, cols, grid, sql, rowfn, hint="Buscar…"):
+    async def tbl(title, sub, cta, cols, grid, sql, rowfn, hint="Buscar…", docsfn=None):
+        # docsfn(r) → lista de doc() para aquela linha (documentos por-LINHA: holerite por
+        # colaborador, DANFSe por nota…). Opcional e retrocompatível (telas antigas não mudam).
         rows = (await db.execute(text(sql))).fetchall()
+
+        def _mkrow(r):
+            row = {"cells": rowfn(r)}
+            if docsfn:
+                ds = docsfn(r)
+                if ds:
+                    row["docs"] = ds
+            return row
+
         return {"title": title, "sub": sub, "cta": cta, "type": "table", "searchHint": hint,
-                "grid": grid, "cols": cols, "rows": [{"cells": rowfn(r)} for r in rows]}
+                "grid": grid, "cols": cols, "rows": [_mkrow(r) for r in rows]}
 
     return out, safe, tbl
+
+
+def doc(label, url=None, fmt="pdf", mode="blob", filename=None, gate=None, disabled=False, motivo=None):
+    """Fundação de documentos do REDESIGN — monta o dict de um documento clicável (abrir HTML +
+    baixar PDF/formato) que o frontend (DocButtons) renderiza. Usar em scr["docs"] (nível tela)
+    e em docsfn de tbl (nível linha).
+
+    - label: texto do botão · url: rota EXATA do backend (copiar, não adivinhar) · fmt: pdf/html/
+      xml/txt/xlsx/csv/zip · mode: 'blob' (arquivo direto, default) ou 'json' ({content,filename}).
+    - disabled=True + motivo: para stub/placeholder/documento-sem-transmissão-real (botão honesto
+      desabilitado, NUNCA um botão que abre lixo). gate: informativo (o gate REAL é no endpoint).
+    """
+    d = {"label": label, "fmt": fmt, "mode": mode}
+    if url:
+        d["url"] = url
+    if filename:
+        d["filename"] = filename
+    if gate:
+        d["gate"] = gate
+    if disabled:
+        d["disabled"] = True
+        d["motivo"] = motivo or "Documento indisponível"
+    return d
 
 
 def _fmtdate(d, fmt="%d/%m/%Y"):
