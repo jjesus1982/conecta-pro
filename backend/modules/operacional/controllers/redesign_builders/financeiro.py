@@ -34,6 +34,8 @@ EXTRA_MENU: list[dict] = [
      "icon": "M3 21h18M4 10h16M5 10 12 4l7 6M6 10v11M18 10v11M10 10v11M14 10v11"},
     {"id": "cora", "label": "Banco Cora",
      "icon": "M3 21h18M4 10h16M5 10 12 4l7 6M6 10v11M18 10v11M10 10v11M14 10v11"},
+    {"id": "pagamentos-inter", "label": "Pagamentos Inter",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
     {"id": "pagamentos-pj", "label": "Pagamentos PJ",
      "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
     {"id": "pagar-folha-pj", "label": "Pagar folha PJ",
@@ -591,6 +593,24 @@ async def build(db) -> dict:
             {"key": "payment_id", "label": "ID do pagamento*", "type": "text", "span": "span 2", "ph": "identificador do pagamento"},
         ],
     }
+
+    # ---- Pagamentos Inter (D7) — tela NOVA (paridade com o clássico "Pagamentos Inter D7").
+    # Leitura de inter_payments; COMPROVANTE (PDF) por-linha SÓ nos confirmados (rota curl-provada
+    # 200: /api/v1/financeiro/inter/payments/{id}/comprovante; 409 se não confirmado). Ação de PAGAR
+    # segue no fluxo gated (enviar-pix etc.) — aqui é leitura + comprovante.
+    _ip_tone = {"confirmado": "ok", "executado": "ok", "preparado": "warn", "cancelado": "mut", "erro": "bad"}
+    await safe("pagamentos-inter", tbl(
+        "Pagamentos Inter", f"{await _scalar(db, 'SELECT count(*) FROM inter_payments')} pagamentos (Banco Inter)", "—",
+        ["Tipo", "Destinatário", "Valor", "Data", "Status"], "1fr 1.8fr 1fr 1fr 0.9fr",
+        "SELECT id, coalesce(payment_type,'—'), "
+        "coalesce(destinatario->>'nome_recebedor', destinatario->>'chave', left(destinatario->>'codigo_barras',22), '—'), "
+        "valor, data_pagamento, coalesce(status,'—') "
+        "FROM inter_payments ORDER BY created_at DESC NULLS LAST LIMIT 300",
+        lambda r: [t((r[1] or '—').replace('_', ' ').capitalize()), t((r[2] or '—')[:40], 600, "#0F1B3A"),
+                   t(brl(r[3]) if r[3] is not None else '—', 600), t(_fmtdate(r[4])),
+                   b((r[5] or '—').capitalize(), _ip_tone.get((r[5] or '').lower(), "info"))],
+        docsfn=lambda r: [doc("Comprovante", f"/api/v1/financeiro/inter/payments/{r[0]}/comprovante", fmt="pdf")]
+        if (r[5] or '').lower() in ("confirmado", "executado") else []))
 
     # ---- DOCUMENTOS (botões abrir HTML + baixar PDF) — paridade com o clássico. Rotas curl-provadas
     # 200 application/pdf. Nível-tela (sem id) nas telas de relatório/aging; conciliação = modo json.
