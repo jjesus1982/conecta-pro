@@ -11,6 +11,7 @@ from modules.operacional.controllers.redesign_data_controller import (  # noqa: 
     _scalar,
     b,
     brl,
+    doc,
     initials,
     t,
 )
@@ -44,7 +45,7 @@ async def build(db) -> dict:
         "—", ["Condomínio", "Competência", "Status", "Colaboradores", "Documentos", "Conclusão"],
         "1.8fr 1fr 1fr 1fr 1fr 1fr",
         "SELECT coalesce(gc.name, k.client_id::text), k.reference_month, coalesce(k.status,'—'), "
-        "k.total_employees, k.total_documents, k.completion_percentage "
+        "k.total_employees, k.total_documents, k.completion_percentage, CAST(k.id AS TEXT) "
         "FROM ged_document_kits k LEFT JOIN ged_clients gc ON gc.id = k.client_id "
         "ORDER BY k.reference_month DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0] or "—", 600, "#0F1B3A"), t(_fmtdate(r[1], '%m/%Y'), 600, "#0F1B3A"),
@@ -52,7 +53,8 @@ async def build(db) -> dict:
                        (r[2] or "").lower(), (r[2] or "—").replace("_", " ").capitalize()),
                      "ok" if (r[2] or "").lower() in ("aprovado", "approved", "enviado", "sent", "completo") else "warn"),
                    t(str(r[3]) if r[3] is not None else '—'), t(str(r[4]) if r[4] is not None else '—'),
-                   t(f"{float(r[5]):.0f}%" if r[5] is not None else '—', 600)]))
+                   t(f"{float(r[5]):.0f}%" if r[5] is not None else '—', 600)],
+        docsfn=lambda r: [doc("Baixar Kit (ZIP)", f"/api/v1/ged/kits/{r[6]}/download-zip", fmt="zip", mode="blob")]))
 
     # ---- GED · Envios (ged_kit_access_logs — eventos de entrega/acesso) ----
     await safe("ged-envios", tbl(
