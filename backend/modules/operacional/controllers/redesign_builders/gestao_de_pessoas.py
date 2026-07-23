@@ -54,7 +54,7 @@ async def build(db) -> dict:
                      "ok" if (r[2] or "").lower() in ("aprovado", "approved", "enviado", "sent", "completo") else "warn"),
                    t(str(r[3]) if r[3] is not None else '—'), t(str(r[4]) if r[4] is not None else '—'),
                    t(f"{float(r[5]):.0f}%" if r[5] is not None else '—', 600)],
-        docsfn=lambda r: [doc("Baixar Kit (ZIP)", f"/api/v1/ged/kits/{r[6]}/download-zip", fmt="zip", mode="blob")]))
+        docsfn=lambda r: [doc("Kit (ZIP)", f"/api/v1/ged/kits/{r[6]}/download-zip", fmt="zip", mode="blob")]))
 
     # ---- GED · Envios (ged_kit_access_logs — eventos de entrega/acesso) ----
     await safe("ged-envios", tbl(
