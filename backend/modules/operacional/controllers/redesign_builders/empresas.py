@@ -64,12 +64,16 @@ async def build(db) -> dict:
         "SELECT coalesce(competencia,'—'), count(*), coalesce(sum(valor_servicos),0), coalesce(sum(valor_liquido),0) "
         "FROM nfse_emitidas_nacional WHERE coalesce(cancelada,false)=false GROUP BY competencia ORDER BY competencia DESC LIMIT 24",
         lambda r: [t(r[0], 600, "#0F1B3A"), b(f"{r[1]}", "info"), t(brl(r[2]), 600), t(brl(r[3]))]))
-    # DRE/Balanço/DFC em PDF: sem rota /pdf real no módulo empresas (só-JSON) → botão honesto off.
-    # 🔨 orquestrador: criar /api/v1/empresas/demonstrativos/{tipo}/pdf reusando gerar_relatorio_pdf.
-    if "demonstrativos" in out:
-        out["demonstrativos"]["docs"] = [doc(
-            "DRE / Balanço / DFC (PDF)", disabled=True,
-            motivo="Sem rota /pdf de demonstrativos no módulo empresas — aguardando gerador PDF")]
+    # Demonstrativos em PDF: REUSA as rotas reais do financeiro (marca Conecta, gerar_relatorio_pdf),
+    # que servem a empresa principal do grupo (Eletrônica/Lucro Real). Rotas curl-provadas 200 pdf.
+    from datetime import date as _dt
+    _ano = _dt.today().year
+    if "demonstrativos" in out and isinstance(out["demonstrativos"], dict):
+        out["demonstrativos"]["docs"] = [
+            doc("DRE (PDF)", f"/api/v1/financial/relatorios/dre/pdf?ano={_ano}", fmt="pdf", gate="financeiro"),
+            doc("Balancete (PDF)", f"/api/v1/financial/relatorios/balancete/pdf?ano={_ano}", fmt="pdf", gate="financeiro"),
+            doc("Fluxo de Caixa (PDF)", f"/api/v1/financial/relatorios/fluxo-caixa/pdf?ano={_ano}", fmt="pdf", gate="financeiro"),
+        ]
 
     # ---- Rentabilidade (clientes por MRR/receita/health) ----
     await safe("rentabilidade", tbl(
