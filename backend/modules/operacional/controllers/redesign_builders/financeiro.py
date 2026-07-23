@@ -153,6 +153,13 @@ async def build(db) -> dict:
     # Base do monólito (10 telas já provadas) — reusa sem duplicar.
     out.update(await _base(db))
 
+    # cta → formulário-alvo: o botão do topo abre o form de criação (antes era decorativo).
+    # A ModuleView navega para scr.ctaTo; onde não há form, o botão some (honesto).
+    for _tbl_id, _form_id in [("contas-pagar", "registrar-conta-pagar"),
+                              ("contas-receber", "registrar-conta-receber")]:
+        if isinstance(out.get(_tbl_id), dict) and _form_id in out:
+            out[_tbl_id]["ctaTo"] = _form_id
+
     # ---- Fidelidade dashboard: o clássico exibe Faturamento Bruto/Líquido/ISS Retido/Ticket
     #      Médio (NFS-e 12m). Trago como painel ADITIVO — mantém os KPIs de caixa do redesign. ----
     try:
