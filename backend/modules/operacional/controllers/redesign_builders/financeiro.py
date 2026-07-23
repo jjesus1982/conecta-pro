@@ -31,12 +31,30 @@ SLUG = "financeiro"
 EXTRA_MENU: list[dict] = [
     {"id": "saldos", "label": "Saldos por conta",
      "icon": "M3 21h18M4 10h16M5 10 12 4l7 6M6 10v11M18 10v11M10 10v11M14 10v11"},
+    {"id": "cora", "label": "Banco Cora",
+     "icon": "M3 21h18M4 10h16M5 10 12 4l7 6M6 10v11M18 10v11M10 10v11M14 10v11"},
     {"id": "pagamentos-pj", "label": "Pagamentos PJ",
      "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
     {"id": "pagar-folha-pj", "label": "Pagar folha PJ",
      "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
     {"id": "pagar-diaristas", "label": "Pagar diaristas",
      "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "pagar-boleto", "label": "Pagar boleto",
+     "icon": "M2 6h20M2 18h20M6 6v12M10 6v12M14 6v12M18 6v12"},
+    {"id": "enviar-pix", "label": "Enviar PIX / Transferir",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "transferir-ted", "label": "Transferência TED",
+     "icon": "M4 12h16M14 6l6 6-6 6"},
+    {"id": "pagar-darf", "label": "Pagar DARF / tributo",
+     "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 15h6M9 11h6"},
+    {"id": "emitir-boleto", "label": "Emitir boleto",
+     "icon": "M2 6h20M2 18h20M6 6v12M10 6v12M14 6v12M18 6v12"},
+    {"id": "cobrar-pix", "label": "Cobrar PIX",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "cancelar-boleto", "label": "Cancelar boleto",
+     "icon": "M18 6 6 18M6 6l12 12"},
+    {"id": "cancelar-pagamento", "label": "Cancelar pagamento",
+     "icon": "M18 6 6 18M6 6l12 12"},
 ]
 
 
@@ -232,14 +250,16 @@ async def build(db) -> dict:
         lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), t(brl(r[2]), 600), t(_fmtdate(r[3])),
                    b((r[4] or '—').capitalize(), "warn")]))
 
-    # ---- Banking (extrato bancário consolidado com contraparte/saldo) ----
+    # ---- Banking (extrato bancário consolidado com BANCO/contraparte/saldo) ----
     await safe("banking", tbl(
-        "Banking", "Extrato bancário consolidado",
-        "—", ["Data", "Contraparte", "Descrição", "Valor", "Saldo"], "1fr 1.5fr 2fr 1fr 1fr",
-        "SELECT transaction_date, coalesce(counterparty_name,contraparte_nome,'—'), coalesce(description,memo,'—'), amount, balance_after "
-        "FROM bank_transactions ORDER BY transaction_date DESC NULLS LAST LIMIT 200",
-        lambda r: [t(_fmtdate(r[0])), t(r[1], 600, "#0F1B3A"), t(r[2]), t(brl(r[3]), 600),
-                   t(brl(r[4]) if r[4] is not None else '—')]))
+        "Banking", "Extrato bancário consolidado (todas as contas)",
+        "—", ["Data", "Banco", "Contraparte", "Descrição", "Valor", "Saldo"], "1fr 1fr 1.4fr 1.8fr 1fr 1fr",
+        "SELECT bt.transaction_date, coalesce(ba.bank_name,'—'), coalesce(bt.counterparty_name,bt.contraparte_nome,'—'), "
+        "coalesce(bt.description,bt.memo,'—'), bt.amount, bt.balance_after "
+        "FROM bank_transactions bt LEFT JOIN bank_accounts ba ON ba.id=bt.bank_account_id "
+        "ORDER BY bt.transaction_date DESC NULLS LAST LIMIT 200",
+        lambda r: [t(_fmtdate(r[0])), b(r[1] or '—', "info"), t(r[2], 600, "#0F1B3A"), t(r[3]), t(brl(r[4]), 600),
+                   t(brl(r[5]) if r[5] is not None else '—')]))
 
     # ---- Banco Inter (extrato Inter real) ----
     await safe("inter", tbl(
@@ -250,6 +270,19 @@ async def build(db) -> dict:
         lambda r: [t(_fmtdate(r[0])), b("Crédito" if r[1] == 'C' else ("Débito" if r[1] == 'D' else (r[1] or '—')),
                                         "ok" if r[1] == 'C' else "mut"),
                    t(r[2]), t(brl(r[3]), 600, "#0F1B3A"), t(r[4])]))
+
+    # ---- Banco Cora (extrato Cora real — bank_transactions da conta Cora, bank_code 403) ----
+    _cora_n = await _scalar(db, "SELECT count(*) FROM bank_transactions bt JOIN bank_accounts ba ON ba.id=bt.bank_account_id WHERE ba.bank_code='403'")
+    await safe("cora", tbl(
+        "Banco Cora", f"{_cora_n} lançamentos no extrato Cora",
+        "—", ["Data", "Contraparte", "Descrição", "Valor", "Tipo"], "1fr 1.5fr 2fr 1fr 1.1fr",
+        "SELECT bt.transaction_date, coalesce(bt.counterparty_name,bt.contraparte_nome,'—'), coalesce(bt.description,bt.memo,'—'), "
+        "bt.amount, coalesce(bt.transaction_type,'—') "
+        "FROM bank_transactions bt JOIN bank_accounts ba ON ba.id=bt.bank_account_id "
+        "WHERE ba.bank_code='403' ORDER BY bt.transaction_date DESC NULLS LAST LIMIT 200",
+        lambda r: [t(_fmtdate(r[0])), t(r[1], 600, "#0F1B3A"), t(r[2]), t(brl(r[3]), 600),
+                   b("Crédito" if (r[4] or '').lower() in ('credit', 'credito', 'c') else "Débito",
+                     "ok" if (r[4] or '').lower() in ('credit', 'credito', 'c') else "mut")]))
 
     # ---- Compras (nfe_compras_estoque — itens comprados por NF-e) ----
     await safe("compras", tbl(
@@ -292,7 +325,7 @@ async def build(db) -> dict:
         "—", ["Prestador", "CNPJ", "Empresa", "Competência", "Serviços", "ISS"], "1.8fr 1.3fr 1.6fr 1fr 1fr 1fr",
         "SELECT coalesce(nt.prestador_nome,'—'), coalesce(nt.prestador_cnpj,'—'), "
         "coalesce(e.razao_social, e.nome_fantasia, e.slug, '—'), coalesce(nt.competencia,'—'), nt.valor_servicos, nt.iss_valor "
-        "FROM nfse_tomadas_nacional nt LEFT JOIN empresas e ON e.id=nt.empresa_id ORDER BY nt.data_emissao DESC NULLS LAST LIMIT 200",
+        "FROM nfse_tomadas_nacional nt LEFT JOIN empresas e ON e.id=nt.empresa_id ORDER BY nt.data_emissao DESC NULLS LAST LIMIT 500",
         lambda r: [t(r[0], 600, "#0F1B3A"), t(_cnpj(r[1])), t(r[2]), t(r[3]), t(brl(r[4]), 600),
                    t(brl(r[5]) if r[5] is not None else brl(0))]))
 
@@ -428,6 +461,132 @@ async def build(db) -> dict:
         ],
     }
 
+    # ---- Pagar boleto (código de barras) — money-out via InterPaymentService + OTP ----
+    out["pagar-boleto"] = {
+        "title": "Pagar boleto (Inter)",
+        "sub": "Dinheiro que SAI — 2 etapas + OTP. Boleto, convênio ou tributo por código de barras/linha digitável. Trava de saldo e limite diário no serviço.",
+        "cta": "Preparar e gerar OTP", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/pagar-boleto", "gated": True,
+                   "confirm": "Isto vai PAGAR um boleto via Inter. Gerar o código OTP para o Jordan confirmar?",
+                   "okMsg": "Boleto pago."},
+        "fields": [
+            {"key": "codigo_barras", "label": "Código de barras / linha digitável*", "type": "text", "span": "span 2", "ph": "34191... (47-48 dígitos)"},
+            {"key": "valor", "label": "Valor* (R$)", "type": "text", "span": "span 1", "ph": "1.234,56"},
+            {"key": "data", "label": "Data do pagamento (AAAA-MM-DD)", "type": "date", "span": "span 1"},
+            {"key": "descricao", "label": "Descrição", "type": "text", "span": "span 2", "ph": "Ex.: Energia, ISS, fornecedor X"},
+        ],
+    }
+
+    # ---- Enviar PIX / Transferência — money-out via InterPaymentService + OTP ----
+    out["enviar-pix"] = {
+        "title": "Enviar PIX / Transferência (Inter)",
+        "sub": "Dinheiro que SAI — 2 etapas + OTP. Por chave PIX ou colando um PIX copia-e-cola.",
+        "cta": "Preparar e gerar OTP", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/enviar-pix", "gated": True,
+                   "confirm": "Isto vai ENVIAR um PIX via Inter. Gerar o código OTP para o Jordan confirmar?",
+                   "okMsg": "PIX enviado."},
+        "fields": [
+            {"key": "chave", "label": "Chave PIX", "type": "text", "span": "span 1", "ph": "CPF/CNPJ, e-mail, telefone, aleatória"},
+            {"key": "pix_copia_e_cola", "label": "…ou PIX copia-e-cola", "type": "text", "span": "span 1", "ph": "cole o código EMV (opcional)"},
+            {"key": "valor", "label": "Valor* (R$)", "type": "text", "span": "span 1", "ph": "1.234,56"},
+            {"key": "data", "label": "Data (AAAA-MM-DD)", "type": "date", "span": "span 1"},
+            {"key": "descricao", "label": "Descrição / favorecido", "type": "text", "span": "span 2", "ph": "Ex.: Fornecedor X, reembolso"},
+        ],
+    }
+
+    # ---- Transferência TED — money-out via InterPaymentService + OTP ----
+    out["transferir-ted"] = {
+        "title": "Transferência TED (Inter)",
+        "sub": "Dinheiro que SAI — 2 etapas + OTP. Transferência para outra conta bancária.",
+        "cta": "Preparar e gerar OTP", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/transferir-ted", "gated": True,
+                   "confirm": "Isto vai TRANSFERIR (TED) via Inter. Gerar o código OTP para o Jordan confirmar?",
+                   "okMsg": "TED enviada."},
+        "fields": [
+            {"key": "nome", "label": "Favorecido (nome)", "type": "text", "span": "span 1", "ph": "Nome do titular"},
+            {"key": "documento", "label": "CPF/CNPJ do favorecido", "type": "text", "span": "span 1", "ph": "só dígitos"},
+            {"key": "banco", "label": "Banco (código)*", "type": "text", "span": "span 1", "ph": "Ex.: 001, 341, 077"},
+            {"key": "agencia", "label": "Agência*", "type": "text", "span": "span 1", "ph": "0001"},
+            {"key": "conta", "label": "Conta*", "type": "text", "span": "span 1", "ph": "12345-6"},
+            {"key": "valor", "label": "Valor* (R$)", "type": "text", "span": "span 1", "ph": "1.234,56"},
+            {"key": "data", "label": "Data (AAAA-MM-DD)", "type": "date", "span": "span 2"},
+        ],
+    }
+
+    # ---- Pagar DARF / tributo — money-out via InterPaymentService + OTP ----
+    out["pagar-darf"] = {
+        "title": "Pagar DARF / tributo (Inter)",
+        "sub": "Dinheiro que SAI — 2 etapas + OTP. DARF (IRPJ, CSLL, COFINS, PIS, INSS) e guias.",
+        "cta": "Preparar e gerar OTP", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/pagar-darf", "gated": True,
+                   "confirm": "Isto vai PAGAR um DARF via Inter. Gerar o código OTP para o Jordan confirmar?",
+                   "okMsg": "DARF pago."},
+        "fields": [
+            {"key": "periodo_apuracao", "label": "Período de apuração* (AAAA-MM-DD)", "type": "date", "span": "span 1"},
+            {"key": "codigo_receita", "label": "Código da receita*", "type": "text", "span": "span 1", "ph": "Ex.: 2100"},
+            {"key": "numero_referencia", "label": "Número de referência", "type": "text", "span": "span 1", "ph": "opcional"},
+            {"key": "valor", "label": "Valor* (R$)", "type": "text", "span": "span 1", "ph": "1.234,56"},
+            {"key": "data", "label": "Data do pagamento (AAAA-MM-DD)", "type": "date", "span": "span 2"},
+        ],
+    }
+
+    # ---- Emitir boleto (cobrança — dinheiro que ENTRA, sem OTP) ----
+    out["emitir-boleto"] = {
+        "title": "Emitir boleto (Inter)",
+        "sub": "Cobrança que ENTRA — gera um boleto no Inter. Não move dinheiro seu; cria a cobrança.",
+        "cta": "Emitir boleto", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/emitir-boleto",
+                   "confirm": "Emitir um boleto de cobrança no Inter?", "okMsg": "Boleto emitido."},
+        "fields": [
+            {"key": "valor", "label": "Valor* (R$)", "type": "text", "span": "span 1", "ph": "1.234,56"},
+            {"key": "vencimento", "label": "Vencimento* (AAAA-MM-DD)", "type": "date", "span": "span 1"},
+            {"key": "payer_name", "label": "Pagador — nome*", "type": "text", "span": "span 1", "ph": "Nome/razão social"},
+            {"key": "payer_document", "label": "Pagador — CPF/CNPJ*", "type": "text", "span": "span 1", "ph": "só dígitos"},
+            {"key": "descricao", "label": "Descrição", "type": "text", "span": "span 2", "ph": "Ex.: Serviço de segurança — jul/2026"},
+        ],
+    }
+
+    # ---- Cobrar PIX (cobrança — dinheiro que ENTRA, sem OTP) ----
+    out["cobrar-pix"] = {
+        "title": "Cobrar PIX (Inter)",
+        "sub": "Cobrança que ENTRA — gera um PIX copia-e-cola/QR no Inter. Não move dinheiro seu.",
+        "cta": "Gerar cobrança PIX", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/cobrar-pix",
+                   "confirm": "Gerar uma cobrança PIX no Inter?", "okMsg": "Cobrança PIX gerada."},
+        "fields": [
+            {"key": "valor", "label": "Valor* (R$)", "type": "text", "span": "span 1", "ph": "1.234,56"},
+            {"key": "expiracao_horas", "label": "Validade (horas)", "type": "text", "span": "span 1", "ph": "24"},
+            {"key": "payer_name", "label": "Pagador — nome", "type": "text", "span": "span 1", "ph": "opcional"},
+            {"key": "payer_document", "label": "Pagador — CPF/CNPJ", "type": "text", "span": "span 1", "ph": "opcional"},
+            {"key": "descricao", "label": "Descrição", "type": "text", "span": "span 2", "ph": "Ex.: Mensalidade jul/2026"},
+        ],
+    }
+
+    # ---- Cancelar boleto emitido (sem saída de dinheiro) ----
+    out["cancelar-boleto"] = {
+        "title": "Cancelar boleto (Inter)",
+        "sub": "Cancela um boleto de cobrança já emitido. Motivo: ACERTOS / APEDIDODOCLIENTE / PAGODIRETOAOCLIENTE.",
+        "cta": "Cancelar boleto", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/cancelar-boleto",
+                   "confirm": "Cancelar este boleto no Inter?", "okMsg": "Boleto cancelado."},
+        "fields": [
+            {"key": "boleto_id", "label": "ID / nosso número do boleto*", "type": "text", "span": "span 2", "ph": "identificador do boleto"},
+            {"key": "motivo", "label": "Motivo", "type": "text", "span": "span 2", "ph": "ACERTOS (padrão)"},
+        ],
+    }
+
+    # ---- Cancelar pagamento agendado (antes de executar; sem saída de dinheiro) ----
+    out["cancelar-pagamento"] = {
+        "title": "Cancelar pagamento agendado (Inter)",
+        "sub": "Cancela um pagamento que foi agendado e ainda não foi executado.",
+        "cta": "Cancelar pagamento", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/cancelar-pagamento",
+                   "confirm": "Cancelar este pagamento agendado?", "okMsg": "Pagamento cancelado."},
+        "fields": [
+            {"key": "payment_id", "label": "ID do pagamento*", "type": "text", "span": "span 2", "ph": "identificador do pagamento"},
+        ],
+    }
+
     return out
 
 
@@ -489,3 +648,225 @@ async def _rd_pagar_diaristas(current_user: CurrentActiveUser, payload: dict = B
     if not r.get("ok"):
         raise HTTPException(status_code=400, detail=r.get("mensagem") or "Não foi possível executar o lote.")
     return {"ok": True, "message": f"Lote pago: {r.get('pagos', 0)} pago(s), {r.get('falhas', 0)} falha(s)."}
+
+
+# ── Money-out genérico (boleto/PIX/TED/DARF) via InterPaymentService — 2 fases + OTP ──
+def _rd_parse_valor(s):
+    s = str(s or "").strip().replace("R$", "").replace(" ", "")
+    if not s:
+        return None
+    if "," in s and "." in s:
+        s = s.replace(".", "").replace(",", ".")
+    elif "," in s:
+        s = s.replace(",", ".")
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _rd_parse_data(s):
+    from datetime import date as _date
+    s = str(s or "").strip()
+    if not s:
+        return _date.today()
+    try:
+        y, m, d = s.split("-")
+        return _date(int(y), int(m), int(d))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _dest_boleto(p):
+    cb = (p.get("codigo_barras") or "").strip().replace(" ", "")
+    if not cb:
+        raise HTTPException(status_code=400, detail="Informe o código de barras / linha digitável.")
+    return {"codigo_barras": cb}
+
+
+def _dest_pix(p):
+    chave = (p.get("chave") or "").strip()
+    cec = (p.get("pix_copia_e_cola") or "").strip()
+    if not chave and not cec:
+        raise HTTPException(status_code=400, detail="Informe a chave PIX ou o PIX copia-e-cola.")
+    d: dict = {}
+    if cec:
+        d["pix_copia_e_cola"] = cec
+    if chave:
+        d["chave"] = chave
+    return d
+
+
+def _dest_ted(p):
+    banco = (p.get("banco") or "").strip()
+    agencia = (p.get("agencia") or "").strip()
+    conta = (p.get("conta") or "").strip()
+    if not (banco and agencia and conta):
+        raise HTTPException(status_code=400, detail="Informe banco, agência e conta.")
+    d = {"banco": banco, "agencia": agencia, "conta": conta}
+    if (p.get("nome") or "").strip():
+        d["nome"] = p["nome"].strip()
+    if (p.get("documento") or "").strip():
+        d["documento"] = p["documento"].strip()
+    return d
+
+
+def _dest_darf(p):
+    pa = (p.get("periodo_apuracao") or "").strip()
+    cr = (p.get("codigo_receita") or "").strip()
+    if not (pa and cr):
+        raise HTTPException(status_code=400, detail="Informe período de apuração e código da receita.")
+    d = {"periodo_apuracao": pa, "codigo_receita": cr}
+    if (p.get("numero_referencia") or "").strip():
+        d["numero_referencia"] = p["numero_referencia"].strip()
+    return d
+
+
+async def _rd_inter_pay(db, current_user, payload, *, payment_type, categoria, dest_fn, label):
+    """Money-out via serviço PROVADO InterPaymentService. Fase 1 (sem otp_code):
+    preparar (trava saldo/limite diário) + gerar_otp (e-mail ao Jordan) → otp_required.
+    Fase 2 (otp_code + _gate_ref): aprovar (valida OTP) + executar (chama o Inter).
+    Sem OTP válido, NADA é pago — o serviço garante. Espelha o console clássico."""
+    from modules.integrations.inter.services.payment_service import InterPaymentService, PaymentError
+    svc = InterPaymentService(db)
+    uid = str(getattr(current_user, "id", ""))
+    otp_code = (payload.get("otp_code") or "").strip()
+    ref = (payload.get("_gate_ref") or "").strip()
+    try:
+        if not otp_code:
+            valor = _rd_parse_valor(payload.get("valor"))
+            if valor is None or valor <= 0:
+                raise HTTPException(status_code=400, detail="Informe um valor válido (R$).")
+            dp = _rd_parse_data(payload.get("data"))
+            if dp is None:
+                raise HTTPException(status_code=400, detail="Data inválida (use AAAA-MM-DD).")
+            dest = dest_fn(payload)
+            prep = await svc.preparar(payment_type=payment_type, destinatario=dest, valor=valor,
+                                      data_pagamento=dp, prepared_by=uid,
+                                      observacoes=(payload.get("descricao") or "").strip(), categoria=categoria)
+            await svc.gerar_otp(prep["id"], uid)
+            return {"otp_required": True, "ref": prep["id"],
+                    "message": f"{label} de {brl(valor)} preparado. Confirme com o código OTP enviado ao e-mail do Jordan."}
+        if not ref:
+            raise HTTPException(status_code=400, detail="Referência do pagamento ausente. Refaça a operação.")
+        await svc.aprovar(ref, otp_code, uid)
+        res = await svc.executar(ref, uid)
+        st = res.get("status") if isinstance(res, dict) else None
+        return {"ok": True, "message": f"{label} executado com sucesso." + (f" Status: {st}." if st else "")}
+    except HTTPException:
+        raise
+    except PaymentError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:  # noqa: BLE001
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        raise HTTPException(status_code=400, detail=f"Falha no pagamento: {str(e)[:200]}")
+
+
+@router.post("/action/pagar-boleto")
+async def _rd_pagar_boleto(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    return await _rd_inter_pay(db, current_user, payload, payment_type="boleto",
+                               categoria="fornecedor", dest_fn=_dest_boleto, label="Pagamento de boleto")
+
+
+@router.post("/action/enviar-pix")
+async def _rd_enviar_pix(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    return await _rd_inter_pay(db, current_user, payload, payment_type="pix",
+                               categoria="transferencia", dest_fn=_dest_pix, label="PIX")
+
+
+@router.post("/action/transferir-ted")
+async def _rd_transferir_ted(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    return await _rd_inter_pay(db, current_user, payload, payment_type="ted_interno",
+                               categoria="transferencia", dest_fn=_dest_ted, label="Transferência TED")
+
+
+@router.post("/action/pagar-darf")
+async def _rd_pagar_darf(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    return await _rd_inter_pay(db, current_user, payload, payment_type="darf",
+                               categoria="imposto", dest_fn=_dest_darf, label="Pagamento de DARF")
+
+
+# ── Money-IN (cobrança) e gestão — delega às funções do console clássico ──
+@router.post("/action/emitir-boleto")
+async def _rd_emitir_boleto(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Emite boleto de cobrança (Inter) — delega a generate_boleto do console clássico. Não move dinheiro que sai."""
+    from modules.integrations.banking.controllers.banking_controller import BoletoGenerateRequest, generate_boleto
+    valor = _rd_parse_valor(payload.get("valor"))
+    if valor is None or valor <= 0:
+        raise HTTPException(status_code=400, detail="Informe um valor válido (R$).")
+    due = (payload.get("vencimento") or "").strip()
+    pn = (payload.get("payer_name") or "").strip()
+    pd = (payload.get("payer_document") or "").strip()
+    if not due:
+        raise HTTPException(status_code=400, detail="Informe o vencimento (AAAA-MM-DD).")
+    if not pn or not pd:
+        raise HTTPException(status_code=400, detail="Informe nome e CPF/CNPJ do pagador.")
+    try:
+        req = BoletoGenerateRequest(bank_code="077", amount=valor, due_date=due, payer_name=pn,
+                                    payer_document=pd, description=(payload.get("descricao") or "Cobrança").strip())
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Dados inválidos: {str(e)[:150]}")
+    res = await generate_boleto(req, current_user)
+    if not getattr(res, "success", False):
+        raise HTTPException(status_code=400, detail=getattr(res, "error", None) or "Falha ao emitir boleto.")
+    linha = getattr(res, "digitable_line", None) or getattr(res, "barcode", None) or "—"
+    pdf = getattr(res, "pdf_url", None)
+    return {"ok": True, "message": f"Boleto emitido. Linha digitável: {linha}." + (f" PDF: {pdf}" if pdf else "")}
+
+
+@router.post("/action/cobrar-pix")
+async def _rd_cobrar_pix(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Gera cobrança PIX (Inter) — delega a generate_pix_charge. Não move dinheiro que sai."""
+    from modules.integrations.banking.controllers.banking_controller import PixChargeRequest, generate_pix_charge
+    valor = _rd_parse_valor(payload.get("valor"))
+    if valor is None or valor <= 0:
+        raise HTTPException(status_code=400, detail="Informe um valor válido (R$).")
+    try:
+        exp = int(str(payload.get("expiracao_horas") or 24).strip() or 24)
+    except (ValueError, TypeError):
+        exp = 24
+    try:
+        req = PixChargeRequest(bank_code="077", amount=valor,
+                               description=(payload.get("descricao") or "Cobrança Grupo Conecta Mais").strip(),
+                               payer_name=(payload.get("payer_name") or "").strip() or None,
+                               payer_document=(payload.get("payer_document") or "").strip() or None,
+                               expiracao_horas=exp)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Dados inválidos: {str(e)[:150]}")
+    res = await generate_pix_charge(req, current_user)
+    if not getattr(res, "success", False):
+        raise HTTPException(status_code=400, detail=getattr(res, "error", None) or "Falha ao gerar cobrança PIX.")
+    copia = getattr(res, "pix_copy_paste", None) or "—"
+    return {"ok": True, "message": f"Cobrança PIX gerada. Copia-e-cola: {copia}"}
+
+
+@router.post("/action/cancelar-boleto")
+async def _rd_cancelar_boleto(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Cancela boleto emitido — delega a cancel_boleto. Sem saída de dinheiro."""
+    from modules.integrations.banking.controllers.banking_controller import cancel_boleto
+    bid = (payload.get("boleto_id") or "").strip()
+    if not bid:
+        raise HTTPException(status_code=400, detail="Informe o ID / nosso número do boleto.")
+    motivo = (payload.get("motivo") or "ACERTOS").strip().upper()
+    if motivo not in ("ACERTOS", "APEDIDODOCLIENTE", "PAGODIRETOAOCLIENTE"):
+        motivo = "ACERTOS"
+    res = await cancel_boleto(bid, motivo, current_user)
+    if isinstance(res, dict) and (res.get("error") or res.get("success") is False):
+        raise HTTPException(status_code=400, detail=res.get("error") or "Não foi possível cancelar o boleto.")
+    return {"ok": True, "message": "Boleto cancelado."}
+
+
+@router.post("/action/cancelar-pagamento")
+async def _rd_cancelar_pagamento(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Cancela pagamento agendado (antes de executar) — delega a cancel_payment. Sem saída de dinheiro."""
+    from modules.integrations.banking.controllers.payment_controller import cancel_payment
+    pid = (payload.get("payment_id") or "").strip()
+    if not pid:
+        raise HTTPException(status_code=400, detail="Informe o ID do pagamento.")
+    res = await cancel_payment(pid, current_user)
+    if not (isinstance(res, dict) and res.get("success")):
+        raise HTTPException(status_code=400, detail=(res or {}).get("mensagem") or "Não foi possível cancelar o pagamento.")
+    return {"ok": True, "message": res.get("mensagem") or "Pagamento cancelado."}
