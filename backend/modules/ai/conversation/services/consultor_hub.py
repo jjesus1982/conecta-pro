@@ -105,9 +105,15 @@ async def gerar(
     ):
         try:
             from modules.ai.conversation.services import hermes_client
+            from modules.ai.conversation.services.garantia import observability, routing
 
             if await hermes_client.hermes_disponivel():
-                return await hermes_client.perguntar_hermes(messages, system_prompt, model="gpt-5")
+                # Fase 5.2a.3 — roteamento por custo (piso por tamanho + domínio
+                # dinheiro/legal/C-level força a pesada) no lugar do "gpt-5" fixo,
+                # e um span Sentry (gen_ai.hermes) em volta da chamada.
+                modelo = routing.modelo_por_tier(origem, messages)
+                with observability.llm_span("hermes", origem=origem, modelo=modelo):
+                    return await hermes_client.perguntar_hermes(messages, system_prompt, model=modelo)
         except Exception:  # noqa: BLE001 — degradação graciosa → cai no caminho atual
             pass
 
