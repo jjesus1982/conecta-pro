@@ -86,6 +86,20 @@ async def _coo_panorama(db: AsyncSession) -> dict[str, Any]:
     return await consultor_coo_service.panorama(db)
 
 
+async def _caixa_cnpj(db: AsyncSession) -> dict[str, Any]:
+    """Caixa + folha POR CNPJ (Inter/Eletrônica × Cora/Patrimonial), com proveniência."""
+    from modules.financial.services import caixa_service
+
+    return await caixa_service.caixa_por_cnpj(db)
+
+
+def _classificar_cargo(cargo: str) -> tuple[str, str]:
+    """CARGO → (natureza 'patrimonial'|'eletronica', empresa_id). Roteia a contratação."""
+    from modules.empresas.services.classificador_cargo import classificar_cargo_empresa
+
+    return classificar_cargo_empresa(cargo)
+
+
 async def _piso_do_cargo(db: AsyncSession, cargo: str) -> tuple[Decimal, str]:
     """Piso salarial REAL do cargo (cct_cargos.piso_salarial). Fallback = piso CCT 2026."""
     try:
@@ -211,52 +225,88 @@ async def viabilidade_contratacao(
     """🟢 READ — "posso contratar N do cargo X?": cruza CFO (saldo/runway) + COO (postos
     descobertos/demanda) + custo de folha (qtd × piso CCT + encargos). Dado real + proveniência."""
     qtd, cargo = payload.qtd, payload.cargo.strip()
-    cfo = await _cfo_panorama(db)
     coo = await _coo_panorama(db)
     piso, piso_src = await _piso_do_cargo(db, cargo)
     custo_mensal, encargos_pct, base_sal, custo_src = _custo_folha_mensal(piso, qtd)
 
-    saldo = float(cfo.get("saldo_banco") or 0.0)
-    saldo_fonte = cfo.get("saldo_fonte") or "cadastro"
-    folha_atual = float(cfo.get("folha_mensal") or 0.0)
-    runway_atual = cfo.get("runway_meses")
+    # CIENTE DE CNPJ: o cargo decide contra QUAL empresa/conta avaliar. Mão de obra
+    # humanizada (porteiro, serviços gerais, artífice…) → Patrimonial/Cora; técnica
+    # (dev, monitoramento, CFTV…) → Eletrônica/Inter. Antes lia SÓ o Inter (bug do dono).
+    natureza, empresa_id = _classificar_cargo(cargo)
+    caixa = await _caixa_cnpj(db)
+    alvo = caixa[natureza]
+    empresa_nome, banco = alvo["nome"], alvo["banco"]
+
+    saldo = alvo["saldo"]  # pode ser None (aguardando dado)
+    saldo_fonte = alvo["saldo_fonte"]
+    folha_atual = alvo["folha"]  # folha DAQUELE CNPJ (None se sem colaborador ativo)
+    folha_fonte = alvo["folha_fonte"]
+    n_ativos = alvo["funcionarios_ativos"]
+
     postos_desc = list((coo.get("cobertura") or {}).get("postos_descobertos") or [])
     qtd_postos_desc = len(postos_desc)
 
-    folha_nova = folha_atual + custo_mensal
-    runway_novo = round(saldo / folha_nova, 1) if folha_nova > 0 else None
-    meses_cobertos_pelo_saldo = round(saldo / custo_mensal, 1) if custo_mensal > 0 else None
+    saldo_num = float(saldo) if saldo is not None else None
+    folha_base = float(folha_atual) if folha_atual is not None else 0.0
+    folha_nova = folha_base + custo_mensal
+    runway_atual = (
+        round(saldo_num / folha_base, 1) if (saldo_num is not None and folha_base > 0) else None
+    )
+    runway_novo = (
+        round(saldo_num / folha_nova, 1) if (saldo_num is not None and folha_nova > 0) else None
+    )
+    meses_cobertos_pelo_saldo = (
+        round(saldo_num / custo_mensal, 1) if (saldo_num is not None and custo_mensal > 0) else None
+    )
 
     dados = {
         "qtd_solicitada": _src(qtd, "parâmetro da consulta"),
         "cargo": _src(cargo, "parâmetro da consulta"),
+        "empresa_avaliada": _src(
+            {"natureza": natureza, "empresa_id": empresa_id, "nome": empresa_nome, "banco": banco},
+            "classificador cargo→CNPJ (natureza da mão de obra)",
+        ),
         "piso_salarial": _src(float(piso), piso_src),
         "custo_folha_mensal_estimado": _src(custo_mensal, custo_src),
         "encargos_cct_pct": _src(encargos_pct, "PricingEngine.CCT_COMPONENTS"),
         "base_salarios_mensal": _src(base_sal, "piso × qtd (sem encargos)"),
-        "saldo_disponivel": _src(saldo, saldo_fonte),
-        "folha_mensal_atual": _src(folha_atual, "cfo_service.panorama (KPI FOLHA)"),
-        "runway_atual_meses": _src(runway_atual, "cfo_service.panorama.runway_meses (saldo ÷ folha)"),
-        "runway_apos_contratacao_meses": _src(runway_novo, "saldo ÷ (folha atual + custo novo)"),
+        "saldo_disponivel": _src(saldo_num, saldo_fonte),
+        "folha_mensal_atual": _src(folha_atual, folha_fonte),
+        "funcionarios_ativos_empresa": _src(n_ativos, folha_fonte),
+        "runway_atual_meses": _src(runway_atual, f"saldo {banco} ÷ folha {empresa_nome}"),
+        "runway_apos_contratacao_meses": _src(runway_novo, "saldo ÷ (folha da empresa + custo novo)"),
         "meses_que_o_saldo_cobre_so_o_novo_custo": _src(meses_cobertos_pelo_saldo, "saldo ÷ custo novo"),
         "postos_descobertos_qtd": _src(qtd_postos_desc, "consultor_coo_service.panorama.cobertura"),
         "postos_descobertos": _src(postos_desc, "consultor_coo_service.panorama.cobertura"),
     }
 
-    # Fonte p/ groundedness: só os números reais (achatados). Inclui qtd/postos.
-    fonte = {
+    # Fonte p/ groundedness: só os números reais (achatados). Omite os None (aguardando dado).
+    fonte: dict[str, Any] = {
         "qtd": qtd, "piso": float(piso), "custo_folha_mensal_estimado": custo_mensal,
-        "encargos_cct_pct": encargos_pct, "base_salarios": base_sal, "saldo": saldo,
-        "folha_atual": folha_atual, "folha_nova": folha_nova,
-        "runway_atual": runway_atual, "runway_novo": runway_novo,
-        "meses_cobertos": meses_cobertos_pelo_saldo, "postos_descobertos_qtd": qtd_postos_desc,
+        "encargos_cct_pct": encargos_pct, "base_salarios": base_sal,
+        "postos_descobertos_qtd": qtd_postos_desc,
     }
+    if saldo_num is not None:
+        fonte["saldo"] = saldo_num
+    if folha_atual is not None:
+        fonte["folha_atual"] = folha_base
+        fonte["folha_nova"] = folha_nova
+    if n_ativos is not None:
+        fonte["n_ativos"] = n_ativos
+    for k, v in (("runway_atual", runway_atual), ("runway_novo", runway_novo),
+                 ("meses_cobertos", meses_cobertos_pelo_saldo)):
+        if v is not None:
+            fonte[k] = v
+
+    saldo_txt = f"R$ {saldo_num:,.2f}" if saldo_num is not None else "aguardando dado"
+    folha_txt = f"R$ {folha_base:,.2f}" if folha_atual is not None else "sem colaborador ativo (aguardando dado)"
 
     # Fallback determinístico (grounded por construção — só números da fonte)
     fallback = (
+        f"Avaliado contra {empresa_nome} (Banco {banco}). "
         f"Contratar {qtd} {cargo} custa cerca de R$ {custo_mensal:,.2f}/mês "
         f"(piso R$ {float(piso):,.2f} + {encargos_pct:.0f}% de encargos CCT). "
-        f"Saldo disponível R$ {saldo:,.2f}; folha mensal atual R$ {folha_atual:,.2f}"
+        f"Saldo {banco}: {saldo_txt}; folha atual de {empresa_nome}: {folha_txt}"
         + (f"; o runway iria de {runway_atual} para {runway_novo} meses" if runway_novo is not None and runway_atual is not None else "")
         + f". Postos descobertos hoje: {qtd_postos_desc}"
         + (f" ({', '.join(postos_desc[:5])})" if postos_desc else "")
@@ -264,11 +314,12 @@ async def viabilidade_contratacao(
     )
 
     contexto_llm = (
+        f"empresa avaliada (pelo cargo): {empresa_nome} — Banco {banco}\n"
         f"qtd a contratar: {qtd} | cargo: {cargo}\n"
         f"piso salarial: R$ {float(piso):,.2f} ({piso_src})\n"
         f"custo de folha mensal estimado: R$ {custo_mensal:,.2f} (encargos CCT {encargos_pct:.0f}%)\n"
-        f"saldo disponível: R$ {saldo:,.2f} ({saldo_fonte})\n"
-        f"folha mensal atual: R$ {folha_atual:,.2f}\n"
+        f"saldo disponível ({banco}): {saldo_txt} ({saldo_fonte})\n"
+        f"folha mensal atual ({empresa_nome}): {folha_txt}\n"
         f"runway atual: {runway_atual} meses | runway após contratação: {runway_novo} meses\n"
         f"postos descobertos hoje: {qtd_postos_desc}"
         + (f" ({', '.join(postos_desc)})" if postos_desc else "")
@@ -276,7 +327,7 @@ async def viabilidade_contratacao(
 
     sintese, gnd = await _sintetizar(
         db, origem_evento="executivo.viabilidade", fonte=fonte,
-        pergunta=f"Posso contratar {qtd} {cargo}? Analise viabilidade financeira e a demanda operacional.",
+        pergunta=f"Posso contratar {qtd} {cargo}? Analise viabilidade financeira (contra a empresa/conta certa pelo cargo) e a demanda operacional.",
         contexto_llm=contexto_llm, fallback=fallback,
     )
     return {"dados": dados, "sintese": sintese, "groundedness": gnd, "disclaimer": _DISCLAIMER}
@@ -290,12 +341,16 @@ async def briefing(
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_active_user),
 ):
-    """🟢 READ — 1-card: caixa (saldo Inter), postos descobertos (COO), certidões vencendo
-    (fiscal, se acessível), deals quentes (CRM funil, se acessível). Cada número com source."""
-    cfo = await _cfo_panorama(db)
+    """🟢 READ — 1-card: caixa DISCRIMINADA por CNPJ (Inter/Eletrônica + Cora/Patrimonial +
+    consolidado), postos descobertos (COO), certidões vencendo (fiscal, se acessível), deals
+    quentes (CRM funil, se acessível). Cada número com source."""
+    caixa = await _caixa_cnpj(db)
     coo = await _coo_panorama(db)
 
-    saldo = float(cfo.get("saldo_banco") or 0.0)
+    ele, patr = caixa["eletronica"], caixa["patrimonial"]
+    saldo_ele = ele["saldo"]
+    saldo_patr = patr["saldo"]
+    saldo_total = caixa["consolidado"]["saldo_total"]["valor"]
     cobertura = coo.get("cobertura") or {}
     postos_desc = list(cobertura.get("postos_descobertos") or [])
 
@@ -339,7 +394,15 @@ async def briefing(
         deals = _src(None, "aguardando dado (opportunities indisponível)")
 
     dados = {
-        "caixa_saldo": _src(saldo, cfo.get("saldo_fonte") or "cadastro"),
+        "caixa_eletronica": _src(
+            {"nome": ele["nome"], "banco": ele["banco"], "saldo": saldo_ele, "as_of": ele["as_of"]},
+            ele["saldo_fonte"],
+        ),
+        "caixa_patrimonial": _src(
+            {"nome": patr["nome"], "banco": patr["banco"], "saldo": saldo_patr, "as_of": patr["as_of"]},
+            patr["saldo_fonte"],
+        ),
+        "caixa_consolidado": _src(saldo_total, caixa["consolidado"]["saldo_total"]["source"]),
         "postos_descobertos_qtd": _src(len(postos_desc), "consultor_coo_service.panorama.cobertura"),
         "postos_descobertos": _src(postos_desc, "consultor_coo_service.panorama.cobertura"),
         "certidoes": certidoes,
@@ -347,7 +410,13 @@ async def briefing(
     }
 
     # Fonte p/ groundedness — só números com lastro real (omite os "aguardando dado")
-    fonte: dict[str, Any] = {"saldo": saldo, "postos_descobertos_qtd": len(postos_desc)}
+    fonte: dict[str, Any] = {"postos_descobertos_qtd": len(postos_desc)}
+    if saldo_ele is not None:
+        fonte["saldo_eletronica"] = float(saldo_ele)
+    if saldo_patr is not None:
+        fonte["saldo_patrimonial"] = float(saldo_patr)
+    if saldo_total is not None:
+        fonte["saldo_total"] = float(saldo_total)
     cert_v = certidoes["valor"]
     if isinstance(cert_v, dict):
         fonte["certidoes_vencidas"] = cert_v["vencidas"]
@@ -357,7 +426,13 @@ async def briefing(
         fonte["deals_qtd"] = deal_v["qtd"]
         fonte["deals_valor"] = deal_v["valor_total"]
 
-    partes = [f"Caixa: R$ {saldo:,.2f}", f"Postos descobertos: {len(postos_desc)}"]
+    _sfmt = lambda v: (f"R$ {float(v):,.2f}" if v is not None else "aguardando dado")  # noqa: E731
+    partes = [
+        f"Caixa Eletrônica (Inter): {_sfmt(saldo_ele)}",
+        f"Caixa Patrimonial (Cora): {_sfmt(saldo_patr)}",
+        f"Caixa consolidado: {_sfmt(saldo_total)}",
+        f"Postos descobertos: {len(postos_desc)}",
+    ]
     if isinstance(cert_v, dict):
         partes.append(f"Certidões vencidas: {cert_v['vencidas']}, vencendo em 30d: {cert_v['vencendo_30d']}")
     else:
@@ -385,35 +460,67 @@ async def runway(
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_active_user),
 ):
-    """🟢 READ — runway ao vivo: saldo Inter vivo ÷ folha mensal = meses, com `as_of`.
-    Reusa cfo_service.panorama (runway_meses já calculado sobre o saldo VIVO)."""
-    cfo = await _cfo_panorama(db)
-    saldo = float(cfo.get("saldo_banco") or 0.0)
-    folha = float(cfo.get("folha_mensal") or 0.0)
-    runway_meses = cfo.get("runway_meses")
+    """🟢 READ — runway ao vivo POR CNPJ: Inter÷folha Eletrônica e Cora÷folha Patrimonial,
+    com `as_of`. NÃO mistura as contas (era o bug do dono). Nunca fabrica: onde falta saldo
+    ou folha, o runway daquele CNPJ fica 'aguardando dado'."""
+    caixa = await _caixa_cnpj(db)
+
+    def _runway_bloco(b: dict[str, Any]) -> dict[str, Any]:
+        saldo = b["saldo"]
+        folha = b["folha"]
+        rw = (
+            round(float(saldo) / float(folha), 1)
+            if (saldo is not None and folha not in (None, 0, 0.0))
+            else None
+        )
+        rw_fonte = (
+            f"saldo {b['banco']} ÷ folha {b['nome']} (colaboradores ativos)"
+            if rw is not None
+            else "aguardando dado (saldo ou folha do CNPJ indisponível)"
+        )
+        return {
+            "empresa": b["nome"], "banco": b["banco"],
+            "saldo": _src(saldo, b["saldo_fonte"]),
+            "folha_mensal": _src(folha, b["folha_fonte"]),
+            "runway_meses": _src(rw, rw_fonte),
+            "as_of": b["as_of"],
+            "_runway": rw,
+        }
+
+    r_ele = _runway_bloco(caixa["eletronica"])
+    r_patr = _runway_bloco(caixa["patrimonial"])
 
     dados = {
-        "saldo": _src(saldo, cfo.get("saldo_fonte") or "cadastro"),
-        "folha_mensal": _src(folha, "cfo_service.panorama (KPI FOLHA)"),
-        "runway_meses": _src(runway_meses, "cfo_service.panorama.runway_meses (saldo ÷ folha)"),
+        "eletronica": {k: v for k, v in r_ele.items() if k != "_runway"},
+        "patrimonial": {k: v for k, v in r_patr.items() if k != "_runway"},
     }
-    fonte = {"saldo": saldo, "folha": folha, "runway": runway_meses}
 
-    if runway_meses is not None:
-        fallback = (
-            f"Runway ao vivo: R$ {saldo:,.2f} de saldo ÷ R$ {folha:,.2f} de folha mensal "
-            f"= {runway_meses} meses de caixa."
-        )
-    else:
-        fallback = (
-            f"Saldo R$ {saldo:,.2f}; folha mensal ainda sem valor calculado — runway aguardando dado."
-        )
+    fonte: dict[str, Any] = {}
+    for tag, b, rb in (("eletronica", caixa["eletronica"], r_ele), ("patrimonial", caixa["patrimonial"], r_patr)):
+        if b["saldo"] is not None:
+            fonte[f"saldo_{tag}"] = float(b["saldo"])
+        if b["folha"] is not None:
+            fonte[f"folha_{tag}"] = float(b["folha"])
+        if rb["_runway"] is not None:
+            fonte[f"runway_{tag}"] = rb["_runway"]
+
+    def _linha(b: dict[str, Any], rb: dict[str, Any]) -> str:
+        saldo = b["saldo"]; folha = b["folha"]; rw = rb["_runway"]
+        stxt = f"R$ {float(saldo):,.2f}" if saldo is not None else "aguardando dado"
+        ftxt = f"R$ {float(folha):,.2f}" if folha is not None else "sem folha ativa"
+        rtxt = f"{rw} meses" if rw is not None else "aguardando dado"
+        return f"{b['nome']} (Banco {b['banco']}): saldo {stxt} ÷ folha {ftxt} = runway {rtxt}"
+
+    fallback = (
+        "Runway ao vivo por CNPJ — "
+        + _linha(caixa["eletronica"], r_ele) + " | "
+        + _linha(caixa["patrimonial"], r_patr) + "."
+    )
 
     sintese, gnd = await _sintetizar(
         db, origem_evento="executivo.runway", fonte=fonte,
-        pergunta="Qual o runway de caixa hoje?",
-        contexto_llm=f"saldo: R$ {saldo:,.2f} ({dados['saldo']['source']})\n"
-                     f"folha mensal: R$ {folha:,.2f}\nrunway: {runway_meses} meses",
+        pergunta="Qual o runway de caixa hoje, por CNPJ (Eletrônica/Inter e Patrimonial/Cora)?",
+        contexto_llm=_linha(caixa["eletronica"], r_ele) + "\n" + _linha(caixa["patrimonial"], r_patr),
         fallback=fallback,
     )
     return {"dados": dados, "sintese": sintese, "groundedness": gnd,
@@ -447,25 +554,31 @@ async def margem_condominio(
     ).fetchall() if True else []
 
     # Folha alocada por contrato: SUM(salario_base) de employees com allocation ativa em
-    # posts daquele contrato. Onde não houver posts/alocações ligados, fica None (honesto).
+    # posts daquele contrato, ATRIBUÍDA AO CNPJ via employees.empresa_id → empresas.slug.
+    # Onde não houver posts/alocações ligados, fica None (honesto). Hoje posts.contract_id
+    # está vazio em produção → o cruzamento não fecha; o CNPJ da folha aparece quando popular.
     folha_por_contrato: dict[str, float] = {}
+    cnpj_por_contrato: dict[str, str] = {}
     cruzamento_disponivel = False
     try:
         frows = (
             await db.execute(
                 text(
-                    "SELECT p.contract_id::text AS contract_id, "
-                    "COALESCE(SUM(e.salario_base),0) AS folha_base, COUNT(a.id) AS alocados "
+                    "SELECT p.contract_id::text AS contract_id, e.slug AS empresa, "
+                    "COALESCE(SUM(emp.salario_base),0) AS folha_base, COUNT(a.id) AS alocados "
                     "FROM posts p "
                     "JOIN allocations a ON a.post_id = p.id AND a.status::text ILIKE 'ACTIVE%' "
-                    "JOIN employees e ON e.id = a.employee_id "
+                    "JOIN employees emp ON emp.id = a.employee_id "
+                    "LEFT JOIN empresas e ON e.id = emp.empresa_id "
                     "WHERE p.contract_id IS NOT NULL "
-                    "GROUP BY p.contract_id"
+                    "GROUP BY p.contract_id, e.slug"
                 )
             )
         ).fetchall()
         for r in frows:
-            folha_por_contrato[r.contract_id] = float(r.folha_base or 0.0)
+            folha_por_contrato[r.contract_id] = folha_por_contrato.get(r.contract_id, 0.0) + float(r.folha_base or 0.0)
+            if r.empresa:
+                cnpj_por_contrato[r.contract_id] = r.empresa
         cruzamento_disponivel = True
     except Exception as e:  # noqa: BLE001
         logger.debug("margem folha alocada: %s", e)
@@ -487,6 +600,12 @@ async def margem_condominio(
         itens.append({
             "contrato": r.contract_number,
             "cliente": r.cliente,
+            "cnpj_folha": _src(
+                cnpj_por_contrato.get(r.contract_id),
+                "employees.empresa_id → empresas.slug (CNPJ que arca a folha alocada)"
+                if cnpj_por_contrato.get(r.contract_id)
+                else "aguardando dado (sem alocação ligada a este contrato)",
+            ),
             "receita_mensal": _src(receita, "contracts.monthly_value"),
             "folha_alocada_base": _src(folha_base, folha_src),
             "margem_bruta_mensal": _src(
