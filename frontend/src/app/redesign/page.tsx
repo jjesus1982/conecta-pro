@@ -134,7 +134,9 @@ export default function RedesignLauncher() {
       {/* Topbar navy */}
       <header className="rd-launch-top">
         <div className="rd-launch-brand">
-          <img src="/images/quadrante.png" alt="Conecta" />
+          <a href="/redesign" title="Início" aria-label="Voltar para a página inicial" className="rd-brand-home">
+            <img src="/images/quadrante.png" alt="Início — Conecta PRO" />
+          </a>
           <span className="w">CONECTA</span>
           <span className="b">PRO</span>
         </div>

@@ -45,6 +45,9 @@
 .rd-sidebar.collapsed { width: var(--sidebar-collapsed); }
 /* Marca — fiel ao logo.dc.html: ícone quadrante branco + CONECTA + badge PRO laranja */
 .rd-brand { display: flex; align-items: center; gap: 8px; padding: 18px 16px 20px; }
+.rd-brand-home { display: inline-flex; align-items: center; cursor: pointer; border-radius: 8px; transition: opacity .15s ease; }
+.rd-brand-home:hover { opacity: 0.75; }
+.rd-brand-home:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
 .rd-brand-logo { height: 28px; width: auto; flex-shrink: 0; filter: brightness(0) invert(1); }
 .rd-brand-name { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .rd-brand-word { font-weight: 700; font-size: 14px; color: #fff; letter-spacing: -0.02em; }

@@ -356,7 +356,9 @@ export default function ModuleView({ slug }: { slug: string }) {
       {mobileOpen && <div className="rd-scrim" onClick={() => setMobileOpen(false)} />}
       <aside className={`rd-sidebar${collapsed ? ' collapsed' : ''}${mobileOpen ? ' open' : ''}`}>
         <div className="rd-brand">
-          <img src="/images/quadrante.png" alt="Conecta" className="rd-brand-logo" />
+          <a href="/redesign" title="Início" aria-label="Voltar para a página inicial" className="rd-brand-home">
+            <img src="/images/quadrante.png" alt="Início — Conecta PRO" className="rd-brand-logo" />
+          </a>
           <div className="rd-brand-name"><span className="rd-brand-word">CONECTA</span><span className="rd-brand-badge">PRO</span></div>
         </div>
         <div className="rd-mod-ctx">
