@@ -66,3 +66,16 @@ doc(label, url=None, fmt="pdf", mode="blob", filename=None, gate=None, disabled=
 
 ## Piloto de referência (já no ar)
 `redesign_builders/documentos.py` — tela `visao` tem `scr.docs` com os 3 modos (GED blob real · conciliação JSON · SPED disabled); tela `arquivos` tem `row.docs` (download GED por linha). Use como exemplo-âncora.
+
+---
+## ✅ FUNDAÇÃO PROVADA NO BROWSER (2026-07-23)
+Deploy backend (blue-green) + frontend (rebuild imagem, DET pausado anti-OOM) + push OK.
+Provado ao vivo em `/redesign/documentos` via Playwright MCP:
+- **scr.docs** (visão): 3 chips renderizam — Kit ZIP (blob), Conciliação CSV (json), SPED (disabled off).
+- **row.docs** (kits): coluna "Documento" auto-anexada, 59 kits com botão "Baixar Kit ZIP".
+- **Clique blob**: `/api/v1/ged/kits/{id}/download-zip` → 200 application/zip → **ZIP baixado**.
+- **Clique json**: `/api/v1/financial/bank-reconciliations/{id}/export?export_format=csv` → 200 →
+  `{content,filename}` decodificado → **CSV baixado com nome correto**.
+- **format-aware**: zip/csv mostram só "Baixar" (não "Abrir"); pdf/html/xml/txt mostram os dois.
+- **disabled**: SPED sem botões + tooltip honesto.
+**Contrato CONGELADO.** Terminais podem fiar. Piloto-âncora: `redesign_builders/documentos.py`.
