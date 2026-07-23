@@ -2557,6 +2557,37 @@ async def propor_comunicado(titulo: str, corpo: str) -> dict:
     return await erp.post("/consultores/mcp/propor-comunicado", json={"titulo": titulo, "corpo": corpo})
 
 
+# ------------------------------------------- Fase 5.2a.4: quick-wins executivos (🟢 read)
+@mcp.tool
+async def consultar_viabilidade_contratacao(qtd: int, cargo: str) -> dict:
+    """🟢 "Posso contratar N do cargo X?" — cruza caixa/runway (CFO) + postos descobertos (COO)
+    + custo de folha (qtd × piso CCT + encargos). Cada número com proveniência; síntese ancorada
+    (groundedness). Só LEITURA — não contrata, não move dinheiro. READ."""
+    return await erp.post("/consultores/mcp/executivo/viabilidade-contratacao",
+                          json={"qtd": qtd, "cargo": cargo})
+
+
+@mcp.tool
+async def briefing_executivo() -> dict:
+    """🟢 1-card executivo do dia: caixa (saldo Inter), postos descobertos, certidões vencendo,
+    deals quentes. Cada número com source; o que não tiver lastro vem 'aguardando dado'. READ."""
+    return await erp.get("/consultores/mcp/executivo/briefing")
+
+
+@mcp.tool
+async def runway_ao_vivo() -> dict:
+    """🟢 Runway de caixa AO VIVO: saldo Inter vivo ÷ folha mensal = meses, com as_of
+    (corrige o KPI de cache velho). READ."""
+    return await erp.get("/consultores/mcp/executivo/runway")
+
+
+@mcp.tool
+async def margem_por_condominio() -> dict:
+    """🟢 Margem por contrato: receita (contrato) − folha alocada (best-effort). Onde o
+    cruzamento não fecha, a folha vem 'aguardando dado' — nunca estimada. READ."""
+    return await erp.get("/consultores/mcp/executivo/margem-condominio")
+
+
 _mcp_app = mcp.http_app(path="/mcp")
 
 

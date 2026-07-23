@@ -249,6 +249,11 @@ TOOL_RISK: dict[str, str] = {
     "registrar_feedback": "write_low",   # 🔵
     "propor_pagamento": "propose",       # 🟡
     "propor_comunicado": "propose",      # 🟡
+    # --- Fase 5.2a.4: quick-wins executivos (🟢 read, cross-domínio) ---
+    "consultar_viabilidade_contratacao": "read",
+    "briefing_executivo": "read",
+    "runway_ao_vivo": "read",
+    "margem_por_condominio": "read",
 }
 
 

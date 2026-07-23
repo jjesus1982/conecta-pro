@@ -1066,6 +1066,17 @@ try:
         logger.info("Consultor MCP controller: OK")
     except Exception as _e:
         logger.warning(f"Consultor MCP controller: {_e}")
+    # Executivo MCP (Fase 5.2a.4): quick-wins executivos cross-domínio (🟢 read) — viabilidade
+    # de contratação, briefing, runway ao vivo, margem por condomínio. Mesmo gate MCP.
+    try:
+        from modules.ai.conversation.controllers.executivo_controller import (
+            router as _executivo_mcp_router,
+        )
+
+        api_router.include_router(_executivo_mcp_router, dependencies=[_MCP_CONSULTOR_GATE])
+        logger.info("Executivo MCP controller: OK")
+    except Exception as _e:
+        logger.warning(f"Executivo MCP controller: {_e}")
     # WhatsApp (Evolution API)
     if whatsapp_router:
         api_router.include_router(whatsapp_router, tags=["WhatsApp - Evolution API"])
