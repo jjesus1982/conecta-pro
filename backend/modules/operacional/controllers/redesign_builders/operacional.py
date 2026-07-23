@@ -2,11 +2,14 @@
 (presença ao vivo, escalas, turnos, reembolsos). Operacional é curado pelo Jordan →
 SÓ visibilidade, NUNCA escreve/altera escala/alocação. Reembolso é read-only (sem aprovar/pagar)."""
 from modules.operacional.controllers.redesign_data_controller import (
-    S, _build_operacional, _fmtdate, _helpers, _scalar, b, brl, t,
+    S, _build_operacional, _fmtdate, _helpers, _scalar, b, brl, doc, t,
 )
 
 SLUG = "operacional"
-EXTRA_MENU: list[dict] = []
+EXTRA_MENU: list[dict] = [
+    {"id": "rondas", "label": "Rondas",
+     "icon": "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"},
+]
 
 
 async def build(db) -> dict:
@@ -113,6 +116,26 @@ async def build(db) -> dict:
             {"left": "Afastados", "right": str(_afast), **S["warn"]},
         ]}]
         out["colaboradores"] = _colab
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Rondas — inspection_rounds (leitura) com Relatório PDF por-linha. Rota curl-provada:
+    # GET /api/v1/operacional/rondas/{id}/relatorio/pdf → 200 application/pdf ~267KB.
+    _ron_tone = {"concluida": "ok", "concluída": "ok", "finalizada": "ok", "em_andamento": "warn",
+                 "iniciada": "warn", "pausada": "warn", "cancelada": "bad", "agendada": "info"}
+    try:
+        n_ron = await _scalar(db, "SELECT count(*) FROM inspection_rounds") or 0
+        out["rondas"] = await tbl(
+            "Rondas", f"{n_ron} ronda(s)", "—",
+            ["Código", "Inspetor", "Data", "Duração", "Ocorrências", "Status"],
+            "1.1fr 1.6fr 1fr 0.8fr 0.9fr 0.9fr",
+            "SELECT id, coalesce(code,'—'), coalesce(inspector_name,'—'), coalesce(scheduled_date, started_at), "
+            "duration_minutes, coalesce(total_occurrences,0), coalesce(status::text,'—') "
+            "FROM inspection_rounds ORDER BY coalesce(scheduled_date, started_at, created_at) DESC NULLS LAST LIMIT 200",
+            lambda r: [t(r[1], 600, "#0F1B3A"), t(r[2]), t(_fmtdate(r[3])),
+                       t(f"{int(r[4])} min" if r[4] is not None else '—'), t(str(int(r[5] or 0))),
+                       b((r[6] or '—').replace('_', ' ').capitalize(), _ron_tone.get((r[6] or '').lower(), "info"))],
+            docsfn=lambda r: [doc("Relatório (PDF)", f"/api/v1/operacional/rondas/{r[0]}/relatorio/pdf", fmt="pdf")])
     except Exception:  # noqa: BLE001
         pass
 
