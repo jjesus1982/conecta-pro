@@ -3,7 +3,7 @@ Ação legal (parecer/transmitir) fica GATED. Ver auditoria/parity/DIVISAO_3T.md
 from sqlalchemy import text
 
 from modules.operacional.controllers.redesign_data_controller import (
-    IC, S, _ICF, _fmtdate, _helpers, _scalar, b, brl, t,
+    IC, S, _ICF, _fmtdate, _helpers, _scalar, b, brl, doc, t,
 )
 
 SLUG = "juridico"
@@ -42,13 +42,16 @@ async def build(db) -> dict:
     _det_tone = {"nova": "warn", "aberta": "warn", "pendente": "warn", "respondida": "ok", "encerrada": "ok", "ciente": "ok", "arquivada": "mut"}
 
     def _det_screen():
+        # id na 1ª coluna p/ o docsfn (PDF por-linha da comunicação DET). Rota curl-provada:
+        # GET /api/v1/juridico/det/comunicacoes/{id}/pdf → 200 application/pdf ~363KB.
         return tbl(
             "DET — Comunicações", f"{n_det} comunicações", "—",
             ["Título", "Tipo", "Órgão", "Número", "Prazo", "Status"], "1.9fr 1fr 1.3fr 0.9fr 0.9fr 0.9fr",
-            "SELECT coalesce(titulo,'—'), coalesce(tipo,'—'), coalesce(orgao,'—'), coalesce(numero,'—'), coalesce(prazo,'—'), coalesce(status,'—') "
+            "SELECT id, coalesce(titulo,'—'), coalesce(tipo,'—'), coalesce(orgao,'—'), coalesce(numero,'—'), coalesce(prazo,'—'), coalesce(status,'—') "
             "FROM juridico_det_comunicacoes ORDER BY created_at DESC NULLS LAST LIMIT 200",
-            lambda r: [t((r[0] or '—')[:52], 600, "#0F1B3A"), t(r[1]), t((r[2] or '—')[:30]), t(r[3]), t(r[4]),
-                       b((r[5] or '—').capitalize(), _det_tone.get((r[5] or '').lower(), "info"))])
+            lambda r: [t((r[1] or '—')[:52], 600, "#0F1B3A"), t(r[2]), t((r[3] or '—')[:30]), t(r[4]), t(r[5]),
+                       b((r[6] or '—').capitalize(), _det_tone.get((r[6] or '').lower(), "info"))],
+            docsfn=lambda r: [doc("Comunicação (PDF)", f"/api/v1/juridico/det/comunicacoes/{r[0]}/pdf", fmt="pdf")])
     n_det = await _scalar(db, "SELECT count(*) FROM juridico_det_comunicacoes")
     await safe("det-comunicacoes", _det_screen())
     await safe("processos-det", _det_screen())
