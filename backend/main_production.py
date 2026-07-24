@@ -1072,6 +1072,18 @@ try:
         logger.info("Executivo MCP controller: OK")
     except Exception as _e:
         logger.warning(f"Executivo MCP controller: {_e}")
+    # Peça 3 — Orquestrador ESCOPADO por usuário. Registrado ANTES do consultor_mcp
+    # (mesma disciplina de precedência de rota do executivo). Auth = token do próprio
+    # usuário (get_current_active_user), NÃO o gate MCP de serviço.
+    try:
+        from modules.ai.conversation.controllers.consultor_escopado_controller import (
+            router as _consultor_escopado_router,
+        )
+
+        api_router.include_router(_consultor_escopado_router)
+        logger.info("Consultor escopado controller: OK")
+    except Exception as _e:
+        logger.warning(f"Consultor escopado controller: {_e}")
     # Consultor MCP (Fase 5 / Task 3): superfície que o conector MCP chama (consulta unificada 🟢).
     try:
         from modules.ai.conversation.controllers.consultor_mcp_controller import (
