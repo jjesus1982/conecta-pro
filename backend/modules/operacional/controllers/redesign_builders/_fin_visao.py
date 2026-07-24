@@ -48,23 +48,37 @@ async def build_visao(db, out: dict) -> None:
     except Exception:  # noqa: BLE001 — projeção não derruba o módulo
         pass
 
-    # ── Insights IA (riscos + oportunidades) — REUSO do CashFlowAIService ────────────────
+    # ── Insights/Alertas IA — Motor A (ai_controller) sobre dado REAL ────────────────────
+    # O motor do CashFlowAIService é escopado por CONDOMÍNIO (legado) e exige um forecast
+    # pronto → não serve p/ a empresa (voltava sempre vazio: os métodos reais são privados
+    # _identify_risks/_identify_opportunities). O Motor A calcula direto de ReceivableAccount/
+    # PayableAccount reais (inadimplência, vencimentos 7d), sem condominio_id.
     try:
-        from modules.financial.services.cashflow_ai_service import CashFlowAIService
-        svc = CashFlowAIService(db)
-        riscos = await svc.identificar_riscos(None, 90) if hasattr(svc, "identificar_riscos") else []
-        opps = await svc.identificar_oportunidades(None, 90) if hasattr(svc, "identificar_oportunidades") else []
+        from modules.financial.controllers.ai_controller import (
+            _build_alerts, _build_insights, _calculate_default_metrics,
+        )
+        _m = await _calculate_default_metrics(db, None)
+        _alerts = _build_alerts(_m)
+        _insights = _build_insights(_m)
+        _lvl = {"vermelho": "bad", "laranja": "warn", "amarelo": "warn"}
 
-        def _ins_rows(items, vazio):
-            return ([{"left": (i.get("titulo") or i.get("title") or str(i))[:60],
-                      "right": (i.get("severidade") or i.get("impacto") or i.get("valor") or "—"),
-                      **S["warn"]} for i in items[:8]] if items else
-                    [{"left": vazio, "right": "0", **S["ok"]}])
+        def _alert_rows(items):
+            return ([{"left": (getattr(a, "title", "") or "—")[:60],
+                      "right": (getattr(a, "level", "") or "—").capitalize(),
+                      **S[_lvl.get(getattr(a, "level", ""), "warn")]} for a in items[:8]] if items else
+                    [{"left": "Sem alertas — inadimplência e liquidez sob controle", "right": "ok", **S["ok"]}])
+
+        def _insight_rows(items):
+            return ([{"left": (getattr(i, "title", "") or "—")[:60],
+                      "right": (getattr(i, "type", "") or "—").capitalize(),
+                      **(S["ok"] if getattr(i, "type", "") == "oportunidade" else S["info"])}
+                     for i in items[:8]] if items else
+                    [{"left": "Sem insights no momento", "right": "—", **S["mut"]}])
 
         if isinstance(out.get("projecao"), dict):
             out["projecao"]["panels"].extend([
-                {"title": "Riscos identificados (IA)", "rows": _ins_rows(riscos, "Nenhum risco apontado pela análise")},
-                {"title": "Oportunidades (IA)", "rows": _ins_rows(opps, "Nenhuma oportunidade apontada")},
+                {"title": f"Alertas IA · inadimplência {_m['default_rate']:.1f}%", "rows": _alert_rows(_alerts)},
+                {"title": "Insights IA", "rows": _insight_rows(_insights)},
             ])
             out["projecao"]["panelGrid"] = "1fr 1fr 1fr"
     except Exception:  # noqa: BLE001
