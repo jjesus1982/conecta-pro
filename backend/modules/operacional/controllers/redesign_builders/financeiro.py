@@ -613,6 +613,10 @@ async def build(db) -> dict:
     from modules.operacional.controllers.redesign_builders._fin_receber import build_receber
     await build_receber(db, out)
 
+    # F2 — Bancos & Conciliação: contas reais + conciliação bancária de extrato.
+    from modules.operacional.controllers.redesign_builders._fin_bancos import build_bancos
+    await build_bancos(db, out)
+
     # F0 — fundação: compõe os 7 grupos (tabs) e stub-a as telas antigas (deep-link preservado).
     from modules.operacional.controllers.redesign_builders._fin_grupos import montar_grupos
     montar_grupos(out)

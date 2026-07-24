@@ -21,9 +21,10 @@ GRUPOS = [
         ("transferir-ted", "TED"), ("pagar-darf", "DARF"),
         ("cancelar-pagamento", "Cancelar pagto"), ("registrar-conta-pagar", "Registrar")]),
     ("g-bancos", "Bancos & Conciliação", "Saldos, extratos e conciliação", [
-        ("saldos", "Saldos"), ("inter", "Banco Inter"), ("cora", "Banco Cora"),
-        ("banking", "Extrato"), ("inter-pagamentos", "Inter (pagtos)"),
-        ("conciliacao", "Conciliação de folha")]),
+        ("saldos", "Saldos"), ("contas-bancarias", "Contas"), ("inter", "Banco Inter"),
+        ("cora", "Banco Cora"), ("banking", "Extrato"),
+        ("conciliacao-bancaria", "Conciliação (extrato)"),
+        ("conciliacao", "Conciliação de folha"), ("inter-pagamentos", "Inter (pagtos)")]),
     ("g-fiscal", "Fiscal & Contábil", "Notas, guias e contabilidade", [
         ("fiscal", "Fiscal"), ("nfse-entrada", "NFS-e entrada"),
         ("contabilidade", "Contabilidade"), ("cancelar-boleto", "Cancelar boleto")]),
