@@ -1,0 +1,29 @@
+{
+  "menu": [
+    { "id": "chat", "label": "Consultor IA", "icon": "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" }
+  ],
+  "screens": {
+    "chat": {
+      "title": "Consultor IA",
+      "sub": "Pergunte sobre os SEUS dados — o assistente responde no limite do seu perfil (seus módulos, seu posto, você mesmo).",
+      "type": "chat",
+      "chat": {
+        "endpoint": "/api/v1/consultores/chat/consultar",
+        "field": "pergunta",
+        "placeholder": "Ex.: como está a cobertura dos meus postos hoje?",
+        "suggestions": [
+          "Como está a operação hoje?",
+          "Qual a minha escala?",
+          "Mostra meu ponto do mês",
+          "Preciso justificar uma batida"
+        ],
+        "disclaimer": "As respostas ficam dentro do que o seu perfil já pode ver (RBAC + escopo do seu posto/você). Ações como justificar ponto vão para o DP aprovar — o consultor só propõe."
+      }
+    }
+  },
+  "mod": {
+    "icon": "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
+    "name": "Consultor IA",
+    "desc": "Seu chat de IA escopado ao seu perfil"
+  }
+}

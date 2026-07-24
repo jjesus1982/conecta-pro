@@ -7,6 +7,7 @@ import automacoes from '@/app/redesign/_modules/automacoes.json';
 import bi from '@/app/redesign/_modules/bi.json';
 import campo from '@/app/redesign/_modules/campo.json';
 import configuracoes from '@/app/redesign/_modules/configuracoes.json';
+import consultor_ia from '@/app/redesign/_modules/consultor-ia.json';
 import crm from '@/app/redesign/_modules/crm.json';
 import departamento_pessoal from '@/app/redesign/_modules/departamento-pessoal.json';
 import documentos from '@/app/redesign/_modules/documentos.json';
@@ -41,6 +42,7 @@ export const MODULES: Record<string, any> = {
   'bi': bi,
   'campo': campo,
   'configuracoes': configuracoes,
+  'consultor-ia': consultor_ia,
   'crm': crm,
   'departamento-pessoal': departamento_pessoal,
   'documentos': documentos,
