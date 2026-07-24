@@ -621,6 +621,10 @@ async def build(db) -> dict:
     from modules.operacional.controllers.redesign_builders._fin_pagar import build_pagar
     await build_pagar(db, out)
 
+    # F4 — Visão Geral: projeção 30/60/90d, insights IA e DRE inline (reuso exato dos endpoints).
+    from modules.operacional.controllers.redesign_builders._fin_visao import build_visao
+    await build_visao(db, out)
+
     # F0 — fundação: compõe os 7 grupos (tabs) e stub-a as telas antigas (deep-link preservado).
     from modules.operacional.controllers.redesign_builders._fin_grupos import montar_grupos
     montar_grupos(out)

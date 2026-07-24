@@ -5,7 +5,8 @@ from modules.operacional.controllers.redesign_data_controller import grp, moved
 
 GRUPOS = [
     ("g-visao", "Visão Geral", "Resumo executivo do financeiro", [
-        ("dashboard", "Resumo"), ("fluxo-caixa", "Fluxo de Caixa"), ("raio-x", "Raio-X"),
+        ("dashboard", "Resumo"), ("fluxo-caixa", "Fluxo de Caixa"),
+        ("projecao", "Projeção & Insights"), ("dre-inline", "DRE"), ("raio-x", "Raio-X"),
         ("cfo", "CFO IA"), ("agentes", "Agentes"), ("relatorios", "Relatórios")]),
     ("g-receber", "Receber", "Contas a receber, cobrança e faturamento", [
         ("contas-receber", "Contas a Receber"), ("cobrancas", "Cobranças"),
