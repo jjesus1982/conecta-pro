@@ -452,6 +452,12 @@ async def build(db) -> dict:
         "title": "Pagar boleto (Inter)",
         "sub": "Dinheiro que SAI — 2 etapas + OTP. Boleto, convênio ou tributo por código de barras/linha digitável. Trava de saldo e limite diário no serviço.",
         "cta": "Preparar e gerar OTP", "type": "form",
+        # Anexar o PDF do boleto → o backend extrai linha digitável + valor (endpoint read-only,
+        # NÃO paga — rota provada: 422 sem arquivo). Preenche codigo_barras/valor no form.
+        "attach": {"label": "Anexar boleto (PDF) — lê a linha digitável",
+                   "endpoint": "/api/v1/financeiro/inter/payments/extrair-boleto-pdf",
+                   "accept": "application/pdf,image/*", "okFlag": "encontrado",
+                   "fills": {"codigo_barras": "linha_digitavel", "valor": "valor"}},
         "submit": {"endpoint": "/api/v1/redesign/action/pagar-boleto", "gated": True,
                    "confirm": "Isto vai PAGAR um boleto via Inter. Gerar o código OTP para o Jordan confirmar?",
                    "okMsg": "Boleto pago."},

@@ -179,8 +179,34 @@ function FormScreen({ scr }: { scr: any }) {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [otp, setOtp] = useState<{ ref: string; code: string } | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [attMsg, setAttMsg] = useState<string | null>(null);
   const set = (k: string, v: string) => setVals((s) => ({ ...s, [k]: v }));
   const gated = !!(scr.submit && scr.submit.gated); // ação money/gov (visual de aviso)
+
+  // Anexo que PREENCHE o form (scr.attach) — ex.: anexar o PDF do boleto e o backend extrai a
+  // linha digitável/valor (endpoint read-only, NÃO paga). fills = {campoForm: chaveResposta}.
+  async function anexar(file?: File) {
+    if (!file || !scr.attach) return;
+    setAttMsg('Lendo o arquivo…');
+    try {
+      let tok = ''; try { tok = localStorage.getItem('access_token') || ''; } catch { /* */ }
+      const fd = new FormData(); fd.append(scr.attach.field || 'arquivo', file);
+      const res = await fetch(scr.attach.endpoint, { method: 'POST', headers: tok ? { Authorization: `Bearer ${tok}` } : {}, body: fd });
+      const r = await res.json().catch(() => ({}));
+      const okFlag = scr.attach.okFlag;
+      if (!res.ok || (okFlag && !r[okFlag])) {
+        setAttMsg(r?.motivo || (typeof r?.detail === 'string' ? r.detail : 'Não consegui ler o arquivo.'));
+        return;
+      }
+      const upd: Record<string, string> = {};
+      for (const [fk, rk] of Object.entries(scr.attach.fills || {})) {
+        const v = (r as any)[rk as string];
+        if (v != null && v !== '') upd[fk] = fk === 'valor' && !isNaN(Number(v)) ? Number(v).toFixed(2) : String(v);
+      }
+      setVals((s) => ({ ...s, ...upd }));
+      setAttMsg(`Dados carregados do arquivo${r.valor ? ` — R$ ${Number(r.valor).toFixed(2)}` : ''}. Confira antes de enviar.`);
+    } catch { setAttMsg('Falha ao ler o arquivo.'); }
+  }
 
   async function fire(extra: Record<string, unknown>) {
     let tok: string | null = null;
@@ -224,6 +250,16 @@ function FormScreen({ scr }: { scr: any }) {
       {msg && (
         <div className={`rd-badge ${msg.ok ? 'rd-b-success' : 'rd-b-error'}`} style={{ height: 'auto', padding: '8px 12px', fontSize: 12.5, alignSelf: 'flex-start' }}>
           {msg.text}
+        </div>
+      )}
+      {scr.attach && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <label className="rd-btn rd-btn-outline" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, padding: '7px 12px' }}>
+            📎 {scr.attach.label || 'Anexar arquivo'}
+            <input type="file" accept={scr.attach.accept || 'application/pdf'} style={{ display: 'none' }}
+              onChange={(e) => { anexar(e.target.files?.[0]); e.currentTarget.value = ''; }} />
+          </label>
+          {attMsg && <span className="rd-scr-sub" style={{ margin: 0 }}>{attMsg}</span>}
         </div>
       )}
       <div className="rd-form-grid">
