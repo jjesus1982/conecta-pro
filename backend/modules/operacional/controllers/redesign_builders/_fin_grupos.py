@@ -29,7 +29,9 @@ GRUPOS = [
         ("conciliacao", "Conciliação de folha"), ("inter-pagamentos", "Inter (pagtos)")]),
     ("g-fiscal", "Fiscal & Contábil", "Notas, guias e contabilidade", [
         ("fiscal", "Fiscal"), ("nfse-entrada", "NFS-e entrada"),
-        ("contabilidade", "Contabilidade"), ("cancelar-boleto", "Cancelar boleto")]),
+        ("plano-contas", "Plano de contas"), ("lancamentos", "Lançamentos"),
+        ("balancete", "Balancete"), ("contabilidade", "Extrato categorizado"),
+        ("cancelar-boleto", "Cancelar boleto")]),
     ("g-custos", "Custos & Orçamento", "Custos, custeio, precificação e orçamento", [
         ("custos", "Custos"), ("custeio", "Custeio"), ("custeio-cct", "Custeio CCT"),
         ("precificacao", "Precificação"), ("orcamentos", "Orçamentos")]),

@@ -625,6 +625,10 @@ async def build(db) -> dict:
     from modules.operacional.controllers.redesign_builders._fin_visao import build_visao
     await build_visao(db, out)
 
+    # F5 — Contabilidade real: plano de contas, lançamentos D/C e balancete.
+    from modules.operacional.controllers.redesign_builders._fin_contabil import build_contabil
+    await build_contabil(db, out)
+
     # F0 — fundação: compõe os 7 grupos (tabs) e stub-a as telas antigas (deep-link preservado).
     from modules.operacional.controllers.redesign_builders._fin_grupos import montar_grupos
     montar_grupos(out)
