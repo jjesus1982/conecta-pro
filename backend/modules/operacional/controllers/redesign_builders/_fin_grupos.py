@@ -33,11 +33,13 @@ GRUPOS = [
         ("balancete", "Balancete"), ("contabilidade", "Extrato categorizado"),
         ("cancelar-boleto", "Cancelar boleto")]),
     ("g-custos", "Custos & Orçamento", "Custos, custeio, precificação e orçamento", [
-        ("custos", "Custos"), ("custeio", "Custeio"), ("custeio-cct", "Custeio CCT"),
+        ("custos", "Custos"), ("custeio-abc", "Custeio ABC"),
+        ("custeio-contratos", "Margem por contrato"), ("custeio", "Simulador CCT"), ("custeio-cct", "Custeio CCT"),
         ("precificacao", "Precificação"), ("orcamentos", "Orçamentos")]),
     ("g-cadastros", "Cadastros & Suprimentos", "Fornecedores, contratos, compras e estoque", [
         ("fornecedores", "Fornecedores"), ("contratos", "Contratos"),
-        ("compras", "Compras"), ("estoque", "Estoque")]),
+        ("compras-reais", "Compras"), ("compras", "Compras (NF-e)"),
+        ("estoque-real", "Estoque"), ("estoque", "Estoque (NF-e)")]),
 ]
 
 

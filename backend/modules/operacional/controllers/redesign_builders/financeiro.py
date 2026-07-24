@@ -629,6 +629,14 @@ async def build(db) -> dict:
     from modules.operacional.controllers.redesign_builders._fin_contabil import build_contabil
     await build_contabil(db, out)
 
+    # F6 — Custeio ABC real (reuso exato do custeio_controller).
+    from modules.operacional.controllers.redesign_builders._fin_custos import build_custos
+    await build_custos(db, out)
+
+    # F7 — Compras & Estoque reais (fontes purchase_*/fin_stock_*).
+    from modules.operacional.controllers.redesign_builders._fin_cadastros import build_cadastros
+    await build_cadastros(db, out)
+
     # F0 — fundação: compõe os 7 grupos (tabs) e stub-a as telas antigas (deep-link preservado).
     from modules.operacional.controllers.redesign_builders._fin_grupos import montar_grupos
     montar_grupos(out)
