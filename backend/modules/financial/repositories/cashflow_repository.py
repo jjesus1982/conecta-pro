@@ -277,19 +277,21 @@ class BankTransactionRepository:
     async def get_pending_reconciliation(
         self,
         bank_account_id: UUID,
-        start_date: date,
-        end_date: date,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        limit: int = 100,
     ) -> builtins.list[BankTransaction]:
-        """Busca movimentacoes pendentes de conciliacao."""
-        query = select(BankTransaction).where(
-            and_(
-                BankTransaction.bank_account_id == bank_account_id,
-                BankTransaction.reconciliation_status == TransactionReconciliationStatus.PENDENTE.value,
-                BankTransaction.transaction_date >= start_date,
-                BankTransaction.transaction_date <= end_date,
-                BankTransaction.ativo.is_(True),  # noqa: E712
-            )
-        )
+        """Busca movimentacoes pendentes de conciliacao (datas opcionais + limit)."""
+        conds = [
+            BankTransaction.bank_account_id == bank_account_id,
+            BankTransaction.reconciliation_status == TransactionReconciliationStatus.PENDENTE.value,
+            BankTransaction.ativo.is_(True),  # noqa: E712
+        ]
+        if start_date is not None:
+            conds.append(BankTransaction.transaction_date >= start_date)
+        if end_date is not None:
+            conds.append(BankTransaction.transaction_date <= end_date)
+        query = select(BankTransaction).where(and_(*conds)).limit(limit)
         result = await self.session.execute(query)
         return list(result.scalars().all())
 

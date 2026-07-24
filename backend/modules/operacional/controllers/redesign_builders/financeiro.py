@@ -928,6 +928,19 @@ async def _rd_pagar_gps(current_user: CurrentActiveUser, payload: dict = Body(..
                                categoria="imposto", dest_fn=_dest_gps, label="Pagamento de GPS")
 
 
+@router.post("/action/conciliar-auto")
+async def _rd_conciliar_auto(current_user: CurrentActiveUser, payload: dict = Body(default={}), db=Depends(get_db)) -> dict:
+    """Roda o matching automático (extrato × contas a pagar/receber). Bookkeeping — só marca
+    reconciliation_status, NÃO move dinheiro. Reusa a função provada conciliar_todas()."""
+    from starlette.concurrency import run_in_threadpool
+
+    from modules.financial.services.reconciliation_service import conciliar_todas
+    r = await run_in_threadpool(conciliar_todas)
+    tot = r.get("total", 0); ok = r.get("conciliados", 0); sm = r.get("sem_match", 0); er = r.get("erros", 0)
+    return {"ok": True, "message": f"Conciliação rodada: {ok} conciliada(s), {sm} sem match, "
+            f"{er} erro(s) — de {tot} pendente(s) processada(s)."}
+
+
 # ── Money-IN (cobrança) e gestão — delega às funções do console clássico ──
 @router.post("/action/emitir-boleto")
 async def _rd_emitir_boleto(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:

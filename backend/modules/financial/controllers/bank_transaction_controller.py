@@ -146,7 +146,7 @@ async def get_pending_reconciliation(
     current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
 ) -> list[BankTransactionResponse]:
     """Retorna transações pendentes de conciliação bancária."""
-    transactions = await repo.get_pending_reconciliation(bank_account_id, limit)
+    transactions = await repo.get_pending_reconciliation(bank_account_id, limit=limit)
     return [BankTransactionResponse.model_validate(t) for t in transactions]
 
 
@@ -504,7 +504,7 @@ async def import_transactions(
                     skip=0,
                     limit=1,
                 )
-                if existing and any(t.statement_reference == tx_data.reference for t in existing):
+                if existing and any(t.reference == tx_data.reference for t in existing):
                     duplicates += 1
                     continue
 
@@ -513,11 +513,14 @@ async def import_transactions(
                 {
                     "bank_account_id": data.bank_account_id,
                     "transaction_type": tx_data.transaction_type,
-                    "category": tx_data.category or TransactionCategory.OUTROS,
+                    "category": tx_data.category or (
+                        TransactionCategory.OUTRAS_RECEITAS
+                        if tx_data.transaction_type == TransactionType.CREDITO
+                        else TransactionCategory.OUTRAS_DESPESAS),
                     "amount": tx_data.amount,
                     "description": tx_data.description,
                     "transaction_date": tx_data.transaction_date,
-                    "statement_reference": tx_data.reference,
+                    "reference": tx_data.reference,
                     "status": "confirmado",
                     "reconciliation_status": "pendente",
                 }
@@ -577,11 +580,13 @@ async def import_ofx_file(
                 {
                     "bank_account_id": bank_account_id,
                     "transaction_type": tx["type"],
-                    "category": TransactionCategory.OUTROS,
+                    "category": (TransactionCategory.OUTRAS_RECEITAS
+                                 if tx["type"] == TransactionType.CREDITO
+                                 else TransactionCategory.OUTRAS_DESPESAS),
                     "amount": tx["amount"],
                     "description": tx["description"],
                     "transaction_date": tx["date"],
-                    "statement_reference": tx["fitid"],
+                    "reference": tx["fitid"],
                     "status": "confirmado",
                     "reconciliation_status": "pendente",
                 }

@@ -55,9 +55,21 @@ async def build_bancos(db, out: dict) -> None:
                  **_tone.get((s or '').lower(), S["mut"])} for s, c in stt]},
             {"title": "Importação de extrato", "rows": [
                 {"left": "Sincronização Inter/Cora", "right": "Automática (conector)", **S["ok"]},
-                {"left": "Upload manual OFX/CSV", "right": "Próxima iteração", **S["mut"]},
+                {"left": "Upload manual OFX", "right": "Backend pronto (via API) — UI próxima", **S["info"]},
             ]},
         ]
         out["conciliacao-bancaria"] = scr
     except Exception:  # noqa: BLE001
         pass
+
+    # ── Rodar conciliação automática (matching extrato×contas) — bookkeeping, não move dinheiro ──
+    out["conciliar-auto"] = {
+        "title": "Rodar conciliação automática",
+        "sub": "Casa o extrato bancário com contas a pagar/receber (valor ±R$0,01 ou ±2% + data ±3/7 dias). "
+               "NÃO move dinheiro — só marca o status de conciliação. Sem match → fica para justificar.",
+        "cta": "Rodar conciliação agora", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/conciliar-auto", "gated": False,
+                   "confirm": "Rodar o matching automático de todas as transações pendentes agora?",
+                   "okMsg": "Conciliação executada."},
+        "fields": [],
+    }
