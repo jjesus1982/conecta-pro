@@ -5,6 +5,7 @@ import { PanelLeftClose, PanelLeft, Menu, Search, Bell, Plus, LogOut, LayoutGrid
 import { MODULES } from './modules';
 import { rdLogout } from './session';
 import { DocButtons } from './DocButtons';
+import { ExportMenu } from './ExportMenu';
 import ChatScreen from './ChatScreen';
 
 // ── Ícone via path bruto do pacote (lucide, traço 2px) ───────────────────────
@@ -436,9 +437,18 @@ export default function ModuleView({ slug }: { slug: string }) {
             <div className="rd-scr-title">{scr?.title}</div>
             {scr?.sub && isReal && <div className="rd-scr-sub">{scr.sub}</div>}
           </div>
-          {isReal && Array.isArray(scr?.docs) && scr.docs.length > 0 && (
-            <div style={{ marginTop: 12, marginBottom: 2 }}>
-              <DocButtons docs={scr.docs} />
+          {isReal && (
+            (Array.isArray(scr?.docs) && scr.docs.length > 0) ||
+            (scr?.type === 'table' && Array.isArray(scr?.rows) && scr.rows.length > 0 && !scr?.noExport)
+          ) && (
+            <div style={{ marginTop: 12, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', justifyContent: 'space-between' }}>
+              <div>{Array.isArray(scr?.docs) && scr.docs.length > 0 && <DocButtons docs={scr.docs} />}</div>
+              {scr?.type === 'table' && Array.isArray(scr?.rows) && scr.rows.length > 0 && !scr?.noExport && (
+                <ExportMenu
+                  cols={(scr.cols || []).map((c: string) => String(c))}
+                  rows={(scr.rows || []).map((r: any) => (r.cells || []).map((c: any) => String(c?.v ?? '')))}
+                  nome={scr.title || 'lista'} titulo={scr.title} />
+              )}
             </div>
           )}
           {dataState === 'loading'
