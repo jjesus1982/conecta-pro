@@ -17,21 +17,28 @@ Líder NÃO é classe à parte — é CLT + privilégio. Privilégios empilham:
 
 | Perfil | Chat vê | Fonte de dado (já escopada) | Enforcement |
 |---|---|---|---|
-| **Diretoria** (jjesus, pjesus) | Orquestrador cross-domínio (Hermes, todas tools) | panoramas globais | `role=admin` (bypass) |
-| **Gestores** (Gonzaga, supervisor Paiva) | Consultores dos seus módulos (operacional, dp/RH, sst/SO, ged; +portal/ponto) | panoramas dos módulos permitidos | `require_permission` |
-| **DEVs/Suporte** | Consultores de todos os módulos **exceto** financeiro/fiscal/contábil | idem | `require_permission` (não têm as 3 perms sensíveis) |
-| **Líderes** (Walcicley, Erika, Ediwilson) | base CLT **+** operacional/ponto do **SEU posto** | endpoints operacionais **posto-scoped** (scope.py) + portal self | posto-scope + self |
-| **CLT** (demais) | Só **sobre si**: própria escala, próprio ponto, portal; **justificar ajuste de ponto → DP aprova** | endpoints do Portal **self-scoped** (employee_id) | self-scope |
+| **Diretoria** (jjesus, pjesus) | Orquestrador cross-domínio, **todas** as tools | panoramas globais | `role=admin` (bypass) |
+| **Gestores** (Gonzaga, supervisor Paiva) | Orquestrador cross-domínio **FILTRADO** aos seus módulos (operacional, dp/RH, sst/SO, ged; +portal/ponto) | panoramas dos módulos permitidos | tools filtradas + `require_permission` na execução |
+| **DEVs/Suporte** | Orquestrador cross-domínio **FILTRADO** a todos **exceto** financeiro/fiscal/contábil | idem | tools filtradas + `require_permission` |
+| **Líderes** (Walcicley, Erika, Ediwilson) | Orquestrador escopado ao **SEU posto** (operacional/ponto) + base CLT | endpoints operacionais **posto-scoped** (scope.py) + portal self | tools filtradas + posto-scope + self |
+| **CLT** (demais) | Orquestrador escopado a **SI**: própria escala, próprio ponto, portal; **justificar ajuste de ponto → DP aprova** | endpoints do Portal **self-scoped** (employee_id) | tools filtradas + self-scope |
 
-## Arquitetura — surfaces diferentes por tier, todas token-enforçadas
-Achado runtime (investigação): o Hermes chama tools como UMA conta de serviço (`mcp-service`, admin) — **sem identidade do usuário do chat**. Logo, a única superfície que pode usar o Hermes-como-serviço é a **diretoria** (que vê tudo mesmo). Todos os demais rodam **direct=True, com o token do próprio usuário**, atravessando o RBAC real:
+## Arquitetura — UM orquestrador escopado por usuário (todos os tiers, cross-domínio filtrado)
+Decisão do dono (2026-07-24): **todos** ganham um cérebro cross-domínio — mas o alcance de cada um é filtrado. O modelo unifica em **um orquestrador escopado**, com DUAS travas por usuário:
+1. **Conjunto de tools filtrado** — o LLM só recebe as tools cujos módulos ∈ `user_modules(user)` (gestor não vê tool de financeiro; líder só as posto-scoped; CLT só as self). O modelo nem pode *tentar* o que não tem.
+2. **Execução com a identidade do usuário** — cada tool executa contra o endpoint interno **com o token/contexto do próprio usuário**, então `require_permission` (módulo) + `scope.py` (posto) + self (employee_id) barram na FONTE. Defesa em profundidade: filtro (belt) + RBAC na execução (suspenders).
 
-- **Diretoria → Orquestrador Executivo** (já deployado): `gerar(origem="executivo", direct=False)` → Hermes → tools. Sem mudança.
-- **Gestor/DEV → consultores de domínio** (`consultor_hub`, direct=True) só dos módulos que `user_modules(user)` retorna. Cada consultor gated por `require_permission` do seu módulo. Dado = panorama do módulo (org-wide dentro do módulo — gestor não é posto-scoped).
-- **Líder → assistente do posto**: LLM sobre os endpoints operacionais/ponto **já posto-scoped** (scope.py, com o token do líder) + a base CLT (self). O LLM só recebe no contexto o dado do posto dele — nunca de outro posto, porque a query já filtra.
-- **CLT → assistente pessoal**: LLM sobre os endpoints do Portal **já self-scoped** (employee_id) — própria escala/ponto/holerite. + ação **justificar ponto**.
+**Achado runtime (investigação):** o Hermes hoje chama tools como UMA conta de serviço (`mcp-service`, admin) — sem identidade do usuário. Logo o Hermes-como-serviço só serve a **diretoria** (que vê tudo mesmo). Para os demais, a orquestração precisa carregar a identidade do usuário na execução das tools. Caminho recomendado:
 
-**Ponto-chave de segurança:** para líder/CLT o LLM só vê no contexto o dado que os endpoints escopados retornam (posto/self). Escopo é aplicado ANTES do LLM, na query — o modelo nunca tem em mãos o que não pode ver.
+- **Diretoria → Orquestrador Executivo via Hermes** (já deployado, todas as tools). Sem mudança.
+- **Demais → ORQUESTRADOR ESCOPADO no backend** (novo componente): um loop de function-calling (LLM gpt-5) sobre as tools filtradas por `user_modules`, onde cada chamada de tool é executada pelo backend contra o endpoint/serviço interno **com o contexto de auth do próprio usuário** (não `mcp-service`). Reusa as DEFINIÇÕES de tool + a camada de garantia (groundedness/auditoria) + os endpoints existentes (que já aplicam RBAC/posto/self). NÃO depende do Hermes propagar identidade (o gap runtime) — a orquestração roda in-backend com a identidade real.
+  - **Gestor/DEV:** tools dos seus módulos → panoramas org-wide DENTRO dos módulos permitidos.
+  - **Líder:** tools operacionais/ponto **posto-scoped** (scope.py) + base CLT (self). A query já filtra pro posto dele — o LLM nunca recebe dado de outro posto.
+  - **CLT:** tools **self-scoped** (Portal, employee_id) + a ação justificar-ponto. O LLM só vê o próprio dado.
+
+**Ponto-chave de segurança:** o escopo é aplicado ANTES e DURANTE — o LLM só recebe no contexto o que os endpoints escopados retornam (posto/self/módulo), e nunca tem tool nem token para sair disso.
+
+**Futuro (fora desta peça):** unificar tudo no Hermes propagando a identidade do usuário até o conector (aí diretoria e escopados usam o mesmo agente). Hoje: Hermes p/ diretoria + orquestrador escopado in-backend p/ os demais.
 
 ## Componentes
 
@@ -45,13 +52,14 @@ Módulos canônicos (de `main_production.py:321-328`): financeiro, fiscal, dp, g
 Em `mcp-server/tool_risk_manifest.py`: mapa `nome_da_tool -> módulo`. Tool sem módulo declarado = **não aparece** (fail-closed, igual ao risco). Tools cross-domínio (briefing_executivo, consultar_viabilidade_contratacao, consultor_ceo, runway…) → módulo especial **`"diretoria"`** (só admin). Teste no manifesto: TODA tool tem módulo (espelha `test_toda_tool_esta_classificada`).
 Allowlist efetiva por usuário = `tools_include()` (risco) ∩ `{ tool : TOOL_MODULE[tool] ∈ user_modules(user) ∪ {"diretoria" se admin} }`.
 
-### 3. Superfície de chat escopada — o endpoint
-Um endpoint user-facing (ex. `/consultores/chat/consultar {pergunta}`), `Depends(get_current_active_user)` (token do usuário, NÃO `_MCP_ALLOWED`). Roteia por tier:
-- admin → delega ao Orquestrador Executivo (Hermes).
-- gestor/dev → consultor(es) de domínio (direct=True) dos módulos permitidos; a pergunta é roteada ao consultor do domínio pertinente (reusa personas do `consultor_mcp_controller`), com `require_permission` guardando cada um.
-- líder → assistente posto-scoped (busca via endpoints operacionais scope.py) .
-- clt → assistente self-scoped (busca via Portal endpoints) + ação de ponto.
-Groundedness/auditoria (garantia 5.2a) valem em todos.
+### 3. Orquestrador escopado no backend — CRIAR (o componente central)
+Um endpoint user-facing (ex. `/consultores/chat/consultar {pergunta}`), `Depends(get_current_active_user)` (token do usuário, NÃO `_MCP_ALLOWED`):
+- **admin** → delega ao Orquestrador Executivo (Hermes, todas tools) — já existe.
+- **demais** → loop de function-calling in-backend: (a) `tools = tools_include() ∩ {t : TOOL_MODULE[t] ∈ user_modules(user)}`; (b) chama o LLM (gpt-5, via `consultor_hub`) com essas tools; (c) para cada tool-call, executa o **handler interno com o contexto de auth do próprio usuário** (o mesmo que os endpoints usam — `require_permission`/scope.py/self aplicam); (d) devolve o resultado ao LLM; itera com teto de iteração + budget; (e) síntese final passa pelo groundedness + auditoria (garantia 5.2a).
+- Reusa: as definições de tool (as mesmas do conector), os handlers dos endpoints (que já enforçam), a garantia. NÃO reimplementa lógica de negócio.
+
+### 3b. Auditar+completar os leitores escopados — CONFIRMAR/CRIAR
+Antes de ligar líder/CLT: auditar se os endpoints operacionais (posto-scoped, scope.py) e do Portal (self-scoped) já entregam TUDO que o assistente do líder/CLT precisa (escala do posto, ponto do posto/self, justificativas). Onde faltar, **criar o leitor escopado** (dentro do escopo combinado — posto p/ líder, self p/ CLT; nunca além). Cada leitor novo herda o enforcement (scope.py/self), nunca retorna fora do escopo.
 
 ### 4. Ação: justificar ajuste de ponto → DP aprova — padrão 🟡 propor→aprovar
 CLT descreve a justificativa no chat → cria um registro **pendente** de ajuste/justificativa (status 'pendente'), roteado ao DP para aprovação (reusa o padrão `propor_*` do `consultor_mcp_controller`: grava pendente, NUNCA aplica). Só após aprovação do DP reflete em ponto/folha/RH. Idempotência + auditoria. NUNCA auto-aplica na folha.
@@ -77,14 +85,15 @@ CLT descreve a justificativa no chat → cria um registro **pendente** de ajuste
 - `TOOL_MODULE` fail-closed: tool nova sem módulo → não aparece (teste do manifesto).
 
 ## Fora de escopo (nomeado p/ não virar retalho)
-- **Hermes-orchestration escopado para gestores** (cérebro cross-domínio porém filtrado por usuário) — exige propagar a identidade do chat até o conector (o gap runtime). Fica p/ depois; hoje gestor = consultores de domínio.
+- **Unificar tudo no Hermes** (propagar identidade do usuário do chat até o conector, p/ diretoria e escopados usarem o mesmo agente) — depois. Nesta peça: Hermes p/ diretoria + orquestrador escopado in-backend p/ os demais.
 - Limpeza das contas Paiva `@conectamais` inativas (uma é admin inativo) — hygiene opcional.
 - Sino real (peça 4).
 
 ## Riscos abertos
-- Roteamento pergunta→consultor de domínio (qual persona) p/ gestor: heurística vs classificador — provável reuso do roteamento existente.
-- Endpoints operacionais/portal já retornam TUDO que o líder/CLT precisa via scope.py/self? Auditar cobertura antes (pode faltar um leitor posto-scoped p/ o assistente do líder).
-- Consultor de domínio (panorama) é org-wide dentro do módulo — confirmar que gestor PODE ver org-wide no seu módulo (sim, gestor não é posto-scoped) mas líder/CLT NÃO usam esses panoramas (usam os escopados).
+- **O loop de function-calling in-backend** (executar tool-handler com o contexto de auth do usuário) é o maior build novo — como injetar a identidade do usuário na execução do handler reusando o mesmo caminho dos endpoints (evitar duplicar lógica). Provável spike no início do plano.
+- **Cobertura dos leitores escopados** (3b): auditar operacional/portal antes de ligar líder/CLT; pode faltar leitor posto/self.
+- **Gestor org-wide dentro do módulo**: confirmar que gestor PODE ver org-wide no seu módulo (sim, não é posto-scoped); líder/CLT usam só os escopados.
+- Latência do loop cross-domínio (múltiplas tools) — reusar o timeout de 180s já posto no nginx p/ `/consultores/`; considerar streaming futuro.
 
 ## Resumo de 1 linha
-Um chat por usuário, rodando com o token dele; o alcance é o RBAC+posto+self que já existem, enforçado na fonte; diretoria=orquestrador, gestor/dev=consultores de domínio, líder=posto, CLT=self+justificar-ponto→DP — fronteira de segurança no dado, nunca no LLM.
+Um orquestrador cross-domínio por usuário, com tools filtradas por `user_modules` e executadas com a identidade do próprio usuário; o alcance = RBAC+posto+self que já existem, enforçado na fonte (belt+suspenders); diretoria via Hermes, demais via orquestrador escopado in-backend; ações (justificar-ponto)→DP — fronteira no dado, nunca no LLM.
