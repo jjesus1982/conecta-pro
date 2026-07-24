@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
-import { PanelLeftClose, PanelLeft, Menu, Search, Bell, Plus, LogOut, LayoutGrid } from 'lucide-react';
+import { PanelLeftClose, PanelLeft, Menu, Search, Plus, LogOut, LayoutGrid } from 'lucide-react';
+import RdBell from './RdBell';
 import { MODULES } from './modules';
 
 // Scanner de câmera (QR PIX + código de barras de boleto) — reusa o componente do clássico.
@@ -565,7 +566,7 @@ export default function ModuleView({ slug }: { slug: string }) {
             <Search size={16} color="var(--placeholder)" />
             <input placeholder={scr?.searchHint || 'Buscar…'} />
           </div>
-          <button type="button" className="rd-icon-btn" aria-label="Notificações"><Bell size={18} /><span className="rd-dot-badge">3</span></button>
+          <RdBell />
           {scr?.cta && isReal && (scr.type === 'form' || (scr.ctaTo && (patches[scr.ctaTo] || screens[scr.ctaTo]))) && (
             <button
               type="button"
