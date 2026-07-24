@@ -8,7 +8,8 @@ GRUPOS = [
         ("dashboard", "Resumo"), ("fluxo-caixa", "Fluxo de Caixa"), ("raio-x", "Raio-X"),
         ("cfo", "CFO IA"), ("agentes", "Agentes"), ("relatorios", "Relatórios")]),
     ("g-receber", "Receber", "Contas a receber, cobrança e faturamento", [
-        ("contas-receber", "Contas a Receber"), ("cobrancas", "Cobranças"), ("boletos", "Boletos"),
+        ("contas-receber", "Contas a Receber"), ("cobrancas", "Cobranças"),
+        ("regua", "Régua"), ("recorrencia", "Recorrência (MRR)"), ("boletos", "Boletos"),
         ("emitir-boleto", "Emitir boleto"), ("cobrar-pix", "Cobrar PIX"),
         ("faturamento", "Faturamento"), ("clientes", "Clientes"),
         ("registrar-conta-receber", "Registrar")]),

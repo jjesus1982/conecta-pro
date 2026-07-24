@@ -609,6 +609,10 @@ async def build(db) -> dict:
     except Exception:  # noqa: BLE001 — documentos não derrubam o módulo
         pass
 
+    # F1 — piloto Receber: aging KPIs, clientes reais (customers), régua e recorrência read-only.
+    from modules.operacional.controllers.redesign_builders._fin_receber import build_receber
+    await build_receber(db, out)
+
     # F0 — fundação: compõe os 7 grupos (tabs) e stub-a as telas antigas (deep-link preservado).
     from modules.operacional.controllers.redesign_builders._fin_grupos import montar_grupos
     montar_grupos(out)
