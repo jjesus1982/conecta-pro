@@ -766,8 +766,14 @@ async def consultar(
         "Uma decisão de MÃO DE OBRA olha Patrimonial/Cora; segurança ELETRÔNICA olha "
         "Eletrônica/Inter. Nunca misture as contas.\n\n"
         "REGRAS:\n"
-        "- Use as tools para buscar CADA número no banco; CITE a fonte de cada número; NUNCA "
-        "fabrique — se faltar, diga 'aguardando dado'.\n"
+        "- CAIXA/SALDO: o LASTRO ANCORADO abaixo já traz o saldo REAL das DUAS contas "
+        "(Inter/Eletrônica e Cora/Patrimonial), lido do banco AGORA. Para qualquer pergunta de "
+        "caixa/saldo, use SEMPRE os números do lastro — eles são a verdade. NÃO chame tools de "
+        "saldo isoladas para caixa (algumas só conhecem o Inter e te levariam a afirmar, "
+        "ERRADO, que o Cora/Patrimonial está indisponível). O saldo do Cora ESTÁ no lastro — "
+        "reporte-o.\n"
+        "- DEMAIS números (folha detalhada, postos, deals, fiscal, prazos): use as tools e CITE "
+        "a fonte; NUNCA fabrique — se realmente faltar, diga 'aguardando dado'.\n"
         "- Dinheiro que SAI e ato legal SEMPRE exigem gate humano + OTP — você PROPÕE, nunca executa.\n\n"
         "=== LASTRO ANCORADO (números reais do banco, agora) ===\n" + contexto_caixa
     )
