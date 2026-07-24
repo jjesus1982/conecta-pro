@@ -476,7 +476,7 @@ export default function ModuleView({ slug }: { slug: string }) {
         <main className="rd-content">
           <div>
             <div className="rd-scr-title">{scr?.title}</div>
-            {scr?.sub && isReal && <div className="rd-scr-sub">{scr.sub}</div>}
+            {(effScr?.sub || scr?.sub) && isReal && <div className="rd-scr-sub">{effScr?.sub || scr?.sub}</div>}
           </div>
           {isReal && (
             (Array.isArray(effScr?.docs) && effScr.docs.length > 0) ||
