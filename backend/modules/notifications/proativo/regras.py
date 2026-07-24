@@ -85,19 +85,25 @@ register(Regra(
 
 # ─────────────────────────── certidao_vencendo ───────────────────────────
 async def _detectar_certidao_vencendo(db: AsyncSession) -> list[Achado]:
+    # TZ canônico: dia-de-negócio = Manaus, NUNCA current_date (sessão Postgres em UTC) —
+    # janela diária 20h-23h59 Manaus cairia no dia UTC seguinte e erraria o corte.
     rows = (await db.execute(text(
         "SELECT id::text AS id, coalesce(name,'certidão') AS name, "
-        "       expiry_date, (expiry_date - current_date) AS dias "
+        "       expiry_date, "
+        "       (expiry_date - (now() AT TIME ZONE 'America/Manaus')::date) AS dias "
         "FROM ged_certidoes "
-        "WHERE expiry_date <= current_date + 30"
+        "WHERE expiry_date <= (now() AT TIME ZONE 'America/Manaus')::date + 30"
     ))).mappings().all()
     out = []
     for r in rows:
         dias = int(r["dias"])
+        vencida = dias < 0
         out.append(Achado(
             correlation_id=f"certidao:{r['id']}:{r['expiry_date']}",
             dados={"cert_id": r["id"], "nome": r["name"], "dias": dias,
-                   "expiry": str(r["expiry_date"]), "vencida": dias < 0},
+                   "expiry": str(r["expiry_date"]), "vencida": vencida,
+                   # per-achado: vencida é sempre crítico; a vencer (<=30d) mantém atencao
+                   "severidade": "critico" if vencida else "atencao"},
         ))
     return out
 
@@ -188,12 +194,16 @@ if __name__ == "__main__":
                 t, b = REGISTRY["posto_descoberto"].template(a.dados)
                 assert str(a.dados["faltam"]) in b  # groundedness do template
 
-            # ---- certidao_vencendo: Achados == oráculo (<=30d OU vencida) ----
+            # ---- certidao_vencendo: Achados == oráculo (<=30d OU vencida), dia de Manaus ----
             oráculo_cert = (await db.execute(text(
                 "SELECT count(*) FROM ged_certidoes "
-                "WHERE expiry_date <= current_date + 30"))).scalar()
+                "WHERE expiry_date <= (now() AT TIME ZONE 'America/Manaus')::date + 30"
+            ))).scalar()
             achados_cert = await REGISTRY["certidao_vencendo"].detectar(db)
             assert len(achados_cert) == oráculo_cert, (len(achados_cert), oráculo_cert)
+            for a in achados_cert:
+                esperado = "critico" if a.dados["vencida"] else "atencao"
+                assert a.dados["severidade"] == esperado, (a.dados["severidade"], esperado)
 
             # ---- caixa_baixo_cnpj: cada Achado tem saldo < limiar; limiar>0 ----
             achados_caixa = await REGISTRY["caixa_baixo_cnpj"].detectar(db)
