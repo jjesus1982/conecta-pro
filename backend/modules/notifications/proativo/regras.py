@@ -171,6 +171,140 @@ register(Regra(
 ))
 
 
+# ─────────────────────────── aging_reforcado ───────────────────────────
+async def _detectar_aging(db: AsyncSession) -> list[Achado]:
+    # MESMA fonte/filtro de notifications.reconciliar_alertas (não duplica).
+    row = (await db.execute(text(
+        "SELECT count(*), coalesce(sum(net_value),0) FROM receivable_accounts "
+        "WHERE due_date < current_date "
+        "AND coalesce(status::text,'') NOT ILIKE '%pag%' "
+        "AND coalesce(status::text,'') NOT ILIKE '%cancel%'"))).fetchone()
+    n, total = int(row[0] or 0), float(row[1] or 0)
+    if n == 0:
+        return []
+    return [Achado(
+        correlation_id="financeiro_aging:portfolio:None",  # namespace do enqueue_alert
+        dados={"n": n, "total": total},
+    )]
+
+
+def _tpl_aging(d: dict) -> tuple[str, str]:
+    return (
+        f"{d['n']} recebível(is) vencido(s)",
+        f"Há {d['n']} título(s) vencido(s) em aberto, total R$ {d['total']:,.2f}.",
+    )
+
+
+register(Regra(
+    nome="aging_reforcado", familia="financeiro", severidade="atencao",
+    roles_destino=("admin",),  # LGPD: financeiro SÓ diretoria
+    action_url="/modulos/financeiro/recebiveis",
+    detectar=_detectar_aging, template=_tpl_aging,
+))
+
+
+# ─────────────────────────── justificativa_parada ───────────────────────────
+async def _detectar_justificativa(db: AsyncSession) -> list[Achado]:
+    rows = (await db.execute(text(
+        "SELECT id, coalesce(employee_id,'') AS emp, "
+        "       EXTRACT(EPOCH FROM (now() - created_at))/3600 AS horas "
+        "FROM gp_justifications "
+        "WHERE lower(coalesce(status,''))='pending' "
+        "AND created_at < now() - interval '48 hours'"))).mappings().all()
+    out = []
+    for r in rows:
+        out.append(Achado(
+            correlation_id=f"justificativa_parada:{r['id']}",
+            dados={"just_id": int(r["id"]), "horas": int(r["horas"] or 0)},
+        ))
+    return out
+
+
+def _tpl_justificativa(d: dict) -> tuple[str, str]:
+    return (
+        "Justificativa de ponto parada",
+        f"Uma justificativa de ponto está pendente de análise há {d['horas']}h "
+        f"(id {d['just_id']}). Revisar.",
+    )
+
+
+register(Regra(
+    nome="justificativa_parada", familia="ponto", severidade="atencao",
+    roles_destino=("admin", "gerente_operacional"),
+    action_url="/modulos/operacional/ponto/justificativas",
+    detectar=_detectar_justificativa, template=_tpl_justificativa,
+))
+
+
+# ─────────────────────────── juridico_prazo (silenciosa até ter dado) ────────
+async def _detectar_juridico(db: AsyncSession) -> list[Achado]:
+    rows = (await db.execute(text(
+        "SELECT id::text AS id, coalesce(titulo,'prazo') AS titulo, data_limite, "
+        "       (data_limite - current_date) AS dias "
+        "FROM juridico_prazos "
+        "WHERE data_limite <= current_date + 7 "
+        "AND lower(coalesce(status,'')) NOT IN ('concluido','concluído','cancelado')"))).mappings().all()
+    out = []
+    for r in rows:
+        out.append(Achado(
+            correlation_id=f"juridico_prazo:{r['id']}:{r['data_limite']}",
+            dados={"prazo_id": r["id"], "titulo": r["titulo"], "dias": int(r["dias"]),
+                   # per-achado: prazo já vencido é sempre crítico; a vencer mantém atencao
+                   "severidade": "critico" if int(r["dias"]) < 0 else "atencao"},
+        ))
+    return out
+
+
+def _tpl_juridico(d: dict) -> tuple[str, str]:
+    return (
+        f"Prazo jurídico: {d['titulo']}",
+        f"O prazo '{d['titulo']}' vence em {d['dias']} dia(s).",
+    )
+
+
+register(Regra(
+    nome="juridico_prazo", familia="juridico", severidade="critico",
+    roles_destino=("admin",),
+    action_url="/modulos/juridico/prazos",
+    detectar=_detectar_juridico, template=_tpl_juridico,
+))
+
+
+# ─────────────────────────── recrutamento_parado (silenciosa até funil) ──────
+async def _detectar_recrutamento(db: AsyncSession) -> list[Achado]:
+    # Hoje candidates.status só tem 'ativo' (sem estágio de funil). A regra existe e
+    # acorda quando houver funil: candidato parado num estágio 'em_analise'/'triagem'
+    # há >7d. Enquanto só houver 'ativo', é silenciosa (não fabricar movimento).
+    rows = (await db.execute(text(
+        "SELECT id::text AS id, coalesce(name,'candidato') AS name "
+        "FROM candidates "
+        "WHERE coalesce(is_active,true) AND coalesce(is_deleted,false)=false "
+        "AND lower(coalesce(status,'')) IN ('em_analise','em_análise','triagem','entrevista') "
+        "AND updated_at < now() - interval '7 days'"))).mappings().all()
+    out = []
+    for r in rows:
+        out.append(Achado(
+            correlation_id=f"recrutamento_parado:{r['id']}",
+            dados={"candidate_id": r["id"], "nome": r["name"]},
+        ))
+    return out
+
+
+def _tpl_recrutamento(d: dict) -> tuple[str, str]:
+    return (
+        f"Candidato parado: {d['nome']}",
+        f"O candidato {d['nome']} está há mais de 7 dias sem movimento no funil.",
+    )
+
+
+register(Regra(
+    nome="recrutamento_parado", familia="recrutamento", severidade="info",
+    roles_destino=("admin", "gerente_operacional"),
+    action_url="/modulos/rh/recrutamento",
+    detectar=_detectar_recrutamento, template=_tpl_recrutamento,
+))
+
+
 if __name__ == "__main__":
     import asyncio
     import os
@@ -212,6 +346,44 @@ if __name__ == "__main__":
                 assert a.dados["limiar"] > 0
                 assert a.correlation_id.startswith("caixa_baixo:")
 
+            # ---- aging_reforcado: Achado agregado == existe vencido? (mesma fonte do reconciliador) ----
+            venc = (await db.execute(text(
+                "SELECT count(*), coalesce(sum(net_value),0) FROM receivable_accounts "
+                "WHERE due_date < current_date "
+                "AND coalesce(status::text,'') NOT ILIKE '%pag%' "
+                "AND coalesce(status::text,'') NOT ILIKE '%cancel%'"))).fetchone()
+            achados_aging = await REGISTRY["aging_reforcado"].detectar(db)
+            assert len(achados_aging) == (1 if int(venc[0]) > 0 else 0)
+            if achados_aging:
+                assert achados_aging[0].dados["n"] == int(venc[0])
+                assert achados_aging[0].correlation_id == "financeiro_aging:portfolio:None"
+
+            # ---- justificativa_parada: == pending há >48h ----
+            j = (await db.execute(text(
+                "SELECT count(*) FROM gp_justifications "
+                "WHERE lower(coalesce(status,''))='pending' "
+                "AND created_at < now() - interval '48 hours'"))).scalar()
+            achados_just = await REGISTRY["justificativa_parada"].detectar(db)
+            assert len(achados_just) == int(j)
+
+            # ---- mudas honestas: hoje 0, mas registradas (acordam sozinhas) ----
+            assert "juridico_prazo" in REGISTRY and "recrutamento_parado" in REGISTRY
+            achados_jur = await REGISTRY["juridico_prazo"].detectar(db)
+            assert len(achados_jur) == (await db.execute(text(
+                "SELECT count(*) FROM juridico_prazos "
+                "WHERE data_limite <= current_date + 7 "
+                "AND lower(coalesce(status,'')) NOT IN ('concluido','concluído','cancelado')"))).scalar()
+            for a in achados_jur:
+                esperado = "critico" if a.dados["dias"] < 0 else "atencao"
+                assert a.dados["severidade"] == esperado, (a.dados["severidade"], esperado)
+
+            achados_rec = await REGISTRY["recrutamento_parado"].detectar(db)
+            assert len(achados_rec) == (await db.execute(text(
+                "SELECT count(*) FROM candidates "
+                "WHERE coalesce(is_active,true) AND coalesce(is_deleted,false)=false "
+                "AND lower(coalesce(status,'')) IN ('em_analise','em_análise','triagem','entrevista') "
+                "AND updated_at < now() - interval '7 days'"))).scalar()
+
             # ---- fail-closed: regra sem roles não entra ----
             n0 = len(REGISTRY)
             register(Regra(nome="__x__", familia="x", severidade="info",
@@ -221,7 +393,8 @@ if __name__ == "__main__":
             assert "__x__" not in REGISTRY and len(REGISTRY) == n0
 
             print(f"OK regras — postos={len(achados_postos)} cert={len(achados_cert)} "
-                  f"caixa={len(achados_caixa)}")
+                  f"caixa={len(achados_caixa)} aging={len(achados_aging)} "
+                  f"just={len(achados_just)} jur={len(achados_jur)} rec={len(achados_rec)}")
         await eng.dispose()
 
     asyncio.run(main())
