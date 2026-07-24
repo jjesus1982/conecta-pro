@@ -28,7 +28,8 @@ _ARGS = {
 
 
 async def _justificar_ponto(
-    db, user, scope, *, motivo: str, tipo: str = "ajuste", categoria: str = "outro", punch_id: str | None = None
+    db, user, scope, *, motivo: str, tipo: str = "ajuste", categoria: str = "outro",
+    punch_id: str | None = None, **_
 ) -> dict[str, Any]:
     emp = getattr(scope, "employee_id", None) if scope else None
     if not emp:
@@ -36,6 +37,18 @@ async def _justificar_ponto(
     motivo = (motivo or "").strip()
     if len(motivo) < 3:
         return {"erro": "descreva a justificativa (mínimo 3 caracteres)"}
+
+    # m11 — pertencimento: se veio punch_id, a batida TEM de ser do próprio colaborador
+    # (scope.employee_id). Não pertence => recusa limpa sem revelar existência e sem gravar.
+    if punch_id:
+        dono = (await db.execute(
+            text(
+                "SELECT 1 FROM gp_clock_punches WHERE punch_id = :pid AND employee_id::text = :emp LIMIT 1"
+            ),
+            {"pid": punch_id, "emp": emp},
+        )).scalar()
+        if not dono:
+            return {"status": "recusado", "motivo": "batida não encontrada"}
 
     # Idempotência: um pendente idêntico ainda em aberto não é duplicado.
     existente = (await db.execute(
@@ -69,5 +82,5 @@ async def _justificar_ponto(
 JUSTIFICAR_TOOL: ToolDef = register(ToolDef(
     "justificar_ajuste_de_ponto", "self",
     "Enviar ao DP uma justificativa/ajuste do MEU ponto (fica PENDENTE de aprovação; não altera a folha).",
-    _ARGS, _justificar_ponto,
+    _ARGS, _justificar_ponto, scope_kind="self",
 ))

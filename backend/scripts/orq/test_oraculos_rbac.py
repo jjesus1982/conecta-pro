@@ -107,20 +107,19 @@ async def oraculo_2_lider(db) -> None:
 
 
 async def oraculo_3_clt_self(db) -> None:
-    """CLT não alcança OUTRO colaborador: a self-tool não aceita employee_id por argumento."""
+    """CLT não alcança OUTRO colaborador: a self-tool aceita **_ (chave extra do LLM não
+    quebra), mas o employee_id injetado é INERTE — o escopo vem SÓ de scope.employee_id.
+    Prova por igualdade: resultado com employee_id de OUTRO injetado == resultado sem injeção."""
     outro = (await db.execute(text(
         "SELECT employee_id::text FROM gp_clock_punches WHERE employee_id <> :e LIMIT 1"
     ), {"e": CELIANE_EMP})).scalar()
     assert outro, "pré-condição: precisa existir batida de OUTRO colaborador"
 
-    rejeitou = False
-    try:
-        # Tentar cruzar passando employee_id de OUTRO => TypeError (self tool = identidade, não param).
-        await tr.get_tool("meu_ponto").handler(
-            db, None, OrqScope(tier="clt", employee_id=CELIANE_EMP), employee_id=outro)  # type: ignore[call-arg]
-    except TypeError:
-        rejeitou = True
-    assert rejeitou, "meu_ponto ACEITOU employee_id de outro colaborador — self-only quebrado"
+    tool = tr.get_tool("meu_ponto")
+    plain = await tool.handler(db, None, OrqScope(tier="clt", employee_id=CELIANE_EMP))
+    injet = await tool.handler(
+        db, None, OrqScope(tier="clt", employee_id=CELIANE_EMP), employee_id=outro)  # type: ignore[call-arg]
+    assert injet == plain, "meu_ponto USOU employee_id injetado — self-only quebrado (deve ser INERTE)"
 
 
 async def oraculo_4_clt_justifica(db) -> None:
@@ -213,14 +212,14 @@ async def oraculo_6_diretoria(db) -> None:
 async def oraculo_7_injecao_inerte(db) -> None:
     """PROBE de robustez: injeção de kwargs (client_id/employee_id/post_ids) é INERTE.
     O escopo vem SEMPRE da identidade/scope, nunca do argumento do LLM."""
-    # (a) self: employee_id de outro => TypeError (já provado no oráculo 3; reafirma o contrato).
-    rejeitou = False
-    try:
-        await tr.get_tool("meu_ponto").handler(
-            db, None, OrqScope(tier="clt", employee_id=CELIANE_EMP), employee_id="00000000-0000-0000-0000-000000000000")  # type: ignore[call-arg]
-    except TypeError:
-        rejeitou = True
-    assert rejeitou, "self-tool aceitou employee_id injetado"
+    # (a) self: employee_id injetado é INERTE — usa scope.employee_id, não o argumento do LLM
+    #     (padrão dos oráculos cliente: prova por igualdade plain==injet, não por TypeError).
+    self_tool = tr.get_tool("meu_ponto")
+    self_plain = await self_tool.handler(db, None, OrqScope(tier="clt", employee_id=CELIANE_EMP))
+    self_injet = await self_tool.handler(
+        db, None, OrqScope(tier="clt", employee_id=CELIANE_EMP),
+        employee_id="00000000-0000-0000-0000-000000000000")  # type: ignore[call-arg]
+    assert self_injet == self_plain, "self-tool USOU employee_id injetado (deveria ser inerte)"
 
     # (b) cliente: injetar client_id de OUTRO condomínio NÃO muda o resultado (usa scope.client_id).
     outro_cond = (await db.execute(text(

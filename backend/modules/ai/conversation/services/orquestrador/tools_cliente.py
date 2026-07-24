@@ -48,13 +48,13 @@ async def _equipe(db, user, scope, **_) -> dict[str, Any]:
 
 CLIENTE_TOOLS: list[ToolDef] = [
     register(ToolDef("notas_condominio", "cliente",
-                     "Notas fiscais (NFS-e) do MEU condomínio.", _NO_ARGS, _notas)),
+                     "Notas fiscais (NFS-e) do MEU condomínio.", _NO_ARGS, _notas, scope_kind="cliente")),
     register(ToolDef("contrato_condominio", "cliente",
-                     "O contrato vigente do MEU condomínio.", _NO_ARGS, _contrato)),
+                     "O contrato vigente do MEU condomínio.", _NO_ARGS, _contrato, scope_kind="cliente")),
     register(ToolDef("boletos_condominio", "cliente",
-                     "Os boletos/cobranças do MEU condomínio.", _NO_ARGS, _boletos)),
+                     "Os boletos/cobranças do MEU condomínio.", _NO_ARGS, _boletos, scope_kind="cliente")),
     register(ToolDef("equipe_condominio", "cliente",
-                     "A equipe/funcionários alocados no MEU condomínio.", _NO_ARGS, _equipe)),
+                     "A equipe/funcionários alocados no MEU condomínio.", _NO_ARGS, _equipe, scope_kind="cliente")),
 ]
 
 
@@ -119,5 +119,5 @@ async def _buscar_documento(db, user, scope, *, tipo: str, **_) -> dict[str, Any
 CLIENTE_TOOLS.append(register(ToolDef(
     "buscar_documento_condominio", "cliente",
     "Localizar e ENTREGAR um documento EXISTENTE do meu condomínio (boleto ou nota) — nunca emite novo.",
-    _DOC_ARGS, _buscar_documento,
+    _DOC_ARGS, _buscar_documento, scope_kind="cliente",
 )))

@@ -7,6 +7,7 @@ conversar com o assistente IA restrito ao seu contexto.
 
 import logging
 from typing import Any, Literal
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -87,7 +88,9 @@ async def send_message(
         "response": out.get("resposta", "(sem resposta)"),
         "suggestions": suggestions,
         "session_id": body.session_id,
-        "message_id": out.get("origem", "consultor_cliente"),
+        # message_id ÚNICO por resposta (m14) — o feedback endereça uma mensagem específica,
+        # não uma constante compartilhada por todas as respostas da sessão.
+        "message_id": str(uuid4()),
     }
 
 

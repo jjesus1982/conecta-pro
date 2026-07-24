@@ -44,6 +44,29 @@ def main() -> None:
     assert tr.get_tool("dup") is t_dup1, "registro original foi sobrescrito pela duplicata"
     print("OK duplicada rejeitada")
 
+    # 6) m13 fail-closed: scope_kind inválido NÃO registra
+    reprovou_sk = False
+    try:
+        tr.register(tr.ToolDef("t_sk", "financeiro", "d", {"type": "object", "properties": {}}, _noop,
+                               scope_kind="galaxia"))
+    except ValueError:
+        reprovou_sk = True
+    assert reprovou_sk, "scope_kind inválido deveria ter sido recusado"
+    assert tr.get_tool("t_sk") is None
+    print("OK fail-closed: scope_kind inválido recusado")
+
+    # 7) m3 fail-closed: params_schema que declara db/user/scope como propriedade NÃO registra
+    reprovou_prop = False
+    try:
+        tr.register(tr.ToolDef(
+            "t_prop", "financeiro", "d",
+            {"type": "object", "properties": {"scope": {"type": "string"}}}, _noop))
+    except ValueError:
+        reprovou_prop = True
+    assert reprovou_prop, "params_schema com propriedade 'scope' deveria ter sido recusado"
+    assert tr.get_tool("t_prop") is None
+    print("OK fail-closed: propriedade reservada (db/user/scope) recusada")
+
     print("TEST tool_registry PASS")
 
 

@@ -1,6 +1,7 @@
 """Prova: CLT Celiane vê o PRÓPRIO ponto/holerite/escala (dados reais); um escopo self de
 outro colaborador nunca retorna o dela (e vice-versa); escopo sem employee_id => aguardando
-dado; injeção de employee_id como kwarg é IMPOSSÍVEL (TypeError — não é parâmetro aceito)."""
+dado; injeção de employee_id como kwarg é INERTE (o handler aceita **_, mas o escopo vem só
+de scope.employee_id — resultado com injeção == resultado sem)."""
 import asyncio
 
 from sqlalchemy import text
@@ -46,18 +47,16 @@ async def main() -> None:
         assert out2e.get("status") == "aguardando dado", out2e
         print("OK sem employee_id => aguardando dado (ponto/holerite/escala)")
 
-        # 3) o handler ignora um employee_id passado como argumento (não existe esse param)
+        # 3) o handler ACEITA **_ (chave extra do LLM não quebra), mas employee_id injetado é
+        #    INERTE: o escopo vem SÓ de scope.employee_id. Prova por igualdade plain==injet.
         outro = (await db.execute(text(
             "SELECT employee_id::text FROM gp_clock_punches WHERE employee_id <> :e LIMIT 1"
         ), {"e": CELIANE_EMP})).scalar()
         assert outro, "precisa existir >=1 batida de outro colaborador p/ este teste"
-        barrou = False
-        try:
-            await ponto.handler(db, None, OrqScope(tier="clt", employee_id=CELIANE_EMP), employee_id=outro)  # type: ignore[call-arg]
-        except TypeError:
-            barrou = True  # 'employee_id' não é parâmetro aceito → impossível cruzar por argumento
-        assert barrou, "handler self não deveria aceitar employee_id por argumento"
-        print("OK impossível cruzar para outro colaborador por argumento")
+        plain = await ponto.handler(db, None, OrqScope(tier="clt", employee_id=CELIANE_EMP))
+        injet = await ponto.handler(db, None, OrqScope(tier="clt", employee_id=CELIANE_EMP), employee_id=outro)  # type: ignore[call-arg]
+        assert injet == plain, "handler self USOU employee_id injetado — deveria ser inerte"
+        print("OK impossível cruzar para outro colaborador por argumento (injeção inerte)")
 
         # 4) PROVA DO NEGATIVO (conteúdo, não só forma): o escopo self de OUTRO colaborador
         # retorna SÓ os postos/horários dele — nunca os dela — e vice-versa.

@@ -37,10 +37,6 @@ from modules.operacional.scope import get_operational_scope
 
 router = APIRouter(prefix="/consultores/chat", tags=["Consultores — Chat escopado"])
 
-# Nomes das tools posto-scoped (module="operacional", mas escopadas a scope.post_ids —
-# NÃO são panoramas org-wide). Excluídas do conjunto de MÓDULO p/ não vazar/duplicar.
-_POSTO_NAMES = {t.name for t in POSTO_TOOLS}
-
 _SYSTEM_BASE = (
     "Você é o consultor de IA da Conecta PRO para ESTE usuário. Responda usando SOMENTE as tools "
     "disponíveis (elas já vêm escopadas ao que este usuário pode ver). NUNCA invente número, saldo, "
@@ -51,13 +47,16 @@ _SYSTEM_BASE = (
 
 
 class ConsultarIn(BaseModel):
-    pergunta: str = Field(..., min_length=2, max_length=2000)
+    pergunta: str = Field(..., min_length=3, max_length=2000)
 
 
 def _modulo_tools(mods: set[str]) -> list[ToolDef]:
-    """Panoramas org-wide dos módulos permitidos (belt), EXCLUINDO as tools posto-scoped
-    (que carregam module="operacional" mas pertencem ao tier LÍDER, não ao gestor)."""
-    return [t for t in tools_for_modules(mods) if t.name not in _POSTO_NAMES]
+    """Panoramas org-wide dos módulos permitidos (belt), EXCLUINDO as tools escopadas
+    (posto/self/cliente) que possam carregar um module canônico (ex.: as posto-scoped
+    declaram module="operacional" mas pertencem ao tier LÍDER, não ao gestor). O filtro é
+    ESTRUTURAL por scope_kind=="org" — pega qualquer tool posto/self/cliente futura sem
+    depender de uma lista de nomes (m13)."""
+    return [t for t in tools_for_modules(mods) if t.scope_kind == "org"]
 
 
 async def _resolver_tier_e_tools(db: AsyncSession, user) -> tuple[OrqScope, list[ToolDef]]:

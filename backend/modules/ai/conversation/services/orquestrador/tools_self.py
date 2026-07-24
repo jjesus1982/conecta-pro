@@ -39,7 +39,7 @@ async def _hoje_manaus(db) -> Any:
     return (await db.execute(text("SELECT (now() AT TIME ZONE 'America/Manaus')::date"))).scalar()
 
 
-async def _meu_ponto(db, user, scope, mes: int | None = None, ano: int | None = None) -> dict[str, Any]:
+async def _meu_ponto(db, user, scope, mes: int | None = None, ano: int | None = None, **_) -> dict[str, Any]:
     emp = _emp(scope)
     if not emp:
         return {"status": "aguardando dado", "motivo": "usuário sem colaborador vinculado"}
@@ -62,7 +62,7 @@ async def _meu_ponto(db, user, scope, mes: int | None = None, ano: int | None = 
     }
 
 
-async def _meu_holerite(db, user, scope, competencia: str | None = None) -> dict[str, Any]:
+async def _meu_holerite(db, user, scope, competencia: str | None = None, **_) -> dict[str, Any]:
     emp = _emp(scope)
     if not emp:
         return {"status": "aguardando dado", "motivo": "usuário sem colaborador vinculado"}
@@ -109,9 +109,12 @@ async def _minha_escala(db, user, scope, **_) -> dict[str, Any]:
 
 SELF_TOOLS: list[ToolDef] = [
     register(ToolDef("meu_ponto", "self",
-                     "As MINHAS batidas de ponto do mês (só do usuário logado).", _PONTO_ARGS, _meu_ponto)),
+                     "As MINHAS batidas de ponto do mês (só do usuário logado).", _PONTO_ARGS, _meu_ponto,
+                     scope_kind="self")),
     register(ToolDef("meu_holerite", "self",
-                     "Os MEUS holerites (líquido/bruto por competência).", _HOLERITE_ARGS, _meu_holerite)),
+                     "Os MEUS holerites (líquido/bruto por competência).", _HOLERITE_ARGS, _meu_holerite,
+                     scope_kind="self")),
     register(ToolDef("minha_escala", "self",
-                     "A MINHA escala/alocação ativa (só do usuário logado).", _NO_ARGS, _minha_escala)),
+                     "A MINHA escala/alocação ativa (só do usuário logado).", _NO_ARGS, _minha_escala,
+                     scope_kind="self")),
 ]

@@ -11,6 +11,15 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+#: Dimensões de escopo válidas de uma tool (m13). "org" = panorama org-wide dentro do
+#: módulo (belt); "posto"/"self"/"cliente" = escopadas por scope.post_ids/employee_id/client_id.
+VALID_SCOPE_KINDS = frozenset({"org", "posto", "self", "cliente"})
+
+#: Chaves que NUNCA podem aparecer como propriedade no params_schema exposto ao LLM (m3):
+#: o handler as recebe do runtime (db/user/scope), jamais do argumento do modelo.
+_FORBIDDEN_PROPS = frozenset({"db", "user", "scope"})
+
+
 @dataclass(frozen=True)
 class ToolDef:
     name: str
@@ -18,6 +27,7 @@ class ToolDef:
     description: str
     params_schema: dict[str, Any]  # JSON-Schema OpenAI ({"type":"object","properties":{...},"required":[...]})
     handler: Callable[..., Awaitable[Any]] = field(compare=False, repr=False)
+    scope_kind: str = "org"  # dimensão de escopo (m13): "org"|"posto"|"self"|"cliente"
 
 
 _REGISTRY: dict[str, ToolDef] = {}
@@ -29,6 +39,21 @@ def register(tool: ToolDef) -> ToolDef:
         raise ValueError(f"tool '{tool.name}' sem módulo declarado — recusada (fail-closed)")
     if not tool.name or not tool.name.strip():
         raise ValueError("tool sem nome — recusada")
+    # m13: scope_kind tem de ser uma das dimensões válidas (fail-closed contra typo/tool futura).
+    if tool.scope_kind not in VALID_SCOPE_KINDS:
+        raise ValueError(
+            f"tool '{tool.name}' com scope_kind inválido {tool.scope_kind!r} — "
+            f"esperado um de {sorted(VALID_SCOPE_KINDS)} (fail-closed)"
+        )
+    # m3: o params_schema exposto ao LLM não pode declarar db/user/scope como propriedade
+    # (essas vêm do runtime; expô-las abriria uma via de injeção de identidade/conexão).
+    props = (tool.params_schema or {}).get("properties") or {}
+    proibidas = _FORBIDDEN_PROPS & set(props)
+    if proibidas:
+        raise ValueError(
+            f"tool '{tool.name}' expõe propriedade(s) reservada(s) {sorted(proibidas)} no params_schema — "
+            f"recusada (essas vêm do runtime, nunca do LLM)"
+        )
     if tool.name in _REGISTRY:
         raise ValueError(
             f"tool duplicada: {tool.name!r} já registrada (módulo {_REGISTRY[tool.name].module!r})"

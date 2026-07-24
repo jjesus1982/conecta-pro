@@ -94,7 +94,9 @@ async def _presenca_hoje(db, user, scope, **_) -> dict[str, Any]:
 
 POSTO_TOOLS: list[ToolDef] = [
     register(ToolDef("posto_escala_hoje", "operacional",
-                     "Escala/alocação de HOJE apenas dos SEUS postos (líder).", _NO_ARGS, _escala_hoje)),
+                     "Escala/alocação de HOJE apenas dos SEUS postos (líder).", _NO_ARGS, _escala_hoje,
+                     scope_kind="posto")),
     register(ToolDef("posto_presenca_hoje", "operacional",
-                     "Presença/batidas de HOJE apenas dos SEUS postos (líder).", _NO_ARGS, _presenca_hoje)),
+                     "Presença/batidas de HOJE apenas dos SEUS postos (líder).", _NO_ARGS, _presenca_hoje,
+                     scope_kind="posto")),
 ]
