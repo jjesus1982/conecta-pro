@@ -184,7 +184,9 @@ async def _detectar_aging(db: AsyncSession) -> list[Achado]:
         return []
     return [Achado(
         correlation_id="financeiro_aging:portfolio:None",  # namespace do enqueue_alert
-        dados={"n": n, "total": total},
+        # espelha notifications.tasks.py:61 (mesmo corte do reconciliador)
+        dados={"n": n, "total": total,
+               "severidade": "critico" if total >= 50000 else "atencao"},
     )]
 
 
@@ -209,7 +211,7 @@ async def _detectar_justificativa(db: AsyncSession) -> list[Achado]:
         "SELECT id, coalesce(employee_id,'') AS emp, "
         "       EXTRACT(EPOCH FROM (now() - created_at))/3600 AS horas "
         "FROM gp_justifications "
-        "WHERE lower(coalesce(status,''))='pending' "
+        "WHERE lower(coalesce(status,'')) IN ('pending','pendente') "
         "AND created_at < now() - interval '48 hours'"))).mappings().all()
     out = []
     for r in rows:
@@ -238,12 +240,16 @@ register(Regra(
 
 # ─────────────────────────── juridico_prazo (silenciosa até ter dado) ────────
 async def _detectar_juridico(db: AsyncSession) -> list[Achado]:
+    # TZ canônico: dia-de-negócio = Manaus, NUNCA a data crua da sessão Postgres (UTC).
+    # Vocabulário real da tabela é {aberto, cumprido, atrasado} (prazos_service._STATUS_VALIDOS);
+    # os dois valores excluídos antes (ver git blame) nunca existem na tabela — exclusão
+    # morta que fazia prazos já resolvidos alertarem pra sempre. Só 'cumprido' sai do radar.
     rows = (await db.execute(text(
         "SELECT id::text AS id, coalesce(titulo,'prazo') AS titulo, data_limite, "
-        "       (data_limite - current_date) AS dias "
+        "       (data_limite - (now() AT TIME ZONE 'America/Manaus')::date) AS dias "
         "FROM juridico_prazos "
-        "WHERE data_limite <= current_date + 7 "
-        "AND lower(coalesce(status,'')) NOT IN ('concluido','concluído','cancelado')"))).mappings().all()
+        "WHERE data_limite <= (now() AT TIME ZONE 'America/Manaus')::date + 7 "
+        "AND lower(coalesce(status,'')) NOT IN ('cumprido')"))).mappings().all()
     out = []
     for r in rows:
         out.append(Achado(
@@ -307,6 +313,7 @@ register(Regra(
 
 if __name__ == "__main__":
     import asyncio
+    import inspect
     import os
 
     from sqlalchemy import text
@@ -357,25 +364,38 @@ if __name__ == "__main__":
             if achados_aging:
                 assert achados_aging[0].dados["n"] == int(venc[0])
                 assert achados_aging[0].correlation_id == "financeiro_aging:portfolio:None"
+                # fix pós-review (4): severidade dinâmica espelha notifications/tasks.py:61
+                esperado_sev = "critico" if achados_aging[0].dados["total"] >= 50000 else "atencao"
+                assert achados_aging[0].dados["severidade"] == esperado_sev, (
+                    achados_aging[0].dados["severidade"], achados_aging[0].dados["total"])
 
-            # ---- justificativa_parada: == pending há >48h ----
+            # ---- justificativa_parada: == pending/pendente há >48h (fix pós-review 3) ----
             j = (await db.execute(text(
                 "SELECT count(*) FROM gp_justifications "
-                "WHERE lower(coalesce(status,''))='pending' "
+                "WHERE lower(coalesce(status,'')) IN ('pending','pendente') "
                 "AND created_at < now() - interval '48 hours'"))).scalar()
             achados_just = await REGISTRY["justificativa_parada"].detectar(db)
             assert len(achados_just) == int(j)
+            src_just = inspect.getsource(_detectar_justificativa)
+            assert "'pending','pendente'" in src_just, "SQL de justificativa deve cobrir os dois vocabulários"
 
             # ---- mudas honestas: hoje 0, mas registradas (acordam sozinhas) ----
             assert "juridico_prazo" in REGISTRY and "recrutamento_parado" in REGISTRY
             achados_jur = await REGISTRY["juridico_prazo"].detectar(db)
             assert len(achados_jur) == (await db.execute(text(
                 "SELECT count(*) FROM juridico_prazos "
-                "WHERE data_limite <= current_date + 7 "
-                "AND lower(coalesce(status,'')) NOT IN ('concluido','concluído','cancelado')"))).scalar()
+                "WHERE data_limite <= (now() AT TIME ZONE 'America/Manaus')::date + 7 "
+                "AND lower(coalesce(status,'')) NOT IN ('cumprido')"))).scalar()
             for a in achados_jur:
                 esperado = "critico" if a.dados["dias"] < 0 else "atencao"
                 assert a.dados["severidade"] == esperado, (a.dados["severidade"], esperado)
+
+            # ---- fix pós-review (1)+(2): SQL do juridico sem current_date cru; usa Manaus; vocabulário real ----
+            src_jur = inspect.getsource(_detectar_juridico)
+            assert "current_date" not in src_jur, "juridico_prazo não pode usar current_date cru (TZ UTC)"
+            assert "America/Manaus" in src_jur
+            assert "NOT IN ('cumprido')" in src_jur
+            assert "concluido" not in src_jur and "cancelado" not in src_jur
 
             achados_rec = await REGISTRY["recrutamento_parado"].detectar(db)
             assert len(achados_rec) == (await db.execute(text(
