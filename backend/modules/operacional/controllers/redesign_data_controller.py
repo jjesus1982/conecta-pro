@@ -2831,10 +2831,9 @@ async def rd_action_custeio_cct(
 
 # Itens de menu extras (telas de ação/escrita) que o ModuleView anexa à nav.
 EXTRA_MENU = {
+    # F0: itens do financeiro removidos — registrar-conta-* e custeio-cct agora são ABAS
+    # dos grupos (g-pagar/g-receber/g-custos em _fin_grupos.py). Menu = só os 7 grupos.
     "financeiro": [
-        {"id": "registrar-conta-pagar", "label": "Registrar conta a pagar", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-        {"id": "registrar-conta-receber", "label": "Registrar conta a receber", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-        {"id": "custeio-cct", "label": "Custeio CCT (encargos)", "icon": "M9 7h6M9 11h6M9 15h4M5 3h14a1 1 0 0 1 1 1v16H4V4a1 1 0 0 1 1-1z"},
     ],
     "operacional": [
         {"id": "lancar-diaria", "label": "Lançar diária", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
