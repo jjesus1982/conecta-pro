@@ -73,18 +73,22 @@ async def send_message(
     client_id: str = Depends(get_current_portal_client),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """
-    Envia mensagem ao assistente IA do portal.
+    """Envia mensagem ao assistente IA do portal — agora via orquestrador ESCOPADO ao
+    condomínio (client_id). Só lê/entrega dados do próprio cliente; nunca emite documento."""
+    from modules.ai.conversation.services.orquestrador.portal_cliente import responder_cliente
 
-    O assistente responde apenas sobre dados do cliente autenticado.
-    Nao executa acoes administrativas. Tom simples e profissional.
-    """
-    service = PortalAssistantService(db)
-    return await service.send_message(
-        client_id=client_id,
-        message=body.message,
-        session_id=body.session_id,
-    )
+    out = await responder_cliente(db, client_id, body.message)
+    suggestions = [
+        "Quais são meus boletos em aberto?",
+        "Me manda a última nota fiscal do condomínio",
+        "Quem está alocado no meu condomínio?",
+    ]
+    return {
+        "response": out.get("resposta", "(sem resposta)"),
+        "suggestions": suggestions,
+        "session_id": body.session_id,
+        "message_id": out.get("origem", "consultor_cliente"),
+    }
 
 
 @router.get("/greeting", response_model=GreetingResponse)
