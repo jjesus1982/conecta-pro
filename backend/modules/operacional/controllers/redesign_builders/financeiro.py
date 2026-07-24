@@ -458,6 +458,8 @@ async def build(db) -> dict:
                    "endpoint": "/api/v1/financeiro/inter/payments/extrair-boleto-pdf",
                    "accept": "application/pdf,image/*", "okFlag": "encontrado",
                    "fills": {"codigo_barras": "linha_digitavel", "valor": "valor"}},
+        # Câmera: lê o código de barras do boleto (Interleaved 2of5) e preenche o campo. NÃO paga.
+        "scan": {"label": "Escanear código de barras (câmera)", "barcodeField": "codigo_barras"},
         "submit": {"endpoint": "/api/v1/redesign/action/pagar-boleto", "gated": True,
                    "confirm": "Isto vai PAGAR um boleto via Inter. Gerar o código OTP para o Jordan confirmar?",
                    "okMsg": "Boleto pago."},
@@ -477,6 +479,13 @@ async def build(db) -> dict:
         "submit": {"endpoint": "/api/v1/redesign/action/enviar-pix", "gated": True,
                    "confirm": "Isto vai ENVIAR um PIX via Inter. Gerar o código OTP para o Jordan confirmar?",
                    "okMsg": "PIX enviado."},
+        # Captura tipo banco: câmera (QR PIX) e colar copia-e-cola → decodifica (read-only, NÃO paga) e preenche.
+        "scan": {"label": "Escanear QR PIX (câmera)", "pix": {
+            "endpoint": "/api/v1/financeiro/inter/payments/decodificar-pix", "field": "brcode", "okFlag": "valido",
+            "dynamicField": "pix_copia_e_cola", "fills": {"chave": "chave", "valor": "valor", "descricao": "nome"}}},
+        "decode": {"endpoint": "/api/v1/financeiro/inter/payments/decodificar-pix", "field": "brcode", "okFlag": "valido",
+                   "dynamicField": "pix_copia_e_cola", "fills": {"chave": "chave", "valor": "valor", "descricao": "nome"},
+                   "ph": "Cole o PIX copia-e-cola (EMV)", "cta": "Ler PIX"},
         "fields": [
             {"key": "chave", "label": "Chave PIX", "type": "text", "span": "span 1", "ph": "CPF/CNPJ, e-mail, telefone, aleatória"},
             {"key": "pix_copia_e_cola", "label": "…ou PIX copia-e-cola", "type": "text", "span": "span 1", "ph": "cole o código EMV (opcional)"},

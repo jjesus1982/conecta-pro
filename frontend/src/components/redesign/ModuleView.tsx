@@ -1,8 +1,13 @@
 'use client';
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import dynamic from 'next/dynamic';
 import { PanelLeftClose, PanelLeft, Menu, Search, Bell, Plus, LogOut, LayoutGrid } from 'lucide-react';
 import { MODULES } from './modules';
+
+// Scanner de câmera (QR PIX + código de barras de boleto) — reusa o componente do clássico.
+// client-only (usa a câmera); só carrega quando o usuário abre o scanner.
+const ScannerPagamento = dynamic(() => import('@/components/financeiro/ScannerPagamento'), { ssr: false });
 import { rdLogout } from './session';
 import { DocButtons } from './DocButtons';
 import { ExportMenu } from './ExportMenu';
@@ -180,8 +185,57 @@ function FormScreen({ scr }: { scr: any }) {
   const [otp, setOtp] = useState<{ ref: string; code: string } | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [attMsg, setAttMsg] = useState<string | null>(null);
+  const [scanOpen, setScanOpen] = useState(false);
+  const [colar, setColar] = useState(''); // campo "colar código" (PIX copia-e-cola / linha digitável)
   const set = (k: string, v: string) => setVals((s) => ({ ...s, [k]: v }));
   const gated = !!(scr.submit && scr.submit.gated); // ação money/gov (visual de aviso)
+
+  // Preenche o form a partir da resposta de um endpoint de decode (fills = {campoForm: chaveResposta}).
+  function aplicarFills(r: any, fills: Record<string, string>) {
+    const upd: Record<string, string> = {};
+    for (const [fk, rk] of Object.entries(fills || {})) {
+      const v = (r as any)[rk];
+      if (v != null && v !== '') upd[fk] = fk === 'valor' && !isNaN(Number(v)) ? Number(v).toFixed(2) : String(v);
+    }
+    setVals((s) => ({ ...s, ...upd }));
+    return upd;
+  }
+
+  // Decodifica um código colado/escaneado (PIX copia-e-cola ou QR) via endpoint read-only (NÃO paga).
+  async function decode(texto: string, cfg: any) {
+    const t = (texto || '').trim();
+    if (!t || !cfg) return;
+    setAttMsg('Lendo o código…');
+    try {
+      let tok = ''; try { tok = localStorage.getItem('access_token') || ''; } catch { /* */ }
+      const res = await fetch(cfg.endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
+        body: JSON.stringify({ [cfg.field || 'brcode']: t }),
+      });
+      const r = await res.json().catch(() => ({}));
+      const okFlag = cfg.okFlag || 'valido';
+      if (!res.ok || (okFlag && !r[okFlag])) {
+        setAttMsg(r?.motivo || (typeof r?.detail === 'string' ? r.detail : 'Código inválido ou não reconhecido.'));
+        return;
+      }
+      const upd = aplicarFills(r, cfg.fills || {});
+      // QR dinâmico: guarda o copia-e-cola bruto pra preservar o txid do PSP.
+      if (r.dinamico && cfg.dynamicField) setVals((s) => ({ ...s, [cfg.dynamicField]: t }));
+      const nome = r.nome || r.chave || upd.chave || '';
+      setAttMsg(`Lido${nome ? `: ${nome}` : ''}${r.valor ? ` — R$ ${Number(r.valor).toFixed(2)}` : ''}. Confira antes de enviar.`);
+    } catch { setAttMsg('Falha ao ler o código.'); }
+  }
+
+  // Câmera detectou algo: QR (ou texto tipo PIX) → decode; código de barras → preenche o campo do boleto.
+  function onScan(texto: string, formato: 'qr' | 'barcode') {
+    setScanOpen(false);
+    const t = (texto || '').trim();
+    const ehPix = formato === 'qr' || /br\.gov\.bcb\.pix/i.test(t) || t.toUpperCase().startsWith('000201');
+    if (ehPix && scr.scan?.pix) { setColar(t); decode(t, scr.scan.pix); return; }
+    if (scr.scan?.barcodeField) { set(scr.scan.barcodeField, t); setAttMsg('Código de barras lido do boleto. Confira antes de enviar.'); return; }
+    if (scr.scan?.pix) { setColar(t); decode(t, scr.scan.pix); }
+  }
 
   // Anexo que PREENCHE o form (scr.attach) — ex.: anexar o PDF do boleto e o backend extrai a
   // linha digitável/valor (endpoint read-only, NÃO paga). fills = {campoForm: chaveResposta}.
@@ -262,6 +316,28 @@ function FormScreen({ scr }: { scr: any }) {
           {attMsg && <span className="rd-scr-sub" style={{ margin: 0 }}>{attMsg}</span>}
         </div>
       )}
+      {(scr.scan || scr.decode) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {scr.scan && (
+            <button type="button" className="rd-btn rd-btn-outline" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, padding: '7px 12px' }}
+              onClick={() => setScanOpen(true)}>
+              📷 {scr.scan.label || 'Escanear (câmera)'}
+            </button>
+          )}
+          {scr.decode && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '1 1 260px', minWidth: 220 }}>
+              <input className="rd-input" style={{ flex: 1, fontSize: 12.5 }} placeholder={scr.decode.ph || 'Cole o PIX copia-e-cola / código'}
+                value={colar} onChange={(e) => setColar(e.target.value)} />
+              <button type="button" className="rd-btn rd-btn-outline" style={{ fontSize: 12.5, padding: '7px 12px', whiteSpace: 'nowrap' }}
+                disabled={!colar.trim()} onClick={() => decode(colar, scr.decode)}>
+                {scr.decode.cta || 'Ler'}
+              </button>
+            </div>
+          )}
+          {!scr.attach && attMsg && <span className="rd-scr-sub" style={{ margin: 0, flexBasis: '100%' }}>{attMsg}</span>}
+        </div>
+      )}
+      {scanOpen && <ScannerPagamento onClose={() => setScanOpen(false)} onDetect={onScan} />}
       <div className="rd-form-grid">
         {(scr.fields || []).map((f: any, i: number) => (
           <div className="rd-field" key={i} style={{ gridColumn: f.span || 'span 1' }}>
@@ -356,7 +432,7 @@ function Screen({ scr }: { scr: any }) {
     case 'table': return <TableScreen scr={scr} />;
     case 'cards': return <CardsScreen scr={scr} />;
     case 'list': return <ListScreen scr={scr} />;
-    case 'form': return <FormScreen scr={scr} />;
+    case 'form': return <FormScreen key={scr.submit?.endpoint || scr.title} scr={scr} />;
     case 'chat': return <ChatScreen scr={scr} />;
     default: return <div className="rd-card rd-card-pad">Tipo não suportado: {scr.type}</div>;
   }
