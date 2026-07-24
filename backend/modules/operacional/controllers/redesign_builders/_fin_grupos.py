@@ -20,7 +20,7 @@ GRUPOS = [
         ("pagamentos-pj", "Folha PJ"), ("pagar-folha-pj", "Pagar folha PJ"),
         ("pagamentos-diaristas", "Diaristas"), ("pagar-diaristas", "Pagar diaristas"),
         ("pagar-boleto", "Pagar boleto"), ("enviar-pix", "PIX / Transferir"),
-        ("transferir-ted", "TED"), ("pagar-darf", "DARF"),
+        ("transferir-ted", "TED"), ("pagar-darf", "DARF"), ("pagar-gps", "GPS / INSS"),
         ("cancelar-pagamento", "Cancelar pagto"), ("registrar-conta-pagar", "Registrar")]),
     ("g-bancos", "Bancos & Conciliação", "Saldos, extratos e conciliação", [
         ("saldos", "Saldos"), ("contas-bancarias", "Contas"), ("inter", "Banco Inter"),

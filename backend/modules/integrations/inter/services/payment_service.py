@@ -907,14 +907,35 @@ async def _chamar_cora(db, payment_type: str, dest: dict, valor: Decimal,
         }
         res = await cps.transferir(db, destination=destino, valor_centavos=centavos,
                                    descricao=descricao, code=code, category=dest.get("category"))
+    elif payment_type == "darf":
+        nome = (dest.get("payer_name") or "").strip()
+        ident = "".join(c for c in (dest.get("payer_document") or "") if c.isdigit())
+        venc = (dest.get("vencimento") or "").strip()
+        if not (nome and ident and venc):
+            raise PaymentError("Para DARF pela Cora, informe nome e CPF/CNPJ do contribuinte e o "
+                               "vencimento (AAAA-MM-DD) — o Cora exige esses dados.")
+        data = {"name": nome, "code": (dest.get("codigo_receita") or "").strip(), "identity": ident,
+                "type": "DARF", "reference_date": (dest.get("periodo_apuracao") or "").strip(),
+                "due_date": venc, "amount": {"main": centavos}}
+        res = await cps.pagar_guia(db, tipo="darf", data=data, descricao=descricao, code=code)
+    elif payment_type == "gps":
+        nome = (dest.get("payer_name") or "").strip()
+        ident = "".join(c for c in (dest.get("payer_document") or "") if c.isdigit())
+        idtype = (dest.get("identification_type") or "").strip().upper()
+        if not (nome and ident and idtype in ("NIT", "PIS", "PASEP")):
+            raise PaymentError("Para GPS pela Cora, informe nome, a identidade (NIT/PIS/PASEP) e o "
+                               "tipo de identificação — o Cora exige esses dados.")
+        data = {"name": nome, "code": (dest.get("codigo_pagamento") or "").strip(), "identity": ident,
+                "identification_type": idtype, "competence": (dest.get("competencia") or "").strip(),
+                "amount": {"other_entity": 0, "inss": centavos, "charge": 0}}
+        res = await cps.pagar_guia(db, tipo="gps", data=data, descricao=descricao, code=code)
     elif payment_type == "pix":
         raise PaymentError(
             "O Cora não envia PIX de saída (nem por chave, nem copia-e-cola) — é regra da API do "
             "próprio Cora. Para pagar da Patrimonial, use TED por dados bancários, ou pague pelo Inter.")
     else:
         raise PaymentError(
-            f"Pela Cora ainda não dá para '{payment_type}' (faltam dados do pagador na tela). "
-            "Use o Inter para este tipo por enquanto.")
+            f"Pela Cora ainda não dá para '{payment_type}'. Use o Inter para este tipo por enquanto.")
 
     raw = res.get("raw") if isinstance(res, dict) else {}
     if not isinstance(raw, dict):

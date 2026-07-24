@@ -519,18 +519,45 @@ async def build(db) -> dict:
 
     # ---- Pagar DARF / tributo — money-out via InterPaymentService + OTP ----
     out["pagar-darf"] = {
-        "title": "Pagar DARF / tributo (Inter)",
-        "sub": "Dinheiro que SAI — 2 etapas + OTP. DARF (IRPJ, CSLL, COFINS, PIS, INSS) e guias.",
+        "title": "Pagar DARF / tributo (Inter ou Cora)",
+        "sub": "Dinheiro que SAI — 2 etapas + OTP. DARF (IRPJ, CSLL, COFINS, PIS, INSS). Pela Cora, "
+               "informe o contribuinte e o vencimento (o Cora exige) e aprove no app.",
         "cta": "Preparar e gerar OTP", "type": "form",
+        "originField": True,
         "submit": {"endpoint": "/api/v1/redesign/action/pagar-darf", "gated": True,
-                   "confirm": "Isto vai PAGAR um DARF via Inter. Gerar o código OTP para o Jordan confirmar?",
-                   "okMsg": "DARF pago."},
+                   "confirm": "Isto vai PAGAR um DARF. Gerar o código OTP para o Jordan confirmar?",
+                   "okMsg": "DARF preparado."},
         "fields": [
             {"key": "periodo_apuracao", "label": "Período de apuração* (AAAA-MM-DD)", "type": "date", "span": "span 1"},
             {"key": "codigo_receita", "label": "Código da receita*", "type": "text", "span": "span 1", "ph": "Ex.: 2100"},
             {"key": "numero_referencia", "label": "Número de referência", "type": "text", "span": "span 1", "ph": "opcional"},
             {"key": "valor", "label": "Valor* (R$)", "type": "text", "span": "span 1", "ph": "1.234,56"},
-            {"key": "data", "label": "Data do pagamento (AAAA-MM-DD)", "type": "date", "span": "span 2"},
+            {"key": "payer_name", "label": "Contribuinte (nome) — só Cora", "type": "text", "span": "span 1", "ph": "Razão social / nome"},
+            {"key": "payer_document", "label": "CPF/CNPJ do contribuinte — só Cora", "type": "text", "span": "span 1", "ph": "só dígitos"},
+            {"key": "vencimento", "label": "Vencimento (AAAA-MM-DD) — só Cora", "type": "date", "span": "span 1"},
+            {"key": "data", "label": "Data do pagamento (AAAA-MM-DD)", "type": "date", "span": "span 1"},
+        ],
+    }
+
+    # ---- Pagar GPS / INSS — money-out via Inter ou Cora + OTP ----
+    out["pagar-gps"] = {
+        "title": "Pagar GPS / INSS (Inter ou Cora)",
+        "sub": "Dinheiro que SAI — 2 etapas + OTP. Guia da Previdência (INSS). Pela Cora, informe o "
+               "contribuinte e o tipo de identificação (NIT/PIS/PASEP) e aprove no app.",
+        "cta": "Preparar e gerar OTP", "type": "form",
+        "originField": True,
+        "submit": {"endpoint": "/api/v1/redesign/action/pagar-gps", "gated": True,
+                   "confirm": "Isto vai PAGAR uma GPS (INSS). Gerar o código OTP para o Jordan confirmar?",
+                   "okMsg": "GPS preparada."},
+        "fields": [
+            {"key": "competencia", "label": "Competência* (AAAA-MM)", "type": "text", "span": "span 1", "ph": "Ex.: 2026-06"},
+            {"key": "codigo_pagamento", "label": "Código de pagamento*", "type": "text", "span": "span 1", "ph": "Ex.: 2100"},
+            {"key": "valor", "label": "Valor* (R$)", "type": "text", "span": "span 1", "ph": "1.234,56"},
+            {"key": "data", "label": "Data do pagamento (AAAA-MM-DD)", "type": "date", "span": "span 1"},
+            {"key": "payer_name", "label": "Contribuinte (nome) — só Cora", "type": "text", "span": "span 1", "ph": "Razão social / nome"},
+            {"key": "payer_document", "label": "Identidade (NIT/PIS/PASEP) — só Cora", "type": "text", "span": "span 1", "ph": "só dígitos"},
+            {"key": "identification_type", "label": "Tipo de identificação — só Cora", "type": "select", "span": "span 2",
+             "options": [{"value": "NIT", "label": "NIT"}, {"value": "PIS", "label": "PIS"}, {"value": "PASEP", "label": "PASEP"}]},
         ],
     }
 
@@ -791,6 +818,26 @@ def _dest_darf(p):
     d = {"periodo_apuracao": pa, "codigo_receita": cr}
     if (p.get("numero_referencia") or "").strip():
         d["numero_referencia"] = p["numero_referencia"].strip()
+    # Cora exige dados do contribuinte + vencimento (Inter ignora esses campos).
+    for k in ("payer_name", "payer_document", "vencimento"):
+        if (p.get(k) or "").strip():
+            d[k] = p[k].strip()
+    return d
+
+
+def _dest_gps(p):
+    comp = (p.get("competencia") or "").strip()
+    cod = (p.get("codigo_pagamento") or "").strip()
+    if not (comp and cod):
+        raise HTTPException(status_code=400, detail="Informe a competência (AAAA-MM) e o código de pagamento GPS.")
+    d = {"competencia": comp, "codigo_pagamento": cod}
+    doc = (p.get("payer_document") or "").strip()
+    if doc:
+        d["payer_document"] = doc
+        d["identificador"] = doc  # o Inter usa 'identificador'
+    for k in ("payer_name", "identification_type"):
+        if (p.get(k) or "").strip():
+            d[k] = p[k].strip()
     return d
 
 
@@ -873,6 +920,12 @@ async def _rd_transferir_ted(current_user: CurrentActiveUser, payload: dict = Bo
 async def _rd_pagar_darf(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
     return await _rd_inter_pay(db, current_user, payload, payment_type="darf",
                                categoria="imposto", dest_fn=_dest_darf, label="Pagamento de DARF")
+
+
+@router.post("/action/pagar-gps")
+async def _rd_pagar_gps(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    return await _rd_inter_pay(db, current_user, payload, payment_type="gps",
+                               categoria="imposto", dest_fn=_dest_gps, label="Pagamento de GPS")
 
 
 # ── Money-IN (cobrança) e gestão — delega às funções do console clássico ──
