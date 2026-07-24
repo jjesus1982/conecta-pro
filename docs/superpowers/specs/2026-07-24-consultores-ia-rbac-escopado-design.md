@@ -22,6 +22,7 @@ Líder NÃO é classe à parte — é CLT + privilégio. Privilégios empilham:
 | **DEVs/Suporte** | Orquestrador cross-domínio **FILTRADO** a todos **exceto** financeiro/fiscal/contábil | idem | tools filtradas + `require_permission` |
 | **Líderes** (Walcicley, Erika, Ediwilson) | Orquestrador escopado ao **SEU posto** (operacional/ponto) + base CLT | endpoints operacionais **posto-scoped** (scope.py) + portal self | tools filtradas + posto-scope + self |
 | **CLT** (demais) | Orquestrador escopado a **SI**: própria escala, próprio ponto, portal; **justificar ajuste de ponto → DP aprova** | endpoints do Portal **self-scoped** (employee_id) | tools filtradas + self-scope |
+| **CLIENTE** (condomínio, EXTERNO — Área do Cliente) | Orquestrador escopado ao **SEU condomínio**: contratos, notas fiscais, funcionários alocados; **buscar+entregar nota/boleto** | endpoints da Área do Cliente **condomínio-scoped** (`condominio_id`) | tools filtradas + condomínio-scope |
 
 ## Arquitetura — UM orquestrador escopado por usuário (todos os tiers, cross-domínio filtrado)
 Decisão do dono (2026-07-24): **todos** ganham um cérebro cross-domínio — mas o alcance de cada um é filtrado. O modelo unifica em **um orquestrador escopado**, com DUAS travas por usuário:
@@ -35,6 +36,7 @@ Decisão do dono (2026-07-24): **todos** ganham um cérebro cross-domínio — m
   - **Gestor/DEV:** tools dos seus módulos → panoramas org-wide DENTRO dos módulos permitidos.
   - **Líder:** tools operacionais/ponto **posto-scoped** (scope.py) + base CLT (self). A query já filtra pro posto dele — o LLM nunca recebe dado de outro posto.
   - **CLT:** tools **self-scoped** (Portal, employee_id) + a ação justificar-ponto. O LLM só vê o próprio dado.
+  - **CLIENTE (externo, Área do Cliente):** tier EXTERNO — auth própria (email + senha = CNPJ do condomínio), identidade carrega `condominio_id`. Tools **condomínio-scoped**: contratos, NFS-e, funcionários alocados (todos filtrados por `condominio_id`, nunca outro condomínio) + a capacidade **buscar+entregar documento** (nota/boleto do próprio condomínio). Mesmo motor (orquestrador escopado), superfície externa.
 
 **Ponto-chave de segurança:** o escopo é aplicado ANTES e DURANTE — o LLM só recebe no contexto o que os endpoints escopados retornam (posto/self/módulo), e nunca tem tool nem token para sair disso.
 
@@ -60,6 +62,11 @@ Um endpoint user-facing (ex. `/consultores/chat/consultar {pergunta}`), `Depends
 
 ### 3b. Auditar+completar os leitores escopados — CONFIRMAR/CRIAR
 Antes de ligar líder/CLT: auditar se os endpoints operacionais (posto-scoped, scope.py) e do Portal (self-scoped) já entregam TUDO que o assistente do líder/CLT precisa (escala do posto, ponto do posto/self, justificativas). Onde faltar, **criar o leitor escopado** (dentro do escopo combinado — posto p/ líder, self p/ CLT; nunca além). Cada leitor novo herda o enforcement (scope.py/self), nunca retorna fora do escopo.
+
+### 3c. Tier CLIENTE (externo) + capacidade buscar+entregar documento — CONFIRMAR/CRIAR
+- **Auth:** auditar a Área do Cliente — como o cliente/condomínio autentica hoje (email + senha=CNPJ) e como a identidade carrega o `condominio_id`. O chat do cliente roda com ESSA identidade.
+- **Leitores condomínio-scoped:** contratos, NFS-e, funcionários alocados — todos filtrados por `condominio_id` na fonte (auditar cobertura; criar o que faltar, dentro do escopo — nunca outro condomínio).
+- **Capacidade buscar+entregar documento** (nota/boleto): tool que localiza o documento EXISTENTE do próprio condomínio (reusa geração/DocButtons — abrir-HTML/baixar-PDF) e o entrega no chat (link/anexo; e-mail/WhatsApp = opção futura). **Sem gate humano**: é o documento do próprio cliente, escopado, e boleto/nota = dinheiro que ENTRA (não sai). **EMITIR documento novo** (fiscal) fica FORA (seria ação interna/gated) — aqui só BUSCA o já existente.
 
 ### 4. Ação: justificar ajuste de ponto → DP aprova — padrão 🟡 propor→aprovar
 CLT descreve a justificativa no chat → cria um registro **pendente** de ajuste/justificativa (status 'pendente'), roteado ao DP para aprovação (reusa o padrão `propor_*` do `consultor_mcp_controller`: grava pendente, NUNCA aplica). Só após aprovação do DP reflete em ponto/folha/RH. Idempotência + auditoria. NUNCA auto-aplica na folha.
@@ -94,6 +101,10 @@ CLT descreve a justificativa no chat → cria um registro **pendente** de ajuste
 - **Cobertura dos leitores escopados** (3b): auditar operacional/portal antes de ligar líder/CLT; pode faltar leitor posto/self.
 - **Gestor org-wide dentro do módulo**: confirmar que gestor PODE ver org-wide no seu módulo (sim, não é posto-scoped); líder/CLT usam só os escopados.
 - Latência do loop cross-domínio (múltiplas tools) — reusar o timeout de 180s já posto no nginx p/ `/consultores/`; considerar streaming futuro.
+- **Tier CLIENTE (3c):** auditar a auth da Área do Cliente (email+senha=CNPJ→`condominio_id`) e a cobertura dos leitores condomínio-scoped ANTES de ligar; a tool de entrega de documento reusa a geração existente (nunca emite novo).
+
+## Testes-oráculo adicionais (tier cliente)
+- Cliente pergunta sobre OUTRO condomínio → nada (só o seu). Pede a própria nota/boleto → recebe o documento; pede documento de outro condomínio → recusa. Buscar≠emitir (nunca gera nota nova).
 
 ## Resumo de 1 linha
-Um orquestrador cross-domínio por usuário, com tools filtradas por `user_modules` e executadas com a identidade do próprio usuário; o alcance = RBAC+posto+self que já existem, enforçado na fonte (belt+suspenders); diretoria via Hermes, demais via orquestrador escopado in-backend; ações (justificar-ponto)→DP — fronteira no dado, nunca no LLM.
+Um orquestrador cross-domínio por usuário, com tools filtradas por `user_modules` e executadas com a identidade do próprio usuário; o alcance = RBAC + posto + self + **condomínio (cliente externo)** que já existem, enforçado na fonte (belt+suspenders); diretoria via Hermes, demais via orquestrador escopado in-backend; ações (justificar-ponto→DP; buscar+entregar documento ao cliente) — fronteira no dado, nunca no LLM.
