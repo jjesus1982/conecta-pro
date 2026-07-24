@@ -769,6 +769,19 @@ def doc(label, url=None, fmt="pdf", mode="blob", filename=None, gate=None, disab
     return d
 
 
+def grp(title, sub, tabs):
+    """Tela-GRUPO (type=tabs) da fundação de navegação (F0 financeiro). tabs=[(id, label,
+    screen_dict)]; telas None (não montadas nesta base) são omitidas — nunca aba vazia fabricada."""
+    return {"title": title, "sub": sub, "type": "tabs",
+            "tabs": [{"id": i, "label": l, "screen": s} for i, l, s in tabs if s]}
+
+
+def moved(group_id, tab_id):
+    """Stub de redirecionamento p/ deep-link antigo (?t=<id-antigo>). O ModuleView resolve
+    para o grupo+aba novos. Mantém zero-regressão de links SEM duplicar payload."""
+    return {"type": "redirect", "groupRef": {"t": group_id, "tab": tab_id}}
+
+
 def _fmtdate(d, fmt="%d/%m/%Y"):
     return d.strftime(fmt) if d else "—"
 
