@@ -5,7 +5,6 @@ post_ids por posts.leader_id). Aqui as queries são posto-scoped por construçã
 jamais recebe dado de outro posto."""
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 from sqlalchemy import text
@@ -42,20 +41,55 @@ async def _escala_hoje(db, user, scope, **_) -> dict[str, Any]:
 
 
 async def _presenca_hoje(db, user, scope, **_) -> dict[str, Any]:
+    """Presença de HOJE (dia civil de Manaus) dos postos do escopo.
+
+    `gp_clock_punches.posto_id` está NULL em ~99,97% das batidas reais — filtrar
+    diretamente por ele não funciona. A atribuição batida->posto é derivada via
+    ALOCAÇÃO: presença do posto = batidas de hoje dos employees com alocação ATIVA
+    (vigente na data) nos postos do escopo. A trava de escopo continua a mesma:
+    o conjunto de postos vem EXCLUSIVAMENTE de scope.post_ids (via _postos_do_escopo),
+    nunca de argumento do LLM (schema _NO_ARGS).
+    """
     pids = _postos_do_escopo(scope)
     if not pids:
         return {"status": "aguardando dado", "motivo": "sem posto vinculado ao seu usuário"}
-    hoje = datetime.utcnow().date()
+    hoje = (await db.execute(text("SELECT (now() AT TIME ZONE 'America/Manaus')::date"))).scalar()
     rows = (await db.execute(
         text(
-            "SELECT posto_id, COUNT(*) AS batidas "
-            "FROM gp_clock_punches "
-            "WHERE posto_id = ANY(:pids) AND date(punch_timestamp) = :hoje "
-            "GROUP BY posto_id"
+            "SELECT p.id::text AS post_id, p.name AS posto, "
+            "a.employee_id::text AS employee_id, e.nome AS funcionario, "
+            "COUNT(cp.id) FILTER ("
+            "  WHERE (cp.punch_timestamp)::date = (now() AT TIME ZONE 'America/Manaus')::date"
+            ") AS batidas_hoje "
+            "FROM posts p "
+            "LEFT JOIN allocations a ON a.post_id = p.id AND a.status ILIKE 'ACTIVE%' "
+            "  AND a.start_date <= (now() AT TIME ZONE 'America/Manaus')::date "
+            "  AND (a.end_date IS NULL OR a.end_date >= (now() AT TIME ZONE 'America/Manaus')::date) "
+            "LEFT JOIN employees e ON e.id::text = a.employee_id::text "
+            "LEFT JOIN gp_clock_punches cp ON cp.employee_id::text = a.employee_id::text "
+            "WHERE p.id = ANY(:pids) "
+            "GROUP BY p.id, p.name, a.employee_id, e.nome "
+            "ORDER BY p.name, e.nome"
         ),
-        {"pids": [str(p) for p in pids], "hoje": hoje},
+        {"pids": pids},
     )).fetchall()
-    return {"data": str(hoje), "presenca": [{"posto_id": r.posto_id, "batidas": int(r.batidas)} for r in rows]}
+
+    postos: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        posto = postos.setdefault(r.post_id, {"posto": r.posto, "alocados": 0, "presentes": []})
+        if r.employee_id is None:
+            continue
+        posto["alocados"] += 1
+        if int(r.batidas_hoje or 0) > 0:
+            posto["presentes"].append(r.funcionario)
+
+    return {
+        "data": str(hoje),
+        "postos": [
+            {"posto": v["posto"], "alocados": v["alocados"], "presentes": v["presentes"]}
+            for v in postos.values()
+        ],
+    }
 
 
 POSTO_TOOLS: list[ToolDef] = [
