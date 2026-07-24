@@ -79,9 +79,30 @@ async def pagar_guia(db, *, tipo: str, data: dict, descricao: str, code: str) ->
     await cora.authenticate()
     if tipo == "darf":
         pay = await cora.iniciar_darf(code=code, data=data)
+    elif tipo == "gps":
+        pay = await cora.iniciar_gps(code=code, data=data)
     else:
         raise ValueError(f"tipo de guia não suportado ainda: {tipo}")
     pay_id, amount = await _registrar(db, conta_id, pay, "tributo", descricao)
     logger.info("Cora %s INICIADO %s (R$%.2f) — aguardando app", tipo, pay_id, amount)
+    return {"payment_id": pay_id, "valor": amount, "status": "aguardando_aprovacao_app",
+            "banco": "cora", "raw": pay}
+
+
+async def transferir(db, *, destination: dict, valor_centavos: int, descricao: str, code: str,
+                     category: str | None = None, scheduled: str | None = None) -> dict:
+    """TED da Patrimonial pela Cora (§4.4) — por dados bancários (o Cora NÃO envia PIX).
+    `destination` conforme adapter.iniciar_transferencia. `valor_centavos` em CENTAVOS.
+    Retorna INITIATED — o Jordan APROVA NO APP Cora; o webhook concilia. Nunca simula liquidação."""
+    from modules.integrations.banking.adapters.cora import CoraAdapter
+
+    conta_id, _ = await _conta_e_empresa(db)
+    cora = CoraAdapter()
+    await cora.authenticate()
+    pay = await cora.iniciar_transferencia(destination=destination, amount=valor_centavos,
+                                           code=code, description=descricao, category=category,
+                                           scheduled=scheduled)
+    pay_id, amount = await _registrar(db, conta_id, pay, "transferencia", descricao)
+    logger.info("Cora TED INICIADA %s (R$%.2f) — aguardando app", pay_id, amount)
     return {"payment_id": pay_id, "valor": amount, "status": "aguardando_aprovacao_app",
             "banco": "cora", "raw": pay}

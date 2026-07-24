@@ -452,6 +452,7 @@ async def build(db) -> dict:
         "title": "Pagar boleto (Inter)",
         "sub": "Dinheiro que SAI — 2 etapas + OTP. Boleto, convênio ou tributo por código de barras/linha digitável. Trava de saldo e limite diário no serviço.",
         "cta": "Preparar e gerar OTP", "type": "form",
+        "originField": True,
         # Anexar o PDF do boleto → o backend extrai linha digitável + valor (endpoint read-only,
         # NÃO paga — rota provada: 422 sem arquivo). Preenche codigo_barras/valor no form.
         "attach": {"label": "Anexar boleto (PDF) — lê a linha digitável",
@@ -497,12 +498,14 @@ async def build(db) -> dict:
 
     # ---- Transferência TED — money-out via InterPaymentService + OTP ----
     out["transferir-ted"] = {
-        "title": "Transferência TED (Inter)",
-        "sub": "Dinheiro que SAI — 2 etapas + OTP. Transferência para outra conta bancária.",
+        "title": "Transferência TED (Inter ou Cora)",
+        "sub": "Dinheiro que SAI — 2 etapas + OTP. Transferência por dados bancários. Pela Patrimonial (Cora) "
+               "é a forma de pagar pessoas (o Cora não envia PIX).",
         "cta": "Preparar e gerar OTP", "type": "form",
+        "originField": True,
         "submit": {"endpoint": "/api/v1/redesign/action/transferir-ted", "gated": True,
-                   "confirm": "Isto vai TRANSFERIR (TED) via Inter. Gerar o código OTP para o Jordan confirmar?",
-                   "okMsg": "TED enviada."},
+                   "confirm": "Isto vai TRANSFERIR (TED). Gerar o código OTP para o Jordan confirmar?",
+                   "okMsg": "TED preparada."},
         "fields": [
             {"key": "nome", "label": "Favorecido (nome)", "type": "text", "span": "span 1", "ph": "Nome do titular"},
             {"key": "documento", "label": "CPF/CNPJ do favorecido", "type": "text", "span": "span 1", "ph": "só dígitos"},
@@ -801,6 +804,14 @@ async def _rd_inter_pay(db, current_user, payload, *, payment_type, categoria, d
     uid = str(getattr(current_user, "id", ""))
     otp_code = (payload.get("otp_code") or "").strip()
     ref = (payload.get("_gate_ref") or "").strip()
+    origem = (payload.get("origem") or "inter").strip().lower()
+    if origem not in ("inter", "cora"):
+        origem = "inter"
+    # O Cora não envia PIX de saída (API do próprio banco) — bloqueia cedo, com mensagem honesta.
+    if origem == "cora" and payment_type == "pix":
+        raise HTTPException(status_code=400, detail=(
+            "O Cora (Patrimonial) não envia PIX de saída — é regra da API do próprio Cora. "
+            "Use 'TED' por dados bancários para pagar da Patrimonial, ou selecione o Inter."))
     try:
         if not otp_code:
             valor = _rd_parse_valor(payload.get("valor"))
@@ -812,7 +823,8 @@ async def _rd_inter_pay(db, current_user, payload, *, payment_type, categoria, d
             dest = dest_fn(payload)
             prep = await svc.preparar(payment_type=payment_type, destinatario=dest, valor=valor,
                                       data_pagamento=dp, prepared_by=uid,
-                                      observacoes=(payload.get("descricao") or "").strip(), categoria=categoria)
+                                      observacoes=(payload.get("descricao") or "").strip(),
+                                      categoria=categoria, origem=origem)
             await svc.gerar_otp(prep["id"], uid)
             return {"otp_required": True, "ref": prep["id"],
                     "message": f"{label} de {brl(valor)} preparado. Confirme com o código OTP enviado ao e-mail do Jordan."}
@@ -821,6 +833,11 @@ async def _rd_inter_pay(db, current_user, payload, *, payment_type, categoria, d
         await svc.aprovar(ref, otp_code, uid)
         res = await svc.executar(ref, uid)
         st = res.get("status") if isinstance(res, dict) else None
+        # Honesto: se o banco devolveu "aguardando_aprovacao" (Cora sempre; Inter quando a conta
+        # exige), NÃO diz "executado" — usa a mensagem real do serviço (aprovar no app).
+        if isinstance(res, dict) and (res.get("aguardando_aprovacao") or st == "aguardando_aprovacao"):
+            return {"ok": True, "message": res.get("mensagem")
+                    or f"{label}: iniciado — aprove no app do banco para concluir."}
         return {"ok": True, "message": f"{label} executado com sucesso." + (f" Status: {st}." if st else "")}
     except HTTPException:
         raise

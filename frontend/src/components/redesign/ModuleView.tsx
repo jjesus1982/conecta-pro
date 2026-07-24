@@ -339,6 +339,22 @@ function FormScreen({ scr }: { scr: any }) {
         </div>
       )}
       {scanOpen && <ScannerPagamento onClose={() => setScanOpen(false)} onDetect={onScan} />}
+      {scr.originField && (
+        <div className="rd-field" style={{ gridColumn: 'span 2' }}>
+          <label className="rd-label" style={{ textTransform: 'none', letterSpacing: 0, fontSize: 11 }}>
+            Conta de origem — de qual empresa o dinheiro sai
+          </label>
+          <select className="rd-input" value={vals.origem || 'inter'} onChange={(e) => set('origem', e.target.value)}>
+            <option value="inter">Inter — Conecta Mais Eletrônica (paga direto, sem app)</option>
+            <option value="cora">Cora — Conecta Mais Patrimonial (aprovar no app Cora)</option>
+          </select>
+          {(vals.origem || 'inter') === 'cora' && (
+            <span className="rd-scr-sub" style={{ margin: '4px 0 0', color: '#B45309' }}>
+              Pela Cora, o valor sai da Patrimonial e você precisa APROVAR no app Cora para concluir (regra do banco).
+            </span>
+          )}
+        </div>
+      )}
       <div className="rd-form-grid">
         {(scr.fields || []).map((f: any, i: number) => (
           <div className="rd-field" key={i} style={{ gridColumn: f.span || 'span 1' }}>

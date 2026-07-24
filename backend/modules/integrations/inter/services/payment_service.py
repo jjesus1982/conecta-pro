@@ -133,13 +133,19 @@ class InterPaymentService:
         prepared_by: str,
         observacoes: str = "",
         categoria: str = "outro",
+        origem: str = "inter",
     ) -> dict[str, Any]:
-        """Cria registro com status='preparado'. Sem chamada Inter.
+        """Cria registro com status='preparado'. Sem chamada ao banco.
 
         categoria: classifica a saída (pro_labore | transferencia | fornecedor | imposto |
         diarista | aluguel | folha | reembolso | outro) — é o que torna a conciliação automática
-        e os números fidedignos (o Jordan categoriza cada saída ao pagar pelo Conecta PRO)."""
+        e os números fidedignos (o Jordan categoriza cada saída ao pagar pelo Conecta PRO).
+
+        origem: 'inter' (Eletrônica, padrão — fluxo provado inalterado) ou 'cora' (Patrimonial).
+        No Cora o gate OTP da casa é idêntico; a diferença é só o EXECUTOR (executar → _chamar_cora)
+        e o saldo é do Cora (a checagem de saldo Inter é pulada). O marcador vai no destinatario."""
         valor_d = Decimal(str(valor))
+        origem = (origem or "inter").lower()
 
         if payment_type not in TIPOS_VALIDOS:
             raise PaymentError(f"payment_type inválido: {payment_type}. Válidos: {TIPOS_VALIDOS}")
@@ -163,13 +169,19 @@ class InterPaymentService:
                 f"Disponível: R${disponivel:.2f}."
             )
 
-        # Verificar saldo Inter
-        saldo = await self._get_saldo_inter()
-        if saldo > 0 and saldo - valor_d < SALDO_MINIMO:
-            raise SaldoInsuficienteError(
-                f"Saldo Inter insuficiente. Saldo: R${saldo:.2f}, "
-                f"Valor: R${valor_d:.2f}, Mínimo residual: R${SALDO_MINIMO:.2f}"
-            )
+        # Verificar saldo Inter (só quando a origem é o Inter — o Cora tem saldo próprio
+        # e a saída só se concretiza após aprovação no app do Cora).
+        if origem == "inter":
+            saldo = await self._get_saldo_inter()
+            if saldo > 0 and saldo - valor_d < SALDO_MINIMO:
+                raise SaldoInsuficienteError(
+                    f"Saldo Inter insuficiente. Saldo: R${saldo:.2f}, "
+                    f"Valor: R${valor_d:.2f}, Mínimo residual: R${SALDO_MINIMO:.2f}"
+                )
+
+        # Marca a origem no destinatario (jsonb) — executar lê pra rotear o executor.
+        if origem != "inter":
+            destinatario = {**destinatario, "_origem": origem}
 
         import uuid
 
@@ -379,12 +391,17 @@ class InterPaymentService:
         inter_response: dict = {}
         inter_payment_id: str | None = None
         erro: str | None = None
+        origem = (dest.get("_origem") or "inter").lower()  # 'inter' (padrão) | 'cora'
 
         try:
-            inter_response, inter_payment_id = await _chamar_inter(payment_type, dest, valor, data_pgto)
+            if origem == "cora":
+                inter_response, inter_payment_id = await _chamar_cora(
+                    self.db, payment_type, dest, valor, data_pgto, code=payment_id)
+            else:
+                inter_response, inter_payment_id = await _chamar_inter(payment_type, dest, valor, data_pgto)
         except Exception as exc:
             erro = str(exc)
-            logger.error("D7 executar: Inter falhou payment_id=%s: %s", payment_id, exc)
+            logger.error("D7 executar: banco (%s) falhou payment_id=%s: %s", origem, payment_id, exc)
             # Marcar como erro — NÃO tentar de novo automaticamente (perigoso)
             await self.db.execute(
                 text("""
@@ -476,10 +493,15 @@ class InterPaymentService:
             "inter_payment_id": inter_payment_id,
             "status_inter": inter_response.get("status"),
             "mensagem": (
-                "Pagamento CRIADO no Inter, mas AGUARDANDO SUA APROVAÇÃO no app do Inter "
-                "(ou desative a exigência de aprovação de pagamentos por API nas configurações do Inter)."
+                # Cora: toda saída por API fica INITIATED e EXIGE aprovação no app (doc oficial;
+                # não há como desligar pela API). Inter: você já desativou a aprovação → paga direto.
+                ("Transferência/pagamento INICIADO no Cora — abra o app Cora e APROVE para concluir "
+                 "(o Cora exige essa aprovação no celular; o valor sai da Patrimonial só após você aprovar)."
+                 if origem == "cora" else
+                 "Pagamento CRIADO no Inter, mas AGUARDANDO SUA APROVAÇÃO no app do Inter "
+                 "(ou desative a exigência de aprovação de pagamentos por API nas configurações do Inter).")
                 if novo_status == "aguardando_aprovacao"
-                else "Pagamento aceito pelo Inter."
+                else ("Pagamento iniciado no Cora." if origem == "cora" else "Pagamento aceito pelo Inter.")
             ),
             "inter_response": inter_response,
         }
@@ -855,3 +877,47 @@ async def _chamar_inter(payment_type: str, dest: dict, valor: Decimal, data_pgto
 
     finally:
         await adapter.close()
+
+
+async def _chamar_cora(db, payment_type: str, dest: dict, valor: Decimal,
+                       data_pgto: date, *, code: str) -> tuple[dict, str | None]:
+    """Executa a saída pela CORA (Patrimonial) via cora_pagamento_service — espelha o
+    contrato de _chamar_inter: devolve (raw, id). O Cora só faz BOLETO e TED por dados
+    bancários; PIX de saída NÃO existe no Cora (§4.4, doc oficial). DARF/GPS pela Cora
+    exigem dados do pagador que a tela atual não coleta → bloqueado honesto por enquanto.
+    Toda saída Cora volta INITIATED e exige aprovação no app (não simula liquidação)."""
+    from modules.integrations.banking.services import cora_pagamento_service as cps
+
+    centavos = int((valor * 100).quantize(Decimal("1")))
+    descricao = (dest.get("descricao") or dest.get("nome") or "Pagamento").strip()
+
+    if payment_type == "boleto":
+        res = await cps.pagar_boleto(db, linha_digitavel=dest["codigo_barras"],
+                                     descricao=descricao, code=code)
+    elif payment_type == "ted_interno":
+        conta = "".join(c for c in (dest.get("conta") or "") if c.isdigit())
+        agencia = "".join(c for c in (dest.get("agencia") or "") if c.isdigit())[:4]
+        destino = {
+            "bank_code": (dest.get("banco") or "").strip(),
+            "account_number": conta,   # COM dígito, ≤13
+            "branch_number": agencia,  # ≤4
+            "holder": {"name": (dest.get("nome") or "").strip(),
+                       "document": {"identity": "".join(c for c in (dest.get("documento") or "") if c.isdigit())}},
+            "account_type": (dest.get("account_type") or "CHECKING"),
+        }
+        res = await cps.transferir(db, destination=destino, valor_centavos=centavos,
+                                   descricao=descricao, code=code, category=dest.get("category"))
+    elif payment_type == "pix":
+        raise PaymentError(
+            "O Cora não envia PIX de saída (nem por chave, nem copia-e-cola) — é regra da API do "
+            "próprio Cora. Para pagar da Patrimonial, use TED por dados bancários, ou pague pelo Inter.")
+    else:
+        raise PaymentError(
+            f"Pela Cora ainda não dá para '{payment_type}' (faltam dados do pagador na tela). "
+            "Use o Inter para este tipo por enquanto.")
+
+    raw = res.get("raw") if isinstance(res, dict) else {}
+    if not isinstance(raw, dict):
+        raw = {}
+    raw.setdefault("status", "INITIATED")
+    return raw, res.get("payment_id")

@@ -313,6 +313,52 @@ class CoraAdapter(BaseBankingAdapter):
             raise BankingAdapterError(f"Cora DARF HTTP {resp.status_code}: {resp.text[:300]}")
         return resp.json()
 
+    async def iniciar_gps(self, *, code: str, data: dict) -> dict:
+        """Inicia pagamento de GPS/INSS §4.3 — `POST /payments/gps/initiate`. `data`:
+        name, code (ex 2100), identity, identification_type (NIT|PASEP|PIS),
+        competence 'aaaa-mm', scheduled_at?, amount {other_entity, inss, charge}
+        (os 3 amounts obrigatórios mesmo zerados). Retorna INITIATED até aprovar no app."""
+        await self.ensure_authenticated()
+        async with self._client() as cli:
+            resp = await cli.post(
+                "/payments/gps/initiate",
+                headers={**self._auth_headers(), "Idempotency-Key": self._idem_key("gps", code),
+                         "Content-Type": "application/json"},
+                json={"code": code, "data": data},
+            )
+        if resp.status_code not in (200, 201):
+            raise BankingAdapterError(f"Cora GPS HTTP {resp.status_code}: {resp.text[:300]}")
+        return resp.json()
+
+    async def iniciar_transferencia(
+        self, *, destination: dict, amount: int, code: str, description: str = "",
+        category: str | None = None, scheduled: str | None = None,
+    ) -> dict:
+        """Inicia TED por dados bancários §4.4 — `POST /transfers/initiate`. O Cora NÃO
+        tem PIX de saída (por chave/copia-e-cola); transferência é sempre por dados:
+        destination {bank_code, account_number (COM dígito ≤13), branch_number (≤4),
+        holder {name, document {identity, type?}}, account_type CHECKING|SAVINGS|PAYMENT}.
+        `amount` em CENTAVOS. `scheduled` (NÃO scheduled_at!). Response 200: id trn_...,
+        status INITIATED (aprovar no app). ⚠️ Banco inexistente → HTTP 500 (não 400)."""
+        await self.ensure_authenticated()
+        body: dict = {"destination": destination, "amount": amount, "code": code}
+        if description:
+            body["description"] = description
+        if category:
+            body["category"] = category
+        if scheduled:
+            body["scheduled"] = scheduled
+        async with self._client() as cli:
+            resp = await cli.post(
+                "/transfers/initiate",
+                headers={**self._auth_headers(), "Idempotency-Key": self._idem_key("ted", code),
+                         "Content-Type": "application/json"},
+                json=body,
+            )
+        if resp.status_code not in (200, 201):
+            raise BankingAdapterError(f"Cora TED HTTP {resp.status_code}: {resp.text[:300]}")
+        return resp.json()
+
     async def consultar_pagamento(self, payment_id: str) -> dict:
         """Consulta pagamento por id. Obs (§4.5): a lista /payments só mostra
         INITIATED — pós-aprovação acompanhe pelo webhook/extrato."""
