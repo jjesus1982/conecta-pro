@@ -293,6 +293,26 @@ function EmptyReal() {
   );
 }
 
+// TabsScreen (F0) — grupo com abas; cada aba renderiza uma tela normal pelos renderers existentes.
+function TabsScreen({ scr, tab, onTab }: { scr: any; tab: string; onTab: (id: string) => void }) {
+  const tabs = Array.isArray(scr.tabs) ? scr.tabs : [];
+  const act = tabs.find((x: any) => x.id === tab) || tabs[0];
+  return (
+    <div className="rd-tabs-wrap">
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+        {tabs.map((x: any) => (
+          <button key={x.id} type="button" onClick={() => onTab(x.id)}
+            className={`rd-btn ${act && act.id === x.id ? 'rd-btn-primary' : 'rd-btn-outline'}`}
+            style={{ fontSize: 12.5, padding: '6px 12px' }}>
+            {x.label}
+          </button>
+        ))}
+      </div>
+      {act ? <Screen scr={act.screen} /> : <EmptyReal />}
+    </div>
+  );
+}
+
 function Screen({ scr }: { scr: any }) {
   if (!scr) return <div className="rd-card rd-card-pad" style={{ color: 'var(--ink-weak)' }}>Tela em preparação.</div>;
   switch (scr.type) {
@@ -316,6 +336,7 @@ export default function ModuleView({ slug }: { slug: string }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [active, setActive] = useState<string>(menu[0]?.id || '');
+  const [activeTab, setActiveTab] = useState<string>('');
   const [patches, setPatches] = useState<Record<string, any>>({});
   const [extraMenu, setExtraMenu] = useState<any[]>([]);
   // 'idle' sem token (exemplo direto) · 'loading' buscando · 'done' resolvido
@@ -323,9 +344,12 @@ export default function ModuleView({ slug }: { slug: string }) {
 
   useEffect(() => {
     try { if (localStorage.getItem('rd-sidebar-collapsed') === '1') setCollapsed(true); } catch { /* */ }
-    const t = new URLSearchParams(window.location.search).get('t');
+    const sp = new URLSearchParams(window.location.search);
+    const t = sp.get('t');
     // confia no ?t da URL (telas de ação/extraMenu chegam via patch, depois)
     if (t) setActive(t);
+    const tb = sp.get('tab');
+    if (tb) setActiveTab(tb); // aba do grupo (fundação tabs F0)
   }, [screens]);
 
   // Dados reais da API (READ-ONLY). Sem token → mantém exemplos do pacote.
@@ -343,13 +367,30 @@ export default function ModuleView({ slug }: { slug: string }) {
   }, [slug]);
 
   const toggle = () => setCollapsed((c) => { const n = !c; try { localStorage.setItem('rd-sidebar-collapsed', n ? '1' : '0'); } catch { /* */ } return n; });
-  const go = (id: string) => {
-    setActive(id); setMobileOpen(false);
-    try { const u = new URL(window.location.href); u.searchParams.set('t', id); window.history.replaceState(null, '', u); } catch { /* */ }
+  const go = (id: string, tabId?: string) => {
+    setActive(id); setActiveTab(tabId || ''); setMobileOpen(false);
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.set('t', id);
+      if (tabId) u.searchParams.set('tab', tabId); else u.searchParams.delete('tab');
+      window.history.replaceState(null, '', u);
+    } catch { /* */ }
   };
 
   const isReal = !!patches[active];
   const scr = patches[active] || screens[active] || screens[menu[0]?.id ?? ''];
+
+  // Deep-link antigo (?t=<id-antigo>): tela virou stub redirect (F0) → resolve p/ grupo+aba.
+  useEffect(() => {
+    const s: any = patches[active];
+    if (s && s.type === 'redirect' && s.groupRef) go(s.groupRef.t, s.groupRef.tab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patches, active]);
+
+  // Tela EFETIVA (aba ativa quando o grupo é type=tabs) — header (sub/docs/export) segue a aba.
+  const effScr = scr?.type === 'tabs'
+    ? (((scr.tabs || []).find((x: any) => x.id === activeTab) || (scr.tabs || [])[0]) as any)?.screen
+    : scr;
   const initials = 'JJ';
 
   if (!data) return <div className="rd-content"><div className="rd-card rd-card-pad">Módulo não encontrado: {slug}</div></div>;
@@ -438,16 +479,16 @@ export default function ModuleView({ slug }: { slug: string }) {
             {scr?.sub && isReal && <div className="rd-scr-sub">{scr.sub}</div>}
           </div>
           {isReal && (
-            (Array.isArray(scr?.docs) && scr.docs.length > 0) ||
-            (scr?.type === 'table' && Array.isArray(scr?.rows) && scr.rows.length > 0 && !scr?.noExport)
+            (Array.isArray(effScr?.docs) && effScr.docs.length > 0) ||
+            (effScr?.type === 'table' && Array.isArray(effScr?.rows) && effScr.rows.length > 0 && !effScr?.noExport)
           ) && (
             <div style={{ marginTop: 12, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', justifyContent: 'space-between' }}>
-              <div>{Array.isArray(scr?.docs) && scr.docs.length > 0 && <DocButtons docs={scr.docs} />}</div>
-              {scr?.type === 'table' && Array.isArray(scr?.rows) && scr.rows.length > 0 && !scr?.noExport && (
+              <div>{Array.isArray(effScr?.docs) && effScr.docs.length > 0 && <DocButtons docs={effScr.docs} />}</div>
+              {effScr?.type === 'table' && Array.isArray(effScr?.rows) && effScr.rows.length > 0 && !effScr?.noExport && (
                 <ExportMenu
-                  cols={(scr.cols || []).map((c: string) => String(c))}
-                  rows={(scr.rows || []).map((r: any) => (r.cells || []).map((c: any) => String(c?.v ?? '')))}
-                  nome={scr.title || 'lista'} titulo={scr.title} />
+                  cols={(effScr.cols || []).map((c: string) => String(c))}
+                  rows={(effScr.rows || []).map((r: any) => (r.cells || []).map((c: any) => String(c?.v ?? '')))}
+                  nome={effScr.title || scr?.title || 'lista'} titulo={effScr.title || scr?.title} />
               )}
             </div>
           )}
@@ -459,7 +500,9 @@ export default function ModuleView({ slug }: { slug: string }) {
                 <div className="rd-skel" style={{ height: 220 }} />
               </div>
             : (isReal || scr?.type === 'chat')
-              ? <Screen scr={scr} />
+              ? (scr?.type === 'tabs'
+                  ? <TabsScreen scr={scr} tab={activeTab} onTab={(id) => go(active, id)} />
+                  : <Screen scr={scr} />)
               : <EmptyReal />}
         </main>
       </div>
