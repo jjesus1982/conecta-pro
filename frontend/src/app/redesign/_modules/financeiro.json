@@ -1,1 +1,1963 @@
-{"menu":[{"id":"dashboard","label":"Dashboard","icon":"M3 3v18h18M7 14l3-3 3 3 5-6","bg":"rgba(242,101,34,0.16)","sh":"inset 3px 0 0 #F26522","fg":"#fff"},{"id":"contas-pagar","label":"Contas a pagar","icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"contas-receber","label":"Contas a receber","icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"fluxo-caixa","label":"Fluxo de caixa","icon":"M3 3v18h18M7 14l3-3 3 3 5-6","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"conciliacao","label":"Conciliação bancária","icon":"M3 21h18M4 10h16M5 10 12 4l7 6M6 10v11M18 10v11M10 10v11M14 10v11","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"boletos","label":"Boletos","icon":"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h5","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"cobrancas","label":"Cobranças","icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"banking","label":"Banking","icon":"M3 21h18M4 10h16M5 10 12 4l7 6M6 10v11M18 10v11M10 10v11M14 10v11","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"inter","label":"Banco Inter","icon":"M3 21h18M4 10h16M5 10 12 4l7 6M6 10v11M18 10v11M10 10v11M14 10v11","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"inter-pagamentos","label":"Inter · Pagamentos","icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"pagamentos-diaristas","label":"Pagamentos diaristas","icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"fornecedores","label":"Fornecedores","icon":"M1 6h14v10H1zM15 9h4l3 3v4h-7zM6 19a2 2 0 1 0 0 .01M18 19a2 2 0 1 0 0 .01","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"compras","label":"Compras","icon":"M6 6h15l-1.5 9h-12zM6 6 5 2H2M9 21a1 1 0 1 0 0 .01M18 21a1 1 0 1 0 0 .01","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"estoque","label":"Estoque","icon":"M21 8 12 3 3 8v8l9 5 9-5zM3 8l9 5 9-5M12 13v8","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"faturamento","label":"Faturamento","icon":"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h5","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"fiscal","label":"Fiscal","icon":"M6 2h12v20H6zM9 6h6M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"nfse-entrada","label":"NFS-e entrada","icon":"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h5","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"orcamentos","label":"Orçamentos","icon":"M6 2h12v20H6zM9 6h6M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"precificacao","label":"Precificação","icon":"M19 5 5 19M6.5 6.5a1 1 0 1 0 .01 0M17.5 17.5a1 1 0 1 0 .01 0","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"custos","label":"Custos","icon":"M6 2h12v20H6zM9 6h6M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"custeio","label":"Custeio","icon":"M6 2h12v20H6zM9 6h6M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"contabilidade","label":"Contabilidade","icon":"M4 4h13a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2zM4 4v14M19 20H8","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"contratos","label":"Contratos","icon":"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h5","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"clientes","label":"Clientes","icon":"M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"raio-x","label":"Raio-X","icon":"M3 3v18h18M7 14l3-3 3 3 5-6","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"cfo","label":"CFO IA","icon":"M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"agentes","label":"Agentes","icon":"M12 8V4H8M4 8h16v12H4zM2 14h2M20 14h2M9 13v2M15 13v2","bg":"transparent","sh":"none","fg":"#9DB0D9"},{"id":"relatorios","label":"Relatórios","icon":"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6","bg":"transparent","sh":"none","fg":"#9DB0D9"}],"screens":{"dashboard":{"title":"Dashboard","sub":"Dados reais das NFS-e — CONECTAMAIS ELETRONICA LTDA","cta":"Atualizar","type":"dash","kpis":[{"v":"R$ 1,72M","l":"Faturamento bruto","icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","color":"#0F1B3A"},{"v":"R$ 1,64M","l":"Faturamento líquido","icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","color":"#0F1B3A"},{"v":"R$ 78,9k","l":"ISS retido","icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","color":"#0F1B3A"},{"v":"R$ 20,5k","l":"Ticket médio","icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","color":"#0F1B3A"}],"panels":[{"title":"Contas do mês","rows":[{"left":"Contas a pagar","right":"R$ 200.192","color":"#B91C1C","bg":"#FEF2F2"},{"left":"Contas a receber","right":"R$ 201.655","color":"#16A34A","bg":"#E7F7ED"},{"left":"Resultado DRE","right":"R$ 7.152","color":"#2563EB","bg":"#EAF0FF"}]},{"title":"Saldo bancário","rows":[{"left":"Banco Inter","right":"R$ 42.041","color":"#16A34A","bg":"#E7F7ED"},{"left":"MRR","right":"R$ 270.586","color":"#2563EB","bg":"#EAF0FF"},{"left":"Projeção anual","right":"R$ 3,24M","color":"#64748B","bg":"#F1F4FA"}]}],"panelGrid":"1fr 1fr"},"contas-pagar":{"title":"Contas a pagar","sub":"64 contas · 60 vencidas","cta":"Nova conta","type":"table","searchHint":"Buscar conta…","grid":"2fr 1.4fr 1.2fr 1fr","cols":["Fornecedor","Vencimento","Valor","Status"],"rows":[[{"isText":true,"v":"Distribuidora EPI Ltda","w":600,"tc":"#0F1B3A","ini":""},{"isText":true,"v":"20/07","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 3.480","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"Vencida","color":"#B91C1C","bg":"#FEF2F2"}],[{"isText":true,"v":"Uniformes Silva","w":600,"tc":"#0F1B3A","ini":""},{"isText":true,"v":"25/07","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 1.920","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"A vencer","color":"#B45309","bg":"#FFFBEB"}],[{"isText":true,"v":"Aluguel Sede","w":600,"tc":"#0F1B3A","ini":""},{"isText":true,"v":"05/08","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 6.500","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"Programada","color":"#2563EB","bg":"#EAF0FF"}]]},"contas-receber":{"title":"Contas a receber","sub":"7 contas · 7 vencidas","cta":"Nova cobrança","type":"table","searchHint":"Buscar cliente…","grid":"2fr 1.4fr 1.2fr 1fr","cols":["Cliente","Vencimento","Valor","Status"],"rows":[[{"isText":true,"v":"Cond. Prime Arena","w":600,"tc":"#0F1B3A","ini":""},{"isText":true,"v":"10/07","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 24.800","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"Recebido","color":"#16A34A","bg":"#E7F7ED"}],[{"isText":true,"v":"Villa dos Pássaros","w":600,"tc":"#0F1B3A","ini":""},{"isText":true,"v":"10/07","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 31.500","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"Recebido","color":"#16A34A","bg":"#E7F7ED"}],[{"isText":true,"v":"Mirante das Flores","w":600,"tc":"#0F1B3A","ini":""},{"isText":true,"v":"15/07","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 18.900","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"Em aberto","color":"#B45309","bg":"#FFFBEB"}]]},"fluxo-caixa":{"title":"Fluxo de caixa","sub":"Projeção de entradas e saídas","cta":"Exportar","type":"dash","kpis":[{"v":"R$ 42k","l":"Saldo atual","icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","color":"#16A34A"},{"v":"R$ 201k","l":"Entradas (mês)","icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","color":"#16A34A"},{"v":"R$ 200k","l":"Saídas (mês)","icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","color":"#B91C1C"},{"v":"R$ 7k","l":"Resultado","icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","color":"#2563EB"}],"panels":[{"title":"Próximas entradas","rows":[{"left":"Cond. Prime Arena","right":"R$ 24.800","color":"#16A34A","bg":"#E7F7ED"},{"left":"Villa dos Pássaros","right":"R$ 31.500","color":"#16A34A","bg":"#E7F7ED"}]},{"title":"Próximas saídas","rows":[{"left":"Folha de pagamento","right":"R$ 148.000","color":"#B91C1C","bg":"#FEF2F2"},{"left":"Fornecedores","right":"R$ 12.400","color":"#B45309","bg":"#FFFBEB"}]}],"panelGrid":"1fr 1fr"},"conciliacao":{"title":"Conciliação bancária","sub":"Movimentações a conciliar","cta":"Conciliar","type":"table","searchHint":"Buscar lançamento…","grid":"2fr 1.4fr 1.2fr 1fr","cols":["Descrição","Data","Valor","Status"],"rows":[[{"isText":true,"v":"TED recebida","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"12/07","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 24.800","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"Conciliado","color":"#16A34A","bg":"#E7F7ED"}],[{"isText":true,"v":"Débito automático","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"11/07","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 6.500","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"Pendente","color":"#B45309","bg":"#FFFBEB"}]]},"boletos":{"title":"Boletos","sub":"Boletos emitidos","cta":"Emitir boleto","type":"table","searchHint":"Buscar boleto…","grid":"2fr 1.4fr 1.2fr 1fr","cols":["Cliente","Vencimento","Valor","Status"],"rows":[[{"isText":true,"v":"Cond. Prime Arena","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"10/08","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 24.800","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"Registrado","color":"#2563EB","bg":"#EAF0FF"}],[{"isText":true,"v":"Mirante das Flores","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"15/08","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 18.900","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"Pago","color":"#16A34A","bg":"#E7F7ED"}]]},"cobrancas":{"title":"Cobranças","sub":"Régua de cobrança","cta":"Nova régua","type":"table","searchHint":"Buscar cliente…","grid":"2fr 1.6fr 1.2fr 1fr","cols":["Cliente","Etapa","Valor","Status"],"rows":[[{"isText":true,"v":"Mirante das Flores","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"Lembrete D+3","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 18.900","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"Em curso","color":"#B45309","bg":"#FFFBEB"}]]},"banking":{"title":"Banking","sub":"Contas bancárias integradas","cta":"Sincronizar","type":"dash","kpis":[{"v":"R$ 42k","l":"Saldo consolidado","icon":"M3 21h18M4 10h16M5 10 12 4l7 6M6 10v11M18 10v11M10 10v11M14 10v11","color":"#16A34A"},{"v":"1","l":"Contas ativas","icon":"M3 21h18M4 10h16M5 10 12 4l7 6M6 10v11M18 10v11M10 10v11M14 10v11","color":"#0F1B3A"},{"v":"128","l":"Transações (mês)","icon":"M3 3v18h18M7 14l3-3 3 3 5-6","color":"#0F1B3A"},{"v":"OK","l":"Status Inter","icon":"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z","color":"#16A34A"}],"panels":[{"title":"Contas","rows":[{"left":"Banco Inter — CC","right":"R$ 42.041","color":"#16A34A","bg":"#E7F7ED"}]}],"panelGrid":"1fr"},"inter":{"title":"Banco Inter","sub":"Integração Banco Inter","cta":"Sincronizar","type":"dash","kpis":[{"v":"R$ 42k","l":"Saldo","icon":"M3 21h18M4 10h16M5 10 12 4l7 6M6 10v11M18 10v11M10 10v11M14 10v11","color":"#16A34A"},{"v":"12","l":"Pagamentos hoje","icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","color":"#0F1B3A"},{"v":"4","l":"Pix recebidos","icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","color":"#16A34A"},{"v":"OK","l":"Conexão","icon":"M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1","color":"#16A34A"}],"panels":[{"title":"Últimos movimentos","rows":[{"left":"Pix recebido · Prime Arena","right":"R$ 24.800","color":"#16A34A","bg":"#E7F7ED"},{"left":"Pagamento fornecedor","right":"R$ 3.480","color":"#B91C1C","bg":"#FEF2F2"}]}],"panelGrid":"1fr"},"inter-pagamentos":{"title":"Inter · Pagamentos","sub":"Pagamentos via Inter","cta":"Novo pagamento","type":"table","searchHint":"Buscar…","grid":"2fr 1.4fr 1.2fr 1fr","cols":["Favorecido","Data","Valor","Status"],"rows":[[{"isText":true,"v":"Distribuidora EPI","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"20/07","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 3.480","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"Agendado","color":"#2563EB","bg":"#EAF0FF"}]]},"pagamentos-diaristas":{"title":"Pagamentos diaristas","sub":"VT + VR e diárias","cta":"Processar lote","type":"table","searchHint":"Buscar diarista…","grid":"2fr 1.2fr 1.2fr 1fr","cols":["Diarista","Diárias","Total","Status"],"rows":[[{"isText":true,"v":"Marcos Aurélio","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"8","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 1.440","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"A pagar","color":"#B45309","bg":"#FFFBEB"}],[{"isText":true,"v":"Sandra Reis","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"6","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 1.080","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"A pagar","color":"#B45309","bg":"#FFFBEB"}]]},"fornecedores":{"title":"Fornecedores","sub":"Cadastro de fornecedores","cta":"Novo fornecedor","type":"table","searchHint":"Buscar fornecedor…","grid":"2.4fr 1.6fr 1.2fr 1fr","cols":["Fornecedor","CNPJ","Categoria","Status"],"rows":[[{"isText":true,"v":"Distribuidora EPI Ltda","w":600,"tc":"#0F1B3A","ini":"DE"},{"isText":true,"v":"12.345.678/0001-90","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"EPI","w":500,"tc":"#334155","ini":""},{"isBadge":true,"v":"Ativo","color":"#16A34A","bg":"#E7F7ED"}],[{"isText":true,"v":"Uniformes Silva","w":600,"tc":"#0F1B3A","ini":"US"},{"isText":true,"v":"98.765.432/0001-10","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"Vestuário","w":500,"tc":"#334155","ini":""},{"isBadge":true,"v":"Ativo","color":"#16A34A","bg":"#E7F7ED"}]]},"compras":{"title":"Compras","sub":"Ordens de compra","cta":"Nova compra","type":"table","searchHint":"Buscar OC…","grid":"2fr 1.6fr 1.2fr 1fr","cols":["Item","Fornecedor","Valor","Status"],"rows":[[{"isText":true,"v":"Coletes balísticos","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"Distribuidora EPI","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 8.400","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"Aprovada","color":"#16A34A","bg":"#E7F7ED"}],[{"isText":true,"v":"Rádios HT","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"TecSeg","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 5.200","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"Cotação","color":"#B45309","bg":"#FFFBEB"}]]},"estoque":{"title":"Estoque","sub":"Itens em estoque","cta":"Novo item","type":"table","searchHint":"Buscar item…","grid":"2.4fr 1.2fr 1.2fr 1fr","cols":["Item","Qtd","Mínimo","Status"],"rows":[[{"isText":true,"v":"Coletes","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"24","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"10","w":500,"tc":"#334155","ini":""},{"isBadge":true,"v":"OK","color":"#16A34A","bg":"#E7F7ED"}],[{"isText":true,"v":"Rádios HT","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"6","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"8","w":500,"tc":"#334155","ini":""},{"isBadge":true,"v":"Baixo","color":"#B45309","bg":"#FFFBEB"}],[{"isText":true,"v":"Lanternas","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"2","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"10","w":500,"tc":"#334155","ini":""},{"isBadge":true,"v":"Crítico","color":"#B91C1C","bg":"#FEF2F2"}]]},"faturamento":{"title":"Faturamento","sub":"NFS-e emitidas","cta":"Emitir NFS-e","type":"table","searchHint":"Buscar nota…","grid":"2fr 1.4fr 1.2fr 1fr","cols":["Cliente","Nº NFS-e","Valor","Status"],"rows":[[{"isText":true,"v":"Cond. Prime Arena","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"000186","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 24.800","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"Emitida","color":"#16A34A","bg":"#E7F7ED"}],[{"isText":true,"v":"Villa dos Pássaros","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"000187","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 31.500","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"Emitida","color":"#16A34A","bg":"#E7F7ED"}]]},"fiscal":{"title":"Fiscal","sub":"Impostos e obrigações","cta":"Ver painel fiscal","type":"dash","kpis":[{"v":"R$ 78,9k","l":"ISS retido","icon":"M6 2h12v20H6zM9 6h6M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01","color":"#0F1B3A"},{"v":"5%","l":"Alíquota ISS","icon":"M19 5 5 19M6.5 6.5a1 1 0 1 0 .01 0M17.5 17.5a1 1 0 1 0 .01 0","color":"#0F1B3A"},{"v":"86","l":"NFS-e emitidas","icon":"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h5","color":"#0F1B3A"},{"v":"37","l":"Pendências fiscais","icon":"M6 2h12v20H6zM9 6h6M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01","color":"#C2410C"}],"panels":[{"title":"Obrigações do mês","rows":[{"left":"ISS","right":"R$ 78.984","color":"#B45309","bg":"#FFFBEB"},{"left":"PIS/COFINS","right":"R$ 12.300","color":"#B45309","bg":"#FFFBEB"},{"left":"IRPJ","right":"R$ 8.100","color":"#64748B","bg":"#F1F4FA"}]}],"panelGrid":"1fr"},"nfse-entrada":{"title":"NFS-e entrada","sub":"Notas de entrada","cta":"Importar XML","type":"table","searchHint":"Buscar nota…","grid":"2fr 1.4fr 1.2fr 1fr","cols":["Fornecedor","Nº","Valor","Status"],"rows":[[{"isText":true,"v":"Distribuidora EPI","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"004512","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 3.480","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"Escriturada","color":"#16A34A","bg":"#E7F7ED"}]]},"orcamentos":{"title":"Orçamentos","sub":"Orçamentos de compra","cta":"Novo orçamento","type":"table","searchHint":"Buscar…","grid":"2fr 1.6fr 1.2fr 1fr","cols":["Descrição","Fornecedor","Valor","Status"],"rows":[[{"isText":true,"v":"Reposição EPIs","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"Distribuidora EPI","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 8.400","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"Aberto","color":"#B45309","bg":"#FFFBEB"}]]},"precificacao":{"title":"Precificação","sub":"Formação de preço de contratos","cta":"Simular","type":"dash","kpis":[{"v":"38%","l":"Margem média","icon":"M19 5 5 19M6.5 6.5a1 1 0 1 0 .01 0M17.5 17.5a1 1 0 1 0 .01 0","color":"#16A34A"},{"v":"R$ 12k","l":"Custo posto/mês","icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","color":"#0F1B3A"},{"v":"R$ 24,8k","l":"Preço médio","icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","color":"#0F1B3A"},{"v":"10","l":"Contratos","icon":"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h5","color":"#0F1B3A"}],"panels":[{"title":"Margem por contrato","rows":[{"left":"Prime Arena","right":"41%","color":"#16A34A","bg":"#E7F7ED"},{"left":"Mirante","right":"36%","color":"#B45309","bg":"#FFFBEB"},{"left":"Villa","right":"39%","color":"#16A34A","bg":"#E7F7ED"}]}],"panelGrid":"1fr"},"custos":{"title":"Custos","sub":"Centro de custos","cta":"Exportar","type":"dash","kpis":[{"v":"R$ 148k","l":"Folha","icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","color":"#B91C1C"},{"v":"R$ 12,4k","l":"Fornecedores","icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","color":"#0F1B3A"},{"v":"R$ 6,5k","l":"Aluguel","icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","color":"#0F1B3A"},{"v":"R$ 104k","l":"Total (mês)","icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","color":"#0F1B3A"}],"panels":[{"title":"Custos por categoria","rows":[{"left":"Pessoal","right":"R$ 148.000","color":"#B91C1C","bg":"#FEF2F2"},{"left":"Operação","right":"R$ 12.400","color":"#B45309","bg":"#FFFBEB"},{"left":"Administrativo","right":"R$ 9.100","color":"#64748B","bg":"#F1F4FA"}]}],"panelGrid":"1fr"},"custeio":{"title":"Custeio","sub":"Rateio de custos por posto","cta":"Novo rateio","type":"table","searchHint":"Buscar posto…","grid":"2fr 1.4fr 1.2fr 1fr","cols":["Posto","Custo","Receita","Margem"],"rows":[[{"isText":true,"v":"Prime Arena","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 14.600","w":700,"tc":"#0F1B3A","ini":""},{"isText":true,"v":"R$ 24.800","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"41%","color":"#16A34A","bg":"#E7F7ED"}],[{"isText":true,"v":"Mirante","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 12.100","w":700,"tc":"#0F1B3A","ini":""},{"isText":true,"v":"R$ 18.900","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"36%","color":"#B45309","bg":"#FFFBEB"}]]},"contabilidade":{"title":"Contabilidade","sub":"Lançamentos contábeis","cta":"Novo lançamento","type":"table","searchHint":"Buscar lançamento…","grid":"2.2fr 1.4fr 1.2fr 1fr","cols":["Conta","Data","Valor","Tipo"],"rows":[[{"isText":true,"v":"Receita de serviços","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"10/07","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 24.800","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"Crédito","color":"#16A34A","bg":"#E7F7ED"}],[{"isText":true,"v":"Despesa de pessoal","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"05/07","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 148.000","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"Débito","color":"#B91C1C","bg":"#FEF2F2"}]]},"contratos":{"title":"Contratos","sub":"Contratos ativos","cta":"Novo contrato","type":"table","searchHint":"Buscar contrato…","grid":"2.2fr 1.4fr 1.2fr 1fr","cols":["Cliente","Nº","Valor/mês","Status"],"rows":[[{"isText":true,"v":"Cond. Prime Arena","w":600,"tc":"#0F1B3A","ini":"PA"},{"isText":true,"v":"CT-2024-018","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 24.800","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"Ativo","color":"#16A34A","bg":"#E7F7ED"}],[{"isText":true,"v":"Villa dos Pássaros","w":600,"tc":"#0F1B3A","ini":"VP"},{"isText":true,"v":"CT-2024-022","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 31.500","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"Ativo","color":"#16A34A","bg":"#E7F7ED"}],[{"isText":true,"v":"Mirante das Flores","w":600,"tc":"#0F1B3A","ini":"MF"},{"isText":true,"v":"CT-2023-119","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"R$ 18.900","w":700,"tc":"#0F1B3A","ini":""},{"isBadge":true,"v":"Renovar","color":"#B45309","bg":"#FFFBEB"}]]},"clientes":{"title":"Clientes","sub":"Clientes pagantes","cta":"Novo cliente","type":"table","searchHint":"Buscar cliente…","grid":"2.4fr 1.6fr 1.2fr 1fr","cols":["Cliente","Contato","Contratos","Status"],"rows":[[{"isText":true,"v":"Cond. Prime Arena","w":600,"tc":"#0F1B3A","ini":"PA"},{"isText":true,"v":"(92) 98111-0001","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"1","w":500,"tc":"#334155","ini":""},{"isBadge":true,"v":"Ativo","color":"#16A34A","bg":"#E7F7ED"}],[{"isText":true,"v":"Villa dos Pássaros","w":600,"tc":"#0F1B3A","ini":"VP"},{"isText":true,"v":"(92) 98111-0002","w":500,"tc":"#334155","ini":""},{"isText":true,"v":"1","w":500,"tc":"#334155","ini":""},{"isBadge":true,"v":"Ativo","color":"#16A34A","bg":"#E7F7ED"}]]},"raio-x":{"title":"Raio-X","sub":"Saúde financeira da empresa","cta":"Atualizar","type":"dash","kpis":[{"v":"R$ 270k","l":"MRR","icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","color":"#16A34A"},{"v":"38%","l":"Margem","icon":"M19 5 5 19M6.5 6.5a1 1 0 1 0 .01 0M17.5 17.5a1 1 0 1 0 .01 0","color":"#16A34A"},{"v":"R$ 42k","l":"Caixa","icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","color":"#0F1B3A"},{"v":"2,1x","l":"Liquidez","icon":"M3 3v18h18M7 14l3-3 3 3 5-6","color":"#2563EB"}],"panels":[{"title":"Indicadores","rows":[{"left":"Inadimplência","right":"2,4%","color":"#B45309","bg":"#FFFBEB"},{"left":"CAC","right":"R$ 1.200","color":"#64748B","bg":"#F1F4FA"},{"left":"LTV","right":"R$ 89.000","color":"#16A34A","bg":"#E7F7ED"}]}],"panelGrid":"1fr"},"cfo":{"title":"CFO IA","sub":"Consultor financeiro inteligente","cta":"Nova análise","type":"dash","kpis":[{"v":"4","l":"Alertas","icon":"M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z","color":"#C2410C"},{"v":"R$ 33,8k","l":"Sem justificativa","icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","color":"#C2410C"},{"v":"12","l":"Recomendações","icon":"M3 3v18h18M7 14l3-3 3 3 5-6","color":"#0F1B3A"},{"v":"37","l":"Transações pendentes","icon":"M6 2h12v20H6zM9 6h6M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01","color":"#C2410C"}],"panels":[{"title":"Recomendações da IA","rows":[{"left":"Regularizar saídas Lucro Real","right":"Alta","color":"#B91C1C","bg":"#FEF2F2"},{"left":"Renegociar Mirante","right":"Média","color":"#B45309","bg":"#FFFBEB"},{"left":"Antecipar recebíveis","right":"Sugestão","color":"#2563EB","bg":"#EAF0FF"}]}],"panelGrid":"1fr"},"agentes":{"title":"Agentes","sub":"Automações financeiras","cta":"Novo agente","type":"cards","cards":[{"title":"Cobrança automática","sub":"Régua por WhatsApp","badge":"Ativo","color":"#16A34A","bg":"#E7F7ED","hasLines":true,"lines":[{"l":"Execuções (7d)","v":"22"}]},{"title":"Conciliação diária","sub":"Importa extrato Inter","badge":"Ativo","color":"#16A34A","bg":"#E7F7ED","hasLines":true,"lines":[{"l":"Execuções (7d)","v":"7"}]},{"title":"Alerta de vencimento","sub":"Notifica contas","badge":"Ativo","color":"#16A34A","bg":"#E7F7ED","hasLines":true,"lines":[{"l":"Execuções (7d)","v":"15"}]}]},"relatorios":{"title":"Relatórios","sub":"Relatórios financeiros","cta":"Gerar","type":"cards","cards":[{"title":"DRE","sub":"Demonstrativo de resultado","badge":"PDF","color":"#64748B","bg":"#F1F4FA","hasLines":true,"lines":[{"l":"Última geração","v":"hoje"}]},{"title":"Fluxo de caixa","sub":"Realizado x projetado","badge":"XLSX","color":"#64748B","bg":"#F1F4FA","hasLines":true,"lines":[{"l":"Última geração","v":"ontem"}]},{"title":"Inadimplência","sub":"Contas em atraso","badge":"PDF","color":"#64748B","bg":"#F1F4FA","hasLines":true,"lines":[{"l":"Última geração","v":"02/07"}]}]}},"mod":{"icon":"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6","name":"Financeiro","desc":"Contas, caixa, fiscal"}}
+{
+ "menu": [
+  {
+   "id": "g-visao",
+   "label": "Visão Geral",
+   "icon": "M3 3h7v7H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z",
+   "bg": "rgba(242,101,34,0.16)",
+   "sh": "inset 3px 0 0 #F26522",
+   "fg": "#fff"
+  },
+  {
+   "id": "g-receber",
+   "label": "Receber",
+   "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+   "bg": "transparent",
+   "sh": "none",
+   "fg": "#9DB0D9"
+  },
+  {
+   "id": "g-pagar",
+   "label": "Pagar",
+   "icon": "M2 6h20M2 18h20M6 6v12M10 6v12M14 6v12M18 6v12",
+   "bg": "transparent",
+   "sh": "none",
+   "fg": "#9DB0D9"
+  },
+  {
+   "id": "g-bancos",
+   "label": "Bancos & Conciliação",
+   "icon": "M3 21h18M4 10h16M5 10 12 4l7 6M6 10v11M18 10v11M10 10v11M14 10v11",
+   "bg": "transparent",
+   "sh": "none",
+   "fg": "#9DB0D9"
+  },
+  {
+   "id": "g-fiscal",
+   "label": "Fiscal & Contábil",
+   "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 15h6M9 11h6",
+   "bg": "transparent",
+   "sh": "none",
+   "fg": "#9DB0D9"
+  },
+  {
+   "id": "g-custos",
+   "label": "Custos & Orçamento",
+   "icon": "M3 3v18h18M18 9l-5 5-4-4-3 3",
+   "bg": "transparent",
+   "sh": "none",
+   "fg": "#9DB0D9"
+  },
+  {
+   "id": "g-cadastros",
+   "label": "Cadastros & Suprimentos",
+   "icon": "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75M12 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z",
+   "bg": "transparent",
+   "sh": "none",
+   "fg": "#9DB0D9"
+  }
+ ],
+ "screens": {
+  "dashboard": {
+   "title": "Dashboard",
+   "sub": "Dados reais das NFS-e — CONECTAMAIS ELETRONICA LTDA",
+   "cta": "Atualizar",
+   "type": "dash",
+   "kpis": [
+    {
+     "v": "R$ 1,72M",
+     "l": "Faturamento bruto",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+     "color": "#0F1B3A"
+    },
+    {
+     "v": "R$ 1,64M",
+     "l": "Faturamento líquido",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+     "color": "#0F1B3A"
+    },
+    {
+     "v": "R$ 78,9k",
+     "l": "ISS retido",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+     "color": "#0F1B3A"
+    },
+    {
+     "v": "R$ 20,5k",
+     "l": "Ticket médio",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+     "color": "#0F1B3A"
+    }
+   ],
+   "panels": [
+    {
+     "title": "Contas do mês",
+     "rows": [
+      {
+       "left": "Contas a pagar",
+       "right": "R$ 200.192",
+       "color": "#B91C1C",
+       "bg": "#FEF2F2"
+      },
+      {
+       "left": "Contas a receber",
+       "right": "R$ 201.655",
+       "color": "#16A34A",
+       "bg": "#E7F7ED"
+      },
+      {
+       "left": "Resultado DRE",
+       "right": "R$ 7.152",
+       "color": "#2563EB",
+       "bg": "#EAF0FF"
+      }
+     ]
+    },
+    {
+     "title": "Saldo bancário",
+     "rows": [
+      {
+       "left": "Banco Inter",
+       "right": "R$ 42.041",
+       "color": "#16A34A",
+       "bg": "#E7F7ED"
+      },
+      {
+       "left": "MRR",
+       "right": "R$ 270.586",
+       "color": "#2563EB",
+       "bg": "#EAF0FF"
+      },
+      {
+       "left": "Projeção anual",
+       "right": "R$ 3,24M",
+       "color": "#64748B",
+       "bg": "#F1F4FA"
+      }
+     ]
+    }
+   ],
+   "panelGrid": "1fr 1fr"
+  },
+  "contas-pagar": {
+   "title": "Contas a pagar",
+   "sub": "64 contas · 60 vencidas",
+   "cta": "Nova conta",
+   "type": "table",
+   "searchHint": "Buscar conta…",
+   "grid": "2fr 1.4fr 1.2fr 1fr",
+   "cols": [
+    "Fornecedor",
+    "Vencimento",
+    "Valor",
+    "Status"
+   ],
+   "rows": [
+    [
+     {
+      "isText": true,
+      "v": "Distribuidora EPI Ltda",
+      "w": 600,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "20/07",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 3.480",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Vencida",
+      "color": "#B91C1C",
+      "bg": "#FEF2F2"
+     }
+    ],
+    [
+     {
+      "isText": true,
+      "v": "Uniformes Silva",
+      "w": 600,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "25/07",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 1.920",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "A vencer",
+      "color": "#B45309",
+      "bg": "#FFFBEB"
+     }
+    ],
+    [
+     {
+      "isText": true,
+      "v": "Aluguel Sede",
+      "w": 600,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "05/08",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 6.500",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Programada",
+      "color": "#2563EB",
+      "bg": "#EAF0FF"
+     }
+    ]
+   ]
+  },
+  "contas-receber": {
+   "title": "Contas a receber",
+   "sub": "7 contas · 7 vencidas",
+   "cta": "Nova cobrança",
+   "type": "table",
+   "searchHint": "Buscar cliente…",
+   "grid": "2fr 1.4fr 1.2fr 1fr",
+   "cols": [
+    "Cliente",
+    "Vencimento",
+    "Valor",
+    "Status"
+   ],
+   "rows": [
+    [
+     {
+      "isText": true,
+      "v": "Cond. Prime Arena",
+      "w": 600,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "10/07",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 24.800",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Recebido",
+      "color": "#16A34A",
+      "bg": "#E7F7ED"
+     }
+    ],
+    [
+     {
+      "isText": true,
+      "v": "Villa dos Pássaros",
+      "w": 600,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "10/07",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 31.500",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Recebido",
+      "color": "#16A34A",
+      "bg": "#E7F7ED"
+     }
+    ],
+    [
+     {
+      "isText": true,
+      "v": "Mirante das Flores",
+      "w": 600,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "15/07",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 18.900",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Em aberto",
+      "color": "#B45309",
+      "bg": "#FFFBEB"
+     }
+    ]
+   ]
+  },
+  "fluxo-caixa": {
+   "title": "Fluxo de caixa",
+   "sub": "Projeção de entradas e saídas",
+   "cta": "Exportar",
+   "type": "dash",
+   "kpis": [
+    {
+     "v": "R$ 42k",
+     "l": "Saldo atual",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+     "color": "#16A34A"
+    },
+    {
+     "v": "R$ 201k",
+     "l": "Entradas (mês)",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+     "color": "#16A34A"
+    },
+    {
+     "v": "R$ 200k",
+     "l": "Saídas (mês)",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+     "color": "#B91C1C"
+    },
+    {
+     "v": "R$ 7k",
+     "l": "Resultado",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+     "color": "#2563EB"
+    }
+   ],
+   "panels": [
+    {
+     "title": "Próximas entradas",
+     "rows": [
+      {
+       "left": "Cond. Prime Arena",
+       "right": "R$ 24.800",
+       "color": "#16A34A",
+       "bg": "#E7F7ED"
+      },
+      {
+       "left": "Villa dos Pássaros",
+       "right": "R$ 31.500",
+       "color": "#16A34A",
+       "bg": "#E7F7ED"
+      }
+     ]
+    },
+    {
+     "title": "Próximas saídas",
+     "rows": [
+      {
+       "left": "Folha de pagamento",
+       "right": "R$ 148.000",
+       "color": "#B91C1C",
+       "bg": "#FEF2F2"
+      },
+      {
+       "left": "Fornecedores",
+       "right": "R$ 12.400",
+       "color": "#B45309",
+       "bg": "#FFFBEB"
+      }
+     ]
+    }
+   ],
+   "panelGrid": "1fr 1fr"
+  },
+  "conciliacao": {
+   "title": "Conciliação bancária",
+   "sub": "Movimentações a conciliar",
+   "cta": "Conciliar",
+   "type": "table",
+   "searchHint": "Buscar lançamento…",
+   "grid": "2fr 1.4fr 1.2fr 1fr",
+   "cols": [
+    "Descrição",
+    "Data",
+    "Valor",
+    "Status"
+   ],
+   "rows": [
+    [
+     {
+      "isText": true,
+      "v": "TED recebida",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "12/07",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 24.800",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Conciliado",
+      "color": "#16A34A",
+      "bg": "#E7F7ED"
+     }
+    ],
+    [
+     {
+      "isText": true,
+      "v": "Débito automático",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "11/07",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 6.500",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Pendente",
+      "color": "#B45309",
+      "bg": "#FFFBEB"
+     }
+    ]
+   ]
+  },
+  "boletos": {
+   "title": "Boletos",
+   "sub": "Boletos emitidos",
+   "cta": "Emitir boleto",
+   "type": "table",
+   "searchHint": "Buscar boleto…",
+   "grid": "2fr 1.4fr 1.2fr 1fr",
+   "cols": [
+    "Cliente",
+    "Vencimento",
+    "Valor",
+    "Status"
+   ],
+   "rows": [
+    [
+     {
+      "isText": true,
+      "v": "Cond. Prime Arena",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "10/08",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 24.800",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Registrado",
+      "color": "#2563EB",
+      "bg": "#EAF0FF"
+     }
+    ],
+    [
+     {
+      "isText": true,
+      "v": "Mirante das Flores",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "15/08",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 18.900",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Pago",
+      "color": "#16A34A",
+      "bg": "#E7F7ED"
+     }
+    ]
+   ]
+  },
+  "cobrancas": {
+   "title": "Cobranças",
+   "sub": "Régua de cobrança",
+   "cta": "Nova régua",
+   "type": "table",
+   "searchHint": "Buscar cliente…",
+   "grid": "2fr 1.6fr 1.2fr 1fr",
+   "cols": [
+    "Cliente",
+    "Etapa",
+    "Valor",
+    "Status"
+   ],
+   "rows": [
+    [
+     {
+      "isText": true,
+      "v": "Mirante das Flores",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "Lembrete D+3",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 18.900",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Em curso",
+      "color": "#B45309",
+      "bg": "#FFFBEB"
+     }
+    ]
+   ]
+  },
+  "banking": {
+   "title": "Banking",
+   "sub": "Contas bancárias integradas",
+   "cta": "Sincronizar",
+   "type": "dash",
+   "kpis": [
+    {
+     "v": "R$ 42k",
+     "l": "Saldo consolidado",
+     "icon": "M3 21h18M4 10h16M5 10 12 4l7 6M6 10v11M18 10v11M10 10v11M14 10v11",
+     "color": "#16A34A"
+    },
+    {
+     "v": "1",
+     "l": "Contas ativas",
+     "icon": "M3 21h18M4 10h16M5 10 12 4l7 6M6 10v11M18 10v11M10 10v11M14 10v11",
+     "color": "#0F1B3A"
+    },
+    {
+     "v": "128",
+     "l": "Transações (mês)",
+     "icon": "M3 3v18h18M7 14l3-3 3 3 5-6",
+     "color": "#0F1B3A"
+    },
+    {
+     "v": "OK",
+     "l": "Status Inter",
+     "icon": "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z",
+     "color": "#16A34A"
+    }
+   ],
+   "panels": [
+    {
+     "title": "Contas",
+     "rows": [
+      {
+       "left": "Banco Inter — CC",
+       "right": "R$ 42.041",
+       "color": "#16A34A",
+       "bg": "#E7F7ED"
+      }
+     ]
+    }
+   ],
+   "panelGrid": "1fr"
+  },
+  "inter": {
+   "title": "Banco Inter",
+   "sub": "Integração Banco Inter",
+   "cta": "Sincronizar",
+   "type": "dash",
+   "kpis": [
+    {
+     "v": "R$ 42k",
+     "l": "Saldo",
+     "icon": "M3 21h18M4 10h16M5 10 12 4l7 6M6 10v11M18 10v11M10 10v11M14 10v11",
+     "color": "#16A34A"
+    },
+    {
+     "v": "12",
+     "l": "Pagamentos hoje",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+     "color": "#0F1B3A"
+    },
+    {
+     "v": "4",
+     "l": "Pix recebidos",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+     "color": "#16A34A"
+    },
+    {
+     "v": "OK",
+     "l": "Conexão",
+     "icon": "M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1",
+     "color": "#16A34A"
+    }
+   ],
+   "panels": [
+    {
+     "title": "Últimos movimentos",
+     "rows": [
+      {
+       "left": "Pix recebido · Prime Arena",
+       "right": "R$ 24.800",
+       "color": "#16A34A",
+       "bg": "#E7F7ED"
+      },
+      {
+       "left": "Pagamento fornecedor",
+       "right": "R$ 3.480",
+       "color": "#B91C1C",
+       "bg": "#FEF2F2"
+      }
+     ]
+    }
+   ],
+   "panelGrid": "1fr"
+  },
+  "inter-pagamentos": {
+   "title": "Inter · Pagamentos",
+   "sub": "Pagamentos via Inter",
+   "cta": "Novo pagamento",
+   "type": "table",
+   "searchHint": "Buscar…",
+   "grid": "2fr 1.4fr 1.2fr 1fr",
+   "cols": [
+    "Favorecido",
+    "Data",
+    "Valor",
+    "Status"
+   ],
+   "rows": [
+    [
+     {
+      "isText": true,
+      "v": "Distribuidora EPI",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "20/07",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 3.480",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Agendado",
+      "color": "#2563EB",
+      "bg": "#EAF0FF"
+     }
+    ]
+   ]
+  },
+  "pagamentos-diaristas": {
+   "title": "Pagamentos diaristas",
+   "sub": "VT + VR e diárias",
+   "cta": "Processar lote",
+   "type": "table",
+   "searchHint": "Buscar diarista…",
+   "grid": "2fr 1.2fr 1.2fr 1fr",
+   "cols": [
+    "Diarista",
+    "Diárias",
+    "Total",
+    "Status"
+   ],
+   "rows": [
+    [
+     {
+      "isText": true,
+      "v": "Marcos Aurélio",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "8",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 1.440",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "A pagar",
+      "color": "#B45309",
+      "bg": "#FFFBEB"
+     }
+    ],
+    [
+     {
+      "isText": true,
+      "v": "Sandra Reis",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "6",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 1.080",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "A pagar",
+      "color": "#B45309",
+      "bg": "#FFFBEB"
+     }
+    ]
+   ]
+  },
+  "fornecedores": {
+   "title": "Fornecedores",
+   "sub": "Cadastro de fornecedores",
+   "cta": "Novo fornecedor",
+   "type": "table",
+   "searchHint": "Buscar fornecedor…",
+   "grid": "2.4fr 1.6fr 1.2fr 1fr",
+   "cols": [
+    "Fornecedor",
+    "CNPJ",
+    "Categoria",
+    "Status"
+   ],
+   "rows": [
+    [
+     {
+      "isText": true,
+      "v": "Distribuidora EPI Ltda",
+      "w": 600,
+      "tc": "#0F1B3A",
+      "ini": "DE"
+     },
+     {
+      "isText": true,
+      "v": "12.345.678/0001-90",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "EPI",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Ativo",
+      "color": "#16A34A",
+      "bg": "#E7F7ED"
+     }
+    ],
+    [
+     {
+      "isText": true,
+      "v": "Uniformes Silva",
+      "w": 600,
+      "tc": "#0F1B3A",
+      "ini": "US"
+     },
+     {
+      "isText": true,
+      "v": "98.765.432/0001-10",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "Vestuário",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Ativo",
+      "color": "#16A34A",
+      "bg": "#E7F7ED"
+     }
+    ]
+   ]
+  },
+  "compras": {
+   "title": "Compras",
+   "sub": "Ordens de compra",
+   "cta": "Nova compra",
+   "type": "table",
+   "searchHint": "Buscar OC…",
+   "grid": "2fr 1.6fr 1.2fr 1fr",
+   "cols": [
+    "Item",
+    "Fornecedor",
+    "Valor",
+    "Status"
+   ],
+   "rows": [
+    [
+     {
+      "isText": true,
+      "v": "Coletes balísticos",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "Distribuidora EPI",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 8.400",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Aprovada",
+      "color": "#16A34A",
+      "bg": "#E7F7ED"
+     }
+    ],
+    [
+     {
+      "isText": true,
+      "v": "Rádios HT",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "TecSeg",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 5.200",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Cotação",
+      "color": "#B45309",
+      "bg": "#FFFBEB"
+     }
+    ]
+   ]
+  },
+  "estoque": {
+   "title": "Estoque",
+   "sub": "Itens em estoque",
+   "cta": "Novo item",
+   "type": "table",
+   "searchHint": "Buscar item…",
+   "grid": "2.4fr 1.2fr 1.2fr 1fr",
+   "cols": [
+    "Item",
+    "Qtd",
+    "Mínimo",
+    "Status"
+   ],
+   "rows": [
+    [
+     {
+      "isText": true,
+      "v": "Coletes",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "24",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "10",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "OK",
+      "color": "#16A34A",
+      "bg": "#E7F7ED"
+     }
+    ],
+    [
+     {
+      "isText": true,
+      "v": "Rádios HT",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "6",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "8",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Baixo",
+      "color": "#B45309",
+      "bg": "#FFFBEB"
+     }
+    ],
+    [
+     {
+      "isText": true,
+      "v": "Lanternas",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "2",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "10",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Crítico",
+      "color": "#B91C1C",
+      "bg": "#FEF2F2"
+     }
+    ]
+   ]
+  },
+  "faturamento": {
+   "title": "Faturamento",
+   "sub": "NFS-e emitidas",
+   "cta": "Emitir NFS-e",
+   "type": "table",
+   "searchHint": "Buscar nota…",
+   "grid": "2fr 1.4fr 1.2fr 1fr",
+   "cols": [
+    "Cliente",
+    "Nº NFS-e",
+    "Valor",
+    "Status"
+   ],
+   "rows": [
+    [
+     {
+      "isText": true,
+      "v": "Cond. Prime Arena",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "000186",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 24.800",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Emitida",
+      "color": "#16A34A",
+      "bg": "#E7F7ED"
+     }
+    ],
+    [
+     {
+      "isText": true,
+      "v": "Villa dos Pássaros",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "000187",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 31.500",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Emitida",
+      "color": "#16A34A",
+      "bg": "#E7F7ED"
+     }
+    ]
+   ]
+  },
+  "fiscal": {
+   "title": "Fiscal",
+   "sub": "Impostos e obrigações",
+   "cta": "Ver painel fiscal",
+   "type": "dash",
+   "kpis": [
+    {
+     "v": "R$ 78,9k",
+     "l": "ISS retido",
+     "icon": "M6 2h12v20H6zM9 6h6M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01",
+     "color": "#0F1B3A"
+    },
+    {
+     "v": "5%",
+     "l": "Alíquota ISS",
+     "icon": "M19 5 5 19M6.5 6.5a1 1 0 1 0 .01 0M17.5 17.5a1 1 0 1 0 .01 0",
+     "color": "#0F1B3A"
+    },
+    {
+     "v": "86",
+     "l": "NFS-e emitidas",
+     "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h5",
+     "color": "#0F1B3A"
+    },
+    {
+     "v": "37",
+     "l": "Pendências fiscais",
+     "icon": "M6 2h12v20H6zM9 6h6M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01",
+     "color": "#C2410C"
+    }
+   ],
+   "panels": [
+    {
+     "title": "Obrigações do mês",
+     "rows": [
+      {
+       "left": "ISS",
+       "right": "R$ 78.984",
+       "color": "#B45309",
+       "bg": "#FFFBEB"
+      },
+      {
+       "left": "PIS/COFINS",
+       "right": "R$ 12.300",
+       "color": "#B45309",
+       "bg": "#FFFBEB"
+      },
+      {
+       "left": "IRPJ",
+       "right": "R$ 8.100",
+       "color": "#64748B",
+       "bg": "#F1F4FA"
+      }
+     ]
+    }
+   ],
+   "panelGrid": "1fr"
+  },
+  "nfse-entrada": {
+   "title": "NFS-e entrada",
+   "sub": "Notas de entrada",
+   "cta": "Importar XML",
+   "type": "table",
+   "searchHint": "Buscar nota…",
+   "grid": "2fr 1.4fr 1.2fr 1fr",
+   "cols": [
+    "Fornecedor",
+    "Nº",
+    "Valor",
+    "Status"
+   ],
+   "rows": [
+    [
+     {
+      "isText": true,
+      "v": "Distribuidora EPI",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "004512",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 3.480",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Escriturada",
+      "color": "#16A34A",
+      "bg": "#E7F7ED"
+     }
+    ]
+   ]
+  },
+  "orcamentos": {
+   "title": "Orçamentos",
+   "sub": "Orçamentos de compra",
+   "cta": "Novo orçamento",
+   "type": "table",
+   "searchHint": "Buscar…",
+   "grid": "2fr 1.6fr 1.2fr 1fr",
+   "cols": [
+    "Descrição",
+    "Fornecedor",
+    "Valor",
+    "Status"
+   ],
+   "rows": [
+    [
+     {
+      "isText": true,
+      "v": "Reposição EPIs",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "Distribuidora EPI",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 8.400",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Aberto",
+      "color": "#B45309",
+      "bg": "#FFFBEB"
+     }
+    ]
+   ]
+  },
+  "precificacao": {
+   "title": "Precificação",
+   "sub": "Formação de preço de contratos",
+   "cta": "Simular",
+   "type": "dash",
+   "kpis": [
+    {
+     "v": "38%",
+     "l": "Margem média",
+     "icon": "M19 5 5 19M6.5 6.5a1 1 0 1 0 .01 0M17.5 17.5a1 1 0 1 0 .01 0",
+     "color": "#16A34A"
+    },
+    {
+     "v": "R$ 12k",
+     "l": "Custo posto/mês",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+     "color": "#0F1B3A"
+    },
+    {
+     "v": "R$ 24,8k",
+     "l": "Preço médio",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+     "color": "#0F1B3A"
+    },
+    {
+     "v": "10",
+     "l": "Contratos",
+     "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h5",
+     "color": "#0F1B3A"
+    }
+   ],
+   "panels": [
+    {
+     "title": "Margem por contrato",
+     "rows": [
+      {
+       "left": "Prime Arena",
+       "right": "41%",
+       "color": "#16A34A",
+       "bg": "#E7F7ED"
+      },
+      {
+       "left": "Mirante",
+       "right": "36%",
+       "color": "#B45309",
+       "bg": "#FFFBEB"
+      },
+      {
+       "left": "Villa",
+       "right": "39%",
+       "color": "#16A34A",
+       "bg": "#E7F7ED"
+      }
+     ]
+    }
+   ],
+   "panelGrid": "1fr"
+  },
+  "custos": {
+   "title": "Custos",
+   "sub": "Centro de custos",
+   "cta": "Exportar",
+   "type": "dash",
+   "kpis": [
+    {
+     "v": "R$ 148k",
+     "l": "Folha",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+     "color": "#B91C1C"
+    },
+    {
+     "v": "R$ 12,4k",
+     "l": "Fornecedores",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+     "color": "#0F1B3A"
+    },
+    {
+     "v": "R$ 6,5k",
+     "l": "Aluguel",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+     "color": "#0F1B3A"
+    },
+    {
+     "v": "R$ 104k",
+     "l": "Total (mês)",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+     "color": "#0F1B3A"
+    }
+   ],
+   "panels": [
+    {
+     "title": "Custos por categoria",
+     "rows": [
+      {
+       "left": "Pessoal",
+       "right": "R$ 148.000",
+       "color": "#B91C1C",
+       "bg": "#FEF2F2"
+      },
+      {
+       "left": "Operação",
+       "right": "R$ 12.400",
+       "color": "#B45309",
+       "bg": "#FFFBEB"
+      },
+      {
+       "left": "Administrativo",
+       "right": "R$ 9.100",
+       "color": "#64748B",
+       "bg": "#F1F4FA"
+      }
+     ]
+    }
+   ],
+   "panelGrid": "1fr"
+  },
+  "custeio": {
+   "title": "Custeio",
+   "sub": "Rateio de custos por posto",
+   "cta": "Novo rateio",
+   "type": "table",
+   "searchHint": "Buscar posto…",
+   "grid": "2fr 1.4fr 1.2fr 1fr",
+   "cols": [
+    "Posto",
+    "Custo",
+    "Receita",
+    "Margem"
+   ],
+   "rows": [
+    [
+     {
+      "isText": true,
+      "v": "Prime Arena",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 14.600",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 24.800",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "41%",
+      "color": "#16A34A",
+      "bg": "#E7F7ED"
+     }
+    ],
+    [
+     {
+      "isText": true,
+      "v": "Mirante",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 12.100",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 18.900",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "36%",
+      "color": "#B45309",
+      "bg": "#FFFBEB"
+     }
+    ]
+   ]
+  },
+  "contabilidade": {
+   "title": "Contabilidade",
+   "sub": "Lançamentos contábeis",
+   "cta": "Novo lançamento",
+   "type": "table",
+   "searchHint": "Buscar lançamento…",
+   "grid": "2.2fr 1.4fr 1.2fr 1fr",
+   "cols": [
+    "Conta",
+    "Data",
+    "Valor",
+    "Tipo"
+   ],
+   "rows": [
+    [
+     {
+      "isText": true,
+      "v": "Receita de serviços",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "10/07",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 24.800",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Crédito",
+      "color": "#16A34A",
+      "bg": "#E7F7ED"
+     }
+    ],
+    [
+     {
+      "isText": true,
+      "v": "Despesa de pessoal",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "05/07",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 148.000",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Débito",
+      "color": "#B91C1C",
+      "bg": "#FEF2F2"
+     }
+    ]
+   ]
+  },
+  "contratos": {
+   "title": "Contratos",
+   "sub": "Contratos ativos",
+   "cta": "Novo contrato",
+   "type": "table",
+   "searchHint": "Buscar contrato…",
+   "grid": "2.2fr 1.4fr 1.2fr 1fr",
+   "cols": [
+    "Cliente",
+    "Nº",
+    "Valor/mês",
+    "Status"
+   ],
+   "rows": [
+    [
+     {
+      "isText": true,
+      "v": "Cond. Prime Arena",
+      "w": 600,
+      "tc": "#0F1B3A",
+      "ini": "PA"
+     },
+     {
+      "isText": true,
+      "v": "CT-2024-018",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 24.800",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Ativo",
+      "color": "#16A34A",
+      "bg": "#E7F7ED"
+     }
+    ],
+    [
+     {
+      "isText": true,
+      "v": "Villa dos Pássaros",
+      "w": 600,
+      "tc": "#0F1B3A",
+      "ini": "VP"
+     },
+     {
+      "isText": true,
+      "v": "CT-2024-022",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 31.500",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Ativo",
+      "color": "#16A34A",
+      "bg": "#E7F7ED"
+     }
+    ],
+    [
+     {
+      "isText": true,
+      "v": "Mirante das Flores",
+      "w": 600,
+      "tc": "#0F1B3A",
+      "ini": "MF"
+     },
+     {
+      "isText": true,
+      "v": "CT-2023-119",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "R$ 18.900",
+      "w": 700,
+      "tc": "#0F1B3A",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Renovar",
+      "color": "#B45309",
+      "bg": "#FFFBEB"
+     }
+    ]
+   ]
+  },
+  "clientes": {
+   "title": "Clientes",
+   "sub": "Clientes pagantes",
+   "cta": "Novo cliente",
+   "type": "table",
+   "searchHint": "Buscar cliente…",
+   "grid": "2.4fr 1.6fr 1.2fr 1fr",
+   "cols": [
+    "Cliente",
+    "Contato",
+    "Contratos",
+    "Status"
+   ],
+   "rows": [
+    [
+     {
+      "isText": true,
+      "v": "Cond. Prime Arena",
+      "w": 600,
+      "tc": "#0F1B3A",
+      "ini": "PA"
+     },
+     {
+      "isText": true,
+      "v": "(92) 98111-0001",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "1",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Ativo",
+      "color": "#16A34A",
+      "bg": "#E7F7ED"
+     }
+    ],
+    [
+     {
+      "isText": true,
+      "v": "Villa dos Pássaros",
+      "w": 600,
+      "tc": "#0F1B3A",
+      "ini": "VP"
+     },
+     {
+      "isText": true,
+      "v": "(92) 98111-0002",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isText": true,
+      "v": "1",
+      "w": 500,
+      "tc": "#334155",
+      "ini": ""
+     },
+     {
+      "isBadge": true,
+      "v": "Ativo",
+      "color": "#16A34A",
+      "bg": "#E7F7ED"
+     }
+    ]
+   ]
+  },
+  "raio-x": {
+   "title": "Raio-X",
+   "sub": "Saúde financeira da empresa",
+   "cta": "Atualizar",
+   "type": "dash",
+   "kpis": [
+    {
+     "v": "R$ 270k",
+     "l": "MRR",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+     "color": "#16A34A"
+    },
+    {
+     "v": "38%",
+     "l": "Margem",
+     "icon": "M19 5 5 19M6.5 6.5a1 1 0 1 0 .01 0M17.5 17.5a1 1 0 1 0 .01 0",
+     "color": "#16A34A"
+    },
+    {
+     "v": "R$ 42k",
+     "l": "Caixa",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+     "color": "#0F1B3A"
+    },
+    {
+     "v": "2,1x",
+     "l": "Liquidez",
+     "icon": "M3 3v18h18M7 14l3-3 3 3 5-6",
+     "color": "#2563EB"
+    }
+   ],
+   "panels": [
+    {
+     "title": "Indicadores",
+     "rows": [
+      {
+       "left": "Inadimplência",
+       "right": "2,4%",
+       "color": "#B45309",
+       "bg": "#FFFBEB"
+      },
+      {
+       "left": "CAC",
+       "right": "R$ 1.200",
+       "color": "#64748B",
+       "bg": "#F1F4FA"
+      },
+      {
+       "left": "LTV",
+       "right": "R$ 89.000",
+       "color": "#16A34A",
+       "bg": "#E7F7ED"
+      }
+     ]
+    }
+   ],
+   "panelGrid": "1fr"
+  },
+  "cfo": {
+   "title": "CFO IA",
+   "sub": "Consultor financeiro inteligente",
+   "cta": "Nova análise",
+   "type": "dash",
+   "kpis": [
+    {
+     "v": "4",
+     "l": "Alertas",
+     "icon": "M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z",
+     "color": "#C2410C"
+    },
+    {
+     "v": "R$ 33,8k",
+     "l": "Sem justificativa",
+     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+     "color": "#C2410C"
+    },
+    {
+     "v": "12",
+     "l": "Recomendações",
+     "icon": "M3 3v18h18M7 14l3-3 3 3 5-6",
+     "color": "#0F1B3A"
+    },
+    {
+     "v": "37",
+     "l": "Transações pendentes",
+     "icon": "M6 2h12v20H6zM9 6h6M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01",
+     "color": "#C2410C"
+    }
+   ],
+   "panels": [
+    {
+     "title": "Recomendações da IA",
+     "rows": [
+      {
+       "left": "Regularizar saídas Lucro Real",
+       "right": "Alta",
+       "color": "#B91C1C",
+       "bg": "#FEF2F2"
+      },
+      {
+       "left": "Renegociar Mirante",
+       "right": "Média",
+       "color": "#B45309",
+       "bg": "#FFFBEB"
+      },
+      {
+       "left": "Antecipar recebíveis",
+       "right": "Sugestão",
+       "color": "#2563EB",
+       "bg": "#EAF0FF"
+      }
+     ]
+    }
+   ],
+   "panelGrid": "1fr"
+  },
+  "agentes": {
+   "title": "Agentes",
+   "sub": "Automações financeiras",
+   "cta": "Novo agente",
+   "type": "cards",
+   "cards": [
+    {
+     "title": "Cobrança automática",
+     "sub": "Régua por WhatsApp",
+     "badge": "Ativo",
+     "color": "#16A34A",
+     "bg": "#E7F7ED",
+     "hasLines": true,
+     "lines": [
+      {
+       "l": "Execuções (7d)",
+       "v": "22"
+      }
+     ]
+    },
+    {
+     "title": "Conciliação diária",
+     "sub": "Importa extrato Inter",
+     "badge": "Ativo",
+     "color": "#16A34A",
+     "bg": "#E7F7ED",
+     "hasLines": true,
+     "lines": [
+      {
+       "l": "Execuções (7d)",
+       "v": "7"
+      }
+     ]
+    },
+    {
+     "title": "Alerta de vencimento",
+     "sub": "Notifica contas",
+     "badge": "Ativo",
+     "color": "#16A34A",
+     "bg": "#E7F7ED",
+     "hasLines": true,
+     "lines": [
+      {
+       "l": "Execuções (7d)",
+       "v": "15"
+      }
+     ]
+    }
+   ]
+  },
+  "relatorios": {
+   "title": "Relatórios",
+   "sub": "Relatórios financeiros",
+   "cta": "Gerar",
+   "type": "cards",
+   "cards": [
+    {
+     "title": "DRE",
+     "sub": "Demonstrativo de resultado",
+     "badge": "PDF",
+     "color": "#64748B",
+     "bg": "#F1F4FA",
+     "hasLines": true,
+     "lines": [
+      {
+       "l": "Última geração",
+       "v": "hoje"
+      }
+     ]
+    },
+    {
+     "title": "Fluxo de caixa",
+     "sub": "Realizado x projetado",
+     "badge": "XLSX",
+     "color": "#64748B",
+     "bg": "#F1F4FA",
+     "hasLines": true,
+     "lines": [
+      {
+       "l": "Última geração",
+       "v": "ontem"
+      }
+     ]
+    },
+    {
+     "title": "Inadimplência",
+     "sub": "Contas em atraso",
+     "badge": "PDF",
+     "color": "#64748B",
+     "bg": "#F1F4FA",
+     "hasLines": true,
+     "lines": [
+      {
+       "l": "Última geração",
+       "v": "02/07"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "mod": {
+  "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+  "name": "Financeiro",
+  "desc": "Contas, caixa, fiscal"
+ }
+}

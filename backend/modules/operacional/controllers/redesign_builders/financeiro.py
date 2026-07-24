@@ -28,37 +28,9 @@ from modules.operacional.controllers.redesign_data_controller import (  # noqa: 
 
 SLUG = "financeiro"
 
-# Menu extra do módulo (mesclado pelo registry) — telas que o clássico tem e o menu do redesign não.
-EXTRA_MENU: list[dict] = [
-    {"id": "saldos", "label": "Saldos por conta",
-     "icon": "M3 21h18M4 10h16M5 10 12 4l7 6M6 10v11M18 10v11M10 10v11M14 10v11"},
-    {"id": "cora", "label": "Banco Cora",
-     "icon": "M3 21h18M4 10h16M5 10 12 4l7 6M6 10v11M18 10v11M10 10v11M14 10v11"},
-    {"id": "pagamentos-inter", "label": "Pagamentos Inter",
-     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "pagamentos-pj", "label": "Pagamentos PJ",
-     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "pagar-folha-pj", "label": "Pagar folha PJ",
-     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "pagar-diaristas", "label": "Pagar diaristas",
-     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "pagar-boleto", "label": "Pagar boleto",
-     "icon": "M2 6h20M2 18h20M6 6v12M10 6v12M14 6v12M18 6v12"},
-    {"id": "enviar-pix", "label": "Enviar PIX / Transferir",
-     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "transferir-ted", "label": "Transferência TED",
-     "icon": "M4 12h16M14 6l6 6-6 6"},
-    {"id": "pagar-darf", "label": "Pagar DARF / tributo",
-     "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 15h6M9 11h6"},
-    {"id": "emitir-boleto", "label": "Emitir boleto",
-     "icon": "M2 6h20M2 18h20M6 6v12M10 6v12M14 6v12M18 6v12"},
-    {"id": "cobrar-pix", "label": "Cobrar PIX",
-     "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "cancelar-boleto", "label": "Cancelar boleto",
-     "icon": "M18 6 6 18M6 6l12 12"},
-    {"id": "cancelar-pagamento", "label": "Cancelar pagamento",
-     "icon": "M18 6 6 18M6 6l12 12"},
-]
+# F0: menu extra ZERADO — as antigas entradas viram ABAS dos 7 grupos (_fin_grupos.py).
+# As telas continuam montadas no build; só saem da navegação de topo.
+EXTRA_MENU: list[dict] = []
 
 
 async def _fetch_live_balance(bank_code, bank_name):
@@ -636,6 +608,10 @@ async def build(db) -> dict:
             out["contas-receber"]["docs"] = [doc("Aging Contas a Receber (PDF)", "/api/v1/financial/receivables/aging/pdf", fmt="pdf", gate="financeiro")]
     except Exception:  # noqa: BLE001 — documentos não derrubam o módulo
         pass
+
+    # F0 — fundação: compõe os 7 grupos (tabs) e stub-a as telas antigas (deep-link preservado).
+    from modules.operacional.controllers.redesign_builders._fin_grupos import montar_grupos
+    montar_grupos(out)
 
     return out
 
