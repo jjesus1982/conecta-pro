@@ -617,6 +617,10 @@ async def build(db) -> dict:
     from modules.operacional.controllers.redesign_builders._fin_bancos import build_bancos
     await build_bancos(db, out)
 
+    # F3 — Pagar: aging KPIs, fila de aprovação (leitura) e audit log Inter.
+    from modules.operacional.controllers.redesign_builders._fin_pagar import build_pagar
+    await build_pagar(db, out)
+
     # F0 — fundação: compõe os 7 grupos (tabs) e stub-a as telas antigas (deep-link preservado).
     from modules.operacional.controllers.redesign_builders._fin_grupos import montar_grupos
     montar_grupos(out)
