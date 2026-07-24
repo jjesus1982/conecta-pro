@@ -32,6 +32,18 @@ def main() -> None:
     sch = tr.openai_schema(t_op)
     assert sch["type"] == "function" and sch["function"]["name"] == "t_op"
     print("OK schema OpenAI")
+
+    # 5) fail-closed: tool com nome duplicado NÃO sobrescreve a original
+    t_dup1 = tr.register(tr.ToolDef("dup", "financeiro", "primeira", {"type": "object", "properties": {}}, _noop))
+    reprovou_dup = False
+    try:
+        tr.register(tr.ToolDef("dup", "operacional", "segunda", {"type": "object", "properties": {}}, _noop))
+    except ValueError:
+        reprovou_dup = True
+    assert reprovou_dup, "tool duplicada deveria ter sido recusada"
+    assert tr.get_tool("dup") is t_dup1, "registro original foi sobrescrito pela duplicata"
+    print("OK duplicada rejeitada")
+
     print("TEST tool_registry PASS")
 
 

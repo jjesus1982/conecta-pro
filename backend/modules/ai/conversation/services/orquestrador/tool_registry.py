@@ -29,6 +29,10 @@ def register(tool: ToolDef) -> ToolDef:
         raise ValueError(f"tool '{tool.name}' sem módulo declarado — recusada (fail-closed)")
     if not tool.name or not tool.name.strip():
         raise ValueError("tool sem nome — recusada")
+    if tool.name in _REGISTRY:
+        raise ValueError(
+            f"tool duplicada: {tool.name!r} já registrada (módulo {_REGISTRY[tool.name].module!r})"
+        )
     _REGISTRY[tool.name] = tool
     return tool
 
