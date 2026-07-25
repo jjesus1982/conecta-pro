@@ -5,7 +5,7 @@ import {
   Search, Bell, Users, Shield, Handshake, CalendarDays, DollarSign, Megaphone,
   Trophy, Wrench, FolderKanban, HeartPulse, Clock, User, Headset, Calculator,
   Scale, BarChart3, LineChart, Package, Settings, Link2, Lock, Building2,
-  Sparkles, Workflow, LogOut, LayoutGrid, type LucideIcon,
+  Sparkles, Workflow, LogOut, LayoutGrid, Bot, type LucideIcon,
 } from 'lucide-react';
 import { rdLogout } from '@/components/redesign/session';
 
@@ -16,6 +16,13 @@ type Alert = { title: string; meta: string; action: string; dot: string };
 
 type Mod = { name: string; desc: string; Icon: LucideIcon; org?: boolean };
 const GROUPS: { name: string; mods: Mod[] }[] = [
+  {
+    name: 'Consultores IA',
+    mods: [
+      { name: 'Consultor IA', desc: 'Converse sobre os seus dados (RBAC + seu escopo)', Icon: Bot, org: true },
+      { name: 'Orquestrador Executivo', desc: 'Diretoria: caixa por CNPJ, folha, runway, briefing', Icon: Sparkles, org: true },
+    ],
+  },
   {
     name: 'Negócios',
     mods: [
@@ -75,6 +82,7 @@ const GROUPS: { name: string; mods: Mod[] }[] = [
 
 // Nome do tile → slug do módulo (todos resolvem para um módulo existente)
 const SLUG: Record<string, string> = {
+  'Consultor IA': 'consultor-ia', 'Orquestrador Executivo': 'orquestrador-executivo',
   'CRM': 'crm', 'Marketing': 'marketing', 'Licitações': 'licitacoes', 'Serviços': 'servicos',
   'Departamento Pessoal': 'departamento-pessoal', 'Recursos Humanos': 'rh', 'Gestão de Pessoas': 'gestao-de-pessoas',
   'Operacional': 'operacional', 'Saúde Ocupacional': 'saude-ocupacional', 'Ponto Eletrônico': 'gestao-de-pessoas',
