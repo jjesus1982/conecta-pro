@@ -55,3 +55,37 @@ async def build_cadastros(db, out: dict) -> None:
         out["estoque-real"] = scr
     except Exception:  # noqa: BLE001
         pass
+
+    # ── Fornecedores por categoria (suppliers + gasto via payable_accounts) — isolado da folha.
+    # suppliers = fornecedores de NF-e/compras, nunca folha (domínio T2). Read-only. ─────────
+    try:
+        from sqlalchemy import text as _text
+        cats = (await db.execute(_text(
+            "SELECT coalesce(s.category,'sem categoria'), count(DISTINCT s.id), coalesce(sum(pa.net_value),0) "
+            "FROM suppliers s LEFT JOIN payable_accounts pa ON pa.supplier_id=s.id "
+            "GROUP BY 1 ORDER BY 3 DESC"))).fetchall()
+        n_forn = int((await db.execute(_text("SELECT count(*) FROM suppliers"))).scalar() or 0)
+        gasto_tot = sum(float(c[2] or 0) for c in cats)
+        tops = (await db.execute(_text(
+            "SELECT coalesce(s.name, s.trade_name, '—'), coalesce(s.category,'—'), coalesce(sum(pa.net_value),0) "
+            "FROM suppliers s LEFT JOIN payable_accounts pa ON pa.supplier_id=s.id "
+            "GROUP BY s.id, s.name, s.trade_name, s.category HAVING coalesce(sum(pa.net_value),0) > 0 "
+            "ORDER BY 3 DESC LIMIT 10"))).fetchall()
+        scr = {
+            "title": "Fornecedores por categoria", "type": "table", "cta": "—", "searchHint": "Buscar categoria…",
+            "sub": (f"{n_forn} fornecedores · gasto total R$ {gasto_tot:,.2f} (via contas a pagar). "
+                    "Categorização automática por CNPJ/nome (fornecedor_categoria_service). Isolado da folha."),
+            "grid": "1.8fr 1fr 1.3fr",
+            "cols": ["Categoria", "Fornecedores", "Gasto (contas a pagar)"],
+            "rows": [{"cells": [
+                t((str(c[0]) or "—").replace("_", " ").capitalize(), 600, "#0F1B3A"),
+                t(str(int(c[1]))), t(brl(float(c[2] or 0)), 600)]} for c in cats]
+                or [{"cells": [t("Sem fornecedores"), t("0"), t("—")]}],
+            "panelGrid": "1fr",
+            "panels": [{"title": "Maiores fornecedores (por gasto)", "rows": [
+                {"left": f"{(str(r[0]) or '—')[:34]} · {(str(r[1]) or '—').replace('_',' ')}", "right": brl(float(r[2] or 0)), **S["info"]}
+                for r in tops] or [{"left": "Sem gasto registrado", "right": "—", **S["mut"]}]}],
+        }
+        out["fornecedores-categoria"] = scr
+    except Exception:  # noqa: BLE001
+        pass

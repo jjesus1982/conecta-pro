@@ -42,7 +42,7 @@ GRUPOS = [
         ("precificacao", "Precificação"), ("orcamentos", "Orçamentos"),
         ("orcado-realizado", "Orçado × Realizado")]),
     ("g-cadastros", "Cadastros & Suprimentos", "Fornecedores, contratos, compras e estoque", [
-        ("fornecedores", "Fornecedores"), ("contratos", "Contratos"),
+        ("fornecedores", "Fornecedores"), ("fornecedores-categoria", "Fornecedores por categoria"), ("contratos", "Contratos"),
         ("compras-reais", "Compras"), ("compras", "Compras (NF-e)"),
         ("estoque-real", "Estoque"), ("estoque", "Estoque (NF-e)")]),
 ]
