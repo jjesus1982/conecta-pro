@@ -2028,6 +2028,39 @@ async def rd_action_aviso_ferias(
             "doc": {"label": "Aviso prévio de férias", "url": url, "fmt": "html", "mode": "blob"}}
 
 
+@router.post("/action/contracheques-batch")
+async def rd_action_contracheques_batch(
+    current_user: CurrentActiveUser,
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Gera contracheques em LOTE de todos os ativos da competência (PDF + arquiva no GED + publica
+    eventos). AÇÃO de efeito em massa → o front exige confirmação humana antes (scr.submit.confirm).
+    Reusa a lógica provada de gerar_contracheques_batch. payload.competencia = 'AAAA-MM'."""
+    import re as _re
+
+    comp = (payload.get("competencia") or "").strip()
+    if not _re.match(r"^\d{4}-(0[1-9]|1[0-2])$", comp):
+        raise HTTPException(status_code=400, detail="Competência inválida. Use AAAA-MM.")
+
+    from modules.people_management.hr.controllers.payroll_export_controller import (
+        gerar_contracheques_batch,
+    )
+
+    try:
+        res = await gerar_contracheques_batch(comp, current_user, db)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar contracheques: {exc}") from exc
+
+    ger = res.get("contracheques_gerados", 0)
+    tot = res.get("total_funcionarios", 0)
+    arq = res.get("arquivados_ged", 0)
+    return {"ok": True,
+            "message": f"Contracheques {comp}: {ger}/{tot} gerados, {arq} arquivados no GED."}
+
+
 @router.post("/action/lead")
 async def rd_action_lead(
     current_user: CurrentActiveUser,

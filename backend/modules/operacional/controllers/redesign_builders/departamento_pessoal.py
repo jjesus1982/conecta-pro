@@ -25,6 +25,8 @@ SLUG = "departamento-pessoal"
 EXTRA_MENU: list[dict] = [
     {"id": "aviso-ferias", "label": "Aviso de férias",
      "icon": "M17 8C8 10 5.9 16.2 3.8 21.7c-.3.7.3 1.3 1 1L8 21c9-2 11-8 13-13M12 2v4M20 6l-2 2"},
+    {"id": "contracheques-lote", "label": "Contracheques em lote",
+     "icon": "M9 7h6M9 11h6M9 15h4M5 3h14a1 1 0 0 1 1 1v16H4V4a1 1 0 0 1 1-1z"},
 ]
 
 # datas: as tabelas usam date/timestamp; formatador defensivo local
@@ -597,6 +599,35 @@ async def build(db) -> dict:
                 {"key": "ferias", "label": "Férias (recentes e próximas)*", "type": "select", "span": "span 2",
                  "ph": "Selecione a férias" if _opts else "Nenhuma férias aprovada/submetida nos últimos 120 dias",
                  "options": _opts},
+            ],
+        }
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
+    # Contracheques em lote (AÇÃO de efeito em massa: gera PDF de todos os ativos + arquiva GED +
+    # publica eventos). Vai atrás de CONFIRMAÇÃO humana (submit.confirm). Competências = as que têm
+    # folha (hr_payslips). Ligado ao fix do filtro status (case-insensitive) no payroll_export.
+    try:
+        from sqlalchemy import text as _sqltext
+        _comps = (await db.execute(_sqltext(
+            "SELECT DISTINCT reference_year, reference_month FROM hr_payslips "
+            "WHERE reference_year IS NOT NULL "
+            "ORDER BY reference_year DESC, reference_month DESC LIMIT 12"))).fetchall()
+        _copts = [{"value": f"{int(r[0])}-{int(r[1]):02d}", "label": f"{int(r[1]):02d}/{int(r[0])}"} for r in _comps]
+        out["contracheques-lote"] = {
+            "title": "Contracheques em lote",
+            "sub": "Gera o contracheque (PDF) de TODOS os funcionários ativos da competência e arquiva no GED",
+            "cta": "Gerar contracheques", "type": "form",
+            "submit": {"endpoint": "/api/v1/redesign/action/contracheques-batch",
+                       "okMsg": "Contracheques gerados",
+                       "confirm": "Isto gera o contracheque de TODOS os ativos da competência e arquiva no GED"},
+            "fields": [
+                {"key": "competencia", "label": "Competência*", "type": "select", "span": "span 2",
+                 "ph": "Selecione a competência" if _copts else "Sem competência com folha registrada",
+                 "options": _copts},
             ],
         }
     except Exception:

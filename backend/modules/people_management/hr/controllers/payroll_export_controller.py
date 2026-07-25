@@ -168,11 +168,13 @@ async def gerar_contracheques_batch(
         raise HTTPException(400, "Formato de competência inválido. Use YYYY-MM.")
 
     payroll_svc = PayrollService(db)
-    from sqlalchemy import select
+    from sqlalchemy import func, select
 
     from modules.operacional.models.employee import Employee
 
-    result = await db.execute(select(Employee).where(Employee.status == "Ativo"))
+    # status é case-inconsistente no banco (dado real = 'ativo' minúsculo); comparar case-insensitive
+    # senão a batch casa 0 funcionários e gera 0 contracheques (bug que mantinha esta rota órfã).
+    result = await db.execute(select(Employee).where(func.lower(Employee.status) == "ativo"))
     employees = result.scalars().all()
 
     folha_data = []
