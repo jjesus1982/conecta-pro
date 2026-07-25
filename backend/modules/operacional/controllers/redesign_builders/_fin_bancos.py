@@ -111,3 +111,51 @@ async def build_bancos(db, out: dict) -> None:
         out["conciliacao-consolidada"] = scr
     except Exception:  # noqa: BLE001
         pass
+
+    # ── Conciliação POR LÍQUIDO (NFS-e valor_liquido ↔ crédito Inter/Cora) — relatório read-only.
+    # Casa pelo que REALMENTE cai na conta (líquido, e líquido−INSS quando retido). Baixa = ação gated. ─
+    try:
+        from modules.financial.services.conciliacao_liquido_service import casar_notas_banco
+        rep = await casar_notas_banco(db, "2026-01-01", "2026-12-31", persistir=False)
+        scr = {
+            "title": "Conciliação por líquido (NFS-e × banco)", "type": "table", "cta": "—", "searchHint": "Buscar cliente…",
+            "sub": (f"{rep['n_casados']} nota(s) casada(s) pelo LÍQUIDO ({rep['pct_casado']}% do faturado) · "
+                    f"{rep['n_sugestoes']} sugestão(ões) a revisar · {rep['n_sem']} sem crédito (Cora/Itaú/recente). "
+                    f"Líquido conciliado R$ {rep['liquido_casado']:,.2f} de R$ {rep['liquido_total']:,.2f}. "
+                    "Baixa é ação gated (aba 'Aplicar conciliação')."),
+            "grid": "2fr 1.1fr 1.1fr 1fr 0.9fr",
+            "cols": ["Cliente", "Líquido (nota)", "Crédito (banco)", "Data crédito", "Match"],
+            "rows": [{"cells": [
+                t((m["cliente"] or "—")[:34], 600, "#0F1B3A"), t(brl(m["liquido"]), 600),
+                t(brl(m["credito_valor"]), 600), t(str(m["credito_data"])),
+                b("exato" + (" (−INSS)" if m["inss"] > 0 else ""), "ok")]} for m in rep["casados"]],
+            "panelGrid": "1fr 1fr",
+            "panels": [
+                {"title": f"Sugestões a revisar ({rep['n_sugestoes']}) — identidade bate, valor aproximado",
+                 "rows": [{"left": f"{(s['cliente'] or '—')[:26]} · líq {brl(s['liquido'])}",
+                           "right": f"{brl(s['credito_valor'])} (dif {brl(s['diff'])})", **S["warn"]}
+                          for s in rep["sugestoes"][:8]] or [{"left": "Nenhuma sugestão pendente", "right": "—", **S["ok"]}]},
+                {"title": f"Sem crédito no banco ({rep['n_sem']}) — pago via Cora/Itaú ou recente",
+                 "rows": [{"left": f"{(n['cliente'] or '—')[:26]} · emit {n['emissao']}",
+                           "right": brl(n["liquido"]), **S["info"]} for n in rep["notas_sem"][:8]]
+                         or [{"left": "Todas as notas casaram", "right": "—", **S["ok"]}]},
+            ],
+        }
+        out["conciliacao-por-liquido"] = scr
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Ação gated: aplicar a conciliação por líquido (marca os créditos exatos como conciliados)
+    out["aplicar-conciliacao-liquido"] = {
+        "title": "Aplicar conciliação por líquido",
+        "sub": "Marca como CONCILIADOS os créditos do banco que casaram EXATO com o líquido das NFS-e "
+               "(só os exatos; sugestões ficam de fora). Bookkeeping — NÃO move dinheiro nem altera contas a receber.",
+        "cta": "Aplicar conciliação", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/conciliar-liquido", "gated": False,
+                   "confirm": "Marcar como conciliados os créditos que casaram exato com o líquido das notas?",
+                   "okMsg": "Conciliação por líquido aplicada."},
+        "fields": [
+            {"key": "inicio", "label": "Início (AAAA-MM-DD)", "type": "date", "span": "span 1", "ph": "2026-01-01"},
+            {"key": "fim", "label": "Fim (AAAA-MM-DD)", "type": "date", "span": "span 1", "ph": "2026-12-31"},
+        ],
+    }

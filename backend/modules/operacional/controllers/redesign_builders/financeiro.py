@@ -941,6 +941,19 @@ async def _rd_conciliar_auto(current_user: CurrentActiveUser, payload: dict = Bo
             f"{er} erro(s) — de {tot} pendente(s) processada(s)."}
 
 
+@router.post("/action/conciliar-liquido")
+async def _rd_conciliar_liquido(current_user: CurrentActiveUser, payload: dict = Body(default={}), db=Depends(get_db)) -> dict:
+    """Conciliação por LÍQUIDO: marca conciliados os créditos do banco que casaram EXATO com o
+    líquido das NFS-e (bookkeeping — NÃO move dinheiro). Só os exatos; sugestões ficam de fora."""
+    from modules.financial.services.conciliacao_liquido_service import casar_notas_banco
+    ini = (payload.get("inicio") or "2026-01-01").strip()
+    fim = (payload.get("fim") or "2026-12-31").strip()
+    r = await casar_notas_banco(db, ini, fim, persistir=True)
+    return {"ok": True, "message": f"Conciliação por líquido: {r['aplicados']} crédito(s) marcados conciliados "
+            f"(de {r['n_casados']} casados exatos, {r['pct_casado']}% do faturado). "
+            f"{r['n_sugestoes']} sugestão(ões) e {r['n_sem']} sem crédito ficaram para revisão."}
+
+
 @router.post("/action/cobrar-recorrente")
 async def _rd_cobrar_recorrente(current_user: CurrentActiveUser, payload: dict = Body(default={}), db=Depends(get_db)) -> dict:
     """Money-IN: EMITE cobranças recorrentes REAIS (PIX/boleto Inter/Cora) do mês/ano aos clientes.

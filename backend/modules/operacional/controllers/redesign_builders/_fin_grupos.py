@@ -27,6 +27,7 @@ GRUPOS = [
         ("cora", "Banco Cora"), ("banking", "Extrato"),
         ("conciliacao-bancaria", "Conciliação (extrato)"), ("conciliar-auto", "Rodar conciliação"),
         ("conciliacao-consolidada", "Consolidado por mês"),
+        ("conciliacao-por-liquido", "Por líquido (NFS-e×banco)"), ("aplicar-conciliacao-liquido", "Aplicar conciliação"),
         ("conciliacao", "Conciliação de folha"), ("inter-pagamentos", "Inter (pagtos)")]),
     ("g-fiscal", "Fiscal & Contábil", "Notas, guias e contabilidade", [
         ("fiscal", "Fiscal"), ("nfse-entrada", "NFS-e entrada"),
