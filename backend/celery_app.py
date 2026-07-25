@@ -42,6 +42,8 @@ app = Celery(
         # Fase 0 (Task 7/8): sino canônico + reconciliação + GED expiry (era órfã).
         "modules.notifications.tasks",
         "modules.ged.tasks.expiry_alerts",
+        # Fase 5.3: proativo por evento (avaliador de regras + digest).
+        "modules.notifications.proativo.tasks",
     ],
 )
 
@@ -162,6 +164,12 @@ app.conf.beat_schedule = {
     "notificacoes-reconciliar-alertas": {
         "task": "notifications.reconciliar_alertas",
         "schedule": crontab(minute="*/15"),
+    },
+    # ── Fase 5.3: avaliador de regras proativas (transição → sino, dedup por estado) ──
+    "proativo-avaliar-regras": {
+        "task": "proativo.avaliar_regras",
+        "schedule": crontab(minute="*/15"),
+        "options": {"queue": "gov.batch"},
     },
     # ── Fase 0: retenção leve do sino (expira não-alertas antigos; alertas retidos) ──
     "notificacoes-purgar": {
