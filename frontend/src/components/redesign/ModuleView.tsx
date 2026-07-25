@@ -95,7 +95,8 @@ function TableScreen({ scr }: { scr: any }) {
   // Retrocompatível: telas sem docs/edit não mudam.
   const hasRowDocs = allRows.some((r: any) => Array.isArray(r.docs) && r.docs.length > 0);
   const hasRowEdit = allRows.some((r: any) => r.edit && Array.isArray(r.edit.fields));
-  const hasActions = hasRowDocs || hasRowEdit;
+  const hasRowActions = allRows.some((r: any) => Array.isArray(r.actions) && r.actions.length);
+  const hasActions = hasRowDocs || hasRowEdit || hasRowActions;
   const grid = hasActions ? `${scr.grid} minmax(150px, auto)` : scr.grid;
   const cols = hasActions ? [...(scr.cols || []), hasRowDocs ? 'Documento' : 'Ações'] : (scr.cols || []);
   const [editRow, setEditRow] = useState<any>(null);
@@ -140,6 +141,12 @@ function TableScreen({ scr }: { scr: any }) {
                       {row.edit.btnLabel || 'Editar'}
                     </button>
                   )}
+                  {Array.isArray(row.actions) && row.actions.map((a:any, k:number) => (
+                    <button key={k} type="button" className={`rd-btn ${a.btnStyle==='primary'?'rd-btn-primary':'rd-btn-outline'}`} style={{ padding:'5px 10px', fontSize:12 }}
+                      onClick={() => { setEditRow(a); const v:Record<string,any>={}; (a.fields||[]).forEach((f:any)=>{v[f.key]=f.value??'';}); setEditVals(v); setEditMsg(null); }}>
+                      {a.btnLabel || 'Ação'}
+                    </button>
+                  ))}
                 </span>
               )}
             </div>

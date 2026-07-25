@@ -727,7 +727,7 @@ def _helpers(db: AsyncSession):
         except Exception:
             await db.rollback()
 
-    async def tbl(title, sub, cta, cols, grid, sql, rowfn, hint="Buscar…", docsfn=None, editfn=None):
+    async def tbl(title, sub, cta, cols, grid, sql, rowfn, hint="Buscar…", docsfn=None, editfn=None, actionsfn=None):
         # docsfn(r) → docs por-LINHA. editfn(r) → dict de EDIÇÃO por-linha ({endpoint, method,
         # fields:[{key,label,type,value,options}]}) → o FormScreen inline pré-preenche e faz PATCH.
         # Ambos opcionais e retrocompatíveis (telas sem eles não mudam).
@@ -743,6 +743,10 @@ def _helpers(db: AsyncSession):
                 e = editfn(r)
                 if e:
                     row["edit"] = e
+            if actionsfn:
+                acts = [a for a in (actionsfn(r) or []) if a]
+                if acts:
+                    row["actions"] = acts
             return row
 
         return {"title": title, "sub": sub, "cta": cta, "type": "table", "searchHint": hint,
