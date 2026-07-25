@@ -42,5 +42,17 @@ Mês a mês. Provável começar por um mês **novo e simples** (menos condomíni
 - **Deploy acoplado (blue-green bakeia a árvore inteira):** commitar ANTES de deployar; `git add` só dos MEUS arquivos (DP/hr/people-management). **NÃO tocar** nos arquivos do T1: `redesign_builders/_fin_*.py`, `redesign_builders/financeiro.py`, `financial/services/{conciliacao_liquido,regua_cobranca,apuracao_lucro_real}_service.py`, `integrations/inter`, `integrations/banking`.
 - Checar deploy rodando com bracket-trick: `ps -eo args | grep "[d]eploy_backend_bluegreen.sh"`.
 
+## RESULTADO (25/07) — 5/6 espelhados+verificados; Março pendente decisão
+Pipeline completo executado. Estado em `hr_payslips` (source='portte'), verificado banco==Portte Geral (nº folhas E líquido) por mês:
+| Mês | Folhas | Líquido | Status |
+|---|---|---|---|
+| 01/2026 | 50 | R$ 68.594,81 | ✅ espelhado+verificado |
+| 02/2026 | 53 | R$ 62.776,42 | ✅ (5 de Villa Passaros do Geral; EDWARD por nome) |
+| 03/2026 | 51 (dominio) | R$ 66.677,59 | ⚠️ **PENDENTE JORDAN**: Portte=R$66.860,57 (dif R$182,98); o Domínio existente tem `payroll_payments` (pagamentos reais) vinculados → não sobrescrevi. Decisão: reconciliar pagamentos vs Portte. |
+| 04/2026 | 52 | R$ 71.941,65 | ✅ (SILVANA criada, R$418,62) |
+| 05/2026 | 52 | R$ 73.561,44 | ✅ |
+| 06/2026 | 56 | R$ 73.075,36 | ✅ (já era portte, verificado) |
+Total 5 meses portte: 263 folhas. **5 empregados criados** (dados Portte, status demitido, CNPJ1): SILVANA + 4 demitidos R$0 (regra Jordan "manter cadastro Portte"). **1 exceção documentada:** SADRAC (Jan, R$0, demitido) — posto sem PDF individual em NENHUM mês → sem condomínio mapeável → não carregado (R$0, total exato sem ele). Backups: `backups/postgresql/hr_payslips_PRE_portte_*.dump` + `employees_PRE_portte_*.dump`. Reversível por batch (source='portte'+competência) ou restore. `hr_payslips` alimenta razão do T1 (ledger_auto, passo separado — não postado ainda).
+
 ## Artefatos
 `auditoria/folhas_portte/extracao/<mes>/*.json` · `reconciliacao/<mes>.md` · `INVENTARIO.json` (todos os arquivos Drive) · relatório final `RESULTADO.md`.
