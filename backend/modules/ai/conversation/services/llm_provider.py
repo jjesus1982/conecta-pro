@@ -89,6 +89,26 @@ class OpenAIProvider(BaseLLMProvider):
         if not self.api_key:
             logger.warning("OpenAI API key nao configurada. Provider nao funcionara.")
 
+    def _completion_params(self, max_tokens: int, temperature: float) -> dict[str, Any]:
+        """Adapta os parametros ao contrato do modelo (provado por probe real 2026-07-25).
+
+        Familia gpt-5 (modelos de raciocinio) NAO aceita `max_tokens` (exige
+        `max_completion_tokens`) e SO aceita `temperature` no default 1 (qualquer outro
+        valor -> 400). Logo, para gpt-5* enviamos `max_completion_tokens` e OMITIMOS
+        `temperature` quando != 1 (cai no default do modelo). Modelos gpt-4.x/gpt-4o
+        continuam com o contrato antigo (`max_tokens` + `temperature` livre).
+
+        A assinatura publica de generate() nao muda: os chamadores continuam passando
+        max_tokens/temperature; a adaptacao acontece aqui dentro.
+        """
+        model = (self.model or "").lower()
+        if model.startswith("gpt-5"):
+            params: dict[str, Any] = {"max_completion_tokens": max_tokens}
+            if temperature == 1:
+                params["temperature"] = temperature
+            return params
+        return {"max_tokens": max_tokens, "temperature": temperature}
+
     async def _get_client(self):
         """Obtem cliente OpenAI (lazy loading)."""
         if self._client is None:
@@ -124,8 +144,7 @@ class OpenAIProvider(BaseLLMProvider):
             response = await client.chat.completions.create(
                 model=self.model,
                 messages=formatted_messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
+                **self._completion_params(max_tokens, temperature),
                 **kwargs,
             )
 
@@ -164,9 +183,8 @@ class OpenAIProvider(BaseLLMProvider):
             stream = await client.chat.completions.create(
                 model=self.model,
                 messages=formatted_messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
                 stream=True,
+                **self._completion_params(max_tokens, temperature),
                 **kwargs,
             )
 
