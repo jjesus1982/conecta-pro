@@ -325,25 +325,46 @@ async def _try_adapter_balance(
 @router.get("/balances", response_model=BankingBalancesResponse)
 async def get_bank_balances(
     current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Consulta saldos de todas as contas bancárias configuradas."""
+    """Saldos de TODAS as contas ativas (Inter, Cora, ...) a partir do cache
+    bank_accounts, sincronizado a cada 15 min pela task financial.sync_bank_balances.
+
+    Antes esta rota consultava SÓ o Banco Inter ao vivo (lista hardcoded), o que
+    escondia a Cora do "Saldo Bancário Consolidado" e travava a tela quando o
+    adapter mTLS do Inter estava lento/fora. Lê só o cache (rápido e seguro) e
+    inclui qualquer conta que já tenha saldo sincronizado."""
+    from sqlalchemy import text as _text
+
     now = datetime.now().isoformat()
     balances: list[BankBalanceItem] = []
 
-    env = _load_credentials_env()
-    inter_account = env.get("INTER_ACCOUNT") or os.environ.get("INTER_ACCOUNT") or "****-2"
+    rows = (await db.execute(_text("""
+        SELECT bank_code, bank_name, account_number, account_digit,
+               COALESCE(current_balance, 0)                        AS current_balance,
+               COALESCE(available_balance, current_balance, 0)     AS available_balance,
+               COALESCE(blocked_balance, 0)                        AS blocked_balance,
+               last_balance_update
+        FROM bank_accounts
+        WHERE COALESCE(ativo, true) = true
+          AND COALESCE(status, 'ativa') = 'ativa'
+          AND (last_balance_update IS NOT NULL OR COALESCE(current_balance, 0) <> 0)
+        ORDER BY is_main_account DESC NULLS LAST, current_balance DESC NULLS LAST
+    """))).fetchall()
 
-    # Bancos configurados no sistema
-    banks = [
-        ("077", "Banco Inter", inter_account),
-    ]
-
-    service = _get_banking_service()
-
-    for bank_code, bank_name, account_label in banks:
-        item = await _try_adapter_balance(service, bank_code, bank_name, account_label)
-        if item:
-            balances.append(item)
+    for r in rows:
+        acct = (r.account_number or "")
+        if r.account_digit:
+            acct = f"{acct}-{r.account_digit}"
+        balances.append(BankBalanceItem(
+            bank_code=str(r.bank_code or ""),
+            bank_name=str(r.bank_name or ""),
+            account=acct or "—",
+            balance=float(r.current_balance or 0),
+            available_balance=float(r.available_balance or 0),
+            blocked_balance=float(r.blocked_balance or 0),
+            updated_at=(r.last_balance_update.isoformat() if r.last_balance_update else now),
+        ))
 
     total = sum(b.available_balance for b in balances)
 
@@ -698,6 +719,7 @@ async def get_bank_statement_full(
     days: int = Query(default=30, ge=1, le=365),
     bank_code: str | None = Query(default=None),
     current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Extrato completo com todos os campos disponíveis por transação."""
     end_date = date.today()
@@ -709,69 +731,80 @@ async def get_bank_statement_full(
     opening_balance = 0.0
     closing_balance = 0.0
 
-    service = _get_banking_service()
+    # Extrato a partir do CACHE bank_transactions (todas as contas: Inter, Cora, ...).
+    # Antes consultava só o Inter ao vivo (banks_to_query=["077"]); a Cora — que NÃO está
+    # registrada no BankingService — nunca aparecia, e o adapter mTLS ao vivo travava a
+    # tela. Ler o cache inclui todas as contas, rotula o banco por linha e é A5-safe.
+    from sqlalchemy import text as _text
 
-    banks_to_query = [bank_code] if bank_code else ["077"]
+    _where = ""
+    _params: dict = {"start": start_date, "end": end_date}
+    if bank_code:
+        _where = " AND ba.bank_code = :bcode"
+        _params["bcode"] = bank_code
 
-    for code in banks_to_query:
-        bank_name = _BANK_NAMES.get(code, code)
-        try:
-            statement = await service.get_statement(code, start_date, end_date)
+    rows = (await db.execute(_text(f"""
+        SELECT bt.id, bt.transaction_date, bt.amount, bt.transaction_type,
+               coalesce(bt.description, bt.memo, '')                         AS description,
+               coalesce(bt.counterparty_name, bt.contraparte_nome)           AS counterpart_name,
+               coalesce(bt.counterparty_document, bt.contraparte_documento)  AS counterpart_document,
+               bt.counterparty_bank                                          AS counterpart_bank,
+               bt.balance_after, bt.reference, bt.category,
+               coalesce(ba.bank_code, '')                                    AS bank_code,
+               coalesce(ba.bank_name, '—')                                   AS bank_name
+        FROM bank_transactions bt
+        LEFT JOIN bank_accounts ba ON ba.id = bt.bank_account_id
+        WHERE bt.transaction_date >= :start AND bt.transaction_date <= :end
+          AND coalesce(bt.ativo, true) = true{_where}
+        ORDER BY bt.transaction_date DESC NULLS LAST
+        LIMIT 500
+    """), _params)).fetchall()
 
-            # Acumula saldos (último banco vence se múltiplos consultados)
-            opening_balance += float(statement.opening_balance or 0)
-            closing_balance += float(statement.closing_balance or 0)
+    for r in rows:
+        raw_amount = float(r.amount or 0)
+        amount = abs(raw_amount)
+        tx_type_str = str(r.transaction_type or "unknown")
+        tl = tx_type_str.lower()
+        # Direção: tipo explícito crédito/débito vence; senão o sinal do valor.
+        if tl in ("credit", "credito", "c", "pix_recebido", "deposito"):
+            is_credit = True
+        elif tl in ("debit", "debito", "d"):
+            is_credit = False
+        else:
+            is_credit = raw_amount >= 0
 
-            for tx in statement.transactions:
-                raw_amount = float(tx.amount)
-                amount = abs(raw_amount)
-                tx_type_str = str(tx.transaction_type.value) if tx.transaction_type else "unknown"
-                desc_up = (tx.description or "").upper()
-                # DIREÇÃO robusta do dinheiro (não confiar só no enum de tipo, pois PIX/TED/BOLETO
-                # não dizem o sentido). Ordem de confiança:
-                #   1) sinal do amount (adapter já assina: <0 = saída) — fonte primária;
-                #   2) enum DEBITO;
-                #   3) palavras-chave de saída na descrição (ENVIADO/PAGAMENTO/PAGTO).
-                if raw_amount < 0:
-                    is_credit = False
-                elif raw_amount > 0:
-                    is_credit = True
-                else:
-                    is_credit = (
-                        tx_type_str not in ("DEBITO",)
-                        and "ENVIADO" not in desc_up
-                        and "PAGAMENTO" not in desc_up
-                        and "PAGTO" not in desc_up
-                    )
+        if is_credit:
+            total_credits += amount
+        else:
+            total_debits += amount
 
-                if is_credit:
-                    total_credits += amount
-                else:
-                    total_debits += amount
+        transactions.append(
+            BankTransactionFull(
+                transaction_id=str(r.id),
+                date=r.transaction_date.isoformat() if r.transaction_date else "",
+                amount=amount,
+                transaction_type=tx_type_str,
+                type="credit" if is_credit else "debit",
+                description=r.description or "",
+                counterpart_name=r.counterpart_name,
+                counterpart_document=r.counterpart_document,
+                counterpart_bank=r.counterpart_bank,
+                balance_after=float(r.balance_after) if r.balance_after is not None else None,
+                reference=r.reference,
+                category=r.category,
+                bank_code=str(r.bank_code or ""),
+                bank_name=str(r.bank_name or "—"),
+            )
+        )
 
-                transactions.append(
-                    BankTransactionFull(
-                        transaction_id=tx.transaction_id,
-                        date=tx.date.isoformat() if tx.date else "",
-                        amount=amount,
-                        transaction_type=tx_type_str,
-                        type="credit" if is_credit else "debit",
-                        description=tx.description or "",
-                        counterpart_name=tx.counterpart_name,
-                        counterpart_document=tx.counterpart_document,
-                        counterpart_bank=tx.counterpart_bank,
-                        balance_after=float(tx.balance_after) if tx.balance_after is not None else None,
-                        reference=tx.reference,
-                        category=tx.category or (str(tx.transaction_type.value) if tx.transaction_type else None),
-                        bank_code=code,
-                        bank_name=bank_name,
-                    )
-                )
-        except Exception as exc:
-            logger.debug("Extrato completo indisponível para banco %s: %s", code, exc)
-
-    # Ordena por data decrescente
-    transactions.sort(key=lambda t: t.date, reverse=True)
+    # closing_balance = saldo consolidado atual (todas as contas ativas)
+    closing_balance = float(
+        (await db.execute(_text(
+            "SELECT COALESCE(SUM(COALESCE(available_balance, current_balance, 0)), 0) "
+            "FROM bank_accounts WHERE COALESCE(ativo, true) = true AND COALESCE(status, 'ativa') = 'ativa'"
+        ))).scalar() or 0
+    )
+    # Já ordenado por data desc no SQL.
 
     return BankStatementFullResponse(
         transactions=transactions,

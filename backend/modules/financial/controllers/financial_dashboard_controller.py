@@ -41,13 +41,14 @@ async def get_financial_dashboard(
         hoje = date.today()
         inicio_mes = hoje.replace(day=1)
 
-        # Saldo bancário real
+        # Saldo bancário real — CONSOLIDADO: soma de TODAS as contas ativas
+        # (antes pegava só is_main_account=true -> mostrava só o Inter e ignorava a Cora).
         saldo_result = await db.execute(
             text("""
-            SELECT COALESCE(available_balance, current_balance, 0) AS saldo
+            SELECT COALESCE(SUM(COALESCE(available_balance, current_balance, 0)), 0) AS saldo
             FROM bank_accounts
-            WHERE is_main_account = true
-            ORDER BY updated_at DESC LIMIT 1
+            WHERE COALESCE(ativo, true) = true
+              AND COALESCE(status, 'ativa') = 'ativa'
         """)
         )
         saldo_row = saldo_result.fetchone()
