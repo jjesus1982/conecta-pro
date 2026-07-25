@@ -40,17 +40,23 @@ function Pill({ v, color, bg }: { v: ReactNode; color: string; bg: string }) {
 }
 
 // ── Renderizadores de tela (1:1 com o template dc) ───────────────────────────
-function DashScreen({ scr }: { scr: any }) {
+function DashScreen({ scr, onNav }: { scr: any; onNav?: (id: string) => void }) {
   return (
     <div className="rd-dash">
       <div className="rd-dash-kpis">
-        {(scr.kpis || []).map((k: any, i: number) => (
-          <div className="rd-kpi" key={i}>
-            <div className="rd-kpi-ico"><Ico d={k.icon} size={20} stroke="var(--navy)" /></div>
-            <div className="rd-kpi-v" style={{ color: k.color || 'var(--ink)' }}>{k.v}</div>
-            <div className="rd-kpi-l">{k.l}</div>
-          </div>
-        ))}
+        {(scr.kpis || []).map((k: any, i: number) => {
+          const clickable = !!(onNav && k.to);
+          return (
+            <div className="rd-kpi" key={i} onClick={clickable ? () => onNav!(k.to) : undefined}
+              role={clickable ? 'button' : undefined} tabIndex={clickable ? 0 : undefined}
+              title={clickable ? 'Ver detalhes' : undefined}
+              style={clickable ? { cursor: 'pointer' } : undefined}>
+              <div className="rd-kpi-ico"><Ico d={k.icon} size={20} stroke="var(--navy)" /></div>
+              <div className="rd-kpi-v" style={{ color: k.color || 'var(--ink)' }}>{k.v}</div>
+              <div className="rd-kpi-l">{k.l}{clickable ? ' ›' : ''}</div>
+            </div>
+          );
+        })}
       </div>
       <div className="rd-panels" style={{ ['--pg' as any]: scr.panelGrid || '1fr' }}>
         {(scr.panels || []).map((p: any, i: number) => (
@@ -538,10 +544,10 @@ function TabsScreen({ scr, tab, onTab }: { scr: any; tab: string; onTab: (id: st
   );
 }
 
-function Screen({ scr }: { scr: any }) {
+function Screen({ scr, onNav }: { scr: any; onNav?: (id: string) => void }) {
   if (!scr) return <div className="rd-card rd-card-pad" style={{ color: 'var(--ink-weak)' }}>Tela em preparação.</div>;
   switch (scr.type) {
-    case 'dash': return <DashScreen scr={scr} />;
+    case 'dash': return <DashScreen scr={scr} onNav={onNav} />;
     case 'table': return <TableScreen scr={scr} />;
     case 'cards': return <CardsScreen scr={scr} />;
     case 'list': return <ListScreen scr={scr} />;
@@ -727,7 +733,7 @@ export default function ModuleView({ slug }: { slug: string }) {
             : (isReal || scr?.type === 'chat')
               ? (scr?.type === 'tabs'
                   ? <TabsScreen scr={scr} tab={activeTab} onTab={(id) => go(active, id)} />
-                  : <Screen scr={scr} />)
+                  : <Screen scr={scr} onNav={go} />)
               : <EmptyReal />}
         </main>
       </div>

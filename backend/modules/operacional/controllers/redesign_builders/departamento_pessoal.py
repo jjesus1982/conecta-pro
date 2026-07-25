@@ -877,6 +877,19 @@ async def build(db) -> dict:
         if out.get("documentos") and not out["documentos"].get("ctaTo"):
             out["documentos"]["cta"] = "Enviar documento"
             out["documentos"]["ctaTo"] = "nova-documento"
+
+        # ── Task 5: visao drilldown — KPIs viram clicáveis → tela de detalhe (frontend DashScreen
+        # navega com k.to). Aditivo: KPI sem 'to' continua não-clicável.
+        _kpi_to = {"colaboradores ativos": "funcionarios", "folha líquida": "folha",
+                   "solicitações de férias": "ferias", "admissões em processo": "admissao"}
+        _v = out.get("visao")
+        if _v and isinstance(_v.get("kpis"), list):
+            for _k in _v["kpis"]:
+                _lbl = (_k.get("l") or "").lower()
+                for _pref, _dest in _kpi_to.items():
+                    if _lbl.startswith(_pref) and out.get(_dest):
+                        _k["to"] = _dest
+                        break
     except Exception:
         try:
             await db.rollback()
