@@ -21,6 +21,8 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 # Variáveis de ambiente para build
 ENV NEXT_TELEMETRY_DISABLED=1
+# Heap de 8GB para o next build (evita OOM do node no build — valor documentado)
+ENV NODE_OPTIONS=--max-old-space-size=8192
 
 # Build da aplicação
 RUN npm run build
