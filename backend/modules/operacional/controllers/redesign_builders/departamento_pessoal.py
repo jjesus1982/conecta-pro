@@ -685,4 +685,58 @@ async def build(db) -> dict:
         if out.get(_k) and (out[_k].get("cta") or "").lower().startswith("nova admiss"):
             out[_k]["ctaTo"] = "nova-admissao"
 
+    # ── Task 4: religar os CTAs mortos restantes ─────────────────────────────
+    # reembolsos: CTA "Solicitar reembolso" → form registrar-reembolso (JÁ existe no menu).
+    if out.get("reembolsos") and not out["reembolsos"].get("ctaTo") and out.get("registrar-reembolso"):
+        out["reembolsos"]["ctaTo"] = "registrar-reembolso"
+
+    # rescisao: CTA "Nova rescisão" → novo form nova-rescisao (POST /hr/terminations, dado real).
+    # employee_id = select de colaboradores ATIVOS (sem base de homologação). Verbas/TRCT/aviso
+    # seguem no fluxo seguinte (docs por-linha já existem na tela de rescisão).
+    try:
+        from sqlalchemy import text as _sqltext
+        _emp = (await db.execute(_sqltext(
+            "SELECT id, nome FROM employees WHERE status='ativo' "
+            "AND coalesce(is_homologacao,false)=false ORDER BY nome LIMIT 300"))).fetchall()
+        _eopts = [{"value": str(r[0]), "label": r[1] or "—"} for r in _emp]
+        out["nova-rescisao"] = {
+            "title": "Nova rescisão", "type": "form",
+            "sub": "Abrir processo de rescisão — verbas, TRCT e aviso prévio seguem no fluxo",
+            "cta": "Abrir rescisão",
+            "submit": {"endpoint": "/api/v1/people-management/hr/terminations",
+                       "okMsg": "Processo de rescisão aberto",
+                       "confirm": "Isto abre um processo FORMAL de rescisão para o colaborador selecionado"},
+            "fields": [
+                {"key": "employee_id", "label": "Colaborador*", "type": "select", "span": "span 2",
+                 "ph": "Selecione o colaborador" if _eopts else "Nenhum colaborador ativo",
+                 "options": _eopts},
+                {"key": "type", "label": "Tipo de rescisão*", "type": "select", "span": "span 1",
+                 "ph": "Selecione", "options": [
+                     {"value": "involuntary", "label": "Dispensa sem justa causa"},
+                     {"value": "voluntary", "label": "Pedido de demissão"},
+                     {"value": "just_cause", "label": "Dispensa por justa causa"},
+                     {"value": "mutual_agreement", "label": "Acordo mútuo (comum acordo)"},
+                     {"value": "contract_end", "label": "Fim de contrato"},
+                     {"value": "retirement", "label": "Aposentadoria"},
+                 ]},
+                {"key": "notice_type", "label": "Aviso prévio", "type": "select", "span": "span 1",
+                 "ph": "—", "options": [
+                     {"value": "trabalhado", "label": "Trabalhado"},
+                     {"value": "indenizado", "label": "Indenizado"},
+                 ]},
+                {"key": "notice_period_days", "label": "Dias de aviso", "type": "text", "span": "span 1", "ph": "Ex.: 30"},
+                {"key": "notice_start_date", "label": "Início do aviso", "type": "date", "span": "span 1"},
+                {"key": "last_working_day", "label": "Último dia trabalhado", "type": "date", "span": "span 1"},
+                {"key": "reason", "label": "Motivo", "type": "text", "span": "span 1", "ph": "Opcional"},
+                {"key": "notes", "label": "Observações", "type": "textarea", "span": "span 2", "ph": "Opcional"},
+            ],
+        }
+        if out.get("rescisao") and not out["rescisao"].get("ctaTo"):
+            out["rescisao"]["ctaTo"] = "nova-rescisao"
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
     return out
