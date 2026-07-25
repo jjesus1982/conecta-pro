@@ -130,6 +130,104 @@ async def build_contabil(db, out: dict) -> None:
     except Exception:  # noqa: BLE001
         pass
 
+    # ── Índices de liquidez & endividamento (do razão REAL) — leitura, isolado da folha.
+    # Ativo Circulante = saldo das contas 1.1.*; Passivo Circulante = 2.1.*. Só índices que o
+    # dado real sustenta (corrente, geral, composição, imobilização); nada fabricado. ──────────
+    try:
+        _liq = (await db.execute(text(
+            "WITH mov AS ("
+            " SELECT conta_debito AS conta, valor AS deb, 0::numeric AS cred FROM accounting_entries"
+            " UNION ALL SELECT conta_credito, 0, valor FROM accounting_entries) "
+            "SELECT "
+            " sum(deb-cred) FILTER (WHERE conta LIKE '1.1%'), "     # Ativo Circulante
+            " sum(deb-cred) FILTER (WHERE conta LIKE '1%'), "       # Ativo Total
+            " sum(cred-deb) FILTER (WHERE conta LIKE '2.1%'), "     # Passivo Circulante
+            " sum(cred-deb) FILTER (WHERE conta LIKE '2%') "        # Passivo Total (exigível)
+            "FROM mov WHERE conta IS NOT NULL"))).fetchone()
+        ac = float(_liq[0] or 0); at = float(_liq[1] or 0)
+        pc = float(_liq[2] or 0); pt = float(_liq[3] or 0)
+        anc = at - ac  # ativo não circulante (imobilizado etc.)
+        pl = at - pt   # patrimônio líquido (resultado acumulado)
+        liq_corr = round(ac / pc, 2) if pc > 0 else None
+        endiv = round(pt / at, 2) if at > 0 else None
+        comp = round(pc / pt, 2) if pt > 0 else None
+        imob = round(anc / pl, 2) if pl > 0 else None
+        _rating = ("Sólida" if (liq_corr or 0) >= 1.5 else "Adequada" if (liq_corr or 0) >= 1.0 else "Apertada")
+        out["indices-liquidez"] = {
+            "title": "Liquidez & endividamento", "type": "dash", "cta": "—",
+            "sub": (f"Índices do razão real (accounting_entries) · AC {brl(ac)} / PC {brl(pc)}. "
+                    f"Posição {_rating.lower()}. Não inclui provisões de folha ainda não postadas."),
+            "panelGrid": "1fr 1fr",
+            "kpis": [
+                {"v": (f"{liq_corr:.2f}" if liq_corr is not None else "—"), "l": "Liquidez corrente (AC/PC)",
+                 "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+                 "color": "#16A34A" if (liq_corr or 0) >= 1 else "#C2410C"},
+                {"v": (f"{endiv*100:.0f}%" if endiv is not None else "—"), "l": "Endividamento geral (P/A)",
+                 "icon": "M2 6h20M2 18h20M6 6v12M18 6v12", "color": "#C2410C" if (endiv or 0) > 0.6 else "#0F1B3A"},
+                {"v": (f"{comp*100:.0f}%" if comp is not None else "—"), "l": "Composição (curto prazo / total)",
+                 "icon": "M12 8v4l3 3M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20", "color": "#0F1B3A"},
+                {"v": (f"{imob:.2f}" if imob is not None else "—"), "l": "Imobilização do PL (ANC/PL)",
+                 "icon": "M3 21h18M4 10h16M5 10 12 4l7 6M6 10v11M18 10v11", "color": "#0F1B3A"},
+            ],
+            "panels": [
+                {"title": "Estrutura patrimonial", "rows": [
+                    {"left": "Ativo Circulante", "right": brl(ac), **S["ok"]},
+                    {"left": "Ativo Não Circulante", "right": brl(anc), **S["info"]},
+                    {"left": "Passivo Circulante", "right": brl(pc), **S["warn"]},
+                    {"left": "Passivo Não Circulante", "right": brl(pt - pc), **S["warn"]},
+                    {"left": "Patrimônio Líquido", "right": brl(pl), **(S["ok"] if pl >= 0 else S["bad"])},
+                ]},
+                {"title": "Leitura dos índices", "rows": [
+                    {"left": "Liquidez corrente", "right": (f"{liq_corr:.2f} — paga o curto prazo {liq_corr:.1f}x" if liq_corr else "—"),
+                     **(S["ok"] if (liq_corr or 0) >= 1 else S["bad"])},
+                    {"left": "Endividamento geral", "right": (f"{endiv*100:.0f}% do ativo é de terceiros" if endiv is not None else "—"),
+                     **(S["warn"] if (endiv or 0) > 0.6 else S["ok"])},
+                    {"left": "Composição da dívida", "right": (f"{comp*100:.0f}% vence no curto prazo" if comp is not None else "—"), **S["info"]},
+                    {"left": "Base", "right": "Razão real; provisões de folha (T2) entram depois", **S["mut"]},
+                ]},
+            ],
+        }
+    except Exception:  # noqa: BLE001
+        pass
+
+    # ── DRE por regime de CAIXA (dos fluxos bancários REAIS) — distinta da DRE por competência.
+    # Recebido = credit+pix_recebido+boleto_recebido; Pago = debit+ted+pix_enviado+saque+boleto_pago.
+    # Agrupa despesas por category. É dinheiro que ENTROU/SAIU, não competência. Isolado. ────────
+    try:
+        _cred = ("'credit','credito','pix_recebido','boleto_recebido'")
+        _receb = float((await db.execute(text(
+            f"SELECT coalesce(sum(amount),0) FROM bank_transactions WHERE transaction_type IN ({_cred})"))).scalar() or 0)
+        _desp_rows = (await db.execute(text(
+            f"SELECT coalesce(nullif(category,''),'Sem categoria'), coalesce(sum(abs(amount)),0), count(*) "
+            f"FROM bank_transactions WHERE transaction_type NOT IN ({_cred}) AND amount < 0 "
+            f"GROUP BY 1 ORDER BY 2 DESC LIMIT 12"))).fetchall()
+        _pago = float((await db.execute(text(
+            f"SELECT coalesce(sum(abs(amount)),0) FROM bank_transactions WHERE transaction_type NOT IN ({_cred}) AND amount < 0"))).scalar() or 0)
+        _result = _receb - _pago
+        _margem = round(_result / _receb * 100, 1) if _receb > 0 else None
+        out["dre-caixa"] = {
+            "title": "DRE por regime de caixa", "type": "dash", "cta": "—",
+            "sub": (f"Do que efetivamente ENTROU e SAIU na conta (bank_transactions) — regime de CAIXA, "
+                    f"diferente da DRE por competência. Recebido {brl(_receb)} − pago {brl(_pago)} = {brl(_result)}."),
+            "panelGrid": "1fr 1fr",
+            "kpis": [
+                {"v": brl(_receb), "l": "Receitas recebidas (caixa)", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", "color": "#16A34A"},
+                {"v": brl(_pago), "l": "Despesas pagas (caixa)", "icon": "M2 6h20M2 18h20M6 6v12M18 6v12", "color": "#C2410C"},
+                {"v": brl(_result), "l": "Resultado de caixa", "icon": "M3 3v18h18M18 9l-5 5-4-4-3 3", "color": "#16A34A" if _result >= 0 else "#DC2626"},
+                {"v": (f"{_margem:.1f}%" if _margem is not None else "—"), "l": "Margem de caixa", "icon": "M3 3v18h18M18 9l-5 5-4-4-3 3", "color": "#0F1B3A"},
+            ],
+            "panels": [
+                {"title": "Entradas de caixa", "rows": [
+                    {"left": "Recebimentos (PIX + boleto + crédito)", "right": brl(_receb), **S["ok"]},
+                    {"left": "= Total recebido no período", "right": brl(_receb), **S["ok"]}]},
+                {"title": "Saídas de caixa por categoria", "rows": [
+                    {"left": f"{(str(c[0]))[:36]}", "right": brl(float(c[1] or 0)), **S["bad"]}
+                    for c in _desp_rows] or [{"left": "Sem saídas", "right": "0", **S["mut"]}]},
+            ],
+        }
+    except Exception:  # noqa: BLE001
+        pass
+
     # ── Apuração de resultado (Lucro Real — IRPJ/CSLL do razão REAL) — rota órfã religada ──
     try:
         from starlette.concurrency import run_in_threadpool

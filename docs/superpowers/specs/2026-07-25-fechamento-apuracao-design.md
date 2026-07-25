@@ -29,3 +29,22 @@ Apuração exibida == `apurar()` == query no razão. Fechamento: verificar que a
 ## Escopo
 - Nesta spec: **Apuração de resultado** (tela read-only) — o item de maior valor/menor risco. Fechamento de período gated se couber; senão, próximo sub-projeto.
 - Fora: apuração de resultado→PL com provisões (PeriodClosingService completo) = sub-projeto "provisões/fechamento pleno".
+
+---
+
+## Extensão 2026-07-25 (Ondas 2/3 — itens isoláveis destravados)
+
+Contexto: T2 leva tempo na folha, mas a razão (`accounting_entries`) já está populada e
+tem schema estável (T2 *adiciona* linhas, não reestrutura) → **ler** a razão é seguro.
+Isso destrava dois itens da auditoria (`🔴 AUSENTE`) que dependiam só de leitura:
+
+1. **Índices de liquidez & endividamento** — do razão real, ao lado do Balanço.
+   - Ativo Circulante = saldo das contas `1.1.*`; Passivo Circulante = `2.1.*`.
+   - Liquidez corrente = AC/PC; Endividamento geral = Passivo/Ativo; Composição = PC/Passivo.
+   - Só índices computáveis do dado real; nada de "seca" se estoque não for isolável no plano.
+2. **DRE por regime de CAIXA** — dos fluxos bancários (`bank_transactions`), distinto da
+   DRE por competência (get_dre). Receitas recebidas (credit+pix_recebido+boleto_recebido)
+   − despesas pagas (debit+ted+pix_enviado+saque+boleto_pago), agrupado por `category`.
+   Deixa explícito que é caixa (dinheiro que entrou/saiu), não competência.
+
+Ambos read-only, isolados da folha, verificados por import fresco (oráculo), commit sem bake.
