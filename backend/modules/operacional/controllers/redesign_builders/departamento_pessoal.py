@@ -340,22 +340,28 @@ async def build(db) -> dict:
 
     # 0b) Folha — SOBRESCREVE a base p/ trazer o BREAKDOWN do clássico (INSS/FGTS/Descontos),
     #     que o redesign perdeu (só mostrava base+líquido). Mesmas colunas do clássico.
+    # Folha: TODAS as competências (ordenadas desc) + seletor de competência (filterCol=0).
+    # r[12]=competência 'MM/YYYY'; a coluna 0 vira o filtro; per-linha Holerite/Recibo p/ qualquer mês.
     await safe("folha", tbl(
-        "Folha de pagamento", "Última competência — proventos, encargos e descontos", "—",
-        ["Colaborador", "Cargo", "Salário base", "INSS", "FGTS 8%", "Descontos", "Líquido", "Status"],
-        "1.8fr 1.3fr 1fr 0.9fr 0.9fr 1fr 1fr 0.9fr",
+        "Folha de pagamento", "Proventos, encargos e descontos — selecione a competência", "—",
+        ["Competência", "Colaborador", "Cargo", "Salário base", "INSS", "FGTS 8%", "Descontos", "Líquido", "Status"],
+        "0.9fr 1.8fr 1.2fr 1fr 0.9fr 0.9fr 1fr 1fr 0.9fr",
         "SELECT e.nome, coalesce(e.cargo,'—'), p.base_salary, p.inss_value, p.fgts_value, "
         "p.total_deductions, p.net_salary, p.status::text, "
-        "CAST(p.id AS TEXT), CAST(p.employee_id AS TEXT), p.reference_month, p.reference_year "
+        "CAST(p.id AS TEXT), CAST(p.employee_id AS TEXT), p.reference_month, p.reference_year, "
+        "to_char(make_date(p.reference_year, p.reference_month, 1),'MM/YYYY') "
         "FROM hr_payslips p LEFT JOIN employees e ON e.id=p.employee_id "
-        "WHERE (p.reference_year,p.reference_month)=(SELECT reference_year,reference_month FROM hr_payslips "
-        "ORDER BY reference_year DESC, reference_month DESC LIMIT 1) ORDER BY e.nome LIMIT 300",
-        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]), t(brl(r[2])),
+        "ORDER BY p.reference_year DESC, p.reference_month DESC, e.nome LIMIT 500",
+        lambda r: [t(r[12], 600, _ND), t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]), t(brl(r[2])),
                    t(brl(r[3])), t(brl(r[4])), t(brl(r[5])), t(brl(r[6]), 600), _folha_status(r[7])],
         docsfn=lambda r: [
             doc("Holerite", f"/api/v1/people-management/dp/payslips/{r[8]}/pdf", fmt="pdf", gate="financeiro"),
             doc("Recibo VT/VR", f"/api/v1/people-management/folha/recibo-vt-vr/{r[9]}/{r[10]}/{r[11]}/pdf", fmt="pdf", gate="financeiro"),
         ]))
+    # marca o seletor de competência (coluna 0) — o ModuleView renderiza o dropdown e filtra client-side
+    if out.get("folha"):
+        out["folha"]["filterCol"] = 0
+        out["folha"]["filterLabel"] = "Competência"
     # Folha — docs de TELA (consolidada do mês + export Domínio), na última competência real
     try:
         from sqlalchemy import text as _sqltext

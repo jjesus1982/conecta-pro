@@ -72,14 +72,36 @@ function DashScreen({ scr }: { scr: any }) {
 // TableScreen — tabela + (opcional) painéis de contexto abaixo (tela COMPOSTA, p/ fidelidade
 // de telas do clássico que têm tabela + seções: ex. riscos trabalhista + tributário).
 function TableScreen({ scr }: { scr: any }) {
-  const rows = scr.rows || [];
+  const allRows = scr.rows || [];
+  // Seletor opcional por coluna (ex.: Competência na Folha): scr.filterCol = índice da coluna.
+  // Dropdown filtra as linhas client-side; default = 1º valor (as linhas já vêm ordenadas desc).
+  // Retrocompatível: telas sem filterCol não mudam.
+  const filterCol: number | null = typeof scr.filterCol === 'number' ? scr.filterCol : null;
+  const filterVals: string[] = filterCol != null
+    ? Array.from(new Set(allRows.map((r: any) => r.cells?.[filterCol]?.v).filter((v: any) => v != null && v !== '')).values()).map(String)
+    : [];
+  const [sel, setSel] = useState<string>('');
+  const active = filterCol != null ? (sel || filterVals[0] || '') : '';
+  const rows = (filterCol != null && active)
+    ? allRows.filter((r: any) => String(r.cells?.[filterCol]?.v) === active)
+    : allRows;
   // Documentos por-LINHA (holerite por colaborador, DANFSe por nota…): se alguma linha declara
   // docs, anexa uma coluna "Documento" ao grid — retrocompatível (telas sem row.docs não mudam).
-  const hasRowDocs = rows.some((r: any) => Array.isArray(r.docs) && r.docs.length > 0);
+  const hasRowDocs = allRows.some((r: any) => Array.isArray(r.docs) && r.docs.length > 0);
   const grid = hasRowDocs ? `${scr.grid} minmax(150px, auto)` : scr.grid;
   const cols = hasRowDocs ? [...(scr.cols || []), 'Documento'] : (scr.cols || []);
   return (
     <div className="rd-tbl-wrap">
+      {filterCol != null && filterVals.length > 0 && (
+        <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <label style={{ fontSize: 12.5, color: 'var(--placeholder)', fontWeight: 600 }}>{scr.filterLabel || 'Filtrar'}:</label>
+          <select value={active} onChange={(e) => setSel(e.target.value)}
+            style={{ padding: '6px 12px', borderRadius: 8, fontSize: 13, border: '1px solid var(--border, #d8dee9)', background: 'var(--card, #fff)', color: 'var(--ink, #16277D)', fontWeight: 600, cursor: 'pointer' }}>
+            {filterVals.map((v: string, i: number) => <option key={i} value={v}>{v}</option>)}
+          </select>
+          <span style={{ fontSize: 12, color: 'var(--placeholder)' }}>{rows.length} folha(s)</span>
+        </div>
+      )}
       <div className="rd-tbl-scroll">
         <div className="rd-tbl-inner">
           <div className="rd-tbl-head" style={{ gridTemplateColumns: grid }}>
