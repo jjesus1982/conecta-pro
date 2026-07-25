@@ -288,7 +288,16 @@ class LedgerAutoService:
 
                 resultado = {}
                 booked: dict[str, set] = {}  # mes -> set de chaves de funcionário bookados
-                meses_alvo = ("2026-01", "2026-02", "2026-04", "2026-05", "2026-06")
+                # SÓ reconstrói meses SEM folha real em hr_payslips. A reconstrução é um fallback
+                # FORENSE para quando a folha real está ausente; quando ela chega (ex.: espelho
+                # Portte jan-jun), a real é a verdade e a reconstruída DEVE sumir — senão o razão
+                # fica com folha_reconstruida + folha (refs diferentes, não deduplicam) = DOBRO.
+                cur.execute("SELECT DISTINCT reference_period FROM hr_payslips WHERE COALESCE(total_earnings,0) > 0")
+                _reais = {r[0] for r in cur.fetchall()}
+                meses_alvo = tuple(m for m in ("2026-01", "2026-02", "2026-04", "2026-05", "2026-06") if m not in _reais)
+                if not meses_alvo:
+                    return {"ok": True, "meses": {},
+                            "metodo": "sem reconstrução — folha real (hr_payslips) presente em todos os meses."}
                 # março é a âncora (real em hr_payslips); reconstrói os demais meses por PIX real.
                 for mes in meses_alvo:
                     cur.execute(
