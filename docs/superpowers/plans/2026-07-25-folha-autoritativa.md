@@ -16,6 +16,21 @@
 
 ---
 
+> **ACHADO DE EXECUÇÃO 2026-07-25 (A1, oráculo real):** **0 payslips Portte têm IRRF>0** — toda
+> a folha está sob a isenção (piso portaria). Ao computar o nativo nos maiores brutos, 3/8
+> divergem (nativo cobra IRRF onde a Portte tem 0) — MAS a causa é estrutural, não fórmula: esses
+> brutos altos têm **INSS=0 na Portte** (liminar "INSS não retido" da PATRIMONIAL e/ou verbas
+> não-tributáveis), o que muda a base. **Conclusão: NÃO certificar (flag `IRRF_CERTIFICADA_2026`
+> fica False)** — certificar exige tratar o liminar por CNPJ + composição de verbas, que só a
+> conciliação (A4) mapeia. A1 fica BLOQUEADA por dependência técnica de A4, não por fórmula.
+> Reordem autônoma: **A4 (conciliação diagnóstica) vira prioridade** — ela quantifica todos os
+> gaps (IRRF, INSS-liminar, faltas) por rubrica×CNPJ e vira o roteiro data-driven de A1/A3.
+>
+> **MÉTODO (corrigido):** container backend tem limite de **6GB**; importar a cadeia da folha num
+> 2º processo via `docker exec python` estoura o cgroup e mata o container. Verificar SEMPRE pela
+> **rota da API** (curl no app já carregado) ou query SQL mínima — NUNCA importar a cadeia pesada
+> (folha/main_production) em processo novo. [[feedback_verificar_rota_da_tela]]
+
 ### Task A1: Certificar IRRF 2026 (validar redutor vs Portte → virar a flag)
 
 **Files:**
