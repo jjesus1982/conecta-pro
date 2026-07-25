@@ -448,14 +448,19 @@ class PayrollService:
         try:
             result = await self.db.execute(
                 text(
+                    # colunas REAIS de solides_absences (staging Sólides): colaborador_id,
+                    # minutos_atraso, data_inicio, justificado. A query antiga usava nomes
+                    # inexistentes (employee_id/minutos/data/justificada) → erro que envenenava
+                    # a transação do cálculo de folha (batch caía em cascata). Tabela vazia:
+                    # segue contribuindo 0, só deixa de quebrar.
                     "SELECT "
                     "  COALESCE(SUM(CASE WHEN tipo = 'falta' THEN 1 ELSE 0 END), 0), "
-                    "  COALESCE(SUM(CASE WHEN tipo = 'atraso' THEN minutos ELSE 0 END), 0) "
+                    "  COALESCE(SUM(CASE WHEN tipo = 'atraso' THEN minutos_atraso ELSE 0 END), 0) "
                     "FROM solides_absences "
-                    "WHERE employee_id = :eid "
-                    "  AND EXTRACT(MONTH FROM data) = :m "
-                    "  AND EXTRACT(YEAR FROM data) = :y "
-                    "  AND justificada = false"
+                    "WHERE colaborador_id = :eid "
+                    "  AND EXTRACT(MONTH FROM data_inicio) = :m "
+                    "  AND EXTRACT(YEAR FROM data_inicio) = :y "
+                    "  AND justificado = false"
                 ),
                 {"eid": str(employee_id), "m": month, "y": year},
             )

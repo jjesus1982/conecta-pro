@@ -183,7 +183,14 @@ async def gerar_contracheques_batch(
             calc = await payroll_svc.calculate_employee_payroll(str(emp.id), month, year)
             folha_data.append(calc)
         except Exception as exc:
+            # defense-in-depth: se um cálculo falhar, faz rollback para não envenenar a transação
+            # dos próximos (a causa-raiz do cascata — query solides_absences — foi corrigida no
+            # payroll_service; isto evita regressão futura se outra query opcional falhar).
             logger.warning("Erro ao calcular folha do funcionário %s: %s", emp.id, exc)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
 
     pdfs = PayrollExportService.gerar_contracheques_batch(folha_data)
 
