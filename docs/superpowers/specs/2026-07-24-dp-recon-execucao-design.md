@@ -3,6 +3,14 @@
 Origem: `auditoria/backend_recon/dp_2026-07-24.md` (skill `conecta-backend-recon`).
 Acordo com Jordan: seguir superpowers em loop até tudo implementado; forma/ordem delegadas; regras inegociáveis sempre valem. [[feedback_loop_outcome_delegado]]
 
+## Norte verdadeiro: matar o clássico (reframe 2026-07-24)
+Objetivo do Jordan: quando o redesign estiver 100%, desligar o clássico. TODO wiring vai para o redesign
+(`redesign_builders/` + ModuleView), nunca para o clássico. O oráculo do progresso é
+`backend_recon.py <mod> --surface redesign` (não `--surface all`). Medido no DP: o redesign cobre 375/698;
+**322 órfãs** (159 ações + 163 leituras) + **~13 documentos** de responsabilidade do redesign faltando.
+Detalhe: `auditoria/backend_recon/dp_redesign_gap_2026-07-24.md`. O finish-line do DP ≈ 150–180 capacidades
+acionáveis. Progresso = queda do nº de órfãs `--surface redesign` a cada sub-projeto.
+
 ## Escopo do programa (decomposto em sub-projetos)
 
 Fora de escopo (não são gaps — motivo):
