@@ -34,6 +34,7 @@ GRUPOS = [
         ("fiscal", "Fiscal"), ("nfse-entrada", "NFS-e entrada"),
         ("plano-contas", "Plano de contas"), ("lancamentos", "Lançamentos"),
         ("balancete", "Balancete"), ("balanco-patrimonial", "Balanço Patrimonial"),
+        ("apuracao-resultado", "Apuração IRPJ/CSLL"),
         ("contabilidade", "Extrato categorizado"), ("cancelar-boleto", "Cancelar boleto")]),
     ("g-custos", "Custos & Orçamento", "Custos, custeio, precificação e orçamento", [
         ("custos", "Custos"), ("custeio-abc", "Custeio ABC"),

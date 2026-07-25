@@ -129,3 +129,59 @@ async def build_contabil(db, out: dict) -> None:
         }
     except Exception:  # noqa: BLE001
         pass
+
+    # ── Apuração de resultado (Lucro Real — IRPJ/CSLL do razão REAL) — rota órfã religada ──
+    try:
+        from starlette.concurrency import run_in_threadpool
+
+        from modules.financial.services.apuracao_lucro_real_service import ApuracaoLucroRealService
+        _svc = ApuracaoLucroRealService()
+        ap = await run_in_threadpool(_svc.apurar, 2026, None)
+        base = ap.get("base", {}) or {}
+        apu = ap.get("apuracao", {}) or {}
+        tris = []
+        for _tri in (1, 2, 3, 4):
+            try:
+                a = await run_in_threadpool(_svc.apurar, 2026, _tri)
+                tris.append((f"{_tri}ºT", (a.get("base", {}) or {}).get("lucro_antes_ircsll", 0),
+                             (a.get("apuracao", {}) or {}).get("total_irpj_csll", 0)))
+            except Exception:  # noqa: BLE001
+                pass
+        _lucro = base.get("lucro_antes_ircsll") or 0
+        scr = {
+            "title": "Apuração de resultado (Lucro Real)", "type": "dash", "cta": "—",
+            "sub": (f"IRPJ 15% + adicional 10% · CSLL 9% sobre o lucro REAL do razão (accounting_entries) · "
+                    f"{ap.get('periodo', '—')} · carga {apu.get('carga_sobre_receita_pct', '—')}% da receita"),
+            "panelGrid": "1fr 1fr",
+            "kpis": [
+                {"v": brl(base.get("receita_liquida")), "l": "Receita líquida", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", "color": "#16A34A"},
+                {"v": brl(_lucro), "l": "Lucro antes IR/CSLL", "icon": "M3 3v18h18M18 9l-5 5-4-4-3 3", "color": "#0F1B3A"},
+                {"v": brl(apu.get("total_irpj_csll")), "l": "IRPJ + CSLL", "icon": "M2 6h20M2 18h20M6 6v12M18 6v12", "color": "#C2410C"},
+                {"v": f"{apu.get('carga_sobre_receita_pct', '—')}%", "l": "Carga sobre receita", "icon": "M3 3v18h18M18 9l-5 5-4-4-3 3", "color": "#0F1B3A"},
+            ],
+            "panels": [
+                {"title": "Base de cálculo (do razão)", "rows": [
+                    {"left": "Receita bruta", "right": brl(base.get("receita_bruta")), **S["info"]},
+                    {"left": "(−) Deduções ISS", "right": brl(base.get("deducoes_iss")), **S["mut"]},
+                    {"left": "(−) Despesa pessoal", "right": brl(base.get("despesa_pessoal")), **S["mut"]},
+                    {"left": "(−) Encargos", "right": brl(base.get("despesa_encargos")), **S["mut"]},
+                    {"left": "(−) Despesas dedutíveis (total)", "right": brl(base.get("despesas_dedutiveis_total")), **S["mut"]},
+                    {"left": "= Lucro antes IR/CSLL", "right": brl(_lucro), **(S["ok"] if _lucro >= 0 else S["bad"])},
+                ]},
+                {"title": "Apuração IRPJ / CSLL", "rows": [
+                    {"left": "IRPJ 15%", "right": brl(apu.get("irpj_15")), **S["info"]},
+                    {"left": "IRPJ adicional 10%", "right": brl(apu.get("irpj_adicional_10")), **S["info"]},
+                    {"left": "CSLL 9%", "right": brl(apu.get("csll_9")), **S["info"]},
+                    {"left": "= Total IRPJ + CSLL", "right": brl(apu.get("total_irpj_csll")), **S["warn"]},
+                    {"left": "Prejuízo fiscal compensável", "right": brl(ap.get("prejuizo_fiscal_compensavel")), **S["mut"]},
+                ]},
+                {"title": "Por trimestre (lucro · IRPJ+CSLL)", "rows": [
+                    {"left": f"{nm} · lucro {brl(lu)}", "right": brl(tot), **S["info"]} for nm, lu, tot in tris]
+                    or [{"left": "Sem trimestres", "right": "—", **S["mut"]}]},
+                {"title": "Ressalvas (honestas, do serviço)", "rows": [
+                    {"left": (ap.get("observacao", "") or "—")[:220], "right": "—", **S["warn"]}]},
+            ],
+        }
+        out["apuracao-resultado"] = scr
+    except Exception:  # noqa: BLE001
+        pass
