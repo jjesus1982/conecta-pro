@@ -1,0 +1,123 @@
+=== BACKEND RECON — prefixo 'fiscal' · superfície: SÓ redesign (gap p/ matar o clássico) ===
+rotas montadas: 191 · EXPOSTAS (front chama): 97 · ÓRFÃS (sem front): 94
+GERADORES DE DOCUMENTO órfãos (codado, sem botão no front): 3
+
+### 🔴 GERADORES ÓRFÃOS (documento codado mas SEM superfície no front) — prioridade
+  GET      /api/v1/financial/fiscal/fiscal/nfse/{nfse_id}/danfse 🏛️  [key=danfse]
+  GET      /api/v1/financial/fiscal/nfse/{nfse_id}/danfse 🏛️  [key=danfse]
+  POST     /api/v1/fiscal/nfe-entrada/upload-xml 🏛️  [key=upload-xml]
+
+### ⚪ OUTRAS ÓRFÃS (endpoint montado, sem chamada no front)
+  POST     /api/v1/financial/fiscal/calcular/comparativo-regimes
+  POST     /api/v1/financial/fiscal/calcular/lucro-real
+  POST     /api/v1/financial/fiscal/calcular/retencoes-nfse
+  POST     /api/v1/financial/fiscal/calcular/verificar-limite-simples
+  POST     /api/v1/financial/fiscal/cfop
+  GET      /api/v1/financial/fiscal/cfop
+  GET      /api/v1/financial/fiscal/cfop/vigilancia-zfm
+  GET      /api/v1/financial/fiscal/cfop/{cfop_id}
+  PATCH    /api/v1/financial/fiscal/cfop/{cfop_id}
+  POST     /api/v1/financial/fiscal/das
+  GET      /api/v1/financial/fiscal/das
+  GET      /api/v1/financial/fiscal/das/receita-12-meses
+  POST     /api/v1/financial/fiscal/fiscal/calcular/comparativo-regimes
+  POST     /api/v1/financial/fiscal/fiscal/calcular/lucro-real
+  POST     /api/v1/financial/fiscal/fiscal/calcular/retencoes-nfse
+  POST     /api/v1/financial/fiscal/fiscal/calcular/verificar-limite-simples
+  POST     /api/v1/financial/fiscal/fiscal/cfop
+  GET      /api/v1/financial/fiscal/fiscal/cfop
+  GET      /api/v1/financial/fiscal/fiscal/cfop/vigilancia-zfm
+  GET      /api/v1/financial/fiscal/fiscal/cfop/{cfop_id}
+  PATCH    /api/v1/financial/fiscal/fiscal/cfop/{cfop_id}
+  POST     /api/v1/financial/fiscal/fiscal/das
+  GET      /api/v1/financial/fiscal/fiscal/das
+  GET      /api/v1/financial/fiscal/fiscal/das/receita-12-meses
+  POST     /api/v1/financial/fiscal/fiscal/ncm
+  GET      /api/v1/financial/fiscal/fiscal/ncm
+  GET      /api/v1/financial/fiscal/fiscal/ncm/{ncm_id}
+  PATCH    /api/v1/financial/fiscal/fiscal/ncm/{ncm_id}
+  POST     /api/v1/financial/fiscal/fiscal/nfe
+  GET      /api/v1/financial/fiscal/fiscal/nfe
+  POST     /api/v1/financial/fiscal/fiscal/nfe/inutilizar
+  GET      /api/v1/financial/fiscal/fiscal/nfe/{nfe_id}
+  PATCH    /api/v1/financial/fiscal/fiscal/nfe/{nfe_id}
+  POST     /api/v1/financial/fiscal/fiscal/obrigacao
+  GET      /api/v1/financial/fiscal/fiscal/obrigacao
+  GET      /api/v1/financial/fiscal/fiscal/obrigacao/{obrigacao_id}
+  PATCH    /api/v1/financial/fiscal/fiscal/obrigacao/{obrigacao_id}
+  POST     /api/v1/financial/fiscal/fiscal/sped/{sped_id}/validar
+  GET      /api/v1/financial/fiscal/fiscal/suframa/economia
+  GET      /api/v1/financial/fiscal/fiscal/suframa/operacoes
+  POST     /api/v1/financial/fiscal/ncm
+  GET      /api/v1/financial/fiscal/ncm
+  GET      /api/v1/financial/fiscal/ncm/{ncm_id}
+  PATCH    /api/v1/financial/fiscal/ncm/{ncm_id}
+  POST     /api/v1/financial/fiscal/nfe
+  GET      /api/v1/financial/fiscal/nfe
+  POST     /api/v1/financial/fiscal/nfe/inutilizar
+  GET      /api/v1/financial/fiscal/nfe/{nfe_id}
+  PATCH    /api/v1/financial/fiscal/nfe/{nfe_id}
+  POST     /api/v1/financial/fiscal/obrigacao
+  GET      /api/v1/financial/fiscal/obrigacao
+  GET      /api/v1/financial/fiscal/obrigacao/{obrigacao_id}
+  PATCH    /api/v1/financial/fiscal/obrigacao/{obrigacao_id}
+  POST     /api/v1/financial/fiscal/sped/{sped_id}/validar
+  GET      /api/v1/financial/fiscal/stats-real
+  GET      /api/v1/financial/fiscal/suframa/economia
+  GET      /api/v1/financial/fiscal/suframa/operacoes
+  GET      /api/v1/financial/nfse-entrada/resumo-fiscal
+  POST     /api/v1/financial/pagamentos-pj/item/{item_id}/nota-fiscal
+  GET      /api/v1/financial/relatorios/painel-fiscal
+  GET      /api/v1/fiscal-dashboard/{mes}/{ano}
+  GET      /api/v1/fiscal/consultor/panorama
+  POST     /api/v1/fiscal/consultor/perguntar
+  POST     /api/v1/fiscal/consultor/perguntar-arquivo
+  POST     /api/v1/fiscal/guias-drive/{obligacao_id}/preparar-pagamento
+  GET      /api/v1/fiscal/nfe-entrada/listar
+  POST     /api/v1/fiscal/nfe-entrada/sync-sefaz
+  GET      /api/v1/fiscal/nfe/listar
+  GET      /api/v1/fiscal/nfe/sefaz-status
+  POST     /api/v1/fiscal/nfse-multi/calcular-tributos
+  GET      /api/v1/fiscal/nfse-multi/identificar-empresa/{tipo_servico}
+  GET      /api/v1/government/ecac/situacao-fiscal
+  GET      /api/v1/government/ecac/situacao-fiscal
+  GET      /api/v1/government/sped-fiscal/blocos
+  GET      /api/v1/government/sped-fiscal/blocos
+  POST     /api/v1/government/sped-fiscal/inventario
+  POST     /api/v1/government/sped-fiscal/inventario
+  DELETE   /api/v1/government/sped-fiscal/limpar
+  DELETE   /api/v1/government/sped-fiscal/limpar
+  POST     /api/v1/government/sped-fiscal/participante
+  POST     /api/v1/government/sped-fiscal/participante
+  GET      /api/v1/government/sped-fiscal/participantes
+  GET      /api/v1/government/sped-fiscal/participantes
+  POST     /api/v1/government/sped-fiscal/produto
+  POST     /api/v1/government/sped-fiscal/produto
+  GET      /api/v1/government/sped-fiscal/produtos
+  GET      /api/v1/government/sped-fiscal/produtos
+  POST     /api/v1/operacional/diaristas/fiscal/calcular-retencoes
+  GET      /api/v1/operacional/diaristas/fiscal/codigos-servico
+  GET      /api/v1/operacional/diaristas/fiscal/relatorio/retencoes
+  POST     /api/v1/operacional/diaristas/fiscal/rpa
+
+### ✅ EXPOSTAS (97) — endpoint com chamada no front (amostra 20)
+  GET      /api/v1/empresas/dashboard/fiscal/grupo  → backend/modules/operacional/controllers/redesign_builders/empresas.py
+  POST     /api/v1/financial/fiscal/calcular/simples  → backend/modules/operacional/controllers/redesign_builders/juridico.py
+  GET      /api/v1/financial/fiscal/cfop/codigo/{codigo}  → backend/modules/operacional/controllers/redesign_builders/_fin_pagar.py
+  POST     /api/v1/financial/fiscal/das/calcular  → backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/financial/fiscal/das/competencia  → backend/modules/operacional/controllers/redesign_builders/empresas.py
+  GET      /api/v1/financial/fiscal/das/faixas  → backend/modules/operacional/controllers/redesign_builders/_fin_pagar.py
+  GET      /api/v1/financial/fiscal/dashboard  → backend/modules/operacional/controllers/redesign_builders/portal_do_funcionario.py
+  POST     /api/v1/financial/fiscal/fiscal/calcular/simples  → backend/modules/operacional/controllers/redesign_builders/juridico.py
+  GET      /api/v1/financial/fiscal/fiscal/cfop/codigo/{codigo}  → backend/modules/operacional/controllers/redesign_builders/_fin_pagar.py
+  POST     /api/v1/financial/fiscal/fiscal/das/calcular  → backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/financial/fiscal/fiscal/das/competencia  → backend/modules/operacional/controllers/redesign_builders/empresas.py
+  GET      /api/v1/financial/fiscal/fiscal/das/faixas  → backend/modules/operacional/controllers/redesign_builders/_fin_pagar.py
+  GET      /api/v1/financial/fiscal/fiscal/dashboard  → backend/modules/operacional/controllers/redesign_builders/portal_do_funcionario.py
+  GET      /api/v1/financial/fiscal/fiscal/ncm/codigo/{codigo}  → backend/modules/operacional/controllers/redesign_builders/_fin_pagar.py
+  POST     /api/v1/financial/fiscal/fiscal/nfe/cancelar  → backend/modules/operacional/controllers/redesign_builders/_fin_grupos.py
+  GET      /api/v1/financial/fiscal/fiscal/nfe/chave/{chave_acesso}  → backend/modules/operacional/controllers/redesign_builders/_fin_pagar.py
+  POST     /api/v1/financial/fiscal/fiscal/nfe/emitir  → backend/modules/operacional/controllers/redesign_builders/_fin_grupos.py
+  POST     /api/v1/financial/fiscal/fiscal/nfse  → backend/modules/operacional/controllers/redesign_builders/empresas.py
+  GET      /api/v1/financial/fiscal/fiscal/nfse  → backend/modules/operacional/controllers/redesign_builders/empresas.py
+  POST     /api/v1/financial/fiscal/fiscal/nfse/cancelar  → backend/modules/operacional/controllers/redesign_builders/_fin_grupos.py
