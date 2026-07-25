@@ -99,6 +99,96 @@ COBRANCA_TOOL: ToolDef = register(ToolDef(
 ))
 
 
+# ───────────────────────── proposta comercial (🟡, draft) ───────────────────
+
+_ARGS_PROPOSTA = {
+    "type": "object",
+    "properties": {
+        "client_name": {"type": "string", "minLength": 2, "description": "Nome do cliente (obrigatório)."},
+        "title": {"type": "string", "minLength": 2, "description": "Título da proposta."},
+        "valor_total": {"type": "number", "minimum": 0, "description": "Valor total (R$)."},
+        "descricao": {"type": "string", "maxLength": 2000},
+    },
+    "required": ["client_name", "title", "valor_total"],
+}
+
+
+async def _propor_proposta(
+    db, user, scope, *, client_name: str, title: str,
+    valor_total: float, descricao: str = "", **_
+) -> dict[str, Any]:
+    client_name = (client_name or "").strip()
+    title = (title or "").strip()
+    if len(client_name) < 2 or len(title) < 2:
+        return {"erro": "client_name e title são obrigatórios"}
+    idem = f"proposta:{client_name}:{title}:{float(valor_total):.2f}"
+
+    # NOTA schema×brief: proposals.subtotal/discount_value/taxes/total são
+    # `double precision` (float8) na tabela real — NÃO numeric(15,2) como
+    # inter_cobrancas.valor (onde Decimal era o idioma exato). Aqui o idioma
+    # exato do driver p/ float8 é float nativo; Decimal quebraria o bind
+    # asyncpg (float8 espera float, não Decimal). status/proposal_type
+    # confirmados em modules/crm/models/proposal.py: ProposalStatus.DRAFT
+    # ("draft") e ProposalType.SERVICE ("service").
+    valor_total = float(valor_total)
+
+    async def _inserir(db) -> str:
+        # Idempotência NATIVA (defesa em profundidade, molde cobrança/tools_ponto):
+        # mesmo que a checagem do sino em base.propor não pegue, NUNCA duplicamos
+        # o DRAFT na tabela nativa — SELECT-existing antes do INSERT.
+        existente = (await db.execute(text(
+            "SELECT id::text FROM proposals "
+            "WHERE status = 'draft' AND client_name = :cli AND title = :ttl "
+            "  AND total = :val LIMIT 1"),
+            {"cli": client_name, "ttl": title, "val": valor_total})).scalar()
+        if existente:
+            return existente
+
+        pid = str(uuid.uuid4())
+        number = f"PROP-{pid[:8].upper()}"
+        # NOTA schema×brief: proposals.created_by_id tem FK NOT NULL-less mas
+        # ENFORCED p/ users(id) (proposals_created_by_id_fkey, ON DELETE SET
+        # NULL) — diferente de inter_cobrancas.pagador (jsonb solto, sem FK).
+        # Um :uid bindado direto quebraria (FK violation) se o propositor não
+        # existir em `users` (não deveria acontecer em produção — usuário
+        # autenticado sempre existe — mas é a defesa correta e barata: mesmo
+        # padrão do resto do arquivo, "nunca confiar cegamente no dado de
+        # entrada"). Subquery valida a existência em 1 round-trip: usuário
+        # real → grava o id; id inexistente → grava NULL (nunca falha o
+        # INSERT do draft por causa disso).
+        await db.execute(text("""
+            INSERT INTO proposals
+                (id, number, version, client_name, title, description, proposal_type,
+                 subtotal, discount_value, taxes, total, installments, issue_date,
+                 status, created_by_id, is_active, created_at, updated_at)
+            VALUES
+                (:id, :num, 1, :cli, :ttl, :desc, 'service',
+                 :val, 0, 0, :val, 1, :hoje,
+                 'draft', (SELECT id FROM users WHERE id = :uid), true, now(), now())
+        """), {"id": pid, "num": number, "cli": client_name, "ttl": title,
+               "desc": descricao or None, "val": valor_total,
+               "hoje": date.today(), "uid": str(getattr(user, "id", None))})
+        return pid
+
+    return await propor(
+        db, user=user, scope=scope, dominio="proposta", gate="🟡",
+        roles_aprovador=ROLES_COMERCIAL, idempotency_key=idem,
+        titulo="[Proposta] Enviar proposta comercial",
+        corpo=f"Proposta '{title}' para {client_name} (R$ {valor_total:.2f}) em rascunho. Aguarda sua revisão/envio.",
+        action_url="/comercial/propostas",
+        tool="propor_proposta_comercial",
+        args={"client_name": client_name, "title": title, "valor_total": valor_total},
+        entity_type="proposal", inserir=_inserir,
+    )
+
+
+PROPOSTA_TOOL: ToolDef = register(ToolDef(
+    "propor_proposta_comercial", "comercial",
+    "Criar um RASCUNHO de proposta comercial (fica draft; o envio/assinatura ao cliente é aprovado por humano).",
+    _ARGS_PROPOSTA, _propor_proposta, scope_kind="org",
+))
+
+
 if __name__ == "__main__":
     import asyncio
     import os
@@ -126,6 +216,7 @@ if __name__ == "__main__":
         async with Session() as db:
             cob_ids: list[str] = []
             aud_ids: list[str] = []
+            prop_ids: list[str] = []
             try:
                 # baseline: nenhuma cobrança RECEBIDA/executada deve mudar
                 recebidas_antes = (await db.execute(text(
@@ -225,6 +316,95 @@ if __name__ == "__main__":
 
                 print("SUBTESTE cobrança PASS (pendente criado, execução intocada, idempotente [sino+nativa], "
                       "RBAC módulo, aprovador correto)")
+
+                # ── proposta comercial ──
+                prop_sent_antes = (await db.execute(text(
+                    "SELECT count(*) FROM proposals WHERE status = 'sent'"))).scalar()
+
+                cli_p, ttl_p = "__TESTE_5.4__ Cliente", "__TESTE_5.4__ Título"
+                rp = await _propor_proposta(db, _U(), _S(),
+                    client_name=cli_p, title=ttl_p, valor_total=999.99, descricao="teste")
+                assert rp["status"] == "pendente", rp
+                pid = rp["entity_id"]
+                prop_ids.append(pid)
+
+                # (a) nasceu draft
+                st_p = (await db.execute(text(
+                    "SELECT status FROM proposals WHERE id = :i"), {"i": pid})).scalar()
+                assert st_p == "draft", f"proposta nasceu {st_p}, esperado draft"
+
+                # (b) ZERO envio/execução: nenhuma proposta 'sent' foi tocada
+                prop_sent_depois = (await db.execute(text(
+                    "SELECT count(*) FROM proposals WHERE status = 'sent'"))).scalar()
+                assert prop_sent_depois == prop_sent_antes, "proposta enviada mudou (não deveria)"
+
+                # idempotência (sino): mesma idempotency_key → duplicado, inserir não roda de novo
+                rp2 = await _propor_proposta(db, _U(), _S(),
+                    client_name=cli_p, title=ttl_p, valor_total=999.99)
+                assert rp2.get("duplicado") is True, rp2
+                # NOTA: o caminho `duplicado` de base.propor devolve entity_id cru
+                # (tipo do driver, ex. UUID) sem str() — diferente do caminho normal
+                # (que sempre faz str(entity_id)); normaliza os dois lados aqui
+                # (comportamento de base.py é escopo de outra task, já testado à parte).
+                assert str(rp2["entity_id"]) == str(pid), rp2
+
+                # (c) idempotência NATIVA (defesa em profundidade, "não confie só no sino"):
+                # desativa a notificação do sino e propõe de novo com os MESMOS
+                # client_name/title/valor_total — o precheck do sino em base.propor
+                # filtra is_active=true, então NÃO acha duplicado ali; quem tem que
+                # barrar a 2ª linha é o SELECT-existing dentro do próprio _inserir,
+                # sobre a tabela nativa proposals.
+                idem_key_p = f"proposta:{cli_p}:{ttl_p}:{999.99:.2f}"
+                await db.execute(text(
+                    "UPDATE communication_notifications SET is_active = false "
+                    "WHERE extra_data->>'idempotency_key' = :k"), {"k": idem_key_p})
+                await db.commit()
+
+                rp3 = await _propor_proposta(db, _U(), _S(),
+                    client_name=cli_p, title=ttl_p, valor_total=999.99,
+                    descricao="teste (sino desativado)")
+                if rp3.get("entity_id") and rp3["entity_id"] not in prop_ids:
+                    prop_ids.append(rp3["entity_id"])  # defesa: se a idempotência NATIVA falhar, limpa mesmo assim
+                assert rp3["status"] == "pendente", rp3
+                assert rp3["entity_id"] == pid, \
+                    f"idempotência NATIVA falhou: criou 2ª linha em proposals ({rp3['entity_id']} != {pid})"
+                n_drafts = (await db.execute(text(
+                    "SELECT count(*) FROM proposals WHERE status = 'draft' "
+                    "AND client_name = :cli AND title = :ttl"), {"cli": cli_p, "ttl": ttl_p})).scalar()
+                assert n_drafts == 1, f"idempotência NATIVA falhou: esperado 1 draft, veio {n_drafts}"
+                print("SUBTESTE proposta: idempotência NATIVA (sino desativado, tabela nativa não duplica) PASS")
+
+                # (d) RBAC: a tool só aparece no belt de quem tem o módulo 'comercial'.
+                assert PROPOSTA_TOOL.module == "comercial", PROPOSTA_TOOL.module
+                nomes_comercial_p = {t.name for t in tools_for_modules({"comercial"})}
+                nomes_financeiro_p = {t.name for t in tools_for_modules({"financeiro"})}
+                assert "propor_proposta_comercial" in nomes_comercial_p, nomes_comercial_p
+                assert "propor_proposta_comercial" not in nomes_financeiro_p, \
+                    "propor_proposta_comercial vazou p/ módulo 'financeiro' (RBAC de módulo quebrado)"
+                print("SUBTESTE proposta: RBAC de módulo (só 'comercial' vê a tool) PASS")
+
+                # (e) aprovador correto: propositor REAL (admin) excluído do conjunto
+                # de aprovadores (reusa `admins`/`_UAdmin` resolvidos no bloco de cobrança acima).
+                cli_p2, ttl_p2 = "__TESTE_5.4__ Cliente2", "__TESTE_5.4__ Título2"
+                rp4 = await _propor_proposta(db, _UAdmin(admins[0]), _S(),
+                    client_name=cli_p2, title=ttl_p2, valor_total=1234.56,
+                    descricao="teste (propositor admin real)")
+                if rp4.get("entity_id"):
+                    prop_ids.append(rp4["entity_id"])
+                if len(admins) >= 2:
+                    assert rp4["status"] == "pendente", rp4
+                    aps_p = rp4.get("aprovadores") or []
+                    assert admins[0] not in aps_p, \
+                        f"propositor admin real não pode aprovar a própria proposta: {aps_p}"
+                    assert set(aps_p) == set(admins) - {admins[0]}, (aps_p, admins)
+                    print(f"SUBTESTE proposta: aprovador correto (propositor excluído; "
+                          f"{len(admins)} admins → {len(aps_p)} aprovadores) PASS")
+                else:
+                    assert "erro" in rp4, rp4
+                    print("SUBTESTE proposta: aprovador correto (1 admin: propositor==único → fail-closed) PASS")
+
+                print("SUBTESTE proposta PASS (draft criado, sent intocado, idempotente [sino+nativa], "
+                      "RBAC módulo, aprovador correto)")
                 print("TODOS OS SUBTESTES DE onda_a.py PASSARAM")
             finally:
                 if cob_ids:
@@ -237,6 +417,12 @@ if __name__ == "__main__":
                         {"i": cob_ids})
                 await _limpar(db, "cobranca:TESTE-5.4-CLI:%")
                 await _limpar(db, "cobranca:TESTE-5.4-CLI2:%")
+                if prop_ids:
+                    await db.execute(text("DELETE FROM proposals WHERE id = ANY(:i)"), {"i": prop_ids})
+                    await db.execute(text(
+                        "DELETE FROM audit_logs WHERE details->>'entity_id' = ANY(:i)"),
+                        {"i": prop_ids})
+                await _limpar(db, "proposta:__TESTE_5.4__%")
                 await db.commit()
                 rem = (await db.execute(text(
                     "SELECT count(*) FROM inter_cobrancas WHERE pagador->>'cliente_crm_id' IN "
@@ -246,6 +432,13 @@ if __name__ == "__main__":
                     "AND details->>'entity_id' = ANY(:i)"), {"i": cob_ids})).scalar()
                 assert rem == 0, f"remanescentes cobranca={rem}"
                 assert rem_audit == 0, f"remanescentes audit_logs={rem_audit}"
+                rem_p = (await db.execute(text(
+                    "SELECT count(*) FROM proposals WHERE client_name LIKE '__TESTE_5.4__%'"))).scalar()
+                rem_audit_p = (await db.execute(text(
+                    "SELECT count(*) FROM audit_logs WHERE details->>'tool' = 'propor_proposta_comercial' "
+                    "AND details->>'entity_id' = ANY(:i)"), {"i": prop_ids})).scalar()
+                assert rem_p == 0, f"remanescentes proposals={rem_p}"
+                assert rem_audit_p == 0, f"remanescentes audit_logs proposta={rem_audit_p}"
         await eng.dispose()
 
     asyncio.run(main())
