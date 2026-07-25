@@ -236,12 +236,14 @@ async def _propor_kit(
     async def _inserir(db) -> str:
         # Idempotência NATIVA sobre o grão REAL da tabela: (client_id,
         # reference_month) — ver NOTA acima (não (client_id, tipo_kit), que não
-        # existe como chave). Um cliente só tem 1 kit por mês (qualquer status) —
-        # a rota real de montagem (kit_real_controller: SELECT id FROM
-        # ged_document_kits WHERE client_id=... AND reference_month=...; se achar,
-        # REUTILIZA o id; só insere se não achar) faz o MESMO get-or-create por
-        # essa chave — logo o pendente 'proposto' criado aqui é o MESMO id que a
-        # montagem real vai retomar (fecha o loop; não cria linha nova).
+        # existe como chave). Um cliente só tem 1 kit por mês (qualquer status).
+        # client_id aqui é ged_clients.id — o ESPAÇO da FK real
+        # (ged_document_kits.client_id -> ged_clients.id), das 59 linhas reais e da
+        # UI (GET /ged/kits). O loop fecha pelo fluxo humano real: auto_assemble
+        # (get-or-create por (client_id, reference_month) em ged_clients.id) ACHA e
+        # complementa este 'proposto', e a UI (KitDetalheModal) o exibe.
+        # (NÃO por kit_real_controller.montar_kit_guiado: é rota órfã sem chamador
+        # e resolve via clients.id — espaço que descasa; não é a ponte humana.)
         existente = (await db.execute(text(
             "SELECT id::text FROM ged_document_kits "
             "WHERE client_id = :cid AND reference_month = :rm LIMIT 1"),
