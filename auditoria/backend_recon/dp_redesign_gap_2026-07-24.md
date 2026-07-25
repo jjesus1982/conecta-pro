@@ -49,3 +49,11 @@ Investigados 1 a 1 (dado real + escopo + redundância). Resultado: **o gap de ge
 
 ## Próximo
 Geradores esgotados. O gap-redesign restante do DP é **159 ações (WRITE)** + **163 GET-only** (parte já coberta via SQL nos builders). Próxima frente: triar os GET-only para **telas de leitura faltantes** (baixo risco, padrão tabela) e depois as ações seguras (admin CCT etc.), deixando folha/dinheiro/integrações para decisão. Medir progresso pela queda das órfãs `--surface redesign`. Atualizar este relatório a cada rodada.
+
+---
+## Progresso 25/07 (pós DP-DOCS)
+Re-medição `--surface redesign`: **381 expostas · 317 órfãs · 15 geradores órfãos** (raw: `dp_redesign_gap_2026-07-25.txt`).
+Delta vs baseline 24/07 (375/322/21): órfãs −5, geradores −6 (wiring de A folha-ponto, B aviso, C contracheques + handlers/variantes).
+**Frontier de geradores acionáveis fechado**: os 15 restantes = portal (8, app do funcionário) / vazio-real / redundante — já triados, nada a wirar.
+Restam ~159 ações (maioria sensível: folha/dinheiro/integração) + leituras (parte coberta via SQL). Próximo passo exige **priorização do Jordan** (quais write-features) — não há mais gerador limpo autônomo no DP.
+Bug de raiz extra corrigido nesta rodada: `solides_absences` colunas inexistentes envenenavam o batch de contracheques (1/49 → 49/49). Ver commit.

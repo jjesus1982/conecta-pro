@@ -1,0 +1,346 @@
+=== BACKEND RECON — prefixo 'people-management' · superfície: SÓ redesign (gap p/ matar o clássico) ===
+rotas montadas: 698 · EXPOSTAS (front chama): 381 · ÓRFÃS (sem front): 317
+GERADORES DE DOCUMENTO órfãos (codado, sem botão no front): 15
+
+### 🔴 GERADORES ÓRFÃOS (documento codado mas SEM superfície no front) — prioridade
+  GET      /api/v1/people-management/hr/contracts/employee/{employee_id}/download-aviso/{filename}   [key=download-aviso]
+  GET      /api/v1/people-management/hr/payroll/employee/{employee_id}/payslip-pdf 💰  [key=payslip-pdf]
+  GET      /api/v1/people-management/hr/payroll/payroll/esocial/receipt/{export_id} 🏛️  [key=receipt]
+  POST     /api/v1/people-management/hr/payroll/payroll/exports/process-pending   [key=process-pending]
+  GET      /api/v1/people-management/hr/payroll/payroll/exports/{export_id}/download-info   [key=download-info]
+  POST     /api/v1/people-management/hr/payroll/payroll/exports/{export_id}/retry   [key=retry]
+  POST     /api/v1/people-management/hr/ponto/espelho/solicitar-homologacao/{mes}/{ano}   [key=solicitar-homologacao]
+  GET      /api/v1/people-management/hr/reimbursements/attachments/{attachment_id}/download   [key=attachments]
+  GET      /api/v1/people-management/portal/my-payslips/{month}/{year}/pdf 💰  [key=my-payslips]
+  GET      /api/v1/people-management/portal/self-service/meu-espelho/{mes}/{ano}/pdf   [key=meu-espelho]
+  GET      /api/v1/people-management/portal/self-service/meus-documentos/{document_id}/download   [key=meus-documentos]
+  GET      /api/v1/people-management/portal/self-service/meus-holerites 💰  [key=meus-holerites]
+  GET      /api/v1/people-management/portal/self-service/meus-holerites/{month}/{year} 💰  [key=meus-holerites]
+  GET      /api/v1/people-management/portal/self-service/meus-holerites/{month}/{year}/pdf 💰  [key=meus-holerites]
+  GET      /api/v1/people-management/sst/ppp/{employee_id}/pdf   [key=ppp]
+
+### ⚪ OUTRAS ÓRFÃS (endpoint montado, sem chamada no front)
+  POST     /api/v1/people-management/admin/cct/cache/invalidar
+  GET      /api/v1/people-management/admin/cct/convencao-vigente
+  GET      /api/v1/people-management/admin/cct/convencoes
+  POST     /api/v1/people-management/admin/cct/convencoes
+  PUT      /api/v1/people-management/admin/cct/convencoes/{convencao_id}
+  GET      /api/v1/people-management/admin/cct/convencoes/{convencao_id}/feriados
+  POST     /api/v1/people-management/admin/cct/convencoes/{convencao_id}/feriados
+  DELETE   /api/v1/people-management/admin/cct/feriados/{feriado_id}
+  POST     /api/v1/people-management/certifications/gerar-folha/{competencia}
+  PATCH    /api/v1/people-management/certifications/{cert_id}/certify
+  POST     /api/v1/people-management/dp/payroll/pay-batch
+  PUT      /api/v1/people-management/dp/payslips/folha/funcionario/{employee_id}/pix-key
+  POST     /api/v1/people-management/dp/payslips/folha/funcionario/{employee_id}/pix-key/gerar-otp
+  POST     /api/v1/people-management/dp/payslips/folha/pagar-via-pix/{mes}/{ano}
+  POST     /api/v1/people-management/dp/payslips/folha/pagar-via-pix/{mes}/{ano}/gerar-otp
+  GET      /api/v1/people-management/dp/payslips/folha/pagar-via-pix/{mes}/{ano}/preview
+  POST     /api/v1/people-management/dp/payslips/importar-lote
+  PATCH    /api/v1/people-management/dp/payslips/{payslip_id}/publicar
+  GET      /api/v1/people-management/folha/conferencia/{mes}/{ano}
+  POST     /api/v1/people-management/folha/importar-alterdata
+  POST     /api/v1/people-management/ged/clients/{client_id}/portal-access
+  GET      /api/v1/people-management/ged/config/document-types
+  POST     /api/v1/people-management/ged/config/drive/connect
+  DELETE   /api/v1/people-management/ged/config/drive/disconnect
+  GET      /api/v1/people-management/ged/config/email-templates
+  POST     /api/v1/people-management/ged/documents/ingestao/historica
+  GET      /api/v1/people-management/ged/documents/pending-signatures
+  POST     /api/v1/people-management/ged/kits/auto-assemble
+  GET      /api/v1/people-management/ged/kits/summary
+  POST     /api/v1/people-management/ged/kits/{kit_id}/send-email
+  GET      /api/v1/people-management/hr
+  GET      /api/v1/people-management/hr/admissions
+  POST     /api/v1/people-management/hr/admissions
+  GET      /api/v1/people-management/hr/admissions/checklist
+  GET      /api/v1/people-management/hr/admissions/{admission_id}
+  PATCH    /api/v1/people-management/hr/admissions/{admission_id}
+  GET      /api/v1/people-management/hr/beneficios/taxa-negocial
+  POST     /api/v1/people-management/hr/beneficios/validar
+  POST     /api/v1/people-management/hr/contracts/employee/{employee_id}/gerar-aviso-previo-ferias-html
+  POST     /api/v1/people-management/hr/contracts/employee/{employee_id}/gerar-contrato-html
+  POST     /api/v1/people-management/hr/discipline/assinaturas/verificar
+  POST     /api/v1/people-management/hr/discipline/from-occurrence/{occurrence_id}
+  POST     /api/v1/people-management/hr/discipline/medidas-administrativas
+  GET      /api/v1/people-management/hr/discipline/medidas-administrativas
+  GET      /api/v1/people-management/hr/discipline/medidas-administrativas/estatisticas
+  POST     /api/v1/people-management/hr/discipline/medidas-administrativas/gerar-documento
+  POST     /api/v1/people-management/hr/discipline/medidas-administrativas/ia/recomendar
+  POST     /api/v1/people-management/hr/discipline/medidas-administrativas/ia/validar-conformidade
+  POST     /api/v1/people-management/hr/discipline/medidas-administrativas/ia/verificar-proporcionalidade
+  GET      /api/v1/people-management/hr/discipline/medidas-administrativas/{action_id}
+  PATCH    /api/v1/people-management/hr/discipline/medidas-administrativas/{action_id}
+  DELETE   /api/v1/people-management/hr/discipline/medidas-administrativas/{action_id}
+  POST     /api/v1/people-management/hr/discipline/medidas-administrativas/{action_id}/assinar
+  POST     /api/v1/people-management/hr/discipline/medidas-administrativas/{action_id}/recusar-assinatura
+  POST     /api/v1/people-management/hr/discipline/medidas-administrativas/{action_id}/rejeitar
+  POST     /api/v1/people-management/hr/discipline/medidas-administrativas/{action_id}/submeter
+  GET      /api/v1/people-management/hr/employees/cpf/{cpf}
+  GET      /api/v1/people-management/hr/employees/discipline
+  POST     /api/v1/people-management/hr/employees/import-cadastro
+  GET      /api/v1/people-management/hr/employees/{employee_id}/profile
+  GET      /api/v1/people-management/hr/esocial/events
+  POST     /api/v1/people-management/hr/esocial/validar
+  GET      /api/v1/people-management/hr/leaves
+  POST     /api/v1/people-management/hr/leaves
+  POST     /api/v1/people-management/hr/leaves/
+  GET      /api/v1/people-management/hr/payroll/payroll/esocial/events
+  GET      /api/v1/people-management/hr/payroll/payroll/esocial/rubrica-mapping
+  GET      /api/v1/people-management/hr/payroll/payroll/esocial/validate
+  POST     /api/v1/people-management/hr/payroll/payroll/events/
+  POST     /api/v1/people-management/hr/payroll/payroll/events/bulk
+  POST     /api/v1/people-management/hr/payroll/payroll/events/employee/{employee_id}/period/{period_id}/recalculate
+  GET      /api/v1/people-management/hr/payroll/payroll/events/employee/{employee_id}/period/{period_id}/summary
+  GET      /api/v1/people-management/hr/payroll/payroll/events/period/{period_id}/by-category
+  GET      /api/v1/people-management/hr/payroll/payroll/events/period/{period_id}/totals
+  GET      /api/v1/people-management/hr/payroll/payroll/events/{event_id}
+  PUT      /api/v1/people-management/hr/payroll/payroll/events/{event_id}
+  POST     /api/v1/people-management/hr/payroll/payroll/periods/{period_id}/reopen
+  GET      /api/v1/people-management/hr/payroll/summary
+  GET      /api/v1/people-management/hr/ponto/fechamento-status
+  POST     /api/v1/people-management/hr/ponto/fechar-mes
+  POST     /api/v1/people-management/hr/reimbursements/
+  GET      /api/v1/people-management/hr/reimbursements/
+  GET      /api/v1/people-management/hr/reimbursements/attachment-types
+  DELETE   /api/v1/people-management/hr/reimbursements/attachments/{attachment_id}
+  GET      /api/v1/people-management/hr/reimbursements/categories
+  GET      /api/v1/people-management/hr/reimbursements/expense-types
+  GET      /api/v1/people-management/hr/reimbursements/my
+  GET      /api/v1/people-management/hr/reimbursements/ready-for-payment
+  GET      /api/v1/people-management/hr/reimbursements/{request_id}
+  PUT      /api/v1/people-management/hr/reimbursements/{request_id}
+  DELETE   /api/v1/people-management/hr/reimbursements/{request_id}
+  POST     /api/v1/people-management/hr/reimbursements/{request_id}/analyze
+  POST     /api/v1/people-management/hr/reimbursements/{request_id}/attachments
+  GET      /api/v1/people-management/hr/reimbursements/{request_id}/attachments
+  POST     /api/v1/people-management/hr/time-records/clock-in
+  POST     /api/v1/people-management/hr/time-records/clock-out/{record_id}
+  GET      /api/v1/people-management/hr/time-records/daily/{record_date}
+  GET      /api/v1/people-management/hr/time-records/employee/{employee_id}/summary
+  POST     /api/v1/people-management/hr/time-tracking/from-operations
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/justifications/
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/justifications/
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/justifications/medical-leaves
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/justifications/pending-approval
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/justifications/pending-verification
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/justifications/{justification_id}
+  PATCH    /api/v1/people-management/hr/time-tracking/time-tracking/justifications/{justification_id}
+  DELETE   /api/v1/people-management/hr/time-tracking/time-tracking/justifications/{justification_id}
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/justifications/{justification_id}/analyze
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/justifications/{justification_id}/attachments
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/justifications/{justification_id}/partial-approve
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/justifications/{justification_id}/verify
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/overtime/employee/{employee_id}/summary
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/overtime/pending-approval
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/overtime/pending-compensation
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/overtime/pending-payment
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/overtime/{overtime_id}/compensate
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/overtime/{overtime_id}/mark-paid
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/overtime/{overtime_id}/pre-approve
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-entries/
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-entries/
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-entries/employee/{employee_id}/day/{entry_date}
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-entries/pending-approval
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-entries/with-anomalies
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-entries/{entry_id}
+  PATCH    /api/v1/people-management/hr/time-tracking/time-tracking/time-entries/{entry_id}
+  DELETE   /api/v1/people-management/hr/time-tracking/time-tracking/time-entries/{entry_id}
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-entries/{entry_id}/manual-adjust
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-entries/{entry_id}/resolve-anomaly
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/batch-action
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/generate-batch
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/pending-employee-approval
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/pending-hr-approval
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/pending-manager-approval
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/ready-to-close
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/{sheet_id}
+  DELETE   /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/{sheet_id}
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/{sheet_id}/approve/hr
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/{sheet_id}/recalculate
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/{sheet_id}/reopen
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/{sheet_id}/send-to-payroll
+  POST     /api/v1/people-management/hr/vacations/sync-solides
+  GET      /api/v1/people-management/human-resources/ativacao-ponto
+  POST     /api/v1/people-management/human-resources/ativacao-ponto/{employee_id}/reenviar
+  POST     /api/v1/people-management/human-resources/candidatos/{candidato_id}/decisao
+  GET      /api/v1/people-management/human-resources/candidatos/{candidato_id}/dossie
+  POST     /api/v1/people-management/human-resources/candidatos/{candidato_id}/verificar
+  PUT      /api/v1/people-management/human-resources/career/plans/{plan_id}/milestones
+  POST     /api/v1/people-management/human-resources/evaluation-360/ciclos
+  GET      /api/v1/people-management/human-resources/evaluation-360/ciclos
+  GET      /api/v1/people-management/human-resources/evaluation-360/pendencias
+  GET      /api/v1/people-management/human-resources/onboarding/pendencias
+  GET      /api/v1/people-management/human-resources/onboarding/{employee_id}/checklist
+  POST     /api/v1/people-management/human-resources/performance/review-cycle
+  GET      /api/v1/people-management/human-resources/performance/visao-integrada
+  GET      /api/v1/people-management/human-resources/performance/visao-integrada/{employee_id}
+  POST     /api/v1/people-management/human-resources/prestadores-pj
+  GET      /api/v1/people-management/human-resources/prestadores-pj
+  GET      /api/v1/people-management/human-resources/prestadores-pj/links-empresa
+  POST     /api/v1/people-management/human-resources/prestadores-pj/{prestador_id}/regenerar-link
+  POST     /api/v1/people-management/human-resources/recruitment/applications/bulk-action
+  GET      /api/v1/people-management/human-resources/recruitment/applications/favorites
+  POST     /api/v1/people-management/human-resources/recruitment/applications/position/{position_id}/update-ranking
+  GET      /api/v1/people-management/human-resources/recruitment/applications/shortlisted/{position_id}
+  POST     /api/v1/people-management/human-resources/recruitment/applications/{application_id}/accept-proposal
+  POST     /api/v1/people-management/human-resources/recruitment/applications/{application_id}/advance
+  POST     /api/v1/people-management/human-resources/recruitment/applications/{application_id}/reject-proposal
+  POST     /api/v1/people-management/human-resources/recruitment/applications/{application_id}/toggle-favorite
+  POST     /api/v1/people-management/human-resources/recruitment/applications/{application_id}/toggle-shortlist
+  GET      /api/v1/people-management/human-resources/recruitment/candidates/blocked
+  GET      /api/v1/people-management/human-resources/recruitment/candidates/recently-active
+  GET      /api/v1/people-management/human-resources/recruitment/candidates/search-skills
+  POST     /api/v1/people-management/human-resources/recruitment/candidates/{candidate_id}/activate
+  POST     /api/v1/people-management/human-resources/recruitment/candidates/{candidate_id}/unblock
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/available-slots
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/by-date-range
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/pending-confirmation
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/pending-result
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/upcoming
+  POST     /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}/confirm-candidate
+  POST     /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}/confirm-interviewer
+  POST     /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}/evaluation
+  POST     /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}/no-show
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}/questions
+  POST     /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}/reschedule
+  GET      /api/v1/people-management/human-resources/recruitment/job-positions
+  POST     /api/v1/people-management/human-resources/recruitment/job-positions/
+  GET      /api/v1/people-management/human-resources/recruitment/job-positions/
+  GET      /api/v1/people-management/human-resources/recruitment/job-positions/expiring
+  GET      /api/v1/people-management/human-resources/recruitment/job-positions/{position_id}
+  PUT      /api/v1/people-management/human-resources/recruitment/job-positions/{position_id}
+  DELETE   /api/v1/people-management/human-resources/recruitment/job-positions/{position_id}
+  POST     /api/v1/people-management/human-resources/recruitment/job-positions/{position_id}/duplicate
+  POST     /api/v1/people-management/human-resources/recruitment/job-positions/{position_id}/reopen
+  POST     /api/v1/people-management/human-resources/recruitment/resume/parse-text
+  GET      /api/v1/people-management/human-resources/training/certificates/expiring
+  POST     /api/v1/people-management/human-resources/training/enrollments
+  GET      /api/v1/people-management/human-resources/training/enrollments
+  PUT      /api/v1/people-management/human-resources/training/enrollments/{enrollment_id}
+  GET      /api/v1/people-management/human-resources/training/mandatory-check/{employee_id}
+  GET      /api/v1/people-management/human-resources/turnover/desligados-sem-motivo
+  GET      /api/v1/people-management/human-resources/turnover/motivos
+  POST     /api/v1/people-management/integration/dp-to-ops/termination-notify
+  POST     /api/v1/people-management/integration/dp-to-ops/vacation-approved
+  POST     /api/v1/people-management/integration/dp-to-rh/admission-completed
+  POST     /api/v1/people-management/integration/ops-to-dp/check-availability
+  POST     /api/v1/people-management/integration/ops-to-dp/payroll-data
+  POST     /api/v1/people-management/integration/ops-to-dp/shift-closed
+  POST     /api/v1/people-management/integration/portal-to-dp/document-signed
+  POST     /api/v1/people-management/integration/rh-to-dp/candidate-approved
+  POST     /api/v1/people-management/integration/rh-to-ops/mandatory-training-check
+  GET      /api/v1/people-management/ponto/banco-horas/{employee_id}
+  POST     /api/v1/people-management/ponto/batida/me
+  GET      /api/v1/people-management/ponto/batidas/me
+  GET      /api/v1/people-management/ponto/colaboradores-sem-escala
+  POST     /api/v1/people-management/ponto/fechamento-mes
+  GET      /api/v1/people-management/ponto/relatorio/inconsistencias
+  POST     /api/v1/people-management/ponto/sincronizar-solides
+  POST     /api/v1/people-management/ponto/sync-escalas
+  GET      /api/v1/people-management/portal/auth/me
+  POST     /api/v1/people-management/portal/auth/primeiro-acesso
+  POST     /api/v1/people-management/portal/auth/reset-senha
+  GET      /api/v1/people-management/portal/banco-horas
+  POST     /api/v1/people-management/portal/candidato/autocadastro
+  POST     /api/v1/people-management/portal/candidato/termo-aceite
+  GET      /api/v1/people-management/portal/cct/adicional-noturno
+  GET      /api/v1/people-management/portal/cct/direitos
+  GET      /api/v1/people-management/portal/cct/feriados
+  POST     /api/v1/people-management/portal/homologacao/autocadastro
+  POST     /api/v1/people-management/portal/login-facial
+  GET      /api/v1/people-management/portal/my-benefits
+  GET      /api/v1/people-management/portal/my-data
+  PUT      /api/v1/people-management/portal/my-data
+  GET      /api/v1/people-management/portal/my-documents
+  GET      /api/v1/people-management/portal/my-documents/{id}/verify-signature
+  GET      /api/v1/people-management/portal/my-notifications
+  POST     /api/v1/people-management/portal/my-notifications/test-trigger
+  GET      /api/v1/people-management/portal/my-payslips
+  GET      /api/v1/people-management/portal/my-payslips/{month}/{year}
+  GET      /api/v1/people-management/portal/my-schedules
+  GET      /api/v1/people-management/portal/my-schedules/current-month
+  GET      /api/v1/people-management/portal/my-schedules/next-shift
+  GET      /api/v1/people-management/portal/my-trainings/enrollments
+  GET      /api/v1/people-management/portal/onboarding-status
+  GET      /api/v1/people-management/portal/ouvidoria-admin
+  GET      /api/v1/people-management/portal/painel-ponto
+  POST     /api/v1/people-management/portal/primeiro-acesso/buscar-pis
+  POST     /api/v1/people-management/portal/primeiro-acesso/completar
+  POST     /api/v1/people-management/portal/primeiro-acesso/contingencia-rosto
+  POST     /api/v1/people-management/portal/primeiro-acesso/identificar
+  POST     /api/v1/people-management/portal/self-service/bater-ponto
+  POST     /api/v1/people-management/portal/self-service/batida-contingencia
+  GET      /api/v1/people-management/portal/self-service/categorias-reembolso
+  GET      /api/v1/people-management/portal/self-service/me
+  GET      /api/v1/people-management/portal/self-service/meu-ponto
+  GET      /api/v1/people-management/portal/self-service/meus-beneficios
+  GET      /api/v1/people-management/portal/self-service/meus-dados
+  PUT      /api/v1/people-management/portal/self-service/meus-dados
+  GET      /api/v1/people-management/portal/self-service/meus-documentos
+  GET      /api/v1/people-management/portal/self-service/meus-documentos-a-assinar
+  GET      /api/v1/people-management/portal/self-service/meus-reembolsos
+  GET      /api/v1/people-management/portal/self-service/meus-treinamentos
+  GET      /api/v1/people-management/portal/self-service/minha-cct
+  GET      /api/v1/people-management/portal/self-service/minha-escala
+  GET      /api/v1/people-management/portal/self-service/minha-escala/proximo-turno
+  GET      /api/v1/people-management/portal/self-service/minhas-ferias/solicitacoes
+  GET      /api/v1/people-management/portal/self-service/minhas-notificacoes
+  GET      /api/v1/people-management/portal/self-service/onboarding-status
+  POST     /api/v1/people-management/portal/self-service/ouvidoria
+  GET      /api/v1/people-management/portal/self-service/ouvidoria/minhas
+  GET      /api/v1/people-management/portal/self-service/ponto-hoje
+  POST     /api/v1/people-management/portal/self-service/solicitar-reembolso
+  POST     /api/v1/people-management/sst/aso
+  GET      /api/v1/people-management/sst/aso
+  POST     /api/v1/people-management/sst/aso/retroativo
+  POST     /api/v1/people-management/sst/aso/{aso_id}/anexo
+  GET      /api/v1/people-management/sst/aso/{aso_id}/anexo
+  POST     /api/v1/people-management/sst/asos/agendar-lote
+  GET      /api/v1/people-management/sst/asos/regularizacao
+  GET      /api/v1/people-management/sst/asos/sem-aso
+  POST     /api/v1/people-management/sst/assinaturas/ativar-acessos
+  GET      /api/v1/people-management/sst/assinaturas/rollout
+  GET      /api/v1/people-management/sst/calendario-legal
+  POST     /api/v1/people-management/sst/cat
+  GET      /api/v1/people-management/sst/cat
+  GET      /api/v1/people-management/sst/cat/taxa-acidente
+  GET      /api/v1/people-management/sst/cipa/membros
+  GET      /api/v1/people-management/sst/cipa/reunioes
+  POST     /api/v1/people-management/sst/cipa/reunioes
+  POST     /api/v1/people-management/sst/epi
+  GET      /api/v1/people-management/sst/epi
+  GET      /api/v1/people-management/sst/epi/fichas/minhas
+  POST     /api/v1/people-management/sst/epi/fichas/{ficha_id}/assinar
+  POST     /api/v1/people-management/sst/esocial/transmitir-lote
+  PUT      /api/v1/people-management/sst/ltcat
+  GET      /api/v1/people-management/sst/nr1/colaboradores-risco
+  GET      /api/v1/people-management/sst/pcmso/esteira
+  GET      /api/v1/people-management/sst/ppp/{employee_id}
+  GET      /api/v1/people-management/sst/prontuario/{employee_id}
+  GET      /api/v1/people-management/sst/regularizacao/descalcos
+           /api/v1/people-management/ws/gp/{user_id}
+
+### ✅ EXPOSTAS (381) — endpoint com chamada no front (amostra 20)
+  PUT      /api/v1/people-management/admin/cct/cargos/{cargo_id}  → backend/modules/operacional/controllers/redesign_builders/_fin_contabil.py
+  GET      /api/v1/people-management/admin/cct/convencoes/{convencao_id}/beneficios  → backend/modules/operacional/controllers/redesign_builders/portal_do_funcionario.py
+  POST     /api/v1/people-management/admin/cct/convencoes/{convencao_id}/beneficios  → backend/modules/operacional/controllers/redesign_builders/portal_do_funcionario.py
+  GET      /api/v1/people-management/admin/cct/convencoes/{convencao_id}/cargos  → backend/modules/operacional/controllers/redesign_builders/_fin_contabil.py
+  POST     /api/v1/people-management/admin/cct/convencoes/{convencao_id}/cargos  → backend/modules/operacional/controllers/redesign_builders/_fin_contabil.py
+  POST     /api/v1/people-management/certifications  → backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/certifications  → backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/certifications/  → backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/certifications/  → backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/certifications/{cert_id}  → backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  PATCH    /api/v1/people-management/certifications/{cert_id}/reject  → backend/modules/operacional/controllers/redesign_builders/portal_do_funcionario.py
+  GET      /api/v1/people-management/dp/payslips  → backend/modules/operacional/controllers/redesign_builders/portal_do_funcionario.py
+  GET      /api/v1/people-management/dp/payslips/  → backend/modules/operacional/controllers/redesign_builders/portal_do_funcionario.py
+  POST     /api/v1/people-management/dp/payslips/  → backend/modules/operacional/controllers/redesign_builders/portal_do_funcionario.py
+  GET      /api/v1/people-management/dp/payslips/folha/pagar-via-pix/{mes}/{ano}/status  → backend/modules/operacional/controllers/redesign_builders/portal_do_funcionario.py
+  POST     /api/v1/people-management/dp/payslips/folha/upload  → backend/modules/operacional/controllers/redesign_builders/_fin_bancos.py
+  GET      /api/v1/people-management/dp/payslips/{payslip_id}  → backend/modules/operacional/controllers/redesign_builders/portal_do_funcionario.py
+  DELETE   /api/v1/people-management/dp/payslips/{payslip_id}  → backend/modules/operacional/controllers/redesign_builders/portal_do_funcionario.py
+  GET      /api/v1/people-management/dp/payslips/{payslip_id}/pdf  → backend/modules/operacional/controllers/redesign_builders/portal_do_funcionario.py
+  PATCH    /api/v1/people-management/dp/payslips/{payslip_id}/rascunho  → backend/modules/operacional/controllers/redesign_builders/rh.py
