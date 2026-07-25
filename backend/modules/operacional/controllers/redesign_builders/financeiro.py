@@ -969,6 +969,25 @@ async def _rd_conciliar_liquido(current_user: CurrentActiveUser, payload: dict =
             f"{r['n_sugestoes']} sugestão(ões) e {r['n_sem']} sem crédito ficaram para revisão."}
 
 
+@router.post("/action/postar-provisoes")
+async def _rd_postar_provisoes(current_user: CurrentActiveUser, payload: dict = Body(default={}), db=Depends(get_db)) -> dict:
+    """Posta no razão as provisões de férias (1/9) e 13º (1/12) sobre a folha REAL, por
+    competência. Bookkeeping — NÃO move dinheiro. Gate humano (confirm na tela). Idempotente
+    (ref PROVFER-/PROV13- por mês): re-acionar não duplica. Reversível apagando esses refs."""
+    from starlette.concurrency import run_in_threadpool
+
+    from modules.financial.services.ledger_auto_service import LedgerAutoService
+    r = await run_in_threadpool(LedgerAutoService().lancar_provisoes_trabalhistas)
+    if not r.get("ok"):
+        raise HTTPException(status_code=400, detail=str(r.get("erro") or "Falha ao postar provisões."))
+    novos = r["provisoes_ferias"] + r["provisoes_13"]
+    return {"ok": True, "message": (
+        f"Provisões postadas no razão: {r['provisoes_ferias']} de férias + {r['provisoes_13']} de 13º "
+        f"({novos} lançamento(s) novo(s); {brl(r['total_provisionado'])} provisionado). "
+        "Idempotente — meses já postados não duplicam." if novos else
+        f"Nada novo — as provisões ({brl(r['total_provisionado'])}) já estavam postadas. Idempotente.")}
+
+
 @router.post("/action/cobrar-recorrente")
 async def _rd_cobrar_recorrente(current_user: CurrentActiveUser, payload: dict = Body(default={}), db=Depends(get_db)) -> dict:
     """Money-IN: EMITE cobranças recorrentes REAIS (PIX/boleto Inter/Cora) do mês/ano aos clientes.

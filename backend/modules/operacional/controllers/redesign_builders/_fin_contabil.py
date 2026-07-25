@@ -333,7 +333,7 @@ async def build_contabil(db, out: dict) -> None:
             "title": "Provisões trabalhistas (férias + 13º)", "type": "table", "cta": "—",
             "sub": (f"Provisão de férias (1/9) e 13º (1/12) sobre a folha REAL (hr_payslips). "
                     f"Acumulado: base {brl(tot_base)} · férias {brl(tot_fer)} · 13º {brl(tot_dec)}. "
-                    "Ainda NÃO postado no razão (contas 4.1.2.04/4.1.2.03) — postar será ação gated."),
+                    "Postagem no razão (4.1.2.04/4.1.2.03) pela ação 'Postar provisões' — gated, idempotente."),
             "grid": "1fr 0.9fr 1.2fr 1.2fr 1.2fr",
             "cols": ["Competência", "Func.", "Base salarial", "Provisão férias (1/9)", "Provisão 13º (1/12)"],
             "rows": rows or [{"cells": [t("Sem folha"), t("0"), t("—"), t("—"), t("—")]}],
@@ -347,3 +347,15 @@ async def build_contabil(db, out: dict) -> None:
         out["provisoes-trabalhistas"] = scr
     except Exception:  # noqa: BLE001
         pass
+
+    # ── Ação gated: postar as provisões no razão (bookkeeping, NÃO move dinheiro) ────────────
+    out["postar-provisoes"] = {
+        "title": "Postar provisões no razão", "type": "form", "cta": "Postar provisões",
+        "sub": "Posta no razão as provisões de férias (1/9) e 13º (1/12) sobre a folha REAL, por "
+               "competência. Bookkeeping — NÃO move dinheiro. Idempotente: re-acionar não duplica "
+               "(ref PROVFER-/PROV13- por mês). Reversível apagando esses lançamentos.",
+        "submit": {"endpoint": "/api/v1/redesign/action/postar-provisoes", "gated": False,
+                   "confirm": "Postar no razão as provisões de férias e 13º sobre a folha real (por competência)?",
+                   "okMsg": "Provisões postadas."},
+        "fields": [],
+    }

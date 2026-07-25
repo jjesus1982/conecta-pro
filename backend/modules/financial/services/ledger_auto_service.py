@@ -351,6 +351,47 @@ class LedgerAutoService:
             conn.close()
 
     # -------------------------------------------------------------- runner --
+    def lancar_provisoes_trabalhistas(self, empresa_id: str = EMPRESA_PRINCIPAL_ID) -> dict:
+        """Posta as provisões de férias (1/9) e 13º (1/12) sobre a folha REAL (hr_payslips),
+        agregadas por competência. Idempotente por documento_ref (PROVFER-/PROV13- por mês).
+          • Férias: D 4.1.2.04 (Desp. Provisão Férias) / C 2.1.2.01 (Provisões a Pagar)
+          • 13º:    D 4.1.2.03 (Desp. Provisão 13º)     / C 2.1.2.01
+        Mesma base da tela de Provisões (base_salary × 0,1111 / 0,0833) — sem encargos sobre a
+        provisão. Bookkeeping puro: NÃO move dinheiro. Reversível apagando os refs PROVFER-/PROV13-."""
+        conn = self._conn()
+        try:
+            with conn.cursor() as cur:
+                self._ensure_schema(cur)
+                cur.execute(
+                    "SELECT reference_period, COALESCE(sum(base_salary),0) FROM hr_payslips "
+                    "WHERE COALESCE(base_salary,0) > 0 GROUP BY reference_period ORDER BY reference_period"
+                )
+                n_fer = n_dec = 0
+                tot_fer = tot_dec = 0.0
+                for periodo, base in cur.fetchall():
+                    base = float(base or 0)
+                    fer = round(base * 0.1111, 2)
+                    dec = round(base * 0.0833, 2)
+                    data = f"{periodo}-01"
+                    n_fer += self._post(
+                        cur, data=data, cd="4.1.2.04", cc="2.1.2.01", valor=fer,
+                        hist=f"Provisão de férias {periodo} (1/9 s/ folha real)", tipo="provisao_ferias",
+                        ref=f"PROVFER-{periodo}", periodo=periodo, empresa_id=empresa_id,
+                    )
+                    n_dec += self._post(
+                        cur, data=data, cd="4.1.2.03", cc="2.1.2.01", valor=dec,
+                        hist=f"Provisão de 13º {periodo} (1/12 s/ folha real)", tipo="provisao_13",
+                        ref=f"PROV13-{periodo}", periodo=periodo, empresa_id=empresa_id,
+                    )
+                    tot_fer += fer
+                    tot_dec += dec
+                conn.commit()
+            return {"ok": True, "provisoes_ferias": n_fer, "provisoes_13": n_dec,
+                    "total_ferias": round(tot_fer, 2), "total_13": round(tot_dec, 2),
+                    "total_provisionado": round(tot_fer + tot_dec, 2), "empresa_id": empresa_id}
+        finally:
+            conn.close()
+
     def fechar(self, empresa_id: str = EMPRESA_PRINCIPAL_ID) -> dict:
         """Fecha o razão: garante schema e posta folha + ISS (idempotente).
         NFS-e receita e banco Inter já são postados pelo accounting_seed_service."""
