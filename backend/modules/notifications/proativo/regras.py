@@ -155,11 +155,13 @@ async def _detectar_caixa_baixo(db: AsyncSession) -> list[Achado]:
 
 
 def _tpl_caixa(d: dict) -> tuple[str, str]:
+    from modules.notifications.proativo.redator import _brl
+
     base = ("folha do CNPJ" if not d["usou_fallback"] else "piso R$ 10.000")
     return (
         f"Caixa baixo: {d['cnpj']}",
-        f"O caixa de {d['cnpj']} ({d['banco']}) está em R$ {d['saldo']:,.2f}, "
-        f"abaixo do limiar de R$ {d['limiar']:,.2f} ({base}).",
+        f"O caixa de {d['cnpj']} ({d['banco']}) está em R$ {_brl(d['saldo'])}, "
+        f"abaixo do limiar de R$ {_brl(d['limiar'])} ({base}).",
     )
 
 
@@ -191,9 +193,11 @@ async def _detectar_aging(db: AsyncSession) -> list[Achado]:
 
 
 def _tpl_aging(d: dict) -> tuple[str, str]:
+    from modules.notifications.proativo.redator import _brl
+
     return (
         f"{d['n']} recebível(is) vencido(s)",
-        f"Há {d['n']} título(s) vencido(s) em aberto, total R$ {d['total']:,.2f}.",
+        f"Há {d['n']} título(s) vencido(s) em aberto, total R$ {_brl(d['total'])}.",
     )
 
 
