@@ -252,6 +252,7 @@ function ListScreen({ scr }: { scr: any }) {
 // otp_code. scr.submit.confirm (string) força uma confirmação humana antes de disparar.
 function FormScreen({ scr }: { scr: any }) {
   const [vals, setVals] = useState<Record<string, string>>({});
+  const [files, setFiles] = useState<Record<string, File | null>>({});
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [otp, setOtp] = useState<{ ref: string; code: string } | null>(null);
@@ -337,6 +338,24 @@ function FormScreen({ scr }: { scr: any }) {
   async function fire(extra: Record<string, unknown>) {
     let tok: string | null = null;
     try { tok = localStorage.getItem('access_token'); } catch { /* */ }
+    // Upload multipart (scr.submit.multipart): manda arquivo(s) + campos como FormData. Sem
+    // Content-Type manual (o browser põe o boundary). scr.submit.fixed = campos constantes
+    // (ex.: folder_id/category); titleFromFile = usa o nome do arquivo como title se faltar.
+    if (scr.submit.multipart) {
+      const fd = new FormData();
+      for (const [k, v] of Object.entries(scr.submit.fixed || {})) fd.append(k, String(v));
+      for (const [k, v] of Object.entries({ ...vals, ...extra })) { if (v != null && v !== '') fd.append(k, String(v)); }
+      let firstName = '';
+      for (const [k, f] of Object.entries(files)) { if (f) { fd.append(k, f); if (!firstName) firstName = f.name; } }
+      if (scr.submit.titleFromFile && firstName && !fd.has('title')) fd.append('title', firstName);
+      const resm = await fetch(scr.submit.endpoint, {
+        method: scr.submit.method || 'POST',
+        headers: { ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
+        body: fd,
+      });
+      const dm = await resm.json().catch(() => ({}));
+      return { res: resm, d: dm };
+    }
     const res = await fetch(scr.submit.endpoint, {
       method: scr.submit.method || 'POST',
       headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
@@ -363,7 +382,7 @@ function FormScreen({ scr }: { scr: any }) {
       // Gancho de documento: ações que GERAM um doc (aviso de férias, recibos, exports) devolvem
       // d.doc {url, fmt} → abre direto (aditivo; formas sem d.doc não mudam).
       if (d && d.doc && d.doc.url) { try { await abrirDoc(d.doc as DocRef); } catch { /* abre manual depois */ } }
-      setVals({}); setOtp(null); setConfirming(false);
+      setVals({}); setFiles({}); setOtp(null); setConfirming(false);
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : 'Erro.' });
     } finally { setBusy(false); }
@@ -433,7 +452,10 @@ function FormScreen({ scr }: { scr: any }) {
         {(scr.fields || []).map((f: any, i: number) => (
           <div className="rd-field" key={i} style={{ gridColumn: f.span || 'span 1' }}>
             <label className="rd-label" style={{ textTransform: 'none', letterSpacing: 0, fontSize: 11 }}>{f.label}</label>
-            {f.type === 'select' ? (
+            {f.type === 'file' ? (
+              <input className="rd-input" type="file" accept={f.accept}
+                onChange={(e) => setFiles((s) => ({ ...s, [f.key]: (e.target.files && e.target.files[0]) || null }))} />
+            ) : f.type === 'select' ? (
               <select className="rd-input" value={vals[f.key] || ''} onChange={(e) => set(f.key, e.target.value)}>
                 <option value="">{f.ph || 'Selecione…'}</option>
                 {(f.options || []).map((o: any) => <option key={o.value} value={o.value}>{o.label}</option>)}

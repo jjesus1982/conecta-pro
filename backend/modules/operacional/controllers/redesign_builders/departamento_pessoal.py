@@ -848,6 +848,35 @@ async def build(db) -> dict:
             _fer_row, editfn=_fer_edit))
         if out.get("ferias") and not out["ferias"].get("ctaTo"):
             out["ferias"]["ctaTo"] = "solicitar-ferias"
+
+        # ── Task 5: documentos — form de UPLOAD multipart → GED (mesmo endpoint/pasta do clássico:
+        # /ged/documents/upload, folder Funcionários, category 'rh'). DP anexa doc de qualquer
+        # colaborador ativo. document_type = valores REAIS do enum DocumentType (sem rg/cpf).
+        out["nova-documento"] = {
+            "title": "Enviar documento", "type": "form",
+            "sub": "Anexa um documento ao colaborador — arquiva no GED (pasta Funcionários)",
+            "cta": "Enviar documento",
+            "submit": {"endpoint": "/api/v1/ged/documents/upload", "okMsg": "Documento enviado",
+                       "multipart": True, "titleFromFile": True,
+                       "fixed": {"folder_id": "abcbebd2-88af-419e-8907-43b11f38f90b", "category": "rh"}},
+            "fields": [
+                {"key": "employee_id", "label": "Colaborador*", "type": "select", "span": "span 2",
+                 "ph": "Selecione o colaborador" if _eopts else "Nenhum colaborador ativo", "options": _eopts},
+                {"key": "document_type", "label": "Tipo*", "type": "select", "span": "span 1", "ph": "Selecione",
+                 "options": [
+                     {"value": "comprovante", "label": "Comprovante (RG/CPF/residência)"},
+                     {"value": "contrato", "label": "Contrato"},
+                     {"value": "certidao", "label": "Certidão"},
+                     {"value": "laudo", "label": "Laudo/ASO"},
+                     {"value": "outro", "label": "Outro"}]},
+                {"key": "valid_until", "label": "Validade", "type": "date", "span": "span 1"},
+                {"key": "file", "label": "Arquivo*", "type": "file", "span": "span 2", "accept": ".pdf,.jpg,.jpeg,.png"},
+                {"key": "description", "label": "Observação", "type": "textarea", "span": "span 2", "ph": "Opcional"},
+            ],
+        }
+        if out.get("documentos") and not out["documentos"].get("ctaTo"):
+            out["documentos"]["cta"] = "Enviar documento"
+            out["documentos"]["ctaTo"] = "nova-documento"
     except Exception:
         try:
             await db.rollback()
