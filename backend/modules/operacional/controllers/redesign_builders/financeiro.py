@@ -446,6 +446,19 @@ async def build(db) -> dict:
             {"key": "data", "label": "Data* (AAAA-MM-DD)", "type": "date", "span": "span 2"},
         ],
     }
+    out["pagar-folha-clt"] = {
+        "title": "Pagar folha CLT (Inter)",
+        "sub": "Dinheiro que SAI — paga o LÍQUIDO dos funcionários CLT via PIX (chave PIX cadastrada). "
+               "2 etapas: gera o código OTP (e-mail ao Jordan) e só paga ao confirmar. Nunca dispara sozinho. Teto R$100k.",
+        "cta": "Gerar código de pagamento", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/pagar-folha-clt", "gated": True,
+                   "confirm": "Isto vai PAGAR a folha CLT (líquido dos funcionários) do mês via PIX Inter. Gerar o código OTP para o Jordan confirmar?",
+                   "okMsg": "Folha CLT processada."},
+        "fields": [
+            {"key": "mes", "label": "Mês* (1-12)", "type": "text", "span": "span 1", "ph": "7"},
+            {"key": "ano", "label": "Ano*", "type": "text", "span": "span 1", "ph": "2026"},
+        ],
+    }
 
     # ---- Pagar boleto (código de barras) — money-out via InterPaymentService + OTP ----
     out["pagar-boleto"] = {
@@ -747,6 +760,39 @@ async def _rd_pagar_diaristas(current_user: CurrentActiveUser, payload: dict = B
     if not r.get("ok"):
         raise HTTPException(status_code=400, detail=r.get("mensagem") or "Não foi possível executar o lote.")
     return {"ok": True, "message": f"Lote pago: {r.get('pagos', 0)} pago(s), {r.get('falhas', 0)} falha(s)."}
+
+
+@router.post("/action/pagar-folha-clt")
+async def _rd_pagar_folha_clt(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Pagar a FOLHA CLT (líquido dos funcionários) via PIX Inter — DINHEIRO QUE SAI.
+    2 fases + OTP humano (mesmo gate do lote de diaristas): sem otp_code → gera o código
+    (e-mail ao Jordan); com otp_code → paga real. Reusa os endpoints provados
+    /folha/pagar-via-pix (gerar-otp + pagar). Sem OTP válido, nada é pago. Teto R$100k aplicado."""
+    from modules.people_management.employee_portal.controllers.dp_payslips_controller import (
+        gerar_otp_pagamento_folha, pagar_folha_via_pix,
+    )
+    try:
+        mes = int(str(payload.get("mes") or "").strip()); ano = int(str(payload.get("ano") or "").strip())
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Informe o mês (1-12) e o ano (AAAA).")
+    if not (1 <= mes <= 12) or not (2020 <= ano <= 2100):
+        raise HTTPException(status_code=400, detail="Mês (1-12) ou ano (AAAA) fora do intervalo.")
+    otp_code = (payload.get("otp_code") or "").strip()
+    lote_id = (payload.get("_gate_ref") or "").strip()
+    if not otp_code:
+        r = await gerar_otp_pagamento_folha(mes, ano, db=db, _user=current_user)
+        if not r.get("ok"):
+            raise HTTPException(status_code=400, detail=r.get("mensagem") or "Nada a pagar no período.")
+        return {"otp_required": True, "ref": r.get("lote_id", ""),
+                "message": f"Folha CLT {mes:02d}/{ano} · R$ {float(r.get('total') or 0):.2f}. "
+                           "Confirme com o código OTP enviado ao Jordan."}
+    r = await pagar_folha_via_pix(mes, ano, otp_code=otp_code, lote_id=lote_id or None, db=db, _user=current_user)
+    if r.get("otp_invalido") or r.get("otp_requerido"):
+        raise HTTPException(status_code=400, detail=r.get("mensagem") or "OTP inválido ou obrigatório.")
+    if not r.get("ok"):
+        raise HTTPException(status_code=400, detail=r.get("mensagem") or "Não foi possível pagar a folha.")
+    return {"ok": True, "message": f"Folha CLT paga: {r.get('pagos', r.get('sucesso', 0))} funcionário(s), "
+            f"{r.get('falhas', 0)} falha(s)."}
 
 
 # ── Money-out genérico (boleto/PIX/TED/DARF) via InterPaymentService — 2 fases + OTP ──

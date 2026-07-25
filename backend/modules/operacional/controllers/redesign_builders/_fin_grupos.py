@@ -19,6 +19,7 @@ GRUPOS = [
         ("contas-pagar", "Contas a Pagar"), ("fila-aprovacao", "Aprovação"),
         ("audit-log", "Audit log"), ("pagamentos-inter", "Pagamentos Inter"),
         ("pagamentos-pj", "Folha PJ"), ("pagar-folha-pj", "Pagar folha PJ"),
+        ("pagar-folha-clt", "Pagar folha CLT"),
         ("pagamentos-diaristas", "Diaristas"), ("pagar-diaristas", "Pagar diaristas"),
         ("pagar-boleto", "Pagar boleto"), ("enviar-pix", "PIX / Transferir"),
         ("transferir-ted", "TED"), ("pagar-darf", "DARF"), ("pagar-gps", "GPS / INSS"),
