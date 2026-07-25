@@ -21,6 +21,12 @@ Estado atual: 03/2026=51, 06/2026=56 payslips (origem a reconciliar); faltam 01,
 3. **Carregar** — `pg_dump` backup antes; upsert `hr_payslips` por (employee_id,condominio_id,ref_year,ref_month) marcado `source_system='portte'`+`import_batch_id`. 03/06 já existem → **comparar vs Portte, reportar diff, Portte vence** (com log do que mudou).
 4. **Verificar (oráculo)** — nosso `hr_payslips` == PDF: líquido/proventos/descontos por empregado, totais por serviço e mês, Geral==soma. Só "ok" com prova (query vs valor do PDF).
 
+## Descobertas da Fase 3 (carga) — 25/07
+- **`hr_payslips` SEM trigger** → INSERT não auto-posta no razão; `ledger_auto` é passo SEPARADO e idempotente. Carga da folha é segura/isolada; postar no razão é decisão/etapa própria depois.
+- **Paisagem existente (define ação por mês):** 06/2026 já `source='portte'` (56) → **verificar vs extração, não recriar**; 03/2026 `source='dominio_sistemas'` (51) → **reconciliar rumo à Portte**; **01,02,04,05 faltam** → importar.
+- **Mapeamento rubrica→jsonb (confirmado num payslip real):** `earnings=[{code,value,reference,description}]`, `deductions=[{code,value,description}]`, `informative` idem. tipo P→earnings, D→deductions, informativa→informative. Extração `{codigo,nome,referencia,valor,tipo}` → code=codigo, value=Decimal(valor), reference=referencia, description=nome. Campos diretos: base_salary, total_earnings/deductions, net_salary, inss/irrf/fgts base+value, payslip_type='monthly', status (a definir: 'published' espelha o existente).
+- **Atenção June:** payslip existente usa rubrica "DIAS NORMAIS"(8781); Janeiro-PDF usa "HORAS NORMAIS"(1) — pode ser formato de export diferente OU competência diferente. Comparar a extração de Jun vs o import existente antes de tocar.
+
 ## Não-conformidades (haverá muitas) — regra
 Relatório por mês. Empregado Portte sem match (CPF) / condomínio não mapeado / rubrica desconhecida / Geral≠soma / diff vs dado existente. **Surfaço, nunca fabrico nem descarto.** Decisão de negócio (criar empregado inexistente, mapear condomínio novo) → **PARO e mostro ao Jordan**; resto sigo sozinho. [[feedback_jordan_fonte_da_verdade]]
 
