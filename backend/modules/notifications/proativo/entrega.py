@@ -41,25 +41,31 @@ async def resolver_usuarios_por_roles(db: AsyncSession, roles: tuple[str, ...]) 
 
 async def enviar_individual(db: AsyncSession, *, user_ids: list[str], title: str,
                             body: str, familia: str, severidade: str,
-                            correlation_id: str, action_url: str) -> list[str]:
+                            correlation_id: str, action_url: str,
+                            reference_type: str = "proativo",
+                            reference_id: str | None = None,
+                            idempotency_key: str | None = None) -> list[str]:
     """Materializa o alerta no sino (communication_notifications), 1 linha por
     destinatário. `user_ids` já deve vir de `resolver_usuarios_por_roles` com os
-    roles de `regra.roles_destino` — esta função não decide RBAC, só grava.
-    tenant_id = uid (molde _enviar_alerta: users não tem coluna tenant_id, o
-    sino filtra por tenant_id == user.id). extra_data carrega correlation_id
-    p/ rastreio/dedup/auditoria."""
+    roles de destino — esta função não decide RBAC, só grava.
+    tenant_id = uid (users não tem coluna tenant_id; o sino filtra por
+    tenant_id == user.id). extra_data carrega correlation_id + (opcional)
+    idempotency_key p/ rastreio/dedup/auditoria. reference_type/reference_id
+    ligam a notificação à entidade proposta (ex.: 'proposta_acao' + entity_id)."""
     criados: list[str] = []
     for uid in user_ids:
         extra = json.dumps({"correlation_id": correlation_id, "familia": familia,
-                            "severidade": severidade, "origem": "proativo"})
+                            "severidade": severidade, "origem": "proativo",
+                            "idempotency_key": idempotency_key})
         row = (await db.execute(text(
             f"INSERT INTO communication_notifications "
             f"(id, tenant_id, user_id, title, body, type, reference_type, "
             f" reference_id, action_url, extra_data, is_active, sent_at, created_at) "
             f"VALUES (gen_random_uuid(), :tid, :uid, :title, :body, 'alerta', "
-            f" 'proativo', NULL, :url, CAST(:extra AS jsonb), true, {_NOW}, {_NOW}) "
+            f" :rtype, :rid, :url, CAST(:extra AS jsonb), true, {_NOW}, {_NOW}) "
             f"RETURNING id::text"),
             {"tid": str(uid), "uid": str(uid), "title": title, "body": body,
+             "rtype": reference_type, "rid": reference_id,
              "url": action_url, "extra": extra})).scalar()
         criados.append(row)
     return criados

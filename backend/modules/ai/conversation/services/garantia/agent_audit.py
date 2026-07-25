@@ -95,6 +95,60 @@ async def registrar_acao_agente(
     return event_id
 
 
+async def registrar_proposta_acao(
+    db: AsyncSession,
+    *,
+    origem: str,
+    tool: str,
+    args: dict,
+    dominio: str,
+    gate: str,
+    entity_type: str,
+    entity_id: str,
+    aprovadores: list[str],
+    proposto_por: str,
+    trace_id: str | None = None,
+) -> str:
+    """Append-only em `audit_logs`: 1 linha por PROPOSTA de ação (propor→aprovar).
+    Registra tool/args/entity/gate/aprovadores + quem propôs (3 papéis). NUNCA
+    representa execução — só a criação do PENDENTE."""
+    ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    event_id = f"EVT-PROP-{ts}-{secrets.token_hex(4).upper()}"
+    details = {
+        "origem": origem, "tool": tool, "args": args, "dominio": dominio,
+        "gate": gate, "entity_type": entity_type, "entity_id": entity_id,
+        "aprovadores": aprovadores, "proposto_por": proposto_por,
+        "trace_id": trace_id, "fase": "5.4", "acao": "propor",
+    }
+    await db.execute(
+        text(
+            """
+            INSERT INTO audit_logs (
+                id, event_id, action, category, severity, result, description,
+                details, entity_type, is_sensitive, is_pii, requires_review,
+                archived, created_at
+            ) VALUES (
+                :id, :event_id, 'agent_action', 'agent', 'info', 'success',
+                :description, CAST(:details AS jsonb), :entity_type,
+                false, false, true, false, :created_at
+            )
+            """
+        ),
+        {
+            "id": str(uuid4()),
+            "event_id": event_id,
+            "description": f"Agente propôs {tool} ({dominio}, gate {gate}) — PENDENTE de aprovação",
+            "details": json.dumps(details, ensure_ascii=False, default=str),
+            "entity_type": entity_type,
+            "created_at": datetime.utcnow(),
+        },
+    )
+    await db.commit()
+    logger.info("agent_audit: proposta %s tool=%s dominio=%s gate=%s entity=%s",
+                event_id, tool, dominio, gate, entity_id)
+    return event_id
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # TESTE (padrão 5.1: sem pytest, `python agent_audit.py`, asyncio + asserts).
 # Precisa de uma DATABASE_URL real (staging, NUNCA produção :8080 in-process).
