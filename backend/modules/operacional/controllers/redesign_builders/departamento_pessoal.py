@@ -460,7 +460,11 @@ async def build(db) -> dict:
         "ts.hours_worked_minutes, ts.overtime_total_minutes, ts.absent_days, "
         "greatest(coalesce(ts.anomaly_count,0)-coalesce(ts.anomaly_resolved_count,0),0) AS anomalias, "
         "ts.approved_by_employee, sig.status AS sig_status, sig.signed_at AS sig_signed, "
-        "CAST(ts.employee_id AS TEXT) AS emp, ts.reference_month AS mes "
+        "CAST(ts.employee_id AS TEXT) AS emp, ts.reference_month AS mes, "
+        # has_punches: só oferece a Folha de ponto (batidas) quando há batida na competência
+        # (o endpoint folha-pdf 404 se vazio) — botão honesto, nunca quebrado.
+        "EXISTS(SELECT 1 FROM gp_clock_punches gcp WHERE CAST(gcp.employee_id AS TEXT)=CAST(ts.employee_id AS TEXT) "
+        "  AND to_char(gcp.punch_timestamp,'MM.YYYY')=to_char(make_date(ts.reference_year::int, ts.reference_month::int, 1),'MM.YYYY')) AS has_punches "
         "FROM time_sheets ts "
         "LEFT JOIN LATERAL (SELECT status, signed_at FROM sig_signature_requests s "
         "  WHERE s.document_type='espelho_ponto' AND s.signer_type='employee' "
@@ -476,7 +480,8 @@ async def build(db) -> dict:
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")),
                    t(r[1] or "—"), t(_hm(r[4])), t(_hm(r[5])),
                    t(str(r[6] or 0)), _fech_status(r[3], r[7], r[8], r[9], r[10])],
-        docsfn=lambda r: [doc("Espelho de ponto (671)", f"/api/v1/people-management/hr/ponto/espelho/{r[11]}/{r[12]}/{r[2]}/pdf", fmt="pdf", gate="dp")]))
+        docsfn=lambda r: [doc("Espelho de ponto (671)", f"/api/v1/people-management/hr/ponto/espelho/{r[11]}/{r[12]}/{r[2]}/pdf", fmt="pdf", gate="dp")]
+        + ([doc("Folha de ponto (batidas)", f"/api/v1/people-management/ponto/folha-pdf/{r[11]}/download?mes_ref={int(r[12]):02d}.{int(r[2])}", fmt="html", gate="dp")] if r[13] else [])))
 
     # 5) Licenças / afastamentos — sst_afastamentos (nome/cargo denormalizados)
     await safe("licencas", tbl(
