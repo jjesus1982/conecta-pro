@@ -11,6 +11,7 @@ import { MODULES } from './modules';
 const ScannerPagamento = dynamic(() => import('@/components/financeiro/ScannerPagamento'), { ssr: false });
 import { rdLogout } from './session';
 import { DocButtons } from './DocButtons';
+import { abrirDoc, type DocRef } from '@/lib/docsource';
 import { ExportMenu } from './ExportMenu';
 import ChatScreen from './ChatScreen';
 
@@ -289,6 +290,9 @@ function FormScreen({ scr }: { scr: any }) {
       if (!res.ok) throw new Error(d.detail || 'Não foi possível concluir.');
       // honesto: mostra a mensagem REAL do backend (não inventa sucesso)
       setMsg({ ok: d.ok !== false, text: d.message || scr.submit.okMsg || 'Concluído.' });
+      // Gancho de documento: ações que GERAM um doc (aviso de férias, recibos, exports) devolvem
+      // d.doc {url, fmt} → abre direto (aditivo; formas sem d.doc não mudam).
+      if (d && d.doc && d.doc.url) { try { await abrirDoc(d.doc as DocRef); } catch { /* abre manual depois */ } }
       setVals({}); setOtp(null); setConfirming(false);
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : 'Erro.' });
