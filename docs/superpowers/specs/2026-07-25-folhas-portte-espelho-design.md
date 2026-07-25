@@ -52,7 +52,7 @@ Pipeline completo executado. Estado em `hr_payslips` (source='portte'), verifica
 | 04/2026 | 52 | R$ 71.941,65 | ✅ (SILVANA criada, R$418,62) |
 | 05/2026 | 52 | R$ 73.561,44 | ✅ |
 | 06/2026 | 56 | R$ 73.075,36 | ✅ (já era portte, verificado) |
-Total 5 meses portte: 263 folhas. **5 empregados criados** (dados Portte, status demitido, CNPJ1): SILVANA + 4 demitidos R$0 (regra Jordan "manter cadastro Portte"). **1 exceção documentada:** SADRAC (Jan, R$0, demitido) — posto sem PDF individual em NENHUM mês → sem condomínio mapeável → não carregado (R$0, total exato sem ele). Backups: `backups/postgresql/hr_payslips_PRE_portte_*.dump` + `employees_PRE_portte_*.dump`. Reversível por batch (source='portte'+competência) ou restore. `hr_payslips` alimenta razão do T1 (ledger_auto, passo separado — não postado ainda).
+Total 6 meses portte: **314 folhas, R$ 416.810,25** (Março via update in-place preservando pagamentos). **5 empregados criados** (dados Portte, status demitido, CNPJ1): SILVANA + 4 demitidos R$0 (regra Jordan "manter cadastro Portte"). **1 exceção documentada:** SADRAC (Jan, R$0, demitido) — posto sem PDF individual em NENHUM mês → sem condomínio mapeável → não carregado (R$0, total exato sem ele). Backups: `backups/postgresql/hr_payslips_PRE_portte_*.dump` + `employees_PRE_portte_*.dump`. Reversível por batch (source='portte'+competência) ou restore. `hr_payslips` alimenta razão do T1 (ledger_auto, passo separado — não postado ainda).
 
 ## Artefatos
 `auditoria/folhas_portte/extracao/<mes>/*.json` · `reconciliacao/<mes>.md` · `INVENTARIO.json` (todos os arquivos Drive) · relatório final `RESULTADO.md`.
