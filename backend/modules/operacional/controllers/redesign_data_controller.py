@@ -727,9 +727,10 @@ def _helpers(db: AsyncSession):
         except Exception:
             await db.rollback()
 
-    async def tbl(title, sub, cta, cols, grid, sql, rowfn, hint="Buscar…", docsfn=None):
-        # docsfn(r) → lista de doc() para aquela linha (documentos por-LINHA: holerite por
-        # colaborador, DANFSe por nota…). Opcional e retrocompatível (telas antigas não mudam).
+    async def tbl(title, sub, cta, cols, grid, sql, rowfn, hint="Buscar…", docsfn=None, editfn=None):
+        # docsfn(r) → docs por-LINHA. editfn(r) → dict de EDIÇÃO por-linha ({endpoint, method,
+        # fields:[{key,label,type,value,options}]}) → o FormScreen inline pré-preenche e faz PATCH.
+        # Ambos opcionais e retrocompatíveis (telas sem eles não mudam).
         rows = (await db.execute(text(sql))).fetchall()
 
         def _mkrow(r):
@@ -738,6 +739,10 @@ def _helpers(db: AsyncSession):
                 ds = docsfn(r)
                 if ds:
                     row["docs"] = ds
+            if editfn:
+                e = editfn(r)
+                if e:
+                    row["edit"] = e
             return row
 
         return {"title": title, "sub": sub, "cta": cta, "type": "table", "searchHint": hint,

@@ -335,10 +335,24 @@ async def build(db) -> dict:
         "Funcionários", f"{await _scalar_dp(db)} ativos", "Nova admissão",
         ["Colaborador", "Cargo", "Admissão", "Cadastro (eSocial)", "Status"],
         "2fr 1.3fr 1fr 1.7fr 0.9fr",
-        "SELECT nome, coalesce(cargo,'—'), data_admissao, status::text, " + _FALTANTES_SQL + " AS faltantes "
+        "SELECT nome, coalesce(cargo,'—'), data_admissao, status::text, " + _FALTANTES_SQL + " AS faltantes, "
+        "CAST(id AS TEXT), coalesce(cpf,''), coalesce(email,''), coalesce(celular,''), coalesce(departamento,''), salario_base "
         "FROM employees WHERE status='ativo' ORDER BY nome LIMIT 300",
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]), t(_d(r[2])),
-                   _completude_cell(r[4]), _badge_status(r[3])]))
+                   _completude_cell(r[4]), _badge_status(r[3])],
+        editfn=lambda r: {
+            "title": f"Editar — {r[0]}",
+            "endpoint": f"/api/v1/people-management/hr/employees/{r[5]}", "method": "PATCH",
+            "fields": [
+                {"key": "nome", "label": "Nome", "type": "text", "span": "span 2", "value": r[0] or ""},
+                {"key": "cpf", "label": "CPF", "type": "text", "value": r[6] or ""},
+                {"key": "cargo", "label": "Cargo", "type": "text", "value": (r[1] if r[1] != "—" else "")},
+                {"key": "departamento", "label": "Departamento", "type": "text", "value": r[9] or ""},
+                {"key": "email", "label": "E-mail", "type": "text", "value": r[7] or ""},
+                {"key": "celular", "label": "Celular", "type": "text", "value": r[8] or ""},
+                {"key": "salario_base", "label": "Salário base", "type": "text", "value": (str(r[10]) if r[10] is not None else "")},
+            ],
+        }))
 
     # 0b) Folha — SOBRESCREVE a base p/ trazer o BREAKDOWN do clássico (INSS/FGTS/Descontos),
     #     que o redesign perdeu (só mostrava base+líquido). Mesmas colunas do clássico.

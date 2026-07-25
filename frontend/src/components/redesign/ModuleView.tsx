@@ -85,11 +85,17 @@ function TableScreen({ scr }: { scr: any }) {
   const rows = (filterCol != null && active)
     ? allRows.filter((r: any) => String(r.cells?.[filterCol]?.v) === active)
     : allRows;
-  // Documentos por-LINHA (holerite por colaborador, DANFSe por nota…): se alguma linha declara
-  // docs, anexa uma coluna "Documento" ao grid — retrocompatível (telas sem row.docs não mudam).
+  // Documentos por-LINHA + Editar por-LINHA (edit={endpoint,method,fields}) → coluna de ações.
+  // Retrocompatível: telas sem docs/edit não mudam.
   const hasRowDocs = allRows.some((r: any) => Array.isArray(r.docs) && r.docs.length > 0);
-  const grid = hasRowDocs ? `${scr.grid} minmax(150px, auto)` : scr.grid;
-  const cols = hasRowDocs ? [...(scr.cols || []), 'Documento'] : (scr.cols || []);
+  const hasRowEdit = allRows.some((r: any) => r.edit && Array.isArray(r.edit.fields));
+  const hasActions = hasRowDocs || hasRowEdit;
+  const grid = hasActions ? `${scr.grid} minmax(150px, auto)` : scr.grid;
+  const cols = hasActions ? [...(scr.cols || []), hasRowDocs ? 'Documento' : 'Ações'] : (scr.cols || []);
+  const [editRow, setEditRow] = useState<any>(null);
+  const [editVals, setEditVals] = useState<Record<string, any>>({});
+  const [editMsg, setEditMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [editBusy, setEditBusy] = useState(false);
   return (
     <div className="rd-tbl-wrap">
       {filterCol != null && filterVals.length > 0 && (
@@ -119,9 +125,15 @@ function TableScreen({ scr }: { scr: any }) {
                       </>}
                 </span>
               ))}
-              {hasRowDocs && (
-                <span className="rd-tbl-cell" style={{ justifyContent: 'flex-end' }}>
+              {hasActions && (
+                <span className="rd-tbl-cell" style={{ justifyContent: 'flex-end', gap: 6 }}>
                   {Array.isArray(row.docs) && row.docs.length > 0 && <DocButtons docs={row.docs} compact />}
+                  {row.edit && Array.isArray(row.edit.fields) && (
+                    <button type="button" className="rd-btn rd-btn-outline" style={{ padding: '5px 10px', fontSize: 12 }}
+                      onClick={() => { setEditRow(row.edit); const v: Record<string, any> = {}; row.edit.fields.forEach((f: any) => { v[f.key] = f.value ?? ''; }); setEditVals(v); setEditMsg(null); }}>
+                      Editar
+                    </button>
+                  )}
                 </span>
               )}
             </div>
@@ -141,6 +153,42 @@ function TableScreen({ scr }: { scr: any }) {
               ))}
             </div>
           ))}
+        </div>
+      )}
+      {editRow && (
+        <div onClick={() => setEditRow(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,27,58,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--card, #fff)', borderRadius: 14, padding: 20, width: 'min(560px, 94vw)', maxHeight: '88vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink, #16277D)', marginBottom: 12 }}>{editRow.title || 'Editar'}</div>
+            {editMsg && <div className={`rd-badge ${editMsg.ok ? 'rd-b-success' : 'rd-b-error'}`} style={{ height: 'auto', padding: '8px 12px', fontSize: 12.5, marginBottom: 10, display: 'block' }}>{editMsg.text}</div>}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              {editRow.fields.map((f: any, i: number) => (
+                <div key={i} style={{ gridColumn: f.span === 'span 2' ? '1 / -1' : 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <label style={{ fontSize: 12, color: 'var(--placeholder)', fontWeight: 600 }}>{f.label}</label>
+                  {f.type === 'select'
+                    ? <select className="rd-input" value={editVals[f.key] ?? ''} onChange={(e) => setEditVals((s) => ({ ...s, [f.key]: e.target.value }))}>
+                        {(f.options || []).map((o: any, k: number) => <option key={k} value={o.value}>{o.label}</option>)}
+                      </select>
+                    : f.type === 'textarea'
+                      ? <textarea className="rd-input" style={{ height: 80, resize: 'vertical' }} value={editVals[f.key] ?? ''} onChange={(e) => setEditVals((s) => ({ ...s, [f.key]: e.target.value }))} />
+                      : <input className="rd-input" type={f.type === 'date' ? 'date' : 'text'} value={editVals[f.key] ?? ''} onChange={(e) => setEditVals((s) => ({ ...s, [f.key]: e.target.value }))} />}
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
+              <button type="button" className="rd-btn rd-btn-outline" onClick={() => setEditRow(null)}>Cancelar</button>
+              <button type="button" className="rd-btn rd-btn-primary" disabled={editBusy} onClick={async () => {
+                setEditBusy(true); setEditMsg(null);
+                try {
+                  let tok: string | null = null; try { tok = localStorage.getItem('access_token'); } catch { /* */ }
+                  const res = await fetch(editRow.endpoint, { method: editRow.method || 'PATCH', headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) }, body: JSON.stringify(editVals) });
+                  const d = await res.json().catch(() => ({}));
+                  if (!res.ok) throw new Error(d.detail || 'Não foi possível salvar.');
+                  setEditMsg({ ok: true, text: d.message || 'Salvo. Recarregue a tela para ver a alteração.' });
+                } catch (e) { setEditMsg({ ok: false, text: e instanceof Error ? e.message : 'Erro.' }); }
+                finally { setEditBusy(false); }
+              }}>{editBusy ? 'Salvando…' : 'Salvar'}</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
