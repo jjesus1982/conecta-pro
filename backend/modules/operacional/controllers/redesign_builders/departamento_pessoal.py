@@ -27,6 +27,8 @@ EXTRA_MENU: list[dict] = [
      "icon": "M17 8C8 10 5.9 16.2 3.8 21.7c-.3.7.3 1.3 1 1L8 21c9-2 11-8 13-13M12 2v4M20 6l-2 2"},
     {"id": "contracheques-lote", "label": "Contracheques em lote",
      "icon": "M9 7h6M9 11h6M9 15h4M5 3h14a1 1 0 0 1 1 1v16H4V4a1 1 0 0 1 1-1z"},
+    {"id": "nova-admissao", "label": "Nova admissão",
+     "icon": "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8M19 8v6M22 11h-6"},
 ]
 
 # datas: as tabelas usam date/timestamp; formatador defensivo local
@@ -641,5 +643,32 @@ async def build(db) -> dict:
             await db.rollback()
         except Exception:
             pass
+
+    # Nova admissão — FORM que abre processo de admissão (POST /hr/admissions, dados básicos do
+    # candidato). O restante do fluxo (documentos, exames, completar) segue na tela de admissão.
+    out["nova-admissao"] = {
+        "title": "Nova admissão", "type": "form",
+        "sub": "Abrir processo de admissão — dados do candidato (documentos e exames no fluxo seguinte)",
+        "cta": "Abrir admissão",
+        "submit": {"endpoint": "/api/v1/people-management/hr/admissions", "okMsg": "Processo de admissão aberto"},
+        "fields": [
+            {"key": "candidate_name", "label": "Nome do candidato*", "type": "text", "span": "span 2", "ph": "Nome completo"},
+            {"key": "cpf", "label": "CPF*", "type": "text", "span": "span 1", "ph": "000.000.000-00"},
+            {"key": "birth_date", "label": "Nascimento", "type": "date", "span": "span 1"},
+            {"key": "position", "label": "Cargo*", "type": "text", "span": "span 1", "ph": "Ex.: Agente de portaria"},
+            {"key": "department", "label": "Departamento", "type": "text", "span": "span 1", "ph": "Opcional"},
+            {"key": "salary_proposed", "label": "Salário proposto", "type": "text", "span": "span 1", "ph": "Ex.: 1670.00"},
+            {"key": "expected_start_date", "label": "Início previsto", "type": "date", "span": "span 1"},
+            {"key": "contract_type", "label": "Tipo de contrato", "type": "select", "span": "span 1",
+             "ph": "CLT", "options": [{"value": "CLT", "label": "CLT"}, {"value": "PJ", "label": "PJ"},
+                                      {"value": "Estágio", "label": "Estágio"}, {"value": "Temporário", "label": "Temporário"}]},
+            {"key": "pis_pasep", "label": "PIS/PASEP", "type": "text", "span": "span 1", "ph": "Opcional"},
+            {"key": "notes", "label": "Observações", "type": "textarea", "span": "span 2", "ph": "Opcional"},
+        ],
+    }
+    # Religa os CTAs "Nova admissão" (estavam mortos, ctaTo=None) → apontam p/ o form nova-admissao.
+    for _k in ("visao", "funcionarios", "admissao"):
+        if out.get(_k) and (out[_k].get("cta") or "").lower().startswith("nova admiss"):
+            out[_k]["ctaTo"] = "nova-admissao"
 
     return out
