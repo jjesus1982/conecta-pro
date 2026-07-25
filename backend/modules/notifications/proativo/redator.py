@@ -94,10 +94,13 @@ async def redigir(regra, achado, *, gerar_fn=None):
             f"Texto-base a reescrever no seu tom: \"{tpl_body}\". "
             f"Dados exatos: {achado.dados}."
         )
+        # gpt-4.1 (não gpt-5): reescrita fiel exige um modelo que RESPEITE temperature=0.2
+        # (gpt-5 é reasoning e roda temp=1 → paráfrase criativa que o groundedness rejeita,
+        # caindo sempre no template). gpt-4.1 é rápido (~500ms) e passa o groundedness.
         texto, _meta = await gerar_fn(
             messages=[{"role": "user", "content": prompt}],
             system_prompt=_SYS, max_tokens=180, temperature=0.2,
-            origem=None, direct=True,
+            origem=None, direct=True, model="gpt-4.1",
         )
         texto = (texto or "").strip()
         # Groundedness por IGUALDADE de conjuntos (não subconjunto): o corpo do LLM

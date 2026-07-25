@@ -89,7 +89,7 @@ async def _ensure_schema(db: AsyncSession) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 async def gerar(
     *, messages: list[dict], system_prompt: str, max_tokens: int = 2500, temperature: float = 0.2,
-    origem: str | None = None, direct: bool = False,
+    origem: str | None = None, direct: bool = False, model: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Gera com o melhor modelo disponível. Levanta RuntimeError se TODOS falharem.
 
@@ -101,6 +101,12 @@ async def gerar(
     direct=True pra NUNCA re-rotear pro Hermes (evita loop infinito). Qualquer falha do
     Hermes (indisponível, timeout, formato inesperado) degrada silenciosamente pro caminho
     atual (MODEL_CHAIN) — nunca quebra o consultor.
+
+    Fase 5.3 fast-follow — `model`: quando fornecido, a cadeia vira `[model]` (pula o
+    MODEL_CHAIN e o override por env), preservando TODO o resto (fallback pro Claude em
+    erro, tuple de retorno, a ponte Hermes). Serve ao redator utilitário, que precisa de
+    um modelo rápido que RESPEITE temperature (gpt-4.1), não do gpt-5 reasoning (que roda
+    temp=1 e derruba o groundedness). `model=None` (default) = comportamento atual.
     """
     if (
         os.getenv("HERMES_BRIDGE_ENABLED", "false").lower() == "true"
@@ -127,10 +133,15 @@ async def gerar(
     # fallback de emergência (não dispara sem crédito). A SOBERANIA real não vem de trocar de
     # fornecedor externo (ambos são externos) — vem do modelo LOCAL de embeddings (Fase 2) e,
     # no futuro, do raciocínio local (Fase 5, exige GPU).
-    chain = list(MODEL_CHAIN)
-    override = os.getenv("CONSULTOR_LLM_MODEL", "").strip()
-    if override and override not in chain:
-        chain.insert(0, override)
+    if model:
+        # Modelo explícito (ex.: redator utilitário → gpt-4.1): usa SÓ ele, ignora
+        # MODEL_CHAIN e o override por env. Fallback pro Claude em erro continua valendo.
+        chain = [model]
+    else:
+        chain = list(MODEL_CHAIN)
+        override = os.getenv("CONSULTOR_LLM_MODEL", "").strip()
+        if override and override not in chain:
+            chain.insert(0, override)
 
     erros: list[str] = []
     for model in chain:
