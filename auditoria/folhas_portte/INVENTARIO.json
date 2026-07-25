@@ -1,0 +1,34 @@
+{
+  "drive_root": "1K7TEggSu1miMfI6UX_PU3bS_76-X_Jzq",
+  "nota": "Cada mês = pasta. Por condomínio: 'Folha MM.2026_<Cond>' (extrato detalhado — EXTRAIR) + 'Recibo Folha MM.2026_<Cond>' (holerite derivado). '(N)' no nome = contador de versão/correção; cada condomínio aparece UMA vez por mês (versão final). Condomínios variam por mês (ex.: Villa dos Passaros em Jan, ausente em Fev).",
+  "pastas_mes": {
+    "01_janeiro": "1lzPJXSB6eL4ho4GjA2u4rEHDAUfpIFsG",
+    "02_fevereiro": "1bQG199gHd6xTPxKz57YTQUr2JnTe47gj",
+    "03_marco": "1UtFSe0VSK_skC7JCX8fWgG0mbRLqhzmf",
+    "04_abril": "1kUPlV8leyL5hojXd6fmJfj5ytLZf9fD0",
+    "05_maio": "1-3vSTgL6bKNIuBBNWMONw8ha5u4YV-xJ",
+    "06_junho": "1yi0qTHnjc3jCqO6O23JvPnLeF1RGl1DT"
+  },
+  "folhas_por_mes": {
+    "01_janeiro": {
+      "geral": "1xE2yXi1UON615MQZaaA_4k0tdcUl_wGf",
+      "ideal_flores": "1ZE9q53nR-1sYc7ng10keat0-sKKLfgAA",
+      "prime_arena": "1jFUdt4iultWuNgfVLE2GFPsZndYO-S_F",
+      "mirante_das_flores": "18-wQJRA_pj6dke-F6QPLKDPR7yfHqrE0",
+      "villa_dos_passaros": "1KBPE8CbprRcM9-4RW3uXnF9GSkJ76V5o",
+      "laranjeiras_village": "1zPundZpMQNr352sBvTkH6u_X29FYBZ5p",
+      "villa_dei_fiori": "1kUagpbO5eksUgQ6dVhAB7WQdCWxsKwzU",
+      "michelangelo": "1UXECQHI6U9V3ryyGfJtgC4VEYWFFMwN8"
+    },
+    "02_fevereiro": {
+      "geral": "1c5VjmwGlXww0mMfQSd-Ct_F5JvYvIRN3",
+      "laranjeiras_village": "1nEponGmdTkOO29Ah-5Po3XBqjCtUoCkx",
+      "prime_arena": "1sunTBiRYy9kzT7H358JCzVQeSPAc6jGX",
+      "villa_dei_fiori": "1w6bE1J_TXbYySZwpiMw4fU3NNVkJM5hh",
+      "ideal_flores": "1DSpT0chhuM6J6u_sjU597zccS1wgCqBx",
+      "mirante_das_flores": "1zZy_3ix4eEueqD2pfXLp1nDEGSSG3C0U",
+      "michelangelo": "1R8LrOOReYvY8ccgAZdtuzQ-Ub5FxEvjS"
+    }
+  },
+  "pendente": "Mar/Abr/Mai/Jun serão listados pelos subagentes de extração (via pasta-mês id)."
+}
