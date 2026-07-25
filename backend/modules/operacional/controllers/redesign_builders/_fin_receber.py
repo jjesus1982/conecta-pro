@@ -108,3 +108,47 @@ async def build_receber(db, out: dict) -> None:
         }
     except Exception:  # noqa: BLE001
         pass
+
+    # ── Régua de cobrança ATIVA (gated): fila de vencidos + tier + mensagem pronta ──────────
+    _NTONE = {"lembrete": "ok", "contato_ativo": "info", "notificacao_formal": "warn",
+              "negativacao_iminente": "bad", "juridico": "bad"}
+    try:
+        from modules.financial.services.regua_cobranca_service import montar_fila_cobranca
+        fila = await montar_fila_cobranca(db)
+        scr = {
+            "title": "Fila de cobrança (régua)", "type": "table", "cta": "—", "searchHint": "Buscar cliente…",
+            "sub": (f"{len(fila)} recebível(is) vencido(s) — nível pela régua (lembrete→jurídico). "
+                    "Copie a mensagem pronta e registre o contato na aba 'Registrar cobrança' (gated). "
+                    "Envio automático (WhatsApp) = próxima versão."),
+            "grid": "1.8fr 1.1fr 1fr 0.7fr 1.1fr 0.9fr",
+            "cols": ["Cliente", "Valor", "Vencimento", "Atraso", "Nível", "Tentativas"],
+            "rows": [{"cells": [
+                t((f["cliente"] or "—")[:34], 600, "#0F1B3A"), t(brl(f["valor"]), 600),
+                t(str(f["vencimento"])), t(f"{f['dias']}d"),
+                b(f["nivel"].replace("_", " ").capitalize(), _NTONE.get(f["nivel"], "info")),
+                t(str(f["tentativas"]) + ("· hoje" if f["contatado_hoje"] else ""))]} for f in fila],
+            "panelGrid": "1fr",
+            "panels": [{"title": "Mensagens prontas (copiar e enviar)", "rows": [
+                {"left": f"{(f['cliente'] or '—')[:22]} · {f['canal']}", "right": f["mensagem"][:80] + "…", **S["info"]}
+                for f in fila[:6]] or [{"left": "Todos em dia — sem cobranças pendentes", "right": "0 vencidos", **S["ok"]}]}],
+        }
+        out["fila-cobranca"] = scr
+    except Exception:  # noqa: BLE001
+        pass
+
+    # ── Registrar cobrança — AÇÃO GATED (registra a tentativa; NÃO envia nem move dinheiro) ──
+    out["registrar-cobranca"] = {
+        "title": "Registrar cobrança",
+        "sub": "Registra uma tentativa de contato de cobrança no recebível (nível, canal, data, tentativa). "
+               "Bookkeeping — NÃO envia mensagem nem move dinheiro. Anti-spam: 1 registro por cliente/dia.",
+        "cta": "Registrar cobrança", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/registrar-cobranca", "gated": False,
+                   "confirm": "Registrar a tentativa de cobrança para este recebível?",
+                   "okMsg": "Cobrança registrada."},
+        "fields": [
+            {"key": "receivable_id", "label": "ID do recebível* (da Fila de cobrança)", "type": "text", "span": "span 2", "ph": "cole o id da fila"},
+            {"key": "canal", "label": "Canal usado", "type": "select", "span": "span 2",
+             "options": [{"value": "whatsapp", "label": "WhatsApp"}, {"value": "email", "label": "E-mail"},
+                         {"value": "telefone", "label": "Telefone"}, {"value": "boleto", "label": "Re-emissão boleto/PIX"}]},
+        ],
+    }

@@ -941,6 +941,21 @@ async def _rd_conciliar_auto(current_user: CurrentActiveUser, payload: dict = Bo
             f"{er} erro(s) — de {tot} pendente(s) processada(s)."}
 
 
+@router.post("/action/registrar-cobranca")
+async def _rd_registrar_cobranca(current_user: CurrentActiveUser, payload: dict = Body(default={}), db=Depends(get_db)) -> dict:
+    """Régua ativa: registra uma tentativa de cobrança no recebível (bookkeeping — NÃO envia
+    mensagem nem move dinheiro). Anti-spam por dia no serviço."""
+    from modules.financial.services.regua_cobranca_service import registrar_cobranca
+    rid = (payload.get("receivable_id") or "").strip()
+    if not rid:
+        raise HTTPException(status_code=400, detail="Informe o ID do recebível (da Fila de cobrança).")
+    quem = getattr(current_user, "email", "") or str(getattr(current_user, "id", ""))
+    r = await registrar_cobranca(db, rid, (payload.get("canal") or "").strip(), quem)
+    if not r.get("ok"):
+        raise HTTPException(status_code=400, detail=r.get("message") or "Não foi possível registrar.")
+    return {"ok": True, "message": r["message"]}
+
+
 @router.post("/action/conciliar-liquido")
 async def _rd_conciliar_liquido(current_user: CurrentActiveUser, payload: dict = Body(default={}), db=Depends(get_db)) -> dict:
     """Conciliação por LÍQUIDO: marca conciliados os créditos do banco que casaram EXATO com o
