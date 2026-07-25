@@ -30,5 +30,11 @@ Backup por mês antes da carga. Nada de dinheiro/pagamento (só registro de folh
 ## Ordem de execução
 Mês a mês. Provável começar por um mês **novo e simples** (menos condomínios) p/ validar o pipeline ponta-a-ponta, depois escalar. Progresso medido por competências verificadas (0/6 → 6/6).
 
+## Coordenação com T1 (sessão paralela — financeiro) — 25/07
+- **Minha folha alimenta o razão do T1:** `hr_payslips` → `accounting_entries` via `ledger_auto`. Ao popular Jan–Jun, o Balanço/IRPJ-CSLL/DRE/Orçado×Realizado/Provisões do T1 refletem sozinhos. ⚠️ **Efeito contábil downstream** → na Fase 3 (carga): investigar se INSERT em `hr_payslips` auto-posta no razão (trigger vs processo) e garantir **idempotência** (import_batch_id) p/ re-runs NÃO duplicarem lançamentos. Verificar antes de carregar em massa.
+- **T1 tem tela de Provisões que LÊ `hr_payslips`** (férias 1/9 + 13º 1/12), nunca escreve. Não colide.
+- **Deploy acoplado (blue-green bakeia a árvore inteira):** commitar ANTES de deployar; `git add` só dos MEUS arquivos (DP/hr/people-management). **NÃO tocar** nos arquivos do T1: `redesign_builders/_fin_*.py`, `redesign_builders/financeiro.py`, `financial/services/{conciliacao_liquido,regua_cobranca,apuracao_lucro_real}_service.py`, `integrations/inter`, `integrations/banking`.
+- Checar deploy rodando com bracket-trick: `ps -eo args | grep "[d]eploy_backend_bluegreen.sh"`.
+
 ## Artefatos
 `auditoria/folhas_portte/extracao/<mes>/*.json` · `reconciliacao/<mes>.md` · `INVENTARIO.json` (todos os arquivos Drive) · relatório final `RESULTADO.md`.
