@@ -51,7 +51,14 @@ async def enviar_individual(db: AsyncSession, *, user_ids: list[str], title: str
     tenant_id = uid (users não tem coluna tenant_id; o sino filtra por
     tenant_id == user.id). extra_data carrega correlation_id + (opcional)
     idempotency_key p/ rastreio/dedup/auditoria. reference_type/reference_id
-    ligam a notificação à entidade proposta (ex.: 'proposta_acao' + entity_id)."""
+    ligam a notificação à entidade proposta (ex.: 'proposta_acao' + entity_id).
+
+    Idempotência ATÔMICA: `ON CONFLICT DO NOTHING` casa com o índice único parcial
+    `uq_notif_idempotency_user (user_id, extra_data->>'idempotency_key')` — re-criar
+    o mesmo (destinatário, idempotency_key) é bloqueado pelo banco (retorna 0 linhas,
+    filtrado abaixo), enquanto destinatários distintos passam. Rows sem
+    idempotency_key (5.3 e anteriores) ficam fora do índice parcial → conflito
+    nunca dispara, comportamento legado preservado."""
     criados: list[str] = []
     for uid in user_ids:
         extra = json.dumps({"correlation_id": correlation_id, "familia": familia,
@@ -63,11 +70,13 @@ async def enviar_individual(db: AsyncSession, *, user_ids: list[str], title: str
             f" reference_id, action_url, extra_data, is_active, sent_at, created_at) "
             f"VALUES (gen_random_uuid(), :tid, :uid, :title, :body, 'alerta', "
             f" :rtype, :rid, :url, CAST(:extra AS jsonb), true, {_NOW}, {_NOW}) "
+            f"ON CONFLICT DO NOTHING "
             f"RETURNING id::text"),
             {"tid": str(uid), "uid": str(uid), "title": title, "body": body,
              "rtype": reference_type, "rid": reference_id,
              "url": action_url, "extra": extra})).scalar()
-        criados.append(row)
+        if row:  # None quando ON CONFLICT DO NOTHING suprimiu a duplicata (destinatário, key)
+            criados.append(row)
     return criados
 
 

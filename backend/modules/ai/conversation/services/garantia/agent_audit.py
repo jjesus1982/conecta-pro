@@ -111,7 +111,12 @@ async def registrar_proposta_acao(
 ) -> str:
     """Append-only em `audit_logs`: 1 linha por PROPOSTA de ação (propor→aprovar).
     Registra tool/args/entity/gate/aprovadores + quem propôs (3 papéis). NUNCA
-    representa execução — só a criação do PENDENTE."""
+    representa execução — só a criação do PENDENTE.
+
+    ATOMICIDADE: NÃO faz commit. Só emite o INSERT do audit na transação corrente;
+    quem commita é a primitiva `propor` (único commit no fim, após inserir+audit+
+    sino). Assim, se qualquer passo falhar, pendente+audit+notificação revertem
+    juntos (rollback) — nada fica durável sem entrega. Único caller: `acoes.base`."""
     ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
     event_id = f"EVT-PROP-{ts}-{secrets.token_hex(4).upper()}"
     details = {
@@ -143,7 +148,7 @@ async def registrar_proposta_acao(
             "created_at": datetime.utcnow(),
         },
     )
-    await db.commit()
+    # SEM commit: a primitiva `propor` commita tudo de uma vez no fim (atomicidade).
     logger.info("agent_audit: proposta %s tool=%s dominio=%s gate=%s entity=%s",
                 event_id, tool, dominio, gate, entity_id)
     return event_id
