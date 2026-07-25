@@ -38,5 +38,14 @@ O **redesign** é a UI admin/gestão (substitui o clássico admin). O **portal-f
 - **Recomendação de método:** daqui pra frente rodar o recon SEMPRE com `--surface redesign` — é o oráculo do que falta para desligar o clássico. O `--surface all` só serve para achar o que não existe em lugar nenhum.
 - Cada módulo terá seu próprio gap-redesign; DP é só o primeiro. A conta total (todos os módulos) define o "redesign 100%".
 
+## Triagem dos 21 geradores redesign-órfãos (25/07 — conclusiva)
+Investigados 1 a 1 (dado real + escopo + redundância). Resultado: **o gap de geradores acionável está fechado**.
+- **FEITOS (2):** `ponto/folha-pdf` (Componente A — doc em fechamento-ponto) · aviso prévio de férias (Componente B — form+ação+gancho). No ar e duráveis.
+- **BLOQUEADO (1):** `contracheques-batch` — bug `status=="Ativo"`≠`'ativo'` gera 0 (aguarda decisão do Jordan; mexe em folha + efeito massa).
+- **Portal, não-redesign (8):** `portal/my-payslips/*/pdf`, `portal/self-service/meu-espelho|meus-documentos|meus-holerites*` — app do funcionário.
+- **vazio-real (≈9):** `reimbursements/attachments/{id}/download` (`reimbursement_attachments`=0), pipeline `hr/payroll/.../exports/*` (`payroll_exports`=0, 5 rotas), `esocial/receipt` (`esocial_receipts` não existe). Endpoint existe, sem dado → não wirar botão morto (aguarda dado).
+- **Redundante (1):** `hr/payroll/employee/{id}/payslip-pdf` = o `doc("Holerite")` que a tela **folha já expõe** (`/dp/payslips/{id}/pdf`).
+- **Falso-órfão (1):** `sst/ppp/{id}/pdf` — exposto no clássico (`sst.ts`), âncora curta.
+
 ## Próximo
-Seguir o loop pelos sub-projetos, medindo progresso pela queda do número de órfãs `--surface redesign`. Atualizar este relatório a cada rodada.
+Geradores esgotados. O gap-redesign restante do DP é **159 ações (WRITE)** + **163 GET-only** (parte já coberta via SQL nos builders). Próxima frente: triar os GET-only para **telas de leitura faltantes** (baixo risco, padrão tabela) e depois as ações seguras (admin CCT etc.), deixando folha/dinheiro/integrações para decisão. Medir progresso pela queda das órfãs `--surface redesign`. Atualizar este relatório a cada rodada.
