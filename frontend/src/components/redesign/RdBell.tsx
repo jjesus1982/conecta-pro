@@ -5,8 +5,10 @@
 // clássico (src/hooks/useNotifications.ts → /api/v1/operacional/comunicacao/*), cujo
 // api-client já injeta o Bearer do localStorage access_token.
 import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Bell } from 'lucide-react';
 import { useNotifications, useUnreadCount } from '@/hooks/useNotifications';
+import type { Notification } from '@/lib/services/notifications';
 
 function tempoRelativo(iso: string | null | undefined): string {
   if (!iso) return '';
@@ -20,6 +22,7 @@ function tempoRelativo(iso: string | null | undefined): string {
 }
 
 export default function RdBell() {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -53,6 +56,13 @@ export default function RdBell() {
   async function lerTodas() {
     const ok = await markAllAsRead();
     if (ok) { refresh(); refreshCount(); }
+  }
+  async function abrirNotificacao(n: Notification) {
+    if (!n.is_read) await lerUma(n.id);
+    if (n.action_url) {
+      setOpen(false);
+      router.push(n.action_url);
+    }
   }
 
   return (
@@ -99,7 +109,13 @@ export default function RdBell() {
                 style={{ display: 'flex', gap: 10, padding: '11px 14px', borderBottom: '1px solid var(--border)', alignItems: 'flex-start' }}
               >
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--orange)', marginTop: 5, flex: 'none' }} />
-                <div style={{ minWidth: 0, flex: 1 }}>
+                <div
+                  role={n.action_url ? 'button' : undefined}
+                  tabIndex={n.action_url ? 0 : undefined}
+                  onClick={() => abrirNotificacao(n)}
+                  onKeyDown={(e) => { if (n.action_url && (e.key === 'Enter' || e.key === ' ')) abrirNotificacao(n); }}
+                  style={{ minWidth: 0, flex: 1, cursor: n.action_url ? 'pointer' : 'default' }}
+                >
                   <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.title}</div>
                   {n.body && <div style={{ fontSize: 11.5, color: 'var(--ink-weak)', marginTop: 2, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{n.body}</div>}
                   <div style={{ fontSize: 10.5, color: 'var(--placeholder)', marginTop: 4 }}>{tempoRelativo(n.created_at)}</div>
@@ -108,7 +124,7 @@ export default function RdBell() {
                   type="button"
                   className="rd-btn rd-btn-ghost"
                   style={{ fontSize: 10.5, padding: '3px 7px', flex: 'none' }}
-                  onClick={() => lerUma(n.id)}
+                  onClick={(e) => { e.stopPropagation(); lerUma(n.id); }}
                   aria-label="Marcar como lida"
                 >
                   Lida
