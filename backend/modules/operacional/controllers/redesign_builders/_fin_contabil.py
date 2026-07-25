@@ -76,3 +76,56 @@ async def build_contabil(db, out: dict) -> None:
         out["balancete"] = scr
     except Exception:  # noqa: BLE001
         pass
+
+    # ── Balanço Patrimonial (do razão REAL accounting_entries — classifica pelo 1º dígito do
+    # código: 1=Ativo, 2=Passivo, 3=Receita, 4=Despesa; PL = Resultado do exercício. O serviço
+    # ORM balance_sheet_service lê o razão VAZIO fin_journal_entries → aqui lemos o populado). ─
+    try:
+        _rows = (await db.execute(text(
+            "WITH mov AS ("
+            " SELECT conta_debito AS conta, valor AS deb, 0::numeric AS cred FROM accounting_entries"
+            " UNION ALL SELECT conta_credito, 0, valor FROM accounting_entries) "
+            "SELECT m.conta, coalesce(max(a.name), m.conta), sum(m.deb), sum(m.cred) "
+            "FROM mov m LEFT JOIN fin_accounting_accounts a ON a.code=m.conta "
+            "WHERE m.conta IS NOT NULL GROUP BY m.conta ORDER BY m.conta"))).fetchall()
+        ativo, passivo, receita, despesa, at_tot, pa_tot = [], [], 0.0, 0.0, 0.0, 0.0
+        for conta, nome, d, c in _rows:
+            d = float(d or 0); c = float(c or 0); pre = (conta or "")[:1]
+            if pre == "1":
+                s = d - c; at_tot += s; ativo.append((nome, conta, s))
+            elif pre == "2":
+                s = c - d; pa_tot += s; passivo.append((nome, conta, s))
+            elif pre == "3":
+                receita += c - d
+            elif pre == "4":
+                despesa += d - c
+        resultado = receita - despesa
+        pl_tot = resultado  # sem conta de PL com movimento → resultado do exercício é o PL
+        confere = abs(at_tot - (pa_tot + pl_tot)) < 0.01
+        out["balanco-patrimonial"] = {
+            "title": "Balanço Patrimonial", "type": "dash", "cta": "—",
+            "sub": (f"Do razão real (accounting_entries) · "
+                    f"{'FECHA ✓' if confere else 'NÃO FECHA — revisar razão'} · "
+                    f"Ativo {brl(at_tot)} = Passivo {brl(pa_tot)} + PL {brl(pl_tot)}"),
+            "panelGrid": "1fr 1fr 1fr",
+            "kpis": [
+                {"v": brl(at_tot), "l": "Ativo total", "icon": "M3 3v18h18M18 9l-5 5-4-4-3 3", "color": "#16A34A"},
+                {"v": brl(pa_tot), "l": "Passivo total", "icon": "M2 6h20M2 18h20M6 6v12M18 6v12", "color": "#C2410C"},
+                {"v": brl(pl_tot), "l": "Patrimônio Líquido (resultado)", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", "color": "#0F1B3A"},
+                {"v": ("Fecha ✓" if confere else "Não fecha"), "l": "Ativo = Passivo + PL",
+                 "icon": "M20 6L9 17l-5-5", "color": "#16A34A" if confere else "#DC2626"},
+            ],
+            "panels": [
+                {"title": "Ativo", "rows": [{"left": f"{(n or '—')[:34]} ({co})", "right": brl(s), **S["ok"]}
+                                            for n, co, s in ativo] or [{"left": "—", "right": "0", **S["mut"]}]},
+                {"title": "Passivo", "rows": [{"left": f"{(n or '—')[:34]} ({co})", "right": brl(s), **S["warn"]}
+                                              for n, co, s in passivo] or [{"left": "—", "right": "0", **S["mut"]}]},
+                {"title": "Patrimônio Líquido", "rows": [
+                    {"left": "Receitas do período", "right": brl(receita), **S["ok"]},
+                    {"left": "(−) Despesas do período", "right": brl(despesa), **S["bad"]},
+                    {"left": "= Resultado do exercício", "right": brl(resultado),
+                     **(S["ok"] if resultado >= 0 else S["bad"])}]},
+            ],
+        }
+    except Exception:  # noqa: BLE001
+        pass

@@ -10,7 +10,7 @@ GRUPOS = [
         ("cfo", "CFO IA"), ("agentes", "Agentes"), ("relatorios", "Relatórios")]),
     ("g-receber", "Receber", "Contas a receber, cobrança e faturamento", [
         ("contas-receber", "Contas a Receber"), ("cobrancas", "Cobranças"),
-        ("regua", "Régua"), ("recorrencia", "Recorrência (MRR)"), ("boletos", "Boletos"),
+        ("regua", "Régua"), ("recorrencia", "Recorrência (MRR)"), ("gerar-cobrancas", "Gerar cobranças"), ("boletos", "Boletos"),
         ("emitir-boleto", "Emitir boleto"), ("cobrar-pix", "Cobrar PIX"),
         ("faturamento", "Faturamento"), ("clientes", "Clientes"),
         ("registrar-conta-receber", "Registrar")]),
@@ -30,12 +30,13 @@ GRUPOS = [
     ("g-fiscal", "Fiscal & Contábil", "Notas, guias e contabilidade", [
         ("fiscal", "Fiscal"), ("nfse-entrada", "NFS-e entrada"),
         ("plano-contas", "Plano de contas"), ("lancamentos", "Lançamentos"),
-        ("balancete", "Balancete"), ("contabilidade", "Extrato categorizado"),
-        ("cancelar-boleto", "Cancelar boleto")]),
+        ("balancete", "Balancete"), ("balanco-patrimonial", "Balanço Patrimonial"),
+        ("contabilidade", "Extrato categorizado"), ("cancelar-boleto", "Cancelar boleto")]),
     ("g-custos", "Custos & Orçamento", "Custos, custeio, precificação e orçamento", [
         ("custos", "Custos"), ("custeio-abc", "Custeio ABC"),
         ("custeio-contratos", "Margem por contrato"), ("custeio", "Simulador CCT"), ("custeio-cct", "Custeio CCT"),
-        ("precificacao", "Precificação"), ("orcamentos", "Orçamentos")]),
+        ("precificacao", "Precificação"), ("orcamentos", "Orçamentos"),
+        ("orcado-realizado", "Orçado × Realizado")]),
     ("g-cadastros", "Cadastros & Suprimentos", "Fornecedores, contratos, compras e estoque", [
         ("fornecedores", "Fornecedores"), ("contratos", "Contratos"),
         ("compras-reais", "Compras"), ("compras", "Compras (NF-e)"),

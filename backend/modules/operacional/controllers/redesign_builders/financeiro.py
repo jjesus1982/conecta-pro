@@ -941,6 +941,28 @@ async def _rd_conciliar_auto(current_user: CurrentActiveUser, payload: dict = Bo
             f"{er} erro(s) — de {tot} pendente(s) processada(s)."}
 
 
+@router.post("/action/cobrar-recorrente")
+async def _rd_cobrar_recorrente(current_user: CurrentActiveUser, payload: dict = Body(default={}), db=Depends(get_db)) -> dict:
+    """Money-IN: EMITE cobranças recorrentes REAIS (PIX/boleto Inter/Cora) do mês/ano aos clientes.
+    Gate humano (confirm na tela). Idempotente por cliente/período (não recobra). Reusa a função
+    provada gerar_cobrancas_mensais — NÃO é disparo automático (sem beat)."""
+    from starlette.concurrency import run_in_threadpool
+
+    try:
+        mes = int(str(payload.get("mes") or "").strip()); ano = int(str(payload.get("ano") or "").strip())
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Informe o mês (1-12) e o ano (AAAA).")
+    if not (1 <= mes <= 12) or not (2020 <= ano <= 2100):
+        raise HTTPException(status_code=400, detail="Mês (1-12) ou ano (AAAA) fora do intervalo.")
+    from modules.financial.services.recurring_billing_service import gerar_cobrancas_mensais
+    r = await run_in_threadpool(gerar_cobrancas_mensais, mes, ano, False)
+    if isinstance(r, dict) and r.get("success") is False:
+        raise HTTPException(status_code=400, detail=str(r.get("error") or "Falha ao gerar cobranças."))
+    tc = (r or {}).get("total_clientes", 0); tv = (r or {}).get("total_cobrado", 0); er = (r or {}).get("erros", 0)
+    return {"ok": True, "message": f"Cobranças {mes:02d}/{ano}: {tc} cliente(s) processado(s), "
+            f"{brl(tv)} cobrado, {er} erro(s)."}
+
+
 # ── Money-IN (cobrança) e gestão — delega às funções do console clássico ──
 @router.post("/action/emitir-boleto")
 async def _rd_emitir_boleto(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:

@@ -78,8 +78,33 @@ async def build_receber(db, out: dict) -> None:
         scr["panels"] = [{"title": "Ciclo do mês (preview)", "rows": [
             {"left": "Clientes no ciclo", "right": str(tot_cli or 0), **S["info"]},
             {"left": "Total MRR", "right": brl(tot_mrr), **S["ok"]},
-            {"left": "Disparo da cobrança", "right": "Manual/gated — fora desta tela", **S["warn"]},
+            {"left": "Disparo da cobrança", "right": "Manual/gated — aba 'Gerar cobranças'", **S["warn"]},
         ]}]
         out["recorrencia"] = scr
+    except Exception:  # noqa: BLE001
+        pass
+
+    # ── Gerar cobranças do mês — AÇÃO GATED (money-IN: emite cobranças REAIS aos clientes).
+    # NÃO é beat automático — exige o Jordan/Pyetra confirmar. Idempotente por cliente/período. ─
+    try:
+        _n = (await db.execute(text(
+            "SELECT count(*) FROM clients WHERE status='active' AND coalesce(mrr,0)>0"))).scalar() or 0
+        _mrr = (await db.execute(text(
+            "SELECT coalesce(sum(mrr),0) FROM clients WHERE status='active' AND coalesce(mrr,0)>0"))).scalar() or 0
+        out["gerar-cobrancas"] = {
+            "title": "Gerar cobranças recorrentes do mês",
+            "sub": (f"EMITE cobranças REAIS (PIX/boleto via Inter/Cora) aos clientes — base de {int(_n)} "
+                    f"cliente(s) ativo(s) · {brl(_mrr)}/mês. Idempotente: não recobra quem já foi cobrado no "
+                    "período. Confira a aba 'Recorrência (preview)' antes de gerar."),
+            "cta": "Gerar cobranças", "type": "form",
+            "submit": {"endpoint": "/api/v1/redesign/action/cobrar-recorrente", "gated": False,
+                       "confirm": "ATENÇÃO: isto vai EMITIR COBRANÇAS REAIS aos clientes do mês/ano informado "
+                                  "(PIX/boleto de verdade). Confirmar a emissão?",
+                       "okMsg": "Cobranças processadas."},
+            "fields": [
+                {"key": "mes", "label": "Mês* (1-12)", "type": "text", "span": "span 1", "ph": "Ex.: 7"},
+                {"key": "ano", "label": "Ano* (AAAA)", "type": "text", "span": "span 1", "ph": "Ex.: 2026"},
+            ],
+        }
     except Exception:  # noqa: BLE001
         pass

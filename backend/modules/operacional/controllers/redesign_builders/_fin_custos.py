@@ -1,6 +1,8 @@
 """F6 — Custeio ABC REAL (corrige a lacuna: o 'custeio' do redesign era só o simulador CCT).
 REUSA as funções exatas do custeio_controller: get_custeio_abc (MRR/custo/margem por tipo de
 serviço + custo por categoria) e get_custeio_contratos (margem por contrato individual)."""
+from sqlalchemy import text
+
 from modules.operacional.controllers.redesign_data_controller import S, _helpers, b, brl, t
 
 
@@ -61,5 +63,39 @@ async def build_custos(db, out: dict) -> None:
                 b(f"{c.get('mc_pct','—')}%", "ok" if (c.get("mc_pct") or 0) >= 0 else "bad"),
                 b((c.get("status") or "—").capitalize(), _tone_cls(c.get("status"))),
             ]} for c in contratos]}
+    except Exception:  # noqa: BLE001
+        pass
+
+    # ── Orçado × Realizado (realizado = despesas do razão REAL por mês; orçado = KV
+    # financial_orcamentos month_AAAA_MM). Motor budget_service lê razão VAZIO; aqui o populado.
+    # Onde não há orçamento cadastrado → "sem orçamento" honesto (acende ao preencher). ──────
+    try:
+        real = (await db.execute(text(
+            "SELECT to_char(data_lancamento,'YYYY_MM') mes, sum(valor) "
+            "FROM accounting_entries WHERE conta_debito LIKE '4%' AND data_lancamento IS NOT NULL "
+            "GROUP BY 1 ORDER BY 1 DESC LIMIT 12"))).fetchall()
+        orc = {r[0]: float(r[1]) for r in (await db.execute(text(
+            "SELECT replace(chave,'month_',''), valor FROM financial_orcamentos WHERE chave LIKE 'month_%'"))).fetchall()}
+        n_orc = len([1 for m, _ in real if m in orc])
+        rows = []
+        for mes, rz in real:
+            realizado = float(rz or 0)
+            o = orc.get(mes)
+            if o is None:
+                rows.append({"cells": [t(mes.replace('_', '/')), t("— sem orçamento", 500, "#94A3B8"),
+                                       t(brl(realizado), 600), t("—"), b("cadastrar", "mut")]})
+            else:
+                var = o - realizado
+                rows.append({"cells": [t(mes.replace('_', '/')), t(brl(o), 600), t(brl(realizado), 600),
+                                       t(brl(var)), b("dentro" if var >= 0 else "estourou",
+                                                      "ok" if var >= 0 else "bad")]})
+        out["orcado-realizado"] = {
+            "title": "Orçado × Realizado (despesas)", "type": "table", "cta": "—",
+            "sub": (f"Realizado do razão real × orçamento cadastrado · {n_orc}/{len(real)} meses com orçamento. "
+                    f"Cadastre o orçamento na tela de Relatórios para acender a comparação."),
+            "grid": "1fr 1fr 1fr 1fr 0.9fr",
+            "cols": ["Mês", "Orçado", "Realizado (despesas)", "Variância", "Status"],
+            "rows": rows or [{"cells": [t("Sem lançamentos de despesa no razão", 500), t("—"), t("—"), t("—"), b("—", "mut")]}],
+        }
     except Exception:  # noqa: BLE001
         pass
