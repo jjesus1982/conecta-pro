@@ -129,9 +129,9 @@ function TableScreen({ scr }: { scr: any }) {
                 <span className="rd-tbl-cell" style={{ justifyContent: 'flex-end', gap: 6 }}>
                   {Array.isArray(row.docs) && row.docs.length > 0 && <DocButtons docs={row.docs} compact />}
                   {row.edit && Array.isArray(row.edit.fields) && (
-                    <button type="button" className="rd-btn rd-btn-outline" style={{ padding: '5px 10px', fontSize: 12 }}
+                    <button type="button" className={`rd-btn ${row.edit.btnStyle === 'primary' ? 'rd-btn-primary' : 'rd-btn-outline'}`} style={{ padding: '5px 10px', fontSize: 12 }}
                       onClick={() => { setEditRow(row.edit); const v: Record<string, any> = {}; row.edit.fields.forEach((f: any) => { v[f.key] = f.value ?? ''; }); setEditVals(v); setEditMsg(null); }}>
-                      Editar
+                      {row.edit.btnLabel || 'Editar'}
                     </button>
                   )}
                 </span>
@@ -186,7 +186,7 @@ function TableScreen({ scr }: { scr: any }) {
                   setEditMsg({ ok: true, text: d.message || 'Salvo. Recarregue a tela para ver a alteração.' });
                 } catch (e) { setEditMsg({ ok: false, text: e instanceof Error ? e.message : 'Erro.' }); }
                 finally { setEditBusy(false); }
-              }}>{editBusy ? 'Salvando…' : 'Salvar'}</button>
+              }}>{editBusy ? 'Enviando…' : (editRow.submitLabel || 'Salvar')}</button>
             </div>
           </div>
         </div>

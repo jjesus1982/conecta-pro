@@ -765,6 +765,40 @@ async def build(db) -> dict:
         if out.get("licencas") and not out["licencas"].get("ctaTo"):
             out["licencas"]["cta"] = "Registrar afastamento"
             out["licencas"]["ctaTo"] = "nova-licenca"
+
+        # ── Task 5: ferias — reconcilia p/ tabela CANÔNICA hr_vacation_requests. A base lia a
+        # legada employee_vacation_requests, cujo id NÃO bate com /vacations/{id}/approve (approve
+        # grava hr_vacation_requests) → aprovar por ali erraria o registro. Aqui LÊ a canônica e
+        # liga a AÇÃO por-linha "Aprovar" (POST /vacations/{id}/approve) só p/ SUBMITTED.
+        # Aprovar dispara kit GEDEON no backend → happy-path NÃO testado (provado por 404 em id fake).
+        _FER_ST = {"submitted": ("Pendente", "warn"), "approved": ("Aprovada", "ok"),
+                   "rejected": ("Rejeitada", "bad"), "cancelled": ("Cancelada", "mut"),
+                   "canceled": ("Cancelada", "mut")}
+
+        def _fer_row(r):
+            lbl, tone = _FER_ST.get((r[5] or "").lower(), (r[5] or "—", "info"))
+            return [t(r[1] or "—", 600, _ND, initials(r[1] or "")), t(_d(r[2])), t(_d(r[3])),
+                    t(str(r[4]) if r[4] is not None else "—"), b(lbl, tone)]
+
+        def _fer_edit(r):
+            if (r[5] or "").upper() != "SUBMITTED":
+                return None
+            return {"title": f"Aprovar férias de {r[1] or '—'}",
+                    "endpoint": f"/api/v1/people-management/hr/vacations/{r[0]}/approve",
+                    "method": "POST", "btnLabel": "Aprovar", "submitLabel": "Aprovar",
+                    "btnStyle": "primary", "okMsg": "Férias aprovadas. Recarregue a tela.",
+                    "fields": []}
+
+        _n_fer = (await db.execute(_sqltext("SELECT count(*) FROM hr_vacation_requests"))).scalar() or 0
+        await safe("ferias", tbl(
+            "Férias", f"{_n_fer} solicitações (fonte canônica)", "Solicitar férias",
+            ["Colaborador", "Início", "Fim", "Dias", "Status"], "2fr 1fr 1fr 0.6fr 1fr",
+            "SELECT v.id, coalesce(e.nome,'—'), v.start_date, v.end_date, v.days_requested, "
+            "coalesce(v.status::text,'—') FROM hr_vacation_requests v "
+            "LEFT JOIN employees e ON e.id=v.employee_id ORDER BY v.start_date DESC NULLS LAST LIMIT 200",
+            _fer_row, editfn=_fer_edit))
+        if out.get("ferias") and not out["ferias"].get("ctaTo"):
+            out["ferias"]["ctaTo"] = "solicitar-ferias"
     except Exception:
         try:
             await db.rollback()
