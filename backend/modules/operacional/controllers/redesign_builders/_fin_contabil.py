@@ -382,30 +382,36 @@ async def build_contabil(db, out: dict) -> None:
 
             if _regime == "simples_nacional":
                 _anexo = (_cfg[1] or "III")
-                _lim = ["pis_cofins_zero"]  # liminar ativa da Patrimonial (PIS/COFINS zerados)
-                c = _agent.calcular_simples(_rec_mes, _rbt12, anexo=_anexo, liminares=_lim)
+                # LIMINAR PIS/COFINS/INSS: deu entrada mas NÃO foi obtida (2026-07) → DAS INTEGRAL.
+                # A Patrimonial ainda sofre retenção de PIS/COFINS/INSS (INSS em dobro: na nota de
+                # serviço + na guia do Simples). Só aplicar a redução quando a liminar for deferida.
+                c = _agent.calcular_simples(_rec_mes, _rbt12, anexo=_anexo, liminares=[])  # integral
+                c_lim = _agent.calcular_simples(_rec_mes, _rbt12, anexo=_anexo, liminares=["pis_cofins_zero"])
+                _econ_potencial = float(c.valor_das) - float(c_lim.valor_das)  # informativo (se deferida)
                 _dist = c.distribuicao or {}
                 out[_slug] = {
                     "title": f"Apuração DAS — {_nome} (Simples Nacional)", "type": "dash", "cta": "—",
                     "sub": (f"Anexo {_anexo} · competência {_comp} · RBT12 {brl(float(_rbt12))}"
                             f"{' (proporcional — empresa nova)' if _n < 12 else ''} · alíq. efetiva "
-                            f"{float(c.aliquota_efetiva)*100:.2f}%. Liminar PIS/COFINS zerados aplicada. Receita real das NFS-e."),
+                            f"{float(c.aliquota_efetiva)*100:.2f}%. DAS INTEGRAL — liminar PIS/COFINS/INSS "
+                            "EM ANDAMENTO (deu entrada, não obtida); retenção ainda ativa, INSS em dobro (nota+DAS)."),
                     "panelGrid": "1fr 1fr",
                     "kpis": [
                         {"v": brl(float(_rec_mes)), "l": f"Receita do mês ({_comp})", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", "color": "#16A34A"},
                         {"v": f"{float(c.aliquota_efetiva)*100:.2f}%", "l": "Alíquota efetiva", "icon": "M3 3v18h18M18 9l-5 5-4-4-3 3", "color": "#0F1B3A"},
-                        {"v": brl(float(c.valor_das)), "l": "DAS a pagar", "icon": "M2 6h20M2 18h20M6 6v12M18 6v12", "color": "#C2410C"},
-                        {"v": brl(float(c.economia_liminares)), "l": "Economia (liminar)", "icon": "M20 6L9 17l-5-5", "color": "#16A34A"},
+                        {"v": brl(float(c.valor_das)), "l": "DAS a pagar (integral)", "icon": "M2 6h20M2 18h20M6 6v12M18 6v12", "color": "#C2410C"},
+                        {"v": brl(_econ_potencial), "l": "Economia SE liminar deferida", "icon": "M20 6L9 17l-5-5", "color": "#0F1B3A"},
                     ],
                     "panels": [
-                        {"title": "DAS por tributo (com liminar)", "rows": [
+                        {"title": "DAS por tributo (integral, sem liminar)", "rows": [
                             {"left": k.upper(), "right": brl(float(v)),
                              **(S["mut"] if float(v) == 0 else S["info"])} for k, v in _dist.items()]
                             or [{"left": "—", "right": "0", **S["mut"]}]},
-                        {"title": "Base", "rows": [
+                        {"title": "Situação da liminar", "rows": [
                             {"left": "RBT12 (12 meses)", "right": brl(float(_rbt12)), **S["info"]},
                             {"left": "Alíquota nominal (faixa)", "right": f"{float(c.aliquota_nominal)*100:.2f}%", **S["info"]},
-                            {"left": "Liminares aplicadas", "right": ", ".join(c.liminares_aplicadas) or "—", **S["ok"]},
+                            {"left": "Liminar PIS/COFINS/INSS", "right": "Em andamento — NÃO obtida (DAS integral)", **S["warn"]},
+                            {"left": "Economia potencial se deferida", "right": brl(_econ_potencial), **S["ok"]},
                         ]},
                     ],
                 }
