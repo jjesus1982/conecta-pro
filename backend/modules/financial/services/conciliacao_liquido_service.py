@@ -54,13 +54,36 @@ async def casar_notas_banco(db, inicio: str, fim: str, persistir: bool = False) 
         "coalesce(empresa_id::text,'') FROM nfse_emitidas_nacional "
         "WHERE data_emissao BETWEEN :a AND :b AND coalesce(valor_liquido,0)>0 "
         "ORDER BY valor_liquido DESC"), {"a": di, "b": df})).fetchall()
-    creds = (await db.execute(text(
-        "SELECT bt.id, bt.transaction_date, bt.amount, coalesce(bt.description,''), coalesce(bt.reconciliation_status,''), ba.bank_code "
+    # INTER: as duas fontes são COMPLEMENTARES (nenhuma sozinha é completa) — bank_transactions
+    # tem o histórico (mar-jun), inter_transactions tem o recente/fresco (jul). União deduplicada
+    # por (data, valor). CORA: bank_transactions (403).
+    inter_bt = (await db.execute(text(
+        "SELECT bt.id, bt.transaction_date, bt.amount, coalesce(bt.description,''), coalesce(bt.reconciliation_status,'') "
         "FROM bank_transactions bt JOIN bank_accounts ba ON ba.id=bt.bank_account_id "
-        "WHERE ba.bank_code IN ('077','403') AND bt.transaction_type IN ('credit','credito') "
+        "WHERE ba.bank_code='077' AND bt.transaction_type IN ('credit','credito') "
         "AND bt.transaction_date BETWEEN :a AND :b"), {"a": di, "b": df})).fetchall()
-    C = [{"id": str(c[0]), "date": _d(c[1]), "amt": float(c[2]), "desc": c[3],
-          "nome": _norm(c[3]), "st": c[4], "bank": c[5], "used": False} for c in creds]
+    inter_it = (await db.execute(text(
+        "SELECT id, data_lancamento, valor, coalesce(descricao,'') FROM inter_transactions "
+        "WHERE tipo_operacao='C' AND data_lancamento BETWEEN :a AND :b"), {"a": di, "b": df})).fetchall()
+    cora_creds = (await db.execute(text(
+        "SELECT bt.id, bt.transaction_date, bt.amount, coalesce(bt.description,''), coalesce(bt.reconciliation_status,'') "
+        "FROM bank_transactions bt JOIN bank_accounts ba ON ba.id=bt.bank_account_id "
+        "WHERE ba.bank_code='403' AND bt.transaction_type IN ('credit','credito') "
+        "AND bt.transaction_date BETWEEN :a AND :b"), {"a": di, "b": df})).fetchall()
+    C, _seen = [], set()
+    for c in inter_bt:
+        amt = abs(float(c[2] or 0)); _seen.add((str(_d(c[1])), round(amt, 2)))
+        C.append({"id": str(c[0]), "date": _d(c[1]), "amt": amt, "desc": c[3],
+                  "nome": _norm(c[3]), "st": c[4], "bank": "077", "source": "bank_tx", "used": False})
+    for c in inter_it:
+        amt = abs(float(c[2] or 0))
+        if (str(_d(c[1])), round(amt, 2)) in _seen:
+            continue  # já veio de bank_transactions (dedup)
+        C.append({"id": str(c[0]), "date": _d(c[1]), "amt": amt, "desc": c[3],
+                  "nome": _norm(c[3]), "st": "", "bank": "077", "source": "inter_tx", "used": False})
+    for c in cora_creds:
+        C.append({"id": str(c[0]), "date": _d(c[1]), "amt": abs(float(c[2] or 0)), "desc": c[3],
+                  "nome": _norm(c[3]), "st": c[4], "bank": "403", "source": "bank_tx", "used": False})
 
     casados, sugestoes, notas_sem = [], [], []
     tot_liq = 0.0
@@ -87,7 +110,8 @@ async def casar_notas_banco(db, inicio: str, fim: str, persistir: bool = False) 
             casados.append({"chave": chave, "cliente": tnome, "liquido": round(vliq, 2), "inss": round(inss, 2),
                             "credito_id": best[0]["id"], "credito_valor": best[0]["amt"],
                             "credito_data": str(best[0]["date"]), "diff": round(best[1], 2),
-                            "banco": "Cora" if best[0]["bank"] == "403" else "Inter"})
+                            "banco": "Cora" if best[0]["bank"] == "403" else "Inter",
+                            "source": best[0]["source"]})
             continue
 
         # Fuzzy — identidade do pagador (nome do PIX) bate + valor aproximado → SUGESTÃO (não persiste)
@@ -111,6 +135,8 @@ async def casar_notas_banco(db, inicio: str, fim: str, persistir: bool = False) 
     aplicados = 0
     if persistir and casados:
         for m in casados:
+            if m.get("source") != "bank_tx":
+                continue  # Inter vem de inter_transactions (sem coluna de status) → relatório é a fonte
             r = await db.execute(text(
                 "UPDATE bank_transactions SET reconciliation_status='conciliado', reconciled_at=now(), "
                 "reconciliation_note = coalesce(reconciliation_note,'') || :nota "
