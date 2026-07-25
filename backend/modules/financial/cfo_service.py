@@ -708,6 +708,8 @@ async def consultar(
             system_prompt = f"{system_prompt}\n\n{_extra}"
         if _conversa:
             system_prompt = f"{system_prompt}\n\n{_conversa}"
+        from modules.ai.conversation.services.consultor_conhecimento_service import contexto_para_prompt
+        system_prompt = system_prompt + contexto_para_prompt("cfo", pergunta)
         from modules.ai.conversation.services.llm_provider import ClaudeProvider, OpenAIProvider
 
         # OpenAI é o provider PRIMÁRIO dos consultores (decisão Jordan 2026-07-07:

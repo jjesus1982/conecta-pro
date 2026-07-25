@@ -1,5 +1,10 @@
 """Bridge do Portal do Cliente para o engine escopado. Roda com a identidade do portal
-(client_id de get_current_portal_client). user=None (identidade externa = client_id)."""
+(client_id de get_current_portal_client). user=None (identidade externa = client_id).
+
+Fase 5.4b (injeção de conhecimento de domínio): DELIBERADAMENTE SEM injeção aqui.
+Cliente é identidade EXTERNA (parede) — os .md de agent_knowledge/consultores/ contêm
+conhecimento INTERNO (playbooks, CCT, tributos, etc.) que não deve vazar para fora da
+empresa. Não existe (e não deve existir) um agent_knowledge/consultores/cliente.md."""
 from __future__ import annotations
 
 from typing import Any

@@ -107,7 +107,21 @@ async def consultar(
         return out
 
     scope, tools = await _resolver_tier_e_tools(db, user)
+
+    # Injeção aditiva de conhecimento de domínio (Fase 5.4b): só os módulos que o
+    # próprio usuário já enxerga (belt), CAP em 2 p/ não inchar o prompt. Fail-open
+    # (o serviço devolve "" se o .md do agente não existir).
+    from modules.ai.conversation.services.consultor_conhecimento_service import contexto_para_prompt
+    _MODULO_AGENTE = {
+        "financeiro": "cfo", "fiscal": "fiscal", "juridico": "juridico",
+        "ged": "ged", "crm": "comercial", "operacional": "operacional", "dp": "chro",
+    }
+    mods = user_modules(user)
+    system_prompt = _SYSTEM_BASE
+    for agente in list({_MODULO_AGENTE[m] for m in mods if m in _MODULO_AGENTE})[:2]:
+        system_prompt += contexto_para_prompt(agente, pergunta)
+
     return await run_engine(
         db, user, scope, tools, pergunta,
-        system_prompt=_SYSTEM_BASE, origem="consultor_escopado",
+        system_prompt=system_prompt, origem="consultor_escopado",
     )

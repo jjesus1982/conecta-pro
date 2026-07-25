@@ -395,6 +395,8 @@ async def consultar(
             system_prompt = f"{system_prompt}\n\n{_extra}"
         if _conversa:
             system_prompt = f"{system_prompt}\n\n{_conversa}"
+        from modules.ai.conversation.services.consultor_conhecimento_service import contexto_para_prompt
+        system_prompt = system_prompt + contexto_para_prompt("chro", pergunta)
         resposta_texto, llm_meta = await _hub.gerar(
             messages=[{"role": "user", "content": user_content}],
             system_prompt=system_prompt, max_tokens=2500, temperature=0.2,
