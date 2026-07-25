@@ -12,6 +12,14 @@ from core.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
+# Piso de tokens p/ modelos reasoning (gpt-5*): o raciocinio consome parte do
+# orcamento de max_completion_tokens antes de gerar o texto de resposta. Com
+# orcamento baixo (ex.: 512/800) o modelo devolve content="" e finish_reason
+# "length" -- gasta tudo raciocinando e nao sobra nada pra escrever. Espelha
+# `_REASONING_MIN_TOKENS` de backend/core/llm_cascade.py (mesmo valor, mesma
+# causa-raiz, provado por probe real 2026-07-25).
+_REASONING_MIN_TOKENS = 2000
+
 
 class LLMModel(StrEnum):
     """Modelos de LLM disponiveis."""
@@ -100,10 +108,16 @@ class OpenAIProvider(BaseLLMProvider):
 
         A assinatura publica de generate() nao muda: os chamadores continuam passando
         max_tokens/temperature; a adaptacao acontece aqui dentro.
+
+        Tambem aplica um PISO de `_REASONING_MIN_TOKENS` ao max_completion_tokens
+        da familia gpt-5: o raciocinio do modelo consome tokens do proprio orcamento
+        de saida, entao um max_tokens baixo (ex.: 512) faz o modelo gastar tudo
+        raciocinando e devolver content vazio (finish_reason="length"). gpt-4.x nao
+        e afetado (contrato antigo, sem reasoning).
         """
         model = (self.model or "").lower()
         if model.startswith("gpt-5"):
-            params: dict[str, Any] = {"max_completion_tokens": max_tokens}
+            params: dict[str, Any] = {"max_completion_tokens": max(max_tokens, _REASONING_MIN_TOKENS)}
             if temperature == 1:
                 params["temperature"] = temperature
             return params
