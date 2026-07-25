@@ -64,6 +64,23 @@
 - [ ] **Step 3 (oráculo verde):** Nativo com faltas bate o Portte para os casos com falta.
 - [ ] **Step 4:** Commit `feat(folha): motor CCT aplica faltas + benefícios reais (unifica com payroll_service)`.
 
+> **RESTRIÇÃO DE EXECUÇÃO A4 (2026-07-25, provada):** o cálculo em LOTE
+> (`calcular_folha_batch` via `/resumo` ou `/dashboard`) **OOM-mata o container backend (6GB)** —
+> o app já usa ~5GB, o batch de 56 func estoura o cgroup (isolado do host, mas derruba a produção
+> ~40s). O cálculo INDIVIDUAL (`/calcular/{id}/{mes}/{ano}`) é **seguro** (leve, 200). Logo A4
+> deve rodar **funcionário-a-funcionário** (acumulando do lado de fora), NUNCA o batch; ou bump
+> temporário do `--memory` do container (host tem ~13GB livres; earlyoom+guardian protegem). NÃO
+> repetir o batch. [[project_oom_blindagem_v2]]
+>
+> **REFINAMENTOS DE REQUISITO (Jordan 2026-07-25) — a A4 tem que segmentar:**
+> - **jan–maio/2026 = ELETRÔNICA** (Lucro Real; INSS/IRRF normais). **junho e julho = PATRIMONIAL**
+>   (Simples Anexo III; CPP patronal vai no DAS, não em GPS; retenção de INSS 11% na nota de cessão).
+> - **Liminar PIS/COFINS/INSS NÃO obtida** → retenção ativa; **INSS em dobro (nota + DAS)**. Não
+>   zerar nada até deferir.
+> - **Competência × caixa:** julho gera (NFS-e + folha) → agosto recebe/paga (folha até 5º dia útil).
+> - 1º ponto real (ADAILSON, Patrimonial, jun): nativo bruto 2286 / INSS 181 / líq 1832 vs Portte
+>   2928 / 79 / 643 → divergências estruturais (verbas, INSS, ~R$1830 descontos) a mapear, NÃO chutar.
+
 ### Task A4: Conciliação cega nativo × Portte (relatório de divergência por rubrica)
 
 **Files:**
