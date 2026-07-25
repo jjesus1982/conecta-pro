@@ -61,8 +61,20 @@ Puxar da API do Domínio o razão contábil completo (e documentos fiscais) e ma
 NÃO substitui o razão interno (`accounting_entries` origem ERP) — é uma tabela/escopo separado
 (ou coluna `fonte`) para não misturar o que o ERP apura com o que o contador fechou.
 
+### ⚠️ Descoberta 2026-07-25 (read-only, muda o vetor de pull)
+O `DOMINIO_API_URL=https://api.dominiosistemas.com.br` **NÃO resolve DNS** (host inexistente —
+placeholder). O vetor REAL de pull é a **Onvio** (nuvem Thomson Reuters que hospeda o Domínio):
+`onvio.com.br`/`api.onvio.com.br` resolvem, e o ERP **já** tem auth Onvio (`gedeon/onvio/
+onvio_auth.py`, OIDC) + já puxa documentos (`guia-onvio/{fonte}/{id}/pdf`, migration
+`sprint82_gedeon_fase3_onvio_sync`, `onvio_document_id`). Portanto o #0 REUSA a Onvio, não o
+REST fantasma. Onvio hospeda DOCUMENTOS (o contador sobe ECD/guias/relatórios lá) → o importador
+puxa o **ECD (.txt SPED)** do document center da Onvio e parseia os blocos I (fallback do spec
+vira o caminho principal). PENDENTE do Jordan: confirmar credenciais Onvio válidas + que o ECD/
+razão está disponível no document center do contador (auth Onvio é OIDC, pode exigir passo humano).
+
 ### Componentes
-1. **Pull no connector Domínio** (`connectors/dominio/connector.py`): adicionar GETs read-only:
+1. **Pull via Onvio** (reusar `gedeon/onvio/onvio_auth.py` + padrão `guia-onvio`), NÃO o
+   `connectors/dominio` (URL morta). Métodos read-only:
    - `puxar_razao(cnpj, dt_ini, dt_fim)` → lançamentos contábeis (data, D, C, valor, histórico, conta).
    - `puxar_plano_contas(cnpj)` → contas (código, nome, natureza) — já há rota de plano de contas.
    - `puxar_documento(cnpj, tipo, periodo)` → documentos genéricos (balancete, ECD, etc.).
