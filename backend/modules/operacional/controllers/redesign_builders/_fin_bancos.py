@@ -162,3 +162,50 @@ async def build_bancos(db, out: dict) -> None:
             {"key": "fim", "label": "Fim (AAAA-MM-DD)", "type": "date", "span": "span 1", "ph": "2026-12-31"},
         ],
     }
+
+    # ── Consolidação de grupo (multi-CNPJ) — saldo por CNPJ + eliminação de intercompany.
+    # Só dado BANCÁRIO (bank_accounts/bank_transactions) — zero folha (isolado do módulo T2). ─
+    try:
+        se = (await db.execute(text(
+            "SELECT bank_name, coalesce(current_balance,0), updated_at::date FROM bank_accounts "
+            "WHERE bank_code='077' ORDER BY coalesce(current_balance,0) DESC LIMIT 1"))).fetchone()
+        sp = (await db.execute(text(
+            "SELECT bank_name, coalesce(current_balance,0), updated_at::date FROM bank_accounts "
+            "WHERE bank_code='403' ORDER BY coalesce(current_balance,0) DESC LIMIT 1"))).fetchone()
+        saldo_e = float(se[1]) if se else 0.0
+        saldo_p = float(sp[1]) if sp else 0.0
+        consolidado = saldo_e + saldo_p
+        # intercompany: transferências entre os CNPJs do grupo (descrição menciona a própria empresa)
+        ic = (await db.execute(text(
+            "SELECT count(*), coalesce(sum(abs(amount)),0) FROM bank_transactions "
+            "WHERE upper(coalesce(description,'')) LIKE '%CONECTAMAIS%' "
+            "OR upper(coalesce(description,'')) LIKE '%TRANSFERENCIA%'"))).fetchone()
+        ic_n = int(ic[0] or 0); ic_v = float(ic[1] or 0)
+        ic_rows = (await db.execute(text(
+            "SELECT transaction_date, amount, coalesce(description,'') FROM bank_transactions "
+            "WHERE upper(coalesce(description,'')) LIKE '%CONECTAMAIS%' "
+            "ORDER BY abs(amount) DESC LIMIT 8"))).fetchall()
+        out["consolidacao-grupo"] = {
+            "title": "Consolidação de grupo (multi-CNPJ)", "type": "dash", "cta": "—",
+            "sub": (f"Saldo por CNPJ (banco) + eliminação de intercompany. Eletrônica (Inter) + Patrimonial (Cora). "
+                    f"{ic_n} movimento(s) intra-grupo identificado(s) (R$ {ic_v:,.2f}) — internos, não são receita do grupo."),
+            "panelGrid": "1fr 1fr",
+            "kpis": [
+                {"v": brl(saldo_e), "l": "Eletrônica (Inter) — CNPJ1", "icon": "M3 21h18M4 10h16M12 4l7 6M6 10v11M18 10v11", "color": "#16277D"},
+                {"v": brl(saldo_p), "l": "Patrimonial (Cora) — CNPJ2", "icon": "M3 21h18M4 10h16M12 4l7 6M6 10v11M18 10v11", "color": "#F26522"},
+                {"v": brl(consolidado), "l": "Caixa consolidado do grupo", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", "color": "#16A34A"},
+                {"v": str(ic_n), "l": "Intercompany a eliminar", "icon": "M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3", "color": "#C2410C"},
+            ],
+            "panels": [
+                {"title": "Saldo por empresa (fonte: banco)", "rows": [
+                    {"left": f"Eletrônica · {se[0] if se else 'Inter'} · {se[2] if se else '—'}", "right": brl(saldo_e), **S["info"]},
+                    {"left": f"Patrimonial · {sp[0] if sp else 'Cora'} · {sp[2] if sp else '—'}", "right": brl(saldo_p), **S["info"]},
+                    {"left": "= Consolidado (soma dos caixas)", "right": brl(consolidado), **S["ok"]},
+                ]},
+                {"title": "Intercompany a eliminar (transfers intra-grupo)", "rows": [
+                    {"left": f"{r[0]} · {str(r[2])[:26]}", "right": brl(float(r[1])), **S["warn"]} for r in ic_rows]
+                    or [{"left": "Nenhum movimento intra-grupo identificado", "right": "—", **S["ok"]}]},
+            ],
+        }
+    except Exception:  # noqa: BLE001
+        pass
