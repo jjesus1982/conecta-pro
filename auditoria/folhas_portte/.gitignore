@@ -1,0 +1,4 @@
+# Dados de folha (CPF, salário, rubricas) = PII sensível → NUNCA no git.
+extracao/
+reconciliacao/*.json
+reconciliacao/*.csv
