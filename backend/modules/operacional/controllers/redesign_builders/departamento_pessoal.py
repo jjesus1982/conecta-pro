@@ -733,6 +733,38 @@ async def build(db) -> dict:
         }
         if out.get("rescisao") and not out["rescisao"].get("ctaTo"):
             out["rescisao"]["ctaTo"] = "nova-rescisao"
+
+        # ── Task 5: licencas — form "Registrar afastamento" (POST /hr/leaves, dado real).
+        # Grava em sst_afastamentos (estabilidade acidentária derivada no backend). Tipos = enum
+        # TipoAfastamento; reusa o mesmo select de colaboradores ativos (_eopts).
+        out["nova-licenca"] = {
+            "title": "Registrar afastamento", "type": "form",
+            "sub": "Registra licença/afastamento do colaborador — estabilidade acidentária é derivada automaticamente",
+            "cta": "Registrar afastamento",
+            "submit": {"endpoint": "/api/v1/people-management/hr/leaves",
+                       "okMsg": "Afastamento registrado"},
+            "fields": [
+                {"key": "employee_id", "label": "Colaborador*", "type": "select", "span": "span 2",
+                 "ph": "Selecione o colaborador" if _eopts else "Nenhum colaborador ativo",
+                 "options": _eopts},
+                {"key": "leave_type", "label": "Tipo de afastamento*", "type": "select", "span": "span 1",
+                 "ph": "Selecione", "options": [
+                     {"value": "doenca", "label": "Doença (auxílio-doença)"},
+                     {"value": "acidente_trabalho", "label": "Acidente de trabalho"},
+                     {"value": "acidente_trajeto", "label": "Acidente de trajeto"},
+                     {"value": "licenca_maternidade", "label": "Licença-maternidade"},
+                     {"value": "licenca_paternidade", "label": "Licença-paternidade"},
+                     {"value": "outro", "label": "Outro"},
+                 ]},
+                {"key": "cid", "label": "CID", "type": "text", "span": "span 1", "ph": "Ex.: S82 (opcional)"},
+                {"key": "start_date", "label": "Início*", "type": "date", "span": "span 1"},
+                {"key": "end_date", "label": "Fim previsto", "type": "date", "span": "span 1"},
+                {"key": "motivo", "label": "Motivo/observação", "type": "textarea", "span": "span 2", "ph": "Opcional"},
+            ],
+        }
+        if out.get("licencas") and not out["licencas"].get("ctaTo"):
+            out["licencas"]["cta"] = "Registrar afastamento"
+            out["licencas"]["ctaTo"] = "nova-licenca"
     except Exception:
         try:
             await db.rollback()
