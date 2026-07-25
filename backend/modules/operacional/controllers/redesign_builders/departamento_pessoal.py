@@ -589,15 +589,24 @@ async def build(db) -> dict:
                           if r[6] else [])))
 
     # 9) Certificação — hr_certifications (certificação de cálculos DP)
+    # AÇÃO por-linha "Certificar" (PATCH /certifications/{id}/certify) só p/ status 'pendente'.
+    # Assinatura humana (rastreável: quem/quando/hash). RBAC CERTIFIER_ROLES é imposto no backend.
     await safe("certificacao", tbl(
         "Certificação", "Certificação de cálculos", "—",
         ["Competência", "Tipo de cálculo", "Valor", "Divergência", "Status"],
         "1fr 1.6fr 1fr 1fr 0.9fr",
         "SELECT coalesce(competencia,'—'), coalesce(tipo_calculo,'—'), "
-        "coalesce(calculado_valor,0), coalesce(divergencia,false), coalesce(status,'—') "
+        "coalesce(calculado_valor,0), coalesce(divergencia,false), coalesce(status,'—'), CAST(id AS TEXT) "
         "FROM hr_certifications ORDER BY competencia DESC NULLS LAST, created_at DESC LIMIT 300",
         lambda r: [t(r[0]), t((r[1] or "—").replace("_", " ")), t(brl(r[2])),
-                   _badge_bool(r[3], "Sim", "Não", "bad", "ok"), _cert_status(r[4])]))
+                   _badge_bool(r[3], "Sim", "Não", "bad", "ok"), _cert_status(r[4])],
+        editfn=lambda r: ({"title": f"Certificar — {r[0]} · {(r[1] or '').replace('_', ' ')}",
+                           "endpoint": f"/api/v1/people-management/certifications/{r[5]}/certify",
+                           "method": "PATCH", "btnLabel": "Certificar", "submitLabel": "Assinar certificação",
+                           "btnStyle": "primary", "okMsg": "Certificação assinada. Recarregue a tela.",
+                           "fields": [{"key": "observacao", "label": "Observação (opcional)",
+                                       "type": "textarea", "span": "span 2", "value": ""}]}
+                          if (r[4] or "").lower() == "pendente" else None)))
 
     # 10) eSocial — esocial_eventos_espelho (espelho do ambiente nacional)
     await safe("esocial", tbl(
