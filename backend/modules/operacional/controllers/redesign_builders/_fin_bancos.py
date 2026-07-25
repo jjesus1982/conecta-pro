@@ -73,3 +73,41 @@ async def build_bancos(db, out: dict) -> None:
                    "okMsg": "Conciliação executada."},
         "fields": [],
     }
+
+    # ── Conciliação CONSOLIDADA por mês: líquido faturado (NFS-e) × recebido no banco
+    # (Inter+Cora). Modelo mensal (robusto ao lag de pagamento). O que cai no banco é o
+    # LÍQUIDO (bruto − ISS − retenções), por isso comparamos com valor_liquido, não bruto. ──
+    try:
+        emit = {r[0]: float(r[1] or 0) for r in (await db.execute(text(
+            "SELECT to_char(data_emissao,'YYYY-MM'), sum(valor_liquido) FROM nfse_emitidas_nacional "
+            "WHERE coalesce(valor_liquido,0)>0 GROUP BY 1"))).fetchall()}
+        recv = {r[0]: float(r[1] or 0) for r in (await db.execute(text(
+            "SELECT to_char(bt.transaction_date,'YYYY-MM'), sum(abs(bt.amount)) FROM bank_transactions bt "
+            "JOIN bank_accounts ba ON ba.id=bt.bank_account_id WHERE ba.bank_code IN ('077','403') "
+            "AND bt.transaction_type IN ('credit','credito') GROUP BY 1"))).fetchall()}
+        meses = sorted(set(emit) | set(recv), reverse=True)[:8]
+        rows, acc_e, acc_r = [], 0.0, 0.0
+        for m in meses:
+            e = emit.get(m, 0.0); rc = recv.get(m, 0.0); acc_e += e; acc_r += rc
+            saldo = rc - e
+            rows.append({"cells": [
+                t(m, 600, "#0F1B3A"), t(brl(e), 600), t(brl(rc), 600), t(brl(saldo)),
+                b("recebido ≥ faturado" if saldo >= -0.5 else "conferir", "ok" if saldo >= -0.5 else "warn")]})
+        scr = {
+            "title": "Conciliação consolidada por mês", "type": "table", "cta": "—",
+            "sub": (f"Líquido faturado (NFS-e, após ISS+retenções) × recebido no banco (Inter+Cora), por mês. "
+                    f"Acumulado: faturado {brl(acc_e)} · recebido {brl(acc_r)} · saldo {brl(acc_r - acc_e)}. "
+                    "Recebido ≥ faturado = sem inadimplência (a sobra é o lag: pagamento cai no mês seguinte)."),
+            "grid": "0.9fr 1.3fr 1.4fr 1.2fr 1.3fr",
+            "cols": ["Mês", "Líquido faturado", "Recebido (Inter+Cora)", "Saldo", "Status"],
+            "rows": rows or [{"cells": [t("Sem dados"), t("—"), t("—"), t("—"), b("—", "mut")]}],
+            "panelGrid": "1fr",
+            "panels": [{"title": "Leitura", "rows": [
+                {"left": "Recebido inclui TODOS os créditos (clientes + transferências/outros)", "right": "atenção", **S["warn"]},
+                {"left": "Casamento fino nota↔crédito é pelo LÍQUIDO (ex.: IDEAL FLORES 55.355,64 = crédito Inter)", "right": "ok", **S["ok"]},
+                {"left": "Notas sem crédito no mês = pagas no mês seguinte, Cora ou Itaú", "right": "lag", **S["info"]},
+            ]}],
+        }
+        out["conciliacao-consolidada"] = scr
+    except Exception:  # noqa: BLE001
+        pass

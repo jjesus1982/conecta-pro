@@ -26,6 +26,7 @@ GRUPOS = [
         ("saldos", "Saldos"), ("contas-bancarias", "Contas"), ("inter", "Banco Inter"),
         ("cora", "Banco Cora"), ("banking", "Extrato"),
         ("conciliacao-bancaria", "Conciliação (extrato)"), ("conciliar-auto", "Rodar conciliação"),
+        ("conciliacao-consolidada", "Consolidado por mês"),
         ("conciliacao", "Conciliação de folha"), ("inter-pagamentos", "Inter (pagtos)")]),
     ("g-fiscal", "Fiscal & Contábil", "Notas, guias e contabilidade", [
         ("fiscal", "Fiscal"), ("nfse-entrada", "NFS-e entrada"),
