@@ -82,3 +82,33 @@ Medir progresso: telas com capacidade real / total.
 - **Cobertura do spec:** fundação per-row-edit (Task 1) ✓; admissão (Task 2) ✓; funcionarios editar (Task 3) ✓; CTAs mortos (Task 4) ✓; demais telas (Task 5) ✓. Todas as seções do spec têm task.
 - **Placeholders:** Task 5 é um loop por tela (não placeholder — é o padrão repetido; cada iteração mapeia clássico→endpoint→wira→verifica). Os endpoints exatos por tela se descobrem na iteração (não dá pra listar 15 telas × endpoints aqui sem investigar cada — isso é o trabalho da task).
 - **Consistência:** `editfn`/`row.edit` usado igual em Task 1 (define) e Task 3 (consome).
+
+---
+## ESTADO / RETOMADA (25/07 — para /clear e continuar)
+
+**FEITO + verificado no browser + commitado (live via docker cp; bake awaits coordenação T1):**
+- ✅ Task 1 — Fundação per-row Editar. Mecanismo: `tbl(..., editfn=lambda r: {"title","endpoint","method":"PATCH","fields":[{key,label,type,value,span,options}]})` em `redesign_data_controller.py` (`_helpers.tbl` → `row["edit"]`). Frontend `ModuleView.tsx` (TableScreen): `hasRowEdit` → coluna Ações + botão "Editar" → modal pré-preenchido (`editVals` de `field.value`) → `fetch(edit.endpoint,{method:edit.method,body:vals})`.
+- ✅ Task 2 — Admissão. `out["nova-admissao"]` (type=form, POST `/api/v1/people-management/hr/admissions`, campos: candidate_name*, cpf*, position*, department, salary_proposed, expected_start_date, contract_type[select], birth_date, pis_pasep, notes) + EXTRA_MENU item + `ctaTo="nova-admissao"` em visao/funcionarios/admissao.
+- ✅ Task 3 — funcionarios editável. `editfn` → `PATCH /api/v1/people-management/hr/employees/{id}` (schema DPEmployeeUpdate). SELECT ganhou id/cpf/email/celular/departamento/salario_base.
+
+**Padrão para replicar (Tasks 4-5):** CREATE = form de tela (type=form, submit.endpoint=endpoint real, keys=schema). EDITAR = `editfn` no `tbl`. AÇÃO/DOC por-linha = `docsfn`. CTA = `scr["ctaTo"]="chave-do-form"`. Verificar SEMPRE: curl (201/200) + browser (clicar).
+
+### Task 4 — Religar CTAs mortos restantes
+- [ ] Varrer `/api/v1/redesign/data/departamento-pessoal` por telas com `cta` != "—" e `ctaTo` ausente/None.
+- [ ] Para cada: `out[tela]["ctaTo"] = "<form-alvo>"` (criar o form se não existir, via endpoint real do backend). Ex.: rescisao "Nova rescisão" → form/ação de rescisão (endpoint `/hr/terminations` — confirmar).
+- [ ] Deploy + browser: cada CTA navega/age. Commit.
+
+### Task 5 — Ações reais nas telas restantes (loop, tela por tela)
+Telas DP e o que falta (mapear clássico→endpoint→wirar):
+- [ ] **aviso-previo** (vazio) — mostrar empregados em aviso prévio + ação (endpoint a mapear).
+- [ ] **contratos** — gerar/ver contrato (doc já?) + editar.
+- [ ] **beneficios / beneficios-cct** — CRUD de benefício (`POST /hr/employees/{id}/deductions`? confirmar).
+- [ ] **certificacao** — já tem tela; ação de certificar (endpoint certifications já existe).
+- [ ] **documentos** — upload/ver documento do funcionário.
+- [ ] **licencas / reembolsos** — ação (aprovar/registrar; reembolso já tem form no menu).
+- [ ] **rescisao** — CTA "Nova rescisão" morto → religar; já tem docs por-linha (TRCT/Aviso).
+- [ ] **visao** (dash) — tornar KPIs clicáveis/drilldown (ctaTo já religado p/ admissão).
+- [ ] **folha-rubricas** — decidir se precisa ação (Jordan disse "só visual" — talvez OK).
+Para CADA: mapear endpoint real → wirar (form/editfn/docsfn/ctaTo) → curl + browser → commit por tela.
+
+**Retomar:** ler este arquivo + o spec `docs/superpowers/specs/2026-07-25-dp-redesign-paridade-crud-design.md` + memória `project_dp_redesign_paridade_crud` (a criar). Token para browser: mcp-service@conectamais.pro (login form-urlencoded :8080). Commit por pathspec, SÓ arquivos DP (não tocar T1: _fin_/financial/banking).
