@@ -35,6 +35,7 @@ GRUPOS = [
         ("plano-contas", "Plano de contas"), ("lancamentos", "Lançamentos"),
         ("balancete", "Balancete"), ("balanco-patrimonial", "Balanço Patrimonial"),
         ("indices-liquidez", "Liquidez & endividamento"), ("dre-caixa", "DRE por caixa"),
+        ("dre-analise-vertical", "DRE — análise vertical"),
         ("apuracao-resultado", "Apuração IRPJ/CSLL"), ("provisoes-trabalhistas", "Provisões (férias/13º)"),
         ("contabilidade", "Extrato categorizado"), ("cancelar-boleto", "Cancelar boleto")]),
     ("g-custos", "Custos & Orçamento", "Custos, custeio, precificação e orçamento", [

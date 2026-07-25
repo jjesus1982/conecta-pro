@@ -228,6 +228,37 @@ async def build_contabil(db, out: dict) -> None:
     except Exception:  # noqa: BLE001
         pass
 
+    # ── Análise Vertical da DRE (cada linha como % da Receita Líquida) — leitura clássica.
+    # Reusa get_dre (mesmo do PDF/clássico) — isolado, read-only. ──────────────────────────────
+    try:
+        from datetime import date as _date
+        from modules.financial.controllers.relatorios_controller import get_dre as _get_dre
+        _d = await _get_dre(ano=_date.today().year, mes_inicio=1, mes_fim=12,
+                            comparativo=False, condominio_id=None, db=db)
+        _gs = _d.get("grupos", []) or []
+        _rl = next((float(g.get("valor") or 0) for g in _gs if g.get("grupo") == "receita_liquida"), 0.0)
+        _bases = {"receita_liquida", "lucro_bruto", "lucro_operacional", "lucro_liquido"}
+        _rows = []
+        for g in _gs:
+            v = float(g.get("valor") or 0)
+            av = (v / _rl * 100) if _rl else 0.0
+            _rows.append({"cells": [
+                t((g.get("nome") or "—")[:40], 600 if g.get("grupo") in _bases else 400,
+                  "#0F1B3A" if g.get("grupo") in _bases else "#334155"),
+                t(brl(v), 600 if g.get("grupo") in _bases else 400),
+                t(f"{av:.1f}%", 600 if g.get("grupo") in _bases else 400,
+                  "#16A34A" if av >= 0 else "#C2410C")]})
+        out["dre-analise-vertical"] = {
+            "title": "Análise Vertical da DRE", "type": "table", "cta": "—",
+            "sub": (f"Cada linha como % da Receita Líquida ({brl(_rl)}) — regime {_d.get('regime','—')}. "
+                    f"Margem bruta {_d.get('margem_bruta_pct','—')}% · líquida {_d.get('margem_liquida_pct','—')}%. "
+                    "Mesmos números do get_dre (clássico/PDF)."),
+            "grid": "2.2fr 1.2fr 0.9fr", "cols": ["Conta", "Valor", "% da Receita Líq."],
+            "rows": _rows or [{"cells": [t("Sem DRE"), t("—"), t("—")]}],
+        }
+    except Exception:  # noqa: BLE001
+        pass
+
     # ── Apuração de resultado (Lucro Real — IRPJ/CSLL do razão REAL) — rota órfã religada ──
     try:
         from starlette.concurrency import run_in_threadpool
