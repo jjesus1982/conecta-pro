@@ -348,6 +348,98 @@ async def build_contabil(db, out: dict) -> None:
     except Exception:  # noqa: BLE001
         pass
 
+    # ── Apuração de tributos POR CNPJ (2 empresas, cada uma no seu regime) — receita REAL das
+    # NFS-e nacionais, regime/anexo do banco (empresas), motor tax_calculator. Multi-CNPJ. ─────
+    try:
+        from decimal import Decimal as _Dec
+
+        from modules.financial.agents.tax_calculator import TaxCalculatorAgent
+        _agent = TaxCalculatorAgent()
+        _EMPS = [
+            ("619a3df1-8bce-49ce-b77a-04f80a0e8491", "Eletrônica", "das-eletronica"),
+            ("7d79ed12-d480-4906-b2e0-2b2c4d299bab", "Patrimonial", "das-patrimonial"),
+        ]
+        for _eid, _nome, _slug in _EMPS:
+            _cfg = (await db.execute(text(
+                "SELECT regime_tributario, anexo_simples FROM empresas WHERE id = :e"), {"e": _eid})).fetchone()
+            if not _cfg:
+                continue
+            _regime = (_cfg[0] or "").lower()
+            # receita mensal real (12 competências), NFS-e não canceladas desta empresa
+            _mrows = (await db.execute(text(
+                "SELECT competencia, coalesce(sum(valor_servicos),0) FROM nfse_emitidas_nacional "
+                "WHERE empresa_id = :e AND coalesce(cancelada,false)=false AND competencia IS NOT NULL "
+                "GROUP BY 1 ORDER BY 1 DESC LIMIT 12"), {"e": _eid})).fetchall()
+            if not _mrows:
+                continue
+            _rec_mes = _Dec(str(float(_mrows[0][1] or 0)))
+            _comp = _mrows[0][0]
+            _n = len(_mrows)
+            _soma = sum(_Dec(str(float(m[1] or 0))) for m in _mrows)
+            # RBT12: 12m reais; se empresa nova (<12 meses), proporcionaliza (LC 123 art.18 §2)
+            _rbt12 = _soma if _n >= 12 else (_soma / _Dec(_n) * _Dec("12"))
+            _rec_tri = sum(_Dec(str(float(m[1] or 0))) for m in _mrows[:3])  # último trimestre
+
+            if _regime == "simples_nacional":
+                _anexo = (_cfg[1] or "III")
+                _lim = ["pis_cofins_zero"]  # liminar ativa da Patrimonial (PIS/COFINS zerados)
+                c = _agent.calcular_simples(_rec_mes, _rbt12, anexo=_anexo, liminares=_lim)
+                _dist = c.distribuicao or {}
+                out[_slug] = {
+                    "title": f"Apuração DAS — {_nome} (Simples Nacional)", "type": "dash", "cta": "—",
+                    "sub": (f"Anexo {_anexo} · competência {_comp} · RBT12 {brl(float(_rbt12))}"
+                            f"{' (proporcional — empresa nova)' if _n < 12 else ''} · alíq. efetiva "
+                            f"{float(c.aliquota_efetiva)*100:.2f}%. Liminar PIS/COFINS zerados aplicada. Receita real das NFS-e."),
+                    "panelGrid": "1fr 1fr",
+                    "kpis": [
+                        {"v": brl(float(_rec_mes)), "l": f"Receita do mês ({_comp})", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", "color": "#16A34A"},
+                        {"v": f"{float(c.aliquota_efetiva)*100:.2f}%", "l": "Alíquota efetiva", "icon": "M3 3v18h18M18 9l-5 5-4-4-3 3", "color": "#0F1B3A"},
+                        {"v": brl(float(c.valor_das)), "l": "DAS a pagar", "icon": "M2 6h20M2 18h20M6 6v12M18 6v12", "color": "#C2410C"},
+                        {"v": brl(float(c.economia_liminares)), "l": "Economia (liminar)", "icon": "M20 6L9 17l-5-5", "color": "#16A34A"},
+                    ],
+                    "panels": [
+                        {"title": "DAS por tributo (com liminar)", "rows": [
+                            {"left": k.upper(), "right": brl(float(v)),
+                             **(S["mut"] if float(v) == 0 else S["info"])} for k, v in _dist.items()]
+                            or [{"left": "—", "right": "0", **S["mut"]}]},
+                        {"title": "Base", "rows": [
+                            {"left": "RBT12 (12 meses)", "right": brl(float(_rbt12)), **S["info"]},
+                            {"left": "Alíquota nominal (faixa)", "right": f"{float(c.aliquota_nominal)*100:.2f}%", **S["info"]},
+                            {"left": "Liminares aplicadas", "right": ", ".join(c.liminares_aplicadas) or "—", **S["ok"]},
+                        ]},
+                    ],
+                }
+            elif _regime == "lucro_real":
+                c = _agent.calcular_lucro_real(_rec_mes, _rec_tri)
+                out[_slug] = {
+                    "title": f"Apuração de tributos — {_nome} (Lucro Real)", "type": "dash", "cta": "—",
+                    "sub": (f"Tributos do mês {_comp} sobre receita real das NFS-e · carga "
+                            f"{float(c.carga_tributaria_percentual):.2f}% da receita. Estimativa mensal "
+                            "(IRPJ/CSLL definitivos na Apuração anual do razão)."),
+                    "panelGrid": "1fr 1fr",
+                    "kpis": [
+                        {"v": brl(float(c.receita_bruta_mes)), "l": f"Receita do mês ({_comp})", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", "color": "#16A34A"},
+                        {"v": brl(float(c.total_impostos_mes)), "l": "Total de tributos do mês", "icon": "M2 6h20M2 18h20M6 6v12M18 6v12", "color": "#C2410C"},
+                        {"v": f"{float(c.carga_tributaria_percentual):.2f}%", "l": "Carga sobre receita", "icon": "M3 3v18h18M18 9l-5 5-4-4-3 3", "color": "#0F1B3A"},
+                        {"v": brl(float(c.iss)), "l": "ISS (Manaus 5%)", "icon": "M3 21h18M4 10h16M5 10 12 4l7 6", "color": "#0F1B3A"},
+                    ],
+                    "panels": [
+                        {"title": "Tributos federais do mês", "rows": [
+                            {"left": "IRPJ (15%)", "right": brl(float(c.irpj)), **S["info"]},
+                            {"left": "IRPJ adicional (10%)", "right": brl(float(c.irpj_adicional)), **S["info"]},
+                            {"left": "CSLL (9%)", "right": brl(float(c.csll)), **S["info"]},
+                            {"left": "PIS (não-cumulativo)", "right": brl(float(c.pis)), **S["info"]},
+                            {"left": "COFINS (não-cumulativo)", "right": brl(float(c.cofins)), **S["info"]},
+                        ]},
+                        {"title": "Municipal", "rows": [
+                            {"left": "ISS Manaus (5%)", "right": brl(float(c.iss)), **S["info"]},
+                            {"left": "= Total de tributos", "right": brl(float(c.total_impostos_mes)), **S["warn"]},
+                        ]},
+                    ],
+                }
+    except Exception:  # noqa: BLE001
+        pass
+
     # ── Ação gated: postar as provisões no razão (bookkeeping, NÃO move dinheiro) ────────────
     out["postar-provisoes"] = {
         "title": "Postar provisões no razão", "type": "form", "cta": "Postar provisões",
