@@ -119,23 +119,25 @@ async def build_bancos(db, out: dict) -> None:
         rep = await casar_notas_banco(db, "2026-01-01", "2026-12-31", persistir=False)
         scr = {
             "title": "Conciliação por líquido (NFS-e × banco)", "type": "table", "cta": "—", "searchHint": "Buscar cliente…",
-            "sub": (f"{rep['n_casados']} nota(s) casada(s) pelo LÍQUIDO ({rep['pct_casado']}% do faturado) · "
-                    f"{rep['n_sugestoes']} sugestão(ões) a revisar · {rep['n_sem']} sem crédito (Cora/Itaú/recente). "
-                    f"Líquido conciliado R$ {rep['liquido_casado']:,.2f} de R$ {rep['liquido_total']:,.2f}. "
-                    "Baixa é ação gated (aba 'Aplicar conciliação')."),
-            "grid": "1.8fr 1.1fr 1.1fr 0.9fr 0.7fr 0.9fr",
+            "sub": (f"{rep['n_casados']} nota(s) casada(s) pelo LÍQUIDO ({rep['pct_casado']}% do faturado): "
+                    f"{rep['n_exato']} exato + {rep['n_retencao']} com retenção (revisar) · {rep['n_sem']} sem crédito "
+                    f"(recente/Cora). Canceladas fora. Líquido conciliado R$ {rep['liquido_casado']:,.2f} de "
+                    f"R$ {rep['liquido_total']:,.2f}. Baixa é ação gated (só o exato baixa)."),
+            "grid": "1.8fr 1.1fr 1.1fr 0.9fr 0.7fr 1fr",
             "cols": ["Cliente", "Líquido (nota)", "Crédito (banco)", "Data", "Banco", "Match"],
             "rows": [{"cells": [
                 t((m["cliente"] or "—")[:34], 600, "#0F1B3A"), t(brl(m["liquido"]), 600),
                 t(brl(m["credito_valor"]), 600), t(str(m["credito_data"])),
                 b(m.get("banco", "Inter"), "info" if m.get("banco") == "Cora" else "ok"),
-                b("exato" + (" (−INSS)" if m["inss"] > 0 else ""), "ok")]} for m in rep["casados"]],
+                b("exato" + (" (−INSS)" if m["inss"] > 0 else "") if m.get("exato") else "com retenção",
+                  "ok" if m.get("exato") else "warn")]} for m in rep["casados"]],
             "panelGrid": "1fr 1fr",
             "panels": [
-                {"title": f"Sugestões a revisar ({rep['n_sugestoes']}) — identidade bate, valor aproximado",
+                {"title": f"Com retenção — revisar ({rep['n_retencao']}) — identidade bate, tomador reteve federal",
                  "rows": [{"left": f"{(s['cliente'] or '—')[:26]} · líq {brl(s['liquido'])}",
-                           "right": f"{brl(s['credito_valor'])} (dif {brl(s['diff'])})", **S["warn"]}
-                          for s in rep["sugestoes"][:8]] or [{"left": "Nenhuma sugestão pendente", "right": "—", **S["ok"]}]},
+                           "right": f"{brl(s['credito_valor'])} (ret {brl(s['diff'])})", **S["warn"]}
+                          for s in [x for x in rep["casados"] if x.get("retencao")][:8]]
+                         or [{"left": "Nenhum com retenção", "right": "—", **S["ok"]}]},
                 {"title": f"Sem crédito no banco ({rep['n_sem']}) — pago via Cora/Itaú ou recente",
                  "rows": [{"left": f"{(n['cliente'] or '—')[:26]} · emit {n['emissao']}",
                            "right": brl(n["liquido"]), **S["info"]} for n in rep["notas_sem"][:8]]
