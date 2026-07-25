@@ -447,15 +447,32 @@ async def build(db) -> dict:
     await safe("rescisao", _rescisao_screen(db))
 
     # 1) Admissão — admission_processes
+    # AÇÃO por-linha "Concluir" (POST /admissions/{id}/complete) — CRIA o Employee e dispara
+    # onboarding/GEDEON. Só p/ status ≠ cancelada/concluída. Form pré-preenchido do candidato
+    # (nome/cpf/depto do processo); cargo/salário/datas o backend deriva da admissão + CCT.
     await safe("admissao", tbl(
         "Admissão", "Processos de admissão", "Nova admissão",
         ["Candidato", "CPF", "Cargo", "Departamento", "Início previsto", "Status"],
         "1.8fr 1.1fr 1.3fr 1.1fr 1fr 0.9fr",
         "SELECT coalesce(candidate_name,'—'), cpf, coalesce(position,'—'), "
-        "coalesce(department,'—'), expected_start_date, coalesce(status,'—') "
+        "coalesce(department,'—'), expected_start_date, coalesce(status,'—'), CAST(id AS TEXT) "
         "FROM admission_processes ORDER BY created_at DESC LIMIT 200",
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(_cpf_fmt(r[1])),
-                   t(r[2]), t(r[3]), t(_d(r[4])), _adm_status(r[5])]))
+                   t(r[2]), t(r[3]), t(_d(r[4])), _adm_status(r[5])],
+        editfn=lambda r: ({"title": f"Concluir admissão — {r[0] or '—'}",
+                           "endpoint": f"/api/v1/people-management/hr/admissions/{r[6]}/complete",
+                           "method": "POST", "btnLabel": "Concluir", "submitLabel": "Concluir admissão",
+                           "btnStyle": "primary", "okMsg": "Admissão concluída — colaborador criado. Recarregue.",
+                           "fields": [
+                               {"key": "nome", "label": "Nome*", "type": "text", "span": "span 2", "value": r[0] or ""},
+                               {"key": "cpf", "label": "CPF*", "type": "text", "span": "span 1", "value": r[1] or ""},
+                               {"key": "departamento", "label": "Departamento", "type": "text", "span": "span 1",
+                                "value": (r[3] if r[3] not in (None, "—") else "")},
+                               {"key": "email", "label": "E-mail", "type": "text", "span": "span 1", "value": ""},
+                               {"key": "telefone", "label": "Telefone", "type": "text", "span": "span 1", "value": ""},
+                               {"key": "matricula", "label": "Matrícula", "type": "text", "span": "span 1", "value": ""},
+                           ]}
+                          if (r[5] or "").lower() not in ("cancelled", "cancelada", "completed", "concluida", "concluída") else None)))
 
     # 2) Aviso prévio — employees em aviso (query real; hoje 0 = honesto "nenhum")
     await safe("aviso-previo", tbl(
