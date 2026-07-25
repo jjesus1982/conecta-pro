@@ -577,12 +577,15 @@ async def build(db) -> dict:
     # de hr_vacation_requests. Se não há férias futura, o select fica vazio (honesto, não fabrica).
     try:
         from sqlalchemy import text as _sqltext
+        # Janela: férias recentes (últimos 120 dias) + futuras, aprovadas/submetidas. O gerador
+        # aceita data passada (registro formal), então incluímos as já iniciadas (ex.: Francisco).
         _avf = (await db.execute(_sqltext(
             "SELECT v.employee_id, coalesce(e.nome,'—'), v.start_date, coalesce(v.days_requested,30) "
             "FROM hr_vacation_requests v LEFT JOIN employees e ON e.id=v.employee_id "
-            "WHERE v.start_date IS NOT NULL AND v.start_date >= (now() AT TIME ZONE 'America/Manaus')::date "
+            "WHERE v.start_date IS NOT NULL "
+            "AND v.start_date >= (now() AT TIME ZONE 'America/Manaus')::date - INTERVAL '120 days' "
             "AND upper(coalesce(v.status,'')) IN ('APPROVED','SUBMITTED') "
-            "ORDER BY v.start_date ASC LIMIT 200"))).fetchall()
+            "ORDER BY v.start_date DESC LIMIT 200"))).fetchall()
         _opts = [{"value": f"{r[0]}|{r[2].strftime('%Y-%m-%d')}|{int(r[3])}",
                   "label": f"{r[1]} · início {r[2].strftime('%d/%m/%Y')} · {int(r[3])}d"} for r in _avf]
         out["aviso-ferias"] = {
@@ -591,8 +594,8 @@ async def build(db) -> dict:
             "cta": "Gerar aviso", "type": "form",
             "submit": {"endpoint": "/api/v1/redesign/action/aviso-ferias", "okMsg": "Aviso prévio de férias gerado"},
             "fields": [
-                {"key": "ferias", "label": "Férias (próximas)*", "type": "select", "span": "span 2",
-                 "ph": "Selecione a férias" if _opts else "Nenhuma férias futura aprovada/submetida",
+                {"key": "ferias", "label": "Férias (recentes e próximas)*", "type": "select", "span": "span 2",
+                 "ph": "Selecione a férias" if _opts else "Nenhuma férias aprovada/submetida nos últimos 120 dias",
                  "options": _opts},
             ],
         }

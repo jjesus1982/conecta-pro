@@ -96,8 +96,9 @@ class ContractGeneratorService:
         except (ValueError, TypeError) as exc:
             raise ValueError(f"data_inicio_ferias inválida: {data_inicio_ferias!r}") from exc
 
-        if data_inicio < date.today():
-            raise ValueError(f"data_inicio_ferias não pode estar no passado: {data_inicio.isoformat()}")
+        # Antecedência (30 dias) é orientação legal, NÃO trava técnica (decisão Jordan 25/07):
+        # o aviso é um documento/registro formal que também precisa ser emitível para férias já
+        # iniciadas ou retroativas. Mantém-se a validação de FORMATO da data (acima), não a de passado.
 
         emp = await self._get_employee(employee_id)
         if not emp:
