@@ -189,6 +189,97 @@ PROPOSTA_TOOL: ToolDef = register(ToolDef(
 ))
 
 
+# ───────────────────────── kit documental (🔵, reversível interno) ───────────
+
+_ARGS_KIT = {
+    "type": "object",
+    "properties": {
+        "client_id": {"type": "string", "description": "ID do cliente/condomínio do kit."},
+        "tipo_kit": {"type": "string", "minLength": 2, "description": "Tipo/modelo do kit documental."},
+        "descricao": {"type": "string", "maxLength": 500},
+    },
+    "required": ["client_id", "tipo_kit"],
+}
+
+
+async def _propor_kit(
+    db, user, scope, *, client_id: str, tipo_kit: str, descricao: str = "", **_
+) -> dict[str, Any]:
+    if not client_id or len((tipo_kit or "").strip()) < 2:
+        return {"erro": "client_id e tipo_kit são obrigatórios"}
+
+    # NOTA DIVERGÊNCIA schema×brief (Step 1 do brief, \d ged_document_kits real):
+    # a tabela NÃO tem coluna `tipo` (o esqueleto do brief assumia); o grão real é
+    # 1 kit por (client_id, reference_month) — UNIQUE constraint
+    # ged_document_kits_client_id_reference_month_key, sem discriminador de tipo.
+    # client_id é uuid com FK ENFORCED p/ ged_clients(id) (diferente de
+    # inter_cobrancas.pagador, jsonb solto sem FK) — validamos aqui p/ falhar com
+    # {"erro":...} em vez de estourar IntegrityError dentro de propor(). tipo_kit/
+    # descricao (texto livre vindo do LLM) vão para `notes` (única coluna de texto
+    # livre da tabela). reference_month (NOT NULL, sem default) não é arg exposto
+    # ao LLM — é derivado como 1º dia do mês corrente (mesmo idioma de
+    # `date.today()` usado em proposals.issue_date acima: mês implícito = "agora").
+    try:
+        client_uuid = uuid.UUID(str(client_id))
+    except (ValueError, AttributeError, TypeError):
+        return {"erro": "client_id inválido (esperado UUID de ged_clients)"}
+
+    existe_cliente = (await db.execute(text(
+        "SELECT 1 FROM ged_clients WHERE id = :cid"), {"cid": str(client_uuid)})).scalar()
+    if not existe_cliente:
+        return {"erro": f"cliente {client_id} não encontrado em ged_clients"}
+
+    ref_month = date.today().replace(day=1)
+    idem = f"kit:{client_id}:{tipo_kit}"
+
+    async def _inserir(db) -> str:
+        # Idempotência NATIVA sobre o grão REAL da tabela: (client_id,
+        # reference_month) — ver NOTA acima (não (client_id, tipo_kit), que não
+        # existe como chave). Um cliente só tem 1 kit por mês (qualquer status) —
+        # a rota real de montagem (kit_real_controller: SELECT id FROM
+        # ged_document_kits WHERE client_id=... AND reference_month=...; se achar,
+        # REUTILIZA o id; só insere se não achar) faz o MESMO get-or-create por
+        # essa chave — logo o pendente 'proposto' criado aqui é o MESMO id que a
+        # montagem real vai retomar (fecha o loop; não cria linha nova).
+        existente = (await db.execute(text(
+            "SELECT id::text FROM ged_document_kits "
+            "WHERE client_id = :cid AND reference_month = :rm LIMIT 1"),
+            {"cid": str(client_uuid), "rm": ref_month})).scalar()
+        if existente:
+            return existente
+
+        kid = str(uuid.uuid4())
+        notas = f"[proposto via IA] tipo={tipo_kit}" + (f" — {descricao}" if descricao else "")
+        await db.execute(text("""
+            INSERT INTO ged_document_kits
+                (id, client_id, reference_month, status, notes, created_at, updated_at)
+            VALUES
+                (:id, :cid, :rm, 'proposto', :notes, now(), now())
+        """), {"id": kid, "cid": str(client_uuid), "rm": ref_month, "notes": notas})
+        return kid
+
+    return await propor(
+        db, user=user, scope=scope, dominio="kit", gate="🔵",
+        roles_aprovador=ROLES_KIT_OP, idempotency_key=idem,
+        titulo="[Proposta] Montar kit documental",
+        corpo=f"Kit '{tipo_kit}' para cliente {client_id} (mês {ref_month.strftime('%m/%Y')}). "
+              f"Aguarda aprovação p/ montar/enviar.",
+        action_url="/gedeon/kits",
+        tool="propor_kit",
+        args={"client_id": client_id, "tipo_kit": tipo_kit},
+        entity_type="ged_document_kit", inserir=_inserir,
+    )
+
+
+KIT_TOOL: ToolDef = register(ToolDef(
+    "propor_kit", "gedeon",
+    "Propor a montagem de um kit documental (fica 'proposto'; a montagem/envio é aprovada por humano).",
+    _ARGS_KIT, _propor_kit, scope_kind="org",
+))
+
+ONDA_A_TOOLS = [COBRANCA_TOOL, PROPOSTA_TOOL, KIT_TOOL]
+
+
 if __name__ == "__main__":
     import asyncio
     import os
@@ -217,6 +308,8 @@ if __name__ == "__main__":
             cob_ids: list[str] = []
             aud_ids: list[str] = []
             prop_ids: list[str] = []
+            kit_ids: list[str] = []
+            ged_kit_client_ids: list[str] = []
             try:
                 # baseline: nenhuma cobrança RECEBIDA/executada deve mudar
                 recebidas_antes = (await db.execute(text(
@@ -405,6 +498,126 @@ if __name__ == "__main__":
 
                 print("SUBTESTE proposta PASS (draft criado, sent intocado, idempotente [sino+nativa], "
                       "RBAC módulo, aprovador correto)")
+
+                # ── kit documental ──
+                # Cliente de teste PRÓPRIO em ged_clients (marcado __TESTE_5.4__), não
+                # um condomínio real: ged_document_kits só permite 1 kit por
+                # (client_id, reference_month) — usar um condomínio real de produção
+                # colidiria com o kit real do mês corrente (a maioria já tem um
+                # 'em_montagem' para o mês atual) e o teste veria "duplicado" contra
+                # a linha de produção em vez de provar a criação do 'proposto'.
+                cli_kit_id = str(uuid.uuid4())
+                await db.execute(text(
+                    "INSERT INTO ged_clients (id, name, type, is_active, created_at, updated_at) "
+                    "VALUES (:id, '__TESTE_5.4__ Cliente Kit', 'condominio', true, now(), now())"),
+                    {"id": cli_kit_id})
+                await db.commit()
+                ged_kit_client_ids.append(cli_kit_id)
+
+                rk = await _propor_kit(db, _U(), _S(),
+                    client_id=cli_kit_id, tipo_kit="__TESTE_5.4__ kit")
+                assert rk["status"] == "pendente", rk
+                kid = rk["entity_id"]
+                kit_ids.append(kid)
+
+                # (a) nasceu 'proposto' (nunca outro status — nunca executado)
+                st = (await db.execute(text(
+                    "SELECT status FROM ged_document_kits WHERE id = :i"), {"i": kid})).scalar()
+                assert st == "proposto", f"kit nasceu {st}, esperado proposto"
+
+                # (b) ZERO geração/execução: só a linha 'proposto' criada acima existe
+                #     para este cliente de teste (kit_orchestrator/_gerar_kit_real
+                #     JAMAIS chamado por este código).
+                n_kits_cliente = (await db.execute(text(
+                    "SELECT count(*) FROM ged_document_kits WHERE client_id = :c"),
+                    {"c": cli_kit_id})).scalar()
+                assert n_kits_cliente == 1, f"esperado 1 kit (proposto) p/ cliente teste, veio {n_kits_cliente}"
+
+                # (c) idempotência (sino): mesma idempotency_key → duplicado, inserir não roda de novo
+                rk2 = await _propor_kit(db, _U(), _S(),
+                    client_id=cli_kit_id, tipo_kit="__TESTE_5.4__ kit")
+                assert rk2.get("duplicado") is True, rk2
+                assert str(rk2["entity_id"]) == str(kid), rk2
+
+                # idempotência NATIVA (defesa em profundidade, "não confie só no sino"):
+                # desativa a notificação do sino e propõe de novo — quem tem que
+                # barrar a 2ª linha é o SELECT-existing dentro do próprio _inserir,
+                # sobre o grão REAL da tabela (client_id, reference_month), não
+                # (client_id, tipo_kit) como o brief original assumia.
+                idem_key_k = f"kit:{cli_kit_id}:__TESTE_5.4__ kit"
+                await db.execute(text(
+                    "UPDATE communication_notifications SET is_active = false "
+                    "WHERE extra_data->>'idempotency_key' = :k"), {"k": idem_key_k})
+                await db.commit()
+
+                rk3 = await _propor_kit(db, _U(), _S(),
+                    client_id=cli_kit_id, tipo_kit="__TESTE_5.4__ kit (sino desativado)")
+                if rk3.get("entity_id") and rk3["entity_id"] not in kit_ids:
+                    kit_ids.append(rk3["entity_id"])  # defesa: se a idempotência NATIVA falhar, limpa mesmo assim
+                assert rk3["status"] == "pendente", rk3
+                assert rk3["entity_id"] == kid, \
+                    f"idempotência NATIVA falhou: criou 2ª linha em ged_document_kits ({rk3['entity_id']} != {kid})"
+                n_kits_cliente2 = (await db.execute(text(
+                    "SELECT count(*) FROM ged_document_kits WHERE client_id = :c"),
+                    {"c": cli_kit_id})).scalar()
+                assert n_kits_cliente2 == 1, \
+                    f"idempotência NATIVA falhou: esperado 1 kit, veio {n_kits_cliente2}"
+                print("SUBTESTE kit: idempotência (sino + NATIVA, grão client_id+reference_month) PASS")
+
+                # (d) RBAC: a tool só aparece no belt de quem tem o módulo 'gedeon'.
+                assert KIT_TOOL.module == "gedeon", KIT_TOOL.module
+                nomes_gedeon = {t.name for t in tools_for_modules({"gedeon"})}
+                nomes_financeiro_k = {t.name for t in tools_for_modules({"financeiro"})}
+                assert "propor_kit" in nomes_gedeon, nomes_gedeon
+                assert "propor_kit" not in nomes_financeiro_k, \
+                    "propor_kit vazou p/ módulo 'financeiro' (RBAC de módulo quebrado)"
+                print("SUBTESTE kit: RBAC de módulo (só 'gedeon' vê a tool) PASS")
+
+                # (e) aprovador correto: propositor REAL (admin) excluído do conjunto
+                # de aprovadores. ROLES_KIT_OP = ('admin', 'gerente_operacional');
+                # reusa `admins`/`_UAdmin` resolvidos no bloco de cobrança acima (todo
+                # admin ∈ resolução de ROLES_KIT_OP, pois 'admin' é um dos roles).
+                assert ROLES_KIT_OP == ("admin", "gerente_operacional"), ROLES_KIT_OP
+                aprovadores_kit_possiveis = await entrega.resolver_usuarios_por_roles(db, ROLES_KIT_OP)
+                assert aprovadores_kit_possiveis, "esperado >=1 admin/gerente_operacional ativo no banco"
+
+                cli_kit_id2 = str(uuid.uuid4())
+                await db.execute(text(
+                    "INSERT INTO ged_clients (id, name, type, is_active, created_at, updated_at) "
+                    "VALUES (:id, '__TESTE_5.4__ Cliente Kit2', 'condominio', true, now(), now())"),
+                    {"id": cli_kit_id2})
+                await db.commit()
+                ged_kit_client_ids.append(cli_kit_id2)
+
+                rk4 = await _propor_kit(db, _UAdmin(admins[0]), _S(),
+                    client_id=cli_kit_id2, tipo_kit="__TESTE_5.4__ kit (propositor admin real)")
+                if rk4.get("entity_id"):
+                    kit_ids.append(rk4["entity_id"])
+                if len(aprovadores_kit_possiveis) >= 2:
+                    assert rk4["status"] == "pendente", rk4
+                    aps_k = rk4.get("aprovadores") or []
+                    assert admins[0] not in aps_k, \
+                        f"propositor admin real não pode aprovar o próprio kit: {aps_k}"
+                    assert set(aps_k) == set(aprovadores_kit_possiveis) - {admins[0]}, \
+                        (aps_k, aprovadores_kit_possiveis)
+                    print(f"SUBTESTE kit: aprovador correto (propositor excluído; "
+                          f"{len(aprovadores_kit_possiveis)} possíveis → {len(aps_k)} aprovadores) PASS")
+                else:
+                    assert "erro" in rk4, rk4
+                    print("SUBTESTE kit: aprovador correto (fail-closed: propositor==único possível) PASS")
+
+                # RBAC de entrada: client_id inválido/inexistente é recusado ANTES do
+                # INSERT (fail-closed amigável, sem estourar a FK ged_document_kits_client_id_fkey).
+                r_invalido = await _propor_kit(db, _U(), _S(),
+                    client_id="não-é-uuid", tipo_kit="__TESTE_5.4__ kit")
+                assert "erro" in r_invalido, r_invalido
+                r_inexistente = await _propor_kit(db, _U(), _S(),
+                    client_id=str(uuid.uuid4()), tipo_kit="__TESTE_5.4__ kit")
+                assert "erro" in r_inexistente, r_inexistente
+                print("SUBTESTE kit: client_id inválido/inexistente recusado (fail-closed, sem tocar a FK) PASS")
+
+                print("SUBTESTE kit PASS (proposto criado, ZERO geração/execução, idempotente [sino+nativa], "
+                      "RBAC módulo, aprovador correto)")
                 print("TODOS OS SUBTESTES DE onda_a.py PASSARAM")
             finally:
                 if cob_ids:
@@ -423,6 +636,20 @@ if __name__ == "__main__":
                         "DELETE FROM audit_logs WHERE details->>'entity_id' = ANY(:i)"),
                         {"i": prop_ids})
                 await _limpar(db, "proposta:__TESTE_5.4__%")
+                if kit_ids:
+                    await db.execute(text("DELETE FROM ged_document_kits WHERE id = ANY(:i)"), {"i": kit_ids})
+                    await db.execute(text(
+                        "DELETE FROM audit_logs WHERE details->>'entity_id' = ANY(:i)"),
+                        {"i": kit_ids})
+                if ged_kit_client_ids:
+                    # rede de segurança: FK ON DELETE CASCADE de ged_document_kits já
+                    # limpou pelo client_id acima, mas cobre o caso de o teste ter
+                    # falhado ANTES de capturar o entity_id em kit_ids.
+                    await db.execute(text(
+                        "DELETE FROM ged_document_kits WHERE client_id = ANY(:i)"),
+                        {"i": ged_kit_client_ids})
+                    await db.execute(text("DELETE FROM ged_clients WHERE id = ANY(:i)"), {"i": ged_kit_client_ids})
+                await _limpar(db, "kit:%__TESTE_5.4__%")
                 await db.commit()
                 rem = (await db.execute(text(
                     "SELECT count(*) FROM inter_cobrancas WHERE pagador->>'cliente_crm_id' IN "
@@ -439,6 +666,18 @@ if __name__ == "__main__":
                     "AND details->>'entity_id' = ANY(:i)"), {"i": prop_ids})).scalar()
                 assert rem_p == 0, f"remanescentes proposals={rem_p}"
                 assert rem_audit_p == 0, f"remanescentes audit_logs proposta={rem_audit_p}"
+                rem_k = (await db.execute(text(
+                    "SELECT count(*) FROM ged_document_kits WHERE client_id = ANY(:i)"),
+                    {"i": ged_kit_client_ids})).scalar()
+                rem_kc = (await db.execute(text(
+                    "SELECT count(*) FROM ged_clients WHERE id = ANY(:i)"),
+                    {"i": ged_kit_client_ids})).scalar()
+                rem_audit_k = (await db.execute(text(
+                    "SELECT count(*) FROM audit_logs WHERE details->>'tool' = 'propor_kit' "
+                    "AND details->>'entity_id' = ANY(:i)"), {"i": kit_ids})).scalar()
+                assert rem_k == 0, f"remanescentes ged_document_kits={rem_k}"
+                assert rem_kc == 0, f"remanescentes ged_clients (teste)={rem_kc}"
+                assert rem_audit_k == 0, f"remanescentes audit_logs kit={rem_audit_k}"
         await eng.dispose()
 
     asyncio.run(main())
