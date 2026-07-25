@@ -20,7 +20,12 @@ from modules.operacional.controllers.redesign_data_controller import (
 )
 
 SLUG = "departamento-pessoal"
-EXTRA_MENU: list[dict] = []
+# Item de nav da tela de ação "Aviso prévio de férias" (form → gera doc). É SOMADO ao EXTRA_MENU
+# global do slug (redesign_data_controller._discover_module_builders), sem tocar a fundação.
+EXTRA_MENU: list[dict] = [
+    {"id": "aviso-ferias", "label": "Aviso de férias",
+     "icon": "M17 8C8 10 5.9 16.2 3.8 21.7c-.3.7.3 1.3 1 1L8 21c9-2 11-8 13-13M12 2v4M20 6l-2 2"},
+]
 
 # datas: as tabelas usam date/timestamp; formatador defensivo local
 _ND = "#0F1B3A"
@@ -565,5 +570,36 @@ async def build(db) -> dict:
     if out.get("esocial"):
         out["esocial"]["docs"] = [doc("XML do evento", disabled=True,
                                       motivo="XML transmitido, sem rota de preview no backend — pendente criar GET do XML do evento")]
+
+    # Aviso prévio de férias (form → gera doc). Só férias FUTURAS aprovadas/submetidas (o gerador
+    # recusa data no passado). Select value = 'empId|YYYY-MM-DD|dias' → POST /redesign/action/aviso-
+    # ferias → retorna {doc} p/ o FormScreen abrir (gancho d.doc). Sem digitação livre: dados reais
+    # de hr_vacation_requests. Se não há férias futura, o select fica vazio (honesto, não fabrica).
+    try:
+        from sqlalchemy import text as _sqltext
+        _avf = (await db.execute(_sqltext(
+            "SELECT v.employee_id, coalesce(e.nome,'—'), v.start_date, coalesce(v.days_requested,30) "
+            "FROM hr_vacation_requests v LEFT JOIN employees e ON e.id=v.employee_id "
+            "WHERE v.start_date IS NOT NULL AND v.start_date >= (now() AT TIME ZONE 'America/Manaus')::date "
+            "AND upper(coalesce(v.status,'')) IN ('APPROVED','SUBMITTED') "
+            "ORDER BY v.start_date ASC LIMIT 200"))).fetchall()
+        _opts = [{"value": f"{r[0]}|{r[2].strftime('%Y-%m-%d')}|{int(r[3])}",
+                  "label": f"{r[1]} · início {r[2].strftime('%d/%m/%Y')} · {int(r[3])}d"} for r in _avf]
+        out["aviso-ferias"] = {
+            "title": "Aviso prévio de férias",
+            "sub": "Gera o Aviso Prévio de Férias (HTML) de uma férias aprovada — dados reais, abre ao gerar",
+            "cta": "Gerar aviso", "type": "form",
+            "submit": {"endpoint": "/api/v1/redesign/action/aviso-ferias", "okMsg": "Aviso prévio de férias gerado"},
+            "fields": [
+                {"key": "ferias", "label": "Férias (próximas)*", "type": "select", "span": "span 2",
+                 "ph": "Selecione a férias" if _opts else "Nenhuma férias futura aprovada/submetida",
+                 "options": _opts},
+            ],
+        }
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
 
     return out

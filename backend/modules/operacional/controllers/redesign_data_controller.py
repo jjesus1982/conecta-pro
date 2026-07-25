@@ -1981,6 +1981,53 @@ async def rd_action_occurrence(
     return {"ok": True, "id": str(occ.id), "code": getattr(occ, "code", None), "message": "Ocorrência registrada"}
 
 
+@router.post("/action/aviso-ferias")
+async def rd_action_aviso_ferias(
+    current_user: CurrentActiveUser,
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Gera o Aviso Prévio de Férias (HTML) de uma férias REAL e devolve o doc p/ o front abrir.
+    payload.ferias = 'employee_id|YYYY-MM-DD|dias' (do select de férias aprovadas). Sem digitação
+    livre — os dados vêm de hr_vacation_requests. Retorna {ok, message, doc:{url, fmt}} → o
+    FormScreen abre o documento gerado (gancho d.doc)."""
+    import uuid as _uuid
+
+    raw = (payload.get("ferias") or "").strip()
+    parts = raw.split("|")
+    if len(parts) != 3 or not parts[0]:
+        raise HTTPException(status_code=400, detail="Selecione uma férias válida.")
+    employee_id, data_inicio, dias_s = parts[0].strip(), parts[1].strip(), parts[2].strip()
+    try:
+        _uuid.UUID(employee_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Colaborador inválido.")
+    try:
+        dias = max(1, min(30, int(dias_s)))
+    except ValueError:
+        dias = 30
+
+    from modules.people_management.hr.services.contract_generator_service import (
+        ContractGeneratorService,
+    )
+
+    try:
+        result = await ContractGeneratorService(db).gerar_aviso_previo_ferias_html(
+            employee_id=employee_id, data_inicio_ferias=data_inicio, dias=dias,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar aviso: {exc}") from exc
+
+    url = getattr(result, "file_url", None)
+    nome = getattr(result, "employee_name", "") or ""
+    if not url:
+        raise HTTPException(status_code=500, detail="Aviso gerado sem URL de download.")
+    return {"ok": True, "message": f"Aviso prévio de férias gerado — {nome}.",
+            "doc": {"label": "Aviso prévio de férias", "url": url, "fmt": "html", "mode": "blob"}}
+
+
 @router.post("/action/lead")
 async def rd_action_lead(
     current_user: CurrentActiveUser,
