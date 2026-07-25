@@ -525,15 +525,23 @@ async def build(db) -> dict:
                    _lic_status(r[4])]))
 
     # 6) Reembolsos — reimbursement_requests
+    # Reembolsos — reimbursement_requests. AÇÃO por-linha "Aprovar" só p/ status 'pendente'
+    # (POST /reimbursements/{id}/approve → move p/ 'aprovado'; NÃO paga — pagamento é passo
+    # separado, OTP-gated). Mesma tabela do display e do endpoint (id bate, sem mismatch).
     await safe("reembolsos", tbl(
         "Reembolsos", "Solicitações de reembolso", "Solicitar reembolso",
         ["Código", "Título", "Valor", "Enviado", "Status"],
         "0.9fr 2fr 1fr 1fr 0.9fr",
         "SELECT coalesce(code,'—'), coalesce(title,'—'), coalesce(total_amount,0), "
-        "submitted_at, coalesce(status,'—') FROM reimbursement_requests "
+        "submitted_at, coalesce(status,'—'), CAST(id AS TEXT) FROM reimbursement_requests "
         "WHERE coalesce(is_active,true) ORDER BY created_at DESC LIMIT 200",
         lambda r: [t(r[0]), t(r[1] or "—", 600, _ND), t(brl(r[2]), 600),
-                   t(_d(r[3])), _rei_status(r[4])]))
+                   t(_d(r[3])), _rei_status(r[4])],
+        editfn=lambda r: ({"title": f"Aprovar reembolso {r[0]}",
+                           "endpoint": f"/api/v1/reimbursements/{r[5]}/approve",
+                           "method": "POST", "btnLabel": "Aprovar", "submitLabel": "Aprovar",
+                           "btnStyle": "primary", "okMsg": "Reembolso aprovado. Recarregue a tela.",
+                           "fields": []} if (r[4] or "").lower() == "pendente" else None)))
 
     # 7) Contratos — employment_contracts
     await safe("contratos", tbl(
