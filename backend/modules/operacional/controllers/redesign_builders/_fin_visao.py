@@ -107,3 +107,50 @@ async def build_visao(db, out: dict) -> None:
         }
     except Exception:  # noqa: BLE001
         pass
+
+    # ── Indicadores financeiros (DSO/DPO/ciclo de caixa) — de contas a receber/pagar (NÃO folha).
+    # Isolado do módulo de folha (T2): lê receivable_accounts/payable_accounts, domínio financeiro. ─
+    try:
+        from sqlalchemy import text as _text
+        dias = max(1, (_date.today() - _date(2026, 1, 1)).days)
+        rr = (await db.execute(_text(
+            "SELECT coalesce(sum(net_value),0), "
+            "coalesce(sum(net_value) FILTER (WHERE status NOT IN ('paga','cancelada','recebida')),0), "
+            "coalesce(avg((data_recebimento - due_date)) FILTER (WHERE data_recebimento IS NOT NULL AND due_date IS NOT NULL),0) "
+            "FROM receivable_accounts"))).fetchone()
+        pp = (await db.execute(_text(
+            "SELECT coalesce(sum(net_value),0), "
+            "coalesce(sum(net_value) FILTER (WHERE status NOT IN ('pago','paga','cancelada')),0) "
+            "FROM payable_accounts"))).fetchone()
+        recb_tot = float(rr[0] or 0); ar_ab = float(rr[1] or 0); atraso = float(rr[2] or 0)
+        pag_tot = float(pp[0] or 0); ap_ab = float(pp[1] or 0)
+        dso = round(ar_ab / (recb_tot / dias), 1) if recb_tot > 0 else 0.0
+        dpo = round(ap_ab / (pag_tot / dias), 1) if pag_tot > 0 else 0.0
+        ciclo = round(dso - dpo, 1)
+        cob = round(ar_ab / ap_ab, 2) if ap_ab > 0 else None
+        out["indicadores"] = {
+            "title": "Indicadores financeiros (DSO / DPO / ciclo)", "type": "dash", "cta": "—",
+            "sub": (f"Prazos médios de contas a receber × pagar (não inclui folha). Período jan–hoje ({dias}d). "
+                    f"Atraso médio de recebimento: {atraso:.1f} dia(s) — recebido em dia = sem inadimplência."),
+            "panelGrid": "1fr 1fr",
+            "kpis": [
+                {"v": f"{dso:.0f}d", "l": "DSO — prazo médio recebimento", "icon": "M12 8v4l3 3M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20", "color": "#16A34A"},
+                {"v": f"{dpo:.0f}d", "l": "DPO — prazo médio pagamento", "icon": "M12 8v4l3 3M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20", "color": "#C2410C"},
+                {"v": f"{ciclo:.0f}d", "l": "Ciclo de caixa (DSO−DPO)", "icon": "M3 3v18h18M18 9l-5 5-4-4-3 3", "color": "#0F1B3A"},
+                {"v": (f"{cob:.2f}x" if cob is not None else "—"), "l": "Cobertura (AR aberto / AP aberto)", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", "color": "#0F1B3A"},
+            ],
+            "panels": [
+                {"title": "Contas a receber", "rows": [
+                    {"left": "Total emitido", "right": brl(recb_tot), **S["info"]},
+                    {"left": "Em aberto (a receber)", "right": brl(ar_ab), **(S["warn"] if ar_ab > 0 else S["ok"])},
+                    {"left": "Atraso médio de recebimento", "right": f"{atraso:.1f}d", **(S["ok"] if atraso <= 0 else S["warn"])},
+                ]},
+                {"title": "Contas a pagar", "rows": [
+                    {"left": "Total", "right": brl(pag_tot), **S["info"]},
+                    {"left": "Em aberto (a pagar)", "right": brl(ap_ab), **S["warn"]},
+                    {"left": "Leitura", "right": ("Ciclo negativo = recebe antes de pagar (bom)" if ciclo < 0 else "Ciclo positivo"), **(S["ok"] if ciclo < 0 else S["info"])},
+                ]},
+            ],
+        }
+    except Exception:  # noqa: BLE001
+        pass
