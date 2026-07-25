@@ -415,16 +415,31 @@ async def build(db) -> dict:
 
     # 0d) Benefícios — SOBRESCREVE p/ trazer operadora + valores (empresa/desconto) + vigência,
     #     que o clássico mostra e o redesign resumia (só tipo/plano/status). employee_benefits.
+    # AÇÃO por-linha "Gerir" = altera SÓ o status do benefício (PATCH /benefits/{id} {status})
+    # — Ativo/Suspenso/Cancelado. Single-field (sem risco de clobber/422 de data/float vazios).
     await safe("beneficios", tbl(
         "Gestão de Benefícios", "Benefícios por colaborador — operadora, valores e vigência", "—",
         ["Colaborador", "Tipo", "Operadora", "Plano", "Empresa", "Desconto", "Vigência", "Status"],
         "1.7fr 1.1fr 1.1fr 1.1fr 0.8fr 0.8fr 1.2fr 0.9fr",
         "SELECT e.nome, coalesce(bf.type,'—'), coalesce(bf.provider,'—'), coalesce(bf.plan_name,'—'), "
-        "bf.company_contribution, bf.employee_contribution, bf.start_date, bf.end_date, coalesce(bf.status,'—') "
+        "bf.company_contribution, bf.employee_contribution, bf.start_date, bf.end_date, "
+        "coalesce(bf.status,'—'), CAST(bf.id AS TEXT) "
         "FROM employee_benefits bf LEFT JOIN employees e ON e.id=bf.employee_id ORDER BY e.nome, bf.type LIMIT 400",
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(_ben_type(r[1])), t(r[2]), t(r[3]),
                    t(brl(r[4])), t(brl(r[5])),
-                   t(f"{_d(r[6])} – {'Indeterminado' if not r[7] else _d(r[7])}"), _ben_status(r[8])]))
+                   t(f"{_d(r[6])} – {'Indeterminado' if not r[7] else _d(r[7])}"), _ben_status(r[8])],
+        editfn=lambda r: {
+            "title": f"Benefício — {r[0] or '—'} ({_ben_type(r[1])})",
+            "endpoint": f"/api/v1/people-management/hr/benefits/{r[9]}",
+            "method": "PATCH", "btnLabel": "Gerir", "submitLabel": "Salvar status",
+            "okMsg": "Benefício atualizado. Recarregue a tela.",
+            "fields": [
+                {"key": "status", "label": "Status do benefício", "type": "select", "span": "span 2",
+                 "value": (r[8] or "active"), "options": [
+                     {"value": "active", "label": "Ativo"},
+                     {"value": "suspended", "label": "Suspenso"},
+                     {"value": "cancelled", "label": "Cancelado"}]},
+            ]}))
 
     # 0e) Rescisão — SOBRESCREVE p/ ler de termination_processes (MESMA fonte do clássico
     #     /terminations), com Tipo/Status/Valor. A base lia employees WHERE status='demitido'
