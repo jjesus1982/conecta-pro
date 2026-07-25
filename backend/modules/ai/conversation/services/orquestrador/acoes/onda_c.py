@@ -105,6 +105,126 @@ LOTE_TOOL: ToolDef = register(ToolDef(
 ))
 
 
+# ───────────────────── transmissão eSocial (🔴, ATO LEGAL ao gov) ────────────
+#
+# eSocial tem DUAS vias:
+#   • SST/gov (S-2200 admissão, S-2210 CAT, S-2220 ASO, S-2230 afastamento,
+#     S-2240 cond. ambientais, S-2299 desligamento) — transmissão REAL ao gov
+#     com certificado. É ESTA que o humano aprova + transmite. Função humana:
+#     modules.people_management.hr.services.esocial_service.transmitir_evento_sst
+#     (disparada pelas tasks sst.transmit_*_to_esocial). O agente NUNCA a chama.
+#   • payroll_integration (S-1200 folha) = via PORTTE — FORA DE ESCOPO, NÃO tocar.
+#
+# O agente só grava uma PROPOSTA 'proposto' em esocial_transmissao_propostas +
+# base.propor (audit + sino p/ diretoria). ZERO chamada de transmissão/assinatura.
+_EVENTOS_SST = ("S-2200", "S-2210", "S-2220", "S-2230", "S-2240", "S-2299")
+
+_ARGS_ESOCIAL = {
+    "type": "object",
+    "properties": {
+        "tipo_evento": {
+            "type": "string",
+            "description": "Evento SST/gov a transmitir (S-2200 admissão, S-2210 CAT, "
+                           "S-2220 ASO, S-2230 afastamento, S-2240 cond. ambientais, "
+                           "S-2299 desligamento). S-1200/folha é do Portte — NÃO aceito.",
+            "enum": list(_EVENTOS_SST),
+        },
+        "referencia": {
+            "type": "string",
+            "description": "Identificador natural do evento (ex.: matrícula+competência ou "
+                           "id da fonte). Chave de idempotência junto com tipo_evento.",
+        },
+        "empresa_id": {
+            "type": "string",
+            "description": "CNPJ (empresas.id) dono do evento — eSocial é por CNPJ.",
+        },
+        "employee_id": {
+            "type": "string",
+            "description": "Empregado do evento (opcional — nem todo evento é por empregado).",
+        },
+        "payload": {
+            "type": "object",
+            "description": "Dados do evento que o humano revisa antes de transmitir.",
+        },
+    },
+    "required": ["tipo_evento", "referencia", "empresa_id"],
+}
+
+
+async def _propor_esocial(
+    db, user, scope, *, tipo_evento: str, referencia: str, empresa_id: str,
+    employee_id: str | None = None, payload: dict | None = None, **_
+) -> dict[str, Any]:
+    import json
+
+    tipo_evento = (tipo_evento or "").strip().upper()
+    referencia = (referencia or "").strip()
+    empresa_id = (empresa_id or "").strip()
+    if not tipo_evento or not referencia or not empresa_id:
+        return {"erro": "tipo_evento, referencia e empresa_id são obrigatórios"}
+    # Só a via SST/gov. S-1200 (folha) é do Portte — recusa explícita (fora de escopo).
+    if tipo_evento not in _EVENTOS_SST:
+        return {"erro": f"tipo_evento {tipo_evento!r} fora de escopo — o agente só propõe "
+                        f"eventos SST/gov {list(_EVENTOS_SST)} (S-1200/folha é do Portte, NÃO toca)"}
+    # idem sino: referencia-primeiro (marca de teste vem na referencia).
+    idem = f"esocial:{referencia}:{tipo_evento}"
+
+    async def _inserir(db) -> str:
+        # Idempotência NATIVA (anti-dupla-proposta, defesa em profundidade — molde
+        # onda_a/T7): mesmo que o precheck do sino em base.propor NÃO pegue
+        # (notificação arquivada/desativada, ou outra origem com key distinta),
+        # NUNCA criamos uma 2ª proposta 'proposto' para o MESMO (tipo_evento,
+        # referencia) — reutilizamos a existente (get-or-resume). O índice único
+        # parcial uq_esocial_prop_idem é a última linha de defesa sob concorrência.
+        existente = (await db.execute(text(
+            "SELECT id::text FROM esocial_transmissao_propostas "
+            "WHERE tipo_evento = :t AND referencia = :r AND status = 'proposto' LIMIT 1"),
+            {"t": tipo_evento, "r": referencia})).scalar()
+        if existente:
+            return existente
+        # ÚNICO INSERT: proposta 'proposto'. ZERO transmissão ao gov — nenhuma
+        # chamada a transmitir_evento_sst / transmit_*_to_esocial / assinatura /
+        # envio. A transmissão real fica 100% humana no fluxo existente.
+        novo = (await db.execute(text(
+            "INSERT INTO esocial_transmissao_propostas "
+            "(tipo_evento, referencia, empresa_id, employee_id, status, payload, "
+            " proposto_por, correlation_id) "
+            "VALUES (:t, :r, cast(:e as uuid), cast(:emp as uuid), 'proposto', "
+            "        cast(:p as jsonb), cast(:pp as uuid), :cid) "
+            "RETURNING id::text"),
+            {"t": tipo_evento, "r": referencia, "e": empresa_id,
+             "emp": employee_id or None, "p": json.dumps(payload or {}),
+             "pp": str(getattr(user, "id", None)), "cid": idem})).scalar()
+        return novo
+
+    return await propor(
+        db, user=user, scope=scope, dominio="esocial_transmissao", gate="🔴",
+        roles_aprovador=ROLES_MONEY, idempotency_key=idem,
+        titulo="[Proposta 🔴] Transmissão eSocial — ato legal",
+        corpo=f"Evento {tipo_evento} (ref {referencia}) proposto para transmissão ao eSocial. "
+              f"NADA foi transmitido ao governo — exige sua aprovação + transmissão humana "
+              f"no fluxo do eSocial (SST).",
+        action_url="/dp/esocial/propostas",
+        tool="propor_esocial",
+        args={"tipo_evento": tipo_evento, "referencia": referencia,
+              "empresa_id": empresa_id, "employee_id": employee_id},
+        entity_type="esocial_transmissao_proposta", inserir=_inserir,
+    )
+
+
+ESOCIAL_TOOL: ToolDef = register(ToolDef(
+    "propor_esocial", "fiscal",
+    "Propor a transmissão de um evento SST ao eSocial (grava proposta 'proposto'; a "
+    "assinatura + transmissão real ao governo exige aprovação humana da diretoria — o "
+    "agente NUNCA transmite ao gov).",
+    _ARGS_ESOCIAL, _propor_esocial, scope_kind="org",
+))
+
+
+#: Export da Onda C (🔴): ambas as tools são de risco máximo (dinheiro / ato legal).
+ONDA_C_TOOLS = [LOTE_TOOL, ESOCIAL_TOOL]
+
+
 if __name__ == "__main__":
     import asyncio
 
@@ -220,7 +340,89 @@ if __name__ == "__main__":
                 assert exec_fim == exec_antes, "pagamento executado sem OTP (VIOLAÇÃO 🔴)"
                 print("SUBTESTE lote PASS (preparado criado, 0 executado, teto, "
                       "idempotência [sino+NATIVA anti-lote-dobro], RBAC financeiro, propositor excluído)")
-                # (o subteste de eSocial é acrescentado na Task 8)
+
+                # ───────────────── SUBTESTE eSocial (Task 8, 🔴 ato legal) ──────────
+                # empresa_id REAL (eSocial é por CNPJ); sem FK na tabela nova, mas
+                # usamos dado real (nunca fabricar).
+                emp_id = (await db.execute(text(
+                    "SELECT id::text FROM empresas LIMIT 1"))).scalar()
+                assert emp_id, "esperado >=1 empresa (CNPJ) cadastrada"
+
+                # PROVA 🔴 (baseline fonte REAL): quantos S-2230 já foram transmitidos
+                # ao gov (recibo_s2230 preenchido). O agente NÃO pode transmitir 1 sequer.
+                tx_antes = (await db.execute(text(
+                    "SELECT count(*) FROM sst_afastamentos WHERE recibo_s2230 IS NOT NULL"))).scalar()
+
+                ref = "__TESTE_5.4__ESOC-0001"
+                re_ = await _propor_esocial(db, _U_, _S(),
+                    tipo_evento="S-2230", referencia=ref, empresa_id=emp_id,
+                    employee_id=None, payload={"marca": "__TESTE_5.4__"})
+                assert re_["status"] == "pendente", re_
+                esoc_id = re_["entity_id"]
+                esoc_ids.append(esoc_id)
+
+                # a proposta nasce 'proposto' (NUNCA transmitida)
+                st = (await db.execute(text(
+                    "SELECT status FROM esocial_transmissao_propostas WHERE id = cast(:i as uuid)"),
+                    {"i": esoc_id})).scalar()
+                assert st == "proposto", f"status inesperado: {st!r}"
+
+                # PROVA 🔴: nenhum evento foi transmitido ao gov por causa da proposta
+                tx_depois = (await db.execute(text(
+                    "SELECT count(*) FROM sst_afastamentos WHERE recibo_s2230 IS NOT NULL"))).scalar()
+                assert tx_depois == tx_antes, "evento transmitido ao gov sem humano (VIOLAÇÃO 🔴)"
+
+                # gate 🔴 (diretoria só) + 3 papéis: propositor EXCLUÍDO; aprovadores == admins
+                aps_e = re_.get("aprovadores") or []
+                assert ESOCIAL_TOOL is not None and ROLES_MONEY == ("admin",), ROLES_MONEY
+                assert prop_id not in aps_e, f"propositor não pode aprovar a si mesmo: {aps_e}"
+                assert set(aps_e) == set(admins), \
+                    f"eSocial deve ir só p/ diretoria (admins), veio {aps_e}"
+
+                # RBAC de módulo: a tool só existe no belt de quem tem 'fiscal'
+                assert ESOCIAL_TOOL.module == "fiscal", ESOCIAL_TOOL.module
+                assert "propor_esocial" in {t.name for t in tools_for_modules({"fiscal"})}
+                assert "propor_esocial" not in {t.name for t in tools_for_modules({"comercial"})}, \
+                    "propor_esocial vazou p/ módulo não-fiscal (RBAC quebrado)"
+
+                # S-1200 (folha, via Portte) é RECUSADO — fora de escopo, agente não toca
+                r_folha = await _propor_esocial(db, _U_, _S(),
+                    tipo_evento="S-1200", referencia=ref, empresa_id=emp_id)
+                assert "erro" in r_folha and "escopo" in r_folha["erro"], r_folha
+
+                # idempotência SINO: mesma (tipo,ref) → duplicado, inserir não roda
+                re2 = await _propor_esocial(db, _U_, _S(),
+                    tipo_evento="S-2230", referencia=ref, empresa_id=emp_id)
+                assert re2.get("duplicado") is True, re2
+
+                # idempotência NATIVA ("não confie só no sino"): desativa a notificação
+                # e propõe de novo — quem barra a 2ª proposta é o SELECT-existing.
+                await db.execute(text(
+                    "UPDATE communication_notifications SET is_active = false "
+                    "WHERE extra_data->>'idempotency_key' = :k"),
+                    {"k": f"esocial:{ref}:S-2230"})
+                await db.commit()
+                re3 = await _propor_esocial(db, _U_, _S(),
+                    tipo_evento="S-2230", referencia=ref, empresa_id=emp_id)
+                if re3.get("entity_id") and re3["entity_id"] not in esoc_ids:
+                    esoc_ids.append(re3["entity_id"])
+                assert re3["status"] == "pendente", re3
+                assert re3["entity_id"] == esoc_id, \
+                    f"idempotência NATIVA falhou: criou 2ª proposta ({re3['entity_id']} != {esoc_id})"
+                n_prop = (await db.execute(text(
+                    "SELECT count(*) FROM esocial_transmissao_propostas "
+                    "WHERE tipo_evento = 'S-2230' AND referencia = :r AND status = 'proposto'"),
+                    {"r": ref})).scalar()
+                assert n_prop == 1, f"idempotência NATIVA falhou: {n_prop} propostas 'proposto' (esperado 1)"
+
+                # PROVA 🔴 (reforço): ainda 0 transmitido após todas as (re)propostas
+                tx_fim = (await db.execute(text(
+                    "SELECT count(*) FROM sst_afastamentos WHERE recibo_s2230 IS NOT NULL"))).scalar()
+                assert tx_fim == tx_antes, "evento transmitido ao gov sem humano (VIOLAÇÃO 🔴)"
+                print("SUBTESTE eSocial PASS (proposto criado, 0 transmitido ao gov, "
+                      "S-1200/Portte recusado, idempotência [sino+NATIVA], gate 🔴 diretoria, "
+                      "RBAC fiscal, propositor excluído)")
+
                 print("TODOS OS SUBTESTES DE onda_c.py PASSARAM")
             finally:
                 for lid in lote_ids:
@@ -244,8 +446,17 @@ if __name__ == "__main__":
                     await db.execute(text("DELETE FROM communication_notifications WHERE id = ANY(:i)"), {"i": ids})
                 if esoc_ids:
                     await db.execute(text("DELETE FROM esocial_transmissao_propostas WHERE id = ANY(:i)"), {"i": esoc_ids})
+                # rede de segurança: apaga QUALQUER proposta marcada de teste, mesmo
+                # que o teste tenha falhado antes de capturar o id em esoc_ids.
+                await db.execute(text(
+                    "DELETE FROM esocial_transmissao_propostas WHERE referencia LIKE '__TESTE_5.4__%'"))
+                # audit_logs da proposta eSocial (append-only p/ real; aqui é resíduo).
+                if esoc_ids:
+                    await db.execute(text(
+                        "DELETE FROM audit_logs WHERE details->>'tool' = 'propor_esocial' "
+                        "AND details->>'entity_id' = ANY(:i)"), {"i": esoc_ids})
                 await db.commit()
-                # 0 remanescentes: tabela de PAGAMENTO + notif + audit (confirmado 2x)
+                # 0 remanescentes: tabela de PAGAMENTO + eSocial + notif + audit (confirmado 2x)
                 rem = (await db.execute(text(
                     "SELECT count(*) FROM inter_payments WHERE observacoes LIKE '%__TESTE_5.4__POSTO%'"))).scalar()
                 rem_n = (await db.execute(text(
@@ -254,10 +465,22 @@ if __name__ == "__main__":
                 rem_a = (await db.execute(text(
                     "SELECT count(*) FROM audit_logs WHERE details->>'tool' = 'propor_lote_pagamento' "
                     "AND details->>'entity_id' = ANY(:i)"), {"i": lote_ids or ['-']})).scalar()
+                rem_e = (await db.execute(text(
+                    "SELECT count(*) FROM esocial_transmissao_propostas WHERE referencia LIKE '__TESTE_5.4__%'"))).scalar()
+                rem_en = (await db.execute(text(
+                    "SELECT count(*) FROM communication_notifications "
+                    "WHERE extra_data->>'idempotency_key' LIKE 'esocial:__TESTE_5.4__%'"))).scalar()
+                rem_ea = (await db.execute(text(
+                    "SELECT count(*) FROM audit_logs WHERE details->>'tool' = 'propor_esocial' "
+                    "AND details->>'entity_id' = ANY(:i)"), {"i": esoc_ids or ['-']})).scalar()
                 assert rem == 0, f"remanescentes lote (inter_payments)={rem}"
                 assert rem_n == 0, f"remanescentes notif={rem_n}"
                 assert rem_a == 0, f"remanescentes audit={rem_a}"
-                print(f"LIMPEZA OK — 0 remanescentes (inter_payments={rem}, notif={rem_n}, audit={rem_a})")
+                assert rem_e == 0, f"remanescentes eSocial (propostas)={rem_e}"
+                assert rem_en == 0, f"remanescentes notif eSocial={rem_en}"
+                assert rem_ea == 0, f"remanescentes audit eSocial={rem_ea}"
+                print(f"LIMPEZA OK — 0 remanescentes (inter_payments={rem}, notif={rem_n}, audit={rem_a}, "
+                      f"esocial={rem_e}, notif_esoc={rem_en}, audit_esoc={rem_ea})")
         await eng.dispose()
 
     asyncio.run(main())
