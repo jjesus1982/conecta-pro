@@ -342,7 +342,10 @@ class DCTFWebService:
         resultado = self.manager.transmitir(declaracao)
         resultado["veracidade"] = self._veracidade(periodo_apuracao, declaracao)
 
-        logger.info(f"DCTFWeb transmitida: {resultado['numero_recibo']}")
+        logger.info(
+            f"DCTFWeb {periodo_apuracao} apurada (saldo {resultado.get('saldo_a_pagar')}) "
+            "— entrega via e-CAC pelo contador."
+        )
 
         return resultado
 

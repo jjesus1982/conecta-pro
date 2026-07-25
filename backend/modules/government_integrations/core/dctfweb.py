@@ -39,6 +39,7 @@ class SituacaoDeclaracao(StrEnum):
     """Situação da declaração."""
 
     EM_ANDAMENTO = "em_andamento"
+    APURADA = "apurada_pendente_entrega"  # calculada no ERP; entrega via e-CAC (contador)
     ATIVA = "ativa"
     RETIFICADA = "retificada"
     EXCLUIDA = "excluida"
@@ -400,31 +401,38 @@ class DCTFWebManager:
 
     def transmitir(self, declaracao: DCTFWebDeclaracao) -> dict[str, Any]:
         """
-        Transmite a declaração DCTFWeb.
+        Fecha a APURAÇÃO da DCTFWeb (não transmite).
 
-        Na prática, a DCTFWeb é transmitida pelo portal da Receita Federal.
-        Este método prepara os dados para transmissão.
+        A DCTFWeb NÃO tem web service de transmissão: ela é montada na Receita a
+        partir do eSocial + EFD-Reinf e ENTREGUE/confessada no portal e-CAC. O ERP
+        apura os débitos (da folha real) e prepara os DARFs, mas a entrega é feita
+        pelo contador via e-CAC. Este método NÃO forja recibo nem marca "transmitida"
+        — retorna a apuração pronta com situação honesta (pendente de entrega).
 
         Args:
-            declaracao: Declaração a ser transmitida
+            declaracao: Declaração apurada
 
         Returns:
-            Resultado da transmissão
+            Apuração pronta + orientação de entrega (sem protocolo fabricado)
         """
-        declaracao.data_transmissao = datetime.now()
-        declaracao.situacao = SituacaoDeclaracao.ATIVA
+        declaracao.data_transmissao = None
+        declaracao.numero_recibo = None
+        declaracao.situacao = SituacaoDeclaracao.APURADA
 
-        # Número de recibo seria retornado pela Receita
-        declaracao.numero_recibo = (
-            f"DCTFWeb{declaracao.periodo_apuracao.replace('-', '')}{datetime.now().strftime('%H%M%S')}"
+        logger.info(
+            f"DCTFWeb {declaracao.periodo_apuracao} apurada (saldo {declaracao.saldo_a_pagar}) "
+            "— entrega via e-CAC pelo contador; sem transmissão automática."
         )
 
-        logger.info(f"DCTFWeb transmitida: {declaracao.numero_recibo}")
-
         return {
-            "numero_recibo": declaracao.numero_recibo,
-            "data_transmissao": declaracao.data_transmissao.isoformat(),
+            "transmitido": False,
+            "numero_recibo": None,
             "situacao": declaracao.situacao.value,
+            "entrega": "e-CAC (Receita) pelo contador — DCTFWeb não possui WS de transmissão",
+            "mensagem": (
+                "Apuração pronta a partir da folha real. A DCTFWeb é montada pela Receita "
+                "(eSocial + EFD-Reinf) e confessada no e-CAC; o ERP não emite protocolo."
+            ),
             "total_debitos": str(declaracao.total_debitos),
             "total_creditos": str(declaracao.total_creditos),
             "saldo_a_pagar": str(declaracao.saldo_a_pagar),
