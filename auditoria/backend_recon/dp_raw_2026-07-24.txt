@@ -1,0 +1,94 @@
+=== BACKEND RECON — prefixo 'people-management' ===
+rotas montadas: 698 · EXPOSTAS (front chama): 633 · ÓRFÃS (sem front): 65
+GERADORES DE DOCUMENTO órfãos (codado, sem botão no front): 5
+
+### 🔴 GERADORES ÓRFÃOS (documento codado mas SEM superfície no front) — prioridade
+  GET      /api/v1/people-management/hr/contracts/employee/{employee_id}/download-aviso/{filename}   [key=download-aviso]
+  POST     /api/v1/people-management/hr/payroll-export/contracheques-batch/{competencia}   [key=contracheques-batch]
+  POST     /api/v1/people-management/ponto/folha-pdf/{employee_id} 💰  [key=folha-pdf]
+  GET      /api/v1/people-management/ponto/folha-pdf/{employee_id}/download 💰  [key=folha-pdf]
+  GET      /api/v1/people-management/sst/ppp/{employee_id}/pdf   [key=ppp]
+
+### ⚪ OUTRAS ÓRFÃS (endpoint montado, sem chamada no front)
+  GET      /api/v1/people-management/admin/cct/convencao-vigente
+  GET      /api/v1/people-management/admin/cct/convencoes
+  POST     /api/v1/people-management/admin/cct/convencoes
+  PUT      /api/v1/people-management/admin/cct/convencoes/{convencao_id}
+  PUT      /api/v1/people-management/dp/payslips/folha/funcionario/{employee_id}/pix-key
+  POST     /api/v1/people-management/dp/payslips/folha/pagar-via-pix/{mes}/{ano}
+  GET      /api/v1/people-management/dp/payslips/folha/pagar-via-pix/{mes}/{ano}/preview
+  POST     /api/v1/people-management/dp/payslips/importar-lote
+  POST     /api/v1/people-management/folha/importar-alterdata
+  POST     /api/v1/people-management/ged/clients/{client_id}/portal-access
+  GET      /api/v1/people-management/ged/documents/pending-signatures
+  POST     /api/v1/people-management/ged/kits/{kit_id}/send-email
+  GET      /api/v1/people-management/hr
+  GET      /api/v1/people-management/hr/beneficios/taxa-negocial
+  POST     /api/v1/people-management/hr/discipline/from-occurrence/{occurrence_id}
+  GET      /api/v1/people-management/hr/employees/cpf/{cpf}
+  POST     /api/v1/people-management/hr/employees/import-cadastro
+  GET      /api/v1/people-management/hr/ponto/fechamento-status
+  GET      /api/v1/people-management/hr/reimbursements/my
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-entries/employee/{employee_id}/day/{entry_date}
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/{sheet_id}/approve/hr
+  PUT      /api/v1/people-management/human-resources/career/plans/{plan_id}/milestones
+  POST     /api/v1/people-management/human-resources/performance/review-cycle
+  POST     /api/v1/people-management/human-resources/recruitment/resume/parse-text
+  GET      /api/v1/people-management/human-resources/training/mandatory-check/{employee_id}
+  GET      /api/v1/people-management/human-resources/turnover/desligados-sem-motivo
+  POST     /api/v1/people-management/integration/dp-to-ops/termination-notify
+  POST     /api/v1/people-management/integration/dp-to-ops/vacation-approved
+  POST     /api/v1/people-management/integration/dp-to-rh/admission-completed
+  POST     /api/v1/people-management/integration/ops-to-dp/check-availability
+  POST     /api/v1/people-management/integration/ops-to-dp/payroll-data
+  POST     /api/v1/people-management/integration/ops-to-dp/shift-closed
+  POST     /api/v1/people-management/integration/portal-to-dp/document-signed
+  POST     /api/v1/people-management/integration/rh-to-dp/candidate-approved
+  POST     /api/v1/people-management/integration/rh-to-ops/mandatory-training-check
+  POST     /api/v1/people-management/ponto/batida/me
+  GET      /api/v1/people-management/ponto/batidas/me
+  GET      /api/v1/people-management/ponto/colaboradores-sem-escala
+  POST     /api/v1/people-management/ponto/fechamento-mes
+  POST     /api/v1/people-management/ponto/sincronizar-solides
+  GET      /api/v1/people-management/portal/auth/me
+  POST     /api/v1/people-management/portal/auth/reset-senha
+  POST     /api/v1/people-management/portal/my-notifications/test-trigger
+  GET      /api/v1/people-management/portal/my-schedules/current-month
+  GET      /api/v1/people-management/portal/ouvidoria-admin
+  POST     /api/v1/people-management/portal/self-service/bater-ponto
+  GET      /api/v1/people-management/portal/self-service/me
+  GET      /api/v1/people-management/portal/self-service/meus-documentos-a-assinar
+  GET      /api/v1/people-management/portal/self-service/minha-cct
+  POST     /api/v1/people-management/sst/aso
+  GET      /api/v1/people-management/sst/aso
+  POST     /api/v1/people-management/sst/cat
+  GET      /api/v1/people-management/sst/cat
+  GET      /api/v1/people-management/sst/cipa/reunioes
+  POST     /api/v1/people-management/sst/cipa/reunioes
+  POST     /api/v1/people-management/sst/epi
+  GET      /api/v1/people-management/sst/epi
+  GET      /api/v1/people-management/sst/nr1/colaboradores-risco
+  GET      /api/v1/people-management/sst/ppp/{employee_id}
+           /api/v1/people-management/ws/gp/{user_id}
+
+### ✅ EXPOSTAS (633) — endpoint com chamada no front (amostra 20)
+  POST     /api/v1/people-management/admin/cct/cache/invalidar  → frontend/src/hooks/mobile/useSync.ts
+  PUT      /api/v1/people-management/admin/cct/cargos/{cargo_id}  → frontend/src/app/modulos/operacional/colaboradores/page.tsx
+  GET      /api/v1/people-management/admin/cct/convencoes/{convencao_id}/beneficios  → frontend/src/app/modulos/dp/page.tsx
+  POST     /api/v1/people-management/admin/cct/convencoes/{convencao_id}/beneficios  → frontend/src/app/modulos/dp/page.tsx
+  GET      /api/v1/people-management/admin/cct/convencoes/{convencao_id}/cargos  → frontend/src/app/modulos/operacional/colaboradores/page.tsx
+  POST     /api/v1/people-management/admin/cct/convencoes/{convencao_id}/cargos  → frontend/src/app/modulos/operacional/colaboradores/page.tsx
+  GET      /api/v1/people-management/admin/cct/convencoes/{convencao_id}/feriados  → frontend/src/app/modulos/portal/cct/page.tsx
+  POST     /api/v1/people-management/admin/cct/convencoes/{convencao_id}/feriados  → frontend/src/app/modulos/portal/cct/page.tsx
+  DELETE   /api/v1/people-management/admin/cct/feriados/{feriado_id}  → frontend/src/app/modulos/portal/cct/page.tsx
+  POST     /api/v1/people-management/certifications  → frontend/src/app/modulos/dp/certificacao/page.tsx
+  GET      /api/v1/people-management/certifications  → frontend/src/app/modulos/dp/certificacao/page.tsx
+  POST     /api/v1/people-management/certifications/  → frontend/src/app/modulos/dp/certificacao/page.tsx
+  GET      /api/v1/people-management/certifications/  → frontend/src/app/modulos/dp/certificacao/page.tsx
+  POST     /api/v1/people-management/certifications/gerar-folha/{competencia}  → frontend/src/app/modulos/dp/certificacao/page.tsx
+  GET      /api/v1/people-management/certifications/{cert_id}  → frontend/src/app/modulos/dp/certificacao/page.tsx
+  PATCH    /api/v1/people-management/certifications/{cert_id}/certify  → frontend/src/app/modulos/dp/certificacao/page.tsx
+  PATCH    /api/v1/people-management/certifications/{cert_id}/reject  → frontend/src/app/modulos/operacional/substituicoes/page.tsx
+  POST     /api/v1/people-management/dp/payroll/pay-batch  → frontend/src/app/modulos/dp/folha/page.tsx
+  GET      /api/v1/people-management/dp/payslips  → frontend/src/app/modulos/dp/page.tsx
+  GET      /api/v1/people-management/dp/payslips/  → frontend/src/app/modulos/dp/page.tsx
