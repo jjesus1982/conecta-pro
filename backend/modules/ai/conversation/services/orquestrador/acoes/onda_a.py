@@ -77,7 +77,8 @@ async def _propor_cobranca(
                 (:id, :sn, :valor, :venc, 'PENDENTE', :desc, CAST(:pag AS jsonb), NOW(), NOW())
         """), {"id": local_id, "sn": seu_numero, "valor": valor_decimal,
                "venc": venc_date, "desc": descricao or "",
-               "pag": json.dumps({"cliente_crm_id": cliente_crm_id})})
+               "pag": json.dumps({"cliente_crm_id": cliente_crm_id,
+                                  "origem": "agente_proposta"})})
         return local_id
 
     return await propor(
@@ -93,7 +94,7 @@ async def _propor_cobranca(
 
 
 COBRANCA_TOOL: ToolDef = register(ToolDef(
-    "propor_cobranca", "comercial",
+    "propor_cobranca", "crm",
     "Propor a emissão de uma cobrança a um cliente (fica PENDENTE de aprovação; não emite nada).",
     _ARGS_COBRANCA, _propor_cobranca, scope_kind="org",
 ))
@@ -175,7 +176,7 @@ async def _propor_proposta(
         roles_aprovador=ROLES_COMERCIAL, idempotency_key=idem,
         titulo="[Proposta] Enviar proposta comercial",
         corpo=f"Proposta '{title}' para {client_name} (R$ {valor_total:.2f}) em rascunho. Aguarda sua revisão/envio.",
-        action_url="/comercial/propostas",
+        action_url="/crm/propostas",
         tool="propor_proposta_comercial",
         args={"client_name": client_name, "title": title, "valor_total": valor_total},
         entity_type="proposal", inserir=_inserir,
@@ -183,7 +184,7 @@ async def _propor_proposta(
 
 
 PROPOSTA_TOOL: ToolDef = register(ToolDef(
-    "propor_proposta_comercial", "comercial",
+    "propor_proposta_comercial", "crm",
     "Criar um RASCUNHO de proposta comercial (fica draft; o envio/assinatura ao cliente é aprovado por humano).",
     _ARGS_PROPOSTA, _propor_proposta, scope_kind="org",
 ))
@@ -264,7 +265,7 @@ async def _propor_kit(
         titulo="[Proposta] Montar kit documental",
         corpo=f"Kit '{tipo_kit}' para cliente {client_id} (mês {ref_month.strftime('%m/%Y')}). "
               f"Aguarda aprovação p/ montar/enviar.",
-        action_url="/gedeon/kits",
+        action_url="/documentos/kits",
         tool="propor_kit",
         args={"client_id": client_id, "tipo_kit": tipo_kit},
         entity_type="ged_document_kit", inserir=_inserir,
@@ -272,7 +273,7 @@ async def _propor_kit(
 
 
 KIT_TOOL: ToolDef = register(ToolDef(
-    "propor_kit", "gedeon",
+    "propor_kit", "ged",
     "Propor a montagem de um kit documental (fica 'proposto'; a montagem/envio é aprovada por humano).",
     _ARGS_KIT, _propor_kit, scope_kind="org",
 ))
@@ -366,15 +367,15 @@ if __name__ == "__main__":
                     f"idempotência NATIVA falhou: esperado 1 pendente na tabela nativa, veio {n_pendentes}"
                 print("SUBTESTE cobrança: idempotência NATIVA (sino desativado, tabela nativa não duplica) PASS")
 
-                # RBAC (d): a tool só aparece no belt de quem tem o módulo 'comercial'.
+                # RBAC (d): a tool só aparece no belt de quem tem o módulo 'crm'.
                 from ..tool_registry import tools_for_modules
-                assert COBRANCA_TOOL.module == "comercial", COBRANCA_TOOL.module
-                nomes_comercial = {t.name for t in tools_for_modules({"comercial"})}
+                assert COBRANCA_TOOL.module == "crm", COBRANCA_TOOL.module
+                nomes_crm = {t.name for t in tools_for_modules({"crm"})}
                 nomes_financeiro = {t.name for t in tools_for_modules({"financeiro"})}
-                assert "propor_cobranca" in nomes_comercial, nomes_comercial
+                assert "propor_cobranca" in nomes_crm, nomes_crm
                 assert "propor_cobranca" not in nomes_financeiro, \
                     "propor_cobranca vazou p/ módulo 'financeiro' (RBAC de módulo quebrado)"
-                print("SUBTESTE cobrança: RBAC de módulo (só 'comercial' vê a tool) PASS")
+                print("SUBTESTE cobrança: RBAC de módulo (só 'crm' vê a tool) PASS")
 
                 # aprovador correto (e): propositor REAL excluído do conjunto de aprovadores
                 # (roles reais — ROLES_COMERCIAL=('admin',), não existe role 'comercial').
@@ -467,14 +468,14 @@ if __name__ == "__main__":
                 assert n_drafts == 1, f"idempotência NATIVA falhou: esperado 1 draft, veio {n_drafts}"
                 print("SUBTESTE proposta: idempotência NATIVA (sino desativado, tabela nativa não duplica) PASS")
 
-                # (d) RBAC: a tool só aparece no belt de quem tem o módulo 'comercial'.
-                assert PROPOSTA_TOOL.module == "comercial", PROPOSTA_TOOL.module
-                nomes_comercial_p = {t.name for t in tools_for_modules({"comercial"})}
+                # (d) RBAC: a tool só aparece no belt de quem tem o módulo 'crm'.
+                assert PROPOSTA_TOOL.module == "crm", PROPOSTA_TOOL.module
+                nomes_crm_p = {t.name for t in tools_for_modules({"crm"})}
                 nomes_financeiro_p = {t.name for t in tools_for_modules({"financeiro"})}
-                assert "propor_proposta_comercial" in nomes_comercial_p, nomes_comercial_p
+                assert "propor_proposta_comercial" in nomes_crm_p, nomes_crm_p
                 assert "propor_proposta_comercial" not in nomes_financeiro_p, \
                     "propor_proposta_comercial vazou p/ módulo 'financeiro' (RBAC de módulo quebrado)"
-                print("SUBTESTE proposta: RBAC de módulo (só 'comercial' vê a tool) PASS")
+                print("SUBTESTE proposta: RBAC de módulo (só 'crm' vê a tool) PASS")
 
                 # (e) aprovador correto: propositor REAL (admin) excluído do conjunto
                 # de aprovadores (reusa `admins`/`_UAdmin` resolvidos no bloco de cobrança acima).
@@ -564,14 +565,14 @@ if __name__ == "__main__":
                     f"idempotência NATIVA falhou: esperado 1 kit, veio {n_kits_cliente2}"
                 print("SUBTESTE kit: idempotência (sino + NATIVA, grão client_id+reference_month) PASS")
 
-                # (d) RBAC: a tool só aparece no belt de quem tem o módulo 'gedeon'.
-                assert KIT_TOOL.module == "gedeon", KIT_TOOL.module
-                nomes_gedeon = {t.name for t in tools_for_modules({"gedeon"})}
+                # (d) RBAC: a tool só aparece no belt de quem tem o módulo 'ged'.
+                assert KIT_TOOL.module == "ged", KIT_TOOL.module
+                nomes_ged = {t.name for t in tools_for_modules({"ged"})}
                 nomes_financeiro_k = {t.name for t in tools_for_modules({"financeiro"})}
-                assert "propor_kit" in nomes_gedeon, nomes_gedeon
+                assert "propor_kit" in nomes_ged, nomes_ged
                 assert "propor_kit" not in nomes_financeiro_k, \
                     "propor_kit vazou p/ módulo 'financeiro' (RBAC de módulo quebrado)"
-                print("SUBTESTE kit: RBAC de módulo (só 'gedeon' vê a tool) PASS")
+                print("SUBTESTE kit: RBAC de módulo (só 'ged' vê a tool) PASS")
 
                 # (e) aprovador correto: propositor REAL (admin) excluído do conjunto
                 # de aprovadores. ROLES_KIT_OP = ('admin', 'gerente_operacional');

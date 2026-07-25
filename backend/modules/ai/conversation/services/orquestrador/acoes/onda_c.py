@@ -10,6 +10,7 @@ Ambas 🔴: o agente só PROPÕE. A execução real exige gate humano existente:
 from __future__ import annotations
 
 import os
+import re
 import uuid
 from typing import Any
 
@@ -48,6 +49,18 @@ async def _propor_lote(
 ) -> dict[str, Any]:
     if not posto or not competencia or not itens:
         return {"erro": "posto, competencia e itens são obrigatórios"}
+    # FIX anti-dup do lote: o schema da tool descreve `competencia` como "AAAA-MM",
+    # mas folha_lote_service._ja_pago_competencia faz `competencia.split("/")`
+    # esperando "MM/AAAA" — com "2026-07" a trava anti-duplo-pagamento cai
+    # silenciosamente no `except: return None`. Convertemos AQUI (folha_lote_service
+    # é INTOCADO), no formato canônico "MM/AAAA", ANTES de passar adiante. O mesmo
+    # `competencia_fmt` alimenta preparar_lote (→ observacoes "Folha MM/AAAA — ...")
+    # E o SELECT-existing nativo abaixo (que casa por essa mesma observacoes) — os
+    # dois TÊM de usar o mesmo formato, senão a anti-dup nativa nunca casaria.
+    competencia_fmt = competencia
+    if re.match(r"^\d{4}-\d{2}$", competencia):
+        aaaa, mm = competencia.split("-")
+        competencia_fmt = f"{mm}/{aaaa}"
     total = sum(float(it.get("valor") or 0) for it in itens)
     if total <= 0:
         return {"erro": "total do lote deve ser > 0"}
@@ -74,14 +87,14 @@ async def _propor_lote(
             "SELECT lote_id::text FROM inter_payments "
             "WHERE status = 'preparado' AND categoria = 'folha' "
             "  AND observacoes LIKE :obs LIMIT 1"),
-            {"obs": f"Folha {competencia} — %({posto})"})).scalar()
+            {"obs": f"Folha {competencia_fmt} — %({posto})"})).scalar()
         if existente:
             return existente
 
         # preparar_lote SÓ grava inter_payments 'preparado' (não move dinheiro,
         # não gera OTP, não chama a API). A execução fica 100% humana.
         from modules.integrations.inter.services.folha_lote_service import preparar_lote
-        res = await preparar_lote(db, posto=posto, competencia=competencia,
+        res = await preparar_lote(db, posto=posto, competencia=competencia_fmt,
                                   itens=itens, user_id=str(getattr(user, "id", None)))
         return res["lote_id"]
 
@@ -91,7 +104,7 @@ async def _propor_lote(
         titulo="[Proposta 🔴] Lote de pagamento — exige OTP",
         corpo=f"Lote de {len(itens)} pagamento(s) para {posto} ({competencia}), total R$ {total:.2f}. "
               f"NADA foi pago — exige sua aprovação + OTP no fluxo do Financeiro.",
-        action_url="/financeiro/pagamentos/lote",
+        action_url="/financeiro/inter/pagamentos",
         tool="propor_lote_pagamento",
         args={"posto": posto, "competencia": competencia, "total": total, "n": len(itens)},
         entity_type="inter_payments_lote", inserir=_inserir,
@@ -99,7 +112,7 @@ async def _propor_lote(
 
 
 LOTE_TOOL: ToolDef = register(ToolDef(
-    "propor_lote_pagamento", "financeiro",
+    "propor_lote_pagamento", "dp",
     "Propor um lote de pagamento de folha (grava inter_payments 'preparado'; o pagamento exige aprovação humana + OTP — o agente NUNCA paga).",
     _ARGS_LOTE, _propor_lote, scope_kind="org",
 ))
@@ -204,7 +217,7 @@ async def _propor_esocial(
         corpo=f"Evento {tipo_evento} (ref {referencia}) proposto para transmissão ao eSocial. "
               f"NADA foi transmitido ao governo — exige sua aprovação + transmissão humana "
               f"no fluxo do eSocial (SST).",
-        action_url="/dp/esocial/propostas",
+        action_url="/dp/esocial",
         tool="propor_esocial",
         args={"tipo_evento": tipo_evento, "referencia": referencia,
               "empresa_id": empresa_id, "employee_id": employee_id},
@@ -213,7 +226,7 @@ async def _propor_esocial(
 
 
 ESOCIAL_TOOL: ToolDef = register(ToolDef(
-    "propor_esocial", "fiscal",
+    "propor_esocial", "dp",
     "Propor a transmissão de um evento SST ao eSocial (grava proposta 'proposto'; a "
     "assinatura + transmissão real ao governo exige aprovação humana da diretoria — o "
     "agente NUNCA transmite ao gov).",
@@ -281,12 +294,13 @@ if __name__ == "__main__":
                 assert prop_id not in aps, f"propositor não pode aprovar a si mesmo: {aps}"
                 assert set(aps) == set(admins), (aps, admins)
 
-                # RBAC (e): a tool só existe no belt de quem tem o módulo financeiro
+                # RBAC (e): a tool só existe no belt de quem tem o módulo 'dp' (folha é
+                # DP-preparada; propor≠ler caixa, LGPD intacta). NÃO vaza p/ financeiro.
                 from ..tool_registry import tools_for_modules
-                assert LOTE_TOOL.module == "financeiro", LOTE_TOOL.module
-                assert "propor_lote_pagamento" in {t.name for t in tools_for_modules({"financeiro"})}
-                assert "propor_lote_pagamento" not in {t.name for t in tools_for_modules({"comercial"})}, \
-                    "propor_lote_pagamento vazou p/ módulo não-financeiro (RBAC quebrado)"
+                assert LOTE_TOOL.module == "dp", LOTE_TOOL.module
+                assert "propor_lote_pagamento" in {t.name for t in tools_for_modules({"dp"})}
+                assert "propor_lote_pagamento" not in {t.name for t in tools_for_modules({"financeiro"})}, \
+                    "propor_lote_pagamento vazou p/ módulo 'financeiro' (RBAC quebrado)"
 
                 # os pagamentos do lote nasceram 'preparado' (nunca 'executado')
                 sts = [x for x in (await db.execute(text(
@@ -329,9 +343,11 @@ if __name__ == "__main__":
                 assert r3["status"] == "pendente", r3
                 assert r3["entity_id"] == lote_id, \
                     f"idempotência NATIVA falhou: criou 2º lote ({r3['entity_id']} != {lote_id})"
+                # observacoes agora é "Folha 01/2099 — ..." (competencia "2099-01"
+                # AAAA-MM convertida p/ MM/AAAA antes de preparar_lote) — prova a conversão.
                 n_lotes = (await db.execute(text(
                     "SELECT count(DISTINCT lote_id) FROM inter_payments "
-                    "WHERE observacoes LIKE 'Folha 2099-01 — %(__TESTE_5.4__POSTO)'"))).scalar()
+                    "WHERE observacoes LIKE 'Folha 01/2099 — %(__TESTE_5.4__POSTO)'"))).scalar()
                 assert n_lotes == 1, f"idempotência NATIVA falhou: {n_lotes} lotes 'preparado' (esperado 1)"
 
                 # PROVA 🔴 (reforço): ainda 0 executado após todas as (re)propostas
@@ -379,11 +395,12 @@ if __name__ == "__main__":
                 assert set(aps_e) == set(admins), \
                     f"eSocial deve ir só p/ diretoria (admins), veio {aps_e}"
 
-                # RBAC de módulo: a tool só existe no belt de quem tem 'fiscal'
-                assert ESOCIAL_TOOL.module == "fiscal", ESOCIAL_TOOL.module
-                assert "propor_esocial" in {t.name for t in tools_for_modules({"fiscal"})}
-                assert "propor_esocial" not in {t.name for t in tools_for_modules({"comercial"})}, \
-                    "propor_esocial vazou p/ módulo não-fiscal (RBAC quebrado)"
+                # RBAC de módulo: a tool só existe no belt de quem tem 'dp' (eSocial
+                # SST é DP-preparado; execução segue admin+humano). NÃO vaza p/ fiscal.
+                assert ESOCIAL_TOOL.module == "dp", ESOCIAL_TOOL.module
+                assert "propor_esocial" in {t.name for t in tools_for_modules({"dp"})}
+                assert "propor_esocial" not in {t.name for t in tools_for_modules({"fiscal"})}, \
+                    "propor_esocial vazou p/ módulo 'fiscal' (RBAC quebrado)"
 
                 # S-1200 (folha, via Portte) é RECUSADO — fora de escopo, agente não toca
                 r_folha = await _propor_esocial(db, _U_, _S(),

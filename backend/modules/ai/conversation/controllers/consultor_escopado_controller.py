@@ -28,6 +28,11 @@ from core.auth.dependencies import get_current_active_user
 from core.auth.module_scope import user_modules
 from core.database import get_db
 from modules.ai.conversation.services.orquestrador import tools_modulos  # noqa: F401 — registra as tools de módulo
+from modules.ai.conversation.services.orquestrador.acoes import (  # noqa: F401 — registra as 6 tools de ação 5.4 (register() a nível de módulo)
+    onda_a,
+    onda_b,
+    onda_c,
+)
 from modules.ai.conversation.services.orquestrador.engine import OrqScope, run_engine
 from modules.ai.conversation.services.orquestrador.tool_registry import ToolDef, tools_for_modules
 from modules.ai.conversation.services.orquestrador.tools_ponto import JUSTIFICAR_TOOL
