@@ -66,6 +66,8 @@ Antes de wirar cada rota: `curl` autenticado provando **200 + content-type + byt
 A (menor risco, doc puro) → B (form) → C (ação com efeito). Cada um commitado por pathspec, `--no-verify`, Co-Authored-By.
 
 ## Progresso da execução
+> **Estado 25/07 (final B):** B **verificado no navegador com dado real** — Francisco Ramon (em férias desde 23/07): menu→tela→seleciona→"Gerar aviso"→badge "Aviso prévio de férias gerado — FRANCISCO..." + documento abre em nova aba (gancho d.doc→abrirDoc); download-aviso 200 OK. Decisão Jordan (A): aviso emitível p/ férias já iniciadas (removida trava de data-passada; select = últimos 120d + futuras). Tudo **baked/durável** (sobreviveu recreate 13:15Z). C segue aguardando decisão 1 (fix `"Ativo"`).
+>
 > **Estado 25/07 pós-deploy:** A e B **no ar e duráveis** (backend baked — o recreate 11:59Z de outra sessão bakou a árvore commitada; sobreviveram). Frontend do gancho live via cp + commitado (durável = rebuild da imagem front). C aguarda decisão. Verificação do aviso end-to-end no browser fica pendente de haver UMA férias futura real (hoje select vazio-real; não fabrico dado).
 
 - **A — Folha de ponto (batidas): ✅ FEITO** (commit em `departamento_pessoal.py`). Doc por-linha em fechamento-ponto, guardado por `has_punches`. Verificado 200 text/html end-to-end. Falta só o bake durável (agrupar com B/C).
