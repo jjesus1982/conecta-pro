@@ -61,7 +61,7 @@ async def casar_notas_banco(db, inicio: str, fim: str, persistir: bool = False) 
     inter_bt = (await db.execute(text(
         "SELECT bt.id, bt.transaction_date, bt.amount, coalesce(bt.description,''), coalesce(bt.reconciliation_status,'') "
         "FROM bank_transactions bt JOIN bank_accounts ba ON ba.id=bt.bank_account_id "
-        "WHERE ba.bank_code='077' AND bt.transaction_type IN ('credit','credito') "
+        "WHERE ba.bank_code='077' AND bt.transaction_type IN ('credit','credito','pix_recebido','boleto_recebido') "
         "AND bt.transaction_date BETWEEN :a AND :b"), {"a": di, "b": df})).fetchall()
     inter_it = (await db.execute(text(
         "SELECT id, data_lancamento, valor, coalesce(descricao,'') FROM inter_transactions "
@@ -69,7 +69,7 @@ async def casar_notas_banco(db, inicio: str, fim: str, persistir: bool = False) 
     cora_creds = (await db.execute(text(
         "SELECT bt.id, bt.transaction_date, bt.amount, coalesce(bt.description,''), coalesce(bt.reconciliation_status,'') "
         "FROM bank_transactions bt JOIN bank_accounts ba ON ba.id=bt.bank_account_id "
-        "WHERE ba.bank_code='403' AND bt.transaction_type IN ('credit','credito') "
+        "WHERE ba.bank_code='403' AND bt.transaction_type IN ('credit','credito','pix_recebido','boleto_recebido') "
         "AND bt.transaction_date BETWEEN :a AND :b"), {"a": di, "b": df})).fetchall()
     C, _seen = [], set()
     for c in inter_bt:

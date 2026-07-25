@@ -2,6 +2,16 @@
 
 **Data:** 2026-07-25 · **Onda 2 "COMPLETAR", sub-projeto 1 (infra de banco)** · Aprovação: Jordan aceitou ("monte a spec da próxima onda e siga no loop")
 
+> ## ⚠️ REVISÃO APÓS INVESTIGAÇÃO (2026-07-25) — bridge DESNECESSÁRIO
+> A Task 1 (bridge) foi testada em read-only e inseriu **0 linhas**: `bank_transactions`
+> do Inter **já está fresco** (5.131 tx até 25/07). O IDEAL FLORES 55.467,62 (15/07) já
+> estava lá — como **`transaction_type='pix_recebido'`**. A causa real da defasagem
+> aparente era o **FILTRO da conciliação** (`transaction_type IN ('credit','credito')`),
+> que ignorava `pix_recebido` (66 tx, R$638k) e `boleto_recebido` (22 tx, R$352k).
+> **Fix real:** incluir esses tipos no filtro. Resultado **72,3% → 84,3%**. Sem bridge,
+> sem re-sync. Lição: investigar (read-only) antes de construir. As Tasks 1-4 abaixo
+> ficam como registro do que se pensou; NÃO executadas (não eram necessárias).
+
 ## Goal
 Fazer `bank_transactions` ser a **fonte única e fresca** do extrato Inter — como já é do Cora — consertando a defasagem (Inter parado em 08/07) que trava a conciliação e as telas de banco. Hoje o sync do Inter escreve em `inter_transactions` (raw) e `cashflow_entries` (fluxo), mas **não** em `bank_transactions`; o Inter lá veio de carga antiga.
 
