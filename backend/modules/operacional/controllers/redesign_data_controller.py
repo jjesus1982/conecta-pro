@@ -2718,6 +2718,27 @@ async def rd_action_vacation_request(
             "message": f"Férias solicitadas para {row[0]} — {dias} dias (rascunho, pendente de aprovação)"}
 
 
+@router.post("/action/vacation-reject")
+async def rd_action_vacation_reject(
+    current_user: CurrentActiveUser,
+    vid: str,
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    # Rejeita férias (fonte canônica hr_vacation_requests). O endpoint real (/vacations/{id}/reject)
+    # espera reason como QUERY param, não body — por isso este handler fino: vacation id chega na
+    # query string do próprio endpoint da ação (?vid=), reason chega no body {reason} do modal.
+    from modules.people_management.hr.services.vacation_service import VacationService
+
+    reason = (payload.get("reason") or "").strip() or None
+    try:
+        await VacationService(db).reject_vacation(vid, rejected_by_id=current_user.id, reason=reason)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    await db.commit()
+    return {"ok": True, "message": "Férias rejeitada"}
+
+
 @router.post("/action/rescisao-calc")
 async def rd_action_rescisao_calc(
     current_user: CurrentActiveUser,

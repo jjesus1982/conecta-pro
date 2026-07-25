@@ -829,14 +829,26 @@ async def build(db) -> dict:
             return [t(r[1] or "—", 600, _ND, initials(r[1] or "")), t(_d(r[2])), t(_d(r[3])),
                     t(str(r[4]) if r[4] is not None else "—"), b(lbl, tone)]
 
-        def _fer_edit(r):
+        # Task 1: Aprovar + Rejeitar por-linha (actionsfn substitui editfn — mesma condição SUBMITTED,
+        # 2 botões em vez de 1). Rejeitar chama o handler fino rd_action_vacation_reject (id vai na
+        # query ?vid= do endpoint, motivo vai no body {reason} preenchido pelo modal).
+        def _fer_acts(r):
             if (r[5] or "").upper() != "SUBMITTED":
                 return None
-            return {"title": f"Aprovar férias de {r[1] or '—'}",
-                    "endpoint": f"/api/v1/people-management/hr/vacations/{r[0]}/approve",
-                    "method": "POST", "btnLabel": "Aprovar", "submitLabel": "Aprovar",
-                    "btnStyle": "primary", "okMsg": "Férias aprovadas. Recarregue a tela.",
-                    "fields": []}
+            aprovar = {"title": f"Aprovar férias de {r[1] or '—'}",
+                       "endpoint": f"/api/v1/people-management/hr/vacations/{r[0]}/approve",
+                       "method": "POST", "btnLabel": "Aprovar", "submitLabel": "Aprovar",
+                       "btnStyle": "primary", "okMsg": "Férias aprovadas. Recarregue a tela.",
+                       "fields": []}
+            rejeitar = {"title": f"Rejeitar férias de {r[1] or '—'}",
+                        "endpoint": f"/api/v1/redesign/action/vacation-reject?vid={r[0]}",
+                        "method": "POST", "btnLabel": "Rejeitar", "submitLabel": "Rejeitar",
+                        "btnStyle": "outline", "okMsg": "Férias rejeitada",
+                        "fields": [
+                            {"key": "reason", "label": "Motivo (obrigatório)", "type": "textarea",
+                             "span": "span 2", "value": ""},
+                        ]}
+            return [aprovar, rejeitar]
 
         _n_fer = (await db.execute(_sqltext("SELECT count(*) FROM hr_vacation_requests"))).scalar() or 0
         await safe("ferias", tbl(
@@ -845,7 +857,7 @@ async def build(db) -> dict:
             "SELECT v.id, coalesce(e.nome,'—'), v.start_date, v.end_date, v.days_requested, "
             "coalesce(v.status::text,'—') FROM hr_vacation_requests v "
             "LEFT JOIN employees e ON e.id=v.employee_id ORDER BY v.start_date DESC NULLS LAST LIMIT 200",
-            _fer_row, editfn=_fer_edit))
+            _fer_row, actionsfn=_fer_acts))
         if out.get("ferias") and not out["ferias"].get("ctaTo"):
             out["ferias"]["ctaTo"] = "solicitar-ferias"
 
