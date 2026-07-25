@@ -105,7 +105,7 @@ def upload_documento(
                 "INSERT INTO gp_justifications (justification_id, employee_id, justification_type, "
                 " reason, category, status, attachments, source, source_id, created_at, updated_at) "
                 "VALUES (:jid, CAST(:e AS uuid), 'atestado_medico', :rz, 'atestado', "
-                " 'pending', CAST(:att AS jsonb), 'portal_funcionario', :sid, now(), now()) RETURNING id::text"
+                " 'pendente', CAST(:att AS jsonb), 'portal_funcionario', :sid, now(), now()) RETURNING id::text"
             ),
             {"jid": "ATM-" + secrets.token_hex(4).upper(), "e": emp,
              "rz": (f"Atestado médico enviado pelo funcionário{periodo}." + (f" {descricao.strip()}" if descricao else "")),
