@@ -185,3 +185,36 @@ async def build_contabil(db, out: dict) -> None:
         out["apuracao-resultado"] = scr
     except Exception:  # noqa: BLE001
         pass
+
+    # ── Provisões trabalhistas (férias 1/9 + 13º 1/12 sobre a folha REAL) — read-only.
+    # bookkeeper_auto calcula os pares D/C (D 4.1.2.04 férias / D 4.1.2.03 13º / C 2.1.2.01) mas
+    # NÃO posta no razão. Aqui mostramos o que DEVE ser provisionado; postar = ação gated (próxima). ─
+    try:
+        prov = (await db.execute(text(
+            "SELECT reference_month, count(*), coalesce(sum(base_salary),0) "
+            "FROM hr_payslips WHERE coalesce(base_salary,0)>0 GROUP BY 1 ORDER BY 1"))).fetchall()
+        rows, tot_base, tot_fer, tot_dec = [], 0.0, 0.0, 0.0
+        for mes, n, base in prov:
+            base = float(base or 0); fer = base * 0.1111; dec = base * 0.0833
+            tot_base += base; tot_fer += fer; tot_dec += dec
+            rows.append({"cells": [
+                t(f"{int(mes):02d}/2026" if mes else "—", 600, "#0F1B3A"), t(str(int(n))),
+                t(brl(base), 600), t(brl(fer)), t(brl(dec))]})
+        scr = {
+            "title": "Provisões trabalhistas (férias + 13º)", "type": "table", "cta": "—",
+            "sub": (f"Provisão de férias (1/9) e 13º (1/12) sobre a folha REAL (hr_payslips). "
+                    f"Acumulado: base {brl(tot_base)} · férias {brl(tot_fer)} · 13º {brl(tot_dec)}. "
+                    "Ainda NÃO postado no razão (contas 4.1.2.04/4.1.2.03) — postar será ação gated."),
+            "grid": "1fr 0.9fr 1.2fr 1.2fr 1.2fr",
+            "cols": ["Competência", "Func.", "Base salarial", "Provisão férias (1/9)", "Provisão 13º (1/12)"],
+            "rows": rows or [{"cells": [t("Sem folha"), t("0"), t("—"), t("—"), t("—")]}],
+            "panelGrid": "1fr",
+            "panels": [{"title": "Lançamentos que serão postados (por competência)", "rows": [
+                {"left": "Provisão férias — D 4.1.2.04 (despesa) / C 2.1.2.01 (provisões a pagar)", "right": brl(tot_fer), **S["info"]},
+                {"left": "Provisão 13º — D 4.1.2.03 (despesa) / C 2.1.2.01 (provisões a pagar)", "right": brl(tot_dec), **S["info"]},
+                {"left": "Total a provisionar (passivo + despesa de competência)", "right": brl(tot_fer + tot_dec), **S["warn"]},
+            ]}],
+        }
+        out["provisoes-trabalhistas"] = scr
+    except Exception:  # noqa: BLE001
+        pass
