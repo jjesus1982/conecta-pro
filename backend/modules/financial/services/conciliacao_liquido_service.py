@@ -24,6 +24,12 @@ _JANELA_DEPOIS = 95   # dias depois (lag de pagamento)
 _TOL_EXATO = 0.50     # R$ para considerar match exato (C1)
 _TOL_FUZZY_PCT = 0.15 # faixa p/ SUGESTÃO quando a identidade do pagador bate
 
+# CNPJ-aware: nota da Eletrônica (CNPJ1) é paga no Inter (077); nota da Patrimonial (CNPJ2)
+# é paga no Cora (403). NÃO cruzar bancos. (Itaú PF fora — não é conta da empresa.)
+_ELETRONICA = "619a3df1-8bce-49ce-b77a-04f80a0e8491"
+_PATRIMONIAL = "7d79ed12-d480-4906-b2e0-2b2c4d299bab"
+_BANCO_DA_EMPRESA = {_ELETRONICA: "077", _PATRIMONIAL: "403"}
+
 
 def _norm(s: str) -> str:
     s = unicodedata.normalize("NFKD", str(s or "")).encode("ascii", "ignore").decode().upper()
@@ -44,26 +50,29 @@ async def casar_notas_banco(db, inicio: str, fim: str, persistir: bool = False) 
     di = inicio if isinstance(inicio, date) else date.fromisoformat(str(inicio))
     df = fim if isinstance(fim, date) else date.fromisoformat(str(fim))
     notas = (await db.execute(text(
-        "SELECT chave_acesso, tomador_nome, tomador_cnpj, valor_liquido, coalesce(inss_retido,0), data_emissao "
-        "FROM nfse_emitidas_nacional WHERE data_emissao BETWEEN :a AND :b AND coalesce(valor_liquido,0)>0 "
+        "SELECT chave_acesso, tomador_nome, tomador_cnpj, valor_liquido, coalesce(inss_retido,0), data_emissao, "
+        "coalesce(empresa_id::text,'') FROM nfse_emitidas_nacional "
+        "WHERE data_emissao BETWEEN :a AND :b AND coalesce(valor_liquido,0)>0 "
         "ORDER BY valor_liquido DESC"), {"a": di, "b": df})).fetchall()
     creds = (await db.execute(text(
-        "SELECT bt.id, bt.transaction_date, bt.amount, coalesce(bt.description,''), coalesce(bt.reconciliation_status,'') "
+        "SELECT bt.id, bt.transaction_date, bt.amount, coalesce(bt.description,''), coalesce(bt.reconciliation_status,''), ba.bank_code "
         "FROM bank_transactions bt JOIN bank_accounts ba ON ba.id=bt.bank_account_id "
         "WHERE ba.bank_code IN ('077','403') AND bt.transaction_type IN ('credit','credito') "
         "AND bt.transaction_date BETWEEN :a AND :b"), {"a": di, "b": df})).fetchall()
     C = [{"id": str(c[0]), "date": _d(c[1]), "amt": float(c[2]), "desc": c[3],
-          "nome": _norm(c[3]), "st": c[4], "used": False} for c in creds]
+          "nome": _norm(c[3]), "st": c[4], "bank": c[5], "used": False} for c in creds]
 
     casados, sugestoes, notas_sem = [], [], []
     tot_liq = 0.0
-    for chave, tnome, tcnpj, vliq, inss, dt in notas:
+    for chave, tnome, tcnpj, vliq, inss, dt, empresa_id in notas:
         vliq = float(vliq); inss = float(inss); tot_liq += vliq
         dt = _d(dt); tnorm = _norm(tnome)
         alvos = [vliq] + ([round(vliq - inss, 2)] if inss > 0 else [])
+        banco_ok = _BANCO_DA_EMPRESA.get(empresa_id, "077")  # Eletrônica→Inter, Patrimonial→Cora
 
-        def _na_janela(c):
-            return c["date"] is not None and (dt - timedelta(days=_JANELA_ANTES) <= c["date"] <= dt + timedelta(days=_JANELA_DEPOIS))
+        def _na_janela(c, _bk=banco_ok):
+            return (c["bank"] == _bk and c["date"] is not None
+                    and dt - timedelta(days=_JANELA_ANTES) <= c["date"] <= dt + timedelta(days=_JANELA_DEPOIS))
 
         # C1 — exato (±R$0,50) em qualquer alvo + janela: alta confiança → persiste
         best = None
@@ -77,7 +86,8 @@ async def casar_notas_banco(db, inicio: str, fim: str, persistir: bool = False) 
             best[0]["used"] = True
             casados.append({"chave": chave, "cliente": tnome, "liquido": round(vliq, 2), "inss": round(inss, 2),
                             "credito_id": best[0]["id"], "credito_valor": best[0]["amt"],
-                            "credito_data": str(best[0]["date"]), "diff": round(best[1], 2)})
+                            "credito_data": str(best[0]["date"]), "diff": round(best[1], 2),
+                            "banco": "Cora" if best[0]["bank"] == "403" else "Inter"})
             continue
 
         # Fuzzy — identidade do pagador (nome do PIX) bate + valor aproximado → SUGESTÃO (não persiste)

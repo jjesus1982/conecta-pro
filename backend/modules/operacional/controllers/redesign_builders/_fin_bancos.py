@@ -123,11 +123,12 @@ async def build_bancos(db, out: dict) -> None:
                     f"{rep['n_sugestoes']} sugestão(ões) a revisar · {rep['n_sem']} sem crédito (Cora/Itaú/recente). "
                     f"Líquido conciliado R$ {rep['liquido_casado']:,.2f} de R$ {rep['liquido_total']:,.2f}. "
                     "Baixa é ação gated (aba 'Aplicar conciliação')."),
-            "grid": "2fr 1.1fr 1.1fr 1fr 0.9fr",
-            "cols": ["Cliente", "Líquido (nota)", "Crédito (banco)", "Data crédito", "Match"],
+            "grid": "1.8fr 1.1fr 1.1fr 0.9fr 0.7fr 0.9fr",
+            "cols": ["Cliente", "Líquido (nota)", "Crédito (banco)", "Data", "Banco", "Match"],
             "rows": [{"cells": [
                 t((m["cliente"] or "—")[:34], 600, "#0F1B3A"), t(brl(m["liquido"]), 600),
                 t(brl(m["credito_valor"]), 600), t(str(m["credito_data"])),
+                b(m.get("banco", "Inter"), "info" if m.get("banco") == "Cora" else "ok"),
                 b("exato" + (" (−INSS)" if m["inss"] > 0 else ""), "ok")]} for m in rep["casados"]],
             "panelGrid": "1fr 1fr",
             "panels": [
