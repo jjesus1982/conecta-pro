@@ -133,3 +133,4 @@ det-robot/state/
 det-robot/.env
 det-robot/out/
 det-robot/*.pem
+auditoria/reconciliacao_folha_2026-07-25/backup_folha_razao.json
