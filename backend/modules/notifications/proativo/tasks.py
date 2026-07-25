@@ -16,6 +16,8 @@ RBAC fim-a-fim está AQUI: o destinatário vem SEMPRE de `regra.roles_destino`
 """
 import logging
 
+from sqlalchemy import text
+
 from celery_app import app
 
 logger = logging.getLogger(__name__)
@@ -134,6 +136,86 @@ def avaliar_regras_task(self):
         raise self.retry(exc=exc, countdown=120)
 
 
+async def _digest(db) -> dict:
+    """07:00 Manaus: 1 notificação-resumo por destinatário com o que PERSISTE
+    (o que `_avaliar` já viu antes e não é novo — não redispara individual).
+
+    Consolida por REGRA, não por família: RBAC vem SEMPRE de
+    `REGISTRY[linha["regra"]].roles_destino` (mesmo contrato server-side de
+    `_avaliar` — nunca do achado/LLM). Uma linha cuja regra foi removida do
+    REGISTRY é pulada com log (órfã: silêncio honesto, não inventa destinatário).
+
+    Dedup diário DETERMINÍSTICO: cada digest carrega em extra_data um
+    correlation_id `digest:{user_id}:{yyyy-mm-dd Manaus}`. Rodar a task 2x no
+    mesmo dia não cria um 2º registro para o mesmo user (checa a existência
+    ANTES de inserir). Destinatário sem nenhuma condição persistente sua não
+    entra em `por_user` → nunca recebe digest vazio (silêncio honesto).
+    """
+    import json
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from modules.notifications.proativo import estado
+    from modules.notifications.proativo.entrega import resolver_usuarios_por_roles
+    from modules.notifications.proativo.regras import REGISTRY
+
+    ativos = await estado.persistentes_ativos(db)
+    if not ativos:
+        return {"destinatarios": 0, "notificacoes": 0}
+
+    # user_id -> títulos das condições que ELE pode ver, via roles_destino da
+    # REGRA de cada linha (não da família — uma família pode ter regras com
+    # roles_destino diferentes; escopar por regra é o contrato pós-review T3).
+    por_user: dict[str, list[str]] = {}
+    for linha in ativos:
+        regra_obj = REGISTRY.get(linha["regra"])
+        if regra_obj is None:
+            logger.warning(
+                "[proativo] digest: regra %r ativa no estado mas fora do "
+                "REGISTRY — pulando (não inventa destinatário)", linha["regra"])
+            continue
+        destinatarios = await resolver_usuarios_por_roles(db, regra_obj.roles_destino)
+        for uid in destinatarios:
+            por_user.setdefault(uid, []).append(linha["title"])
+
+    hoje = datetime.now(ZoneInfo("America/Manaus")).strftime("%Y-%m-%d")
+    _NOW_ = "(now() AT TIME ZONE 'America/Manaus')"
+    notificacoes = 0
+    for uid, titulos in por_user.items():
+        cid_digest = f"digest:{uid}:{hoje}"
+        existe = (await db.execute(text(
+            "SELECT 1 FROM communication_notifications "
+            "WHERE user_id=:u AND extra_data->>'correlation_id'=:cid LIMIT 1"),
+            {"u": uid, "cid": cid_digest})).first()
+        if existe:
+            continue  # dedup diário: já mandamos o digest de hoje p/ este user
+        corpo = "Itens que precisam da sua atenção:\n- " + "\n- ".join(titulos[:20])
+        extra = json.dumps({"origem": "proativo_digest", "correlation_id": cid_digest,
+                            "itens": len(titulos)})
+        await db.execute(text(
+            f"INSERT INTO communication_notifications "
+            f"(id, tenant_id, user_id, title, body, type, reference_type, reference_id, "
+            f" action_url, extra_data, is_active, sent_at, created_at) "
+            f"VALUES (gen_random_uuid(), :u, :u, :title, :body, 'sistema', 'proativo_digest', "
+            f" NULL, '/notificacoes', CAST(:extra AS jsonb), true, {_NOW_}, {_NOW_})"),
+            {"u": uid, "title": "Bom dia — o que precisa da sua atenção",
+             "body": corpo, "extra": extra})
+        notificacoes += 1
+    await db.commit()
+    return {"destinatarios": len(por_user), "notificacoes": notificacoes}
+
+
+@app.task(name="proativo.digest_diario", bind=True, max_retries=1)
+def digest_diario_task(self):
+    try:
+        res = _run_async(_digest)
+        logger.info("[proativo] digest_diario: %s", res)
+        return res
+    except Exception as exc:
+        logger.error("[proativo] digest_diario erro: %s", exc)
+        raise self.retry(exc=exc, countdown=300)
+
+
 if __name__ == "__main__":
     import asyncio
     import os
@@ -151,7 +233,7 @@ if __name__ == "__main__":
                 "SELECT correlation_id FROM proativo_alert_state"))).scalars().all())
             pre_notif = set((await db.execute(text(
                 "SELECT id::text FROM communication_notifications "
-                "WHERE extra_data->>'origem'='proativo'"))).scalars().all())
+                "WHERE extra_data->>'origem' IN ('proativo','proativo_digest')"))).scalars().all())
             try:
                 # ── (a) 1ª rodada: cria alertas das condições reais de hoje ──
                 res = await _avaliar(db)
@@ -261,11 +343,103 @@ if __name__ == "__main__":
                 print(f"OK task — (a) 1ª {res} ({novos_notifs} notifs no sino, RBAC ok); "
                       f"(b) 2ª novos={res2['novos']} persistentes={res2['persistentes']}; "
                       f"(c) isolamento {isolamento}; (d) limpeza abaixo")
+
+                # ── DIGEST: 2 (financeiro) + 1 (operacional) persistentes → prova
+                #    (a) consolidação 1 notif/destinatário, (b) RBAC gestor≠admin,
+                #    (c) dedup diário (correlation_id determinístico), (d) sem
+                #    persistente = 0 digest. Usa REGRAS REAIS do REGISTRY (já
+                #    restaurado acima) para o roteamento RBAC ser o de produção. ──
+                from modules.notifications.proativo import estado as _st
+                from modules.notifications.proativo.entrega import (
+                    resolver_usuarios_por_roles as _ru,
+                )
+                dgt_c1 = "caixa_baixo:__DGT1__:2026-07"   # financeiro (admin)
+                dgt_c2 = "certidao:__DGT2__:2026-12-31"   # documentos (admin)
+                dgt_c3 = "posto_descoberto:__DGT3__"      # operacional (admin+gerente+supervisor)
+
+                admins_dgt = await _ru(db, ("admin",))
+                gerentes_dgt = await _ru(db, ("gerente_operacional",))
+                funcionarios_dgt = await _ru(db, ("funcionario",))
+                assert set(gerentes_dgt).isdisjoint(admins_dgt), \
+                    "gerente_operacional e admin devem ser papéis disjuntos p/ o teste RBAC valer"
+
+                await _st.transicionar(db, correlation_id=dgt_c1, regra="caixa_baixo_cnpj",
+                                       severidade="critico", title="[TESTE] Caixa baixo DGT1",
+                                       body="b", destinatarios=admins_dgt)
+                await _st.transicionar(db, correlation_id=dgt_c2, regra="certidao_vencendo",
+                                       severidade="atencao", title="[TESTE] Certidão DGT2",
+                                       body="b", destinatarios=admins_dgt)
+                await _st.transicionar(db, correlation_id=dgt_c3, regra="posto_descoberto",
+                                       severidade="critico", title="[TESTE] Posto DGT3",
+                                       body="b", destinatarios=admins_dgt + gerentes_dgt)
+                await db.commit()
+
+                async def _corpo_novo_digest(uid: str) -> list[str]:
+                    """Corpos de digest criados DEPOIS de pre_notif p/ este uid
+                    (imune a digest real pré-existente de outro dia/execução)."""
+                    rows = (await db.execute(text(
+                        "SELECT body FROM communication_notifications "
+                        "WHERE user_id=:u AND extra_data->>'origem'='proativo_digest' "
+                        "AND id::text <> ALL(:pre)"),
+                        {"u": uid, "pre": list(pre_notif) or ['']})).scalars().all()
+                    return list(rows)
+
+                dg = await _digest(db)
+                assert dg["notificacoes"] >= 1, dg
+
+                # (a) 1 notificação ÚNICA consolidada por admin (financeiro x2 + operacional)
+                if admins_dgt:
+                    corpos_admin = await _corpo_novo_digest(admins_dgt[0])
+                    assert len(corpos_admin) == 1, \
+                        f"digest do admin deveria ser 1 notif única, veio {len(corpos_admin)}"
+                    assert all(m in corpos_admin[0] for m in
+                               ("Caixa baixo DGT1", "Certidão DGT2", "Posto DGT3")), \
+                        f"digest do admin deveria consolidar as 3 condições: {corpos_admin[0]!r}"
+
+                # (b) RBAC: digest do gestor tem SÓ o item operacional — financeiro
+                #     (roles_destino=admin) NUNCA aparece pra ele.
+                if gerentes_dgt:
+                    corpos_ger = await _corpo_novo_digest(gerentes_dgt[0])
+                    assert len(corpos_ger) == 1, \
+                        f"digest do gestor deveria ser 1 notif única, veio {len(corpos_ger)}"
+                    assert "Posto DGT3" in corpos_ger[0]
+                    assert "Caixa baixo DGT1" not in corpos_ger[0] \
+                        and "Certidão DGT2" not in corpos_ger[0], \
+                        f"RBAC vazou item financeiro pro gestor: {corpos_ger[0]!r}"
+
+                # (d) destinatário sem condição persistente SUA (funcionario não está
+                #     em roles_destino de NENHUMA regra registrada) → 0 digest novo.
+                if funcionarios_dgt:
+                    corpos_func = await _corpo_novo_digest(funcionarios_dgt[0])
+                    assert len(corpos_func) == 0, \
+                        f"funcionario sem persistente seu recebeu digest: {corpos_func}"
+
+                # (c) rodar 2x no mesmo dia NÃO duplica — correlation_id determinístico
+                #     digest:{user}:{data Manaus} já existe → 2ª chamada não insere de novo.
+                dg2 = await _digest(db)
+                assert dg2["notificacoes"] == 0, \
+                    f"2ª chamada no mesmo dia não deveria criar novos digests: {dg2}"
+                if admins_dgt:
+                    corpos_admin2 = await _corpo_novo_digest(admins_dgt[0])
+                    assert len(corpos_admin2) == 1, \
+                        f"digest do admin duplicou na 2ª rodada: {len(corpos_admin2)}"
+                if gerentes_dgt:
+                    corpos_ger2 = await _corpo_novo_digest(gerentes_dgt[0])
+                    assert len(corpos_ger2) == 1, \
+                        f"digest do gestor duplicou na 2ª rodada: {len(corpos_ger2)}"
+
+                print(f"OK digest — (a) consolidado 1/admin {dg}; "
+                      f"(b) RBAC gestor sem financeiro; (c) 2ª chamada {dg2} sem duplicar; "
+                      f"(d) funcionario sem persistente = 0 digest")
             finally:
-                # ── (d) limpa SÓ o que este teste criou (não apaga produção) ──
+                # ── (e) limpa SÓ o que este teste criou (não apaga produção) — por
+                #        diff pre/pós (id/correlation_id), nunca por janela de tempo
+                #        ou UPDATE em massa: cobre tanto os alertas 'proativo' (T3)
+                #        quanto os digests 'proativo_digest' (T7) num único crivo. ──
                 await db.execute(text(
                     "DELETE FROM communication_notifications "
-                    "WHERE extra_data->>'origem'='proativo' AND id::text <> ALL(:pre)"),
+                    "WHERE extra_data->>'origem' IN ('proativo','proativo_digest') "
+                    "AND id::text <> ALL(:pre)"),
                     {"pre": list(pre_notif) or ['']})
                 await db.execute(text(
                     "DELETE FROM proativo_alert_state WHERE correlation_id <> ALL(:pre)"),
@@ -273,7 +447,8 @@ if __name__ == "__main__":
                 await db.commit()
                 rem_n = (await db.execute(text(
                     "SELECT count(*) FROM communication_notifications "
-                    "WHERE extra_data->>'origem'='proativo' AND id::text <> ALL(:pre)"),
+                    "WHERE extra_data->>'origem' IN ('proativo','proativo_digest') "
+                    "AND id::text <> ALL(:pre)"),
                     {"pre": list(pre_notif) or ['']})).scalar()
                 rem_s = (await db.execute(text(
                     "SELECT count(*) FROM proativo_alert_state WHERE correlation_id <> ALL(:pre)"),

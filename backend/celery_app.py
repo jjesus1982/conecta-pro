@@ -171,6 +171,16 @@ app.conf.beat_schedule = {
         "schedule": crontab(minute="*/15"),
         "options": {"queue": "gov.batch"},
     },
+    # ── Fase 5.3: digest matinal 07:00 America/Manaus — consolida em 1 notificação
+    #    por destinatário o que PERSISTE (RBAC por regra.roles_destino). Verificado
+    #    2026-07-25: app.conf.timezone (acima) == "America/Manaus" E o container
+    #    celery-beat roda com TZ=America/Manaus — o crontab do celery interpreta a
+    #    hora no timezone configurado, então hour=7 já É 07:00 Manaus (não 07:00 UTC).
+    "proativo-digest-diario": {
+        "task": "proativo.digest_diario",
+        "schedule": crontab(hour=7, minute=0),
+        "options": {"queue": "gov.batch"},
+    },
     # ── Fase 0: retenção leve do sino (expira não-alertas antigos; alertas retidos) ──
     "notificacoes-purgar": {
         "task": "notifications.purgar_notificacoes",
