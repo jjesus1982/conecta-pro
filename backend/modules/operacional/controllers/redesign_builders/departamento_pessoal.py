@@ -33,6 +33,8 @@ EXTRA_MENU: list[dict] = [
      "icon": "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8M19 8v6M22 11h-6"},
     {"id": "sync-ferias-solides", "label": "Sincronizar férias (Sólides)",
      "icon": "M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"},
+    {"id": "prestadores-pj", "label": "Prestadores PJ",
+     "icon": "M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM3 20v-1a6 6 0 0 1 12 0v1M16 3.13a4 4 0 0 1 0 7.75M21 20v-1a6 6 0 0 0-4-5.65"},
 ]
 
 # datas: as tabelas usam date/timestamp; formatador defensivo local
@@ -196,6 +198,12 @@ _CERT_ST = {"pendente": ("Pendente", "warn"), "certificado": ("Certificado", "ok
 def _cert_status(v):
     lbl, tone = _CERT_ST.get((v or "").lower(), (v or "—", "info"))
     return b(lbl, tone)
+
+
+# Prestadores PJ — status do autocadastro (gerador de link). pj_ativo = autocadastro concluído
+# pela pessoa; qualquer outro (pj_pendente etc.) = link ainda aguardando preenchimento.
+def _pj_status(v):
+    return b("Concluído", "ok") if (v or "").lower() == "pj_ativo" else b("Aguardando", "warn")
 
 
 # Licenças — espelha statusConfig + synonyms EN do clássico (dp/licencas/page.tsx)
@@ -672,6 +680,54 @@ async def build(db) -> dict:
     if out.get("esocial"):
         out["esocial"]["docs"] = [doc("XML do evento", disabled=True,
                                       motivo="XML transmitido, sem rota de preview no backend — pendente criar GET do XML do evento")]
+
+    # ── Task 7: Prestadores PJ — GERADOR de link de autocadastro (RH/admin). Lê a MESMA fonte do
+    #    endpoint clássico (GET /prestadores-pj): employees tipo_contrato='pj' com token gerado.
+    #    AÇÃO por-linha "Regenerar link" (POST .../{id}/regenerar-link, sem body) — útil se o link
+    #    vazou; o backend recusa se já concluído (pj_ativo), então a ação some pra esses (honesto,
+    #    evita 409 óbvio). CTA da tela abre o form de cadastro (ctaTo="novo-prestador-pj").
+    await safe("prestadores-pj", tbl(
+        "Prestadores PJ", "Prestadores PJ com link de autocadastro gerado", "Novo prestador",
+        ["Prestador", "Papel", "Empresa", "Status", "CNPJ", "Cadastro"],
+        "2fr 1.1fr 1.3fr 1fr 1.1fr 1fr",
+        "SELECT e.id::text, e.nome, coalesce(e.papel_pj,'—'), coalesce(e.status,'—'), "
+        "coalesce(e.cnpj, case when e.cnpj_pendente then 'pendente' else '—' end), "
+        "e.autocadastro_token, coalesce(emp.nome_fantasia,'—'), e.created_at "
+        "FROM employees e LEFT JOIN empresas emp ON emp.id=e.empresa_id "
+        "WHERE e.tipo_contrato='pj' AND e.autocadastro_token IS NOT NULL "
+        "ORDER BY e.created_at DESC NULLS LAST LIMIT 300",
+        lambda r: [t(r[1] or "—", 600, _ND, initials(r[1] or "")), t(r[2]), t(r[6]),
+                   _pj_status(r[3]), t(r[4]), t(_d(r[7]))],
+        actionsfn=lambda r: (
+            [{"title": f"Regenerar link — {r[1] or '—'}",
+              "endpoint": f"/api/v1/people-management/human-resources/prestadores-pj/{r[0]}/regenerar-link",
+              "method": "POST", "btnLabel": "Regenerar link", "btnStyle": "outline",
+              "okMsg": "Link regenerado. Recarregue a tela.", "fields": []}]
+            if (r[3] or "").lower() != "pj_ativo" else None)))
+    if out.get("prestadores-pj"):
+        out["prestadores-pj"]["ctaTo"] = "novo-prestador-pj"
+
+    # Novo prestador PJ — form (POST /prestadores-pj, NovoPrestadorBody: nome*/empresa*/papel/cpf).
+    # empresa = slug fixo (_EMPRESAS no controller) — 2 opções reais (Eletrônica/Patrimonial), o
+    # backend seta empresa_id EXPLÍCITO (nunca o DEFAULT cego). Devolve o link pronto (gerado no
+    # backend); a tela recarrega e o prestador aparece na tabela acima com o link pra recopiar.
+    out["novo-prestador-pj"] = {
+        "title": "Novo prestador PJ", "type": "form",
+        "sub": "Cadastra um prestador PJ e gera o link de autocadastro",
+        "cta": "Cadastrar",
+        "submit": {"endpoint": "/api/v1/people-management/human-resources/prestadores-pj",
+                   "okMsg": "Prestador cadastrado"},
+        "fields": [
+            {"key": "nome", "label": "Nome*", "type": "text", "span": "span 2", "ph": "Nome completo"},
+            {"key": "empresa", "label": "Empresa*", "type": "select", "span": "span 1", "ph": "Selecione",
+             "options": [
+                 {"value": "eletronica", "label": "Conecta Mais Eletrônica"},
+                 {"value": "patrimonial", "label": "Conecta Mais Patrimonial"},
+             ]},
+            {"key": "papel", "label": "Papel/Função", "type": "text", "span": "span 1", "ph": "Opcional"},
+            {"key": "cpf", "label": "CPF", "type": "text", "span": "span 1", "ph": "Opcional"},
+        ],
+    }
 
     # Aviso prévio de férias (form → gera doc). Só férias FUTURAS aprovadas/submetidas (o gerador
     # recusa data no passado). Select value = 'empId|YYYY-MM-DD|dias' → POST /redesign/action/aviso-
