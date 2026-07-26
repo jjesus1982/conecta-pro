@@ -126,6 +126,11 @@ async def build_contabil(db, out: dict) -> None:
                     {"left": "= Resultado do exercício", "right": brl(resultado),
                      **(S["ok"] if resultado >= 0 else S["bad"])}]},
             ],
+            "chartGrid": "1fr",
+            "charts": [{"type": "bar", "title": "Estrutura patrimonial (R$)", "data": [
+                {"name": "Ativo", "value": round(at_tot, 2), "color": "#16A34A"},
+                {"name": "Passivo", "value": round(pa_tot, 2), "color": "#C2410C"},
+                {"name": "Patrim. Líquido", "value": round(pl_tot, 2), "color": "#16277D"}]}],
         }
     except Exception:  # noqa: BLE001
         pass
@@ -414,6 +419,9 @@ async def build_contabil(db, out: dict) -> None:
                             {"left": "Economia potencial se deferida", "right": brl(_econ_potencial), **S["ok"]},
                         ]},
                     ],
+                    "chartGrid": "1fr 1fr",
+                    "charts": [{"type": "pie", "title": "DAS por tributo (integral)",
+                                "data": [{"name": k.upper(), "value": float(v)} for k, v in _dist.items() if float(v) > 0]}],
                 }
             elif _regime == "lucro_real":
                 c = _agent.calcular_lucro_real(_rec_mes, _rec_tri)
@@ -442,6 +450,13 @@ async def build_contabil(db, out: dict) -> None:
                             {"left": "= Total de tributos", "right": brl(float(c.total_impostos_mes)), **S["warn"]},
                         ]},
                     ],
+                    "chartGrid": "1fr",
+                    "charts": [{"type": "bar", "title": "Tributos do mês (R$)", "data": [
+                        {"name": "IRPJ", "value": float(c.irpj) + float(c.irpj_adicional)},
+                        {"name": "CSLL", "value": float(c.csll)},
+                        {"name": "PIS", "value": float(c.pis)},
+                        {"name": "COFINS", "value": float(c.cofins)},
+                        {"name": "ISS", "value": float(c.iss)}]}],
                 }
     except Exception:  # noqa: BLE001
         pass

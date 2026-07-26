@@ -9,6 +9,7 @@ import { MODULES } from './modules';
 // Scanner de câmera (QR PIX + código de barras de boleto) — reusa o componente do clássico.
 // client-only (usa a câmera); só carrega quando o usuário abre o scanner.
 const ScannerPagamento = dynamic(() => import('@/components/financeiro/ScannerPagamento'), { ssr: false });
+const RdChart = dynamic(() => import('./RdChart'), { ssr: false });
 import { rdLogout } from './session';
 import { DocButtons } from './DocButtons';
 import { abrirDoc, type DocRef } from '@/lib/docsource';
@@ -58,6 +59,16 @@ function DashScreen({ scr, onNav }: { scr: any; onNav?: (id: string) => void }) 
           );
         })}
       </div>
+      {Array.isArray(scr.charts) && scr.charts.length > 0 && (
+        <div className="rd-panels" style={{ ['--pg' as any]: scr.chartGrid || '1fr 1fr', marginBottom: 14 }}>
+          {scr.charts.map((c: any, i: number) => (
+            <div className="rd-panel" key={`c${i}`}>
+              <div className="rd-panel-h">{c.title}</div>
+              <RdChart chart={c} />
+            </div>
+          ))}
+        </div>
+      )}
       <div className="rd-panels" style={{ ['--pg' as any]: scr.panelGrid || '1fr' }}>
         {(scr.panels || []).map((p: any, i: number) => (
           <div className="rd-panel" key={i}>
