@@ -206,6 +206,10 @@ async def build_bancos(db, out: dict) -> None:
                     {"left": f"{r[0]} · {str(r[2])[:26]}", "right": brl(float(r[1])), **S["warn"]} for r in ic_rows]
                     or [{"left": "Nenhum movimento intra-grupo identificado", "right": "—", **S["ok"]}]},
             ],
+            "chartGrid": "1fr",
+            "charts": [{"type": "donut", "title": "Caixa por CNPJ (R$)", "data": [
+                {"name": "Eletrônica (Inter)", "value": round(saldo_e, 2), "color": "#16277D"},
+                {"name": "Patrimonial (Cora)", "value": round(saldo_p, 2), "color": "#F26522"}]}],
         }
     except Exception:  # noqa: BLE001
         pass

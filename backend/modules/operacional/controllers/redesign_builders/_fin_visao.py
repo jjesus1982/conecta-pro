@@ -104,6 +104,9 @@ async def build_visao(db, out: dict) -> None:
                 {"left": g.get("nome") or g.get("grupo") or "—", "right": brl(g.get("valor")),
                  **(S["bad"] if (g.get("grupo") in _neg) else S["ok"] if "receita" in (g.get("grupo") or "") or "lucro" in (g.get("grupo") or "") else S["info"])}
                 for g in grupos]}],
+            "chartGrid": "1fr",
+            "charts": [{"type": "bar", "horizontal": True, "title": "DRE — grupos (R$)", "data": [
+                {"name": (g.get("nome") or "—")[:24], "value": round(float(g.get("valor") or 0), 2)} for g in grupos]}],
         }
     except Exception:  # noqa: BLE001
         pass

@@ -191,6 +191,13 @@ async def build_contabil(db, out: dict) -> None:
                     {"left": "Base", "right": "Razão real; provisões de folha (T2) entram depois", **S["mut"]},
                 ]},
             ],
+            "chartGrid": "1fr",
+            "charts": [{"type": "bar", "horizontal": True, "title": "Estrutura patrimonial (R$)", "data": [
+                {"name": "Ativo Circulante", "value": round(ac, 2), "color": "#16A34A"},
+                {"name": "Ativo Não Circ.", "value": round(anc, 2), "color": "#0EA5E9"},
+                {"name": "Passivo Circulante", "value": round(pc, 2), "color": "#C2410C"},
+                {"name": "Passivo Não Circ.", "value": round(pt - pc, 2), "color": "#F26522"},
+                {"name": "Patrim. Líquido", "value": round(pl, 2), "color": "#16277D"}]}],
         }
     except Exception:  # noqa: BLE001
         pass
@@ -228,6 +235,14 @@ async def build_contabil(db, out: dict) -> None:
                 {"title": "Saídas de caixa por categoria", "rows": [
                     {"left": f"{(str(c[0]))[:36]}", "right": brl(float(c[1] or 0)), **S["bad"]}
                     for c in _desp_rows] or [{"left": "Sem saídas", "right": "0", **S["mut"]}]},
+            ],
+            "chartGrid": "1fr 1fr",
+            "charts": [
+                {"type": "bar", "title": "Recebido × Pago (R$)", "data": [
+                    {"name": "Recebido", "value": round(_receb, 2), "color": "#16A34A"},
+                    {"name": "Pago", "value": round(_pago, 2), "color": "#C2410C"}]},
+                {"type": "bar", "horizontal": True, "title": "Saídas por categoria (R$)", "data": [
+                    {"name": (str(c[0])[:22]), "value": round(float(c[1] or 0), 2)} for c in _desp_rows][:8]},
             ],
         }
     except Exception:  # noqa: BLE001
