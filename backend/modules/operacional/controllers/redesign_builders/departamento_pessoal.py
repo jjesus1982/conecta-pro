@@ -565,9 +565,10 @@ async def build(db) -> dict:
                    _lic_status(r[4])]))
 
     # 6) Reembolsos — reimbursement_requests
-    # Reembolsos — reimbursement_requests. AÇÃO por-linha "Aprovar" só p/ status 'pendente'
-    # (POST /reimbursements/{id}/approve → move p/ 'aprovado'; NÃO paga — pagamento é passo
-    # separado, OTP-gated). Mesma tabela do display e do endpoint (id bate, sem mismatch).
+    # Reembolsos — reimbursement_requests. AÇÕES por-linha "Aprovar" + "Analisar" só p/ status 'pendente'
+    # (POST /reimbursements/{id}/approve → move p/ 'aprovado'; POST /reimbursements/{id}/analyze → move p/ 'em_analise';
+    # NÃO paga — pagamento é passo separado, OTP-gated, T1). Mesma tabela do display e do endpoint (id bate, sem mismatch).
+    # Anexos (attachments) deferred — reimbursement_attachments vazio (0 rows); docsfn/upload adiam para T4 refine.
     await safe("reembolsos", tbl(
         "Reembolsos", "Solicitações de reembolso", "Solicitar reembolso",
         ["Código", "Título", "Valor", "Enviado", "Status"],
@@ -577,11 +578,19 @@ async def build(db) -> dict:
         "WHERE coalesce(is_active,true) ORDER BY created_at DESC LIMIT 200",
         lambda r: [t(r[0]), t(r[1] or "—", 600, _ND), t(brl(r[2]), 600),
                    t(_d(r[3])), _rei_status(r[4])],
-        editfn=lambda r: ({"title": f"Aprovar reembolso {r[0]}",
-                           "endpoint": f"/api/v1/reimbursements/{r[5]}/approve",
-                           "method": "POST", "btnLabel": "Aprovar", "submitLabel": "Aprovar",
-                           "btnStyle": "primary", "okMsg": "Reembolso aprovado. Recarregue a tela.",
-                           "fields": []} if (r[4] or "").lower() == "pendente" else None)))
+        actionsfn=lambda r: (
+            [
+                {"title": f"Aprovar reembolso {r[0]}",
+                 "endpoint": f"/api/v1/reimbursements/{r[5]}/approve",
+                 "method": "POST", "btnLabel": "Aprovar", "submitLabel": "Aprovar",
+                 "btnStyle": "primary", "okMsg": "Reembolso aprovado. Recarregue a tela.",
+                 "fields": []},
+                {"title": f"Analisar reembolso {r[0]}",
+                 "endpoint": f"/api/v1/reimbursements/{r[5]}/analyze",
+                 "method": "POST", "btnLabel": "Analisar", "btnStyle": "outline",
+                 "submitLabel": "Analisar", "okMsg": "Reembolso em análise. Recarregue a tela.",
+                 "fields": []},
+            ] if (r[4] or "").lower() == "pendente" else None)))
 
     # 7) Contratos — employment_contracts
     await safe("contratos", tbl(
