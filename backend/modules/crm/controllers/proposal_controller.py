@@ -33,6 +33,82 @@ from modules.crm.services.timeline import log_activity
 
 router = APIRouter(prefix="/proposals", tags=["CRM - Proposals"])
 
+# --- Endurecimento do link público de assinatura (task 5.4c-2, 2026-07-26) --------------------
+# Rota é CLIENTE-FACING/cria contrato: UUID vazado (WhatsApp) permitiria assinar como qualquer um.
+# Defesa em 2 camadas SEM quebrar links já enviados antes desta mudança (transição não-quebra):
+#   1) rate-limit por IP e por proposta (HARD, sem exceção — fecha brute-force).
+#   2) token assinado (?t=) nos links NOVOS: presente+válido=ok; presente+inválido/expirado=403;
+#      AUSENTE (link legado)=permitido + audit, NUNCA hard-bloqueado.
+# Endurecimento forte (hard-require token, OU OTP ao telefone, OU binding) é decisão de UX do
+# Jordan — não implementado aqui, ver follow-up no relatório da task.
+_SIGN_TOKEN_SALT = b"crm-proposal-sign-v1"
+_SIGN_TOKEN_MAX_AGE_SECONDS = 7 * 24 * 3600  # 7 dias, mesma janela usada pra gerar o token no envio
+
+
+async def _rate_limit_ok(key: str, limit: int, window_seconds: int) -> bool:
+    """INCR+EXPIRE simples no Redis (o projeto já usa Redis — core.cache.redis). True = dentro
+    do limite (já contou esta tentativa). Fail-OPEN se o Redis estiver indisponível: um endpoint
+    que cria contrato/cliente não pode ficar refém de um hiccup do cache — loga warning pro
+    Jordan investigar, mas não derruba a assinatura legítima.
+
+    NÃO usamos o decorator @limiter.limit() (slowapi) aqui: stackar duas instâncias dele (uma
+    por IP, outra por proposta) quebra com 'response must be an instance of Response' porque os
+    endpoints devolvem dict, não Response — confirmado na bancada de teste desta task."""
+    try:
+        from core.cache.redis import get_redis  # noqa: PLC0415
+
+        client = await get_redis()
+        current = await client.incr(key)
+        if current == 1:
+            await client.expire(key, window_seconds)
+        return current <= limit
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"rate-limit indisponível (Redis) — permitindo por fail-open: {exc}")
+        return True
+
+
+def _client_ip(request: Request) -> str | None:
+    """IP real do cliente atrás do proxy (nginx->frontend->backend) — 1º hop do XFF."""
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.headers.get("x-real-ip") or (request.client.host if request.client else None)
+
+
+def _verify_sign_token(proposal_id: str, token: str | None) -> bool:
+    """True = token assinado válido p/ esta proposta. False = ausente/inválido/expirado (nunca
+    levanta exceção — quem chama decide o que fazer com "ausente" vs "inválido").
+
+    HMAC-SHA256 puro (stdlib) — sem depender de itsdangerous, que NÃO está no requirements.txt
+    do projeto (evita adicionar dependência nova pra um gate de segurança pequeno). Mesmo
+    esquema (secret+salt) do gerador em modules/integrations/connectors/whatsapp/agent_service.py
+    (_gen_sign_token) — têm que interoperar."""
+    if not token:
+        return False
+    try:
+        import base64
+        import hashlib
+        import hmac
+        import time
+
+        from core.config import settings  # noqa: PLC0415
+
+        padded = token + "=" * (-len(token) % 4)
+        raw = base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+        pid_part, ts_part, sig_part = raw.split("|", 2)
+        if pid_part != str(proposal_id):
+            return False
+        if (int(time.time()) - int(ts_part)) > _SIGN_TOKEN_MAX_AGE_SECONDS:
+            return False
+        expected = hmac.new(
+            settings.jwt_secret_key.encode("utf-8") + _SIGN_TOKEN_SALT,
+            f"{pid_part}|{ts_part}".encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        return hmac.compare_digest(expected, sig_part)
+    except Exception:  # noqa: BLE001 — token malformado: trata como inválido, nunca derruba o /sign
+        return False
+
 
 @router.get("/{proposal_id}/pdf")
 async def gerar_pdf_proposta(
@@ -1007,8 +1083,14 @@ async def track_proposal_open(proposal_id: str, db: AsyncSession = Depends(get_d
 
 
 @router.get("/{proposal_id}/public")
-async def get_proposal_public(proposal_id: str, db: AsyncSession = Depends(get_db)):
-    """Dados da proposta para a página pública de assinatura. PÚBLICO (sem auth)."""
+async def get_proposal_public(proposal_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Dados da proposta para a página pública de assinatura. PÚBLICO (sem auth).
+    Rate-limited por IP e por proposta (30/h) — leitura repetida de tela normal, mas fecha scraping."""
+    ip = _client_ip(request)
+    if not await _rate_limit_ok(f"rl:proposal_public:ip:{ip}", 30, 3600) or not await _rate_limit_ok(
+        f"rl:proposal_public:pid:{proposal_id}", 30, 3600
+    ):
+        raise HTTPException(status_code=429, detail="Muitas tentativas. Tente novamente mais tarde.")
     row = (
         await db.execute(
             text("""
@@ -1058,6 +1140,7 @@ async def get_proposal_public(proposal_id: str, db: AsyncSession = Depends(get_d
 class SignRequest(BaseModel):
     signer_name: str
     signer_cpf: str | None = None
+    token: str | None = None  # alternativa ao query param ?t= (aceita nos dois lugares)
 
 
 @router.post("/{proposal_id}/sign")
@@ -1065,10 +1148,22 @@ async def sign_proposal_public(
     proposal_id: str,
     data: SignRequest,
     request: Request,
+    t: str | None = Query(default=None, description="Token assinado do link (ausente = link legado)"),
     db: AsyncSession = Depends(get_db),
 ):
     """Assinatura INTERNA pelo cliente (PÚBLICO). Registra a assinatura, aceita a proposta e dispara
-    o fluxo de Ganho (deal -> contrato -> cliente automático)."""
+    o fluxo de Ganho (deal -> contrato -> cliente automático).
+
+    Rate-limited (5/h por IP e por proposta — checado ANTES de buscar a proposta, então também
+    fecha enumeração de UUID contra ids inexistentes). Token (?t= ou body.token):
+    presente+válido=ok; presente+inválido/expirado=403; AUSENTE=permitido (link legado enviado
+    antes do endurecimento) mas fica registrado em audit — transição não-quebra, task 5.4c-2."""
+    ip = _client_ip(request)
+    if not await _rate_limit_ok(f"rl:proposal_sign:ip:{ip}", 5, 3600) or not await _rate_limit_ok(
+        f"rl:proposal_sign:pid:{proposal_id}", 5, 3600
+    ):
+        raise HTTPException(status_code=429, detail="Muitas tentativas. Tente novamente mais tarde.")
+
     repo = ProposalRepository(db)
     proposal = await repo.get_by_id(proposal_id)
     if not proposal or not getattr(proposal, "is_active", True):
@@ -1078,15 +1173,23 @@ async def sign_proposal_public(
 
     from modules.crm.services.proposal_delivery import register_signature
 
-    # IP real do cliente: atrás do proxy (nginx->frontend->backend), request.client.host é o salto
-    # interno. X-Forwarded-For traz a cadeia "cliente, proxy1, proxy2..." -> o 1o é o cliente real.
-    xff = request.headers.get("x-forwarded-for")
-    ip = (
-        xff.split(",")[0].strip()
-        if xff
-        else request.headers.get("x-real-ip") or (request.client.host if request.client else None)
-    )
     ua = request.headers.get("user-agent")
+
+    token = t or data.token
+    if token:
+        if not _verify_sign_token(proposal_id, token):
+            logger.warning(f"sign_proposal_public: token INVÁLIDO/expirado proposta={proposal_id} ip={ip}")
+            raise HTTPException(
+                status_code=403, detail="Link de assinatura inválido ou expirado. Peça um novo link."
+            )
+        token_status = "valido"
+    else:
+        token_status = "ausente_legado"
+        logger.warning(
+            f"sign_proposal_public: assinatura SEM TOKEN (link legado, permitido em transição) "
+            f"proposta={proposal_id} ip={ip}"
+        )
+
     sig = await register_signature(db, proposal, data.signer_name.strip(), data.signer_cpf, ip, ua)
     if not sig:
         raise HTTPException(status_code=500, detail="Falha ao registrar a assinatura")
@@ -1102,6 +1205,15 @@ async def sign_proposal_public(
         proposal_id=str(proposal.id),
         opportunity_id=getattr(proposal, "opportunity_id", None),
     )
+    if token_status == "ausente_legado":
+        # Audit best-effort (log_activity nunca derruba o /sign): rastreia quem assinou sem token
+        # p/ o Jordan decidir se quer investigar (não é bloqueio — só o registro pedido na task).
+        await log_activity(
+            db,
+            "proposal_signed_no_token",
+            f"Assinatura de {proposal.number} SEM TOKEN (link legado) — ip={ip}",
+            proposal_id=str(proposal.id),
+        )
     # 🎉 fecha o ciclo: avisa o Jordan na hora que o negócio entrou (best-effort, nunca derruba o /sign).
     try:
         from modules.crm.services import orchestration as _O  # noqa: PLC0415

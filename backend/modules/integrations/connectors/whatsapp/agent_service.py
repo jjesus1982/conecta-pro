@@ -1279,6 +1279,28 @@ async def _tool_enviar_material(args: dict, conversation_id: int) -> dict:
         return {"ok": False, "motivo": "falha no envio"}
 
 
+def _gen_sign_token(proposal_id: str) -> str:
+    """Token assinado+expirável (7 dias) pro link público de assinatura (task 5.4c-2, 2026-07-26).
+    HMAC-SHA256 puro (stdlib, sem itsdangerous — não está no requirements.txt do projeto).
+    Mesmo secret+salt do verificador em modules/crm/controllers/proposal_controller.py
+    (_verify_sign_token/_SIGN_TOKEN_SALT) — têm que interoperar. Mitiga UUID vazado por engano;
+    NÃO é 2º fator forte (decisão de UX ainda pendente do Jordan: hard-require token, OU OTP ao
+    telefone, OU binding)."""
+    import base64
+    import hashlib
+    import hmac
+    import time
+
+    from core.config import settings  # noqa: PLC0415
+
+    salt = b"crm-proposal-sign-v1"
+    ts = str(int(time.time()))
+    pid = str(proposal_id)
+    sig = hmac.new(settings.jwt_secret_key.encode("utf-8") + salt, f"{pid}|{ts}".encode(), hashlib.sha256).hexdigest()
+    raw = f"{pid}|{ts}|{sig}"
+    return base64.urlsafe_b64encode(raw.encode("utf-8")).rstrip(b"=").decode("ascii")
+
+
 async def _tool_enviar_link_assinatura(conversation_id: int) -> dict:
     """Envia o link público de assinatura da proposta em acompanhamento (fecha no chat).
 
@@ -1354,7 +1376,8 @@ async def _tool_enviar_link_assinatura(conversation_id: int) -> dict:
                     "motivo": f"proposta {prop['number']} não está pronta para assinatura "
                     f"(status={st}). Diga que vai alinhar com o Jordan.",
                 }
-            link = f"{os.getenv('PUBLIC_BASE_URL', 'https://erp.conectamais.pro').rstrip('/')}/assinar/{prop['id']}"
+            base_link = f"{os.getenv('PUBLIC_BASE_URL', 'https://erp.conectamais.pro').rstrip('/')}/assinar/{prop['id']}"
+            link = f"{base_link}?t={_gen_sign_token(str(prop['id']))}"
             msg = (
                 f"Que ótimo! 🎉 Pra deixar tudo certinho é só abrir, conferir os detalhes e "
                 f"assinar digitalmente aqui 👇\n{link}\n\nLeva 1 minutinho. Qualquer dúvida me chama!"
@@ -1371,6 +1394,12 @@ async def _tool_enviar_link_assinatura(conversation_id: int) -> dict:
                         "VALUES (:ph,:pid,'whatsapp','link_assinatura','enviado',:m, now(),:conv,'jose_luis', now(), now())"
                     ),
                     {"ph": str(ph), "pid": prop["id"], "m": msg[:2000], "conv": conversation_id},
+                )
+                # grava o telefone destinatário na proposta (best-effort, p/ 2º fator futuro —
+                # não sobrescreve se já tiver algo diferente cadastrado).
+                await db.execute(
+                    text("UPDATE proposals SET client_phone = COALESCE(client_phone, :ph) WHERE id = :pid"),
+                    {"ph": str(ph), "pid": prop["id"]},
                 )
                 await db.commit()
             except Exception:  # noqa: BLE001
