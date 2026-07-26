@@ -204,7 +204,7 @@ function TableScreen({ scr }: { scr: any }) {
                 setEditBusy(true); setEditMsg(null);
                 try {
                   let tok: string | null = null; try { tok = localStorage.getItem('access_token'); } catch { /* */ }
-                  const res = await fetch(editRow.endpoint, { method: editRow.method || 'PATCH', headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) }, body: JSON.stringify(editVals) });
+                  const res = await fetch(editRow.endpoint, { method: editRow.method || 'PATCH', headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) }, body: JSON.stringify({ ...(editRow.fixed || {}), ...editVals }) });
                   const d = await res.json().catch(() => ({}));
                   if (!res.ok) throw new Error(d.detail || 'Não foi possível salvar.');
                   setEditMsg({ ok: true, text: d.message || 'Salvo. Recarregue a tela para ver a alteração.' });

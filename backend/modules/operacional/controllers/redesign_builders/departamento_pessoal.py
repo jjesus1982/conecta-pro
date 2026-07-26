@@ -567,16 +567,31 @@ async def build(db) -> dict:
         + ([doc("Folha de ponto (batidas)", f"/api/v1/people-management/ponto/folha-pdf/{r[11]}/download?mes_ref={int(r[12]):02d}.{int(r[2])}", fmt="html", gate="dp")] if r[13] else [])))
 
     # 5) Licenças / afastamentos — sst_afastamentos (nome/cargo denormalizados)
+    # AÇÃO por-linha "Propor transmissão eSocial (S-2230)": afastamento = fonte do S-2230.
+    # Chama o hook do T1 (propor→sino→humano aprova+OTP+transmite no fluxo SST). SÓ PROPÕE,
+    # NUNCA transmite. referencia = id do afastamento (idempotência c/ tipo_evento); empresa
+    # derivada do colaborador (só mostra o botão se houver empresa). Gate=T3/T1 (Fase 5.4).
     await safe("licencas", tbl(
         "Licenças", "Afastamentos e licenças", "—",
         ["Colaborador", "Tipo", "CID", "Início", "Status"],
         "2fr 1.2fr 0.8fr 1fr 0.9fr",
-        "SELECT coalesce(employee_nome,'—'), coalesce(tipo,'—'), coalesce(cid,'—'), "
-        "data_inicio, coalesce(status,'—') FROM sst_afastamentos "
-        "ORDER BY data_inicio DESC NULLS LAST LIMIT 200",
+        "SELECT coalesce(a.employee_nome,'—'), coalesce(a.tipo,'—'), coalesce(a.cid,'—'), "
+        "a.data_inicio, coalesce(a.status,'—'), CAST(a.id AS TEXT), CAST(e.empresa_id AS TEXT), "
+        "CAST(a.employee_id AS TEXT) FROM sst_afastamentos a "
+        "LEFT JOIN employees e ON e.id = a.employee_id "
+        "ORDER BY a.data_inicio DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")),
                    t((r[1] or "—").replace("_", " ")), t(r[2]), t(_d(r[3])),
-                   _lic_status(r[4])]))
+                   _lic_status(r[4])],
+        actionsfn=lambda r: ([{
+            "title": f"Propor transmissão eSocial (S-2230) — {r[0] or '—'}",
+            "endpoint": "/api/v1/consultores/mcp/propor-esocial-sst",
+            "method": "POST", "btnLabel": "Propor eSocial", "btnStyle": "outline",
+            "submitLabel": "Propor transmissão",
+            "okMsg": "Proposta enviada ao sino — aguardando aprovação humana. Nada foi transmitido ao governo.",
+            "fixed": {"tipo_evento": "S-2230", "referencia": f"afast-{r[5]}",
+                      "empresa_id": r[6], "employee_id": r[7]},
+            "fields": []}] if r[6] else None)))
 
     # 6) Reembolsos — reimbursement_requests
     # Reembolsos — reimbursement_requests. AÇÕES por-linha "Aprovar" + "Analisar" só p/ status 'pendente'
