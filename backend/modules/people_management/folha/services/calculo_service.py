@@ -150,7 +150,8 @@ def calcular_folha_colaborador(
             "COALESCE(e.periculosidade_percentual, 0), "
             "COALESCE(e.insalubridade_percentual, 0), "
             "COALESCE(e.adicional_ronda_percentual, 0), "
-            "COALESCE(e.recebe_intrajornada, false) "
+            "COALESCE(e.recebe_intrajornada, false), "
+            "e.data_admissao, COALESCE(e.data_desligamento, e.data_demissao) "
             "FROM employees e "
             # PJ não recebe holerite CLT — guard mesmo se chamado individualmente.
             "WHERE CAST(e.id AS TEXT)=:eid AND e.status='ativo' "
@@ -198,9 +199,27 @@ def calcular_folha_colaborador(
     ronda_pct = _d(emp[8]) / Decimal("100")
     recebe_intrajornada = bool(emp[9])  # por-funcionário; só paga quem de fato recebe (default off)
 
+    # ── Proporcionalização por ADMISSÃO/DESLIGAMENTO no mês (mês parcial). NÃO por faltas —
+    # faltas são desconto à parte. Portte paga a base + verbas fixas proporcionais aos dias do
+    # vínculo no mês (ex.: admitido dia 19/06 → 12/30 avos). hora_normal fica sobre a base CHEIA
+    # para o noturno/HE (que já usam as horas reais parciais do ponto) não proporcionalizarem 2×. ──
+    _ndias_mes = calendar.monthrange(ano, mes)[1]
+    _dia_ini, _dia_fim = 1, _ndias_mes
+    _adm, _deslig = emp[10], emp[11]
+    if _adm and getattr(_adm, "year", None) == ano and _adm.month == mes:
+        _dia_ini = _adm.day
+    if _deslig and getattr(_deslig, "year", None) == ano and _deslig.month == mes:
+        _dia_fim = _deslig.day
+    _dias_pagaveis = max(0, _dia_fim - _dia_ini + 1)
+    mes_parcial = _dias_pagaveis < _ndias_mes
+    fator_prop = (Decimal(_dias_pagaveis) / Decimal(30)) if mes_parcial else Decimal("1")
+    salario_base_full = salario_base  # base cheia p/ hora_normal (noturno/HE do ponto)
+    if mes_parcial:
+        salario_base = _d(salario_base * fator_prop)  # base + %-adicionais (ronda/peric/insal) proporcionalizam
+
     divisor = DIVISOR_ESCALA.get(escala, 220)
     dias_trab = DIAS_TRAB_ESCALA.get(escala, 22)
-    hora_normal = _d(salario_base / divisor)
+    hora_normal = _d(salario_base_full / divisor)
 
     # VT/VR concedidos conforme a escala (VT R$10/dia, VR R$22/dia; comercial não tem VR no sábado)
     _dias_vt, _dias_vr = dias_vt_vr(escala, mes, ano)
@@ -227,7 +246,7 @@ def calcular_folha_colaborador(
             "codigo": "0001",
             "descricao": "Salario Base",
             "tipo": "provento",
-            "referencia": "30 dias",
+            "referencia": (f"{_dias_pagaveis} dias (admissão/desligamento)" if mes_parcial else "30 dias"),
             "valor": float(salario_base),
         }
     )
