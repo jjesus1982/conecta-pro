@@ -165,6 +165,42 @@ async def propor_pagamento(
     return {"payment_id": str(rec[0]), "status": rec[1]}  # status = 'preparado' (server_default)
 
 
+class ProporEsocialSSTIn(BaseModel):
+    tipo_evento: str          # "S-2220" | "S-2230" | "S-2240" (SST)
+    referencia: str           # id da fonte (chave de idempotência junto com tipo_evento)
+    empresa_id: str           # UUID da empresa (Eletrônica/Patrimonial)
+    employee_id: str | None = None
+    payload: dict | None = None
+
+
+@router.post("/propor-esocial-sst")
+async def propor_esocial_sst(
+    body: ProporEsocialSSTIn,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_active_user),
+):
+    """🔴 PROPOR (gated) a transmissão de um evento SST ao eSocial. Grava proposta 'proposto' na
+    fila do sino p/ aprovação humana (Fase 5.4, aprovador ROLES_MONEY); a assinatura + transmissão
+    real ao governo continua 100% HUMANA no fluxo SST. O agente/botão NUNCA transmite. Hook do T1
+    p/ o botão eSocial do DP redesign (Task 9 do T2)."""
+    from modules.ai.conversation.services.orquestrador.acoes.onda_c import _propor_esocial
+    from modules.ai.conversation.services.orquestrador.engine import OrqScope
+
+    scope = OrqScope(tier="gestor", is_manager=True)
+    r = await _propor_esocial(
+        db, user, scope, tipo_evento=body.tipo_evento, referencia=body.referencia,
+        empresa_id=body.empresa_id, employee_id=body.employee_id, payload=body.payload or {},
+    )
+    if isinstance(r, dict) and r.get("erro"):
+        raise HTTPException(status_code=422, detail=r["erro"])
+    proposta_id = r if isinstance(r, str) else (r.get("id") or r.get("proposta_id") if isinstance(r, dict) else None)
+    return {
+        "ok": True, "proposta_id": proposta_id,
+        "message": "Proposta enviada ao sino — aguardando aprovação humana + transmissão no fluxo SST. "
+                   "Nada foi transmitido ao governo.",
+    }
+
+
 @router.post("/propor-comunicado")
 async def propor_comunicado(
     payload: ProporComunicadoIn,
