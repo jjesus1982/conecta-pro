@@ -2755,7 +2755,9 @@ async def rd_action_vacation_reject(
     # query string do próprio endpoint da ação (?vid=), reason chega no body {reason} do modal.
     from modules.people_management.hr.services.vacation_service import VacationService
 
-    reason = (payload.get("reason") or "").strip() or None
+    reason = (payload.get("reason") or "").strip()
+    if not reason:
+        return {"ok": False, "message": "Motivo é obrigatório para rejeitar as férias."}
     try:
         await VacationService(db).reject_vacation(vid, rejected_by_id=current_user.id, reason=reason)
     except ValueError as e:

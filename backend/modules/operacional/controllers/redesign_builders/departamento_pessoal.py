@@ -704,6 +704,7 @@ async def build(db) -> dict:
             [{"title": f"Regenerar link — {r[1] or '—'}",
               "endpoint": f"/api/v1/people-management/human-resources/prestadores-pj/{r[0]}/regenerar-link",
               "method": "POST", "btnLabel": "Regenerar link", "btnStyle": "outline",
+              "submitLabel": "Regenerar link",
               "okMsg": "Link regenerado. Recarregue a tela.", "fields": []}]
             if (r[3] or "").lower() != "pj_ativo" else None)))
     if out.get("prestadores-pj"):
@@ -791,7 +792,7 @@ async def build(db) -> dict:
 
         # ── Task 8: Fechar mês de ponto (AÇÃO de efeito em massa, irreversível).
         # Closes the timekeeping month for all active employees. Requires confirmation before firing.
-        # Competências = últimos 12 meses com folha (reusa _copts, já buscada acima).
+        # Mês/ano são selects fixos (NÃO usa _copts) — a competência de ponto independe da folha.
         out["fechar-mes-ponto"] = {
             "title": "Fechar mês (ponto)",
             "sub": "Fecha o ponto de TODOS os colaboradores ativos na competência — ação de efeito em massa, praticamente irreversível. Horários no fuso de Manaus (UTC no banco).",
@@ -837,12 +838,13 @@ async def build(db) -> dict:
             pass
 
     # Religa o CTA da tela "fechamento-ponto" (estava "—") → aponta p/ o form fechar-mes-ponto.
-    if out.get("fechamento-ponto") and not out["fechamento-ponto"].get("ctaTo"):
+    # Só religa se o form-alvo existir (se o try acima abortou, não cria CTA morto).
+    if out.get("fechamento-ponto") and not out["fechamento-ponto"].get("ctaTo") and out.get("fechar-mes-ponto"):
         out["fechamento-ponto"]["cta"] = "Fechar mês"
         out["fechamento-ponto"]["ctaTo"] = "fechar-mes-ponto"
 
     # Religa o CTA da tela "certificacao" (estava "—") → aponta p/ o form gerar-certificacoes.
-    if out.get("certificacao") and not out["certificacao"].get("ctaTo"):
+    if out.get("certificacao") and not out["certificacao"].get("ctaTo") and out.get("gerar-certificacoes"):
         out["certificacao"]["cta"] = "Gerar certificações"
         out["certificacao"]["ctaTo"] = "gerar-certificacoes"
 
