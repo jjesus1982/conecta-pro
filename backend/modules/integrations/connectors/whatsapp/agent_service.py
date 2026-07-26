@@ -2125,9 +2125,96 @@ async def _foi_transferida(conversation_id: int) -> bool:
         return False
 
 
-async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
-    """Dispatcher das tools. Qualquer falha vira {erro:...} — nunca derruba o webhook."""
+# Fase 5.4c/T3: allowlist EXPLÍCITA das tools do José Luís — fail-closed. Antes disto,
+# tool desconhecida caía num `else` implícito no fim do if/elif (allowlist frágil,
+# fácil de esquecer ao adicionar tool nova). "kind":
+#   read   = só consulta, sem pré-condição extra além da própria implementação.
+#   write  = grava dado mas não expõe identidade/PII de terceiro nem dispara doc externo.
+#   action = ação sensível (identidade/PII do cliente, ou envia link de assinatura) ->
+#            passa por um gate determinístico no dispatcher ANTES de chamar a tool
+#            (defesa em profundidade: a tool já recusa por dentro, mas o dispatcher
+#            barra na porta, sem depender do juízo do LLM).
+_TOOL_ALLOWLIST: dict[str, dict] = {
+    "registrar_lead": {"kind": "write"},
+    "consultar_minha_conta": {"kind": "action"},
+    "abrir_ordem_servico": {"kind": "action"},
+    "listar_materiais": {"kind": "read"},
+    "enviar_material": {"kind": "write"},
+    "enviar_link_assinatura": {"kind": "action"},
+    "consultar_cnpj": {"kind": "read"},
+    "buscar_cliente": {"kind": "read"},
+    "consultar_agenda": {"kind": "read"},
+    "agendar_visita": {"kind": "write"},
+    "transferir_conversa": {"kind": "write"},
+    "sugerir_cross_sell": {"kind": "read"},
+}
+
+
+async def _precondicao_identidade_ok(conversation_id: int) -> bool:
+    """Gate determinístico p/ tools 'action' de identidade (consultar_minha_conta,
+    abrir_ordem_servico): só libera se o telefone da conversa já resolve a um cliente
+    real da base (_cliente_do_telefone, do T1 — LGPD: identidade SEMPRE pelo telefone
+    autenticado, nunca pelo CNPJ que o LLM/cliente informa como argumento)."""
     try:
+        async with async_session_factory() as db:
+            fone = await _phone_da_conversa(db, conversation_id)
+            cli = await _cliente_do_telefone(db, fone)
+            return cli is not None
+    except Exception:  # noqa: BLE001
+        return False
+
+
+async def _precondicao_pede_assinatura(conversation_id: int) -> bool:
+    """Gate determinístico p/ enviar_link_assinatura: só libera se o cliente PEDIU
+    explicitamente o link (pede_assinatura, já usado em followups.py) — mero interesse
+    não basta, o Jordan decide o momento nesse caso."""
+    try:
+        async with async_session_factory() as db:
+            row = (
+                await db.execute(
+                    text(
+                        "SELECT content FROM cwi_message_log WHERE chatwoot_conversation_id=:c "
+                        "AND direction='in' ORDER BY id DESC LIMIT 1"
+                    ),
+                    {"c": conversation_id},
+                )
+            ).first()
+        from modules.crm.services.followups import pede_assinatura  # noqa: PLC0415
+
+        return pede_assinatura(row[0] if row else None)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
+    """Dispatcher das tools. Qualquer falha vira {erro:...} — nunca derruba o webhook.
+
+    Fase 5.4c/T3: consulta a allowlist ANTES de despachar (fail-closed explícito) e,
+    para tools "action", roda um gate determinístico ANTES de chamar a implementação.
+    """
+    tool_meta = _TOOL_ALLOWLIST.get(name)
+    if tool_meta is None:
+        return {"erro": "tool nao permitida"}
+    try:
+        if tool_meta["kind"] == "action":
+            if name == "enviar_link_assinatura":
+                if not await _precondicao_pede_assinatura(conversation_id):
+                    return {
+                        "ok": False,
+                        "nao_pediu": True,
+                        "instrucao": "O cliente NÃO pediu o link explicitamente — só demonstrou interesse. "
+                        "NÃO envie o link por conta própria. Responda animado, diga que pode "
+                        "deixar tudo pronto pra assinatura quando ele quiser, e siga. O Jordan "
+                        "será avisado e decide o momento de mandar o link.",
+                    }
+            elif name in ("abrir_ordem_servico", "consultar_minha_conta"):
+                if not await _precondicao_identidade_ok(conversation_id):
+                    return {
+                        "ok": False,
+                        "motivo": "nao_identificado",
+                        "msg": "Pra confirmar isso no seu contrato preciso validar seu cadastro — "
+                        "peça pra equipe vincular esse número de WhatsApp ou fale com o administrativo.",
+                    }
         if name == "registrar_lead":
             return await _tool_registrar_lead(args, conversation_id)
         if name == "consultar_minha_conta":

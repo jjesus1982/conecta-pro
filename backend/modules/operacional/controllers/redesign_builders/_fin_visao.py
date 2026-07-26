@@ -157,3 +157,36 @@ async def build_visao(db, out: dict) -> None:
         }
     except Exception:  # noqa: BLE001
         pass
+
+    # ── A2: Tendências temporais (série mês a mês) — faturamento bruto/líquido dos últimos 12 meses.
+    # Reusa a query mensal real de nfse_emitidas_nacional; renderer de LINHA/ÁREA já existe (RdChart). ─
+    try:
+        from sqlalchemy import text as _text
+        _fat = (await db.execute(_text(
+            "SELECT competencia, coalesce(sum(valor_servicos),0), coalesce(sum(valor_liquido),0) "
+            "FROM nfse_emitidas_nacional WHERE coalesce(cancelada,false)=false AND competencia IS NOT NULL "
+            "GROUP BY 1 ORDER BY 1 DESC LIMIT 12"))).fetchall()
+        _fat = list(reversed(_fat))
+        if _fat:
+            _ult = float(_fat[-1][1] or 0)
+            _media = sum(float(r[1] or 0) for r in _fat) / len(_fat)
+            out["tendencias"] = {
+                "title": "Tendências — faturamento mês a mês", "type": "dash", "cta": "—",
+                "sub": f"Evolução do faturamento NFS-e (bruto e líquido), últimos {len(_fat)} meses. Dado real.",
+                "chartGrid": "1fr 1fr",
+                "kpis": [
+                    {"v": brl(_ult), "l": f"Faturamento {_fat[-1][0]}", "icon": "M3 3v18h18M18 9l-5 5-4-4-3 3", "color": "#16A34A", "to": "contas-receber"},
+                    {"v": brl(_media), "l": f"Média mensal ({len(_fat)}m)", "icon": "M3 3v18h18M18 9l-5 5-4-4-3 3", "color": "#0F1B3A"},
+                ],
+                "charts": [
+                    {"type": "line", "title": "Faturamento bruto por mês (R$)", "data": [
+                        {"name": r[0], "value": round(float(r[1] or 0), 2)} for r in _fat]},
+                    {"type": "area", "title": "Faturamento líquido por mês (R$)", "data": [
+                        {"name": r[0], "value": round(float(r[2] or 0), 2)} for r in _fat]},
+                ],
+                "panelGrid": "1fr",
+                "panels": [{"title": "Faturamento por competência", "rows": [
+                    {"left": r[0], "right": brl(float(r[1] or 0)), **S["info"]} for r in _fat]}],
+            }
+    except Exception:  # noqa: BLE001
+        pass
