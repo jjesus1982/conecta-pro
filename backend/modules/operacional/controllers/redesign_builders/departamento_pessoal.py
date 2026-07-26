@@ -27,6 +27,8 @@ EXTRA_MENU: list[dict] = [
      "icon": "M17 8C8 10 5.9 16.2 3.8 21.7c-.3.7.3 1.3 1 1L8 21c9-2 11-8 13-13M12 2v4M20 6l-2 2"},
     {"id": "contracheques-lote", "label": "Contracheques em lote",
      "icon": "M9 7h6M9 11h6M9 15h4M5 3h14a1 1 0 0 1 1 1v16H4V4a1 1 0 0 1 1-1z"},
+    {"id": "fechar-mes-ponto", "label": "Fechar mês (ponto)",
+     "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
     {"id": "importar-cadastro", "label": "Importar cadastro (CSV)",
      "icon": "M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"},
     {"id": "nova-admissao", "label": "Nova admissão",
@@ -787,6 +789,31 @@ async def build(db) -> dict:
             ],
         }
 
+        # ── Task 8: Fechar mês de ponto (AÇÃO de efeito em massa, irreversível).
+        # Closes the timekeeping month for all active employees. Requires confirmation before firing.
+        # Competências = últimos 12 meses com folha (reusa _copts, já buscada acima).
+        out["fechar-mes-ponto"] = {
+            "title": "Fechar mês (ponto)",
+            "sub": "Fecha o ponto de TODOS os colaboradores ativos na competência — ação de efeito em massa, praticamente irreversível. Horários no fuso de Manaus (UTC no banco).",
+            "cta": "Fechar mês", "type": "form",
+            "submit": {"endpoint": "/api/v1/people-management/ponto/fechamento-mes",
+                       "okMsg": "Mês de ponto fechado",
+                       "confirm": "Isto FECHA o ponto de TODOS os ativos na competência selecionada. Confirme para prosseguir."},
+            "fields": [
+                {"key": "mes", "label": "Mês*", "type": "select", "span": "span 1",
+                 "ph": "Selecione o mês", "options": [
+                     {"value": "1", "label": "Janeiro"}, {"value": "2", "label": "Fevereiro"},
+                     {"value": "3", "label": "Março"}, {"value": "4", "label": "Abril"},
+                     {"value": "5", "label": "Maio"}, {"value": "6", "label": "Junho"},
+                     {"value": "7", "label": "Julho"}, {"value": "8", "label": "Agosto"},
+                     {"value": "9", "label": "Setembro"}, {"value": "10", "label": "Outubro"},
+                     {"value": "11", "label": "Novembro"}, {"value": "12", "label": "Dezembro"}]},
+                {"key": "ano", "label": "Ano*", "type": "select", "span": "span 1",
+                 "ph": "Selecione o ano", "options": [
+                     {"value": "2026", "label": "2026"}, {"value": "2025", "label": "2025"}]},
+            ],
+        }
+
         # Gerar certificações em lote (fila hr_certifications de TODOS os holerites da competência,
         # idempotente). Mesma lista de competências com folha (_copts, já buscada acima). AÇÃO de
         # efeito em massa → confirmação humana (submit.confirm), handler fino rd_action_cert_gerar_folha.
@@ -808,6 +835,11 @@ async def build(db) -> dict:
             await db.rollback()
         except Exception:
             pass
+
+    # Religa o CTA da tela "fechamento-ponto" (estava "—") → aponta p/ o form fechar-mes-ponto.
+    if out.get("fechamento-ponto") and not out["fechamento-ponto"].get("ctaTo"):
+        out["fechamento-ponto"]["cta"] = "Fechar mês"
+        out["fechamento-ponto"]["ctaTo"] = "fechar-mes-ponto"
 
     # Religa o CTA da tela "certificacao" (estava "—") → aponta p/ o form gerar-certificacoes.
     if out.get("certificacao") and not out["certificacao"].get("ctaTo"):
