@@ -29,6 +29,8 @@ EXTRA_MENU: list[dict] = [
      "icon": "M9 7h6M9 11h6M9 15h4M5 3h14a1 1 0 0 1 1 1v16H4V4a1 1 0 0 1 1-1z"},
     {"id": "nova-admissao", "label": "Nova admissão",
      "icon": "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8M19 8v6M22 11h-6"},
+    {"id": "sync-ferias-solides", "label": "Sincronizar férias (Sólides)",
+     "icon": "M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"},
 ]
 
 # datas: as tabelas usam date/timestamp; formatador defensivo local
@@ -726,11 +728,45 @@ async def build(db) -> dict:
                  "options": _copts},
             ],
         }
+
+        # Gerar certificações em lote (fila hr_certifications de TODOS os holerites da competência,
+        # idempotente). Mesma lista de competências com folha (_copts, já buscada acima). AÇÃO de
+        # efeito em massa → confirmação humana (submit.confirm), handler fino rd_action_cert_gerar_folha.
+        out["gerar-certificacoes"] = {
+            "title": "Gerar certificações",
+            "sub": "Gera a fila de certificações da folha de uma competência (idempotente)",
+            "cta": "Gerar", "type": "form",
+            "submit": {"endpoint": "/api/v1/redesign/action/cert-gerar-folha",
+                       "okMsg": "Certificações geradas",
+                       "confirm": "Isto gera a fila de certificações de TODOS os holerites da competência"},
+            "fields": [
+                {"key": "competencia", "label": "Competência*", "type": "select", "span": "span 2",
+                 "ph": "Selecione a competência" if _copts else "Sem competência com folha registrada",
+                 "options": _copts},
+            ],
+        }
     except Exception:
         try:
             await db.rollback()
         except Exception:
             pass
+
+    # Religa o CTA da tela "certificacao" (estava "—") → aponta p/ o form gerar-certificacoes.
+    if out.get("certificacao") and not out["certificacao"].get("ctaTo"):
+        out["certificacao"]["cta"] = "Gerar certificações"
+        out["certificacao"]["ctaTo"] = "gerar-certificacoes"
+
+    # Sincronizar férias do Sólides (gatilho direto, sem params — o endpoint real aceita
+    # periodo_inicio/periodo_fim opcionais via query; fields=[] = form de confirmação só).
+    out["sync-ferias-solides"] = {
+        "title": "Sincronizar férias do Sólides",
+        "sub": "Importa/atualiza as solicitações de férias a partir do Sólides",
+        "cta": "Sincronizar", "type": "form",
+        "submit": {"endpoint": "/api/v1/people-management/hr/vacations/sync-solides",
+                   "okMsg": "Férias sincronizadas",
+                   "confirm": "Isto busca e atualiza as férias a partir do Sólides"},
+        "fields": [],
+    }
 
     # Nova admissão — FORM que abre processo de admissão (POST /hr/admissions, dados básicos do
     # candidato). O restante do fluxo (documentos, exames, completar) segue na tela de admissão.

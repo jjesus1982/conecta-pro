@@ -2070,6 +2070,31 @@ async def rd_action_contracheques_batch(
             "message": f"Contracheques {comp}: {ger}/{tot} gerados, {arq} arquivados no GED."}
 
 
+@router.post("/action/cert-gerar-folha")
+async def rd_action_cert_gerar_folha(
+    current_user: CurrentActiveUser,
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Gera a fila de certificações (hr_certifications) de TODOS os holerites de uma competência —
+    AÇÃO de efeito em massa → o front exige confirmação humana antes (scr.submit.confirm). O endpoint
+    real (certification_controller) recebe a competência como PATH param; aqui ela chega no body do
+    form redesign, então chamamos o serviço direto (mesma lógica de gerar_da_folha, idempotente)."""
+    competencia = (payload.get("competencia") or "").strip()
+    if not competencia:
+        # Guard probe-safe: sem competência não chama o serviço (nada é gerado).
+        return {"ok": False, "message": "Competência obrigatória."}
+
+    from modules.people_management.certification.services.certification_service import (
+        CertificationService,
+    )
+
+    res = await CertificationService(db).gerar_da_folha(competencia)
+    await db.commit()
+    return {"ok": True, "message": "Certificações geradas.",
+            "detalhe": res if isinstance(res, dict) else None}
+
+
 @router.post("/action/lead")
 async def rd_action_lead(
     current_user: CurrentActiveUser,
