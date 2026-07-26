@@ -109,9 +109,9 @@ async def build_contabil(db, out: dict) -> None:
                     f"Ativo {brl(at_tot)} = Passivo {brl(pa_tot)} + PL {brl(pl_tot)}"),
             "panelGrid": "1fr 1fr 1fr",
             "kpis": [
-                {"v": brl(at_tot), "l": "Ativo total", "icon": "M3 3v18h18M18 9l-5 5-4-4-3 3", "color": "#16A34A"},
-                {"v": brl(pa_tot), "l": "Passivo total", "icon": "M2 6h20M2 18h20M6 6v12M18 6v12", "color": "#C2410C"},
-                {"v": brl(pl_tot), "l": "Patrimônio Líquido (resultado)", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", "color": "#0F1B3A"},
+                {"v": brl(at_tot), "l": "Ativo total", "icon": "M3 3v18h18M18 9l-5 5-4-4-3 3", "color": "#16A34A", "to": "balancete"},
+                {"v": brl(pa_tot), "l": "Passivo total", "icon": "M2 6h20M2 18h20M6 6v12M18 6v12", "color": "#C2410C", "to": "balancete"},
+                {"v": brl(pl_tot), "l": "Patrimônio Líquido (resultado)", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", "color": "#0F1B3A", "to": "apuracao-resultado"},
                 {"v": ("Fecha ✓" if confere else "Não fecha"), "l": "Ativo = Passivo + PL",
                  "icon": "M20 6L9 17l-5-5", "color": "#16A34A" if confere else "#DC2626"},
             ],
