@@ -617,13 +617,21 @@ async def build(db) -> dict:
         "FROM hr_certifications ORDER BY competencia DESC NULLS LAST, created_at DESC LIMIT 300",
         lambda r: [t(r[0]), t((r[1] or "—").replace("_", " ")), t(brl(r[2])),
                    _badge_bool(r[3], "Sim", "Não", "bad", "ok"), _cert_status(r[4])],
-        editfn=lambda r: ({"title": f"Certificar — {r[0]} · {(r[1] or '').replace('_', ' ')}",
-                           "endpoint": f"/api/v1/people-management/certifications/{r[5]}/certify",
-                           "method": "PATCH", "btnLabel": "Certificar", "submitLabel": "Assinar certificação",
-                           "btnStyle": "primary", "okMsg": "Certificação assinada. Recarregue a tela.",
-                           "fields": [{"key": "observacao", "label": "Observação (opcional)",
-                                       "type": "textarea", "span": "span 2", "value": ""}]}
-                          if (r[4] or "").lower() == "pendente" else None)))
+        actionsfn=lambda r: (
+            [
+                {"title": f"Certificar — {r[0]} · {(r[1] or '').replace('_', ' ')}",
+                 "endpoint": f"/api/v1/people-management/certifications/{r[5]}/certify",
+                 "method": "PATCH", "btnLabel": "Certificar", "submitLabel": "Assinar certificação",
+                 "btnStyle": "primary", "okMsg": "Certificação assinada. Recarregue a tela.",
+                 "fields": [{"key": "observacao", "label": "Observação (opcional)",
+                             "type": "textarea", "span": "span 2", "value": ""}]},
+                {"title": f"Rejeitar certificação — {r[0]}",
+                 "endpoint": f"/api/v1/people-management/certifications/{r[5]}/reject",
+                 "method": "PATCH", "btnLabel": "Rejeitar", "btnStyle": "outline",
+                 "submitLabel": "Rejeitar", "okMsg": "Certificação rejeitada. Recarregue a tela.",
+                 "fields": [{"key": "observacao", "label": "Motivo (obrigatório)", "type": "textarea",
+                             "span": "span 2", "value": ""}]}
+            ] if (r[4] or "").lower() == "pendente" else None)))
 
     # 10) eSocial — esocial_eventos_espelho (espelho do ambiente nacional)
     await safe("esocial", tbl(
