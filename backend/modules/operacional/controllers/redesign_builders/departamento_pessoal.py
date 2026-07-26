@@ -428,18 +428,26 @@ async def build(db) -> dict:
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(_ben_type(r[1])), t(r[2]), t(r[3]),
                    t(brl(r[4])), t(brl(r[5])),
                    t(f"{_d(r[6])} – {'Indeterminado' if not r[7] else _d(r[7])}"), _ben_status(r[8])],
-        editfn=lambda r: {
-            "title": f"Benefício — {r[0] or '—'} ({_ben_type(r[1])})",
-            "endpoint": f"/api/v1/people-management/hr/benefits/{r[9]}",
-            "method": "PATCH", "btnLabel": "Gerir", "submitLabel": "Salvar status",
-            "okMsg": "Benefício atualizado. Recarregue a tela.",
-            "fields": [
-                {"key": "status", "label": "Status do benefício", "type": "select", "span": "span 2",
-                 "value": (r[8] or "active"), "options": [
-                     {"value": "active", "label": "Ativo"},
-                     {"value": "suspended", "label": "Suspenso"},
-                     {"value": "cancelled", "label": "Cancelado"}]},
-            ]}))
+        actionsfn=lambda r: [
+            {
+                "title": f"Benefício — {r[0] or '—'} ({_ben_type(r[1])})",
+                "endpoint": f"/api/v1/people-management/hr/benefits/{r[9]}",
+                "method": "PATCH", "btnLabel": "Gerir", "submitLabel": "Salvar status",
+                "okMsg": "Benefício atualizado. Recarregue a tela.",
+                "fields": [
+                    {"key": "status", "label": "Status do benefício", "type": "select", "span": "span 2",
+                     "value": (r[8] or "active"), "options": [
+                         {"value": "active", "label": "Ativo"},
+                         {"value": "suspended", "label": "Suspenso"},
+                         {"value": "cancelled", "label": "Cancelado"}]},
+                ]},
+            {
+                "title": f"Remover benefício — {r[0] or '—'}",
+                "endpoint": f"/api/v1/people-management/hr/benefits/{r[9]}",
+                "method": "DELETE", "btnLabel": "Remover", "btnStyle": "outline",
+                "submitLabel": "Remover", "okMsg": "Benefício removido. Recarregue a tela.",
+                "fields": []},
+        ]))
 
     # 0e) Rescisão — SOBRESCREVE p/ ler de termination_processes (MESMA fonte do clássico
     #     /terminations), com Tipo/Status/Valor. A base lia employees WHERE status='demitido'
@@ -790,6 +798,43 @@ async def build(db) -> dict:
         }
         if out.get("rescisao") and not out["rescisao"].get("ctaTo"):
             out["rescisao"]["ctaTo"] = "nova-rescisao"
+
+        # ── Task 3: beneficios — form "Adicionar benefício" (POST /hr/benefits, BenefitCreate).
+        # employee_id = mesmo select de colaboradores ativos (_eopts). type = BenefitType enum.
+        out["nova-beneficio"] = {
+            "title": "Adicionar benefício", "type": "form",
+            "sub": "Cadastra um benefício para o colaborador",
+            "cta": "Adicionar benefício",
+            "submit": {"endpoint": "/api/v1/people-management/hr/benefits",
+                       "okMsg": "Benefício adicionado"},
+            "fields": [
+                {"key": "employee_id", "label": "Colaborador*", "type": "select", "span": "span 2",
+                 "ph": "Selecione o colaborador" if _eopts else "Nenhum colaborador ativo",
+                 "options": _eopts},
+                {"key": "type", "label": "Tipo de benefício*", "type": "select", "span": "span 1",
+                 "ph": "Selecione", "options": [
+                     {"value": "vale_transporte", "label": "Vale-transporte"},
+                     {"value": "vale_refeicao", "label": "Vale-refeição"},
+                     {"value": "vale_alimentacao", "label": "Vale-alimentação"},
+                     {"value": "plano_saude", "label": "Plano de saúde"},
+                     {"value": "plano_odontologico", "label": "Plano odontológico"},
+                     {"value": "seguro_vida", "label": "Seguro de vida"},
+                     {"value": "auxilio_creche", "label": "Auxílio-creche"},
+                     {"value": "gym_pass", "label": "Gympass"},
+                     {"value": "other", "label": "Outro"},
+                 ]},
+                {"key": "provider", "label": "Operadora", "type": "text", "span": "span 1", "ph": "Opcional"},
+                {"key": "plan_name", "label": "Plano", "type": "text", "span": "span 1", "ph": "Opcional"},
+                {"key": "company_contribution", "label": "Valor empresa", "type": "text", "span": "span 1", "ph": "Ex.: 150.00"},
+                {"key": "employee_contribution", "label": "Valor desconto", "type": "text", "span": "span 1", "ph": "Ex.: 50.00"},
+                {"key": "start_date", "label": "Início", "type": "date", "span": "span 1"},
+                {"key": "end_date", "label": "Fim (vigência)", "type": "date", "span": "span 1"},
+                {"key": "notes", "label": "Observações", "type": "textarea", "span": "span 2", "ph": "Opcional"},
+            ],
+        }
+        if out.get("beneficios") and not out["beneficios"].get("ctaTo"):
+            out["beneficios"]["cta"] = "Adicionar benefício"
+            out["beneficios"]["ctaTo"] = "nova-beneficio"
 
         # ── Task 5: licencas — form "Registrar afastamento" (POST /hr/leaves, dado real).
         # Grava em sst_afastamentos (estabilidade acidentária derivada no backend). Tipos = enum
