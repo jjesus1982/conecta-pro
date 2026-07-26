@@ -34,10 +34,10 @@ async def build_visao(db, out: dict) -> None:
             "sub": f"Cenários 30/60/90 dias — base: {hist.get('periodo', 'histórico real')} (espelho do endpoint; nada é fabricado)",
             "cta": "—", "panelGrid": "1fr 1fr 1fr",
             "kpis": [
-                {"v": brl(fc.get("saldo_atual")), "l": "Saldo atual (conta principal)", "icon": "M3 21h18M4 10h16M5 10 12 4l7 6M6 10v11M18 10v11M10 10v11M14 10v11", "color": "#0F1B3A"},
-                {"v": brl(fc.get("mrr_base")), "l": "Base recorrente (MRR)", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", "color": "#16A34A"},
-                {"v": brl(hist.get("media_entradas_mensal")), "l": "Média entradas/mês (90d)", "icon": "M3 3v18h18M18 9l-5 5-4-4-3 3", "color": "#0F1B3A"},
-                {"v": brl(hist.get("media_saidas_mensal")), "l": "Média saídas/mês (90d)", "icon": "M3 3v18h18M18 9l-5 5-4-4-3 3", "color": "#C2410C"},
+                {"v": brl(fc.get("saldo_atual")), "l": "Saldo atual (conta principal)", "icon": "M3 21h18M4 10h16M5 10 12 4l7 6M6 10v11M18 10v11M10 10v11M14 10v11", "color": "#0F1B3A", "to": "consolidacao-grupo"},
+                {"v": brl(fc.get("mrr_base")), "l": "Base recorrente (MRR)", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", "color": "#16A34A", "to": "contas-receber"},
+                {"v": brl(hist.get("media_entradas_mensal")), "l": "Média entradas/mês (90d)", "icon": "M3 3v18h18M18 9l-5 5-4-4-3 3", "color": "#0F1B3A", "to": "contas-receber"},
+                {"v": brl(hist.get("media_saidas_mensal")), "l": "Média saídas/mês (90d)", "icon": "M3 3v18h18M18 9l-5 5-4-4-3 3", "color": "#C2410C", "to": "contas-pagar"},
             ],
             "panels": [
                 {"title": "Cenário pessimista", "rows": _rows_cenario("pessimista")},
@@ -137,8 +137,8 @@ async def build_visao(db, out: dict) -> None:
                     f"Atraso médio de recebimento: {atraso:.1f} dia(s) — recebido em dia = sem inadimplência."),
             "panelGrid": "1fr 1fr",
             "kpis": [
-                {"v": f"{dso:.0f}d", "l": "DSO — prazo médio recebimento", "icon": "M12 8v4l3 3M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20", "color": "#16A34A"},
-                {"v": f"{dpo:.0f}d", "l": "DPO — prazo médio pagamento", "icon": "M12 8v4l3 3M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20", "color": "#C2410C"},
+                {"v": f"{dso:.0f}d", "l": "DSO — prazo médio recebimento", "icon": "M12 8v4l3 3M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20", "color": "#16A34A", "to": "contas-receber"},
+                {"v": f"{dpo:.0f}d", "l": "DPO — prazo médio pagamento", "icon": "M12 8v4l3 3M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20", "color": "#C2410C", "to": "contas-pagar"},
                 {"v": f"{ciclo:.0f}d", "l": "Ciclo de caixa (DSO−DPO)", "icon": "M3 3v18h18M18 9l-5 5-4-4-3 3", "color": "#0F1B3A"},
                 {"v": (f"{cob:.2f}x" if cob is not None else "—"), "l": "Cobertura (AR aberto / AP aberto)", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", "color": "#0F1B3A"},
             ],
