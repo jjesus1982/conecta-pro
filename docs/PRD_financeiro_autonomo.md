@@ -72,9 +72,13 @@ reimplementa o do outro.
 | Agentes / Hermes / propor→aprovar / proativo / skills | **T3+T1** | `ai/**`, `notifications/proativo`, `skills/financeiro` |
 
 **Interface única folha↔razão:** T2 entrega a folha autoritativa em `hr_payslips` (`source='conecta'`); T1
-posta no razão via `ledger_auto` e gera o SPED. **Ninguém cruza a fronteira sem combinar.** (Nota T1: eu
-já toquei `calculo_service` na proporcionalização de mês parcial — isso é território T2; a decidir se
-mantém ou o T2 assume.)
+posta no razão via `ledger_auto` e gera o SPED. **Ninguém cruza a fronteira sem combinar.**
+
+**RESOLVIDO (2026-07-26, T2 confirmou a Seção 5):** `calculo_service.py`/`clt_calculator.py`/
+`payroll_service.py` = **T2** (C1). T2 aceita, mas AINDA NÃO começou C1/C2 (sessão atual dele = 100% DP
+redesign CRUD). **T1 PARA de mexer no motor de folha.** Minha proporcionalização de mês parcial já commitada
+= **ref `8eeec51c`** — entregue ao T2 pra ele incorporar/revisar quando entrar na C1 (Fase 4). Até lá, o
+motor fica como está.
 
 ## 6. Guardrails inegociáveis
 - **Oráculo**: todo número exibido == banco; nunca fabricar; vazio-real = "aguardando dado".
