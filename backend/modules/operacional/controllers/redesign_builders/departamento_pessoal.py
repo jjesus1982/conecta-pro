@@ -27,6 +27,8 @@ EXTRA_MENU: list[dict] = [
      "icon": "M17 8C8 10 5.9 16.2 3.8 21.7c-.3.7.3 1.3 1 1L8 21c9-2 11-8 13-13M12 2v4M20 6l-2 2"},
     {"id": "contracheques-lote", "label": "Contracheques em lote",
      "icon": "M9 7h6M9 11h6M9 15h4M5 3h14a1 1 0 0 1 1 1v16H4V4a1 1 0 0 1 1-1z"},
+    {"id": "importar-cadastro", "label": "Importar cadastro (CSV)",
+     "icon": "M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"},
     {"id": "nova-admissao", "label": "Nova admissão",
      "icon": "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8M19 8v6M22 11h-6"},
     {"id": "sync-ferias-solides", "label": "Sincronizar férias (Sólides)",
@@ -987,6 +989,25 @@ async def build(db) -> dict:
         if out.get("documentos") and not out["documentos"].get("ctaTo"):
             out["documentos"]["cta"] = "Enviar documento"
             out["documentos"]["ctaTo"] = "nova-documento"
+
+        # ── Task 6: funcionarios — form "Importar cadastro" (multipart CSV upload).
+        # POST /api/v1/people-management/hr/employees/import-cadastro — arquivo CSV do contador/Onvio.
+        # Reusa FormScreen type:file + submit.multipart (já baked). Sem campos fixos.
+        out["importar-cadastro"] = {
+            "title": "Importar cadastro",
+            "type": "form",
+            "sub": "Importa colaboradores a partir de uma planilha CSV (contador/Onvio)",
+            "cta": "Importar",
+            "submit": {
+                "endpoint": "/api/v1/people-management/hr/employees/import-cadastro",
+                "okMsg": "Cadastro importado",
+                "multipart": True,
+                "confirm": "Isto importa/atualiza colaboradores a partir da planilha"
+            },
+            "fields": [
+                {"key": "file", "label": "Planilha CSV*", "type": "file", "span": "span 2", "accept": ".csv"}
+            ],
+        }
 
         # ── Task 5: visao drilldown — KPIs viram clicáveis → tela de detalhe (frontend DashScreen
         # navega com k.to). Aditivo: KPI sem 'to' continua não-clicável.
