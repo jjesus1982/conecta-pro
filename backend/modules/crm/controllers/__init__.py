@@ -60,8 +60,21 @@ def _gatear_rotas_crm() -> None:
         except Exception:  # noqa: BLE001 — controller ausente/quebrado não registra no main
             pass
 
+    # Rotas PÚBLICAS (assinatura pelo cliente, SEM login) — NÃO recebem o gate.
+    # São exatamente as 2 rotas da página pública de assinatura de proposta.
+    # A proteção delas é interna à própria função: rate-limit por IP/proposta +
+    # token assinado (T2, commit 20e163c3). Abrir só estas duas, nada mais.
+    _PUBLICAS = {
+        ("GET", "/{proposal_id}/public"),
+        ("POST", "/{proposal_id}/sign"),
+    }
+
     for r in routers:
         for route in r.routes:
+            methods = getattr(route, "methods", None) or set()
+            path = getattr(route, "path", "")
+            if any(m in methods and path.endswith(suf) for (m, suf) in _PUBLICAS):
+                continue
             route.dependencies.append(dep_crm)
 
 
