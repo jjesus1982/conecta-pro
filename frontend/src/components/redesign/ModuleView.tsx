@@ -207,7 +207,7 @@ function TableScreen({ scr }: { scr: any }) {
                   const res = await fetch(editRow.endpoint, { method: editRow.method || 'PATCH', headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) }, body: JSON.stringify({ ...(editRow.fixed || {}), ...editVals }) });
                   const d = await res.json().catch(() => ({}));
                   if (!res.ok) throw new Error(d.detail || 'Não foi possível salvar.');
-                  setEditMsg({ ok: true, text: d.message || 'Salvo. Recarregue a tela para ver a alteração.' });
+                  setEditMsg({ ok: true, text: d.message || editRow.okMsg || 'Salvo. Recarregue a tela para ver a alteração.' });
                 } catch (e) { setEditMsg({ ok: false, text: e instanceof Error ? e.message : 'Erro.' }); }
                 finally { setEditBusy(false); }
               }}>{editBusy ? 'Enviando…' : (editRow.submitLabel || 'Salvar')}</button>
