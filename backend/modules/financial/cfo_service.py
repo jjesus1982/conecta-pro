@@ -27,6 +27,16 @@ logger = logging.getLogger(__name__)
 # "Lentes" do CFO — afinam a especialidade; o contexto financeiro real é sempre injetado.
 AREAS_VALIDAS = ("fluxo_caixa", "resultado", "tributos", "estrategico")
 
+# B1 (skills→cérebro): metodologias cirúrgicas (skills/financeiro/*.md) injetadas no prompt do CFO
+# por LENTE. glob por substring no SkillLoader → nomes limpos (sem prefixo numérico). 2-3 por lente
+# p/ não estourar o prompt. Antes: as skills existiam mas NUNCA chegavam ao modelo.
+_SKILLS_POR_AREA = {
+    "fluxo_caixa": ["projecao-fluxo-caixa-12-meses", "analise-fluxo-caixa-real", "kpis-financeiros"],
+    "resultado": ["dre-gerencial", "analise-margem-por-servico", "break-even-ponto-equilibrio"],
+    "tributos": ["tributario-lucro-real", "kpis-financeiros"],
+    "estrategico": ["diagnostico-financeiro-completo", "plano-acao-90-dias", "matriz-riscos-negocio"],
+}
+
 DISCLAIMER_PADRAO = (
     "Apoio financeiro por IA — não substitui a análise do contador/gestor. "
     "Decisões com efeito fiscal/contábil relevante devem ser validadas com a contabilidade."
@@ -710,6 +720,16 @@ async def consultar(
             system_prompt = f"{system_prompt}\n\n{_conversa}"
         from modules.ai.conversation.services.consultor_conhecimento_service import contexto_para_prompt
         system_prompt = system_prompt + contexto_para_prompt("cfo", pergunta)
+        # B1 — injeta as skills cirúrgicas da lente no prompt que vai pro Hermes (antes eram andaime morto).
+        try:
+            from modules.financial.agents.skill_loader import SkillLoader
+            _skills = SkillLoader.load_multiple(_SKILLS_POR_AREA.get(area_norm, []))
+            if _skills:
+                system_prompt = (system_prompt +
+                    "\n\n=== METODOLOGIAS CIRÚRGICAS (aplique o passo-a-passo destas skills) ===" + _skills)
+                llm_meta["skills_injetadas"] = _SKILLS_POR_AREA.get(area_norm, [])
+        except Exception:  # noqa: BLE001 — skill ausente não derruba a consulta
+            pass
         from modules.ai.conversation.services.llm_provider import ClaudeProvider, OpenAIProvider
 
         # OpenAI é o provider PRIMÁRIO dos consultores (decisão Jordan 2026-07-07:

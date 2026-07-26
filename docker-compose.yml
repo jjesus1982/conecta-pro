@@ -188,6 +188,9 @@ services:
       - ./data:/app/data
       - ./reports:/opt/conecta-pro/reports
       - ./frontend:/opt/conecta-pro/frontend:ro
+      # Skills cirúrgicas dos agentes (B1: skill_loader lê /opt/conecta-pro/skills/financeiro).
+      # Mount (não bake) → editar .md no host reflete sem rebuild, como o agent_knowledge/*.md.
+      - ./skills:/opt/conecta-pro/skills:ro
       # Docker socket para OpenClaw (remediação automática)
       - /var/run/docker.sock:/var/run/docker.sock
       # Módulos Fase 3 (externos ao backend)
