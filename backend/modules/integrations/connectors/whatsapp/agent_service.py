@@ -745,6 +745,53 @@ async def _resolve_lead_id(db, conversation_id: int) -> str | None:
         return None
 
 
+async def _phone_da_conversa(db, conversation_id: int) -> str | None:
+    """Telefone AUTENTICADO da conversa (quem está de fato falando no WhatsApp), lido do
+    cwi_message_log pelo chatwoot_conversation_id — nunca de um argumento de tool."""
+    return (
+        await db.execute(
+            text(
+                "SELECT phone_canonical FROM cwi_message_log "
+                "WHERE chatwoot_conversation_id=:c AND phone_canonical IS NOT NULL "
+                "ORDER BY created_at DESC LIMIT 1"
+            ),
+            {"c": conversation_id},
+        )
+    ).scalar()
+
+
+async def _cliente_do_telefone(db, phone: str | None) -> dict | None:
+    """Resolve o CLIENTE DA BASE vinculado ao telefone AUTENTICADO da conversa.
+
+    LGPD/segurança: a identidade do cliente vem SEMPRE do telefone que está de fato
+    conversando (phone_canonical do cwi_message_log), NUNCA do `cnpj` que o LLM/cliente
+    informa como argumento de tool — CNPJ é dado público (Receita); se a identidade
+    viesse do argumento, qualquer pessoa digitaria o CNPJ de outro condomínio e puxaria
+    contratos/OS/notas fiscais dele. Match pelos últimos 8 dígitos (mesmo critério
+    tolerante a DDI/formatação já usado em _tool_enviar_link_assinatura), contra
+    phone/mobile/whatsapp do cadastro. Sem vínculo -> None; o chamador NUNCA deve
+    expor dados de conta nesse caso, mesmo que um CNPJ tenha sido informado no chat.
+    """
+    p8 = "".join(c for c in str(phone or "") if c.isdigit())[-8:]
+    if len(p8) < 8:
+        return None
+    row = (
+        await db.execute(
+            text(
+                "SELECT id, name, phone, document_number FROM clients "
+                "WHERE right(regexp_replace(coalesce(phone,''),'\\D','','g'),8) = :p8 "
+                "   OR right(regexp_replace(coalesce(mobile,''),'\\D','','g'),8) = :p8 "
+                "   OR right(regexp_replace(coalesce(whatsapp,''),'\\D','','g'),8) = :p8 "
+                "LIMIT 1"
+            ),
+            {"p8": p8},
+        )
+    ).first()
+    if not row:
+        return None
+    return {"id": str(row[0]), "name": row[1], "phone": row[2], "document_number": row[3]}
+
+
 async def _criar_lead_para_conversa(db, conversation_id: int, nome: str | None = None) -> str | None:
     """Auto-cura: cria (ou reusa por telefone) um lead p/ a conversa quando não há lead
     válido vinculado (ex.: lead foi apagado). Vincula o lead_id no cwi_message_log."""
@@ -949,29 +996,29 @@ async def _tool_registrar_lead(args: dict, conversation_id: int) -> dict:
         return {"ok": False, "motivo": "nao foi possivel registrar agora"}
 
 
-async def _tool_consultar_minha_conta(args: dict) -> dict:
+async def _tool_consultar_minha_conta(args: dict, conversation_id: int) -> dict:
     """Conta do cliente da base: contratos ativos + ultimas OS + ultimas NFS-e.
 
-    Identidade: o proprio cliente informa o CNPJ e o agente confirma a razao
-    social com ele antes de detalhar (instruido no prompt).
+    Identidade: SEMPRE pelo TELEFONE autenticado da conversa (_cliente_do_telefone),
+    NUNCA pelo `cnpj` que o LLM/cliente informa como argumento — CNPJ é dado público
+    (Receita); se a identidade viesse do argumento, qualquer pessoa digitaria o CNPJ
+    de outro condomínio e puxaria contratos/OS/notas dele (vazamento LGPD). `args` é
+    mantido no assinatura por compatibilidade com o schema da tool, mas não é mais
+    usado para identidade.
     """
     try:
-        cnpj = "".join(c for c in str(args.get("cnpj") or "") if c.isdigit())
-        if len(cnpj) != 14:
-            return {"erro": "CNPJ invalido"}
         async with async_session_factory() as db:
-            cli = (
-                await db.execute(
-                    text(
-                        "SELECT id, name FROM clients "
-                        "WHERE regexp_replace(coalesce(document_number,''),'\\D','','g') = :c LIMIT 1"
-                    ),
-                    {"c": cnpj},
-                )
-            ).first()
+            fone = await _phone_da_conversa(db, conversation_id)
+            cli = await _cliente_do_telefone(db, fone)
             if not cli:
-                return {"cliente_da_base": False, "info": "CNPJ nao encontrado na base de clientes"}
-            client_id, client_name = str(cli[0]), cli[1]
+                return {
+                    "ok": False,
+                    "motivo": "nao_identificado",
+                    "msg": "Pra puxar os dados da sua conta preciso confirmar seu cadastro — "
+                    "peça pra equipe vincular esse número de WhatsApp ou fale com o administrativo.",
+                }
+            client_id, client_name, client_cnpj = cli["id"], cli["name"], cli["document_number"]
+            cnpj = "".join(c for c in str(client_cnpj or "") if c.isdigit())
 
             contratos = (
                 await db.execute(
@@ -1007,9 +1054,9 @@ async def _tool_consultar_minha_conta(args: dict) -> dict:
                     {"c": cnpj},
                 )
             ).fetchall()
-        # LGPD/segurança: canal não-autenticado (telefone não vinculado ao cliente na base).
-        # Expomos EXISTÊNCIA/status (útil p/ suporte), mas NUNCA valores financeiros — assim
-        # ninguém extrai faturamento de terceiros só informando um CNPJ (que é dado público).
+        # LGPD/segurança: defesa em profundidade. A identidade já foi confirmada pelo
+        # telefone (acima); mesmo assim, expomos EXISTÊNCIA/status (útil p/ suporte), mas
+        # NUNCA valores financeiros no chat — a equipe confirma e informa por outro canal.
         return {
             "cliente_da_base": True,
             "razao_social": client_name,
@@ -1031,15 +1078,20 @@ async def _tool_consultar_minha_conta(args: dict) -> dict:
 async def _tool_abrir_ordem_servico(args: dict, conversation_id: int) -> dict:
     """Abre uma OS no módulo CAMPO do Conecta PRO (tabela ordens_servico) — mesma que a
     equipe de campo trata. Grava conversation_id no extra_metadata para as atualizações
-    de status voltarem ao WhatsApp do cliente. Retorna o número p/ informar."""
+    de status voltarem ao WhatsApp do cliente. Retorna o número p/ informar.
+
+    Identidade: SEMPRE pelo TELEFONE autenticado da conversa (_cliente_do_telefone), NUNCA
+    pelo `cnpj` que o LLM/cliente informa como argumento — mesma razão de consultar_minha_conta
+    (CNPJ é dado público; identidade por argumento permitiria abrir/ver chamado no contrato
+    de outro cliente).
+    """
     from sqlalchemy.exc import IntegrityError  # noqa: PLC0415
 
     try:
-        cnpj = "".join(c for c in str(args.get("cnpj") or "") if c.isdigit())
         titulo = (args.get("titulo") or "").strip()
         descricao = (args.get("descricao") or "").strip()
-        if len(cnpj) != 14 or not titulo or not descricao:
-            return {"ok": False, "motivo": "faltam dados (cnpj, titulo, descricao)"}
+        if not titulo or not descricao:
+            return {"ok": False, "motivo": "faltam dados (titulo, descricao)"}
         prioridade = str(args.get("prioridade") or "normal").lower()
         if prioridade not in ("baixa", "normal", "alta", "urgente", "emergencia"):
             prioridade = "normal"
@@ -1067,28 +1119,16 @@ async def _tool_abrir_ordem_servico(args: dict, conversation_id: int) -> dict:
         local = (args.get("local") or "").strip()[:500] or None
         ano = (datetime.now(UTC) + timedelta(hours=BRT_OFFSET)).year
         async with async_session_factory() as db:
-            cli = (
-                await db.execute(
-                    text(
-                        "SELECT id, name, phone FROM clients "
-                        "WHERE regexp_replace(coalesce(document_number,''),'\\D','','g') = :c LIMIT 1"
-                    ),
-                    {"c": cnpj},
-                )
-            ).first()
+            fone_conversa = await _phone_da_conversa(db, conversation_id)
+            cli = await _cliente_do_telefone(db, fone_conversa)
             if not cli:
-                return {"ok": False, "motivo": "CNPJ nao encontrado na base — confirme com o cliente"}
-            tel = (
-                await db.execute(
-                    text(
-                        "SELECT phone_canonical FROM cwi_message_log "
-                        "WHERE chatwoot_conversation_id=:cv AND phone_canonical IS NOT NULL "
-                        "ORDER BY created_at DESC LIMIT 1"
-                    ),
-                    {"cv": conversation_id},
-                )
-            ).first()
-            fone = (tel[0] if tel else None) or (cli[2] or None)
+                return {
+                    "ok": False,
+                    "motivo": "nao_identificado",
+                    "msg": "Pra abrir o chamado no seu contrato preciso confirmar seu cadastro — "
+                    "peça pra equipe vincular esse número de WhatsApp ou fale com o administrativo.",
+                }
+            fone = fone_conversa or cli.get("phone")
             meta = json.dumps(
                 {
                     "origem_detalhe": "jose-luis-whatsapp",
@@ -1127,8 +1167,8 @@ async def _tool_abrir_ordem_servico(args: dict, conversation_id: int) -> dict:
                             "num": numero,
                             "tipo": tipo_db,
                             "pri": prio_db,
-                            "cid": str(cli[0]),
-                            "cnome": (cli[1] or "")[:200],
+                            "cid": str(cli["id"]),
+                            "cnome": (cli["name"] or "")[:200],
                             "fone": fone,
                             "tit": titulo[:200],
                             "des": descricao[:4000],
@@ -1146,7 +1186,7 @@ async def _tool_abrir_ordem_servico(args: dict, conversation_id: int) -> dict:
                     if _tent == 4:
                         raise
                     numero = None
-        logger.info("Agente OS criada (campo): %s cliente=%s conv=%s", numero, cli[1], conversation_id)
+        logger.info("Agente OS criada (campo): %s cliente=%s conv=%s", numero, cli["name"], conversation_id)
         return {
             "ok": True,
             "numero_os": numero,
@@ -1846,7 +1886,6 @@ async def _tool_consultar_agenda(args: dict, conversation_id: int) -> dict:  # n
 
 async def _tool_agendar_visita(args: dict, conversation_id: int) -> dict:
     """Cria uma visita PROPOSTA (status AGENDADA) em modules/campo. Copiloto: humano confirma depois. Nunca estoura."""
-    import re  # noqa: PLC0415
     from datetime import datetime  # noqa: PLC0415
     from uuid import UUID  # noqa: PLC0415
 
@@ -1872,21 +1911,14 @@ async def _tool_agendar_visita(args: dict, conversation_id: int) -> dict:
         async with async_session_factory() as db:
             lead_id = await _resolve_lead_id(db, conversation_id)
 
-            # cliente_id: se o cliente informou CNPJ e ele existe na base
+            # cliente_id: SEMPRE pelo telefone AUTENTICADO da conversa, nunca pelo `cnpj`
+            # que o cliente/LLM possa informar como argumento (LGPD — evita vincular a
+            # visita ao cadastro de um terceiro só porque alguém digitou o CNPJ dele).
             cliente_id = None
-            cnpj_digits = re.sub(r"\D", "", str(args.get("cnpj") or ""))
-            if cnpj_digits:
-                crow = (
-                    await db.execute(
-                        text(
-                            "SELECT id FROM clients "
-                            "WHERE regexp_replace(coalesce(document_number, ''), '\\D', '', 'g') = :c LIMIT 1"
-                        ),
-                        {"c": cnpj_digits},
-                    )
-                ).first()
-                if crow:
-                    cliente_id = crow[0]
+            fone_visita = await _phone_da_conversa(db, conversation_id)
+            cli_visita = await _cliente_do_telefone(db, fone_visita)
+            if cli_visita:
+                cliente_id = UUID(cli_visita["id"])
 
             visita_data = VisitaCreate(
                 tipo=(
@@ -2070,7 +2102,7 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
         if name == "registrar_lead":
             return await _tool_registrar_lead(args, conversation_id)
         if name == "consultar_minha_conta":
-            return await _tool_consultar_minha_conta(args)
+            return await _tool_consultar_minha_conta(args, conversation_id)
         if name == "abrir_ordem_servico":
             return await _tool_abrir_ordem_servico(args, conversation_id)
         if name == "listar_materiais":

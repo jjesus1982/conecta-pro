@@ -37,11 +37,21 @@ CANNED = {
     "enviar_material": {"ok": True, "enviado": "catalogo_conectamais.pdf"},
     "enviar_link_assinatura": {"ok": True, "enviado": True, "number": "PROP-TESTE",
                                "instrucao": "O link JÁ foi enviado. NÃO repita o link, só uma frase curta."},
-    "consultar_minha_conta": {"contratos": [], "ordens_servico": [], "notas": []},
+    # Espelha o comportamento REAL pós-fix LGPD: identidade vem do TELEFONE autenticado da
+    # conversa (cwi_message_log), NUNCA do `cnpj` que vem como argumento — o TEST_PHONE do
+    # eval não está vinculado a nenhum cliente da base, então a tool real sempre devolveria
+    # "não identificado" aqui, mesmo que o cliente/LLM informe um CNPJ no argumento.
+    "consultar_minha_conta": {"ok": False, "motivo": "nao_identificado",
+                              "msg": "Pra puxar os dados da sua conta preciso confirmar seu "
+                                     "cadastro — peça pra equipe vincular esse número de "
+                                     "WhatsApp ou fale com o administrativo."},
     "agendar_visita": {"ok": True, "detalhe": "solicitação registrada"},
     "consultar_agenda": {"horarios_livres": ["09:00", "14:00"]},
     "transferir_conversa": {"ok": True, "setor": "comercial"},
-    "abrir_ordem_servico": {"ok": True, "os": "OS-9999"},
+    "abrir_ordem_servico": {"ok": False, "motivo": "nao_identificado",
+                            "msg": "Pra abrir o chamado no seu contrato preciso confirmar seu "
+                                   "cadastro — peça pra equipe vincular esse número de "
+                                   "WhatsApp ou fale com o administrativo."},
     "sugerir_cross_sell": {"sugestao": None},
 }
 
