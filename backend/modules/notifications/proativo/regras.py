@@ -209,6 +209,58 @@ register(Regra(
 ))
 
 
+# ─────────────────────────── tributo_a_vencer (B3) ───────────────────────────
+async def _detectar_tributo_vencer(db: AsyncSession) -> list[Achado]:
+    row = (await db.execute(text(
+        "SELECT count(*), coalesce(sum(valor_devido),0) FROM fiscal_obligations "
+        "WHERE status='pendente' AND data_vencimento BETWEEN current_date AND current_date + 7"))).fetchone()
+    n, total = int(row[0] or 0), float(row[1] or 0)
+    if n == 0:
+        return []
+    return [Achado(correlation_id="financeiro_tributo_vencer:portfolio:None",
+                   dados={"n": n, "total": total, "severidade": "atencao"})]
+
+
+def _tpl_tributo_vencer(d: dict) -> tuple[str, str]:
+    from modules.notifications.proativo.redator import _brl
+    return (f"{d['n']} tributo(s)/guia(s) a vencer em 7 dias",
+            f"{d['n']} obrigação(ões) fiscal(is) pendente(s) vence(m) nos próximos 7 dias, total R$ {_brl(d['total'])}.")
+
+
+register(Regra(
+    nome="tributo_a_vencer", familia="financeiro", severidade="atencao",
+    roles_destino=("admin",), action_url="/modulos/financeiro/fiscal",
+    detectar=_detectar_tributo_vencer, template=_tpl_tributo_vencer,
+))
+
+
+# ─────────────────────────── concentracao_pagaveis (B3) ───────────────────────────
+async def _detectar_pagaveis_7d(db: AsyncSession) -> list[Achado]:
+    row = (await db.execute(text(
+        "SELECT count(*), coalesce(sum(net_value),0) FROM payable_accounts "
+        "WHERE due_date BETWEEN current_date AND current_date + 7 "
+        "AND coalesce(status::text,'') NOT ILIKE '%pag%' "
+        "AND coalesce(status::text,'') NOT ILIKE '%cancel%'"))).fetchone()
+    n, total = int(row[0] or 0), float(row[1] or 0)
+    if total < 10000:  # só alerta concentração relevante
+        return []
+    return [Achado(correlation_id="financeiro_pagaveis_7d:portfolio:None",
+                   dados={"n": n, "total": total, "severidade": "critico" if total >= 50000 else "atencao"})]
+
+
+def _tpl_pagaveis_7d(d: dict) -> tuple[str, str]:
+    from modules.notifications.proativo.redator import _brl
+    return (f"{d['n']} conta(s) a pagar vencendo em 7 dias",
+            f"R$ {_brl(d['total'])} em {d['n']} conta(s) a pagar vence(m) nos próximos 7 dias — planeje o caixa.")
+
+
+register(Regra(
+    nome="concentracao_pagaveis", familia="financeiro", severidade="atencao",
+    roles_destino=("admin",), action_url="/modulos/financeiro/pagar",
+    detectar=_detectar_pagaveis_7d, template=_tpl_pagaveis_7d,
+))
+
+
 # ─────────────────────────── justificativa_parada ───────────────────────────
 async def _detectar_justificativa(db: AsyncSession) -> list[Achado]:
     rows = (await db.execute(text(
