@@ -23,14 +23,22 @@ class FeedbackIn(BaseModel):
     correcao: str | None = None
 
 
-@router.post("/feedback", summary="👍/👎 numa resposta do consultor (correção vira memória)")
+@router.post(
+    "/feedback",
+    summary="👍/👎 numa resposta do consultor (correção só vira memória permanente se diretoria)",
+)
 async def dar_feedback(
     body: FeedbackIn,
     user=Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # 👍/👎 simples vale para qualquer user ativo; a promoção da correção a
+    # memória PERMANENTE (compartilhada entre todos os consultores) é gated por
+    # diretoria dentro de registrar_feedback (user_role="admin").
     return await consultor_hub.registrar_feedback(
-        db, body.origem, body.consulta_id, body.util, body.correcao
+        db, body.origem, body.consulta_id, body.util, body.correcao,
+        user_role=getattr(user, "role", None),
+        autor=getattr(user, "email", None) or getattr(user, "username", None),
     )
 
 

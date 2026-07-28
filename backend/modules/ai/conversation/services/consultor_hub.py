@@ -402,10 +402,20 @@ async def aprender(
 # FASE 4 — FEEDBACK HUMANO + PLACAR DE APRENDIZADO ("certificar que aprendem")
 # ─────────────────────────────────────────────────────────────────────────────
 async def registrar_feedback(
-    db: AsyncSession, origem: str, consulta_id: int, util: bool, correcao: str | None = None
+    db: AsyncSession,
+    origem: str,
+    consulta_id: int,
+    util: bool,
+    correcao: str | None = None,
+    *,
+    user_role: str | None = None,
+    autor: str | None = None,
 ) -> dict:
-    """Grava 👍/👎 (+ correção) numa consulta. A correção do gestor vira MEMÓRIA PERMANENTE
-    (o consultor passa a respeitá-la) — é o aprendizado com feedback. Best-effort."""
+    """Grava 👍/👎 (+ correção) numa consulta. O 👍/👎 simples é de QUALQUER usuário
+    ativo. A correção do gestor só vira MEMÓRIA PERMANENTE (visível a TODOS os
+    consultores) se `user_role` for diretoria (admin) — Fase 5.5 Task 4: fecha o
+    vazamento de qualquer user promover "fato" pro contexto compartilhado. Passa
+    pelo Curator (ancoragem) + auditoria best-effort antes do INSERT."""
     tabela, _ = TABELAS_CONSULTAS.get(origem, (None, None))
     if not tabela:
         return {"ok": False, "erro": "origem desconhecida"}
@@ -417,17 +427,54 @@ async def registrar_feedback(
             ),
             {"u": util, "c": (correcao or None), "id": consulta_id},
         )
-        # 👎 com correção → o gestor está ENSINANDO: grava como memória durável (fonte confiável).
-        if correcao and correcao.strip():
+        virou_memoria = False
+        # 👎 com correção → o gestor está ENSINANDO. Promoção a memória PERMANENTE
+        # (compartilhada entre todos os consultores) é restrita à diretoria — o
+        # feedback simples acima (util/correcao na própria consulta) já foi gravado
+        # para QUALQUER user, independente do que segue.
+        if correcao and correcao.strip() and user_role == "admin":
+            from modules.ai.conversation.services.garantia import agent_audit
+            from modules.ai.conversation.services.garantia.memoria_curator import curar
+
+            fato = f"CORREÇÃO DO GESTOR: {correcao.strip()[:400]}"
+            row = (
+                await db.execute(
+                    text(  # noqa: S608 — tabela de whitelist interna
+                        f"SELECT pergunta, resposta FROM {tabela} WHERE id=:id"
+                    ),
+                    {"id": consulta_id},
+                )
+            ).first()
+            fonte_conversa = {"pergunta": row.pergunta, "resposta": row.resposta} if row else {}
+            veredito = await curar(
+                db, fato=fato, origem=origem, fonte="feedback_gestor",
+                autor_role=user_role, fonte_conversa=fonte_conversa,
+            )
             await db.execute(
                 text(
-                    "INSERT INTO consultor_memorias (origem, conteudo, fonte, ativo, created_at) "
-                    "VALUES (:o, :c, 'feedback_gestor', true, now())"
+                    "INSERT INTO consultor_memorias "
+                    "(origem, conteudo, fonte, status, confidence, autor, curator_veredito, expira_em) "
+                    "VALUES (:o, :c, 'feedback_gestor', :st, :cf, :au, CAST(:cv AS jsonb), NULL)"
                 ),
-                {"o": origem, "c": f"CORREÇÃO DO GESTOR: {correcao.strip()[:400]}"},
+                {
+                    "o": origem, "c": fato,
+                    "st": veredito["status"], "cf": veredito["confidence"],
+                    "au": f"feedback:{autor or 'diretoria'}",
+                    "cv": json.dumps(veredito["veredito"], ensure_ascii=False, default=str),
+                },
             )
+            virou_memoria = True
+            try:
+                await agent_audit.registrar_acao_agente(
+                    db, origem=origem, pergunta=fonte_conversa.get("pergunta") or "",
+                    resposta=f"[memória {veredito['status']}] {fato}",
+                    modelo="feedback_gestor", tier="diretoria", provider="human",
+                    groundedness_ok=(veredito["status"] == "ativo"),
+                )
+            except Exception as e_audit:  # noqa: BLE001
+                logger.warning("agent_audit (feedback/%s): %s", origem, e_audit)
         await db.commit()
-        return {"ok": True, "virou_memoria": bool(correcao and correcao.strip())}
+        return {"ok": True, "virou_memoria": virou_memoria}
     except Exception as e:  # noqa: BLE001
         await db.rollback()
         return {"ok": False, "erro": str(e)[:120]}
