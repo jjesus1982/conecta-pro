@@ -335,6 +335,11 @@ async def aprender(db: AsyncSession, origem: str, pergunta: str, resposta: str) 
         texto = (r.content or "").strip()
         if not texto or texto.upper().startswith("NENHUM"):
             return
+        # Fase 5.5 Task 3 — gate do Curator antes de gravar + auditoria da ação.
+        from modules.ai.conversation.services.garantia import agent_audit
+        from modules.ai.conversation.services.garantia.memoria_curator import curar
+
+        fonte_conversa = {"pergunta": pergunta, "resposta": resposta}
         for linha in [x.strip("-• ").strip() for x in texto.splitlines() if x.strip()][:2]:
             if len(linha) < 12 or linha.upper().startswith("NENHUM"):
                 continue
@@ -347,13 +352,36 @@ async def aprender(db: AsyncSession, origem: str, pergunta: str, resposta: str) 
             ).first()
             if ja:
                 continue
+            # Curator: só entra ATIVO (visível no contexto compartilhado, ver
+            # `contexto_compartilhado` acima) se ancorado (número+entidade da própria
+            # conversa); senão fica pendente_revisao — nunca vaza fato fabricado pro prompt.
+            veredito = await curar(
+                db, fato=linha, origem=origem, fonte="llm_destilado",
+                autor_role="", fonte_conversa=fonte_conversa,
+            )
             await db.execute(
                 text(
-                    "INSERT INTO consultor_memorias (origem, conteudo, fonte) "
-                    "VALUES (:o, :c, :f)"
+                    "INSERT INTO consultor_memorias "
+                    "(origem, conteudo, fonte, status, confidence, autor, curator_veredito, expira_em) "
+                    "VALUES (:o, :c, :f, :st, :cf, :au, CAST(:cv AS jsonb), now() + interval '90 days')"
                 ),
-                {"o": origem, "c": linha, "f": f"P: {pergunta[:180]}"},
+                {
+                    "o": origem, "c": linha, "f": f"P: {pergunta[:180]}",
+                    "st": veredito["status"], "cf": veredito["confidence"],
+                    "au": "llm:gpt-4o-mini",
+                    "cv": json.dumps(veredito["veredito"], ensure_ascii=False, default=str),
+                },
             )
+            # auditoria best-effort (nunca derruba o aprendizado, mesmo se audit_logs falhar)
+            try:
+                await agent_audit.registrar_acao_agente(
+                    db, origem=origem, pergunta=pergunta,
+                    resposta=f"[memória {veredito['status']}] {linha}",
+                    modelo="gpt-4o-mini", tier="leve", provider="openai",
+                    groundedness_ok=(veredito["status"] == "ativo"),
+                )
+            except Exception as e_audit:  # noqa: BLE001
+                logger.warning("agent_audit (aprender/%s): %s", origem, e_audit)
         await db.commit()
         logger.info("Consultor %s aprendeu memória(s) nova(s)", origem)
     except Exception as e:  # noqa: BLE001
