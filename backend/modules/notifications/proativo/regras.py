@@ -261,6 +261,36 @@ register(Regra(
 ))
 
 
+# ─────────────────────────── recebivel_grande_vencendo (B3) ───────────────────────────
+async def _detectar_receb_grande(db: AsyncSession) -> list[Achado]:
+    # Título individual alto (≥R$5k) vencendo nos próximos 3 dias — pegar ANTES de atrasar.
+    rows = (await db.execute(text(
+        "SELECT customer_name, net_value, due_date FROM receivable_accounts "
+        "WHERE due_date BETWEEN current_date AND current_date + 3 AND coalesce(net_value,0) >= 5000 "
+        "AND coalesce(status::text,'') NOT ILIKE '%pag%' AND coalesce(status::text,'') NOT ILIKE '%cancel%' "
+        "ORDER BY net_value DESC LIMIT 5"))).fetchall()
+    out = []
+    for r in rows:
+        cli = str(r[0] or "cliente")
+        out.append(Achado(
+            correlation_id=f"financeiro_receb_grande:{cli}:{r[2]}",  # dedup por cliente+vencimento
+            dados={"cliente": cli, "valor": float(r[1] or 0), "venc": str(r[2]), "severidade": "atencao"}))
+    return out
+
+
+def _tpl_receb_grande(d: dict) -> tuple[str, str]:
+    from modules.notifications.proativo.redator import _brl
+    return (f"Recebível de {d['cliente'][:30]} a vencer",
+            f"R$ {_brl(d['valor'])} de {d['cliente']} vence em {d['venc']} — confirme o recebimento no dia.")
+
+
+register(Regra(
+    nome="recebivel_grande_vencendo", familia="financeiro", severidade="atencao",
+    roles_destino=("admin",), action_url="/modulos/financeiro/recebiveis",
+    detectar=_detectar_receb_grande, template=_tpl_receb_grande,
+))
+
+
 # ─────────────────────────── justificativa_parada ───────────────────────────
 async def _detectar_justificativa(db: AsyncSession) -> list[Achado]:
     rows = (await db.execute(text(
