@@ -622,18 +622,32 @@ async def build(db) -> dict:
             ] if (r[4] or "").lower() == "pendente" else None)))
 
     # 7) Contratos — employment_contracts
+    # AÇÕES por-linha "Gerar contrato" + "Gerar aviso-prévio de férias": geradores de documento
+    # (POST /contracts/employee/{employee_id}/gerar-*-html → salva HTML em /uploads e devolve ref).
+    # O doc gerado fica disponível no fluxo de download; sucesso confirma. employee_id = r[7].
     await safe("contratos", tbl(
         "Contratos", "Contratos de trabalho", "—",
         ["Colaborador", "Tipo", "Cargo", "Início", "Salário base", "Vigente"],
         "1.8fr 1fr 1.3fr 1fr 1fr 0.8fr",
         "SELECT coalesce(e.nome,'—'), coalesce(c.type,'—'), coalesce(c.job_title,'—'), "
-        "c.start_date, coalesce(c.base_salary,0), coalesce(c.is_current,false), CAST(c.id AS TEXT) "
+        "c.start_date, coalesce(c.base_salary,0), coalesce(c.is_current,false), CAST(c.id AS TEXT), "
+        "CAST(c.employee_id AS TEXT) "
         "FROM employment_contracts c LEFT JOIN employees e ON e.id = c.employee_id "
         "ORDER BY c.start_date DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(_contract_type(r[1])), t(r[2]),
                    t(_d(r[3])), t(brl(r[4])),
                    _badge_bool(r[5], "Vigente", "Encerrado", "ok", "mut")],
-        docsfn=lambda r: [doc("Contrato CLT", f"/api/v1/people-management/hr/contracts/{r[6]}/pdf", fmt="pdf", gate="dp")]))
+        docsfn=lambda r: [doc("Contrato CLT", f"/api/v1/people-management/hr/contracts/{r[6]}/pdf", fmt="pdf", gate="dp")],
+        actionsfn=lambda r: ([
+            {"title": f"Gerar contrato de trabalho — {r[0] or '—'}",
+             "endpoint": f"/api/v1/people-management/hr/contracts/employee/{r[7]}/gerar-contrato-html",
+             "method": "POST", "btnLabel": "Gerar contrato", "btnStyle": "outline",
+             "submitLabel": "Gerar contrato", "okMsg": "Contrato gerado — disponível no download/GED.", "fields": []},
+            {"title": f"Gerar aviso-prévio de férias — {r[0] or '—'}",
+             "endpoint": f"/api/v1/people-management/hr/contracts/employee/{r[7]}/gerar-aviso-previo-ferias-html",
+             "method": "POST", "btnLabel": "Gerar aviso férias", "btnStyle": "outline",
+             "submitLabel": "Gerar aviso", "okMsg": "Aviso-prévio de férias gerado.", "fields": []},
+        ] if r[7] else None)))
 
     # 8) Documentos — hr_employee_documents
     await safe("documentos", tbl(
