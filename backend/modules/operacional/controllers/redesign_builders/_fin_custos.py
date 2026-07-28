@@ -91,6 +91,7 @@ async def build_custos(db, out: dict) -> None:
                                                       "ok" if var >= 0 else "bad")]})
         out["orcado-realizado"] = {
             "title": "Orçado × Realizado (despesas)", "type": "table", "cta": "—",
+            "filterCol": 0, "filterLabel": "Mês",
             "sub": (f"Realizado do razão real × orçamento cadastrado · {n_orc}/{len(real)} meses com orçamento. "
                     f"Cadastre o orçamento na tela de Relatórios para acender a comparação."),
             "grid": "1fr 1fr 1fr 1fr 0.9fr",

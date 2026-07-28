@@ -95,6 +95,7 @@ async def build_bancos(db, out: dict) -> None:
                 b("recebido ≥ faturado" if saldo >= -0.5 else "conferir", "ok" if saldo >= -0.5 else "warn")]})
         scr = {
             "title": "Conciliação consolidada por mês", "type": "table", "cta": "—",
+            "filterCol": 0, "filterLabel": "Mês",
             "sub": (f"Líquido faturado (NFS-e, após ISS+retenções) × recebido no banco (Inter+Cora), por mês. "
                     f"Acumulado: faturado {brl(acc_e)} · recebido {brl(acc_r)} · saldo {brl(acc_r - acc_e)}. "
                     "Recebido ≥ faturado = sem inadimplência (a sobra é o lag: pagamento cai no mês seguinte)."),

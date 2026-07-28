@@ -331,6 +331,9 @@ async def build(db) -> dict:
                    b(f"{'+' if (float(r[1] or 0) - _mrr_base) >= 0 else ''}{brl(float(r[1] or 0) - _mrr_base)}",
                      "ok" if (float(r[1] or 0) - _mrr_base) >= 0 else "bad"),
                    t(f"{((float(r[1] or 0) - _mrr_base) / _mrr_base * 100):+.1f}%" if _mrr_base else "—")]))
+    if isinstance(out.get("orcamentos"), dict):  # A3: filtro de Mês (filterCol já existe no renderer)
+        out["orcamentos"]["filterCol"] = 0
+        out["orcamentos"]["filterLabel"] = "Mês"
 
     # ---- Precificação (crm_pricing_funcoes — tabela CCT de funções) ----
     # Precificação — custo/preço/margem por função (mesma tabela do clássico, reusa calcular_funcao)
