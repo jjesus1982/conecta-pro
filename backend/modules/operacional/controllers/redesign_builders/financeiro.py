@@ -1037,6 +1037,24 @@ async def _rd_postar_provisoes(current_user: CurrentActiveUser, payload: dict = 
         f"Nada novo — as provisões ({brl(r['total_provisionado'])}) já estavam postadas. Idempotente.")}
 
 
+@router.post("/action/postar-inss")
+async def _rd_postar_inss(current_user: CurrentActiveUser, payload: dict = Body(default={}), db=Depends(get_db)) -> dict:
+    """Posta no razão o INSS retido do empregado (verdade Portte = hr_payslips.inss_value), por
+    competência. Reclassificação da folha (D 2.1.2.01 / C 2.1.3.01) — NÃO move dinheiro nem adiciona
+    despesa. Gate humano (confirm). Idempotente (ref INSSEMP- por mês). Converge o razão à Portte."""
+    from starlette.concurrency import run_in_threadpool
+
+    from modules.financial.services.ledger_auto_service import LedgerAutoService
+    r = await run_in_threadpool(LedgerAutoService().lancar_inss_empregado)
+    if not r.get("ok"):
+        raise HTTPException(status_code=400, detail=str(r.get("erro") or "Falha ao postar INSS."))
+    n = r.get("lancamentos", 0)
+    return {"ok": True, "message": (
+        f"INSS-empregado postado no razão: {n} lançamento(s) novo(s), {brl(r.get('total_inss', 0))} "
+        "(verdade Portte, hr_payslips). Idempotente." if n else
+        f"Nada novo — INSS ({brl(r.get('total_inss', 0))}) já estava postado. Idempotente.")}
+
+
 @router.post("/action/cobrar-recorrente")
 async def _rd_cobrar_recorrente(current_user: CurrentActiveUser, payload: dict = Body(default={}), db=Depends(get_db)) -> dict:
     """Money-IN: EMITE cobranças recorrentes REAIS (PIX/boleto Inter/Cora) do mês/ano aos clientes.

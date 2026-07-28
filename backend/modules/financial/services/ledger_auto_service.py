@@ -392,6 +392,34 @@ class LedgerAutoService:
         finally:
             conn.close()
 
+    def lancar_inss_empregado(self, empresa_id: str = EMPRESA_PRINCIPAL_ID) -> dict:
+        """Posta o INSS retido do EMPREGADO no razão, por competência, da VERDADE Portte
+        (hr_payslips.inss_value). É reclassificação da folha bruta (já lançada em 4.1.1/2.1.2.01):
+          D 2.1.2.01 (Salários a Pagar) / C 2.1.3.01 (INSS a Recolher) = inss_value
+        NÃO adiciona despesa (o bruto já capturou) — só separa o passivo. Idempotente por
+        ref INSSEMP-{periodo}. Converge o razão à lógica progressiva da Portte sobre inss_base."""
+        conn = self._conn()
+        try:
+            with conn.cursor() as cur:
+                self._ensure_schema(cur)
+                cur.execute(
+                    "SELECT reference_period, COALESCE(sum(inss_value),0) FROM hr_payslips "
+                    "WHERE COALESCE(inss_value,0) > 0 GROUP BY reference_period ORDER BY reference_period"
+                )
+                n, tot = 0, 0.0
+                for periodo, val in cur.fetchall():
+                    val = float(val or 0)
+                    n += self._post(
+                        cur, data=f"{periodo}-01", cd="2.1.2.01", cc="2.1.3.01", valor=val,
+                        hist=f"INSS retido empregado {periodo} (verdade Portte)", tipo="inss_empregado",
+                        ref=f"INSSEMP-{periodo}", periodo=periodo, empresa_id=empresa_id,
+                    )
+                    tot += val
+                conn.commit()
+            return {"ok": True, "lancamentos": n, "total_inss": round(tot, 2), "empresa_id": empresa_id}
+        finally:
+            conn.close()
+
     def fechar(self, empresa_id: str = EMPRESA_PRINCIPAL_ID) -> dict:
         """Fecha o razão: garante schema e posta folha + ISS (idempotente).
         NFS-e receita e banco Inter já são postados pelo accounting_seed_service."""

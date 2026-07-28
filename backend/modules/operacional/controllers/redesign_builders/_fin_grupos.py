@@ -38,7 +38,7 @@ GRUPOS = [
         ("indices-liquidez", "Liquidez & endividamento"), ("dre-caixa", "DRE por caixa"),
         ("dre-analise-vertical", "DRE — análise vertical"),
         ("apuracao-resultado", "Apuração IRPJ/CSLL"), ("provisoes-trabalhistas", "Provisões (férias/13º)"),
-        ("postar-provisoes", "Postar provisões"),
+        ("postar-provisoes", "Postar provisões"), ("postar-inss", "Postar INSS"),
         ("pareamento-portte", "Pareamento Portte"), ("pareamento-tributos", "Pareamento tributos"), ("das-eletronica", "Tributos Eletrônica (LR)"), ("das-patrimonial", "DAS Patrimonial (Simples)"),
         ("contabilidade", "Extrato categorizado"), ("cancelar-boleto", "Cancelar boleto")]),
     ("g-custos", "Custos & Orçamento", "Custos, custeio, precificação e orçamento", [

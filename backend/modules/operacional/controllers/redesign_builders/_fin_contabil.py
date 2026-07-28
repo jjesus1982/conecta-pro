@@ -487,6 +487,15 @@ async def build_contabil(db, out: dict) -> None:
                    "okMsg": "Provisões postadas."},
         "fields": [],
     }
+    out["postar-inss"] = {
+        "title": "Postar INSS-empregado no razão", "type": "form", "cta": "Postar INSS",
+        "sub": "Posta o INSS retido do empregado (verdade Portte = hr_payslips.inss_value) por competência. "
+               "Reclassificação da folha (D 2.1.2.01 / C 2.1.3.01) — NÃO move dinheiro. Idempotente. Converge o razão à Portte.",
+        "submit": {"endpoint": "/api/v1/redesign/action/postar-inss", "gated": False,
+                   "confirm": "Postar no razão o INSS-empregado (verdade Portte) por competência?",
+                   "okMsg": "INSS postado."},
+        "fields": [],
+    }
 
     # ── C-PAR (Fase 5): Pareamento nosso × Portte — medidor de maturidade p/ andar sem a Portte.
     # 1ª rubrica: folha = razão (nosso) × hr_payslips (Portte) por competência. Roda em paralelo ~6m. ─
