@@ -263,6 +263,19 @@ class FraudRepository:
         self.db.refresh(rule)
         return rule
 
+    def delete_rule(self, rule_id: UUID) -> bool:
+        """Exclui regra (soft delete: is_active=false). Nunca hard-delete."""
+        rule = self.get_rule(rule_id)
+        if not rule:
+            return False
+
+        rule.is_active = False
+        rule.updated_at = datetime.utcnow()
+        self.db.commit()
+
+        logger.info(f"Regra desativada (soft delete): {rule.code}")
+        return True
+
     # =========================================================================
     # Pattern Operations
     # =========================================================================

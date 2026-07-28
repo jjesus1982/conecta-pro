@@ -91,8 +91,9 @@ async def detect_fraud(
 
     try:
         # Executar deteccao baseado no tipo de evento
+        # NOTA: check_transaction/check_access sao metodos SINCRONOS do FraudDetector (sem await).
         if request.event_type in ["transaction", "payment", "transfer"]:
-            result = await detector.check_transaction(
+            result = detector.check_transaction(
                 transaction_id=request.entity_id,
                 transaction_type=request.event_type,
                 amount=request.event_data.get("amount", 0),
@@ -101,7 +102,7 @@ async def detect_fraud(
                 metadata=request.event_data,
             )
         else:
-            result = await detector.check_access(
+            result = detector.check_access(
                 user_id=request.entity_id,
                 ip_address=request.event_data.get("ip_address", ""),
                 action=request.event_type,
@@ -147,16 +148,16 @@ async def check_transaction(
     start_time = datetime.utcnow()
 
     try:
-        result = await detector.check_transaction(
+        # detector.check_transaction nao aceita payer_account/payee_account (nao existem no metodo real)
+        # e e sincrono (sem await).
+        result = detector.check_transaction(
             transaction_id=request.transaction_id,
             transaction_type=request.transaction_type,
             amount=request.amount,
             payer_id=request.payer_id,
             payer_type=request.payer_type,
-            payer_account=request.payer_account,
             payee_id=request.payee_id,
             payee_type=request.payee_type,
-            payee_account=request.payee_account,
             ip_address=request.ip_address,
             device_id=request.device_id,
             location=request.location,
@@ -204,8 +205,8 @@ async def check_access(
     start_time = datetime.utcnow()
 
     try:
-        # Verificar acesso
-        result = await detector.check_access(
+        # Verificar acesso (detector.check_access e sincrono, sem await)
+        result = detector.check_access(
             user_id=request.user_id,
             ip_address=request.ip_address,
             action=request.action,
@@ -280,24 +281,18 @@ async def list_alerts(
     """Lista alertas com filtros."""
     repo = FraudRepository(db)
 
-    filters = {}
-    if status_filter:
-        filters["status"] = status_filter
-    if severity:
-        filters["severity"] = severity
-    if category:
-        filters["category"] = category
-    if entity_type:
-        filters["entity_type"] = entity_type
-    if entity_id:
-        filters["entity_id"] = entity_id
-
-    alerts, total = await repo.get_alerts(
-        filters=filters,
+    # repo.get_alerts e sincrono e recebe os filtros nomeados diretamente
+    # (nao filters=/skip=/limit=).
+    alerts, total = repo.get_alerts(
+        category=category,
+        severity=severity,
+        status=status_filter,
+        entity_type=entity_type,
+        entity_id=entity_id,
         date_from=date_from,
         date_to=date_to,
-        skip=(page - 1) * page_size,
-        limit=page_size,
+        page=page,
+        page_size=page_size,
     )
 
     pages = (total + page_size - 1) // page_size
@@ -323,7 +318,7 @@ async def get_alert(
 ) -> FraudAlertResponse:
     """Obtem detalhes de um alerta."""
     repo = FraudRepository(db)
-    alert = await repo.get_alert_by_id(alert_id)
+    alert = repo.get_alert(alert_id)
 
     if not alert:
         raise HTTPException(
@@ -385,7 +380,7 @@ async def update_alert(
 ) -> FraudAlertResponse:
     """Atualiza um alerta."""
     repo = FraudRepository(db)
-    alert = await repo.update_alert(alert_id, data.model_dump(exclude_unset=True))
+    alert = repo.update_alert(alert_id, data.model_dump(exclude_unset=True))
 
     if not alert:
         raise HTTPException(
@@ -487,7 +482,7 @@ async def mark_false_positive(
 
     alert = await manager.mark_false_positive(
         alert_id=alert_id,
-        marked_by=UUID(current_user.id),
+        _marked_by=UUID(current_user.id),
         notes=notes,
     )
 
@@ -562,15 +557,17 @@ async def list_rules(
     """Lista regras de deteccao."""
     repo = FraudRepository(db)
 
-    filters = {}
-    if rule_type:
-        filters["rule_type"] = rule_type
-    if category:
-        filters["category"] = category
-    if is_active is not None:
-        filters["is_active"] = is_active
+    # repo.get_rules e sincrono e usa paginacao page/page_size (nao filters=/skip=/limit=)
+    page_size = max(limit, 1)
+    page = (skip // page_size) + 1
 
-    rules = await repo.get_rules(filters=filters, skip=skip, limit=limit)
+    rules, _total = repo.get_rules(
+        rule_type=rule_type,
+        category=category,
+        is_active=is_active,
+        page=page,
+        page_size=page_size,
+    )
 
     return [FraudRuleResponse.model_validate(r) for r in rules]
 
@@ -587,7 +584,7 @@ async def get_rule(
 ) -> FraudRuleResponse:
     """Obtem detalhes de uma regra."""
     repo = FraudRepository(db)
-    rule = await repo.get_rule_by_id(rule_id)
+    rule = repo.get_rule(rule_id)
 
     if not rule:
         raise HTTPException(
@@ -615,30 +612,33 @@ async def create_rule(
     # Converter condicoes
     conditions = [c.model_dump() for c in data.conditions]
 
-    rule = await repo.create_rule(
-        code=data.code,
-        name=data.name,
-        description=data.description,
-        rule_type=data.rule_type,
-        category=data.category,
-        subcategory=data.subcategory,
-        default_severity=data.default_severity,
-        risk_weight=data.risk_weight,
-        conditions=conditions,
-        threshold_value=data.threshold_value,
-        threshold_count=data.threshold_count,
-        threshold_period_minutes=data.threshold_period_minutes,
-        velocity_count=data.velocity_count,
-        velocity_period_minutes=data.velocity_period_minutes,
-        velocity_field=data.velocity_field,
-        primary_action=data.primary_action,
-        secondary_actions=data.secondary_actions,
-        notify_channels=data.notify_channels,
-        applies_to_entities=data.applies_to_entities,
-        applies_to_transactions=data.applies_to_transactions,
-        is_active=data.is_active,
-        is_test_mode=data.is_test_mode,
-    )
+    # repo.create_rule espera um dict (rule_data), nao kwargs soltos.
+    rule_data = {
+        "code": data.code,
+        "name": data.name,
+        "description": data.description,
+        "rule_type": data.rule_type,
+        "category": data.category,
+        "subcategory": data.subcategory,
+        "default_severity": data.default_severity,
+        "risk_weight": data.risk_weight,
+        "conditions": conditions,
+        "threshold_value": data.threshold_value,
+        "threshold_count": data.threshold_count,
+        "threshold_period_minutes": data.threshold_period_minutes,
+        "velocity_count": data.velocity_count,
+        "velocity_period_minutes": data.velocity_period_minutes,
+        "velocity_field": data.velocity_field,
+        "primary_action": data.primary_action,
+        "secondary_actions": data.secondary_actions,
+        "notify_channels": data.notify_channels,
+        "applies_to_entities": data.applies_to_entities,
+        "applies_to_transactions": data.applies_to_transactions,
+        "is_active": data.is_active,
+        "is_test_mode": data.is_test_mode,
+    }
+
+    rule = repo.create_rule(rule_data)
 
     return FraudRuleResponse.model_validate(rule)
 
@@ -661,7 +661,7 @@ async def update_rule(
     if "conditions" in update_data and update_data["conditions"]:
         update_data["conditions"] = [c.model_dump() for c in data.conditions]
 
-    rule = await repo.update_rule(rule_id, update_data)
+    rule = repo.update_rule(rule_id, update_data)
 
     if not rule:
         raise HTTPException(
@@ -684,7 +684,7 @@ async def delete_rule(
 ) -> None:
     """Exclui uma regra (soft delete)."""
     repo = FraudRepository(db)
-    success = await repo.delete_rule(rule_id)
+    success = repo.delete_rule(rule_id)
 
     if not success:
         raise HTTPException(
@@ -705,7 +705,7 @@ async def test_rule(
 ) -> RuleTestResponse:
     """Testa uma regra com dados de exemplo."""
     repo = FraudRepository(db)
-    rule = await repo.get_rule_by_id(data.rule_id)
+    rule = repo.get_rule(data.rule_id)
 
     if not rule:
         raise HTTPException(
@@ -713,14 +713,15 @@ async def test_rule(
             detail="Regra nao encontrada",
         )
 
-    result = rule.evaluate(data.test_data)
+    # rule.evaluate() (model) retorna tupla (matched, score, reasons), nao dict.
+    matched, score, reasons = rule.evaluate(data.test_data)
 
     return RuleTestResponse(
-        matched=result["matched"],
-        score=result["score"],
-        reasons=result["reasons"],
-        conditions_evaluated=result["conditions_evaluated"],
-        conditions_matched=result["conditions_matched"],
+        matched=matched,
+        score=score,
+        reasons=reasons,
+        conditions_evaluated=len(rule.conditions or []),
+        conditions_matched=len(reasons),
     )
 
 
@@ -747,17 +748,19 @@ async def list_patterns(
     """Lista padroes de fraude."""
     repo = FraudRepository(db)
 
-    filters = {}
-    if pattern_type:
-        filters["pattern_type"] = pattern_type
-    if category:
-        filters["category"] = category
-    if status_filter:
-        filters["status"] = status_filter
-    if is_active is not None:
-        filters["is_active"] = is_active
+    # repo.get_patterns e sincrono e usa page/page_size (nao filters=/skip=/limit=)
+    page_size = max(limit, 1)
+    page = (skip // page_size) + 1
 
-    patterns = await repo.get_patterns(filters=filters, skip=skip, limit=limit)
+    patterns, _total = repo.get_patterns(
+        pattern_type=pattern_type,
+        status=status_filter,
+        is_active=is_active,
+        page=page,
+        page_size=page_size,
+    )
+    if category:
+        patterns = [p for p in patterns if p.category == category]
 
     return [FraudPatternResponse.model_validate(p) for p in patterns]
 
@@ -774,7 +777,7 @@ async def get_pattern(
 ) -> FraudPatternResponse:
     """Obtem detalhes de um padrao."""
     repo = FraudRepository(db)
-    pattern = await repo.get_pattern_by_id(pattern_id)
+    pattern = repo.get_pattern(pattern_id)
 
     if not pattern:
         raise HTTPException(
@@ -799,25 +802,28 @@ async def create_pattern(
     """Cria novo padrao de fraude."""
     repo = FraudRepository(db)
 
-    pattern = await repo.create_pattern(
-        code=data.code,
-        name=data.name,
-        description=data.description,
-        pattern_type=data.pattern_type,
-        category=data.category,
-        subcategory=data.subcategory,
-        severity=data.severity,
-        risk_score=data.risk_score,
-        pattern_definition=data.pattern_definition,
-        features=data.features,
-        indicators=data.indicators,
-        detection_threshold=data.detection_threshold,
-        confidence_threshold=data.confidence_threshold,
-        prevention_tips=data.prevention_tips,
-        recommended_actions=data.recommended_actions,
-        is_active=data.is_active,
-        is_ml_based=data.is_ml_based,
-    )
+    # repo.create_pattern espera um dict (pattern_data), nao kwargs soltos.
+    pattern_data = {
+        "code": data.code,
+        "name": data.name,
+        "description": data.description,
+        "pattern_type": data.pattern_type,
+        "category": data.category,
+        "subcategory": data.subcategory,
+        "severity": data.severity,
+        "risk_score": data.risk_score,
+        "pattern_definition": data.pattern_definition,
+        "features": data.features,
+        "indicators": data.indicators,
+        "detection_threshold": data.detection_threshold,
+        "confidence_threshold": data.confidence_threshold,
+        "prevention_tips": data.prevention_tips,
+        "recommended_actions": data.recommended_actions,
+        "is_active": data.is_active,
+        "is_ml_based": data.is_ml_based,
+    }
+
+    pattern = repo.create_pattern(pattern_data)
 
     return FraudPatternResponse.model_validate(pattern)
 
@@ -835,7 +841,7 @@ async def update_pattern(
 ) -> FraudPatternResponse:
     """Atualiza um padrao."""
     repo = FraudRepository(db)
-    pattern = await repo.update_pattern(pattern_id, data.model_dump(exclude_unset=True))
+    pattern = repo.update_pattern(pattern_id, data.model_dump(exclude_unset=True))
 
     if not pattern:
         raise HTTPException(
@@ -857,12 +863,15 @@ async def match_pattern(
     db: Session = Depends(get_db),
 ) -> PatternMatchResponse:
     """Verifica se dados correspondem a um padrao."""
-    PatternAnalyzer(db)
+    # pattern.match(data: dict) e sincrono e recebe UM dict (nao data + indicators
+    # separados); os indicadores vao embutidos em data["indicators"]. Retorna
+    # tupla (matched, confidence, indicators_found), nao dict.
+    match_data = {**data.data, "indicators": data.indicators}
 
     if data.pattern_id:
         # Verificar padrao especifico
         repo = FraudRepository(db)
-        pattern = await repo.get_pattern_by_id(data.pattern_id)
+        pattern = repo.get_pattern(data.pattern_id)
 
         if not pattern:
             raise HTTPException(
@@ -870,29 +879,31 @@ async def match_pattern(
                 detail="Padrao nao encontrado",
             )
 
-        result = pattern.match(data.data, data.indicators)
+        matched, confidence, indicators_found = pattern.match(match_data)
 
         return PatternMatchResponse(
-            matched=result["matched"],
+            matched=matched,
             pattern_id=data.pattern_id,
             pattern_name=pattern.name,
-            confidence=result["confidence"],
-            indicators_found=result["matched_indicators"],
-            risk_score=pattern.risk_score * result["confidence"],
+            confidence=confidence,
+            indicators_found=indicators_found,
+            risk_score=pattern.risk_score * confidence,
         )
     else:
         # Verificar todos os padroes ativos
         repo = FraudRepository(db)
-        patterns = await repo.get_patterns(filters={"is_active": True, "status": PatternStatus.ACTIVE})
+        patterns, _total = repo.get_patterns(is_active=True, status=PatternStatus.ACTIVE)
 
         best_match = None
-        best_confidence = 0
+        best_confidence = 0.0
+        best_indicators: list[str] = []
 
         for pattern in patterns:
-            result = pattern.match(data.data, data.indicators)
-            if result["matched"] and result["confidence"] > best_confidence:
+            matched, confidence, indicators_found = pattern.match(match_data)
+            if matched and confidence > best_confidence:
                 best_match = pattern
-                best_confidence = result["confidence"]
+                best_confidence = confidence
+                best_indicators = indicators_found
 
         if best_match:
             return PatternMatchResponse(
@@ -900,7 +911,7 @@ async def match_pattern(
                 pattern_id=best_match.id,
                 pattern_name=best_match.name,
                 confidence=best_confidence,
-                indicators_found=result["matched_indicators"],
+                indicators_found=best_indicators,
                 risk_score=best_match.risk_score * best_confidence,
             )
 
@@ -935,17 +946,18 @@ async def list_profiles(
     """Lista perfis de risco."""
     repo = FraudRepository(db)
 
-    filters = {}
-    if entity_type:
-        filters["entity_type"] = entity_type
-    if risk_level:
-        filters["risk_level"] = risk_level
-    if is_blocked is not None:
-        filters["is_blocked"] = is_blocked
-    if is_watchlisted is not None:
-        filters["is_watchlisted"] = is_watchlisted
+    # repo.get_profiles e sincrono e usa page/page_size (nao filters=/skip=/limit=)
+    page_size = max(limit, 1)
+    page = (skip // page_size) + 1
 
-    profiles = await repo.get_profiles(filters=filters, skip=skip, limit=limit)
+    profiles, _total = repo.get_profiles(
+        entity_type=entity_type,
+        risk_level=risk_level,
+        is_blocked=is_blocked,
+        is_watchlisted=is_watchlisted,
+        page=page,
+        page_size=page_size,
+    )
 
     return [RiskProfileResponse.model_validate(p) for p in profiles]
 
@@ -963,7 +975,7 @@ async def get_profile(
 ) -> RiskProfileResponse:
     """Obtem perfil de risco de uma entidade."""
     repo = FraudRepository(db)
-    profile = await repo.get_profile(entity_type, entity_id)
+    profile = repo.get_profile_by_entity(entity_type, entity_id)
 
     if not profile:
         raise HTTPException(
@@ -988,28 +1000,31 @@ async def create_profile(
     """Cria novo perfil de risco."""
     repo = FraudRepository(db)
 
-    # Verificar se ja existe
-    existing = await repo.get_profile(data.entity_type, data.entity_id)
+    # Verificar se ja existe (get_profile_by_entity, nao get_profile — que busca por profile_id)
+    existing = repo.get_profile_by_entity(data.entity_type, data.entity_id)
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Perfil ja existe para esta entidade",
         )
 
-    profile = await repo.create_profile(
-        entity_type=data.entity_type,
-        entity_id=data.entity_id,
-        entity_identifier=data.entity_identifier,
-        entity_name=data.entity_name,
-        risk_level=data.risk_level,
-        risk_score=data.risk_score,
-        behavior_score=data.behavior_score,
-        transaction_score=data.transaction_score,
-        risk_factors=data.risk_factors,
-        trust_indicators=data.trust_indicators,
-        transaction_limit_daily=data.transaction_limit_daily,
-        transaction_limit_monthly=data.transaction_limit_monthly,
-    )
+    # repo.create_profile espera um dict (profile_data), nao kwargs soltos.
+    profile_data = {
+        "entity_type": data.entity_type,
+        "entity_id": data.entity_id,
+        "entity_identifier": data.entity_identifier,
+        "entity_name": data.entity_name,
+        "risk_level": data.risk_level,
+        "risk_score": data.risk_score,
+        "behavior_score": data.behavior_score,
+        "transaction_score": data.transaction_score,
+        "risk_factors": data.risk_factors,
+        "trust_indicators": data.trust_indicators,
+        "transaction_limit_daily": data.transaction_limit_daily,
+        "transaction_limit_monthly": data.transaction_limit_monthly,
+    }
+
+    profile = repo.create_profile(profile_data)
 
     return RiskProfileResponse.model_validate(profile)
 
@@ -1028,13 +1043,16 @@ async def update_profile(
 ) -> RiskProfileResponse:
     """Atualiza perfil de risco."""
     repo = FraudRepository(db)
-    profile = await repo.update_profile(entity_type, entity_id, data.model_dump(exclude_unset=True))
 
-    if not profile:
+    # repo.update_profile espera profile_id (nao entity_type/entity_id) + dict
+    existing = repo.get_profile_by_entity(entity_type, entity_id)
+    if not existing:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Perfil nao encontrado",
         )
+
+    profile = repo.update_profile(existing.id, data.model_dump(exclude_unset=True))
 
     return RiskProfileResponse.model_validate(profile)
 
@@ -1084,7 +1102,7 @@ async def block_entity(
 ) -> RiskProfileResponse:
     """Bloqueia uma entidade."""
     repo = FraudRepository(db)
-    profile = await repo.get_profile(entity_type, entity_id)
+    profile = repo.get_profile_by_entity(entity_type, entity_id)
 
     if not profile:
         raise HTTPException(
@@ -1092,7 +1110,8 @@ async def block_entity(
             detail="Perfil nao encontrado",
         )
 
-    profile.block(reason=reason)
+    # profile.block(user_id, reason) — user_id obrigatorio no model
+    profile.block(UUID(current_user.id), reason or "Bloqueio administrativo")
     db.commit()
 
     return RiskProfileResponse.model_validate(profile)
@@ -1111,7 +1130,7 @@ async def unblock_entity(
 ) -> RiskProfileResponse:
     """Desbloqueia uma entidade."""
     repo = FraudRepository(db)
-    profile = await repo.get_profile(entity_type, entity_id)
+    profile = repo.get_profile_by_entity(entity_type, entity_id)
 
     if not profile:
         raise HTTPException(
@@ -1119,9 +1138,7 @@ async def unblock_entity(
             detail="Perfil nao encontrado",
         )
 
-    profile.is_blocked = False
-    profile.blocked_at = None
-    profile.blocked_reason = None
+    profile.unblock()
     db.commit()
 
     return RiskProfileResponse.model_validate(profile)
@@ -1147,17 +1164,21 @@ async def get_dashboard_stats(
     repo = FraudRepository(db)
 
     # Estatisticas de alertas
+    # NOTA: manager.get_dashboard_stats()/get_pending_alerts()/get_overdue_alerts() ainda
+    # dependem de AlertStatus.PENDING (nao existe no enum) e de FraudAlert.sla_deadline/
+    # is_escalated (nao sao colunas do model) — bug pre-existente fora do escopo dos 13
+    # mismatches desta tarefa (nao tocado; ver relatorio).
     alert_stats = await manager.get_dashboard_stats()
 
     # Distribuicao de risco
     risk_summary = await scorer.get_risk_summary()
 
-    # Regras e padroes ativos
-    rules = await repo.get_rules(filters={"is_active": True})
-    patterns = await repo.get_patterns(filters={"is_active": True, "status": PatternStatus.ACTIVE})
+    # Regras e padroes ativos (repo.get_rules/get_patterns sao sincronos e retornam tupla)
+    rules, _total_rules = repo.get_rules(is_active=True)
+    patterns, _total_patterns = repo.get_patterns(is_active=True, status=PatternStatus.ACTIVE)
 
-    # Top regras acionadas
-    top_rules = await repo.get_top_triggered_rules(limit=5)
+    # Top regras acionadas (sincrono)
+    top_rules = repo.get_top_triggered_rules(limit=5)
 
     return FraudDashboardStats(
         alerts_summary=alert_stats["alerts_summary"],

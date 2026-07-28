@@ -83,8 +83,13 @@ class AlertManager:
                 logger.info(f"Alerta similar ja existe: {existing.alert_number}")
                 return existing
 
-            # Criar alerta
+            # Criar alerta (alert_number e NOT NULL e nao tem default no DB — gerar aqui,
+            # mesmo padrao usado em FraudRepository.create_alert)
+            alert_count = self.db.query(FraudAlert).count()
+            alert_number = f"FRD-{datetime.utcnow().strftime('%Y%m')}-{alert_count + 1:05d}"
+
             alert = FraudAlert(
+                alert_number=alert_number,
                 category=category,
                 severity=severity,
                 title=title,
@@ -152,16 +157,16 @@ class AlertManager:
 
         alert.assign(assigned_to)
 
-        # Registrar acao
-        alert.actions_log = alert.actions_log or []
-        alert.actions_log.append(
+        # Registrar acao (FraudAlert nao tem coluna actions_log; investigation_findings
+        # e o JSONB real do model para trilha de investigacao).
+        alert.investigation_findings = (alert.investigation_findings or []) + [
             {
                 "action": "assigned",
                 "assigned_to": str(assigned_to),
                 "assigned_by": str(assigned_by) if assigned_by else None,
                 "timestamp": datetime.utcnow().isoformat(),
             }
-        )
+        ]
 
         self.db.commit()
         logger.info(f"Alerta {alert.alert_number} atribuido a {assigned_to}")
@@ -183,14 +188,15 @@ class AlertManager:
         if not alert:
             raise ValueError(f"Alerta nao encontrado: {alert_id}")
 
+        # FraudAlert.resolve(user_id, resolution_type, notes=, actions=) — o model
+        # espera user_id (nao resolved_by=); actions_taken vai para o JSONB real
+        # resolution_actions via o parametro actions= (nao um actions_log inexistente).
         alert.resolve(
-            resolved_by=resolved_by,
+            user_id=resolved_by,
             resolution_type=resolution_type,
             notes=resolution_notes,
+            actions=actions_taken,
         )
-
-        if actions_taken:
-            alert.actions_log = (alert.actions_log or []) + actions_taken
 
         if actual_loss is not None:
             alert.actual_loss = actual_loss
@@ -214,9 +220,8 @@ class AlertManager:
         if not alert:
             raise ValueError(f"Alerta nao encontrado: {alert_id}")
 
-        alert.confirm(notes=notes)
-        alert.confirmed_by = confirmed_by
-        alert.confirmed_at = datetime.utcnow()
+        # FraudAlert.confirm(user_id, notes=) — user_id obrigatorio.
+        alert.confirm(user_id=confirmed_by, notes=notes)
 
         if actual_loss is not None:
             alert.actual_loss = actual_loss
@@ -246,7 +251,8 @@ class AlertManager:
         if not alert:
             raise ValueError(f"Alerta nao encontrado: {alert_id}")
 
-        alert.mark_false_positive(notes=notes)
+        # FraudAlert.mark_false_positive(user_id, notes=) — user_id obrigatorio.
+        alert.mark_false_positive(user_id=_marked_by, notes=notes)
 
         self.db.commit()
         logger.info(f"Alerta {alert.alert_number} marcado como falso positivo")
@@ -271,11 +277,10 @@ class AlertManager:
         if not alert:
             raise ValueError(f"Alerta nao encontrado: {alert_id}")
 
-        alert.escalate(escalate_to)
+        alert.escalate(escalate_to, reason=reason)
 
-        # Registrar escalonamento
-        alert.actions_log = alert.actions_log or []
-        alert.actions_log.append(
+        # Registrar escalonamento (investigation_findings e o JSONB real do model)
+        alert.investigation_findings = (alert.investigation_findings or []) + [
             {
                 "action": "escalated",
                 "escalate_to": str(escalate_to),
@@ -283,7 +288,7 @@ class AlertManager:
                 "escalated_by": str(escalated_by) if escalated_by else None,
                 "timestamp": datetime.utcnow().isoformat(),
             }
-        )
+        ]
 
         # Aumentar severidade se necessario
         if alert.severity in [AlertSeverity.LOW, AlertSeverity.MEDIUM]:
@@ -309,13 +314,14 @@ class AlertManager:
         if not alert:
             raise ValueError(f"Alerta nao encontrado: {alert_id}")
 
-        alert.feedback_status = "correct" if is_correct else "incorrect"
+        # feedback_correct e a coluna real (Boolean); nao existe feedback_status.
+        alert.feedback_correct = is_correct
         alert.feedback_notes = notes
+        alert.feedback_by = feedback_by
         alert.feedback_at = datetime.utcnow()
 
-        # Registrar no log
-        alert.actions_log = alert.actions_log or []
-        alert.actions_log.append(
+        # Registrar no log (investigation_findings e o JSONB real do model)
+        alert.investigation_findings = (alert.investigation_findings or []) + [
             {
                 "action": "feedback",
                 "is_correct": is_correct,
@@ -323,7 +329,7 @@ class AlertManager:
                 "by": str(feedback_by),
                 "timestamp": datetime.utcnow().isoformat(),
             }
-        )
+        ]
 
         self.db.commit()
         logger.info(f"Feedback adicionado ao alerta {alert.alert_number}: {'correto' if is_correct else 'incorreto'}")
@@ -576,9 +582,11 @@ class AlertManager:
             FraudAlert.entity_id == entity_id,
             FraudAlert.category == category,
             FraudAlert.created_at >= cutoff,
+            # AlertStatus.PENDING nao existe no enum real; NEW e o status inicial
+            # equivalente ("pendente de investigacao").
             FraudAlert.status.in_(
                 [
-                    AlertStatus.PENDING,
+                    AlertStatus.NEW,
                     AlertStatus.INVESTIGATING,
                 ]
             ),
@@ -670,11 +678,9 @@ class AlertManager:
 
         if profile:
             profile.confirmed_frauds = (profile.confirmed_frauds or 0) + 1
-            profile.add_risk_factor(
-                "previous_fraud",
-                f"Fraude confirmada em alerta {alert_id}",
-                weight=40,
-            )
+            # RiskProfile.add_risk_factor(factor, weight=, score=) — a assinatura real
+            # nao aceita uma descricao textual como 2o posicional.
+            profile.add_risk_factor("previous_fraud", score=40)
             self.db.commit()
 
     async def _update_rule_stats(self, rule_id: UUID) -> None:
@@ -688,7 +694,8 @@ class AlertManager:
         """Atualiza estatisticas do padrao."""
         pattern = self.db.query(FraudPattern).filter(FraudPattern.id == pattern_id).first()
         if pattern:
-            pattern.record_detection(is_confirmed=False)
+            # FraudPattern.record_detection(confirmed=, ...) — nao is_confirmed=.
+            pattern.record_detection(confirmed=False)
             self.db.commit()
 
     async def _record_rule_true_positive(self, rule_id: UUID) -> None:
@@ -709,7 +716,8 @@ class AlertManager:
         """Registra caso confirmado no padrao."""
         pattern = self.db.query(FraudPattern).filter(FraudPattern.id == pattern_id).first()
         if pattern:
-            pattern.record_detection(is_confirmed=True)
+            # FraudPattern.record_detection(confirmed=, ...) — nao is_confirmed=.
+            pattern.record_detection(confirmed=True)
             self.db.commit()
 
     async def _record_pattern_false_positive(self, pattern_id: UUID) -> None:
