@@ -39,7 +39,7 @@ GRUPOS = [
         ("dre-analise-vertical", "DRE — análise vertical"),
         ("apuracao-resultado", "Apuração IRPJ/CSLL"), ("provisoes-trabalhistas", "Provisões (férias/13º)"),
         ("postar-provisoes", "Postar provisões"),
-        ("das-eletronica", "Tributos Eletrônica (LR)"), ("das-patrimonial", "DAS Patrimonial (Simples)"),
+        ("pareamento-portte", "Pareamento Portte"), ("das-eletronica", "Tributos Eletrônica (LR)"), ("das-patrimonial", "DAS Patrimonial (Simples)"),
         ("contabilidade", "Extrato categorizado"), ("cancelar-boleto", "Cancelar boleto")]),
     ("g-custos", "Custos & Orçamento", "Custos, custeio, precificação e orçamento", [
         ("custos", "Custos"), ("custeio-abc", "Custeio ABC"),

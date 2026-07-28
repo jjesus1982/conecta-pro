@@ -487,3 +487,45 @@ async def build_contabil(db, out: dict) -> None:
                    "okMsg": "Provisões postadas."},
         "fields": [],
     }
+
+    # ── C-PAR (Fase 5): Pareamento nosso × Portte — medidor de maturidade p/ andar sem a Portte.
+    # 1ª rubrica: folha = razão (nosso) × hr_payslips (Portte) por competência. Roda em paralelo ~6m. ─
+    try:
+        from sqlalchemy import text as _text
+        _rz = {r[0]: float(r[1] or 0) for r in (await db.execute(_text(
+            "SELECT periodo_competencia, coalesce(sum(valor),0) FROM accounting_entries "
+            "WHERE conta_debito LIKE '4.1.1%' AND tipo_lancamento='folha' GROUP BY 1"))).fetchall()}
+        _pt = {r[0]: float(r[1] or 0) for r in (await db.execute(_text(
+            "SELECT reference_period, coalesce(sum(total_earnings),0) FROM hr_payslips GROUP BY 1"))).fetchall()}
+        _comps = sorted(set(_rz) | set(_pt))
+        _rows, _batem = [], 0
+        for c in _comps:
+            n, p = _rz.get(c, 0.0), _pt.get(c, 0.0)
+            d = n - p
+            ok = abs(d) < 0.5
+            _batem += 1 if ok else 0
+            _rows.append({"cells": [t(c, 600, "#0F1B3A"), t(brl(n)), t(brl(p)),
+                          t(brl(d), 600, "#16A34A" if ok else "#C2410C"),
+                          b("bate ✓" if ok else "diverge", "ok" if ok else "bad")]})
+        _seq = 0
+        for c in reversed(_comps):
+            if abs(_rz.get(c, 0) - _pt.get(c, 0)) < 0.5:
+                _seq += 1
+            else:
+                break
+        out["pareamento-portte"] = {
+            "title": "Pareamento Portte (nosso × contador)", "type": "table", "cta": "—",
+            "sub": (f"Medidor de maturidade p/ andar sem a Portte (~6 meses de paralelo). Folha: razão (nosso) × "
+                    f"hr_payslips (Portte) por competência. {_batem}/{len(_comps)} batem · {_seq} mês(es) seguidos batendo. "
+                    "Próximas rubricas: DAS, tributos federais, ISS, FGTS/INSS."),
+            "grid": "1fr 1.3fr 1.3fr 1.2fr 1fr",
+            "cols": ["Competência", "Nosso (razão)", "Portte", "Δ", "Status"],
+            "rows": _rows or [{"cells": [t("Aguardando dado"), t("—"), t("—"), t("—"), t("—")]}],
+            "panelGrid": "1fr",
+            "panels": [{"title": "Como o pareamento vira maturidade", "rows": [
+                {"left": "Verde = bate centavo a centavo (maduro nessa rubrica)", "right": "✓", **S["ok"]},
+                {"left": "Corte da Portte", "right": "só após N meses seguidos batendo TUDO", **S["warn"]},
+                {"left": "Roadmap", "right": "folha ✓ → DAS/tributos → guias → SPED", **S["info"]}]}],
+        }
+    except Exception:  # noqa: BLE001
+        pass
