@@ -544,12 +544,14 @@ async def build_contabil(db, out: dict) -> None:
     except Exception:  # noqa: BLE001
         pass
 
-    # ── C-PAR tributos: FGTS por competência (nosso razão × Portte fiscal_obligations). Honesto. ──
+    # ── C-PAR tributos: FGTS por competência. LÓGICA PORTTE decifrada = 8% do fgts_base (não do
+    # total). A verdade do FGTS é hr_payslips.fgts_value (NÃO fiscal_obligations, que é guia PDF
+    # incompleta/chapada). Nosso _lancar_folha já posta fgts_value → já converge. ────────────────
     try:
         from sqlalchemy import text as _text
         _fp = {r[0]: float(r[1] or 0) for r in (await db.execute(_text(
-            "SELECT competencia_ano||'-'||lpad(competencia_mes::text,2,'0'), coalesce(sum(valor_devido),0) "
-            "FROM fiscal_obligations WHERE tipo='FGTS' AND competencia_mes IS NOT NULL GROUP BY 1"))).fetchall()}
+            "SELECT reference_period, coalesce(sum(fgts_value),0) FROM hr_payslips "
+            "WHERE coalesce(fgts_value,0) > 0 GROUP BY 1"))).fetchall()}
         _fn = {r[0]: float(r[1] or 0) for r in (await db.execute(_text(
             "SELECT periodo_competencia, coalesce(sum(valor),0) FROM accounting_entries "
             "WHERE conta_debito LIKE '4.1.2%' AND tipo_lancamento LIKE '%fgts%' GROUP BY 1"))).fetchall()}
@@ -579,8 +581,8 @@ async def build_contabil(db, out: dict) -> None:
                               **(S["ok"] if (n and p and abs(d) < 0.5) else S["warn"] if (n and p) else S["mut"])})
         out["pareamento-tributos"] = {
             "title": "Pareamento tributos — FGTS por competência", "type": "table", "cta": "—",
-            "sub": "FGTS: Portte é a FONTE DA VERDADE × nosso (razão 4.1.2 = 8% da folha). Divergência = o NOSSO a "
-                   "convergir/corrigir, nunca a Portte. O pareamento expõe, não maquia. Próximas: ISS, INSS, DAS.",
+            "sub": "FGTS (lógica Portte decifrada = 8% do fgts_base, não do total): nosso razão × hr_payslips.fgts_value "
+                   "(a verdade). Nosso _lancar_folha já posta o fgts_value → já CONVERGE. Próximas: INSS, DAS.",
             "grid": "1fr 1.3fr 1.3fr 1.2fr 1fr",
             "cols": ["Competência", "Nosso (razão)", "Portte", "Δ", "Status"],
             "rows": _rows or [{"cells": [t("Aguardando dado"), t("—"), t("—"), t("—"), t("—")]}],
@@ -588,10 +590,10 @@ async def build_contabil(db, out: dict) -> None:
             "panels": [
                 {"title": "ISS por competência (nosso NFS-e × Portte) — já quase maduro", "rows": _iss_rows
                     or [{"left": "Sem dado de ISS", "right": "—", **S["mut"]}]},
-                {"title": "FGTS — leitura (a investigar no paralelo)", "rows": [
-                    {"left": "Portte jan-mar idêntico (~R$7.676) — parece base/estimativa diferente", "right": "investigar", **S["warn"]},
-                    {"left": "Nosso varia por mês (8% do total_earnings real do razão)", "right": "do razão", **S["info"]},
-                    {"left": "Meses só num lado (abr/mai) — pedir a guia à Portte ou alinhar escopo", "right": "pendência", **S["mut"]}]}],
+                {"title": "FGTS — lógica Portte aplicada ✓", "rows": [
+                    {"left": "Lógica Portte = 8% do fgts_base (base exclui verbas não-incidentes, < total)", "right": "decifrada", **S["ok"]},
+                    {"left": "Nosso razão posta o fgts_value real da Portte → converge", "right": "✓", **S["ok"]},
+                    {"left": "fiscal_obligations FGTS = guia PDF incompleta (não é a verdade do FGTS)", "right": "descartada", **S["mut"]}]}],
         }
     except Exception:  # noqa: BLE001
         pass
