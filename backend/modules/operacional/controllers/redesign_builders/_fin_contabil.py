@@ -579,8 +579,15 @@ async def build_contabil(db, out: dict) -> None:
                    else "só Portte" if n == 0 else f"Δ {brl(d)}")
             _iss_rows.append({"left": f"{c} · nosso {brl(n)} × Portte {brl(p)}", "right": _st,
                               **(S["ok"] if (n and p and abs(d) < 0.5) else S["warn"] if (n and p) else S["mut"])})
+        # INSS empregado: verdade = hr_payslips.inss_value (progressiva sobre inss_base ≈ 7,3%).
+        # Nosso nativo aplica a mesma lógica (clt_calculator.calcular_inss); razão ainda não posta INSS.
+        _inss_pt = {r[0]: float(r[1] or 0) for r in (await db.execute(_text(
+            "SELECT reference_period, coalesce(sum(inss_value),0) FROM hr_payslips "
+            "WHERE coalesce(inss_value,0) > 0 GROUP BY 1"))).fetchall()}
+        _inss_rows = [{"left": f"{c} · Portte INSS-empregado {brl(v)}", "right": "nativo aplica a lógica · razão a postar", **S["info"]}
+                      for c, v in sorted(_inss_pt.items())] or [{"left": "Sem INSS", "right": "—", **S["mut"]}]
         out["pareamento-tributos"] = {
-            "title": "Pareamento tributos — FGTS por competência", "type": "table", "cta": "—",
+            "title": "Pareamento tributos — FGTS / ISS / INSS", "type": "table", "cta": "—",
             "sub": "FGTS (lógica Portte decifrada = 8% do fgts_base, não do total): nosso razão × hr_payslips.fgts_value "
                    "(a verdade). Nosso _lancar_folha já posta o fgts_value → já CONVERGE. Próximas: INSS, DAS.",
             "grid": "1fr 1.3fr 1.3fr 1.2fr 1fr",
@@ -590,6 +597,7 @@ async def build_contabil(db, out: dict) -> None:
             "panels": [
                 {"title": "ISS por competência (nosso NFS-e × Portte) — já quase maduro", "rows": _iss_rows
                     or [{"left": "Sem dado de ISS", "right": "—", **S["mut"]}]},
+                {"title": "INSS-empregado (verdade = hr_payslips; nativo aplica a lógica progressiva)", "rows": _inss_rows},
                 {"title": "FGTS — lógica Portte aplicada ✓", "rows": [
                     {"left": "Lógica Portte = 8% do fgts_base (base exclui verbas não-incidentes, < total)", "right": "decifrada", **S["ok"]},
                     {"left": "Nosso razão posta o fgts_value real da Portte → converge", "right": "✓", **S["ok"]},
