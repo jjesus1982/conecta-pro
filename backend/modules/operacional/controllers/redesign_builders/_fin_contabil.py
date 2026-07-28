@@ -524,7 +524,8 @@ async def build_contabil(db, out: dict) -> None:
             "panelGrid": "1fr 1fr",
             "panels": [
                 {"title": "Como o pareamento vira maturidade", "rows": [
-                    {"left": "Verde = bate centavo a centavo (maduro nessa rubrica)", "right": "✓", **S["ok"]},
+                    {"left": "A PORTTE é a fonte da verdade — o nosso é medido contra ela", "right": "regra", **S["warn"]},
+                    {"left": "Verde = nosso CONVERGIU à Portte (maduro nessa rubrica)", "right": "✓", **S["ok"]},
                     {"left": "Corte da Portte", "right": "só após N meses seguidos batendo TUDO", **S["warn"]},
                     {"left": "Roadmap", "right": "folha ✓ → tributos → guias → SPED", **S["info"]}]},
                 {"title": "Próxima rubrica: tributos (alvos Portte a parear)", "rows": [
@@ -563,8 +564,8 @@ async def build_contabil(db, out: dict) -> None:
                           t(brl(d), 600, "#16A34A" if (n and p and abs(d) < 0.5) else "#C2410C"), st]})
         out["pareamento-tributos"] = {
             "title": "Pareamento tributos — FGTS por competência", "type": "table", "cta": "—",
-            "sub": "FGTS: nosso (razão 4.1.2 = 8% da folha real) × Portte (fiscal_obligations). Divergências REAIS a "
-                   "investigar — o pareamento expõe, não maquia. Próximas: ISS, INSS, DAS.",
+            "sub": "FGTS: Portte é a FONTE DA VERDADE × nosso (razão 4.1.2 = 8% da folha). Divergência = o NOSSO a "
+                   "convergir/corrigir, nunca a Portte. O pareamento expõe, não maquia. Próximas: ISS, INSS, DAS.",
             "grid": "1fr 1.3fr 1.3fr 1.2fr 1fr",
             "cols": ["Competência", "Nosso (razão)", "Portte", "Δ", "Status"],
             "rows": _rows or [{"cells": [t("Aguardando dado"), t("—"), t("—"), t("—"), t("—")]}],
