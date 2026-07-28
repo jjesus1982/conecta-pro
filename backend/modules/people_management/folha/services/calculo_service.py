@@ -4,6 +4,7 @@ Calculo hibrido: sistema calcula, DP confere e ajusta.
 Integra com rubricas_folha, cct_cargos e employees.
 """
 
+import calendar
 import logging
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
