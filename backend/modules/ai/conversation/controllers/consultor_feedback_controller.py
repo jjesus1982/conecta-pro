@@ -4,8 +4,16 @@ POST /ai/consultor/feedback  {origem, consulta_id, util, correcao?}  → grava �
 correção do gestor vira memória permanente.
 GET  /ai/consultor/placar    → o placar (taxa 👍, feedback, memórias, correções) = prova
 de que aprendem. Restrito à diretoria (dado gerencial).
+
+Fase 5.5 Task 6 — fila de revisão de memória (propor→aprovar aplicado a memória):
+GET  /ai/consultor/memorias/pendentes         → lista status='pendente_revisao'.
+POST /ai/consultor/memorias/{id}/aprovar      → status='ativo' (entra no contexto
+                                                 compartilhado) + audit.
+POST /ai/consultor/memorias/{id}/rejeitar     → status='rejeitado' (some de vez) + audit.
+Todas gated à diretoria (require_consultor_executivo — mesma allowlist do Consultor
+Executivo, jjesus+pjesus).
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,3 +56,44 @@ async def placar(
     db: AsyncSession = Depends(get_db),
 ):
     return await consultor_hub.placar_aprendizado(db)
+
+
+@router.get(
+    "/memorias/pendentes",
+    summary="Fila de memórias aguardando revisão (propor→aprovar) — diretoria",
+)
+async def memorias_pendentes(
+    user=Depends(require_consultor_executivo),
+    db: AsyncSession = Depends(get_db),
+):
+    return await consultor_hub.listar_memorias_pendentes(db)
+
+
+@router.post(
+    "/memorias/{memoria_id}/aprovar",
+    summary="Aprova memória pendente → entra no contexto compartilhado — diretoria",
+)
+async def aprovar_memoria_pendente(
+    memoria_id: int,
+    user=Depends(require_consultor_executivo),
+    db: AsyncSession = Depends(get_db),
+):
+    r = await consultor_hub.aprovar_memoria(db, memoria_id, autor=getattr(user, "email", None))
+    if not r.get("ok"):
+        raise HTTPException(status_code=404, detail=r.get("erro", "erro"))
+    return r
+
+
+@router.post(
+    "/memorias/{memoria_id}/rejeitar",
+    summary="Rejeita memória pendente (some de vez) — diretoria",
+)
+async def rejeitar_memoria_pendente(
+    memoria_id: int,
+    user=Depends(require_consultor_executivo),
+    db: AsyncSession = Depends(get_db),
+):
+    r = await consultor_hub.rejeitar_memoria(db, memoria_id, autor=getattr(user, "email", None))
+    if not r.get("ok"):
+        raise HTTPException(status_code=404, detail=r.get("erro", "erro"))
+    return r

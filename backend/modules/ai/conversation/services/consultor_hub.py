@@ -305,6 +305,43 @@ async def conversa_recente(db: AsyncSession, origem: str, *, limit: int = 6) -> 
     return "\n".join(linhas)
 
 
+async def _avisar_pendente_revisao(
+    db: AsyncSession, *, memoria_id: int, origem: str, conteudo: str,
+) -> None:
+    """Fase 5.5 Task 6 — quando uma memória fica 'pendente_revisao' (o Curator não
+    ancorou sozinho), avisa a DIRETORIA no sino que há algo aguardando revisão.
+    Reusa o entregador RBAC da Fase 5.3 (roles=admin — mesma matriz do financeiro).
+
+    Chamado DEPOIS do commit que gravou a memória (aprender()/registrar_feedback()) —
+    isolado em try/except próprio com rollback só da notificação, nunca da memória
+    já durável. Best-effort: falha aqui não derruba aprender()/feedback().
+    Dedup: idempotency_key/correlation_id = memoria:{id} → 1 aviso por memória.
+    """
+    try:
+        from modules.notifications.proativo import entrega
+
+        admins = await entrega.resolver_usuarios_por_roles(db, ("admin",))
+        if not admins:
+            return
+        await entrega.enviar_individual(
+            db, user_ids=admins,
+            title="Memória aguardando sua revisão",
+            body=f"[{origem}] {conteudo[:300]}",
+            familia="memoria", severidade="info",
+            correlation_id=f"memoria:{memoria_id}",
+            action_url="/redesign/consultor-ia/memorias-pendentes",
+            # reference_id é uuid no banco; consultor_memorias.id é bigserial (int) —
+            # não cabe lá. correlation_id/idempotency_key (memoria:{id}) já bastam
+            # p/ dedup e rastreio até a memória específica.
+            reference_type="consultor_memoria",
+            idempotency_key=f"memoria_pendente:{memoria_id}",
+        )
+        await db.commit()
+    except Exception as e:  # noqa: BLE001
+        await db.rollback()
+        logger.warning("avisar_pendente_revisao(memoria=%s): %s", memoria_id, e)
+
+
 async def aprender(
     db: AsyncSession, origem: str, pergunta: str, resposta: str,
     panorama: dict | None = None,
@@ -350,6 +387,7 @@ async def aprender(
         fonte_conversa = panorama if isinstance(panorama, dict) and panorama else {
             "pergunta": pergunta, "resposta": resposta,
         }
+        pendentes: list[tuple[int, str]] = []  # (memoria_id, conteudo) → aviso pós-commit
         for linha in [x.strip("-• ").strip() for x in texto.splitlines() if x.strip()][:2]:
             if len(linha) < 12 or linha.upper().startswith("NENHUM"):
                 continue
@@ -369,19 +407,24 @@ async def aprender(
                 db, fato=linha, origem=origem, fonte="llm_destilado",
                 autor_role="", fonte_conversa=fonte_conversa,
             )
-            await db.execute(
-                text(
-                    "INSERT INTO consultor_memorias "
-                    "(origem, conteudo, fonte, status, confidence, autor, curator_veredito, expira_em) "
-                    "VALUES (:o, :c, :f, :st, :cf, :au, CAST(:cv AS jsonb), now() + interval '90 days')"
-                ),
-                {
-                    "o": origem, "c": linha, "f": f"P: {pergunta[:180]}",
-                    "st": veredito["status"], "cf": veredito["confidence"],
-                    "au": "llm:gpt-4o-mini",
-                    "cv": json.dumps(veredito["veredito"], ensure_ascii=False, default=str),
-                },
-            )
+            novo_id = (
+                await db.execute(
+                    text(
+                        "INSERT INTO consultor_memorias "
+                        "(origem, conteudo, fonte, status, confidence, autor, curator_veredito, expira_em) "
+                        "VALUES (:o, :c, :f, :st, :cf, :au, CAST(:cv AS jsonb), now() + interval '90 days') "
+                        "RETURNING id"
+                    ),
+                    {
+                        "o": origem, "c": linha, "f": f"P: {pergunta[:180]}",
+                        "st": veredito["status"], "cf": veredito["confidence"],
+                        "au": "llm:gpt-4o-mini",
+                        "cv": json.dumps(veredito["veredito"], ensure_ascii=False, default=str),
+                    },
+                )
+            ).scalar()
+            if veredito["status"] == "pendente_revisao" and novo_id:
+                pendentes.append((novo_id, linha))
             # auditoria best-effort (nunca derruba o aprendizado, mesmo se audit_logs falhar)
             try:
                 await agent_audit.registrar_acao_agente(
@@ -393,6 +436,10 @@ async def aprender(
             except Exception as e_audit:  # noqa: BLE001
                 logger.warning("agent_audit (aprender/%s): %s", origem, e_audit)
         await db.commit()
+        # Fase 5.5 Task 6 — avisa a diretoria no sino (SÓ depois da memória durável;
+        # falha aqui não desfaz o que já foi commitado acima).
+        for memoria_id, conteudo in pendentes:
+            await _avisar_pendente_revisao(db, memoria_id=memoria_id, origem=origem, conteudo=conteudo)
         logger.info("Consultor %s aprendeu memória(s) nova(s)", origem)
     except Exception as e:  # noqa: BLE001
         logger.warning("aprender(%s): %s", origem, e)
@@ -450,19 +497,22 @@ async def registrar_feedback(
                 db, fato=fato, origem=origem, fonte="feedback_gestor",
                 autor_role=user_role, fonte_conversa=fonte_conversa,
             )
-            await db.execute(
-                text(
-                    "INSERT INTO consultor_memorias "
-                    "(origem, conteudo, fonte, status, confidence, autor, curator_veredito, expira_em) "
-                    "VALUES (:o, :c, 'feedback_gestor', :st, :cf, :au, CAST(:cv AS jsonb), NULL)"
-                ),
-                {
-                    "o": origem, "c": fato,
-                    "st": veredito["status"], "cf": veredito["confidence"],
-                    "au": f"feedback:{autor or 'diretoria'}",
-                    "cv": json.dumps(veredito["veredito"], ensure_ascii=False, default=str),
-                },
-            )
+            novo_id = (
+                await db.execute(
+                    text(
+                        "INSERT INTO consultor_memorias "
+                        "(origem, conteudo, fonte, status, confidence, autor, curator_veredito, expira_em) "
+                        "VALUES (:o, :c, 'feedback_gestor', :st, :cf, :au, CAST(:cv AS jsonb), NULL) "
+                        "RETURNING id"
+                    ),
+                    {
+                        "o": origem, "c": fato,
+                        "st": veredito["status"], "cf": veredito["confidence"],
+                        "au": f"feedback:{autor or 'diretoria'}",
+                        "cv": json.dumps(veredito["veredito"], ensure_ascii=False, default=str),
+                    },
+                )
+            ).scalar()
             virou_memoria = True
             try:
                 await agent_audit.registrar_acao_agente(
@@ -474,6 +524,9 @@ async def registrar_feedback(
             except Exception as e_audit:  # noqa: BLE001
                 logger.warning("agent_audit (feedback/%s): %s", origem, e_audit)
         await db.commit()
+        # Fase 5.5 Task 6 — avisa a diretoria no sino (SÓ depois da memória durável).
+        if virou_memoria and veredito["status"] == "pendente_revisao" and novo_id:
+            await _avisar_pendente_revisao(db, memoria_id=novo_id, origem=origem, conteudo=fato)
         return {"ok": True, "virou_memoria": virou_memoria}
     except Exception as e:  # noqa: BLE001
         await db.rollback()
@@ -516,6 +569,78 @@ async def placar_aprendizado(db: AsyncSession) -> dict:
         "correcoes_do_gestor": corr,
         "por_consultor": por_origem,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FASE 5.5 TASK 6 — FILA DE REVISÃO DE MEMÓRIA (propor→aprovar aplicado a memória)
+# ─────────────────────────────────────────────────────────────────────────────
+async def listar_memorias_pendentes(db: AsyncSession) -> list[dict]:
+    """Fila de revisão: memórias 'pendente_revisao' (o Curator não ancorou sozinho)
+    aguardando a diretoria aprovar/rejeitar. Invisíveis em contexto_compartilhado
+    (que filtra status='ativo') até serem aprovadas."""
+    await _ensure_schema(db)
+    rows = (
+        await db.execute(
+            text(
+                "SELECT id, origem, conteudo, confidence, curator_veredito, created_at "
+                "FROM consultor_memorias WHERE status = 'pendente_revisao' "
+                "ORDER BY created_at DESC"
+            )
+        )
+    ).fetchall()
+    return [
+        {
+            "id": r.id, "origem": r.origem, "conteudo": r.conteudo,
+            "confidence": r.confidence, "curator_veredito": r.curator_veredito,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in rows
+    ]
+
+
+async def _revisar_memoria(
+    db: AsyncSession, memoria_id: int, novo_status: str, *, autor: str | None,
+) -> dict:
+    """UPDATE de status ('ativo' aprova → entra no contexto_compartilhado;
+    'rejeitado' some de vez) + auditoria append-only (audit_logs via agent_audit,
+    mesmo pacote da Fase 5.2a.3). Só transiciona memória que ainda está
+    'pendente_revisao' (evita re-aprovar/duplicar aviso)."""
+    await _ensure_schema(db)
+    row = (
+        await db.execute(
+            text("SELECT origem, conteudo, status FROM consultor_memorias WHERE id = :id"),
+            {"id": memoria_id},
+        )
+    ).first()
+    if not row:
+        return {"ok": False, "erro": "memória não encontrada"}
+    if row.status != "pendente_revisao":
+        return {"ok": False, "erro": f"memória já está em status '{row.status}'"}
+    await db.execute(
+        text("UPDATE consultor_memorias SET status = :st WHERE id = :id"),
+        {"st": novo_status, "id": memoria_id},
+    )
+    await db.commit()
+    try:
+        from modules.ai.conversation.services.garantia import agent_audit
+
+        await agent_audit.registrar_acao_agente(
+            db, origem=row.origem, pergunta=f"revisão memória #{memoria_id} por {autor or 'diretoria'}",
+            resposta=f"[{novo_status}] {row.conteudo}",
+            modelo="humano", tier="diretoria", provider="human",
+            groundedness_ok=(novo_status == "ativo"),
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("agent_audit (revisar_memoria/%s): %s", memoria_id, e)
+    return {"ok": True, "id": memoria_id, "status": novo_status}
+
+
+async def aprovar_memoria(db: AsyncSession, memoria_id: int, *, autor: str | None = None) -> dict:
+    return await _revisar_memoria(db, memoria_id, "ativo", autor=autor)
+
+
+async def rejeitar_memoria(db: AsyncSession, memoria_id: int, *, autor: str | None = None) -> dict:
+    return await _revisar_memoria(db, memoria_id, "rejeitado", autor=autor)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
