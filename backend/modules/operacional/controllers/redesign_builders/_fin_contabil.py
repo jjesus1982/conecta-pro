@@ -542,3 +542,37 @@ async def build_contabil(db, out: dict) -> None:
         }
     except Exception:  # noqa: BLE001
         pass
+
+    # ── C-PAR tributos: FGTS por competência (nosso razão × Portte fiscal_obligations). Honesto. ──
+    try:
+        from sqlalchemy import text as _text
+        _fp = {r[0]: float(r[1] or 0) for r in (await db.execute(_text(
+            "SELECT competencia_ano||'-'||lpad(competencia_mes::text,2,'0'), coalesce(sum(valor_devido),0) "
+            "FROM fiscal_obligations WHERE tipo='FGTS' AND competencia_mes IS NOT NULL GROUP BY 1"))).fetchall()}
+        _fn = {r[0]: float(r[1] or 0) for r in (await db.execute(_text(
+            "SELECT periodo_competencia, coalesce(sum(valor),0) FROM accounting_entries "
+            "WHERE conta_debito LIKE '4.1.2%' AND tipo_lancamento LIKE '%fgts%' GROUP BY 1"))).fetchall()}
+        _cs = sorted(set(_fp) | set(_fn))
+        _rows = []
+        for c in _cs:
+            n, p = _fn.get(c, 0.0), _fp.get(c, 0.0)
+            d = n - p
+            st = (b("só nosso", "warn") if p == 0 else b("só Portte", "warn") if n == 0
+                  else b("bate ✓", "ok") if abs(d) < 0.5 else b("diverge", "bad"))
+            _rows.append({"cells": [t(c, 600, "#0F1B3A"), t(brl(n)), t(brl(p)),
+                          t(brl(d), 600, "#16A34A" if (n and p and abs(d) < 0.5) else "#C2410C"), st]})
+        out["pareamento-tributos"] = {
+            "title": "Pareamento tributos — FGTS por competência", "type": "table", "cta": "—",
+            "sub": "FGTS: nosso (razão 4.1.2 = 8% da folha real) × Portte (fiscal_obligations). Divergências REAIS a "
+                   "investigar — o pareamento expõe, não maquia. Próximas: ISS, INSS, DAS.",
+            "grid": "1fr 1.3fr 1.3fr 1.2fr 1fr",
+            "cols": ["Competência", "Nosso (razão)", "Portte", "Δ", "Status"],
+            "rows": _rows or [{"cells": [t("Aguardando dado"), t("—"), t("—"), t("—"), t("—")]}],
+            "panelGrid": "1fr",
+            "panels": [{"title": "Leitura (a investigar no paralelo)", "rows": [
+                {"left": "Portte jan-mar idêntico (~R$7.676) — parece base/estimativa diferente", "right": "investigar", **S["warn"]},
+                {"left": "Nosso varia por mês (8% do total_earnings real do razão)", "right": "do razão", **S["info"]},
+                {"left": "Meses só num lado (abr/mai) — pedir a guia à Portte ou alinhar escopo", "right": "pendência", **S["mut"]}]}],
+        }
+    except Exception:  # noqa: BLE001
+        pass
