@@ -10,6 +10,11 @@ from modules.ai.conversation.services.garantia import groundedness
 
 _DIRETORIA = {"admin"}  # feedback permanente confiável
 
+# CNPJ (14 díg) e CPF (11 díg): são IDENTIFICADORES, validados pelo entity-check —
+# NÃO devem entrar na ancoragem numérica (groundedness), senão um fato que cita um
+# CNPJ real é barrado à toa (os dígitos do CNPJ não estão na "fonte" da conversa).
+_ID_RE = re.compile(r"\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}|\d{3}\.?\d{3}\.?\d{3}-?\d{2}")
+
 
 async def _entidades_existem(db, fato: str) -> tuple[bool, list[str]]:
     # extrai CNPJs citados; se citar CNPJ, tem que existir em clients/empresas
@@ -29,8 +34,10 @@ async def _entidades_existem(db, fato: str) -> tuple[bool, list[str]]:
 async def curar(db, *, fato: str, origem: str, fonte: str, autor_role: str,
                  fonte_conversa: dict) -> dict:
     veredito: dict = {"checks": {}}
-    # 1) ancoragem numérica: números do fato têm que estar na fonte da conversa
-    g = groundedness.verificar(fato, fonte_conversa or {})
+    # 1) ancoragem numérica: números do fato têm que estar na fonte da conversa.
+    #    Remove CNPJ/CPF antes (identificadores são checados pelo entity-check, não aqui).
+    fato_sem_ids = _ID_RE.sub(" ", fato)
+    g = groundedness.verificar(fato_sem_ids, fonte_conversa or {})
     veredito["checks"]["numeros"] = g
     numeros_ok = g.get("ok", True)
     # 2) ancoragem de entidade
