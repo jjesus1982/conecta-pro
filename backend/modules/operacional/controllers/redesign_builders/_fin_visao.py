@@ -158,6 +158,62 @@ async def build_visao(db, out: dict) -> None:
     except Exception:  # noqa: BLE001
         pass
 
+    # ── A4: Cockpit executivo — uma landing só com os KPIs-chave + gráficos + o que precisa de
+    # atenção. Agrega dado REAL de bancos/NFS-e/recebíveis; drill-down em cada KPI. ──────────────
+    try:
+        from sqlalchemy import text as _text
+        _saldo = float((await db.execute(_text(
+            "SELECT coalesce(sum(coalesce(current_balance,0)),0) FROM bank_accounts "
+            "WHERE COALESCE(ativo,true)=true AND COALESCE(status,'ativa')='ativa'"))).scalar() or 0)
+        _cnpj = (await db.execute(_text(
+            "SELECT bank_name, coalesce(current_balance,0) FROM bank_accounts "
+            "WHERE bank_code IN ('077','403') ORDER BY current_balance DESC"))).fetchall()
+        _fatm = (await db.execute(_text(
+            "SELECT competencia, coalesce(sum(valor_servicos),0) FROM nfse_emitidas_nacional "
+            "WHERE coalesce(cancelada,false)=false AND competencia IS NOT NULL GROUP BY 1 ORDER BY 1 DESC LIMIT 6"))).fetchall()
+        _fatm = list(reversed(_fatm))
+        _fat_ult = float(_fatm[-1][1] or 0) if _fatm else 0.0
+        _venc = (await db.execute(_text(
+            "SELECT count(*), coalesce(sum(net_value),0) FROM receivable_accounts "
+            "WHERE due_date < current_date AND coalesce(status::text,'') NOT ILIKE '%pag%' "
+            "AND coalesce(status::text,'') NOT ILIKE '%cancel%'"))).fetchone()
+        _n_venc, _v_venc = int(_venc[0] or 0), float(_venc[1] or 0)
+        _pag7 = float((await db.execute(_text(
+            "SELECT coalesce(sum(net_value),0) FROM payable_accounts WHERE due_date BETWEEN current_date AND current_date+7 "
+            "AND coalesce(status::text,'') NOT ILIKE '%pag%'"))).scalar() or 0)
+        out["cockpit"] = {
+            "title": "Cockpit executivo", "type": "dash", "cta": "—",
+            "sub": "Visão de comando do financeiro — saldo, faturamento, recebíveis e o que precisa de atenção. Dado real, clicável.",
+            "panelGrid": "1fr 1fr",
+            "kpis": [
+                {"v": brl(_saldo), "l": "Saldo consolidado (2 bancos)", "icon": "M3 21h18M4 10h16M5 10 12 4l7 6M6 10v11M18 10v11", "color": "#16277D", "to": "consolidacao-grupo"},
+                {"v": brl(_fat_ult), "l": f"Faturamento {_fatm[-1][0] if _fatm else '—'}", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", "color": "#16A34A", "to": "tendencias"},
+                {"v": brl(_v_venc), "l": f"Recebíveis vencidos ({_n_venc})", "icon": "M12 8v4l3 3M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20", "color": "#C2410C" if _v_venc > 0 else "#16A34A", "to": "contas-receber"},
+                {"v": brl(_pag7), "l": "A pagar (próx. 7 dias)", "icon": "M2 6h20M2 18h20M6 6v12M18 6v12", "color": "#0F1B3A", "to": "contas-pagar"},
+            ],
+            "chartGrid": "1fr 1fr",
+            "charts": [
+                {"type": "line", "title": "Faturamento mês a mês (R$)", "data": [
+                    {"name": r[0], "value": round(float(r[1] or 0), 2)} for r in _fatm]},
+                {"type": "donut", "title": "Caixa por CNPJ (R$)", "data": [
+                    {"name": (str(r[0]) or "—"), "value": round(float(r[1] or 0), 2)} for r in _cnpj] or [{"name": "—", "value": 0}]},
+            ],
+            "panels": [
+                {"title": "Precisa de atenção", "rows": [
+                    {"left": "Recebíveis vencidos", "right": (brl(_v_venc) + f" ({_n_venc})") if _v_venc > 0 else "nada vencido ✓", **(S["bad"] if _v_venc > 0 else S["ok"])},
+                    {"left": "A pagar em 7 dias", "right": brl(_pag7), **(S["warn"] if _pag7 >= 10000 else S["info"])},
+                    {"left": "Saldo cobre os 7 dias?", "right": ("Sim ✓" if _saldo >= _pag7 else "Atenção — saldo < a pagar"), **(S["ok"] if _saldo >= _pag7 else S["bad"])},
+                ]},
+                {"title": "Atalhos", "rows": [
+                    {"left": "Ver Balanço / DRE / DAS", "right": "g-fiscal", **S["info"]},
+                    {"left": "Consultar o CFO (IA)", "right": "cfo", **S["info"]},
+                    {"left": "Bancos & conciliação", "right": "g-bancos", **S["info"]},
+                ]},
+            ],
+        }
+    except Exception:  # noqa: BLE001
+        pass
+
     # ── A2: Tendências temporais (série mês a mês) — faturamento bruto/líquido dos últimos 12 meses.
     # Reusa a query mensal real de nfse_emitidas_nacional; renderer de LINHA/ÁREA já existe (RdChart). ─
     try:
