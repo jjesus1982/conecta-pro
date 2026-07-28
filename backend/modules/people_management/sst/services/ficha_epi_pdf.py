@@ -65,6 +65,9 @@ def montar_ficha_epi_pdf(ficha: dict, funcionario: dict | None = None) -> bytes:
     "—" (aguardando dado), nunca inventados.
     """
     funcionario = funcionario or {}
+    from datetime import date as _date
+    # Multi-CNPJ: marca do empregador vigente do funcionário (competência atual).
+    _marca = B.empresa_branding_por_cpf(funcionario.get("cpf"), _date.today().strftime("%Y-%m"))
     st = B.styles()
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -158,7 +161,7 @@ def montar_ficha_epi_pdf(ficha: dict, funcionario: dict | None = None) -> bytes:
     # ── Termo de responsabilidade NR-6 ──
     story.append(Spacer(1, 4 * mm))
     story.append(
-        Paragraph(_TERMO_NR6.format(empresa=B.EMPRESA["nome"], cnpj=B.EMPRESA["cnpj"]), st["corpo"])
+        Paragraph(_TERMO_NR6.format(empresa=_marca["nome"], cnpj=_marca["cnpj"]), st["corpo"])
     )
 
     # ── Autenticidade (só quando REALMENTE assinada) ──
@@ -192,7 +195,7 @@ def montar_ficha_epi_pdf(ficha: dict, funcionario: dict | None = None) -> bytes:
 
     doc.build(
         story,
-        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo="FICHA DE EPI — NR-6"),
-        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo="FICHA DE EPI — NR-6"),
+        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo="FICHA DE EPI — NR-6", empresa=_marca),
+        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo="FICHA DE EPI — NR-6", empresa=_marca),
     )
     return buf.getvalue()

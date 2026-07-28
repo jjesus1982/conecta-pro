@@ -77,6 +77,9 @@ def montar_ppp_pdf(ppp: dict, funcionario_extra: dict | None = None) -> bytes:
 
     emp = ppp.get("empresa") or {}
     func = ppp.get("funcionario") or {}
+    # Multi-CNPJ: marca resolvida pelo empregador vigente do funcionário (competência atual —
+    # PPP é documento corrente). empresa_branding_por_cpf faz fail-closed pós-fronteira.
+    _marca = B.empresa_branding_por_cpf(func.get("cpf"), date.today().strftime("%Y-%m"))
     nome = func.get("nome") or "—"
     cargo = func.get("cargo") or "—"
 
@@ -84,9 +87,9 @@ def montar_ppp_pdf(ppp: dict, funcionario_extra: dict | None = None) -> bytes:
     ident = [
         [
             _cell("Empregador", st, bold=True),
-            _cell(emp.get("razao_social") or B.EMPRESA["razao"], st),
+            _cell(_marca["razao"], st),
             _cell("CNPJ", st, bold=True),
-            _cell(emp.get("cnpj") or B.EMPRESA["cnpj"], st),
+            _cell(_marca["cnpj"], st),
         ],
         [
             _cell("CNAE", st, bold=True),
@@ -207,7 +210,7 @@ def montar_ppp_pdf(ppp: dict, funcionario_extra: dict | None = None) -> bytes:
                 _cell("Especialidade", st, bold=True),
                 _cell(str(resp.get("especialidade") or "—"), st),
                 _cell("Representante legal", st, bold=True),
-                _cell(B.EMPRESA["ceo"], st),
+                _cell(_marca["ceo"], st),
             ],
         ],
         colWidths=[36 * mm, W / 2 - 36 * mm, 34 * mm, W / 2 - 34 * mm],
@@ -231,12 +234,13 @@ def montar_ppp_pdf(ppp: dict, funcionario_extra: dict | None = None) -> bytes:
         espaco_antes=8,
         incluir_funcionario=False,
         incluir_empresa=True,
+        empresa=_marca,
     )
 
     titulo = "PPP — PERFIL PROFISSIOGRÁFICO PREVIDENCIÁRIO"
     doc.build(
         story,
-        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo=titulo),
-        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo=titulo),
+        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo=titulo, empresa=_marca),
+        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo=titulo, empresa=_marca),
     )
     return buf.getvalue()
