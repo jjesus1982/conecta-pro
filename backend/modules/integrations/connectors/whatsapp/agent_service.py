@@ -2335,6 +2335,9 @@ async def _perfil_estruturado(conversation_id: int) -> str | None:
         return None
 
 
+_CNPJ_MEMORIA_RE = re.compile(r"\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}")
+
+
 async def _update_contact_memory(conversation_id: int, phone: str | None) -> None:
     """Atualiza o resumo do cliente apos um atendimento (INSERT 'mem'). Best-effort."""
     if not phone:
@@ -2379,6 +2382,23 @@ async def _update_contact_memory(conversation_id: int, phone: str | None) -> Non
         if not resumo:
             return
         async with async_session_factory() as db:
+            # Curator leve: ancora o resumo no cliente REAL do telefone antes de gravar
+            # como memoria "confiavel". O LLM pode inferir/errar CNPJ do dialogo (ex.
+            # cliente cita o CNPJ de outro condominio, ou o modelo alucina). Se o resumo
+            # citar um CNPJ que NAO bate com o cadastro vinculado a este telefone
+            # (_cliente_do_telefone, LGPD-safe), grava com prefixo [NAO CONFIRMADO] em
+            # vez de descartar -- best-effort, nao bloqueia o atendimento.
+            cliente = await _cliente_do_telefone(db, phone)
+            cnpjs_citados = {
+                "".join(c for c in m if c.isdigit()) for m in _CNPJ_MEMORIA_RE.findall(resumo)
+            }
+            cnpj_cliente = (
+                "".join(c for c in str(cliente.get("document_number") or "") if c.isdigit())
+                if cliente
+                else ""
+            )
+            if cnpjs_citados and not any(cnpj_cliente and c == cnpj_cliente for c in cnpjs_citados):
+                resumo = f"[NAO CONFIRMADO] {resumo}"
             await db.execute(
                 text(
                     "INSERT INTO cwi_message_log (direction, phone_canonical, "
