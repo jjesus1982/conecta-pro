@@ -81,6 +81,18 @@ async def _ensure_schema(db: AsyncSession) -> None:
             )
         )
         await db.commit()
+    # Fase 5.5 Task 1 — colunas de curadoria (aditivo/idempotente; espelha a
+    # migration fase55_consultor_memorias_curadoria para instâncias onde o
+    # DDL fallback acima criou a tabela sem elas, ou pra bancadas sem alembic).
+    for ddl in (
+        "ALTER TABLE consultor_memorias ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'pendente_revisao'",
+        "ALTER TABLE consultor_memorias ADD COLUMN IF NOT EXISTS confidence real",
+        "ALTER TABLE consultor_memorias ADD COLUMN IF NOT EXISTS autor text",
+        "ALTER TABLE consultor_memorias ADD COLUMN IF NOT EXISTS curator_veredito jsonb",
+        "ALTER TABLE consultor_memorias ADD COLUMN IF NOT EXISTS expira_em timestamptz",
+    ):
+        await db.execute(text(ddl))
+    await db.commit()
     _ddl_ok = True
 
 
@@ -189,7 +201,8 @@ async def contexto_compartilhado(
     rows = (
         await db.execute(
             text(
-                "SELECT origem, conteudo FROM consultor_memorias WHERE ativo "
+                "SELECT origem, conteudo FROM consultor_memorias "
+                "WHERE status = 'ativo' AND (expira_em IS NULL OR expira_em > now()) "
                 "ORDER BY created_at DESC LIMIT :lim"
             ),
             {"lim": max_memorias},
