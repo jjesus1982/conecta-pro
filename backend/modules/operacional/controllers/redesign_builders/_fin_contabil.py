@@ -562,6 +562,21 @@ async def build_contabil(db, out: dict) -> None:
                   else b("bate ✓", "ok") if abs(d) < 0.5 else b("diverge", "bad"))
             _rows.append({"cells": [t(c, 600, "#0F1B3A"), t(brl(n)), t(brl(p)),
                           t(brl(d), 600, "#16A34A" if (n and p and abs(d) < 0.5) else "#C2410C"), st]})
+        # ISS por competência: nosso (NFS-e iss_valor) × Portte (fiscal_obligations)
+        _ip = {r[0]: float(r[1] or 0) for r in (await db.execute(_text(
+            "SELECT competencia_ano||'-'||lpad(competencia_mes::text,2,'0'), coalesce(sum(valor_devido),0) "
+            "FROM fiscal_obligations WHERE tipo='ISS' AND competencia_mes IS NOT NULL GROUP BY 1"))).fetchall()}
+        _in = {r[0]: float(r[1] or 0) for r in (await db.execute(_text(
+            "SELECT competencia, coalesce(sum(iss_valor),0) FROM nfse_emitidas_nacional "
+            "WHERE coalesce(cancelada,false)=false AND competencia IS NOT NULL GROUP BY 1"))).fetchall()}
+        _iss_rows = []
+        for c in sorted(set(_ip) | set(_in)):
+            n, p = _in.get(c, 0.0), _ip.get(c, 0.0)
+            d = n - p
+            _st = ("nosso convergiu ✓" if (n and p and abs(d) < 0.5) else "só nosso" if p == 0
+                   else "só Portte" if n == 0 else f"Δ {brl(d)}")
+            _iss_rows.append({"left": f"{c} · nosso {brl(n)} × Portte {brl(p)}", "right": _st,
+                              **(S["ok"] if (n and p and abs(d) < 0.5) else S["warn"] if (n and p) else S["mut"])})
         out["pareamento-tributos"] = {
             "title": "Pareamento tributos — FGTS por competência", "type": "table", "cta": "—",
             "sub": "FGTS: Portte é a FONTE DA VERDADE × nosso (razão 4.1.2 = 8% da folha). Divergência = o NOSSO a "
@@ -569,11 +584,14 @@ async def build_contabil(db, out: dict) -> None:
             "grid": "1fr 1.3fr 1.3fr 1.2fr 1fr",
             "cols": ["Competência", "Nosso (razão)", "Portte", "Δ", "Status"],
             "rows": _rows or [{"cells": [t("Aguardando dado"), t("—"), t("—"), t("—"), t("—")]}],
-            "panelGrid": "1fr",
-            "panels": [{"title": "Leitura (a investigar no paralelo)", "rows": [
-                {"left": "Portte jan-mar idêntico (~R$7.676) — parece base/estimativa diferente", "right": "investigar", **S["warn"]},
-                {"left": "Nosso varia por mês (8% do total_earnings real do razão)", "right": "do razão", **S["info"]},
-                {"left": "Meses só num lado (abr/mai) — pedir a guia à Portte ou alinhar escopo", "right": "pendência", **S["mut"]}]}],
+            "panelGrid": "1fr 1fr",
+            "panels": [
+                {"title": "ISS por competência (nosso NFS-e × Portte) — já quase maduro", "rows": _iss_rows
+                    or [{"left": "Sem dado de ISS", "right": "—", **S["mut"]}]},
+                {"title": "FGTS — leitura (a investigar no paralelo)", "rows": [
+                    {"left": "Portte jan-mar idêntico (~R$7.676) — parece base/estimativa diferente", "right": "investigar", **S["warn"]},
+                    {"left": "Nosso varia por mês (8% do total_earnings real do razão)", "right": "do razão", **S["info"]},
+                    {"left": "Meses só num lado (abr/mai) — pedir a guia à Portte ou alinhar escopo", "right": "pendência", **S["mut"]}]}],
         }
     except Exception:  # noqa: BLE001
         pass
