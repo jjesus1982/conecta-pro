@@ -521,11 +521,24 @@ async def build_contabil(db, out: dict) -> None:
             "grid": "1fr 1.3fr 1.3fr 1.2fr 1fr",
             "cols": ["Competência", "Nosso (razão)", "Portte", "Δ", "Status"],
             "rows": _rows or [{"cells": [t("Aguardando dado"), t("—"), t("—"), t("—"), t("—")]}],
-            "panelGrid": "1fr",
-            "panels": [{"title": "Como o pareamento vira maturidade", "rows": [
-                {"left": "Verde = bate centavo a centavo (maduro nessa rubrica)", "right": "✓", **S["ok"]},
-                {"left": "Corte da Portte", "right": "só após N meses seguidos batendo TUDO", **S["warn"]},
-                {"left": "Roadmap", "right": "folha ✓ → DAS/tributos → guias → SPED", **S["info"]}]}],
+            "panelGrid": "1fr 1fr",
+            "panels": [
+                {"title": "Como o pareamento vira maturidade", "rows": [
+                    {"left": "Verde = bate centavo a centavo (maduro nessa rubrica)", "right": "✓", **S["ok"]},
+                    {"left": "Corte da Portte", "right": "só após N meses seguidos batendo TUDO", **S["warn"]},
+                    {"left": "Roadmap", "right": "folha ✓ → tributos → guias → SPED", **S["info"]}]},
+                {"title": "Próxima rubrica: tributos (alvos Portte a parear)", "rows": [
+                    {"left": "INSS (Portte fiscal_obligations)",
+                     "right": brl(float((await db.execute(_text("SELECT coalesce(sum(valor_devido),0) FROM fiscal_obligations WHERE tipo='INSS'"))).scalar() or 0)) + " · nosso a postar no razão",
+                     **S["warn"]},
+                    {"left": "FGTS (Portte)",
+                     "right": brl(float((await db.execute(_text("SELECT coalesce(sum(valor_devido),0) FROM fiscal_obligations WHERE tipo='FGTS'"))).scalar() or 0)) + " · alinhar por competência",
+                     **S["info"]},
+                    {"left": "ISS (Portte)",
+                     "right": brl(float((await db.execute(_text("SELECT coalesce(sum(valor_devido),0) FROM fiscal_obligations WHERE tipo='ISS'"))).scalar() or 0)) + " · alinhar por competência",
+                     **S["info"]},
+                    {"left": "Status", "right": "folha OK; tributos = alinhar competência+escopo (não é match cego)", **S["mut"]}]},
+            ],
         }
     except Exception:  # noqa: BLE001
         pass
