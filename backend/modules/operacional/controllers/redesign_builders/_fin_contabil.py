@@ -536,7 +536,8 @@ async def build_contabil(db, out: dict) -> None:
                     {"left": "A PORTTE é a fonte da verdade — o nosso é medido contra ela", "right": "regra", **S["warn"]},
                     {"left": "Verde = nosso CONVERGIU à Portte (maduro nessa rubrica)", "right": "✓", **S["ok"]},
                     {"left": "Corte da Portte", "right": "só após N meses seguidos batendo TUDO", **S["warn"]},
-                    {"left": "Roadmap", "right": "folha ✓ → tributos → guias → SPED", **S["info"]}]},
+                    {"left": "Maturidade por rubrica", "right": "folha ✓ · FGTS ✓ · ISS 🟢 · INSS (razão a postar)", **S["info"]},
+                    {"left": "DAS Patrimonial", "right": "lógica PGDAS-D aplicada; aguarda a guia Portte (Onvio) p/ parear", **S["mut"]}]},
                 {"title": "Próxima rubrica: tributos (alvos Portte a parear)", "rows": [
                     {"left": "INSS (Portte fiscal_obligations)",
                      "right": brl(float((await db.execute(_text("SELECT coalesce(sum(valor_devido),0) FROM fiscal_obligations WHERE tipo='INSS'"))).scalar() or 0)) + " · nosso a postar no razão",
