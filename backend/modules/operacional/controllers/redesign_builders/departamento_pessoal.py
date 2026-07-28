@@ -37,6 +37,8 @@ EXTRA_MENU: list[dict] = [
      "icon": "M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"},
     {"id": "prestadores-pj", "label": "Prestadores PJ",
      "icon": "M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM3 20v-1a6 6 0 0 1 12 0v1M16 3.13a4 4 0 0 1 0 7.75M21 20v-1a6 6 0 0 0-4-5.65"},
+    {"id": "nova-certificacao", "label": "Nova certificação",
+     "icon": "M9 12l2 2 4-4M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7z"},
 ]
 
 # datas: as tabelas usam date/timestamp; formatador defensivo local
@@ -312,6 +314,17 @@ async def _rescisao_screen(db):
                 val = float(v) if v is not None else None
             except Exception:
                 val = None
+        _term_actions = ([
+            {"title": f"Calcular verbas — {nome or '—'}",
+             "endpoint": f"/api/v1/people-management/hr/terminations/{tid}/calculate",
+             "method": "POST", "btnLabel": "Calcular verbas", "btnStyle": "outline",
+             "submitLabel": "Calcular", "okMsg": "Verbas rescisórias calculadas. Recarregue a tela.", "fields": []},
+            {"title": f"Concluir rescisão — {nome or '—'}",
+             "endpoint": f"/api/v1/people-management/hr/terminations/{tid}/complete",
+             "method": "POST", "btnLabel": "Concluir", "btnStyle": "primary",
+             "submitLabel": "Concluir rescisão",
+             "okMsg": "Rescisão concluída. Recarregue a tela.", "fields": []},
+        ] if (tp_status or "").lower() not in ("completed", "concluida", "concluída", "cancelled", "cancelada") else [])
         out_rows.append({"cells": [
             t(nome or "—", 600, _ND, initials(nome or "")),
             t(_TERM_TYPE.get((tp_type or "").lower(), tp_type or "—")),
@@ -320,7 +333,8 @@ async def _rescisao_screen(db):
             "docs": [
                 doc("TRCT", f"/api/v1/people-management/hr/terminations/{tid}/trct/pdf", fmt="pdf", gate="dp"),
                 doc("Aviso prévio", f"/api/v1/people-management/hr/terminations/{tid}/aviso-previo/pdf", fmt="pdf", gate="dp"),
-            ]})
+            ],
+            **({"actions": _term_actions} if _term_actions else {})})
     return {"title": "Rescisão", "sub": "Processos de desligamento — tipo, status e verbas",
             "cta": "Nova rescisão", "type": "table", "searchHint": "Buscar…",
             "grid": "2fr 1.2fr 1fr 1fr 1.1fr",
@@ -619,6 +633,11 @@ async def build(db) -> dict:
                  "method": "POST", "btnLabel": "Analisar", "btnStyle": "outline",
                  "submitLabel": "Analisar", "okMsg": "Reembolso em análise. Recarregue a tela.",
                  "fields": []},
+                {"title": f"Rejeitar reembolso {r[0]}",
+                 "endpoint": f"/api/v1/reimbursements/{r[5]}/reject",
+                 "method": "POST", "btnLabel": "Rejeitar", "btnStyle": "outline",
+                 "submitLabel": "Rejeitar", "okMsg": "Reembolso rejeitado. Recarregue a tela.",
+                 "fields": [{"key": "reason", "label": "Motivo (obrigatório)", "type": "textarea", "span": "span 2", "value": ""}]},
             ] if (r[4] or "").lower() == "pendente" else None)))
 
     # 7) Contratos — employment_contracts
@@ -858,6 +877,25 @@ async def build(db) -> dict:
                 {"key": "competencia", "label": "Competência*", "type": "select", "span": "span 2",
                  "ph": "Selecione a competência" if _copts else "Sem competência com folha registrada",
                  "options": _copts},
+            ],
+        }
+        # Nova certificação avulsa (C5) — cria uma certificação de um cálculo p/ a fila de assinatura.
+        out["nova-certificacao"] = {
+            "title": "Nova certificação", "type": "form",
+            "sub": "Cria uma certificação avulsa de um cálculo (entra na fila de assinatura humana)",
+            "cta": "Criar certificação",
+            "submit": {"endpoint": "/api/v1/people-management/certifications", "okMsg": "Certificação criada"},
+            "fields": [
+                {"key": "tipo_calculo", "label": "Tipo de cálculo*", "type": "select", "span": "span 2", "ph": "Selecione",
+                 "options": [
+                     {"value": "folha_mensal", "label": "Folha mensal"},
+                     {"value": "rescisao", "label": "Rescisão"},
+                     {"value": "ferias", "label": "Férias"},
+                     {"value": "decimo_terceiro", "label": "13º salário"},
+                     {"value": "esocial_s2210", "label": "eSocial S-2210"}]},
+                {"key": "competencia", "label": "Competência (YYYY-MM)", "type": "text", "span": "span 1", "ph": "Ex.: 2026-07"},
+                {"key": "employee_id", "label": "Colaborador (UUID, opcional)", "type": "text", "span": "span 1", "ph": "Opcional"},
+                {"key": "referencia_id", "label": "Referência (id, opcional)", "type": "text", "span": "span 2", "ph": "Opcional"},
             ],
         }
     except Exception:
