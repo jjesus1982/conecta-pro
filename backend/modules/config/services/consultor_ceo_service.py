@@ -509,7 +509,7 @@ async def consultar(
     # aprendizado permanente (best-effort, nunca quebra o chat)
     from modules.ai.conversation.services import consultor_hub as _hub2
 
-    await _hub2.aprender(db, "ceo", pergunta or "", resposta_texto)
+    await _hub2.aprender(db, "ceo", pergunta or "", resposta_texto, panorama=pano)
 
     return {
         "resposta": resposta_texto, "escalonar": escalonar, "disclaimer": DISCLAIMER,

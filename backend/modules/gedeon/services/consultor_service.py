@@ -494,7 +494,7 @@ async def consultar(
     await db.commit()
 
     # aprendizado permanente (best-effort, nunca quebra o chat)
-    await _hub.aprender(db, 'ged', pergunta or '', resposta_texto)
+    await _hub.aprender(db, 'ged', pergunta or '', resposta_texto, panorama=pano)
 
     return {
         "resposta": resposta_texto, "escalonar": escalonar, "disclaimer": DISCLAIMER,

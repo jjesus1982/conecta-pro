@@ -794,7 +794,7 @@ async def consultar(
         logger.error("Falha ao persistir consulta CFO: %s", e)
 
     # aprendizado permanente do hub (best-effort, nunca quebra o chat)
-    await _hub.aprender(db, "cfo", pergunta or "", resposta_texto)
+    await _hub.aprender(db, "cfo", pergunta or "", resposta_texto, panorama=pano)
 
     return {
         "resposta": resposta_texto, "escalonar": escalonar, "disclaimer": DISCLAIMER_PADRAO,

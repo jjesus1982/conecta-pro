@@ -305,8 +305,16 @@ async def conversa_recente(db: AsyncSession, origem: str, *, limit: int = 6) -> 
     return "\n".join(linhas)
 
 
-async def aprender(db: AsyncSession, origem: str, pergunta: str, resposta: str) -> None:
+async def aprender(
+    db: AsyncSession, origem: str, pergunta: str, resposta: str,
+    panorama: dict | None = None,
+) -> None:
     """Extrai 0-2 fatos duráveis da troca (gpt-4o-mini, barato) e grava como memória.
+
+    `panorama`: dados REAIS do banco que o consultor já computou (o mesmo dict que
+    vai pro system_prompt). Fase 5.5 Task 3b — quando informado, é ele (não a
+    resposta do LLM, que pode conter número fabricado) que ancora o Curator.
+    Se omitido, fallback para o comportamento anterior (ancora contra pergunta+resposta).
 
     Nunca propaga exceção — aprendizado é best-effort e não pode quebrar o chat.
     """
@@ -339,7 +347,9 @@ async def aprender(db: AsyncSession, origem: str, pergunta: str, resposta: str) 
         from modules.ai.conversation.services.garantia import agent_audit
         from modules.ai.conversation.services.garantia.memoria_curator import curar
 
-        fonte_conversa = {"pergunta": pergunta, "resposta": resposta}
+        fonte_conversa = panorama if isinstance(panorama, dict) and panorama else {
+            "pergunta": pergunta, "resposta": resposta,
+        }
         for linha in [x.strip("-• ").strip() for x in texto.splitlines() if x.strip()][:2]:
             if len(linha) < 12 or linha.upper().startswith("NENHUM"):
                 continue

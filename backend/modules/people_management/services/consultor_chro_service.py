@@ -436,7 +436,7 @@ async def consultar(
     # aprendizado permanente (best-effort, nunca quebra o chat)
     try:
         from modules.ai.conversation.services import consultor_hub as _hub
-        await _hub.aprender(db, 'rh', pergunta or '', resposta_texto)
+        await _hub.aprender(db, 'rh', pergunta or '', resposta_texto, panorama=pano)
     except Exception as e:  # noqa: BLE001
         logger.warning("Consultor Pessoas: aprender falhou: %s", e)
 

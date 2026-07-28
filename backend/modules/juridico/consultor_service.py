@@ -410,7 +410,7 @@ async def consultar(
         logger.error("Falha ao persistir consulta jurídica: %s", e)
 
     # aprendizado permanente do hub (best-effort, nunca quebra o chat)
-    await _hub.aprender(db, "juridico", pergunta or "", resposta_texto)
+    await _hub.aprender(db, "juridico", pergunta or "", resposta_texto, panorama=contexto_real)
 
     return {
         "resposta": resposta_texto,

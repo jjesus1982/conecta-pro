@@ -357,7 +357,7 @@ async def consultar(
     try:
         from modules.ai.conversation.services import consultor_hub as _hub
 
-        await _hub.aprender(db, "operacional", pergunta or "", resposta_texto)
+        await _hub.aprender(db, "operacional", pergunta or "", resposta_texto, panorama=pano)
     except Exception as e:  # noqa: BLE001
         logger.warning("Consultor Operacional: aprender falhou: %s", e)
 
