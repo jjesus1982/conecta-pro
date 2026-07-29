@@ -420,6 +420,45 @@ class LedgerAutoService:
         finally:
             conn.close()
 
+    def lancar_inss_patronal(self, empresa_id: str = EMPRESA_PRINCIPAL_ID) -> dict:
+        """Posta o INSS PATRONAL (CPP+RAT+terceiros) no razão, por competência, como a
+        diferença REAL entre a guia INSS oficial (Onvio, `inss_guias.valor`) e o INSS
+        retido do empregado (`hr_payslips.inss_value`, já postado por lancar_inss_empregado):
+          D 4.1.2.02 (Despesa Encargo INSS patronal) / C 2.1.3.01 (INSS a Recolher)
+        Faz o passivo INSS a Recolher fechar com a guia oficial. NUNCA fabrica: só posta onde
+        há guia extraída com valor > retido (patronal > 0). Idempotente por ref INSSPAT-{periodo}.
+        mes_ref da guia é 'MM.YYYY' → converte p/ 'YYYY-MM'."""
+        conn = self._conn()
+        try:
+            with conn.cursor() as cur:
+                self._ensure_schema(cur)
+                cur.execute(
+                    r"SELECT substring(mes_ref from 4 for 4) || '-' || substring(mes_ref from 1 for 2), "
+                    r"sum(valor) FROM inss_guias WHERE valor IS NOT NULL "
+                    r"AND mes_ref ~ '^[0-9]{2}\.[0-9]{4}$' GROUP BY 1"
+                )
+                guias = {p: float(g or 0) for p, g in cur.fetchall()}
+                cur.execute(
+                    "SELECT reference_period, COALESCE(sum(inss_value),0) FROM hr_payslips "
+                    "WHERE COALESCE(inss_value,0) > 0 GROUP BY 1"
+                )
+                emp = {p: float(v or 0) for p, v in cur.fetchall()}
+                n, tot = 0, 0.0
+                for periodo, guia in sorted(guias.items()):
+                    patronal = round(guia - emp.get(periodo, 0.0), 2)
+                    if patronal <= 0:  # sem guia > retido → não inventa patronal
+                        continue
+                    n += self._post(
+                        cur, data=f"{periodo}-01", cd="4.1.2.02", cc="2.1.3.01", valor=patronal,
+                        hist=f"INSS patronal {periodo} (guia Onvio - retido empregado)", tipo="encargo_inss",
+                        ref=f"INSSPAT-{periodo}", periodo=periodo, empresa_id=empresa_id,
+                    )
+                    tot += patronal
+                conn.commit()
+            return {"ok": True, "lancamentos": n, "total_patronal": round(tot, 2), "empresa_id": empresa_id}
+        finally:
+            conn.close()
+
     def fechar(self, empresa_id: str = EMPRESA_PRINCIPAL_ID) -> dict:
         """Fecha o razão: garante schema e posta folha + ISS (idempotente).
         NFS-e receita e banco Inter já são postados pelo accounting_seed_service."""
@@ -444,6 +483,8 @@ class LedgerAutoService:
             # 2.1.3.01 da folha bruta. Sem esta chamada o razão ficava com ZERO INSS
             # (medido no baseline contábil): o método existia mas nunca era invocado.
             inss_emp = self.lancar_inss_empregado(empresa_id)
+            # INSS patronal (guia oficial − retido); fecha o passivo INSS a Recolher com a guia.
+            inss_pat = self.lancar_inss_patronal(empresa_id)
             # Recategoriza o banco Inter (conserta receita/despesa fantasma) — mantém o lucro fiel
             recat = self.recategorizar_inter(empresa_id)
             # Reconstrói folha jan/fev (ausente em hr_payslips) por âncora março + PIX real
@@ -454,7 +495,9 @@ class LedgerAutoService:
                 folha_rec = {"ok": False, "erro": str(fe)}
             return {
                 "ok": True,
-                "novos_lancamentos": {**folha, **iss, **tomadas, "inss_empregado": inss_emp.get("lancamentos", 0)},
+                "novos_lancamentos": {**folha, **iss, **tomadas,
+                                      "inss_empregado": inss_emp.get("lancamentos", 0),
+                                      "inss_patronal": inss_pat.get("lancamentos", 0)},
                 "recategorizacao_inter": recat,
                 "folha_reconstruida_jan_fev": folha_rec.get("meses"),
                 "total_lancamentos": qtd,

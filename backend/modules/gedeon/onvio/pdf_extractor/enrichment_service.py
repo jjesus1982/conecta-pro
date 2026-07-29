@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from modules.gedeon.models.onvio_models import FgtsGuia, InssGuia, OnvioDocument
 from modules.gedeon.onvio.pdf_extractor.base import ExtractionResult
+from modules.gedeon.onvio.pdf_extractor.das_extractor import DASExtractor
 from modules.gedeon.onvio.pdf_extractor.dctfweb_extractor import DCTFWebExtractor
 from modules.gedeon.onvio.pdf_extractor.fgts_extractor import FGTSExtractor
 from modules.gedeon.onvio.pdf_extractor.inss_extractor import INSSExtractor
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 EXTRACTOR_MAP: dict[str, tuple] = {
     "inss_guia": (INSSExtractor, {}),
+    "das_simples_nacional": (DASExtractor, {}),  # valor → onvio_documents.detalhes_json (padrão DCTFWeb)
     "fgts_guia": (FGTSExtractor, {"subtipo": "guia"}),
     "fgts_consignado": (FGTSExtractor, {"subtipo": "consignado"}),
     "fgts_relatorio": (FGTSExtractor, {"subtipo": "relatorio"}),
