@@ -576,8 +576,13 @@ async def build_contabil(db, out: dict) -> None:
             for _r in (await db.execute(_text(
                 "SELECT tipo, competencia_ano||'-'||lpad(competencia_mes::text,2,'0'), coalesce(sum(valor_devido),0) "
                 "FROM fiscal_obligations WHERE empresa_id=:e AND active=true AND competencia_mes IS NOT NULL "
-                "AND tipo IN ('FGTS','INSS','DAS') GROUP BY 1,2"), {"e": _eid})).fetchall():
+                "AND tipo IN ('FGTS','INSS','ISS','DAS') GROUP BY 1,2"), {"e": _eid})).fetchall():
                 _guia[(_r[0], _r[1])] = float(_r[2] or 0)
+            # ISS "nosso" = soma do iss_valor das NFS-e emitidas do CNPJ, por competência.
+            _issn = {r[0]: float(r[1] or 0) for r in (await db.execute(_text(
+                "SELECT competencia, coalesce(sum(iss_valor),0) FROM nfse_emitidas_nacional "
+                "WHERE empresa_id=:e AND coalesce(cancelada,false)=false AND competencia IS NOT NULL GROUP BY 1"),
+                {"e": _eid})).fetchall()}
             _bate_comps = 0
             for _c in _comps:
                 _fg, _iss = _folha.get(_c, (None, None))
@@ -585,6 +590,7 @@ async def build_contabil(db, out: dict) -> None:
                 _rubs = [("FGTS", "FGTS", _fg)]
                 if _eid == "619a3df1-8bce-49ce-b77a-04f80a0e8491":
                     _rubs.append(("INSS", "INSS (DARF total)", _iss))
+                _rubs.append(("ISS", "ISS (NFS-e)", _issn.get(_c)))
                 _oks = []
                 for _rub, _disp, _nosso in _rubs:
                     _p = _guia.get((_rub, _c))
