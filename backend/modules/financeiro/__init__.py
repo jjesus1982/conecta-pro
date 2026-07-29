@@ -14,8 +14,6 @@ Controle de acesso por módulo (§92 — CPRO12 T1-PERMISSOES):
 from core.permissions import requer_modulo
 
 # --- Financial Core ---
-# --- Financial BI Dashboard ---
-from modules.financial.bi_dashboard.controllers import router as bi_dashboard_router
 from modules.financial.controllers import (
     accounting_router,
     bank_account_router,
@@ -65,7 +63,6 @@ _routers_financeiro = [
     receivable_category_router,
     receivable_router,
     relatorios_router,
-    bi_dashboard_router,
     supplier_router,
 ]
 if nfse_entrada_router:
@@ -96,6 +93,5 @@ __all__ = [
     "fiscal_router",
     "financial_ai_router",
     "relatorios_router",
-    "bi_dashboard_router",
     "nfse_entrada_router",
 ]

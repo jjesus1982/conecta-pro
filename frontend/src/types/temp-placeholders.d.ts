@@ -22,9 +22,6 @@ export type { WidgetCreate as FinancialWidgetCreate } from './generated/financia
 export type { KPICreate as FinancialKPICreate } from './generated/financial/models';
 export type { ReportCreate as ScheduledReportCreate } from './generated/financial/models';
 
-// BI Dashboard - GetDashboard params (usando o mais proximo disponivel)
-export type { ListDashboardsApiV1FinancialBiDashboardBiDashboardsGetParams as GetDashboardApiV1FinancialBiDashboardDashboardsGetParams } from './generated/financial/financial-bi-dashboard/financial-bi-dashboard';
-
 // Cashflow - Entry and Forecast params
 export type { ListEntriesApiV1FinancialCashflowCashflowEntriesGetParams as GetEntriesApiV1FinancialCashflowEntriesGetParams } from './generated/financial/financial-cashflow/financial-cashflow';
 export type { ListForecastsApiV1FinancialCashflowCashflowForecastsGetParams as GetForecastApiV1FinancialCashflowForecastGetParams } from './generated/financial/financial-cashflow/financial-cashflow';

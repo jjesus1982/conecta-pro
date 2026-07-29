@@ -110,11 +110,6 @@ class TestFinancialSchemas:
 
         assert cashflow_service is not None
 
-    def test_import_bi_dashboard(self):
-        from modules.financial.bi_dashboard import controllers as bi_controllers
-
-        assert bi_controllers is not None
-
     def test_import_abc_costing(self):
         from modules.financial.costing import controllers as abc_controllers
 

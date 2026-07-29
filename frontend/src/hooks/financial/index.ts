@@ -100,11 +100,8 @@ export {
   useCreateNFe,
   useAuthorizeNFe,
   fiscalKeys,
-  // BI Dashboard
-  useBIDashboards,
-  useBIDashboard,
+  // Financial Overview (endpoint real /financial/dashboard)
   useFinancialOverview,
-  biDashboardKeys,
   // Costing
   useCostDrivers,
   useCostActivities,

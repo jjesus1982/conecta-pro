@@ -200,7 +200,6 @@ class TestFinanceiroAggregator:
         "fiscal_router",
         "financial_ai_router",
         "relatorios_router",
-        "bi_dashboard_router",
     ]
 
     def test_import(self):

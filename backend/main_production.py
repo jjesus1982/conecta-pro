@@ -750,7 +750,6 @@ try:
         bank_account_router,
         bank_reconciliation_router,
         bank_transaction_router,
-        bi_dashboard_router,
         billing_rule_router,
         cashflow_router,
         customer_router,
@@ -789,10 +788,9 @@ try:
     )
     api_router.include_router(financial_ai_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial AI"])
     api_router.include_router(relatorios_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Relatórios"])
-    api_router.include_router(bi_dashboard_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - BI Dashboard"])
     if nfse_entrada_router:
         api_router.include_router(nfse_entrada_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - NFS-e Entrada"])
-    logger.info("Modulo Financeiro: OK (18 routers)")
+    logger.info("Modulo Financeiro: OK (17 routers)")
 except Exception as e:
     logger.warning(f"Modulo Financeiro: {e}")
 

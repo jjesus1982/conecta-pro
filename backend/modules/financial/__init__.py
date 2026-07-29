@@ -20,34 +20,6 @@ warnings.warn(
 
 from fastapi import APIRouter  # noqa: E402
 
-# Routers dos submodulos
-from modules.financial.bi_dashboard.controllers import router as bi_dashboard_router  # noqa: E402
-
-# Models do BI Dashboard
-from modules.financial.bi_dashboard.models import (  # noqa: E402
-    AnalyticsCache,
-    FinancialDashboard,
-    FinancialKPI,
-    FinancialWidget,
-    ScheduledReport,
-)
-
-# Repositories do BI Dashboard
-from modules.financial.bi_dashboard.repositories import (  # noqa: E402
-    CacheRepository,
-    DashboardRepository,
-    KPIRepository,
-    ReportRepository,
-    WidgetRepository,
-)
-
-# Services do BI Dashboard
-from modules.financial.bi_dashboard.services import (  # noqa: E402
-    AnalyticsService,
-    BIService,
-    ForecastService,
-)
-
 # =============================================================================
 # ROUTERS DOS CONTROLLERS PRINCIPAIS
 # =============================================================================
@@ -268,9 +240,6 @@ financial_router.include_router(accounting_router)
 # === Fiscal ===
 financial_router.include_router(fiscal_router)
 
-# === BI/Dashboard ===
-financial_router.include_router(bi_dashboard_router)
-
 # === Custeio ABC ===
 financial_router.include_router(costing_router)
 
@@ -307,7 +276,6 @@ __all__ = [
     "accounting_router",
     "fiscal_router",
     # Routers submodulos
-    "bi_dashboard_router",
     "costing_router",
     # =========================================================================
     # MODELS - Contas a Pagar
@@ -382,14 +350,6 @@ __all__ = [
     "CFOP",
     "NCM",
     # =========================================================================
-    # MODELS - BI Dashboard
-    # =========================================================================
-    "FinancialDashboard",
-    "FinancialWidget",
-    "FinancialKPI",
-    "ScheduledReport",
-    "AnalyticsCache",
-    # =========================================================================
     # MODELS - Custeio ABC
     # =========================================================================
     "CostDriver",
@@ -409,12 +369,6 @@ __all__ = [
     "PurchaseAIService",
     "AccountingAIService",
     "FiscalAIService",
-    # =========================================================================
-    # SERVICES - BI Dashboard
-    # =========================================================================
-    "BIService",
-    "AnalyticsService",
-    "ForecastService",
     # =========================================================================
     # SERVICES - Custeio ABC
     # =========================================================================
@@ -476,14 +430,6 @@ __all__ = [
     # REPOSITORIES - Fiscal
     # =========================================================================
     "FiscalRepository",
-    # =========================================================================
-    # REPOSITORIES - BI Dashboard
-    # =========================================================================
-    "DashboardRepository",
-    "WidgetRepository",
-    "KPIRepository",
-    "ReportRepository",
-    "CacheRepository",
     # =========================================================================
     # REPOSITORIES - Custeio ABC
     # =========================================================================

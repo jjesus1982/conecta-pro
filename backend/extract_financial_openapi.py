@@ -14,9 +14,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 
-# Submodulos
-from modules.financial.bi_dashboard.controllers import router as bi_dashboard_router
-
 # Import all financial routers
 from modules.financial.controllers import (
     # Contabilidade
@@ -98,9 +95,6 @@ def extract_financial_openapi():
 
     # Fiscal
     app.include_router(fiscal_router, prefix="/api/v1/financial/fiscal", tags=["Financial - Fiscal"])
-
-    # BI Dashboard
-    app.include_router(bi_dashboard_router, prefix="/api/v1/financial/bi-dashboard", tags=["Financial - BI Dashboard"])
 
     # Custeio ABC
     app.include_router(costing_router, prefix="/api/v1/financial/costing", tags=["Financial - ABC Costing"])

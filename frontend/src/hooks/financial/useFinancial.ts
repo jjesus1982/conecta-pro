@@ -139,15 +139,10 @@ export {
 } from '@/types/generated/financial/financial-fiscal/financial-fiscal';
 
 // =============================================================================
-// BI DASHBOARD - Business Intelligence
+// FINANCIAL OVERVIEW - KPIs do financeiro (endpoint real /financial/dashboard)
+// (subsistema bi_dashboard removido — era casca sem consumidor)
 // =============================================================================
-export * from '@/types/generated/financial/financial-bi-dashboard/financial-bi-dashboard';
-export {
-  useListDashboardsApiV1FinancialBiDashboardBiDashboardsGet as useBIDashboards,
-  useGetDashboardApiV1FinancialBiDashboardBiDashboardsDashboardIdGet as useBIDashboard,
-  useGetDashboardStatsApiV1FinancialBiDashboardBiDashboardsStatsGet as useFinancialOverview,
-  getListDashboardsApiV1FinancialBiDashboardBiDashboardsGetQueryKey as biDashboardKeys,
-} from '@/types/generated/financial/financial-bi-dashboard/financial-bi-dashboard';
+export { useFinancialOverview } from './useFinancialOverview';
 
 // =============================================================================
 // BILLING RULES - Regras de Faturamento
