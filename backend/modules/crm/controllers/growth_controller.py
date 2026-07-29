@@ -1187,63 +1187,10 @@ async def relatorio_comercial_pdf(
     """Gera o Relatório Comercial em PDF (MRR, clientes, pipeline, top deals). salvar=true: registra + link."""
     from fastapi import Response
 
-    mrr = (
-        await _one(db, "SELECT COALESCE(SUM(monthly_value),0) v FROM client_contracts WHERE status='active'", {})
-    ) or {}
-    clientes = (await _one(db, "SELECT count(*) v FROM clients WHERE ativo", {})) or {}
-    won = (
-        await _one(
-            db,
-            """SELECT COALESCE(SUM(value),0) v FROM opportunities WHERE stage='closed_won'
-                             AND EXTRACT(MONTH FROM updated_at)=EXTRACT(MONTH FROM now())
-                             AND EXTRACT(YEAR FROM updated_at)=EXTRACT(YEAR FROM now())""",
-            {},
-        )
-    ) or {}
-    estagios = _rows(
-        await db.execute(
-            text("""
-        SELECT stage, count(*) deals, COALESCE(SUM(value),0) valor FROM opportunities
-        WHERE stage NOT IN ('closed_won','closed_lost') AND is_active = true GROUP BY stage ORDER BY 3 DESC""")
-        )
-    )
-    por_estagio, aberto = [], 0.0
-    for s in estagios:
-        prob = STAGE_PROB.get(s["stage"], 0.2)
-        por_estagio.append(
-            {
-                "estagio": STAGE_LABEL_PT.get(s["stage"], s["stage"]),
-                "deals": s["deals"],
-                "valor": float(s["valor"]),
-                "ponderado": round(float(s["valor"]) * prob, 2),
-            }
-        )
-        aberto += float(s["valor"])
-    top = _rows(
-        await db.execute(
-            text("""
-        SELECT COALESCE(company_name, title) cliente, stage, value FROM opportunities
-        WHERE stage NOT IN ('closed_won','closed_lost') AND is_active = true ORDER BY value DESC LIMIT 8""")
-        )
-    )
-    top_deals = [
-        {
-            "cliente": t["cliente"],
-            "estagio": STAGE_LABEL_PT.get(t["stage"], t["stage"]),
-            "valor": float(t["value"] or 0),
-        }
-        for t in top
-    ]
-    ctx = {
-        "mrr": float(mrr.get("v", 0)),
-        "clientes": clientes.get("v", 0),
-        "pipeline_aberto": aberto,
-        "ganho_mes": float(won.get("v", 0)),
-        "por_estagio": por_estagio,
-        "top_deals": top_deals,
-    }
+    from modules.crm.services.orchestration import relatorio_comercial_ctx
     from modules.crm.services.report_pdf import build_commercial_report_pdf
 
+    ctx = await relatorio_comercial_ctx(db)
     pdf = build_commercial_report_pdf(ctx)
     if salvar:
         return await _salvar_pdf(db, "relatorio", "Relatório Comercial", pdf, teste=teste, drive=drive)
@@ -1252,16 +1199,6 @@ async def relatorio_comercial_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": 'inline; filename="relatorio_comercial.pdf"'},
     )
-
-
-STAGE_LABEL_PT = {
-    "qualification": "Qualificação",
-    "needs_analysis": "Análise",
-    "proposal": "Proposta",
-    "negotiation": "Negociação",
-    "closed_won": "Ganho",
-    "closed_lost": "Perdido",
-}
 
 
 # ===================================================================== DOCS (recibo / OS)

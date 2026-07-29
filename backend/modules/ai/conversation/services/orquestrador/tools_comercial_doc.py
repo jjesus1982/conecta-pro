@@ -215,6 +215,73 @@ async def _gerar_orcamento(db, user, scope, *, produto=None, cliente_id=None, cl
     }
 
 
+_SCHEMA_CONTRATO = {
+    "type": "object",
+    "properties": {
+        "contrato_id": {"type": "string", "description": "UUID do contrato no cadastro."},
+        "contrato_numero": {"type": "string", "description": "Número do contrato (ex.: CTR-2026-00001)."},
+    },
+    "required": [],
+}
+
+_SCHEMA_VAZIO = {"type": "object", "properties": {}, "required": []}
+
+
+async def _resolve_contrato(db, *, contrato_id, contrato_numero):
+    """Resolve o Contract REAL (só ativos, via repositório). Nunca cria — só render de existente."""
+    from modules.crm.repositories.contract_repository import ContractRepository
+    repo = ContractRepository(db)
+    if contrato_id:
+        try:
+            c = await repo.get_by_id(str(contrato_id))
+        except (ValueError, TypeError):  # UUID malformado = trata como não encontrado (fail-closed)
+            c = None
+        if c:
+            return c
+    if contrato_numero:
+        c = await repo.get_by_number(str(contrato_numero))
+        if c:
+            return c
+    return None
+
+
+async def _gerar_contrato_doc(db, user, scope, *, contrato_id=None, contrato_numero=None, **_) -> dict[str, Any]:
+    _gate(user)
+    c = await _resolve_contrato(db, contrato_id=contrato_id, contrato_numero=contrato_numero)
+    if c is None:
+        return _recusa("contrato não encontrado no cadastro real; informe id ou número.")
+    # O model Contract guarda só client_id; enriquece com o cliente real p/ o PDF não sair genérico.
+    # Atributos NÃO-mapeados no objeto ORM (transientes) — sem flush/commit, nada é gravado.
+    from modules.clients.models import Client
+    cli = (await db.execute(select(Client).where(Client.id == c.client_id))).scalars().first()
+    if cli is not None:
+        c.client_name = cli.name
+        c.client_document = cli.document_number
+    from modules.crm.services.contract_pdf import build_contract_pdf
+    pdf = build_contract_pdf(c)  # render de valores JÁ acordados — sem fabricação, sem gravar
+    nome_cli = getattr(c, "client_name", None) or "contrato"
+    return {
+        "arquivo_base64": base64.b64encode(pdf).decode(),
+        "nome": f"contrato_{_slug(nome_cli)}.pdf",
+        "resumo": f"Contrato {getattr(c, 'contract_number', '') or '—'} — {nome_cli} "
+                  "(render do registro real; nada foi criado/alterado)",
+    }
+
+
+async def _gerar_relatorio_comercial_doc(db, user, scope, **_) -> dict[str, Any]:
+    _gate(user)
+    from modules.crm.services.orchestration import relatorio_comercial_ctx
+    from modules.crm.services.report_pdf import build_commercial_report_pdf
+    ctx = await relatorio_comercial_ctx(db)  # números reais apurados do banco (fonte única do endpoint)
+    pdf = build_commercial_report_pdf(ctx)
+    return {
+        "arquivo_base64": base64.b64encode(pdf).decode(),
+        "nome": "relatorio_comercial.pdf",
+        "resumo": f"Relatório comercial INTERNO — MRR {_brl(ctx['mrr'])}, {ctx['clientes']} clientes, "
+                  f"pipeline aberto {_brl(ctx['pipeline_aberto'])} (CONFIDENCIAL — uso interno, não é material de cliente)",
+    }
+
+
 register(ToolDef(
     "gerar_proposta_comercial_doc", "crm",
     "Monta uma PROPOSTA COMERCIAL branded (rascunho, PDF) para um cliente do cadastro. "
@@ -227,3 +294,16 @@ register(ToolDef(
     "Monta um ORÇAMENTO branded (rascunho, PDF) para um cliente do cadastro. "
     "Preço vem do motor real de precificação — nunca de um valor livre. Não grava, não envia.",
     _SCHEMA, _gerar_orcamento, scope_kind="org"))
+
+register(ToolDef(
+    "gerar_contrato_doc", "crm",
+    "Renderiza o PDF branded de um CONTRATO JÁ EXISTENTE no cadastro (por id ou número). "
+    "Apenas render de valores já acordados — NÃO cria, não edita nem assina contrato. Não grava.",
+    _SCHEMA_CONTRATO, _gerar_contrato_doc, scope_kind="org"))
+
+register(ToolDef(
+    "gerar_relatorio_comercial_doc", "crm",
+    "Gera o RELATÓRIO COMERCIAL interno (raio-x de vendas: MRR, clientes, pipeline por estágio, "
+    "maiores deals) em PDF branded, a partir dos números reais apurados. Documento CONFIDENCIAL de "
+    "gestão — não é material de cliente. Não grava, não envia.",
+    _SCHEMA_VAZIO, _gerar_relatorio_comercial_doc, scope_kind="org"))

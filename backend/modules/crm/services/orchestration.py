@@ -431,6 +431,73 @@ async def resumo_pipeline(db: AsyncSession) -> dict:
     }
 
 
+async def relatorio_comercial_ctx(db: AsyncSession) -> dict:
+    """ctx do RELATÓRIO COMERCIAL (MRR, clientes, pipeline por estágio, top deals) direto do banco.
+    Fonte única do endpoint /reports/comercial/pdf e da tool gera-doc — mesmos números, sem drift."""
+
+    async def _one(sql: str) -> dict:
+        r = (await db.execute(text(sql))).mappings().first()
+        return dict(r) if r else {}
+
+    mrr = await _one("SELECT COALESCE(SUM(monthly_value),0) v FROM client_contracts WHERE status='active'")
+    clientes = await _one("SELECT count(*) v FROM clients WHERE ativo")
+    won = await _one(
+        "SELECT COALESCE(SUM(value),0) v FROM opportunities WHERE stage='closed_won'"
+        " AND EXTRACT(MONTH FROM updated_at)=EXTRACT(MONTH FROM now())"
+        " AND EXTRACT(YEAR FROM updated_at)=EXTRACT(YEAR FROM now())"
+    )
+    estagios = (
+        (
+            await db.execute(
+                text(
+                    "SELECT stage, count(*) deals, COALESCE(SUM(value),0) valor FROM opportunities"
+                    " WHERE stage NOT IN ('closed_won','closed_lost') AND is_active = true"
+                    " GROUP BY stage ORDER BY 3 DESC"
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
+    por_estagio, aberto = [], 0.0
+    for s in estagios:
+        prob = _STAGE_PROB.get(s["stage"], 0.2)
+        por_estagio.append(
+            {
+                "estagio": _STAGE_LABEL.get(s["stage"], s["stage"]),
+                "deals": s["deals"],
+                "valor": float(s["valor"]),
+                "ponderado": round(float(s["valor"]) * prob, 2),
+            }
+        )
+        aberto += float(s["valor"])
+    top = (
+        (
+            await db.execute(
+                text(
+                    "SELECT COALESCE(company_name, title) cliente, stage, value FROM opportunities"
+                    " WHERE stage NOT IN ('closed_won','closed_lost') AND is_active = true"
+                    " ORDER BY value DESC LIMIT 8"
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
+    top_deals = [
+        {"cliente": t["cliente"], "estagio": _STAGE_LABEL.get(t["stage"], t["stage"]), "valor": float(t["value"] or 0)}
+        for t in top
+    ]
+    return {
+        "mrr": float(mrr.get("v", 0)),
+        "clientes": clientes.get("v", 0),
+        "pipeline_aberto": aberto,
+        "ganho_mes": float(won.get("v", 0)),
+        "por_estagio": por_estagio,
+        "top_deals": top_deals,
+    }
+
+
 # ── Funil UNIFICADO (primeiro contato → fechamento), calculado dos dados existentes ──────
 _FUNIL_ORDEM = ["novo", "qualificando", "visita", "proposta", "negociacao", "ganho", "perdido"]
 _FUNIL_LABEL = {
