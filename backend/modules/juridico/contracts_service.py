@@ -170,6 +170,25 @@ def dashboard_contratos(db: Session) -> dict[str, Any]:
     }
 
 
+def obter_texto_contrato(db: Session, contrato_id: str) -> dict[str, Any] | None:
+    """Busca só o texto real do contrato (`content`, fallback `description`) para a
+    análise read-only (5.6b). Nunca fabrica: sem conteúdo em nenhum dos dois campos =
+    texto vazio (a análise responde honestamente que não há o que analisar).
+    """
+    row = db.execute(
+        text("SELECT id, contract_number, name, content, description FROM contracts WHERE id = :id"),
+        {"id": contrato_id},
+    ).mappings().first()
+    if not row:
+        return None
+    return {
+        "id": str(row["id"]),
+        "numero": row.get("contract_number") or "—",
+        "nome": row.get("name") or "—",
+        "texto": (row.get("content") or row.get("description") or "").strip(),
+    }
+
+
 def obter_contrato(db: Session, contrato_id: str) -> dict[str, Any] | None:
     hoje = date.today()
     for c in _fetch_contratos(db):
