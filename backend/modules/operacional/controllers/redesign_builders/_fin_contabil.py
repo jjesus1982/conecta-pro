@@ -554,64 +554,60 @@ async def build_contabil(db, out: dict) -> None:
     except Exception:  # noqa: BLE001
         pass
 
-    # ── C-PAR tributos: FGTS por competência. LÓGICA PORTTE decifrada = 8% do fgts_base (não do
-    # total). A verdade do FGTS é hr_payslips.fgts_value (NÃO fiscal_obligations, que é guia PDF
-    # incompleta/chapada). Nosso _lancar_folha já posta fgts_value → já converge. ────────────────
+    # ── C-PAR tributos MULTI-CNPJ: nosso (folha real hr_payslips, escopada por empresa_id) ×
+    # Portte (guia oficial fiscal_obligations, escopada por empresa_id). Verdade = Portte.
+    # Reusa _status_linha do pareamento_fiscal_service (testado). Oráculo: sem guia = "aguardando". ─
     try:
         from sqlalchemy import text as _text
-        _fp = {r[0]: float(r[1] or 0) for r in (await db.execute(_text(
-            "SELECT reference_period, coalesce(sum(fgts_value),0) FROM hr_payslips "
-            "WHERE coalesce(fgts_value,0) > 0 GROUP BY 1"))).fetchall()}
-        _fn = {r[0]: float(r[1] or 0) for r in (await db.execute(_text(
-            "SELECT periodo_competencia, coalesce(sum(valor),0) FROM accounting_entries "
-            "WHERE conta_debito LIKE '4.1.2%' AND tipo_lancamento LIKE '%fgts%' GROUP BY 1"))).fetchall()}
-        _cs = sorted(set(_fp) | set(_fn))
-        _rows = []
-        for c in _cs:
-            n, p = _fn.get(c, 0.0), _fp.get(c, 0.0)
-            d = n - p
-            st = (b("só nosso", "warn") if p == 0 else b("só Portte", "warn") if n == 0
-                  else b("bate ✓", "ok") if abs(d) < 0.5 else b("diverge", "bad"))
-            _rows.append({"cells": [t(c, 600, "#0F1B3A"), t(brl(n)), t(brl(p)),
-                          t(brl(d), 600, "#16A34A" if (n and p and abs(d) < 0.5) else "#C2410C"), st]})
-        # ISS por competência: nosso (NFS-e iss_valor) × Portte (fiscal_obligations)
-        _ip = {r[0]: float(r[1] or 0) for r in (await db.execute(_text(
-            "SELECT competencia_ano||'-'||lpad(competencia_mes::text,2,'0'), coalesce(sum(valor_devido),0) "
-            "FROM fiscal_obligations WHERE tipo='ISS' AND competencia_mes IS NOT NULL GROUP BY 1"))).fetchall()}
-        _in = {r[0]: float(r[1] or 0) for r in (await db.execute(_text(
-            "SELECT competencia, coalesce(sum(iss_valor),0) FROM nfse_emitidas_nacional "
-            "WHERE coalesce(cancelada,false)=false AND competencia IS NOT NULL GROUP BY 1"))).fetchall()}
-        _iss_rows = []
-        for c in sorted(set(_ip) | set(_in)):
-            n, p = _in.get(c, 0.0), _ip.get(c, 0.0)
-            d = n - p
-            _st = ("nosso convergiu ✓" if (n and p and abs(d) < 0.5) else "só nosso" if p == 0
-                   else "só Portte" if n == 0 else f"Δ {brl(d)}")
-            _iss_rows.append({"left": f"{c} · nosso {brl(n)} × Portte {brl(p)}", "right": _st,
-                              **(S["ok"] if (n and p and abs(d) < 0.5) else S["warn"] if (n and p) else S["mut"])})
-        # INSS empregado: verdade = hr_payslips.inss_value (progressiva sobre inss_base ≈ 7,3%).
-        # Nosso nativo aplica a mesma lógica (clt_calculator.calcular_inss); razão ainda não posta INSS.
-        _inss_pt = {r[0]: float(r[1] or 0) for r in (await db.execute(_text(
-            "SELECT reference_period, coalesce(sum(inss_value),0) FROM hr_payslips "
-            "WHERE coalesce(inss_value,0) > 0 GROUP BY 1"))).fetchall()}
-        _inss_rows = [{"left": f"{c} · Portte INSS-empregado {brl(v)}", "right": "nativo aplica a lógica · razão a postar", **S["info"]}
-                      for c, v in sorted(_inss_pt.items())] or [{"left": "Sem INSS", "right": "—", **S["mut"]}]
+        from modules.financial.services.pareamento_fiscal_service import _status_linha
+        _EMPRESAS = [("Eletrônica", "619a3df1-8bce-49ce-b77a-04f80a0e8491"),
+                     ("Patrimonial", "7d79ed12-d480-4906-b2e0-2b2c4d299bab")]
+        _rows, _mat = [], []
+        for _enome, _eid in _EMPRESAS:
+            _comps = [r[0] for r in (await db.execute(_text(
+                "SELECT DISTINCT reference_period FROM hr_payslips WHERE empresa_id=:e "
+                "AND status<>'cancelled' AND reference_period IS NOT NULL ORDER BY 1 DESC"),
+                {"e": _eid})).fetchall()]
+            _folha = {r[0]: (float(r[1] or 0), float(r[2] or 0)) for r in (await db.execute(_text(
+                "SELECT reference_period, coalesce(sum(fgts_value),0), coalesce(sum(inss_value),0) "
+                "FROM hr_payslips WHERE empresa_id=:e AND status<>'cancelled' GROUP BY 1"),
+                {"e": _eid})).fetchall()}
+            _guia = {}
+            for _r in (await db.execute(_text(
+                "SELECT tipo, competencia_ano||'-'||lpad(competencia_mes::text,2,'0'), coalesce(sum(valor_devido),0) "
+                "FROM fiscal_obligations WHERE empresa_id=:e AND active=true AND competencia_mes IS NOT NULL "
+                "AND tipo IN ('FGTS','INSS','DAS') GROUP BY 1,2"), {"e": _eid})).fetchall():
+                _guia[(_r[0], _r[1])] = float(_r[2] or 0)
+            _bate_comps = 0
+            for _c in _comps:
+                _fg, _iss = _folha.get(_c, (None, None))
+                _oks = []
+                for _rub, _nosso in (("FGTS", _fg), ("INSS", _iss)):
+                    _p = _guia.get((_rub, _c))
+                    _diff, _ok = _status_linha(_nosso, _p)
+                    _oks.append(_ok)
+                    _st = (b("bate ✓", "ok") if _ok else b("aguardando guia Portte", "mut") if _p is None
+                           else b("diverge", "bad"))
+                    _rows.append({"cells": [t(f"{_enome} · {_c}", 600, "#0F1B3A"), t(_rub),
+                                  t(brl(_nosso) if _nosso is not None else "—"),
+                                  t(brl(_p) if _p is not None else "aguardando"),
+                                  t(brl(_diff) if (_p is not None and _nosso is not None) else "—", 600,
+                                    "#16A34A" if _ok else "#C2410C"), _st]})
+                if _oks and all(_oks):
+                    _bate_comps += 1
+            _mat.append({"left": f"{_enome}: competências que bateram 100%", "right": f"{_bate_comps}/{len(_comps)}",
+                         **(S["ok"] if _comps and _bate_comps == len(_comps) else S["info"] if _comps else S["mut"])})
         out["pareamento-tributos"] = {
-            "title": "Pareamento tributos — FGTS / ISS / INSS", "type": "table", "cta": "—",
-            "sub": "FGTS (lógica Portte decifrada = 8% do fgts_base, não do total): nosso razão × hr_payslips.fgts_value "
-                   "(a verdade). Nosso _lancar_folha já posta o fgts_value → já CONVERGE. Próximas: INSS, DAS.",
-            "grid": "1fr 1.3fr 1.3fr 1.2fr 1fr",
-            "cols": ["Competência", "Nosso (razão)", "Portte", "Δ", "Status"],
-            "rows": _rows or [{"cells": [t("Aguardando dado"), t("—"), t("—"), t("—"), t("—")]}],
-            "panelGrid": "1fr 1fr",
-            "panels": [
-                {"title": "ISS por competência (nosso NFS-e × Portte) — já quase maduro", "rows": _iss_rows
-                    or [{"left": "Sem dado de ISS", "right": "—", **S["mut"]}]},
-                {"title": "INSS-empregado (verdade = hr_payslips; nativo aplica a lógica progressiva)", "rows": _inss_rows},
-                {"title": "FGTS — lógica Portte aplicada ✓", "rows": [
-                    {"left": "Lógica Portte = 8% do fgts_base (base exclui verbas não-incidentes, < total)", "right": "decifrada", **S["ok"]},
-                    {"left": "Nosso razão posta o fgts_value real da Portte → converge", "right": "✓", **S["ok"]},
-                    {"left": "fiscal_obligations FGTS = guia PDF incompleta (não é a verdade do FGTS)", "right": "descartada", **S["mut"]}]}],
+            "title": "Pareamento tributos — nosso × Portte (multi-CNPJ)", "type": "table", "cta": "—",
+            "sub": "Verdade = Portte (guia oficial fiscal_obligations, escopada por empresa_id) × nosso (folha real "
+                   "hr_payslips). Sem guia = 'aguardando' (oráculo, nunca zero). Medidor de maturidade = competências "
+                   "que batem 100% — o corte da Portte vem quando N meses seguidos batem.",
+            "grid": "1.3fr 0.7fr 1.1fr 1.1fr 1fr 1.2fr",
+            "cols": ["CNPJ · Competência", "Rubrica", "Nosso (folha)", "Portte (guia)", "Δ", "Status"],
+            "rows": _rows or [{"cells": [t("Aguardando dado"), t("—"), t("—"), t("—"), t("—"), t("—")]}],
+            "panelGrid": "1fr",
+            "panels": [{"title": "Medidor de maturidade (o corte da Portte)", "rows": _mat
+                        or [{"left": "Sem competências", "right": "0", **S["mut"]}]}],
         }
     except Exception:  # noqa: BLE001
         pass
