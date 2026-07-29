@@ -447,6 +447,7 @@ async def adicionar_foto(
 @router.get("/{visita_id}/pdf", summary="Relatório da visita em PDF (marca Conecta)")
 async def visita_relatorio_pdf(
     visita_id: UUID,
+    current_user: CurrentActiveUser,
     download: bool = Query(False),
     service: VisitaService = Depends(get_service),
 ):
