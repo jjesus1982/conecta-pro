@@ -52,6 +52,22 @@ MESES_PT = {
 
 _VAL = r"([\d.]+,\d{2})"
 
+# ── Roteamento multi-CNPJ: cada guia vai para o empresa_id do CNPJ no texto do PDF ──
+EMPRESAS_POR_CNPJ = {
+    "35710481000103": "619a3df1-8bce-49ce-b77a-04f80a0e8491",  # Eletrônica (Lucro Real)
+    "66014833000110": "7d79ed12-d480-4906-b2e0-2b2c4d299bab",  # Patrimonial (Simples)
+}
+EMPRESA_PRINCIPAL = "619a3df1-8bce-49ce-b77a-04f80a0e8491"  # Eletrônica (fallback histórico)
+
+
+def _empresa_por_cnpj(texto: str) -> str:
+    """Resolve o empresa_id pelo CNPJ presente no texto da guia. Default Eletrônica."""
+    for m in re.finditer(r"(\d{2})\.?(\d{3})\.?(\d{3})/?(\d{4})-?(\d{2})", texto or ""):
+        digs = "".join(m.groups())
+        if digs in EMPRESAS_POR_CNPJ:
+            return EMPRESAS_POR_CNPJ[digs]
+    return EMPRESA_PRINCIPAL
+
 
 def _dec(s: str | None) -> float | None:
     if not s:
@@ -89,6 +105,7 @@ class GuiaParseada:
     numero_recibo: str | None = None
     codigo_barras: str | None = None
     pix_copia_cola: str | None = None
+    empresa_id: str | None = None
     detalhe: dict[str, Any] = field(default_factory=dict)
 
 
@@ -124,6 +141,7 @@ def parse_pdf_guia(caminho: str, nome_arquivo: str) -> GuiaParseada:
 
     nome_up = _sem_acento(nome_arquivo).upper()
     mes, ano = _competencia(texto)
+    _emp = _empresa_por_cnpj(texto)
 
     # ── DARF (INSS e afins) — Documento de Arrecadação de Receitas Federais ──
     if "Documento de Arrecada" in texto and "Receitas Federais" in texto:
@@ -138,6 +156,7 @@ def parse_pdf_guia(caminho: str, nome_arquivo: str) -> GuiaParseada:
         # composição por código (1082/1138/1646/…)
         comp = {c: _dec(v) for c, v in re.findall(r"\n(\d{4})\s*\n[^\n]+\n" + _VAL, texto)}
         return GuiaParseada(
+            empresa_id=_emp,
             tipo="INSS", competencia_mes=mes, competencia_ano=ano, valor=valor,
             vencimento=venc, numero_documento=num_doc, numero_recibo=recibo,
             codigo_barras=barras, detalhe={"composicao": comp},
@@ -151,6 +170,7 @@ def parse_pdf_guia(caminho: str, nome_arquivo: str) -> GuiaParseada:
         pix = (re.search(r"(000201\S{50,})", texto) or [None, None])[1]
         consignado = "CONSIGNADO" in nome_up or "Total Consignado" in texto
         return GuiaParseada(
+            empresa_id=_emp,
             tipo="FGTS_CONSIGNADO" if consignado else "FGTS",
             competencia_mes=mes, competencia_ano=ano, valor=valor, vencimento=venc,
             numero_documento=ident, pix_copia_cola=pix,
@@ -162,6 +182,7 @@ def parse_pdf_guia(caminho: str, nome_arquivo: str) -> GuiaParseada:
         total = _dec((re.search(_VAL + r"\s*\nTotal da Guia", texto) or [None, None])[1])
         tomadores = re.findall(r"Tomador:\s*\n?\s*(\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2})", texto)
         return GuiaParseada(
+            empresa_id=_emp,
             tipo="ANEXO", competencia_mes=mes, competencia_ano=ano, valor=total,
             numero_documento=num,
             detalhe={"relatorio": "GFD", "tomadores": sorted(set(tomadores))},
@@ -173,6 +194,7 @@ def parse_pdf_guia(caminho: str, nome_arquivo: str) -> GuiaParseada:
         transm = (re.search(r"Transmiss[aã]o\s*\n?\s*(\d{2}/\d{2}/\d{4})", texto) or [None, None])[1]
         recibos_aux = dict(re.findall(r"(\d{6,})\s*/\s*(Reinf CP|eSocial)", texto))
         return GuiaParseada(
+            empresa_id=_emp,
             tipo="DCTFWEB_DECLARACAO", competencia_mes=mes, competencia_ano=ano,
             numero_recibo=(recibo or "").lstrip("0") or recibo,
             detalhe={"transmissao": transm, "recibos_vinculados": {v: k for k, v in recibos_aux.items()}},
@@ -186,6 +208,7 @@ def parse_pdf_guia(caminho: str, nome_arquivo: str) -> GuiaParseada:
         venc = _data_br((re.search(r"Pagar este documento at[eé]\s*\n?\s*(\d{2}/\d{2}/\d{4})", texto) or [None, None])[1])
         num = (re.search(r"(\d{2}\.\d{2}\.\d{5}\.\d{7}-\d)", texto) or [None, None])[1]
         return GuiaParseada(
+            empresa_id=_emp,
             tipo="PARCELAMENTO_PGFN", competencia_mes=mes, competencia_ano=ano, valor=valor,
             vencimento=venc, numero_documento=num, detalhe={"sispar": m_sispar.group(1)},
         )
@@ -194,13 +217,13 @@ def parse_pdf_guia(caminho: str, nome_arquivo: str) -> GuiaParseada:
     if re.search(r"\bDAS\b", texto) and "Simples Nacional" in texto:
         valor = _dec((re.search(r"Valor Total(?: do Documento)?\s*\n?\s*" + _VAL, texto) or [None, None])[1])
         venc = _data_br((re.search(r"(?:Pagar|Vencimento).{0,20}?(\d{2}/\d{2}/\d{4})", texto) or [None, None])[1])
-        return GuiaParseada(tipo="DAS", competencia_mes=mes, competencia_ano=ano, valor=valor, vencimento=venc)
+        return GuiaParseada(empresa_id=_emp, tipo="DAS", competencia_mes=mes, competencia_ano=ano, valor=valor, vencimento=venc)
     if "ISSQN" in texto or ("ISS" in texto and "Manaus" in texto):
         valor = _dec((re.search(r"Valor(?: Total| do Documento)?\s*\n?\s*" + _VAL, texto) or [None, None])[1])
         venc = _data_br((re.search(r"Vencimento\s*:?\s*\n?\s*(\d{2}/\d{2}/\d{4})", texto) or [None, None])[1])
-        return GuiaParseada(tipo="ISS", competencia_mes=mes, competencia_ano=ano, valor=valor, vencimento=venc)
+        return GuiaParseada(empresa_id=_emp, tipo="ISS", competencia_mes=mes, competencia_ano=ano, valor=valor, vencimento=venc)
 
-    return GuiaParseada(tipo="nao_classificado", competencia_mes=mes, competencia_ano=ano)
+    return GuiaParseada(empresa_id=_emp, tipo="nao_classificado", competencia_mes=mes, competencia_ano=ano)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -227,12 +250,13 @@ def _upsert_obrigacao(db, g: GuiaParseada, meta: dict[str, Any]) -> str:
     if not (g.competencia_mes and g.competencia_ano):
         return "sem_competencia"
 
+    emp = g.empresa_id or EMPRESA_PRINCIPAL
     row = db.execute(
         _sql(
             "SELECT id, valor_devido, observacoes FROM fiscal_obligations "
-            "WHERE tipo=:t AND competencia_mes=:m AND competencia_ano=:a AND active=true LIMIT 1"
+            "WHERE tipo=:t AND competencia_mes=:m AND competencia_ano=:a AND empresa_id=:emp AND active=true LIMIT 1"
         ),
-        {"t": g.tipo, "m": g.competencia_mes, "a": g.competencia_ano},
+        {"t": g.tipo, "m": g.competencia_mes, "a": g.competencia_ano, "emp": emp},
     ).first()
 
     obs = {
@@ -268,13 +292,14 @@ def _upsert_obrigacao(db, g: GuiaParseada, meta: dict[str, Any]) -> str:
 
     db.execute(
         _sql(
-            "INSERT INTO fiscal_obligations (id, condominio_id, tipo, nome, descricao, status, "
+            "INSERT INTO fiscal_obligations (id, condominio_id, empresa_id, tipo, nome, descricao, status, "
             "competencia_mes, competencia_ano, data_vencimento, valor_devido, numero_recibo, "
             "observacoes, created_at, updated_at, active) "
-            "SELECT gen_random_uuid(), condominio_id, :t, :n, :d, 'pendente', :m, :a, :venc, :v, :rec, :obs, NOW(), NOW(), true "
+            "SELECT gen_random_uuid(), condominio_id, :emp, :t, :n, :d, 'pendente', :m, :a, :venc, :v, :rec, :obs, NOW(), NOW(), true "
             "FROM fiscal_obligations LIMIT 1"
         ),
         {
+            "emp": emp,
             "t": g.tipo, "n": NOMES.get(g.tipo, g.tipo),
             "d": f"Guia oficial (Portte/Onvio) — {meta.get('nome')}",
             "m": g.competencia_mes, "a": g.competencia_ano,
@@ -348,17 +373,18 @@ def _marcar_acessorias_cumpridas(db, g: GuiaParseada, meta: dict[str, Any]) -> l
     """DCTFWeb transmitida (recibo real) = acessórias da competência CUMPRIDAS."""
     if not (g.competencia_mes and g.competencia_ano and g.numero_recibo):
         return []
+    emp = g.empresa_id or EMPRESA_PRINCIPAL
     marcadas = []
     for tipo in ("DCTFWEB", "ESOCIAL", "EFD_REINF"):
         r = db.execute(
             _sql(
                 "UPDATE fiscal_obligations SET status='cumprida', numero_recibo=COALESCE(numero_recibo, :rec), "
                 "observacoes = COALESCE(observacoes || ' | ', '') || :nota, updated_at=NOW() "
-                "WHERE tipo=:t AND competencia_mes=:m AND competencia_ano=:a AND active=true "
+                "WHERE tipo=:t AND competencia_mes=:m AND competencia_ano=:a AND empresa_id=:emp AND active=true "
                 "AND status != 'cumprida'"
             ),
             {
-                "rec": g.numero_recibo, "t": tipo, "m": g.competencia_mes, "a": g.competencia_ano,
+                "rec": g.numero_recibo, "t": tipo, "m": g.competencia_mes, "a": g.competencia_ano, "emp": emp,
                 "nota": f"Transmitida (DCTFWeb recibo {g.numero_recibo} em {g.detalhe.get('transmissao')}; fonte drive {meta.get('nome')})",
             },
         )
