@@ -66,9 +66,124 @@ async def rd_action_medida_administrativa(current_user: CurrentActiveUser, paylo
         raise HTTPException(status_code=400, detail=str(ge))
     return {"ok": True, "id": str(action.id), "code": getattr(action, "code", None),
             "message": "Medida disciplinar registrada (rascunho)"}
+
+
+def _mgr_scope(current_user):
+    """Scope de GESTOR p/ ações do redesign (mesmo padrão do quadro de presença).
+    Humano-operado: a parede real é o RBAC do módulo no redesign + auth da rota."""
+    from modules.operacional.scope import OperationalScope
+    return OperationalScope(all_posts=True, post_ids=[], employee_id=None,
+                            user_id=str(current_user.id),
+                            user_name=(getattr(current_user, "name", "") or "redesign"),
+                            is_manager=True)
+
+
+@router.post("/action/passagem-turno")
+async def rd_action_passagem_turno(current_user: CurrentActiveUser, payload: dict = Body(...),
+                                   db=Depends(get_db)) -> dict:
+    """Registra passagem de turno REAL via controller existente (reuso). Humano-operado."""
+    from modules.operacional.controllers.redesign_write_gate import GateError, op_write
+    from modules.operacional.shift_handover.controllers.shift_handover_controller import create_passagem_turno
+    from modules.operacional.shift_handover.schemas import PassagemTurnoCreate
+
+    post_id = (payload.get("post_id") or "").strip() or None
+    resumo = (payload.get("resumo") or "").strip()
+    if len(resumo) < 5:
+        raise HTTPException(status_code=400, detail="O resumo precisa de ao menos 5 caracteres.")
+    try:
+        data = PassagemTurnoCreate(
+            post_id=post_id, turno=(payload.get("turno") or "diurno").strip(),
+            resumo=resumo, pendencias=(payload.get("pendencias") or None),
+            data_turno=payload.get("data_turno") or None)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Dados inválidos: {e}")
+    scope = _mgr_scope(current_user)
+
+    async def _write():
+        return await create_passagem_turno(data=data, scope=scope, db=db)
+
+    try:
+        res = await op_write(db, real_write=_write)
+    except GateError as ge:
+        raise HTTPException(status_code=400, detail=str(ge))
+    rid = getattr(res, "id", None) or (res.get("id") if isinstance(res, dict) else None)
+    return {"ok": True, "id": str(rid) if rid else None, "message": "Passagem de turno registrada"}
+
+
+@router.post("/action/instrucao-posto")
+async def rd_action_instrucao_posto(current_user: CurrentActiveUser, payload: dict = Body(...),
+                                    db=Depends(get_db)) -> dict:
+    """Upsert versionado das instruções do posto REAL via controller (reuso). Só gestor."""
+    from modules.operacional.controllers.redesign_write_gate import GateError, op_write
+    from modules.operacional.post_orders.controllers.post_orders_controller import atualizar_instrucoes_posto
+    from modules.operacional.post_orders.schemas import InstrucoesPostoUpdate
+
+    post_id = (payload.get("post_id") or "").strip()
+    if not post_id:
+        raise HTTPException(status_code=400, detail="Selecione o posto.")
+    conteudo = (payload.get("conteudo") or "").strip()
+    if len(conteudo) < 10:
+        raise HTTPException(status_code=400, detail="O conteúdo precisa de ao menos 10 caracteres.")
+    try:
+        body = InstrucoesPostoUpdate(titulo=(payload.get("titulo") or None), conteudo=conteudo)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Dados inválidos: {e}")
+    scope = _mgr_scope(current_user)
+
+    async def _write():
+        return await atualizar_instrucoes_posto(post_id=post_id, body=body, scope=scope, db=db)
+
+    try:
+        res = await op_write(db, real_write=_write)
+    except GateError as ge:
+        raise HTTPException(status_code=400, detail=str(ge))
+    ver = getattr(res, "versao", None) or (res.get("versao") if isinstance(res, dict) else None)
+    return {"ok": True, "versao": ver, "message": f"Instruções do posto salvas (v{ver})" if ver else "Instruções salvas"}
+
+
+@router.post("/action/banco-horas")
+async def rd_action_banco_horas(current_user: CurrentActiveUser, payload: dict = Body(...),
+                                db=Depends(get_db)) -> dict:
+    """Cria lançamento no banco de horas REAL via controller (reuso; expiração+repo). Humano-operado."""
+    from datetime import date as _date
+
+    from modules.operacional.controllers.redesign_write_gate import GateError, op_write
+    from modules.operacional.controllers.time_bank_controller import create_entry as _tb_create
+    from modules.operacional.schemas.time_bank import TimeBankCreate
+
+    emp_id = (payload.get("employee_id") or "").strip()
+    if not emp_id:
+        raise HTTPException(status_code=400, detail="Selecione o colaborador.")
+    try:
+        hours = float(str(payload.get("hours") or "0").replace(",", "."))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Horas inválidas.")
+    if hours == 0:
+        raise HTTPException(status_code=400, detail="Horas não pode ser zero (use + crédito / - débito).")
+    try:
+        data = TimeBankCreate(
+            employee_id=emp_id, entry_type=payload.get("entry_type") or "credit",
+            hours=hours, reference_date=payload.get("reference_date") or _date.today().isoformat(),
+            description=(payload.get("description") or None), reason=(payload.get("reason") or None))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Dados inválidos: {e}")
+
+    async def _write():
+        return await _tb_create(data=data, current_user=current_user, db=db)
+
+    try:
+        res = await op_write(db, real_write=_write,
+                             idempotency_key=f"bh:{emp_id}:{data.reference_date}:{data.entry_type}:{hours}")
+    except GateError as ge:
+        raise HTTPException(status_code=400, detail=str(ge))
+    rid = getattr(res, "id", None) or (res.get("id") if isinstance(res, dict) else None)
+    return {"ok": True, "id": str(rid) if rid else None, "message": "Lançamento no banco de horas criado"}
 EXTRA_MENU: list[dict] = [
     {"id": "rondas", "label": "Rondas",
      "icon": "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"},
+    {"id": "passagem-turno-nova", "label": "Nova passagem", "icon": "M12 5v14M5 12h14"},
+    {"id": "instrucao-posto-editar", "label": "Editar instrução", "icon": "M12 5v14M5 12h14"},
+    {"id": "banco-horas-lancar", "label": "Lançar horas", "icon": "M12 5v14M5 12h14"},
 ]
 
 
@@ -290,6 +405,52 @@ async def build(db) -> dict:
             "WHERE coalesce(p.is_active,true) ORDER BY p.name LIMIT 300",
             lambda r: [t(r[0] or '—', 600, "#0F1B3A"), t(r[1]), t(f"v{int(r[2] or 0)}" if r[2] else '—'),
                        b("Com instrução", "ok") if r[3] else b("Sem instrução", "mut")])
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Forms de ESCRITA (humano-operado; reusam controllers via gate). Opções vêm do banco.
+    try:
+        _posts = (await db.execute(_sqltext(
+            "SELECT id, name FROM posts WHERE coalesce(is_active,true) ORDER BY name LIMIT 500"))).fetchall()
+        _post_opts = [{"value": str(i), "label": (n or '—')} for i, n in _posts]
+        _emp2 = (await db.execute(_sqltext(
+            "SELECT id, nome FROM employees WHERE coalesce(status,'')='ativo' ORDER BY nome LIMIT 500"))).fetchall()
+        _emp_opts = [{"value": str(i), "label": (n or '—')} for i, n in _emp2]
+
+        out["passagem-turno-nova"] = {
+            "title": "Nova passagem de turno", "sub": "Registro de troca entre plantões", "cta": "Registrar passagem",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/passagem-turno", "okMsg": "Passagem registrada"},
+            "fields": [
+                {"key": "post_id", "label": "Posto*", "type": "select", "span": "span 2", "ph": "Selecione o posto", "options": _post_opts},
+                {"key": "turno", "label": "Turno*", "type": "select", "span": "span 1", "ph": "Turno",
+                 "options": [{"value": v, "label": l} for v, l in [("diurno", "Diurno"), ("noturno", "Noturno"), ("madrugada", "Madrugada")]]},
+                {"key": "data_turno", "label": "Data do turno", "type": "date", "span": "span 1"},
+                {"key": "resumo", "label": "Resumo do turno*", "type": "textarea", "span": "span 2", "ph": "Como foi o turno (mín. 5 caracteres)…"},
+                {"key": "pendencias", "label": "Pendências p/ o próximo", "type": "textarea", "span": "span 2", "ph": "Opcional…"},
+            ],
+        }
+        out["instrucao-posto-editar"] = {
+            "title": "Editar instruções do posto", "sub": "Upsert versionado — só gestão", "cta": "Salvar instruções",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/instrucao-posto", "okMsg": "Instruções salvas"},
+            "fields": [
+                {"key": "post_id", "label": "Posto*", "type": "select", "span": "span 2", "ph": "Selecione o posto", "options": _post_opts},
+                {"key": "titulo", "label": "Título", "type": "text", "span": "span 2", "ph": "Ex.: POP Portaria v4"},
+                {"key": "conteudo", "label": "Conteúdo*", "type": "textarea", "span": "span 2", "ph": "Procedimento operacional (mín. 10 caracteres)…"},
+            ],
+        }
+        out["banco-horas-lancar"] = {
+            "title": "Lançar banco de horas", "sub": "Crédito/débito de horas (requer aprovação p/ efetivar)", "cta": "Lançar",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/banco-horas", "okMsg": "Lançamento criado"},
+            "fields": [
+                {"key": "employee_id", "label": "Colaborador*", "type": "select", "span": "span 2", "ph": "Selecione o colaborador", "options": _emp_opts},
+                {"key": "entry_type", "label": "Tipo*", "type": "select", "span": "span 1", "ph": "Tipo",
+                 "options": [{"value": v, "label": l} for v, l in [("credit", "Crédito (a favor do empregador)"), ("debit", "Débito (a favor do empregado)"), ("adjustment", "Ajuste manual")]]},
+                {"key": "hours", "label": "Horas*", "type": "text", "span": "span 1", "ph": "Ex.: 8 ou 2.5"},
+                {"key": "reference_date", "label": "Data de referência*", "type": "date", "span": "span 1"},
+                {"key": "reason", "label": "Motivo", "type": "text", "span": "span 1", "ph": "Opcional"},
+                {"key": "description", "label": "Descrição", "type": "textarea", "span": "span 2", "ph": "Opcional…"},
+            ],
+        }
     except Exception:  # noqa: BLE001
         pass
 
