@@ -64,6 +64,10 @@ DESC_SEGURO = Decimal("2.00")
 TAXA_NEGOCIAL = Decimal("22.00")
 MESES_TAXA_NEGOCIAL = {1, 3, 5, 7, 9, 11}
 FGTS_PCT = Decimal("0.08")
+# Salário-família (benefício federal, NÃO incide INSS/IRRF/FGTS). Valores 2026.
+# ponytail: constantes anuais inline (como as tabelas INSS/IRRF em clt_calculator); trocar 1×/ano.
+SALARIO_FAMILIA_QUOTA = Decimal("67.54")   # cota por filho <14 anos
+SALARIO_FAMILIA_TETO = Decimal("1819.26")  # remuneração-teto p/ ter direito
 
 # Divisores por escala
 DIVISOR_ESCALA = {"12x36": 180, "44h": 220}
@@ -383,6 +387,26 @@ def calcular_folha_colaborador(
 
     # Vale Refeição / Vale Transporte NÃO entram no holerite: vão no documento próprio
     # "Recibo de VT e VR". Aqui só a folha (proventos salariais + descontos legais/co-part.).
+
+    # 0020 — Salário Família: cota por filho <14, se remuneração-base ≤ teto federal.
+    # Fonte dos filhos = employees.dependentes (entradas menor_14). Proporcional a admissão/
+    # desligamento (mesmo fator_prop da base). Emitido ANTES de total_proventos e FORA do
+    # base_inss (benefício não incide INSS/IRRF/FGTS). ponytail: dado só existe no espelho
+    # Portte p/ jan-jun (backfill); meses futuros virão do cadastro real de dependentes.
+    if salario_base_cadastrado <= SALARIO_FAMILIA_TETO:
+        _sf = db.execute(
+            text("SELECT dependentes FROM employees WHERE CAST(id AS TEXT)=:e"), {"e": employee_id}
+        ).scalar()
+        _n_menor14 = sum(1 for d in _sf if isinstance(d, dict) and d.get("menor_14")) if isinstance(_sf, list) else 0
+        if _n_menor14 > 0:
+            _sf_valor = _d(SALARIO_FAMILIA_QUOTA * _n_menor14 * fator_prop)
+            proventos.append({
+                "codigo": "0020",
+                "descricao": "Salario Familia",
+                "tipo": "provento",
+                "referencia": f"{_n_menor14} filho(s) <14",
+                "valor": float(_sf_valor),
+            })
 
     total_proventos = sum(Decimal(str(p["valor"])) for p in proventos)
 
