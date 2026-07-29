@@ -197,6 +197,44 @@ def _formatar_contexto_real(ctx: dict[str, Any]) -> str:
     return "\nDADOS REAIS DO BANCO AGORA (" + "; ".join(partes) + ")."
 
 
+async def _analise_contrato_hipotese(db: AsyncSession, contrato_id: str) -> str:
+    """Bloco de contexto com a análise read-only (regex+scoring) de um contrato,
+    rotulado HIPÓTESE (não fato). Reusa `obter_texto_contrato` (BT1, sync) via
+    `db.run_sync` e `analise_contrato.analisar`. Best-effort: qualquer falha =
+    string vazia (nunca quebra a consulta, nunca fabrica)."""
+    try:
+        from modules.juridico import contracts_service as _cs
+        ctr = await db.run_sync(lambda s: _cs.obter_texto_contrato(s, contrato_id))
+        if not ctr or not ctr.get("texto"):
+            return ""
+        from modules.ai.contract_analysis.services.analise_contrato import analisar
+        an = await analisar(ctr["texto"])
+        risco = an.get("risco") or {}
+        arriscadas = [c for c in an.get("clausulas", []) if c.get("arriscada")]
+        linhas = [
+            "",
+            f"ANÁLISE AUTOMÁTICA DO CONTRATO {ctr['numero']} — {ctr['nome']} "
+            "(HIPÓTESE de máquina por regex+scoring, NÃO é fato jurídico — valide o texto original):",
+            f"- Tipo detectado: {an.get('contrato_tipo', '—')} "
+            f"(confiança {an.get('contrato_tipo_confianca', 0)}).",
+            f"- Risco: nível {risco.get('nivel', '—')}, score {risco.get('score', '—')}.",
+            f"- Cláusulas: {len(an.get('clausulas', []))} identificadas, "
+            f"{len(arriscadas)} sinalizada(s) como arriscada(s).",
+        ]
+        for c in arriscadas[:5]:
+            linhas.append(f"  · {c.get('titulo') or c.get('numero')}: {'; '.join(c.get('risco_motivos') or []) or 'sem motivo detalhado'}")
+        for rec in (risco.get("recomendacoes") or [])[:5]:
+            linhas.append(f"- Recomendação (hipótese): {rec}")
+        linhas.append(
+            "Trate isto como PISTA a confirmar, não como conclusão jurídica: a análise não "
+            "leu o contrato como advogado, só rodou padrões. Cite o texto real ao responder."
+        )
+        return "\n".join(linhas) + "\n"
+    except Exception as e:  # noqa: BLE001 — enriquecimento nunca quebra a consulta
+        logger.debug("Falha ao anexar análise do contrato %s: %s", contrato_id, e)
+        return ""
+
+
 # --------------------------------------------------------------------------- #
 # Heurística de escalonamento (defensiva, além do sinal do LLM)
 # --------------------------------------------------------------------------- #
@@ -254,6 +292,7 @@ async def consultar(
     user_id: str | None,
     anexo_texto: str | None = None,
     anexo_nome: str | None = None,
+    contrato_id: str | None = None,
 ) -> dict[str, Any]:
     """Responde uma dúvida jurídica fundamentada na área indicada e persiste a consulta.
 
@@ -281,10 +320,16 @@ async def consultar(
     except Exception:  # noqa: BLE001
         pass
 
+    # Quando a consulta é sobre um contrato específico, anexa a análise read-only
+    # dele (cláusulas/risco/compliance) rotulada HIPÓTESE — não fato (BT2, 5.6b).
+    if contrato_id:
+        system_prompt += await _analise_contrato_hipotese(db, contrato_id)
+
     contexto_usado = {
         "area": area_norm,
         "dados_reais": contexto_real,
         "cct": "SINDECOMPRESTS AM000613/2025",
+        "contrato_id": contrato_id,
     }
 
     # Chamada ao LLM já configurado no projeto. Se indisponível, responde honesto.

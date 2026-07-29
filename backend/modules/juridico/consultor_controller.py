@@ -33,6 +33,11 @@ class PerguntaIn(BaseModel):
         description="Dúvida jurídica do dia a dia da empresa.",
         examples=["Como calcular o adicional noturno de um agente de portaria na escala 12x36?"],
     )
+    contrato_id: str | None = Field(
+        default=None,
+        description="Se a dúvida for sobre um contrato específico, o id dele: a IA recebe a "
+        "análise read-only (cláusulas/risco/compliance) como HIPÓTESE para fundamentar.",
+    )
 
 
 class ConsultaOut(BaseModel):
@@ -67,6 +72,7 @@ async def perguntar(
             area=area,
             pergunta=body.pergunta,
             user_id=str(getattr(current_user, "id", None)),
+            contrato_id=body.contrato_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
