@@ -488,9 +488,13 @@ def calcular_folha_colaborador(
         ded_rows = db.execute(
             text(
                 "SELECT tipo, descricao, valor, percentual, parcela_atual, total_parcelas "
-                "FROM employee_deductions WHERE CAST(employee_id AS TEXT)=:e AND ativo=true"
+                "FROM employee_deductions WHERE CAST(employee_id AS TEXT)=:e AND ativo=true "
+                # Só aplica a dedução na competência entre data_inicio e data_fim (evita aplicar
+                # empréstimo antes de existir ou depois de quitado). NULL = sem limite.
+                "AND (data_inicio IS NULL OR data_inicio <= (make_date(:ano,:mes,1) + INTERVAL '1 month' - INTERVAL '1 day')::date) "
+                "AND (data_fim IS NULL OR data_fim >= make_date(:ano,:mes,1))"
             ),
-            {"e": employee_id},
+            {"e": employee_id, "ano": ano, "mes": mes},
         ).fetchall()
         for tipo_d, desc_d, val_d, pct_d, pa, tp in ded_rows:
             base_ded = salario_base if (tipo_d or "").startswith("pensao") else total_proventos
