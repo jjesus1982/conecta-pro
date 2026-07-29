@@ -6,6 +6,8 @@ Mês sem kits → SKIP com erro claro. Criar kits = decisão de negócio (§41.1
 
 from __future__ import annotations
 
+import os
+
 import pytest
 import requests
 from sqlalchemy import text
@@ -17,7 +19,7 @@ from core.database.session import SyncSessionLocal
 def token():
     r = requests.post(  # noqa: S113
         "http://127.0.0.1:8080/api/v1/auth/login",
-        data={"username": "jjesus@conectamais.pro", "password": "JsJ618908@#%"},  # pragma: allowlist secret
+        data={"username": os.getenv("MCP_SERVICE_EMAIL", ""), "password": os.getenv("MCP_SERVICE_PASSWORD", "")},
         timeout=10,
     )
     assert r.status_code == 200, f"Login falhou: {r.text}"

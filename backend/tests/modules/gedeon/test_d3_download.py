@@ -15,6 +15,8 @@ Igual ao padrão de test_kit_controller.py.
 
 from __future__ import annotations
 
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -137,7 +139,7 @@ class TestD3DownloadHTTP:
         # Token real via API de login
         login = req.post(
             "http://localhost:8080/api/v1/auth/login",
-            data={"username": "jjesus@conectamais.pro", "password": "JsJ618908@#%"},  # pragma: allowlist secret
+            data={"username": os.getenv("MCP_SERVICE_EMAIL", ""), "password": os.getenv("MCP_SERVICE_PASSWORD", "")},
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=10,
         )
@@ -187,7 +189,7 @@ class TestD3DownloadHTTP:
         try:
             login = req.post(
                 "http://localhost:8080/api/v1/auth/login",
-                data={"username": "jjesus@conectamais.pro", "password": "JsJ618908@#%"},  # pragma: allowlist secret
+                data={"username": os.getenv("MCP_SERVICE_EMAIL", ""), "password": os.getenv("MCP_SERVICE_PASSWORD", "")},
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
                 timeout=10,
             )

@@ -28,13 +28,19 @@ async def _get_token() -> str:
     if _cached_token and _token_expiry and datetime.now() < _token_expiry:
         return _cached_token
 
-    email = os.getenv("MCP_SERVICE_EMAIL", "jjesus@conectamais.pro")
-    password = os.getenv("MCP_SERVICE_PASSWORD", "JsJ618908@#%")
+    email = os.getenv("MCP_SERVICE_EMAIL")
+    password = os.getenv("MCP_SERVICE_PASSWORD")
+    if not email or not password:
+        raise RuntimeError(
+            "MCP_SERVICE_EMAIL/MCP_SERVICE_PASSWORD não configurados no ambiente — "
+            "MCP financeiro desativado (credencial não pode ser hardcoded no código)."
+        )
 
     async with httpx.AsyncClient(timeout=10) as client:
+        # auth espera form-urlencoded (username/password), não JSON
         resp = await client.post(
             f"{API_BASE}/auth/login",
-            json={"email": email, "password": password},
+            data={"username": email, "password": password},
         )
         resp.raise_for_status()
         data = resp.json()
