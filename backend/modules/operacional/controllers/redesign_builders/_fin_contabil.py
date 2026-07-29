@@ -607,6 +607,26 @@ async def build_contabil(db, out: dict) -> None:
                     _bate_comps += 1
             _mat.append({"left": f"{_enome}: competências que bateram 100%", "right": f"{_bate_comps}/{len(_comps)}",
                          **(S["ok"] if _comps and _bate_comps == len(_comps) else S["info"] if _comps else S["mut"])})
+        # DCTFWeb (Lucro Real): nosso apurado (INSS DARF total da folha) × recibo Portte (prova de transmissão).
+        # A guia DCTFWEB não carrega valor (é declaração); pareia-se se transmitiu, com o nosso valor ao lado.
+        _ELET = "619a3df1-8bce-49ce-b77a-04f80a0e8491"
+        _ap = {r[0]: _inss_total(r[1], r[2]) for r in (await db.execute(_text(
+            "SELECT reference_period, coalesce(sum(inss_value),0), coalesce(sum(inss_base),0) "
+            "FROM hr_payslips WHERE empresa_id=:e AND status<>'cancelled' GROUP BY 1"), {"e": _ELET})).fetchall()}
+        _rec = {r[0]: (r[1], r[2]) for r in (await db.execute(_text(
+            "SELECT competencia_ano||'-'||lpad(competencia_mes::text,2,'0'), numero_recibo, status "
+            "FROM fiscal_obligations WHERE tipo='DCTFWEB' AND empresa_id=:e AND active=true AND competencia_mes IS NOT NULL"),
+            {"e": _ELET})).fetchall()}
+        _dctf = []
+        for _c in sorted(set(_ap) | set(_rec), reverse=True):
+            _val, _r = _ap.get(_c), _rec.get(_c)
+            _left = f"{_c} · nosso apurado {brl(_val) if _val is not None else '—'}"
+            if _r and _r[0]:
+                _dctf.append({"left": _left, "right": f"recibo {_r[0]} ✓", **S["ok"]})
+            elif _r:
+                _dctf.append({"left": _left, "right": f"transmitida ({_r[1]}) s/ recibo", **S["info"]})
+            else:
+                _dctf.append({"left": _left, "right": "sem DCTFWeb Portte", **S["mut"]})
         out["pareamento-tributos"] = {
             "title": "Pareamento tributos — nosso × Portte (multi-CNPJ)", "type": "table", "cta": "—",
             "sub": "Verdade = Portte (guia oficial fiscal_obligations, escopada por empresa_id) × nosso (folha real "
@@ -615,9 +635,13 @@ async def build_contabil(db, out: dict) -> None:
             "grid": "1.3fr 0.7fr 1.1fr 1.1fr 1fr 1.2fr",
             "cols": ["CNPJ · Competência", "Rubrica", "Nosso (folha)", "Portte (guia)", "Δ", "Status"],
             "rows": _rows or [{"cells": [t("Aguardando dado"), t("—"), t("—"), t("—"), t("—"), t("—")]}],
-            "panelGrid": "1fr",
-            "panels": [{"title": "Medidor de maturidade (o corte da Portte)", "rows": _mat
-                        or [{"left": "Sem competências", "right": "0", **S["mut"]}]}],
+            "panelGrid": "1fr 1fr",
+            "panels": [
+                {"title": "Medidor de maturidade (o corte da Portte)", "rows": _mat
+                    or [{"left": "Sem competências", "right": "0", **S["mut"]}]},
+                {"title": "DCTFWeb — nosso apurado × recibo Portte", "rows": _dctf
+                    or [{"left": "Sem DCTFWeb", "right": "—", **S["mut"]}]},
+            ],
         }
     except Exception:  # noqa: BLE001
         pass
