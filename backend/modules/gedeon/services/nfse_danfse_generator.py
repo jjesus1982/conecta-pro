@@ -124,6 +124,51 @@ def gerar_danfse_de_nfse(row: dict) -> bytes:
     return _render_danfse(d)
 
 
+def gerar_danfse_de_emitida(row: dict) -> bytes:
+    """DANFSe da NFS-e EMITIDA (tabela nfse_emitidas_nacional, portal ADN).
+
+    Campos da nota (chave, valores, tomador, competência) vêm da linha; o PRESTADOR
+    (somos nós) vem do join em `empresas` (emit_cnpj/emit_nome/emit_im) — dado real,
+    nunca fabricado. Os nomes de coluna diferem de `nfses`, por isso o mapeamento aqui.
+    """
+    def m(v) -> str:
+        try:
+            return f"{float(v or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        except Exception:  # noqa: BLE001
+            return "0,00"
+
+    def dt(v) -> str:
+        try:
+            return v.strftime("%d/%m/%Y")
+        except Exception:  # noqa: BLE001
+            return str(v or "")
+
+    comp = str(row.get("competencia") or "")
+    if len(comp) == 7 and "-" in comp:  # 'YYYY-MM' -> 'MM/YYYY'
+        ano, mes = comp.split("-")
+        comp = f"{mes}/{ano}"
+    d = {
+        "numero": str(row.get("numero") or ""),
+        "chave": str(row.get("chave_acesso") or ""),
+        "competencia": comp,
+        "emissao": dt(row.get("data_emissao")),
+        "local": "Manaus",
+        "emit_cnpj": row.get("emit_cnpj") or "",
+        "emit_im": row.get("emit_im") or "",
+        "emit_nome": row.get("emit_nome") or "",
+        "toma_cnpj": row.get("tomador_cnpj") or "",
+        "toma_nome": row.get("tomador_nome") or "",
+        "servico": (row.get("descricao") or row.get("codigo_servico") or "—")[:80],
+        "vserv": m(row.get("valor_servicos")),
+        "vbc": m(row.get("valor_servicos")),
+        "viss": m(row.get("iss_valor")),
+        "vinss": m(row.get("inss_retido")),
+        "vliq": m(row.get("valor_liquido")),
+        "discr": row.get("descricao") or "",
+    }
+    return _render_danfse(d)
+
+
 def _render_danfse(d: dict) -> bytes:
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)

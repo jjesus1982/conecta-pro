@@ -288,9 +288,10 @@ async def build(db) -> dict:
     await safe("faturamento", tbl(
         "Faturamento", f"{await _scalar(db, 'SELECT count(*) FROM nfse_emitidas_nacional WHERE coalesce(cancelada,false)=false')} NFS-e emitidas",
         "—", ["Número", "Competência", "Tomador", "Serviços", "Líquido"], "1fr 1fr 2fr 1fr 1fr",
-        "SELECT coalesce(numero,'—'), coalesce(competencia,'—'), coalesce(tomador_nome,'—'), valor_servicos, valor_liquido "
+        "SELECT chave_acesso, coalesce(numero,'—'), coalesce(competencia,'—'), coalesce(tomador_nome,'—'), valor_servicos, valor_liquido "
         "FROM nfse_emitidas_nacional WHERE coalesce(cancelada,false)=false ORDER BY data_emissao DESC NULLS LAST LIMIT 200",
-        lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), t(r[2]), t(brl(r[3]), 600), t(brl(r[4]))]))
+        lambda r: [t(r[1], 600, "#0F1B3A"), t(r[2]), t(r[3]), t(brl(r[4]), 600), t(brl(r[5]))],
+        docsfn=lambda r: [doc("DANFSe", f"/api/v1/financial/fiscal/nfse-emitida/{r[0]}/danfse", fmt="pdf")] if r[0] else []))
 
     # ---- Fiscal (tributos sobre NFS-e emitidas — ISS/INSS retido) ----
     await safe("fiscal", tbl(

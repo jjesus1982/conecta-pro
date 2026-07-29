@@ -1755,3 +1755,37 @@ async def nfse_danfse(
     nome = f"danfse_{row.get('numero_nfse') or nfse_id}.pdf"
     return _Resp(content=pdf, media_type="application/pdf",
                  headers={"Content-Disposition": f'{disp}; filename="{nome}"'})
+
+
+@router.get("/nfse-emitida/{chave}/danfse", summary="DANFSe (PDF) da NFS-e emitida (portal nacional)")
+async def nfse_emitida_danfse(
+    chave: str,
+    download: bool = Query(False, description="1 = baixar; 0 = abrir inline"),
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """DANFSe da NFS-e EMITIDA (nfse_emitidas_nacional). Prestador = empresa emitente
+    (join real em `empresas`, escopado por chave). Campos estruturados; a chave permite
+    verificar a nota oficial no portal nacional."""
+    from fastapi.responses import Response as _Resp
+    from sqlalchemy import text as _t
+
+    from modules.gedeon.services.nfse_danfse_generator import gerar_danfse_de_emitida
+
+    row = (await db.execute(_t(
+        "SELECT e.chave_acesso, e.numero, e.competencia, e.data_emissao, e.tomador_cnpj, "
+        "e.tomador_nome, e.valor_servicos, e.iss_valor, e.inss_retido, e.valor_liquido, "
+        "e.descricao, e.codigo_servico, emp.cnpj AS emit_cnpj, emp.razao_social AS emit_nome, "
+        "emp.inscricao_municipal AS emit_im "
+        "FROM nfse_emitidas_nacional e LEFT JOIN empresas emp ON emp.id = e.empresa_id "
+        "WHERE e.chave_acesso = :c LIMIT 1"), {"c": chave})).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="NFS-e emitida não encontrada")
+    try:
+        pdf = gerar_danfse_de_emitida(dict(row))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"falha ao gerar DANFSe: {exc}") from exc
+    disp = "attachment" if download else "inline"
+    nome = f"danfse_{row.get('numero') or chave[:14]}.pdf"
+    return _Resp(content=pdf, media_type="application/pdf",
+                 headers={"Content-Disposition": f'{disp}; filename="{nome}"'})
