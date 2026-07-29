@@ -1264,6 +1264,53 @@ async def _dre_simplificado(ano: int, mes_inicio: int, mes_fim: int, db: AsyncSe
     }
 
 
+# --- Montagem das seções → PDF branded (compartilhada endpoint + tool gera-doc do chat, Fase 6 F3).
+# Puras: recebem o `dados` JÁ apurado pelas funções reais e só formatam. `escopo` = nota honesta
+# de recorte (ex.: "grupo consolidado" / nome do CNPJ) anexada ao subtítulo; endpoints passam "".
+
+def _dre_pdf_bytes(dados: dict, ano: int, escopo: str = "") -> bytes:
+    from modules.financial.services.relatorio_financeiro_pdf import gerar_relatorio_pdf
+    destaque = {"receita_liquida", "lucro_bruto", "lucro_operacional", "lucro_liquido", "resultado_liquido"}
+    linhas = [(g.get("nome"), g.get("valor"), g.get("grupo") in destaque) for g in dados.get("grupos", [])]
+    secoes = [{"titulo": f"DRE — exercício {ano}", "linhas": linhas}]
+    secoes.append({"titulo": "Margens", "linhas": [
+        ("Margem bruta", f"{dados.get('margem_bruta_pct', 0):.1f}%"),
+        ("Margem operacional", f"{dados.get('margem_operacional_pct', 0):.1f}%"),
+        ("Margem líquida", f"{dados.get('margem_liquida_pct', 0):.1f}%", True)]})
+    sub = f"Exercício {ano} · regime {dados.get('regime', '')}"
+    return gerar_relatorio_pdf("Demonstração do Resultado (DRE)", f"{sub} · {escopo}" if escopo else sub, secoes)
+
+
+def _balancete_pdf_bytes(dados: dict, ano: int, mes: int | None, escopo: str = "") -> bytes:
+    from modules.financial.services.relatorio_financeiro_pdf import gerar_relatorio_pdf
+    linhas = []
+    for lin in dados.get("linhas", []):
+        rot = lin.get("conta_nome") or lin.get("nome") or lin.get("descricao") or lin.get("conta") or "—"
+        val = lin.get("saldo")
+        if val is None:
+            val = float(lin.get("credito", 0) or 0) - float(lin.get("debito", 0) or 0)
+        linhas.append((rot, val))
+    secoes = [{"titulo": f"Balancete — {ano}" + (f"/{mes:02d}" if mes else ""), "linhas": linhas or [("(sem lançamentos)", "")]}]
+    secoes.append({"titulo": "Totais", "linhas": [
+        ("Total débito", dados.get("total_debito", 0)),
+        ("Total crédito", dados.get("total_credito", 0)),
+        ("Diferença", dados.get("diferenca", 0), True)]})
+    sub = f"Exercício {ano}" + (f" · mês {mes:02d}" if mes else "")
+    return gerar_relatorio_pdf("Balancete", f"{sub} · {escopo}" if escopo else sub, secoes)
+
+
+def _fluxo_caixa_pdf_bytes(dados: dict, ano: int, escopo: str = "") -> bytes:
+    from modules.financial.services.relatorio_financeiro_pdf import gerar_relatorio_pdf
+    meses = dados.get("meses", [])
+    linhas = [(m.get("mes"), m.get("saldo_caixa"), (m.get("saldo_caixa") or 0) < 0) for m in meses]
+    secoes = [{"titulo": f"Saldo de caixa por mês — {ano}", "linhas": linhas or [("(sem dados)", "")]}]
+    secoes.append({"titulo": "Resumo do ano", "linhas": [
+        ("Saídas totais", dados.get("saidas_total_ano", 0)),
+        ("Saídas não categorizadas", dados.get("saidas_nao_categorizadas_ano", 0), True)]})
+    sub = f"Exercício {ano}"
+    return gerar_relatorio_pdf("Fluxo de Caixa", f"{sub} · {escopo}" if escopo else sub, secoes)
+
+
 @router.get("/dre/pdf", summary="DRE em PDF (marca Conecta)")
 async def dre_pdf(
     ano: int = Query(..., ge=2020, le=2100),
@@ -1272,19 +1319,9 @@ async def dre_pdf(
 ):
     from fastapi.responses import Response as _Resp
 
-    from modules.financial.services.relatorio_financeiro_pdf import gerar_relatorio_pdf
-
     dados = await get_dre(ano=ano, mes_inicio=1, mes_fim=12, comparativo=False,
                           condominio_id=None, db=db, _current_user=current_user)
-    destaque = {"receita_liquida", "lucro_bruto", "lucro_operacional", "lucro_liquido", "resultado_liquido"}
-    linhas = [(g.get("nome"), g.get("valor"), g.get("grupo") in destaque) for g in dados.get("grupos", [])]
-    secoes = [{"titulo": f"DRE — exercício {ano}", "linhas": linhas}]
-    secoes.append({"titulo": "Margens", "linhas": [
-        ("Margem bruta", f"{dados.get('margem_bruta_pct', 0):.1f}%"),
-        ("Margem operacional", f"{dados.get('margem_operacional_pct', 0):.1f}%"),
-        ("Margem líquida", f"{dados.get('margem_liquida_pct', 0):.1f}%", True)]})
-    pdf = gerar_relatorio_pdf("Demonstração do Resultado (DRE)",
-                              f"Exercício {ano} · regime {dados.get('regime', '')}", secoes)
+    pdf = _dre_pdf_bytes(dados, ano)
     return _Resp(content=pdf, media_type="application/pdf",
                  headers={"Content-Disposition": f'inline; filename="dre_{ano}.pdf"'})
 
@@ -1298,22 +1335,8 @@ async def balancete_pdf(
 ):
     from fastapi.responses import Response as _Resp
 
-    from modules.financial.services.relatorio_financeiro_pdf import gerar_relatorio_pdf
-
     dados = await balancete_real(ano=ano, mes=mes, db=db, _user=current_user)
-    linhas = []
-    for lin in dados.get("linhas", []):
-        rot = lin.get("conta_nome") or lin.get("nome") or lin.get("descricao") or lin.get("conta") or "—"
-        val = lin.get("saldo")
-        if val is None:
-            val = float(lin.get("credito", 0) or 0) - float(lin.get("debito", 0) or 0)
-        linhas.append((rot, val))
-    secoes = [{"titulo": f"Balancete — {ano}" + (f"/{mes:02d}" if mes else ""), "linhas": linhas or [("(sem lançamentos)", "")]}]
-    secoes.append({"titulo": "Totais", "linhas": [
-        ("Total débito", dados.get("total_debito", 0)),
-        ("Total crédito", dados.get("total_credito", 0)),
-        ("Diferença", dados.get("diferenca", 0), True)]})
-    pdf = gerar_relatorio_pdf("Balancete", f"Exercício {ano}" + (f" · mês {mes:02d}" if mes else ""), secoes)
+    pdf = _balancete_pdf_bytes(dados, ano, mes)
     return _Resp(content=pdf, media_type="application/pdf",
                  headers={"Content-Disposition": f'inline; filename="balancete_{ano}.pdf"'})
 
@@ -1325,15 +1348,7 @@ async def fluxo_caixa_pdf(
 ):
     from fastapi.responses import Response as _R
 
-    from modules.financial.services.relatorio_financeiro_pdf import gerar_relatorio_pdf
-
     dados = await fluxo_caixa_mensal(ano=ano, _user=current_user)
-    meses = dados.get("meses", [])
-    linhas = [(m.get("mes"), m.get("saldo_caixa"), (m.get("saldo_caixa") or 0) < 0) for m in meses]
-    secoes = [{"titulo": f"Saldo de caixa por mês — {ano}", "linhas": linhas or [("(sem dados)", "")]}]
-    secoes.append({"titulo": "Resumo do ano", "linhas": [
-        ("Saídas totais", dados.get("saidas_total_ano", 0)),
-        ("Saídas não categorizadas", dados.get("saidas_nao_categorizadas_ano", 0), True)]})
-    pdf = gerar_relatorio_pdf("Fluxo de Caixa", f"Exercício {ano}", secoes)
+    pdf = _fluxo_caixa_pdf_bytes(dados, ano)
     return _R(content=pdf, media_type="application/pdf",
               headers={"Content-Disposition": f'inline; filename="fluxo_caixa_{ano}.pdf"'})
