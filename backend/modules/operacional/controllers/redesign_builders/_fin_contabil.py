@@ -627,6 +627,32 @@ async def build_contabil(db, out: dict) -> None:
                 _dctf.append({"left": _left, "right": f"transmitida ({_r[1]}) s/ recibo", **S["info"]})
             else:
                 _dctf.append({"left": _left, "right": "sem DCTFWeb Portte", **S["mut"]})
+        # IRRF (mensal) + DIRF (anual): nosso apurado (irrf_value da folha) × status Portte.
+        # Folha de portaria fica abaixo do piso IRRF → retenção zero (vazio-real, não "bate" falso).
+        _irn = {r[0]: float(r[1] or 0) for r in (await db.execute(_text(
+            "SELECT reference_period, coalesce(sum(irrf_value),0) FROM hr_payslips "
+            "WHERE empresa_id=:e AND status<>'cancelled' GROUP BY 1"), {"e": _ELET})).fetchall()}
+        _irp = {r[0]: (r[1], r[2]) for r in (await db.execute(_text(
+            "SELECT competencia_ano||'-'||lpad(competencia_mes::text,2,'0'), numero_recibo, status "
+            "FROM fiscal_obligations WHERE tipo='IRRF' AND empresa_id=:e AND active=true AND competencia_mes IS NOT NULL"),
+            {"e": _ELET})).fetchall()}
+        _irrf = []
+        for _c in sorted(set(_irn) | set(_irp), reverse=True):
+            _v, _r = _irn.get(_c), _irp.get(_c)
+            _nome = f"{_c} · nosso IRRF {brl(_v) if _v is not None else '—'}"
+            if _v == 0:
+                _irrf.append({"left": _nome, "right": "sem retenção (folha < piso IRRF)", **S["mut"]})
+            elif _r and _r[0]:
+                _irrf.append({"left": _nome, "right": f"recibo {_r[0]} ✓", **S["ok"]})
+            else:
+                _irrf.append({"left": _nome, "right": (f"Portte {_r[1]}" if _r else "sem IRRF Portte"), **S["info"]})
+        _dirf_tot = round(sum(_irn.values()), 2)
+        _dirf_p = (await db.execute(_text(
+            "SELECT status FROM fiscal_obligations WHERE tipo='DIRF' AND empresa_id=:e AND active=true "
+            "ORDER BY updated_at DESC LIMIT 1"), {"e": _ELET})).fetchone()
+        _irrf.append({"left": f"DIRF anual · nosso IRRF total {brl(_dirf_tot)}",
+                      "right": (f"declarada ({_dirf_p[0]})" if _dirf_p else "sem DIRF Portte"),
+                      **(S["ok"] if _dirf_p else S["mut"])})
         out["pareamento-tributos"] = {
             "title": "Pareamento tributos — nosso × Portte (multi-CNPJ)", "type": "table", "cta": "—",
             "sub": "Verdade = Portte (guia oficial fiscal_obligations, escopada por empresa_id) × nosso (folha real "
@@ -641,6 +667,8 @@ async def build_contabil(db, out: dict) -> None:
                     or [{"left": "Sem competências", "right": "0", **S["mut"]}]},
                 {"title": "DCTFWeb — nosso apurado × recibo Portte", "rows": _dctf
                     or [{"left": "Sem DCTFWeb", "right": "—", **S["mut"]}]},
+                {"title": "IRRF/DIRF — nosso apurado × Portte", "rows": _irrf
+                    or [{"left": "Sem IRRF", "right": "—", **S["mut"]}]},
             ],
         }
     except Exception:  # noqa: BLE001
