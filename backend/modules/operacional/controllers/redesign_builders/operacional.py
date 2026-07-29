@@ -139,4 +139,23 @@ async def build(db) -> dict:
     except Exception:  # noqa: BLE001
         pass
 
+    # Medidas administrativas — disciplinary_actions (LEITURA real; mata a casca fabricada).
+    _med_tone = {"aplicada": "ok", "aprovada": "ok", "assinada": "ok",
+                 "pendente_aprovacao": "warn", "pendente_assinatura": "warn", "rascunho": "info",
+                 "rejeitada": "bad", "recusada_assinatura": "bad", "cancelada": "mut"}
+    try:
+        n_med = await _scalar(db, "SELECT count(*) FROM disciplinary_actions WHERE coalesce(is_active,true)") or 0
+        out["medidas-administrativas"] = await tbl(
+            "Medidas administrativas", f"{n_med} medida(s) · fonte: disciplinary_actions", "—",
+            ["Colaborador", "Tipo", "Motivo", "Data", "Status"], "1.8fr 1.2fr 1.6fr 0.9fr 1fr",
+            "SELECT id, coalesce(employee_name,'—'), coalesce(action_type::text,'—'), "
+            "coalesce(reason_description, reason_category::text, '—'), incident_date, coalesce(status::text,'—') "
+            "FROM disciplinary_actions WHERE coalesce(is_active,true) "
+            "ORDER BY coalesce(incident_date, created_at) DESC NULLS LAST LIMIT 200",
+            lambda r: [t(r[1], 600, "#0F1B3A"), t((r[2] or '—').replace('_', ' ').capitalize()),
+                       t((r[3] or '—')[:60]), t(_fmtdate(r[4])),
+                       b((r[5] or '—').replace('_', ' ').capitalize(), _med_tone.get((r[5] or '').lower(), "info"))])
+    except Exception:  # noqa: BLE001 — nunca derruba o módulo
+        pass
+
     return out
