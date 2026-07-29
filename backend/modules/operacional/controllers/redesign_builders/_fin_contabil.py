@@ -581,8 +581,12 @@ async def build_contabil(db, out: dict) -> None:
             _bate_comps = 0
             for _c in _comps:
                 _fg, _iss = _folha.get(_c, (None, None))
+                # INSS DARF total (28,8%) só no Lucro Real; no Simples (Patrimonial) o CPP está no DAS.
+                _rubs = [("FGTS", "FGTS", _fg)]
+                if _eid == "619a3df1-8bce-49ce-b77a-04f80a0e8491":
+                    _rubs.append(("INSS", "INSS (DARF total)", _iss))
                 _oks = []
-                for _rub, _disp, _nosso in (("FGTS", "FGTS", _fg), ("INSS", "INSS (DARF total)", _iss)):
+                for _rub, _disp, _nosso in _rubs:
                     _p = _guia.get((_rub, _c))
                     _diff, _ok = _status_linha(_nosso, _p)
                     _oks.append(_ok)
