@@ -3,22 +3,28 @@ import { api } from '@/lib/api';
 import type { IFinancialOverview } from '@/types/financial';
 
 /**
- * KPIs do financeiro a partir do endpoint REAL /financial/dashboard.
- * O endpoint devolve estrutura aninhada (100% real: bank_transactions/accounts/
- * receivables); aqui mapeamos pro shape flat IFinancialOverview que as telas usam.
- * (Antes vinha aliasado do bi_dashboard/stats — meta-contagem de dashboards, sem
- * esses campos → KPIs renderizavam undefined.)
+ * KPIs do financeiro (receita/despesa/saldo/inadimplencia).
+ *
+ * Bate no endpoint REAL que já serve a tela /modulos/financeiro:
+ * GET /financial/bi-dashboard/bi/dashboards/stats — servido pelo shim
+ * `modules/ged/controllers/financial_overview_controller.py`, que devolve
+ * IFinancialOverview 100% do banco (nfse_emitidas/payables/bank_accounts/receivables).
+ *
+ * O nome do path é legado (o subsistema bi_dashboard foi removido — era casca dormente,
+ * o shim já o sombreava e cobre o dado real). Mantido o path por ser o contrato vivo.
+ * Antes vinha via hook Orval gerado (tipado como DashboardStats, desalinhado do runtime);
+ * agora é explícito e não depende dos types gerados do subsistema deletado.
  */
 export function useFinancialOverview(params?: { condominio_id?: string }) {
   return useQuery({
     queryKey: ['financial-overview', params?.condominio_id ?? null],
     queryFn: async (): Promise<IFinancialOverview> => {
-      const { data } = await api.get('/api/v1/financial/dashboard', { params });
+      const { data } = await api.get('/api/v1/financial/bi-dashboard/bi/dashboards/stats', { params });
       return {
-        receita_total: Number(data?.mes_atual?.entradas ?? 0),
-        despesa_total: Number(data?.mes_atual?.saidas ?? 0),
-        saldo: Number(data?.saldo?.atual ?? 0),
-        inadimplencia: Number(data?.contas_receber?.vencido ?? 0),
+        receita_total: Number(data?.receita_total ?? 0),
+        despesa_total: Number(data?.despesa_total ?? 0),
+        saldo: Number(data?.saldo ?? 0),
+        inadimplencia: Number(data?.inadimplencia ?? 0),
       };
     },
     staleTime: 60_000,

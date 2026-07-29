@@ -1,11 +1,71 @@
 """Operacional (T1) — delega ao _build_operacional e ESTENDE com telas de LEITURA
 (presença ao vivo, escalas, turnos, reembolsos). Operacional é curado pelo Jordan →
 SÓ visibilidade, NUNCA escreve/altera escala/alocação. Reembolso é read-only (sem aprovar/pagar)."""
+from fastapi import APIRouter, Body, Depends, HTTPException
+from sqlalchemy import text as _sqltext
+
+from core.auth.dependencies import CurrentActiveUser
+from core.database import get_db
 from modules.operacional.controllers.redesign_data_controller import (
     S, _build_operacional, _fmtdate, _helpers, _scalar, b, brl, doc, t,
 )
 
 SLUG = "operacional"
+
+router = APIRouter()
+
+
+@router.post("/action/medida-administrativa")
+async def rd_action_medida_administrativa(current_user: CurrentActiveUser, payload: dict = Body(...),
+                                          db=Depends(get_db)) -> dict:
+    """Cria medida disciplinar REAL via DisciplinaryService (reuso; validação CLT no service).
+    Humano-operado (CurrentActiveUser). Nome/CPF resolvidos do employee_id — nunca fabricados.
+    Escrita operacional → passa pelo op_write (idempotência)."""
+    from datetime import date as _date
+
+    from core.auth import get_tenant_id
+    from modules.operacional.controllers.redesign_write_gate import GateError, op_write
+    from modules.operacional.disciplinary.schemas.disciplinary_schemas import DisciplinaryActionCreate
+    from modules.operacional.disciplinary.services import get_disciplinary_service
+
+    emp_id = (payload.get("employee_id") or "").strip()
+    if not emp_id:
+        raise HTTPException(status_code=400, detail="Selecione o colaborador.")
+    desc = (payload.get("reason_description") or "").strip()
+    if len(desc) < 10:
+        raise HTTPException(status_code=400, detail="A descrição do motivo precisa de ao menos 10 caracteres.")
+    emp = (await db.execute(_sqltext(
+        "SELECT nome, coalesce(cpf,'') FROM employees WHERE id::text=:i"), {"i": emp_id})).first()
+    if not emp:
+        raise HTTPException(status_code=400, detail="Colaborador não encontrado.")
+    cpf_digits = "".join(ch for ch in (emp[1] or "") if ch.isdigit())
+    if len(cpf_digits) < 11:
+        raise HTTPException(status_code=400, detail=f"Colaborador '{emp[0]}' sem CPF cadastrado — regularize antes de aplicar medida.")
+    try:
+        data = DisciplinaryActionCreate(
+            action_type=payload.get("action_type") or "advertencia_escrita",
+            employee_id=emp_id,
+            employee_name=emp[0] or "—",
+            employee_cpf=cpf_digits,
+            reason_category=payload.get("reason_category") or "outros",
+            reason_description=desc,
+            incident_date=payload.get("incident_date") or _date.today().isoformat(),
+        )
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Dados inválidos: {e}")
+    svc = get_disciplinary_service(db)
+    tenant_id = get_tenant_id(current_user)
+
+    async def _write():
+        return await svc.create(data=data, tenant_id=str(tenant_id), created_by=str(current_user.id))
+
+    try:
+        action = await op_write(db, real_write=_write,
+                                idempotency_key=f"medida:{emp_id}:{data.incident_date}:{data.reason_category}")
+    except GateError as ge:
+        raise HTTPException(status_code=400, detail=str(ge))
+    return {"ok": True, "id": str(action.id), "code": getattr(action, "code", None),
+            "message": "Medida disciplinar registrada (rascunho)"}
 EXTRA_MENU: list[dict] = [
     {"id": "rondas", "label": "Rondas",
      "icon": "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"},
@@ -156,6 +216,34 @@ async def build(db) -> dict:
                        t((r[3] or '—')[:60]), t(_fmtdate(r[4])),
                        b((r[5] or '—').replace('_', ' ').capitalize(), _med_tone.get((r[5] or '').lower(), "info"))])
     except Exception:  # noqa: BLE001 — nunca derruba o módulo
+        pass
+
+    # Form "Nova medida" (ESCRITA real → /action/medida-administrativa). Nome/CPF resolvidos no server.
+    try:
+        _emp = (await db.execute(_sqltext(
+            "SELECT id, nome FROM employees WHERE coalesce(status,'')='ativo' ORDER BY nome LIMIT 500"))).fetchall()
+        _tipos = [("advertencia_verbal", "Advertência verbal"), ("advertencia_escrita", "Advertência escrita"),
+                  ("suspensao", "Suspensão"), ("demissao_justa_causa", "Demissão por justa causa")]
+        _cats = [("falta", "Falta"), ("atraso", "Atraso"), ("insubordinacao", "Insubordinação"),
+                 ("indisciplina", "Indisciplina"), ("dano_patrimonio", "Dano ao patrimônio"),
+                 ("negligencia", "Negligência"), ("abandono_emprego", "Abandono de emprego"),
+                 ("ofensa_moral", "Ofensa moral"), ("ofensa_fisica", "Ofensa física"), ("outros", "Outros")]
+        out["disciplinar"] = {
+            "title": "Nova medida disciplinar", "sub": "Cria a medida (rascunho) — validação CLT no motor real",
+            "cta": "Registrar medida", "type": "form",
+            "submit": {"endpoint": "/api/v1/redesign/action/medida-administrativa", "okMsg": "Medida registrada (rascunho)"},
+            "fields": [
+                {"key": "employee_id", "label": "Colaborador*", "type": "select", "span": "span 2", "ph": "Selecione o colaborador",
+                 "options": [{"value": str(i), "label": (n or '—')} for i, n in _emp]},
+                {"key": "action_type", "label": "Tipo*", "type": "select", "span": "span 1", "ph": "Tipo",
+                 "options": [{"value": v, "label": l} for v, l in _tipos]},
+                {"key": "reason_category", "label": "Motivo (CLT)*", "type": "select", "span": "span 1", "ph": "Categoria",
+                 "options": [{"value": v, "label": l} for v, l in _cats]},
+                {"key": "incident_date", "label": "Data do incidente*", "type": "date", "span": "span 1"},
+                {"key": "reason_description", "label": "Descrição do incidente*", "type": "textarea", "span": "span 2", "ph": "Descreva o ocorrido (mín. 10 caracteres)…"},
+            ],
+        }
+    except Exception:  # noqa: BLE001
         pass
 
     return out
