@@ -246,4 +246,51 @@ async def build(db) -> dict:
     except Exception:  # noqa: BLE001
         pass
 
+    # Banco de horas — time_bank (LEITURA real; mata "João da Silva/+12h"). Vazio→honesto.
+    _bh_tone = {"aprovado": "ok", "aprovada": "ok", "compensado": "ok",
+                "pendente": "warn", "em_analise": "warn", "rejeitado": "bad", "rejeitada": "bad"}
+    try:
+        n_bh = await _scalar(db, "SELECT count(*) FROM time_bank WHERE coalesce(is_active,true)") or 0
+        out["banco-horas"] = await tbl(
+            "Banco de horas", f"{n_bh} lançamento(s) · fonte: time_bank", "—",
+            ["Colaborador", "Tipo", "Horas", "Saldo", "Data", "Status"], "1.8fr 1fr 0.8fr 0.8fr 0.9fr 1fr",
+            "SELECT coalesce(e.nome,'—'), coalesce(tb.entry_type,'—'), tb.hours, tb.balance_after, "
+            "tb.reference_date, coalesce(tb.status,'—') "
+            "FROM time_bank tb LEFT JOIN employees e ON e.id=tb.employee_id "
+            "WHERE coalesce(tb.is_active,true) ORDER BY tb.reference_date DESC NULLS LAST LIMIT 200",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—').replace('_', ' ').capitalize()),
+                       t(f"{float(r[2]):+.1f}h" if r[2] is not None else '—', 600,
+                         "#16A34A" if (r[2] or 0) >= 0 else "#DC2626"),
+                       t(f"{float(r[3]):+.1f}h" if r[3] is not None else '—', 600),
+                       t(_fmtdate(r[4])), b((r[5] or '—').replace('_', ' ').capitalize(), _bh_tone.get((r[5] or '').lower(), "info"))])
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Passagem de turno — operacional_passagens_turno (LEITURA real).
+    try:
+        n_pt = await _scalar(db, "SELECT count(*) FROM operacional_passagens_turno WHERE coalesce(is_active,true)") or 0
+        out["passagem-turno"] = await tbl(
+            "Passagem de turno", f"{n_pt} passagem(ns) · fonte: operacional_passagens_turno", "—",
+            ["Posto", "Turno", "Autor", "Data", "Resumo"], "1.6fr 1fr 1.3fr 0.9fr 2fr",
+            "SELECT coalesce(p.name,'—'), coalesce(pt.turno,'—'), coalesce(pt.author_nome,'—'), pt.data_turno, coalesce(pt.resumo,'—') "
+            "FROM operacional_passagens_turno pt LEFT JOIN posts p ON p.id=pt.post_id "
+            "WHERE coalesce(pt.is_active,true) ORDER BY pt.criada_em DESC NULLS LAST LIMIT 200",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—').capitalize()), t(r[2]), t(_fmtdate(r[3])), t((r[4] or '—')[:80])])
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Instruções de posto — operacional_post_orders × posts (LEITURA real; cobertura por posto).
+    try:
+        out["instrucoes-posto"] = await tbl(
+            "Instruções de posto", "Procedimentos por posto · fonte: operacional_post_orders", "—",
+            ["Posto", "Documento", "Versão", "Situação"], "2fr 2fr 0.8fr 1fr",
+            "SELECT p.name, coalesce(po.titulo,'—'), coalesce(po.versao,0), "
+            "(po.conteudo IS NOT NULL AND coalesce(po.conteudo,'') <> '') "
+            "FROM posts p LEFT JOIN operacional_post_orders po ON po.post_id=p.id "
+            "WHERE coalesce(p.is_active,true) ORDER BY p.name LIMIT 300",
+            lambda r: [t(r[0] or '—', 600, "#0F1B3A"), t(r[1]), t(f"v{int(r[2] or 0)}" if r[2] else '—'),
+                       b("Com instrução", "ok") if r[3] else b("Sem instrução", "mut")])
+    except Exception:  # noqa: BLE001
+        pass
+
     return out
