@@ -276,8 +276,8 @@ def calcular_folha_colaborador(
         _entry = {"codigo": _cod, "descricao": _desc, "tipo": _tipo,
                   "referencia": "espelho Portte", "valor": float(_v)}
         (descontos if _tipo == "desconto" else proventos).append(_entry)
-        if _tipo != "desconto" and _inc:
-            esp_inss_base += _v
+        if _inc:  # provento incide +; desconto que incide (faltas) reduz o salário-de-contribuição
+            esp_inss_base += (-_v if _tipo == "desconto" else _v)
 
     # 0040 — Horas Extras 50% (horas trabalhadas REAIS acima da jornada contratada mensal)
     horas_extras_valor = Decimal("0")
