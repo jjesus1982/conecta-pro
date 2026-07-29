@@ -88,7 +88,21 @@ class DCTFWebService:
     def _db_url() -> str:
         return re.sub(r"\+asyncpg|\+psycopg2?", "", os.getenv("DATABASE_URL", ""))
 
-    def carregar_folha_do_periodo(self, periodo_apuracao: str) -> dict[str, Any] | None:
+    # CNPJ (dígitos) → empresa_id (uuid) para escopar a folha por CNPJ
+    _EMPRESA_POR_CNPJ = {
+        "35710481000103": "619a3df1-8bce-49ce-b77a-04f80a0e8491",  # Eletrônica
+        "66014833000110": "7d79ed12-d480-4906-b2e0-2b2c4d299bab",  # Patrimonial
+    }
+    _EMPRESA_PRINCIPAL = "619a3df1-8bce-49ce-b77a-04f80a0e8491"
+
+    def _resolver_empresa_id(self, empresa_id: str | None) -> str:
+        if empresa_id:
+            return empresa_id
+        return self._EMPRESA_POR_CNPJ.get(self.cnpj, self._EMPRESA_PRINCIPAL)
+
+    def carregar_folha_do_periodo(
+        self, periodo_apuracao: str, empresa_id: str | None = None
+    ) -> dict[str, Any] | None:
         """
         Lê a folha REAL (hr_payslips) da competência e monta o dicionário de dados
         do eSocial esperado pelo manager (contribuição do segurado, patronal, RAT,
@@ -106,6 +120,7 @@ class DCTFWebService:
         if not url:
             return None
 
+        emp = self._resolver_empresa_id(empresa_id)
         try:
             conn = psycopg2.connect(url)
             try:
@@ -120,9 +135,10 @@ class DCTFWebService:
                             COALESCE(SUM(fgts_value), 0)
                         FROM hr_payslips
                         WHERE reference_period = %s
+                          AND empresa_id = %s
                           AND status <> 'cancelled'
                         """,
-                        (periodo_apuracao,),
+                        (periodo_apuracao, emp),
                     )
                     row = cur.fetchone()
             finally:
