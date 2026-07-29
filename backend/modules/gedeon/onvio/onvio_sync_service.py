@@ -98,6 +98,18 @@ class OnvioSyncService:
             )
             self.db.commit()
 
+            # Fase 2: extrai VALOR/vencimento das guias recém-baixadas. Sem isto as linhas
+            # fgts_guias/inss_guias nasciam com valor=NULL (oráculo furado) até alguém chamar
+            # /extrair-valores à mão — que nunca acontecia. Defensivo: falha aqui não derruba
+            # o sync (os PDFs já estão salvos; a extração é re-tentável).
+            extracao = None
+            try:
+                from modules.gedeon.onvio.pdf_extractor.enrichment_service import EnrichmentService
+
+                extracao = EnrichmentService(self.db).extrair_todos()
+            except Exception as ee:  # noqa: BLE001
+                logger.warning("Extração de valores pós-sync falhou (segue): %s", ee)
+
             return {
                 "status": log.status,
                 "total_api": len(todos_docs),
@@ -105,6 +117,7 @@ class OnvioSyncService:
                 "pulados": pulados,
                 "erros": erros,
                 "duracao": log.duracao_s,
+                "extracao": extracao,
             }
 
         except Exception as e:

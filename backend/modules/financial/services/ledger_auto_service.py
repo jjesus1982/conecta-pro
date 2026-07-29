@@ -440,6 +440,10 @@ class LedgerAutoService:
                 cur.execute("SELECT count(*) FROM accounting_entries")
                 qtd = cur.fetchone()[0]
 
+            # INSS retido do empregado (verdade Portte hr_payslips) — separa o passivo
+            # 2.1.3.01 da folha bruta. Sem esta chamada o razão ficava com ZERO INSS
+            # (medido no baseline contábil): o método existia mas nunca era invocado.
+            inss_emp = self.lancar_inss_empregado(empresa_id)
             # Recategoriza o banco Inter (conserta receita/despesa fantasma) — mantém o lucro fiel
             recat = self.recategorizar_inter(empresa_id)
             # Reconstrói folha jan/fev (ausente em hr_payslips) por âncora março + PIX real
@@ -450,7 +454,7 @@ class LedgerAutoService:
                 folha_rec = {"ok": False, "erro": str(fe)}
             return {
                 "ok": True,
-                "novos_lancamentos": {**folha, **iss, **tomadas},
+                "novos_lancamentos": {**folha, **iss, **tomadas, "inss_empregado": inss_emp.get("lancamentos", 0)},
                 "recategorizacao_inter": recat,
                 "folha_reconstruida_jan_fev": folha_rec.get("meses"),
                 "total_lancamentos": qtd,

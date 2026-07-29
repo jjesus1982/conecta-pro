@@ -39,7 +39,7 @@ with eng.connect() as c:
             ("ISS", raz.get("tributo_iss", 0.0), iss_or),
             ("Receita (NFS-e)", raz.get("nfse_emitida", 0.0), rec_or),
             ("Folha (bruto)", raz.get("folha", 0.0), folha_or),
-            ("INSS", raz.get("encargo_inss", 0.0) + raz.get("tributo_inss", 0.0), inss_or),
+            ("INSS", raz.get("encargo_inss", 0.0) + raz.get("tributo_inss", 0.0) + raz.get("inss_empregado", 0.0), inss_or),
         ]
         for pilar, nosso, orac in pares:
             rows.append((comp, pilar, nosso, orac, round(nosso - orac, 2)))

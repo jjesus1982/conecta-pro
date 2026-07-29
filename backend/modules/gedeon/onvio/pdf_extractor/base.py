@@ -14,7 +14,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-import pdfplumber
+import fitz  # PyMuPDF — já instalado no backend; pdfplumber não está (extractor não importava)
 from dateutil import parser as dateparser
 
 logger = logging.getLogger(__name__)
@@ -72,14 +72,10 @@ class BaseExtractor(ABC):
         ...
 
     def _read_pdf_text(self, pdf_path: Path) -> str:
-        """Extrai todo o texto de um PDF usando pdfplumber."""
+        """Extrai todo o texto de um PDF usando PyMuPDF (fitz)."""
         try:
-            with pdfplumber.open(pdf_path) as pdf:
-                texts = []
-                for page in pdf.pages:
-                    t = page.extract_text() or ""
-                    texts.append(t)
-                return "\n".join(texts)
+            with fitz.open(pdf_path) as pdf:
+                return "\n".join(page.get_text() or "" for page in pdf)
         except Exception as e:
             logger.error(f"Erro ao ler PDF {pdf_path}: {e}")
             return ""
