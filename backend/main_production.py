@@ -1280,6 +1280,18 @@ except Exception as e:
     logger.warning(f"Consultor CEO router: {e}")
 
 try:
+    # Fase 5.6a (LT2): revisão do detector de anomalia de pagamento (propor→aprovar,
+    # gate diretoria dentro do próprio router — não usa a casca fraud_controller quebrada).
+    from modules.ai.fraud_detection.controllers.anomalia_controller import (
+        router as anomalia_pagamentos_router,
+    )
+
+    api_router.include_router(anomalia_pagamentos_router)
+    logger.info("Anomalia Pagamentos: router registrado (/ai/fraud)")
+except Exception as e:
+    logger.warning(f"Anomalia Pagamentos router: {e}")
+
+try:
     from modules.gdrive.controllers.gdrive_controller import router as gdrive_router
 
     api_router.include_router(gdrive_router)

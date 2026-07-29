@@ -44,6 +44,8 @@ app = Celery(
         "modules.ged.tasks.expiry_alerts",
         # Fase 5.3: proativo por evento (avaliador de regras + digest).
         "modules.notifications.proativo.tasks",
+        # Fase 5.6a (LT2): detector de anomalia de pagamento (beat + sino diretoria).
+        "modules.ai.fraud_detection.tasks",
     ],
 )
 
@@ -179,6 +181,13 @@ app.conf.beat_schedule = {
     "proativo-digest-diario": {
         "task": "proativo.digest_diario",
         "schedule": crontab(hour=7, minute=0),
+        "options": {"queue": "gov.batch"},
+    },
+    # ── Fase 5.6a (LT2): detector de anomalia de pagamento — varre inter_payments
+    #    (read-only) e avisa a diretoria no sino de suspeitas HIGH/CRITICAL ──
+    "anomalia-varrer-pagamentos": {
+        "task": "anomalia.varrer_pagamentos",
+        "schedule": crontab(minute="*/30"),
         "options": {"queue": "gov.batch"},
     },
     # ── Fase 0: retenção leve do sino (expira não-alertas antigos; alertas retidos) ──

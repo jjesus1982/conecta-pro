@@ -246,6 +246,29 @@ async def _cross_modulo(db: AsyncSession) -> dict[str, Any]:
     return c
 
 
+async def _alertas_anomalia_abertos(db: AsyncSession) -> list[dict[str, Any]]:
+    """Fase 5.6a (LT2): alertas de anomalia de pagamento AINDA pendentes de
+    revisão humana (`fraud_alerts.status='pending'`, gerados pelo detector
+    read-only sobre `inter_payments`). NUNCA são fato confirmado — só chegam
+    ao CFO IA rotulados como suspeita, para o CFO poder apontar "revise isto"
+    sem jamais afirmar que é fraude. Falha aqui não derruba o panorama."""
+    try:
+        rows = (
+            await db.execute(
+                text(
+                    "SELECT alert_number, severity, entity_name, transaction_value, "
+                    "risk_score, detected_at FROM fraud_alerts "
+                    "WHERE status = 'pending' AND category = 'payment' "
+                    "ORDER BY detected_at DESC LIMIT 10"
+                )
+            )
+        ).mappings().all()
+        return [dict(r) for r in rows]
+    except Exception as e:  # noqa: BLE001
+        logger.debug("cfo alertas_anomalia: %s", e)
+        return []
+
+
 async def _aging_buckets(db: AsyncSession, table: str) -> list[dict[str, Any]]:
     """Faixas de aging (a_vencer / 0-30 / 31-60 / 61-90 / +90) por valor em aberto. Dado real."""
     rows = await db.execute(text(f"""
@@ -278,6 +301,7 @@ async def panorama(db: AsyncSession) -> dict[str, Any]:
         p["saldo_fonte"] = "cadastro (Inter indisponível no momento)"
     p["pendencias"] = await _pendencias_acionaveis(db)
     p["cross_modulo"] = await _cross_modulo(db)
+    p["alertas_anomalia"] = await _alertas_anomalia_abertos(db)
     try:
         p["previsao_custos"] = await previsao_custos_mensais(db)
     except Exception:  # noqa: BLE001
@@ -624,6 +648,26 @@ def _formatar_contexto_financeiro(p: dict[str, Any]) -> str:
             linhas.append(f"- A RECEBER vencido (cobrar): {_fmt(pend['receber_vencido_valor'])} em {int(pend.get('receber_vencido_qtd') or 0)} contas")
         if pend.get("tributos_a_vencer_valor"):
             linhas.append(f"- Tributos/obrigações a vencer (±30d): {_fmt(pend['tributos_a_vencer_valor'])} em {int(pend.get('tributos_a_vencer_qtd') or 0)} guias")
+    # Fase 5.6a (LT2): alertas de anomalia de pagamento — SEMPRE rotulado como
+    # suspeita pendente, NUNCA fato confirmado. Omitido se não houver nenhum.
+    alertas_anomalia = p.get("alertas_anomalia") or []
+    if alertas_anomalia:
+        linhas.append(
+            "--- ⚠️ ALERTAS DE ANOMALIA ABERTOS (suspeitas pendentes de revisão "
+            "humana — NÃO são fatos confirmados) ---"
+        )
+        for a in alertas_anomalia:
+            linhas.append(
+                f"- [{a.get('alert_number')}] severidade {a.get('severity')} — "
+                f"{a.get('entity_name') or 'beneficiário não identificado'} — "
+                f"{_fmt(a.get('transaction_value'))} (score {a.get('risk_score')}) — "
+                "aguardando revisão da diretoria"
+            )
+        linhas.append(
+            "NUNCA afirme que houve fraude confirmada a partir destes itens — são "
+            "hipóteses estatísticas (regra determinística, sem ML) até a diretoria "
+            "confirmar ou descartar em /ai/fraud/anomalias/pendentes."
+        )
     # VISÃO CROSS-MÓDULO (o hub financeiro enxerga todos os módulos)
     cm = p.get("cross_modulo", {})
     if cm:

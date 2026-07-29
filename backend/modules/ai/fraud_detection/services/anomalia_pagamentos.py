@@ -599,6 +599,7 @@ class AnomaliaPagamentosDetector:
                     "alert_number": alert_number,
                     "payment_id": str(payment_id),
                     "beneficiario": beneficiario_nome,
+                    "valor": valor,
                     "risk_score": score,
                     "severity": severidade,
                     "status": STATUS_ALERTA_INICIAL,
