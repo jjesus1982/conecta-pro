@@ -23,6 +23,19 @@ def _status_linha(nosso, portte, tol: float = TOL):
     return (diff, abs(diff) <= tol)
 
 
+# Lucro Real: a guia INSS (DARF DCTFWeb) é o INSS TOTAL, não só o do empregado.
+# Mesmas alíquotas do dctfweb_service: patronal 20% + RAT 3% + terceiros 5,8% sobre a
+# base, mais o segurado retido. Só assim "nosso INSS" é comparável à guia da Portte.
+INSS_PATRONAL_RAT_TERCEIROS = 0.288  # 0.20 + 0.03 + 0.058
+
+
+def _inss_total(inss_segurado, inss_base):
+    """INSS total (DARF) = segurado + 28,8% da base. None se sem base real."""
+    if inss_base is None or float(inss_base) <= 0:
+        return None
+    return round(float(inss_segurado or 0) + float(inss_base) * INSS_PATRONAL_RAT_TERCEIROS, 2)
+
+
 def _portte_valor(db, empresa_id: str, tipo: str, mes: int, ano: int):
     """Valor da guia oficial da Portte (fiscal_obligations) para o CNPJ+competência."""
     r = db.execute(
@@ -41,15 +54,16 @@ def _nosso_folha(db, empresa_id: str, periodo: str):
     """FGTS e INSS-segurado reais da folha (hr_payslips) do CNPJ+competência."""
     r = db.execute(
         text(
-            "SELECT COALESCE(SUM(fgts_value),0), COALESCE(SUM(inss_value),0), COUNT(*) "
+            "SELECT COALESCE(SUM(fgts_value),0), COALESCE(SUM(inss_value),0), "
+            "COALESCE(SUM(inss_base),0), COUNT(*) "
             "FROM hr_payslips WHERE reference_period=:p AND empresa_id=:e "
             "AND status <> 'cancelled'"
         ),
         {"p": periodo, "e": empresa_id},
     ).fetchone()
-    if not r or not r[2]:
+    if not r or not r[3]:
         return {}
-    return {"FGTS": float(r[0]), "INSS": float(r[1])}
+    return {"FGTS": float(r[0]), "INSS": _inss_total(r[1], r[2])}
 
 
 def comparar(db, empresa_id: str, competencia: str) -> dict:

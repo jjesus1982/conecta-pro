@@ -19,3 +19,16 @@ def test_portte_ausente_nao_bate():
 def test_ambos_ausentes_nao_bate():
     diff, bate = _status_linha(None, None)
     assert bate is False
+
+
+from modules.financial.services.pareamento_fiscal_service import _inss_total
+
+
+def test_inss_total_soma_segurado_mais_288pct():
+    # segurado 7111.43 + base 86400 * 0.288 = 7111.43 + 24883.20 = 31994.63
+    assert _inss_total(7111.43, 86400.0) == 31994.63
+
+
+def test_inss_total_sem_base_retorna_none():
+    assert _inss_total(500.0, 0) is None
+    assert _inss_total(500.0, None) is None

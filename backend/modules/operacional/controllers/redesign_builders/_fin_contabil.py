@@ -559,7 +559,7 @@ async def build_contabil(db, out: dict) -> None:
     # Reusa _status_linha do pareamento_fiscal_service (testado). Oráculo: sem guia = "aguardando". ─
     try:
         from sqlalchemy import text as _text
-        from modules.financial.services.pareamento_fiscal_service import _status_linha
+        from modules.financial.services.pareamento_fiscal_service import _status_linha, _inss_total
         _EMPRESAS = [("Eletrônica", "619a3df1-8bce-49ce-b77a-04f80a0e8491"),
                      ("Patrimonial", "7d79ed12-d480-4906-b2e0-2b2c4d299bab")]
         _rows, _mat = [], []
@@ -568,8 +568,8 @@ async def build_contabil(db, out: dict) -> None:
                 "SELECT DISTINCT reference_period FROM hr_payslips WHERE empresa_id=:e "
                 "AND status<>'cancelled' AND reference_period IS NOT NULL ORDER BY 1 DESC"),
                 {"e": _eid})).fetchall()]
-            _folha = {r[0]: (float(r[1] or 0), float(r[2] or 0)) for r in (await db.execute(_text(
-                "SELECT reference_period, coalesce(sum(fgts_value),0), coalesce(sum(inss_value),0) "
+            _folha = {r[0]: (float(r[1] or 0), _inss_total(r[2], r[3])) for r in (await db.execute(_text(
+                "SELECT reference_period, coalesce(sum(fgts_value),0), coalesce(sum(inss_value),0), coalesce(sum(inss_base),0) "
                 "FROM hr_payslips WHERE empresa_id=:e AND status<>'cancelled' GROUP BY 1"),
                 {"e": _eid})).fetchall()}
             _guia = {}
@@ -582,13 +582,13 @@ async def build_contabil(db, out: dict) -> None:
             for _c in _comps:
                 _fg, _iss = _folha.get(_c, (None, None))
                 _oks = []
-                for _rub, _nosso in (("FGTS", _fg), ("INSS", _iss)):
+                for _rub, _disp, _nosso in (("FGTS", "FGTS", _fg), ("INSS", "INSS (DARF total)", _iss)):
                     _p = _guia.get((_rub, _c))
                     _diff, _ok = _status_linha(_nosso, _p)
                     _oks.append(_ok)
                     _st = (b("bate ✓", "ok") if _ok else b("aguardando guia Portte", "mut") if _p is None
                            else b("diverge", "bad"))
-                    _rows.append({"cells": [t(f"{_enome} · {_c}", 600, "#0F1B3A"), t(_rub),
+                    _rows.append({"cells": [t(f"{_enome} · {_c}", 600, "#0F1B3A"), t(_disp),
                                   t(brl(_nosso) if _nosso is not None else "—"),
                                   t(brl(_p) if _p is not None else "aguardando"),
                                   t(brl(_diff) if (_p is not None and _nosso is not None) else "—", 600,
