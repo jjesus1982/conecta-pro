@@ -23,13 +23,14 @@ rows = []
 with eng.connect() as c:
     for m in MESES:
         comp = f"{ANO}-{m:02d}"
+        mmyyyy = f"{m:02d}.{ANO}"  # guias Onvio gravam mes_ref como "MM.YYYY", não "YYYY-MM"
         # --- razão (nossa) por tipo ---
         raz = {t: f(s) for t, s in q(c,
             "SELECT tipo_lancamento, sum(valor) FROM accounting_entries "
             "WHERE periodo_competencia=:comp GROUP BY 1", comp=comp)}
-        # --- oráculos ---
-        fgts_or = f(q(c, "SELECT sum(valor) FROM fgts_guias WHERE mes_ref=:comp", comp=comp)[0][0])
-        inss_or = f(q(c, "SELECT sum(valor) FROM inss_guias WHERE mes_ref=:comp OR competencia=:comp", comp=comp)[0][0])
+        # --- oráculos --- (FGTS patronal = tipo GUIA; CONSIGNADO é empréstimo do empregado, não encargo)
+        fgts_or = f(q(c, "SELECT sum(valor) FROM fgts_guias WHERE mes_ref=:mm AND tipo='GUIA'", mm=mmyyyy)[0][0])
+        inss_or = f(q(c, "SELECT sum(valor) FROM inss_guias WHERE mes_ref=:mm OR competencia=:comp", mm=mmyyyy, comp=comp)[0][0])
         rec_or = f(q(c, "SELECT sum(valor_servicos) FROM nfse_emitidas_nacional WHERE competencia=:comp", comp=comp)[0][0])
         iss_or = f(q(c, "SELECT sum(iss_valor) FROM nfse_emitidas_nacional WHERE competencia=:comp", comp=comp)[0][0])
         folha_or = f(q(c, "SELECT sum(total_earnings) FROM hr_payslips WHERE reference_year=:a AND reference_month=:m AND source_system='portte'", a=ANO, m=m)[0][0])
