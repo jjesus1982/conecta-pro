@@ -51,6 +51,19 @@ def classifica(du):
         return ("1052", "Faltas Parcial", "desconto", True)
     if "FALTA" in du:  # DIAS FALTAS
         return ("1051", "Faltas", "desconto", True)
+    # --- férias (INSS via linha própria "INSS FERIAS" → verbas NÃO entram no base_inss) ---
+    if "FERIAS" in du or "FÉRIAS" in du:
+        if "INSS" in du:                       # INSS FERIAS / INSS DIFERENCA FERIAS
+            return ("1060", "INSS Ferias", "desconto", False)
+        if "ADIANTAMENTO" in du:               # adiantamento recuperado
+            return ("1061", "Adiantamento Ferias", "desconto", False)
+        if "PROVISAO" in du or "ESTORNO" in du:  # empréstimo-em-férias (provisão/estorno)
+            return ("1062", "Provisao Emprestimo Ferias", "desconto", False)
+        if "HORAS FERIAS" in du:
+            return ("0060", "Horas Ferias", "provento", False)
+        if du.startswith("1/3") or "1/3" in du:
+            return ("0061", "1/3 Ferias", "provento", False)
+        return ("0062", "Ferias (medias/proporcionais)", "provento", False)  # demais proventos de férias
     return None
 
 

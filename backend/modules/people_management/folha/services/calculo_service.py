@@ -221,6 +221,16 @@ def calcular_folha_colaborador(
     salario_base_full = salario_base  # base cheia p/ hora_normal (noturno/HE do ponto)
     if mes_parcial:
         salario_base = _d(salario_base * fator_prop)  # base + %-adicionais (ronda/peric/insal) proporcionalizam
+    # ESPELHO: dias trabalhados REAIS da Portte (fatia a base por FÉRIAS/admissão — a porção de
+    # férias sai como verbas 0060/0061/0062 do backfill). Supersede o fator_prop nos meses do
+    # espelho. Going-forward (sem linha) o motor usa o fator_prop por admissão/desligamento.
+    _dias_esp = db.execute(text(
+        "SELECT dias_trabalhados FROM folha_dias_espelho WHERE CAST(employee_id AS TEXT)=:e AND ano=:a AND mes=:m"),
+        {"e": employee_id, "a": ano, "m": mes}).scalar()
+    if _dias_esp is not None:
+        salario_base = _d(salario_base_full * (_d(_dias_esp) / Decimal("30")))
+        _dias_pagaveis = int(round(float(_dias_esp)))
+        mes_parcial = float(_dias_esp) < _ndias_mes
 
     divisor = DIVISOR_ESCALA.get(escala, 220)
     dias_trab = DIAS_TRAB_ESCALA.get(escala, 22)
