@@ -653,6 +653,28 @@ async def build_contabil(db, out: dict) -> None:
         _irrf.append({"left": f"DIRF anual · nosso IRRF total {brl(_dirf_tot)}",
                       "right": (f"declarada ({_dirf_p[0]})" if _dirf_p else "sem DIRF Portte"),
                       **(S["ok"] if _dirf_p else S["mut"])})
+        # eSocial + EFD-Reinf (acessórias sem valor): transmissão Portte × nossa folha (backing real).
+        _hol = {r[0]: r[1] for r in (await db.execute(_text(
+            "SELECT reference_period, count(*) FROM hr_payslips WHERE empresa_id=:e AND status<>'cancelled' GROUP BY 1"),
+            {"e": _ELET})).fetchall()}
+        _ace = {}
+        for _r in (await db.execute(_text(
+            "SELECT tipo, competencia_ano||'-'||lpad(competencia_mes::text,2,'0'), status, numero_recibo "
+            "FROM fiscal_obligations WHERE tipo IN ('ESOCIAL','EFD_REINF') AND empresa_id=:e AND active=true "
+            "AND competencia_mes IS NOT NULL"), {"e": _ELET})).fetchall():
+            _ace.setdefault(_r[1], {})[_r[0]] = (_r[2], _r[3])
+
+        def _mk(st):
+            return "✓" if st and st[0] == "cumprida" else (st[0] if st else "—")
+
+        _acc = []
+        for _c in sorted(set(_hol) | set(_ace), reverse=True):
+            _es, _rf = _ace.get(_c, {}).get("ESOCIAL"), _ace.get(_c, {}).get("EFD_REINF")
+            _rec = (_es and _es[1]) or (_rf and _rf[1])
+            _right = f"eSocial {_mk(_es)} · Reinf {_mk(_rf)}" + (f" · recibo {_rec}" if _rec else "")
+            _ok = _es and _es[0] == "cumprida" and _rf and _rf[0] == "cumprida"
+            _acc.append({"left": f"{_c} · folha {_hol.get(_c, 0)} holerites", "right": _right,
+                         **(S["ok"] if _ok else S["info"] if (_es or _rf) else S["mut"])})
         out["pareamento-tributos"] = {
             "title": "Pareamento tributos — nosso × Portte (multi-CNPJ)", "type": "table", "cta": "—",
             "sub": "Verdade = Portte (guia oficial fiscal_obligations, escopada por empresa_id) × nosso (folha real "
@@ -669,6 +691,8 @@ async def build_contabil(db, out: dict) -> None:
                     or [{"left": "Sem DCTFWeb", "right": "—", **S["mut"]}]},
                 {"title": "IRRF/DIRF — nosso apurado × Portte", "rows": _irrf
                     or [{"left": "Sem IRRF", "right": "—", **S["mut"]}]},
+                {"title": "eSocial / EFD-Reinf — Portte × nossa folha", "rows": _acc
+                    or [{"left": "Sem acessórias", "right": "—", **S["mut"]}]},
             ],
         }
     except Exception:  # noqa: BLE001
