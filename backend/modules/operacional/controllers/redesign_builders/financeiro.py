@@ -438,6 +438,38 @@ async def build(db) -> dict:
             {"key": "ano", "label": "Ano*", "type": "text", "span": "span 1", "ph": "2026"},
         ],
     }
+    # Lote de diaristas a pagar (VT/VR + diária) — a aba "Diaristas" estava vazia (sem builder),
+    # então não dava p/ ver/pagar o VT/VR no redesign. Visibilidade do que pagar-diaristas processa.
+    _dia = (await db.execute(text(
+        "SELECT data_referencia, beneficiario, tipo, valor, status FROM financial_pagamentos_diaristas "
+        "WHERE status IN ('a_revisar','sem_pix') ORDER BY data_referencia DESC, beneficiario LIMIT 300"))).fetchall()
+    _dcells = [{"cells": [
+        t(_fmtdate(r[0]) if r[0] else "—", 600, "#0F1B3A"), t(r[1] or "—"),
+        b("VT/VR" if r[2] == "vt_vr" else "Diária" if r[2] == "diaria_mensal" else (r[2] or "—"),
+          "info" if r[2] == "vt_vr" else "mut"),
+        t(brl(r[3]) if r[3] is not None else "—", 600),
+        b("sem PIX" if r[4] == "sem_pix" else "a revisar", "bad" if r[4] == "sem_pix" else "warn"),
+    ]} for r in _dia]
+    _tot_vt = sum(float(r[3] or 0) for r in _dia if r[2] == "vt_vr" and r[4] == "a_revisar")
+    _tot_di = sum(float(r[3] or 0) for r in _dia if r[2] == "diaria_mensal" and r[4] == "a_revisar")
+    out["pagamentos-diaristas"] = {
+        "title": "Diaristas — lote a pagar (VT/VR + diária)",
+        "sub": "Pendente de pagamento (a_revisar/sem_pix). Pague em 'Pagar diaristas' informando a DATA da linha "
+               "(gate OTP) — VT/VR e diária do dia saem juntos. 'sem PIX' = cadastro do diarista sem chave PIX.",
+        "cta": "—", "type": "table", "searchHint": "Buscar diarista…",
+        "grid": "1fr 2fr 0.9fr 1fr 1fr",
+        "cols": ["Data", "Diarista", "Tipo", "Valor", "Status"],
+        "rows": _dcells or [{"cells": [t("Nada pendente"), t("—"), t("—"), t("—"), t("—")]}],
+        "panelGrid": "1fr 1fr",
+        "panels": [
+            {"title": "Total pendente (a_revisar)", "rows": [
+                {"left": "VT/VR", "right": brl(_tot_vt), **S["info"]},
+                {"left": "Diária mensal", "right": brl(_tot_di), **S["ok"]}]},
+            {"title": "Como pagar (gate OTP)", "rows": [
+                {"left": "Abra 'Pagar diaristas' e informe a DATA da linha", "right": "OTP", **S["warn"]},
+                {"left": "VT/VR + diária do dia pagam juntos", "right": "Inter PIX", **S["mut"]}]},
+        ],
+    }
     out["pagar-diaristas"] = {
         "title": "Pagar diaristas (Inter)",
         "sub": "Dinheiro que SAI — 2 etapas: gera o código OTP (e-mail ao Jordan) e só paga ao confirmar. Nunca dispara sozinho. Paga o lote 'a_revisar' do dia.",
