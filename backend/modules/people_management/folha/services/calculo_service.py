@@ -256,23 +256,28 @@ def calcular_folha_colaborador(
         }
     )
 
-    # 0030 — Intrajornada não concedida (CCT: 1h a 50%). DIURNO=hora_normal×1.5;
-    # NOTURNA embute redução+20%. SÓ do dado REAL: espelho jan-jun = valor da Portte
-    # (folha_intrajornada_espelho, backfill — verdade do espelho); ausência de linha =
-    # Portte NÃO pagou naquele mês → 0 (não estima, senão fabrica intervalo não-concedido
-    # que ninguém registrou). ponytail: going-forward virá de hora real do ponto.
-    intrajornada_valor = Decimal("0")
-    _ij = db.execute(text(
-        "SELECT valor_diurna, valor_noturna FROM folha_intrajornada_espelho "
-        "WHERE CAST(employee_id AS TEXT)=:e AND ano=:a AND mes=:m"),
-        {"e": employee_id, "a": ano, "m": mes}).first()
-    if _ij:
-        _vd, _vn = _d(_ij[0]), _d(_ij[1])
-        for _cod, _desc, _val in (("0030", "Intrajornada Diurno", _vd), ("0031", "Intrajornada Noturna", _vn)):
-            if _val > 0:
-                proventos.append({"codigo": _cod, "descricao": _desc, "tipo": "provento",
-                                  "referencia": "espelho Portte", "valor": float(_val)})
-        intrajornada_valor = _vd + _vn
+    # ===== VERBAS DO ESPELHO (backfill Portte) — grupo variável/reflexo cujo valor-verdade
+    # está no espelho jan-jun (intrajornada, hora noturna reduzida, DSR sobre variáveis).
+    # Havendo linhas, o motor EMITE-AS e SUPRIME a própria computação por-ponto do grupo
+    # (noturno/DSR abaixo), senão dobraria. incide_inss soma no base_inss. Um mecanismo p/
+    # TODAS as verbas backfilladas (folha_verba_espelho). Going-forward (sem linha) computa
+    # do ponto. ponytail: substitui os N special-cases por-verba por uma leitura só.
+    intrajornada_valor = Decimal("0")  # mantido p/ o reflexo DSR no caminho going-forward
+    _esp = db.execute(text(
+        "SELECT codigo, descricao, valor, tipo, incide_inss FROM folha_verba_espelho "
+        "WHERE CAST(employee_id AS TEXT)=:e AND ano=:a AND mes=:m ORDER BY codigo"),
+        {"e": employee_id, "a": ano, "m": mes}).fetchall()
+    tem_espelho = bool(_esp)
+    esp_inss_base = Decimal("0")
+    for _cod, _desc, _val, _tipo, _inc in _esp:
+        _v = _d(_val)
+        if _v <= 0:
+            continue
+        _entry = {"codigo": _cod, "descricao": _desc, "tipo": _tipo,
+                  "referencia": "espelho Portte", "valor": float(_v)}
+        (descontos if _tipo == "desconto" else proventos).append(_entry)
+        if _tipo != "desconto" and _inc:
+            esp_inss_base += _v
 
     # 0040 — Horas Extras 50% (horas trabalhadas REAIS acima da jornada contratada mensal)
     horas_extras_valor = Decimal("0")
@@ -337,7 +342,8 @@ def calcular_folha_colaborador(
     # batidas NÃO se estima (dinheiro — líquido/INSS/FGTS — não pode sair de horas que
     # ninguém bateu; viola "nunca fabricar dado"). Sem ponto → 0 + aviso; o noturno
     # entra quando o ponto do mês for fechado (fluxo de fechamento do espelho).
-    horas_not = _d(str(_hp.get("horas_noturnas", 0))) if tem_ponto else Decimal("0")
+    # tem_espelho → prêmio noturno vem do backfill (acima); NÃO recomputar do ponto (dobraria).
+    horas_not = _d(str(_hp.get("horas_noturnas", 0))) if (tem_ponto and not tem_espelho) else Decimal("0")
     noturno_pendente_ponto = (not tem_ponto) and (turno == "noturno")
     adic_noturno = Decimal("0")
     adic_hora_reduzida = Decimal("0")
@@ -375,7 +381,8 @@ def calcular_folha_colaborador(
     # folha subestima a remuneração dos noturnos e gera passivo trabalhista.
     soma_variaveis = adic_noturno + adic_hora_reduzida + horas_extras_valor + intrajornada_valor
     dsr_variaveis = Decimal("0")
-    if soma_variaveis > 0:
+    # tem_espelho → DSR sobre variáveis vem do backfill (código 0090); NÃO recomputar.
+    if not tem_espelho and soma_variaveis > 0:
         dsr_variaveis = _d(soma_variaveis * fator_dsr(escala, mes, ano))
         if dsr_variaveis > 0:
             proventos.append(
@@ -426,6 +433,7 @@ def calcular_folha_colaborador(
         + adic_noturno
         + adic_hora_reduzida
         + dsr_variaveis
+        + esp_inss_base  # verbas do espelho (intrajornada/noturno/DSR backfilladas) que incidem INSS
     )
     inss = calcular_inss(base_inss)
     descontos.append(
