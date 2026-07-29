@@ -117,3 +117,7 @@ backend → redesign só precisa builder (leitura) + ações via write-gate (`re
 - ✅ banco-horas (time_bank, 0=vazio honesto), passagem-turno (operacional_passagens_turno), instrucoes-posto (operacional_post_orders×posts, 9 postos c/ situação). Oráculo combinado `scripts/orq/test_oraculo_op_leituras_redesign.py` verde. Blue-green baked.
 - rondas LEITURA já era real (operacional.py lê inspection_rounds). 
 - FALTA p/ 100%: ESCRITAS (rondas gestão, banco-horas lançar, passagem-turno nova, instrucoes-posto editar — via OperationalScope+gate); escalas (reconciliar Sólides); allocations (só leitura, regra intocável); consultor operacional (wire chat); analytics (kpi-trends/reports/ai-command-center).
+
+### Lote 3 (2026-07-29) — ESCRITAS via gate (reuso controllers), commitado; bake pendente (lock disputado)
+- ✅ passagem-turno (create_passagem_turno), instrucao-posto (atualizar_instrucoes_posto, só gestor), banco-horas (create_entry) — via op_write + OperationalScope gestor. Forms em EXTRA_MENU (passagem-turno-nova, instrucao-posto-editar, banco-horas-lancar). Oráculo `scripts/orq/test_acao_op_escritas_redesign.py` cria+confere+limpa (net-new) — 3/3 verde. Rotas 401 montadas. Live no container (docker cp); BAKE pendente (lock ocupado por sessão paralela) → consolidar no próximo tick.
+- FALTA p/ 100%: rondas GESTÃO (iniciar/pausar/checkpoints/registrar-ocorrência — multi-step), escalas (reconciliar Sólides), allocations (verificar leitura; escrita FORA), consultor operacional (chat), analytics (kpi-trends/reports/ai-command-center). + BAKE consolidado final.
