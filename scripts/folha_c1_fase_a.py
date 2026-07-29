@@ -37,7 +37,10 @@ CANON = [
     ("PERICULOSIDADE", ["PERICUL"]),
     ("INSALUBRIDADE", ["INSALUBR"]),
     ("HORA EXTRA", ["HORA EXTRA", "HORAS EXTRA", "H.E", "H EXTRA"]),
-    ("FERIAS (verbas)", ["FERIAS", "FÉRIAS"]),
+    # inclui empréstimo descontado NAS férias ("...CRED TRAB FE Nº") e a provisão de
+    # férias sobre empréstimo — pertencem ao recibo de férias (verba 3), não ao
+    # empréstimo recorrente mensal (verba 1). Precede EMPRESTIMO na lista → captura primeiro.
+    ("FERIAS (verbas)", ["FERIAS", "FÉRIAS", "TRAB FE", "TRAB. FE"]),
     ("13o", ["DECIMO", "DÉCIMO", "GRATIF NATAL"]),
     ("DSR/REPOUSO", ["DSR", "REPOUSO"]),
     ("VT", ["VALE TRANSP", "DESCONTO VT", "DESC VT"]),

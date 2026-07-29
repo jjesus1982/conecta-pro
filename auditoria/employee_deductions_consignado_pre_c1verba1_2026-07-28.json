@@ -1,0 +1,722 @@
+[
+  {
+    "id": "abcd742a-5a95-490d-b197-d24908c38d95",
+    "employee_id": "9e9e1678-9988-490c-b59b-b2786bb67e1c",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº PKT963274604",
+    "valor": "290.97",
+    "data_inicio": "2026-01-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "4f36cee9-fbe3-4ae3-b45d-3e092e44d272",
+    "employee_id": "4714fbc7-608b-443d-9669-7b1d54897b92",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 63491407",
+    "valor": "99.61",
+    "data_inicio": "2026-01-01",
+    "data_fim": "2026-05-31",
+    "ativo": true
+  },
+  {
+    "id": "fcb34663-697f-4cfd-91ca-d7700ed42246",
+    "employee_id": "4714fbc7-608b-443d-9669-7b1d54897b92",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 63373039",
+    "valor": "354.61",
+    "data_inicio": "2026-01-01",
+    "data_fim": "2026-05-31",
+    "ativo": true
+  },
+  {
+    "id": "02aa8d6f-7712-4f4e-90ec-c3d93a2ec7a0",
+    "employee_id": "58e002c7-7df8-42a8-aef9-0607d41a306c",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 000000115512456",
+    "valor": "156.78",
+    "data_inicio": "2026-01-01",
+    "data_fim": "2026-04-30",
+    "ativo": true
+  },
+  {
+    "id": "d9f8a955-0157-4312-af42-1b3e85886f23",
+    "employee_id": "58e002c7-7df8-42a8-aef9-0607d41a306c",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 000000115512456",
+    "valor": "156.78",
+    "data_inicio": "2026-06-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "9b51df66-76c4-411c-9d1c-9ce741786038",
+    "employee_id": "58e002c7-7df8-42a8-aef9-0607d41a306c",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 1526294353",
+    "valor": "326.47",
+    "data_inicio": "2026-01-01",
+    "data_fim": "2026-03-31",
+    "ativo": true
+  },
+  {
+    "id": "1df9c94c-bd56-4042-8b6d-dc9c3a0cd79b",
+    "employee_id": "58e002c7-7df8-42a8-aef9-0607d41a306c",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 1526294353",
+    "valor": "52.28",
+    "data_inicio": "2026-04-01",
+    "data_fim": "2026-04-30",
+    "ativo": true
+  },
+  {
+    "id": "9cc616e1-7146-48bf-bad8-2e0fb3c4113b",
+    "employee_id": "82a1d1d6-401d-487a-928f-42ed29756bca",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 000586339008",
+    "valor": "317.91",
+    "data_inicio": "2026-01-01",
+    "data_fim": "2026-01-31",
+    "ativo": true
+  },
+  {
+    "id": "c7fa168f-37d3-48fd-8f0e-78435ff69c35",
+    "employee_id": "82a1d1d6-401d-487a-928f-42ed29756bca",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 1528482249",
+    "valor": "201.90",
+    "data_inicio": "2026-01-01",
+    "data_fim": "2026-01-31",
+    "ativo": true
+  },
+  {
+    "id": "c8078334-7f09-4734-92c3-7a61cd3bf868",
+    "employee_id": "1baef8ea-7d69-405c-bcae-3062e8625f33",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 63073098",
+    "valor": "297.37",
+    "data_inicio": "2026-01-01",
+    "data_fim": "2026-01-31",
+    "ativo": true
+  },
+  {
+    "id": "34a8d719-a8d1-418e-a776-eb94816b0962",
+    "employee_id": "430bc8bc-da1a-4667-b6fc-578774e5d2cf",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 19334120",
+    "valor": "256.06",
+    "data_inicio": "2026-01-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "a802780f-8744-4573-ae07-b8dd269c076b",
+    "employee_id": "430bc8bc-da1a-4667-b6fc-578774e5d2cf",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 1527711527",
+    "valor": "279.19",
+    "data_inicio": "2026-01-01",
+    "data_fim": "2026-04-30",
+    "ativo": true
+  },
+  {
+    "id": "ed776bb2-c1ea-41c3-885d-ca514e8d26db",
+    "employee_id": "ebfc72fe-7081-47b8-bce6-88b81cdcb09a",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 62796457",
+    "valor": "182.86",
+    "data_inicio": "2026-01-01",
+    "data_fim": "2026-01-31",
+    "ativo": true
+  },
+  {
+    "id": "cde4a1fd-349d-453f-a076-220c14e8360d",
+    "employee_id": "ebfc72fe-7081-47b8-bce6-88b81cdcb09a",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 6301997",
+    "valor": "168.79",
+    "data_inicio": "2026-01-01",
+    "data_fim": "2026-03-31",
+    "ativo": true
+  },
+  {
+    "id": "d4b855d9-6e2d-428a-b4c0-6394265cad56",
+    "employee_id": "ebfc72fe-7081-47b8-bce6-88b81cdcb09a",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 63024694",
+    "valor": "134.42",
+    "data_inicio": "2026-01-01",
+    "data_fim": "2026-03-31",
+    "ativo": true
+  },
+  {
+    "id": "ac38ccdb-44a8-4998-9eb1-aea1893bb6c2",
+    "employee_id": "7d6280ad-2471-43e1-9d0c-5a8f576e79b1",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº PKT411899458",
+    "valor": "100.82",
+    "data_inicio": "2026-01-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "5a56aba4-c67f-4f3d-bf51-bab9bea5850e",
+    "employee_id": "7d6280ad-2471-43e1-9d0c-5a8f576e79b1",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº PKT509793456",
+    "valor": "158.79",
+    "data_inicio": "2026-01-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "91c5a991-b490-43e1-bf22-8bc90826ab8f",
+    "employee_id": "7d6280ad-2471-43e1-9d0c-5a8f576e79b1",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº PKT784301156",
+    "valor": "148.10",
+    "data_inicio": "2026-01-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "27fc09c7-09e8-4298-b9ba-76cc8c2df599",
+    "employee_id": "12423164-f7d8-4db3-bf36-cffebda5948e",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 63025485",
+    "valor": "148.54",
+    "data_inicio": "2026-01-01",
+    "data_fim": "2026-01-31",
+    "ativo": true
+  },
+  {
+    "id": "cf0fd8f4-e61f-4d1d-a306-768ce3143050",
+    "employee_id": "12423164-f7d8-4db3-bf36-cffebda5948e",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 63025485",
+    "valor": "35.13",
+    "data_inicio": "2026-02-01",
+    "data_fim": "2026-02-28",
+    "ativo": true
+  },
+  {
+    "id": "d561637e-32fe-469b-b9c8-8071ce78f52b",
+    "employee_id": "12423164-f7d8-4db3-bf36-cffebda5948e",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 63025485",
+    "valor": "148.54",
+    "data_inicio": "2026-06-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "7d16cd60-369c-403c-8ae6-7b6d6f6806b0",
+    "employee_id": "12423164-f7d8-4db3-bf36-cffebda5948e",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 63037020",
+    "valor": "188.28",
+    "data_inicio": "2026-01-01",
+    "data_fim": "2026-02-28",
+    "ativo": true
+  },
+  {
+    "id": "7675adfa-3332-49a6-8561-96eb148866ca",
+    "employee_id": "12423164-f7d8-4db3-bf36-cffebda5948e",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 63037020",
+    "valor": "188.28",
+    "data_inicio": "2026-06-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "4035dc6f-d005-40fb-b625-745e6af663f0",
+    "employee_id": "12423164-f7d8-4db3-bf36-cffebda5948e",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 1533221912",
+    "valor": "253.24",
+    "data_inicio": "2026-01-01",
+    "data_fim": "2026-01-31",
+    "ativo": true
+  },
+  {
+    "id": "2ad7b2f7-30ed-4ceb-b2bd-8c041e70901a",
+    "employee_id": "2430761d-172e-44b8-a817-edfea166e321",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 62215746",
+    "valor": "191.21",
+    "data_inicio": "2026-01-01",
+    "data_fim": "2026-04-30",
+    "ativo": true
+  },
+  {
+    "id": "d6c55188-9c0d-4834-aef4-98d4c6e7b12a",
+    "employee_id": "2430761d-172e-44b8-a817-edfea166e321",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 62215746",
+    "valor": "102.83",
+    "data_inicio": "2026-05-01",
+    "data_fim": "2026-05-31",
+    "ativo": true
+  },
+  {
+    "id": "89ba7b90-8209-4f4e-bae6-bd9af68b5dc7",
+    "employee_id": "2430761d-172e-44b8-a817-edfea166e321",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 62215746",
+    "valor": "62.89",
+    "data_inicio": "2026-06-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "5a9e81d3-e3cf-4037-8b5d-934129140d40",
+    "employee_id": "2430761d-172e-44b8-a817-edfea166e321",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 62286736",
+    "valor": "108.37",
+    "data_inicio": "2026-01-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "d3eba62f-8bd4-4c30-aa93-d4642946c93c",
+    "employee_id": "2430761d-172e-44b8-a817-edfea166e321",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 62235700",
+    "valor": "191.21",
+    "data_inicio": "2026-01-01",
+    "data_fim": "2026-04-30",
+    "ativo": true
+  },
+  {
+    "id": "218b1519-7a0a-4c80-83dd-f96fbc616dc7",
+    "employee_id": "4f6d1b27-d05b-4315-aa86-f245d70e52bb",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 456081079",
+    "valor": "308.88",
+    "data_inicio": "2026-01-01",
+    "data_fim": "2026-02-28",
+    "ativo": true
+  },
+  {
+    "id": "3e41a85b-71f2-445a-9fc2-d8842a90cfd3",
+    "employee_id": "ebfc72fe-7081-47b8-bce6-88b81cdcb09a",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 63639912",
+    "valor": "135.16",
+    "data_inicio": "2026-02-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "8ef7d06c-266d-4206-8b5e-2b8753709e35",
+    "employee_id": "ebfc72fe-7081-47b8-bce6-88b81cdcb09a",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 63645901",
+    "valor": "51.46",
+    "data_inicio": "2026-02-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "d19cbf51-a765-4804-9816-29262fe8450e",
+    "employee_id": "89f89f2c-b0dd-430a-ae84-e4d35981a498",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 7008360",
+    "valor": "228.46",
+    "data_inicio": "2026-02-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "4777f149-4437-4928-89c4-48589911806f",
+    "employee_id": "89f89f2c-b0dd-430a-ae84-e4d35981a498",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 70062414",
+    "valor": "234.14",
+    "data_inicio": "2026-02-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "a72655fc-ed09-4b9e-9277-5507f218fee7",
+    "employee_id": "7e5e4c49-a1d2-4bbf-8699-9e2fa22063aa",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 70173529",
+    "valor": "468.92",
+    "data_inicio": "2026-02-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "34892d7c-ae49-4ce7-ae32-ef1dd858f52a",
+    "employee_id": "2938d6a4-ca53-4406-ad1d-1309fa555fe6",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 70091634",
+    "valor": "227.43",
+    "data_inicio": "2026-02-01",
+    "data_fim": "2026-05-31",
+    "ativo": true
+  },
+  {
+    "id": "e2815e33-82cc-4a45-ac37-2cc1ed38f907",
+    "employee_id": "2938d6a4-ca53-4406-ad1d-1309fa555fe6",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 70071255",
+    "valor": "233.60",
+    "data_inicio": "2026-02-01",
+    "data_fim": "2026-05-31",
+    "ativo": true
+  },
+  {
+    "id": "dd0d6718-269b-43f2-8ccd-9caf429d1ca7",
+    "employee_id": "4714fbc7-608b-443d-9669-7b1d54897b92",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 63651242",
+    "valor": "88.33",
+    "data_inicio": "2026-02-01",
+    "data_fim": "2026-02-28",
+    "ativo": true
+  },
+  {
+    "id": "3f1dd0c7-5d55-4e07-9c89-954ead8ffd70",
+    "employee_id": "4714fbc7-608b-443d-9669-7b1d54897b92",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 63651242",
+    "valor": "108.89",
+    "data_inicio": "2026-03-01",
+    "data_fim": "2026-05-31",
+    "ativo": true
+  },
+  {
+    "id": "63473fba-7702-4935-bb0f-e1610dad822a",
+    "employee_id": "7d6280ad-2471-43e1-9d0c-5a8f576e79b1",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 000000001490112",
+    "valor": "91.18",
+    "data_inicio": "2026-03-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "a7628a2b-f094-433a-b9d7-4abe5b37b79a",
+    "employee_id": "0d7887cc-d824-44ff-86be-201c7ab70dc6",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 27025466",
+    "valor": "49.67",
+    "data_inicio": "2026-03-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "26137bcb-02dd-4d94-9797-5fab814e7e11",
+    "employee_id": "0d7887cc-d824-44ff-86be-201c7ab70dc6",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 26492012",
+    "valor": "496.62",
+    "data_inicio": "2026-03-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "02fe12e3-c4a6-4a29-a88f-33480a67e08e",
+    "employee_id": "2430761d-172e-44b8-a817-edfea166e321",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 70511507",
+    "valor": "55.81",
+    "data_inicio": "2026-03-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "4856f45a-473d-455d-8ef1-16454f85a8f2",
+    "employee_id": "0d7f8148-337c-4c66-9000-c9589a23c88a",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 1342ACS50079080",
+    "valor": "102.08",
+    "data_inicio": "2026-03-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "434b51f1-9d09-4cdd-a7a8-00e5a8c42ec6",
+    "employee_id": "b2b39603-19a1-4050-b062-98e500198012",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 25091517760571",
+    "valor": "116.99",
+    "data_inicio": "2026-03-01",
+    "data_fim": "2026-03-31",
+    "ativo": true
+  },
+  {
+    "id": "b2f7e8b4-dabb-4daa-9861-a55c0198e907",
+    "employee_id": "2938d6a4-ca53-4406-ad1d-1309fa555fe6",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 7035793",
+    "valor": "93.39",
+    "data_inicio": "2026-03-01",
+    "data_fim": "2026-05-31",
+    "ativo": true
+  },
+  {
+    "id": "7a8da6fd-68d9-40aa-a941-ace5d839fd41",
+    "employee_id": "13a74a88-beef-4b40-af78-66e15a8f9dff",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 7041800",
+    "valor": "532.81",
+    "data_inicio": "2026-03-01",
+    "data_fim": "2026-03-31",
+    "ativo": true
+  },
+  {
+    "id": "02a1cd87-93ca-4f9c-9339-c985bf07af30",
+    "employee_id": "13a74a88-beef-4b40-af78-66e15a8f9dff",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 7041800",
+    "valor": "342.70",
+    "data_inicio": "2026-04-01",
+    "data_fim": "2026-04-30",
+    "ativo": true
+  },
+  {
+    "id": "b191df1c-f4a4-4535-8bc7-6e23df985f78",
+    "employee_id": "0d7887cc-d824-44ff-86be-201c7ab70dc6",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 28609319",
+    "valor": "47.16",
+    "data_inicio": "2026-04-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "ad3d5036-1731-4290-97e7-02c3ed7deafd",
+    "employee_id": "58e002c7-7df8-42a8-aef9-0607d41a306c",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 70543348",
+    "valor": "65.12",
+    "data_inicio": "2026-04-01",
+    "data_fim": "2026-04-30",
+    "ativo": true
+  },
+  {
+    "id": "c3690882-f1f9-4c0c-808c-d0dabe6fc6c4",
+    "employee_id": "58e002c7-7df8-42a8-aef9-0607d41a306c",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 70543348",
+    "valor": "65.12",
+    "data_inicio": "2026-06-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "12f3fb32-e984-451e-a892-f75c45da8d4c",
+    "employee_id": "ebfc72fe-7081-47b8-bce6-88b81cdcb09a",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 000592638313",
+    "valor": "284.88",
+    "data_inicio": "2026-04-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "513968fb-9959-4b76-a7c3-8874964539f2",
+    "employee_id": "ebfc72fe-7081-47b8-bce6-88b81cdcb09a",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 3474343",
+    "valor": "33.28",
+    "data_inicio": "2026-04-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "ea780890-9875-464d-b00f-173e375ec11b",
+    "employee_id": "e38fc9dc-dd7c-44f7-af7b-952ec4c7ccb2",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 000000119416313",
+    "valor": "516.54",
+    "data_inicio": "2026-04-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "0385a8b8-999c-491d-add0-b42391be15ae",
+    "employee_id": "b2f5ac0e-fb97-43ce-b7fe-78466284ea1b",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 3473041",
+    "valor": "106.49",
+    "data_inicio": "2026-04-01",
+    "data_fim": "2026-05-31",
+    "ativo": true
+  },
+  {
+    "id": "31e12e6d-e2a9-402e-874d-14d2e7ca39e0",
+    "employee_id": "b2f5ac0e-fb97-43ce-b7fe-78466284ea1b",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 705415191",
+    "valor": "405.43",
+    "data_inicio": "2026-04-01",
+    "data_fim": "2026-05-31",
+    "ativo": true
+  },
+  {
+    "id": "979b5a1c-7114-4e3a-a7c2-257a74ec5963",
+    "employee_id": "7e5e4c49-a1d2-4bbf-8699-9e2fa22063aa",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 70654312",
+    "valor": "123.86",
+    "data_inicio": "2026-04-01",
+    "data_fim": "2026-05-31",
+    "ativo": true
+  },
+  {
+    "id": "7a48b600-94c0-4008-8d84-b06546602659",
+    "employee_id": "7e5e4c49-a1d2-4bbf-8699-9e2fa22063aa",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 70654312",
+    "valor": "104.55",
+    "data_inicio": "2026-06-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "beb8fb7c-74b2-4cb9-8113-08ee0e5f8e9e",
+    "employee_id": "2430761d-172e-44b8-a817-edfea166e321",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 70828514",
+    "valor": "52.52",
+    "data_inicio": "2026-05-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "f2c5b7d7-2e0c-4304-ae7c-99bd292d6585",
+    "employee_id": "0754e0aa-0be4-4253-9816-003c0149c1cd",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº #CONTRATO",
+    "valor": "415.36",
+    "data_inicio": "2026-05-01",
+    "data_fim": "2026-05-31",
+    "ativo": true
+  },
+  {
+    "id": "d277ca20-1cdd-4433-9dbb-6c7efd71595f",
+    "employee_id": "13a02a88-abdc-48e0-b128-d1005ba57a04",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº PKT487787638",
+    "valor": "201.75",
+    "data_inicio": "2026-05-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "df89f715-7c0e-475e-9c60-ddd17794d882",
+    "employee_id": "58e002c7-7df8-42a8-aef9-0607d41a306c",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 70841236",
+    "valor": "255.89",
+    "data_inicio": "2026-05-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "ea274da0-519e-47c1-b8d8-fd18b7cc3a1a",
+    "employee_id": "58e002c7-7df8-42a8-aef9-0607d41a306c",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 70973740",
+    "valor": "89.15",
+    "data_inicio": "2026-05-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "746322de-c63d-46df-bfe9-2416a070fa93",
+    "employee_id": "f5fe3ccb-8529-4525-9241-5f031d3b9204",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 193500101213933",
+    "valor": "81.10",
+    "data_inicio": "2026-05-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "c9c03e9c-cb04-4781-85bd-551b9d0540e1",
+    "employee_id": "9e9e1678-9988-490c-b59b-b2786bb67e1c",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº PKT582950614",
+    "valor": "186.68",
+    "data_inicio": "2026-05-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "2bfdb09b-be7e-42d1-9eae-b6064b58be66",
+    "employee_id": "b2f5ac0e-fb97-43ce-b7fe-78466284ea1b",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 70829615",
+    "valor": "83.02",
+    "data_inicio": "2026-05-01",
+    "data_fim": "2026-05-31",
+    "ativo": true
+  },
+  {
+    "id": "84b513f5-ca5a-46f4-85a5-276031d9adc9",
+    "employee_id": "12423164-f7d8-4db3-bf36-cffebda5948e",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº #CONTRATO",
+    "valor": "57.99",
+    "data_inicio": "2026-05-01",
+    "data_fim": "2026-05-31",
+    "ativo": true
+  },
+  {
+    "id": "db1ca571-4217-4146-be75-0aa9f2b328c1",
+    "employee_id": "ebfc72fe-7081-47b8-bce6-88b81cdcb09a",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 7118893",
+    "valor": "57.50",
+    "data_inicio": "2026-06-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "a0e40ed7-fc1e-4628-9663-5d78a1651c91",
+    "employee_id": "eb84be29-7760-4d64-9688-dd5433172283",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº PKT461330786",
+    "valor": "384.46",
+    "data_inicio": "2026-06-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "e775216d-2531-4f7d-974f-1317125bc80a",
+    "employee_id": "12423164-f7d8-4db3-bf36-cffebda5948e",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 000000118114427",
+    "valor": "203.85",
+    "data_inicio": "2026-06-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "150ad084-7abc-4e5b-8f3b-6dac7e12efea",
+    "employee_id": "12423164-f7d8-4db3-bf36-cffebda5948e",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 000000001771269",
+    "valor": "71.99",
+    "data_inicio": "2026-06-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  },
+  {
+    "id": "874375c6-9a6d-4d29-84d2-bbe03b8d13c9",
+    "employee_id": "0754e0aa-0be4-4253-9816-003c0149c1cd",
+    "tipo": "consignado",
+    "descricao": "DESC. EMP. CRED. TRAB Nº 88114044",
+    "valor": "415.36",
+    "data_inicio": "2026-06-01",
+    "data_fim": "2026-06-30",
+    "ativo": true
+  }
+]
