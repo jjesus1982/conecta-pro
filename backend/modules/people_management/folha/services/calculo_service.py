@@ -256,20 +256,23 @@ def calcular_folha_colaborador(
         }
     )
 
-    # 0030 — Intrajornada nao concedida (CCT: 1h a 50%). Só para quem REALMENTE recebe
-    # (flag por-funcionário recebe_intrajornada). Sem flag → não cita (default off).
+    # 0030 — Intrajornada não concedida (CCT: 1h a 50%). DIURNO=hora_normal×1.5;
+    # NOTURNA embute redução+20%. SÓ do dado REAL: espelho jan-jun = valor da Portte
+    # (folha_intrajornada_espelho, backfill — verdade do espelho); ausência de linha =
+    # Portte NÃO pagou naquele mês → 0 (não estima, senão fabrica intervalo não-concedido
+    # que ninguém registrou). ponytail: going-forward virá de hora real do ponto.
     intrajornada_valor = Decimal("0")
-    if recebe_intrajornada and escala == "12x36" and dias_reais > 0:
-        intrajornada_valor = _d(hora_normal * Decimal("1.5") * Decimal(str(dias_reais)))
-        proventos.append(
-            {
-                "codigo": "0030",
-                "descricao": "Intrajornada Nao Concedida",
-                "tipo": "provento",
-                "referencia": f"{dias_reais} dias ({fonte_horas})",
-                "valor": float(intrajornada_valor),
-            }
-        )
+    _ij = db.execute(text(
+        "SELECT valor_diurna, valor_noturna FROM folha_intrajornada_espelho "
+        "WHERE CAST(employee_id AS TEXT)=:e AND ano=:a AND mes=:m"),
+        {"e": employee_id, "a": ano, "m": mes}).first()
+    if _ij:
+        _vd, _vn = _d(_ij[0]), _d(_ij[1])
+        for _cod, _desc, _val in (("0030", "Intrajornada Diurno", _vd), ("0031", "Intrajornada Noturna", _vn)):
+            if _val > 0:
+                proventos.append({"codigo": _cod, "descricao": _desc, "tipo": "provento",
+                                  "referencia": "espelho Portte", "valor": float(_val)})
+        intrajornada_valor = _vd + _vn
 
     # 0040 — Horas Extras 50% (horas trabalhadas REAIS acima da jornada contratada mensal)
     horas_extras_valor = Decimal("0")
