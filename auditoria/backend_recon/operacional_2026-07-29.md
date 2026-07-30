@@ -131,3 +131,10 @@ backend → redesign só precisa builder (leitura) + ações via write-gate (`re
   - Pesados (dash/IA/campo): kpi (kpi-trends), cobertura (reports/coverage), relatorios, mapa, consultor (consultor_coo IA→chat), agentes, ai-command-center, ronda-mobile, escalas-visual.
   - allocations: `alocacoes` já servido por build (leitura); escrita FORA (regra intocável).
 - Bake: sessões paralelas bakeiam com frequência (do source) → meus commits entram na imagem sem eu competir pelo lock.
+
+### Lote 5 (2026-07-30) — 6 read-fixes com tabela real, commitado
+- ✅ substituicoes(substitutions,0)/escalas-templates(scale_templates,4)/escalas-grade(shifts→53 pessoas)/avaliacao-equipe(operacional_avaliacoes_equipe,0 ativas)/diaristas-escala(diarist_schedules,0)/diaristas-fechamento(diarist_payments,0). ::text em enum/date antes de coalesce (senão PG aborta tx e polui build). Oráculo `test_oraculo_op_readfix2_redesign.py` verde.
+- BALANÇO: núcleo de DADOS operacional agora real (leituras) + escritas-chave (medidas/passagem/instrucao/banco-horas/nova-ronda). Restante em 3 baldes:
+  - (A) DASHBOARDS c/ backend real (doável, próximo): kpi (kpi-trends), cobertura (reports/coverage), relatorios. São type=dash (kpis/panels), mais trabalho por tela.
+  - (B) IA / camada cognitiva (PROGRAMA SEPARADO Fase5/6): consultor (consultor_coo→chat), agentes, ai-command-center. Não é read-fix; é integrar o chat/consultor.
+  - (C) campo/geo/sem-tabela (deferir): mapa, ronda-mobile, escalas-visual, campo (tem _build_campo próprio), triagem (SEM tabela — não fabricar).
