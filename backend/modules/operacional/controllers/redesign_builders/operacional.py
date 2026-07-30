@@ -499,4 +499,75 @@ async def build(db) -> dict:
     except Exception:  # noqa: BLE001
         pass
 
+    # ── Read-fixes: telas que caíam na casca estática → tabela real (vazio→honesto) ──
+    _sub_tone = {"confirmada": "ok", "concluida": "ok", "aprovada": "ok", "pendente": "warn",
+                 "solicitada": "warn", "rejeitada": "bad", "cancelada": "mut"}
+    try:  # Substituições — substitutions
+        n = await _scalar(db, "SELECT count(*) FROM substitutions WHERE coalesce(is_active,true)") or 0
+        out["substituicoes"] = await tbl(
+            "Substituições", f"{n} substituição(ões) · fonte: substitutions", "—",
+            ["Data", "Ausente", "Substituto", "Posto", "Status"], "0.9fr 1.6fr 1.6fr 1.4fr 1fr",
+            "SELECT s.substitution_date, coalesce(eo.nome,'—'), coalesce(es.nome,'—'), coalesce(p.name,'—'), coalesce(s.status::text,'—') "
+            "FROM substitutions s LEFT JOIN employees eo ON eo.id=s.original_employee_id "
+            "LEFT JOIN employees es ON es.id=s.substitute_employee_id LEFT JOIN posts p ON p.id=s.post_id "
+            "WHERE coalesce(s.is_active,true) ORDER BY s.substitution_date DESC NULLS LAST LIMIT 200",
+            lambda r: [t(_fmtdate(r[0])), t(r[1], 600, "#0F1B3A"), t(r[2]), t(r[3]),
+                       b((r[4] or '—').replace('_', ' ').capitalize(), _sub_tone.get((r[4] or '').lower(), "info"))])
+    except Exception:  # noqa: BLE001
+        pass
+    try:  # Escalas · Templates — scale_templates
+        out["escalas-templates"] = await tbl(
+            "Templates de escala", "Modelos reutilizáveis · fonte: scale_templates", "—",
+            ["Template", "Descrição", "Usos", "Último uso"], "1.6fr 2fr 0.7fr 1fr",
+            "SELECT name, coalesce(description,'—'), coalesce(times_used,0), last_used "
+            "FROM scale_templates WHERE coalesce(is_active,true) ORDER BY name LIMIT 200",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—')[:70]), t(str(int(r[2] or 0))), t(_fmtdate(r[3]))])
+    except Exception:  # noqa: BLE001
+        pass
+    try:  # Escalas · Grade por pessoa — shifts agregado
+        out["escalas-grade"] = await tbl(
+            "Grade por pessoa", "Turnos por colaborador · fonte: shifts", "—",
+            ["Colaborador", "Turnos", "De", "Até"], "2fr 0.8fr 1fr 1fr",
+            "SELECT coalesce(e.nome,'—'), count(*), min(s.shift_date), max(s.shift_date) "
+            "FROM shifts s LEFT JOIN employees e ON e.id=s.employee_id WHERE coalesce(s.is_active,true) "
+            "GROUP BY e.nome ORDER BY count(*) DESC LIMIT 300",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t(str(int(r[1] or 0))), t(_fmtdate(r[2])), t(_fmtdate(r[3]))])
+    except Exception:  # noqa: BLE001
+        pass
+    try:  # Avaliação de equipe — operacional_avaliacoes_equipe
+        n = await _scalar(db, "SELECT count(*) FROM operacional_avaliacoes_equipe WHERE coalesce(is_active,true)") or 0
+        out["avaliacao-equipe"] = await tbl(
+            "Avaliação de equipe", f"{n} avaliação(ões) · fonte: operacional_avaliacoes_equipe", "—",
+            ["Colaborador", "Avaliador", "Nota", "Competência", "Data"], "1.8fr 1.6fr 0.7fr 1.2fr 0.9fr",
+            "SELECT coalesce(e.nome,'—'), coalesce(a.avaliador_nome,'—'), a.nota, coalesce(a.competencia::text,'—'), a.criada_em "
+            "FROM operacional_avaliacoes_equipe a LEFT JOIN employees e ON e.id=a.employee_id "
+            "WHERE coalesce(a.is_active,true) ORDER BY a.criada_em DESC NULLS LAST LIMIT 200",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]),
+                       b(str(r[2]) if r[2] is not None else '—', "ok" if (r[2] or 0) >= 7 else ("warn" if (r[2] or 0) >= 5 else "bad")),
+                       t((r[3] or '—').capitalize()), t(_fmtdate(r[4]))])
+    except Exception:  # noqa: BLE001
+        pass
+    try:  # Diaristas · Escala — diarist_schedules (sem join: n=0, colunas seguras)
+        n = await _scalar(db, "SELECT count(*) FROM diarist_schedules WHERE coalesce(ativo,true)") or 0
+        out["diaristas-escala"] = await tbl(
+            "Escala de diaristas", f"{n} agendamento(s) · fonte: diarist_schedules", "—",
+            ["Data", "Início", "Fim", "Status", "Valor previsto"], "1fr 0.8fr 0.8fr 1fr 1.1fr",
+            "SELECT data_trabalho, hora_inicio, hora_fim, coalesce(status::text,'—'), valor_previsto "
+            "FROM diarist_schedules WHERE coalesce(ativo,true) ORDER BY data_trabalho DESC NULLS LAST LIMIT 200",
+            lambda r: [t(_fmtdate(r[0]), 600, "#0F1B3A"), t(str(r[1])[:5] if r[1] else '—'), t(str(r[2])[:5] if r[2] else '—'),
+                       t((r[3] or '—').capitalize()), t(brl(r[4]) if r[4] is not None else '—', 600)])
+    except Exception:  # noqa: BLE001
+        pass
+    try:  # Diaristas · Fechamento — diarist_payments
+        n = await _scalar(db, "SELECT count(*) FROM diarist_payments WHERE coalesce(ativo,true)") or 0
+        out["diaristas-fechamento"] = await tbl(
+            "Fechamento de diaristas", f"{n} fechamento(s) · fonte: diarist_payments", "—",
+            ["Referência", "Bruto", "Líquido", "Status", "Pagamento"], "1fr 1fr 1fr 1fr 1fr",
+            "SELECT data_referencia, valor_bruto, valor_liquido, coalesce(status::text,'—'), data_pagamento "
+            "FROM diarist_payments WHERE coalesce(ativo,true) ORDER BY data_referencia DESC NULLS LAST LIMIT 200",
+            lambda r: [t(_fmtdate(r[0]), 600, "#0F1B3A"), t(brl(r[1]) if r[1] is not None else '—'),
+                       t(brl(r[2]) if r[2] is not None else '—', 600), t((r[3] or '—').capitalize()), t(_fmtdate(r[4]))])
+    except Exception:  # noqa: BLE001
+        pass
+
     return out
