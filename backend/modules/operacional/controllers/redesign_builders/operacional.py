@@ -178,12 +178,48 @@ async def rd_action_banco_horas(current_user: CurrentActiveUser, payload: dict =
         raise HTTPException(status_code=400, detail=str(ge))
     rid = getattr(res, "id", None) or (res.get("id") if isinstance(res, dict) else None)
     return {"ok": True, "id": str(rid) if rid else None, "message": "Lançamento no banco de horas criado"}
+
+
+@router.post("/action/nova-ronda")
+async def rd_action_nova_ronda(current_user: CurrentActiveUser, payload: dict = Body(...),
+                               db=Depends(get_db)) -> dict:
+    """Cria (agenda) ronda de inspeção REAL via InspectionRoundService (reuso). Humano-operado.
+    O ciclo de campo (iniciar/checkpoints/fotos) fica no fluxo mobile (ronda-mobile)."""
+    from core.auth import get_tenant_id
+    from modules.operacional.controllers.redesign_write_gate import GateError, op_write
+    from modules.operacional.inspection_rounds.schemas.inspection_round_schemas import InspectionRoundCreate
+    from modules.operacional.inspection_rounds.services.inspection_round_service import InspectionRoundService
+
+    insp_id = (payload.get("inspector_id") or "").strip()
+    if not insp_id:
+        raise HTTPException(status_code=400, detail="Selecione o inspetor.")
+    emp = (await db.execute(_sqltext("SELECT nome FROM employees WHERE id::text=:i"), {"i": insp_id})).first()
+    if not emp:
+        raise HTTPException(status_code=400, detail="Inspetor não encontrado.")
+    try:
+        data = InspectionRoundCreate(
+            tenant_id=get_tenant_id(current_user), inspector_id=insp_id, inspector_name=emp[0] or "—",
+            scheduled_date=payload.get("scheduled_date") or None,
+            observations=(payload.get("observations") or None))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Dados inválidos: {e}")
+
+    async def _write():
+        return await InspectionRoundService(db).create(data)
+
+    try:
+        r = await op_write(db, real_write=_write, idempotency_key=f"ronda:{insp_id}:{data.scheduled_date}")
+    except GateError as ge:
+        raise HTTPException(status_code=400, detail=str(ge))
+    rid = getattr(r, "id", None)
+    return {"ok": True, "id": str(rid) if rid else None, "code": getattr(r, "code", None), "message": "Ronda criada"}
 EXTRA_MENU: list[dict] = [
     {"id": "rondas", "label": "Rondas",
      "icon": "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"},
     {"id": "passagem-turno-nova", "label": "Nova passagem", "icon": "M12 5v14M5 12h14"},
     {"id": "instrucao-posto-editar", "label": "Editar instrução", "icon": "M12 5v14M5 12h14"},
     {"id": "banco-horas-lancar", "label": "Lançar horas", "icon": "M12 5v14M5 12h14"},
+    {"id": "nova-ronda", "label": "Nova ronda", "icon": "M12 5v14M5 12h14"},
 ]
 
 
@@ -449,6 +485,15 @@ async def build(db) -> dict:
                 {"key": "reference_date", "label": "Data de referência*", "type": "date", "span": "span 1"},
                 {"key": "reason", "label": "Motivo", "type": "text", "span": "span 1", "ph": "Opcional"},
                 {"key": "description", "label": "Descrição", "type": "textarea", "span": "span 2", "ph": "Opcional…"},
+            ],
+        }
+        out["nova-ronda"] = {
+            "title": "Nova ronda", "sub": "Agenda uma ronda de inspeção (ciclo de campo é no mobile)", "cta": "Criar ronda",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/nova-ronda", "okMsg": "Ronda criada"},
+            "fields": [
+                {"key": "inspector_id", "label": "Inspetor*", "type": "select", "span": "span 2", "ph": "Selecione o inspetor", "options": _emp_opts},
+                {"key": "scheduled_date", "label": "Data agendada", "type": "date", "span": "span 1"},
+                {"key": "observations", "label": "Observações", "type": "textarea", "span": "span 2", "ph": "Opcional…"},
             ],
         }
     except Exception:  # noqa: BLE001
