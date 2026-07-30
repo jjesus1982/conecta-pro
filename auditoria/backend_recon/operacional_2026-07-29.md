@@ -121,3 +121,13 @@ backend → redesign só precisa builder (leitura) + ações via write-gate (`re
 ### Lote 3 (2026-07-29) — ESCRITAS via gate (reuso controllers), commitado; bake pendente (lock disputado)
 - ✅ passagem-turno (create_passagem_turno), instrucao-posto (atualizar_instrucoes_posto, só gestor), banco-horas (create_entry) — via op_write + OperationalScope gestor. Forms em EXTRA_MENU (passagem-turno-nova, instrucao-posto-editar, banco-horas-lancar). Oráculo `scripts/orq/test_acao_op_escritas_redesign.py` cria+confere+limpa (net-new) — 3/3 verde. Rotas 401 montadas. Live no container (docker cp); BAKE pendente (lock ocupado por sessão paralela) → consolidar no próximo tick.
 - FALTA p/ 100%: rondas GESTÃO (iniciar/pausar/checkpoints/registrar-ocorrência — multi-step), escalas (reconciliar Sólides), allocations (verificar leitura; escrita FORA), consultor operacional (chat), analytics (kpi-trends/reports/ai-command-center). + BAKE consolidado final.
+
+### Lote 4 (2026-07-30) — Nova ronda + mapa da fila restante
+- ✅ nova-ronda (InspectionRoundService.create via gate) — leitura de rondas já era real; ciclo de campo (iniciar/checkpoints/fotos) fica no mobile. commit. Oráculo `test_acao_nova_ronda_redesign.py` verde.
+- ACHADO A (reportar, não corrigir cego): `inspection_rounds` code é GLOBAL-unique mas `get_next_sequence` é PER-TENANT → 2 tenants colidem code. No single-tenant real não morde; meu teste com tenant fake colidiu. Clássico tem o mesmo risco.
+- ACHADO B (sharp edge do gate): `op_write` grava o marcador de idempotência ANTES do real_write e não faz rollback em falha → write que falha deixa marcador-poison bloqueando retry com mesma chave. Mitigo validando ANTES do op_write; gate merece fix separado.
+- build() serve 29 screens REAIS. **Fila read-fix restante (18 ids servidos do estático, vários fabricados):**
+  - Backend real claro (read-fix rápido): substituicoes, avaliacao-equipe (operacional_avaliacoes_equipe), escalas-templates (scale_template), escalas-grade (shifts×employees), triagem, diaristas-escala, diaristas-fechamento.
+  - Pesados (dash/IA/campo): kpi (kpi-trends), cobertura (reports/coverage), relatorios, mapa, consultor (consultor_coo IA→chat), agentes, ai-command-center, ronda-mobile, escalas-visual.
+  - allocations: `alocacoes` já servido por build (leitura); escrita FORA (regra intocável).
+- Bake: sessões paralelas bakeiam com frequência (do source) → meus commits entram na imagem sem eu competir pelo lock.
