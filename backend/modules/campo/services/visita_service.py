@@ -20,6 +20,38 @@ from modules.campo.schemas.visita import (
 )
 
 
+def visita_to_pdf_dict(v) -> dict:
+    """Monta o dict esperado por build_visit_report_pdf a partir de uma Visita real.
+
+    Fonte ÚNICA do endpoint /campo/visitas/{id}/pdf e da tool gera-doc do chat (Fase 6 F4)
+    — render fiel do registro, sem fabricar nem gravar. Não duplicar essa montagem.
+    """
+    def g(k, d=""):
+        val = getattr(v, k, None)
+        if isinstance(val, list):
+            val = ", ".join(str(x) for x in val)
+        elif isinstance(val, dict):
+            val = "; ".join(f"{kk}: {vv}" for kk, vv in val.items())
+        return val if val not in (None, "") else d
+
+    dv = getattr(v, "data_visita", None)
+    return {
+        "numero": g("numero"),
+        "tipo": g("tipo"),
+        "cliente_nome": g("prospect_empresa") or g("prospect_nome") or g("responsavel_nome") or "—",
+        "data_visita": dv.strftime("%d/%m/%Y") if hasattr(dv, "strftime") else str(dv or ""),
+        "responsavel": g("responsavel_nome"),
+        "descricao": g("descricao_atendimento"),
+        "situacao_atual": g("objetivo"),
+        "diagnostico_tecnico": g("levantamento"),
+        "achados": g("necessidades_identificadas"),
+        "oportunidade_comercial": g("interesse_nivel"),
+        "proximos_passos": g("proximos_passos"),
+        "panorama": g("resultado"),
+        "corpo": g("descricao_atendimento"),
+    }
+
+
 class VisitaService:
     """Service para logica de negocio de Visita."""
 

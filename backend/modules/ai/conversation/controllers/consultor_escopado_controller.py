@@ -29,6 +29,7 @@ from core.auth.module_scope import user_modules
 from core.database import get_db
 from modules.ai.conversation.services.orquestrador import tools_comercial_doc  # noqa: F401 — registra gera-doc comercial (Fase 6 F1)
 from modules.ai.conversation.services.orquestrador import tools_financeiro_doc  # noqa: F401 — registra gera-doc financeiro (Fase 6 F3)
+from modules.ai.conversation.services.orquestrador import tools_operacional_doc  # noqa: F401 — registra gera-doc operacional (Fase 6 F4)
 from modules.ai.conversation.services.orquestrador import tools_modulos  # noqa: F401 — registra as tools de módulo
 from modules.ai.conversation.services.orquestrador.acoes import (  # noqa: F401 — registra as 6 tools de ação 5.4 (register() a nível de módulo)
     onda_a,

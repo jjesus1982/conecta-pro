@@ -454,37 +454,15 @@ async def visita_relatorio_pdf(
     """Gera o relatório da visita técnica/comercial em PDF (gerador build_visit_report_pdf)."""
     from fastapi.responses import Response as _R
 
+    from modules.campo.services.visita_service import visita_to_pdf_dict
     from modules.crm.services.doc_pdf import build_visit_report_pdf
 
     v = await service.obter_visita(visita_id)
     if not v:
         raise HTTPException(status_code=404, detail="visita não encontrada")
 
-    def g(k, d=""):
-        val = getattr(v, k, None)
-        if isinstance(val, list):
-            val = ", ".join(str(x) for x in val)
-        elif isinstance(val, dict):
-            val = "; ".join(f"{kk}: {vv}" for kk, vv in val.items())
-        return val if val not in (None, "") else d
-
-    dv = getattr(v, "data_visita", None)
-    d = {
-        "numero": g("numero"),
-        "tipo": g("tipo"),
-        "cliente_nome": g("prospect_empresa") or g("prospect_nome") or g("responsavel_nome") or "—",
-        "data_visita": dv.strftime("%d/%m/%Y") if hasattr(dv, "strftime") else str(dv or ""),
-        "responsavel": g("responsavel_nome"),
-        "descricao": g("descricao_atendimento"),
-        "situacao_atual": g("objetivo"),
-        "diagnostico_tecnico": g("levantamento"),
-        "achados": g("necessidades_identificadas"),
-        "oportunidade_comercial": g("interesse_nivel"),
-        "proximos_passos": g("proximos_passos"),
-        "panorama": g("resultado"),
-        "corpo": g("descricao_atendimento"),
-    }
+    d = visita_to_pdf_dict(v)
     pdf = build_visit_report_pdf(d)
     disp = "attachment" if download else "inline"
     return _R(content=pdf, media_type="application/pdf",
-              headers={"Content-Disposition": f'{disp}; filename="visita_{g("numero") or visita_id}.pdf"'})
+              headers={"Content-Disposition": f'{disp}; filename="visita_{d.get("numero") or visita_id}.pdf"'})
