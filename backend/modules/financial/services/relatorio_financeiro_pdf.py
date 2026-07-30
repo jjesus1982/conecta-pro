@@ -27,6 +27,23 @@ def _money(v) -> str:
         return str(v)
 
 
+def aging_pdf_bytes(dados: dict, titulo: str) -> bytes:
+    """Monta o PDF branded de aging (contas a receber/pagar) a partir do dict de
+    get_*_aging. Montagem única, reusada pelos endpoints /aging/pdf e pelas tools do chat."""
+    linhas = [
+        (f"{(fx.get('faixa') or '').replace('_', ' ').capitalize()} ({fx.get('quantidade', 0)})",
+         fx.get("valor_total", 0))
+        for fx in dados.get("faixas", [])
+    ]
+    secoes = [
+        {"titulo": "Por faixa de vencimento", "linhas": linhas or [("(sem títulos em aberto)", "")]},
+        {"titulo": "Totais", "linhas": [
+            ("Total em aberto", dados.get("total_em_aberto", 0)),
+            ("Total vencido", dados.get("total_vencido", 0), True)]},
+    ]
+    return gerar_relatorio_pdf(titulo, f"Posição em {dados.get('aging_date', '')}", secoes)
+
+
 def gerar_relatorio_pdf(titulo: str, subtitulo: str, secoes: list[dict]) -> bytes:
     """secoes = [{'titulo': str, 'linhas': [(rotulo, valor, destaque_bool?)]}].
     valor numérico é formatado como R$; string é impressa como veio."""

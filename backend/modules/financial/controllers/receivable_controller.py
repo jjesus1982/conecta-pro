@@ -948,17 +948,9 @@ async def receivable_aging_pdf(
 ):
     from fastapi.responses import Response as _R
 
-    from modules.financial.services.relatorio_financeiro_pdf import gerar_relatorio_pdf
+    from modules.financial.services.relatorio_financeiro_pdf import aging_pdf_bytes
 
     dados = await get_receivables_aging(condominio_id=condominio_id, service=service, current_user=current_user)
-    linhas = [
-        (f"{(fx.get('faixa') or '').replace('_', ' ').capitalize()} ({fx.get('quantidade', 0)})", fx.get("valor_total", 0))
-        for fx in dados.get("faixas", [])
-    ]
-    secoes = [{"titulo": "Por faixa de vencimento", "linhas": linhas or [("(sem títulos em aberto)", "")]}]
-    secoes.append({"titulo": "Totais", "linhas": [
-        ("Total em aberto", dados.get("total_em_aberto", 0)),
-        ("Total vencido", dados.get("total_vencido", 0), True)]})
-    pdf = gerar_relatorio_pdf("Contas a Receber — Aging", f"Posição em {dados.get('aging_date', '')}", secoes)
+    pdf = aging_pdf_bytes(dados, "Contas a Receber — Aging")
     return _R(content=pdf, media_type="application/pdf",
               headers={"Content-Disposition": 'inline; filename="aging_receivable.pdf"'})

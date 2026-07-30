@@ -22,6 +22,9 @@ Paredes (inegociáveis):
   * DRE e Balancete, hoje, são apurados CONSOLIDADOS do grupo (as queries de accounting_entries/
     NFS-e não filtram empresa). Não dá pra recortar por CNPJ sem reescrever o serviço → saem
     rotulados honestamente como "grupo consolidado (todas as empresas)", nunca como um CNPJ só.
+  * Aging (contas a receber/pagar) idem: receivable_accounts/payable_accounts NÃO têm coluna
+    empresa_id (chaveiam condominio/cliente/fornecedor) → aging é intrinsecamente CONSOLIDADO;
+    sai rotulado como grupo consolidado, sem parâmetro de empresa (aceitar um seria mentira).
 """
 from __future__ import annotations
 
@@ -163,6 +166,47 @@ async def _gerar_fluxo_caixa_doc(db, user, scope, *, empresa=None, ano=None, mes
     }
 
 
+async def _gerar_aging_receber_doc(db, user, scope, **_) -> dict[str, Any]:  # noqa: ARG001
+    _gate(user)
+    from modules.financial.controllers.receivable_controller import get_receivables_aging
+    from modules.financial.services.receivable_service import ReceivableService
+    from modules.financial.services.relatorio_financeiro_pdf import aging_pdf_bytes
+    # Aging consolidado: receivable_accounts NÃO tem empresa_id (chaveia condominio/cliente),
+    # não dá pra recortar por CNPJ sem reescrever → sai rotulado como grupo consolidado.
+    dados = await get_receivables_aging(condominio_id=None, service=ReceivableService(db), current_user=user)
+    if not dados.get("faixas") or float(dados.get("total_em_aberto") or 0) <= 0.005:
+        return _recusa("não há títulos a receber em aberto; não vou gerar aging vazio como se fosse real.")
+    pdf = aging_pdf_bytes(dados, "Contas a Receber — Aging")
+    return {
+        "arquivo_base64": base64.b64encode(pdf).decode(),
+        "nome": f"aging_receber_{dados.get('aging_date', '')}.pdf",
+        "resumo": f"Aging de contas a receber (posição em {dados.get('aging_date', '')}) — {_CONSOLIDADO}: "
+                  f"em aberto {_brl(dados.get('total_em_aberto'))}, vencido {_brl(dados.get('total_vencido'))} "
+                  "— números reais, doc INTERNO de gestão.",
+    }
+
+
+async def _gerar_aging_pagar_doc(db, user, scope, **_) -> dict[str, Any]:  # noqa: ARG001
+    _gate(user)
+    from modules.financial.controllers.payable_controller import get_payables_aging
+    from modules.financial.services.payable_service import PayableService
+    from modules.financial.services.relatorio_financeiro_pdf import aging_pdf_bytes
+    # Aging consolidado: payable_accounts NÃO tem empresa_id → grupo consolidado (mesmo caso do receber).
+    dados = await get_payables_aging(condominio_id=None, service=PayableService(db), current_user=user)
+    if not dados.get("faixas") or float(dados.get("total_em_aberto") or 0) <= 0.005:
+        return _recusa("não há títulos a pagar em aberto; não vou gerar aging vazio como se fosse real.")
+    pdf = aging_pdf_bytes(dados, "Contas a Pagar — Aging")
+    return {
+        "arquivo_base64": base64.b64encode(pdf).decode(),
+        "nome": f"aging_pagar_{dados.get('aging_date', '')}.pdf",
+        "resumo": f"Aging de contas a pagar (posição em {dados.get('aging_date', '')}) — {_CONSOLIDADO}: "
+                  f"em aberto {_brl(dados.get('total_em_aberto'))}, vencido {_brl(dados.get('total_vencido'))} "
+                  "— números reais, doc INTERNO de gestão.",
+    }
+
+
+_SCHEMA_VAZIO = {"type": "object", "properties": {}, "required": []}
+
 _SCHEMA_PERIODO = {
     "type": "object",
     "properties": {
@@ -202,3 +246,19 @@ register(ToolDef(
     "(Inter=Eletrônica, Cora=Patrimonial): informe a empresa — sem ela, recusa (não assume default). "
     "Relatório INTERNO de gestão (diretoria). Não move dinheiro (só categoriza transações do extrato).",
     _SCHEMA_FLUXO, _gerar_fluxo_caixa_doc, scope_kind="org"))
+
+register(ToolDef(
+    "gerar_aging_receber_doc", "financeiro",
+    "Gera o AGING de CONTAS A RECEBER em PDF branded (títulos em aberto por faixa de "
+    "vencimento, posição de hoje), dos números REAIS (receivable_accounts). Relatório INTERNO "
+    "de gestão (diretoria) — grupo consolidado (todas as empresas; a base não separa por CNPJ). "
+    "Sem títulos em aberto → recusa. Não grava, não move dinheiro.",
+    _SCHEMA_VAZIO, _gerar_aging_receber_doc, scope_kind="org"))
+
+register(ToolDef(
+    "gerar_aging_pagar_doc", "financeiro",
+    "Gera o AGING de CONTAS A PAGAR em PDF branded (títulos em aberto por faixa de vencimento, "
+    "posição de hoje), dos números REAIS (payable_accounts). Relatório INTERNO de gestão "
+    "(diretoria) — grupo consolidado (todas as empresas; a base não separa por CNPJ). "
+    "Sem títulos em aberto → recusa. Não grava, não move dinheiro.",
+    _SCHEMA_VAZIO, _gerar_aging_pagar_doc, scope_kind="org"))
