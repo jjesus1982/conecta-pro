@@ -95,8 +95,9 @@ class LedgerAutoService:
             SELECT payslip_code, reference_period, payment_date, competence_end,
                    total_earnings, fgts_value
             FROM hr_payslips
-            WHERE COALESCE(total_earnings,0) > 0
-            """
+            WHERE COALESCE(total_earnings,0) > 0 AND empresa_id = %s
+            """,
+            (empresa_id,),
         )
         n_sal = n_fgts = 0
         for code, periodo, pay_date, comp_end, bruto, fgts in cur.fetchall():
@@ -404,7 +405,9 @@ class LedgerAutoService:
                 self._ensure_schema(cur)
                 cur.execute(
                     "SELECT reference_period, COALESCE(sum(inss_value),0) FROM hr_payslips "
-                    "WHERE COALESCE(inss_value,0) > 0 GROUP BY reference_period ORDER BY reference_period"
+                    "WHERE COALESCE(inss_value,0) > 0 AND empresa_id = %s "
+                    "GROUP BY reference_period ORDER BY reference_period",
+                    (empresa_id,),
                 )
                 n, tot = 0, 0.0
                 for periodo, val in cur.fetchall():
@@ -438,15 +441,19 @@ class LedgerAutoService:
                     r"AND mes_ref ~ '^[0-9]{2}\.[0-9]{4}$' GROUP BY 1"
                 )
                 guias = {p: float(g or 0) for p, g in cur.fetchall()}
+                # Só os períodos com folha DESTE empresa_id — o patronal segue a folha (o
+                # split jun→Patrimonial faz o patronal de junho ir p/ Patrimonial, não Eletrônica).
                 cur.execute(
                     "SELECT reference_period, COALESCE(sum(inss_value),0) FROM hr_payslips "
-                    "WHERE COALESCE(inss_value,0) > 0 GROUP BY 1"
+                    "WHERE COALESCE(inss_value,0) > 0 AND empresa_id = %s GROUP BY 1",
+                    (empresa_id,),
                 )
                 emp = {p: float(v or 0) for p, v in cur.fetchall()}
                 n, tot = 0, 0.0
-                for periodo, guia in sorted(guias.items()):
+                for periodo in sorted(emp):
+                    guia = guias.get(periodo, 0.0)
                     patronal = round(guia - emp.get(periodo, 0.0), 2)
-                    if patronal <= 0:  # sem guia > retido → não inventa patronal
+                    if guia <= 0 or patronal <= 0:  # sem guia oficial > retido → não inventa
                         continue
                     n += self._post(
                         cur, data=f"{periodo}-01", cd="4.1.2.02", cc="2.1.3.01", valor=patronal,
@@ -456,6 +463,44 @@ class LedgerAutoService:
                     tot += patronal
                 conn.commit()
             return {"ok": True, "lancamentos": n, "total_patronal": round(tot, 2), "empresa_id": empresa_id}
+        finally:
+            conn.close()
+
+    def lancar_das_parcelamento(self, empresa_id: str = EMPRESA_PRINCIPAL_ID) -> dict:
+        """Posta o DAS do Simples Nacional / parcelamento (PARCSN) no razão a partir do valor
+        OFICIAL extraído das guias Onvio (`onvio_documents.detalhes_json`, categoria
+        das_simples_nacional). É dívida do CNPJ1 (Eletrônica, ex-Simples em parcelamento):
+          D 4.1.3.01 (Despesa Parcelamento Simples) / C 2.1.3.06 (Parcelamento Simples a Pagar)
+        NUNCA fabrica: só posta guias com valor extraído. Idempotente por ref DASPARC-{periodo}.
+        Só posta sob o CNPJ1 (a guia valida 35.710.481)."""
+        if empresa_id != EMPRESA_PRINCIPAL_ID:
+            return {"ok": True, "lancamentos": 0, "motivo": "DAS/PARCSN é do CNPJ1 (Eletrônica)"}
+        conn = self._conn()
+        try:
+            with conn.cursor() as cur:
+                self._ensure_schema(cur)
+                cur.execute(
+                    "SELECT detalhes_json->>'competencia', detalhes_json->>'valor' "
+                    "FROM onvio_documents WHERE categoria='das_simples_nacional' "
+                    "AND detalhes_json->>'valor' IS NOT NULL AND detalhes_json->>'competencia' IS NOT NULL"
+                )
+                n, tot = 0, 0.0
+                for comp_mmYYYY, valor in cur.fetchall():
+                    # "MM/YYYY" -> "YYYY-MM"
+                    try:
+                        mm, yyyy = comp_mmYYYY.split("/")
+                        periodo = f"{yyyy}-{mm}"
+                    except (ValueError, AttributeError):
+                        continue
+                    v = float(valor or 0)
+                    n += self._post(
+                        cur, data=f"{periodo}-01", cd="4.1.3.01", cc="2.1.3.06", valor=v,
+                        hist=f"DAS/parcelamento Simples {periodo} (guia oficial Onvio)", tipo="das_parcelamento",
+                        ref=f"DASPARC-{periodo}", periodo=periodo, empresa_id=empresa_id,
+                    )
+                    tot += v
+                conn.commit()
+            return {"ok": True, "lancamentos": n, "total_das": round(tot, 2), "empresa_id": empresa_id}
         finally:
             conn.close()
 
@@ -485,6 +530,8 @@ class LedgerAutoService:
             inss_emp = self.lancar_inss_empregado(empresa_id)
             # INSS patronal (guia oficial − retido); fecha o passivo INSS a Recolher com a guia.
             inss_pat = self.lancar_inss_patronal(empresa_id)
+            # DAS/parcelamento Simples (CNPJ1) a partir da guia oficial extraída do Onvio.
+            das = self.lancar_das_parcelamento(empresa_id)
             # Recategoriza o banco Inter (conserta receita/despesa fantasma) — mantém o lucro fiel
             recat = self.recategorizar_inter(empresa_id)
             # Reconstrói folha jan/fev (ausente em hr_payslips) por âncora março + PIX real
@@ -497,7 +544,8 @@ class LedgerAutoService:
                 "ok": True,
                 "novos_lancamentos": {**folha, **iss, **tomadas,
                                       "inss_empregado": inss_emp.get("lancamentos", 0),
-                                      "inss_patronal": inss_pat.get("lancamentos", 0)},
+                                      "inss_patronal": inss_pat.get("lancamentos", 0),
+                                      "das_parcelamento": das.get("lancamentos", 0)},
                 "recategorizacao_inter": recat,
                 "folha_reconstruida_jan_fev": folha_rec.get("meses"),
                 "total_lancamentos": qtd,
