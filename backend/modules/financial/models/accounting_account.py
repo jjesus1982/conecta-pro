@@ -118,20 +118,22 @@ class AccountingAccount(Base):
     description = Column(Text, nullable=True)
 
     # Classificação
+    # native_enum=False: a coluna real no banco é varchar (não o tipo enum nativo);
+    # sem isso o ORM casta o bind p/ ::accounttype e quebra (varchar = accounttype).
     account_type = Column(
-        Enum(AccountType, name="accounttype", create_type=True),
+        Enum(AccountType, native_enum=False),
         nullable=False,
     )
     nature = Column(
-        Enum(AccountNature, name="accountnature", create_type=True),
+        Enum(AccountNature, native_enum=False),
         nullable=False,
     )
     classification = Column(
-        Enum(AccountClassification, name="accountclassification", create_type=True),
+        Enum(AccountClassification, native_enum=False),
         nullable=False,
     )
     status = Column(
-        Enum(AccountStatus, name="accountstatus", create_type=True),
+        Enum(AccountStatus, native_enum=False),
         nullable=False,
         default=AccountStatus.ACTIVE,
     )
@@ -143,7 +145,7 @@ class AccountingAccount(Base):
 
     # SPED
     sped_nature = Column(
-        Enum(SpedAccountNature, name="spedaccountnature", create_type=True),
+        Enum(SpedAccountNature, native_enum=False),
         nullable=True,
     )
     sped_referential_code = Column(String(30), nullable=True)
