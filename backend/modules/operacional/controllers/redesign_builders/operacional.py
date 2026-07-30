@@ -7,7 +7,7 @@ from sqlalchemy import text as _sqltext
 from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
 from modules.operacional.controllers.redesign_data_controller import (
-    S, _build_operacional, _fmtdate, _helpers, _scalar, b, brl, doc, t,
+    IC, S, _build_operacional, _fmtdate, _helpers, _scalar, b, brl, doc, t,
 )
 
 SLUG = "operacional"
@@ -567,6 +567,82 @@ async def build(db) -> dict:
             "FROM diarist_payments WHERE coalesce(ativo,true) ORDER BY data_referencia DESC NULLS LAST LIMIT 200",
             lambda r: [t(_fmtdate(r[0]), 600, "#0F1B3A"), t(brl(r[1]) if r[1] is not None else '—'),
                        t(brl(r[2]) if r[2] is not None else '—', 600), t((r[3] or '—').capitalize()), t(_fmtdate(r[4]))])
+    except Exception:  # noqa: BLE001
+        pass
+
+    # ── Balde A: dashboards com backend REAL (cobertura via repo; kpi/relatorios via counts) ──
+    try:  # Cobertura — reusa ReportsRepository.get_coverage (fidelidade com o clássico)
+        from datetime import date as _date
+
+        from modules.operacional.repositories.reports_repository import ReportsRepository
+        _end = _date.today()
+        _start = _end.replace(day=1)
+        items = await ReportsRepository(db).get_coverage(_start, _end)
+        total = len(items)
+        covered = sum(1 for it in items if (it.get("coverage_rate") or 0) >= 100)
+        descob = total - covered
+        rate = round(covered / total * 100, 1) if total else 100.0
+        piores = sorted(items, key=lambda x: x.get("coverage_rate") or 0)[:10]
+        out["cobertura"] = {
+            "title": "Cobertura de postos", "sub": f"Mês corrente · fonte: allocations × postos · {total} posto(s)",
+            "type": "dash", "panelGrid": "1fr",
+            "kpis": [
+                {"v": str(total), "l": "Postos", "icon": IC["shield"], "color": "#0F1B3A"},
+                {"v": str(covered), "l": "Cobertos", "icon": IC["shield"], "color": "#16A34A"},
+                {"v": f"{rate}%", "l": "Taxa de cobertura", "icon": IC["shield"], "color": "#16A34A" if rate >= 90 else "#C2410C"},
+                {"v": str(descob), "l": "Descobertos", "icon": IC["alert"], "color": "#DC2626" if descob else "#0F1B3A"},
+            ],
+            "panels": [{"title": "Postos com menor cobertura", "rows": [
+                {"left": it.get("post_name") or "—", "right": f"{(it.get('coverage_rate') or 0):.0f}%",
+                 **(S["bad"] if (it.get("coverage_rate") or 0) < 50 else S["warn"] if (it.get("coverage_rate") or 0) < 100 else S["ok"])}
+                for it in piores] or [{"left": "Sem postos cadastrados", "right": "—", **S["mut"]}]}],
+        }
+    except Exception:  # noqa: BLE001
+        pass
+
+    try:  # KPIs operacionais — estado atual (contagens reais)
+        _post = await _scalar(db, "SELECT count(*) FROM posts WHERE coalesce(is_active,true)") or 0
+        _occ_ab = await _scalar(db, "SELECT count(*) FROM occurrences WHERE lower(coalesce(status::text,''))='aberta'") or 0
+        _ron_mes = await _scalar(db, "SELECT count(*) FROM inspection_rounds WHERE coalesce(scheduled_date, created_at) >= date_trunc('month', now())") or 0
+        _sub_mes = await _scalar(db, "SELECT count(*) FROM substitutions WHERE coalesce(is_active,true) AND coalesce(substitution_date, created_at::date) >= date_trunc('month', now())::date") or 0
+        out["kpi"] = {
+            "title": "KPIs operacionais", "sub": "Indicadores reais (estado atual)", "type": "dash", "panelGrid": "1fr",
+            "kpis": [
+                {"v": str(_post), "l": "Postos ativos", "icon": IC["shield"], "color": "#0F1B3A"},
+                {"v": str(_occ_ab), "l": "Ocorrências abertas", "icon": IC["alert"], "color": "#C2410C" if _occ_ab else "#0F1B3A"},
+                {"v": str(_ron_mes), "l": "Rondas (mês)", "icon": IC["shield"], "color": "#0F1B3A"},
+                {"v": str(_sub_mes), "l": "Substituições (mês)", "icon": IC["users"], "color": "#0F1B3A"},
+            ],
+            "panels": [{"title": "Resumo", "rows": [
+                {"left": "Postos ativos", "right": str(_post), **S["info"]},
+                {"left": "Ocorrências abertas", "right": str(_occ_ab), **(S["warn"] if _occ_ab else S["ok"])},
+                {"left": "Rondas no mês", "right": str(_ron_mes), **S["info"]},
+                {"left": "Substituições no mês", "right": str(_sub_mes), **S["info"]},
+            ]}],
+        }
+    except Exception:  # noqa: BLE001
+        pass
+
+    try:  # Relatórios — resumo mensal real (totais do mês)
+        _med_mes = await _scalar(db, "SELECT count(*) FROM disciplinary_actions WHERE coalesce(is_active,true) AND coalesce(incident_date, created_at::date) >= date_trunc('month', now())::date") or 0
+        _occ_mes = await _scalar(db, "SELECT count(*) FROM occurrences WHERE coalesce(occurred_at, created_at) >= date_trunc('month', now())") or 0
+        _pass_mes = await _scalar(db, "SELECT count(*) FROM operacional_passagens_turno WHERE coalesce(is_active,true) AND coalesce(data_turno, criada_em::date) >= date_trunc('month', now())::date") or 0
+        _col = await _scalar(db, "SELECT count(*) FROM employees WHERE coalesce(status,'')='ativo'") or 0
+        out["relatorios"] = {
+            "title": "Relatórios operacionais", "sub": "Resumo do mês corrente (dados reais)", "type": "dash", "panelGrid": "1fr",
+            "kpis": [
+                {"v": str(_occ_mes), "l": "Ocorrências (mês)", "icon": IC["alert"], "color": "#C2410C" if _occ_mes else "#0F1B3A"},
+                {"v": str(_med_mes), "l": "Medidas (mês)", "icon": IC["shield"], "color": "#0F1B3A"},
+                {"v": str(_pass_mes), "l": "Passagens (mês)", "icon": IC["shield"], "color": "#0F1B3A"},
+                {"v": str(_col), "l": "Colaboradores ativos", "icon": IC["users"], "color": "#0F1B3A"},
+            ],
+            "panels": [{"title": "Totais do mês", "rows": [
+                {"left": "Ocorrências registradas", "right": str(_occ_mes), **S["info"]},
+                {"left": "Medidas administrativas", "right": str(_med_mes), **S["info"]},
+                {"left": "Passagens de turno", "right": str(_pass_mes), **S["info"]},
+                {"left": "Colaboradores ativos", "right": str(_col), **S["ok"]},
+            ]}],
+        }
     except Exception:  # noqa: BLE001
         pass
 
