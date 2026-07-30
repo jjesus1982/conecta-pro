@@ -13,7 +13,9 @@ Paredes (inegociáveis):
   gera DRE/balancete vazio como se fosse real).
 - Doc INTERNO de gestão (diretoria) — não é material de cliente; pode conter tudo. Belt financeiro
   gateia (só diretoria) + `_gate` re-checa (suspenders).
-- Read-only: só apura/renderiza. NÃO lança/edita accounting_entries, NÃO move dinheiro. Fail-closed.
+- Não move dinheiro, NÃO lança/edita accounting_entries. Fail-closed. (Ressalva honesta: o fluxo
+  de caixa reusa dfc_mensal, que faz um UPDATE idempotente de CATEGORIZAÇÃO em bank_transactions
+  antes de ler — não é razão nem movimento financeiro, é o mesmo efeito do endpoint /fluxo-caixa/pdf.)
 - empresa_id / multi-CNPJ:
   * Fluxo de caixa é POR CNPJ (Inter=Eletrônica, Cora=Patrimonial). Exige a empresa; sem ela →
     RECUSA pedindo qual (não assume um CNPJ default).
@@ -198,5 +200,5 @@ register(ToolDef(
     "gerar_fluxo_caixa_doc", "financeiro",
     "Gera o FLUXO DE CAIXA mensal (DFC) em PDF branded, do extrato REAL do banco. É POR CNPJ "
     "(Inter=Eletrônica, Cora=Patrimonial): informe a empresa — sem ela, recusa (não assume default). "
-    "Relatório INTERNO de gestão (diretoria). Não grava, não move dinheiro.",
+    "Relatório INTERNO de gestão (diretoria). Não move dinheiro (só categoriza transações do extrato).",
     _SCHEMA_FLUXO, _gerar_fluxo_caixa_doc, scope_kind="org"))
