@@ -17,23 +17,21 @@
 - folha: R$ 505,320.61
 - despesa_tomada: R$ 256,673.49
 - banco_inter: R$ 125,577.85
+- encargo_inss: R$ 79,749.77
 - tributo_iss: R$ 77,230.71
-- encargo_inss: R$ 54,862.70
 - provisao_ferias: R$ 48,169.14
+- inss_empregado: R$ 39,843.97
 - encargo_fgts: R$ 36,477.49
 - provisao_13: R$ 36,116.01
-- inss_empregado: R$ 32,732.54
 - das_parcelamento: R$ 2,699.58
 - baixa_estoque: R$ 65.00
 
 ### Conecta Patrimonial (Simples)
 - nfse_emitida: R$ 269,151.77
 - folha: R$ 111,388.40
-- encargo_inss: R$ 24,887.07
 - provisao_ferias: R$ 10,453.42
 - encargo_fgts: R$ 7,971.38
 - provisao_13: R$ 7,837.71
-- inss_empregado: R$ 7,111.43
 - tributo_iss: R$ 1,361.42
 - despesa_tomada: R$ 700.00
 

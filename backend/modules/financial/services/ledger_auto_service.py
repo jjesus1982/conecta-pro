@@ -398,16 +398,20 @@ class LedgerAutoService:
         (hr_payslips.inss_value). É reclassificação da folha bruta (já lançada em 4.1.1/2.1.2.01):
           D 2.1.2.01 (Salários a Pagar) / C 2.1.3.01 (INSS a Recolher) = inss_value
         NÃO adiciona despesa (o bruto já capturou) — só separa o passivo. Idempotente por
-        ref INSSEMP-{periodo}. Converge o razão à lógica progressiva da Portte sobre inss_base."""
+        ref INSSEMP-{periodo}. Converge o razão à lógica progressiva da Portte sobre inss_base.
+        O INSS (DARF/eSocial) do grupo é declarado sob o CNPJ1 (Eletrônica) — todas as guias
+        validam 35.710.481 — então soma TODA a folha e posta sob a Eletrônica (não segue o
+        empregador da folha; só salários/FGTS seguem)."""
+        if empresa_id != EMPRESA_PRINCIPAL_ID:
+            return {"ok": True, "lancamentos": 0, "motivo": "INSS declarado sob o CNPJ1 (Eletrônica)"}
         conn = self._conn()
         try:
             with conn.cursor() as cur:
                 self._ensure_schema(cur)
                 cur.execute(
                     "SELECT reference_period, COALESCE(sum(inss_value),0) FROM hr_payslips "
-                    "WHERE COALESCE(inss_value,0) > 0 AND empresa_id = %s "
-                    "GROUP BY reference_period ORDER BY reference_period",
-                    (empresa_id,),
+                    "WHERE COALESCE(inss_value,0) > 0 "
+                    "GROUP BY reference_period ORDER BY reference_period"
                 )
                 n, tot = 0, 0.0
                 for periodo, val in cur.fetchall():
@@ -430,7 +434,11 @@ class LedgerAutoService:
           D 4.1.2.02 (Despesa Encargo INSS patronal) / C 2.1.3.01 (INSS a Recolher)
         Faz o passivo INSS a Recolher fechar com a guia oficial. NUNCA fabrica: só posta onde
         há guia extraída com valor > retido (patronal > 0). Idempotente por ref INSSPAT-{periodo}.
-        mes_ref da guia é 'MM.YYYY' → converte p/ 'YYYY-MM'."""
+        mes_ref da guia é 'MM.YYYY' → converte p/ 'YYYY-MM'.
+        A guia INSS (DARF) é sempre da Eletrônica (CNPJ1) — o patronal é dela mesmo que a folha
+        do mês esteja na Patrimonial. Posta só sob o CNPJ1, somando TODA a folha do grupo."""
+        if empresa_id != EMPRESA_PRINCIPAL_ID:
+            return {"ok": True, "lancamentos": 0, "motivo": "INSS patronal (DARF) é do CNPJ1 (Eletrônica)"}
         conn = self._conn()
         try:
             with conn.cursor() as cur:
@@ -441,12 +449,10 @@ class LedgerAutoService:
                     r"AND mes_ref ~ '^[0-9]{2}\.[0-9]{4}$' GROUP BY 1"
                 )
                 guias = {p: float(g or 0) for p, g in cur.fetchall()}
-                # Só os períodos com folha DESTE empresa_id — o patronal segue a folha (o
-                # split jun→Patrimonial faz o patronal de junho ir p/ Patrimonial, não Eletrônica).
+                # Toda a folha do grupo — o INSS é declarado sob a Eletrônica (a guia é dela).
                 cur.execute(
                     "SELECT reference_period, COALESCE(sum(inss_value),0) FROM hr_payslips "
-                    "WHERE COALESCE(inss_value,0) > 0 AND empresa_id = %s GROUP BY 1",
-                    (empresa_id,),
+                    "WHERE COALESCE(inss_value,0) > 0 GROUP BY 1"
                 )
                 emp = {p: float(v or 0) for p, v in cur.fetchall()}
                 n, tot = 0, 0.0
