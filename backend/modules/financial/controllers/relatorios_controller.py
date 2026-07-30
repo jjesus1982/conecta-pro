@@ -683,10 +683,17 @@ async def get_dre(
     start_date = _first_day(ano, mes_inicio)
     end_date = _last_day(ano, mes_fim)
 
+    # DRE company-level vem do RAZÃO real (accounting_entries). O DREService é por-condominio e
+    # depende de saldos do chart fin_accounting_accounts que não são mantidos (os movimentos vivem
+    # no razão) — sem condominio_id explícito ele volta vazio e loga warning à toa. Então, no caso
+    # padrão (None, usado pela tela/builder), usa direto a fonte real (mesmo output do fallback).
+    if condominio_id is None:
+        return await _dre_simplificado(ano, mes_inicio, mes_fim, db)
+
     try:
         svc = DREService(db)
         report = await svc.generate_dre(
-            condominio_id=condominio_id or UUID("00000000-0000-0000-0000-000000000001"),
+            condominio_id=condominio_id,
             start_date=start_date,
             end_date=end_date,
             include_previous=comparativo,
