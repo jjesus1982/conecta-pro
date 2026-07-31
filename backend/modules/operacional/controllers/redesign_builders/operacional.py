@@ -715,4 +715,78 @@ async def build(db) -> dict:
     except Exception:  # noqa: BLE001
         await db.rollback()
 
+    # ── Balde C: campo/geo — tabela real (mapa/ronda-mobile/escalas-visual/campo) + triagem derivada ──
+    try:  # Mapa — georreferenciamento real dos postos
+        _geo = await _scalar(db, "SELECT count(*) FROM posts WHERE latitude IS NOT NULL AND longitude IS NOT NULL AND coalesce(is_active,true)") or 0
+        _tp = await _scalar(db, "SELECT count(*) FROM posts WHERE coalesce(is_active,true)") or 0
+        out["mapa"] = await tbl(
+            "Mapa de postos", f"{_geo}/{_tp} georreferenciados · fonte: posts", "—",
+            ["Posto", "Latitude", "Longitude", "Situação"], "2fr 1fr 1fr 1.1fr",
+            "SELECT name, latitude, longitude FROM posts WHERE coalesce(is_active,true) ORDER BY name LIMIT 300",
+            lambda r: [t(r[0] or '—', 600, "#0F1B3A"), t(f"{r[1]:.5f}" if r[1] is not None else '—'),
+                       t(f"{r[2]:.5f}" if r[2] is not None else '—'),
+                       b("Georreferenciado", "ok") if (r[1] is not None and r[2] is not None) else b("Sem localização", "mut")])
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+    try:  # Ronda mobile — rondas em andamento (fluxo de campo)
+        out["ronda-mobile"] = await tbl(
+            "Ronda mobile", "Rondas em andamento · fonte: inspection_rounds", "—",
+            ["Código", "Inspetor", "Status", "Ocorrências", "Início"], "1.1fr 1.6fr 1fr 0.9fr 1fr",
+            "SELECT coalesce(code,'—'), coalesce(inspector_name,'—'), coalesce(status::text,'—'), coalesce(total_occurrences,0), coalesce(started_at, scheduled_date) "
+            "FROM inspection_rounds WHERE lower(coalesce(status::text,'')) IN ('em_andamento','iniciada','pausada','iniciado') "
+            "ORDER BY coalesce(started_at, scheduled_date) DESC NULLS LAST LIMIT 100",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), b((r[2] or '—').replace('_', ' ').capitalize(), "warn"),
+                       t(str(int(r[3] or 0))), t(_fmtdate(r[4]))])
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+    try:  # Escalas · Editor visual — scales real com preenchimento
+        out["escalas-visual"] = await tbl(
+            "Editor de escalas", "Escalas e preenchimento · fonte: scales", "—",
+            ["Escala", "Tipo", "Período", "Turnos", "Preenchidos", "Status"], "1.6fr 1fr 0.9fr 0.8fr 0.9fr 1fr",
+            "SELECT coalesce(name,'—'), coalesce(scale_type::text,'—'), month, year, coalesce(total_shifts,0), coalesce(filled_shifts,0), coalesce(status::text,'—') "
+            "FROM scales WHERE coalesce(is_active,true) ORDER BY year DESC NULLS LAST, month DESC NULLS LAST LIMIT 200",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—').replace('_', ' ')),
+                       t(f"{int(r[2]):02d}/{int(r[3])}" if r[2] and r[3] else '—'), t(str(int(r[4] or 0))),
+                       t(f"{int(r[5] or 0)}/{int(r[4] or 0)}"), b((r[6] or '—').capitalize(), "ok" if (r[6] or '') == 'published' else "info")])
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+    try:  # Campo — visitas de campo reais
+        out["campo"] = await tbl(
+            "Campo — visitas", "Visitas de campo · fonte: visitas", "—",
+            ["Nº", "Tipo", "Responsável", "Cidade", "Data", "Status"], "0.9fr 1.1fr 1.6fr 1.2fr 0.9fr 1fr",
+            "SELECT coalesce(numero,'—'), coalesce(tipo::text,'—'), coalesce(responsavel_nome,'—'), coalesce(cidade,'—'), data_visita, coalesce(status::text,'—') "
+            "FROM visitas WHERE coalesce(is_active,true) ORDER BY data_visita DESC NULLS LAST LIMIT 200",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—').replace('_', ' ').capitalize()), t(r[2]), t(r[3]),
+                       t(_fmtdate(r[4])), b((r[5] or '—').replace('_', ' ').capitalize(), "info")])
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+    try:  # Triagem — sinais consolidados via sub-funções reais do triage_controller
+        from modules.operacional.triage.controllers.triage_controller import (
+            _avaliacoes_semana, _escalas, _ocorrencias,
+        )
+        _to = await _ocorrencias(db)
+        _te = await _escalas(db)
+        _ta = await _avaliacoes_semana(db)
+        _sv = len(getattr(_te, "sem_vigencia", []) or [])
+        _dr = len(getattr(_te, "drafts", []) or [])
+        _ab = int(getattr(_to, "abertas_total", 0) or 0)
+        _mg = getattr(_ta, "media_geral", None)
+        out["triagem"] = {
+            "title": "Triagem operacional", "sub": "Sinais consolidados (dado real derivado)", "type": "dash", "panelGrid": "1fr",
+            "kpis": [
+                {"v": str(_ab), "l": "Ocorrências abertas", "icon": IC["alert"], "color": "#C2410C" if _ab else "#0F1B3A"},
+                {"v": str(_sv), "l": "Postos sem escala vigente", "icon": IC["alert"], "color": "#DC2626" if _sv else "#16A34A"},
+                {"v": str(_dr), "l": "Escalas em rascunho", "icon": IC["shield"], "color": "#0F1B3A"},
+                {"v": str(int(getattr(_ta, "total", 0) or 0)), "l": "Avaliações (semana)", "icon": IC["users"], "color": "#0F1B3A"},
+            ],
+            "panels": [{"title": "Prioridades", "rows": [
+                {"left": "Ocorrências abertas", "right": str(_ab), **(S["warn"] if _ab else S["ok"])},
+                {"left": "Postos sem escala vigente", "right": str(_sv), **(S["bad"] if _sv else S["ok"])},
+                {"left": "Escalas em rascunho", "right": str(_dr), **S["info"]},
+                {"left": "Média de avaliação (semana)", "right": (f"{_mg:.1f}" if _mg is not None else "—"), **S["info"]},
+            ]}],
+        }
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+
     return out
