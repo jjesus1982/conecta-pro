@@ -755,21 +755,27 @@ async def criar_nfse(
 @router.get("/nfse")
 async def listar_nfses(
     condominio_id: UUID | None = None,
+    empresa_id: UUID | None = None,
     status: str | None = None,
     search: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("fiscal:nfse:read")),
 ):
-    """Lista NFS-e emitidas da fonte autoritativa `nfse_emitidas_nacional`
-    (77 notas jan-jun, todas validas cStat 100). Devolve um array no formato que a
-    tela consome. condominio_id é ignorado no filtro (as NFS-e da empresa pertencem
-    aos condominio_ids reais e o front injeta um placeholder de dev).
-    A tabela nacional nao tem coluna status/active/numero_rps/serie_rps/codigo_verificacao:
+    """Lista NFS-e emitidas da fonte autoritativa `nfse_emitidas_nacional`.
+    SÓ diretoria (require_permission fiscal:nfse:read; admin/perfil `all` passa) — a base
+    contém os DOIS CNPJ e não pode vazar p/ qualquer logado. Passe `empresa_id` para
+    escopar por CNPJ (Eletrônica/Patrimonial); sem ele, retorna consolidado (backward-compat).
+    Devolve um array no formato que a tela consome. condominio_id é ignorado no filtro
+    (as NFS-e da empresa pertencem aos condominio_ids reais e o front injeta um placeholder
+    de dev). A tabela nacional nao tem coluna status/active/numero_rps/serie_rps/codigo_verificacao:
     todas as linhas sao autorizadas; competencia (varchar 'YYYY-MM') substitui data_competencia."""
     conds: list[str] = []
     params: dict[str, Any] = {"limit": page_size, "offset": (page - 1) * page_size}
+    if empresa_id:
+        conds.append("empresa_id = :empresa_id")
+        params["empresa_id"] = str(empresa_id)
     # Filtro por status: a fonte so contem notas autorizadas. Se pedirem outro
     # status, o resultado e vazio (nao existem canceladas/rejeitadas aqui).
     if status and status.lower() not in ("autorizada", "autorizado", "authorized"):
