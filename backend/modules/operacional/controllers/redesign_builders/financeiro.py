@@ -317,6 +317,53 @@ async def build(db) -> dict:
     # só LÊ do Inter e grava na nossa tabela → sem gate OTP (mesma classe do "Rodar
     # conciliação"). Roda em background no backend, por isso a mensagem não finge que
     # já acabou. ponytail: `dias` fixo em 30 na query; se precisar escolher, virar campo.
+    # ---- Devolver PIX (MONEY-OUT, gate OTP) ----
+    _pix_opts = [{"value": r[0], "label": f"{r[1]} · {brl(float(r[2] or 0))} · {_fmtdate(r[3]) if r[3] else '—'}"}
+                 for r in (await db.execute(text(
+                     "SELECT end_to_end_id, coalesce(nullif(pagador->>'nome',''),'(sem pagador)'), valor, data_horario "
+                     "FROM inter_pix_recebidos WHERE end_to_end_id IS NOT NULL "
+                     "ORDER BY data_horario DESC LIMIT 100"))).fetchall()]
+    out["devolver-pix"] = {
+        "title": "Devolver PIX recebido (Inter)",
+        "sub": "Dinheiro que SAI — devolve ao pagador um PIX que entrou. 2 etapas: gera o código OTP "
+               "(e-mail ao Jordan) e só devolve ao confirmar. Nunca dispara sozinho. "
+               "Não deixa devolver mais do que entrou." if _pix_opts else
+               "Nenhum PIX recebido sincronizado — use 'Sincronizar PIX' antes (aguardando dado).",
+        "cta": "Gerar código de devolução", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/devolver-pix", "gated": True,
+                   "confirm": "Isto vai DEVOLVER dinheiro ao pagador via Inter. Gerar o código OTP para o Jordan confirmar?",
+                   "okMsg": "Devolução enviada."},
+        "fields": [
+            {"key": "e2e_id", "label": "PIX recebido*", "type": "select", "span": "span 2",
+             "ph": "Selecione o PIX a devolver", "options": _pix_opts},
+            {"key": "valor", "label": "Valor a devolver* (R$)", "type": "text", "span": "span 1", "ph": "0,00"},
+            {"key": "motivo", "label": "Motivo", "type": "text", "span": "span 1", "ph": "Devolucao solicitada"},
+        ],
+    }
+
+    # ---- Ajustar saldo (override contábil, gate OTP) ----
+    _conta_opts = [{"value": str(r[0]), "label": f"{r[1]} · {r[2]} · saldo {brl(float(r[3] or 0))}"}
+                   for r in (await db.execute(text(
+                       "SELECT id, coalesce(name,'—'), coalesce(bank_name,'—'), current_balance "
+                       "FROM bank_accounts WHERE ativo IS NOT FALSE ORDER BY name"))).fetchall()]
+    out["ajustar-saldo"] = {
+        "title": "Ajustar saldo da conta",
+        "sub": "NÃO move dinheiro no banco — sobrescreve o saldo NO SISTEMA e grava um lançamento "
+               "de ajuste no extrato (afeta conciliação e DRE). Por isso exige OTP, como dinheiro. "
+               "Use só quando o extrato real divergir e você souber o motivo.",
+        "cta": "Gerar código de ajuste", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/ajustar-saldo", "gated": True,
+                   "confirm": "Isto vai SOBRESCREVER o saldo da conta no sistema e lançar um ajuste no extrato. Gerar o código OTP?",
+                   "okMsg": "Saldo ajustado."},
+        "fields": [
+            {"key": "conta", "label": "Conta*", "type": "select", "span": "span 2",
+             "ph": "Selecione a conta", "options": _conta_opts},
+            {"key": "novo_saldo", "label": "Novo saldo* (R$)", "type": "text", "span": "span 1", "ph": "0,00"},
+            {"key": "motivo", "label": "Motivo* (fica no extrato)", "type": "text", "span": "span 1",
+             "ph": "ex.: divergência de sync do dia 30"},
+        ],
+    }
+
     out["sincronizar-pix"] = {
         "title": "Sincronizar PIX recebidos (Inter)",
         "sub": "Puxa os PIX recebidos dos últimos 30 dias do Inter para o Conecta PRO. "
@@ -1106,6 +1153,111 @@ async def _rd_pagar_darf(current_user: CurrentActiveUser, payload: dict = Body(.
 async def _rd_pagar_gps(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
     return await _rd_inter_pay(db, current_user, payload, payment_type="gps",
                                categoria="imposto", dest_fn=_dest_gps, label="Pagamento de GPS")
+
+
+@router.post("/action/devolver-pix")
+async def _rd_devolver_pix(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Devolução de PIX recebido — DINHEIRO QUE SAI. Gate OTP obrigatório (money_gov):
+    sem OTP válido consumido nesta request, a API do Inter NÃO é chamada. O disparo real
+    é o adapter provado (PUT /pix/v2/pix/{e2e}/devolucao/{id}); devolvemos o retorno REAL
+    do banco, nunca sucesso inventado."""
+    import uuid as _uuid
+
+    from modules.operacional.controllers.redesign_write_gate import GateError, OTPRequired, money_gov
+
+    e2e = (payload.get("e2e_id") or "").strip()
+    motivo = (payload.get("motivo") or "").strip() or "Devolucao solicitada"
+    valor = _rd_parse_valor(payload.get("valor"))
+    if not e2e:
+        raise HTTPException(status_code=400, detail="Selecione o PIX recebido (E2E) a devolver.")
+    if valor is None or valor <= 0:
+        raise HTTPException(status_code=400, detail="Informe um valor válido (R$) para a devolução.")
+    # Confere contra o PIX recebido real: não deixa devolver mais do que entrou.
+    orig = (await db.execute(text(
+        "SELECT valor FROM inter_pix_recebidos WHERE end_to_end_id = :e LIMIT 1"), {"e": e2e})).scalar()
+    if orig is None:
+        raise HTTPException(status_code=400, detail="PIX não encontrado na base (sincronize os PIX recebidos).")
+    if valor > float(orig):
+        raise HTTPException(status_code=400,
+                            detail=f"Valor maior que o PIX recebido ({brl(float(orig))}). Devolva até esse valor.")
+    otp_code = (payload.get("otp_code") or "").strip()
+    ref = (payload.get("_gate_ref") or "").strip() or f"pixrefund:{e2e}:{valor:.2f}"
+
+    async def _dispatch():
+        from modules.integrations.banking.controllers.banking_controller import _get_banking_service
+        adapter = _get_banking_service()._adapters.get("077")
+        if adapter is None:
+            raise GateError("Banco Inter não configurado — devolução não disparada.")
+        # id da devolução (BACEN: alfanumérico, até 35) — gerado aqui, único por tentativa.
+        return await adapter.request_pix_refund(e2e, _uuid.uuid4().hex[:32], valor, motivo)
+
+    try:
+        res = await money_gov(db, ref=ref, amount=valor, otp_code=otp_code, real_dispatch=_dispatch,
+                              label="devolucao_pix", dest=f"PIX {e2e[:18]}")
+    except OTPRequired as e:
+        return {"otp_required": True, "ref": e.ref,
+                "message": f"Devolução de {brl(valor)} preparada. {e.message}"}
+    except GateError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    if isinstance(res, dict) and res.get("success") is False:
+        raise HTTPException(status_code=400, detail=str(res.get("error") or "O Inter recusou a devolução."))
+    st = (res or {}).get("status") if isinstance(res, dict) else None
+    return {"ok": True, "message": f"Devolução de {brl(valor)} enviada ao Inter."
+            + (f" Status: {st}." if st else "")}
+
+
+@router.post("/action/ajustar-saldo")
+async def _rd_ajustar_saldo(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Ajuste manual de saldo de conta — NÃO move dinheiro no banco, mas SOBRESCREVE o
+    saldo do sistema e grava uma transação de ajuste no extrato (afeta conciliação e DRE).
+    Por isso vai gated por OTP igual a money-out. Reusa a função provada do controller."""
+    from decimal import Decimal as _Dec
+    from uuid import UUID as _UUID
+
+    from modules.operacional.controllers.redesign_write_gate import GateError, OTPRequired, money_gov
+
+    conta = (payload.get("conta") or "").strip()
+    motivo = (payload.get("motivo") or "").strip()
+    novo = _rd_parse_valor(payload.get("novo_saldo"))
+    if not conta:
+        raise HTTPException(status_code=400, detail="Selecione a conta bancária.")
+    if novo is None:
+        raise HTTPException(status_code=400, detail="Informe o novo saldo (R$).")
+    if len(motivo) < 5:
+        raise HTTPException(status_code=400, detail="Descreva o motivo do ajuste (mín. 5 caracteres) — fica no extrato.")
+    atual = (await db.execute(text(
+        "SELECT current_balance FROM bank_accounts WHERE id::text = :i"), {"i": conta})).scalar()
+    if atual is None:
+        raise HTTPException(status_code=400, detail="Conta bancária não encontrada.")
+    otp_code = (payload.get("otp_code") or "").strip()
+    ref = (payload.get("_gate_ref") or "").strip() or f"adjbal:{conta}:{novo:.2f}"
+
+    async def _dispatch():
+        from modules.financial.controllers.bank_account_controller import adjust_balance as _adj
+        from modules.financial.repositories import BankAccountRepository
+        await _adj(account_id=_UUID(conta), new_balance=_Dec(str(novo)), reason=motivo,
+                   repo=BankAccountRepository(db), session=db, current_user=current_user)
+        return {"ok": True, "anterior": float(atual), "novo": float(novo)}
+
+    try:
+        # amount=None: não é dinheiro saindo do banco → não consome o teto diário de pagamento.
+        res = await money_gov(db, ref=ref, amount=None, otp_code=otp_code, real_dispatch=_dispatch,
+                              label="ajuste_saldo", dest=f"conta {conta[:8]} → {brl(novo)}")
+    except OTPRequired as e:
+        return {"otp_required": True, "ref": e.ref,
+                "message": f"Ajuste de {brl(float(atual))} → {brl(novo)} preparado. {e.message}"}
+    except GateError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        raise HTTPException(status_code=400, detail=f"Falha no ajuste: {str(e)[:200]}") from e
+    return {"ok": True, "message": f"Saldo ajustado: {brl(float(atual))} → {brl(novo)}. "
+            f"Lançamento de ajuste gravado no extrato (motivo: {motivo[:60]})."}
 
 
 @router.post("/action/conciliar-auto")

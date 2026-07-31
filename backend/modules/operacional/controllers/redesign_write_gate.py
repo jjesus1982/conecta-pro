@@ -65,7 +65,16 @@ async def _ensure_table(db: AsyncSession) -> None:
     _TABLE_READY = True
 
 
-async def _otp_generate(db: AsyncSession, ref: str) -> None:
+async def _otp_generate(db: AsyncSession, ref: str, *, amount: float | None = None,
+                        label: str = "acao", dest: str = "") -> bool:
+    """Gera o OTP, persiste e ENVIA por e-mail. Devolve True se o e-mail saiu.
+
+    O envio não é decorativo: o código só existe no banco, então sem e-mail o Jordan
+    não tem como confirmar e o gate fica intransponível. (Bug corrigido em 2026-07-31:
+    a chamada passava 2 args para uma função de 5 → TypeError engolido pelo except →
+    NENHUM e-mail era enviado. O gate nunca tinha sido usado por ninguém, por isso
+    o defeito sobreviveu.)
+    """
     await _ensure_table(db)
     code = f"{secrets.randbelow(10 ** 6):06d}"
     exp = datetime.now(UTC) + timedelta(seconds=OTP_TTL_SECONDS)
@@ -73,11 +82,13 @@ async def _otp_generate(db: AsyncSession, ref: str) -> None:
         text("INSERT INTO redesign_gate_otp (ref, code, expires_at, used) VALUES (:l,:c,:e,false)"),
         {"l": ref, "c": code, "e": exp})
     await db.commit()
-    try:  # e-mail best-effort — o código já está persistido; falha de e-mail não trava o gate
+    try:
         from modules.integrations.inter.services.payment_service import _enviar_otp_email
-        await _enviar_otp_email(code, ref)
-    except Exception:  # noqa: BLE001
-        pass
+        email_destino = os.getenv("JORDAN_EMAIL", "jjesus@conectamais.pro")
+        await _enviar_otp_email(email_destino, code, float(amount or 0), label, dest or ref)
+        return True
+    except Exception:  # noqa: BLE001 — código já persistido; o chamador avisa que o e-mail falhou
+        return False
 
 
 async def _otp_validate_consume(db: AsyncSession, ref: str, code: str | None) -> bool:
@@ -107,7 +118,8 @@ async def is_homologacao_target(db: AsyncSession, employee_id) -> bool:
 
 # ─────────────────────────────────────────────────────────────────────── o GATE ──
 async def money_gov(db: AsyncSession, *, ref: str, amount: float | None, otp_code: str | None,
-                    real_dispatch, is_homologacao: bool = False) -> dict:
+                    real_dispatch, is_homologacao: bool = False,
+                    label: str = "acao", dest: str = "") -> dict:
     """
     Gate p/ dinheiro/gov. `real_dispatch` = coroutine SEM args que executa o disparo REAL
     (serviço provado) e devolve o retorno verdadeiro do PSP/gov.
@@ -121,8 +133,12 @@ async def money_gov(db: AsyncSession, *, ref: str, amount: float | None, otp_cod
     if amount is not None and float(amount) > CEILING:
         raise GateError(f"Valor acima do teto diário (R$ {CEILING:,.2f}). Requer liberação manual.")
     if not otp_code:
-        await _otp_generate(db, ref)
-        raise OTPRequired(ref, "Código OTP enviado ao e-mail do Jordan. Confirme com o código para liberar.")
+        enviado = await _otp_generate(db, ref, amount=amount, label=label, dest=dest)
+        raise OTPRequired(ref, (
+            "Código OTP enviado ao e-mail do Jordan. Confirme com o código para liberar."
+            if enviado else
+            "OTP gerado, MAS o e-mail falhou — nada foi disparado. Verifique o e-mail/SMTP "
+            "antes de tentar de novo (o código existe só no servidor)."))
     if not await _otp_validate_consume(db, ref, otp_code):
         raise GateError("OTP inválido ou expirado. Gere um novo e tente de novo.")
     # OTP consumido nesta request → dispara o serviço REAL e devolve o que ELE retornou.
