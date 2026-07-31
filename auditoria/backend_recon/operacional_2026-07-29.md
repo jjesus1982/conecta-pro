@@ -170,3 +170,8 @@ backend → redesign só precisa builder (leitura) + ações via write-gate (`re
 - ✅ scales CICLO (submeter/aprovar/rejeitar/publicar) via ScaleRepository+op_write; geração/otimização ADIADA (guard-rail Sólides=fonte-verdade). Oráculo cria escala descartável 2099.
 - ✅ time-bank aprovar/rejeitar via TimeBankRepository. compensate adiado (workflow c/ validação). Oráculo lançamento descartável.
 - MOLDE ação-sobre-registro consolidado: `_scale_action`/`_entry_gate` (valida id→op_write→status real; None=estado inválido). Teste: criar registro descartável, rodar, deletar.
+
+### Programa ação — lote 4 (2026-07-31): substitutions + comunicação + diaristas
+- ✅ substituições confirmar/rejeitar (SubstitutionRepository.confirm/reject; confirm resolve substituto do registro). ✅ comunicação: comunicado-publicar (publish_announcement) + alerta-ack (acknowledge_alert). ✅ diaristas ativar/desativar (DiaristService.activate/deactivate_diarist) + avaliar (create_evaluation, condomínio resolvido do diarist_schedules).
+- Prova: diarista desativar→reativar (real, estado restaurado), alerta-ack real, build carrega 7 forms; substituições/comunicado/avaliar sem dado agora → forms honestos vazios, mesmo molde reusado. 7 rotas 401.
+- FORA (money/gov OTP): pagamentos/fiscal de diarista. Mobile: rondas checkpoints. Sólides: geração de escala.
