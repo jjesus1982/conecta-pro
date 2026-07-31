@@ -17,8 +17,11 @@ Paredes (inegociáveis):
 """
 from __future__ import annotations
 
+import asyncio
 import base64
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import String, cast, func, or_, select
 
@@ -236,3 +239,124 @@ register(ToolDef(
     "renderizado do que foi PAGO (contracheque persistido) — nunca recalculado. Dado pessoal (LGPD): "
     "só DP/diretoria. Colaborador inexistente/ambíguo ou sem holerite no período → recusa. Não grava.",
     _SCHEMA_DP, _gerar_holerite_funcionario_doc, scope_kind="org"))
+
+
+# ─────────────────────────── ESPELHO DE PONTO (Fatia 7) ───────────────────────────
+# Mesma regra LGPD do holerite: self (identidade só do scope) + DP (gated, por nome).
+# Espelho = batidas REAIS do motor (time_sheets). Preferimos o FECHADO quando existe
+# (o `fechado` flag do ler_espelho diz). NUNCA fabrica dias: sem time_sheet → recusa.
+
+_TZ_MANAUS = ZoneInfo("America/Manaus")
+
+
+def _norm_mes_ano(mes, ano) -> tuple[int, int]:
+    """mes/ano do LLM (int/str/None) → ints; vazio = competência corrente em Manaus."""
+    now = datetime.now(_TZ_MANAUS)
+    m, a = now.month, now.year
+    try:
+        if mes not in (None, ""):
+            m = int(mes)
+        if ano not in (None, ""):
+            a = int(ano)
+    except (TypeError, ValueError):
+        pass
+    return m, a
+
+
+def _espelho_render(employee_id: str, mes: int, ano: int) -> tuple[dict, bytes] | None:
+    """(esp, pdf) do espelho REAL, ou None se não há time_sheet no período (anti-fabricação).
+
+    Sessão SÍNCRONA própria: `ler_espelho`/`montar_espelho_ponto_pdf` são sync (o controller
+    roda em rota `def`), mas o handler do chat é async — isolamos numa SyncSessionLocal.
+    Read-only: só o SELECT do motor + render puro. NÃO chama garantir_homologacao_espelho
+    (isso GRAVA a solicitação de assinatura; aqui é read-only).
+    """
+    from core.database.session import SyncSessionLocal
+    from modules.people_management.hr.services.espelho_ponto_pdf import montar_espelho_ponto_pdf
+    from modules.people_management.hr.services.espelho_ponto_service import ler_espelho
+
+    with SyncSessionLocal() as s:
+        esp = ler_espelho(s, str(employee_id), int(mes), int(ano))
+    if not esp:  # sem time_sheet = sem espelho/batida real → o handler recusa
+        return None
+    return esp, montar_espelho_ponto_pdf(esp)
+
+
+def _resposta_espelho(esp: dict, pdf: bytes, escopo: str) -> dict[str, Any]:
+    mes = int(esp.get("mes") or 0)
+    comp = f"{_MESES.get(mes, mes)}/{esp.get('ano')}"
+    nome = esp.get("employee_name") or "colaborador"
+    origem = "espelho FECHADO" if esp.get("fechado") else f"espelho em aberto (status {esp.get('status') or '—'})"
+    mat = esp.get("employee_registration") or nome
+    slug = "".join(c if c.isalnum() else "_" for c in str(mat))[:30].strip("_") or "colaborador"
+    return {
+        "arquivo_base64": base64.b64encode(pdf).decode(),
+        "nome": f"espelho_ponto_{slug}_{mes:02d}_{esp.get('ano')}.pdf",
+        "fechado": bool(esp.get("fechado")),
+        "resumo": (f"Espelho de ponto {comp} — {nome}: {esp.get('horas_trabalhadas')} trabalhadas "
+                   f"({origem}, batidas reais do motor){escopo}"),
+    }
+
+
+async def _meu_espelho_ponto_doc(db, user, scope, *, mes=None, ano=None, **_) -> dict[str, Any]:  # noqa: ARG001
+    # LGPD: a identidade é SEMPRE do escopo — NUNCA um argumento do LLM (schema sem employee_id).
+    emp_id = getattr(scope, "employee_id", None) if scope else None
+    if not emp_id:
+        return _recusa("você não tem vínculo de colaborador ativo; não há espelho de ponto pra mostrar.")
+    m, a = _norm_mes_ano(mes, ano)
+    res = await asyncio.to_thread(_espelho_render, str(emp_id), m, a)
+    if res is None:
+        return _recusa(f"não há registro de ponto (espelho) em {m:02d}/{a}; não invento batidas.")
+    esp, pdf = res
+    return _resposta_espelho(esp, pdf, "")
+
+
+async def _gerar_espelho_ponto_funcionario_doc(db, user, scope, *, funcionario=None, mes=None, ano=None, **_) -> dict[str, Any]:  # noqa: ARG001
+    _gate(user)
+    if not (funcionario and str(funcionario).strip()):
+        return _recusa("diga de quem é o espelho de ponto (nome, CPF ou matrícula do colaborador).")
+    emp, recusa = await _resolve_funcionario(db, str(funcionario))
+    if recusa:
+        return recusa
+    m, a = _norm_mes_ano(mes, ano)
+    res = await asyncio.to_thread(_espelho_render, str(emp.id), m, a)
+    if res is None:
+        return _recusa(f"{emp.nome} não tem registro de ponto (espelho) em {m:02d}/{a}; não invento batidas.")
+    esp, pdf = res
+    return _resposta_espelho(esp, pdf, " — doc de RH/DP (dado pessoal LGPD)")
+
+
+# self: schema SEM employee_id/funcionario (LGPD — identidade só do scope).
+_SCHEMA_ESPELHO_SELF = {
+    "type": "object",
+    "properties": {
+        "mes": {"type": "integer", "description": "Mês 1-12 (opcional; vazio = mês corrente)."},
+        "ano": {"type": "integer", "description": "Ano AAAA (opcional; vazio = ano corrente)."},
+    },
+    "required": [],
+}
+
+_SCHEMA_ESPELHO_DP = {
+    "type": "object",
+    "properties": {
+        "funcionario": {"type": "string", "description": "Colaborador: nome, CPF ou matrícula (obrigatório)."},
+        "mes": {"type": "integer", "description": "Mês 1-12 (opcional; vazio = mês corrente)."},
+        "ano": {"type": "integer", "description": "Ano AAAA (opcional; vazio = ano corrente)."},
+    },
+    "required": ["funcionario"],
+}
+
+RH_SELF_TOOLS.append(
+    register(ToolDef(
+        "meu_espelho_ponto_doc", "self",
+        "Gera o MEU espelho de ponto do mês em PDF branded (Portaria 671) — só do próprio usuário logado, "
+        "com as batidas REAIS apuradas pelo motor (prefere o espelho FECHADO quando existe). "
+        "Nunca inventa dias/batidas. Sem registro de ponto no período → recusa.",
+        _SCHEMA_ESPELHO_SELF, _meu_espelho_ponto_doc, scope_kind="self")))
+
+register(ToolDef(
+    "gerar_espelho_ponto_funcionario_doc", "dp",
+    "Gera o espelho de ponto de UM COLABORADOR (por nome, CPF ou matrícula) em PDF branded (Portaria 671), "
+    "com as batidas REAIS apuradas pelo motor (prefere o FECHADO quando existe). Dado pessoal (LGPD): "
+    "só DP/diretoria. Colaborador inexistente/ambíguo ou sem registro de ponto no período → recusa. Não grava.",
+    _SCHEMA_ESPELHO_DP, _gerar_espelho_ponto_funcionario_doc, scope_kind="org"))
