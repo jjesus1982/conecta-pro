@@ -209,6 +209,46 @@ async def rd_action_escala_publicar(current_user: CurrentActiveUser, payload: di
         lambda: repo.publish(aid, str(current_user.id)), "publicada")
 
 
+async def _entry_gate(db, entry_id, coro_factory, ok_status, noun="registro"):
+    """Choke-point genérico de ação sobre um registro por id. Reflete status REAL."""
+    from fastapi import HTTPException
+
+    from modules.operacional.controllers.redesign_write_gate import GateError, op_write
+    if not (entry_id or "").strip():
+        raise HTTPException(status_code=400, detail=f"Selecione o {noun}.")
+    try:
+        res = await op_write(db, real_write=coro_factory)
+    except GateError as ge:
+        raise HTTPException(status_code=400, detail=str(ge))
+    if res is None:
+        raise HTTPException(status_code=400, detail=f"{noun.capitalize()} não encontrado ou em estado inválido.")
+    return {"ok": True, "id": str(getattr(res, "id", entry_id)),
+            "status": str(getattr(res, "status", ok_status)), "message": f"Lançamento {ok_status}"}
+
+
+@router.post("/action/banco-horas-aprovar")
+async def rd_action_banco_horas_aprovar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    from modules.operacional.repositories.time_bank_repository import TimeBankRepository
+    eid = (payload.get("entry_id") or "").strip()
+    repo = TimeBankRepository(db)
+    return await _entry_gate(db, eid,
+        lambda: repo.approve(eid, str(current_user.id), (payload.get("notes") or None)), "approved", "lançamento")
+
+
+@router.post("/action/banco-horas-rejeitar")
+async def rd_action_banco_horas_rejeitar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    from fastapi import HTTPException
+
+    from modules.operacional.repositories.time_bank_repository import TimeBankRepository
+    eid = (payload.get("entry_id") or "").strip()
+    reason = (payload.get("reason") or "").strip()
+    if len(reason) < 5:
+        raise HTTPException(status_code=400, detail="Informe o motivo da rejeição (mín. 5 caracteres).")
+    repo = TimeBankRepository(db)
+    return await _entry_gate(db, eid,
+        lambda: repo.reject(eid, reason, str(current_user.id)), "rejected", "lançamento")
+
+
 def _mgr_scope(current_user):
     """Scope de GESTOR p/ ações do redesign (mesmo padrão do quadro de presença).
     Humano-operado: a parede real é o RBAC do módulo no redesign + auth da rota."""
@@ -369,6 +409,8 @@ EXTRA_MENU: list[dict] = [
     {"id": "escala-aprovar", "label": "Aprovar escala", "icon": "M20 6L9 17l-5-5"},
     {"id": "escala-rejeitar", "label": "Rejeitar escala", "icon": "M18 6L6 18M6 6l12 12"},
     {"id": "escala-publicar", "label": "Publicar escala", "icon": "M22 2L11 13M22 2l-7 20-4-9-9-4z"},
+    {"id": "banco-horas-aprovar", "label": "Aprovar horas", "icon": "M20 6L9 17l-5-5"},
+    {"id": "banco-horas-rejeitar", "label": "Rejeitar horas", "icon": "M18 6L6 18M6 6l12 12"},
 ]
 
 
@@ -999,6 +1041,26 @@ async def build(db) -> dict:
             "title": "Publicar escala", "sub": "Publica uma escala aprovada (envia aos funcionários)", "cta": "Publicar",
             "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/escala-publicar", "okMsg": "Escala publicada"},
             "fields": [{"key": "scale_id", "label": "Escala (aprovada)*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _sopt(_s_appr)}]}
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+
+    # Forms de aprovação de banco de horas (select lançamentos pendentes)
+    try:
+        _tbp = (await db.execute(_sqltext(
+            "SELECT tb.id, coalesce(e.nome,'—'), tb.hours, tb.reference_date FROM time_bank tb "
+            "LEFT JOIN employees e ON e.id=tb.employee_id WHERE coalesce(tb.is_active,true) AND tb.status='pending' "
+            "ORDER BY tb.reference_date DESC NULLS LAST LIMIT 200"))).fetchall()
+        _tbopt = [{"value": str(i), "label": f"{n} · {(('+' if (h or 0) >= 0 else ''))}{h}h · {_fmtdate(d)}"} for i, n, h, d in _tbp]
+        out["banco-horas-aprovar"] = {
+            "title": "Aprovar banco de horas", "sub": "Aprova um lançamento pendente", "cta": "Aprovar",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/banco-horas-aprovar", "okMsg": "Lançamento aprovado"},
+            "fields": [{"key": "entry_id", "label": "Lançamento (pendente)*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _tbopt},
+                       {"key": "notes", "label": "Observação", "type": "textarea", "span": "span 2", "ph": "Opcional…"}]}
+        out["banco-horas-rejeitar"] = {
+            "title": "Rejeitar banco de horas", "sub": "Rejeita um lançamento pendente", "cta": "Rejeitar",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/banco-horas-rejeitar", "okMsg": "Lançamento rejeitado"},
+            "fields": [{"key": "entry_id", "label": "Lançamento (pendente)*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _tbopt},
+                       {"key": "reason", "label": "Motivo da rejeição*", "type": "text", "span": "span 2", "ph": "Mín. 5 caracteres"}]}
     except Exception:  # noqa: BLE001
         await db.rollback()
 
