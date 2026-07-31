@@ -68,6 +68,82 @@ async def rd_action_medida_administrativa(current_user: CurrentActiveUser, paylo
             "message": "Medida disciplinar registrada (rascunho)"}
 
 
+async def _medida_gate(db, action_id, coro_factory, ok_status):
+    """Choke-point das ações de fluxo da medida: valida id, roteia pelo op_write, devolve status REAL."""
+    from fastapi import HTTPException
+
+    from modules.operacional.controllers.redesign_write_gate import GateError, op_write
+    if not (action_id or "").strip():
+        raise HTTPException(status_code=400, detail="Selecione a medida.")
+    try:
+        res = await op_write(db, real_write=coro_factory)
+    except GateError as ge:
+        raise HTTPException(status_code=400, detail=str(ge))
+    return {"ok": True, "id": str(getattr(res, "id", action_id)),
+            "status": str(getattr(res, "status", ok_status)), "message": f"Medida {ok_status}"}
+
+
+@router.post("/action/medida-submeter")
+async def rd_action_medida_submeter(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    from core.auth import get_tenant_id
+    from modules.operacional.disciplinary.services import get_disciplinary_service
+    aid = (payload.get("action_id") or "").strip()
+    svc = get_disciplinary_service(db)
+    tid = get_tenant_id(current_user)
+    return await _medida_gate(db, aid,
+        lambda: svc.submit_for_approval(action_id=aid, tenant_id=str(tid), submitted_by=str(current_user.id),
+                                        notes=(payload.get("notes") or None)), "pendente_aprovacao")
+
+
+@router.post("/action/medida-aprovar")
+async def rd_action_medida_aprovar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    from core.auth import get_tenant_id
+    from modules.operacional.disciplinary.schemas.disciplinary_schemas import ApproveRequest
+    from modules.operacional.disciplinary.services import get_disciplinary_service
+    aid = (payload.get("action_id") or "").strip()
+    svc = get_disciplinary_service(db)
+    tid = get_tenant_id(current_user)
+    req = ApproveRequest(notes=(payload.get("notes") or None), application_date=None)
+    return await _medida_gate(db, aid,
+        lambda: svc.approve(action_id=aid, tenant_id=str(tid), approved_by=str(current_user.id), request=req), "aprovada")
+
+
+@router.post("/action/medida-rejeitar")
+async def rd_action_medida_rejeitar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    from fastapi import HTTPException
+
+    from core.auth import get_tenant_id
+    from modules.operacional.disciplinary.schemas.disciplinary_schemas import RejectRequest
+    from modules.operacional.disciplinary.services import get_disciplinary_service
+    aid = (payload.get("action_id") or "").strip()
+    reason = (payload.get("reason") or "").strip()
+    if len(reason) < 10:
+        raise HTTPException(status_code=400, detail="O motivo da rejeição precisa de ao menos 10 caracteres.")
+    svc = get_disciplinary_service(db)
+    tid = get_tenant_id(current_user)
+    req = RejectRequest(reason=reason)
+    return await _medida_gate(db, aid,
+        lambda: svc.reject(action_id=aid, tenant_id=str(tid), rejected_by=str(current_user.id), request=req), "rejeitada")
+
+
+@router.post("/action/medida-documento")
+async def rd_action_medida_documento(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    from fastapi import HTTPException
+
+    from core.auth import get_tenant_id
+    from modules.operacional.disciplinary.services import get_disciplinary_service
+    aid = (payload.get("action_id") or "").strip()
+    if not aid:
+        raise HTTPException(status_code=400, detail="Selecione a medida.")
+    svc = get_disciplinary_service(db)
+    try:
+        res = await svc.generate_document(action_id=aid, tenant_id=str(get_tenant_id(current_user)), request=None)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Falha ao gerar documento: {e}")
+    body = res if isinstance(res, dict) else {"document_text": getattr(res, "document_text", None) or str(res)}
+    return {"ok": True, "message": "Documento gerado", **body}
+
+
 def _mgr_scope(current_user):
     """Scope de GESTOR p/ ações do redesign (mesmo padrão do quadro de presença).
     Humano-operado: a parede real é o RBAC do módulo no redesign + auth da rota."""
@@ -220,6 +296,10 @@ EXTRA_MENU: list[dict] = [
     {"id": "instrucao-posto-editar", "label": "Editar instrução", "icon": "M12 5v14M5 12h14"},
     {"id": "banco-horas-lancar", "label": "Lançar horas", "icon": "M12 5v14M5 12h14"},
     {"id": "nova-ronda", "label": "Nova ronda", "icon": "M12 5v14M5 12h14"},
+    {"id": "medida-submeter", "label": "Submeter medida", "icon": "M12 5v14M5 12h14"},
+    {"id": "medida-aprovar", "label": "Aprovar medida", "icon": "M20 6L9 17l-5-5"},
+    {"id": "medida-rejeitar", "label": "Rejeitar medida", "icon": "M18 6L6 18M6 6l12 12"},
+    {"id": "medida-documento", "label": "Documento da medida", "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"},
 ]
 
 
@@ -786,6 +866,39 @@ async def build(db) -> dict:
                 {"left": "Média de avaliação (semana)", "right": (f"{_mg:.1f}" if _mg is not None else "—"), **S["info"]},
             ]}],
         }
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+
+    # Forms do fluxo de aprovação de medidas (selects por status real — nunca id livre)
+    try:
+        _q = ("SELECT id, coalesce(code,'—'), coalesce(employee_name,'—') FROM disciplinary_actions "
+              "WHERE coalesce(is_active,true) AND status::text=:st ORDER BY created_at DESC LIMIT 200")
+        _rasc = (await db.execute(_sqltext(_q), {"st": "rascunho"})).fetchall()
+        _pend = (await db.execute(_sqltext(_q), {"st": "pendente_aprovacao"})).fetchall()
+        _apro = (await db.execute(_sqltext(
+            "SELECT id, coalesce(code,'—'), coalesce(employee_name,'—') FROM disciplinary_actions "
+            "WHERE coalesce(is_active,true) AND status::text IN ('aprovada','aplicada','assinada') ORDER BY created_at DESC LIMIT 200"))).fetchall()
+        def _opt(rows):
+            return [{"value": str(i), "label": f"{c} · {n}"} for i, c, n in rows]
+        out["medida-submeter"] = {
+            "title": "Submeter medida", "sub": "Envia um rascunho para aprovação", "cta": "Submeter",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/medida-submeter", "okMsg": "Medida submetida"},
+            "fields": [{"key": "action_id", "label": "Medida (rascunho)*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _opt(_rasc)},
+                       {"key": "notes", "label": "Observação", "type": "textarea", "span": "span 2", "ph": "Opcional…"}]}
+        out["medida-aprovar"] = {
+            "title": "Aprovar medida", "sub": "Aprova uma medida pendente de aprovação", "cta": "Aprovar",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/medida-aprovar", "okMsg": "Medida aprovada"},
+            "fields": [{"key": "action_id", "label": "Medida (pendente)*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _opt(_pend)},
+                       {"key": "notes", "label": "Notas da aprovação", "type": "textarea", "span": "span 2", "ph": "Opcional…"}]}
+        out["medida-rejeitar"] = {
+            "title": "Rejeitar medida", "sub": "Rejeita uma medida pendente com justificativa", "cta": "Rejeitar",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/medida-rejeitar", "okMsg": "Medida rejeitada"},
+            "fields": [{"key": "action_id", "label": "Medida (pendente)*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _opt(_pend)},
+                       {"key": "reason", "label": "Motivo da rejeição*", "type": "textarea", "span": "span 2", "ph": "Mín. 10 caracteres…"}]}
+        out["medida-documento"] = {
+            "title": "Documento da medida", "sub": "Gera o documento da medida (aprovada/aplicada)", "cta": "Gerar documento",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/medida-documento", "okMsg": "Documento gerado"},
+            "fields": [{"key": "action_id", "label": "Medida*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _opt(_apro)}]}
     except Exception:  # noqa: BLE001
         await db.rollback()
 
