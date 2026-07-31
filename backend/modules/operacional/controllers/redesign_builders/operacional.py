@@ -249,6 +249,130 @@ async def rd_action_banco_horas_rejeitar(current_user: CurrentActiveUser, payloa
         lambda: repo.reject(eid, reason, str(current_user.id)), "rejected", "lançamento")
 
 
+@router.post("/action/substituicao-confirmar")
+async def rd_action_substituicao_confirmar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    from fastapi import HTTPException
+
+    from modules.operacional.repositories.substitution_repository import SubstitutionRepository
+    sid = (payload.get("substitution_id") or "").strip()
+    if not sid:
+        raise HTTPException(status_code=400, detail="Selecione a substituição.")
+    row = (await db.execute(_sqltext(
+        "SELECT substitute_employee_id FROM substitutions WHERE id::text=:i"), {"i": sid})).first()
+    if not row or not row[0]:
+        raise HTTPException(status_code=400, detail="Substituição sem substituto definido — defina o substituto primeiro.")
+    repo = SubstitutionRepository(db)
+    return await _entry_gate(db, sid,
+        lambda: repo.confirm(sid, str(row[0]), str(current_user.id), (payload.get("notes") or None)), "confirmed", "substituição")
+
+
+@router.post("/action/substituicao-rejeitar")
+async def rd_action_substituicao_rejeitar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    from fastapi import HTTPException
+
+    from modules.operacional.repositories.substitution_repository import SubstitutionRepository
+    sid = (payload.get("substitution_id") or "").strip()
+    reason = (payload.get("reason") or "").strip()
+    if len(reason) < 5:
+        raise HTTPException(status_code=400, detail="Informe o motivo da rejeição (mín. 5 caracteres).")
+    repo = SubstitutionRepository(db)
+    return await _entry_gate(db, sid,
+        lambda: repo.reject(sid, reason), "cancelled", "substituição")
+
+
+@router.post("/action/comunicado-publicar")
+async def rd_action_comunicado_publicar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    import uuid as _uuid
+
+    from fastapi import HTTPException
+
+    from modules.operacional.communication.controllers.announcement_controller import publish_announcement
+    from modules.operacional.communication.schemas.communication_schemas import AnnouncementPublishRequest
+    cid = (payload.get("announcement_id") or "").strip()
+    try:
+        _cid = _uuid.UUID(cid)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Selecione o comunicado.")
+    return await _entry_gate(db, cid,
+        lambda: publish_announcement(announcement_id=_cid, request_data=AnnouncementPublishRequest(),
+                                     current_user=current_user, db=db), "publicado", "comunicado")
+
+
+@router.post("/action/alerta-ack")
+async def rd_action_alerta_ack(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    from fastapi import HTTPException
+
+    from modules.operacional.communication.controllers.notification_controller import acknowledge_alert
+    aid = (payload.get("alert_id") or "").strip()
+    if not aid:
+        raise HTTPException(status_code=400, detail="Selecione o alerta.")
+    return await _entry_gate(db, aid,
+        lambda: acknowledge_alert(alert_id=aid, current_user=current_user, db=db), "reconhecido", "alerta")
+
+
+@router.post("/action/diarista-ativar")
+async def rd_action_diarista_ativar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    import uuid as _uuid
+
+    from fastapi import HTTPException
+
+    from modules.operacional.diaristas.services.diarist_service import DiaristService
+    did = (payload.get("diarist_id") or "").strip()
+    try:
+        _did = _uuid.UUID(did)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Selecione o diarista.")
+    return await _entry_gate(db, did, lambda: DiaristService(db).activate_diarist(_did), "ativado", "diarista")
+
+
+@router.post("/action/diarista-desativar")
+async def rd_action_diarista_desativar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    import uuid as _uuid
+
+    from fastapi import HTTPException
+
+    from modules.operacional.diaristas.services.diarist_service import DiaristService
+    did = (payload.get("diarist_id") or "").strip()
+    try:
+        _did = _uuid.UUID(did)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Selecione o diarista.")
+    return await _entry_gate(db, did, lambda: DiaristService(db).deactivate_diarist(_did), "desativado", "diarista")
+
+
+@router.post("/action/diarista-avaliar")
+async def rd_action_diarista_avaliar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    from fastapi import HTTPException
+
+    from modules.operacional.diaristas.schemas.diarist_schemas import DiaristEvaluationCreate
+    from modules.operacional.diaristas.services.diarist_service import DiaristService
+    did = (payload.get("diarist_id") or "").strip()
+    if not did:
+        raise HTTPException(status_code=400, detail="Selecione o diarista.")
+    try:
+        nota = int(payload.get("nota_geral") or 0)
+    except (ValueError, TypeError):
+        nota = 0
+    if not 1 <= nota <= 5:
+        raise HTTPException(status_code=400, detail="Nota geral deve ser de 1 a 5.")
+    cond = (await db.execute(_sqltext(
+        "SELECT condominio_id FROM diarist_schedules WHERE diarist_id::text=:d AND condominio_id IS NOT NULL "
+        "ORDER BY created_at DESC LIMIT 1"), {"d": did})).scalar()
+    if not cond:
+        raise HTTPException(status_code=400, detail="Diarista sem condomínio vinculado — não há contexto para avaliar.")
+    try:
+        data = DiaristEvaluationCreate(diarist_id=did, condominio_id=str(cond), avaliador_id=str(current_user.id),
+                                       avaliador_nome=(getattr(current_user, "name", "") or "—"),
+                                       nota_geral=nota, comentario=(payload.get("comentario") or None))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Dados inválidos: {e}")
+    try:
+        ev = await DiaristService(db).create_evaluation(data)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Falha ao avaliar: {e}")
+    return {"ok": True, "id": str(getattr(ev, "id", None)), "message": "Avaliação registrada"}
+
+
 def _mgr_scope(current_user):
     """Scope de GESTOR p/ ações do redesign (mesmo padrão do quadro de presença).
     Humano-operado: a parede real é o RBAC do módulo no redesign + auth da rota."""
@@ -411,6 +535,13 @@ EXTRA_MENU: list[dict] = [
     {"id": "escala-publicar", "label": "Publicar escala", "icon": "M22 2L11 13M22 2l-7 20-4-9-9-4z"},
     {"id": "banco-horas-aprovar", "label": "Aprovar horas", "icon": "M20 6L9 17l-5-5"},
     {"id": "banco-horas-rejeitar", "label": "Rejeitar horas", "icon": "M18 6L6 18M6 6l12 12"},
+    {"id": "substituicao-confirmar", "label": "Confirmar substituição", "icon": "M20 6L9 17l-5-5"},
+    {"id": "substituicao-rejeitar", "label": "Rejeitar substituição", "icon": "M18 6L6 18M6 6l12 12"},
+    {"id": "comunicado-publicar", "label": "Publicar comunicado", "icon": "M22 2L11 13M22 2l-7 20-4-9-9-4z"},
+    {"id": "alerta-ack", "label": "Reconhecer alerta", "icon": "M20 6L9 17l-5-5"},
+    {"id": "diarista-ativar", "label": "Ativar diarista", "icon": "M20 6L9 17l-5-5"},
+    {"id": "diarista-desativar", "label": "Desativar diarista", "icon": "M18 6L6 18M6 6l12 12"},
+    {"id": "diarista-avaliar", "label": "Avaliar diarista", "icon": "M11.5 2l2.6 6.9 7.4.3-5.8 4.6 2 7.1-6.2-4-6.2 4 2-7.1-5.8-4.6 7.4-.3z"},
 ]
 
 
@@ -1061,6 +1192,61 @@ async def build(db) -> dict:
             "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/banco-horas-rejeitar", "okMsg": "Lançamento rejeitado"},
             "fields": [{"key": "entry_id", "label": "Lançamento (pendente)*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _tbopt},
                        {"key": "reason", "label": "Motivo da rejeição*", "type": "text", "span": "span 2", "ph": "Mín. 5 caracteres"}]}
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+
+    # Forms substitutions / comunicação / diaristas (gestão) — selects por estado real
+    try:
+        _sub_p = (await db.execute(_sqltext(
+            "SELECT s.id, coalesce(p.name,'—'), coalesce(eo.nome,'—') FROM substitutions s "
+            "LEFT JOIN posts p ON p.id=s.post_id LEFT JOIN employees eo ON eo.id=s.original_employee_id "
+            "WHERE coalesce(s.is_active,true) AND s.status::text='pending' ORDER BY s.requested_at DESC NULLS LAST LIMIT 200"))).fetchall()
+        _sub_opt = [{"value": str(i), "label": f"{p} · falta {n}"} for i, p, n in _sub_p]
+        out["substituicao-confirmar"] = {
+            "title": "Confirmar substituição", "sub": "Confirma o substituto de uma substituição pendente", "cta": "Confirmar",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/substituicao-confirmar", "okMsg": "Substituição confirmada"},
+            "fields": [{"key": "substitution_id", "label": "Substituição (pendente)*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _sub_opt},
+                       {"key": "notes", "label": "Observação", "type": "textarea", "span": "span 2", "ph": "Opcional…"}]}
+        out["substituicao-rejeitar"] = {
+            "title": "Rejeitar substituição", "sub": "Rejeita uma substituição pendente", "cta": "Rejeitar",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/substituicao-rejeitar", "okMsg": "Substituição rejeitada"},
+            "fields": [{"key": "substitution_id", "label": "Substituição (pendente)*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _sub_opt},
+                       {"key": "reason", "label": "Motivo*", "type": "text", "span": "span 2", "ph": "Mín. 5 caracteres"}]}
+        _ann = (await db.execute(_sqltext(
+            "SELECT id, coalesce(titulo,'—') FROM communication_announcements WHERE coalesce(is_active,true) "
+            "AND status::text NOT IN ('publicado','published') ORDER BY created_at DESC LIMIT 200"))).fetchall()
+        out["comunicado-publicar"] = {
+            "title": "Publicar comunicado", "sub": "Publica um comunicado em rascunho", "cta": "Publicar",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/comunicado-publicar", "okMsg": "Comunicado publicado"},
+            "fields": [{"key": "announcement_id", "label": "Comunicado (rascunho)*", "type": "select", "span": "span 2", "ph": "Selecione",
+                        "options": [{"value": str(i), "label": tt} for i, tt in _ann]}]}
+        _alr = (await db.execute(_sqltext(
+            "SELECT id, coalesce(title,'—'), coalesce(severity::text,'—') FROM communication_alerts "
+            "WHERE coalesce(is_active,true) AND acknowledged_by IS NULL ORDER BY created_at DESC LIMIT 200"))).fetchall()
+        out["alerta-ack"] = {
+            "title": "Reconhecer alerta", "sub": "Marca um alerta como reconhecido", "cta": "Reconhecer",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/alerta-ack", "okMsg": "Alerta reconhecido"},
+            "fields": [{"key": "alert_id", "label": "Alerta ativo*", "type": "select", "span": "span 2", "ph": "Selecione",
+                        "options": [{"value": str(i), "label": f"[{sv}] {tt}"} for i, tt, sv in _alr]}]}
+        _di_on = (await db.execute(_sqltext("SELECT id, coalesce(nome,'—') FROM diarists WHERE coalesce(ativo,true) ORDER BY nome LIMIT 300"))).fetchall()
+        _di_off = (await db.execute(_sqltext("SELECT id, coalesce(nome,'—') FROM diarists WHERE NOT coalesce(ativo,true) ORDER BY nome LIMIT 300"))).fetchall()
+        _di_all = (await db.execute(_sqltext("SELECT id, coalesce(nome,'—') FROM diarists ORDER BY nome LIMIT 300"))).fetchall()
+        _diopt = lambda rows: [{"value": str(i), "label": n} for i, n in rows]
+        out["diarista-ativar"] = {
+            "title": "Ativar diarista", "sub": "Reativa um diarista inativo", "cta": "Ativar",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/diarista-ativar", "okMsg": "Diarista ativado"},
+            "fields": [{"key": "diarist_id", "label": "Diarista (inativo)*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _diopt(_di_off)}]}
+        out["diarista-desativar"] = {
+            "title": "Desativar diarista", "sub": "Desativa um diarista ativo", "cta": "Desativar",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/diarista-desativar", "okMsg": "Diarista desativado"},
+            "fields": [{"key": "diarist_id", "label": "Diarista (ativo)*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _diopt(_di_on)}]}
+        out["diarista-avaliar"] = {
+            "title": "Avaliar diarista", "sub": "Registra avaliação (nota 1–5) de um diarista", "cta": "Avaliar",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/diarista-avaliar", "okMsg": "Avaliação registrada"},
+            "fields": [{"key": "diarist_id", "label": "Diarista*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _diopt(_di_all)},
+                       {"key": "nota_geral", "label": "Nota geral (1–5)*", "type": "select", "span": "span 1", "ph": "Nota",
+                        "options": [{"value": str(k), "label": str(k)} for k in (1, 2, 3, 4, 5)]},
+                       {"key": "comentario", "label": "Comentário", "type": "textarea", "span": "span 2", "ph": "Opcional…"}]}
     except Exception:  # noqa: BLE001
         await db.rollback()
 
