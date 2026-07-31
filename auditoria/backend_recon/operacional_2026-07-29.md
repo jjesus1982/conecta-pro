@@ -175,3 +175,7 @@ backend → redesign só precisa builder (leitura) + ações via write-gate (`re
 - ✅ substituições confirmar/rejeitar (SubstitutionRepository.confirm/reject; confirm resolve substituto do registro). ✅ comunicação: comunicado-publicar (publish_announcement) + alerta-ack (acknowledge_alert). ✅ diaristas ativar/desativar (DiaristService.activate/deactivate_diarist) + avaliar (create_evaluation, condomínio resolvido do diarist_schedules).
 - Prova: diarista desativar→reativar (real, estado restaurado), alerta-ack real, build carrega 7 forms; substituições/comunicado/avaliar sem dado agora → forms honestos vazios, mesmo molde reusado. 7 rotas 401.
 - FORA (money/gov OTP): pagamentos/fiscal de diarista. Mobile: rondas checkpoints. Sólides: geração de escala.
+
+### Programa ação — lote 5 (2026-07-31): fechamento de diaristas
+- ACHADO: pagamento de diarista (money-out PIX) JÁ estava gated OTP no financeiro (/action/pagar-diaristas, gerar_otp_lote/executar_lote). NÃO dupliquei nem disparei.
+- ✅ Ligado o elo que faltava: /action/diarista-fechamento (op_write, SEM dinheiro) reusa generate_payroll_payments → cria DiaristPayment PENDENTE. Fluxo: operacional gera fechamento → financeiro paga gated. Oráculo 2099-12=0 gerados (seguro).
