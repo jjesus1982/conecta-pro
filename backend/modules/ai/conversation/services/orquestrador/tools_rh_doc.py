@@ -20,7 +20,7 @@ from __future__ import annotations
 import base64
 from typing import Any
 
-from sqlalchemy import String, case, cast, func, or_, select
+from sqlalchemy import String, cast, func, or_, select
 
 from core.auth.module_scope import user_has_module
 
@@ -115,10 +115,13 @@ async def _resolve_payslip(db, employee_id: str, competencia: str | None):
     q = select(PaySlip).where(cast(PaySlip.employee_id, String) == str(employee_id))
     if competencia:
         q = q.where(PaySlip.reference_period == competencia)
-    # Uma competência pode ter 2 linhas: a PUBLICADA/paga (fonte da verdade) e um espelho draft
-    # ('conecta') com net divergente. Sempre preferir a publicada/retificada = o que foi PAGO.
-    pref_pago = case((PaySlip.status.in_(("published", "rectified")), 0), else_=1)
-    q = q.order_by(pref_pago, PaySlip.reference_year.desc(),
+    # LGPD/exatidão: SÓ a linha PAGA conta. Uma competência pode ter 2 linhas — a publicada/paga
+    # (portte, fonte da verdade) e um espelho draft ('conecta') com net divergente, além de
+    # 'contested' (disputado). Renderizar draft/contested rotulado "PAGO" = fabricação. Então
+    # EXIGIMOS status pago; se só houver draft/contested (ocorre em ~5 competências), retorna None
+    # → o handler recusa em vez de mostrar um número que não foi o pago.
+    q = q.where(PaySlip.status.in_(("published", "rectified")))
+    q = q.order_by(PaySlip.reference_year.desc(),
                    PaySlip.reference_month.desc(), PaySlip.id.desc()).limit(1)
     return (await db.execute(q)).scalars().first()
 
