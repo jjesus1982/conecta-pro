@@ -152,3 +152,10 @@ backend → redesign só precisa builder (leitura) + ações via write-gate (`re
 - DECISÕES honestas: consultor=dashboard do panorama real (perguntas analíticas seguem no CHAT interno onde vive o perguntar/LLM); agentes=situação do efetivo (agentes de portaria), não roster de IA (não há backend honesto p/ isso, não fabriquei).
 - SWEEP total: 16 checagens (6 oráculos) verdes, zero regressão.
 - **BALDES A+B CONCLUÍDOS.** Resta só balde C (campo/geo/sem-tabela: mapa/ronda-mobile/escalas-visual/triagem-sem-tabela) — deferido.
+
+### Lote 8 (2026-07-31) — Balde C real, SWEEP OPERACIONAL COMPLETO
+- MEDIÇÃO: todas as 5 tinham backend real — mapa (posts latitude/longitude, 8/9), ronda-mobile (inspection_rounds em andamento), escalas-visual (scales, 19), campo (visitas, 2), triagem (triage_controller sub-funções _ocorrencias/_escalas/_avaliacoes_semana derivam de tabelas reais — NÃO era casca sem-tabela como eu temia).
+- ✅ 5 telas reais (mapa/ronda-mobile/escalas-visual/campo=tabela; triagem=dash derivado). ::text em enums. Oráculo `test_oraculo_op_baldeC_redesign.py` 5/5.
+- Verificado navegador: mapa (8/9 georreferenciados, coords GPS reais Manaus; Conecta Base "sem localização" honesto), triagem (0 occ / 1 sem escala / 10 rascunhos). Screenshots op-mapa/op-*.png.
+- **SWEEP TOTAL: 21 checagens (7 oráculos) verdes, zero regressão. BALDES A+B+C CONCLUÍDOS.** Módulo operacional do redesign: dados reais + escritas humano-gated + dashboards + cognitivo + campo/geo/triagem — tudo ligado, provado banco→oráculo→API→navegador.
+- Achados abertos p/ fix separado (compartilhados c/ clássico, não corrigidos cego): inspection_rounds code global-unique×sequence per-tenant; op_write poison-marker on failure.
