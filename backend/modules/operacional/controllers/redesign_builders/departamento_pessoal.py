@@ -9,6 +9,10 @@ Telas novas: admissao · aviso-previo · ponto · fechamento-ponto · licencas �
 reembolsos · contratos · documentos · certificacao · esocial.
 """
 
+from fastapi import APIRouter, Body, Depends, HTTPException
+
+from core.auth.dependencies import CurrentActiveUser
+from core.database.session import get_sync_db_dependency
 from modules.operacional.controllers.redesign_data_controller import (
     _build_dp,
     _helpers,
@@ -20,6 +24,46 @@ from modules.operacional.controllers.redesign_data_controller import (
 )
 
 SLUG = "departamento-pessoal"
+
+router = APIRouter()
+
+
+@router.post("/action/ponto-ajuste")
+async def rd_action_ponto_ajuste(
+    current_user: CurrentActiveUser,
+    eid: str,
+    dia: str,
+    payload: dict = Body(...),
+    db=Depends(get_sync_db_dependency),
+) -> dict:
+    """Ajuste de ponto do DP — grava batida REAL via o serviço existente (POST /ponto/ajuste).
+
+    `ajustado_por` é a identidade REAL do usuário logado, nunca um rótulo chumbado.
+    `eid`/`dia` vêm da LINHA da tabela (não do usuário) — o operador só informa tipo, hora
+    e motivo. Valida antes de chamar o service (evita 500 por payload incompleto).
+    """
+    punch_type = (payload.get("punch_type") or "").strip().lower()
+    hora = (payload.get("hora") or "").strip()
+    motivo = (payload.get("motivo") or "").strip()
+    if punch_type not in ("entrada", "saida"):
+        raise HTTPException(status_code=422, detail="Tipo deve ser 'entrada' ou 'saida'.")
+    if len(motivo) < 5:
+        raise HTTPException(status_code=422, detail="O motivo precisa de ao menos 5 caracteres.")
+    if not (len(hora) == 5 and hora[2] == ":" and hora[:2].isdigit() and hora[3:].isdigit()):
+        raise HTTPException(status_code=422, detail="Hora inválida — use HH:MM.")
+
+    from modules.people_management.ponto.services import dashboard_service as _ponto_svc
+
+    # Mesmo payload que o controller real monta (AjusteRequest.model_dump()).
+    res = _ponto_svc.registrar_ajuste(db, {
+        "employee_id": eid,
+        "data": dia,
+        "punch_type": punch_type,
+        "timestamp": f"{dia}T{hora}:00",
+        "motivo": motivo,
+        "ajustado_por": str(current_user.id),  # identidade real do usuário logado
+    })
+    return {"ok": True, "resultado": res, "message": "Ajuste de ponto registrado"}
 # Item de nav da tela de ação "Aviso prévio de férias" (form → gera doc). É SOMADO ao EXTRA_MENU
 # global do slug (redesign_data_controller._discover_module_builders), sem tocar a fundação.
 EXTRA_MENU: list[dict] = [
@@ -530,7 +574,7 @@ async def build(db) -> dict:
         "Ponto", "Registros diários — entrada, saída e total", "—",
         ["Colaborador", "Data", "Entrada", "Saída", "Total Horas"],
         "2fr 1fr 0.9fr 0.9fr 1fr",
-        "SELECT e.nome, d.dia, d.entrada, d.saida, d.total_min FROM ("
+        "SELECT e.nome, d.dia, d.entrada, d.saida, d.total_min, CAST(d.employee_id AS TEXT) FROM ("
         "  SELECT employee_id, (punch_timestamp)::date AS dia, "
         f"    min(punch_timestamp) FILTER (WHERE {_ENT}) AS entrada, "
         f"    max(punch_timestamp) FILTER (WHERE {_SAI}) AS saida, "
@@ -544,7 +588,25 @@ async def build(db) -> dict:
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(_d(r[1])),
                    t(r[2].strftime("%H:%M") if r[2] else "--:--"),
                    t(r[3].strftime("%H:%M") if r[3] else "--:--"),
-                   t(_hm(r[4]) if (r[4] is not None and r[4] > 0) else "--:--")]))
+                   t(_hm(r[4]) if (r[4] is not None and r[4] > 0) else "--:--")],
+        # AÇÃO por-linha: ajuste de ponto do DP. Grava batida REAL em gp_clock_punches
+        # (device_type='ajuste_dp') — a MESMA tabela que esta tela lê. Vai pelo proxy
+        # /redesign/action/ponto-ajuste porque `ajustado_por` tem que ser a identidade
+        # REAL do usuário logado (nunca chumbada no builder).
+        editfn=lambda r: {
+            "title": f"Ajustar ponto — {r[0] or '—'} ({_d(r[1])})",
+            "endpoint": f"/api/v1/redesign/action/ponto-ajuste?eid={r[5]}&dia={r[1]}",
+            "method": "POST", "btnLabel": "Ajustar", "submitLabel": "Registrar ajuste",
+            "okMsg": "Ajuste registrado. Recarregue a tela.",
+            "fields": [
+                {"key": "punch_type", "label": "Tipo*", "type": "select", "span": "span 1",
+                 "ph": "Selecione", "options": [{"value": "entrada", "label": "Entrada"},
+                                                {"value": "saida", "label": "Saída"}]},
+                {"key": "hora", "label": "Hora (HH:MM)*", "type": "text", "span": "span 1", "value": ""},
+                {"key": "motivo", "label": "Motivo (mín. 5 caracteres)*", "type": "textarea",
+                 "span": "span 2", "value": ""},
+            ],
+        }))
 
     # 4) Fechamento de ponto — MESMA fonte do clássico (time_sheets via painel_fechamento), NÃO
     #    gp_monthly_closings. Última competência com dado; status derivado (Homologado/Aguardando
@@ -714,7 +776,7 @@ async def build(db) -> dict:
 
     # 10) eSocial — esocial_eventos_espelho (espelho do ambiente nacional)
     await safe("esocial", tbl(
-        "eSocial", "Eventos transmitidos (espelho)", "—",
+        "eSocial", "Eventos transmitidos (espelho)", "Sincronizar espelho",
         ["Evento", "Tipo", "Colaborador", "CPF", "Data evento", "Recibo"],
         "1.2fr 0.8fr 1.6fr 1.1fr 1fr 1.4fr",
         "SELECT coalesce(ev.id_evento,'—'), coalesce(ev.tipo,'—'), e.nome, ev.cpf_trabalhador, "
@@ -730,6 +792,23 @@ async def build(db) -> dict:
     if out.get("esocial"):
         out["esocial"]["docs"] = [doc("XML do evento", disabled=True,
                                       motivo="XML transmitido, sem rota de preview no backend — pendente criar GET do XML do evento")]
+        # CTA real: sincroniza o espelho do ambiente nacional — repovoa ESTA MESMA tabela
+        # (esocial_eventos_espelho). Enfileira Celery em gov.esocial; não transmite nada ao gov.
+        out["esocial"]["ctaTo"] = "sincronizar-esocial"
+    out["sincronizar-esocial"] = {
+        "title": "Sincronizar espelho eSocial", "type": "form",
+        "sub": "Baixa do ambiente nacional os eventos já transmitidos e repovoa a tela de eSocial. "
+               "Leitura apenas — não transmite nada ao governo.",
+        "cta": "Sincronizar",
+        "submit": {"endpoint": "/api/v1/government/esocial/espelho/sincronizar",
+                   "okMsg": "Sincronização enfileirada — recarregue a tela em alguns minutos"},
+        "fields": [
+            {"key": "periodo", "label": "Período (AAAA ou AAAA-MM)", "type": "text", "span": "span 1",
+             "value": str(__import__("datetime").date.today().year)},
+            {"key": "max_acessos", "label": "Máx. acessos simultâneos (1-10)", "type": "text",
+             "span": "span 1", "value": "8"},
+        ],
+    }
 
     # ── Task 7: Prestadores PJ — GERADOR de link de autocadastro (RH/admin). Lê a MESMA fonte do
     #    endpoint clássico (GET /prestadores-pj): employees tipo_contrato='pj' com token gerado.
