@@ -144,3 +144,11 @@ backend → redesign só precisa builder (leitura) + ações via write-gate (`re
 - SWEEP regressão: 13 checagens (medidas 1 + leituras 3 + readfix2 6 + dashboards 3) todas verdes. Sem regressão.
 - **SWEEP DE PARIDADE DE DADOS OPERACIONAL: CONCLUÍDO.** build() serve as telas de dados reais + escritas-chave humano-gated. Durável via source commitado (deploys paralelos bakeiam do source).
 - RESTA (fora deste sweep, decisão do Jordan): Balde B IA (consultor/agentes/ai-command-center = camada cognitiva Fase 5/6, programa separado); Balde C campo/geo/sem-tabela (mapa/ronda-mobile/escalas-visual/campo/triagem-sem-tabela). Achados abertos p/ fix separado: code global-unique×sequence per-tenant (inspection_rounds); op_write poison-marker on failure.
+
+### Lote 7 (2026-07-31) — Balde B camada cognitiva (Fase 5/6), REAL e verificado
+- MEDIÇÃO (não de memória): backend cognitivo do operacional é REAL/honesto — consultor_coo panorama (fotografia real) + perguntar (LLM Hermes, "indisponível" honesto se não configurado); ai/controller command-center + performance-overview (contagens reais, risco derivado "placeholder honesto sem inventar evento").
+- ✅ Reuso puro (chama funções reais no builder): ai-command-center + agentes ← command_center; consultor ← consultor_coo_service.panorama. type=dash. Oráculo `test_oraculo_op_cognitivo_redesign.py` prova exibido==função-real.
+- Verificado no navegador (Playwright, login mcp-service): ai-command-center (52 efetivo, 77,8%, risco Médio), agentes (52/0/52), consultor (9 postos, 54 alocações, 77,8%, panorama completo). Screenshots op-*.png.
+- DECISÕES honestas: consultor=dashboard do panorama real (perguntas analíticas seguem no CHAT interno onde vive o perguntar/LLM); agentes=situação do efetivo (agentes de portaria), não roster de IA (não há backend honesto p/ isso, não fabriquei).
+- SWEEP total: 16 checagens (6 oráculos) verdes, zero regressão.
+- **BALDES A+B CONCLUÍDOS.** Resta só balde C (campo/geo/sem-tabela: mapa/ronda-mobile/escalas-visual/triagem-sem-tabela) — deferido.
