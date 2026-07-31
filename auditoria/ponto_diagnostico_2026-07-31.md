@@ -46,3 +46,46 @@ Universo: **65 funcionários ativos**; julho tem 55 com batida (**85%**).
 
 - **Aprovar o backlog de 3.235 batidas** (ou definir aprovação automática por regra) — bloqueia o fechamento de julho.
 - Definir se o **app próprio/facial** substitui o Tangerino ou se o Tangerino segue como fonte.
+
+---
+
+## 6. CAUSA SISTÊMICA dos dias "furados" (medido 2026-07-31, pós-aprovação)
+
+Investiguei a concentração dos furos. **Não é falha de colaborador — é estrutural do turno noturno.**
+
+### Distribuição por perfil de escala
+
+| Perfil | Dias c/ 1 só batida | Dias pareados (ent+saí) | Total dias | % pareado |
+|---|--:|--:|--:|--:|
+| **12x36 / noturno** | **780** | **96** | 1.098 | **9%** |
+| 12x36 / diurno | 189 | 300 | 711 | 42% |
+| 44h / diurno | 12 | 152 | 844 | 18% |
+
+### Duas causas somadas
+
+1. **Turno cruza a meia-noite.** 12x36 noturno entra ~19h do dia D e sai ~07h do dia D+1. Qualquer
+   agregação por `punch_timestamp::date` **parte o turno em dois** — o dia D fica "sem saída" e o
+   D+1 "sem entrada". Medido: **552 pares encadeados** (dia sem saída seguido de dia sem entrada,
+   mesmo colaborador). Esses **não são anomalias**.
+2. **`punch_type` não confiável no noturno.** Amostra real (RENE RICARDO, 12x36 noturno):
+   `05/07 21:01 entrada` · `06/07 09:01 **entrada**` · `07/07 17:02 entrada` · `08/07 05:02 **entrada**`.
+   Os pares existem no relógio, mas a saída vem tipada como `entrada`. No agregado os tipos até se
+   equilibram (tangerino: 2.336 entrada / 2.211 saída), mas **no noturno 484 dos 780 dias de batida
+   única estão tipados `entrada`**.
+
+### Impacto no objetivo de desligar a Portte
+
+**Hoje isso está mascarado** — a folha usa o espelho Portte (`folha_verba_espelho`), não o ponto.
+Mas quando a folha for nativa, **adicional noturno e HE do 12x36 noturno não terão base apurável**:
+9% de dias pareados não sustenta cálculo. O motor se comporta certo (sem batida → 0 + aviso, nunca
+estima), então o efeito seria **subpagamento**, não erro silencioso — mas é bloqueio real.
+
+### Conserto (nesta ordem)
+
+1. **Agregar por JORNADA, não por data** — parear entrada→próxima saída dentro de uma janela (ex.: 16h),
+   atravessando a meia-noite. Corrige os 552 pares sem tocar em dado. Vale para a tela DP → Ponto
+   (que hoje mostra `--:--` na saída do noturno) e para qualquer apuração de horas.
+2. **Corrigir o `punch_type` na importação Tangerino** — derivar entrada/saída pela alternância
+   dentro da jornada, não confiar no campo de origem.
+3. Só depois disso o ajuste manual (botão "Ajustar") faz sentido — hoje ajustaria dias que **não
+   estão furados de verdade**.
