@@ -165,3 +165,8 @@ backend → redesign só precisa builder (leitura) + ações via write-gate (`re
 - ✅ PILOTO medidas fluxo aprovação: submeter/aprovar/rejeitar/gerar-documento via `DisciplinaryService`+op_write. Fluxo real rascunho→pendente→**pendente_assinatura** (medida exige assinatura após aprovar). Oráculo `test_acao_medida_fluxo_redesign.py` verde (create+submit+approve+doc). Regressão 21 checagens ok.
 - LIÇÃO reconfirmada (testes): user fake deve usar TENANT REAL (templates/sequences são per-tenant; DEFAULT_TENANT não acha template/coliso code). E limpar `idem:medida%` no início (poison-marker do op_write em falha).
 - FILA (mesmo molde): scales(ciclo), rondas(campo), time-bank(aprovar/compensar), substitutions/shifts, diaristas(gestão), comunicacao. FORA: allocations, vacations. Money/gov só com OTP.
+
+### Programa ação — lotes 2-3 (2026-07-31)
+- ✅ scales CICLO (submeter/aprovar/rejeitar/publicar) via ScaleRepository+op_write; geração/otimização ADIADA (guard-rail Sólides=fonte-verdade). Oráculo cria escala descartável 2099.
+- ✅ time-bank aprovar/rejeitar via TimeBankRepository. compensate adiado (workflow c/ validação). Oráculo lançamento descartável.
+- MOLDE ação-sobre-registro consolidado: `_scale_action`/`_entry_gate` (valida id→op_write→status real; None=estado inválido). Teste: criar registro descartável, rodar, deletar.
