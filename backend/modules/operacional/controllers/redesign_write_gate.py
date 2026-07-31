@@ -83,10 +83,31 @@ async def _otp_generate(db: AsyncSession, ref: str, *, amount: float | None = No
         {"l": ref, "c": code, "e": exp})
     await db.commit()
     try:
-        from modules.integrations.inter.services.payment_service import _enviar_otp_email
+        # send_email direto (não via _enviar_otp_email): aquele IGNORA o bool de retorno e
+        # engole exceção — o gate nunca saberia se o código chegou. E o template dele diz
+        # "PAGAMENTO aguardando aprovação", errado p/ ações que não são pagamento.
+        from core.mailer import send_email
         email_destino = os.getenv("JORDAN_EMAIL", "jjesus@conectamais.pro")
-        await _enviar_otp_email(email_destino, code, float(amount or 0), label, dest or ref)
-        return True
+        acao = (label or "acao").replace("_", " ")
+        linha_valor = f"<tr><td style='color:#64748b;padding:8px 0'>Valor:</td><td><b>R$ {float(amount):,.2f}</b></td></tr>" if amount is not None else ""
+        html = (
+            "<!DOCTYPE html><html><head><meta charset='utf-8'></head>"
+            "<body style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;"
+            "background:#f4f4f5;padding:40px 0\"><div style='max-width:480px;margin:0 auto;background:#fff;"
+            "border-radius:12px;padding:40px'>"
+            "<h1 style='color:#0A2540;font-size:20px;margin:0 0 8px'>Conecta PRO — Autorização necessária</h1>"
+            f"<p style='color:#856404;background:#fff3cd;border:1px solid #ffc107;border-radius:8px;"
+            f"padding:12px;font-weight:600'>⚠️ Ação aguardando sua confirmação: {acao}</p>"
+            f"<table style='width:100%;border-collapse:collapse;margin:16px 0'>{linha_valor}"
+            f"<tr><td style='color:#64748b;padding:8px 0'>Alvo:</td><td>{dest or ref}</td></tr></table>"
+            f"<p style='text-align:center;font-size:34px;letter-spacing:8px;font-weight:700;color:#0A2540;"
+            f"margin:24px 0'>{code}</p>"
+            f"<p style='color:#64748b;font-size:13px'>Código válido por {OTP_TTL_SECONDS // 60} minutos. "
+            "Se não foi você, ignore — nada é executado sem este código.</p></div></body></html>"
+        )
+        # NUNCA o código no assunto: o mailer loga o subject (core/mailer.py:43) e o OTP
+        # vazaria pro log — quem lesse o log poderia aprovar sozinho, furando o gate.
+        return bool(await send_email(email_destino, f"[Conecta PRO] Código de autorização — {acao}", html))
     except Exception:  # noqa: BLE001 — código já persistido; o chamador avisa que o e-mail falhou
         return False
 
