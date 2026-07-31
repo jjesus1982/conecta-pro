@@ -146,8 +146,15 @@ def calcular_folha_colaborador(
     employee_id: str,
     mes: int,
     ano: int,
+    historico: bool = False,
 ) -> dict[str, Any]:
-    """Calcula holerite completo de um colaborador."""
+    """Calcula holerite completo de um colaborador.
+
+    historico=True: recálculo de competência PASSADA cujo vínculo o CHAMADOR já provou
+    (ex.: existe holerite Portte do mês). Dispensa o filtro de status porque 14 desligados
+    do cadastro não têm data_desligamento/data_demissao — sem isso eles sumiriam do
+    recálculo, e inventar data seria fabricar. PJ continua fora (não recebe holerite CLT).
+    """
     # Buscar dados do colaborador
     emp = db.execute(
         text(
@@ -159,10 +166,16 @@ def calcular_folha_colaborador(
             "e.data_admissao, COALESCE(e.data_desligamento, e.data_demissao) "
             "FROM employees e "
             # PJ não recebe holerite CLT — guard mesmo se chamado individualmente.
-            "WHERE CAST(e.id AS TEXT)=:eid AND e.status='ativo' "
-            "AND COALESCE(LOWER(e.tipo_contrato),'') <> 'pj'"
+            "WHERE CAST(e.id AS TEXT)=:eid "
+            "AND COALESCE(LOWER(e.tipo_contrato),'') <> 'pj' "
+            # Quem estava EMPREGADO na competência entra — um demitido em maio teve folha
+            # em janeiro. Sem isto, recalcular histórico perdia todo desligado (29% em 2026).
+            # Para o mês corrente nada muda: quem saiu antes do 1º dia segue de fora.
+            "AND (:historico "
+            "     OR e.status='ativo' "
+            "     OR COALESCE(e.data_desligamento, e.data_demissao) >= :comp_ini)"
         ),
-        {"eid": employee_id},
+        {"eid": employee_id, "comp_ini": f"{ano}-{mes:02d}-01", "historico": historico},
     ).first()
 
     if not emp:
