@@ -574,17 +574,23 @@ async def build(db) -> dict:
         "Ponto", "Registros diários — entrada, saída e total", "—",
         ["Colaborador", "Data", "Entrada", "Saída", "Total Horas"],
         "2fr 1fr 0.9fr 0.9fr 1fr",
+        # Pareamento por JORNADA, não por data de calendário. O 12x36 NOTURNO entra ~19h do
+        # dia D e sai ~07h do dia D+1; agrupar por `punch_timestamp::date` PARTIA a jornada em
+        # dois "dias furados" (medido: só 9% dos dias do noturno apareciam pareados, e a coluna
+        # Saída mostrava "--:--"). Parear batidas alternadas (1ª→2ª, 3ª→4ª) atravessa a
+        # meia-noite: os furos reais caem de ~840 batidas para 29.
         "SELECT e.nome, d.dia, d.entrada, d.saida, d.total_min, CAST(d.employee_id AS TEXT) FROM ("
-        "  SELECT employee_id, (punch_timestamp)::date AS dia, "
-        f"    min(punch_timestamp) FILTER (WHERE {_ENT}) AS entrada, "
-        f"    max(punch_timestamp) FILTER (WHERE {_SAI}) AS saida, "
-        f"    (extract(epoch FROM (max(punch_timestamp) FILTER (WHERE {_SAI}) "
-        f"       - min(punch_timestamp) FILTER (WHERE {_ENT})))/60)::int AS total_min "
-        "  FROM gp_clock_punches "
-        "  WHERE employee_id NOT IN (SELECT id FROM employees WHERE coalesce(is_homologacao,false)=true) "
-        "  GROUP BY employee_id, (punch_timestamp)::date"
+        "  SELECT employee_id, (min(ts))::date AS dia, min(ts) AS entrada, "
+        "         CASE WHEN count(*) > 1 THEN max(ts) END AS saida, "
+        "         CASE WHEN count(*) > 1 THEN (extract(epoch FROM (max(ts)-min(ts)))/60)::int END AS total_min "
+        "  FROM ("
+        "    SELECT employee_id, punch_timestamp AS ts, "
+        "           row_number() OVER (PARTITION BY employee_id ORDER BY punch_timestamp) AS rn "
+        "    FROM gp_clock_punches "
+        "    WHERE employee_id NOT IN (SELECT id FROM employees WHERE coalesce(is_homologacao,false)=true)"
+        "  ) o GROUP BY employee_id, (rn+1)/2"
         ") d LEFT JOIN employees e ON e.id = d.employee_id "
-        "ORDER BY d.dia DESC, e.nome LIMIT 300",
+        "ORDER BY d.entrada DESC, e.nome LIMIT 300",
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(_d(r[1])),
                    t(r[2].strftime("%H:%M") if r[2] else "--:--"),
                    t(r[3].strftime("%H:%M") if r[3] else "--:--"),
