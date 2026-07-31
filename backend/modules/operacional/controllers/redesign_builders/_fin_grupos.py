@@ -44,6 +44,7 @@ GRUPOS = [
         ("pareamento-portte", "Pareamento Portte"), ("pareamento-tributos", "Pareamento tributos"), ("das-eletronica", "Tributos Eletrônica (LR)"), ("das-patrimonial", "DAS Patrimonial (Simples)"),
         ("contabilidade", "Extrato categorizado"), ("cancelar-boleto", "Cancelar boleto")]),
     ("g-custos", "Custos & Orçamento", "Custos, custeio, precificação e orçamento", [
+        ("rentabilidade", "Rentabilidade por contrato"),
         ("custos", "Custos"), ("custeio-abc", "Custeio ABC"),
         ("custeio-contratos", "Margem por contrato"), ("custeio", "Simulador CCT"), ("custeio-cct", "Custeio CCT"),
         ("precificacao", "Precificação"), ("orcamentos", "Orçamentos"),

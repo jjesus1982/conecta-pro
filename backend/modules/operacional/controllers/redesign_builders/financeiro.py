@@ -113,6 +113,12 @@ async def _build_saldos(db):
             **({"panels": _painel_limite} if _painel_limite else {})}
 
 
+def _mes_br(comp) -> str:
+    """'2026-07' -> '07/2026' (o filtro de mês da tabela usa este texto)."""
+    s = str(comp or "")
+    return f"{s[5:7]}/{s[0:4]}" if len(s) >= 7 and "-" in s else (s or "—")
+
+
 def _simnao(v) -> dict:
     return b("Sim", "info") if v else b("—", "mut")
 
@@ -311,6 +317,76 @@ async def build(db) -> dict:
     if isinstance(out.get("pix-recebidos"), dict):
         out["pix-recebidos"]["ctaTo"] = "sincronizar-pix"
         out["pix-recebidos"]["cta"] = "Sincronizar PIX"
+
+    # ---- RENTABILIDADE POR CONTRATO (margem) + RESULTADO POR CNPJ ------------------
+    # Receita = NFS-e emitida (bruto = valor do contrato; líquido = o que o condomínio paga
+    # após retenções). Custo DIRETO = folha CLT das pessoas alocadas no condomínio (vigência
+    # respeitada) + diaristas do posto. Estrutura (PJ do escritório) e fornecedores NÃO entram
+    # no contrato — são indiretos, aparecem no resultado do CNPJ (rateio seria arbitrário).
+    _DEPARA = (
+        "(VALUES ('IDEAL FLORES','CONDOMINIO IDEAL FLORES DA CIDADE'),"
+        "('MIRANTE','CONDOMINIO MIRANTE DAS FLORES'),"
+        "('LARANJEIRAS','RESIDENCIAL LARANJEIRAS VILLAGE'),('LARANJEIRAS VILLAGE','RESIDENCIAL LARANJEIRAS VILLAGE'),"
+        "('VILLA DEI FIORI','CONDOMINIO VILLA DEI FIORI'),('VILA DEI FIORI','CONDOMINIO VILLA DEI FIORI'),"
+        "('PRIME ARENA','CONDOMINIO PRIME ARENA'),('PRIME','CONDOMINIO PRIME ARENA'),('PISCINAS','CONDOMINIO PRIME ARENA'),"
+        "('VILLA PÁSSAROS','CONDOMINIO RESIDENCIAL VILLA DOS PASSAROS'),"
+        "('VILLA DOS PASSAROS','CONDOMINIO RESIDENCIAL VILLA DOS PASSAROS'),"
+        "('MICHELANGELO','CONDOMINIO DO EDIFICIO MICHELANGELO'),"
+        "('PARISE','CONDOMINIO RESIDENCIAL PARISE VILLAGE'),('PARISE VILLAGE','CONDOMINIO RESIDENCIAL PARISE VILLAGE'),"
+        "('GREEN HILLS','CONDOMINIO RESIDENCIAL GREEN HILLS'),"
+        "('P. GELAIN','CONDOMINIO PARQUE RESIDENCIAL GELAIN')) AS d(apelido, cliente)"
+    )
+    _SQL_RENT = (
+        "WITH depara AS (SELECT * FROM " + _DEPARA + "), "
+        "rec AS (SELECT n.competencia AS comp, e.razao_social AS cnpj, n.tomador_nome AS cliente, "
+        " sum(n.valor_servicos) AS bruto, sum(n.valor_liquido) AS liq "
+        " FROM nfse_emitidas_nacional n JOIN empresas e ON e.id=n.empresa_id "
+        " WHERE coalesce(n.cancelada,false)=false AND n.competencia>='2026-06' GROUP BY 1,2,3), "
+        "clt AS (SELECT to_char(p.competence_start,'YYYY-MM') AS comp, d.cliente, sum(p.total_earnings) AS folha "
+        " FROM hr_payslips p JOIN employee_alocacoes a ON a.employee_id=p.employee_id "
+        "   AND a.data_inicio <= (date_trunc('month',p.competence_start)+interval '1 month -1 day')::date "
+        "   AND (a.data_fim IS NULL OR a.data_fim >= date_trunc('month',p.competence_start)::date) "
+        " JOIN condominios co ON co.id=a.condominio_id JOIN depara d ON d.apelido=upper(co.nome) "
+        " JOIN employees e2 ON e2.id=p.employee_id AND coalesce(e2.is_homologacao,false)=false "
+        " WHERE p.competence_start IS NOT NULL GROUP BY 1,2), "
+        "dia AS (SELECT to_char(l.data,'YYYY-MM') AS comp, d.cliente, sum(l.valor) AS diaristas "
+        " FROM diaria_lancamentos l JOIN depara d ON d.apelido=upper(l.posto) GROUP BY 1,2) "
+        "SELECT coalesce(r.comp, clt.comp, dia.comp), "
+        " CASE WHEN r.cnpj ILIKE '%PATRIMONIAL%' THEN 'Patrimonial' "
+        "      WHEN r.cnpj ILIKE '%ELETRONICA%' THEN 'Eletrônica' ELSE '(sem nota)' END, "
+        " coalesce(r.cliente, clt.cliente, dia.cliente), "
+        " coalesce(r.bruto,0), coalesce(r.liq,0), "
+        " coalesce(clt.folha,0)+coalesce(dia.diaristas,0), "
+        " coalesce(r.liq,0)-coalesce(clt.folha,0)-coalesce(dia.diaristas,0) "
+        "FROM rec r "
+        "FULL OUTER JOIN clt ON clt.cliente=r.cliente AND clt.comp=r.comp "
+        "FULL OUTER JOIN dia ON dia.cliente=coalesce(r.cliente,clt.cliente) AND dia.comp=coalesce(r.comp,clt.comp) "
+        "WHERE coalesce(r.comp, clt.comp, dia.comp) >= '2026-06' ORDER BY 1 DESC, 7 DESC"
+    )
+
+    def _rent_row(r):
+        marg = float(r[6] or 0)
+        rec_liq = float(r[4] or 0)
+        pct = (marg / rec_liq * 100) if rec_liq else 0.0
+        return [t(_mes_br(r[0]), 600), b(r[1], "info" if r[1] == 'Patrimonial' else "mut"),
+                t((r[2] or '—').replace('CONDOMINIO ', '').replace('RESIDENCIAL ', '')[:30], 600, "#0F1B3A"),
+                t(brl(float(r[3] or 0))), t(brl(rec_liq), 600),
+                t(brl(float(r[5] or 0)), 600, "#C2410C"),
+                t(brl(marg), 700, "#16A34A" if marg >= 0 else "#DC2626"),
+                t(f"{pct:.0f}%" if rec_liq else "—", 600, "#16A34A" if marg >= 0 else "#DC2626")]
+
+    await safe("rentabilidade", tbl(
+        "Rentabilidade por contrato",
+        "Margem de contribuição = recebido líquido − custo direto (folha CLT alocada + diaristas). "
+        "Estrutura e fornecedores NÃO entram aqui — são indiretos, ficam no resultado do CNPJ. "
+        "Filtre pelo mês. Julho é mês de TRANSIÇÃO (migração Eletrônica→Patrimonial) e a folha "
+        "de julho fecha em agosto — até lá o custo de julho sai só com diaristas.",
+        "—", ["Mês", "CNPJ", "Contrato", "Faturado", "Recebido", "Custo direto", "Margem", "%"],
+        "0.8fr 1fr 1.8fr 1.1fr 1.1fr 1.1fr 1.1fr 0.6fr",
+        _SQL_RENT, _rent_row))
+    if isinstance(out.get("rentabilidade"), dict):
+        out["rentabilidade"]["filterCol"] = 0
+        out["rentabilidade"]["filterLabel"] = "Mês"
 
     # ---- Sincronizar PIX recebidos — puxa do Inter p/ inter_pix_recebidos ----
     # Aponta DIRETO no endpoint que já existe (nada de wrapper novo). NÃO é money-out:
