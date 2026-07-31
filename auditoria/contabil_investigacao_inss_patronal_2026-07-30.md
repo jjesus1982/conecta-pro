@@ -47,3 +47,24 @@ Só a **CPP (1138) rampa de 7,2% → 20%**.
 - A empresa está sob **desoneração/CPRB** (reoneração gradual)? Se sim, precisamos puxar/lançar a
   **CPRB sobre receita** e ensinar o DCTFWeb a usar a alíquota CPP do ano (não 20% fixo).
 - Por que o **segurado (1082)** só aparece no DARF de junho? (recolhimento separado jan-mai?)
+
+## Quantificação do GAP jan-mai (2026-07-31)
+INSS "cheio" esperado (Lucro Real, sem CPRB) = CPP 20% + RAT/terceiros reais + segurado, vs guia parcial.
+
+| Mês | base INSS | CPP% real | Gap CPP (20%−real) | Guia real |
+|---|--:|--:|--:|--:|
+| Jan | 85.596 | 7,2% | 10.983 | 14.605 |
+| Fev | 83.550 | 7,0% | 10.897 | 14.061 |
+| Mar | 87.967 | 9,4% | 9.284 | 16.994 |
+| Abr | 93.843 | 10,6% | 8.852 | 19.181 |
+| Mai | 99.686 | 13,0% | 7.024 | 22.754 |
+| **Σ jan-mai** | | | **47.039** | 87.595 |
+| Jun (completo) | 97.207 | 20,0% | 0 | 31.998 |
+
+**Gap SÓLIDO (só CPP) = R$ 47.039** jan-mai — CPP declarada a 7-13% vs 20% devido.
+**Gap total estimado ≤ R$ 79.772** — SUPERESTIMA: junho (guia completa) mostra segurado DARF
+R$2.961 vs retido folha R$7.111, então o segurado do DARF é ~40% do retido; o gap real de segurado
+é menor que o cheio. Faixa provável: R$47k (só CPP) a ~R$80k.
+
+**Ação Portte:** existe DARF complementar jan-mai que suba a CPP p/ 20%? E qual a regra do segurado
+(por que o 1082 do DARF é ~40% do inss_value da folha)?
