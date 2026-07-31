@@ -784,14 +784,25 @@ class ESocialTransmitter:
             logger.error("Erro ao assinar evento %s: %s", event_id, str(e))
             raise ESocialError(f"Falha na assinatura digital: {str(e)}", str(event_id))
 
-    def _build_soap_envelope(self, signed_xml: str, grupo: int = 1) -> str:
+    def _build_soap_envelope(self, signed_xml: str, grupo: int = 1, employer_cnpj: str | None = None) -> str:
         """
         Monta envelope SOAP para o webservice EnviarLoteEventos.
 
         Args:
             signed_xml: XML do evento já assinado
             grupo: Grupo do evento (1=tabelas, 2=não-periódicos, 3=periódicos)
+            employer_cnpj: CNPJ do empregador/transmissor (14 dígitos). Multi-CNPJ:
+                era LITERAL 35710481000103 aqui — qualquer evento da Patrimonial
+                (66.014.833/0001-10) seria transmitido sob o CNPJ da Eletrônica, ou seja,
+                evento legal declarado para a empresa ERRADA. Vem de `event.employer_cnpj`.
         """
+        cnpj_digits = re_module.sub(r"\D", "", employer_cnpj or "")
+        if len(cnpj_digits) != 14:
+            raise ValidationError(
+                f"CNPJ do empregador inválido para o envelope SOAP: {employer_cnpj!r}. "
+                "Sem CNPJ válido o lote seria transmitido sob outra empresa."
+            )
+        cnpj_raiz = cnpj_digits[:8]
         # Remover declaração <?xml?>
         xml_clean = signed_xml
         if xml_clean.startswith("<?xml"):
@@ -804,7 +815,7 @@ class ESocialTransmitter:
         # Extrair o Id do evento do XML
         id_match = re_module.search(r'Id="([^"]+)"', xml_evento_inner)
         lote_id = (
-            id_match.group(1) if id_match else f"ID135710481000103{datetime.utcnow().strftime('%Y%m%d%H%M%S')}00001"
+            id_match.group(1) if id_match else f"ID1{cnpj_digits}{datetime.utcnow().strftime('%Y%m%d%H%M%S')}00001"
         )
 
         envelope = f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -816,11 +827,11 @@ class ESocialTransmitter:
           <envioLoteEventos grupo="{grupo}">
             <ideEmpregador>
               <tpInsc>1</tpInsc>
-              <nrInsc>35710481</nrInsc>
+              <nrInsc>{cnpj_raiz}</nrInsc>
             </ideEmpregador>
             <ideTransmissor>
               <tpInsc>1</tpInsc>
-              <nrInsc>35710481000103</nrInsc>
+              <nrInsc>{cnpj_digits}</nrInsc>
             </ideTransmissor>
             <eventos>
               <evento Id="{lote_id}">
@@ -885,8 +896,8 @@ class ESocialTransmitter:
         elif event.event_type.value.startswith("S-12"):
             grupo = 3  # Periódicos
 
-        # Montar envelope SOAP
-        soap_envelope = self._build_soap_envelope(event.xml_signed, grupo)
+        # Montar envelope SOAP — CNPJ vem do EVENTO (multi-CNPJ), nunca literal
+        soap_envelope = self._build_soap_envelope(event.xml_signed, grupo, event.employer_cnpj)
 
         # URL do webservice (host de ENVIO do ambiente corrente)
         base_url = self.WEBSERVICE_URLS[self.environment]["envio"]
