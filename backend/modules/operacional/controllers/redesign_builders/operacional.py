@@ -144,6 +144,71 @@ async def rd_action_medida_documento(current_user: CurrentActiveUser, payload: d
     return {"ok": True, "message": "Documento gerado", **body}
 
 
+async def _scale_action(db, scale_id, coro_factory, ok_status):
+    """Choke-point do ciclo de escala. Reflete status REAL; None do repo = estado inválido."""
+    from fastapi import HTTPException
+
+    from modules.operacional.controllers.redesign_write_gate import GateError, op_write
+    if not (scale_id or "").strip():
+        raise HTTPException(status_code=400, detail="Selecione a escala.")
+    try:
+        res = await op_write(db, real_write=coro_factory)
+    except GateError as ge:
+        raise HTTPException(status_code=400, detail=str(ge))
+    if res is None:
+        raise HTTPException(status_code=400, detail="Escala não encontrada ou em estado inválido para esta ação.")
+    return {"ok": True, "id": str(getattr(res, "id", scale_id)),
+            "status": str(getattr(res, "status", ok_status)), "message": f"Escala {ok_status}"}
+
+
+@router.post("/action/escala-submeter")
+async def rd_action_escala_submeter(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    import uuid as _uuid
+
+    from fastapi import HTTPException
+
+    from modules.operacional.controllers.scale_controller import submit_scale_for_approval
+    aid = (payload.get("scale_id") or "").strip()
+    try:
+        _sid = _uuid.UUID(aid)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Selecione a escala.")
+    return await _scale_action(db, aid,
+        lambda: submit_scale_for_approval(scale_id=_sid, current_user=current_user, db=db), "enviada para aprovação")
+
+
+@router.post("/action/escala-aprovar")
+async def rd_action_escala_aprovar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    from modules.operacional.repositories.scale_repository import ScaleRepository
+    aid = (payload.get("scale_id") or "").strip()
+    repo = ScaleRepository(db)
+    return await _scale_action(db, aid,
+        lambda: repo.approve(aid, str(current_user.id), (payload.get("notes") or None)), "aprovada")
+
+
+@router.post("/action/escala-rejeitar")
+async def rd_action_escala_rejeitar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    from fastapi import HTTPException
+
+    from modules.operacional.repositories.scale_repository import ScaleRepository
+    aid = (payload.get("scale_id") or "").strip()
+    reason = (payload.get("reason") or "").strip()
+    if len(reason) < 10:
+        raise HTTPException(status_code=400, detail="O motivo da rejeição precisa de ao menos 10 caracteres.")
+    repo = ScaleRepository(db)
+    return await _scale_action(db, aid,
+        lambda: repo.reject(aid, str(current_user.id), reason, (payload.get("notes") or None)), "rejeitada")
+
+
+@router.post("/action/escala-publicar")
+async def rd_action_escala_publicar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    from modules.operacional.repositories.scale_repository import ScaleRepository
+    aid = (payload.get("scale_id") or "").strip()
+    repo = ScaleRepository(db)
+    return await _scale_action(db, aid,
+        lambda: repo.publish(aid, str(current_user.id)), "publicada")
+
+
 def _mgr_scope(current_user):
     """Scope de GESTOR p/ ações do redesign (mesmo padrão do quadro de presença).
     Humano-operado: a parede real é o RBAC do módulo no redesign + auth da rota."""
@@ -300,6 +365,10 @@ EXTRA_MENU: list[dict] = [
     {"id": "medida-aprovar", "label": "Aprovar medida", "icon": "M20 6L9 17l-5-5"},
     {"id": "medida-rejeitar", "label": "Rejeitar medida", "icon": "M18 6L6 18M6 6l12 12"},
     {"id": "medida-documento", "label": "Documento da medida", "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"},
+    {"id": "escala-submeter", "label": "Submeter escala", "icon": "M12 5v14M5 12h14"},
+    {"id": "escala-aprovar", "label": "Aprovar escala", "icon": "M20 6L9 17l-5-5"},
+    {"id": "escala-rejeitar", "label": "Rejeitar escala", "icon": "M18 6L6 18M6 6l12 12"},
+    {"id": "escala-publicar", "label": "Publicar escala", "icon": "M22 2L11 13M22 2l-7 20-4-9-9-4z"},
 ]
 
 
@@ -899,6 +968,37 @@ async def build(db) -> dict:
             "title": "Documento da medida", "sub": "Gera o documento da medida (aprovada/aplicada)", "cta": "Gerar documento",
             "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/medida-documento", "okMsg": "Documento gerado"},
             "fields": [{"key": "action_id", "label": "Medida*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _opt(_apro)}]}
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+
+    # Forms do ciclo de escala (submeter/aprovar/rejeitar/publicar) — selects por status real.
+    # Sólides é fonte da verdade; aqui só o CICLO das nossas escalas, sem gerar/sobrescrever cego.
+    try:
+        _sq = ("SELECT id, coalesce(name,'—'), month, year FROM scales "
+               "WHERE coalesce(is_active,true) AND status::text=:st ORDER BY year DESC NULLS LAST, month DESC NULLS LAST LIMIT 200")
+        _s_draft = (await db.execute(_sqltext(_sq), {"st": "draft"})).fetchall()
+        _s_pend = (await db.execute(_sqltext(_sq), {"st": "pending_approval"})).fetchall()
+        _s_appr = (await db.execute(_sqltext(_sq), {"st": "approved"})).fetchall()
+        def _sopt(rows):
+            return [{"value": str(i), "label": f"{n} · {int(m):02d}/{int(y)}" if m and y else (n or '—')} for i, n, m, y in rows]
+        out["escala-submeter"] = {
+            "title": "Submeter escala", "sub": "Envia um rascunho de escala para aprovação", "cta": "Submeter",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/escala-submeter", "okMsg": "Escala enviada para aprovação"},
+            "fields": [{"key": "scale_id", "label": "Escala (rascunho)*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _sopt(_s_draft)}]}
+        out["escala-aprovar"] = {
+            "title": "Aprovar escala", "sub": "Aprova uma escala pendente", "cta": "Aprovar",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/escala-aprovar", "okMsg": "Escala aprovada"},
+            "fields": [{"key": "scale_id", "label": "Escala (pendente)*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _sopt(_s_pend)},
+                       {"key": "notes", "label": "Notas da aprovação", "type": "textarea", "span": "span 2", "ph": "Opcional…"}]}
+        out["escala-rejeitar"] = {
+            "title": "Rejeitar escala", "sub": "Rejeita uma escala pendente com justificativa", "cta": "Rejeitar",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/escala-rejeitar", "okMsg": "Escala rejeitada"},
+            "fields": [{"key": "scale_id", "label": "Escala (pendente)*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _sopt(_s_pend)},
+                       {"key": "reason", "label": "Motivo da rejeição*", "type": "textarea", "span": "span 2", "ph": "Mín. 10 caracteres…"}]}
+        out["escala-publicar"] = {
+            "title": "Publicar escala", "sub": "Publica uma escala aprovada (envia aos funcionários)", "cta": "Publicar",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/escala-publicar", "okMsg": "Escala publicada"},
+            "fields": [{"key": "scale_id", "label": "Escala (aprovada)*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _sopt(_s_appr)}]}
     except Exception:  # noqa: BLE001
         await db.rollback()
 
