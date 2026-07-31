@@ -138,3 +138,9 @@ backend → redesign só precisa builder (leitura) + ações via write-gate (`re
   - (A) DASHBOARDS c/ backend real (doável, próximo): kpi (kpi-trends), cobertura (reports/coverage), relatorios. São type=dash (kpis/panels), mais trabalho por tela.
   - (B) IA / camada cognitiva (PROGRAMA SEPARADO Fase5/6): consultor (consultor_coo→chat), agentes, ai-command-center. Não é read-fix; é integrar o chat/consultor.
   - (C) campo/geo/sem-tabela (deferir): mapa, ronda-mobile, escalas-visual, campo (tem _build_campo próprio), triagem (SEM tabela — não fabricar).
+
+### Lote 6 (2026-07-31) — Balde A dashboards reais, LOOP ENCERRADO
+- ✅ cobertura (ReportsRepository.get_coverage → 9 postos, taxa 77,8% real), kpi (postos/ocorrências abertas/rondas mês/substituições mês), relatorios (ocorrências/medidas/passagens/colaboradores do mês). type=dash. Oráculo `test_oraculo_op_dashboards_redesign.py` 3/3.
+- SWEEP regressão: 13 checagens (medidas 1 + leituras 3 + readfix2 6 + dashboards 3) todas verdes. Sem regressão.
+- **SWEEP DE PARIDADE DE DADOS OPERACIONAL: CONCLUÍDO.** build() serve as telas de dados reais + escritas-chave humano-gated. Durável via source commitado (deploys paralelos bakeiam do source).
+- RESTA (fora deste sweep, decisão do Jordan): Balde B IA (consultor/agentes/ai-command-center = camada cognitiva Fase 5/6, programa separado); Balde C campo/geo/sem-tabela (mapa/ronda-mobile/escalas-visual/campo/triagem-sem-tabela). Achados abertos p/ fix separado: code global-unique×sequence per-tenant (inspection_rounds); op_write poison-marker on failure.
