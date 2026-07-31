@@ -646,4 +646,73 @@ async def build(db) -> dict:
     except Exception:  # noqa: BLE001
         pass
 
+    # ── Balde B: camada cognitiva (Fase 5/6) — reusa funções REAIS (command_center/panorama) ──
+    try:
+        from modules.operacional.ai.controller import command_center as _cc
+        cc = await _cc(None, db)
+    except Exception:  # noqa: BLE001
+        cc = {}
+        await db.rollback()
+    if cc:
+        ov = cc.get("overview", {}) or {}
+        ag = cc.get("agents_status", {}) or {}
+        cov = cc.get("coverage_prediction", {}) or {}
+        _risk = str(cov.get("nivel_risco", "—")).capitalize()
+        _cob_atual = ov.get("cobertura_atual") or 0
+        out["ai-command-center"] = {
+            "title": "AI Command Center", "sub": "Centro de comando operacional · dado real", "type": "dash", "panelGrid": "1fr",
+            "kpis": [
+                {"v": str(ov.get("agentes_ativos", 0)), "l": "Efetivo ativo", "icon": IC["users"], "color": "#0F1B3A"},
+                {"v": str(ov.get("agentes_presentes", 0)), "l": "Presentes hoje", "icon": IC["users"], "color": "#16A34A"},
+                {"v": f"{_cob_atual}%", "l": "Cobertura", "icon": IC["shield"], "color": "#16A34A" if _cob_atual >= 90 else "#C2410C"},
+                {"v": _risk, "l": "Nível de risco", "icon": IC["alert"], "color": "#DC2626" if _risk in ("Alto", "Critico", "Crítico") else ("#C2410C" if _risk in ("Medio", "Médio") else "#16A34A")},
+            ],
+            "panels": [{"title": "Situação do efetivo", "rows": [
+                {"left": "Efetivo ativo", "right": str(ov.get("agentes_ativos", 0)), **S["info"]},
+                {"left": "Presentes hoje", "right": str(ov.get("agentes_presentes", 0)), **S["ok"]},
+                {"left": "Ausentes", "right": str(ov.get("agentes_ausentes", 0)), **(S["bad"] if (ov.get("agentes_ausentes") or 0) else S["ok"])},
+                {"left": "Postos", "right": str(ov.get("total_postos", 0)), **S["info"]},
+            ]}],
+        }
+        out["agentes"] = {
+            "title": "Agentes em operação", "sub": "Situação do efetivo (agentes de portaria) · dado real", "type": "dash", "panelGrid": "1fr",
+            "kpis": [
+                {"v": str(ag.get("total", 0)), "l": "Total de agentes", "icon": IC["users"], "color": "#0F1B3A"},
+                {"v": str(ag.get("presentes", 0)), "l": "Presentes", "icon": IC["users"], "color": "#16A34A"},
+                {"v": str(ag.get("ausentes", 0)), "l": "Ausentes", "icon": IC["alert"], "color": "#DC2626" if (ag.get("ausentes") or 0) else "#0F1B3A"},
+            ],
+            "panels": [{"title": "Efetivo", "rows": [
+                {"left": "Total de agentes ativos", "right": str(ag.get("total", 0)), **S["info"]},
+                {"left": "Presentes hoje", "right": str(ag.get("presentes", 0)), **S["ok"]},
+                {"left": "Ausentes", "right": str(ag.get("ausentes", 0)), **(S["bad"] if (ag.get("ausentes") or 0) else S["ok"])},
+            ]}],
+        }
+
+    try:  # Consultor Operacional (COO) — reusa panorama (fotografia real da operação)
+        from modules.operacional.services import consultor_coo_service as _coo
+        pan = await _coo.panorama(db)
+        _cob = pan.get("cobertura", {}) or {}
+        _oc = pan.get("ocorrencias", {}) or {}
+        _fn = pan.get("funcionarios", {}) or {}
+        _es = pan.get("escalas", {}) or {}
+        _pct = _cob.get("percentual")
+        out["consultor"] = {
+            "title": "Consultor Operacional (COO)", "sub": "Fotografia real da operação — perguntas analíticas no chat interno", "type": "dash", "panelGrid": "1fr",
+            "kpis": [
+                {"v": str(pan.get("postos", {}).get("ativos", 0)), "l": "Postos ativos", "icon": IC["shield"], "color": "#0F1B3A"},
+                {"v": str(pan.get("alocacoes_ativas", 0)), "l": "Alocações ativas", "icon": IC["users"], "color": "#0F1B3A"},
+                {"v": str(_oc.get("abertas", 0)), "l": "Ocorrências abertas", "icon": IC["alert"], "color": "#C2410C" if (_oc.get("abertas") or 0) else "#0F1B3A"},
+                {"v": (f"{_pct}%" if _pct is not None else "—"), "l": "Cobertura", "icon": IC["shield"], "color": "#0F1B3A"},
+            ],
+            "panels": [{"title": "Panorama da operação", "rows": [
+                {"left": "Colaboradores ativos", "right": str(_fn.get("ativos", 0)), **S["ok"]},
+                {"left": "Afastados INSS", "right": str(_fn.get("afastados_inss", 0)), **(S["warn"] if (_fn.get("afastados_inss") or 0) else S["mut"])},
+                {"left": "Diaristas ativos", "right": str(pan.get("diaristas", {}).get("ativos", 0)), **S["info"]},
+                {"left": "Escalas vigentes hoje", "right": str(_es.get("vigentes_hoje", 0)), **S["info"]},
+                {"left": "Postos descobertos", "right": str(len(_cob.get("postos_descobertos", []) or [])), **(S["bad"] if _cob.get("postos_descobertos") else S["ok"])},
+            ]}],
+        }
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+
     return out
