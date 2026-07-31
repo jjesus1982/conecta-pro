@@ -266,7 +266,10 @@ async def _build_operacional(db: AsyncSession) -> dict:
     }
     # Leitura: Diaristas
     drows = (await db.execute(text("SELECT nome, cpf, coalesce(pix,'—') FROM diaria_diaristas WHERE ativo ORDER BY nome LIMIT 200"))).fetchall()
+    # ctaTo: sem ele a ModuleView NÃO desenha o botão da tabela (ModuleView.tsx:706) — o gerente
+    # abria a tela, não achava o botão e concluía que a opção não existia no redesign.
     diaristas_scr = {"title": "Diaristas", "sub": f"{len(drows)} diaristas ativos", "cta": "Novo diarista",
+        "ctaTo": "cadastrar-diarista",
         "type": "table", "searchHint": "Buscar diarista…", "grid": "2fr 1.2fr 1.6fr", "cols": ["Diarista", "CPF", "PIX"],
         "rows": [{"cells": [t(n, 600, "#0F1B3A", initials(n)), t(c or "—"), t(px)]} for n, c, px in drows]}
     # Leitura: Diárias (lançamentos recentes)
@@ -275,6 +278,7 @@ async def _build_operacional(db: AsyncSession) -> dict:
         "FROM diaria_lancamentos l LEFT JOIN diaria_diaristas d ON d.id=l.diarista_id "
         "ORDER BY l.data DESC, l.id DESC LIMIT 200"))).fetchall()
     diarias_scr = {"title": "Lançamento de diárias", "sub": f"{len(lrows)} lançamentos", "cta": "Lançar diária",
+        "ctaTo": "lancar-diaria",
         "type": "table", "searchHint": "Buscar…", "grid": "1fr 1.8fr 1.4fr 1.2fr 1fr 0.9fr",
         "cols": ["Data", "Diarista", "Função", "Posto", "Valor", "Status"],
         "rows": [{"cells": [t(dt.strftime('%d/%m/%Y') if dt else '—'), t(nm, 600, "#0F1B3A"), t(fu or '—'),
