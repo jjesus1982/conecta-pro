@@ -42,6 +42,14 @@ def classifica(du):
     # aqui entram HORAS EXTRAS 50% / 100% / NOT / 50% NOT, hoje DESCARTADAS (classifica→None).
     if "EXTRA" in du:
         return ("0070", "Horas Extras", "provento", True)
+    # --- suspensão disciplinar (desconto não-pago; reduz salário-de-contribuição como falta) ---
+    if "SUSPENS" in du:
+        return ("1054", "Suspensao", "desconto", True)
+    # --- ausência justificada PAGA (Portte emite como provento) ---
+    if "AUSENCIA JUSTIFICADA" in du:
+        return ("0052", "Ausencia Justificada", "provento", True)
+    # NOTA: plano odonto (titular/dependente) NÃO entra aqui de propósito — o motor já computa
+    # o plano (bucket está +690 OVER); jogar no espelho DOBRARIA o desconto.
     # --- faltas / afastamento ---
     if "AFAST" in du and "DOENCA" in du:
         if "INSS" in du:  # INSS paga → não incide INSS do empregador
