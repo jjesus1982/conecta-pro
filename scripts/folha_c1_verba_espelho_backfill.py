@@ -38,6 +38,10 @@ def classifica(du):
         return ("0020", "Adicional Noturno", "provento", True)
     if ("DSR" in du or "REPOUSO" in du) and "FALTA" not in du:
         return ("0090", "DSR sobre Variaveis", "provento", True)
+    # --- horas extras (provento, incide INSS). "REFLEXO EXTRAS DSR" já caiu no DSR acima;
+    # aqui entram HORAS EXTRAS 50% / 100% / NOT / 50% NOT, hoje DESCARTADAS (classifica→None).
+    if "EXTRA" in du:
+        return ("0070", "Horas Extras", "provento", True)
     # --- faltas / afastamento ---
     if "AFAST" in du and "DOENCA" in du:
         if "INSS" in du:  # INSS paga → não incide INSS do empregador
