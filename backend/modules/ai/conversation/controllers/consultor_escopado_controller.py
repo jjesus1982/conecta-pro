@@ -30,6 +30,7 @@ from core.database import get_db
 from modules.ai.conversation.services.orquestrador import tools_comercial_doc  # noqa: F401 — registra gera-doc comercial (Fase 6 F1)
 from modules.ai.conversation.services.orquestrador import tools_financeiro_doc  # noqa: F401 — registra gera-doc financeiro (Fase 6 F3)
 from modules.ai.conversation.services.orquestrador import tools_operacional_doc  # noqa: F401 — registra gera-doc operacional (Fase 6 F4)
+from modules.ai.conversation.services.orquestrador import tools_rh_doc  # noqa: F401 — registra holerite no chat (Fase 6 F6)
 from modules.ai.conversation.services.orquestrador import tools_modulos  # noqa: F401 — registra as tools de módulo
 from modules.ai.conversation.services.orquestrador.acoes import (  # noqa: F401 — registra as 6 tools de ação 5.4 (register() a nível de módulo)
     onda_a,
@@ -40,6 +41,7 @@ from modules.ai.conversation.services.orquestrador.engine import OrqScope, run_e
 from modules.ai.conversation.services.orquestrador.tool_registry import ToolDef, tools_for_modules
 from modules.ai.conversation.services.orquestrador.tools_ponto import JUSTIFICAR_TOOL
 from modules.ai.conversation.services.orquestrador.tools_posto import POSTO_TOOLS
+from modules.ai.conversation.services.orquestrador.tools_rh_doc import RH_SELF_TOOLS
 from modules.ai.conversation.services.orquestrador.tools_self import SELF_TOOLS
 from modules.operacional.scope import get_operational_scope
 
@@ -76,7 +78,7 @@ async def _resolver_tier_e_tools(db: AsyncSession, user) -> tuple[OrqScope, list
 
     # LÍDER: escopado a postos (scope.py já força isso mesmo p/ role admin). É CLT + posto.
     if not op.all_posts and op.post_ids:
-        tools = _modulo_tools(mods) + list(POSTO_TOOLS) + list(SELF_TOOLS) + [JUSTIFICAR_TOOL]
+        tools = _modulo_tools(mods) + list(POSTO_TOOLS) + list(SELF_TOOLS) + list(RH_SELF_TOOLS) + [JUSTIFICAR_TOOL]
         return OrqScope(tier="lider", employee_id=emp, post_ids=op.post_ids), tools
 
     # GESTOR/DEV: módulos org-wide (nada de posto/self privilegiado).
@@ -85,7 +87,7 @@ async def _resolver_tier_e_tools(db: AsyncSession, user) -> tuple[OrqScope, list
 
     # CLT: só sobre si + a ação de justificar ponto.
     if emp:
-        return OrqScope(tier="clt", employee_id=emp), list(SELF_TOOLS) + [JUSTIFICAR_TOOL]
+        return OrqScope(tier="clt", employee_id=emp), list(SELF_TOOLS) + list(RH_SELF_TOOLS) + [JUSTIFICAR_TOOL]
 
     # Sem escopo algum: chat honesto sem tools.
     return OrqScope(tier="clt", employee_id=None), []
