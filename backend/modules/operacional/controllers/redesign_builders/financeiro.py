@@ -233,38 +233,60 @@ async def build(db) -> dict:
                    b((r[4] or '—').capitalize(), "warn")]))
 
     # ---- Banking (extrato bancário consolidado com BANCO/contraparte/saldo) ----
+    # Mês como 1ª coluna + filterCol → seletor de mês (mesmo mecanismo de Orçamentos).
+    # Janela de 12 meses (antes: 200 mais recentes = poucas semanas com 5k+ lançamentos).
     await safe("banking", tbl(
-        "Banking", "Extrato bancário consolidado (todas as contas)",
-        "—", ["Data", "Banco", "Contraparte", "Descrição", "Valor", "Saldo"], "1fr 1fr 1.4fr 1.8fr 1fr 1fr",
-        "SELECT bt.transaction_date, coalesce(ba.bank_name,'—'), coalesce(bt.counterparty_name,bt.contraparte_nome,'—'), "
+        "Banking", "Extrato bancário consolidado (todas as contas) — 12 meses, filtre por mês",
+        "—", ["Mês", "Data", "Banco", "Contraparte", "Descrição", "Valor", "Saldo"], "0.8fr 1fr 1fr 1.4fr 1.8fr 1fr 1fr",
+        "SELECT to_char(bt.transaction_date,'MM/YYYY'), bt.transaction_date, coalesce(ba.bank_name,'—'), "
+        "coalesce(bt.counterparty_name,bt.contraparte_nome,'—'), "
         "coalesce(bt.description,bt.memo,'—'), bt.amount, bt.balance_after "
         "FROM bank_transactions bt LEFT JOIN bank_accounts ba ON ba.id=bt.bank_account_id "
-        "ORDER BY bt.transaction_date DESC NULLS LAST LIMIT 200",
-        lambda r: [t(_fmtdate(r[0])), b(r[1] or '—', "info"), t(r[2], 600, "#0F1B3A"), t(r[3]), t(brl(r[4]), 600),
-                   t(brl(r[5]) if r[5] is not None else '—')]))
+        "WHERE bt.transaction_date >= date_trunc('month', CURRENT_DATE - interval '11 months') "
+        # ponytail: teto alto p/ os 12 meses caberem inteiros (5,2k hoje); truncar
+        # silenciosamente sumiria com os meses mais antigos e a tela mentiria.
+        "ORDER BY bt.transaction_date DESC NULLS LAST LIMIT 8000",
+        lambda r: [t(r[0], 600), t(_fmtdate(r[1])), b(r[2] or '—', "info"), t(r[3], 600, "#0F1B3A"), t(r[4]),
+                   t(brl(r[5]), 600), t(brl(r[6]) if r[6] is not None else '—')]))
+    if isinstance(out.get("banking"), dict):
+        out["banking"]["filterCol"] = 0
+        out["banking"]["filterLabel"] = "Mês"
 
     # ---- Banco Inter (extrato Inter real) ----
     await safe("inter", tbl(
-        "Banco Inter", f"{await _scalar(db, 'SELECT count(*) FROM inter_transactions')} lançamentos no extrato Inter",
-        "—", ["Data", "Operação", "Descrição", "Valor", "Tipo"], "1fr 0.9fr 2fr 1fr 1.1fr",
-        "SELECT data_lancamento, coalesce(tipo_operacao,'—'), coalesce(titulo,descricao,'—'), valor, coalesce(tipo_transacao,'—') "
-        "FROM inter_transactions ORDER BY data_lancamento DESC NULLS LAST LIMIT 200",
-        lambda r: [t(_fmtdate(r[0])), b("Crédito" if r[1] == 'C' else ("Débito" if r[1] == 'D' else (r[1] or '—')),
-                                        "ok" if r[1] == 'C' else "mut"),
-                   t(r[2]), t(brl(r[3]), 600, "#0F1B3A"), t(r[4])]))
+        "Banco Inter", f"{await _scalar(db, 'SELECT count(*) FROM inter_transactions')} lançamentos no extrato Inter — 12 meses, filtre por mês",
+        "—", ["Mês", "Data", "Operação", "Descrição", "Valor", "Tipo"], "0.8fr 1fr 0.9fr 2fr 1fr 1.1fr",
+        "SELECT to_char(data_lancamento,'MM/YYYY'), data_lancamento, coalesce(tipo_operacao,'—'), "
+        "coalesce(titulo,descricao,'—'), valor, coalesce(tipo_transacao,'—') "
+        "FROM inter_transactions "
+        "WHERE data_lancamento >= date_trunc('month', CURRENT_DATE - interval '11 months') "
+        "ORDER BY data_lancamento DESC NULLS LAST LIMIT 3000",
+        lambda r: [t(r[0], 600), t(_fmtdate(r[1])),
+                   b("Crédito" if r[2] == 'C' else ("Débito" if r[2] == 'D' else (r[2] or '—')),
+                     "ok" if r[2] == 'C' else "mut"),
+                   t(r[3]), t(brl(r[4]), 600, "#0F1B3A"), t(r[5])]))
+    if isinstance(out.get("inter"), dict):
+        out["inter"]["filterCol"] = 0
+        out["inter"]["filterLabel"] = "Mês"
 
     # ---- Banco Cora (extrato Cora real — bank_transactions da conta Cora, bank_code 403) ----
     _cora_n = await _scalar(db, "SELECT count(*) FROM bank_transactions bt JOIN bank_accounts ba ON ba.id=bt.bank_account_id WHERE ba.bank_code='403'")
     await safe("cora", tbl(
-        "Banco Cora", f"{_cora_n} lançamentos no extrato Cora",
-        "—", ["Data", "Contraparte", "Descrição", "Valor", "Tipo"], "1fr 1.5fr 2fr 1fr 1.1fr",
-        "SELECT bt.transaction_date, coalesce(bt.counterparty_name,bt.contraparte_nome,'—'), coalesce(bt.description,bt.memo,'—'), "
+        "Banco Cora", f"{_cora_n} lançamentos no extrato Cora — 12 meses, filtre por mês",
+        "—", ["Mês", "Data", "Contraparte", "Descrição", "Valor", "Tipo"], "0.8fr 1fr 1.5fr 2fr 1fr 1.1fr",
+        "SELECT to_char(bt.transaction_date,'MM/YYYY'), bt.transaction_date, "
+        "coalesce(bt.counterparty_name,bt.contraparte_nome,'—'), coalesce(bt.description,bt.memo,'—'), "
         "bt.amount, coalesce(bt.transaction_type,'—') "
         "FROM bank_transactions bt JOIN bank_accounts ba ON ba.id=bt.bank_account_id "
-        "WHERE ba.bank_code='403' ORDER BY bt.transaction_date DESC NULLS LAST LIMIT 200",
-        lambda r: [t(_fmtdate(r[0])), t(r[1], 600, "#0F1B3A"), t(r[2]), t(brl(r[3]), 600),
-                   b("Crédito" if (r[4] or '').lower() in ('credit', 'credito', 'c') else "Débito",
-                     "ok" if (r[4] or '').lower() in ('credit', 'credito', 'c') else "mut")]))
+        "WHERE ba.bank_code='403' "
+        "AND bt.transaction_date >= date_trunc('month', CURRENT_DATE - interval '11 months') "
+        "ORDER BY bt.transaction_date DESC NULLS LAST LIMIT 3000",
+        lambda r: [t(r[0], 600), t(_fmtdate(r[1])), t(r[2], 600, "#0F1B3A"), t(r[3]), t(brl(r[4]), 600),
+                   b("Crédito" if (r[5] or '').lower() in ('credit', 'credito', 'c') else "Débito",
+                     "ok" if (r[5] or '').lower() in ('credit', 'credito', 'c') else "mut")]))
+    if isinstance(out.get("cora"), dict):
+        out["cora"]["filterCol"] = 0
+        out["cora"]["filterLabel"] = "Mês"
 
     # ---- Compras (nfe_compras_estoque — itens comprados por NF-e) ----
     await safe("compras", tbl(
