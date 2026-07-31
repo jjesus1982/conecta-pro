@@ -406,6 +406,72 @@ WHERE coalesce(r.comp,c.comp,dd.comp)>='2026-06' ORDER BY 1 DESC, 7 DESC"""
         out["rentabilidade"]["filterCol"] = 0
         out["rentabilidade"]["filterLabel"] = "Mês"
 
+    _SQL_CNPJ = """
+WITH meses(comp) AS (SELECT DISTINCT competencia FROM nfse_emitidas_nacional WHERE competencia>='2026-06'),
+emp(cnpj) AS (VALUES ('Patrimonial'),('Eletrônica')),
+base AS (SELECT m.comp, e.cnpj FROM meses m CROSS JOIN emp e),
+rec AS (SELECT n.competencia AS comp,
+        CASE WHEN em.razao_social ILIKE '%PATRIMONIAL%' THEN 'Patrimonial' ELSE 'Eletrônica' END AS cnpj,
+        sum(n.valor_liquido) AS receita
+        FROM nfse_emitidas_nacional n JOIN empresas em ON em.id=n.empresa_id
+        WHERE coalesce(n.cancelada,false)=false AND n.competencia>='2026-06' GROUP BY 1,2),
+folha AS (SELECT to_char(p.competence_start,'YYYY-MM') AS comp,
+        CASE WHEN em.razao_social ILIKE '%PATRIMONIAL%' THEN 'Patrimonial' ELSE 'Eletrônica' END AS cnpj,
+        sum(p.total_earnings)*1.274 AS custo
+        FROM hr_payslips p LEFT JOIN empresas em ON em.id=p.empresa_id
+        JOIN employees e2 ON e2.id=p.employee_id AND coalesce(e2.is_homologacao,false)=false
+        WHERE p.competence_start IS NOT NULL GROUP BY 1,2),
+vtvr AS (SELECT competencia AS comp, sum(valor_servicos) AS total FROM nfse_tomadas_nacional
+        WHERE prestador_nome ILIKE '%SOLIDES%' AND descricao ILIKE '%Administra%' GROUP BY 1),
+diar AS (SELECT to_char(data,'YYYY-MM') AS comp, sum(valor) AS total FROM diaria_lancamentos GROUP BY 1),
+pj AS (SELECT competencia AS comp,
+        CASE WHEN beneficiario ILIKE ANY(ARRAY['%Pyetra%','%Eliziel%','%ORLAILSON%','%Diego%'])
+             THEN 'Patrimonial' ELSE 'Eletrônica' END AS cnpj, sum(valor) AS estrutura
+        FROM financial_pagamentos_pj GROUP BY 1,2),
+forn AS (SELECT nt.competencia AS comp,
+        CASE WHEN em.razao_social ILIKE '%PATRIMONIAL%' THEN 'Patrimonial' ELSE 'Eletrônica' END AS cnpj,
+        sum(nt.valor_servicos) AS fornecedores
+        FROM nfse_tomadas_nacional nt LEFT JOIN empresas em ON em.id=nt.empresa_id
+        WHERE nt.competencia>='2026-06' AND NOT (nt.prestador_nome ILIKE '%SOLIDES%' AND nt.descricao ILIKE '%Administra%')
+        GROUP BY 1,2)
+SELECT b.comp, b.cnpj, coalesce(r.receita,0),
+  coalesce(f.custo,0)+CASE WHEN b.cnpj='Patrimonial' THEN coalesce(v.total,0)+coalesce(d.total,0) ELSE 0 END,
+  coalesce(pj.estrutura,0), coalesce(fo.fornecedores,0),
+  coalesce(r.receita,0)-coalesce(f.custo,0)
+    -CASE WHEN b.cnpj='Patrimonial' THEN coalesce(v.total,0)+coalesce(d.total,0) ELSE 0 END
+    -coalesce(pj.estrutura,0)-coalesce(fo.fornecedores,0)
+FROM base b
+LEFT JOIN rec r ON r.comp=b.comp AND r.cnpj=b.cnpj
+LEFT JOIN folha f ON f.comp=b.comp AND f.cnpj=b.cnpj
+LEFT JOIN vtvr v ON v.comp=b.comp
+LEFT JOIN diar d ON d.comp=b.comp
+LEFT JOIN pj ON pj.comp=b.comp AND pj.cnpj=b.cnpj
+LEFT JOIN forn fo ON fo.comp=b.comp AND fo.cnpj=b.cnpj
+ORDER BY b.comp DESC, b.cnpj"""
+
+    def _cnpj_row(r):
+        res = float(r[6] or 0)
+        return [t(_mes_br(r[0]), 600), b(r[1], "info" if r[1] == 'Patrimonial' else "mut"),
+                t(brl(float(r[2] or 0)), 600, "#16A34A"),
+                t(brl(float(r[3] or 0)), 600, "#C2410C"),
+                t(brl(float(r[4] or 0)), 600, "#C2410C"),
+                t(brl(float(r[5] or 0)), 600, "#C2410C"),
+                t(brl(res), 700, "#16A34A" if res >= 0 else "#DC2626")]
+
+    await safe("resultado-cnpj", tbl(
+        "Resultado por CNPJ",
+        "Receita (NFS-e líquida) − custo direto (folha×1,274 + VT/VR + diaristas) − estrutura (PJ do "
+        "escritório) − fornecedores. NÃO inclui DAS (1º mês em agosto) nem a receita do Hawk Eye "
+        "(entra por depósito no Inter, sem nota nossa). Junho/julho são meses de TRANSIÇÃO: a folha "
+        "migrou p/ a Patrimonial em junho mas o faturamento ainda saía pela Eletrônica — por isso o "
+        "descasamento. Agosto é o 1º mês limpo.",
+        "—", ["Mês", "CNPJ", "Receita", "Custo direto", "Estrutura", "Fornecedores", "Resultado"],
+        "0.8fr 1fr 1.2fr 1.2fr 1.1fr 1.2fr 1.2fr",
+        _SQL_CNPJ, _cnpj_row))
+    if isinstance(out.get("resultado-cnpj"), dict):
+        out["resultado-cnpj"]["filterCol"] = 0
+        out["resultado-cnpj"]["filterLabel"] = "Mês"
+
     # ---- Sincronizar PIX recebidos — puxa do Inter p/ inter_pix_recebidos ----
     # Aponta DIRETO no endpoint que já existe (nada de wrapper novo). NÃO é money-out:
     # só LÊ do Inter e grava na nossa tabela → sem gate OTP (mesma classe do "Rodar
