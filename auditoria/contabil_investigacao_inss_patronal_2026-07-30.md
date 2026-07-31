@@ -18,16 +18,21 @@ jan-mai pareciam ter patronal muito menor. De onde vem?
 RAT (1646) ~4% e Terceiros (1170/1176/1191/1196/1200) ~5,8% são ESTÁVEIS todos os meses.
 Só a **CPP (1138) rampa de 7,2% → 20%**.
 
-## Conclusão (medida)
-1. **NÃO é 16% fixo nem desoneração total** — é uma **CPP em RAMPA (7%→20%)**, característica de
-   **desoneração da folha com REONERAÇÃO GRADUAL** (Lei 14.784/2023 / MP 1.202/2023). O setor de
-   **vigilância/segurança/portaria é um dos 17 desonerados** (CPRB). A CPP volta por etapas até 20%.
-2. **Junho = primeira guia com CPP 20% cheia** — coincide com a transição da folha p/ Patrimonial.
-   Também é a 1ª guia com a linha **Segurado (1082)** — jan-mai o DARF só tem patronal (o segurado
-   era recolhido em separado/GPS ou não constava neste DARF).
-3. **Provável CPRB não capturada**: na desoneração, os 20% de CPP são substituídos por CPRB (~4,5%
-   sobre a RECEITA BRUTA) — uma guia SEPARADA. Não achei DARF de CPRB no Onvio (categoria própria
-   inexistente). Se existe, falta puxar; a contabilidade jan-mai deveria ter a CPRB sobre receita.
+## Conclusão (medida) — ATUALIZADA 2026-07-31 c/ confirmação do Jordan
+> Jordan confirmou: Patrimonial = **Simples Anexo III** (patronal no DAS) e **NÃO há CPRB sobre receita**.
+> Isso DESCARTA a hipótese inicial de desoneração/reoneração gradual.
+
+1. As guias com CPP em rampa (7%→20%) são da **ELETRÔNICA** (CNPJ 35.710.481), que é **Lucro Real**.
+   Lucro Real **sem CPRB** ⇒ a CPP deveria ser **20% cheia TODO mês**.
+2. Logo, os **DARFs INSS de jan-mai da Eletrônica são INCOMPLETOS/parciais**: CPP só 7-13% e **sem a
+   linha do Segurado (1082)**. **Junho é o 1º DARF completo** (CPP 20% + segurado). O oráculo INSS de
+   jan-mai está, portanto, **SUBESTIMADO** — a reconciliação "INSS Δ=0" convergiu a guias parciais.
+3. RAT (~4%) e Terceiros (5,8%) são estáveis e corretos todos os meses.
+
+## A confirmar com a Portte
+- Existe **DARF complementar** de INSS para jan-mai (que complete a CPP até 20% + o segurado)? Se sim,
+  puxar/lançar — o INSS real jan-mai deve ficar ~como junho (~R$32k/mês), não R$14-22k.
+- Por que os DARFs jan-mai saíram parciais (CPP 7-13%, sem segurado 1082)?
 
 ## Impactos p/ o contábil autônomo
 - **DCTFWeb (28,8%) só está correto de JUNHO em diante** (CPP 20% cheia). Para jan-mai ele
