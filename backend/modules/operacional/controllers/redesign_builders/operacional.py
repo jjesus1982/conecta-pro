@@ -373,6 +373,37 @@ async def rd_action_diarista_avaliar(current_user: CurrentActiveUser, payload: d
     return {"ok": True, "id": str(getattr(ev, "id", None)), "message": "Avaliação registrada"}
 
 
+@router.post("/action/diarista-fechamento")
+async def rd_action_diarista_fechamento(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Gera o FECHAMENTO de diaristas do mês = cria os registros DiaristPayment PENDENTE (op_write,
+    SEM dinheiro). O pagamento em si é gated OTP no financeiro (/action/pagar-diaristas). Reuso do
+    serviço; nunca move dinheiro aqui."""
+    from fastapi import HTTPException
+
+    from modules.operacional.controllers.redesign_write_gate import GateError, op_write
+    from modules.operacional.diaristas.schemas.diarist_schemas import PayrollGenerateRequest
+    from modules.operacional.diaristas.services.diarist_service import DiaristService
+    cond = (payload.get("condominio_id") or "").strip()
+    comp = (payload.get("competencia") or "").strip()
+    if not cond:
+        raise HTTPException(status_code=400, detail="Selecione o condomínio.")
+    if len(comp) != 7 or comp[4] != "-":
+        raise HTTPException(status_code=400, detail="Informe a competência no formato AAAA-MM.")
+    try:
+        data = PayrollGenerateRequest(condominio_id=cond, competencia=comp)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Dados inválidos: {e}")
+
+    try:
+        res = await op_write(db, real_write=lambda: DiaristService(db).generate_payroll_payments(data),
+                             idempotency_key=f"diar-fech:{cond}:{comp}")
+    except GateError as ge:
+        raise HTTPException(status_code=400, detail=str(ge))
+    tot = res.get("total_gerados", 0) if isinstance(res, dict) else 0
+    return {"ok": True, "total_gerados": tot,
+            "message": f"Fechamento gerado: {tot} pagamento(s) pendente(s). Pagamento é gated (OTP) no financeiro."}
+
+
 def _mgr_scope(current_user):
     """Scope de GESTOR p/ ações do redesign (mesmo padrão do quadro de presença).
     Humano-operado: a parede real é o RBAC do módulo no redesign + auth da rota."""
@@ -542,6 +573,7 @@ EXTRA_MENU: list[dict] = [
     {"id": "diarista-ativar", "label": "Ativar diarista", "icon": "M20 6L9 17l-5-5"},
     {"id": "diarista-desativar", "label": "Desativar diarista", "icon": "M18 6L6 18M6 6l12 12"},
     {"id": "diarista-avaliar", "label": "Avaliar diarista", "icon": "M11.5 2l2.6 6.9 7.4.3-5.8 4.6 2 7.1-6.2-4-6.2 4 2-7.1-5.8-4.6 7.4-.3z"},
+    {"id": "diarista-fechamento", "label": "Gerar fechamento diaristas", "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
 ]
 
 
@@ -1247,6 +1279,13 @@ async def build(db) -> dict:
                        {"key": "nota_geral", "label": "Nota geral (1–5)*", "type": "select", "span": "span 1", "ph": "Nota",
                         "options": [{"value": str(k), "label": str(k)} for k in (1, 2, 3, 4, 5)]},
                        {"key": "comentario", "label": "Comentário", "type": "textarea", "span": "span 2", "ph": "Opcional…"}]}
+        _conds = (await db.execute(_sqltext("SELECT id, coalesce(nome,'—') FROM condominios WHERE coalesce(ativo,true) ORDER BY nome LIMIT 300"))).fetchall()
+        out["diarista-fechamento"] = {
+            "title": "Gerar fechamento de diaristas", "sub": "Cria os pagamentos PENDENTES do mês · pagamento é gated (OTP) no financeiro", "cta": "Gerar fechamento",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/diarista-fechamento", "okMsg": "Fechamento gerado"},
+            "fields": [{"key": "condominio_id", "label": "Condomínio*", "type": "select", "span": "span 2", "ph": "Selecione",
+                        "options": [{"value": str(i), "label": n} for i, n in _conds]},
+                       {"key": "competencia", "label": "Competência (AAAA-MM)*", "type": "text", "span": "span 1", "ph": "2026-07"}]}
     except Exception:  # noqa: BLE001
         await db.rollback()
 
