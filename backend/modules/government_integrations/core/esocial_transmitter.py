@@ -454,6 +454,65 @@ class XMLBuilder:
 
         return self._prettify(root), event_id
 
+    # Campos do S-1010 que são CÓDIGO LEGAL do eSocial (Tabelas 3, 20, 21, 22).
+    # Não são deriváveis dos booleanos incide_inss/irrf/fgts — um booleano diz "incide",
+    # o eSocial exige QUAL incidência (ex.: codIncCP 11 base, 21 não-base, 31 suspensa...).
+    # Preencher por palpite = declarar base de contribuição errada ao governo.
+    S1010_CAMPOS_LEGAIS = ("natRubr", "codIncCP", "codIncIRRF", "codIncFGTS")
+
+    def build_s1010_rubrica(self, data: dict[str, Any]) -> tuple[str, str]:
+        """Constrói o XML do S-1010 (Tabela de Rubricas) para UMA rubrica.
+
+        RECUSA-SE a emitir se faltar qualquer código legal (natRubr/codIncCP/codIncIRRF/
+        codIncFGTS). Sem validação humana desses códigos o evento declararia incidência
+        errada — preferimos falhar alto a transmitir mentira.
+
+        `data` exige: employer_cnpj, codRubr, ideTabRubr, iniValid (AAAA-MM), dscRubr,
+        tpRubr ('1' provento | '2' desconto | '3' informativa) + os 4 códigos legais.
+        """
+        faltando = [c for c in self.S1010_CAMPOS_LEGAIS if not data.get(c)]
+        if faltando:
+            raise ValidationError(
+                f"S-1010 rubrica {data.get('codRubr')!r}: códigos legais ausentes {faltando}. "
+                "São as Tabelas 3/20/21/22 do eSocial — precisam de validação contábil, "
+                "não podem ser deduzidos dos flags incide_*."
+            )
+        if not data.get("tpRubr"):
+            raise ValidationError(f"S-1010 rubrica {data.get('codRubr')!r}: tpRubr ausente.")
+
+        event_id = self.build_event_id("S-1010", data["employer_cnpj"])
+        root = Element("eSocial", xmlns="http://www.esocial.gov.br/schema/evt/evtTabRubrica/v_S_01_03_00")
+        evt = SubElement(root, "evtTabRubrica", Id=event_id)
+
+        ide = SubElement(evt, "ideEvento")
+        SubElement(ide, "indRetif").text = str(data.get("indRetif", "1"))  # 1=original
+        SubElement(ide, "tpAmb").text = self.environment.value
+        SubElement(ide, "procEmi").text = "1"
+        SubElement(ide, "verProc").text = "CONECTA_PRO_1.0"
+
+        cnpj_clean = re_module.sub(r"\D", "", data["employer_cnpj"])
+        emp = SubElement(evt, "ideEmpregador")
+        SubElement(emp, "tpInsc").text = "1"
+        SubElement(emp, "nrInsc").text = cnpj_clean[:8]
+
+        inclusao = SubElement(SubElement(evt, "infoRubrica"), "inclusao")
+        ide_rub = SubElement(inclusao, "ideRubrica")
+        SubElement(ide_rub, "codRubr").text = str(data["codRubr"])
+        SubElement(ide_rub, "ideTabRubr").text = str(data.get("ideTabRubr", "CCT"))
+        SubElement(ide_rub, "iniValid").text = str(data["iniValid"])
+
+        dados = SubElement(inclusao, "dadosRubrica")
+        SubElement(dados, "dscRubr").text = str(data["dscRubr"])[:100]
+        SubElement(dados, "natRubr").text = str(data["natRubr"])
+        SubElement(dados, "tpRubr").text = str(data["tpRubr"])
+        SubElement(dados, "codIncCP").text = str(data["codIncCP"])
+        SubElement(dados, "codIncIRRF").text = str(data["codIncIRRF"])
+        SubElement(dados, "codIncFGTS").text = str(data["codIncFGTS"])
+        if data.get("codIncSIND"):
+            SubElement(dados, "codIncSIND").text = str(data["codIncSIND"])
+
+        return self._prettify(root), event_id
+
     def _prettify(self, elem: Element) -> str:
         """Formata XML com identacao."""
         rough_string = ET.tostring(elem, encoding="unicode")
