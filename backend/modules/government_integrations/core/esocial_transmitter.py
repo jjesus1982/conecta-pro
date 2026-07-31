@@ -846,14 +846,27 @@ class ESocialTransmitter:
 </soap:Envelope>"""
         return envelope
 
+    # Consulta de lote: o SERVIÇO é v1_1_0 mas o SCHEMA do corpo é v1_0_0 (e sob
+    # .../schema/lote/eventos/envio/consulta/...). Estava tudo em v1_0_0 com o schema no
+    # caminho errado → o gov respondia SOAP Fault "ActionNotSupported" e NENHUM recibo era
+    # casado: ficamos 3 semanas cegos achando que 5 ASOs estavam "transmitida" quando o
+    # governo já os havia REJEITADO (403 Leiaute inválido). Versões confirmadas contra o
+    # webservice de produção (o próprio gov ditou o namespace na mensagem de erro).
+    CONSULTA_SVC_NS = (
+        "http://www.esocial.gov.br/servicos/empregador/lote/eventos/envio/consulta/retornoProcessamento/v1_1_0"
+    )
+    CONSULTA_SCHEMA_NS = (
+        "http://www.esocial.gov.br/schema/lote/eventos/envio/consulta/retornoProcessamento/v1_0_0"
+    )
+
     def _build_consulta_soap(self, protocolo: str) -> str:
         """Monta envelope SOAP para ConsultarLoteEventos."""
         return f"""<?xml version="1.0" encoding="UTF-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Body>
-    <ConsultarLoteEventos xmlns="http://www.esocial.gov.br/servicos/empregador/lote/eventos/envio/consulta/retornoProcessamento/v1_0_0">
+    <ConsultarLoteEventos xmlns="{self.CONSULTA_SVC_NS}">
       <consulta>
-        <eSocial xmlns="http://www.esocial.gov.br/schema/consulta/retornoProcessamento/v1_0_0">
+        <eSocial xmlns="{self.CONSULTA_SCHEMA_NS}">
           <consultaLoteEventos>
             <protocoloEnvio>{protocolo}</protocoloEnvio>
           </consultaLoteEventos>
@@ -1055,7 +1068,7 @@ class ESocialTransmitter:
                 data=soap_consulta.encode("utf-8"),
                 headers={
                     "Content-Type": "text/xml; charset=utf-8",
-                    "SOAPAction": "http://www.esocial.gov.br/servicos/empregador/lote/eventos/envio/consulta/retornoProcessamento/v1_0_0/ServicoConsultarLoteEventos/ConsultarLoteEventos",
+                    "SOAPAction": f"{self.CONSULTA_SVC_NS}/ServicoConsultarLoteEventos/ConsultarLoteEventos",
                 },
                 cert=(cert_path, key_path),
                 timeout=60,
@@ -1065,14 +1078,31 @@ class ESocialTransmitter:
             logger.info("Consulta status: HTTP %d", response.status_code)
 
             if response.status_code == 200:
-                # Verificar se foi processado
-                if "cdResposta>201" in response.text or "processado" in response.text.lower():
+                # ATENÇÃO: a resposta tem DOIS cdResposta — o do LOTE e o do EVENTO.
+                # Lote 201 ("processado com sucesso") só diz que o lote foi recebido; o evento
+                # dentro dele pode ter sido REJEITADO (ex.: 403 "Leiaute do evento inválido").
+                # Ler só o do lote marcava como "accepted" evento que o governo recusou — foi
+                # exatamente o que deixou 5 ASOs mentindo "transmitida" por 3 semanas.
+                # O ÚLTIMO cdResposta da resposta é o do evento (vem depois do lote).
+                _codigos = re_module.findall(r"<cdResposta>(\d+)</cdResposta>", response.text)
+                _cd_evento = _codigos[-1] if _codigos else None
+                _descs = re_module.findall(r"<descResposta>([^<]*)</descResposta>", response.text)
+                _desc_evento = _descs[-1] if _descs else ""
+
+                if _cd_evento == "201":
                     event.status = TransmissionStatus.ACCEPTED
                     event.processed_at = datetime.utcnow()
                     # Extrair recibo
                     match = re_module.search(r"<nrRecibo>([^<]+)</nrRecibo>", response.text)
                     if match:
                         event.receipt_number = match.group(1).strip()
+                elif _cd_evento is not None and _cd_evento != "201" and len(_codigos) > 1:
+                    # Lote aceito, EVENTO recusado — a verdade é a recusa.
+                    event.status = TransmissionStatus.REJECTED
+                    event.processed_at = datetime.utcnow()
+                    event.errors.append(
+                        {"code": f"GOV_{_cd_evento}", "message": _desc_evento or "Evento rejeitado pelo eSocial"}
+                    )
                 elif "cdResposta>501" in response.text:
                     # Ainda em processamento
                     event.status = TransmissionStatus.PROCESSING
