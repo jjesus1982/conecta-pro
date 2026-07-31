@@ -89,11 +89,28 @@ async def _build_saldos(db):
             t(_fmtdate(upd, "%d/%m %H:%M") if upd else "nunca"),
             b(status, tone),
         ]})
+    # Teto do dia (o que o app do banco mostra como limite): consumido vem da MESMA
+    # função que o InterPaymentService usa p/ barrar pagamento (get_limite_diario_consumido),
+    # teto do MESMO env do serviço. Só banco/env — sem I/O externo aqui (regra acima).
+    import os as _os
+    try:
+        _teto = float(_os.getenv("CONECTA_LIMITE_DIARIO_PAGAMENTOS", "5000.00"))
+        _consumido = float(await _scalar(db, "SELECT get_limite_diario_consumido()") or 0)
+    except Exception:  # noqa: BLE001 — sem a função/env, a tela não quebra
+        _teto, _consumido = None, None
+    _painel_limite = []
+    if _teto is not None:
+        _disp = max(_teto - _consumido, 0)
+        _painel_limite = [{"title": "Limite de pagamento de hoje", "rows": [
+            {"left": "Teto diário", "right": brl(_teto), **S["mut"]},
+            {"left": "Já usado hoje", "right": brl(_consumido), **S["warn" if _consumido else "mut"]},
+            {"left": "Ainda disponível hoje", "right": brl(_disp), **S["ok" if _disp > 0 else "bad"]}]}]
     return {"title": "Saldos por conta",
             "sub": "Inter e Cora — saldo do último sync (a cada 15 min); a data mostra o quão fresco está",
             "cta": "—", "type": "table", "searchHint": "Buscar…",
             "grid": "1.6fr 1.2fr 1.1fr 1.1fr 0.9fr",
-            "cols": ["Conta", "Banco", "Saldo", "Atualizado", "Status"], "rows": cells}
+            "cols": ["Conta", "Banco", "Saldo", "Atualizado", "Status"], "rows": cells,
+            **({"panels": _painel_limite} if _painel_limite else {})}
 
 
 def _simnao(v) -> dict:
@@ -251,6 +268,46 @@ async def build(db) -> dict:
     if isinstance(out.get("banking"), dict):
         out["banking"]["filterCol"] = 0
         out["banking"]["filterLabel"] = "Mês"
+        # Resumo do período (o que o app do banco mostra no topo do extrato).
+        _res = (await db.execute(text(
+            "SELECT coalesce(sum(amount) FILTER (WHERE amount > 0),0), "
+            "coalesce(sum(-amount) FILTER (WHERE amount < 0),0), count(*) "
+            "FROM bank_transactions "
+            "WHERE transaction_date >= date_trunc('month', CURRENT_DATE - interval '11 months')"))).fetchone()
+        _mes = (await db.execute(text(
+            "SELECT coalesce(sum(amount) FILTER (WHERE amount > 0),0), "
+            "coalesce(sum(-amount) FILTER (WHERE amount < 0),0) FROM bank_transactions "
+            "WHERE date_trunc('month', transaction_date) = date_trunc('month', CURRENT_DATE)"))).fetchone()
+        if _res:
+            _e, _s, _n = float(_res[0] or 0), float(_res[1] or 0), int(_res[2] or 0)
+            _me, _ms = (float(_mes[0] or 0), float(_mes[1] or 0)) if _mes else (0.0, 0.0)
+            out["banking"]["panelGrid"] = "1fr 1fr"
+            out["banking"]["panels"] = [
+                {"title": f"Movimento dos 12 meses ({_n} lançamentos)", "rows": [
+                    {"left": "Entradas", "right": brl(_e), **S["ok"]},
+                    {"left": "Saídas", "right": brl(_s), **S["bad"]},
+                    {"left": "Líquido", "right": brl(_e - _s), **S["info" if _e >= _s else "warn"]}]},
+                {"title": "Mês corrente", "rows": [
+                    {"left": "Entradas", "right": brl(_me), **S["ok"]},
+                    {"left": "Saídas", "right": brl(_ms), **S["bad"]},
+                    {"left": "Líquido", "right": brl(_me - _ms), **S["info" if _me >= _ms else "warn"]}]},
+            ]
+
+    # ---- PIX recebidos (inter_pix_recebidos — entradas PIX, como no app do banco) ----
+    _pix_n = await _scalar(db, "SELECT count(*) FROM inter_pix_recebidos") or 0
+    await safe("pix-recebidos", tbl(
+        "PIX recebidos",
+        (f"{_pix_n} PIX recebido(s) sincronizado(s) do Inter" if _pix_n
+         else "Nenhum PIX sincronizado ainda — a carga vem do sync do Inter (aguardando dado)"),
+        "—", ["Data", "Pagador", "Valor", "txid", "E2E"], "1.1fr 1.8fr 1fr 1.3fr 1.6fr",
+        # pagador é jsonb ({} quando o Inter não manda o dador) → extrai nome/CPF, senão '—'.
+        "SELECT data_horario, "
+        "coalesce(nullif(pagador->>'nome',''), nullif(pagador->>'nomePagador',''), "
+        "         nullif(pagador->>'cpf',''), nullif(pagador->>'cnpj',''), '—'), "
+        "valor, coalesce(txid,'—'), coalesce(end_to_end_id,'—') "
+        "FROM inter_pix_recebidos ORDER BY data_horario DESC NULLS LAST LIMIT 500",
+        lambda r: [t(_fmtdate(r[0], "%d/%m/%Y %H:%M") if r[0] else '—'), t(r[1], 600, "#0F1B3A"),
+                   t(brl(r[2]), 600, "#16A34A"), t(str(r[3])[:24]), t(str(r[4])[:32])]))
 
     # ---- Banco Inter (extrato Inter real) ----
     await safe("inter", tbl(
