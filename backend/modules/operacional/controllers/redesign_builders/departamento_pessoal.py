@@ -795,6 +795,39 @@ async def build(db) -> dict:
         # CTA real: sincroniza o espelho do ambiente nacional — repovoa ESTA MESMA tabela
         # (esocial_eventos_espelho). Enfileira Celery em gov.esocial; não transmite nada ao gov.
         out["esocial"]["ctaTo"] = "sincronizar-esocial"
+    # beneficios-cct — a tela base (monólito) é read-only. Ganha CTA de CRIAR benefício:
+    # POST /admin/cct/convencoes/{id}/beneficios grava em cct_beneficios (a MESMA tabela lida).
+    # convencao_id resolvido do banco (vigente), nunca chumbado — sobrevive à troca de CCT.
+    # NÃO há PUT/PATCH/DELETE de benefício no backend → sem ação por-linha (seria inventar rota).
+    from sqlalchemy import text as _sqltext_cct
+
+    _conv = (await db.execute(_sqltext_cct(
+        "SELECT CAST(id AS TEXT), sindicato_trabalhadores, registro_mte FROM cct_convencoes "
+        "WHERE coalesce(is_vigente,false) AND coalesce(is_active,false) "
+        "ORDER BY data_inicio DESC LIMIT 1"
+    ))).first()
+    if _conv and out.get("beneficios-cct"):
+        out["beneficios-cct"]["ctaTo"] = "novo-beneficio-cct"
+        out["beneficios-cct"]["cta"] = "Adicionar benefício"
+        out["novo-beneficio-cct"] = {
+            "title": "Adicionar benefício da CCT", "type": "form",
+            "sub": f"Convenção vigente: {_conv[1]} · {_conv[2]}",
+            "cta": "Adicionar",
+            "submit": {"endpoint": f"/api/v1/people-management/admin/cct/convencoes/{_conv[0]}/beneficios",
+                       "okMsg": "Benefício adicionado à CCT"},
+            "fields": [
+                {"key": "tipo_beneficio", "label": "Tipo de benefício*", "type": "text", "span": "span 2",
+                 "value": "", "ph": "ex.: Vale alimentação"},
+                {"key": "valor_minimo", "label": "Valor mínimo (R$)", "type": "text", "span": "span 1", "value": ""},
+                {"key": "valor_empresa", "label": "Valor empresa (R$)", "type": "text", "span": "span 1", "value": ""},
+                {"key": "desconto_maximo_percentual", "label": "Desconto máx. (%)", "type": "text",
+                 "span": "span 1", "value": ""},
+                {"key": "obrigatorio", "label": "Obrigatório", "type": "select", "span": "span 1",
+                 "options": [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]},
+                {"key": "observacao", "label": "Observação", "type": "textarea", "span": "span 2", "value": ""},
+            ],
+        }
+
     out["sincronizar-esocial"] = {
         "title": "Sincronizar espelho eSocial", "type": "form",
         "sub": "Baixa do ambiente nacional os eventos já transmitidos e repovoa a tela de eSocial. "
