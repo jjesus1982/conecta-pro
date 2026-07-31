@@ -27,6 +27,7 @@ GRUPOS = [
     ("g-bancos", "Bancos & Conciliação", "Saldos, extratos e conciliação", [
         ("saldos", "Saldos"), ("contas-bancarias", "Contas"), ("inter", "Banco Inter"),
         ("cora", "Banco Cora"), ("banking", "Extrato"), ("pix-recebidos", "PIX recebidos"),
+        ("sincronizar-pix", "Sincronizar PIX"),
         ("conciliacao-bancaria", "Conciliação (extrato)"), ("conciliar-auto", "Rodar conciliação"),
         ("conciliacao-consolidada", "Consolidado por mês"), ("consolidacao-grupo", "Consolidação multi-CNPJ"),
         ("conciliacao-por-liquido", "Por líquido (NFS-e×banco)"), ("aplicar-conciliacao-liquido", "Aplicar conciliação"),

@@ -308,6 +308,25 @@ async def build(db) -> dict:
         "FROM inter_pix_recebidos ORDER BY data_horario DESC NULLS LAST LIMIT 500",
         lambda r: [t(_fmtdate(r[0], "%d/%m/%Y %H:%M") if r[0] else '—'), t(r[1], 600, "#0F1B3A"),
                    t(brl(r[2]), 600, "#16A34A"), t(str(r[3])[:24]), t(str(r[4])[:32])]))
+    if isinstance(out.get("pix-recebidos"), dict):
+        out["pix-recebidos"]["ctaTo"] = "sincronizar-pix"
+        out["pix-recebidos"]["cta"] = "Sincronizar PIX"
+
+    # ---- Sincronizar PIX recebidos — puxa do Inter p/ inter_pix_recebidos ----
+    # Aponta DIRETO no endpoint que já existe (nada de wrapper novo). NÃO é money-out:
+    # só LÊ do Inter e grava na nossa tabela → sem gate OTP (mesma classe do "Rodar
+    # conciliação"). Roda em background no backend, por isso a mensagem não finge que
+    # já acabou. ponytail: `dias` fixo em 30 na query; se precisar escolher, virar campo.
+    out["sincronizar-pix"] = {
+        "title": "Sincronizar PIX recebidos (Inter)",
+        "sub": "Puxa os PIX recebidos dos últimos 30 dias do Inter para o Conecta PRO. "
+               "Só leitura do banco — não move dinheiro. Roda em segundo plano: a aba "
+               "'PIX recebidos' preenche em instantes (recarregue para ver).",
+        "cta": "Sincronizar agora", "type": "form",
+        "submit": {"endpoint": "/api/v1/financeiro/inter/pix/sync-recebidos?dias=30",
+                   "okMsg": "Sincronização iniciada — a lista atualiza em instantes."},
+        "fields": [],
+    }
 
     # ---- Banco Inter (extrato Inter real) ----
     await safe("inter", tbl(
