@@ -159,3 +159,9 @@ backend → redesign só precisa builder (leitura) + ações via write-gate (`re
 - Verificado navegador: mapa (8/9 georreferenciados, coords GPS reais Manaus; Conecta Base "sem localização" honesto), triagem (0 occ / 1 sem escala / 10 rascunhos). Screenshots op-mapa/op-*.png.
 - **SWEEP TOTAL: 21 checagens (7 oráculos) verdes, zero regressão. BALDES A+B+C CONCLUÍDOS.** Módulo operacional do redesign: dados reais + escritas humano-gated + dashboards + cognitivo + campo/geo/triagem — tudo ligado, provado banco→oráculo→API→navegador.
 - Achados abertos p/ fix separado (compartilhados c/ clássico, não corrigidos cego): inspection_rounds code global-unique×sequence per-tenant; op_write poison-marker on failure.
+
+## PROGRAMA DE PARIDADE DE AÇÃO (desligar o clássico) — iniciado 2026-07-31
+- Skill1 recon: gap = 147 escritas backend, ~15 ligadas. Skill2 graphify (grafo existente): reuso confirmado, NADA a recriar (cada ação tem controller/service pronto; vacations=DP DESABILITADO, allocations=curadoria). Skill3 planos: `docs/superpowers/plans/2026-07-31-operacional-paridade-acao-INDEX.md` (7 planos) + piloto medidas.
+- ✅ PILOTO medidas fluxo aprovação: submeter/aprovar/rejeitar/gerar-documento via `DisciplinaryService`+op_write. Fluxo real rascunho→pendente→**pendente_assinatura** (medida exige assinatura após aprovar). Oráculo `test_acao_medida_fluxo_redesign.py` verde (create+submit+approve+doc). Regressão 21 checagens ok.
+- LIÇÃO reconfirmada (testes): user fake deve usar TENANT REAL (templates/sequences são per-tenant; DEFAULT_TENANT não acha template/coliso code). E limpar `idem:medida%` no início (poison-marker do op_write em falha).
+- FILA (mesmo molde): scales(ciclo), rondas(campo), time-bank(aprovar/compensar), substitutions/shifts, diaristas(gestão), comunicacao. FORA: allocations, vacations. Money/gov só com OTP.
