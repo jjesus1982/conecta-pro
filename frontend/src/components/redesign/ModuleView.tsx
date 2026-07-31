@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { PanelLeftClose, PanelLeft, Menu, Search, Plus, LogOut, LayoutGrid } from 'lucide-react';
 import RdBell from './RdBell';
@@ -88,20 +88,32 @@ function DashScreen({ scr, onNav }: { scr: any; onNav?: (id: string) => void }) 
 
 // TableScreen — tabela + (opcional) painéis de contexto abaixo (tela COMPOSTA, p/ fidelidade
 // de telas do clássico que têm tabela + seções: ex. riscos trabalhista + tributário).
+// Termo do campo "Buscar…" do cabeçalho. Context (e não prop) porque a tabela pode estar
+// aninhada dentro de uma tela-grupo (tabs) — passar prop exigiria fiar por toda a árvore.
+const SearchCtx = createContext('');
+
 function TableScreen({ scr }: { scr: any }) {
+  const q = useContext(SearchCtx).trim().toLowerCase();
   const allRows = scr.rows || [];
   // Seletor opcional por coluna (ex.: Competência na Folha): scr.filterCol = índice da coluna.
   // Dropdown filtra as linhas client-side; default = 1º valor (as linhas já vêm ordenadas desc).
   // Retrocompatível: telas sem filterCol não mudam.
   const filterCol: number | null = typeof scr.filterCol === 'number' ? scr.filterCol : null;
+  // filterVals sai de allRows (não do resultado da busca) p/ a lista de meses não encolher
+  // enquanto se digita.
   const filterVals: string[] = filterCol != null
     ? Array.from(new Set(allRows.map((r: any) => r.cells?.[filterCol]?.v).filter((v: any) => v != null && v !== '')).values()).map(String)
     : [];
   const [sel, setSel] = useState<string>('');
   const active = filterCol != null ? (sel || filterVals[0] || '') : '';
-  const rows = (filterCol != null && active)
+  const byCol = (filterCol != null && active)
     ? allRows.filter((r: any) => String(r.cells?.[filterCol]?.v) === active)
     : allRows;
+  // Busca do cabeçalho: substring sobre o texto das células (ex.: favorecido no extrato).
+  // q vazio = comportamento anterior, intacto.
+  const rows = q
+    ? byCol.filter((r: any) => (r.cells || []).some((c: any) => String(c?.v ?? '').toLowerCase().includes(q)))
+    : byCol;
   // Documentos por-LINHA + Editar por-LINHA (edit={endpoint,method,fields}) → coluna de ações.
   // Retrocompatível: telas sem docs/edit não mudam.
   const hasRowDocs = allRows.some((r: any) => Array.isArray(r.docs) && r.docs.length > 0);
@@ -588,6 +600,7 @@ export default function ModuleView({ slug }: { slug: string }) {
   const [activeTab, setActiveTab] = useState<string>('');
   const [patches, setPatches] = useState<Record<string, any>>({});
   const [extraMenu, setExtraMenu] = useState<any[]>([]);
+  const [q, setQ] = useState(''); // termo do campo "Buscar…" (o input era decorativo: sem estado)
   // 'idle' sem token (exemplo direto) · 'loading' buscando · 'done' resolvido
   const [dataState, setDataState] = useState<'idle' | 'loading' | 'done'>('idle');
 
@@ -617,6 +630,7 @@ export default function ModuleView({ slug }: { slug: string }) {
 
   const toggle = () => setCollapsed((c) => { const n = !c; try { localStorage.setItem('rd-sidebar-collapsed', n ? '1' : '0'); } catch { /* */ } return n; });
   const go = (id: string, tabId?: string) => {
+    setQ(''); // troca de tela zera a busca (senão a tela nova abre filtrada e parece vazia)
     setActive(id); setActiveTab(tabId || ''); setMobileOpen(false);
     try {
       const u = new URL(window.location.href);
@@ -700,7 +714,7 @@ export default function ModuleView({ slug }: { slug: string }) {
           </span>
           <div className="rd-search">
             <Search size={16} color="var(--placeholder)" />
-            <input placeholder={scr?.searchHint || 'Buscar…'} />
+            <input placeholder={scr?.searchHint || 'Buscar…'} value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
           <RdBell />
           {scr?.cta && isReal && (scr.type === 'form' || (scr.ctaTo && (patches[scr.ctaTo] || screens[scr.ctaTo]))) && (
@@ -749,9 +763,13 @@ export default function ModuleView({ slug }: { slug: string }) {
                 <div className="rd-skel" style={{ height: 220 }} />
               </div>
             : (isReal || scr?.type === 'chat')
-              ? (scr?.type === 'tabs'
-                  ? <TabsScreen scr={scr} tab={activeTab} onTab={(id) => go(active, id)} />
-                  : <Screen scr={scr} onNav={go} />)
+              ? (
+                <SearchCtx.Provider value={q}>
+                  {scr?.type === 'tabs'
+                    ? <TabsScreen scr={scr} tab={activeTab} onTab={(id) => go(active, id)} />
+                    : <Screen scr={scr} onNav={go} />}
+                </SearchCtx.Provider>
+              )
               : <EmptyReal />}
         </main>
       </div>
