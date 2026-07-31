@@ -90,3 +90,47 @@ no que a Portte de fato entrega** (transmissão ao governo). A boa notícia é q
 de acertar — assinar XML com certificado e transmitir via mTLS ao webservice do eSocial — **está feito
 e tem 7 protocolos reais de produção provando**. O que falta é conteúdo de leiaute: trabalhoso,
 volumoso, mas sem incógnita técnica.
+
+---
+
+## 8. Medição dos ATOS de DP/RH (adendo — mesma data)
+
+| Ato | Cálculo real | Documento legal | Uso real no banco | **%** |
+|---|---|---|---|--:|
+| Admissão | ✅ cria employee c/ piso CCT | ⚠️ contrato em HTML de 1,7KB, sem ficha de registro | ❌ **0 admissões concluídas** (3 linhas, 2 de teste) | 55% |
+| Rescisão | ⚠️ excelente (Súmula 461/171, multa FGTS indenizatória) mas **2 entradas chutadas** | ✅ TRCT + aviso prévio, branded, assináveis | ❌ 1 linha com `total_amount` NULL, 0 assinadas | 45% |
+| **13º salário** | ⚠️ só calculadora pura, não persiste | ❌ | ❌ **nenhuma tabela** | **20%** |
+| Férias | ✅ 1/3 + abono | ⚠️ aviso sim, **recibo não** | ✅ 67 períodos, 44 solicitações | 65% |
+| **Afastamento** | ❌ **CRUD apenas** — sem 15 dias empresa vs INSS | ❌ | ⚠️ 8 linhas | **25%** |
+| Ponto/espelho | ✅ HE/noturno/DSR | ✅ PDF assinável | ⚠️ 6.385 batidas, **1 espelho fechado** | 70% |
+
+**DP/RH global: ~45%.**
+
+### O padrão (vale mais que os números)
+**A engenharia de cálculo está à frente da engenharia de processo, que está muito à frente da adoção.**
+`clt_calculator.py` é ativo real (quem escreveu conhecia Súmula 461, Súmula 171, natureza indenizatória
+da multa do FGTS). Os PDFs são sérios. Mas **nenhum ato foi concluído ponta a ponta em produção**.
+
+### Achados que viram trabalho
+1. **Rescisão tem 2 entradas presumidas**: `saldo_fgts = remuneração × 8% × meses` (o código admite:
+   `"fgts_estimado": True`) e `ferias_vencidas_dias = 30 if meses > 12` **hardcoded, sem olhar o
+   histórico de férias gozadas** → quem já tirou férias seria superpago. Nenhum TRCT pode ser
+   homologado sem conferência manual — que é exatamente o trabalho da Portte hoje.
+2. **13º é ausência, não incompletude**: sem parcelas, sem prazos (30/11 e 20/12), sem recibo, sem tabela.
+3. **Afastamento sem cálculo**: 15 dias empregador vs INSS é o núcleo do ato e não existe.
+4. **3 tabelas de férias concorrentes** (10/19/15 linhas) — decidir a fonte de verdade.
+5. ⚠️ **Armadilha de UX**: `/action/rescisao-calc` devolve string formatada e **não grava nada**
+   ("Cálculo — não gera rescisão"). Se estiver num botão que parece "fazer a rescisão", produz
+   confiança falsa. **Verificar.**
+6. `modules/pessoas/departamento_pessoal/` tem 9 subpastas com `__init__.py` **vazios** — esqueleto,
+   não código. O DP real vive em `modules/people_management/hr/`.
+
+## 9. Placar consolidado
+
+| Frente | Reconciliar c/ Portte | **Substituir a Portte** |
+|---|--:|--:|
+| Contábil / Fiscal / Razão | ~95% | ~60% |
+| Folha (cálculo) | 98,5% | ~70% |
+| DP / RH (atos) | — | **~45%** |
+| eSocial / transmissão gov | — | **~20%** |
+| **Global** | **~95%** | **~35%** |
