@@ -11,9 +11,9 @@ inventa lançamento — o razão fica honestamente incompleto (aguardando dado).
 
 Plano de contas simplificado (Lucro Real Conecta Mais):
   1.1.1.01 Bancos          1.1.2.01 Clientes a Receber
-  2.1.2.01 Salarios a Pagar 2.1.3.02 FGTS a Recolher   2.1.3.03 ISS a Recolher
-  3.1.1.01 Receita Servicos 3.1.2.01 (-) ISS s/ Servicos (deducao)
-  4.1.1.01 Despesa Salarios 4.1.2.01 Despesa Encargos (FGTS)
+  2.1.1.01 Salarios a Pagar 2.1.1.02 FGTS a Recolher   2.1.2.01 ISS a Recolher
+  4.1.1.01 Receita Servicos 5.2.2.01 (-) ISS s/ Servicos (deducao)
+  5.1.1.01 Despesa Salarios 5.1.1.02 Despesa Encargos (FGTS)
 """
 
 from __future__ import annotations
@@ -104,12 +104,12 @@ class LedgerAutoService:
             data = pay_date or comp_end
             code = code or f"{periodo}"
             n_sal += self._post(
-                cur, data=data, cd="4.1.1.01", cc="2.1.2.01", valor=bruto,
+                cur, data=data, cd="5.1.1.01", cc="2.1.1.01", valor=bruto,
                 hist=f"Folha {periodo} - salario bruto {code}", tipo="folha",
                 ref=f"FOLHA-{code}", periodo=periodo, empresa_id=empresa_id,
             )
             n_fgts += self._post(
-                cur, data=data, cd="4.1.2.01", cc="2.1.3.02", valor=fgts,
+                cur, data=data, cd="5.1.1.02", cc="2.1.1.02", valor=fgts,
                 hist=f"FGTS patronal {periodo} - {code}", tipo="encargo_fgts",
                 ref=f"FGTS-{code}", periodo=periodo, empresa_id=empresa_id,
             )
@@ -118,8 +118,8 @@ class LedgerAutoService:
     def _lancar_receita_e_iss_nacional(self, cur, empresa_id) -> dict:
         """Receita de serviços + ISS a partir das NFS-e REAIS do portal NACIONAL (gov.br/ADN),
         tabela nfse_emitidas_nacional. Substitui a receita das notas manuais antigas.
-          • Receita: D 1.1.2.01 (Clientes a Receber) / C 3.1.1.01 (Receita de Serviços) = vServ
-          • ISS: D 3.1.2.01 (dedução) / C 2.1.3.03 (ISS a Recolher) = vISSQN
+          • Receita: D 1.1.2.01 (Clientes a Receber) / C 4.1.1.01 (Receita de Serviços) = vServ
+          • ISS: D 5.2.2.01 (dedução) / C 2.1.2.01 (ISS a Recolher) = vISSQN
         Idempotente por documento_ref (chave de acesso). Só roda se a tabela existir com dados."""
         cur.execute("SELECT to_regclass('nfse_emitidas_nacional')")
         if cur.fetchone()[0] is None:
@@ -146,13 +146,13 @@ class LedgerAutoService:
         for chave, numero, comp, data_emi, vserv, iss in cur.fetchall():
             data = str(data_emi)[:10] if data_emi else (comp + "-01" if comp else None)
             n_rec += self._post(
-                cur, data=data, cd="1.1.2.01", cc="3.1.1.01", valor=vserv,
+                cur, data=data, cd="1.1.2.01", cc="4.1.1.01", valor=vserv,
                 hist=f"Receita NFS-e {numero} ({comp})", tipo="nfse_emitida",
                 ref=f"RECNAC-{chave}", periodo=comp, empresa_id=empresa_id,
             )
             if iss and float(iss) > 0:
                 n_iss += self._post(
-                    cur, data=data, cd="3.1.2.01", cc="2.1.3.03", valor=iss,
+                    cur, data=data, cd="5.2.2.01", cc="2.1.2.01", valor=iss,
                     hist=f"ISS s/ NFS-e {numero} ({comp})", tipo="tributo_iss",
                     ref=f"ISSNAC-{chave}", periodo=comp, empresa_id=empresa_id,
                 )
@@ -160,8 +160,8 @@ class LedgerAutoService:
 
     def _lancar_despesa_tomadas(self, cur, empresa_id) -> dict:
         """Despesa de serviços TOMADOS (NFS-e recebidas nacionais) — custo real dedutível.
-        D 4.1.4.01 (Serviços de Terceiros) / C 2.1.1.01 (Fornecedores a Pagar), por nota,
-        idempotente por documento_ref (chave). O pagamento via Inter liquida o 2.1.1.01."""
+        D 5.2.1.04 (Serviços de Terceiros) / C 2.1.4.01 (Fornecedores a Pagar), por nota,
+        idempotente por documento_ref (chave). O pagamento via Inter liquida o 2.1.4.01."""
         cur.execute("SELECT to_regclass('nfse_tomadas_nacional')")
         if cur.fetchone()[0] is None:
             return {"despesa_tomadas": 0, "fonte": "sem tabela"}
@@ -174,7 +174,7 @@ class LedgerAutoService:
         for chave, numero, comp, data_emi, prest, vserv in cur.fetchall():
             data = str(data_emi)[:10] if data_emi else (comp + "-01" if comp else None)
             n += self._post(
-                cur, data=data, cd="4.1.4.01", cc="2.1.1.01", valor=vserv,
+                cur, data=data, cd="5.2.1.04", cc="2.1.4.01", valor=vserv,
                 hist=f"Serviço tomado NFS-e {numero} - {str(prest)[:40]} ({comp})",
                 tipo="despesa_tomada", ref=f"TOMNAC-{chave}", periodo=comp, empresa_id=empresa_id,
             )
@@ -186,9 +186,9 @@ class LedgerAutoService:
           • Créditos Inter (C 3.1.1 Receita) → C 1.1.2.01 (Clientes a Receber): é recebimento de
             cliente, NÃO receita nova. Elimina a DUPLA CONTAGEM de receita (só NFS-e é receita).
           • Débitos Inter (D 3.2.1 despesa genérica):
-              – PIX a PESSOA física (salário/diarista, já provisionado na folha) → D 2.1.2.01
+              – PIX a PESSOA física (salário/diarista, já provisionado na folha) → D 2.1.1.01
                 (baixa de Salários a Pagar): tira do resultado (senão duplica a folha).
-              – PIX a EMPRESA/fornecedor (serviço real não provisionado) → D 4.1.4.01
+              – PIX a EMPRESA/fornecedor (serviço real não provisionado) → D 5.2.1.04
                 (Serviços de Terceiros): mantém como despesa real, em conta própria.
         O discriminador pessoa×empresa é heurístico (palavras de razão social) — imperfeito,
         declarado. NUNCA fabrica: só reclassifica o que já existe."""
@@ -206,19 +206,19 @@ class LedgerAutoService:
                 )
                 cred_fix = cur.rowcount
 
-                # 2) Débitos Inter → fornecedor (empresa) = LIQUIDAÇÃO de fornecedor (2.1.1.01),
+                # 2) Débitos Inter → fornecedor (empresa) = LIQUIDAÇÃO de fornecedor (2.1.4.01),
                 #    NÃO despesa. A despesa vem da NFS-e recebida (accrual). Evita dupla contagem.
                 cur.execute(
-                    "UPDATE accounting_entries ae SET conta_debito='2.1.1.01' "
+                    "UPDATE accounting_entries ae SET conta_debito='2.1.4.01' "
                     "FROM bank_transactions bt "
                     "WHERE ae.bank_transaction_id=bt.id AND ae.tipo_lancamento='banco_inter' "
-                    "AND (ae.conta_debito LIKE '3.2%%' OR ae.conta_debito='4.1.4.01') "
+                    "AND (ae.conta_debito LIKE '3.2%%' OR ae.conta_debito='5.2.1.04') "
                     "AND bt.description ~* %s",
                     (empresa_pat,),
                 )
                 forn_fix = cur.rowcount
                 cur.execute(
-                    "UPDATE accounting_entries ae SET conta_debito='2.1.2.01' "
+                    "UPDATE accounting_entries ae SET conta_debito='2.1.1.01' "
                     "FROM bank_transactions bt "
                     "WHERE ae.bank_transaction_id=bt.id AND ae.tipo_lancamento='banco_inter' "
                     "AND ae.conta_debito LIKE '3.2%%' AND NOT (bt.description ~* %s)",
@@ -230,7 +230,7 @@ class LedgerAutoService:
 
                 cur.execute(
                     "SELECT COALESCE(sum(valor),0) FROM accounting_entries "
-                    "WHERE tipo_lancamento='banco_inter' AND conta_debito='4.1.4.01'"
+                    "WHERE tipo_lancamento='banco_inter' AND conta_debito='5.2.1.04'"
                 )
                 val_forn = float(cur.fetchone()[0])
             return {
@@ -249,13 +249,13 @@ class LedgerAutoService:
         data = f"{mes}-05"
         marca = " [continuidade]" if continuidade else ""
         self._post(
-            cur, data=data, cd="4.1.1.01", cc="2.1.2.01", valor=e["bruto"],
+            cur, data=data, cd="5.1.1.01", cc="2.1.1.01", valor=e["bruto"],
             hist=f"Folha {mes} (reconstruida{marca}) - {e['nome'][:38]}",
             tipo="folha_reconstruida", ref=f"FOLHAREC-{mes}-{chave}",
             periodo=mes, empresa_id=empresa_id,
         )
         self._post(
-            cur, data=data, cd="4.1.2.01", cc="2.1.3.02", valor=e["fgts"],
+            cur, data=data, cd="5.1.1.02", cc="2.1.1.02", valor=e["fgts"],
             hist=f"FGTS {mes} (reconstruido{marca}) - {e['nome'][:38]}",
             tipo="encargo_fgts_reconstruido", ref=f"FGTSREC-{mes}-{chave}",
             periodo=mes, empresa_id=empresa_id,
@@ -355,8 +355,8 @@ class LedgerAutoService:
     def lancar_provisoes_trabalhistas(self, empresa_id: str = EMPRESA_PRINCIPAL_ID) -> dict:
         """Posta as provisões de férias (1/9) e 13º (1/12) sobre a folha REAL (hr_payslips),
         agregadas por competência. Idempotente por documento_ref (PROVFER-/PROV13- por mês).
-          • Férias: D 4.1.2.04 (Desp. Provisão Férias) / C 2.1.2.01 (Provisões a Pagar)
-          • 13º:    D 4.1.2.03 (Desp. Provisão 13º)     / C 2.1.2.01
+          • Férias: D 5.1.1.05 (Desp. Provisão Férias) / C 2.1.1.01 (Provisões a Pagar)
+          • 13º:    D 5.1.1.05 (Desp. Provisão 13º)     / C 2.1.1.01
         Mesma base da tela de Provisões (base_salary × 0,1111 / 0,0833) — sem encargos sobre a
         provisão. Bookkeeping puro: NÃO move dinheiro. Reversível apagando os refs PROVFER-/PROV13-."""
         conn = self._conn()
@@ -375,12 +375,12 @@ class LedgerAutoService:
                     dec = round(base * 0.0833, 2)
                     data = f"{periodo}-01"
                     n_fer += self._post(
-                        cur, data=data, cd="4.1.2.04", cc="2.1.2.01", valor=fer,
+                        cur, data=data, cd="5.1.1.05", cc="2.1.1.01", valor=fer,
                         hist=f"Provisão de férias {periodo} (1/9 s/ folha real)", tipo="provisao_ferias",
                         ref=f"PROVFER-{periodo}", periodo=periodo, empresa_id=empresa_id,
                     )
                     n_dec += self._post(
-                        cur, data=data, cd="4.1.2.03", cc="2.1.2.01", valor=dec,
+                        cur, data=data, cd="5.1.1.05", cc="2.1.1.01", valor=dec,
                         hist=f"Provisão de 13º {periodo} (1/12 s/ folha real)", tipo="provisao_13",
                         ref=f"PROV13-{periodo}", periodo=periodo, empresa_id=empresa_id,
                     )
@@ -395,8 +395,8 @@ class LedgerAutoService:
 
     def lancar_inss_empregado(self, empresa_id: str = EMPRESA_PRINCIPAL_ID) -> dict:
         """Posta o INSS retido do EMPREGADO no razão, por competência, da VERDADE Portte
-        (hr_payslips.inss_value). É reclassificação da folha bruta (já lançada em 4.1.1/2.1.2.01):
-          D 2.1.2.01 (Salários a Pagar) / C 2.1.3.01 (INSS a Recolher) = inss_value
+        (hr_payslips.inss_value). É reclassificação da folha bruta (já lançada em 4.1.1/2.1.1.01):
+          D 2.1.1.01 (Salários a Pagar) / C 2.1.1.03 (INSS a Recolher) = inss_value
         NÃO adiciona despesa (o bruto já capturou) — só separa o passivo. Idempotente por
         ref INSSEMP-{periodo}. Converge o razão à lógica progressiva da Portte sobre inss_base.
         O INSS (DARF/eSocial) do grupo é declarado sob o CNPJ1 (Eletrônica) — todas as guias
@@ -417,7 +417,7 @@ class LedgerAutoService:
                 for periodo, val in cur.fetchall():
                     val = float(val or 0)
                     n += self._post(
-                        cur, data=f"{periodo}-01", cd="2.1.2.01", cc="2.1.3.01", valor=val,
+                        cur, data=f"{periodo}-01", cd="2.1.1.01", cc="2.1.1.03", valor=val,
                         hist=f"INSS retido empregado {periodo} (verdade Portte)", tipo="inss_empregado",
                         ref=f"INSSEMP-{periodo}", periodo=periodo, empresa_id=empresa_id,
                     )
@@ -431,7 +431,7 @@ class LedgerAutoService:
         """Posta o INSS PATRONAL (CPP+RAT+terceiros) no razão, por competência, como a
         diferença REAL entre a guia INSS oficial (Onvio, `inss_guias.valor`) e o INSS
         retido do empregado (`hr_payslips.inss_value`, já postado por lancar_inss_empregado):
-          D 4.1.2.02 (Despesa Encargo INSS patronal) / C 2.1.3.01 (INSS a Recolher)
+          D 5.1.1.02 (Despesa Encargo INSS patronal) / C 2.1.1.03 (INSS a Recolher)
         Faz o passivo INSS a Recolher fechar com a guia oficial. NUNCA fabrica: só posta onde
         há guia extraída com valor > retido (patronal > 0). Idempotente por ref INSSPAT-{periodo}.
         mes_ref da guia é 'MM.YYYY' → converte p/ 'YYYY-MM'.
@@ -462,7 +462,7 @@ class LedgerAutoService:
                     if guia <= 0 or patronal <= 0:  # sem guia oficial > retido → não inventa
                         continue
                     n += self._post(
-                        cur, data=f"{periodo}-01", cd="4.1.2.02", cc="2.1.3.01", valor=patronal,
+                        cur, data=f"{periodo}-01", cd="5.1.1.02", cc="2.1.1.03", valor=patronal,
                         hist=f"INSS patronal {periodo} (guia Onvio - retido empregado)", tipo="encargo_inss",
                         ref=f"INSSPAT-{periodo}", periodo=periodo, empresa_id=empresa_id,
                     )
@@ -476,7 +476,7 @@ class LedgerAutoService:
         """Posta o DAS do Simples Nacional / parcelamento (PARCSN) no razão a partir do valor
         OFICIAL extraído das guias Onvio (`onvio_documents.detalhes_json`, categoria
         das_simples_nacional). É dívida do CNPJ1 (Eletrônica, ex-Simples em parcelamento):
-          D 4.1.3.01 (Despesa Parcelamento Simples) / C 2.1.3.06 (Parcelamento Simples a Pagar)
+          D 5.2.2.04 (Despesa Parcelamento Simples) / C 2.1.2.04 (Parcelamento Simples a Pagar)
         NUNCA fabrica: só posta guias com valor extraído. Idempotente por ref DASPARC-{periodo}.
         Só posta sob o CNPJ1 (a guia valida 35.710.481)."""
         if empresa_id != EMPRESA_PRINCIPAL_ID:
@@ -500,7 +500,7 @@ class LedgerAutoService:
                         continue
                     v = float(valor or 0)
                     n += self._post(
-                        cur, data=f"{periodo}-01", cd="4.1.3.01", cc="2.1.3.06", valor=v,
+                        cur, data=f"{periodo}-01", cd="5.2.2.04", cc="2.1.2.04", valor=v,
                         hist=f"DAS/parcelamento Simples {periodo} (guia oficial Onvio)", tipo="das_parcelamento",
                         ref=f"DASPARC-{periodo}", periodo=periodo, empresa_id=empresa_id,
                     )
@@ -531,7 +531,7 @@ class LedgerAutoService:
                 qtd = cur.fetchone()[0]
 
             # INSS retido do empregado (verdade Portte hr_payslips) — separa o passivo
-            # 2.1.3.01 da folha bruta. Sem esta chamada o razão ficava com ZERO INSS
+            # 2.1.1.03 da folha bruta. Sem esta chamada o razão ficava com ZERO INSS
             # (medido no baseline contábil): o método existia mas nunca era invocado.
             inss_emp = self.lancar_inss_empregado(empresa_id)
             # INSS patronal (guia oficial − retido); fecha o passivo INSS a Recolher com a guia.

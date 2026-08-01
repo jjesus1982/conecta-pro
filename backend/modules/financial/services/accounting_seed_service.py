@@ -2,7 +2,7 @@
 Popular accounting_entries com lançamentos retroativos reais.
 Fonte de RECEITA: nfse_emitidas_nacional (portal nacional, cStat 100 = fonte da verdade,
 77 notas / R$1.428.413,04, todas as competências). NUNCA a tabela velha 'nfses' (só 27
-notas / R$542k — jan-fev — que corromperia a receita 3.1.1.01 se re-executado).
+notas / R$542k — jan-fev — que corromperia a receita 4.1.1.01 se re-executado).
 Fonte de BANCO: bank_transactions Inter.
 Plano de contas simplificado Conecta Mais (Lucro Real).
 Idempotente: LEFT JOIN anti-duplicata por documento_ref (receita) e bank_transaction_id (banco).
@@ -61,7 +61,7 @@ with engine.connect() as conn:
                          historico, tipo_lancamento, documento_ref,
                          periodo_competencia, status)
                     VALUES
-                        (:data, '1.1.2.01', '3.1.1.01', :valor,
+                        (:data, '1.1.2.01', '4.1.1.01', :valor,
                          :hist, 'nfse_emitida', :doc,
                          :periodo, 'confirmado')
                     ON CONFLICT DO NOTHING
@@ -104,7 +104,7 @@ with engine.connect() as conn:
             tipo_str = str(getattr(tx, "transaction_type", "") or "").upper()
             is_credit = amount > 0 or tipo_str in ("CREDIT", "CREDITO", "ENTRADA")
             conta_d = "1.1.1.01" if is_credit else "3.2.1.01"
-            conta_c = "3.1.1.01" if is_credit else "1.1.1.01"
+            conta_c = "4.1.1.01" if is_credit else "1.1.1.01"
             desc = str(getattr(tx, "description", "") or "Transação Inter")[:200]
             data_tx = getattr(tx, "transaction_date", datetime.now().date())
 
