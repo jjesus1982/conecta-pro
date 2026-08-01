@@ -502,6 +502,57 @@ ORDER BY b.comp DESC, b.cnpj"""
         ],
     }
 
+    # ---- Lote MENSAL de diárias (dia 15) — FLUXO 2, so existia no classico -----------------
+    out["programar-diarias-mes"] = {
+        "title": "Programar diárias do mês (lote dia 15)",
+        "sub": "Soma os dias trabalhados × valor da diária de cada diarista no mês e monta o lote "
+               "para o dia 15. NÃO paga — só programa. Idempotente por competência.",
+        "cta": "Programar lote do mês", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/programar-diarias-mes",
+                   "okMsg": "Lote do mês programado — veja na aba Diaristas."},
+        "fields": [
+            {"key": "mes", "label": "Mês* (1-12)", "type": "text", "span": "span 1", "ph": "8"},
+            {"key": "ano", "label": "Ano*", "type": "text", "span": "span 1", "ph": "2026"},
+        ],
+    }
+
+    # ---- Marcar pago por fora (dinheiro/outro banco) — evita pagar 2x --------------------
+    out["marcar-pago-externo"] = {
+        "title": "Marcar pago por fora",
+        "sub": "Quando o VT/VR foi pago em dinheiro ou por outro banco. NÃO move dinheiro — só "
+               "registra que já foi pago, para o item sair do lote e você não pagar duas vezes. "
+               "O ID está na aba Diaristas.",
+        "cta": "Marcar como pago", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/marcar-pago-externo",
+                   "confirm": "Confirma que este pagamento JÁ foi feito por fora? Ele sai do lote.",
+                   "okMsg": "Marcado como pago por fora."},
+        "fields": [
+            {"key": "pagamento_id", "label": "ID do pagamento*", "type": "text", "span": "span 1", "ph": "ex.: 1234"},
+            {"key": "observacao", "label": "Como foi pago", "type": "text", "span": "span 1", "ph": "dinheiro / outro banco"},
+        ],
+    }
+
+    # ---- Diaristas a cadastrar (do histórico de PIX R$32) ---------------------------------
+    try:
+        import modules.financial.pagamentos_diaristas_service as _sd
+        _sug = await _sd.sugestoes_cadastro_historico(db, dias=60)
+        _sug_itens = _sug.get("itens") or _sug.get("sugestoes") or []
+    except Exception:  # noqa: BLE001 — tela nunca derruba o módulo
+        _sug_itens = []
+    out["diaristas-a-cadastrar"] = {
+        "title": "Diaristas a cadastrar",
+        "sub": (f"{len(_sug_itens)} pessoa(s) que já receberam VT/VR por PIX mas NÃO estão no cadastro "
+                "de diaristas do Operacional. Cadastre lá para o lote sair completo."
+                if _sug_itens else "Ninguém pendente de cadastro (aguardando dado)."),
+        "cta": "—", "type": "table", "searchHint": "Buscar…",
+        "grid": "2fr 1.6fr 1fr 1fr", "cols": ["Beneficiário", "Chave PIX", "Pagamentos", "Total"],
+        "rows": [{"cells": [t(str(i.get("beneficiario") or "—"), 600, "#0F1B3A"),
+                            t(str(i.get("pix_key") or i.get("pix") or "—")),
+                            t(str(i.get("qtd") or i.get("pagamentos") or "—")),
+                            t(brl(float(i.get("total") or 0)), 600)]} for i in _sug_itens]
+                or [{"cells": [t("Ninguém pendente"), t("—"), t("—"), t("—")]}],
+    }
+
     # ---- Sincronizar PIX recebidos — puxa do Inter p/ inter_pix_recebidos ----
     # Aponta DIRETO no endpoint que já existe (nada de wrapper novo). NÃO é money-out:
     # só LÊ do Inter e grava na nossa tabela → sem gate OTP (mesma classe do "Rodar
@@ -1354,6 +1405,41 @@ async def _rd_pagar_darf(current_user: CurrentActiveUser, payload: dict = Body(.
 async def _rd_pagar_gps(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
     return await _rd_inter_pay(db, current_user, payload, payment_type="gps",
                                categoria="imposto", dest_fn=_dest_gps, label="Pagamento de GPS")
+
+
+@router.post("/action/programar-diarias-mes")
+async def _rd_programar_diarias_mes(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """FLUXO 2: monta o lote do dia 15 somando os dias trabalhados do mês. NÃO paga."""
+    import modules.financial.pagamentos_diaristas_service as _svc
+    try:
+        mes = int(str(payload.get("mes") or "").strip())
+        ano = int(str(payload.get("ano") or "").strip())
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Informe mês (1-12) e ano.")
+    if not 1 <= mes <= 12:
+        raise HTTPException(status_code=400, detail="Mês deve estar entre 1 e 12.")
+    r = await _svc.programar_diarias_mensais(db, mes=mes, ano=ano, user_id=str(getattr(current_user, "id", "")))
+    novos = r.get("programados_novos", r.get("programados", 0)); ja = r.get("ja_programados", 0)
+    if not novos and not ja:
+        return {"ok": True, "message": f"Nenhuma diária lançada em {mes:02d}/{ano} — nada a programar."}
+    return {"ok": True, "message": f"{mes:02d}/{ano}: {novos} diária(s) programada(s) p/ o dia 15, {ja} já estava(m)."}
+
+
+@router.post("/action/marcar-pago-externo")
+async def _rd_marcar_pago_externo(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Marca um item do lote como pago FORA do sistema (dinheiro, outro banco). NÃO move dinheiro —
+    só registra que já foi pago, p/ não pagar duas vezes."""
+    import modules.financial.pagamentos_diaristas_service as _svc
+    try:
+        pid = int(str(payload.get("pagamento_id") or "").strip())
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Informe o ID do pagamento (da aba Diaristas).")
+    obs = (payload.get("observacao") or "").strip()
+    r = await _svc.marcar_pago_externo(db, pagamento_id=pid, observacao=obs or "pago por fora",
+                                       user_id=str(getattr(current_user, "id", "")))
+    if isinstance(r, dict) and r.get("ok") is False:
+        raise HTTPException(status_code=400, detail=r.get("mensagem") or "Não foi possível marcar.")
+    return {"ok": True, "message": f"Pagamento {pid} marcado como pago por fora — não entra mais no lote."}
 
 
 @router.post("/action/programar-vtvr-dia")
