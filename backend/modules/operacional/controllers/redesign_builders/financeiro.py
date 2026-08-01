@@ -828,7 +828,7 @@ ORDER BY b.comp DESC, b.cnpj"""
     # Lote de diaristas a pagar (VT/VR + diária) — a aba "Diaristas" estava vazia (sem builder),
     # então não dava p/ ver/pagar o VT/VR no redesign. Visibilidade do que pagar-diaristas processa.
     _dia = (await db.execute(text(
-        "SELECT data_referencia, beneficiario, tipo, valor, status FROM financial_pagamentos_diaristas "
+        "SELECT data_referencia, beneficiario, tipo, valor, status, coalesce(pix_key,'') FROM financial_pagamentos_diaristas "
         "WHERE status IN ('a_revisar','sem_pix') "
         "ORDER BY (data_referencia = CURRENT_DATE) DESC, data_referencia DESC, beneficiario LIMIT 300"))).fetchall()
     _dcells = [{"cells": [
@@ -836,6 +836,7 @@ ORDER BY b.comp DESC, b.cnpj"""
         b("VT/VR" if r[2] == "vt_vr" else "Diária" if r[2] == "diaria_mensal" else (r[2] or "—"),
           "info" if r[2] == "vt_vr" else "mut"),
         t(brl(r[3]) if r[3] is not None else "—", 600),
+        t(r[5] or "—"),
         b("sem PIX" if r[4] == "sem_pix" else "a revisar", "bad" if r[4] == "sem_pix" else "warn"),
     ]} for r in _dia]
     # Total POR DIA de pagamento — o Jordan paga o VT/VR no dia e as diárias no dia 15,
@@ -859,8 +860,8 @@ ORDER BY b.comp DESC, b.cnpj"""
         "sub": "Pendente de pagamento (a_revisar/sem_pix). Pague em 'Pagar diaristas' informando a DATA da linha "
                "(gate OTP) — VT/VR e diária do dia saem juntos. 'sem PIX' = cadastro do diarista sem chave PIX.",
         "cta": "—", "type": "table", "searchHint": "Buscar diarista…",
-        "grid": "1fr 2fr 0.9fr 1fr 1fr",
-        "cols": ["Data", "Diarista", "Tipo", "Valor", "Status"],
+        "grid": "1fr 1.8fr 0.8fr 1fr 1.4fr 0.9fr",
+        "cols": ["Data", "Diarista", "Tipo", "Valor", "Chave PIX", "Status"],
         "rows": _dcells or [{"cells": [t("Nada pendente"), t("—"), t("—"), t("—"), t("—")]}],
         "filterCol": 0, "filterLabel": "Dia",
         "panelGrid": "1fr 1fr 1fr",
@@ -1209,10 +1210,16 @@ async def _rd_pagar_diaristas(current_user: CurrentActiveUser, payload: dict = B
             return {"ok": True, "message": f"Nada a pagar em {data} (nenhum item 'a revisar')."}
         total = sum(float(i[2] or 0) for i in itens)
         linhas = " · ".join(f"{i[0]}: {i[1]} = {brl(float(i[2] or 0))}" for i in itens[:12])
+        # Lista curta cabe na mensagem; lista longa vira "vá na aba Diaristas e exporte" —
+        # truncar uma lista de pagamento seria pior que não mostrar (risco de pagar só parte).
+        if len(itens) <= 12:
+            return {"ok": True, "message": (
+                f"CORA — {len(itens)} pagamento(s), total {brl(total)}. O Cora não envia PIX por chave: "
+                f"conclua no app do Cora e depois registre em 'Pago por fora'. Lista: {linhas}")}
         return {"ok": True, "message": (
-            f"CORA — {len(itens)} pagamento(s), total {brl(total)}. O Cora não envia PIX por chave: "
-            f"conclua no app do Cora e depois registre em 'Pago por fora'. Lista: {linhas}"
-            + (" …" if len(itens) > 12 else ""))}
+            f"CORA — {len(itens)} pagamento(s), total {brl(total)}. O Cora não envia PIX por chave. "
+            f"A lista completa (nome + chave PIX + valor) está na aba 'Diaristas': filtre o Dia "
+            f"{_fmtdate(_rd_parse_data(data)) if _rd_parse_data(data) else data} e use o botão Exportar. Depois registre cada um em 'Pago por fora'.")}
     otp_code = (payload.get("otp_code") or "").strip()
     lote_id = (payload.get("_gate_ref") or "").strip()
     if not otp_code:
