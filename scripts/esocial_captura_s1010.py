@@ -16,11 +16,14 @@ Uso: python3 esocial_captura_s1010.py [--forcar]
 import json
 import os
 import sys
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 SAIDA = Path("/app/uploads/esocial_s1010")  # volume: host = /opt/conecta-pro/uploads/esocial_s1010
 MARCADOR = SAIDA / "_CAPTURADO.json"
+REF_ID = str(uuid.uuid5(uuid.NAMESPACE_URL, "conecta:esocial_s1010_captura"))
+
 CNPJS = {
     "eletronica": "35710481000103",
     "patrimonial": "66014833000110",
@@ -72,7 +75,69 @@ def main() -> int:
     if algum_sucesso:
         MARCADOR.write_text(json.dumps({"capturado_em": datetime.now(timezone.utc).isoformat()}), encoding="utf-8")
         log("CAPTURADO — cron não repete (use --forcar para recapturar)")
+        _notificar_sino(resultado)
     return 0
+
+
+def _notificar_sino(resultado: dict) -> None:
+    """Avisa o Jordan pelo SINO interno do Conecta PRO (nunca Telegram — regra dele).
+
+    Reusa exatamente o padrão de `gedeon/tasks/orquestrador_tasks._notificar_jordan`:
+    communication_notifications + user jjesus + idempotência por reference_id.
+    Falha aqui não derruba a captura — o dado já está salvo em disco.
+    """
+    try:
+        from sqlalchemy import text
+
+        from core.database.session import get_sync_db
+
+        achados = ", ".join(
+            f"{nome}: {d.get('qtd_identificadores', 0)} evento(s)"
+            for nome, d in resultado.items()
+            if not d.get("erro")
+        )
+        with get_sync_db() as db:
+            user = db.execute(
+                text("SELECT id FROM users WHERE email = 'jjesus@conectamais.pro' LIMIT 1")
+            ).fetchone()
+            tenant = db.execute(text("SELECT id FROM tenants LIMIT 1")).fetchone()
+            if not user or not tenant:
+                log("sino: user/tenant não encontrado — notificação não criada")
+                return
+            ja = db.execute(
+                text(
+                    "SELECT 1 FROM communication_notifications "
+                    "WHERE reference_id = CAST(:ref AS uuid) LIMIT 1"
+                ), {"ref": REF_ID},
+            ).fetchone()
+            if ja:
+                return
+            db.execute(
+                text("""
+                INSERT INTO communication_notifications
+                  (tenant_id, user_id, title, body, type,
+                   reference_type, reference_id, action_url, channels, extra_data)
+                VALUES (:tenant_id, :user_id, :title, :body, 'esocial_s1010',
+                   'esocial_s1010', CAST(:ref AS uuid), '/dp/esocial',
+                   '["in_app"]'::jsonb, '{}'::jsonb)
+            """),
+                {
+                    "ref": REF_ID,
+                    "tenant_id": str(tenant[0]),
+                    "user_id": str(user[0]),
+                    "title": "eSocial — códigos das rubricas capturados",
+                    "body": (
+                        "A consulta ao S-1010 do nosso CNPJ voltou do governo. "
+                        f"{achados}. É o que destrava o S-1200 (substituir a Portte). "
+                        "Peça ao Claude para extrair natRubr/codIncCP/codIncIRRF/codIncFGTS "
+                        "e popular rubricas_folha."
+                    ),
+                },
+            )
+            db.commit()
+        log("sino: notificação criada para o Jordan")
+    except Exception as exc:  # noqa: BLE001 — aviso é secundário; o dado já foi salvo
+        log(f"sino: falhou (não crítico) — {type(exc).__name__}: {str(exc)[:120]}")
 
 
 if __name__ == "__main__":
