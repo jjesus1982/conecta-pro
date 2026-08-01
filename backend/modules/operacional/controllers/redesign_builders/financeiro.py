@@ -778,7 +778,8 @@ ORDER BY b.comp DESC, b.cnpj"""
     # então não dava p/ ver/pagar o VT/VR no redesign. Visibilidade do que pagar-diaristas processa.
     _dia = (await db.execute(text(
         "SELECT data_referencia, beneficiario, tipo, valor, status FROM financial_pagamentos_diaristas "
-        "WHERE status IN ('a_revisar','sem_pix') ORDER BY data_referencia DESC, beneficiario LIMIT 300"))).fetchall()
+        "WHERE status IN ('a_revisar','sem_pix') "
+        "ORDER BY (data_referencia = CURRENT_DATE) DESC, data_referencia DESC, beneficiario LIMIT 300"))).fetchall()
     _dcells = [{"cells": [
         t(_fmtdate(r[0]) if r[0] else "—", 600, "#0F1B3A"), t(r[1] or "—"),
         b("VT/VR" if r[2] == "vt_vr" else "Diária" if r[2] == "diaria_mensal" else (r[2] or "—"),
@@ -796,6 +797,7 @@ ORDER BY b.comp DESC, b.cnpj"""
         "grid": "1fr 2fr 0.9fr 1fr 1fr",
         "cols": ["Data", "Diarista", "Tipo", "Valor", "Status"],
         "rows": _dcells or [{"cells": [t("Nada pendente"), t("—"), t("—"), t("—"), t("—")]}],
+        "filterCol": 0, "filterLabel": "Dia",
         "panelGrid": "1fr 1fr",
         "panels": [
             {"title": "Total pendente (a_revisar)", "rows": [
