@@ -472,6 +472,36 @@ ORDER BY b.comp DESC, b.cnpj"""
         out["resultado-cnpj"]["filterCol"] = 0
         out["resultado-cnpj"]["filterLabel"] = "Mês"
 
+    # ---- Programar VT+VR dos lançados no dia (o rito DIÁRIO do Jordan) --------------------
+    # O Eliziel lança as diárias no Operacional; aqui o Jordan escolhe o dia e programa o
+    # VT+VR (R$32) de cada diarista lançado. Só existia no clássico. Reusa o serviço provado
+    # (idempotente por data+beneficiário; sem PIX vira 'sem_pix', nunca fabrica chave).
+    out["programar-vtvr-dia"] = {
+        "title": "Programar VT+VR do dia",
+        "sub": "O Eliziel lança as diárias no Operacional; aqui você programa o VT+VR (R$ 32 = R$10 VT + "
+               "R$22 VR) de cada diarista lançado no dia. Idempotente: rodar de novo não duplica. "
+               "Quem não tem chave PIX no cadastro entra como 'sem PIX' e não é pago até completar.",
+        "cta": "Programar VT+VR", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/programar-vtvr-dia",
+                   "okMsg": "VT+VR programado — veja na aba Diaristas."},
+        "fields": [{"key": "data", "label": "Dia* (AAAA-MM-DD)", "type": "date", "span": "span 2"}],
+    }
+
+    # ---- Adicionar pagamento avulso (cobertura CLT / líder com ajudantes) -----------------
+    out["adicionar-vtvr-avulso"] = {
+        "title": "Adicionar VT+VR avulso",
+        "sub": "Cobertura de falta por CLT, ou líder que leva ajudantes (ex.: líder com 2 ajudantes "
+               "recebe o VT+VR dos dois num PIX só → quantidade 2 = R$ 64). Entra no lote do dia.",
+        "cta": "Adicionar ao lote", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/vtvr-avulso", "okMsg": "Adicionado ao lote."},
+        "fields": [
+            {"key": "data", "label": "Dia*", "type": "date", "span": "span 1"},
+            {"key": "beneficiario", "label": "Beneficiário*", "type": "text", "span": "span 1", "ph": "Nome de quem recebe"},
+            {"key": "pix_key", "label": "Chave PIX*", "type": "text", "span": "span 1", "ph": "CPF ou chave"},
+            {"key": "quantidade", "label": "Qtd de pessoas", "type": "text", "span": "span 1", "ph": "1"},
+        ],
+    }
+
     # ---- Sincronizar PIX recebidos — puxa do Inter p/ inter_pix_recebidos ----
     # Aponta DIRETO no endpoint que já existe (nada de wrapper novo). NÃO é money-out:
     # só LÊ do Inter e grava na nossa tabela → sem gate OTP (mesma classe do "Rodar
@@ -1322,6 +1352,43 @@ async def _rd_pagar_darf(current_user: CurrentActiveUser, payload: dict = Body(.
 async def _rd_pagar_gps(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
     return await _rd_inter_pay(db, current_user, payload, payment_type="gps",
                                categoria="imposto", dest_fn=_dest_gps, label="Pagamento de GPS")
+
+
+@router.post("/action/programar-vtvr-dia")
+async def _rd_programar_vtvr_dia(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Programa o VT+VR dos diaristas LANÇADOS no dia (rito diário). NÃO paga — só cria o lote.
+    Reusa programar_vt_vr_dos_lancados (idempotente, nunca fabrica chave PIX)."""
+    import modules.financial.pagamentos_diaristas_service as _svc
+    data = (payload.get("data") or "").strip()
+    if not data or len(data) < 8:
+        raise HTTPException(status_code=400, detail="Informe o dia (AAAA-MM-DD).")
+    r = await _svc.programar_vt_vr_dos_lancados(db, data, created_by=str(getattr(current_user, "id", "")))
+    novos = r.get("programados_novos", 0); ja = r.get("ja_programados", 0); sem = r.get("sem_pix", 0)
+    if not novos and not ja:
+        return {"ok": True, "message": f"Nenhuma diária lançada em {data} — nada a programar."}
+    return {"ok": True, "message": f"{data}: {novos} VT+VR programado(s), {ja} já estava(m)."
+            + (f" {sem} sem chave PIX (complete o cadastro no Operacional)." if sem else "")}
+
+
+@router.post("/action/vtvr-avulso")
+async def _rd_vtvr_avulso(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """VT+VR avulso: cobertura de falta por CLT ou líder que leva ajudantes (quantidade N = N x R$32)."""
+    import modules.financial.pagamentos_diaristas_service as _svc
+    data = (payload.get("data") or "").strip()
+    ben = (payload.get("beneficiario") or "").strip()
+    pix = (payload.get("pix_key") or "").strip()
+    try:
+        qtd = max(1, int(str(payload.get("quantidade") or "1").strip() or 1))
+    except (TypeError, ValueError):
+        qtd = 1
+    if not data or not ben:
+        raise HTTPException(status_code=400, detail="Informe o dia e o beneficiário.")
+    r = await _svc.adicionar_manual(db, data=data, beneficiario=ben, pix_key=pix, quantidade=qtd,
+                                   user_id=str(getattr(current_user, "id", "")))
+    if not r.get("ok", True):
+        raise HTTPException(status_code=400, detail=r.get("mensagem") or "Não foi possível adicionar.")
+    return {"ok": True, "message": f"{ben}: {qtd} x R$ 32,00 adicionado ao lote de {data}."
+            + ("" if pix else " SEM chave PIX — não será pago até completar o cadastro.")}
 
 
 @router.post("/action/devolver-pix")

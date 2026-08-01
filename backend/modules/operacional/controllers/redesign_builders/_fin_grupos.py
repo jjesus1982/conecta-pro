@@ -20,7 +20,7 @@ GRUPOS = [
         ("audit-log", "Audit log"), ("pagamentos-inter", "Pagamentos Inter"),
         ("pagamentos-pj", "Folha PJ"), ("pagar-folha-pj", "Pagar folha PJ"),
         ("pagar-folha-clt", "Pagar folha CLT"),
-        ("pagamentos-diaristas", "Diaristas"), ("pagar-diaristas", "Pagar diaristas"),
+        ("pagamentos-diaristas", "Diaristas"), ("programar-vtvr-dia", "Programar VT+VR do dia"), ("adicionar-vtvr-avulso", "VT+VR avulso"), ("pagar-diaristas", "Pagar diaristas"),
         ("pagar-boleto", "Pagar boleto"), ("enviar-pix", "PIX / Transferir"),
         ("transferir-ted", "TED"), ("pagar-darf", "DARF"), ("pagar-gps", "GPS / INSS"),
         ("cancelar-pagamento", "Cancelar pagto"), ("registrar-conta-pagar", "Registrar")]),
