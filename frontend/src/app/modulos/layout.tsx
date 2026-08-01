@@ -15,6 +15,7 @@ import { SearchTrigger } from '@/components/SearchTrigger';
 import { NotificationBell } from '@/features/notifications';
 import { QuickActions } from '@/components/QuickActions';
 import { WebSocketProvider, useWebSocketContext } from '@/components/WebSocketProvider';
+import FloatingChat from '@/components/redesign/FloatingChat';
 
 // Mapeamento de icones para modulos e submodulos
 const iconMap: Record<string, React.ElementType> = {
@@ -297,7 +298,7 @@ export default function ModulosLayout({
   // (fora dela, o useEffect acima já redirecionou p/ SELF_SERVICE_ROUTE.)
   if (isSelfService) {
     if (inSelfServiceArea) {
-      return <>{children}</>;
+      return <>{children}<FloatingChat /></>;
     }
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -701,6 +702,7 @@ export default function ModulosLayout({
             {children}
           </main>
         </div>
+        <FloatingChat />
       </div>
     </WebSocketProvider>
   );
