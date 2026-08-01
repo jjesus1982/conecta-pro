@@ -287,6 +287,12 @@ class TerminationService:
             termination.thirteenth_salary_amount = calc.get("decimo_terceiro_proporcional", 0)
             termination.fgts_amount = calc.get("multa_fgts_40", 0)
             termination.total_amount = calc.get("total_liquido", 0)
+            # Snapshot do calc COMPLETO no momento da finalização (aditivo): é o que foi
+            # homologado. O TRCT no chat renderiza SÓ daqui, nunca recalcula. JSON-safe
+            # (default=str) porque calc tem date (last_working_day) — o gerador lê a string ISO.
+            import json as _json
+
+            termination.verbas_snapshot = _json.loads(_json.dumps(calc, default=str))
 
         termination.status = TerminationStatus.COMPLETED
 

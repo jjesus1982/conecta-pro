@@ -95,6 +95,12 @@ class TerminationProcess(Base):
     # Documentos gerados
     documents_generated: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=dict)
 
+    # Snapshot das verbas rescisórias na FINALIZAÇÃO (o calc COMPLETO de calculate_severance,
+    # ~20 campos). Gravado UMA vez em complete_termination; é o que foi homologado. O chat/TRCT
+    # renderiza SÓ daqui — nunca recalcula (recalc deriva; mesma lição do holerite). NULL em
+    # rows legadas pré-snapshot → render recusa (fail-closed), nunca fabrica.
+    verbas_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
     # Auditoria
     created_by_id: Mapped[str | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

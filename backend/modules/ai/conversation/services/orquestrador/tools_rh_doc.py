@@ -360,3 +360,191 @@ register(ToolDef(
     "com as batidas REAIS apuradas pelo motor (prefere o FECHADO quando existe). Dado pessoal (LGPD): "
     "só DP/diretoria. Colaborador inexistente/ambíguo ou sem registro de ponto no período → recusa. Não grava.",
     _SCHEMA_ESPELHO_DP, _gerar_espelho_ponto_funcionario_doc, scope_kind="org"))
+
+
+# ─────────────────────────── TRCT / AVISO PRÉVIO (Fatia 10) ───────────────────────────
+# Mesma regra LGPD do holerite: self (identidade só do scope) + DP (gated, por nome).
+# TRCT = verbas PERSISTIDAS na finalização (verbas_snapshot). NUNCA recalcula — sem snapshot
+# → recusa (recalc deriva; lição do holerite). O caminho de render NÃO importa/chama
+# calculate_severance/clt_calculator. Aviso prévio sai direto do registro (sem verbas).
+
+
+def _notice_type(reason: str | None) -> str | None:
+    """Modalidade do aviso ('trabalhado'/'indenizado') do campo reason (formato 'notice_type:<v>')."""
+    if reason and reason.startswith("notice_type:"):
+        return reason.split("notice_type:", 1)[1].strip() or None
+    return None
+
+
+def _func_identidade(emp) -> dict[str, Any]:
+    """Só identidade do employees (nome/cpf/cargo/admissão) — os NÚMEROS vêm do snapshot."""
+    return {
+        "nome": getattr(emp, "nome", None),
+        "cpf": getattr(emp, "cpf", None),
+        "cargo": getattr(emp, "cargo", None),
+        "data_admissao": getattr(emp, "data_admissao", None),
+    }
+
+
+def _slug_emp(emp, term) -> str:
+    base = getattr(emp, "matricula", None) or getattr(emp, "nome", None) or str(getattr(term, "id", ""))[:8]
+    return "".join(c if c.isalnum() else "_" for c in str(base))[:30].strip("_") or "colaborador"
+
+
+def trct_pdf_de_termination(term, emp) -> bytes | None:
+    """PDF branded do TRCT a partir do verbas_snapshot PERSISTIDO. None se não há snapshot.
+
+    NUNCA recalcula: se `term.verbas_snapshot` vazio → None (o handler recusa). Só render.
+    """
+    snap = getattr(term, "verbas_snapshot", None)
+    if not snap:
+        return None
+    from modules.people_management.hr.services.trct_pdf import montar_trct_pdf
+    return montar_trct_pdf(snap, _func_identidade(emp), meta={
+        "termination_id": str(getattr(term, "id", "")),
+        "notice_type": _notice_type(getattr(term, "reason", None)),
+        "termination_type": getattr(term, "type", None),
+        "assinaturas": [],  # ponytail: bloco de autenticidade só no download oficial (assinatura)
+    })
+
+
+def aviso_previo_pdf_de_termination(term, emp) -> bytes:
+    """PDF branded do Aviso Prévio direto do registro (datas + modalidade) — sem verbas."""
+    from modules.people_management.hr.services.aviso_previo_pdf import montar_aviso_previo_pdf
+    return montar_aviso_previo_pdf({
+        "termination_id": str(getattr(term, "id", "")),
+        "employee_nome": getattr(emp, "nome", None),
+        "modalidade": _notice_type(getattr(term, "reason", None)),
+        "notice_start_date": getattr(term, "notice_start_date", None),
+        "notice_period_days": getattr(term, "notice_period_days", None),
+        "last_working_day": getattr(term, "last_working_day", None),
+        "assinaturas": [],
+    }, _func_identidade(emp))
+
+
+async def _resolve_termination(db, employee_id: str):
+    """A rescisão CONCLUÍDA (status='completed') mais recente do colaborador. None se não há."""
+    from modules.people_management.hr.models.termination import TerminationProcess
+    q = (select(TerminationProcess)
+         .where(cast(TerminationProcess.employee_id, String) == str(employee_id))
+         .where(TerminationProcess.status == "completed")
+         .order_by(TerminationProcess.created_at.desc()).limit(1))
+    return (await db.execute(q)).scalars().first()
+
+
+async def _meu_trct_doc(db, user, scope, **_) -> dict[str, Any]:  # noqa: ARG001
+    # LGPD: identidade SEMPRE do escopo — nunca argumento do LLM (schema sem employee_id).
+    emp_id = getattr(scope, "employee_id", None) if scope else None
+    if not emp_id:
+        return _recusa("você não tem vínculo de colaborador ativo; não há rescisão pra mostrar.")
+    term = await _resolve_termination(db, emp_id)
+    if term is None:
+        return _recusa("não encontrei rescisão concluída pra você; não há TRCT a mostrar.")
+    emp = await _resolve_emp(db, emp_id)
+    pdf = trct_pdf_de_termination(term, emp)
+    if pdf is None:
+        return _recusa("essa rescisão não tem registro de verbas homologadas — não recalculo nem invento.")
+    snap = term.verbas_snapshot or {}
+    return {
+        "arquivo_base64": base64.b64encode(pdf).decode(),
+        "nome": f"trct_{_slug_emp(emp, term)}.pdf",
+        "total_liquido": float(snap.get("total_liquido") or 0),
+        "resumo": (f"TRCT — {getattr(emp, 'nome', None) or 'colaborador'}: líquido "
+                   f"{_brl(snap.get('total_liquido'))} (verbas homologadas/persistidas, não recalculado)"),
+    }
+
+
+async def _gerar_trct_funcionario_doc(db, user, scope, *, funcionario=None, **_) -> dict[str, Any]:  # noqa: ARG001
+    _gate(user)
+    if not (funcionario and str(funcionario).strip()):
+        return _recusa("diga de quem é o TRCT (nome, CPF ou matrícula do colaborador).")
+    emp, recusa = await _resolve_funcionario(db, str(funcionario))
+    if recusa:
+        return recusa
+    term = await _resolve_termination(db, str(emp.id))
+    if term is None:
+        return _recusa(f"{emp.nome} não tem rescisão concluída; não há TRCT a mostrar.")
+    pdf = trct_pdf_de_termination(term, emp)
+    if pdf is None:
+        return _recusa(f"a rescisão de {emp.nome} não tem registro de verbas homologadas — não recalculo nem invento.")
+    snap = term.verbas_snapshot or {}
+    return {
+        "arquivo_base64": base64.b64encode(pdf).decode(),
+        "nome": f"trct_{_slug_emp(emp, term)}.pdf",
+        "total_liquido": float(snap.get("total_liquido") or 0),
+        "resumo": (f"TRCT — {emp.nome}: líquido {_brl(snap.get('total_liquido'))} "
+                   f"(verbas homologadas/persistidas, não recalculado) — doc de RH/DP (dado pessoal LGPD)"),
+    }
+
+
+async def _meu_aviso_previo_doc(db, user, scope, **_) -> dict[str, Any]:  # noqa: ARG001
+    emp_id = getattr(scope, "employee_id", None) if scope else None
+    if not emp_id:
+        return _recusa("você não tem vínculo de colaborador ativo; não há aviso prévio pra mostrar.")
+    term = await _resolve_termination(db, emp_id)
+    if term is None:
+        return _recusa("não encontrei rescisão concluída pra você; não há aviso prévio a mostrar.")
+    emp = await _resolve_emp(db, emp_id)
+    pdf = aviso_previo_pdf_de_termination(term, emp)
+    return {
+        "arquivo_base64": base64.b64encode(pdf).decode(),
+        "nome": f"aviso_previo_{_slug_emp(emp, term)}.pdf",
+        "resumo": f"Aviso prévio — {getattr(emp, 'nome', None) or 'colaborador'} (do registro da rescisão)",
+    }
+
+
+async def _gerar_aviso_previo_funcionario_doc(db, user, scope, *, funcionario=None, **_) -> dict[str, Any]:  # noqa: ARG001
+    _gate(user)
+    if not (funcionario and str(funcionario).strip()):
+        return _recusa("diga de quem é o aviso prévio (nome, CPF ou matrícula do colaborador).")
+    emp, recusa = await _resolve_funcionario(db, str(funcionario))
+    if recusa:
+        return recusa
+    term = await _resolve_termination(db, str(emp.id))
+    if term is None:
+        return _recusa(f"{emp.nome} não tem rescisão concluída; não há aviso prévio a mostrar.")
+    pdf = aviso_previo_pdf_de_termination(term, emp)
+    return {
+        "arquivo_base64": base64.b64encode(pdf).decode(),
+        "nome": f"aviso_previo_{_slug_emp(emp, term)}.pdf",
+        "resumo": f"Aviso prévio — {emp.nome} (do registro da rescisão) — doc de RH/DP (dado pessoal LGPD)",
+    }
+
+
+_SCHEMA_TRCT_DP = {
+    "type": "object",
+    "properties": {
+        "funcionario": {"type": "string", "description": "Colaborador: nome, CPF ou matrícula (obrigatório)."},
+    },
+    "required": ["funcionario"],
+}
+
+# self: schema SEM employee_id (LGPD — identidade só do scope, nunca do LLM).
+RH_SELF_TOOLS.append(
+    register(ToolDef(
+        "meu_trct_doc", "self",
+        "Gera o MEU TRCT (Termo de Rescisão) em PDF branded — só do próprio usuário logado, com as "
+        "verbas HOMOLOGADAS na finalização (persistidas), nunca recalculadas. Sem rescisão concluída "
+        "ou sem registro de verbas → recusa (não inventa/recalcula).",
+        {"type": "object", "properties": {}, "required": []}, _meu_trct_doc, scope_kind="self")))
+
+RH_SELF_TOOLS.append(
+    register(ToolDef(
+        "meu_aviso_previo_doc", "self",
+        "Gera o MEU aviso prévio em PDF branded (Lei 12.506/2011) — só do próprio usuário logado, "
+        "direto do registro da rescisão (datas/modalidade). Sem rescisão concluída → recusa.",
+        {"type": "object", "properties": {}, "required": []}, _meu_aviso_previo_doc, scope_kind="self")))
+
+register(ToolDef(
+    "gerar_trct_funcionario_doc", "dp",
+    "Gera o TRCT (Termo de Rescisão) de UM COLABORADOR (por nome, CPF ou matrícula) em PDF branded, "
+    "com as verbas HOMOLOGADAS na finalização (persistidas), NUNCA recalculadas. Dado pessoal (LGPD): "
+    "só DP/diretoria. Sem rescisão concluída ou sem registro de verbas → recusa. Não grava.",
+    _SCHEMA_TRCT_DP, _gerar_trct_funcionario_doc, scope_kind="org"))
+
+register(ToolDef(
+    "gerar_aviso_previo_funcionario_doc", "dp",
+    "Gera o aviso prévio de UM COLABORADOR (por nome, CPF ou matrícula) em PDF branded (Lei 12.506/2011), "
+    "direto do registro da rescisão. Dado pessoal (LGPD): só DP/diretoria. Sem rescisão concluída → recusa. "
+    "Não grava.",
+    _SCHEMA_TRCT_DP, _gerar_aviso_previo_funcionario_doc, scope_kind="org"))
