@@ -54,7 +54,7 @@ async def casar_notas_banco(db, inicio: str, fim: str, persistir: bool = False) 
         "coalesce(empresa_id::text,'') FROM nfse_emitidas_nacional "
         "WHERE data_emissao BETWEEN :a AND :b AND coalesce(valor_liquido,0)>0 "
         "AND coalesce(cancelada, false) = false "  # notas canceladas não entram na conciliação
-        "ORDER BY valor_liquido DESC"), {"a": di, "b": df})).fetchall()
+        "ORDER BY data_emissao, valor_liquido DESC"), {"a": di, "b": df})).fetchall()
     # INTER: as duas fontes são COMPLEMENTARES (nenhuma sozinha é completa) — bank_transactions
     # tem o histórico (mar-jun), inter_transactions tem o recente/fresco (jul). União deduplicada
     # por (data, valor). CORA: bank_transactions (403).
@@ -104,7 +104,10 @@ async def casar_notas_banco(db, inicio: str, fim: str, persistir: bool = False) 
             if c["used"] or not _na_janela(c):
                 continue
             diff = min(abs(c["amt"] - a) for a in alvos)
-            if diff <= _TOL_EXATO and (best is None or diff < best[1]):
+            # empate de valor (ex.: 4 notas de R$25.336,79) -> fica o crédito MAIS ANTIGO:
+            # sem isso o casamento é arbitrário e sobra nota órfã mesmo com o pagamento na conta.
+            if diff <= _TOL_EXATO and (best is None or diff < best[1]
+                                       or (diff == best[1] and c["date"] < best[0]["date"])):
                 best = (c, diff)
         if best:
             best[0]["used"] = True
