@@ -1,6 +1,8 @@
 """Service eSocial — Geração de eventos XML (S-2200, S-2299 e eventos SST).
 
-Gera XMLs compatíveis com o layout eSocial S-1.2 (namespaces v_S_01_02_00)
+Gera XMLs compatíveis com o layout eSocial S-1.3 (namespaces v_S_01_03_00) — versão CONFIRMADA contra os XMLs
+aceitos pelo governo no espelho (S-1200/S-1210/S-2200/S-2210/S-2230/S-3000 todos v_S_01_03_00).
+O S-2220 estava em v_S_01_02_00 e o governo devolveu 403 "Leiaute do evento inválido"
 para transmissão ao governo.
 
 Eventos SST cobertos:
@@ -54,13 +56,13 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 
 logger = logging.getLogger(__name__)
 
-ESOCIAL_NAMESPACE = "http://www.esocial.gov.br/schema/evt/evtAdmissao/v_S_01_02_00"
+ESOCIAL_NAMESPACE = "http://www.esocial.gov.br/schema/evt/evtAdmissao/v_S_01_03_00"
 
 # Namespaces dos eventos SST (mesmo padrão/versão de layout do S-2200)
-NS_S2210 = "http://www.esocial.gov.br/schema/evt/evtCAT/v_S_01_02_00"
-NS_S2220 = "http://www.esocial.gov.br/schema/evt/evtMonit/v_S_01_02_00"
-NS_S2230 = "http://www.esocial.gov.br/schema/evt/evtAfastTemp/v_S_01_02_00"
-NS_S2240 = "http://www.esocial.gov.br/schema/evt/evtExpRisco/v_S_01_02_00"
+NS_S2210 = "http://www.esocial.gov.br/schema/evt/evtCAT/v_S_01_03_00"
+NS_S2220 = "http://www.esocial.gov.br/schema/evt/evtMonit/v_S_01_03_00"
+NS_S2230 = "http://www.esocial.gov.br/schema/evt/evtAfastTemp/v_S_01_03_00"
+NS_S2240 = "http://www.esocial.gov.br/schema/evt/evtExpRisco/v_S_01_03_00"
 
 # Mapeamentos determinísticos (tabelas do leiaute eSocial)
 TP_ACIDENTE = {"tipico": "1", "doenca": "2", "trajeto": "3"}  # S-2210 tpAcid
@@ -337,7 +339,7 @@ class ESocialEventService:
         verbas_rescisorias: list[dict[str, Any]] | None = None,
     ) -> str:
         """Gera XML do evento S-2299 (Desligamento)."""
-        ns = "http://www.esocial.gov.br/schema/evt/evtDeslig/v_S_01_02_00"
+        ns = "http://www.esocial.gov.br/schema/evt/evtDeslig/v_S_01_03_00"
         root = Element("eSocial", xmlns=ns)
         evt = SubElement(root, "evtDeslig")
 
@@ -615,6 +617,13 @@ class ESocialEventService:
         ini = SubElement(info, "iniAfastamento")
         SubElement(ini, "dtIniAfast").text = _data_iso(_field(afastamento, "data_inicio"))
         SubElement(ini, "codMotAfast").text = cod_mot
+        # infoMesmoMtv é OBRIGATÓRIO e vinha FALTANDO — o evento aceito pelo governo
+        # (espelho, S-2230 v_S_01_03_00) traz <infoMesmoMtv>N</infoMesmoMtv> logo após
+        # codMotAfast. Indica se é continuação de afastamento anterior pelo MESMO motivo
+        # (regra dos 60 dias, art. 75 Dec. 3.048). Quem sabe disso é o registro: só marca
+        # 'S' se o próprio afastamento estiver explicitamente encadeado — nunca presume.
+        mesmo_mtv = _field(afastamento, "mesmo_motivo_anterior")
+        SubElement(ini, "infoMesmoMtv").text = "S" if mesmo_mtv else "N"
         motivo = _field(afastamento, "motivo")
         if motivo:
             SubElement(ini, "observacao").text = str(motivo)[:255]
