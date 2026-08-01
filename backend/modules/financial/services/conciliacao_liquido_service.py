@@ -153,6 +153,19 @@ async def casar_notas_banco(db, inicio: str, fim: str, persistir: bool = False) 
                 {"nota": f" | conciliado por liquido c/ NFS-e {m['chave'] or '-'} ({m['cliente']}) R$ {m['liquido']:.2f}",
                  "cid": m["credito_id"]})
             aplicados += r.rowcount or 0
+            # BAIXA no razão: D Banco / C Clientes a Receber. Sem isso, "Clientes a Receber"
+            # só cresce (as notas entram, os recebimentos nunca saem) e o saldo mente.
+            # Idempotente por documento_ref; Cora->1.1.1.02, Inter->1.1.1.01.
+            await db.execute(text(
+                "INSERT INTO accounting_entries (data_lancamento, conta_debito, conta_credito, valor, "
+                " historico, tipo_lancamento, documento_ref, periodo_competencia, status, empresa_id, bank_transaction_id) "
+                "SELECT CAST(:dt AS date), :banco_cta, '1.1.2.01', :valor, :hist, 'baixa_recebimento', CAST(:ref AS varchar), :per, 'confirmado', "
+                "       (SELECT empresa_id FROM nfse_emitidas_nacional WHERE chave_acesso=:chave LIMIT 1), CAST(:cid AS uuid) "
+                "WHERE NOT EXISTS (SELECT 1 FROM accounting_entries WHERE documento_ref = :ref)"),
+                {"dt": date.fromisoformat(str(m["credito_data"])[:10]), "banco_cta": "1.1.1.02" if m.get("banco") == "Cora" else "1.1.1.01",
+                 "valor": m["credito_valor"], "hist": f"Baixa recebimento {m['cliente']} — NFS-e {m['chave'] or '-'}"[:250],
+                 "ref": f"baixa-liq:{m['credito_id']}", "per": str(m["credito_data"])[:7],
+                 "chave": m["chave"], "cid": m["credito_id"]})
         await db.commit()
 
     val_cas = sum(m["liquido"] for m in casados)
