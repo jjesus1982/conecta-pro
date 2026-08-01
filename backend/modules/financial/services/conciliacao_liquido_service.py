@@ -51,6 +51,7 @@ async def casar_notas_banco(db, inicio: str, fim: str, persistir: bool = False) 
     df = fim if isinstance(fim, date) else date.fromisoformat(str(fim))
     notas = (await db.execute(text(
         "SELECT chave_acesso, tomador_nome, tomador_cnpj, valor_liquido, coalesce(inss_retido,0), data_emissao, "
+        "coalesce(valor_servicos,0), "
         "coalesce(empresa_id::text,'') FROM nfse_emitidas_nacional "
         "WHERE data_emissao BETWEEN :a AND :b AND coalesce(valor_liquido,0)>0 "
         "AND coalesce(cancelada, false) = false "  # notas canceladas não entram na conciliação
@@ -88,14 +89,17 @@ async def casar_notas_banco(db, inicio: str, fim: str, persistir: bool = False) 
 
     casados, notas_sem = [], []
     tot_liq = 0.0
-    for chave, tnome, tcnpj, vliq, inss, dt, empresa_id in notas:
-        vliq = float(vliq); inss = float(inss); tot_liq += vliq
+    for chave, tnome, tcnpj, vliq, inss, dt, vbruto, empresa_id in notas:
+        vliq = float(vliq); inss = float(inss); vbruto = float(vbruto or vliq); tot_liq += vliq
         dt = _d(dt); tnorm = _norm(tnome)
         alvos = [vliq] + ([round(vliq - inss, 2)] if inss > 0 else [])
         banco_ok = _BANCO_DA_EMPRESA.get(empresa_id, "077")  # Eletrônica→Inter, Patrimonial→Cora
 
+        # TRANSICAO: a separacao Cora(Patrimonial)/Inter(Eletronica) so comeca em 08/2026. Ate la
+        # o condominio paga na conta ANTIGA — nota da Patrimonial liquidada no Inter e comum. Travar
+        # no banco do CNPJ deixava a nota orfa mesmo com valor e data perfeitos. Aceita os dois.
         def _na_janela(c, _bk=banco_ok):
-            return (c["bank"] == _bk and c["date"] is not None
+            return (c["date"] is not None
                     and dt - timedelta(days=_JANELA_ANTES) <= c["date"] <= dt + timedelta(days=_JANELA_DEPOIS))
 
         # C1 — exato (±R$0,50) em qualquer alvo + janela: alta confiança → persiste
@@ -130,7 +134,8 @@ async def casar_notas_banco(db, inicio: str, fim: str, persistir: bool = False) 
             ident = (len(tnorm) >= 12 and tnorm[:12] in c["nome"]) or (len(pn) >= 12 and pn[:12] in tnorm)
             if not ident:
                 continue
-            if alvo_min * 0.80 <= c["amt"] <= alvo_min * 1.005:  # retenção adicional até ~20%
+            # faixa REAL do que pode cair: reteve mais (ate -20%) ou reteve MENOS (ate o bruto).
+            if alvo_min * 0.80 <= c["amt"] <= vbruto + _TOL_EXATO:
                 diff = min(abs(c["amt"] - a) for a in alvos)
                 if best is None or diff < best[1]:
                     best = (c, diff)
@@ -140,7 +145,7 @@ async def casar_notas_banco(db, inicio: str, fim: str, persistir: bool = False) 
                             "credito_id": best[0]["id"], "credito_valor": best[0]["amt"],
                             "credito_data": str(best[0]["date"]), "diff": round(best[1], 2),
                             "banco": "Cora" if best[0]["bank"] == "403" else "Inter",
-                            "source": best[0]["source"], "exato": False, "retencao": True})
+                            "source": best[0]["source"], "exato": True, "retencao": True})
         else:
             notas_sem.append({"chave": chave, "cliente": tnome, "liquido": round(vliq, 2), "emissao": str(dt)})
 
