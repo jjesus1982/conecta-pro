@@ -1474,8 +1474,8 @@ async def _rd_marcar_pago_externo(current_user: CurrentActiveUser, payload: dict
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="Informe o ID do pagamento (da aba Diaristas).")
     obs = (payload.get("observacao") or "").strip()
-    r = await _svc.marcar_pago_externo(db, pagamento_id=pid, observacao=obs or "pago por fora",
-                                       user_id=str(getattr(current_user, "id", "")))
+    r = await _svc.marcar_pago_externo(db, pagamento_id=pid,
+                                       user_nome=(obs or "pago por fora")[:120])
     if isinstance(r, dict) and r.get("ok") is False:
         raise HTTPException(status_code=400, detail=r.get("mensagem") or "Não foi possível marcar.")
     return {"ok": True, "message": f"Pagamento {pid} marcado como pago por fora — não entra mais no lote."}
