@@ -838,6 +838,20 @@ ORDER BY b.comp DESC, b.cnpj"""
         t(brl(r[3]) if r[3] is not None else "—", 600),
         b("sem PIX" if r[4] == "sem_pix" else "a revisar", "bad" if r[4] == "sem_pix" else "warn"),
     ]} for r in _dia]
+    # Total POR DIA de pagamento — o Jordan paga o VT/VR no dia e as diárias no dia 15,
+    # entao ele precisa ver "quanto sai no dia X", nao so o total geral.
+    _por_dia: dict = {}
+    for r in _dia:
+        if r[4] != "a_revisar":
+            continue
+        k = r[0]
+        d = _por_dia.setdefault(k, {"vt": 0.0, "di": 0.0, "n": 0})
+        d["n"] += 1
+        d["vt" if r[2] == "vt_vr" else "di"] += float(r[3] or 0)
+    _linhas_dia = [{"left": f"{_fmtdate(k)} — {v['n']} item(ns)",
+                    "right": brl(v["vt"] + v["di"]),
+                    **S["ok" if v["di"] else "info"]}
+                   for k, v in sorted(_por_dia.items(), key=lambda x: str(x[0]), reverse=True)][:8]
     _tot_vt = sum(float(r[3] or 0) for r in _dia if r[2] == "vt_vr" and r[4] == "a_revisar")
     _tot_di = sum(float(r[3] or 0) for r in _dia if r[2] == "diaria_mensal" and r[4] == "a_revisar")
     out["pagamentos-diaristas"] = {
@@ -849,8 +863,10 @@ ORDER BY b.comp DESC, b.cnpj"""
         "cols": ["Data", "Diarista", "Tipo", "Valor", "Status"],
         "rows": _dcells or [{"cells": [t("Nada pendente"), t("—"), t("—"), t("—"), t("—")]}],
         "filterCol": 0, "filterLabel": "Dia",
-        "panelGrid": "1fr 1fr",
+        "panelGrid": "1fr 1fr 1fr",
         "panels": [
+            {"title": "A pagar POR DIA (o que sai em cada data)",
+             "rows": _linhas_dia or [{"left": "Nada pendente", "right": brl(0), **S["mut"]}]},
             {"title": "Total pendente (a_revisar)", "rows": [
                 {"left": "VT/VR", "right": brl(_tot_vt), **S["info"]},
                 {"left": "Diária mensal", "right": brl(_tot_di), **S["ok"]}]},
