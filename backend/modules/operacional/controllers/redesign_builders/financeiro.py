@@ -823,6 +823,11 @@ ORDER BY b.comp DESC, b.cnpj"""
         "fields": [
             {"key": "mes", "label": "Mês* (1-12)", "type": "text", "span": "span 1", "ph": "7"},
             {"key": "ano", "label": "Ano*", "type": "text", "span": "span 1", "ph": "2026"},
+            # A folha CLT é da PATRIMONIAL desde 06/2026 → Cora é o padrão.
+            {"key": "origem", "label": "Banco", "type": "select", "span": "span 2",
+             "ph": "Cora — Patrimonial (padrão da folha CLT)",
+             "options": [{"value": "cora", "label": "Cora — Patrimonial (padrão: a folha CLT é da Patrimonial)"},
+                         {"value": "inter", "label": "Inter — Eletrônica (só se for exceção)"}]},
         ],
     }
     # Lote de diaristas a pagar (VT/VR + diária) — a aba "Diaristas" estava vazia (sem builder),
@@ -896,7 +901,7 @@ ORDER BY b.comp DESC, b.cnpj"""
         ],
     }
     out["pagar-folha-clt"] = {
-        "title": "Pagar folha CLT (Inter)",
+        "title": "Pagar folha CLT",
         "sub": "Dinheiro que SAI — paga o LÍQUIDO dos funcionários CLT via PIX (chave PIX cadastrada). "
                "2 etapas: gera o código OTP (e-mail ao Jordan) e só paga ao confirmar. Nunca dispara sozinho. Teto R$100k.",
         "cta": "Gerar código de pagamento", "type": "form",
@@ -1243,12 +1248,43 @@ async def _rd_pagar_diaristas(current_user: CurrentActiveUser, payload: dict = B
     return {"ok": True, "message": f"Lote pago: {r.get('pagos', 0)} pago(s), {r.get('falhas', 0)} falha(s)."}
 
 
+async def _rd_folha_clt_cora(db, payload: dict) -> dict:
+    """Folha CLT pela CORA: a API do Cora NÃO envia PIX por chave, então em vez de fingir
+    pagamento devolve o RESUMO real (quantos, total, quantos sem PIX). Nunca simula liquidação."""
+    try:
+        mes = int(str(payload.get("mes") or "").strip()); ano = int(str(payload.get("ano") or "").strip())
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Informe mês (1-12) e ano.")
+    comp = f"{ano:04d}-{mes:02d}"
+    row = (await db.execute(text(
+        "SELECT count(*) FILTER (WHERE coalesce(e.pix_key,'') <> ''), "
+        "       coalesce(round(sum(CASE WHEN coalesce(e.pix_key,'') <> '' "
+        "               THEN p.total_earnings - p.total_deductions ELSE 0 END)::numeric,2),0), "
+        "       count(*) FILTER (WHERE coalesce(e.pix_key,'') = ''), "
+        "       coalesce(round(sum(p.total_earnings - p.total_deductions)::numeric,2),0) "
+        "FROM hr_payslips p JOIN employees e ON e.id = p.employee_id "
+        "WHERE to_char(p.competence_start,'YYYY-MM') = :c "
+        "  AND coalesce(e.is_homologacao,false) = false"), {"c": comp})).first()
+    if not row or not row[3]:
+        return {"ok": True, "message": f"Folha {mes:02d}/{ano} não encontrada (nenhum holerite na competência)."}
+    com_pix, tot_pix, sem_pix, tot_geral = int(row[0] or 0), float(row[1] or 0), int(row[2] or 0), float(row[3] or 0)
+    aviso = (f" ATENÇÃO: {sem_pix} funcionário(s) SEM chave PIX — some(m) {brl(tot_geral - tot_pix)} "
+             "e não entram na lista até cadastrar a chave.") if sem_pix else ""
+    return {"ok": True, "message": (
+        f"CORA — folha {mes:02d}/{ano}: {com_pix} pagamento(s), total {brl(tot_pix)}. "
+        f"O Cora não envia PIX por chave: conclua no app do Cora. A lista (nome + chave + líquido) "
+        f"está em DP → Holerites.{aviso}")}
+
+
 @router.post("/action/pagar-folha-clt", dependencies=[Depends(_require_financeiro_dep)])
 async def _rd_pagar_folha_clt(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
     """Pagar a FOLHA CLT (líquido dos funcionários) via PIX Inter — DINHEIRO QUE SAI.
     2 fases + OTP humano (mesmo gate do lote de diaristas): sem otp_code → gera o código
     (e-mail ao Jordan); com otp_code → paga real. Reusa os endpoints provados
     /folha/pagar-via-pix (gerar-otp + pagar). Sem OTP válido, nada é pago. Teto R$100k aplicado."""
+    origem = (payload.get("origem") or "cora").strip().lower()
+    if origem == "cora":
+        return await _rd_folha_clt_cora(db, payload)
     from modules.people_management.employee_portal.controllers.dp_payslips_controller import (
         gerar_otp_pagamento_folha, pagar_folha_via_pix,
     )
