@@ -860,8 +860,11 @@ ORDER BY b.comp DESC, b.cnpj"""
         ],
     }
     out["pagar-diaristas"] = {
-        "title": "Pagar diaristas (Inter)",
-        "sub": "Dinheiro que SAI — 2 etapas: gera o código OTP (e-mail ao Jordan) e só paga ao confirmar. Nunca dispara sozinho. Paga o lote 'a_revisar' do dia.",
+        "title": "Pagar diaristas",
+        "originField": True,
+        "sub": "Dinheiro que SAI. Escolha o banco: pelo INTER o sistema paga direto (2 etapas com OTP). "
+               "Pela CORA a API não envia PIX por chave — o sistema devolve a lista para você concluir no "
+               "app do Cora e depois marcar em 'Pago por fora'. Paga o lote 'a_revisar' do dia.",
         "cta": "Gerar código de pagamento", "type": "form",
         "submit": {"endpoint": "/api/v1/redesign/action/pagar-diaristas", "gated": True,
                    "confirm": "Isto vai PAGAR o lote de diaristas (Inter) do dia via PIX. Gerar o código OTP para o Jordan confirmar?",
@@ -1178,6 +1181,22 @@ async def _rd_pagar_diaristas(current_user: CurrentActiveUser, payload: dict = B
     data = (payload.get("data") or "").strip()
     if not data or len(data) < 8:
         raise HTTPException(status_code=400, detail="Informe a data (AAAA-MM-DD) do lote.")
+    origem = (payload.get("origem") or "inter").strip().lower()
+    if origem == "cora":
+        # O Cora NAO envia PIX por chave (limitacao da API do proprio banco). Em vez de fingir que
+        # pagou, devolve a LISTA pro Jordan concluir no app — e depois marcar em 'Pago por fora'.
+        itens = (await db.execute(text(
+            "SELECT beneficiario, coalesce(pix_key,'(sem PIX)'), valor FROM financial_pagamentos_diaristas "
+            "WHERE data_referencia = CAST(:d AS date) AND status='a_revisar' ORDER BY beneficiario"),
+            {"d": _rd_parse_data(data) or data})).fetchall()
+        if not itens:
+            return {"ok": True, "message": f"Nada a pagar em {data} (nenhum item 'a revisar')."}
+        total = sum(float(i[2] or 0) for i in itens)
+        linhas = " · ".join(f"{i[0]}: {i[1]} = {brl(float(i[2] or 0))}" for i in itens[:12])
+        return {"ok": True, "message": (
+            f"CORA — {len(itens)} pagamento(s), total {brl(total)}. O Cora não envia PIX por chave: "
+            f"conclua no app do Cora e depois registre em 'Pago por fora'. Lista: {linhas}"
+            + (" …" if len(itens) > 12 else ""))}
     otp_code = (payload.get("otp_code") or "").strip()
     lote_id = (payload.get("_gate_ref") or "").strip()
     if not otp_code:
