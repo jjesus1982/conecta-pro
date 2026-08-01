@@ -64,6 +64,34 @@ async def rd_action_ponto_ajuste(
         "ajustado_por": str(current_user.id),  # identidade real do usuário logado
     })
     return {"ok": True, "resultado": res, "message": "Ajuste de ponto registrado"}
+
+
+@router.post("/action/folha-apontamento")
+async def rd_action_folha_apontamento(
+    current_user: CurrentActiveUser,
+    payload: dict = Body(...),
+    db=Depends(get_sync_db_dependency),
+) -> dict:
+    """Apontamento de NÃO CONFORMIDADE numa folha (pré-fechamento). NÃO fecha nem paga —
+    só registra o motivo (com a identidade real do autor) em `contest_reason`+`contested_at`,
+    SEM mudar o status (não interfere no fechamento do Jordan/Pyetra). Reutiliza os campos de
+    contestação da folha. Quem fecha (Jordan/Pyetra) vê o apontamento e resolve antes."""
+    from sqlalchemy import text as _t
+    pid = (payload.get("payslip_id") or "").strip()
+    motivo = (payload.get("motivo") or "").strip()
+    if not pid:
+        raise HTTPException(status_code=422, detail="Selecione a folha (colaborador/competência).")
+    if len(motivo) < 5:
+        raise HTTPException(status_code=422, detail="O apontamento precisa de ao menos 5 caracteres.")
+    autor = getattr(current_user, "name", None) or getattr(current_user, "email", None) or str(current_user.id)
+    r = db.execute(_t(
+        "UPDATE hr_payslips SET contest_reason = :m, contested_at = now() "
+        "WHERE id::text = :i AND status::text IN ('draft','published')"),
+        {"m": f"[{autor}] {motivo}", "i": pid})
+    db.commit()
+    if getattr(r, "rowcount", 0) == 0:
+        raise HTTPException(status_code=400, detail="Folha não encontrada ou não elegível para apontamento.")
+    return {"ok": True, "message": "Apontamento registrado na folha (não conformidade)"}
 # Item de nav da tela de ação "Aviso prévio de férias" (form → gera doc). É SOMADO ao EXTRA_MENU
 # global do slug (redesign_data_controller._discover_module_builders), sem tocar a fundação.
 EXTRA_MENU: list[dict] = [
@@ -73,6 +101,10 @@ EXTRA_MENU: list[dict] = [
      "icon": "M9 7h6M9 11h6M9 15h4M5 3h14a1 1 0 0 1 1 1v16H4V4a1 1 0 0 1 1-1z"},
     {"id": "fechar-mes-ponto", "label": "Fechar mês (ponto)",
      "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
+    {"id": "folha-nao-conformidades", "label": "Não conformidades (folha)",
+     "icon": "M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h16.9a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01"},
+    {"id": "folha-apontamento", "label": "Apontar folha",
+     "icon": "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"},
     {"id": "importar-cadastro", "label": "Importar cadastro (CSV)",
      "icon": "M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"},
     {"id": "nova-admissao", "label": "Nova admissão",
@@ -462,6 +494,40 @@ async def build(db) -> dict:
                 doc("Folha consolidada (PDF)", f"/api/v1/people-management/folha/{_m}/{_a}/pdf", fmt="pdf", gate="financeiro"),
                 doc("Export Domínio (TXT)", f"/api/v1/people-management/hr/payroll-export/dominio/{_a}-{_m:02d}", fmt="txt", gate="financeiro"),
             ]
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
+    # Não conformidades da folha — folhas com apontamento (contest_reason). Pré-fechamento; leitura.
+    await safe("folha-nao-conformidades", tbl(
+        "Não conformidades da folha", "Apontamentos pré-fechamento — quem fecha (Jordan/Pyetra) resolve antes", "—",
+        ["Competência", "Colaborador", "Líquido", "Status", "Apontamento", "Registrado"],
+        "0.9fr 1.7fr 1fr 0.9fr 2.4fr 1fr",
+        "SELECT to_char(make_date(p.reference_year,p.reference_month,1),'MM/YYYY'), coalesce(e.nome,'—'), "
+        "p.net_salary, p.status::text, p.contest_reason, p.contested_at "
+        "FROM hr_payslips p LEFT JOIN employees e ON e.id=p.employee_id "
+        "WHERE p.contest_reason IS NOT NULL ORDER BY p.contested_at DESC NULLS LAST LIMIT 300",
+        lambda r: [t(r[0], 600, _ND), t(r[1] or "—", 600, _ND, initials(r[1] or "")), t(brl(r[2])),
+                   _folha_status(r[3]), t((r[4] or "—")[:120]), t(str(r[5])[:16] if r[5] else "—")]))
+
+    # Form "Apontar folha" — seleciona folha (draft/published) + motivo → /action/folha-apontamento
+    try:
+        from sqlalchemy import text as _sqltext_ap
+        _ps = (await db.execute(_sqltext_ap(
+            "SELECT CAST(p.id AS TEXT), to_char(make_date(p.reference_year,p.reference_month,1),'MM/YYYY'), "
+            "coalesce(e.nome,'—'), p.net_salary FROM hr_payslips p LEFT JOIN employees e ON e.id=p.employee_id "
+            "WHERE p.status::text IN ('draft','published') ORDER BY p.reference_year DESC, p.reference_month DESC, e.nome LIMIT 500"))).fetchall()
+        out["folha-apontamento"] = {
+            "title": "Apontar folha (não conformidade)", "sub": "Registra um apontamento pré-fechamento — não fecha nem paga",
+            "cta": "Registrar apontamento", "type": "form",
+            "submit": {"endpoint": "/api/v1/redesign/action/folha-apontamento", "okMsg": "Apontamento registrado"},
+            "fields": [
+                {"key": "payslip_id", "label": "Folha (competência · colaborador)*", "type": "select", "span": "span 2", "ph": "Selecione",
+                 "options": [{"value": i, "label": f"{c} · {n} · {brl(v)}"} for i, c, n, v in _ps]},
+                {"key": "motivo", "label": "Apontamento (não conformidade)*", "type": "textarea", "span": "span 2",
+                 "ph": "Descreva a divergência (mín. 5 caracteres)…"}]}
     except Exception:
         try:
             await db.rollback()
