@@ -40,6 +40,16 @@ def _chat_kwargs(model: str, max_tokens: int, temperature: float = 0.2) -> dict[
     return {"max_tokens": max_tokens, "temperature": temperature}
 
 
+def _extrair_documentos(tool_results: list[Any]) -> list[dict[str, Any]]:
+    """Coleta os artefatos de documento (gera-doc) dos retornos das tools: só dicts
+    com arquivo_base64 E nome (recusa/erro não viram documento)."""
+    return [
+        {"nome": r["nome"], "arquivo_base64": r["arquivo_base64"], "resumo": r.get("resumo", "")}
+        for r in tool_results
+        if isinstance(r, dict) and r.get("arquivo_base64") and r.get("nome")
+    ]
+
+
 @dataclass
 class OrqScope:
     tier: str  # "gestor" | "lider" | "clt" | "cliente"
@@ -160,4 +170,5 @@ async def run_engine(
         "resposta": resposta or "(sem resposta)",
         "provider": provider, "modelo": model, "grounded": grounded,
         "flags": flags, "origem": origem, "tier": scope.tier, "disclaimer": _DISCLAIMER,
+        "documentos": _extrair_documentos(tool_results),
     }

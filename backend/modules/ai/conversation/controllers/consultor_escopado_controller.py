@@ -131,3 +131,31 @@ async def consultar(
         db, user, scope, tools, pergunta,
         system_prompt=system_prompt, origem="consultor_escopado",
     )
+
+
+@router.post("/executar")
+async def executar(
+    payload: ConsultarIn,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_active_user),
+):
+    """Chat que ENTREGA documentos, para TODOS (admin incluso). Sem o desvio p/ Hermes:
+    admin/gestor recebe as tools org-wide de todos os módulos (inclui os gera-doc), cada
+    tool ainda aplica seu próprio gate/RBAC pela identidade real. O return traz `documentos`."""
+    pergunta = payload.pergunta.strip()
+    scope, tools = await _resolver_tier_e_tools(db, user)
+
+    from modules.ai.conversation.services.consultor_conhecimento_service import contexto_para_prompt
+    _MODULO_AGENTE = {
+        "financeiro": "cfo", "fiscal": "fiscal", "juridico": "juridico",
+        "ged": "ged", "crm": "comercial", "operacional": "operacional", "dp": "chro",
+    }
+    mods = user_modules(user)
+    system_prompt = _SYSTEM_BASE
+    for agente in list({_MODULO_AGENTE[m] for m in mods if m in _MODULO_AGENTE})[:2]:
+        system_prompt += contexto_para_prompt(agente, pergunta)
+
+    return await run_engine(
+        db, user, scope, tools, pergunta,
+        system_prompt=system_prompt, origem="consultor_executar",
+    )
