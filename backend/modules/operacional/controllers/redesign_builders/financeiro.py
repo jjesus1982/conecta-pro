@@ -878,7 +878,6 @@ ORDER BY b.comp DESC, b.cnpj"""
     }
     out["pagar-diaristas"] = {
         "title": "Pagar diaristas",
-        "originField": True,
         "sub": "Dinheiro que SAI. Escolha o banco: pelo INTER o sistema paga direto (2 etapas com OTP). "
                "Pela CORA a API não envia PIX por chave — o sistema devolve a lista para você concluir no "
                "app do Cora e depois marcar em 'Pago por fora'. Paga o lote 'a_revisar' do dia.",
@@ -887,7 +886,13 @@ ORDER BY b.comp DESC, b.cnpj"""
                    "confirm": "Isto vai PAGAR o lote de diaristas (Inter) do dia via PIX. Gerar o código OTP para o Jordan confirmar?",
                    "okMsg": "Lote processado."},
         "fields": [
-            {"key": "data", "label": "Data* (AAAA-MM-DD)", "type": "date", "span": "span 2"},
+            {"key": "data", "label": "Data* (AAAA-MM-DD)", "type": "date", "span": "span 1"},
+            # Diarista é prestador da PATRIMONIAL → Cora é o padrão (regra do Jordan:
+            # Eletrônica paga pelo Inter, Patrimonial paga pela Cora).
+            {"key": "origem", "label": "Banco", "type": "select", "span": "span 1",
+             "ph": "Cora — Patrimonial (padrão dos diaristas)",
+             "options": [{"value": "cora", "label": "Cora — Patrimonial (padrão: diaristas são da Patrimonial)"},
+                         {"value": "inter", "label": "Inter — Eletrônica (só se for exceção)"}]},
         ],
     }
     out["pagar-folha-clt"] = {
@@ -1198,7 +1203,8 @@ async def _rd_pagar_diaristas(current_user: CurrentActiveUser, payload: dict = B
     data = (payload.get("data") or "").strip()
     if not data or len(data) < 8:
         raise HTTPException(status_code=400, detail="Informe a data (AAAA-MM-DD) do lote.")
-    origem = (payload.get("origem") or "inter").strip().lower()
+    # padrão CORA: diarista é prestador da Patrimonial, e a Patrimonial paga pela Cora.
+    origem = (payload.get("origem") or "cora").strip().lower()
     if origem == "cora":
         # O Cora NAO envia PIX por chave (limitacao da API do proprio banco). Em vez de fingir que
         # pagou, devolve a LISTA pro Jordan concluir no app — e depois marcar em 'Pago por fora'.
