@@ -1457,7 +1457,11 @@ async def _rd_programar_diarias_mes(current_user: CurrentActiveUser, payload: di
     novos = r.get("programados_novos", r.get("programados", 0)); ja = r.get("ja_programados", 0)
     if not novos and not ja:
         return {"ok": True, "message": f"Nenhuma diária lançada em {mes:02d}/{ano} — nada a programar."}
-    return {"ok": True, "message": f"{mes:02d}/{ano}: {novos} diária(s) programada(s) p/ o dia 15, {ja} já estava(m)."}
+    upd = r.get("atualizados", 0)
+    tot = r.get("total_a_pagar", 0)
+    return {"ok": True, "message": (
+        f"{mes:02d}/{ano}: {novos} nova(s), {upd} atualizada(s) com os dias novos. "
+        f"Total a pagar no lote: {brl(float(tot or 0))}.")}
 
 
 @router.post("/action/marcar-pago-externo")

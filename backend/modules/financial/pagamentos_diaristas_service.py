@@ -103,14 +103,29 @@ async def programar_diarias_mensais(db: AsyncSession, mes: int, ano: int,
            GROUP BY d.nome, d.cpf, d.pix HAVING COALESCE(SUM(l.valor),0) > 0
            ORDER BY d.nome"""), {"m": mes, "a": ano})
     pessoas = rows.mappings().all()
-    novos = sem_pix = 0
+    novos = sem_pix = atualizados = 0
     for p in pessoas:
         pix = (p.get("pix") or "").strip()
         # idempotência: já existe o pagamento dessa competência p/ essa pessoa?
         ex = await db.execute(text(
-            "SELECT id FROM financial_pagamentos_diaristas WHERE competencia=:c AND beneficiario=:b AND tipo='diaria_mensal'"),
+            "SELECT id, status, valor FROM financial_pagamentos_diaristas "
+            "WHERE competencia=:c AND beneficiario=:b AND tipo='diaria_mensal'"),
             {"c": comp, "b": p["nome"]})
-        if ex.first():
+        _row = ex.first()
+        if _row:
+            # RECALCULA em vez de pular. O mês continua correndo: quem programa no dia 10 e
+            # relê no dia 31 tinha o valor CONGELADO do dia 10. Medido em 01/08: R$5.670
+            # programado contra R$10.230 efetivamente trabalhados em julho — o Jordan pagaria
+            # a menos. Só mexe em quem AINDA NÃO foi pago; 'pago'/'cancelado' são intocáveis.
+            if _row[1] in ("a_revisar", "sem_pix"):
+                await db.execute(text(
+                    "UPDATE financial_pagamentos_diaristas SET valor=:v, descricao=:desc, "
+                    "pix_key=coalesce(:pix, pix_key), status=:st, updated_at=now() WHERE id=:i"),
+                    {"v": float(p["valor"]),
+                     "desc": f"Diárias {comp}: {int(p['qtd'])} diária(s) trabalhada(s)",
+                     "pix": pix or None, "st": "a_revisar" if pix else "sem_pix", "i": _row[0]})
+                if abs(float(_row[2] or 0) - float(p["valor"])) > 0.005:
+                    atualizados += 1
             continue
         status = "a_revisar" if pix else "sem_pix"
         if not pix:
@@ -129,7 +144,7 @@ async def programar_diarias_mensais(db: AsyncSession, mes: int, ano: int,
     lote = await listar(db, data=dpag.isoformat())
     return {
         "competencia": comp, "data_pagamento": dpag.isoformat(),
-        "diaristas": len(pessoas), "programados_novos": novos, "sem_pix": sem_pix,
+        "diaristas": len(pessoas), "programados_novos": novos, "atualizados": atualizados, "sem_pix": sem_pix,
         "total_a_pagar": sum(x["valor"] for x in lote if x["status"] in ("a_revisar", "aprovado")),
         "lote": lote,
     }
