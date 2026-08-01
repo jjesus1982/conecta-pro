@@ -906,11 +906,16 @@ ORDER BY b.comp DESC, b.cnpj"""
                "2 etapas: gera o código OTP (e-mail ao Jordan) e só paga ao confirmar. Nunca dispara sozinho. Teto R$100k.",
         "cta": "Gerar código de pagamento", "type": "form",
         "submit": {"endpoint": "/api/v1/redesign/action/pagar-folha-clt", "gated": True,
-                   "confirm": "Isto vai PAGAR a folha CLT (líquido dos funcionários) do mês via PIX Inter. Gerar o código OTP para o Jordan confirmar?",
+                   "confirm": "Isto vai PAGAR a folha CLT (líquido dos funcionários) do mês. Pela Cora, devolve a lista p/ o app; pelo Inter, gera o código OTP para o Jordan confirmar?",
                    "okMsg": "Folha CLT processada."},
         "fields": [
             {"key": "mes", "label": "Mês* (1-12)", "type": "text", "span": "span 1", "ph": "7"},
             {"key": "ano", "label": "Ano*", "type": "text", "span": "span 1", "ph": "2026"},
+            # A folha CLT e da PATRIMONIAL desde 06/2026 -> Cora e o padrao (regra do Jordan).
+            {"key": "origem", "label": "Banco", "type": "select", "span": "span 2",
+             "ph": "Cora — Patrimonial (padrão da folha CLT)",
+             "options": [{"value": "cora", "label": "Cora — Patrimonial (padrão: a folha CLT é da Patrimonial)"},
+                         {"value": "inter", "label": "Inter — Eletrônica (só se for exceção)"}]},
         ],
     }
 
