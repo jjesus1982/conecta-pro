@@ -3071,9 +3071,27 @@ async def redesign_home(current_user: CurrentActiveUser, db: AsyncSession = Depe
     return {"kpis": kpis, "alerts": alerts}
 
 
+# slug do redesign → módulo canônico (gate de permissão). Só back-office; slugs pessoais/
+# cliente/admin (portal, meu-espaco, area-do-cliente, empresas, bi, relatorios, configuracoes…)
+# NÃO entram aqui — têm escopo próprio; gatear por perm de gestor os quebraria.
+_SLUG_MODULO_CANONICO = {
+    "operacional": "operacional", "campo": "operacional",
+    "financeiro": "financeiro", "fiscal": "fiscal", "juridico": "juridico",
+    "crm": "crm", "marketing": "crm", "licitacoes": "crm", "servicos": "crm",
+    "departamento-pessoal": "dp", "rh": "dp", "gestao-de-pessoas": "dp",
+    "recrutamento": "dp", "homologacao": "dp",
+    "saude-ocupacional": "sst", "documentos": "ged",
+}
+
+
 @router.get("/data/{slug}")
 async def redesign_data(slug: str, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)) -> dict:
-    """Patches de tela com dado real para o módulo <slug>. Telas não cobertas ficam de fora."""
+    """Patches de tela com dado real para o módulo <slug>. Telas não cobertas ficam de fora.
+    RBAC: se o slug mapeia a um módulo canônico, exige module:<mod> (admin/all passam)."""
+    from core.auth.module_scope import user_has_module
+    _mod = _SLUG_MODULO_CANONICO.get(slug)
+    if _mod and not user_has_module(current_user, _mod):
+        raise HTTPException(status_code=403, detail=f"Sem acesso ao módulo '{_mod}'.")
     builder = BUILDERS.get(slug)
     if not builder:
         return {"slug": slug, "screens": {}, "wired": [], "extraMenu": []}

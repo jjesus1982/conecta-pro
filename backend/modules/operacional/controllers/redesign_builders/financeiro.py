@@ -1047,7 +1047,16 @@ ORDER BY b.comp DESC, b.cnpj"""
 router = APIRouter()
 
 
-@router.post("/action/pagar-folha-pj")
+def _require_financeiro_dep(current_user: CurrentActiveUser) -> None:
+    """Trava de CARGO p/ dinheiro que SAI: só quem tem module:financeiro (ou admin/all).
+    Roda ANTES do corpo (dependency), então bloqueia não-financeiro antes de qualquer OTP.
+    O OTP continua sendo a 2ª parede (pagamento real); esta é a 1ª (quem pode iniciar)."""
+    from core.auth.module_scope import user_has_module
+    if not user_has_module(current_user, "financeiro"):
+        raise HTTPException(status_code=403, detail="Ação financeira (dinheiro que sai) restrita ao módulo Financeiro.")
+
+
+@router.post("/action/pagar-folha-pj", dependencies=[Depends(_require_financeiro_dep)])
 async def _rd_pagar_folha_pj(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
     """Pagar folha PJ (Inter) — DELEGA ao serviço provado (OTP próprio). 1ª chamada sem
     otp_code → gera o código (e-mail Jordan) e devolve otp_required; 2ª com otp_code →
@@ -1077,7 +1086,7 @@ async def _rd_pagar_folha_pj(current_user: CurrentActiveUser, payload: dict = Bo
     return {"ok": True, "message": f"Lote pago: {r.get('pagos', 0)} pago(s), {r.get('falhas', 0)} falha(s)."}
 
 
-@router.post("/action/pagar-diaristas")
+@router.post("/action/pagar-diaristas", dependencies=[Depends(_require_financeiro_dep)])
 async def _rd_pagar_diaristas(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
     """Pagar lote de diaristas (Inter) — DELEGA ao serviço provado (OTP próprio). Mesmo
     padrão do pagar-folha-pj: sem otp_code → gera código; com otp_code → paga real.
@@ -1103,7 +1112,7 @@ async def _rd_pagar_diaristas(current_user: CurrentActiveUser, payload: dict = B
     return {"ok": True, "message": f"Lote pago: {r.get('pagos', 0)} pago(s), {r.get('falhas', 0)} falha(s)."}
 
 
-@router.post("/action/pagar-folha-clt")
+@router.post("/action/pagar-folha-clt", dependencies=[Depends(_require_financeiro_dep)])
 async def _rd_pagar_folha_clt(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
     """Pagar a FOLHA CLT (líquido dos funcionários) via PIX Inter — DINHEIRO QUE SAI.
     2 fases + OTP humano (mesmo gate do lote de diaristas): sem otp_code → gera o código
@@ -1285,31 +1294,31 @@ async def _rd_inter_pay(db, current_user, payload, *, payment_type, categoria, d
         raise HTTPException(status_code=400, detail=f"Falha no pagamento: {str(e)[:200]}")
 
 
-@router.post("/action/pagar-boleto")
+@router.post("/action/pagar-boleto", dependencies=[Depends(_require_financeiro_dep)])
 async def _rd_pagar_boleto(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
     return await _rd_inter_pay(db, current_user, payload, payment_type="boleto",
                                categoria="fornecedor", dest_fn=_dest_boleto, label="Pagamento de boleto")
 
 
-@router.post("/action/enviar-pix")
+@router.post("/action/enviar-pix", dependencies=[Depends(_require_financeiro_dep)])
 async def _rd_enviar_pix(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
     return await _rd_inter_pay(db, current_user, payload, payment_type="pix",
                                categoria="transferencia", dest_fn=_dest_pix, label="PIX")
 
 
-@router.post("/action/transferir-ted")
+@router.post("/action/transferir-ted", dependencies=[Depends(_require_financeiro_dep)])
 async def _rd_transferir_ted(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
     return await _rd_inter_pay(db, current_user, payload, payment_type="ted_interno",
                                categoria="transferencia", dest_fn=_dest_ted, label="Transferência TED")
 
 
-@router.post("/action/pagar-darf")
+@router.post("/action/pagar-darf", dependencies=[Depends(_require_financeiro_dep)])
 async def _rd_pagar_darf(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
     return await _rd_inter_pay(db, current_user, payload, payment_type="darf",
                                categoria="imposto", dest_fn=_dest_darf, label="Pagamento de DARF")
 
 
-@router.post("/action/pagar-gps")
+@router.post("/action/pagar-gps", dependencies=[Depends(_require_financeiro_dep)])
 async def _rd_pagar_gps(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
     return await _rd_inter_pay(db, current_user, payload, payment_type="gps",
                                categoria="imposto", dest_fn=_dest_gps, label="Pagamento de GPS")
