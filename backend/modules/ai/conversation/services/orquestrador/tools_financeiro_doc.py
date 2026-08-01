@@ -205,7 +205,88 @@ async def _gerar_aging_pagar_doc(db, user, scope, **_) -> dict[str, Any]:  # noq
     }
 
 
+async def _resolve_pagamento(db, pagamento_id, beneficiario, data):
+    """Resolve UM pagamento inter_payments. Por id (exato) OU por beneficiario(+data opcional),
+    restrito a EFETIVADOS (status='executado' + inter_payment_id) — comprovante só existe pra esses.
+    Retorna (row, None) ou (None, recusa). Ambíguo → recusa pedindo precisão. Read-only."""
+    from sqlalchemy import text
+    cols = "id, status, destinatario, valor, data_pagamento, inter_payment_id"
+    if pagamento_id and str(pagamento_id).strip():
+        row = (await db.execute(text(f"SELECT {cols} FROM inter_payments WHERE id = :id"),
+                                {"id": str(pagamento_id).strip()})).mappings().first()
+        if not row:
+            return None, _recusa(f"não achei o pagamento id '{pagamento_id}' em inter_payments.")
+        return row, None
+    if not (beneficiario and str(beneficiario).strip()):
+        return None, _recusa("informe o pagamento: pagamento_id, ou o beneficiário (e opcionalmente a data).")
+    params = {"b": f"%{str(beneficiario).strip()}%"}
+    filtro_data = ""
+    if data and str(data).strip():
+        from datetime import date as _date
+        try:
+            params["d"] = _date.fromisoformat(str(data).strip()[:10]).isoformat()
+        except ValueError:
+            return None, _recusa(f"data '{data}' inválida; use AAAA-MM-DD.")
+        filtro_data = " AND COALESCE(data_pagamento, executed_at)::date = :d"
+    rows = (await db.execute(text(
+        f"SELECT {cols} FROM inter_payments "
+        # EFETIVADO = mesma deny-list da guarda do controller (status real é 'confirmado', não 'executado')
+        "WHERE inter_payment_id IS NOT NULL "
+        "AND status NOT IN ('preparado', 'aprovado', 'cancelado', 'erro') "
+        "AND (destinatario->>'nome_recebedor' ILIKE :b OR destinatario->>'nome' ILIKE :b)"
+        f"{filtro_data} ORDER BY COALESCE(data_pagamento, executed_at) DESC"),
+        params)).mappings().all()
+    if not rows:
+        return None, _recusa(f"nenhum pagamento EFETIVADO para '{beneficiario}'"
+                             f"{f' em {data}' if data else ''}; comprovante só existe para pagamento que saiu.")
+    if len(rows) > 1:
+        return None, _recusa(f"'{beneficiario}' casou com {len(rows)} pagamentos efetivados; "
+                             "informe o pagamento_id ou a data (AAAA-MM-DD) pra desambiguar.")
+    return rows[0], None
+
+
+async def _gerar_comprovante_pagamento_doc(db, user, scope, *, pagamento_id=None,
+                                           beneficiario=None, data=None, **_) -> dict[str, Any]:  # noqa: ARG001
+    _gate(user)
+    from modules.integrations.inter.payment_controller import (
+        _pagamento_efetivado,
+        comprovante_pdf_de_pagamento,
+    )
+    row, recusa = await _resolve_pagamento(db, pagamento_id, beneficiario, data)
+    if recusa:
+        return recusa
+    # GUARDA anti-fabricação (fonte única = controller): comprovante SÓ p/ pagamento efetivado.
+    if not _pagamento_efetivado(row):
+        return _recusa(f"comprovante só existe para pagamento EFETIVADO; esse está '{row['status']}'. "
+                       "Não fabrico comprovante de pagamento que não saiu.")
+    pdf = await comprovante_pdf_de_pagamento(db, row["id"])
+    if pdf is None:  # suspenders: se a guarda do helper recusar, não inventa nada
+        return _recusa("comprovante indisponível: o pagamento não está efetivado no Inter.")
+    import json as _json
+    dest = row["destinatario"] if isinstance(row["destinatario"], dict) else _json.loads(row["destinatario"] or "{}")
+    favorecido = dest.get("nome_recebedor") or dest.get("nome") or "Beneficiário"
+    data_pg = row["data_pagamento"] or None
+    return {
+        "arquivo_base64": base64.b64encode(pdf).decode(),
+        "nome": f"comprovante_{favorecido.split()[0].lower()}_{str(row['id'])[:8]}.pdf",
+        "resumo": f"Comprovante de pagamento EFETIVADO — {favorecido}, {_brl(row['valor'])}"
+                  + (f", em {data_pg}" if data_pg else "")
+                  + ". Read-only: prova de pagamento JÁ efetivado (não move dinheiro).",
+    }
+
+
 _SCHEMA_VAZIO = {"type": "object", "properties": {}, "required": []}
+
+_SCHEMA_COMPROVANTE = {
+    "type": "object",
+    "properties": {
+        "pagamento_id": {"type": "string", "description": "ID do pagamento em inter_payments (exato; opcional)."},
+        "beneficiario": {"type": "string",
+                         "description": "Nome do favorecido do pagamento (opcional; use quando não tiver o id)."},
+        "data": {"type": "string", "description": "Data do pagamento AAAA-MM-DD (opcional; desambigua o beneficiário)."},
+    },
+    "required": [],
+}
 
 _SCHEMA_PERIODO = {
     "type": "object",
@@ -262,3 +343,12 @@ register(ToolDef(
     "(diretoria) — grupo consolidado (todas as empresas; a base não separa por CNPJ). "
     "Sem títulos em aberto → recusa. Não grava, não move dinheiro.",
     _SCHEMA_VAZIO, _gerar_aging_pagar_doc, scope_kind="org"))
+
+register(ToolDef(
+    "gerar_comprovante_pagamento_doc", "financeiro",
+    "Gera o COMPROVANTE de um pagamento PIX Inter JÁ EFETIVADO, em PDF branded, dos dados REAIS "
+    "(inter_payments). Diretoria, READ-ONLY: só renderiza a prova de um pagamento que já saiu — "
+    "NÃO cria, aprova nem move dinheiro. Identifique por pagamento_id, ou pelo beneficiário (+data). "
+    "Pagamento não efetivado (preparado/aprovado/cancelado/erro) ou inexistente → recusa; nunca "
+    "fabrica comprovante de pagamento que não foi concluído.",
+    _SCHEMA_COMPROVANTE, _gerar_comprovante_pagamento_doc, scope_kind="org"))

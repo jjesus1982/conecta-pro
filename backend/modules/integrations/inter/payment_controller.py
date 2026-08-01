@@ -603,19 +603,22 @@ async def extrair_boleto_pdf(
     return extrair_linha_digitavel(conteudo)
 
 
-@router.get("/{payment_id}/comprovante", summary="Comprovante do pagamento em PDF timbrado (padrão-ouro)")
-async def comprovante(
-    payment_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
-):
-    """Gera o comprovante PDF branded a partir do pagamento REAL (inter_payments).
+# Status em que o pagamento AINDA NÃO saiu do Inter — não existe comprovante para eles.
+_STATUS_NAO_EFETIVADO = ("preparado", "aprovado", "cancelado", "erro")
 
-    Só emite se o pagamento foi de fato enviado (tem inter_payment_id/endToEndId) — nunca
-    fabrica comprovante de pagamento não concluído."""
+
+def _pagamento_efetivado(row) -> bool:
+    """GUARDA anti-fabricação: só há comprovante para pagamento de fato enviado
+    (status 'executado' + inter_payment_id/endToEndId). Fonte única da verdade."""
+    return bool(row and row["inter_payment_id"] and row["status"] not in _STATUS_NAO_EFETIVADO)
+
+
+async def comprovante_pdf_de_pagamento(db, pagamento_id) -> bytes | None:
+    """Renderiza o comprovante PDF branded de um pagamento Inter EFETIVADO (read-only).
+
+    Retorna None quando o pagamento não existe OU não está efetivado — nunca fabrica
+    comprovante de pagamento não concluído. Reusado pelo endpoint e pelo chat (Fase 6 F9)."""
     import json as _json
-
-    from fastapi.responses import Response
 
     from modules.gedeon.services.comprovante_generator import gerar_comprovante_pdf
 
@@ -623,12 +626,9 @@ async def comprovante(
         SELECT payment_type, destinatario, valor, data_pagamento, status,
                inter_payment_id, executed_at, observacoes, categoria
         FROM inter_payments WHERE id = :id
-    """), {"id": payment_id})).mappings().first()
-    if not row:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Pagamento não encontrado.")
-    if not row["inter_payment_id"] or row["status"] in ("preparado", "aprovado", "cancelado", "erro"):
-        raise HTTPException(status.HTTP_409_CONFLICT,
-                            detail="Comprovante indisponível: pagamento ainda não foi concluído no Inter.")
+    """), {"id": pagamento_id})).mappings().first()
+    if not _pagamento_efetivado(row):
+        return None
 
     dest = row["destinatario"] if isinstance(row["destinatario"], dict) else _json.loads(row["destinatario"] or "{}")
     favorecido = dest.get("nome_recebedor") or dest.get("nome") or "Beneficiário"
@@ -639,7 +639,7 @@ async def comprovante(
     tipo_pag = {"pix": "PIX", "ted": "TED", "boleto": "Boleto", "darf": "DARF", "gps": "GPS"}.get(
         (row["payment_type"] or "pix").lower(), "PIX")
 
-    pdf = gerar_comprovante_pdf(
+    return gerar_comprovante_pdf(
         favorecido=favorecido, cpf=doc, valor=float(row["valor"]),
         data_pagamento=data_pg,
         descricao=row["observacoes"] or dest.get("descricao") or None,
@@ -648,6 +648,24 @@ async def comprovante(
         competencia=dest.get("competencia") or None,
         condominio=dest.get("condominio") or None,
         id_transacao=row["inter_payment_id"], tipo=tipo_pag)
-    fname = f"comprovante_{tipo_pag}_{favorecido.split()[0].lower()}_{payment_id[:8]}.pdf"
+
+
+@router.get("/{payment_id}/comprovante", summary="Comprovante do pagamento em PDF timbrado (padrão-ouro)")
+async def comprovante(
+    payment_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Gera o comprovante PDF branded a partir do pagamento REAL (inter_payments).
+
+    Só emite se o pagamento foi de fato enviado (tem inter_payment_id/endToEndId) — nunca
+    fabrica comprovante de pagamento não concluído."""
+    from fastapi.responses import Response
+
+    pdf = await comprovante_pdf_de_pagamento(db, payment_id)
+    if pdf is None:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail="Comprovante indisponível: pagamento não encontrado ou ainda não concluído no Inter.")
+    fname = f"comprovante_{payment_id[:8]}.pdf"
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'inline; filename="{fname}"'})
