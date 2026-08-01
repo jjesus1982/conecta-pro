@@ -179,3 +179,21 @@ backend → redesign só precisa builder (leitura) + ações via write-gate (`re
 ### Programa ação — lote 5 (2026-07-31): fechamento de diaristas
 - ACHADO: pagamento de diarista (money-out PIX) JÁ estava gated OTP no financeiro (/action/pagar-diaristas, gerar_otp_lote/executar_lote). NÃO dupliquei nem disparei.
 - ✅ Ligado o elo que faltava: /action/diarista-fechamento (op_write, SEM dinheiro) reusa generate_payroll_payments → cria DiaristPayment PENDENTE. Fluxo: operacional gera fechamento → financeiro paga gated. Oráculo 2099-12=0 gerados (seguro).
+
+## TESTE E2E CROSS-MÓDULO por PERFIL (2026-08-01) — Eliziel Gonzaga × Orlailson Paiva
+- **Orlailson Paiva: BLOQUEADO** — 2 contas INATIVAS (opaiva=gerente_operacional, epaiva=admin, is_active=false). Backend retorna 403 "Usuario inativo" em tudo (auth/me, redesign/data). Não faz NADA até reativar.
+- **Eliziel Gonzaga: gerente_operacional ATIVO.** permissions=[module:operacional,dp,ged,sst, gestao:disciplinar_comunicados]. Token minta e /auth/me retorna ele certo.
+- RBAC backend (autoritativo, por token):
+  - ✓ operacional (medida-aprovar/fechamento) alcançável (400 validação, não 403).
+  - ✓ admin-only bloqueado: /users/me → 403.
+  - ⚠️ GAP: /redesign/data/<qualquer módulo> → 200 (financeiro inclusive) SEM checar module-permission. Eliziel lê dados de módulos fora do perfil.
+  - ⚠️ GAP: /action/pagar-diaristas (money-out) → 400 validação, SEM gate de role antes do OTP. Só o OTP (e-mail Jordan) barra o pagamento real; a INICIAÇÃO não é role-restrita.
+- FRONTEND: injeção de token no localStorage NÃO troca a identidade da UI (segue "Jordan Jesus/admin", 31 módulos). Launcher do redesign não bootstrapa identidade só do token → teste UI "como Eliziel" exige login real (senha). RBAC de UI não verificável por injeção.
+- RECOMENDAÇÃO: (1) reativar Orlailson se deve operar; (2) gate de module-permission no /redesign/data e role-gate no money-out; (3) launcher refletir usuário/RBAC.
+
+## SWEEP DP (2026-08-01) — 1ª passada
+- VERACIDADE: DP lê dado REAL (29 FROM tabelas; exibido==banco provado em funcionarios/folha/ferias/reembolsos/contratos/documentos/rescisao/beneficios). DP NÃO tem casca.
+- AÇÕES: 15 forms já ligados a endpoints reais (admissão/férias/rescisão/benefícios/licenças/certificações/ponto-fechamento/eSocial/import/prestadores-PJ). Backend DP tem 341 escritas — mas maioria é função RH-especialista (recrutamento 47, folha 25, treinamento), não gerente/supervisor operacional.
+- ESCOPO REAL Eliziel/Orlailson na folha (Jordan): VER não conformidades + fazer APONTAMENTOS (não fecham; quem fecha=Jordan/Pyetra).
+  - ✅ Ligado: tela `folha-nao-conformidades` (folhas com contest_reason) + ação `folha-apontamento` (reusa contest_reason/contested_at, autor prefixado, SEM mudar status→não interfere no fechamento; não fecha nem paga). Oráculo em draft real, verifica+limpa. Eliziel(module:dp) alcança.
+- FALTA medir/decidir no DP: o resto das 341 (recrutamento/folha-ops/treinamento) — só ligar o que o perfil deles faz.
