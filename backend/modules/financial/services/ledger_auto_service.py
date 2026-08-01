@@ -10,7 +10,7 @@ NUNCA fabrica valor: só posta o que existe no banco. Onde a fonte está vazia, 
 inventa lançamento — o razão fica honestamente incompleto (aguardando dado).
 
 Plano de contas simplificado (Lucro Real Conecta Mais):
-  1.1.1.01 Bancos          1.1.3.01 Clientes a Receber
+  1.1.1.01 Bancos          1.1.2.01 Clientes a Receber
   2.1.2.01 Salarios a Pagar 2.1.3.02 FGTS a Recolher   2.1.3.03 ISS a Recolher
   3.1.1.01 Receita Servicos 3.1.2.01 (-) ISS s/ Servicos (deducao)
   4.1.1.01 Despesa Salarios 4.1.2.01 Despesa Encargos (FGTS)
@@ -118,7 +118,7 @@ class LedgerAutoService:
     def _lancar_receita_e_iss_nacional(self, cur, empresa_id) -> dict:
         """Receita de serviços + ISS a partir das NFS-e REAIS do portal NACIONAL (gov.br/ADN),
         tabela nfse_emitidas_nacional. Substitui a receita das notas manuais antigas.
-          • Receita: D 1.1.3.01 (Clientes a Receber) / C 3.1.1.01 (Receita de Serviços) = vServ
+          • Receita: D 1.1.2.01 (Clientes a Receber) / C 3.1.1.01 (Receita de Serviços) = vServ
           • ISS: D 3.1.2.01 (dedução) / C 2.1.3.03 (ISS a Recolher) = vISSQN
         Idempotente por documento_ref (chave de acesso). Só roda se a tabela existir com dados."""
         cur.execute("SELECT to_regclass('nfse_emitidas_nacional')")
@@ -146,7 +146,7 @@ class LedgerAutoService:
         for chave, numero, comp, data_emi, vserv, iss in cur.fetchall():
             data = str(data_emi)[:10] if data_emi else (comp + "-01" if comp else None)
             n_rec += self._post(
-                cur, data=data, cd="1.1.3.01", cc="3.1.1.01", valor=vserv,
+                cur, data=data, cd="1.1.2.01", cc="3.1.1.01", valor=vserv,
                 hist=f"Receita NFS-e {numero} ({comp})", tipo="nfse_emitida",
                 ref=f"RECNAC-{chave}", periodo=comp, empresa_id=empresa_id,
             )
@@ -183,7 +183,7 @@ class LedgerAutoService:
     def recategorizar_inter(self, empresa_id: str = EMPRESA_PRINCIPAL_ID) -> dict:
         """Conserta a classificação errada dos lançamentos banco_inter (seed genérico) para o
         lucro ficar FIEL. Idempotente (baseado na descrição, re-rodável):
-          • Créditos Inter (C 3.1.1 Receita) → C 1.1.3.01 (Clientes a Receber): é recebimento de
+          • Créditos Inter (C 3.1.1 Receita) → C 1.1.2.01 (Clientes a Receber): é recebimento de
             cliente, NÃO receita nova. Elimina a DUPLA CONTAGEM de receita (só NFS-e é receita).
           • Débitos Inter (D 3.2.1 despesa genérica):
               – PIX a PESSOA física (salário/diarista, já provisionado na folha) → D 2.1.2.01
@@ -201,7 +201,7 @@ class LedgerAutoService:
             with conn.cursor() as cur:
                 # 1) Créditos Inter (receita fantasma) → Clientes a Receber
                 cur.execute(
-                    "UPDATE accounting_entries SET conta_credito='1.1.3.01' "
+                    "UPDATE accounting_entries SET conta_credito='1.1.2.01' "
                     "WHERE tipo_lancamento='banco_inter' AND conta_credito LIKE '3.1.1%%'"
                 )
                 cred_fix = cur.rowcount

@@ -61,7 +61,7 @@ with engine.connect() as conn:
                          historico, tipo_lancamento, documento_ref,
                          periodo_competencia, status)
                     VALUES
-                        (:data, '1.1.3.01', '3.1.1.01', :valor,
+                        (:data, '1.1.2.01', '3.1.1.01', :valor,
                          :hist, 'nfse_emitida', :doc,
                          :periodo, 'confirmado')
                     ON CONFLICT DO NOTHING
