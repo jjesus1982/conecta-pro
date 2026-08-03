@@ -12,6 +12,7 @@ reembolsos · contratos · documentos · certificacao · esocial.
 from fastapi import APIRouter, Body, Depends, HTTPException
 
 from core.auth.dependencies import CurrentActiveUser
+from core.database import get_db
 from core.database.session import get_sync_db_dependency
 from modules.operacional.controllers.redesign_data_controller import (
     _build_dp,
@@ -92,6 +93,24 @@ async def rd_action_folha_apontamento(
     if getattr(r, "rowcount", 0) == 0:
         raise HTTPException(status_code=400, detail="Folha não encontrada ou não elegível para apontamento.")
     return {"ok": True, "message": "Apontamento registrado na folha (não conformidade)"}
+
+
+@router.post("/action/ferias-aprovar")
+async def rd_action_ferias_aprovar(current_user: CurrentActiveUser, vid: str, db=Depends(get_db)) -> dict:
+    """Aprovar férias ESCOPADO à equipe operacional. Supervisor/gerente só aprova férias de
+    colaborador alocado a posto ativo; admin (Jordan/Pyetra) aprova qualquer um. Reusa o
+    controller real approve_vacation após a parede de escopo."""
+    from sqlalchemy import text as _t
+
+    from modules.operacional.controllers.redesign_builders.operacional import _exige_escopo_operacional
+    from modules.people_management.hr.controllers.vacation_controller import approve_vacation
+    v = (await db.execute(_t(
+        "SELECT CAST(employee_id AS TEXT) FROM hr_vacation_requests WHERE id::text=:i"), {"i": vid})).first()
+    if not v or not v[0]:
+        raise HTTPException(status_code=404, detail="Solicitação de férias não encontrada.")
+    await _exige_escopo_operacional(db, current_user, v[0],
+                                    "aprovar férias de colaborador da sua equipe operacional")
+    return await approve_vacation(vacation_id=vid, current_user=current_user, db=db)
 # Item de nav da tela de ação "Aviso prévio de férias" (form → gera doc). É SOMADO ao EXTRA_MENU
 # global do slug (redesign_data_controller._discover_module_builders), sem tocar a fundação.
 EXTRA_MENU: list[dict] = [
@@ -1331,7 +1350,7 @@ async def build(db) -> dict:
             if (r[5] or "").upper() != "SUBMITTED":
                 return None
             aprovar = {"title": f"Aprovar férias de {r[1] or '—'}",
-                       "endpoint": f"/api/v1/people-management/hr/vacations/{r[0]}/approve",
+                       "endpoint": f"/api/v1/redesign/action/ferias-aprovar?vid={r[0]}",
                        "method": "POST", "btnLabel": "Aprovar", "submitLabel": "Aprovar",
                        "btnStyle": "primary", "okMsg": "Férias aprovadas. Recarregue a tela.",
                        "fields": []}

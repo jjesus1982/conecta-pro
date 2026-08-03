@@ -15,6 +15,26 @@ SLUG = "operacional"
 router = APIRouter()
 
 
+def _usuario_e_admin(current_user) -> bool:
+    role = (getattr(current_user, "role", "") or "").lower()
+    perms = getattr(current_user, "permissions", None) or []
+    return role in ("admin", "super_admin", "administrador") or "*" in perms or "all" in perms
+
+
+async def _exige_escopo_operacional(db, current_user, employee_id: str, acao: str) -> None:
+    """Parede de EQUIPE: supervisor/gerente operacional só age sobre a força operacional
+    (colaborador alocado a posto ativo). Admin (Jordan/Pyetra) age sobre todos."""
+    if _usuario_e_admin(current_user):
+        return
+    op = (await db.execute(_sqltext(
+        "SELECT 1 FROM allocations a JOIN posts p ON p.id=a.post_id "
+        "WHERE a.employee_id::text=:e AND coalesce(a.is_active,true) AND coalesce(p.is_active,true) LIMIT 1"),
+        {"e": employee_id})).first()
+    if not op:
+        raise HTTPException(status_code=403,
+                            detail=f"Fora do seu escopo operacional — só é possível {acao} (colaborador alocado a posto ativo).")
+
+
 @router.post("/action/medida-administrativa")
 async def rd_action_medida_administrativa(current_user: CurrentActiveUser, payload: dict = Body(...),
                                           db=Depends(get_db)) -> dict:
@@ -38,6 +58,8 @@ async def rd_action_medida_administrativa(current_user: CurrentActiveUser, paylo
         "SELECT nome, coalesce(cpf,'') FROM employees WHERE id::text=:i"), {"i": emp_id})).first()
     if not emp:
         raise HTTPException(status_code=400, detail="Colaborador não encontrado.")
+    await _exige_escopo_operacional(db, current_user, emp_id,
+                                    "aplicar medida a colaborador da sua equipe operacional")
     cpf_digits = "".join(ch for ch in (emp[1] or "") if ch.isdigit())
     if len(cpf_digits) < 11:
         raise HTTPException(status_code=400, detail=f"Colaborador '{emp[0]}' sem CPF cadastrado — regularize antes de aplicar medida.")
