@@ -35,6 +35,7 @@ from modules.ai.conversation.services.orquestrador import tools_read_fiscal  # n
 from modules.ai.conversation.services.orquestrador import tools_read_ged  # noqa: F401 — registra as 5 consultas READ do GED/GEDEON (Fase 6 VER, read-only, fecha o balde VER)
 from modules.ai.conversation.services.orquestrador import tools_read_juridico  # noqa: F401 — registra as 4 consultas READ do Jurídico (Fase 6 VER, read-only, fecha o balde VER)
 from modules.ai.conversation.services.orquestrador import tools_read_operacional  # noqa: F401 — registra as 8 consultas READ do Operacional (Fase 6 VER, read-only)
+from modules.ai.conversation.services.orquestrador import tools_acao_crm  # noqa: F401 — registra as 3 ações FAZER do CRM (Fase 6 FAZER, propor->aprovar)
 from modules.ai.conversation.services.orquestrador import tools_financeiro_doc  # noqa: F401 — registra gera-doc financeiro (Fase 6 F3)
 from modules.ai.conversation.services.orquestrador import tools_fiscal_doc  # noqa: F401 — registra relatório NFS-e no chat (Fase 6 F8)
 from modules.ai.conversation.services.orquestrador import tools_operacional_doc  # noqa: F401 — registra gera-doc operacional (Fase 6 F4)
@@ -46,6 +47,7 @@ from modules.ai.conversation.services.orquestrador.acoes import (  # noqa: F401 
     onda_c,
 )
 from modules.ai.conversation.services.orquestrador.engine import OrqScope, run_engine
+from modules.ai.conversation.services.orquestrador.agir_dispatcher import montar_acao_dispatchers
 from modules.ai.conversation.services.orquestrador.read_dispatcher import montar_read_dispatchers
 from modules.ai.conversation.services.orquestrador.tool_registry import ToolDef, tools_for_modules
 from modules.ai.conversation.services.orquestrador.tools_ponto import JUSTIFICAR_TOOL
@@ -57,6 +59,10 @@ from modules.operacional.scope import get_operational_scope
 # Fase 6 VER: após os 3 tools_read_* importados (que fazem registrar_read no import), colapsa
 # as ops de leitura em 1 ToolDef consultar_<modulo> por módulo (crm/dp/financeiro). Idempotente.
 montar_read_dispatchers()
+
+# Fase 6 FAZER: após tools_acao_crm importado (registrar_acao no import), colapsa as ações
+# reversíveis em 1 ToolDef agir_<modulo> por módulo (agir_crm). Idempotente.
+montar_acao_dispatchers()
 
 router = APIRouter(prefix="/consultores/chat", tags=["Consultores — Chat escopado"])
 
