@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth.dependencies import CurrentActiveUser
+from core.auth.dependencies import CurrentActiveUser, require_permission
 from core.database import get_db
 from modules.reimbursement.models import AttachmentType, ExpenseCategory
 from modules.reimbursement.schemas import (
@@ -570,7 +570,8 @@ async def list_pending_approvals(
     )
 
 
-@router.post("/{request_id}/analyze", response_model=ReimbursementRequestResponse)
+@router.post("/{request_id}/analyze", response_model=ReimbursementRequestResponse,
+             dependencies=[Depends(require_permission("module:dp"))])
 async def start_analysis(
     request_id: UUID,
     user: CurrentActiveUser,
@@ -594,7 +595,8 @@ async def start_analysis(
     return await service.get_request(request_id)
 
 
-@router.post("/{request_id}/approve", response_model=ReimbursementRequestResponse)
+@router.post("/{request_id}/approve", response_model=ReimbursementRequestResponse,
+             dependencies=[Depends(require_permission("module:dp"))])
 async def approve_reimbursement(
     request_id: UUID,
     data: ReimbursementApproveRequest | None = None,
@@ -625,7 +627,8 @@ async def approve_reimbursement(
     return await service.get_request(request_id)
 
 
-@router.post("/{request_id}/reject", response_model=ReimbursementRequestResponse)
+@router.post("/{request_id}/reject", response_model=ReimbursementRequestResponse,
+             dependencies=[Depends(require_permission("module:dp"))])
 async def reject_reimbursement(
     request_id: UUID,
     data: ReimbursementRejectRequest,
