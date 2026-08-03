@@ -231,3 +231,9 @@ backend → redesign só precisa builder (leitura) + ações via write-gate (`re
 - **relatorios** → ADMIN-ONLY (KPIs executivos consolidados: folha líquida, AR/AP, MRR, holerites). PDFs já eram gated financeiro nos botões.
 - **empresas /action/nova-liminar** (op_write sem gate) → require_permission(module:fiscal).
 - Mecanismo novo: `_SLUG_ADMIN_ONLY` + `_is_admin_user` (admin/super_admin/administrador ou */all) checado no dispatcher ANTES do gate de módulo. celiane 403 nos 4; admin/Pyetra passam. FALTA bakear.
+
+## SWEEP FINAL — 8 slugs restantes (2026-08-03) — INVENTÁRIO 31/31 FECHADO
+- automacoes→crm · equipamentos→operacional · suprimentos→financeiro · agendador→dev · integracoes→dev (module gates).
+- analytics→admin-only (KPIs exec cross-módulo: punches/nfse/inter/proposals) · seguranca→admin-only (LGPD: candidate_consents/lgpd_audit_logs/erasure_requests).
+- assistente→SELF-SCOPE por user_id (assistant_conversations pode ter consulta sensível; celiane via 3 de terceiros→0).
+- ESTADO FINAL /redesign/data: 31/31 slugs com parede → 23 module (18+5), 5 admin-only (configuracoes/empresas/relatorios/analytics/seguranca), 3 self-scoped (portal-do-funcionario/meu-espaco/assistente). Nenhum slug aberto.
