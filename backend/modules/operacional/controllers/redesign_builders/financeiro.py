@@ -1491,7 +1491,7 @@ async def _rd_pagar_diaristas(current_user: CurrentActiveUser, payload: dict = B
             "FROM lanc FULL OUTER JOIN lote"
             "  ON upper(btrim(lanc.nome)) = upper(btrim(lote.nome))"
             "WHERE coalesce(lote.status,'a_revisar') IN ('a_revisar','sem_pix')"
-            "  AND abs(coalesce(lanc.v,0) - coalesce(lote.v,0)) > 0.005"
+            "  AND abs(coalesce(lanc.v,0) - coalesce(lote.v,0)) > 0.005 "
             "ORDER BY abs(coalesce(lanc.v,0) - coalesce(lote.v,0)) DESC"),
             {"m": _mm, "a": _aa, "c": _c})).fetchall()
         if _div:
