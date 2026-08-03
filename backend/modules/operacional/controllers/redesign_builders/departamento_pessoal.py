@@ -116,6 +116,53 @@ def _require_dp_dep(current_user: CurrentActiveUser) -> None:
         raise HTTPException(status_code=403, detail="Gerar folha é restrito ao DP/Financeiro.")
 
 
+@router.post("/action/cadastrar-pix-key", dependencies=[Depends(_require_dp_dep)])
+async def rd_action_cadastrar_pix_key(
+    current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db),
+) -> dict:
+    """Cadastra/atualiza a chave PIX do funcionário — DESTINO DO SALÁRIO, gate OTP humano.
+
+    Não existia caminho nenhum no redesign: o form de Funcionários não tem campo de chave e
+    o PATCH de employees não aceita pix_key. Resultado: era impossível cadastrar chave pela
+    tela, e o Jordan ficou tentando num campo que eu disse existir e não existia.
+
+    2 fases, mesmo padrão do resto do money-gated: sem otp_code → gera o código (e-mail ao
+    Jordan) e devolve otp_required; com otp_code → grava. Delega aos endpoints provados, que
+    validam e CONSOMEM o OTP — não reimplemento validação de código.
+    """
+    from modules.people_management.employee_portal.controllers.dp_payslips_controller import (
+        cadastrar_pix_key, gerar_otp_pix_key,
+    )
+
+    eid = (payload.get("employee_id") or "").strip()
+    if not eid:
+        raise HTTPException(status_code=422, detail="Selecione o colaborador.")
+    chave = (payload.get("pix_key") or "").strip()
+    if len(chave) < 5:
+        raise HTTPException(status_code=422, detail="Informe a chave PIX.")
+    tipo = (payload.get("pix_key_type") or "").strip().upper() or _tipo_pix(chave).upper()
+    tipo = {"E-MAIL": "EMAIL", "ALEATÓRIA": "ALEATORIA", "TELEFONE": "TELEFONE",
+            "CPF": "CPF", "CNPJ": "CNPJ"}.get(tipo, tipo)
+
+    otp_code = (payload.get("otp_code") or "").strip()
+    lote_id = (payload.get("_gate_ref") or "").strip()
+    if not otp_code:
+        r = await gerar_otp_pix_key(eid, db=db, _user=current_user)
+        if not r.get("ok"):
+            raise HTTPException(status_code=400, detail=r.get("mensagem") or "Não foi possível gerar o código.")
+        return {"otp_required": True, "ref": r.get("lote_id", ""),
+                "message": (f"Chave {chave} ({tipo}) — trocar a chave redireciona o SALÁRIO. "
+                            "Confirme com o código enviado ao e-mail do Jordan.")}
+
+    r = await cadastrar_pix_key(eid, pix_key=chave, pix_key_type=tipo, otp_code=otp_code,
+                                lote_id=lote_id or None, db=db, _user=current_user)
+    if r.get("otp_invalido") or r.get("otp_requerido"):
+        raise HTTPException(status_code=400, detail=r.get("mensagem") or "Código inválido ou obrigatório.")
+    if not r.get("ok"):
+        raise HTTPException(status_code=400, detail=r.get("mensagem") or "Não foi possível cadastrar a chave.")
+    return {"ok": True, "message": f"Chave PIX cadastrada: {chave} ({tipo}). Recarregue a tela."}
+
+
 @router.post("/action/folha-gerar", dependencies=[Depends(_require_dp_dep)])
 async def rd_action_folha_gerar(
     current_user: CurrentActiveUser,
@@ -335,6 +382,8 @@ EXTRA_MENU: list[dict] = [
      "icon": "M9 7h6M9 11h6M9 15h4M5 3h14a1 1 0 0 1 1 1v16H4V4a1 1 0 0 1 1-1z"},
     {"id": "fechar-mes-ponto", "label": "Fechar mês (ponto)",
      "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
+    {"id": "cadastrar-pix-key", "label": "Cadastrar chave PIX",
+     "icon": "M12 2a5 5 0 0 0-5 5v3H5v11h14V10h-2V7a5 5 0 0 0-5-5zM9 10V7a3 3 0 0 1 6 0v3"},
     {"id": "chaves-pix", "label": "Chaves PIX (todos)",
      "icon": "M15 7a4 4 0 1 1-4 4M2 12h9M7 9v6M11 12l3-3M14 15l-3-3"},
     {"id": "folha-gerar", "label": "Gerar folha (Conecta PRO)",
@@ -789,6 +838,44 @@ async def build(db) -> dict:
         out["folha-por-condominio"]["filterLabel"] = "Competência"
         out["folha-por-condominio"]["cta"] = "Gerar folha (Conecta PRO)"
         out["folha-por-condominio"]["ctaTo"] = "folha-gerar"
+
+    # ---- CADASTRAR CHAVE PIX (não existia caminho nenhum na tela) ----------------------
+    # Quem está SEM chave vem primeiro na lista — é o que trava pagamento.
+    _pix_opts: list[dict] = []
+    try:
+        from sqlalchemy import text as _pt
+        _pix_opts = [
+            {"value": str(r[0]),
+             "label": f"{r[1]} — {r[2]}" + (f" · atual: {r[3]}" if r[3] else " · SEM CHAVE")}
+            for r in (await db.execute(_pt(
+                "SELECT CAST(id AS TEXT), nome, coalesce(cargo,'—'), nullif(pix_key,'') "
+                "FROM employees "
+                "WHERE coalesce(is_homologacao,false) = false "
+                "  AND (status = 'ativo' OR lower(coalesce(tipo_contrato,'')) = 'pj') "
+                "ORDER BY (nullif(pix_key,'') IS NOT NULL), nome"))).fetchall()]
+    except Exception:  # noqa: BLE001
+        _pix_opts = []
+
+    out["cadastrar-pix-key"] = {
+        "title": "Cadastrar chave PIX",
+        "sub": "A chave define PARA ONDE VAI O SALÁRIO — por isso exige o código OTP enviado ao "
+               "e-mail do Jordan. Quem está sem chave aparece no topo da lista. Confira o tipo: "
+               "nem toda chave é CPF (há telefone, e-mail, CNPJ e aleatória).",
+        "cta": "Gerar código de confirmação", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/cadastrar-pix-key", "gated": True,
+                   "okMsg": "Chave PIX cadastrada"},
+        "fields": [
+            {"key": "employee_id", "label": "Colaborador*", "type": "select", "span": "span 2",
+             "ph": "Selecione (os sem chave vêm primeiro)", "options": _pix_opts},
+            {"key": "pix_key", "label": "Chave PIX*", "type": "text", "span": "span 1",
+             "ph": "CPF, telefone (+55...), e-mail ou aleatória"},
+            {"key": "pix_key_type", "label": "Tipo da chave*", "type": "select", "span": "span 1",
+             "ph": "Detecta pelo formato se deixar em branco", "options": [
+                 {"value": "CPF", "label": "CPF"}, {"value": "TELEFONE", "label": "Telefone"},
+                 {"value": "EMAIL", "label": "E-mail"}, {"value": "CNPJ", "label": "CNPJ"},
+                 {"value": "ALEATORIA", "label": "Aleatória"}]},
+        ],
+    }
 
     # ---- CHAVES PIX — TODA PESSOA CADASTRADA, DE TODAS AS FONTES ----------------------
     # As chaves moram em 4 lugares (CLT/PJ em employees, diaristas em diaria_diaristas,
