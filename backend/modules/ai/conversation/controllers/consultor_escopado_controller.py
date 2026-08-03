@@ -28,6 +28,7 @@ from core.auth.dependencies import get_current_active_user
 from core.auth.module_scope import user_modules
 from core.database import get_db
 from modules.ai.conversation.services.orquestrador import tools_comercial_doc  # noqa: F401 — registra gera-doc comercial (Fase 6 F1)
+from modules.ai.conversation.services.orquestrador import tools_read_crm  # noqa: F401 — registra as 8 consultas READ do CRM (Fase 6 VER)
 from modules.ai.conversation.services.orquestrador import tools_financeiro_doc  # noqa: F401 — registra gera-doc financeiro (Fase 6 F3)
 from modules.ai.conversation.services.orquestrador import tools_fiscal_doc  # noqa: F401 — registra relatório NFS-e no chat (Fase 6 F8)
 from modules.ai.conversation.services.orquestrador import tools_operacional_doc  # noqa: F401 — registra gera-doc operacional (Fase 6 F4)
