@@ -1325,6 +1325,7 @@ async def _rd_cancelar_diaria_sobreposta(
             raise HTTPException(status_code=int(res.get("http_status", 422)),
                                 detail=res.get("mensagem", "Não foi possível cancelar a diária."))
         rotulo = "Diária"
+        cascata = int(res.get("vt_vr_cancelado", 0) or 0)
     else:
         row = (await db.execute(_sql(
             "SELECT v.data_referencia, v.valor, e.nome, e.data_admissao, e.id, v.status, "
@@ -1340,6 +1341,7 @@ async def _rd_cancelar_diaria_sobreposta(
             raise HTTPException(status_code=422, detail=recusa)
         dia, valor, nome_e, adm, _eid, st_antes, n_ponto = row
         posto = "—"
+        cascata = 0
         if st_antes == "pago":
             raise HTTPException(status_code=422, detail="VT/VR já PAGO não pode ser cancelado.")
 
@@ -1374,6 +1376,7 @@ async def _rd_cancelar_diaria_sobreposta(
         f"{rotulo} de {nome_e} em {dia.strftime('%d/%m/%Y')} ({brl(float(valor or 0))}) CANCELADO. "
         f"CLT desde {adm.strftime('%d/%m/%Y')}"
         + ("; bateu ponto nesse dia." if n_ponto else "; sem ponto nesse dia.")
+        + (f" O VT/VR do mesmo dia foi cancelado junto ({cascata})." if cascata else "")
         + " Nenhum dinheiro foi movido — a saída futura foi impedida. Recarregue a tela.")}
 
 

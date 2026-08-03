@@ -270,16 +270,49 @@ async def listar_lancamentos(db: AsyncSession, mes: int | None = None, ano: int 
 
 
 async def excluir_lancamento(db: AsyncSession, lancamento_id: int) -> dict[str, Any]:
+    """Exclui o lançamento E CANCELA EM CASCATA o VT/VR daquele dia.
+
+    `lancar` cria o VT/VR do dia automaticamente (programar_vt_vr_dos_lancados); excluir
+    tem de ser simétrico. Sem a cascata o VT/VR fica ÓRFÃO e continua no lote: medido em
+    03/08/2026 — 50 VT/VR órfãos, R$1.600, quase todos já pagos.
+
+    Só cancela VT/VR ainda pendente (a_revisar/sem_pix): o que já foi pago é intocável.
+    E só se NÃO restar outra diária da pessoa naquele dia — o VT/VR é um por dia, e há
+    quem tenha 2 diárias no mesmo dia (ex.: 08/07 com dois lançamentos).
+    """
     await ensure_e_seed(db)
+    # pessoa/dia PRECISAM ser lidos antes do DELETE — depois a linha não existe mais
+    info = (await db.execute(text(
+        "SELECT d.nome, l.data FROM diaria_lancamentos l "
+        "JOIN diaria_diaristas d ON d.id = l.diarista_id WHERE l.id = :id"),
+        {"id": lancamento_id})).first()
+
     r = await db.execute(text("DELETE FROM diaria_lancamentos WHERE id=:id AND status='lancado'"), {"id": lancamento_id})
-    await db.commit()
     if r.rowcount == 0:
+        await db.commit()
         # nada apagado: id inexistente OU já saiu do status 'lancado' (ex.: já pago) — não mente
         existe = (await db.execute(text("SELECT status FROM diaria_lancamentos WHERE id=:id"), {"id": lancamento_id})).scalar()
         if existe is None:
             return {"ok": False, "http_status": 404, "mensagem": "Lançamento não encontrado."}
         return {"ok": False, "mensagem": f"Lançamento não pode ser excluído (status '{existe}' — só 'lancado' é editável)."}
-    return {"ok": True}
+
+    vt_cancelado = 0
+    if info:
+        nome, dia = info[0], info[1]
+        resta = (await db.execute(text(
+            "SELECT count(*) FROM diaria_lancamentos l JOIN diaria_diaristas d ON d.id = l.diarista_id "
+            "WHERE l.data = :dt AND upper(btrim(d.nome)) = upper(btrim(:n))"),
+            {"dt": dia, "n": nome})).scalar() or 0
+        if not resta:
+            rv = await db.execute(text(
+                "UPDATE financial_pagamentos_diaristas SET status='cancelado', "
+                " descricao = descricao || ' | cancelado: diária do dia excluída', updated_at=now() "
+                "WHERE tipo='vt_vr' AND data_referencia = :dt "
+                "  AND upper(btrim(beneficiario)) = upper(btrim(:n)) "
+                "  AND status IN ('a_revisar','sem_pix')"), {"dt": dia, "n": nome})
+            vt_cancelado = rv.rowcount or 0
+    await db.commit()
+    return {"ok": True, "vt_vr_cancelado": vt_cancelado}
 
 
 # ── Resumo por diarista (a lista de pagamento do dia 15) ──────────────────────
