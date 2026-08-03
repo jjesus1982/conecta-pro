@@ -133,9 +133,17 @@ async def run_engine(
                     logger.warning("orq tool %s falhou: %s", tc.function.name, e)
                     result = {"erro": "não consegui obter esse dado agora"}
             tool_results.append(result)
+            # NÃO devolver o base64 do documento ao LLM: um PDF em base64 tem dezenas de
+            # milhares de tokens e estoura o contexto (erro 400 context_length_exceeded).
+            # O LLM só precisa saber que o documento saiu; o base64 segue no `documentos`
+            # do retorno (para o frontend baixar).
+            _llm_result = result
+            if isinstance(result, dict) and result.get("arquivo_base64"):
+                _llm_result = {k: v for k, v in result.items() if k != "arquivo_base64"}
+                _llm_result["documento_gerado"] = result.get("nome") or "documento.pdf"
             messages.append(
                 {"role": "tool", "tool_call_id": tc.id,
-                 "content": json.dumps(result, ensure_ascii=False, default=str)}
+                 "content": json.dumps(_llm_result, ensure_ascii=False, default=str)}
             )
     else:
         # teto sem resposta final → última chamada SEM tools (força texto)
