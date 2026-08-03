@@ -3112,12 +3112,17 @@ _SLUG_MODULO_CANONICO = {
     "recrutamento": "dp", "homologacao": "dp",
     "saude-ocupacional": "sst", "documentos": "ged",
     "bi": "financeiro",  # bank_transactions / DRE / receita×despesa → domínio financeiro
+    "automacoes": "crm",         # crm_workflows / workflow_runs → domínio comercial
+    "equipamentos": "operacional",  # patrimônio/comodatos/manutenções → gestão de ativos de campo
+    "suprimentos": "financeiro",  # nfe_compras_estoque / requisições / stock_items → compras/custo
+    "agendador": "dev",          # scheduler_tasks/executions → infra/dev
+    "integracoes": "dev",        # integration_logs / solides_sync → infra/dev
 }
 
 # Slugs restritos à ADMINISTRAÇÃO/DIRETORIA (não é módulo — admin/all/* passam, resto 403):
 # configuracoes=usuários/tenants/feature-flags/config-sistema; empresas=estrutura CNPJ+
 # demonstrativos+liminares+migrador; relatorios=KPIs executivos consolidados (folha líq/AR/AP/MRR).
-_SLUG_ADMIN_ONLY = {"configuracoes", "empresas", "relatorios"}
+_SLUG_ADMIN_ONLY = {"configuracoes", "empresas", "relatorios", "analytics", "seguranca"}
 
 
 def _is_admin_user(user) -> bool:
