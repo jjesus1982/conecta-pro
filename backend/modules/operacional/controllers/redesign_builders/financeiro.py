@@ -1163,57 +1163,82 @@ ORDER BY b.comp DESC, b.cnpj"""
     # depois quem bateu ponto. O lote do dia 15 cobre a competência do mês ANTERIOR — é assim
     # que o dia se liga ao pagamento (programar_diarias_mensais: dia 15 do mês seguinte).
     await safe("diarias-sobrepostas", tbl(
-        "Diárias sobrepostas à folha CLT",
-        "Diárias lançadas DEPOIS da admissão CLT da pessoa. 'Ponto CLT = SIM' é o caso grave: "
-        "trabalhou como CLT e recebeu diária pelo mesmo dia. 'a revisar' ainda não foi pago — "
-        "dá para barrar. Sem ponto costuma ser cobertura em folga, que é legítima.",
-        "—", ["Competência", "Colaborador", "Dia", "Posto", "Valor", "Ponto CLT", "Pagamento"],
-        "0.9fr 1.9fr 0.7fr 1.4fr 0.9fr 0.9fr 1fr",
+        "Diárias e VT/VR sobrepostos à folha CLT",
+        "Diária E vale-transporte/refeição lançados DEPOIS da admissão CLT da pessoa. "
+        "'Ponto CLT = SIM' é o caso grave: trabalhou como CLT e recebeu como diarista pelo "
+        "mesmo dia. 'a revisar' ainda não foi pago — dá para barrar. O CLT já recebe VT pela "
+        "folha, então VT/VR de diarista no mesmo período é benefício em duplicidade.",
+        "—", ["Competência", "Colaborador", "Tipo", "Dia", "Posto", "Valor", "Ponto CLT", "Pagamento"],
+        "0.8fr 1.7fr 0.8fr 0.7fr 1.3fr 0.8fr 0.8fr 0.9fr",
         """
-        SELECT to_char(l.data,'MM/YYYY'), e.nome, to_char(l.data,'DD/MM'), l.posto, l.valor,
-               l.id,
-               CASE WHEN pt.n > 0 THEN 'SIM' ELSE 'não' END,
-               coalesce(pg.status, 'não programado')
-        FROM diaria_lancamentos l
-        JOIN diaria_diaristas d ON d.id = l.diarista_id
-        JOIN employees e
-          ON replace(replace(coalesce(e.cpf,''),'.',''),'-','')
-           = replace(replace(coalesce(d.cpf,''),'.',''),'-','')
-        LEFT JOIN LATERAL (
-            SELECT count(*) AS n FROM gp_clock_punches c
-            WHERE c.employee_id = e.id AND c.punch_timestamp::date = l.data) pt ON true
-        LEFT JOIN LATERAL (
-            SELECT p.status FROM financial_pagamentos_diaristas p
-            WHERE upper(btrim(p.beneficiario)) = upper(btrim(e.nome)) AND p.tipo = 'diaria_mensal'
-              AND p.data_referencia = ((date_trunc('month', l.data) + interval '1 month')::date + 14)
-            LIMIT 1) pg ON true
-        WHERE e.status = 'ativo' AND coalesce(e.is_homologacao,false) = false
-          AND e.data_admissao IS NOT NULL AND l.data >= e.data_admissao
-        ORDER BY (coalesce(pg.status,'') = 'a_revisar') DESC, (pt.n > 0) DESC, l.data DESC
-        LIMIT 500
+        SELECT comp, nome, tipo, dia, posto, valor, ponto, pagamento, ref, kind FROM (
+            -- DIÁRIA: o dia vem de diaria_lancamentos; o status, do lote do dia 15 da
+            -- competência SEGUINTE (programar_diarias_mensais).
+            SELECT to_char(l.data,'MM/YYYY') AS comp, e.nome AS nome, 'Diária' AS tipo,
+                   to_char(l.data,'DD/MM') AS dia, l.posto AS posto, l.valor AS valor,
+                   CASE WHEN pt.n > 0 THEN 'SIM' ELSE 'não' END AS ponto,
+                   coalesce(pg.status, 'não programado') AS pagamento,
+                   l.id AS ref, 'diaria' AS kind, l.data AS ord
+            FROM diaria_lancamentos l
+            JOIN diaria_diaristas d ON d.id = l.diarista_id
+            JOIN employees e
+              ON replace(replace(coalesce(e.cpf,''),'.',''),'-','')
+               = replace(replace(coalesce(d.cpf,''),'.',''),'-','')
+            LEFT JOIN LATERAL (
+                SELECT count(*) AS n FROM gp_clock_punches c
+                WHERE c.employee_id = e.id AND c.punch_timestamp::date = l.data) pt ON true
+            LEFT JOIN LATERAL (
+                SELECT p.status FROM financial_pagamentos_diaristas p
+                WHERE upper(btrim(p.beneficiario)) = upper(btrim(e.nome)) AND p.tipo = 'diaria_mensal'
+                  AND p.data_referencia = ((date_trunc('month', l.data) + interval '1 month')::date + 14)
+                LIMIT 1) pg ON true
+            WHERE e.status = 'ativo' AND coalesce(e.is_homologacao,false) = false
+              AND e.data_admissao IS NOT NULL AND l.data >= e.data_admissao
+            UNION ALL
+            -- VT/VR: a linha JÁ é o pagamento (status próprio, um por dia). Posto sai da
+            -- diária do mesmo dia, quando houver.
+            SELECT to_char(v.data_referencia,'MM/YYYY'), e.nome, 'VT+VR',
+                   to_char(v.data_referencia,'DD/MM'), coalesce(lp.posto,'—'), v.valor,
+                   CASE WHEN pt.n > 0 THEN 'SIM' ELSE 'não' END, v.status,
+                   v.id, 'vtvr', v.data_referencia
+            FROM financial_pagamentos_diaristas v
+            JOIN employees e ON upper(btrim(e.nome)) = upper(btrim(v.beneficiario))
+            LEFT JOIN LATERAL (
+                SELECT count(*) AS n FROM gp_clock_punches c
+                WHERE c.employee_id = e.id AND c.punch_timestamp::date = v.data_referencia) pt ON true
+            LEFT JOIN LATERAL (
+                SELECT l2.posto FROM diaria_lancamentos l2
+                JOIN diaria_diaristas d2 ON d2.id = l2.diarista_id
+                WHERE l2.data = v.data_referencia
+                  AND replace(replace(coalesce(d2.cpf,''),'.',''),'-','')
+                    = replace(replace(coalesce(e.cpf,''),'.',''),'-','') LIMIT 1) lp ON true
+            WHERE v.tipo = 'vt_vr' AND v.status <> 'cancelado'
+              AND e.status = 'ativo' AND coalesce(e.is_homologacao,false) = false
+              AND e.data_admissao IS NOT NULL AND v.data_referencia >= e.data_admissao
+        ) u
+        ORDER BY (pagamento IN ('a_revisar','sem_pix')) DESC, (ponto = 'SIM') DESC, ord DESC
+        LIMIT 600
         """,
         lambda r: [t(r[0], 600), t(r[1], 600, "#0F1B3A", initials(r[1] or "")),
-                   t(r[2], 600), t(r[3]),
-                   t(brl(float(r[4] or 0)), 600),
+                   b(r[2], "info" if r[2] == "Diária" else "mut"),
+                   t(r[3], 600), t(r[4]), t(brl(float(r[5] or 0)), 600),
                    b("SIM", "bad") if r[6] == "SIM" else t("não", 500, "#64748B"),
-                   b({"a_revisar": "a revisar", "pago": "PAGO"}.get(r[7], r[7]),
-                     "warn" if r[7] == "a_revisar" else ("bad" if r[7] == "pago" else "mut"))],
+                   b({"a_revisar": "a revisar", "sem_pix": "sem PIX", "pago": "PAGO"}.get(r[7], r[7]),
+                     "warn" if r[7] in ("a_revisar", "sem_pix") else ("bad" if r[7] == "pago" else "mut"))],
         actionsfn=lambda r: ([] if r[7] == "pago" else [{
-            "title": f"Cancelar diária — {r[1]} em {r[2]}",
+            "title": f"Cancelar {r[2]} — {r[1]} em {r[3]}",
             "endpoint": "/api/v1/redesign/action/cancelar-diaria-sobreposta",
-            "method": "POST", "btnLabel": "Cancelar diária", "btnStyle": "outline",
-            "submitLabel": "Cancelar esta diária",
-            "okMsg": "Diária cancelada. Recarregue a tela.",
-            "fixed": {"lancamento_id": r[5]},
+            "method": "POST", "btnLabel": f"Cancelar {r[2]}", "btnStyle": "outline",
+            "submitLabel": "Cancelar", "okMsg": "Cancelado. Recarregue a tela.",
+            "fixed": {"ref": r[8], "kind": r[9]},
             "fields": [
                 {"key": "motivo", "label": "Motivo do cancelamento*", "type": "textarea",
                  "span": "span 2",
                  "ph": "Ex.: já pago pela folha CLT do mesmo dia (bateu ponto)."},
             ]}])))
     if isinstance(out.get("diarias-sobrepostas"), dict):
-        # 6 = índice da CÉLULA renderizada (Pagamento), não da coluna do SQL: o l.id vem
-        # no SELECT (r[5]) para o botão, mas não vira célula.
-        out["diarias-sobrepostas"]["filterCol"] = 6
+        # 7 = índice da CÉLULA renderizada (Pagamento); ref/kind vêm no SELECT mas não viram célula.
+        out["diarias-sobrepostas"]["filterCol"] = 7
         out["diarias-sobrepostas"]["filterLabel"] = "Pagamento"
 
     montar_grupos(out)
@@ -1238,69 +1263,104 @@ def _require_financeiro_dep(current_user: CurrentActiveUser) -> None:
 async def _rd_cancelar_diaria_sobreposta(
     current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db),
 ) -> dict:
-    """Cancela UMA diária que se sobrepõe à folha CLT da mesma pessoa.
+    """Cancela UMA diária OU UM VT/VR que se sobrepõe à folha CLT da mesma pessoa.
 
-    NÃO é um "apagar diária" genérico: o servidor RE-VERIFICA a sobreposição (a diária tem
-    de ser de alguém que já era CLT ativo naquele dia) antes de apagar. Sem isso o botão
-    viraria um delete-qualquer-coisa alcançável pela tela.
+    NÃO é um "apagar qualquer coisa": o servidor RE-VERIFICA a sobreposição (a pessoa tem
+    de ser CLT ativo e o lançamento posterior à admissão) antes de agir. Sem isso o botão
+    viraria delete genérico — o id vem do front e id se falsifica.
 
-    Reusa `diarias_service.excluir_lancamento`, que só apaga status='lancado' — o que já
-    foi pago ele recusa com a mensagem real, em vez de fingir sucesso. Não move dinheiro:
-    IMPEDE uma saída futura. Registra em audit_logs com a identidade real de quem cancelou.
+    Diária → `diarias_service.excluir_lancamento` (só status='lancado').
+    VT/VR  → `pagamentos_diaristas_service.cancelar` (só a_revisar/sem_pix). Esse devolve
+    ok:True mesmo sem alterar linha, então conferimos o status DEPOIS — não mentir é a regra.
+
+    Não move dinheiro: IMPEDE uma saída futura. Registra em audit_logs com identidade real.
     """
     from sqlalchemy import text as _sql
 
+    kind = (payload.get("kind") or "diaria").strip().lower()
     try:
-        lanc_id = int(str(payload.get("lancamento_id") or "").strip())
+        ref = int(str(payload.get("ref") or payload.get("lancamento_id") or "").strip())
     except (TypeError, ValueError):
         raise HTTPException(status_code=422, detail="Lançamento inválido.")
     motivo = (payload.get("motivo") or "").strip()
     if len(motivo) < 5:
         raise HTTPException(status_code=422, detail="Descreva o motivo do cancelamento (mín. 5 caracteres).")
+    if kind not in ("diaria", "vtvr"):
+        raise HTTPException(status_code=422, detail="Tipo inválido.")
 
-    row = (await db.execute(_sql(
-        "SELECT l.data, l.posto, l.valor, d.nome, e.nome, e.data_admissao, "
-        "       (SELECT count(*) FROM gp_clock_punches c "
-        "          WHERE c.employee_id = e.id AND c.punch_timestamp::date = l.data) "
-        "FROM diaria_lancamentos l "
-        "JOIN diaria_diaristas d ON d.id = l.diarista_id "
-        "JOIN employees e ON replace(replace(coalesce(e.cpf,''),'.',''),'-','') "
-        "                  = replace(replace(coalesce(d.cpf,''),'.',''),'-','') "
-        "WHERE l.id = :i AND e.status = 'ativo' AND coalesce(e.is_homologacao,false) = false "
-        "  AND e.data_admissao IS NOT NULL AND l.data >= e.data_admissao"), {"i": lanc_id})).first()
-    if not row:
-        raise HTTPException(
-            status_code=422,
-            detail="Esta diária não é uma sobreposição à folha CLT — cancelamento recusado. "
-                   "Para excluir um lançamento comum use o Operacional.")
-    dia, posto, valor, nome_d, nome_e, adm, n_ponto = row
+    recusa = ("Este lançamento não é uma sobreposição à folha CLT — cancelamento recusado. "
+              "Para excluir um lançamento comum use o Operacional.")
 
-    from modules.operacional.diaristas import diarias_service as _dsvc
+    if kind == "diaria":
+        row = (await db.execute(_sql(
+            "SELECT l.data, l.posto, l.valor, e.nome, e.data_admissao, e.id, "
+            "       (SELECT count(*) FROM gp_clock_punches c "
+            "          WHERE c.employee_id = e.id AND c.punch_timestamp::date = l.data) "
+            "FROM diaria_lancamentos l "
+            "JOIN diaria_diaristas d ON d.id = l.diarista_id "
+            "JOIN employees e ON replace(replace(coalesce(e.cpf,''),'.',''),'-','') "
+            "                  = replace(replace(coalesce(d.cpf,''),'.',''),'-','') "
+            "WHERE l.id = :i AND e.status = 'ativo' AND coalesce(e.is_homologacao,false) = false "
+            "  AND e.data_admissao IS NOT NULL AND l.data >= e.data_admissao"), {"i": ref})).first()
+        if not row:
+            raise HTTPException(status_code=422, detail=recusa)
+        dia, posto, valor, nome_e, adm, _eid, n_ponto = row
 
-    res = await _dsvc.excluir_lancamento(db, lanc_id)
-    if not res.get("ok"):
-        raise HTTPException(status_code=int(res.get("http_status", 422)),
-                            detail=res.get("mensagem", "Não foi possível cancelar a diária."))
+        from modules.operacional.diaristas import diarias_service as _dsvc
+
+        res = await _dsvc.excluir_lancamento(db, ref)
+        if not res.get("ok"):
+            raise HTTPException(status_code=int(res.get("http_status", 422)),
+                                detail=res.get("mensagem", "Não foi possível cancelar a diária."))
+        rotulo = "Diária"
+    else:
+        row = (await db.execute(_sql(
+            "SELECT v.data_referencia, v.valor, e.nome, e.data_admissao, e.id, v.status, "
+            "       (SELECT count(*) FROM gp_clock_punches c "
+            "          WHERE c.employee_id = e.id AND c.punch_timestamp::date = v.data_referencia) "
+            "FROM financial_pagamentos_diaristas v "
+            "JOIN employees e ON upper(btrim(e.nome)) = upper(btrim(v.beneficiario)) "
+            "WHERE v.id = :i AND v.tipo = 'vt_vr' AND e.status = 'ativo' "
+            "  AND coalesce(e.is_homologacao,false) = false "
+            "  AND e.data_admissao IS NOT NULL AND v.data_referencia >= e.data_admissao"),
+            {"i": ref})).first()
+        if not row:
+            raise HTTPException(status_code=422, detail=recusa)
+        dia, valor, nome_e, adm, _eid, st_antes, n_ponto = row
+        posto = "—"
+        if st_antes == "pago":
+            raise HTTPException(status_code=422, detail="VT/VR já PAGO não pode ser cancelado.")
+
+        from modules.financial import pagamentos_diaristas_service as _psvc
+
+        await _psvc.cancelar(db, ref)
+        # o service devolve ok:True mesmo sem alterar linha — confere o efeito REAL
+        st_depois = (await db.execute(_sql(
+            "SELECT status FROM financial_pagamentos_diaristas WHERE id = :i"), {"i": ref})).scalar()
+        if st_depois != "cancelado":
+            raise HTTPException(status_code=422,
+                                detail=f"VT/VR não pôde ser cancelado (status '{st_depois}').")
+        rotulo = "VT+VR"
 
     try:
         await db.execute(_sql(
             "INSERT INTO audit_logs (id, event_id, action, category, severity, result, description, "
             " details, user_id, user_email, created_at) "
-            "VALUES (gen_random_uuid(), :ev, 'cancelar_diaria_sobreposta', 'financeiro', 'warning', "
+            "VALUES (gen_random_uuid(), :ev, 'cancelar_sobreposto_clt', 'financeiro', 'warning', "
             " 'success', :desc, CAST(:det AS jsonb), CAST(:uid AS uuid), :mail, now())"),
-            {"ev": f"diaria-{lanc_id}", "desc": f"Diária sobreposta cancelada: {nome_e} em {dia}",
+            {"ev": f"{kind}-{ref}", "desc": f"{rotulo} sobreposto cancelado: {nome_e} em {dia}",
              "det": __import__("json").dumps({
-                 "lancamento_id": lanc_id, "data": str(dia), "posto": posto,
+                 "kind": kind, "ref": ref, "data": str(dia), "posto": posto,
                  "valor": float(valor or 0), "admissao_clt": str(adm),
                  "bateu_ponto_no_dia": bool(n_ponto), "motivo": motivo}),
              "uid": str(current_user.id), "mail": getattr(current_user, "email", None)})
         await db.commit()
-    except Exception:  # noqa: BLE001 — a diária JÁ foi cancelada; log não pode desfazer isso
+    except Exception:  # noqa: BLE001 — já foi cancelado; o log não pode desfazer isso
         await db.rollback()
 
     return {"ok": True, "message": (
-        f"Diária de {nome_e} em {dia.strftime('%d/%m/%Y')} ({posto}, {brl(float(valor or 0))}) "
-        f"CANCELADA. CLT desde {adm.strftime('%d/%m/%Y')}"
+        f"{rotulo} de {nome_e} em {dia.strftime('%d/%m/%Y')} ({brl(float(valor or 0))}) CANCELADO. "
+        f"CLT desde {adm.strftime('%d/%m/%Y')}"
         + ("; bateu ponto nesse dia." if n_ponto else "; sem ponto nesse dia.")
         + " Nenhum dinheiro foi movido — a saída futura foi impedida. Recarregue a tela.")}
 
