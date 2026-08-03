@@ -1458,6 +1458,53 @@ async def _rd_pagar_diaristas(current_user: CurrentActiveUser, payload: dict = B
     data = (payload.get("data") or "").strip()
     if not data or len(data) < 8:
         raise HTTPException(status_code=400, detail="Informe a data (AAAA-MM-DD) do lote.")
+    # ── TRAVA ANTI-LOTE-VELHO ────────────────────────────────────────────────────────
+    # O lote envelhece: o Eliziel segue lançando enquanto ele espera o dia 15. Medido em
+    # 03/08 — lote R$8.670 contra R$8.730 já lançados; pagar ali pagaria A MENOS.
+    # Compara PESSOA A PESSOA e só o que ainda dá para mudar (a_revisar/sem_pix): comparar
+    # totais daria falso alarme, porque quem já está 'pago'/'cancelado' legitimamente não
+    # bate com o lançado (ex.: R$640 pagos sem lançamento + R$850 cancelados).
+    # Roda ANTES de Cora e de Inter: vale para gerar lista e para gerar OTP.
+    _d_ref = _rd_parse_data(data) or data
+    _comp = (await db.execute(text(
+        "SELECT DISTINCT competencia FROM financial_pagamentos_diaristas "
+        "WHERE data_referencia = CAST(:d AS date) AND tipo = 'diaria_mensal'"),
+        {"d": _d_ref})).scalars().all()
+    for _c in _comp:
+        try:
+            _mm, _aa = str(_c).split("/")
+            _mm, _aa = int(_mm), int(_aa)
+        except (ValueError, AttributeError):
+            continue
+        _div = (await db.execute(text(
+            "WITH lanc AS ("
+            "  SELECT d.nome AS nome, sum(l.valor) AS v"
+            "  FROM diaria_lancamentos l JOIN diaria_diaristas d ON d.id = l.diarista_id"
+            "  WHERE EXTRACT(MONTH FROM l.data) = :m AND EXTRACT(YEAR FROM l.data) = :a"
+            "  GROUP BY d.nome),"
+            "lote AS ("
+            "  SELECT beneficiario AS nome, valor AS v, status"
+            "  FROM financial_pagamentos_diaristas"
+            "  WHERE competencia = :c AND tipo = 'diaria_mensal')"
+            "SELECT coalesce(lanc.nome, lote.nome), coalesce(lanc.v,0), coalesce(lote.v,0),"
+            "       coalesce(lote.status,'(fora do lote)')"
+            "FROM lanc FULL OUTER JOIN lote"
+            "  ON upper(btrim(lanc.nome)) = upper(btrim(lote.nome))"
+            "WHERE coalesce(lote.status,'a_revisar') IN ('a_revisar','sem_pix')"
+            "  AND abs(coalesce(lanc.v,0) - coalesce(lote.v,0)) > 0.005"
+            "ORDER BY abs(coalesce(lanc.v,0) - coalesce(lote.v,0)) DESC"),
+            {"m": _mm, "a": _aa, "c": _c})).fetchall()
+        if _div:
+            _delta = sum(float(r[1] or 0) - float(r[2] or 0) for r in _div)
+            _quem = "; ".join(
+                f"{r[0]}: lançado {brl(float(r[1] or 0))} × lote {brl(float(r[2] or 0))}"
+                for r in _div[:6]) + ("…" if len(_div) > 6 else "")
+            raise HTTPException(status_code=409, detail=(
+                f"LOTE DESATUALIZADO — pagamento bloqueado. A competência {_c} tem "
+                f"{len(_div)} divergência(s) entre o lançado e o lote "
+                f"({'faltam ' if _delta > 0 else 'sobram '}{brl(abs(_delta))}). "
+                f"{_quem}. Regere o lote em 'Lote mensal (dia 15)' e tente de novo."))
+
     # padrão CORA: diarista é prestador da Patrimonial, e a Patrimonial paga pela Cora.
     origem = (payload.get("origem") or "cora").strip().lower()
     if origem == "cora":
