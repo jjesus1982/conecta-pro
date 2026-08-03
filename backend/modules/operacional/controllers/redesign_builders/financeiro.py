@@ -1156,6 +1156,51 @@ ORDER BY b.comp DESC, b.cnpj"""
 
     # F0 — fundação: compõe os 7 grupos (tabs) e stub-a as telas antigas (deep-link preservado).
     from modules.operacional.controllers.redesign_builders._fin_grupos import montar_grupos
+    # ---- DIÁRIAS SOBREPOSTAS À FOLHA CLT (controle contínuo, era levantamento avulso) ----
+    # Diarista que virou CLT e continuou recebendo diária. Nem toda sobreposição é erro:
+    # CLT cobrindo posto na FOLGA é legítimo. O que denuncia duplicidade é ter BATIDO PONTO
+    # como CLT no MESMO dia. Ordem: a_revisar primeiro (ainda dá p/ barrar antes de pagar),
+    # depois quem bateu ponto. O lote do dia 15 cobre a competência do mês ANTERIOR — é assim
+    # que o dia se liga ao pagamento (programar_diarias_mensais: dia 15 do mês seguinte).
+    await safe("diarias-sobrepostas", tbl(
+        "Diárias sobrepostas à folha CLT",
+        "Diárias lançadas DEPOIS da admissão CLT da pessoa. 'Ponto CLT = SIM' é o caso grave: "
+        "trabalhou como CLT e recebeu diária pelo mesmo dia. 'a revisar' ainda não foi pago — "
+        "dá para barrar. Sem ponto costuma ser cobertura em folga, que é legítima.",
+        "—", ["Competência", "Colaborador", "Dia", "Posto", "Valor", "Ponto CLT", "Pagamento"],
+        "0.9fr 1.9fr 0.7fr 1.4fr 0.9fr 0.9fr 1fr",
+        """
+        SELECT to_char(l.data,'MM/YYYY'), e.nome, to_char(l.data,'DD/MM'), l.posto, l.valor,
+               CASE WHEN pt.n > 0 THEN 'SIM' ELSE 'não' END,
+               coalesce(pg.status, 'não programado')
+        FROM diaria_lancamentos l
+        JOIN diaria_diaristas d ON d.id = l.diarista_id
+        JOIN employees e
+          ON replace(replace(coalesce(e.cpf,''),'.',''),'-','')
+           = replace(replace(coalesce(d.cpf,''),'.',''),'-','')
+        LEFT JOIN LATERAL (
+            SELECT count(*) AS n FROM gp_clock_punches c
+            WHERE c.employee_id = e.id AND c.punch_timestamp::date = l.data) pt ON true
+        LEFT JOIN LATERAL (
+            SELECT p.status FROM financial_pagamentos_diaristas p
+            WHERE upper(btrim(p.beneficiario)) = upper(btrim(e.nome)) AND p.tipo = 'diaria_mensal'
+              AND p.data_referencia = ((date_trunc('month', l.data) + interval '1 month')::date + 14)
+            LIMIT 1) pg ON true
+        WHERE e.status = 'ativo' AND coalesce(e.is_homologacao,false) = false
+          AND e.data_admissao IS NOT NULL AND l.data >= e.data_admissao
+        ORDER BY (coalesce(pg.status,'') = 'a_revisar') DESC, (pt.n > 0) DESC, l.data DESC
+        LIMIT 500
+        """,
+        lambda r: [t(r[0], 600), t(r[1], 600, "#0F1B3A", initials(r[1] or "")),
+                   t(r[2], 600), t(r[3]),
+                   t(brl(float(r[4] or 0)), 600),
+                   b("SIM", "bad") if r[5] == "SIM" else t("não", 500, "#64748B"),
+                   b({"a_revisar": "a revisar", "pago": "PAGO"}.get(r[6], r[6]),
+                     "warn" if r[6] == "a_revisar" else ("bad" if r[6] == "pago" else "mut"))]))
+    if isinstance(out.get("diarias-sobrepostas"), dict):
+        out["diarias-sobrepostas"]["filterCol"] = 6
+        out["diarias-sobrepostas"]["filterLabel"] = "Pagamento"
+
     montar_grupos(out)
 
     return out
