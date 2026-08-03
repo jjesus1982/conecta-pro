@@ -34,6 +34,20 @@ _MESES = [
 ]
 
 
+def _data_br(v) -> str:
+    """Data no formato brasileiro. `.get(k, default)` NÃO cobre chave presente com None —
+    era assim que 'None' e datas ISO vazavam para o holerite do colaborador."""
+    if not v:
+        return "—"
+    try:
+        return v.strftime("%d/%m/%Y")
+    except AttributeError:
+        t = str(v)[:10]
+        if len(t) == 10 and t[4] == "-":
+            return f"{t[8:10]}/{t[5:7]}/{t[0:4]}"
+        return t
+
+
 def _fmt_cpf(v) -> str:
     d = "".join(ch for ch in str(v or "") if ch.isdigit())
     return f"{d[:3]}.{d[3:6]}.{d[6:9]}-{d[9:11]}" if len(d) == 11 else (str(v) or "—")
@@ -164,7 +178,7 @@ def montar_holerite_pdf(holerite: dict, funcionario: dict | None = None) -> byte
             _cell("Escala", st, bold=True),
             _cell(holerite.get("escala", "—"), st),
             _cell("Admissão", st, bold=True),
-            _cell(funcionario.get("data_admissao", "—"), st),
+            _cell(_data_br(funcionario.get("data_admissao")), st),
         ],
         [
             _cell("CPF", st, bold=True),
@@ -174,7 +188,7 @@ def montar_holerite_pdf(holerite: dict, funcionario: dict | None = None) -> byte
         ],
         [
             _cell("Departamento", st, bold=True),
-            _cell(funcionario.get("departamento", "Operacional"), st),
+            _cell(funcionario.get("departamento") or "—", st),
             _cell("Posto", st, bold=True),
             _cell(funcionario.get("posto", "—"), st),
         ],
