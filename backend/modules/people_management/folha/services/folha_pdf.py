@@ -29,6 +29,8 @@ from reportlab.platypus import (
 from modules.crm.services.pdf_branding import (
     AZUL_ESCURO,
     AZUL_MEDIO,
+    EMPRESA,
+    EMPRESA_PATRIMONIAL,
     FONTE,
     FONTE_B,
     FUNDO_CLARO,
@@ -57,6 +59,8 @@ def montar_folha_pdf(resumo: dict[str, Any]) -> bytes:
         fonte_label = "REAL · Portte Contábil"
     elif "dominio" in fonte or "domínio" in fonte:
         fonte_label = "REAL · Domínio Sistemas"
+    elif "conecta" in fonte:
+        fonte_label = "REAL · Conecta PRO (folha gerada)"
     elif fonte == "importada":
         fonte_label = "REAL · Folha importada"
     elif "propria" in fonte or "cct" in fonte or "estimativa" in fonte:
@@ -65,6 +69,17 @@ def montar_folha_pdf(resumo: dict[str, Any]) -> bytes:
         fonte_label = f"Fonte: {resumo.get('fonte')}"
     else:
         fonte_label = "—"
+
+    # Timbrado do CNPJ CERTO: a folha CLT e da Patrimonial, mas o default do branding e a
+    # Eletronica — sem isto o papel sai com 35.710.481/0001-03 numa folha da Patrimonial,
+    # justamente o que a separacao por CNPJ existe p/ evitar. Fonte = empresa_id do holerite.
+    _emp_brand = None
+    _cnpj_res = "".join(ch for ch in str(resumo.get("empresa_cnpj") or "") if ch.isdigit())
+    if _cnpj_res:
+        for _cand in (EMPRESA_PATRIMONIAL, EMPRESA):
+            if _cnpj_res == "".join(ch for ch in _cand["cnpj"] if ch.isdigit()):
+                _emp_brand = _cand
+                break
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -215,7 +230,7 @@ def montar_folha_pdf(resumo: dict[str, Any]) -> bytes:
     )
 
     def _hf(canvas, doc_):
-        header_footer(canvas, doc_, titulo="FOLHA DE PAGAMENTO")
+        header_footer(canvas, doc_, titulo="FOLHA DE PAGAMENTO", empresa=_emp_brand)
 
     doc.build(story, onFirstPage=_hf, onLaterPages=_hf)
     return buf.getvalue()

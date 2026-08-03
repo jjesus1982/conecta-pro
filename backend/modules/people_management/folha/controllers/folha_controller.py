@@ -151,6 +151,28 @@ def baixar_holerite_pdf(
     )
 
 
+def _cnpj_da_competencia(db, mes: int, ano: int, condominio: str | None = None) -> str:
+    """CNPJ do empregador na competência, lido do PRÓPRIO holerite (empresa_id).
+
+    O branding padrão dos PDFs é o CNPJ1 (Eletrônica); a folha CLT é da Patrimonial.
+    Deixar o default sairia com o CNPJ errado no papel — exatamente o que a separação
+    por CNPJ existe p/ evitar. CNPJs misturados na competência => "" (não adivinha).
+    """
+    from sqlalchemy import text as _sqltext
+
+    sql = ("SELECT DISTINCT em.cnpj FROM hr_payslips p JOIN empresas em ON em.id = p.empresa_id "
+           "WHERE p.reference_year = :a AND p.reference_month = :m")
+    par: dict = {"a": ano, "m": mes}
+    if condominio:
+        sql += " AND CAST(p.condominio_id AS TEXT) = :c"
+        par["c"] = condominio
+    try:
+        rows = db.execute(_sqltext(sql), par).fetchall()
+    except Exception:  # noqa: BLE001 — timbrado nunca derruba o PDF
+        return ""
+    return str(rows[0][0]) if len(rows) == 1 else ""
+
+
 @router.get(
     "/{mes:int}/{ano:int}/pdf",
     summary="Exportar FOLHA CONSOLIDADA em PDF (resumo + detalhamento por colaborador)",
@@ -220,6 +242,7 @@ def exportar_folha_pdf(
             "total_irrf": sum(_f(r[8]) for r in _rows),
             "custo_total_empresa": _bruto + _fgts,
             "fonte": "conecta",
+            "empresa_cnpj": _cnpj_da_competencia(db, mes, ano, condominio),
             "funcionarios": [
                 {"nome": r[0], "cargo": r[1], "salario_base": _f(r[2]), "inss_value": _f(r[3]),
                  "fgts_value": _f(r[4]), "total_descontos": _f(r[5]), "salario_liquido": _f(r[6])}
@@ -237,6 +260,7 @@ def exportar_folha_pdf(
         )
 
     resumo = calculo_service.get_resumo_folha(db, mes, ano)
+    resumo["empresa_cnpj"] = _cnpj_da_competencia(db, mes, ano)
     pdf = montar_folha_pdf(resumo)
     return Response(
         content=pdf,
