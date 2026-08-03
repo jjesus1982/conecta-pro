@@ -294,6 +294,8 @@ EXTRA_MENU: list[dict] = [
      "icon": "M9 7h6M9 11h6M9 15h4M5 3h14a1 1 0 0 1 1 1v16H4V4a1 1 0 0 1 1-1z"},
     {"id": "fechar-mes-ponto", "label": "Fechar mês (ponto)",
      "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
+    {"id": "chaves-pix", "label": "Chaves PIX (todos)",
+     "icon": "M15 7a4 4 0 1 1-4 4M2 12h9M7 9v6M11 12l3-3M14 15l-3-3"},
     {"id": "folha-gerar", "label": "Gerar folha (Conecta PRO)",
      "icon": "M9 12l2 2 4-4M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7z"},
     {"id": "pareamento-folha", "label": "Folha: Conecta × Portte",
@@ -746,6 +748,54 @@ async def build(db) -> dict:
         out["folha-por-condominio"]["filterLabel"] = "Competência"
         out["folha-por-condominio"]["cta"] = "Gerar folha (Conecta PRO)"
         out["folha-por-condominio"]["ctaTo"] = "folha-gerar"
+
+    # ---- CHAVES PIX — TODA PESSOA CADASTRADA, DE TODAS AS FONTES ----------------------
+    # As chaves moram em 4 lugares (CLT/PJ em employees, diaristas em diaria_diaristas,
+    # agenda em financial_beneficiarios) e ninguém via o conjunto. Quem está SEM chave vem
+    # primeiro: é a linha que trava pagamento. Caso real: Kelly e Alexandre viraram CLT e a
+    # chave ficou só no cadastro de diarista — aqui as duas linhas aparecem lado a lado.
+    await safe("chaves-pix", tbl(
+        "Chaves PIX — pessoas cadastradas",
+        "Todas as pessoas e suas chaves, de todas as origens (CLT, PJ, diaristas, agenda de "
+        "beneficiários). Sem chave aparece no topo — é o que impede o pagamento. Use a busca "
+        "para achar a mesma pessoa em outra origem.",
+        "—", ["Pessoa", "Vínculo", "Documento", "Chave PIX", "Situação"],
+        "2fr 1.1fr 1.2fr 1.8fr 1fr",
+        """
+        SELECT nome, vinculo, doc, chave, ordem FROM (
+            SELECT e.nome AS nome, 'CLT' AS vinculo, coalesce(e.cpf,'—') AS doc,
+                   coalesce(nullif(e.pix_key,''), nullif(e.pix,'')) AS chave,
+                   CASE WHEN coalesce(nullif(e.pix_key,''), nullif(e.pix,'')) IS NULL THEN 0 ELSE 1 END AS ordem
+            FROM employees e
+            WHERE e.status = 'ativo' AND coalesce(e.is_homologacao,false) = false
+              AND coalesce(lower(e.tipo_contrato),'') <> 'pj'
+            UNION ALL
+            SELECT e.nome, 'PJ — ' || coalesce(e.papel_pj,'prestador'),
+                   coalesce(nullif(e.cnpj,''), e.cpf, '—'),
+                   coalesce(nullif(e.pix_key,''), nullif(e.pix,'')),
+                   CASE WHEN coalesce(nullif(e.pix_key,''), nullif(e.pix,'')) IS NULL THEN 0 ELSE 1 END
+            FROM employees e
+            WHERE lower(coalesce(e.tipo_contrato,'')) = 'pj' AND coalesce(e.is_homologacao,false) = false
+            UNION ALL
+            SELECT d.nome, 'Diarista', coalesce(d.cpf,'—'), nullif(d.pix,''),
+                   CASE WHEN nullif(d.pix,'') IS NULL THEN 0 ELSE 1 END
+            FROM diaria_diaristas d WHERE coalesce(d.ativo,true) = true
+            UNION ALL
+            SELECT b.nome, 'Beneficiário' || coalesce(' — ' || nullif(b.categoria,''), ''),
+                   coalesce(b.cpf_cnpj,'—'), nullif(b.chave_pix,''),
+                   CASE WHEN nullif(b.chave_pix,'') IS NULL THEN 0 ELSE 1 END
+            FROM financial_beneficiarios b WHERE coalesce(b.ativo,true) = true
+        ) u
+        ORDER BY ordem, nome
+        """,
+        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")),
+                   t(r[1]), t(r[2] or "—"),
+                   t(r[3] or "SEM CHAVE", 700 if not r[3] else 600,
+                     "#DC2626" if not r[3] else _ND),
+                   b("sem chave", "warn") if not r[3] else b("ok", "ok")]))
+    if isinstance(out.get("chaves-pix"), dict):
+        out["chaves-pix"]["filterCol"] = 1
+        out["chaves-pix"]["filterLabel"] = "Vínculo"
 
     # ---- GERAR FOLHA NO CONECTA PRO (o que faltava: close_payroll nao persistia nada) ----
     # Opcoes = condominios que TEM gente alocada hoje (nao o cadastro inteiro), Villa dos
