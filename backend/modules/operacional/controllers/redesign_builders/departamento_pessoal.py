@@ -101,6 +101,8 @@ EXTRA_MENU: list[dict] = [
      "icon": "M9 7h6M9 11h6M9 15h4M5 3h14a1 1 0 0 1 1 1v16H4V4a1 1 0 0 1 1-1z"},
     {"id": "fechar-mes-ponto", "label": "Fechar mês (ponto)",
      "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
+    {"id": "folha-por-condominio", "label": "Folha por condomínio",
+     "icon": "M3 21h18M5 21V7l7-4 7 4v14M9 21v-5h6v5M9 11h.01M15 11h.01"},
     {"id": "folha-nao-conformidades", "label": "Não conformidades (folha)",
      "icon": "M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h16.9a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01"},
     {"id": "folha-apontamento", "label": "Apontar folha",
@@ -482,6 +484,58 @@ async def build(db) -> dict:
     if out.get("folha"):
         out["folha"]["filterCol"] = 0
         out["folha"]["filterLabel"] = "Competência"
+
+    # ---- FOLHA POR CONDOMÍNIO (fechamento no formato que o Jordan usa com a Portte) --------
+    # Uma GERAL (painéis no topo) + uma linha por condomínio, com VILLA DOS PÁSSAROS primeiro
+    # (é assim que ele confere). Liga o holerite ao condomínio pela alocação VIGENTE na
+    # competência; quem não tem alocação no período cai em "(sem alocação)" — nunca some.
+    await safe("folha-por-condominio", tbl(
+        "Folha por condomínio",
+        "Fechamento no formato do relatório da Portte: TOTAL GERAL primeiro, depois Villa dos Pássaros "
+        "e os demais condomínios. Vínculo pela alocação vigente na competência. Filtre a competência.",
+        "—", ["Competência", "Condomínio", "Pessoas", "Bruto", "Descontos", "Líquido"],
+        "1fr 1.8fr 0.8fr 1.1fr 1.1fr 1.1fr",
+        # GROUPING SETS = a linha "TOTAL GERAL" sai na MESMA consulta (sobrevive ao filtro de
+        # competência, que é client-side). LATERAL ... LIMIT 1 é obrigatório: com LEFT JOIN direto,
+        # quem tem 2 alocações no mês soma o holerite 2x e o bruto de 06/2026 inflava
+        # 111.388,40 -> 132.165,17. Oráculo: TOTAL GERAL == folha conciliada do mês.
+        """
+        SELECT to_char(p.competence_start,'MM/YYYY') AS comp,
+               CASE WHEN grouping(coalesce(a.nome,'(sem alocação)')) = 1 THEN 'TOTAL GERAL'
+                    ELSE coalesce(a.nome,'(sem alocação)') END AS condominio,
+               count(*) AS pessoas,
+               round(sum(p.total_earnings)::numeric,2) AS bruto,
+               round(sum(p.total_deductions)::numeric,2) AS descontos,
+               round(sum(p.net_salary)::numeric,2) AS liquido
+        FROM hr_payslips p
+        JOIN employees e ON e.id = p.employee_id AND coalesce(e.is_homologacao,false) = false
+        LEFT JOIN LATERAL (
+            SELECT co.nome
+            FROM employee_alocacoes al JOIN condominios co ON co.id = al.condominio_id
+            WHERE al.employee_id = p.employee_id
+              AND al.data_inicio <= (date_trunc('month', p.competence_start) + interval '1 month -1 day')::date
+              AND (al.data_fim IS NULL OR al.data_fim >= date_trunc('month', p.competence_start)::date)
+            ORDER BY al.data_inicio DESC LIMIT 1
+        ) a ON true
+        WHERE p.competence_start IS NOT NULL
+        GROUP BY GROUPING SETS ((to_char(p.competence_start,'MM/YYYY')),
+                                (to_char(p.competence_start,'MM/YYYY'), coalesce(a.nome,'(sem alocação)')))
+        ORDER BY 1 DESC,
+                 grouping(coalesce(a.nome,'(sem alocação)')) DESC,
+                 (upper(coalesce(a.nome,'(sem alocação)')) LIKE '%PASSAROS%'
+                  OR upper(coalesce(a.nome,'(sem alocação)')) LIKE '%PÁSSAROS%') DESC,
+                 2
+        """,
+        lambda r: [t(r[0] or "—", 600),
+                   t(r[1], 700 if r[1] == "TOTAL GERAL" else 600,
+                     "#16277D" if r[1] == "TOTAL GERAL" else "#0F1B3A"),
+                   t(str(r[2])),
+                   t(brl(float(r[3] or 0)), 600),
+                   t(brl(float(r[4] or 0)), 600, "#C2410C"),
+                   t(brl(float(r[5] or 0)), 700, "#16A34A")]))
+    if isinstance(out.get("folha-por-condominio"), dict):
+        out["folha-por-condominio"]["filterCol"] = 0
+        out["folha-por-condominio"]["filterLabel"] = "Competência"
     # Folha — docs de TELA (consolidada do mês + export Domínio), na última competência real
     try:
         from sqlalchemy import text as _sqltext
