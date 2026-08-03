@@ -31,10 +31,13 @@ async def listar_clientes(
 ):
     """Lista todos os clientes ativos com dados financeiros."""
     where = "WHERE c.ativo = true"
+    params: dict = {}
     if status:
-        where += f" AND c.status = '{status}'"
+        where += " AND c.status = :status"
+        params["status"] = status
     if segment:
-        where += f" AND c.segment = '{segment}'"
+        where += " AND c.segment = :segment"
+        params["segment"] = segment
 
     result = await db.execute(
         text(f"""
@@ -60,7 +63,8 @@ async def listar_clientes(
         LEFT JOIN leads l ON c.lead_id = l.id
         {where}
         ORDER BY c.name
-    """)
+    """),
+        params,
     )
     rows = result.fetchall()
 
