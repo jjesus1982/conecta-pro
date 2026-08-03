@@ -67,6 +67,134 @@ async def rd_action_ponto_ajuste(
     return {"ok": True, "resultado": res, "message": "Ajuste de ponto registrado"}
 
 
+def _require_dp_dep(current_user: CurrentActiveUser) -> None:
+    """Trava de cargo p/ GERAR folha: salário é dado sensível (LGPD) e a folha alimenta
+    pagamento. Só quem tem module:people-management / financeiro (ou admin/all)."""
+    from core.auth.module_scope import user_has_module
+    if not (user_has_module(current_user, "people-management") or user_has_module(current_user, "financeiro")):
+        raise HTTPException(status_code=403, detail="Gerar folha é restrito ao DP/Financeiro.")
+
+
+@router.post("/action/folha-gerar", dependencies=[Depends(_require_dp_dep)])
+async def rd_action_folha_gerar(
+    current_user: CurrentActiveUser,
+    payload: dict = Body(...),
+    db=Depends(get_sync_db_dependency),
+) -> dict:
+    """GERA a folha do mês no Conecta PRO e GRAVA em hr_payslips (source_system='conecta').
+
+    O `close_payroll` do hr NÃO persistia nada (calculava, publicava evento e devolvia
+    "closed" — nenhuma linha gravada), então não havia caminho real de gerar folha aqui.
+    Esta ação usa o MESMO motor da tela de folha (`calcular_folha_batch`, que lê ponto REAL
+    do Sólides via horas_reais_ponto) e persiste o resultado.
+
+    INTOCÁVEL: só mexe nas linhas source_system='conecta'. As linhas 'portte' (espelho
+    jan-jun, fonte da verdade no pareamento de 6 meses) nunca são lidas para escrita nem
+    apagadas. Regerar a mesma competência é idempotente: apaga a versão 'conecta' anterior
+    daquele mês e reescreve.
+
+    Grava em status='draft': gerar != pagar. O pagamento continua no Financeiro com OTP.
+    """
+    from datetime import date
+
+    from sqlalchemy import text as _sql
+
+    try:
+        mes = int(str(payload.get("mes") or "").strip())
+        ano = int(str(payload.get("ano") or "").strip())
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="Informe mês (1-12) e ano (AAAA).")
+    if not (1 <= mes <= 12) or not (2020 <= ano <= 2100):
+        raise HTTPException(status_code=422, detail="Mês (1-12) ou ano (AAAA) fora do intervalo.")
+
+    from modules.people_management.folha.services.calculo_service import calcular_folha_batch
+
+    batch = calcular_folha_batch(db, mes, ano)
+    holerites = batch.get("holerites") or []
+    if not holerites:
+        raise HTTPException(status_code=400, detail=f"Nenhum holerite calculado para {mes:02d}/{ano}.")
+
+    # condomínio vigente na competência + empresa, por funcionário (1 query, não N)
+    comp_ini = date(ano, mes, 1)
+    comp_fim = date(ano + (mes // 12), (mes % 12) + 1, 1) - __import__("datetime").timedelta(days=1)
+    vinc = {
+        str(r[0]): (str(r[1]) if r[1] else None, str(r[2]) if r[2] else None)
+        for r in db.execute(_sql(
+            "SELECT CAST(e.id AS TEXT), "
+            "  (SELECT a.condominio_id FROM employee_alocacoes a WHERE a.employee_id = e.id "
+            "     AND a.data_inicio <= :fim AND (a.data_fim IS NULL OR a.data_fim >= :ini) "
+            "   ORDER BY a.data_inicio DESC LIMIT 1), e.empresa_id "
+            "FROM employees e"), {"ini": comp_ini, "fim": comp_fim}).fetchall()
+    }
+    # sentinela usada pelo espelho Portte quando não há alocação (condominio_id é NOT NULL)
+    SEM_COND = "00000000-0000-0000-0000-000000000001"
+
+    def _verba(lista, *chaves):
+        for it in lista or []:
+            d = (it.get("descricao") or "").upper()
+            if any(k in d for k in chaves):
+                return float(it.get("valor") or 0)
+        return 0.0
+
+    # idempotente: só a versão 'conecta' da competência (jamais a 'portte')
+    apagados = db.execute(_sql(
+        "DELETE FROM hr_payslips WHERE source_system = 'conecta' "
+        "AND reference_year = :a AND reference_month = :m"), {"a": ano, "m": mes}).rowcount or 0
+
+    gravados = 0
+    for h in holerites:
+        eid = str(h["employee_id"])
+        cond, emp = vinc.get(eid, (None, None))
+        db.execute(_sql(
+            "INSERT INTO hr_payslips (id, condominio_id, employee_id, empresa_id, payslip_code, "
+            " payslip_type, status, reference_year, reference_month, reference_period, "
+            " competence_start, competence_end, base_salary, total_earnings, total_deductions, "
+            " net_salary, earnings, deductions, informative, inss_base, inss_value, irrf_base, "
+            " irrf_value, fgts_base, fgts_value, source_system) "
+            "VALUES (gen_random_uuid(), CAST(:cond AS uuid), CAST(:eid AS uuid), CAST(:emp AS uuid), :code, "
+            " 'mensal', 'draft', :ano, :mes, :per, :ini, :fim, :base, :prov, :desc, :liq, "
+            " CAST(:earn AS jsonb), CAST(:ded AS jsonb), CAST(:info AS jsonb), :ibase, :ival, "
+            " :rbase, :rval, :fbase, :fval, 'conecta')"),
+            {
+                "cond": cond or SEM_COND, "eid": eid, "emp": emp,
+                "code": f"CONECTA-{ano}-{mes:02d}-{eid[:8]}",
+                "ano": ano, "mes": mes, "per": f"{ano}-{mes:02d}",
+                "ini": comp_ini, "fim": comp_fim,
+                "base": float(h.get("salario_base") or 0),
+                "prov": float(h.get("total_proventos") or 0),
+                "desc": float(h.get("total_descontos") or 0),
+                "liq": float(h.get("liquido") or 0),
+                "earn": __import__("json").dumps(h.get("proventos") or []),
+                "ded": __import__("json").dumps(h.get("descontos") or []),
+                "info": __import__("json").dumps({
+                    "escala": h.get("escala"), "dias_trabalhados": h.get("dias_trabalhados"),
+                    "horas_ponto": h.get("horas_trabalhadas_ponto"),
+                    "fonte_horas_noturnas": h.get("fonte_horas_noturnas"),
+                    "gerado_por": str(current_user.id)}),
+                "ibase": float(h.get("base_inss") or 0), "ival": _verba(h.get("descontos"), "INSS"),
+                "rbase": float(h.get("base_irrf") or 0), "rval": _verba(h.get("descontos"), "IRRF", "IMPOSTO DE RENDA"),
+                "fbase": float(h.get("base_fgts") or 0), "fval": float(h.get("fgts_empresa") or 0),
+            })
+        gravados += 1
+    db.commit()
+
+    liq = float(batch.get("total_liquido") or 0)
+    ref = db.execute(_sql(
+        "SELECT count(*), coalesce(round(sum(net_salary)::numeric,2),0) FROM hr_payslips "
+        "WHERE source_system='portte' AND reference_year=:a AND reference_month=:m"),
+        {"a": ano, "m": mes}).first()
+    par = ""
+    if ref and ref[0]:
+        par = (f" Portte na mesma competência: {ref[0]} holerite(s), {brl(float(ref[1]))} — "
+               f"diferença {brl(liq - float(ref[1]))}. Confira em DP → Folha: Conecta × Portte.")
+    return {"ok": True, "message": (
+        f"Folha {mes:02d}/{ano} GERADA no Conecta PRO: {gravados} holerite(s), "
+        f"líquido {brl(liq)}, FGTS {brl(float(batch.get('total_fgts') or 0))}. "
+        f"Status rascunho — gerar não paga; o pagamento segue no Financeiro com OTP."
+        + (f" (Substituiu {apagados} holerite(s) 'conecta' da geração anterior.)" if apagados else "")
+        + par)}
+
+
 @router.post("/action/folha-apontamento")
 async def rd_action_folha_apontamento(
     current_user: CurrentActiveUser,
@@ -120,6 +248,10 @@ EXTRA_MENU: list[dict] = [
      "icon": "M9 7h6M9 11h6M9 15h4M5 3h14a1 1 0 0 1 1 1v16H4V4a1 1 0 0 1 1-1z"},
     {"id": "fechar-mes-ponto", "label": "Fechar mês (ponto)",
      "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
+    {"id": "folha-gerar", "label": "Gerar folha (Conecta PRO)",
+     "icon": "M9 12l2 2 4-4M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7z"},
+    {"id": "pareamento-folha", "label": "Folha: Conecta × Portte",
+     "icon": "M8 3v18M16 3v18M3 8h18M3 16h18"},
     {"id": "folha-por-condominio", "label": "Folha por condomínio",
      "icon": "M3 21h18M5 21V7l7-4 7 4v14M9 21v-5h6v5M9 11h.01M15 11h.01"},
     {"id": "folha-nao-conformidades", "label": "Não conformidades (folha)",
@@ -555,6 +687,83 @@ async def build(db) -> dict:
     if isinstance(out.get("folha-por-condominio"), dict):
         out["folha-por-condominio"]["filterCol"] = 0
         out["folha-por-condominio"]["filterLabel"] = "Competência"
+
+    # ---- GERAR FOLHA NO CONECTA PRO (o que faltava: close_payroll nao persistia nada) ----
+    out["folha-gerar"] = {
+        "title": "Gerar folha (Conecta PRO)",
+        "sub": "Calcula a folha de TODOS os CLT ativos com o motor do Conecta PRO — lendo o ponto REAL "
+               "sincronizado do Sólides — e GRAVA como rascunho. Não paga: o pagamento segue no "
+               "Financeiro com OTP. Regerar o mesmo mês substitui a geração anterior; a folha da "
+               "Portte nunca é tocada.",
+        "cta": "Gerar folha", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/folha-gerar",
+                   "okMsg": "Folha gerada",
+                   "confirm": "Isto calcula e GRAVA a folha de todos os CLT ativos da competência "
+                              "(rascunho). Regerar substitui a geração anterior. Confirmar?"},
+        "fields": [
+            {"key": "mes", "label": "Mês*", "type": "select", "span": "span 1",
+             "ph": "Selecione o mês", "options": [
+                     {"value": "1", "label": "Janeiro"},
+                     {"value": "2", "label": "Fevereiro"},
+                     {"value": "3", "label": "Março"},
+                     {"value": "4", "label": "Abril"},
+                     {"value": "5", "label": "Maio"},
+                     {"value": "6", "label": "Junho"},
+                     {"value": "7", "label": "Julho"},
+                     {"value": "8", "label": "Agosto"},
+                     {"value": "9", "label": "Setembro"},
+                     {"value": "10", "label": "Outubro"},
+                     {"value": "11", "label": "Novembro"},
+                     {"value": "12", "label": "Dezembro"}]},
+            {"key": "ano", "label": "Ano*", "type": "select", "span": "span 1",
+             "ph": "Selecione o ano", "options": [
+                 {"value": "2026", "label": "2026"}, {"value": "2025", "label": "2025"}]},
+        ],
+    }
+
+    # ---- PAREAMENTO Conecta x Portte (6 meses de operação em paralelo) ------------------
+    # Comparacao pessoa a pessoa por competencia. So aparece quem existe em ALGUM dos dois
+    # lados: FULL OUTER JOIN — quem so a Portte tem (rescisao, que o motor nao ve por filtrar
+    # status='ativo') e quem so nos temos ficam VISIVEIS, que e justamente onde mora o erro.
+    await safe("pareamento-folha", tbl(
+        "Folha: Conecta × Portte",
+        "Pareamento mês a mês da operação em paralelo. Δ verde = pagamos igual; vermelho = divergência "
+        "a investigar. '(só Portte)' costuma ser rescisão — o motor do Conecta só calcula quem está ativo.",
+        "—", ["Competência", "Colaborador", "Portte", "Conecta", "Δ", "Situação"],
+        "0.9fr 1.9fr 1.1fr 1.1fr 1.1fr 1.2fr",
+        """
+        SELECT coalesce(pt.per, cn.per) AS comp,
+               coalesce(e1.nome, e2.nome, '—') AS nome,
+               pt.liq AS portte, cn.liq AS conecta,
+               coalesce(cn.liq,0) - coalesce(pt.liq,0) AS delta,
+               CASE WHEN pt.liq IS NULL THEN 'só Conecta'
+                    WHEN cn.liq IS NULL THEN 'só Portte'
+                    WHEN abs(coalesce(cn.liq,0) - coalesce(pt.liq,0)) <= 0.01 THEN 'igual'
+                    ELSE 'divergente' END AS situacao
+        FROM (SELECT employee_id, to_char(make_date(reference_year,reference_month,1),'MM/YYYY') AS per,
+                     round(sum(net_salary)::numeric,2) AS liq
+              FROM hr_payslips WHERE source_system='portte' GROUP BY 1,2) pt
+        FULL OUTER JOIN
+             (SELECT employee_id, to_char(make_date(reference_year,reference_month,1),'MM/YYYY') AS per,
+                     round(sum(net_salary)::numeric,2) AS liq
+              FROM hr_payslips WHERE source_system='conecta' GROUP BY 1,2) cn
+          ON cn.employee_id = pt.employee_id AND cn.per = pt.per
+        LEFT JOIN employees e1 ON e1.id = pt.employee_id
+        LEFT JOIN employees e2 ON e2.id = cn.employee_id
+        ORDER BY to_date(coalesce(pt.per, cn.per),'MM/YYYY') DESC,
+                 abs(coalesce(cn.liq,0) - coalesce(pt.liq,0)) DESC,
+                 2
+        """,
+        lambda r: [t(r[0] or "—", 600),
+                   t(r[1], 600, _ND, initials(r[1] or "")),
+                   t(brl(float(r[2])) if r[2] is not None else "—"),
+                   t(brl(float(r[3])) if r[3] is not None else "—"),
+                   t(brl(float(r[4] or 0)), 700,
+                     "#16A34A" if abs(float(r[4] or 0)) <= 0.01 else "#DC2626"),
+                   b(r[5], "ok" if r[5] == "igual" else ("warn" if r[5] == "divergente" else "info"))]))
+    if isinstance(out.get("pareamento-folha"), dict):
+        out["pareamento-folha"]["filterCol"] = 0
+        out["pareamento-folha"]["filterLabel"] = "Competência"
     # Folha — docs de TELA (consolidada do mês + export Domínio), na última competência real
     try:
         from sqlalchemy import text as _sqltext
