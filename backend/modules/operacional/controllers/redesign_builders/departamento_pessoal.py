@@ -647,6 +647,11 @@ async def build(db) -> dict:
     if out.get("folha"):
         out["folha"]["filterCol"] = 0
         out["folha"]["filterLabel"] = "Competência"
+        # Botao de GERAR na propria tela de Folha: o item de nav cai no fim de uma barra com
+        # 44 telas + 19 acoes e ninguem acha. A ModuleView so renderiza o CTA se ctaTo apontar
+        # p/ uma tela existente (e o rotulo nao pode ficar "—", que e o default do tbl()).
+        out["folha"]["cta"] = "Gerar folha (Conecta PRO)"
+        out["folha"]["ctaTo"] = "folha-gerar"
 
     # ---- FOLHA POR CONDOMÍNIO (fechamento no formato que o Jordan usa com a Portte) --------
     # Uma GERAL (painéis no topo) + uma linha por condomínio, com VILLA DOS PÁSSAROS primeiro
@@ -699,6 +704,8 @@ async def build(db) -> dict:
     if isinstance(out.get("folha-por-condominio"), dict):
         out["folha-por-condominio"]["filterCol"] = 0
         out["folha-por-condominio"]["filterLabel"] = "Competência"
+        out["folha-por-condominio"]["cta"] = "Gerar folha (Conecta PRO)"
+        out["folha-por-condominio"]["ctaTo"] = "folha-gerar"
 
     # ---- GERAR FOLHA NO CONECTA PRO (o que faltava: close_payroll nao persistia nada) ----
     out["folha-gerar"] = {
@@ -776,6 +783,8 @@ async def build(db) -> dict:
     if isinstance(out.get("pareamento-folha"), dict):
         out["pareamento-folha"]["filterCol"] = 0
         out["pareamento-folha"]["filterLabel"] = "Competência"
+        out["pareamento-folha"]["cta"] = "Gerar folha (Conecta PRO)"
+        out["pareamento-folha"]["ctaTo"] = "folha-gerar"
     # Folha — docs de TELA (consolidada do mês + export Domínio), na última competência real
     try:
         from sqlalchemy import text as _sqltext
