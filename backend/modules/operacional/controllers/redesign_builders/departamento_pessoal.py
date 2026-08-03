@@ -67,6 +67,47 @@ async def rd_action_ponto_ajuste(
     return {"ok": True, "resultado": res, "message": "Ajuste de ponto registrado"}
 
 
+def _cpf_valido(d: str) -> bool:
+    """Dígitos verificadores do CPF. Desambigua 11 dígitos: CPF e celular com DDD têm o
+    MESMO tamanho (92991934389 é telefone, 02368354247 é CPF) — só o DV separa."""
+    if len(d) != 11 or d == d[0] * 11:
+        return False
+    for corte in (9, 10):
+        soma = sum(int(d[i]) * (corte + 1 - i) for i in range(corte))
+        dv = (soma * 10) % 11
+        if dv == 10:
+            dv = 0
+        if dv != int(d[corte]):
+            return False
+    return True
+
+
+def _tipo_pix(chave: str | None, guardado: str | None = None) -> str:
+    """Tipo REAL da chave, pelo formato. O tipo guardado no cadastro mente (o Ediney tem
+    pix_key_type='CPF' sem chave nenhuma), então o formato manda e o guardado só desempata."""
+    c = (chave or "").strip()
+    if not c:
+        return "—"
+    if "@" in c:
+        return "E-mail"
+    if "-" in c and len(c) >= 32:
+        return "Aleatória"
+    d = "".join(ch for ch in c if ch.isdigit())
+    if c.startswith("+") or (len(d) in (12, 13) and d.startswith("55")):
+        return "Telefone"
+    if len(d) == 14:
+        return "CNPJ"
+    if len(d) == 11:
+        return "CPF" if _cpf_valido(d) else "Telefone"
+    if len(d) == 10:
+        return "Telefone"
+    g = (guardado or "").strip().upper()
+    if g in ("CPF", "CNPJ", "EMAIL", "E-MAIL", "TELEFONE", "EVP"):
+        return {"EMAIL": "E-mail", "E-MAIL": "E-mail", "EVP": "Aleatória"}.get(g, g.capitalize()
+                if g in ("CPF", "CNPJ") else g.title())
+    return "Outro"
+
+
 def _require_dp_dep(current_user: CurrentActiveUser) -> None:
     """Trava de cargo p/ GERAR folha: salário é dado sensível (LGPD) e a folha alimenta
     pagamento. Só quem tem module:people-management / financeiro (ou admin/all)."""
@@ -759,13 +800,14 @@ async def build(db) -> dict:
         "Todas as pessoas e suas chaves, de todas as origens (CLT, PJ, diaristas, agenda de "
         "beneficiários). Sem chave aparece no topo — é o que impede o pagamento. Use a busca "
         "para achar a mesma pessoa em outra origem.",
-        "—", ["Pessoa", "Vínculo", "Documento", "Chave PIX", "Situação"],
-        "2fr 1.1fr 1.2fr 1.8fr 1fr",
+        "—", ["Pessoa", "Vínculo", "Documento", "Chave PIX", "Tipo", "Situação"],
+        "1.9fr 1.1fr 1.2fr 1.7fr 0.8fr 0.9fr",
         """
-        SELECT nome, vinculo, doc, chave, ordem FROM (
+        SELECT nome, vinculo, doc, chave, ordem, tipo_guardado FROM (
             SELECT e.nome AS nome, 'CLT' AS vinculo, coalesce(e.cpf,'—') AS doc,
                    coalesce(nullif(e.pix_key,''), nullif(e.pix,'')) AS chave,
-                   CASE WHEN coalesce(nullif(e.pix_key,''), nullif(e.pix,'')) IS NULL THEN 0 ELSE 1 END AS ordem
+                   CASE WHEN coalesce(nullif(e.pix_key,''), nullif(e.pix,'')) IS NULL THEN 0 ELSE 1 END AS ordem,
+                   e.pix_key_type AS tipo_guardado
             FROM employees e
             WHERE e.status = 'ativo' AND coalesce(e.is_homologacao,false) = false
               AND coalesce(lower(e.tipo_contrato),'') <> 'pj'
@@ -773,17 +815,18 @@ async def build(db) -> dict:
             SELECT e.nome, 'PJ — ' || coalesce(e.papel_pj,'prestador'),
                    coalesce(nullif(e.cnpj,''), e.cpf, '—'),
                    coalesce(nullif(e.pix_key,''), nullif(e.pix,'')),
-                   CASE WHEN coalesce(nullif(e.pix_key,''), nullif(e.pix,'')) IS NULL THEN 0 ELSE 1 END
+                   CASE WHEN coalesce(nullif(e.pix_key,''), nullif(e.pix,'')) IS NULL THEN 0 ELSE 1 END,
+                   e.pix_key_type
             FROM employees e
             WHERE lower(coalesce(e.tipo_contrato,'')) = 'pj' AND coalesce(e.is_homologacao,false) = false
             UNION ALL
             SELECT d.nome, 'Diarista', coalesce(d.cpf,'—'), nullif(d.pix,''),
-                   CASE WHEN nullif(d.pix,'') IS NULL THEN 0 ELSE 1 END
+                   CASE WHEN nullif(d.pix,'') IS NULL THEN 0 ELSE 1 END, NULL
             FROM diaria_diaristas d WHERE coalesce(d.ativo,true) = true
             UNION ALL
             SELECT b.nome, 'Beneficiário' || coalesce(' — ' || nullif(b.categoria,''), ''),
                    coalesce(b.cpf_cnpj,'—'), nullif(b.chave_pix,''),
-                   CASE WHEN nullif(b.chave_pix,'') IS NULL THEN 0 ELSE 1 END
+                   CASE WHEN nullif(b.chave_pix,'') IS NULL THEN 0 ELSE 1 END, b.tipo_chave
             FROM financial_beneficiarios b WHERE coalesce(b.ativo,true) = true
         ) u
         ORDER BY ordem, nome
@@ -792,6 +835,7 @@ async def build(db) -> dict:
                    t(r[1]), t(r[2] or "—"),
                    t(r[3] or "SEM CHAVE", 700 if not r[3] else 600,
                      "#DC2626" if not r[3] else _ND),
+                   t(_tipo_pix(r[3], r[5]), 600, "#16277D"),
                    b("sem chave", "warn") if not r[3] else b("ok", "ok")]))
     if isinstance(out.get("chaves-pix"), dict):
         out["chaves-pix"]["filterCol"] = 1
