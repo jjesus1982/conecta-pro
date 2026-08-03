@@ -1,8 +1,11 @@
 'use client';
-// FloatingChat — assistente flutuante (FAB + painel) disponível em toda tela autenticada.
-// Chama o orquestrador escopado POST /api/v1/consultores/chat/executar (gera-doc p/ todos os perfis)
-// e oferece download dos PDFs que a resposta traz em d.documentos[]. Reusa o molde de fetch
-// autenticado do ChatScreen (localStorage access_token → Bearer, URL relativa /api/v1).
+// FloatingChat — assistente flutuante (FAB + painel) disponível em toda tela autenticada,
+// tanto no /modulos quanto no /redesign. Estilo LITERAL próprio (marca Navy→Laranja, painel
+// claro) porque os dois ambientes usam sistemas de token de cor diferentes e incompatíveis
+// (/modulos = hsl(var(--card)) shadcn; /redesign = --surface/--ink/--orange). Cores literais
+// = funciona igual nos dois, sem depender do tema do host.
+// Chama POST /api/v1/consultores/chat/executar (gera-doc p/ todos os perfis) e baixa os PDFs
+// que a resposta traz em d.documentos[]. Bearer do localStorage access_token (URL relativa).
 import { useState, useRef, useEffect } from 'react';
 import { MessageCircle, X, Send, Download, Loader2 } from 'lucide-react';
 
@@ -11,6 +14,8 @@ type Msg = { role: 'user' | 'assistant'; text: string; docs?: Doc[]; aviso?: boo
 
 const ENDPOINT = '/api/v1/consultores/chat/executar';
 const SUGGESTIONS = ['Gera o DRE do mês', 'Meu holerite', 'Monta uma proposta'];
+const NAVY = '#16277D';
+const GRAD = 'linear-gradient(135deg, #16277D, #F26522)';
 
 // base64 → download de PDF com o nome real. atob + loop p/ bytes (sem lib).
 function downloadPdf(nome: string, b64: string) {
@@ -76,8 +81,8 @@ export default function FloatingChat() {
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-label={open ? 'Fechar assistente' : 'Abrir assistente'}
-        className="fixed bottom-5 right-5 z-50 w-14 h-14 rounded-full flex items-center justify-center text-white shadow-xl transition-transform hover:scale-105 active:scale-95"
-        style={{ background: 'linear-gradient(135deg, hsl(var(--primary)), #f97707)' }}
+        className="fixed bottom-5 right-5 z-[9999] w-14 h-14 rounded-full flex items-center justify-center text-white shadow-xl transition-transform hover:scale-105 active:scale-95"
+        style={{ background: GRAD, border: 'none' }}
       >
         {open ? <X className="w-6 h-6" /> : <MessageCircle className="w-6 h-6" />}
       </button>
@@ -85,26 +90,25 @@ export default function FloatingChat() {
       {/* Painel */}
       {open && (
         <div
-          className="fixed bottom-24 right-5 z-50 w-[min(92vw,400px)] h-[min(72vh,620px)] flex flex-col bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-2xl shadow-xl overflow-hidden"
+          className="fixed bottom-24 right-5 z-[9999] w-[min(92vw,400px)] h-[min(72vh,620px)] flex flex-col rounded-2xl overflow-hidden"
+          style={{ background: '#FFFFFF', border: '1px solid #E7ECF3', boxShadow: '0 12px 40px rgba(16,39,125,0.18)', color: '#1a2233' }}
           role="dialog"
           aria-label="Assistente Conecta"
         >
           {/* Header */}
-          <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-[hsl(var(--border))]">
+          <div className="flex-shrink-0 flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid #E7ECF3' }}>
             <div className="flex items-center gap-2">
-              <div
-                className="w-7 h-7 rounded-lg flex items-center justify-center text-white"
-                style={{ background: 'linear-gradient(135deg, hsl(var(--primary)), #f97707)' }}
-              >
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white" style={{ background: GRAD }}>
                 <MessageCircle className="w-4 h-4" />
               </div>
-              <span className="text-sm font-semibold text-[hsl(var(--foreground))]">Assistente Conecta</span>
+              <span className="text-sm font-semibold" style={{ color: '#16233f' }}>Assistente Conecta</span>
             </div>
             <button
               type="button"
               onClick={() => setOpen(false)}
               aria-label="Fechar"
-              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[hsl(var(--secondary))]/80 text-muted-foreground transition-colors"
+              className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors hover:bg-[#F1F4FA]"
+              style={{ color: '#6b7280', background: 'transparent', border: 'none' }}
             >
               <X className="w-4 h-4" />
             </button>
@@ -114,14 +118,15 @@ export default function FloatingChat() {
           <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3">
             {msgs.length === 0 && (
               <div className="m-auto text-center max-w-[300px]">
-                <p className="text-sm text-muted-foreground mb-3">Como posso ajudar?</p>
+                <p className="text-sm mb-3" style={{ color: '#6b7280' }}>Como posso ajudar?</p>
                 <div className="flex flex-wrap gap-2 justify-center">
                   {SUGGESTIONS.map((s, i) => (
                     <button
                       key={i}
                       type="button"
                       onClick={() => send(s)}
-                      className="px-3 py-1.5 text-xs rounded-full border border-[hsl(var(--border))] text-[hsl(var(--foreground))] hover:bg-[hsl(var(--secondary))]/80 transition-colors"
+                      className="px-3 py-1.5 text-xs rounded-full transition-colors hover:bg-[#F1F4FA]"
+                      style={{ border: '1px solid #E7ECF3', color: '#1a2233', background: '#fff' }}
                     >
                       {s}
                     </button>
@@ -134,15 +139,14 @@ export default function FloatingChat() {
               return (
                 <div key={i} className={mine ? 'self-end max-w-[85%]' : 'self-start max-w-[85%]'}>
                   <div
-                    className={
-                      'px-3.5 py-2.5 rounded-2xl text-[13px] leading-relaxed whitespace-pre-wrap ' +
-                      (mine
-                        ? 'text-white rounded-br-sm'
+                    className="px-3.5 py-2.5 rounded-2xl text-[13px] leading-relaxed whitespace-pre-wrap"
+                    style={
+                      mine
+                        ? { background: NAVY, color: '#fff', borderBottomRightRadius: 4 }
                         : m.aviso
-                        ? 'bg-amber-500/10 text-[hsl(var(--foreground))] border border-amber-500/30 rounded-bl-sm'
-                        : 'bg-[hsl(var(--secondary))]/60 text-[hsl(var(--foreground))] border border-[hsl(var(--border))] rounded-bl-sm')
+                        ? { background: '#FEF3E7', color: '#8a4b0a', border: '1px solid #F7C99A', borderBottomLeftRadius: 4 }
+                        : { background: '#F1F4FA', color: '#1a2233', border: '1px solid #E7ECF3', borderBottomLeftRadius: 4 }
                     }
-                    style={mine ? { background: 'hsl(var(--primary))' } : undefined}
                   >
                     {m.text}
                   </div>
@@ -153,11 +157,12 @@ export default function FloatingChat() {
                           key={j}
                           type="button"
                           onClick={() => downloadPdf(doc.nome || 'documento.pdf', doc.arquivo_base64 || '')}
-                          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] hover:bg-[hsl(var(--secondary))]/80 text-left transition-colors"
+                          className="flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-colors hover:bg-[#F1F4FA]"
+                          style={{ border: '1px solid #E7ECF3', background: '#fff' }}
                           title={doc.resumo || doc.nome}
                         >
-                          <Download className="w-4 h-4 flex-shrink-0 text-[hsl(var(--primary))]" />
-                          <span className="text-xs font-medium text-[hsl(var(--foreground))] truncate">{doc.nome || 'documento.pdf'}</span>
+                          <Download className="w-4 h-4 flex-shrink-0" style={{ color: '#F26522' }} />
+                          <span className="text-xs font-medium truncate" style={{ color: '#16233f' }}>{doc.nome || 'documento.pdf'}</span>
                         </button>
                       ))}
                     </div>
@@ -166,7 +171,7 @@ export default function FloatingChat() {
               );
             })}
             {busy && (
-              <div className="self-start flex items-center gap-2 text-xs text-muted-foreground">
+              <div className="self-start flex items-center gap-2 text-xs" style={{ color: '#6b7280' }}>
                 <Loader2 className="w-3.5 h-3.5 animate-spin" /> pensando…
               </div>
             )}
@@ -176,26 +181,26 @@ export default function FloatingChat() {
           {/* Rodapé — textarea + enviar */}
           <form
             onSubmit={(e) => { e.preventDefault(); send(input); }}
-            className="flex-shrink-0 flex items-end gap-2 p-3 border-t border-[hsl(var(--border))]"
+            className="flex-shrink-0 flex items-end gap-2 p-3"
+            style={{ borderTop: '1px solid #E7ECF3' }}
           >
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input); }
-              }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input); } }}
               placeholder="Pergunte ou peça um documento…"
               rows={1}
               disabled={busy}
               aria-label="Sua mensagem"
-              className="flex-1 resize-none max-h-28 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 py-2 text-[13px] text-[hsl(var(--foreground))] outline-none focus:border-[hsl(var(--primary))] disabled:opacity-60"
+              className="flex-1 resize-none max-h-28 rounded-xl px-3 py-2 text-[13px] outline-none disabled:opacity-60"
+              style={{ border: '1px solid #E7ECF3', background: '#F1F4FA', color: '#1a2233' }}
             />
             <button
               type="submit"
               disabled={busy || !input.trim()}
               aria-label="Enviar"
               className="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-xl text-white disabled:opacity-40 transition-opacity"
-              style={{ background: 'hsl(var(--primary))' }}
+              style={{ background: NAVY, border: 'none' }}
             >
               <Send className="w-4 h-4" />
             </button>

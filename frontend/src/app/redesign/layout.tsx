@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Sora } from 'next/font/google';
 import './redesign.css';
 import RedesignGuard from './RedesignGuard';
+import FloatingChat from '@/components/redesign/FloatingChat';
 
 const sora = Sora({
   subsets: ['latin'],
@@ -18,7 +19,7 @@ export const metadata = {
 export default function RedesignLayout({ children }: { children: ReactNode }) {
   return (
     <div className={`${sora.variable} rd-root`}>
-      <RedesignGuard>{children}</RedesignGuard>
+      <RedesignGuard>{children}<FloatingChat /></RedesignGuard>
     </div>
   );
 }
