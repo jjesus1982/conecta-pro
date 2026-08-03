@@ -58,6 +58,25 @@ for mes in MESES:
         "AND COALESCE(total_earnings, 0) > 0 ORDER BY employee_id"
     ), {"c": comp}).fetchall()
 
+    # Competência SEM espelho Portte (ex.: julho/2026 — ela ainda não fechou o mês).
+    # Aqui não há comparação paralela: é folha NOSSA, para a frente. Universo = quem estava
+    # empregado na competência (admitido até o fim do mês e não desligado antes do início).
+    if not alvos:
+        alvos = db.execute(text(
+            "SELECT e.id::text, "
+            "  (SELECT condominio_id::text FROM hr_payslips h WHERE h.employee_id=e.id "
+            "     ORDER BY h.reference_period DESC LIMIT 1), "
+            "  e.empresa_id::text "
+            "FROM employees e "
+            "WHERE COALESCE(LOWER(e.tipo_contrato),'') <> 'pj' "
+            "  AND e.data_admissao IS NOT NULL AND e.data_admissao <= :fim "
+            "  AND (e.status = 'ativo' "
+            "       OR COALESCE(e.data_desligamento, e.data_demissao) >= CAST(:ini AS date)) "
+            "ORDER BY e.id"
+        ), {"fim": f"{ANO}-{mes:02d}-28", "ini": f"{ANO}-{mes:02d}-01"}).fetchall()
+        if alvos:
+            print(f"  {comp}: sem espelho Portte — universo = {len(alvos)} empregados na competência")
+
     if PERSIST:  # idempotência — só mexe no que é 'conecta'
         apagadas = db.execute(text(
             "DELETE FROM hr_payslips WHERE reference_period = :c AND source_system = 'conecta'"

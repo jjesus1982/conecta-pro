@@ -5,6 +5,8 @@ Integra com rubricas_folha, cct_cargos e employees.
 """
 
 import calendar
+import re
+import unicodedata
 import logging
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
@@ -141,6 +143,34 @@ def _d(valor: Any) -> Decimal:
 # documental da CCT; o cálculo efetivo é o do clt_calculator (idêntico ao payroll_service).
 
 
+
+# De-para cargo do CADASTRO → cargo_nome da CCT (cct_cargos). Existe porque os nomes NÃO
+# batem: o cadastro usa "AGENTE DE PORTARIA" e a CCT "PORTEIROS AGENTE DE PORTARIA GUARDETE".
+# Sem isso a busca do piso falhava e retornava 0 — ou seja, a trava que impede folha abaixo
+# do piso estava MORTA para todos (só não apareceu porque todo mundo tem salario_base).
+# Cada linha foi confirmada por DOIS sinais: correspondência semântica do nome E o salário
+# praticado pelos colegas do mesmo cargo == piso do cargo CCT apontado.
+# NUNCA usar match aproximado aqui: "ARTÍFICE" casaria com "ARTIFICE DE MANUTENCAO PREDIAL
+# (ESPECIALIZADO)" a R$2.186 em vez de "NAO ESPECIALIZADO" a R$1.742 — pagaria errado.
+CARGO_CCT_ALIAS = {
+    "AGENTE DE PORTARIA": "PORTEIROS AGENTE DE PORTARIA GUARDETE",
+    "AGENTE DE SERVICOS GERAIS": "SERVICOS GERAIS FAXINEIRO",
+    "ARTIFICE": "ARTIFICE NAO ESPECIALIZADO",
+    "LIDER DE PORTARIA": "LIDER DE PORTARIA",
+    "JARDINEIRO": "JARDINEIROS",
+}
+
+
+def _cargo_cct(cargo: str) -> str:
+    """Nome do cargo na CCT. Normaliza acento/espaço e aplica o de-para; sem alias,
+    devolve o próprio nome (busca exata continua valendo p/ cargos já iguais)."""
+    if not cargo:
+        return ""
+    norm = unicodedata.normalize("NFKD", cargo).encode("ascii", "ignore").decode()
+    norm = re.sub(r"\s+", " ", norm).strip().upper()
+    return CARGO_CCT_ALIAS.get(norm, cargo)
+
+
 def calcular_folha_colaborador(
     db: Session,
     employee_id: str,
@@ -199,7 +229,7 @@ def calcular_folha_colaborador(
                 "WHERE is_active = true AND lower(cargo_nome) = lower(:c) "
                 "ORDER BY updated_at DESC NULLS LAST LIMIT 1"
             ),
-            {"c": cargo},
+            {"c": _cargo_cct(cargo)},
         ).first()
         if _piso_row and _piso_row[0] is not None:
             piso_cct = _d(_piso_row[0])
