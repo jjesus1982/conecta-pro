@@ -26,7 +26,10 @@ async def main() -> None:
         assert emp, "sem employee ativo com CPF"
         # tenant real que tem os templates disciplinares (submit gera doc do template do tenant)
         tid = (await db.execute(text("SELECT tenant_id FROM disciplinary_templates WHERE coalesce(is_active,true) LIMIT 1"))).scalar()
+        # admin: o teste valida o FLUXO de aprovação, não a parede de escopo de equipe (testada
+        # em test_escopo_equipe_operacional) — admin ignora o escopo e alcança qualquer colaborador.
         u = SimpleNamespace(id=uuid.uuid4(), name="Teste", email="t@conectapro.com.br",
+                            role="admin", permissions=["*"],
                             condominio_id=None, tenant_id=str(tid) if tid else None)
         cre = await rd_action_medida_administrativa(current_user=u, payload={
             "employee_id": str(emp[0]), "action_type": "advertencia_escrita", "reason_category": "atraso",

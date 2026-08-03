@@ -17,7 +17,8 @@ async def main() -> None:
             "SELECT id, nome FROM employees WHERE coalesce(status,'')='ativo' "
             "AND length(regexp_replace(coalesce(cpf,''), '\\D', '', 'g')) >= 11 LIMIT 1"))).first()
         assert emp, "sem employee ativo com CPF p/ testar"
-        user = SimpleNamespace(id=uuid.uuid4(), condominio_id=None, tenant_id=None)
+        # admin: valida a CRIAÇÃO da medida, não a parede de escopo (testada em test_escopo_equipe_operacional)
+        user = SimpleNamespace(id=uuid.uuid4(), role="admin", permissions=["*"], condominio_id=None, tenant_id=None)
         payload = {"action_type": "advertencia_escrita", "employee_id": str(emp[0]),
                    "reason_category": "atraso",
                    "reason_description": "Atraso reiterado — teste oráculo redesign",
