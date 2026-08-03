@@ -308,7 +308,7 @@ def _rodape_linha_icones(canvas, w: float, y: float, fonte_sz: float, itens: lis
 
 def header_footer(
     canvas, doc, *, seal_watermark: bool = False, titulo: str | None = None, pular_primeira: bool = False,
-    empresa: dict | None = None,
+    empresa: dict | None = None, pagesize=A4,
 ):
     """Cabeçalho limpo (logo COMPLETA à esquerda sobre branco + título/empresa à direita) + rodapé oficial.
     Desenha em TODAS as páginas. pular_primeira=True para docs com capa própria na pág. 1.
@@ -317,7 +317,9 @@ def header_footer(
         return
     emp = empresa or EMPRESA  # Multi-CNPJ E3: identidade por empregador×competência
     canvas.saveState()
-    w, h = A4
+    # pagesize parametrizável (default A4 retrato): todo o desenho deriva de w/h, então
+    # paisagem funciona sem tocar nos demais geradores, que não passam o argumento.
+    w, h = pagesize
     if seal_watermark:
         sp = logo_path("seal")
         if sp:

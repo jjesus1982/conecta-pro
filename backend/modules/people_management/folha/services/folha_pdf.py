@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import Any
 
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.units import mm
 from reportlab.platypus import (
     KeepTogether,
@@ -81,10 +81,14 @@ def montar_folha_pdf(resumo: dict[str, Any]) -> bytes:
                 _emp_brand = _cand
                 break
 
+    # PAISAGEM: a folha tem 7 colunas numéricas; em retrato o nome do colaborador quebrava
+    # em 2-3 linhas e a leitura ficava ruim. Área útil vai de 178mm para 265mm.
+    _PAGINA = landscape(A4)
+
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf,
-        pagesize=A4,
+        pagesize=_PAGINA,
         leftMargin=16 * mm,
         rightMargin=16 * mm,
         topMargin=40 * mm,
@@ -131,7 +135,7 @@ def montar_folha_pdf(resumo: dict[str, Any]) -> bytes:
         ["Total Líquido (a pagar)", brl(total_liq), "Total IRRF", brl(total_irrf)],
         ["Custo Total Empresa", brl(custo_total), "", ""],
     ]
-    tbl_resumo = Table(resumo_rows, colWidths=[45 * mm, 44 * mm, 45 * mm, 44 * mm])
+    tbl_resumo = Table(resumo_rows, colWidths=[68 * mm, 64 * mm, 68 * mm, 65 * mm])
     tbl_resumo.setStyle(
         TableStyle(
             [
@@ -196,7 +200,7 @@ def montar_folha_pdf(resumo: dict[str, Any]) -> bytes:
         ]
     )
 
-    col_widths = [42 * mm, 34 * mm, 20 * mm, 18 * mm, 18 * mm, 20 * mm, 22 * mm]
+    col_widths = [70 * mm, 55 * mm, 28 * mm, 26 * mm, 26 * mm, 28 * mm, 32 * mm]
     tbl = Table(data_rows, colWidths=col_widths, repeatRows=1)
     tbl.setStyle(
         TableStyle(
@@ -230,7 +234,7 @@ def montar_folha_pdf(resumo: dict[str, Any]) -> bytes:
     )
 
     def _hf(canvas, doc_):
-        header_footer(canvas, doc_, titulo="FOLHA DE PAGAMENTO", empresa=_emp_brand)
+        header_footer(canvas, doc_, titulo="FOLHA DE PAGAMENTO", empresa=_emp_brand, pagesize=_PAGINA)
 
     doc.build(story, onFirstPage=_hf, onLaterPages=_hf)
     return buf.getvalue()

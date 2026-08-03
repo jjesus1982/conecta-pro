@@ -223,7 +223,16 @@ async def rd_action_folha_gerar(
     if ref and ref[0] and not cond_sel:
         par = (f" Portte na mesma competência: {ref[0]} holerite(s), {brl(float(ref[1]))} — "
                f"diferença {brl(liq - float(ref[1]))}. Confira em DP → Folha: Conecta × Portte.")
-    return {"ok": True, "message": (
+    # Gancho de documento: a ModuleView abre d.doc assim que o form volta OK. Sem isto o
+    # Jordan gera a folha e fica sem nada na mão — tem que sair da tela, achar a linha e
+    # clicar. O PDF sai do que ACABOU de ser gravado.
+    _doc = {
+        "label": f"Folha {mes:02d}/{ano}" + (f" — {cond_nome}" if cond_nome else ""),
+        "url": f"/api/v1/people-management/folha/{mes}/{ano}/pdf"
+               + (f"?condominio={cond_sel}" if cond_sel else ""),
+        "fmt": "pdf", "mode": "blob", "gate": "financeiro",
+    }
+    return {"ok": True, "doc": _doc, "message": (
         f"Folha {mes:02d}/{ano}{' — ' + cond_nome if cond_nome else ' (todos os condomínios)'} "
         f"GERADA no Conecta PRO: {gravados} holerite(s), "
         f"líquido {brl(liq)}, FGTS {brl(fgts)}. "
