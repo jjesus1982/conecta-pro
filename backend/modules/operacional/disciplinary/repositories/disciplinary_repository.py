@@ -18,7 +18,7 @@ from datetime import date, datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.logging import logger
@@ -80,18 +80,16 @@ class DisciplinaryRepository:
         prefix = prefix_map.get(action_type, "MED")
         year = datetime.now().year
 
-        # Conta registros do mesmo tipo no ano
+        # MAX GLOBAL do sequencial p/ prefixo+ano (a constraint `code` é UNIQUE global, não
+        # per-tenant). COUNT per-tenant colidia entre tenants e com gaps de deleção; MAX global
+        # do sufixo numérico garante código único e robusto a gaps.
         result = await self.db.execute(
-            select(func.count(DisciplinaryAction.id)).where(
-                and_(
-                    DisciplinaryAction.tenant_id == tenant_id,
-                    DisciplinaryAction.code.like(f"{prefix}-{year}-%"),
-                )
-            )
-        )
-        count = result.scalar() or 0
+            text("SELECT COALESCE(MAX(CAST(split_part(code,'-',3) AS INTEGER)),0) "
+                 "FROM disciplinary_actions WHERE code LIKE :p"),
+            {"p": f"{prefix}-{year}-%"})
+        max_seq = int(result.scalar() or 0)
 
-        return f"{prefix}-{year}-{count + 1:05d}"
+        return f"{prefix}-{year}-{max_seq + 1:05d}"
 
     async def create(
         self,

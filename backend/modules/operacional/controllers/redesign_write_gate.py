@@ -183,12 +183,22 @@ async def op_write(db: AsyncSession, *, real_write, idempotency_key: str | None 
             {"l": f"idem:{idempotency_key}"})).first()
         if dup:
             raise GateError("Ação duplicada (idempotência) — já executada.")
-        await db.execute(
-            text("INSERT INTO redesign_gate_otp (ref, code, expires_at, used) "
-                 "VALUES (:l,'-', now()+interval '1 day', true)"),
-            {"l": f"idem:{idempotency_key}"})
-        await db.commit()
+    # Executa PRIMEIRO; o marcador é gravado SÓ após sucesso — se real_write falhar, nenhum
+    # marcador fica (retry liberado), corrigindo o poison-marker. A janela de corrida entre o
+    # dup-check e a gravação é desprezível para ação humana gated (e o dup-check ainda barra o 2º).
     result = await real_write()
+    if idempotency_key:
+        try:
+            await db.execute(
+                text("INSERT INTO redesign_gate_otp (ref, code, expires_at, used) "
+                     "VALUES (:l,'-', now()+interval '1 day', true)"),
+                {"l": f"idem:{idempotency_key}"})
+            await db.commit()
+        except Exception:  # noqa: BLE001 — marcador é best-effort; a escrita já teve sucesso
+            try:
+                await db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
     if isinstance(result, dict):
         result.setdefault("homologacao", is_homologacao)
     return result

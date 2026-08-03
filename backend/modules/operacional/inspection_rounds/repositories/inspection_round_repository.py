@@ -8,7 +8,7 @@ Date: 2026-01-23
 import builtins
 from datetime import datetime
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import InspectionCheckpoint, InspectionRound, InspectionRoundStatus
@@ -113,14 +113,16 @@ class InspectionRoundRepository:
         await self.db.flush()
 
     async def get_next_sequence(self, tenant_id: str, year: int) -> int:
-        """Retorna proximo numero sequencial para codigo."""
-        query = select(func.count(InspectionRound.id)).where(
-            InspectionRound.tenant_id == tenant_id,
-            func.extract("year", InspectionRound.created_at) == year,
-        )
-        result = await self.db.execute(query)
-        count = result.scalar_one()
-        return (count or 0) + 1
+        """Proximo sequencial para o codigo (RON-{ano}-{NNNNN}).
+
+        MAX GLOBAL do sufixo numerico p/ o ano — a constraint `code` e UNIQUE global (nao
+        per-tenant). COUNT per-tenant colidia entre tenants e com gaps de delecao; MAX global
+        garante codigo unico e robusto a gaps. tenant_id mantido na assinatura por compat."""
+        result = await self.db.execute(
+            text("SELECT COALESCE(MAX(CAST(split_part(code,'-',3) AS INTEGER)),0) "
+                 "FROM inspection_rounds WHERE code LIKE :p"),
+            {"p": f"RON-{year}-%"})
+        return int(result.scalar() or 0) + 1
 
     async def get_rounds_by_inspector(
         self,
