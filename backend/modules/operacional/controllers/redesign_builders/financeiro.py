@@ -1171,6 +1171,7 @@ ORDER BY b.comp DESC, b.cnpj"""
         "0.9fr 1.9fr 0.7fr 1.4fr 0.9fr 0.9fr 1fr",
         """
         SELECT to_char(l.data,'MM/YYYY'), e.nome, to_char(l.data,'DD/MM'), l.posto, l.valor,
+               l.id,
                CASE WHEN pt.n > 0 THEN 'SIM' ELSE 'não' END,
                coalesce(pg.status, 'não programado')
         FROM diaria_lancamentos l
@@ -1194,10 +1195,24 @@ ORDER BY b.comp DESC, b.cnpj"""
         lambda r: [t(r[0], 600), t(r[1], 600, "#0F1B3A", initials(r[1] or "")),
                    t(r[2], 600), t(r[3]),
                    t(brl(float(r[4] or 0)), 600),
-                   b("SIM", "bad") if r[5] == "SIM" else t("não", 500, "#64748B"),
-                   b({"a_revisar": "a revisar", "pago": "PAGO"}.get(r[6], r[6]),
-                     "warn" if r[6] == "a_revisar" else ("bad" if r[6] == "pago" else "mut"))]))
+                   b("SIM", "bad") if r[6] == "SIM" else t("não", 500, "#64748B"),
+                   b({"a_revisar": "a revisar", "pago": "PAGO"}.get(r[7], r[7]),
+                     "warn" if r[7] == "a_revisar" else ("bad" if r[7] == "pago" else "mut"))],
+        actionsfn=lambda r: ([] if r[7] == "pago" else [{
+            "title": f"Cancelar diária — {r[1]} em {r[2]}",
+            "endpoint": "/api/v1/redesign/action/cancelar-diaria-sobreposta",
+            "method": "POST", "btnLabel": "Cancelar diária", "btnStyle": "outline",
+            "submitLabel": "Cancelar esta diária",
+            "okMsg": "Diária cancelada. Recarregue a tela.",
+            "fixed": {"lancamento_id": r[5]},
+            "fields": [
+                {"key": "motivo", "label": "Motivo do cancelamento*", "type": "textarea",
+                 "span": "span 2",
+                 "ph": "Ex.: já pago pela folha CLT do mesmo dia (bateu ponto)."},
+            ]}])))
     if isinstance(out.get("diarias-sobrepostas"), dict):
+        # 6 = índice da CÉLULA renderizada (Pagamento), não da coluna do SQL: o l.id vem
+        # no SELECT (r[5]) para o botão, mas não vira célula.
         out["diarias-sobrepostas"]["filterCol"] = 6
         out["diarias-sobrepostas"]["filterLabel"] = "Pagamento"
 
@@ -1217,6 +1232,77 @@ def _require_financeiro_dep(current_user: CurrentActiveUser) -> None:
     from core.auth.module_scope import user_has_module
     if not user_has_module(current_user, "financeiro"):
         raise HTTPException(status_code=403, detail="Ação financeira (dinheiro que sai) restrita ao módulo Financeiro.")
+
+
+@router.post("/action/cancelar-diaria-sobreposta", dependencies=[Depends(_require_financeiro_dep)])
+async def _rd_cancelar_diaria_sobreposta(
+    current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db),
+) -> dict:
+    """Cancela UMA diária que se sobrepõe à folha CLT da mesma pessoa.
+
+    NÃO é um "apagar diária" genérico: o servidor RE-VERIFICA a sobreposição (a diária tem
+    de ser de alguém que já era CLT ativo naquele dia) antes de apagar. Sem isso o botão
+    viraria um delete-qualquer-coisa alcançável pela tela.
+
+    Reusa `diarias_service.excluir_lancamento`, que só apaga status='lancado' — o que já
+    foi pago ele recusa com a mensagem real, em vez de fingir sucesso. Não move dinheiro:
+    IMPEDE uma saída futura. Registra em audit_logs com a identidade real de quem cancelou.
+    """
+    from sqlalchemy import text as _sql
+
+    try:
+        lanc_id = int(str(payload.get("lancamento_id") or "").strip())
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="Lançamento inválido.")
+    motivo = (payload.get("motivo") or "").strip()
+    if len(motivo) < 5:
+        raise HTTPException(status_code=422, detail="Descreva o motivo do cancelamento (mín. 5 caracteres).")
+
+    row = (await db.execute(_sql(
+        "SELECT l.data, l.posto, l.valor, d.nome, e.nome, e.data_admissao, "
+        "       (SELECT count(*) FROM gp_clock_punches c "
+        "          WHERE c.employee_id = e.id AND c.punch_timestamp::date = l.data) "
+        "FROM diaria_lancamentos l "
+        "JOIN diaria_diaristas d ON d.id = l.diarista_id "
+        "JOIN employees e ON replace(replace(coalesce(e.cpf,''),'.',''),'-','') "
+        "                  = replace(replace(coalesce(d.cpf,''),'.',''),'-','') "
+        "WHERE l.id = :i AND e.status = 'ativo' AND coalesce(e.is_homologacao,false) = false "
+        "  AND e.data_admissao IS NOT NULL AND l.data >= e.data_admissao"), {"i": lanc_id})).first()
+    if not row:
+        raise HTTPException(
+            status_code=422,
+            detail="Esta diária não é uma sobreposição à folha CLT — cancelamento recusado. "
+                   "Para excluir um lançamento comum use o Operacional.")
+    dia, posto, valor, nome_d, nome_e, adm, n_ponto = row
+
+    from modules.operacional.diaristas import diarias_service as _dsvc
+
+    res = await _dsvc.excluir_lancamento(db, lanc_id)
+    if not res.get("ok"):
+        raise HTTPException(status_code=int(res.get("http_status", 422)),
+                            detail=res.get("mensagem", "Não foi possível cancelar a diária."))
+
+    try:
+        await db.execute(_sql(
+            "INSERT INTO audit_logs (id, event_id, action, category, severity, result, description, "
+            " details, user_id, user_email, created_at) "
+            "VALUES (gen_random_uuid(), :ev, 'cancelar_diaria_sobreposta', 'financeiro', 'warning', "
+            " 'success', :desc, CAST(:det AS jsonb), CAST(:uid AS uuid), :mail, now())"),
+            {"ev": f"diaria-{lanc_id}", "desc": f"Diária sobreposta cancelada: {nome_e} em {dia}",
+             "det": __import__("json").dumps({
+                 "lancamento_id": lanc_id, "data": str(dia), "posto": posto,
+                 "valor": float(valor or 0), "admissao_clt": str(adm),
+                 "bateu_ponto_no_dia": bool(n_ponto), "motivo": motivo}),
+             "uid": str(current_user.id), "mail": getattr(current_user, "email", None)})
+        await db.commit()
+    except Exception:  # noqa: BLE001 — a diária JÁ foi cancelada; log não pode desfazer isso
+        await db.rollback()
+
+    return {"ok": True, "message": (
+        f"Diária de {nome_e} em {dia.strftime('%d/%m/%Y')} ({posto}, {brl(float(valor or 0))}) "
+        f"CANCELADA. CLT desde {adm.strftime('%d/%m/%Y')}"
+        + ("; bateu ponto nesse dia." if n_ponto else "; sem ponto nesse dia.")
+        + " Nenhum dinheiro foi movido — a saída futura foi impedida. Recarregue a tela.")}
 
 
 @router.post("/action/pagar-folha-pj", dependencies=[Depends(_require_financeiro_dep)])
