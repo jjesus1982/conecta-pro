@@ -95,6 +95,14 @@ const SLUG: Record<string, string> = {
   'Área do Cliente': 'area-do-cliente', 'Meu Espaço': 'meu-espaco',
 };
 
+function initials(name?: string): string {
+  if (!name) return '—';
+  const p = name.trim().split(/\s+/).filter(Boolean);
+  return (((p[0]?.[0] ?? '') + (p.length > 1 ? (p[p.length - 1]?.[0] ?? '') : '')).toUpperCase()) || '—';
+}
+
+type LauncherUser = { name: string; role: string; email?: string; isAdmin?: boolean };
+
 function Tile({ m }: { m: Mod }): ReactNode {
   const { Icon } = m;
   const slug = SLUG[m.name];
@@ -113,10 +121,18 @@ export default function RedesignLauncher() {
   const [q, setQ] = useState('');
   const [kpis, setKpis] = useState<Kpi[] | null>(null);
   const [alerts, setAlerts] = useState<Alert[] | null>(null);
+  const [user, setUser] = useState<LauncherUser | null>(null);
+  const [denied, setDenied] = useState<string[]>([]);
   const ql = q.trim().toLowerCase();
-  const groups = ql
-    ? GROUPS.map((g) => ({ ...g, mods: g.mods.filter((m) => m.name.toLowerCase().includes(ql) || m.desc.toLowerCase().includes(ql)) })).filter((g) => g.mods.length)
-    : GROUPS;
+  // Filtra por RBAC (tiles cujo slug o usuário NÃO pode abrir são ocultos) + busca.
+  const groups = GROUPS
+    .map((g) => ({
+      ...g,
+      mods: g.mods.filter((m) =>
+        !denied.includes(SLUG[m.name] ?? '')
+        && (!ql || m.name.toLowerCase().includes(ql) || m.desc.toLowerCase().includes(ql))),
+    }))
+    .filter((g) => g.mods.length);
 
   // KPIs e Pendências REAIS (GET /redesign/home). Sem dado → mantém skeleton/vazio honesto.
   useEffect(() => {
@@ -128,6 +144,8 @@ export default function RedesignLauncher() {
         if (!d) return;
         if (Array.isArray(d.kpis)) setKpis(d.kpis);
         if (Array.isArray(d.alerts)) setAlerts(d.alerts);
+        if (d.user) setUser(d.user);
+        if (Array.isArray(d.denied)) setDenied(d.denied);
       })
       .catch(() => {});
   }, []);
@@ -155,10 +173,13 @@ export default function RedesignLauncher() {
         <div className="rd-launch-actions">
           <div className="rd-launch-bell"><Bell size={19} /><span className="dot">3</span></div>
           <div className="rd-launch-user">
-            <div className="av"><img src="/images/foto-jordan.jpg" alt="Jordan Jesus" /></div>
+            <div className="av" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'rgba(255,255,255,0.16)', color: '#fff', fontWeight: 700, fontSize: 13, letterSpacing: 0.5 }}>
+              {initials(user?.name)}
+            </div>
             <div>
-              <div className="n">Jordan Jesus</div>
-              <div className="r">admin</div>
+              <div className="n">{user?.name ?? '—'}</div>
+              <div className="r">{user?.role ?? ''}</div>
             </div>
           </div>
           <a href="/modulos" title="Ir para o sistema clássico (para operações)"
@@ -175,7 +196,7 @@ export default function RedesignLauncher() {
       <div className="rd-launch-body">
         <div className="rd-launch-inner">
           <div className="rd-launch-hi">
-            <h1>{saud}, Jordan</h1>
+            <h1>{saud}{user?.name ? `, ${user.name.split(' ')[0]}` : ''}</h1>
             <p>{dataFmt.charAt(0).toUpperCase() + dataFmt.slice(1)} · selecione um módulo para começar</p>
           </div>
 

@@ -3097,7 +3097,15 @@ async def redesign_home(current_user: CurrentActiveUser, db: AsyncSession = Depe
         await db.rollback()
         alerts = []
 
-    return {"kpis": kpis, "alerts": alerts}
+    # Identidade REAL + RBAC do launcher (fecha o "Jordan/admin + 31 módulos" chumbado).
+    # `denied` = slugs GATEADOS que ESTE usuário não pode abrir → o front oculta o tile.
+    # Só gateados entram no universo; slugs abertos/pessoais nunca são negados.
+    _gated = set(_SLUG_MODULO_CANONICO) | _SLUG_ADMIN_ONLY
+    denied = sorted(s for s in _gated if not _slug_allowed(current_user, s))
+    _nome = (getattr(current_user, "name", None) or (getattr(current_user, "email", "") or "").split("@")[0] or "Usuário")
+    user = {"name": _nome, "role": getattr(current_user, "role", "") or "",
+            "email": getattr(current_user, "email", "") or "", "isAdmin": _is_admin_user(current_user)}
+    return {"kpis": kpis, "alerts": alerts, "user": user, "denied": denied}
 
 
 # slug do redesign → módulo canônico (gate de permissão). Só back-office; slugs pessoais/
@@ -3131,16 +3139,27 @@ def _is_admin_user(user) -> bool:
     return role in ("admin", "super_admin", "administrador") or "*" in perms or "all" in perms
 
 
+def _slug_allowed(user, slug: str) -> bool:
+    """Decisão ÚNICA de acesso a um slug do /redesign/data — usada pelo dispatcher E pelo
+    launcher (evita drift do RBAC entre back e front). admin-only → só admin/all; módulo-
+    gated → precisa do módulo; sem gate → aberto (self/pessoal)."""
+    from core.auth.module_scope import user_has_module
+    if slug in _SLUG_ADMIN_ONLY:
+        return _is_admin_user(user)
+    mod = _SLUG_MODULO_CANONICO.get(slug)
+    if mod:
+        return user_has_module(user, mod)
+    return True
+
+
 @router.get("/data/{slug}")
 async def redesign_data(slug: str, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)) -> dict:
     """Patches de tela com dado real para o módulo <slug>. Telas não cobertas ficam de fora.
     RBAC: se o slug mapeia a um módulo canônico, exige module:<mod> (admin/all passam)."""
-    from core.auth.module_scope import user_has_module
-    if slug in _SLUG_ADMIN_ONLY and not _is_admin_user(current_user):
-        raise HTTPException(status_code=403, detail="Acesso restrito à administração/diretoria.")
-    _mod = _SLUG_MODULO_CANONICO.get(slug)
-    if _mod and not user_has_module(current_user, _mod):
-        raise HTTPException(status_code=403, detail=f"Sem acesso ao módulo '{_mod}'.")
+    if not _slug_allowed(current_user, slug):
+        if slug in _SLUG_ADMIN_ONLY:
+            raise HTTPException(status_code=403, detail="Acesso restrito à administração/diretoria.")
+        raise HTTPException(status_code=403, detail=f"Sem acesso ao módulo '{_SLUG_MODULO_CANONICO.get(slug)}'.")
     builder = BUILDERS.get(slug)
     if not builder:
         return {"slug": slug, "screens": {}, "wired": [], "extraMenu": []}
