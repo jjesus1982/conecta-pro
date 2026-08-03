@@ -222,3 +222,12 @@ backend → redesign só precisa builder (leitura) + ações via write-gate (`re
 - Verdade: NÃO é portal de cliente externo — 0 usuários-cliente, users sem link client_id. É visão INTERNA 360 de TODOS os clientes (dashboard/operacao/chamados/financeiro/kits/analytics).
 - 🔴 Estava SEM gate → qualquer autenticado interno (celiane só-self:portal) via 21 clientes+MRR+21 faturas. Parede correta=gate de módulo (não self-scope, pois não há conceito per-cliente p/ user interno).
 - Fix: `area-do-cliente → crm` em _SLUG_MODULO_CANONICO. celiane user_has_module(crm)=False→403; admin/crm passam. FALTA bakear.
+
+## SWEEP bi / relatorios / configuracoes / empresas (2026-08-03)
+- Todos os 4 estavam SEM gate → qualquer autenticado interno via dado sensível.
+- **bi** → module:financeiro (bank_transactions/DRE).
+- **configuracoes** → ADMIN-ONLY (lista todos users+roles, tenants, feature_flags, integration_logs, config sistema). Crítico.
+- **empresas** → ADMIN-ONLY (estrutura CNPJ1/CNPJ2, demonstrativos, rentabilidade, liminares fiscais, migrador CNPJ1→CNPJ2).
+- **relatorios** → ADMIN-ONLY (KPIs executivos consolidados: folha líquida, AR/AP, MRR, holerites). PDFs já eram gated financeiro nos botões.
+- **empresas /action/nova-liminar** (op_write sem gate) → require_permission(module:fiscal).
+- Mecanismo novo: `_SLUG_ADMIN_ONLY` + `_is_admin_user` (admin/super_admin/administrador ou */all) checado no dispatcher ANTES do gate de módulo. celiane 403 nos 4; admin/Pyetra passam. FALTA bakear.
