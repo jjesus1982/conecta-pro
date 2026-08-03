@@ -217,3 +217,8 @@ backend → redesign só precisa builder (leitura) + ações via write-gate (`re
 - **🔴 MEU-ESPAÇO — mesma classe, também CORRIGIDO**: `_build_meu_espaco` listava notificações (com nomes/mensagens=PII)+tarefas de todos. Fix: notif por `employee_id`, tarefas por `assigned_to/created_by`, reembolsos por `requester`. celiane 28 notif→1; anon→0.
 - Mecanismo reusável: builders self-scoped declaram `current_user` na assinatura → dispatcher injeta (retrocompatível). FALTA: bakear durável.
 - Não-escopo desta rodada: `area-do-cliente` (parede é por cliente, não por funcionário) — verificar em sweep separado se pedido.
+
+## SWEEP AREA-DO-CLIENTE (2026-08-03)
+- Verdade: NÃO é portal de cliente externo — 0 usuários-cliente, users sem link client_id. É visão INTERNA 360 de TODOS os clientes (dashboard/operacao/chamados/financeiro/kits/analytics).
+- 🔴 Estava SEM gate → qualquer autenticado interno (celiane só-self:portal) via 21 clientes+MRR+21 faturas. Parede correta=gate de módulo (não self-scope, pois não há conceito per-cliente p/ user interno).
+- Fix: `area-do-cliente → crm` em _SLUG_MODULO_CANONICO. celiane user_has_module(crm)=False→403; admin/crm passam. FALTA bakear.
