@@ -106,6 +106,7 @@ async def rd_action_folha_gerar(
         raise HTTPException(status_code=422, detail="Informe mês (1-12) e ano (AAAA).")
     if not (1 <= mes <= 12) or not (2020 <= ano <= 2100):
         raise HTTPException(status_code=422, detail="Mês (1-12) ou ano (AAAA) fora do intervalo.")
+    cond_sel = (payload.get("condominio_id") or "").strip() or None
 
     from modules.people_management.folha.services.calculo_service import calcular_folha_batch
 
@@ -136,10 +137,30 @@ async def rd_action_folha_gerar(
                 return float(it.get("valor") or 0)
         return 0.0
 
-    # idempotente: só a versão 'conecta' da competência (jamais a 'portte')
-    apagados = db.execute(_sql(
-        "DELETE FROM hr_payslips WHERE source_system = 'conecta' "
-        "AND reference_year = :a AND reference_month = :m"), {"a": ano, "m": mes}).rowcount or 0
+    # Escopo por condomínio: o Jordan fecha a folha condomínio a condomínio (formato Portte).
+    # O motor calcula todo mundo (é ele que sabe ler o ponto); aqui recortamos QUEM entra.
+    cond_nome = ""
+    if cond_sel:
+        row = db.execute(_sql("SELECT nome FROM condominios WHERE CAST(id AS TEXT) = :c"),
+                         {"c": cond_sel}).first()
+        if not row:
+            raise HTTPException(status_code=422, detail="Condomínio não encontrado.")
+        cond_nome = row[0]
+        holerites = [h for h in holerites if (vinc.get(str(h["employee_id"])) or (None, None))[0] == cond_sel]
+        if not holerites:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Nenhum colaborador alocado em {cond_nome} na competência {mes:02d}/{ano}.")
+
+    # idempotente: só a versão 'conecta' da competência (jamais a 'portte'); com condomínio
+    # selecionado apaga SÓ o daquele condomínio — senão fechar um posto zeraria os outros.
+    _del = ("DELETE FROM hr_payslips WHERE source_system = 'conecta' "
+            "AND reference_year = :a AND reference_month = :m")
+    _par = {"a": ano, "m": mes}
+    if cond_sel:
+        _del += " AND CAST(condominio_id AS TEXT) = :c"
+        _par["c"] = cond_sel
+    apagados = db.execute(_sql(_del), _par).rowcount or 0
 
     gravados = 0
     for h in holerites:
@@ -190,18 +211,22 @@ async def rd_action_folha_gerar(
                   + ("…" if len(zerados) > 8 else "")
                   + ". Essas pessoas NÃO seriam pagas. Cadastre o salário e gere a folha de novo.")
 
-    liq = float(batch.get("total_liquido") or 0)
+    liq = (sum(float(h.get("liquido") or 0) for h in holerites) if cond_sel
+           else float(batch.get("total_liquido") or 0))
+    fgts = (sum(float(h.get("fgts_empresa") or 0) for h in holerites) if cond_sel
+            else float(batch.get("total_fgts") or 0))
     ref = db.execute(_sql(
         "SELECT count(*), coalesce(round(sum(net_salary)::numeric,2),0) FROM hr_payslips "
         "WHERE source_system='portte' AND reference_year=:a AND reference_month=:m"),
         {"a": ano, "m": mes}).first()
     par = ""
-    if ref and ref[0]:
+    if ref and ref[0] and not cond_sel:
         par = (f" Portte na mesma competência: {ref[0]} holerite(s), {brl(float(ref[1]))} — "
                f"diferença {brl(liq - float(ref[1]))}. Confira em DP → Folha: Conecta × Portte.")
     return {"ok": True, "message": (
-        f"Folha {mes:02d}/{ano} GERADA no Conecta PRO: {gravados} holerite(s), "
-        f"líquido {brl(liq)}, FGTS {brl(float(batch.get('total_fgts') or 0))}. "
+        f"Folha {mes:02d}/{ano}{' — ' + cond_nome if cond_nome else ' (todos os condomínios)'} "
+        f"GERADA no Conecta PRO: {gravados} holerite(s), "
+        f"líquido {brl(liq)}, FGTS {brl(fgts)}. "
         f"Status rascunho — gerar não paga; o pagamento segue no Financeiro com OTP."
         + (f" (Substituiu {apagados} holerite(s) 'conecta' da geração anterior.)" if apagados else "")
         + alerta + par)}
@@ -708,9 +733,29 @@ async def build(db) -> dict:
         out["folha-por-condominio"]["ctaTo"] = "folha-gerar"
 
     # ---- GERAR FOLHA NO CONECTA PRO (o que faltava: close_payroll nao persistia nada) ----
+    # Opcoes = condominios que TEM gente alocada hoje (nao o cadastro inteiro), Villa dos
+    # Passaros primeiro — e a ordem em que o Jordan fecha. Vazio => so a opcao "todos".
+    _cond_opts: list[dict] = []
+    try:
+        from sqlalchemy import text as _ct
+        _cond_opts = [
+            {"value": str(r[0]), "label": f"{r[1]} ({r[2]} pessoa{'s' if r[2] != 1 else ''})"}
+            for r in (await db.execute(_ct(
+                "SELECT CAST(co.id AS TEXT), co.nome, count(DISTINCT a.employee_id) AS n "
+                "FROM condominios co "
+                "JOIN employee_alocacoes a ON a.condominio_id = co.id "
+                "  AND (a.data_fim IS NULL OR a.data_fim >= CURRENT_DATE) "
+                "JOIN employees e ON e.id = a.employee_id AND e.status = 'ativo' "
+                "  AND coalesce(e.is_homologacao, false) = false "
+                "GROUP BY 1, 2 "
+                "ORDER BY (upper(co.nome) LIKE '%PASSAROS%' OR upper(co.nome) LIKE '%PÁSSAROS%') DESC, co.nome"
+            ))).fetchall()]
+    except Exception:  # noqa: BLE001 — sem opções o form ainda gera a folha geral
+        _cond_opts = []
+
     out["folha-gerar"] = {
         "title": "Gerar folha (Conecta PRO)",
-        "sub": "Calcula a folha de TODOS os CLT ativos com o motor do Conecta PRO — lendo o ponto REAL "
+        "sub": "Escolha o condomínio para fechar posto a posto (formato Portte) ou deixe em branco para a folha geral. Calcula com o motor do Conecta PRO — lendo o ponto REAL "
                "sincronizado do Sólides — e GRAVA como rascunho. Não paga: o pagamento segue no "
                "Financeiro com OTP. Regerar o mesmo mês substitui a geração anterior; a folha da "
                "Portte nunca é tocada.",
@@ -720,6 +765,8 @@ async def build(db) -> dict:
                    "confirm": "Isto calcula e GRAVA a folha de todos os CLT ativos da competência "
                               "(rascunho). Regerar substitui a geração anterior. Confirmar?"},
         "fields": [
+            {"key": "condominio_id", "label": "Condomínio", "type": "select", "span": "span 2",
+             "ph": "Todos os condomínios (folha geral)", "options": _cond_opts},
             {"key": "mes", "label": "Mês*", "type": "select", "span": "span 1",
              "ph": "Selecione o mês", "options": [
                      {"value": "1", "label": "Janeiro"},
