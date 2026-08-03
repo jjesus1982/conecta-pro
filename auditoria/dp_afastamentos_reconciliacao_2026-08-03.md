@@ -51,3 +51,41 @@ dia isolado, ou o retorno pode ter sido formalizado em data diferente.
    acontece fora do sistema (atestado entregue no papel / lançado direto na Portte).
 3. Só depois disso faz sentido construir o cálculo de afastamento (15 dias empregador × INSS),
    porque cálculo sobre registro furado não resolve nada.
+
+---
+
+## Execução (2026-08-03, autorizado pelo Jordan: "confirma os 4 retornos usando a primeira batida")
+
+Ao abrir os registros para executar, apareceu informação que **não estava no relatório acima**
+(tipo e motivo do afastamento) e que muda a decisão em 2 dos 4 casos. Fechei só os limpos.
+
+### ✅ Encerrados (2)
+
+| Colaborador | Tipo | Afastado | Fim previsto | **Retorno** |
+|---|---|---|---|---|
+| ADAILSON SERRA ALVES | doença (dengue, atestado 7d) | 25/03 | 02/06 | **03/06** |
+| FERNANDA VINHOTE MACIEL | doença c/ atestado | 22/02 | 01/03 | **02/03** |
+
+Ambos doença comum — **sem estabilidade** envolvida. Retorno = 1ª batida após o afastamento.
+
+### ⏸️ NÃO encerrados (2) — precisam da sua decisão
+
+**CINTIA BEZERRA OLIVEIRA — acidente de trajeto.** Dois motivos para não automatizar:
+1. **Estabilidade art. 118**: `estabilidade_ate` está gravada como 2027-05-21 (início + 12 meses).
+   Mas na acidentária a estabilidade conta **do RETORNO**, não do início. Se ela voltou em 03/06,
+   a proteção vai até **03/06/2027** — fechar sem recalcular **encurta a estabilidade dela em
+   ~2 semanas**, o que é exposição trabalhista.
+2. **Plausibilidade médica**: fratura de fêmur/tíbia com cirurgia e internação em 21/05, e a 1ª
+   batida é 03/06 — **13 dias depois**. Para agente de portaria isso não fecha. Ou as batidas são
+   de outro contexto, ou a data/gravidade do registro está errada. Confirmar antes de assinar
+   qualquer data de retorno.
+
+**ARYELTON BRAGA FIGUEIRA — suspensão contratual.** Não é afastamento médico: é suspensão por
+**ajuizamento de rescisão indireta** (eSocial motivo 44, recibo 1.1.0000000037643). Encerrar isso
+tem efeito jurídico no processo, e "voltou a bater ponto" não equivale a "a suspensão acabou".
+É decisão jurídica, não de DP.
+
+### Reversão
+
+Backup do estado anterior: `auditoria/sst_afastamentos_pre_retorno_2026-08-03.json` (os 5 registros
+antes da alteração). Para desfazer, restaurar `status`/`data_retorno`/`data_fim_prevista` dos 2 IDs.
