@@ -158,6 +158,7 @@ def baixar_holerite_pdf(
 def exportar_folha_pdf(
     mes: int,
     ano: int,
+    condominio: str | None = Query(None, description="UUID do condomínio — folha daquele posto"),
     current_user=Depends(get_current_user),
     db: Session = Depends(get_sync_db_dependency),
 ):
@@ -173,6 +174,67 @@ def exportar_folha_pdf(
 
     if not (1 <= mes <= 12):
         raise HTTPException(status_code=422, detail="Mês inválido (1-12).")
+
+    if condominio:
+        # Folha DE UM CONDOMÍNIO: lê a folha PERSISTIDA (a que o Jordan gerou em
+        # DP → Gerar folha), não recalcula — o PDF tem que ser o espelho do que foi
+        # gravado, senão o papel diverge da tela. Sem linha gravada = erro explícito.
+        from sqlalchemy import text as _sqltext
+
+        _nome = db.execute(
+            _sqltext("SELECT nome FROM condominios WHERE CAST(id AS TEXT) = :c"), {"c": condominio}
+        ).first()
+        if not _nome:
+            raise HTTPException(status_code=404, detail="Condomínio não encontrado.")
+        _rows = db.execute(
+            _sqltext(
+                "SELECT coalesce(e.nome,'—'), coalesce(e.cargo,'—'), p.base_salary, p.inss_value, "
+                "       p.fgts_value, p.total_deductions, p.net_salary, p.total_earnings, p.irrf_value "
+                "FROM hr_payslips p JOIN employees e ON e.id = p.employee_id "
+                "WHERE p.reference_year = :a AND p.reference_month = :m "
+                "  AND CAST(p.condominio_id AS TEXT) = :c AND p.source_system = 'conecta' "
+                "ORDER BY e.nome"
+            ),
+            {"a": ano, "m": mes, "c": condominio},
+        ).fetchall()
+        if not _rows:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Folha de {_nome[0]} em {mes:02d}/{ano} ainda não foi gerada. "
+                       "Use DP → Gerar folha (Conecta PRO).",
+            )
+
+        def _f(v) -> float:
+            return float(v or 0)
+
+        _bruto = sum(_f(r[7]) for r in _rows)
+        _fgts = sum(_f(r[4]) for r in _rows)
+        resumo = {
+            "mes": mes, "ano": ano, "escopo": _nome[0],
+            "total_colaboradores": len(_rows),
+            "total_proventos": _bruto,
+            "total_descontos": sum(_f(r[5]) for r in _rows),
+            "total_liquido": sum(_f(r[6]) for r in _rows),
+            "total_fgts": _fgts,
+            "total_inss": sum(_f(r[3]) for r in _rows),
+            "total_irrf": sum(_f(r[8]) for r in _rows),
+            "custo_total_empresa": _bruto + _fgts,
+            "fonte": "conecta",
+            "funcionarios": [
+                {"nome": r[0], "cargo": r[1], "salario_base": _f(r[2]), "inss_value": _f(r[3]),
+                 "fgts_value": _f(r[4]), "total_descontos": _f(r[5]), "salario_liquido": _f(r[6])}
+                for r in _rows
+            ],
+        }
+        _slug = "".join(ch if ch.isalnum() else "_" for ch in _nome[0]).strip("_").lower()
+        return Response(
+            content=montar_folha_pdf(resumo),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'inline; filename="folha_{_slug}_{ano}_{mes:02d}.pdf"',
+                "Cache-Control": "no-store",
+            },
+        )
 
     resumo = calculo_service.get_resumo_folha(db, mes, ano)
     pdf = montar_folha_pdf(resumo)

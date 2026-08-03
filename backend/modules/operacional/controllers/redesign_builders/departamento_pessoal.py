@@ -699,11 +699,12 @@ async def build(db) -> dict:
                count(*) AS pessoas,
                round(sum(p.total_earnings)::numeric,2) AS bruto,
                round(sum(p.total_deductions)::numeric,2) AS descontos,
-               round(sum(p.net_salary)::numeric,2) AS liquido
+               round(sum(p.net_salary)::numeric,2) AS liquido,
+               max(a.cid) AS cond_id
         FROM hr_payslips p
         JOIN employees e ON e.id = p.employee_id AND coalesce(e.is_homologacao,false) = false
         LEFT JOIN LATERAL (
-            SELECT co.nome
+            SELECT co.nome, CAST(co.id AS TEXT) AS cid
             FROM employee_alocacoes al JOIN condominios co ON co.id = al.condominio_id
             WHERE al.employee_id = p.employee_id
               AND al.data_inicio <= (date_trunc('month', p.competence_start) + interval '1 month -1 day')::date
@@ -725,7 +726,12 @@ async def build(db) -> dict:
                    t(str(r[2])),
                    t(brl(float(r[3] or 0)), 600),
                    t(brl(float(r[4] or 0)), 600, "#C2410C"),
-                   t(brl(float(r[5] or 0)), 700, "#16A34A")]))
+                   t(brl(float(r[5] or 0)), 700, "#16A34A")],
+        docsfn=lambda r: ([] if not r[0] else [
+            doc("Folha (PDF)",
+                f"/api/v1/people-management/folha/{int(str(r[0])[:2])}/{int(str(r[0])[3:7])}/pdf"
+                + (f"?condominio={r[6]}" if r[1] != "TOTAL GERAL" and r[6] else ""),
+                fmt="pdf", gate="financeiro")])))
     if isinstance(out.get("folha-por-condominio"), dict):
         out["folha-por-condominio"]["filterCol"] = 0
         out["folha-por-condominio"]["filterLabel"] = "Competência"

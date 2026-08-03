@@ -80,10 +80,14 @@ def montar_folha_pdf(resumo: dict[str, Any]) -> bytes:
     story: list = []
 
     # ── Subtítulo / metadados ──
+    # Escopo (ex.: um condomínio). Sem ele o PDF é a folha geral — e 7 PDFs de condomínio
+    # sairiam visualmente idênticos, que é como se troca um posto pelo outro na conferência.
+    _escopo = str(resumo.get("escopo") or "").strip()
     story.append(
         Paragraph(
             f"<b>Competência:</b> {periodo} &nbsp;&nbsp;|&nbsp;&nbsp; "
-            f"<b>Colaboradores:</b> {int(resumo.get('total_colaboradores') or 0)} &nbsp;&nbsp;|&nbsp;&nbsp; "
+            + (f"<b>Condomínio:</b> {_escopo} &nbsp;&nbsp;|&nbsp;&nbsp; " if _escopo else "")
+            + f"<b>Colaboradores:</b> {int(resumo.get('total_colaboradores') or 0)} &nbsp;&nbsp;|&nbsp;&nbsp; "
             f"<b>Fonte:</b> {fonte_label}",
             st["small"],
         )
