@@ -9,7 +9,8 @@ GRUPOS = [
         ("projecao", "Projeção & Insights"), ("dre-inline", "DRE"), ("indicadores", "Indicadores DSO/DPO"), ("tendencias", "Tendências"),
         ("raio-x", "Raio-X"), ("cfo", "CFO IA"), ("agentes", "Agentes"), ("relatorios", "Relatórios")]),
     ("g-receber", "Receber", "Contas a receber, cobrança e faturamento", [
-        ("contas-receber", "Contas a Receber"), ("cobrancas", "Cobranças"),
+        ("contas-receber", "Contas a Receber"),
+        ("nfse-a-receber", "NFS-e × a receber"), ("gerar-contas-de-nfse", "Gerar das NFS-e"), ("cobrancas", "Cobranças"),
         ("regua", "Régua"), ("fila-cobranca", "Fila de cobrança"), ("registrar-cobranca", "Registrar cobrança"),
         ("recorrencia", "Recorrência (MRR)"), ("gerar-cobrancas", "Gerar cobranças"), ("boletos", "Boletos"),
         ("emitir-boleto", "Emitir boleto"), ("cobrar-pix", "Cobrar PIX"),

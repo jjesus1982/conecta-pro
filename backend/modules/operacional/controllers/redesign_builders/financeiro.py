@@ -1156,6 +1156,48 @@ ORDER BY b.comp DESC, b.cnpj"""
 
     # F0 — fundação: compõe os 7 grupos (tabs) e stub-a as telas antigas (deep-link preservado).
     from modules.operacional.controllers.redesign_builders._fin_grupos import montar_grupos
+    # ---- NFS-e x CONTA A RECEBER (o furo: receita emitida sem titulo) ------------------
+    out["gerar-contas-de-nfse"] = {
+        "title": "Gerar contas a receber das NFS-e",
+        "sub": "Cria uma conta a receber por NFS-e emitida não cancelada. Idempotente: rodar de "
+               "novo não duplica. Comece em Simular para ver os números antes de gravar.",
+        "cta": "Executar", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/gerar-contas-de-nfse", "okMsg": "Processado",
+                   "confirm": "Gravar cria contas a receber de verdade e muda inadimplência e DSO. Confirmar?"},
+        "fields": [
+            {"key": "competencia", "label": "Competência", "type": "text", "span": "span 1",
+             "ph": "Ex.: 2026-07 · em branco = todas"},
+            {"key": "dry_run", "label": "Modo*", "type": "select", "span": "span 1",
+             "ph": "Simular primeiro", "options": [
+                 {"value": "sim", "label": "Simular (não grava)"},
+                 {"value": "nao", "label": "Gravar de verdade"}]},
+        ],
+    }
+    await safe("nfse-a-receber", tbl(
+        "NFS-e × conta a receber",
+        "Cada nota emitida e se ela já virou título. Sem conta = receita reconhecida sem "
+        "título, logo fora do aging, da inadimplência e do DSO.",
+        "—", ["Competência", "Nº", "Tomador", "Bruto", "Líquido", "Conta a receber"],
+        "0.9fr 0.7fr 1.9fr 1fr 1fr 1.2fr",
+        """
+        SELECT coalesce(n.competencia,'—'), coalesce(n.numero,'—'), coalesce(n.tomador_nome,'—'),
+               n.valor_servicos, n.valor_liquido,
+               CASE WHEN r.id IS NULL THEN 'SEM CONTA' ELSE coalesce(r.status,'criada') END
+        FROM nfse_emitidas_nacional n
+        LEFT JOIN receivable_accounts r ON r.document_number = n.chave_acesso
+        WHERE coalesce(n.cancelada,false) = false
+        ORDER BY (r.id IS NULL) DESC, n.data_emissao DESC
+        LIMIT 400
+        """,
+        lambda r: [t(r[0], 600), t(r[1]), t(r[2], 600, "#0F1B3A"),
+                   t(brl(float(r[3] or 0))), t(brl(float(r[4] or 0)), 600),
+                   b("SEM CONTA", "bad") if r[5] == "SEM CONTA" else b(r[5], "ok")]))
+    if isinstance(out.get("nfse-a-receber"), dict):
+        out["nfse-a-receber"]["filterCol"] = 0
+        out["nfse-a-receber"]["filterLabel"] = "Competência"
+        out["nfse-a-receber"]["cta"] = "Gerar contas a receber"
+        out["nfse-a-receber"]["ctaTo"] = "gerar-contas-de-nfse"
+
     # ---- DIÁRIAS SOBREPOSTAS À FOLHA CLT (controle contínuo, era levantamento avulso) ----
     # Diarista que virou CLT e continuou recebendo diária. Nem toda sobreposição é erro:
     # CLT cobrindo posto na FOLGA é legítimo. O que denuncia duplicidade é ter BATIDO PONTO
@@ -1417,6 +1459,25 @@ async def _rd_cancelar_diaria_sobreposta(
         + (("; bateu ponto nesse dia." if n_ponto else "; sem ponto nesse dia.") if adm else "")
         + (f" O VT/VR do mesmo dia foi cancelado junto ({cascata})." if cascata else "")
         + " Nenhum dinheiro foi movido — a saída futura foi impedida. Recarregue a tela.")}
+
+
+@router.post("/action/gerar-contas-de-nfse", dependencies=[Depends(_require_financeiro_dep)])
+async def _rd_gerar_contas_de_nfse(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Gera conta a receber a partir das NFS-e emitidas. NÃO move dinheiro.
+
+    dry_run=sim (padrão) só relata. Idempotente: nota já convertida é pulada.
+    """
+    from modules.financial.services.nfse_receivable_service import gerar_contas_de_nfse
+
+    comp = (payload.get("competencia") or "").strip() or None
+    dry = (payload.get("dry_run") or "sim").strip().lower() != "nao"
+    r = await gerar_contas_de_nfse(db, competencia=comp, dry_run=dry)
+    prefixo = "SIMULAÇÃO (nada gravado)" if dry else "GRAVADO"
+    return {"ok": True, "message": (
+        f"{prefixo} — {r['analisadas']} NFS-e analisada(s): {r['criadas']} conta(s) criada(s), "
+        f"{r['ja_existiam']} já existia(m), {r['canceladas_ignoradas']} cancelada(s) ignorada(s). "
+        f"{r['sem_cliente']} sem cliente casado por CNPJ (entram com o nome do tomador). "
+        f"Total {brl(r['total_valor'])}.")}
 
 
 @router.post("/action/pagar-folha-pj", dependencies=[Depends(_require_financeiro_dep)])
