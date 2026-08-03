@@ -178,6 +178,18 @@ async def rd_action_folha_gerar(
         gravados += 1
     db.commit()
 
+    # ALERTA DE GENTE NAO PAGA: holerite com liquido <= 0 quase sempre e cadastro incompleto
+    # (salario_base nulo em admissao recente). Sem isto o holerite de R$ 0,00 passa em silencio
+    # e a pessoa nao recebe. Nunca preencher salario por conta propria — e dado do DP.
+    zerados = [h.get("employee_nome") or h.get("employee_id") for h in holerites
+               if float(h.get("liquido") or 0) <= 0]
+    alerta = ""
+    if zerados:
+        alerta = (f" ATENÇÃO — {len(zerados)} holerite(s) com líquido R$ 0,00, provável salário-base "
+                  f"não cadastrado: {', '.join(str(n) for n in zerados[:8])}"
+                  + ("…" if len(zerados) > 8 else "")
+                  + ". Essas pessoas NÃO seriam pagas. Cadastre o salário e gere a folha de novo.")
+
     liq = float(batch.get("total_liquido") or 0)
     ref = db.execute(_sql(
         "SELECT count(*), coalesce(round(sum(net_salary)::numeric,2),0) FROM hr_payslips "
@@ -192,7 +204,7 @@ async def rd_action_folha_gerar(
         f"líquido {brl(liq)}, FGTS {brl(float(batch.get('total_fgts') or 0))}. "
         f"Status rascunho — gerar não paga; o pagamento segue no Financeiro com OTP."
         + (f" (Substituiu {apagados} holerite(s) 'conecta' da geração anterior.)" if apagados else "")
-        + par)}
+        + alerta + par)}
 
 
 @router.post("/action/folha-apontamento")
