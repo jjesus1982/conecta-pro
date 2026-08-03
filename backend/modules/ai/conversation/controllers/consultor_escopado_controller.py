@@ -32,6 +32,8 @@ from modules.ai.conversation.services.orquestrador import tools_read_crm  # noqa
 from modules.ai.conversation.services.orquestrador import tools_read_dp  # noqa: F401 — registra as 8 consultas READ do DP/RH (Fase 6 VER)
 from modules.ai.conversation.services.orquestrador import tools_read_financeiro  # noqa: F401 — registra as 8 consultas READ do Financeiro (Fase 6 VER)
 from modules.ai.conversation.services.orquestrador import tools_read_fiscal  # noqa: F401 — registra as 8 consultas READ do Fiscal (Fase 6 VER, read-only, diretoria)
+from modules.ai.conversation.services.orquestrador import tools_read_ged  # noqa: F401 — registra as 5 consultas READ do GED/GEDEON (Fase 6 VER, read-only, fecha o balde VER)
+from modules.ai.conversation.services.orquestrador import tools_read_juridico  # noqa: F401 — registra as 4 consultas READ do Jurídico (Fase 6 VER, read-only, fecha o balde VER)
 from modules.ai.conversation.services.orquestrador import tools_read_operacional  # noqa: F401 — registra as 8 consultas READ do Operacional (Fase 6 VER, read-only)
 from modules.ai.conversation.services.orquestrador import tools_financeiro_doc  # noqa: F401 — registra gera-doc financeiro (Fase 6 F3)
 from modules.ai.conversation.services.orquestrador import tools_fiscal_doc  # noqa: F401 — registra relatório NFS-e no chat (Fase 6 F8)
