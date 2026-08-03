@@ -7,7 +7,7 @@ migrador (segmentação CNPJ1→CNPJ2). Só leitura — migração é curada pel
 from fastapi import APIRouter, Body, Depends, HTTPException  # noqa: F401
 from sqlalchemy import text  # noqa: F401
 
-from core.auth.dependencies import CurrentActiveUser  # noqa: F401
+from core.auth.dependencies import CurrentActiveUser, require_permission  # noqa: F401
 from core.database import get_db  # noqa: F401
 from modules.operacional.controllers.redesign_data_controller import (  # noqa: F401
     _build_empresas as _base,
@@ -132,7 +132,7 @@ async def build(db) -> dict:
 router = APIRouter()
 
 
-@router.post("/action/nova-liminar")
+@router.post("/action/nova-liminar", dependencies=[Depends(require_permission("module:fiscal"))])
 async def _rd_nova_liminar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
     """Registra uma liminar em fiscal_liminares (op_write — cria registro, reversível)."""
     from modules.operacional.controllers.redesign_write_gate import GateError, op_write

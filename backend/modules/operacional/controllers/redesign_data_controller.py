@@ -3111,7 +3111,19 @@ _SLUG_MODULO_CANONICO = {
     "departamento-pessoal": "dp", "rh": "dp", "gestao-de-pessoas": "dp",
     "recrutamento": "dp", "homologacao": "dp",
     "saude-ocupacional": "sst", "documentos": "ged",
+    "bi": "financeiro",  # bank_transactions / DRE / receita×despesa → domínio financeiro
 }
+
+# Slugs restritos à ADMINISTRAÇÃO/DIRETORIA (não é módulo — admin/all/* passam, resto 403):
+# configuracoes=usuários/tenants/feature-flags/config-sistema; empresas=estrutura CNPJ+
+# demonstrativos+liminares+migrador; relatorios=KPIs executivos consolidados (folha líq/AR/AP/MRR).
+_SLUG_ADMIN_ONLY = {"configuracoes", "empresas", "relatorios"}
+
+
+def _is_admin_user(user) -> bool:
+    role = (getattr(user, "role", "") or "").lower()
+    perms = getattr(user, "permissions", None) or []
+    return role in ("admin", "super_admin", "administrador") or "*" in perms or "all" in perms
 
 
 @router.get("/data/{slug}")
@@ -3119,6 +3131,8 @@ async def redesign_data(slug: str, current_user: CurrentActiveUser, db: AsyncSes
     """Patches de tela com dado real para o módulo <slug>. Telas não cobertas ficam de fora.
     RBAC: se o slug mapeia a um módulo canônico, exige module:<mod> (admin/all passam)."""
     from core.auth.module_scope import user_has_module
+    if slug in _SLUG_ADMIN_ONLY and not _is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="Acesso restrito à administração/diretoria.")
     _mod = _SLUG_MODULO_CANONICO.get(slug)
     if _mod and not user_has_module(current_user, _mod):
         raise HTTPException(status_code=403, detail=f"Sem acesso ao módulo '{_mod}'.")
