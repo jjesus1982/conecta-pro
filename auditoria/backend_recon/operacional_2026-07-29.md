@@ -201,3 +201,9 @@ backend → redesign só precisa builder (leitura) + ações via write-gate (`re
 ## FRAGILIDADES DE SERVIÇO RESOLVIDAS (2026-08-03) — commit
 - ✅ op_write poison-marker: marcador de idempotência gravado SÓ após real_write suceder (falha não deixa poison; dup-check preserva a idempotência real). Teste test_op_write_poison_fix 3/3.
 - ✅ code-gen global-unique: disciplinary._generate_code e inspection_rounds.get_next_sequence usam MAX GLOBAL do sufixo numérico (era COUNT per-tenant) — code é UNIQUE global, então per-tenant colidia entre tenants e com gaps de deleção. Compartilhado com o clássico; regressão medida/ronda/escopo verde (escopo agora 3/3).
+
+## SWEEP DP — continuação (2026-08-03)
+- LEITURAS: TODAS reais (exibido==banco) — +licenças(8)/certificação(51)/eSocial(36)/prestadores-PJ(9)/folha-rubricas(399) além das 8 antes. DP sem casca em leitura.
+- ✅ vacation-reject também ESCOPADO à equipe operacional (era aberto; simétrico ao approve). Testado por chamada direta: supervisor→não-operacional=403.
+- GAP ABERTO (decisão Jordan): reembolso approve/reject/analyze — endpoint clássico `/reimbursements/{id}/approve` usa SÓ CurrentActiveUser (sem permissão, sem escopo); wired como row-action no DP. Eliziel poderia aprovar QUALQUER reembolso. Decisão: é papel deles? Se sim → escopar à equipe (como férias/medida); se não → gate de permissão. NÃO citado na lista do perfil (folha-apontamento/férias/medida).
+- Ações DP do perfil COBERTAS: folha-apontamento, aprovar/rejeitar férias (escopado), aplicar medida (escopado), ponto-ajuste. Demais forms (admissão/rescisão/benefícios/licenças/certificações/prestadores-PJ/eSocial/import) wired.
