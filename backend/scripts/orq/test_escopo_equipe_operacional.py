@@ -21,6 +21,10 @@ ADMIN = SimpleNamespace(id=uuid.uuid4(), name="Jordan", email="j@conectamais.pro
 
 async def main() -> None:
     async with async_session_factory() as db:
+        # re-rodável: limpa marcadores de idempotência e medidas de teste anteriores
+        await db.execute(text("DELETE FROM disciplinary_actions WHERE reason_description LIKE '%Teste escopo equipe operacional%'"))
+        await db.execute(text("DELETE FROM redesign_gate_otp WHERE ref LIKE 'idem:medida%'"))
+        await db.commit()
         tid = (await db.execute(text("SELECT tenant_id FROM disciplinary_templates WHERE coalesce(is_active,true) LIMIT 1"))).scalar()
         SUPER.tenant_id = str(tid) if tid else None
         ADMIN.tenant_id = str(tid) if tid else None
