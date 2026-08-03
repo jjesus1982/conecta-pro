@@ -42,16 +42,18 @@ export function DocButtons({ docs, compact = false }: { docs: DocRef[]; compact?
         return (
           <span key={i} className="rd-doc-chip" style={chipBase} title={doc.gate ? `Acesso: ${doc.gate}` : doc.label}>
             <IcoFor fmt={doc.fmt} />
+            {/* Em linha de tabela o label do doc some (é longo), mas "Abrir"/"Baixar" NUNCA:
+                 sem verbo a coluna vira dois ícones mudos e ninguém acha o download. */}
             {!compact && <span style={{ fontWeight: 600 }}>{doc.label}</span>}
             {isAbrivel(doc.fmt) && (
               <button type="button" className="rd-doc-act" onClick={() => abrirDoc(doc)}
                 title={`Abrir ${doc.label}`} style={actBtn}>
-                <Eye size={13} />{!compact && <span>Abrir</span>}
+                <Eye size={13} /><span>Abrir</span>
               </button>
             )}
             <button type="button" className="rd-doc-act" onClick={() => baixarDoc(doc)}
               title={`Baixar ${doc.label}`} style={actBtn}>
-              <Download size={13} />{!compact && <span>Baixar</span>}
+              <Download size={13} /><span>Baixar</span>
             </button>
           </span>
         );

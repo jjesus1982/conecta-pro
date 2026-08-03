@@ -120,7 +120,7 @@ function TableScreen({ scr }: { scr: any }) {
   const hasRowEdit = allRows.some((r: any) => r.edit && Array.isArray(r.edit.fields));
   const hasRowActions = allRows.some((r: any) => Array.isArray(r.actions) && r.actions.length);
   const hasActions = hasRowDocs || hasRowEdit || hasRowActions;
-  const grid = hasActions ? `${scr.grid} minmax(150px, auto)` : scr.grid;
+  const grid = hasActions ? `${scr.grid} minmax(200px, auto)` : scr.grid;
   const cols = hasActions ? [...(scr.cols || []), hasRowDocs ? 'Documento' : 'Ações'] : (scr.cols || []);
   const [editRow, setEditRow] = useState<any>(null);
   const [editVals, setEditVals] = useState<Record<string, any>>({});
@@ -615,17 +615,34 @@ export default function ModuleView({ slug }: { slug: string }) {
   }, [screens]);
 
   // Dados reais da API (READ-ONLY). Sem token → mantém exemplos do pacote.
+  // RETRY: logo após o login o token pode ainda não estar no localStorage quando este efeito
+  // roda — a versão anterior desistia na hora e a tela ficava com o menu curto do pacote, SEM
+  // as telas reais e sem os botões de documento, até um F5 manual. Falha de rede/401 idem.
   useEffect(() => {
     let cancel = false;
-    let tok: string | null = null;
-    try { tok = localStorage.getItem('access_token'); } catch { /* */ }
-    if (!tok) { setDataState('idle'); return; }
-    setDataState('loading');
-    fetch(`/api/v1/redesign/data/${slug}`, { headers: { Authorization: `Bearer ${tok}` } })
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((j) => { if (!cancel) { setPatches(j.screens || {}); setExtraMenu(j.extraMenu || []); setDataState('done'); } })
-      .catch(() => { if (!cancel) setDataState('done'); });
-    return () => { cancel = true; };
+    let tentativa = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const carregar = () => {
+      if (cancel) return;
+      let tok: string | null = null;
+      try { tok = localStorage.getItem('access_token'); } catch { /* */ }
+      if (!tok) {
+        if (tentativa++ < 5) { timer = setTimeout(carregar, 300 * tentativa); }
+        else setDataState('idle');
+        return;
+      }
+      setDataState('loading');
+      fetch(`/api/v1/redesign/data/${slug}`, { headers: { Authorization: `Bearer ${tok}` } })
+        .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+        .then((j) => { if (!cancel) { setPatches(j.screens || {}); setExtraMenu(j.extraMenu || []); setDataState('done'); } })
+        .catch(() => {
+          if (cancel) return;
+          if (tentativa++ < 3) { timer = setTimeout(carregar, 600 * tentativa); }
+          else setDataState('done');
+        });
+    };
+    carregar();
+    return () => { cancel = true; if (timer) clearTimeout(timer); };
   }, [slug]);
 
   const toggle = () => setCollapsed((c) => { const n = !c; try { localStorage.setItem('rd-sidebar-collapsed', n ? '1' : '0'); } catch { /* */ } return n; });
