@@ -207,3 +207,6 @@ backend → redesign só precisa builder (leitura) + ações via write-gate (`re
 - ✅ vacation-reject também ESCOPADO à equipe operacional (era aberto; simétrico ao approve). Testado por chamada direta: supervisor→não-operacional=403.
 - GAP ABERTO (decisão Jordan): reembolso approve/reject/analyze — endpoint clássico `/reimbursements/{id}/approve` usa SÓ CurrentActiveUser (sem permissão, sem escopo); wired como row-action no DP. Eliziel poderia aprovar QUALQUER reembolso. Decisão: é papel deles? Se sim → escopar à equipe (como férias/medida); se não → gate de permissão. NÃO citado na lista do perfil (folha-apontamento/férias/medida).
 - Ações DP do perfil COBERTAS: folha-apontamento, aprovar/rejeitar férias (escopado), aplicar medida (escopado), ponto-ajuste. Demais forms (admissão/rescisão/benefícios/licenças/certificações/prestadores-PJ/eSocial/import) wired.
+
+## GAP reembolso RESOLVIDO (2026-08-03)
+- Decisão: gate `require_permission("module:dp")` em analyze/approve/reject (reimbursement_controller.py). Team-scoping inviável (requester_id→user, sem link employee). Fecha "qualquer autenticado". Eliziel (module:dp literal) mantém função; admin bypassa. Commit aplicado. FALTA: bakear durável.
