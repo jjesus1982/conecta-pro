@@ -2762,6 +2762,15 @@ async def rd_action_vacation_reject(
     reason = (payload.get("reason") or "").strip()
     if not reason:
         return {"ok": False, "message": "Motivo é obrigatório para rejeitar as férias."}
+    # Parede de EQUIPE (simétrico ao aprovar): supervisor/gerente só rejeita férias de colaborador
+    # operacional (alocado a posto ativo); admin age sobre todos.
+    from modules.operacional.controllers.redesign_builders.operacional import _exige_escopo_operacional
+    _v = (await db.execute(text(
+        "SELECT CAST(employee_id AS TEXT) FROM hr_vacation_requests WHERE id::text=:i"), {"i": vid})).first()
+    if not _v or not _v[0]:
+        raise HTTPException(status_code=404, detail="Solicitação de férias não encontrada.")
+    await _exige_escopo_operacional(db, current_user, _v[0],
+                                    "rejeitar férias de colaborador da sua equipe operacional")
     try:
         await VacationService(db).reject_vacation(vid, rejected_by_id=current_user.id, reason=reason)
     except ValueError as e:
