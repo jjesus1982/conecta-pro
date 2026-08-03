@@ -3107,6 +3107,7 @@ _SLUG_MODULO_CANONICO = {
     "operacional": "operacional", "campo": "operacional",
     "financeiro": "financeiro", "fiscal": "fiscal", "juridico": "juridico",
     "crm": "crm", "marketing": "crm", "licitacoes": "crm", "servicos": "crm",
+    "area-do-cliente": "crm",  # visão 360 de TODOS os clientes (MRR/faturas/contratos) → domínio comercial
     "departamento-pessoal": "dp", "rh": "dp", "gestao-de-pessoas": "dp",
     "recrutamento": "dp", "homologacao": "dp",
     "saude-ocupacional": "sst", "documentos": "ged",
