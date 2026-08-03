@@ -1825,15 +1825,35 @@ async def _build_portal_funcionario(db: AsyncSession) -> dict:
     return out
 
 
-async def _build_meu_espaco(db: AsyncSession) -> dict:
+async def _build_meu_espaco(db: AsyncSession, current_user=None) -> dict:
+    """Área PESSOAL — escopada ao usuário logado (parede self-only / LGPD). Notificações por
+    employee_id do usuário; tarefas por assigned_to/created_by; reembolsos por requester.
+    Sem vínculo → vazio (nunca notificação/PII de terceiro). Literais UUID validados."""
+    import uuid as _uuid
     out, safe, tbl = _helpers(db)
-    n_not = await _scalar(db, "SELECT count(*) FROM portal_notifications")
-    n_task = await _scalar(db, "SELECT count(*) FROM crm_tasks")
+    uid = getattr(current_user, "id", None) if current_user is not None else None
+    me = None
+    if uid is not None:
+        _r = (await db.execute(text("SELECT CAST(employee_id AS TEXT) FROM users WHERE id::text=:i"), {"i": str(uid)})).first()
+        if _r and _r[0]:
+            me = _r[0]
+    _ZERO = "'00000000-0000-0000-0000-000000000000'"
+    try:
+        me_lit = f"'{me}'" if me and _uuid.UUID(str(me)) else _ZERO
+    except Exception:
+        me_lit = _ZERO
+    try:
+        uid_lit = f"'{uid}'" if uid and _uuid.UUID(str(uid)) else _ZERO
+    except Exception:
+        uid_lit = _ZERO
+    _wt = f"(assigned_to_id::text={uid_lit} OR created_by_id::text={uid_lit})"
+    n_not = await _scalar(db, f"SELECT count(*) FROM portal_notifications WHERE employee_id={me_lit}")
+    n_task = await _scalar(db, f"SELECT count(*) FROM crm_tasks WHERE {_wt}")
 
     async def _visao():
-        nlidas = await _scalar(db, "SELECT count(*) FROM portal_notifications WHERE coalesce(is_read,false)=false")
-        n_reemb = await _scalar(db, "SELECT count(*) FROM reimbursement_requests")
-        ty = (await db.execute(text("SELECT coalesce(notification_type::text,'—'), count(*) FROM portal_notifications GROUP BY 1 ORDER BY 2 DESC LIMIT 6"))).fetchall()
+        nlidas = await _scalar(db, f"SELECT count(*) FROM portal_notifications WHERE employee_id={me_lit} AND coalesce(is_read,false)=false")
+        n_reemb = await _scalar(db, f"SELECT count(*) FROM reimbursement_requests WHERE requester_id::text={uid_lit}")
+        ty = (await db.execute(text(f"SELECT coalesce(notification_type::text,'—'), count(*) FROM portal_notifications WHERE employee_id={me_lit} GROUP BY 1 ORDER BY 2 DESC LIMIT 6"))).fetchall()
         return {"title": "Meu espaço", "sub": "Área pessoal — dados reais", "cta": "Atualizar", "type": "dash", "panelGrid": "1fr 1fr",
                 "kpis": [
                     {"v": str(n_not), "l": "Notificações", "icon": IC["cal"], "color": "#0F1B3A"},
@@ -1850,11 +1870,11 @@ async def _build_meu_espaco(db: AsyncSession) -> dict:
     await safe("tarefas", tbl(
         "Minhas tarefas", f"{n_task} tarefas", "Nova tarefa",
         ["Tarefa", "Prioridade", "Vencimento", "Status"], "2fr 1fr 1fr 0.9fr",
-        "SELECT coalesce(title,'—'), coalesce(priority::text,'—'), due_date, coalesce(status::text,'—') FROM crm_tasks ORDER BY due_date NULLS LAST LIMIT 200",
+        f"SELECT coalesce(title,'—'), coalesce(priority::text,'—'), due_date, coalesce(status::text,'—') FROM crm_tasks WHERE {_wt} ORDER BY due_date NULLS LAST LIMIT 200",
         lambda r: [t(r[0], 600, "#0F1B3A"), b((r[1] or "—").capitalize(), "info"), t(_fmtdate(r[2])), b((r[3] or "—").capitalize(), "info")]))
     nrows = (await db.execute(text(
-        "SELECT coalesce(n.title,'—'), coalesce(n.message,''), coalesce(n.is_read,false), n.created_at, coalesce(e.nome,'—') "
-        "FROM portal_notifications n LEFT JOIN employees e ON e.id=n.employee_id ORDER BY n.created_at DESC NULLS LAST LIMIT 100"))).fetchall()
+        f"SELECT coalesce(n.title,'—'), coalesce(n.message,''), coalesce(n.is_read,false), n.created_at, coalesce(e.nome,'—') "
+        f"FROM portal_notifications n LEFT JOIN employees e ON e.id=n.employee_id WHERE n.employee_id={me_lit} ORDER BY n.created_at DESC NULLS LAST LIMIT 100"))).fetchall()
     nitems = [{"title": (ti or "—"), "meta": f"{(msg or '')[:70]} · {nm} · {_fmtdate(dt, '%d/%m/%Y %H:%M')}",
                "dot": "#16A34A" if rd else "#C2410C", "badge": "Lida" if rd else "Nova", **(S["ok"] if rd else S["warn"])}
               for ti, msg, rd, dt, nm in nrows]
@@ -3104,7 +3124,14 @@ async def redesign_data(slug: str, current_user: CurrentActiveUser, db: AsyncSes
     builder = BUILDERS.get(slug)
     if not builder:
         return {"slug": slug, "screens": {}, "wired": [], "extraMenu": []}
-    screens = await builder(db)
+    # Builders self-scoped (ex.: portal do funcionário) declaram `current_user` na assinatura
+    # → passamos o usuário logado p/ escoparem o dado ao próprio requisitante (parede LGPD).
+    # Retrocompatível: builders com só (db) seguem recebendo só db.
+    import inspect
+    if "current_user" in inspect.signature(builder).parameters:
+        screens = await builder(db, current_user=current_user)
+    else:
+        screens = await builder(db)
     return {"slug": slug, "screens": screens, "wired": list(screens.keys()), "extraMenu": EXTRA_MENU.get(slug, [])}
 
 
