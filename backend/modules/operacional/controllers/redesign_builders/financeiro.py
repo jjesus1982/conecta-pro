@@ -1242,7 +1242,8 @@ ORDER BY b.comp DESC, b.cnpj"""
             "endpoint": "/api/v1/redesign/action/cancelar-diaria-sobreposta",
             "method": "POST", "btnLabel": f"Cancelar {r[2]}", "btnStyle": "outline",
             "submitLabel": "Cancelar", "okMsg": "Cancelado. Recarregue a tela.",
-            "fixed": {"ref": r[8], "kind": r[9]},
+            "fixed": {"ref": r[8],
+                      "kind": "vtvr_orfao" if r[2] == "VT+VR órfão" else r[9]},
             "fields": [
                 {"key": "motivo", "label": "Motivo do cancelamento*", "type": "textarea",
                  "span": "span 2",
@@ -1297,7 +1298,7 @@ async def _rd_cancelar_diaria_sobreposta(
     motivo = (payload.get("motivo") or "").strip()
     if len(motivo) < 5:
         raise HTTPException(status_code=422, detail="Descreva o motivo do cancelamento (mín. 5 caracteres).")
-    if kind not in ("diaria", "vtvr"):
+    if kind not in ("diaria", "vtvr", "vtvr_orfao"):
         raise HTTPException(status_code=422, detail="Tipo inválido.")
 
     recusa = ("Este lançamento não é uma sobreposição à folha CLT — cancelamento recusado. "
@@ -1326,6 +1327,40 @@ async def _rd_cancelar_diaria_sobreposta(
                                 detail=res.get("mensagem", "Não foi possível cancelar a diária."))
         rotulo = "Diária"
         cascata = int(res.get("vt_vr_cancelado", 0) or 0)
+    elif kind == "vtvr_orfao":
+        # ÓRFÃO é outra verificação: NÃO exige vínculo CLT (o beneficiário pode ser diarista
+        # puro, e o nome do cadastro nem sempre casa com o do funcionário — 'ADAILSON SERRA'
+        # x 'ADAILSON SERRA ALVES'). O que se prova aqui é a ORFANDADE: não existe diária
+        # daquela pessoa naquele dia. Sem este caminho o botão da linha de órfão era
+        # recusado pela trava de sobreposição.
+        row = (await db.execute(_sql(
+            "SELECT v.data_referencia, v.valor, v.beneficiario, v.status "
+            "FROM financial_pagamentos_diaristas v "
+            "WHERE v.id = :i AND v.tipo = 'vt_vr' "
+            "  AND NOT EXISTS (SELECT 1 FROM diaria_lancamentos l "
+            "                  JOIN diaria_diaristas d ON d.id = l.diarista_id "
+            "                  WHERE l.data = v.data_referencia "
+            "                    AND upper(btrim(d.nome)) = upper(btrim(v.beneficiario)))"),
+            {"i": ref})).first()
+        if not row:
+            raise HTTPException(
+                status_code=422,
+                detail="Este VT/VR não está órfão (existe diária lançada nesse dia) — "
+                       "cancelamento recusado.")
+        dia, valor, nome_e, st_antes = row
+        posto, adm, n_ponto, cascata = "—", None, 0, 0
+        if st_antes == "pago":
+            raise HTTPException(status_code=422, detail="VT/VR já PAGO não pode ser cancelado.")
+
+        from modules.financial import pagamentos_diaristas_service as _psvc
+
+        await _psvc.cancelar(db, ref)
+        st_depois = (await db.execute(_sql(
+            "SELECT status FROM financial_pagamentos_diaristas WHERE id = :i"), {"i": ref})).scalar()
+        if st_depois != "cancelado":
+            raise HTTPException(status_code=422,
+                                detail=f"VT/VR não pôde ser cancelado (status '{st_depois}').")
+        rotulo = "VT+VR órfão"
     else:
         row = (await db.execute(_sql(
             "SELECT v.data_referencia, v.valor, e.nome, e.data_admissao, e.id, v.status, "
@@ -1373,9 +1408,9 @@ async def _rd_cancelar_diaria_sobreposta(
         await db.rollback()
 
     return {"ok": True, "message": (
-        f"{rotulo} de {nome_e} em {dia.strftime('%d/%m/%Y')} ({brl(float(valor or 0))}) CANCELADO. "
-        f"CLT desde {adm.strftime('%d/%m/%Y')}"
-        + ("; bateu ponto nesse dia." if n_ponto else "; sem ponto nesse dia.")
+        f"{rotulo} de {nome_e} em {dia.strftime('%d/%m/%Y')} ({brl(float(valor or 0))}) CANCELADO."
+        + (f" CLT desde {adm.strftime('%d/%m/%Y')}" if adm else " Sem diária lançada nesse dia.")
+        + (("; bateu ponto nesse dia." if n_ponto else "; sem ponto nesse dia.") if adm else "")
         + (f" O VT/VR do mesmo dia foi cancelado junto ({cascata})." if cascata else "")
         + " Nenhum dinheiro foi movido — a saída futura foi impedida. Recarregue a tela.")}
 
