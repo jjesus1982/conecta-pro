@@ -210,3 +210,10 @@ backend → redesign só precisa builder (leitura) + ações via write-gate (`re
 
 ## GAP reembolso RESOLVIDO (2026-08-03)
 - Decisão: gate `require_permission("module:dp")` em analyze/approve/reject (reimbursement_controller.py). Team-scoping inviável (requester_id→user, sem link employee). Fecha "qualquer autenticado". Eliziel (module:dp literal) mantém função; admin bypassa. Commit aplicado. FALTA: bakear durável.
+
+## SWEEP RH + PORTAL DO FUNCIONÁRIO (2026-08-03)
+- **RH** (slug `rh` → gate `module:dp` já no mapa): leituras reais; 0 rotas de escrita próprias (forms apontam a endpoints já gateados). LIMPO.
+- **🔴 PORTAL DO FUNCIONÁRIO — vazamento LGPD CONFIRMADO ao vivo e CORRIGIDO**: `/redesign/data/portal-do-funcionario` sem gate + `build(db)` sem usuário → mostrava holerite/ponto/benefícios/férias/documentos/dados-pessoais de TODOS (celiane só-`self:portal` via 16 pessoas / 403× R$). Era "visão admin/preview" exposta. Fix: dispatcher passa `current_user`; builder escopa TODA tela por `employee_id=<logado>` (resolve users.employee_id→email, UUID validado), não usa mais a base agregada; sem vínculo→vazio. Testado: celiane→só ela; anon→0.
+- **🔴 MEU-ESPAÇO — mesma classe, também CORRIGIDO**: `_build_meu_espaco` listava notificações (com nomes/mensagens=PII)+tarefas de todos. Fix: notif por `employee_id`, tarefas por `assigned_to/created_by`, reembolsos por `requester`. celiane 28 notif→1; anon→0.
+- Mecanismo reusável: builders self-scoped declaram `current_user` na assinatura → dispatcher injeta (retrocompatível). FALTA: bakear durável.
+- Não-escopo desta rodada: `area-do-cliente` (parede é por cliente, não por funcionário) — verificar em sweep separado se pedido.
