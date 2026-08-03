@@ -1163,11 +1163,11 @@ ORDER BY b.comp DESC, b.cnpj"""
     # depois quem bateu ponto. O lote do dia 15 cobre a competência do mês ANTERIOR — é assim
     # que o dia se liga ao pagamento (programar_diarias_mensais: dia 15 do mês seguinte).
     await safe("diarias-sobrepostas", tbl(
-        "Diárias e VT/VR sobrepostos à folha CLT",
-        "Diária E vale-transporte/refeição lançados DEPOIS da admissão CLT da pessoa. "
-        "'Ponto CLT = SIM' é o caso grave: trabalhou como CLT e recebeu como diarista pelo "
-        "mesmo dia. 'a revisar' ainda não foi pago — dá para barrar. O CLT já recebe VT pela "
-        "folha, então VT/VR de diarista no mesmo período é benefício em duplicidade.",
+        "Diárias e VT/VR — divergências",
+        "Três divergências num lugar só. SOBREPOSTO = lançado depois da admissão CLT ('Ponto "
+        "CLT = SIM' é o caso grave: trabalhou como CLT e recebeu como diarista no mesmo dia; o "
+        "CLT já recebe VT pela folha). ÓRFÃO = VT/VR cujo dia não tem mais diária lançada — "
+        "excluir a diária não apaga o VT/VR do dia. 'a revisar' ainda não foi pago: dá para barrar.",
         "—", ["Competência", "Colaborador", "Tipo", "Dia", "Posto", "Valor", "Ponto CLT", "Pagamento"],
         "0.8fr 1.7fr 0.8fr 0.7fr 1.3fr 0.8fr 0.8fr 0.9fr",
         """
@@ -1215,12 +1215,24 @@ ORDER BY b.comp DESC, b.cnpj"""
             WHERE v.tipo = 'vt_vr' AND v.status <> 'cancelado'
               AND e.status = 'ativo' AND coalesce(e.is_homologacao,false) = false
               AND e.data_admissao IS NOT NULL AND v.data_referencia >= e.data_admissao
+            UNION ALL
+            -- VT/VR ÓRFÃO: não existe mais diária daquela pessoa naquele dia. Independe de ser
+            -- CLT — é a sobra da exclusão do lançamento, que não propaga ao VT/VR.
+            SELECT to_char(v.data_referencia,'MM/YYYY'), v.beneficiario, 'VT+VR órfão',
+                   to_char(v.data_referencia,'DD/MM'), '—', v.valor, '—', v.status,
+                   v.id, 'vtvr', v.data_referencia
+            FROM financial_pagamentos_diaristas v
+            WHERE v.tipo = 'vt_vr' AND v.status <> 'cancelado'
+              AND NOT EXISTS (
+                SELECT 1 FROM diaria_lancamentos l JOIN diaria_diaristas d ON d.id = l.diarista_id
+                WHERE l.data = v.data_referencia
+                  AND upper(btrim(d.nome)) = upper(btrim(v.beneficiario)))
         ) u
         ORDER BY (pagamento IN ('a_revisar','sem_pix')) DESC, (ponto = 'SIM') DESC, ord DESC
-        LIMIT 600
+        LIMIT 800
         """,
         lambda r: [t(r[0], 600), t(r[1], 600, "#0F1B3A", initials(r[1] or "")),
-                   b(r[2], "info" if r[2] == "Diária" else "mut"),
+                   b(r[2], {"Diária": "info", "VT+VR": "mut"}.get(r[2], "warn")),
                    t(r[3], 600), t(r[4]), t(brl(float(r[5] or 0)), 600),
                    b("SIM", "bad") if r[6] == "SIM" else t("não", 500, "#64748B"),
                    b({"a_revisar": "a revisar", "sem_pix": "sem PIX", "pago": "PAGO"}.get(r[7], r[7]),
@@ -1699,14 +1711,26 @@ async def _rd_programar_diarias_mes(current_user: CurrentActiveUser, payload: di
     if not 1 <= mes <= 12:
         raise HTTPException(status_code=400, detail="Mês deve estar entre 1 e 12.")
     r = await _svc.programar_diarias_mensais(db, mes=mes, ano=ano, user_id=str(getattr(current_user, "id", "")))
-    novos = r.get("programados_novos", r.get("programados", 0)); ja = r.get("ja_programados", 0)
-    if not novos and not ja:
+    # A mensagem antiga decidia por 'ja_programados', chave que o service NÃO devolve: com
+    # tudo já programado ele dizia "nenhuma diária lançada" MESMO tendo recalculado o lote
+    # (medido: 28 diaristas processados, lote 10.870 -> 10.160, mensagem "nada a programar").
+    # Agora o que manda é quantos diaristas o service realmente processou.
+    pessoas = int(r.get("diaristas", 0) or 0)
+    if not pessoas:
         return {"ok": True, "message": f"Nenhuma diária lançada em {mes:02d}/{ano} — nada a programar."}
-    upd = r.get("atualizados", 0)
+    novos = int(r.get("programados_novos", 0) or 0)
+    upd = int(r.get("atualizados", 0) or 0)
+    canc = r.get("cancelados_sem_lancamento") or []
     tot = r.get("total_a_pagar", 0)
+    extra = ""
+    if canc:
+        extra = (f" {len(canc)} cancelada(s) por não ter mais diária lançada "
+                 f"({brl(sum(c['valor'] for c in canc))}): "
+                 + ", ".join(c["beneficiario"] for c in canc[:5])
+                 + ("…" if len(canc) > 5 else "") + ".")
     return {"ok": True, "message": (
-        f"{mes:02d}/{ano}: {novos} nova(s), {upd} atualizada(s) com os dias novos. "
-        f"Total a pagar no lote: {brl(float(tot or 0))}.")}
+        f"{mes:02d}/{ano}: {pessoas} diarista(s) com diária lançada — {novos} nova(s), "
+        f"{upd} atualizada(s).{extra} Total a pagar no lote: {brl(float(tot or 0))}.")}
 
 
 @router.post("/action/marcar-pago-externo")

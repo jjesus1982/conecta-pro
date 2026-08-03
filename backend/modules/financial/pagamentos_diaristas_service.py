@@ -140,11 +140,26 @@ async def programar_diarias_mensais(db: AsyncSession, mes: int, ano: int,
              "desc": f"Diárias {comp}: {int(p['qtd'])} diária(s) trabalhada(s)",
              "uid": str(user_id) if user_id else None})
         novos += 1
+    # ÓRFÃOS: quem está no lote da competência mas NÃO tem mais diária lançada (o lançamento
+    # foi excluído depois de programar). Sem isto, apagar a diária nunca propaga e o lote paga
+    # a mais — medido em 07/2026: R$850 a revisar de 4 pessoas com ZERO lançamento.
+    # Só toca no que ainda não saiu: 'pago'/'cancelado' são intocáveis.
+    nomes = [p["nome"] for p in pessoas]
+    orf = await db.execute(text(
+        "UPDATE financial_pagamentos_diaristas SET status='cancelado', "
+        " descricao = descricao || ' | cancelado: sem diária lançada na competência', updated_at=now() "
+        "WHERE competencia=:c AND tipo='diaria_mensal' AND status IN ('a_revisar','sem_pix') "
+        + ("AND beneficiario <> ALL(:nomes) " if nomes else "")
+        + "RETURNING beneficiario, valor"),
+        {"c": comp, **({"nomes": nomes} if nomes else {})})
+    cancelados = orf.fetchall()
+
     await db.commit()
     lote = await listar(db, data=dpag.isoformat())
     return {
         "competencia": comp, "data_pagamento": dpag.isoformat(),
         "diaristas": len(pessoas), "programados_novos": novos, "atualizados": atualizados, "sem_pix": sem_pix,
+        "cancelados_sem_lancamento": [{"beneficiario": r[0], "valor": float(r[1] or 0)} for r in cancelados],
         "total_a_pagar": sum(x["valor"] for x in lote if x["status"] in ("a_revisar", "aprovado")),
         "lote": lote,
     }
