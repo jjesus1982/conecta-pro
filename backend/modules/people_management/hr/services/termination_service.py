@@ -105,6 +105,47 @@ class TerminationService:
             "total_pages": total_pages,
         }
 
+
+    async def _detectar_ferias_gozadas(self, employee_id) -> dict | None:
+        """Procura FÉRIAS JÁ PAGAS na folha (fonte validada) para este colaborador.
+
+        Existe porque `employee_vacation_periods` está desatualizada (days_used=0 em 100%
+        dos períodos) enquanto a folha comprova férias gozadas. Sem este alerta, o TRCT
+        pagaria de novo um período já gozado. NÃO altera o valor — só expõe a evidência,
+        para quem homologa confirmar o saldo real.
+        """
+        from sqlalchemy import text as _text
+
+        rows = (
+            await self.db.execute(
+                _text(
+                    "SELECT p.reference_period, v->>'description' AS desc, "
+                    "       v->>'reference' AS ref, (v->>'value')::numeric AS val "
+                    "FROM hr_payslips p, jsonb_array_elements(p.earnings) v "
+                    "WHERE p.employee_id = CAST(:eid AS uuid) "
+                    "  AND v->>'description' ILIKE '%FERIAS%' "
+                    "ORDER BY p.reference_period"
+                ),
+                {"eid": str(employee_id)},
+            )
+        ).mappings().all()
+        if not rows:
+            return None
+        comps = sorted({r["reference_period"] for r in rows})
+        total = sum((r["val"] or 0) for r in rows)
+        horas = [r["ref"] for r in rows if r["desc"] and "HORAS FERIAS" in r["desc"].upper()]
+        return {
+            "ferias_ja_pagas_na_folha": True,
+            "competencias": comps,
+            "total_pago": float(round(total, 2)),
+            "horas_ferias_referencia": horas,
+            "aviso": (
+                "Há férias JÁ PAGAS na folha deste colaborador. O campo 'ferias_vencidas_dias' "
+                "usado no cálculo é PRESUMIDO (30 dias) e pode estar pagando período já gozado. "
+                "Confirme o saldo real antes de homologar o TRCT."
+            ),
+        }
+
     async def calculate_severance(
         self,
         employee_id: str | UUID,
@@ -177,10 +218,15 @@ class TerminationService:
         # extrato FGTS/Caixa antes de fechar o TRCT).
         saldo_fgts = remuneracao_base * Decimal("0.08") * meses_totais_casa
 
-        # Férias vencidas: >12 meses de casa => há período aquisitivo vencido (estimativa;
-        # o TRCT oficial confirma contra o histórico de férias gozadas). Nunca zerar por
-        # causa do teto de avos.
+        # Férias vencidas: >12 meses de casa => há período aquisitivo vencido.
+        # ATENÇÃO — este número é PRESUMIDO, e presumir aqui paga a mais:
+        # `employee_vacation_periods` diz days_used=0 para TODOS os 67 períodos, mas a folha
+        # paga mostra pelo menos 8 pessoas com férias gozadas em 2026 (ex.: ELEN XAVIER,
+        # R$2.330 em mar/abr). Ou seja, a tabela de períodos está DESATUALIZADA e não serve
+        # de fonte. Em vez de trocar um chute por outro, detectamos a evidência REAL na folha
+        # e devolvemos um alerta — quem fecha o TRCT confirma o saldo. Nunca silenciosamente.
         ferias_vencidas_dias = 30 if meses_totais_casa > 12 else 0
+        alerta_ferias = await self._detectar_ferias_gozadas(employee_id)
 
         # Dias trabalhados no mês da rescisão — teto de 30 para não exceder 100%
         # do salário do mês (a base do saldo é salário/30; dia 31 daria 103%).
@@ -219,6 +265,9 @@ class TerminationService:
         return {
             "employee_id": str(employee_id),
             "employee_name": employee.nome,
+            # Alerta HONESTO: férias já pagas na folha => o ferias_vencidas_dias presumido
+            # pode estar pagando período já gozado. None quando não há evidência.
+            "alerta_ferias_gozadas": alerta_ferias,
             "termination_type": termination_type,
             "last_working_day": last_working_day,
             # Avos exibido: usa o maior entre 13º e férias como "meses trabalhados"
