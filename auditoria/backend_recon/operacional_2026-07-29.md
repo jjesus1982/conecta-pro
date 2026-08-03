@@ -197,3 +197,7 @@ backend → redesign só precisa builder (leitura) + ações via write-gate (`re
 - ESCOPO REAL Eliziel/Orlailson na folha (Jordan): VER não conformidades + fazer APONTAMENTOS (não fecham; quem fecha=Jordan/Pyetra).
   - ✅ Ligado: tela `folha-nao-conformidades` (folhas com contest_reason) + ação `folha-apontamento` (reusa contest_reason/contested_at, autor prefixado, SEM mudar status→não interfere no fechamento; não fecha nem paga). Oráculo em draft real, verifica+limpa. Eliziel(module:dp) alcança.
 - FALTA medir/decidir no DP: o resto das 341 (recrutamento/folha-ops/treinamento) — só ligar o que o perfil deles faz.
+
+## FRAGILIDADES DE SERVIÇO RESOLVIDAS (2026-08-03) — commit
+- ✅ op_write poison-marker: marcador de idempotência gravado SÓ após real_write suceder (falha não deixa poison; dup-check preserva a idempotência real). Teste test_op_write_poison_fix 3/3.
+- ✅ code-gen global-unique: disciplinary._generate_code e inspection_rounds.get_next_sequence usam MAX GLOBAL do sufixo numérico (era COUNT per-tenant) — code é UNIQUE global, então per-tenant colidia entre tenants e com gaps de deleção. Compartilhado com o clássico; regressão medida/ronda/escopo verde (escopo agora 3/3).
