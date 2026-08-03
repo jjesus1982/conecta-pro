@@ -42,12 +42,17 @@ from modules.ai.conversation.services.orquestrador.acoes import (  # noqa: F401 
     onda_c,
 )
 from modules.ai.conversation.services.orquestrador.engine import OrqScope, run_engine
+from modules.ai.conversation.services.orquestrador.read_dispatcher import montar_read_dispatchers
 from modules.ai.conversation.services.orquestrador.tool_registry import ToolDef, tools_for_modules
 from modules.ai.conversation.services.orquestrador.tools_ponto import JUSTIFICAR_TOOL
 from modules.ai.conversation.services.orquestrador.tools_posto import POSTO_TOOLS
 from modules.ai.conversation.services.orquestrador.tools_rh_doc import RH_SELF_TOOLS
 from modules.ai.conversation.services.orquestrador.tools_self import SELF_TOOLS
 from modules.operacional.scope import get_operational_scope
+
+# Fase 6 VER: após os 3 tools_read_* importados (que fazem registrar_read no import), colapsa
+# as ops de leitura em 1 ToolDef consultar_<modulo> por módulo (crm/dp/financeiro). Idempotente.
+montar_read_dispatchers()
 
 router = APIRouter(prefix="/consultores/chat", tags=["Consultores — Chat escopado"])
 

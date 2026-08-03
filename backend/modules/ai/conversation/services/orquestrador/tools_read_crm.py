@@ -19,12 +19,13 @@ from typing import Any
 
 from core.auth.module_scope import user_has_module
 
-from .tool_registry import ToolDef, register
+from .read_dispatcher import registrar_read
 
 
 def _gate(user) -> None:
     # Suspenders: o controller GET normalmente gateia via Depends no mount do router;
-    # chamado direto isso é pulado, então re-checamos o módulo aqui na fonte.
+    # chamado direto isso é pulado, então re-checamos o módulo aqui na fonte. (O dispatcher
+    # também gateia antes de despachar; aqui é a 2ª cinta caso o handler seja chamado direto.)
     if not user_has_module(user, "crm"):
         raise PermissionError("crm")
 
@@ -93,63 +94,28 @@ async def _negociacoes_pendentes(db, user, scope, **_) -> dict[str, Any]:
     return await negociacoes_pendentes(db=db)
 
 
-# ---- schemas (SÓ filtros de negócio; nunca db/user/scope — o registry proíbe) ----
+# ---- registro das ops READ no dispatcher consultar_crm (filtros vão em `filtros`) ----
 
-_NO_ARGS = {"type": "object", "properties": {}}
-
-_S_CLIENTES = {"type": "object", "properties": {
-    "status": {"type": "string", "description": "Filtrar por status (ex.: active, inactive)."},
-    "segment": {"type": "string", "description": "Filtrar por segmento."},
-}}
-
-_S_FICHA = {"type": "object", "properties": {
-    "cliente": {"type": "string", "description": "Nome ou CNPJ do cliente."},
-}, "required": ["cliente"]}
-
-_S_DEALS = {"type": "object", "properties": {
-    "stage": {"type": "string", "description": "Estágio do funil: qualification, needs_analysis, "
-              "proposal, negotiation, closed_won, closed_lost."},
-    "is_open": {"type": "boolean", "description": "Só oportunidades em aberto."},
-    "search": {"type": "string", "description": "Busca por título, contato, e-mail ou empresa."},
-    "page": {"type": "integer"}, "page_size": {"type": "integer"},
-}}
-
-_S_PROPOSTAS = {"type": "object", "properties": {
-    "status": {"type": "string", "description": "Status: draft, pending_review, pending_approval, "
-               "approved, sent, viewed, accepted, rejected, expired, cancelled."},
-    "search": {"type": "string", "description": "Busca por número, título ou cliente."},
-    "page": {"type": "integer"}, "page_size": {"type": "integer"},
-}}
-
-_S_CONTRATOS = {"type": "object", "properties": {
-    "status": {"type": "string", "description": "Status: draft, pending_signature, active, "
-               "suspended, cancelled, terminated."},
-    "search": {"type": "string", "description": "Busca por número/cliente."},
-    "page": {"type": "integer"}, "page_size": {"type": "integer"},
-}}
-
-
-register(ToolDef("crm_listar_clientes", "crm",
-                 "Lista os clientes da base oficial (com MRR e contratos ativos). Filtros opcionais "
-                 "por status e segmento.", _S_CLIENTES, _listar_clientes, scope_kind="org"))
-register(ToolDef("crm_ficha_cliente", "crm",
-                 "Abre a ficha viva de UM cliente (dados + anotações + último status de negociação) "
-                 "por nome ou CNPJ.", _S_FICHA, _ficha_cliente, scope_kind="org"))
-register(ToolDef("crm_consultar_funil", "crm",
-                 "Funil comercial unificado (primeiro contato → fechamento) por etapa, com gargalo "
-                 "e quem está parado há mais tempo.", _NO_ARGS, _funil, scope_kind="org"))
-register(ToolDef("crm_consultar_forecast", "crm",
-                 "Forecast: previsão ponderada do pipeline aberto por estágio, total ponderado e "
-                 "metas do mês.", _NO_ARGS, _forecast, scope_kind="org"))
-register(ToolDef("crm_listar_deals", "crm",
-                 "Lista oportunidades/deals do pipeline, com filtros (estágio, em aberto, busca) e "
-                 "paginação.", _S_DEALS, _listar_deals, scope_kind="org"))
-register(ToolDef("crm_listar_propostas", "crm",
-                 "Lista propostas comerciais, com filtros (status, busca) e paginação.",
-                 _S_PROPOSTAS, _listar_propostas, scope_kind="org"))
-register(ToolDef("crm_listar_contratos", "crm",
-                 "Lista contratos, com filtros (status, busca) e paginação.",
-                 _S_CONTRATOS, _listar_contratos, scope_kind="org"))
-register(ToolDef("crm_negociacoes_pendentes", "crm",
-                 "Propostas enviadas SEM resposta do cliente (negociações pendentes, com dias "
-                 "parados).", _NO_ARGS, _negociacoes_pendentes, scope_kind="org"))
+registrar_read("crm", "clientes",
+               "Lista os clientes da base oficial (com MRR e contratos ativos). Filtros opcionais: "
+               "status, segment.", _listar_clientes)
+registrar_read("crm", "ficha_cliente",
+               "Abre a ficha viva de UM cliente (dados + anotações + último status de negociação). "
+               "Filtro obrigatório: cliente (nome ou CNPJ).", _ficha_cliente)
+registrar_read("crm", "funil",
+               "Funil comercial unificado (primeiro contato → fechamento) por etapa, com gargalo "
+               "e quem está parado há mais tempo.", _funil)
+registrar_read("crm", "forecast",
+               "Forecast: previsão ponderada do pipeline aberto por estágio, total ponderado e "
+               "metas do mês.", _forecast)
+registrar_read("crm", "deals",
+               "Lista oportunidades/deals do pipeline. Filtros: stage, is_open, search, page, "
+               "page_size.", _listar_deals)
+registrar_read("crm", "propostas",
+               "Lista propostas comerciais. Filtros: status, search, page, page_size.",
+               _listar_propostas)
+registrar_read("crm", "contratos",
+               "Lista contratos. Filtros: status, search, page, page_size.", _listar_contratos)
+registrar_read("crm", "negociacoes_pendentes",
+               "Propostas enviadas SEM resposta do cliente (negociações pendentes, com dias "
+               "parados).", _negociacoes_pendentes)

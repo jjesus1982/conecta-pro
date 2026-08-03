@@ -26,12 +26,13 @@ from typing import Any
 
 from core.auth.module_scope import user_has_module
 
-from .tool_registry import ToolDef, register
+from .read_dispatcher import registrar_read
 
 
 def _gate(user) -> None:
     # Suspenders: o controller GET normalmente gateia via Depends no mount do router;
-    # chamado direto isso é pulado, então re-checamos o módulo aqui na fonte.
+    # chamado direto isso é pulado, então re-checamos o módulo aqui na fonte. (O dispatcher
+    # também gateia antes de despachar; aqui é a 2ª cinta caso o handler seja chamado direto.)
     if not user_has_module(user, "dp"):
         raise PermissionError("dp")
 
@@ -108,64 +109,30 @@ async def _pendencias_aso(db, user, scope, *, dias=30, **_) -> dict[str, Any]:
     return {"asos_vencendo": vencendo, "sem_aso": sem_aso}
 
 
-# ---- schemas (SÓ filtros de negócio; nunca db/user/scope — o registry proíbe) ----
+# ---- registro das ops READ no dispatcher consultar_dp (filtros vão em `filtros`) ----
 
-_NO_ARGS = {"type": "object", "properties": {}}
-
-_S_FUNCS = {"type": "object", "properties": {
-    "search": {"type": "string", "description": "Busca por nome, CPF ou matrícula."},
-    "page": {"type": "integer"}, "page_size": {"type": "integer"},
-}}
-
-_S_BUSCA = {"type": "object", "properties": {
-    "q": {"type": "string", "description": "Termo de busca (nome, CPF ou matrícula)."},
-    "status": {"type": "string", "description": "Filtrar por status (ativo/inativo)."},
-    "page": {"type": "integer"}, "page_size": {"type": "integer"},
-}, "required": ["q"]}
-
-_S_FOLHA = {"type": "object", "properties": {
-    "mes": {"type": "integer", "description": "Mês 1-12 (padrão: última competência com folha)."},
-    "ano": {"type": "integer", "description": "Ano (padrão: última competência com folha)."},
-}}
-
-_S_FERIAS = {"type": "object", "properties": {
-    "status": {"type": "string", "description": "Status: pendente, aprovado, rejeitado, cancelado."},
-    "page": {"type": "integer"}, "page_size": {"type": "integer"},
-}}
-
-_S_ADMISSOES = {"type": "object", "properties": {
-    "status": {"type": "string", "description": "Status: documents_pending, medical_exam, "
-               "contract_signing, completed, cancelled."},
-    "page": {"type": "integer"}, "page_size": {"type": "integer"},
-}}
-
-_S_ASO = {"type": "object", "properties": {
-    "dias": {"type": "integer", "description": "Antecedência em dias para ASO vencendo (1-90)."},
-}}
-
-
-register(ToolDef("dp_listar_funcionarios", "dp",
-                 "Lista funcionários ativos (paginado), com busca opcional por nome, CPF ou matrícula.",
-                 _S_FUNCS, _listar_funcionarios, scope_kind="org"))
-register(ToolDef("dp_buscar_funcionario", "dp",
-                 "Busca funcionário por nome, CPF ou matrícula (visão de cadastro/DP).",
-                 _S_BUSCA, _buscar_funcionario, scope_kind="org"))
-register(ToolDef("dp_estatisticas_funcionarios", "dp",
-                 "Contadores de funcionários por status (total, ativos, inativos, por status).",
-                 _NO_ARGS, _estatisticas_funcionarios, scope_kind="org"))
-register(ToolDef("dp_folha_resumo", "dp",
-                 "Resumo consolidado da folha da competência: proventos, descontos, INSS, IRRF, FGTS "
-                 "e líquido (fonte hr_payslips; vazio real = aguardando dado).",
-                 _S_FOLHA, _folha_resumo, scope_kind="org"))
-register(ToolDef("dp_listar_ferias", "dp",
-                 "Lista solicitações de férias de todos os funcionários (com contagem por status).",
-                 _S_FERIAS, _listar_ferias, scope_kind="org"))
-register(ToolDef("dp_listar_admissoes", "dp",
-                 "Lista processos de admissão em curso, com filtro opcional por status.",
-                 _S_ADMISSOES, _listar_admissoes, scope_kind="org"))
-register(ToolDef("dp_estatisticas_admissoes", "dp",
-                 "Contadores de processos de admissão por etapa (documentos, exame, assinatura, concluído).",
-                 _NO_ARGS, _estatisticas_admissoes, scope_kind="org"))
-register(ToolDef("dp_pendencias_aso", "dp",
-                 "Pendências de saúde ocupacional (SST): ASOs próximos do vencimento e colaboradores "
-                 "sem ASO periódico.", _S_ASO, _pendencias_aso, scope_kind="org"))
+registrar_read("dp", "funcionarios",
+               "Lista funcionários ativos (paginado). Filtros: search (nome/CPF/matrícula), page, "
+               "page_size.", _listar_funcionarios)
+registrar_read("dp", "buscar_funcionario",
+               "Busca funcionário por nome, CPF ou matrícula. Filtro obrigatório: q. Filtros: "
+               "status, page, page_size.", _buscar_funcionario)
+registrar_read("dp", "estatisticas_funcionarios",
+               "Contadores de funcionários por status (total, ativos, inativos, por status).",
+               _estatisticas_funcionarios)
+registrar_read("dp", "folha_resumo",
+               "Resumo consolidado da folha da competência: proventos, descontos, INSS, IRRF, FGTS "
+               "e líquido (fonte hr_payslips; vazio real = aguardando dado). Filtros: mes, ano.",
+               _folha_resumo)
+registrar_read("dp", "ferias",
+               "Lista solicitações de férias de todos os funcionários (com contagem por status). "
+               "Filtros: status, page, page_size.", _listar_ferias)
+registrar_read("dp", "admissoes",
+               "Lista processos de admissão em curso. Filtros: status, page, page_size.",
+               _listar_admissoes)
+registrar_read("dp", "estatisticas_admissoes",
+               "Contadores de processos de admissão por etapa (documentos, exame, assinatura, concluído).",
+               _estatisticas_admissoes)
+registrar_read("dp", "pendencias_aso",
+               "Pendências de saúde ocupacional (SST): ASOs próximos do vencimento e colaboradores "
+               "sem ASO periódico. Filtro: dias.", _pendencias_aso)

@@ -31,12 +31,13 @@ from typing import Any
 
 from core.auth.module_scope import user_has_module
 
-from .tool_registry import ToolDef, register
+from .read_dispatcher import registrar_read
 
 
 def _gate(user) -> None:
     # Suspenders: o controller GET normalmente gateia via Depends no mount do router;
-    # chamado direto isso é pulado, então re-checamos o módulo aqui na fonte.
+    # chamado direto isso é pulado, então re-checamos o módulo aqui na fonte. (O dispatcher
+    # também gateia antes de despachar; aqui é a 2ª cinta caso o handler seja chamado direto.)
     if not user_has_module(user, "financeiro"):
         raise PermissionError("financeiro")
 
@@ -124,64 +125,31 @@ async def _listar_pagamentos(db, user, scope, *, status=None, payment_type=None,
                                    from_date=None, to_date=None, limit=limit, db=db, current_user=user)
 
 
-# ---- schemas (SÓ filtros de negócio; nunca db/user/scope — o registry proíbe) ----
+# ---- registro das ops READ no dispatcher consultar_financeiro (filtros vão em `filtros`) ----
 
-_NO_ARGS = {"type": "object", "properties": {}}
-
-_S_RECEBER = {"type": "object", "properties": {
-    "status": {"type": "string", "description": "Status: pendente, paga, vencida, cancelada, negociada."},
-    "search": {"type": "string", "description": "Busca por descrição, número do documento ou código."},
-    "is_overdue": {"type": "boolean", "description": "Apenas títulos vencidos."},
-    "skip": {"type": "integer"}, "limit": {"type": "integer"},
-}}
-
-_S_PAGAR = {"type": "object", "properties": {
-    "status": {"type": "string", "description": "Status: pendente, aprovada, paga, vencida, cancelada."},
-    "search": {"type": "string", "description": "Busca por descrição do título."},
-    "is_overdue": {"type": "boolean", "description": "Apenas títulos vencidos."},
-    "skip": {"type": "integer"}, "limit": {"type": "integer"},
-}}
-
-_S_LIMIT = {"type": "object", "properties": {
-    "limit": {"type": "integer", "description": "Máximo de registros (1-500)."},
-}}
-
-_S_PAGAMENTOS = {"type": "object", "properties": {
-    "status": {"type": "string", "description": "Status do pagamento (ex.: preparado, aprovado, executado, cancelado)."},
-    "payment_type": {"type": "string", "description": "Tipo (ex.: pix, boleto)."},
-    "limit": {"type": "integer"},
-}}
-
-
-register(ToolDef("fin_dashboard", "financeiro",
-                 "KPIs do dashboard financeiro (dados reais): saldo bancário consolidado, entradas e "
-                 "saídas do mês, total a receber e a pagar. Visão do grupo.",
-                 _NO_ARGS, _dashboard, scope_kind="org"))
-register(ToolDef("fin_contas_a_receber", "financeiro",
-                 "Lista contas a receber (títulos), com filtros (status, busca, só vencidas) e paginação. "
-                 "Grupo consolidado. Vazio real = sem títulos, não fabrica.",
-                 _S_RECEBER, _contas_a_receber, scope_kind="org"))
-register(ToolDef("fin_contas_a_pagar", "financeiro",
-                 "Lista contas a pagar (títulos), com filtros (status, busca, só vencidas) e paginação. "
-                 "Grupo consolidado. READ-ONLY: só lista, não aprova nem paga.",
-                 _S_PAGAR, _contas_a_pagar, scope_kind="org"))
-register(ToolDef("fin_resumo_receber", "financeiro",
-                 "Resumo/estatísticas de contas a receber (totais por situação: em aberto, vencido, pago). "
-                 "Grupo consolidado, números reais.",
-                 _NO_ARGS, _resumo_receber, scope_kind="org"))
-register(ToolDef("fin_resumo_pagar", "financeiro",
-                 "Resumo/estatísticas de contas a pagar (totais por situação: em aberto, vencido, pago). "
-                 "Grupo consolidado, números reais.",
-                 _NO_ARGS, _resumo_pagar, scope_kind="org"))
-register(ToolDef("fin_inadimplencia", "financeiro",
-                 "Títulos a receber VENCIDOS (inadimplência), do mais antigo ao mais recente. "
-                 "Grupo consolidado. Sem vencidos = lista vazia real, não fabrica.",
-                 _S_LIMIT, _inadimplencia, scope_kind="org"))
-register(ToolDef("fin_saldos_bancos", "financeiro",
-                 "Saldos das contas bancárias, uma linha por conta (Inter=Eletrônica, Cora=Patrimonial) — "
-                 "sem misturar CNPJ. Dados reais das contas ativas.",
-                 _NO_ARGS, _saldos_bancos, scope_kind="org"))
-register(ToolDef("fin_listar_pagamentos", "financeiro",
-                 "Lista pagamentos PIX (inter_payments) com filtros (status, tipo). READ-ONLY: só mostra "
-                 "o que existe — NÃO prepara, aprova nem executa pagamento (isso é gate-OTP).",
-                 _S_PAGAMENTOS, _listar_pagamentos, scope_kind="org"))
+registrar_read("financeiro", "dashboard",
+               "KPIs do dashboard financeiro (dados reais): saldo bancário consolidado, entradas e "
+               "saídas do mês, total a receber e a pagar. Visão do grupo.", _dashboard)
+registrar_read("financeiro", "contas_a_receber",
+               "Lista contas a receber (títulos). Grupo consolidado. Filtros: status, search, "
+               "is_overdue, skip, limit. Vazio real = sem títulos, não fabrica.", _contas_a_receber)
+registrar_read("financeiro", "contas_a_pagar",
+               "Lista contas a pagar (títulos). Grupo consolidado. READ-ONLY: só lista, não aprova "
+               "nem paga. Filtros: status, search, is_overdue, skip, limit.", _contas_a_pagar)
+registrar_read("financeiro", "resumo_receber",
+               "Resumo/estatísticas de contas a receber (totais por situação: em aberto, vencido, "
+               "pago). Grupo consolidado, números reais.", _resumo_receber)
+registrar_read("financeiro", "resumo_pagar",
+               "Resumo/estatísticas de contas a pagar (totais por situação: em aberto, vencido, "
+               "pago). Grupo consolidado, números reais.", _resumo_pagar)
+registrar_read("financeiro", "inadimplencia",
+               "Títulos a receber VENCIDOS (inadimplência), do mais antigo ao mais recente. Grupo "
+               "consolidado. Filtro: limit. Sem vencidos = lista vazia real, não fabrica.",
+               _inadimplencia)
+registrar_read("financeiro", "saldos_bancos",
+               "Saldos das contas bancárias, uma linha por conta (Inter=Eletrônica, Cora=Patrimonial) "
+               "— sem misturar CNPJ. Dados reais das contas ativas.", _saldos_bancos)
+registrar_read("financeiro", "pagamentos",
+               "Lista pagamentos PIX (inter_payments). READ-ONLY: só mostra o que existe — NÃO "
+               "prepara, aprova nem executa pagamento (isso é gate-OTP). Filtros: status, "
+               "payment_type, limit.", _listar_pagamentos)
