@@ -24,6 +24,8 @@ SAIDA = Path("/app/uploads/esocial_s1010")  # volume: host = /opt/conecta-pro/up
 MARCADOR = SAIDA / "_CAPTURADO.json"
 REF_ID = str(uuid.uuid5(uuid.NAMESPACE_URL, "conecta:esocial_s1010_captura"))
 
+CPF_SONDA = "02980404250"  # CPF com eventos já baixados com sucesso — sonda de saúde
+
 CNPJS = {
     "eletronica": "35710481000103",
     "patrimonial": "66014833000110",
@@ -42,13 +44,22 @@ def main() -> int:
     sys.path.insert(0, "/app")
     from modules.government_integrations.core.esocial_eventos_client import ESocialEventosClient
 
+    # SONDA DE SAÚDE antes de julgar qualquer coisa.
+    # Motivo: em 03/08 a consulta de TABELA devolveu 402 ("solicitação inválida") e eu quase
+    # concluí "falta procuração". Mas a consulta por TRABALHADOR — que comprovadamente funciona
+    # (baixou 24 XMLs) — devolvia 308 ("tente mais tarde") no mesmo minuto: o governo estava
+    # DEGRADADO. Só dá para confiar num 402 quando o caminho conhecido-bom está respondendo.
+    if not _governo_saudavel():
+        log("governo degradado (sonda por trabalhador não respondeu OK) — não julgo a consulta de tabela agora")
+        return 0
+
     resultado: dict[str, dict] = {}
     algum_sucesso = False
 
     for nome, cnpj in CNPJS.items():
         try:
             cli = ESocialEventosClient()
-            r = cli.consultar_identificadores_tabela(cnpj, "S-1010", dt_ini="2020-01", dt_fim="2026-12")
+            r = cli.consultar_identificadores_tabela(cnpj, "S-1010", dt_ini=_janela()[0], dt_fim=_janela()[1])
         except Exception as exc:  # noqa: BLE001 — governo fora/bloqueado: tenta de novo no próximo cron
             log(f"{nome}: indisponível — {type(exc).__name__}: {str(exc)[:120]}")
             resultado[nome] = {"erro": f"{type(exc).__name__}: {str(exc)[:200]}"}
@@ -75,11 +86,75 @@ def main() -> int:
     if algum_sucesso:
         MARCADOR.write_text(json.dumps({"capturado_em": datetime.now(timezone.utc).isoformat()}), encoding="utf-8")
         log("CAPTURADO — cron não repete (use --forcar para recapturar)")
-        _notificar_sino(resultado)
+        _notificar_sino(
+            "eSocial — códigos das rubricas capturados",
+            "A consulta ao S-1010 do nosso CNPJ voltou do governo. "
+            + ", ".join(
+                f"{n}: {d.get('qtd_identificadores', 0)} evento(s)"
+                for n, d in resultado.items() if not d.get("erro")
+            )
+            + ". É o que destrava o S-1200 (substituir a Portte). Peça ao Claude para extrair "
+            "natRubr/codIncCP/codIncIRRF/codIncFGTS e popular rubricas_folha.",
+        )
+        return 0
+
+    # Governo SAUDÁVEL (a sonda passou) e ainda assim recusou a consulta de tabela:
+    # agora sim o 402 é veredito confiável, e é acionável pelo Jordan (procuração e-CAC).
+    # Sem este aviso ele só seria notificado no caso de sucesso e ficaria esperando à toa.
+    if all(str(d.get("cd_resposta")) == "402" for d in resultado.values() if not d.get("erro")):
+        MARCADOR.write_text(
+            json.dumps({"veredito_402_em": datetime.now(timezone.utc).isoformat()}), encoding="utf-8"
+        )
+        log("VEREDITO: governo saudável e consulta de tabela recusada (402) — não é instabilidade")
+        _notificar_sino(
+            "eSocial — consulta das rubricas recusada (não é instabilidade)",
+            "Com o governo respondendo normalmente, a consulta aos eventos S-1010 continua sendo "
+            "recusada (402). Isso descarta problema técnico e aponta para PERMISSÃO: provável falta "
+            "de procuração eletrônica no e-CAC para a Conecta Mais consultar eventos de tabela "
+            "(hoje quem tem procuração é a contabilidade). Verificar no e-CAC — é o que destrava "
+            "o S-1010 → S-1200.",
+        )
     return 0
 
 
-def _notificar_sino(resultado: dict) -> None:
+def _janela() -> tuple[str, str]:
+    """Janela válida p/ o gov: <=31 dias e dtFim no PASSADO (relógio de Brasília, -1h05)."""
+    from datetime import timedelta
+
+    from modules.government_integrations.services.esocial_espelho_service import TZ_GOV
+
+    teto = datetime.now(TZ_GOV) - timedelta(hours=1, minutes=5)
+    ini = teto - timedelta(days=30)
+    return ini.strftime("%Y-%m-%dT%H:%M:%S"), teto.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _governo_saudavel() -> bool:
+    """True se a consulta CONHECIDA-BOA (por trabalhador) responde sem erro de servidor.
+
+    Usa um CPF que já teve eventos baixados com sucesso. cd 308 ('tente mais tarde') e
+    falha de conexão = governo degradado; qualquer outra resposta = serviço de pé.
+    """
+    from datetime import timedelta
+
+    try:
+        from modules.government_integrations.core.esocial_eventos_client import ESocialEventosClient
+        from modules.government_integrations.services.esocial_espelho_service import TZ_GOV
+
+        teto = datetime.now(TZ_GOV) - timedelta(hours=1, minutes=5)
+        ini = teto - timedelta(days=30)
+        r = ESocialEventosClient().consultar_identificadores_trabalhador(
+            "35710481000103", CPF_SONDA,
+            ini.strftime("%Y-%m-%dT%H:%M:%S"), teto.strftime("%Y-%m-%dT%H:%M:%S"),
+        )
+        cd = str(r.cd_resposta or "")
+        log(f"sonda trabalhador: cd={cd}")
+        return cd not in ("308", "")
+    except Exception as exc:  # noqa: BLE001 — sem conexão = degradado
+        log(f"sonda trabalhador: indisponível — {type(exc).__name__}")
+        return False
+
+
+def _notificar_sino(titulo: str, corpo: str) -> None:
     """Avisa o Jordan pelo SINO interno do Conecta PRO (nunca Telegram — regra dele).
 
     Reusa exatamente o padrão de `gedeon/tasks/orquestrador_tasks._notificar_jordan`:
@@ -91,11 +166,6 @@ def _notificar_sino(resultado: dict) -> None:
 
         from core.database.session import get_sync_db
 
-        achados = ", ".join(
-            f"{nome}: {d.get('qtd_identificadores', 0)} evento(s)"
-            for nome, d in resultado.items()
-            if not d.get("erro")
-        )
         with get_sync_db() as db:
             user = db.execute(
                 text("SELECT id FROM users WHERE email = 'jjesus@conectamais.pro' LIMIT 1")
@@ -125,13 +195,8 @@ def _notificar_sino(resultado: dict) -> None:
                     "ref": REF_ID,
                     "tenant_id": str(tenant[0]),
                     "user_id": str(user[0]),
-                    "title": "eSocial — códigos das rubricas capturados",
-                    "body": (
-                        "A consulta ao S-1010 do nosso CNPJ voltou do governo. "
-                        f"{achados}. É o que destrava o S-1200 (substituir a Portte). "
-                        "Peça ao Claude para extrair natRubr/codIncCP/codIncIRRF/codIncFGTS "
-                        "e popular rubricas_folha."
-                    ),
+                    "title": titulo,
+                    "body": corpo,
                 },
             )
             db.commit()
