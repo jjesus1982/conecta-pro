@@ -1392,11 +1392,15 @@ async def _rd_cancelar_diaria_sobreposta(
         rotulo = "VT+VR"
 
     try:
+        # is_sensitive/is_pii/requires_review/archived são NOT NULL SEM default: omitir
+        # derrubava o INSERT inteiro e, como ele vive num try/except, o log sumia em
+        # silêncio — 5 cancelamentos reais ficaram sem trilha antes disso ser visto.
         await db.execute(_sql(
             "INSERT INTO audit_logs (id, event_id, action, category, severity, result, description, "
-            " details, user_id, user_email, created_at) "
+            " details, user_id, user_email, is_sensitive, is_pii, requires_review, archived, created_at) "
             "VALUES (gen_random_uuid(), :ev, 'cancelar_sobreposto_clt', 'financeiro', 'warning', "
-            " 'success', :desc, CAST(:det AS jsonb), CAST(:uid AS uuid), :mail, now())"),
+            " 'success', :desc, CAST(:det AS jsonb), CAST(:uid AS uuid), :mail, "
+            " true, false, false, false, now())"),
             {"ev": f"{kind}-{ref}", "desc": f"{rotulo} sobreposto cancelado: {nome_e} em {dia}",
              "det": __import__("json").dumps({
                  "kind": kind, "ref": ref, "data": str(dia), "posto": posto,
