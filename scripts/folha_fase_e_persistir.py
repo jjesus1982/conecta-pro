@@ -64,8 +64,18 @@ for mes in MESES:
     if not alvos:
         alvos = db.execute(text(
             "SELECT e.id::text, "
-            "  (SELECT condominio_id::text FROM hr_payslips h WHERE h.employee_id=e.id "
-            "     ORDER BY h.reference_period DESC LIMIT 1), "
+            # condomínio: PRIMEIRO a alocação vigente (fato operacional), depois o último
+            # holerite. Antes vinha só do holerite — e como este script APAGA as linhas
+            # 'conecta' antes de reinserir, ele dependia da própria saída anterior: quem
+            # foi admitido no mês (sem holerite prévio) entrava com condominio_id NULL e
+            # derrubava a competência inteira por NOT NULL, depois de já ter apagado.
+            "  COALESCE("
+            "    (SELECT a.condominio_id::text FROM employee_alocacoes a "
+            "       WHERE a.employee_id = e.id AND a.condominio_id IS NOT NULL "
+            "       ORDER BY a.ativo DESC, a.data_inicio DESC NULLS LAST LIMIT 1), "
+            "    (SELECT condominio_id::text FROM hr_payslips h WHERE h.employee_id=e.id "
+            "       AND h.condominio_id IS NOT NULL "
+            "       ORDER BY h.reference_period DESC LIMIT 1)), "
             "  e.empresa_id::text "
             "FROM employees e "
             "WHERE COALESCE(LOWER(e.tipo_contrato),'') <> 'pj' "
