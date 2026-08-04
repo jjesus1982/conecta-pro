@@ -153,3 +153,63 @@ Também faltam, e não são cosméticos:
 - **Salário-família exato** (ADEMIR 202,62; EDILENE conferido)
 - **Nenhum provento inventado** — não fabricamos rubrica que a Portte não tenha
 - **ADEMIR bate 100%** (Δ −0,51, só arredondamento de VT): quando temos todos os dados, o cálculo fecha
+
+
+---
+
+## 8. Por condomínio (7 pares conferidos)
+
+| Condomínio | Pessoas (P×C) | Líquido Portte | Líquido nosso | Δ |
+|---|:--:|--:|--:|--:|
+| Ideal Flores | 13×13 | 19.766,90 | 18.949,89 | −817,01 |
+| **Laranjeiras** | **9×8** | 14.484,18 | 13.416,58 | −1.067,60 |
+| Mirante das Flores | 9×9 | 14.383,11 | 13.573,28 | −809,83 |
+| **Michelangelo** | 2×2 | 2.492,60 | 3.300,90 | **+808,30** ⚠️ |
+| Prime Arena | 6×6 | 10.606,01 | 9.905,13 | −700,88 |
+| Villa Dei Fiori | 6×6 | 10.540,27 | 9.389,77 | −1.150,50 |
+| Villa dos Pássaros | 6×6 | 10.518,96 | 9.791,81 | −727,15 |
+
+**Michelangelo é o alerta:** somos **+R$808 MAIS CAROS** que a Portte. Causa única — ANTONIO
+CARLOS VIEIRA esteve de férias 15/06–14/07 e nós **não descontamos o adiantamento** (R$1.100,13).
+Sempre que houver férias, pagamos a mais. Não é erro pequeno: é dinheiro saindo indevidamente.
+
+## 9. Casos que fecham 100% (a prova de que o motor funciona)
+
+| Colaborador | Situação | Δ |
+|---|---|--:|
+| **KALEL SILVA DE JESUS** | proventos **idênticos** (1.916,77) | +16,49 (só a rubrica 205 que não temos) |
+| **ADEMIR SALUSTIANO** | proventos idênticos, salário-família exato | −0,51 (arredondamento VT) |
+| ANTONIO WALCICLEY · EDILENE | INSS conferido ao centavo | −0,51 |
+
+Quando o colaborador **não tem evento** (sem férias, sem falta, sem noturno), nossa folha bate.
+Isso delimita o problema com precisão: **não é o cálculo, é o evento que não chega.**
+
+## 10. Mais dois erros de cadastro achados pela comparação
+
+| Campo | Nosso | Portte |
+|---|---|---|
+| **NAILSON — salário/cargo** | 1.742,52 · ARTÍFICE | **2.186,66** · ARTÍFICE DE MANUTENÇÃO PREDIAL |
+| **EDIWILSON — cargo/CBO** | LÍDER DE PORTARIA | **ARTÍFICE** (CBO 514310) |
+| **KELLY e ALEXANDRE — admissão** | 19/07 → contamos **13 dias** | 20/07 → conta **11 dias** |
+| Grafias | BIANCA HELEM · FAÇANHA · OSCAR "DA" COSTA | HELLEM · FACANHA · OSCAR COSTA |
+
+A data de admissão diverge em um dia e o cálculo de dias em dois — vale conferir qual é a
+correta no contrato, porque afeta o proporcional de quem entrou em julho.
+
+## 11. Ronda e salário-família: temos a rubrica, não aplicamos a todos
+
+- **202 ADICIONAL DE RONDA** não lançado para **DANIEL SOUZA** (−225,45) e **EULER FELIPE**
+  (−250,50), enquanto colegas idênticos receberam. É cobertura de cadastro, não motor.
+- **995 SALÁRIO FAMÍLIA** omitido para **ALEXANDRE** (24,76) — funciona nos outros.
+
+## 12. Resumo executivo dos números
+
+| Métrica | Valor |
+|---|--:|
+| Δ líquido agregado (51 pessoas) | −R$ 4.464,67 (−5,4%) |
+| **Σ\|Δ\| individual — a medida honesta** | **R$ 10.664,27** |
+| Proventos que não sabemos calcular | R$ 11.483,49 |
+| Descontos que não sabemos calcular | R$ 7.018,82 |
+| Maior bloco ausente | Férias (prov. 5.171 + desc. 4.303) |
+| Segundo maior | Noturno + intrajornada (R$ 9.185) |
+| Onde pagamos A MAIS | Férias sem adiantamento e faltas sem desconto |
