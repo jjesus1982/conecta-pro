@@ -3005,13 +3005,10 @@ EXTRA_MENU = {
     # dos grupos (g-pagar/g-receber/g-custos em _fin_grupos.py). Menu = só os 7 grupos.
     "financeiro": [
     ],
+    # F0: itens do operacional removidos — lancar-diaria/cadastrar-diarista/registrar-falta/
+    # escalar-substituto/resolver-ocorrencia/comentar-ocorrencia agora são ABAS dos grupos
+    # (g-diaristas/g-escalas/g-rondas em _op_grupos.py). Menu = só os 8 grupos.
     "operacional": [
-        {"id": "lancar-diaria", "label": "Lançar diária", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-        {"id": "cadastrar-diarista", "label": "Cadastrar diarista", "icon": "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8M20 8v6M23 11h-6"},
-        {"id": "registrar-falta", "label": "Registrar falta", "icon": "M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h16.9a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01"},
-        {"id": "escalar-substituto", "label": "Escalar substituto", "icon": "M17 2l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 22l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"},
-        {"id": "resolver-ocorrencia", "label": "Resolver ocorrência", "icon": "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10zM9 12l2 2 4-4"},
-        {"id": "comentar-ocorrencia", "label": "Comentar ocorrência", "icon": "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"},
     ],
     "crm": [
         {"id": "novo-lead", "label": "Novo lead", "icon": "M12 5v14M5 12h14"},
