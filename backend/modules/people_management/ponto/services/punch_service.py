@@ -521,45 +521,23 @@ class PunchService:
             Dicionario com o fechamento.
         """
         # [Ponto loop] Horas REAIS das batidas (nao estimativa por escala).
-        # Pareia entrada->saida em ordem cronologica, mesma logica de
-        # horas_service.horas_reais_ponto (que e sync); aqui rodamos a query
-        # via sessao async e reusamos o calculo de janela noturna 22:00-05:00.
-        from .horas_service import _minutos_noturnos
+        # Mesma logica do caminho sync da folha: horas_service.parear_batidas. Aqui so muda
+        # o transporte (sessao async). Tinhamos uma COPIA deste loop, e ela carregava o mesmo
+        # defeito de parear por punch_type -- o fechamento do mes fechava com hora a menos.
+        from .horas_service import SQL_BATIDAS, params_batidas, parear_batidas
 
+        p = params_batidas(employee_id, month, year)
         rows = (
             await self.db.execute(
-                text(
-                    "SELECT punch_type, (punch_timestamp) AS punch_timestamp FROM gp_clock_punches "
-                    "WHERE CAST(employee_id AS TEXT) = :e "
-                    "AND EXTRACT(MONTH FROM (punch_timestamp)) = :m "
-                    "AND EXTRACT(YEAR FROM (punch_timestamp)) = :y "
-                    # desempate determinístico (saída antes de entrada + punch_id), igual ao espelho
-                    "ORDER BY punch_timestamp, CASE WHEN lower(coalesce(punch_type,'')) LIKE 'sa%' THEN 0 ELSE 1 END, punch_id"
-                ),
-                {"e": str(employee_id), "m": month, "y": year},
+                SQL_BATIDAS, {k: v for k, v in p.items() if not k.startswith("_")}
             )
         ).fetchall()
+        _h = parear_batidas(rows, p["_ini_mes"], p["_fim_mes"])
 
-        total_batidas = len(rows)
-        total_min = 0.0
-        noturno_min = 0.0
-        dias_distintos: set = set()
-        entrada: datetime | None = None
-        for tipo, ts in rows:
-            t = (tipo or "").lower()
-            if t == "entrada":
-                entrada = ts
-            elif t == "saida" and entrada is not None:
-                dur = (ts - entrada).total_seconds() / 60.0
-                if 0 < dur < 24 * 60:
-                    total_min += dur
-                    noturno_min += _minutos_noturnos(entrada, ts)
-                    dias_distintos.add(entrada.date())
-                entrada = None
-
-        horas_trabalhadas = round(total_min / 60.0, 2)
-        horas_noturnas = round(noturno_min / 60.0, 2)
-        dias_trabalhados = len(dias_distintos)
+        total_batidas = _h["total_batidas"]
+        horas_trabalhadas = _h["horas_trabalhadas"]
+        horas_noturnas = _h["horas_noturnas"]
+        dias_trabalhados = _h["dias_trabalhados"]
 
         # [Ponto loop] IDEMPOTÊNCIA: re-fechar o mesmo mês NÃO pode duplicar linha.
         # Sem UNIQUE(employee_id,month,year) no schema, aplicamos upsert manual:
