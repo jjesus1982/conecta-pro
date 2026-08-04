@@ -66,3 +66,52 @@ O trabalho de código que faz diferença agora é pequeno; o que decide é proce
 
 A rescisão **não** paga férias em duplicidade em silêncio: implementei o alerta que lê a evidência
 na folha e avisa quem homologa. É mitigação, não solução — a solução é o registro existir.
+
+---
+
+## FONTE ÚNICA DE FÉRIAS — decidida e aplicada (2026-08-04)
+
+Escolhi pelos **consumidores reais**, não por preferência. E são DUAS escolhas, porque
+*solicitação* e *período aquisitivo* são coisas diferentes — não são tabelas duplicadas.
+
+| Papel | **Fonte única** | Por quê |
+|---|---|---|
+| Período aquisitivo (saldo) | **`employee_vacation_periods`** | lida pelo portal do funcionário, pela tela de saldo do redesign e **pela rescisão** (`termination_service`) |
+| Solicitação de férias | **`hr_vacation_requests`** | única viva (ativa até 16/07); é a que a tela `ferias` usa e onde religuei o "Aprovar" |
+
+**Não canônicas:** `hr_vacation_periods` (só o contexto jurídico lê), `employee_vacation_requests`
+e `vacation_requests` (paradas desde abril).
+
+### Não derrubei as tabelas — de propósito
+
+Elas têm consumidores reais em portal, redesign e controllers. Dropar agora quebra tela em
+produção. Aposentar exige migrar cada leitor primeiro; é trabalho de refatoração, não de decisão.
+O que resolvia o dano **imediato** era o saldo mentiroso, e isso foi corrigido.
+
+### Correção aplicada no saldo
+
+`days_used` estava **0 em 100% dos 67 períodos** — o saldo exibido não descontava nada do que
+já havia sido gozado. Atualizei a partir das solicitações **APROVADAS** (evidência dura):
+
+| Colaborador | Direito | Usados | Saldo |
+|---|--:|--:|--:|
+| ADAILSON SERRA ALVES | 30 | 30 | 0 |
+| ANTONIO CARLOS VIEIRA | 30 | 30 | 0 |
+| EDIWILSON CORREA MARQUES | 30 | 19 | 11 |
+| FRANCISCO RAMON FARIAS DE SOUZA | 30 | 30 | 0 |
+
+**Usei só as APROVADAS**, não as 14 `SUBMITTED`. Prova de que está certo: ADAILSON tem
+solicitação submetida para julho, mas bateu ponto **116 vezes** em julho — não tirou. Contar
+pedido não aprovado como gozado zeraria o saldo de quem ainda tem direito.
+
+Backup: `auditoria/employee_vacation_periods_pre_fonte_unica_2026-08-04.json`.
+
+### O que continua errado (e por que não forcei)
+
+**22 pessoas gozaram férias segundo a folha e não têm solicitação nenhuma** — para essas, o
+saldo segue mostrando 30 dias. Não dá para derivar os dias com honestidade: a folha traz
+**horas** (`96:00`, `84:00`), e converter hora→dia exige presumir jornada. Em saldo de férias
+isso vira dinheiro errado no TRCT.
+
+Essas 22 precisam de lançamento manual do DP — é o mesmo problema de adoção descrito acima,
+não um gap de cálculo.
