@@ -77,6 +77,18 @@ _SYSTEM_BASE = (
     "aprovação humana — você PROPÕE (ex.: justificar ponto vai para o DP aprovar), nunca executa."
 )
 
+# Nudge SÓ do fluxo de anexo: o usuário mandou um documento/foto e muitas vezes quer COMPARAR
+# com dados do ERP. O modelo tende a desistir ("não tenho a segunda base"); aqui lembramos que
+# ele TEM as tools de consulta e deve buscar o outro lado antes de pedir o dado ao usuário.
+_ANEXO_NUDGE = (
+    " O usuário ANEXOU um documento/foto. Você TEM ferramentas de consulta ao ERP "
+    "(consultar_dp, consultar_financeiro, consultar_crm, consultar_fiscal, etc.). Se a tarefa pede "
+    "COMPARAR, CONCILIAR ou CONFERIR o anexo contra dados do sistema (folha, DRE, contratos, NFS-e…), "
+    "CHAME as tools para buscar o outro lado ANTES de dizer que falta base — não peça ao usuário um "
+    "dado que você mesmo pode obter. Ex.: folha por competência = consultar_dp com consulta='folha_resumo' "
+    "e filtros {mes, ano}. Só declare 'aguardando dado' se a tool retornar vazio de fato."
+)
+
 
 class ConsultarIn(BaseModel):
     pergunta: str = Field(..., min_length=3, max_length=2000)
@@ -207,6 +219,8 @@ async def executar_arquivo(
     scope, tools = await _resolver_tier_e_tools(db, user)
     return await run_engine(
         db, user, scope, tools, pergunta_final,
-        system_prompt=_system_for(user, pergunta_final), origem="consultor_executar_arquivo",
+        system_prompt=_system_for(user, pergunta_final) + _ANEXO_NUDGE,
+        origem="consultor_executar_arquivo",
+        max_tokens=2400,  # comparação/conciliação de anexo gera resposta longa (1200 cortava)
         imagens=imagens or None,
     )
