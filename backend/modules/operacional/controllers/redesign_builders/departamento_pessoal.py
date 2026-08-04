@@ -373,6 +373,67 @@ async def rd_action_ferias_aprovar(current_user: CurrentActiveUser, vid: str, db
     await _exige_escopo_operacional(db, current_user, v[0],
                                     "aprovar férias de colaborador da sua equipe operacional")
     return await approve_vacation(vacation_id=vid, current_user=current_user, db=db)
+
+
+def _require_modulo_dp(current_user: CurrentActiveUser) -> None:
+    """Gate module:dp p/ decisão de reembolso — AGORA no REDESIGN (o endpoint clássico
+    /api/v1/reimbursements/* foi mantido intocado a pedido do Jordan: nossa parede vive só
+    aqui). admin/all passam; Eliziel/Orlailson (module:dp) passam; celiane (self:portal)→403."""
+    from core.auth.module_scope import user_has_module
+    if not user_has_module(current_user, "dp"):
+        raise HTTPException(status_code=403, detail="Decidir reembolso é restrito ao DP.")
+
+
+def _rid_uuid(rid: str):
+    from uuid import UUID
+    try:
+        return UUID(str(rid))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Reembolso inválido.")
+
+
+@router.post("/action/reembolso-aprovar", dependencies=[Depends(_require_modulo_dp)])
+async def rd_action_reembolso_aprovar(current_user: CurrentActiveUser, rid: str, db=Depends(get_db)) -> dict:
+    """Aprovar reembolso — gate module:dp no redesign; reusa ApprovalService (serviço provado)."""
+    from modules.reimbursement.services import ApprovalService
+    try:
+        req = await ApprovalService(db).approve_request(
+            request_id=_rid_uuid(rid), user_id=current_user.id, comments=None, approved_items=None)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not req:
+        raise HTTPException(status_code=404, detail="Reembolso não encontrado.")
+    return {"ok": True, "message": "Reembolso aprovado."}
+
+
+@router.post("/action/reembolso-analisar", dependencies=[Depends(_require_modulo_dp)])
+async def rd_action_reembolso_analisar(current_user: CurrentActiveUser, rid: str, db=Depends(get_db)) -> dict:
+    """Mover reembolso p/ análise — gate module:dp no redesign."""
+    from modules.reimbursement.services import ApprovalService
+    try:
+        req = await ApprovalService(db).start_analysis(_rid_uuid(rid), current_user.id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not req:
+        raise HTTPException(status_code=404, detail="Reembolso não encontrado.")
+    return {"ok": True, "message": "Reembolso em análise."}
+
+
+@router.post("/action/reembolso-rejeitar", dependencies=[Depends(_require_modulo_dp)])
+async def rd_action_reembolso_rejeitar(current_user: CurrentActiveUser, rid: str,
+                                       payload: dict = Body(default={}), db=Depends(get_db)) -> dict:
+    """Rejeitar reembolso (motivo obrigatório) — gate module:dp no redesign."""
+    from modules.reimbursement.services import ApprovalService
+    reason = (payload.get("reason") or "").strip()
+    if len(reason) < 3:
+        raise HTTPException(status_code=400, detail="Informe o motivo da rejeição (mín. 3 caracteres).")
+    try:
+        req = await ApprovalService(db).reject_request(_rid_uuid(rid), current_user.id, reason)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not req:
+        raise HTTPException(status_code=404, detail="Reembolso não encontrado.")
+    return {"ok": True, "message": "Reembolso rejeitado."}
 # Item de nav da tela de ação "Aviso prévio de férias" (form → gera doc). É SOMADO ao EXTRA_MENU
 # global do slug (redesign_data_controller._discover_module_builders), sem tocar a fundação.
 EXTRA_MENU: list[dict] = [
@@ -1304,17 +1365,17 @@ async def build(db) -> dict:
         actionsfn=lambda r: (
             [
                 {"title": f"Aprovar reembolso {r[0]}",
-                 "endpoint": f"/api/v1/reimbursements/{r[5]}/approve",
+                 "endpoint": f"/api/v1/redesign/action/reembolso-aprovar?rid={r[5]}",
                  "method": "POST", "btnLabel": "Aprovar", "submitLabel": "Aprovar",
                  "btnStyle": "primary", "okMsg": "Reembolso aprovado. Recarregue a tela.",
                  "fields": []},
                 {"title": f"Analisar reembolso {r[0]}",
-                 "endpoint": f"/api/v1/reimbursements/{r[5]}/analyze",
+                 "endpoint": f"/api/v1/redesign/action/reembolso-analisar?rid={r[5]}",
                  "method": "POST", "btnLabel": "Analisar", "btnStyle": "outline",
                  "submitLabel": "Analisar", "okMsg": "Reembolso em análise. Recarregue a tela.",
                  "fields": []},
                 {"title": f"Rejeitar reembolso {r[0]}",
-                 "endpoint": f"/api/v1/reimbursements/{r[5]}/reject",
+                 "endpoint": f"/api/v1/redesign/action/reembolso-rejeitar?rid={r[5]}",
                  "method": "POST", "btnLabel": "Rejeitar", "btnStyle": "outline",
                  "submitLabel": "Rejeitar", "okMsg": "Reembolso rejeitado. Recarregue a tela.",
                  "fields": [{"key": "reason", "label": "Motivo (obrigatório)", "type": "textarea", "span": "span 2", "value": ""}]},
