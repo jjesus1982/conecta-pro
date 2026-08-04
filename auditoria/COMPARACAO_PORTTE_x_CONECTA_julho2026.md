@@ -213,3 +213,83 @@ correta no contrato, porque afeta o proporcional de quem entrou em julho.
 | Maior bloco ausente | Férias (prov. 5.171 + desc. 4.303) |
 | Segundo maior | Noturno + intrajornada (R$ 9.185) |
 | Onde pagamos A MAIS | Férias sem adiantamento e faltas sem desconto |
+
+---
+
+# ADENDO — 2ª passada: Portte × BANCO (não o PDF)
+
+A 1ª passada leu nosso **PDF**, que não mostra rubricas. Esta lê o **banco**
+(`hr_payslips.earnings/deductions`), onde a composição existe. Resultado: **corrige três
+conclusões da 1ª passada e revela dois defeitos que o PDF jamais mostraria.**
+
+## Nossa folha emite exatamente 12 rubricas
+
+| | Cód | Descrição | Pessoas | Total |
+|---|---|---|--:|--:|
+| P | 0001 | Salário Base | 50 | 81.190,06 |
+| P | 0018 | Adicional de Ronda | 13 | 3.291,76 |
+| P | 0016 | Adicional de Insalubridade | 11 | 1.851,50 |
+| P | **0020** | **Adicional Noturno** | 23 | 1.806,92 |
+| P | 0021 | Adic. Hora Noturna Reduzida | 19 | 1.129,18 |
+| P | **0020** | **Salário Família** | 10 | 1.080,64 |
+| P | 0090 | DSR sobre Verbas Variáveis | 23 | 489,35 |
+| D | 1001 | INSS | 50 | 6.902,52 |
+| D | 1010 | Desconto VT | 50 | 3.247,60 |
+| D | 1030 | Taxa Negocial CCT | 50 | 1.100,00 |
+| D | 1011 | Desconto VR | 50 | 811,93 |
+| D | 1020 | Plano Odontológico | 50 | 450,00 |
+
+## 🔴 DEFEITO NOVO — código de rubrica DUPLICADO
+
+**`0020` é usado por DUAS rubricas diferentes: "Adicional Noturno" e "Salário Família".**
+
+O PDF nunca mostraria isso porque não imprime código. Consequências:
+- **Quebra o eSocial**: `codRubr` é chave na Tabela de Rubricas (S-1010) e no S-1200. Duas
+  naturezas jurídicas distintas sob o mesmo código = evento rejeitado ou, pior, aceito errado
+  (salário-família **não** incide INSS/FGTS; adicional noturno **incide**).
+- Quebra qualquer conciliação por código.
+
+## Correção de 3 conclusões da 1ª passada
+
+A 1ª passada afirmou que 206 e 207 **"NÃO existem no nosso cálculo (provado)"**. **Errado** —
+existem, mas **subcalculados**. O PDF escondia.
+
+| Portte | Nosso (banco) | Δ real |
+|---|--:|--:|
+| 207 HORA NOT REDUZIDA — 3.914,34 | 0021 — **1.129,18** | **−2.785,16** |
+| 206 ADICIONAL NOTURNO — 3.265,80 | 0020 — **1.806,92** | **−1.458,88** |
+| 208 INTRAJORNADA NOTURNA — 2.005,15 | **ausente de verdade** | −2.005,15 |
+| 209 INTRAJORNADA DIURNO — 1.738,82 | **ausente de verdade** | −1.738,82 |
+| 202 ADICIONAL DE RONDA — 3.725,41 | 0018 — 3.291,76 | −433,65 |
+
+Isso muda o diagnóstico: noturno **não é rubrica faltante, é rubrica com valor errado** (o motor
+produz ~29% e ~55% do devido). Intrajornada, sim, é ausência total.
+
+## 🔴 Dois lugares onde pagamos A MAIS (o PDF não revelou)
+
+| Rubrica | Portte | Nosso | Δ |
+|---|--:|--:|--:|
+| **Salário Família** | 763,20 (12 cotas) | **1.080,64** (10 pessoas) | **+317,44** |
+| Insalubridade | 1.784,95 | 1.851,50 | +66,55 |
+| DSR s/ variáveis | 33,19 (só reflexo de extras) | **489,35** | **+456,16** |
+
+**Salário-família é o mais grave**: pagamos 41% a mais que a Portte com *menos* pessoas.
+Ou o valor da cota está errado, ou estamos dando a quem não tem direito (teto de renda), ou
+contando dependentes a mais. Requer conferência caso a caso.
+
+**DSR sobre variáveis**: emitimos R$489 sobre um conceito que a Portte praticamente não usa
+(ela só tem R$33 de reflexo de horas extras). Ou estamos certos e ela não paga, ou estamos
+inventando reflexo. **Precisa de definição — é dinheiro.**
+
+## Conclusão da 2ª passada
+
+Valeu a pena, e por um motivo específico: **a limitação da 1ª passada não era atenção, era fonte.**
+Reler o mesmo PDF daria a mesma resposta. Trocar a fonte revelou o código duplicado, corrigiu o
+diagnóstico do noturno e achou R$840 de pagamento a maior que estavam invisíveis.
+
+**Ordem de ataque revisada:**
+1. **Código 0020 duplicado** — barato de corrigir, e bloqueia o eSocial se não for
+2. **Salário-família +R$317 e DSR +R$456** — pagamento a maior, dinheiro saindo hoje
+3. Noturno subcalculado (não ausente) — investigar por que produz 29% do devido
+4. Intrajornada (209/208) — ausência real
+5. Férias — o maior bloco, e onde mais pagamos a mais
