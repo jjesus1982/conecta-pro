@@ -82,6 +82,11 @@ POLITICA_ASSINANTES: dict[str, list[SignerType]] = {
     # aviso/rescisão montados no kit por condomínio) → o FUNCIONÁRIO assina.
     # A empresa NÃO co-assina docs do kit; ficha_epi tem fluxo próprio (fora daqui).
     "kit_documento": [SignerType.EMPLOYEE],
+    # COMUNICADO INTERNO: a EMPRESA emite+assina (qualificada, cert A1 do CNPJ) e
+    # cada FUNCIONÁRIO dá CIÊNCIA (eletrônica simples). A publicação em massa (1
+    # empresa + N funcionários) usa `publicar_comunicados_patrimonial.py`; esta
+    # política cobre também o caso 1×1 pelo helper padrão.
+    "comunicado": [SignerType.COMPANY, SignerType.EMPLOYEE],
 }
 
 # Política de NÍVEL legal por (document_type). Decisão do Jordan:
@@ -89,7 +94,7 @@ POLITICA_ASSINANTES: dict[str, list[SignerType]] = {
 #   da EMPRESA (COMPANY), que é a titular do certificado. Funcionário e cliente
 #   não têm certificado próprio: assinam sempre em nível SIMPLE (SHA-256).
 #   Todos os demais document_types usam SIMPLE para todos os signatários.
-DOCUMENTOS_QUALIFICADOS: frozenset[str] = frozenset({"contract", "service_contract"})
+DOCUMENTOS_QUALIFICADOS: frozenset[str] = frozenset({"contract", "service_contract", "comunicado"})
 
 
 def nivel_assinatura(document_type: str, signer_type: SignerType) -> SignatureLevel:
