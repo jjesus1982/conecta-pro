@@ -6,7 +6,8 @@ from __future__ import annotations
 import base64
 
 _IMG_EXT = (".png", ".jpg", ".jpeg", ".webp", ".gif")
-_MAX_TEXTO = 24000  # ~6k tokens; teto p/ PDF gigante não estourar o contexto do LLM
+_MAX_TEXTO = 200000  # ~50k tokens; cabe uma folha de 13+ páginas inteira. gpt-5.1 tem 400k
+# de contexto — 24k cortava a folha da Portte na pág. 7/13 e perdia o quadro-resumo final.
 
 
 def eh_imagem(nome: str) -> bool:
@@ -51,7 +52,7 @@ def imagem_data_url(nome: str, data: bytes) -> str:
 def _demo() -> None:
     assert eh_imagem("foto.JPG") and not eh_imagem("contrato.pdf")
     assert extrair_texto_arquivo("nota.txt", b"  ola mundo  ") == "ola mundo"
-    assert extrair_texto_arquivo("x.txt", b"a" * 30000) == "a" * _MAX_TEXTO  # trunca
+    assert extrair_texto_arquivo("x.txt", b"a" * (_MAX_TEXTO + 5000)) == "a" * _MAX_TEXTO  # trunca
     u = imagem_data_url("f.jpeg", b"\x00\x01")
     assert u.startswith("data:image/jpeg;base64,")
     print("anexos ok")

@@ -71,6 +71,52 @@ async def _folha_resumo(db, user, scope, *, mes=None, ano=None, **_) -> dict[str
     return await get_payroll_summary(current_user=user, db=db, mes=mes, ano=ano)
 
 
+async def _folha_analitico(db, user, scope, *, mes=None, ano=None, cnpj=None, **_) -> dict[str, Any]:
+    """Folha ANALÍTICA por colaborador (fonte hr_payslips) p/ conciliar linha a linha.
+    Escopável por CNPJ (hr_payslips.empresa_id → empresas). SÓ DP/diretoria (_gate)."""
+    _gate(user)
+    from datetime import datetime  # noqa: PLC0415
+    from sqlalchemy import text as _text  # noqa: PLC0415
+    h = datetime.now()
+    m, a = int(mes) if mes else h.month, int(ano) if ano else h.year
+    sql = (
+        "SELECT COALESCE(e.nome, p.employee_id::text) AS colaborador, e.cargo AS cargo, "
+        "em.razao_social AS empresa, em.cnpj AS cnpj, "
+        "COALESCE(p.total_earnings,0) AS proventos, COALESCE(p.total_deductions,0) AS descontos, "
+        "COALESCE(p.inss_value,0) AS inss, COALESCE(p.irrf_value,0) AS irrf, "
+        "COALESCE(p.fgts_value,0) AS fgts, COALESCE(p.net_salary,0) AS liquido "
+        "FROM hr_payslips p "
+        "LEFT JOIN employees e ON e.id = p.employee_id "
+        "LEFT JOIN empresas em ON em.id = p.empresa_id "
+        "WHERE p.reference_month = :mes AND p.reference_year = :ano "
+    )
+    params: dict[str, Any] = {"mes": m, "ano": a}
+    if cnpj:
+        params["cnpj"] = "".join(c for c in str(cnpj) if c.isdigit())
+        sql += "AND regexp_replace(COALESCE(em.cnpj,''), '[^0-9]', '', 'g') = :cnpj "
+    sql += "ORDER BY colaborador"
+    try:
+        rows = (await db.execute(_text(sql), params)).mappings().all()
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+        rows = []
+    if not rows:
+        return {"competencia": f"{m:02d}/{a}", "colaboradores": [],
+                "aviso": "Sem holerites em hr_payslips para esta competência/CNPJ — aguardando dado real."}
+    cols = [{
+        "colaborador": r["colaborador"], "cargo": r["cargo"], "empresa": r["empresa"], "cnpj": r["cnpj"],
+        "proventos": float(r["proventos"]), "descontos": float(r["descontos"]),
+        "inss": float(r["inss"]), "irrf": float(r["irrf"]),
+        "fgts": float(r["fgts"]), "liquido": float(r["liquido"]),
+    } for r in rows]
+    keys = ("proventos", "descontos", "inss", "irrf", "fgts", "liquido")
+    return {
+        "competencia": f"{m:02d}/{a}", "total_colaboradores": len(cols),
+        "totais": {k: round(sum(c[k] for c in cols), 2) for k in keys},
+        "colaboradores": cols,
+    }
+
+
 async def _listar_ferias(db, user, scope, *, status=None, page=1, page_size=20, **_) -> dict[str, Any]:
     _gate(user)
     from modules.people_management.hr.controllers.vacation_controller import list_vacations
@@ -124,6 +170,12 @@ registrar_read("dp", "folha_resumo",
                "Resumo consolidado da folha da competência: proventos, descontos, INSS, IRRF, FGTS "
                "e líquido (fonte hr_payslips; vazio real = aguardando dado). Filtros: mes, ano.",
                _folha_resumo)
+registrar_read("dp", "folha_analitico",
+               "Folha ANALÍTICA por colaborador da competência: nome, cargo, empresa/CNPJ, proventos, "
+               "descontos, INSS, IRRF, FGTS e líquido de CADA funcionário + totais (fonte hr_payslips). "
+               "Use para COMPARAR/CONCILIAR linha a linha com extrato de outro sistema. "
+               "Filtros: mes, ano, cnpj (opcional — escopa por empresa; ex.: só a Patrimonial).",
+               _folha_analitico)
 registrar_read("dp", "ferias",
                "Lista solicitações de férias de todos os funcionários (com contagem por status). "
                "Filtros: status, page, page_size.", _listar_ferias)
