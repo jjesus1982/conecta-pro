@@ -109,8 +109,10 @@ def dias_vt_vr(escala: str, mes: int, ano: int) -> tuple[int, int]:
 HORAS_NOTURNAS_POR_PLANTAO = Decimal("7")
 
 
-def plantoes_noturnos(db, employee_id: str, mes: int, ano: int) -> int:
-    """Plantões noturnos AGENDADOS na competência (escala) — base do adicional noturno.
+def plantoes_noturnos(db, employee_id: str, mes: int, ano: int, noturno: bool = True) -> int:
+    """Plantões AGENDADOS na competência (escala) — base do adicional noturno e da intrajornada.
+
+    `noturno=False` devolve os plantões DIURNOS (base da intrajornada diurna).
 
     Decisão do Jordan (04/08/2026): pagar o noturno pela ESCALA, como a Portte, e não pelas
     batidas. Motivo medido: o ponto real cobre só 69% (mediana) das horas que a Portte paga,
@@ -129,14 +131,14 @@ def plantoes_noturnos(db, employee_id: str, mes: int, ano: int) -> int:
             text(
                 "SELECT count(DISTINCT s.shift_date) FROM shifts s "
                 "JOIN employees e ON CAST(e.id AS TEXT) = CAST(s.employee_id AS TEXT) "
-                "WHERE CAST(s.employee_id AS TEXT) = :e AND s.is_night_shift "
+                "WHERE CAST(s.employee_id AS TEXT) = :e AND s.is_night_shift = :nt "
                 "AND s.status = 'scheduled' AND NOT COALESCE(s.is_off_day, false) "
                 "AND EXTRACT(MONTH FROM s.shift_date) = :m AND EXTRACT(YEAR FROM s.shift_date) = :a "
                 "AND (e.data_admissao IS NULL OR s.shift_date >= e.data_admissao) "
                 "AND (COALESCE(e.data_desligamento, e.data_demissao) IS NULL "
                 "     OR s.shift_date <= COALESCE(e.data_desligamento, e.data_demissao))"
             ),
-            {"e": str(employee_id), "m": mes, "a": ano},
+            {"e": str(employee_id), "m": mes, "a": ano, "nt": noturno},
         ).scalar()
         or 0
     )
@@ -461,10 +463,18 @@ def calcular_folha_colaborador(
                 "valor": float(adic_noturno),
             }
         )
-        # 0021 — Adicional de Hora Noturna Reduzida: paga, a 100%, as horas FICTÍCIAS
-        # geradas pela redução (52'30" por hora noturna). Regra p/ TODOS que fazem noturno.
-        horas_ficticias = _d(horas_reduzidas - horas_not)  # = horas_not / 7
-        adic_hora_reduzida = _d(horas_ficticias * hora_normal)
+        # 0021 — Adicional de Hora Noturna Reduzida: as horas FICTÍCIAS geradas pela redução
+        # (52'30" por hora noturna) — 1h por plantão. Regra p/ TODOS que fazem noturno.
+        #
+        # O fator saiu da folha da Portte (96 observações, jan-jun, separação 48/48 perfeita):
+        # a hora fictícia é paga como HORA EXTRA (50%, CCT) sobre a base que inclui os
+        # adicionais HABITUAIS — noturno 20% + ronda do funcionário. Medido:
+        #   sem ronda:      (1 + 0,20)        × 1,50 = 1,800   (Portte: 1,7991)
+        #   com ronda 15%:  (1 + 0,20 + 0,15) × 1,50 = 2,025   (Portte: 2,0241)
+        # As HORAS do motor já estavam certas (1h/plantão, conferido nas 96); faltava o fator.
+        horas_ficticias = _d(horas_reduzidas - horas_not)  # = horas_not / 7 = 1h por plantão
+        fator_hora_ficticia = (Decimal("1") + Decimal("0.20") + ronda_pct) * Decimal("1.5")
+        adic_hora_reduzida = _d(horas_ficticias * hora_normal * fator_hora_ficticia)
         if adic_hora_reduzida > 0:
             proventos.append(
                 {
@@ -476,11 +486,36 @@ def calcular_folha_colaborador(
                 }
             )
 
+    # 0030/0031 — Intrajornada: 1h por plantão, para quem de fato recebe (flag por-funcionário
+    # da CCT; `recebe_intrajornada` bate 21/21 com a folha da Portte em 6 meses). Mesmo fator
+    # da hora fictícia — a hora é paga como extra (50%) sobre a base com adicionais habituais.
+    # O prêmio noturno só entra na variante NOTURNA; a diurna mede 1,5000 exato sem ronda.
+    if recebe_intrajornada and not tem_espelho:
+        for _cod, _desc, _pl, _fat in (
+            ("0031", "Intrajornada Noturna", _plantoes, Decimal("1") + Decimal("0.20") + ronda_pct),
+            ("0030", "Intrajornada Diurno", plantoes_noturnos(db, employee_id, mes, ano, noturno=False),
+             Decimal("1") + ronda_pct),
+        ):
+            if not _pl:
+                continue
+            _v = _d(Decimal(_pl) * hora_normal * _fat * Decimal("1.5"))
+            intrajornada_valor += _v
+            proventos.append({
+                "codigo": _cod, "descricao": _desc, "tipo": "provento",
+                "referencia": f"{_pl}h (1h por plantão, escala)", "valor": float(_v),
+            })
+
     # 0090 — DSR sobre verbas variáveis (repouso semanal remunerado).
     # Reflexo obrigatório (Súmula 60/172 TST + CCT) sobre adicional noturno,
     # hora noturna reduzida, horas extras e intrajornada. Sem esse reflexo a
     # folha subestima a remuneração dos noturnos e gera passivo trabalhista.
-    soma_variaveis = adic_noturno + adic_hora_reduzida + horas_extras_valor + intrajornada_valor
+    # BASE = só HORA EXTRA. Medido na folha da Portte (jan-jun): em 101 de 101 pessoas-mês
+    # com noturno e SEM hora extra, o DSR é ZERO. Ela não reflete noturno/intrajornada — no
+    # 12x36 o repouso já está contemplado no piso, e o reflexo fica restrito ao extraordinário.
+    # Antes somávamos tudo e o DSR saía R$2.198 contra R$33 dela.
+    # ponytail: o FATOR segue o fator_dsr atual (1/6 no 12x36). O medido varia 0,19–0,25 por
+    # mês/pessoa (feriados + dias reais), sem fórmula fechada — 1/6 fica dentro da faixa.
+    soma_variaveis = horas_extras_valor
     dsr_variaveis = Decimal("0")
     # tem_espelho → DSR sobre variáveis vem do backfill (código 0090); NÃO recomputar.
     if not tem_espelho and soma_variaveis > 0:
