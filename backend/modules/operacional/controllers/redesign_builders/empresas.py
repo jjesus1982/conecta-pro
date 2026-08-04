@@ -25,6 +25,7 @@ SLUG = "empresas"
 
 EXTRA_MENU: list[dict] = [
     {"id": "nova-liminar", "label": "Nova Liminar", "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 15h6M9 11h6"},
+    {"id": "assinar-documentos", "label": "Assinar documentos", "icon": "M15.232 5.232l3.536 3.536M4 20h4l10.5-10.5a2.5 2.5 0 0 0-3.536-3.536L4.5 16.5V20z"},
 ]
 
 
@@ -125,6 +126,34 @@ async def build(db) -> dict:
         ],
     }
 
+    # ---- ASSINAR DOCUMENTOS DA EMPRESA (COMPANY) — assinatura qualificada ICP-Brasil ----
+    # Lista as solicitações COMPANY pendentes (comunicado/contrato/…) e deixa o Jordan
+    # assinar com o cert A1 do CNPJ (Patrimonial/Eletrônica, resolvido no assinador).
+    # Trava OTP humano (e-mail ao Jordan) — a assinatura da razão social é ato sensível.
+    _pend = (await db.execute(text(
+        "SELECT r.id::text, r.title, coalesce(r.document_type,'—'), to_char(r.created_at,'DD/MM/YYYY') "
+        "FROM sig_signature_requests r WHERE r.signer_type='company' AND upper(coalesce(r.status,''))='PENDING' "
+        "ORDER BY r.created_at DESC LIMIT 100"))).fetchall()
+    _opts = [{"value": p[0], "label": f"{p[1]}"} for p in _pend]
+    out["assinar-documentos"] = {
+        "title": "Assinar documentos da empresa",
+        "sub": (f"{len(_opts)} documento(s) aguardando a assinatura da empresa (ICP-Brasil A1). "
+                "Ao confirmar, você recebe um código OTP no e-mail para liberar a assinatura."
+                if _opts else "Nenhum documento aguardando a assinatura da empresa no momento."),
+        "cta": "Assinar como empresa", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/assinar-doc-empresa",
+                   "okMsg": "Documento assinado pela empresa (ICP-Brasil)."},
+        "fields": [
+            {"key": "documento", "label": "Documento a assinar*", "type": "select", "span": "span 2",
+             "options": _opts, "ph": "Selecione o documento"},
+            {"key": "otp_code", "label": "Código OTP (chega no seu e-mail após confirmar)", "type": "text",
+             "span": "span 2", "ph": "Deixe em branco na 1ª vez — o código é enviado ao confirmar"},
+        ],
+        # tabela de apoio: o que está pendente (visibilidade antes de assinar)
+        "rows": [{"cells": [t(p[1], 600, "#0F1B3A"), b((p[2] or '—'), "info"), t(p[3])]} for p in _pend],
+        "cols": ["Documento", "Tipo", "Criado em"], "grid": "2.4fr 1fr 1fr",
+    }
+
     return out
 
 
@@ -156,3 +185,60 @@ async def _rd_nova_liminar(current_user: CurrentActiveUser, payload: dict = Body
         return await op_write(db, real_write=_write)
     except GateError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/action/assinar-doc-empresa")
+async def _rd_assinar_doc_empresa(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Assina um documento EM NOME DA EMPRESA (COMPANY) com o certificado A1 ICP-Brasil
+    do CNPJ (Patrimonial/Eletrônica — resolvido pelo empresa_slug gravado no request).
+    Ato sensível (razão social, fé pública) → SÓ admin + trava OTP humano (money_gov)."""
+    from uuid import UUID as _UUID
+
+    from modules.operacional.controllers.redesign_write_gate import GateError, OTPRequired, money_gov
+    from modules.signatures.services.universal_signature_service import (
+        SignatureLevel,
+        SignerType,
+        UniversalSignatureService,
+    )
+
+    # Gate de acesso: assinatura da empresa é exclusiva de admin autorizado (Jordan/Pyetra).
+    if (getattr(current_user, "role", "") or "") not in ("admin", "operator"):
+        raise HTTPException(status_code=403, detail="Assinatura em nome da empresa exige usuário administrador.")
+
+    req_id = (payload.get("documento") or "").strip()
+    if not req_id:
+        raise HTTPException(status_code=400, detail="Selecione o documento a assinar.")
+    row = (await db.execute(text(
+        "SELECT title, signer_type, upper(coalesce(status,'')), document_path "
+        "FROM sig_signature_requests WHERE id::text = :i"), {"i": req_id})).first()
+    if not row:
+        raise HTTPException(status_code=400, detail="Documento não encontrado.")
+    if row[1] != "company":
+        raise HTTPException(status_code=400, detail="Este documento não é uma assinatura da empresa.")
+    if row[2] != "PENDING":
+        raise HTTPException(status_code=400, detail="Este documento já foi assinado (ou não está pendente).")
+
+    otp_code = (payload.get("otp_code") or "").strip()
+    ref = (payload.get("_gate_ref") or "").strip() or f"assinatura-empresa:{req_id}"
+
+    async def _dispatch():
+        res = await UniversalSignatureService(db).assinar(
+            request_id=_UUID(req_id),
+            signer_type=SignerType.COMPANY,
+            signer_id=getattr(current_user, "id", None),
+            signer_name=getattr(current_user, "full_name", None) or "JORDAN JESUS",
+            level=SignatureLevel.QUALIFIED,
+            certificate_ref={"pdf_path": row[3]} if row[3] else None,
+        )
+        cert = (res.get("certificate") or {}).get("subject") or ""
+        return {"ok": True, "message": f"Documento assinado pela empresa (ICP-Brasil). {cert}".strip()}
+
+    try:
+        res = await money_gov(db, ref=ref, amount=None, otp_code=otp_code, real_dispatch=_dispatch,
+                              label="assinatura_empresa", dest=(row[0] or "")[:48])
+    except OTPRequired as e:
+        return {"otp_required": True, "ref": e.ref,
+                "message": f"Assinatura de '{(row[0] or '')[:48]}' preparada. {e.message}"}
+    except GateError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return res
