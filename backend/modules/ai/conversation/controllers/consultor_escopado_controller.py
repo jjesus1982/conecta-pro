@@ -38,6 +38,7 @@ from modules.ai.conversation.services.orquestrador import tools_read_operacional
 from modules.ai.conversation.services.orquestrador import tools_acao_crm  # noqa: F401 — registra as 3 ações FAZER do CRM (Fase 6 FAZER, propor->aprovar)
 from modules.ai.conversation.services.orquestrador import tools_acao_dp  # noqa: F401 — registra a ação FAZER do DP (solicitar_ferias) (Fase 6 FAZER-2, propor->aprovar)
 from modules.ai.conversation.services.orquestrador import tools_acao_ged  # noqa: F401 — registra a ação FAZER do GED (registrar_evento_kit) (Fase 6 FAZER-2, propor->aprovar)
+from modules.ai.conversation.services.orquestrador import tools_acao_financeiro  # noqa: F401 — registra agir_financeiro (registrar_custo_recorrente) (Fase 6 FAZER-3, propor->aprovar)
 from modules.ai.conversation.services.orquestrador import tools_financeiro_doc  # noqa: F401 — registra gera-doc financeiro (Fase 6 F3)
 from modules.ai.conversation.services.orquestrador import tools_fiscal_doc  # noqa: F401 — registra relatório NFS-e no chat (Fase 6 F8)
 from modules.ai.conversation.services.orquestrador import tools_operacional_doc  # noqa: F401 — registra gera-doc operacional (Fase 6 F4)

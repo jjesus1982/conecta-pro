@@ -1,10 +1,13 @@
-"""Fase 6 (balde FAZER) — 3 ações CRM reversíveis (🔵) via propor→aprovar.
+"""Fase 6 (balde FAZER) — ações CRM reversíveis (🔵) via propor→aprovar.
 
 No chat, quem tem o módulo `crm` PROPÕE ações reversíveis; cada uma grava um PENDENTE
 na tabela nativa via `acoes.base.propor` e NENHUMA executa (a IA nunca efetiva):
-- criar_lead:      leads          status 'new'      (qualificar/ganhar é humano, na tela CRM)
-- criar_tarefa:    crm_tasks      status 'pending'  (concluir é humano)
-- anotar_cliente:  crm_client_notes (nota marcada "aguardando aprovação")
+- criar_lead:            leads              status 'new'      (qualificar/ganhar é humano, na tela CRM)
+- criar_tarefa:          crm_tasks          status 'pending'  (concluir é humano)
+- anotar_cliente:        crm_client_notes   (nota marcada "aguardando aprovação")
+- criar_relatorio_visita: crm_visit_reports  status 'rascunho' (montar/PDF/lead é humano)
+- criar_reuniao:         crm_meetings       status 'sugerido'  (confirmar é humano; lembrete só p/ 'confirmado')
+- registrar_followup:    crm_followups      status 'proposto' + phone NULL (envio é humano — NÃO 'agendado')
 
 São todas 🔵 reversíveis (nada de dinheiro/eSocial); aprovador = ROLES_COMERCIAL.
 Registram via `registrar_acao` (o agir_dispatcher colapsa em agir_crm(acao, dados)).
@@ -13,7 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import text
@@ -199,6 +202,199 @@ async def _propor_anotar_cliente(
     )
 
 
+# ───────────────────────── criar_relatorio_visita (🔵) ───────────────────────
+
+
+async def _propor_criar_relatorio_visita(
+    db, user, scope, *, cliente_nome: str, panorama: str = "", data_visita: str = "", **_
+) -> dict[str, Any]:
+    cliente_nome = (cliente_nome or "").strip()
+    if len(cliente_nome) < 2:
+        return {"erro": "cliente_nome (>=2 chars) é obrigatório"}
+    dv = None
+    if data_visita:
+        try:
+            dv = date.fromisoformat(str(data_visita)[:10])
+        except (TypeError, ValueError):
+            return {"erro": "data_visita inválida (esperado AAAA-MM-DD)"}
+    idem = f"visita:{cliente_nome.lower()}:{dv.isoformat() if dv else ''}"
+
+    async def _inserir(db) -> str:
+        # Idempotência NATIVA: não duplica um relatório RASCUNHO (status inerte, o mesmo
+        # que a tela cria) do mesmo cliente + data de visita. 'rascunho' é o estado inerte:
+        # só a ação humana (montar/PDF/lead) o torna 'finalizado' e produz efeito.
+        existente = (await db.execute(text(
+            "SELECT id::text FROM crm_visit_reports "
+            "WHERE status = 'rascunho' AND lower(cliente_nome) = :nome "
+            "  AND data_visita IS NOT DISTINCT FROM :dv LIMIT 1"),
+            {"nome": cliente_nome.lower(), "dv": dv})).scalar()
+        if existente:
+            return existente
+
+        rid = str(uuid.uuid4())
+        # status='rascunho' explícito (= server_default; inerte). criado_por marca o autor.
+        await db.execute(text("""
+            INSERT INTO crm_visit_reports
+                (id, cliente_nome, panorama, data_visita, achados, status, criado_por,
+                 created_at, updated_at)
+            VALUES
+                (CAST(:id AS uuid), :nome, :pan, :dv, '[]'::jsonb, 'rascunho', :por, now(), now())
+        """), {"id": rid, "nome": cliente_nome[:255],
+               "pan": (panorama or "").strip() or None, "dv": dv,
+               "por": f"[proposto via IA] {getattr(user, 'email', None) or getattr(user, 'id', '')}"[:120]})
+        return rid
+
+    return await propor(
+        db, user=user, scope=scope, dominio="visita", gate="🔵",
+        roles_aprovador=ROLES_COMERCIAL, idempotency_key=idem,
+        titulo="[Proposta] Criar relatório de visita",
+        corpo=f"Relatório de visita p/ '{cliente_nome}'"
+              + (f" ({data_visita})" if data_visita else "")
+              + ". Nasce 'rascunho' — aguarda sua revisão (montar/PDF/lead é humano).",
+        action_url="/crm/visitas",
+        tool="propor_criar_relatorio_visita",
+        args={"cliente_nome": cliente_nome, "panorama": panorama, "data_visita": data_visita},
+        entity_type="crm_visit_report", inserir=_inserir,
+    )
+
+
+# ───────────────────────── criar_reuniao (🔵) ────────────────────────────────
+
+
+async def _propor_criar_reuniao(
+    db, user, scope, *, titulo: str, quando_iso: str, cliente_nome: str = "",
+    local: str = "", tipo: str = "reuniao", notes: str = "", **_
+) -> dict[str, Any]:
+    titulo = (titulo or "").strip()
+    if len(titulo) < 2:
+        return {"erro": "titulo (>=2 chars) é obrigatório"}
+    if not quando_iso:
+        return {"erro": "quando_iso (AAAA-MM-DDTHH:MM) é obrigatório"}
+    try:
+        quando = datetime.fromisoformat(str(quando_iso).replace("Z", ""))
+        if quando.tzinfo is None:  # espelha o controller: Manaus (UTC-4)
+            quando = quando.replace(tzinfo=timezone(timedelta(hours=-4)))
+    except (TypeError, ValueError):
+        return {"erro": "quando_iso inválido (use AAAA-MM-DDTHH:MM)"}
+    idem = f"reuniao:{titulo.lower()}:{quando.isoformat()}"
+
+    async def _inserir(db) -> str:
+        # Idempotência NATIVA: não duplica uma reunião 'sugerido' (status inerte, o mesmo
+        # que sugerir_reuniao cria) com mesmo título+horário. 'sugerido' é inerte: o
+        # lembrete automático (crm.lembrete_reuniao) só dispara p/ 'confirmado' (humano).
+        existente = (await db.execute(text(
+            "SELECT id::text FROM crm_meetings "
+            "WHERE status = 'sugerido' AND lower(titulo) = :t AND quando = :q LIMIT 1"),
+            {"t": titulo.lower(), "q": quando})).scalar()
+        if existente:
+            return existente
+
+        mid = str(uuid.uuid4())
+        await db.execute(text("""
+            INSERT INTO crm_meetings
+                (id, titulo, cliente_nome, quando, local, tipo, status, lembrete_enviado,
+                 notes, criado_por, created_at, updated_at)
+            VALUES
+                (CAST(:id AS uuid), :t, :c, :q, :loc, :tp, 'sugerido', false, :nt, :por, now(), now())
+        """), {"id": mid, "t": titulo[:255], "c": (cliente_nome or "").strip() or None,
+               "q": quando, "loc": (local or "").strip() or None,
+               "tp": (tipo or "reuniao").strip() or "reuniao",
+               "nt": (notes or "").strip() or None,
+               "por": f"[proposto via IA] {getattr(user, 'email', None) or getattr(user, 'id', '')}"[:120]})
+        return mid
+
+    return await propor(
+        db, user=user, scope=scope, dominio="reuniao", gate="🔵",
+        roles_aprovador=ROLES_COMERCIAL, idempotency_key=idem,
+        titulo="[Proposta] Agendar reunião",
+        corpo=f"Reunião '{titulo}'" + (f" c/ {cliente_nome}" if cliente_nome else "")
+              + f" em {quando_iso}. Nasce 'sugerido' — aguarda sua confirmação (o lembrete só sai após confirmar).",
+        action_url="/crm/reunioes",
+        tool="propor_criar_reuniao",
+        args={"titulo": titulo, "quando_iso": quando_iso, "cliente_nome": cliente_nome,
+              "local": local, "tipo": tipo},
+        entity_type="crm_meeting", inserir=_inserir,
+    )
+
+
+# ───────────────────────── registrar_followup (🔵) ───────────────────────────
+
+#: status INERTE do follow-up proposto. NÃO usar 'agendado': o worker
+#: crm.enviar_followups_agendados ENVIA por WhatsApp todo 'agendado' com phone_e164
+#: NOT NULL — isso seria executar (customer-facing). 'proposto' não é consumido por
+#: nenhum worker; e phone_e164/phone_canonical=NULL é o suspenders (mesmo padrão do
+#: anotar_cliente): mesmo que o status escorregasse, sem telefone nada é enviado.
+_FUP_STATUS_PROPOSTO = "proposto"
+
+
+async def _propor_registrar_followup(
+    db, user, scope, *, mensagem: str, deal_id: str = "", lead_id: str = "",
+    cliente_id: str = "", canal: str = "whatsapp", template: str = "", **_
+) -> dict[str, Any]:
+    mensagem = (mensagem or "").strip()
+    if len(mensagem) < 2:
+        return {"erro": "mensagem (>=2 chars) é obrigatória"}
+    ref = (deal_id or lead_id or cliente_id or "").strip()
+    msg_hash = hashlib.sha1(mensagem.encode("utf-8")).hexdigest()[:12]
+    idem = f"followup:{ref}:{msg_hash}"
+
+    def _uuid_ou_none(v: str):
+        v = (v or "").strip()
+        if not v:
+            return None
+        try:
+            return str(uuid.UUID(v))
+        except (TypeError, ValueError):
+            return None
+
+    d_id, l_id, c_id = _uuid_ou_none(deal_id), _uuid_ou_none(lead_id), _uuid_ou_none(cliente_id)
+
+    async def _inserir(db) -> str:
+        # Idempotência NATIVA: não duplica um follow-up 'proposto' com a mesma mensagem
+        # p/ a mesma referência (deal/lead/cliente).
+        existente = (await db.execute(text(
+            "SELECT id::text FROM crm_followups "
+            "WHERE status = :st AND mensagem = :msg "
+            "  AND deal_id IS NOT DISTINCT FROM CAST(:d AS uuid) "
+            "  AND lead_id IS NOT DISTINCT FROM CAST(:l AS uuid) "
+            "  AND cliente_id IS NOT DISTINCT FROM CAST(:c AS uuid) LIMIT 1"),
+            {"st": _FUP_STATUS_PROPOSTO, "msg": mensagem, "d": d_id, "l": l_id, "c": c_id})).scalar()
+        if existente:
+            return existente
+
+        fid = str(uuid.uuid4())
+        # phone_e164/phone_canonical = NULL de propósito: mantém o follow-up FORA do
+        # caminho de envio do worker (que exige phone_e164 IS NOT NULL). status='proposto'
+        # (não 'agendado') é a defesa primária; o telefone NULL é o suspenders.
+        await db.execute(text("""
+            INSERT INTO crm_followups
+                (id, deal_id, cliente_id, lead_id, phone_e164, phone_canonical, canal,
+                 template, mensagem, status, criado_por, detalhe, created_at, updated_at)
+            VALUES
+                (CAST(:id AS uuid), CAST(:d AS uuid), CAST(:c AS uuid), CAST(:l AS uuid),
+                 NULL, NULL, :canal, :tpl, :msg, :st, :por,
+                 '[proposto via IA] aguardando aprovação', now(), now())
+        """), {"id": fid, "d": d_id, "c": c_id, "l": l_id,
+               "canal": (canal or "whatsapp").strip() or "whatsapp",
+               "tpl": (template or "").strip() or None, "msg": mensagem,
+               "st": _FUP_STATUS_PROPOSTO,
+               "por": f"[proposto via IA] {getattr(user, 'email', None) or getattr(user, 'id', '')}"[:120]})
+        return fid
+
+    return await propor(
+        db, user=user, scope=scope, dominio="followup", gate="🔵",
+        roles_aprovador=ROLES_COMERCIAL, idempotency_key=idem,
+        titulo="[Proposta] Registrar follow-up",
+        corpo=f"Follow-up proposto: “{mensagem[:120]}”. Nasce 'proposto' (sem telefone, "
+              f"fora do envio automático) — o envio ao cliente é humano.",
+        action_url="/crm/followups",
+        tool="propor_registrar_followup",
+        args={"mensagem": mensagem, "deal_id": deal_id, "lead_id": lead_id,
+              "cliente_id": cliente_id, "canal": canal},
+        entity_type="crm_followup", inserir=_inserir,
+    )
+
+
 # ───────────────────────── registro (dispatcher agir_crm) ────────────────────
 
 registrar_acao("crm", "criar_lead",
@@ -213,6 +409,21 @@ registrar_acao("crm", "anotar_cliente",
                "anotar (append) na ficha de um cliente. dados: cliente_ref (id/CNPJ/nome, "
                "obrigatório), nota (obrigatório). Fica 'aguardando aprovação'.",
                _propor_anotar_cliente)
+registrar_acao("crm", "criar_relatorio_visita",
+               "iniciar um relatório de visita técnica/comercial. dados: cliente_nome "
+               "(obrigatório), panorama, data_visita (AAAA-MM-DD). Nasce 'rascunho' "
+               "(montar/PDF/lead é humano).",
+               _propor_criar_relatorio_visita)
+registrar_acao("crm", "criar_reuniao",
+               "agendar uma reunião. dados: titulo (obrigatório), quando_iso "
+               "(AAAA-MM-DDTHH:MM, obrigatório), cliente_nome, local, tipo, notes. "
+               "Nasce 'sugerido' (confirmação é humana).",
+               _propor_criar_reuniao)
+registrar_acao("crm", "registrar_followup",
+               "registrar um follow-up p/ um cliente/lead/deal. dados: mensagem "
+               "(obrigatório), deal_id/lead_id/cliente_id, canal, template. Nasce "
+               "'proposto' sem telefone (o envio ao cliente é humano).",
+               _propor_registrar_followup)
 
 
 if __name__ == "__main__":
@@ -260,6 +471,9 @@ if __name__ == "__main__":
             lead_ids: list[str] = []
             task_ids: list[str] = []
             note_ids: list[str] = []
+            visit_ids: list[str] = []
+            meet_ids: list[str] = []
+            fup_ids: list[str] = []
             try:
                 disp = agir.handler  # o _fazer_acao_dispatch(crm)
 
@@ -318,6 +532,61 @@ if __name__ == "__main__":
                 assert ra2.get("duplicado") is True, ra2
                 print("TESTE a3 (anotar_cliente: nota pendente marcada, fora do José Luís, idempotente) PASS")
 
+                # ── (a) criar_relatorio_visita: 1 PENDENTE inerte 'rascunho', não executa, idempotente ──
+                cli_v = f"{SENT} Cliente Visita"
+                rv = await disp(db, _U(), _S(), acao="criar_relatorio_visita",
+                                dados={"cliente_nome": cli_v, "data_visita": "2099-06-01",
+                                       "panorama": "porte médio"})
+                assert rv.get("status") == "pendente" and not rv.get("duplicado"), rv
+                vid = rv["entity_id"]; visit_ids.append(vid)
+                stv = (await db.execute(text("SELECT status FROM crm_visit_reports WHERE id=:i"), {"i": vid})).scalar()
+                assert stv == "rascunho", f"visita nasceu {stv}, esperado 'rascunho' (inerte)"
+                exec_v = (await db.execute(text(
+                    "SELECT count(*) FROM crm_visit_reports WHERE cliente_nome LIKE :n AND status <> 'rascunho'"),
+                    {"n": SENT + "%"})).scalar()
+                assert exec_v == 0, "visita sentinela finalizada (executada) — não deveria"
+                rv2 = await disp(db, _U(), _S(), acao="criar_relatorio_visita",
+                                 dados={"cliente_nome": cli_v, "data_visita": "2099-06-01"})
+                assert rv2.get("duplicado") is True, rv2
+                print("TESTE a4 (criar_relatorio_visita: PENDENTE inerte 'rascunho', não executa, idempotente) PASS")
+
+                # ── (a) criar_reuniao: 1 PENDENTE inerte 'sugerido', não executa, idempotente ──
+                tit_m = f"{SENT} Reuniao"
+                rm = await disp(db, _U(), _S(), acao="criar_reuniao",
+                                dados={"titulo": tit_m, "quando_iso": "2099-06-02T14:30", "cliente_nome": "ACME"})
+                assert rm.get("status") == "pendente" and not rm.get("duplicado"), rm
+                mid = rm["entity_id"]; meet_ids.append(mid)
+                row_m = (await db.execute(text(
+                    "SELECT status, lembrete_enviado FROM crm_meetings WHERE id=:i"), {"i": mid})).mappings().first()
+                assert row_m["status"] == "sugerido", f"reunião nasceu {row_m['status']}, esperado 'sugerido'"
+                assert row_m["lembrete_enviado"] is False, "reunião pendente não pode ter lembrete enviado"
+                exec_m = (await db.execute(text(
+                    "SELECT count(*) FROM crm_meetings WHERE titulo LIKE :n AND status = 'confirmado'"),
+                    {"n": SENT + "%"})).scalar()
+                assert exec_m == 0, "reunião sentinela confirmada (executada) — não deveria"
+                rm2 = await disp(db, _U(), _S(), acao="criar_reuniao",
+                                 dados={"titulo": tit_m, "quando_iso": "2099-06-02T14:30", "cliente_nome": "ACME"})
+                assert rm2.get("duplicado") is True, rm2
+                print("TESTE a5 (criar_reuniao: PENDENTE inerte 'sugerido' (lembrete só p/ confirmado), idempotente) PASS")
+
+                # ── (a) registrar_followup: 1 PENDENTE inerte 'proposto' SEM telefone, não envia, idempotente ──
+                msg_f = f"{SENT} follow-up de teste"
+                rf = await disp(db, _U(), _S(), acao="registrar_followup", dados={"mensagem": msg_f})
+                assert rf.get("status") == "pendente" and not rf.get("duplicado"), rf
+                fid = rf["entity_id"]; fup_ids.append(fid)
+                row_f = (await db.execute(text(
+                    "SELECT status, phone_e164 FROM crm_followups WHERE id=:i"), {"i": fid})).mappings().first()
+                assert row_f["status"] == _FUP_STATUS_PROPOSTO, f"followup nasceu {row_f['status']}, esperado 'proposto'"
+                assert row_f["phone_e164"] is None, "followup pendente NÃO pode ter telefone (worker enviaria)"
+                # o worker só envia 'agendado' com phone: sentinela nunca vira 'agendado'/'enviado'
+                exec_f = (await db.execute(text(
+                    "SELECT count(*) FROM crm_followups WHERE mensagem LIKE :n AND status IN ('agendado','enviado')"),
+                    {"n": SENT + "%"})).scalar()
+                assert exec_f == 0, "followup sentinela ficou 'agendado'/'enviado' (executado) — não deveria"
+                rf2 = await disp(db, _U(), _S(), acao="registrar_followup", dados={"mensagem": msg_f})
+                assert rf2.get("duplicado") is True, rf2
+                print("TESTE a6 (registrar_followup: PENDENTE inerte 'proposto' sem telefone, não envia, idempotente) PASS")
+
                 # ── (b) acao inválida → recusa + opções (fail-closed) ──
                 rb = await disp(db, _U(), _S(), acao="deletar_tudo", dados={})
                 assert rb.get("status") == "recusado" and "opções" in rb.get("motivo", ""), rb
@@ -337,8 +606,9 @@ if __name__ == "__main__":
                 print("TESTE c (_gate sem crm → PermissionError; agir_crm só no belt de crm) PASS")
 
                 # ── (d) prova global: NADA foi executado (só PENDENTES inertes) ──
-                print("TESTE d (as 3 ações PROPÕEM sem executar: lead 'new', tarefa 'pending', "
-                      "nota 'aguardando aprovação') PASS")
+                print("TESTE d (as 6 ações PROPÕEM sem executar: lead 'new', tarefa 'pending', "
+                      "nota 'aguardando aprovação', visita 'rascunho', reunião 'sugerido', "
+                      "followup 'proposto' sem telefone) PASS")
                 print("\nTODAS AS PROVAS DE tools_acao_crm.py PASSARAM")
             finally:
                 if lead_ids:
@@ -353,9 +623,18 @@ if __name__ == "__main__":
                     await db.execute(text("DELETE FROM crm_client_notes WHERE id = ANY(:i)"), {"i": note_ids})
                     await db.execute(text(
                         "DELETE FROM audit_logs WHERE details->>'entity_id' = ANY(:i)"), {"i": note_ids})
+                for tbl, ids in (("crm_visit_reports", visit_ids), ("crm_meetings", meet_ids),
+                                 ("crm_followups", fup_ids)):
+                    if ids:
+                        await db.execute(text(f"DELETE FROM {tbl} WHERE id = ANY(CAST(:i AS uuid[]))"), {"i": ids})
+                        await db.execute(text(
+                            "DELETE FROM audit_logs WHERE details->>'entity_id' = ANY(:i)"), {"i": ids})
                 await _limpar(db, "lead:%" + SENT + "%")
                 await _limpar(db, "tarefa:%" + SENT + "%")
                 await _limpar(db, "anota:%")
+                await _limpar(db, "visita:%" + SENT.lower() + "%")
+                await _limpar(db, "reuniao:%" + SENT.lower() + "%")
+                await _limpar(db, "followup:%")
                 await db.commit()
                 rem_l = (await db.execute(text(
                     "SELECT count(*) FROM leads WHERE name LIKE :n"), {"n": SENT + "%"})).scalar()
@@ -363,9 +642,16 @@ if __name__ == "__main__":
                     "SELECT count(*) FROM crm_tasks WHERE title LIKE :n"), {"n": SENT + "%"})).scalar()
                 rem_n = (await db.execute(text(
                     "SELECT count(*) FROM crm_client_notes WHERE nota LIKE :n"), {"n": "%" + SENT + "%"})).scalar()
-                assert rem_l == 0 and rem_t == 0 and rem_n == 0, \
-                    f"remanescentes lead={rem_l} tarefa={rem_t} nota={rem_n}"
-                print("LIMPEZA OK — 0 remanescentes (leads/crm_tasks/crm_client_notes/audit/sino)")
+                rem_v = (await db.execute(text(
+                    "SELECT count(*) FROM crm_visit_reports WHERE cliente_nome LIKE :n"), {"n": SENT + "%"})).scalar()
+                rem_m = (await db.execute(text(
+                    "SELECT count(*) FROM crm_meetings WHERE titulo LIKE :n"), {"n": SENT + "%"})).scalar()
+                rem_f = (await db.execute(text(
+                    "SELECT count(*) FROM crm_followups WHERE mensagem LIKE :n"), {"n": SENT + "%"})).scalar()
+                assert rem_l == 0 and rem_t == 0 and rem_n == 0 and rem_v == 0 and rem_m == 0 and rem_f == 0, \
+                    f"remanescentes lead={rem_l} tarefa={rem_t} nota={rem_n} visita={rem_v} reuniao={rem_m} followup={rem_f}"
+                print("LIMPEZA OK — 0 remanescentes "
+                      "(leads/crm_tasks/crm_client_notes/crm_visit_reports/crm_meetings/crm_followups/audit/sino)")
         await eng.dispose()
 
     asyncio.run(main())
