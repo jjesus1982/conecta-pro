@@ -571,12 +571,79 @@ async def rd_action_nova_ronda(current_user: CurrentActiveUser, payload: dict = 
         raise HTTPException(status_code=400, detail=str(ge))
     rid = getattr(r, "id", None)
     return {"ok": True, "id": str(rid) if rid else None, "code": getattr(r, "code", None), "message": "Ronda criada"}
+@router.post("/action/notificacoes-marcar-todas")
+async def rd_action_notif_marcar_todas(current_user: CurrentActiveUser, payload: dict = Body(default={}),
+                                       db=Depends(get_db)) -> dict:
+    """Marca TODAS as notificações do usuário como lidas (reuso do controller real)."""
+    from modules.operacional.communication.controllers.notification_controller import mark_all_notifications_read
+    from modules.operacional.communication.schemas.communication_schemas import MarkNotificationReadRequest
+    res = await mark_all_notifications_read(
+        request_data=MarkNotificationReadRequest(notification_ids=None), current_user=current_user, db=db)
+    n = res.get("count") if isinstance(res, dict) else None
+    return {"ok": True, "message": "Notificações marcadas como lidas." + (f" ({n})" if n is not None else "")}
+
+
+@router.post("/action/checkin-manual")
+async def rd_action_checkin_manual(current_user: CurrentActiveUser, payload: dict = Body(...),
+                                   db=Depends(get_db)) -> dict:
+    """Check-in manual de presença (quando o facial falha) — reuso do controller real via gate."""
+    from modules.operacional.controllers.redesign_write_gate import GateError, op_write
+    from modules.operacional.presence.controllers.presence_controller import checkin_manual
+    from modules.operacional.presence.schemas import CheckinManualBody
+    shift_id = (payload.get("shift_id") or "").strip()
+    if not shift_id:
+        raise HTTPException(status_code=400, detail="Selecione o turno de hoje.")
+    body = CheckinManualBody(observacao=(payload.get("observacao") or None))
+    scope = _mgr_scope(current_user)
+
+    async def _write():
+        return await checkin_manual(shift_id=shift_id, payload=body, scope=scope, db=db)
+    try:
+        await op_write(db, real_write=_write)
+    except GateError as ge:
+        raise HTTPException(status_code=400, detail=str(ge))
+    return {"ok": True, "message": "Check-in manual registrado."}
+
+
+@router.post("/action/posto-localizacao")
+async def rd_action_posto_localizacao(current_user: CurrentActiveUser, payload: dict = Body(...),
+                                      db=Depends(get_db)) -> dict:
+    """Define a localização GPS REAL do posto (reuso do controller). Só gestão."""
+    from uuid import UUID
+    from modules.operacional.controllers.post_controller import DefinirLocalizacaoRequest, definir_localizacao_posto
+    from modules.operacional.controllers.redesign_write_gate import GateError, op_write
+    post_id = (payload.get("post_id") or "").strip()
+    if not post_id:
+        raise HTTPException(status_code=400, detail="Selecione o posto.")
+    try:
+        _pid = UUID(post_id)
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail="Posto inválido.")
+    try:
+        req = DefinirLocalizacaoRequest(
+            lat=float(payload.get("lat")), lng=float(payload.get("lng")),
+            raio_metros=(float(payload["raio_metros"]) if payload.get("raio_metros") else None))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Latitude/longitude inválidas: {e}")
+
+    async def _write():
+        return await definir_localizacao_posto(post_id=_pid, current_user=current_user, payload=req, db=db)
+    try:
+        await op_write(db, real_write=_write)
+    except GateError as ge:
+        raise HTTPException(status_code=400, detail=str(ge))
+    return {"ok": True, "message": "Localização do posto definida."}
+
+
 EXTRA_MENU: list[dict] = [
     {"id": "rondas", "label": "Rondas",
      "icon": "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"},
     {"id": "passagem-turno-nova", "label": "Nova passagem", "icon": "M12 5v14M5 12h14"},
     {"id": "instrucao-posto-editar", "label": "Editar instrução", "icon": "M12 5v14M5 12h14"},
     {"id": "banco-horas-lancar", "label": "Lançar horas", "icon": "M12 5v14M5 12h14"},
+    {"id": "notificacoes-marcar-todas", "label": "Marcar notificações lidas", "icon": "M5 13l4 4L19 7"},
+    {"id": "checkin-manual", "label": "Check-in manual", "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
+    {"id": "posto-localizacao", "label": "Localização do posto", "icon": "M12 21s-8-4.5-8-11a8 8 0 1 1 16 0c0 6.5-8 11-8 11zM12 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"},
     {"id": "nova-ronda", "label": "Nova ronda", "icon": "M12 5v14M5 12h14"},
     {"id": "medida-submeter", "label": "Submeter medida", "icon": "M12 5v14M5 12h14"},
     {"id": "medida-aprovar", "label": "Aprovar medida", "icon": "M20 6L9 17l-5-5"},
@@ -870,6 +937,35 @@ async def build(db) -> dict:
                 {"key": "inspector_id", "label": "Inspetor*", "type": "select", "span": "span 2", "ph": "Selecione o inspetor", "options": _emp_opts},
                 {"key": "scheduled_date", "label": "Data agendada", "type": "date", "span": "span 1"},
                 {"key": "observations", "label": "Observações", "type": "textarea", "span": "span 2", "ph": "Opcional…"},
+            ],
+        }
+        # ── 3 edge-actions ligadas 2026-08-04 (marcar-todas notif · checkin manual · localização posto) ──
+        out["notificacoes-marcar-todas"] = {
+            "title": "Marcar notificações como lidas", "sub": "Marca TODAS as suas notificações como lidas", "cta": "Marcar todas",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/notificacoes-marcar-todas", "okMsg": "Notificações marcadas como lidas"},
+            "fields": [],
+        }
+        _shifts_hoje = (await db.execute(_sqltext(
+            "SELECT s.id, coalesce(e.nome,'—') || coalesce(' · '||to_char(s.planned_start_time,'HH24:MI'),'') "
+            "FROM shifts s LEFT JOIN employees e ON e.id=s.employee_id "
+            "WHERE s.shift_date = CURRENT_DATE AND coalesce(s.is_active,true) ORDER BY e.nome LIMIT 300"))).fetchall()
+        _shift_opts = [{"value": str(i), "label": (n or '—')} for i, n in _shifts_hoje]
+        out["checkin-manual"] = {
+            "title": "Check-in manual", "sub": "Registra presença quando o facial falha (turno de HOJE)", "cta": "Registrar check-in",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/checkin-manual", "okMsg": "Check-in registrado"},
+            "fields": [
+                {"key": "shift_id", "label": "Turno de hoje*", "type": "select", "span": "span 2", "ph": "Selecione o turno", "options": _shift_opts},
+                {"key": "observacao", "label": "Observação", "type": "textarea", "span": "span 2", "ph": "Opcional (motivo do check-in manual)…"},
+            ],
+        }
+        out["posto-localizacao"] = {
+            "title": "Definir localização do posto", "sub": "GPS capturado no local (latitude/longitude reais)", "cta": "Salvar localização",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/posto-localizacao", "okMsg": "Localização definida"},
+            "fields": [
+                {"key": "post_id", "label": "Posto*", "type": "select", "span": "span 2", "ph": "Selecione o posto", "options": _post_opts},
+                {"key": "lat", "label": "Latitude*", "type": "text", "span": "span 1", "ph": "Ex.: -3.10194"},
+                {"key": "lng", "label": "Longitude*", "type": "text", "span": "span 1", "ph": "Ex.: -60.02510"},
+                {"key": "raio_metros", "label": "Raio (metros)", "type": "text", "span": "span 1", "ph": "Opcional, ex.: 100"},
             ],
         }
     except Exception:  # noqa: BLE001
