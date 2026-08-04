@@ -237,3 +237,34 @@ backend → redesign só precisa builder (leitura) + ações via write-gate (`re
 - analytics→admin-only (KPIs exec cross-módulo: punches/nfse/inter/proposals) · seguranca→admin-only (LGPD: candidate_consents/lgpd_audit_logs/erasure_requests).
 - assistente→SELF-SCOPE por user_id (assistant_conversations pode ter consulta sensível; celiane via 3 de terceiros→0).
 - ESTADO FINAL /redesign/data: 31/31 slugs com parede → 23 module (18+5), 5 admin-only (configuracoes/empresas/relatorios/analytics/seguranca), 3 self-scoped (portal-do-funcionario/meu-espaco/assistente). Nenhum slug aberto.
+
+## QA E2E — OPERACIONAL com perfil ELIZIEL GONZAGA (na tela, Playwright, 2026-08-04)
+Perfil: elizielgonzagaf@gmail.com, role=gerente_operacional, módulos operacional/dp/ged/sst. Sistema no ar (erp.conectamais.pro), token real injetado.
+- LAUNCHER: identidade real "Eliziel Gonzaga / gerente_operacional / EG / Bom dia, Eliziel". 14 tiles (operacional, DP, RH, Gestão de Pessoas, SST, Ponto, Equipamentos, Documentos + 5 pessoais). SEM financeiro/crm/fiscal/juridico/bi/empresas/configuracoes/area-do-cliente. RBAC correto na tela.
+- LEITURAS OPERACIONAL (todas reais): Postos 13, Colaboradores 90, Escalas 20, Medidas admin. 7, Reembolsos 22, Rondas 36, Diaristas 48, Presença hoje 8, Ocorrências 4 (type=list). Vazio-REAL confirmado no banco: Banco de horas (time_bank=0), Substituições (substitutions=0).
+- CROSS-MÓDULO RBAC: /redesign/data/financeiro → 403 "Sem acesso ao módulo 'financeiro'" (0 telas).
+- AÇÕES (token real, não-destrutivo): reembolso-aprovar(fake)→404 (gate module:dp PASSOU=função dele); ferias-aprovar(colaborador NÃO-operacional)→403 "Fora do seu escopo operacional" (parede de equipe); enviar-pix→403, transferir-ted→403 ("dinheiro que sai restrita ao Financeiro").
+- BUGS: nenhum. (O "0" inicial de Ocorrências foi artefato do meu seletor de tabela — a tela é type=list com 4 itens reais.)
+- Cleanup: browser encerrado, chromium 12→2 (idle do MCP), det-robot intacto, tokens de teste apagados.
+
+## QA E2E — OPERACIONAL com perfil ORLAILSON PAIVA (na tela, Playwright, 2026-08-04)
+Perfil: supervisoroperacionalpaiva@gmail.com, role=supervisor, perms operacional/dp/ged/sst+disciplinar_comunicados. Acesso idêntico ao Eliziel (papel supervisor deriva das mesmas permissions).
+- LAUNCHER: "Orlailson Paiva / supervisor / OP / Bom dia, Orlailson". 14 tiles (mesmos do Eliziel). RBAC correto.
+- LEITURAS: Postos 13, Colaboradores 90, Escalas 20, Medidas 7, Reembolsos 22, Rondas 36, Diaristas 48, Presença 8, Ocorrências 16-itens(list). Todas reais.
+- RBAC: /redesign/data/financeiro→403; /redesign/data/configuracoes→403 "restrito à administração/diretoria" (admin-only).
+- AÇÕES: reembolso-aprovar(fake)→404 (module:dp passou); ferias-aprovar(não-op)→403 escopo equipe; enviar-pix→403 money-out.
+- BUGS: nenhum. Cleanup: browser encerrado, chromium idle do MCP, det-robot intacto, token apagado.
+
+## FECHAMENTO OPERACIONAL 100% — auditoria das 38 "órfãs" do recon (2026-08-04)
+Recon: operacional 301 rotas, 222 na superfície do redesign. Das 79 do gap, 2 geradores + 36 ações "órfãs". Cruzadas 1-a-1 contra as 23 ações /action/ + menu do redesign → NENHUMA é botão user-facing real faltando:
+- COBERTAS (falso-órfão, nome PT diferente): medida gerar-documento=/action/medida-documento; mark-missed=registrar-falta; diaristas/evaluations=diarista-avaliar; time-bank POST=banco-horas(lançar); consultor/perguntar=chat Consultor IA.
+- INTERNO/AVANÇADO (não é botão): allocations/shifts bulk; assinaturas/verificar; medidas/ia/{recomendar,validar,proporcionalidade}; scale-optimizer/{otimizar,otimizar-mes}; scales/{auto-generate,templates from/apply} (Editor visual/Templates cobrem o essencial).
+- MOBILE por design (comentado em nova-ronda): rondas/{id}/{pausar,retomar,registrar-ocorrencia,aplicar-medida-disciplinar}.
+- MONEY-GATED (não happy-path): diaristas/payments/payroll-generate.
+- DORMENTE (0 dado — não ligar=casca): diaristas/fiscal/{relatorio-retencoes,calcular-retencoes} (documentos_fiscais_diaristas=0); time-bank/{compensate,DELETE,PATCH} (time_bank=0).
+- EDGE MENOR (real mas baixo valor / precisa scaffolding extra): notificacoes/marcar-todas (precisa tela de notificações); presenca/checkin-manual (precisa UI por-shift); posts/{id}/definir-localizacao (geo admin); diaristas/schedules/checkout; medidas/{id}/{assinar,recusar-assinatura} (fluxo de assinatura).
+VEREDITO: operacional user-facing = COMPLETO. Reads 100% reais (QA Eliziel+Orlailson), ações-núcleo ligadas+escopadas, geradores cobertos. Nada do clássico operacional que o time use fica de fora. Gap real do projeto está em DP/RH(238)/financial(219)/ged(102)/fiscal(62) — outras faixas.
+
+## EDGE-ACTIONS LIGADAS (2026-08-04) — fechamento operacional
+Ligadas 3 (dado vivo): /redesign/action/notificacoes-marcar-todas (60 notif), checkin-manual (57 turnos hoje), posto-localizacao (9 postos). Forms no EXTRA_MENU, reuso de controllers via op_write. Molde passagem-turno.
+NÃO ligadas (motivo): diarista-checkout=diarist_schedules 0 linhas (dormente=casca); assinar/recusar-medida=fluxo e-assinatura real (SignRequest signature_data+testemunhas, não se fabrica). Registrado como decisão.
