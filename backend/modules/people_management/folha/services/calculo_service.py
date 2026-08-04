@@ -102,6 +102,46 @@ def dias_vt_vr(escala: str, mes: int, ano: int) -> tuple[int, int]:
     return seg_sex + sab, seg_sex  # VT = seg–sáb; VR = seg–sex
 
 
+# Horas de relógio dentro da janela noturna (22:00–05:00) num plantão 12x36 noturno.
+# Com a redução da hora noturna (52'30") viram 8 horas legais — e é exatamente 8 que a
+# Portte paga por plantão, em 17 pessoas × 6 meses, sem exceção. A integralidade valida
+# de uma vez o divisor 180, a alíquota de 20% e o método.
+HORAS_NOTURNAS_POR_PLANTAO = Decimal("7")
+
+
+def plantoes_noturnos(db, employee_id: str, mes: int, ano: int) -> int:
+    """Plantões noturnos AGENDADOS na competência (escala) — base do adicional noturno.
+
+    Decisão do Jordan (04/08/2026): pagar o noturno pela ESCALA, como a Portte, e não pelas
+    batidas. Motivo medido: o ponto real cobre só 69% (mediana) das horas que a Portte paga,
+    porque 28% dos dias têm uma única batida. Pagar pelo ponto cortaria ~31% do adicional de
+    cada agente noturno — redução salarial causada por falha de REGISTRO, não por falta.
+    O ponto continua valendo para detectar exceção (falta, troca, plantão extra).
+
+    Conta data DISTINTA e só turno `scheduled`: 45% das linhas de `shifts` são `cancelled`
+    (troca/substituição) e contá-las inflaria o pagamento.
+
+    Só conta plantão DENTRO do vínculo: a escala de julho seguia lançada até o fim do mês
+    para quem foi desligado dia 22, e sem essa guarda pagaríamos 4 plantões que não existiram.
+    """
+    return int(
+        db.execute(
+            text(
+                "SELECT count(DISTINCT s.shift_date) FROM shifts s "
+                "JOIN employees e ON CAST(e.id AS TEXT) = CAST(s.employee_id AS TEXT) "
+                "WHERE CAST(s.employee_id AS TEXT) = :e AND s.is_night_shift "
+                "AND s.status = 'scheduled' AND NOT COALESCE(s.is_off_day, false) "
+                "AND EXTRACT(MONTH FROM s.shift_date) = :m AND EXTRACT(YEAR FROM s.shift_date) = :a "
+                "AND (e.data_admissao IS NULL OR s.shift_date >= e.data_admissao) "
+                "AND (COALESCE(e.data_desligamento, e.data_demissao) IS NULL "
+                "     OR s.shift_date <= COALESCE(e.data_desligamento, e.data_demissao))"
+            ),
+            {"e": str(employee_id), "m": mes, "a": ano},
+        ).scalar()
+        or 0
+    )
+
+
 def fator_dsr(escala: str, mes: int, ano: int) -> Decimal:
     """Fator do DSR (repouso semanal remunerado) sobre verbas variáveis.
 
@@ -391,13 +431,21 @@ def calcular_folha_colaborador(
             }
         )
 
-    # 0020 — Adicional noturno: SÓ das horas noturnas REAIS do ponto (22h-05h). Sem
-    # batidas NÃO se estima (dinheiro — líquido/INSS/FGTS — não pode sair de horas que
-    # ninguém bateu; viola "nunca fabricar dado"). Sem ponto → 0 + aviso; o noturno
-    # entra quando o ponto do mês for fechado (fluxo de fechamento do espelho).
-    # tem_espelho → prêmio noturno vem do backfill (acima); NÃO recomputar do ponto (dobraria).
-    horas_not = _d(str(_hp.get("horas_noturnas", 0))) if (tem_ponto and not tem_espelho) else Decimal("0")
-    noturno_pendente_ponto = (not tem_ponto) and (turno == "noturno")
+    # 0020 — Adicional noturno pela ESCALA (decisão do Jordan, 04/08/2026): 7h de relógio na
+    # janela 22h-05h por plantão AGENDADO, que a redução (52'30") transforma em 8h legais —
+    # exatamente o que a Portte paga, validado em 17 pessoas × 6 meses sem exceção.
+    # NÃO é fabricar: o plantão agendado é fato contratual curado à mão, não estimativa. Já o
+    # ponto cobre só 69% dele (28% dos dias têm uma batida só), e pagar por ele cortaria ~31%
+    # do adicional de cada agente noturno — redução salarial por falha de registro.
+    # Sem escala lançada, cai no ponto real (comportamento anterior) em vez de zerar.
+    # tem_espelho → prêmio noturno vem do backfill (acima); NÃO recomputar (dobraria).
+    _plantoes = plantoes_noturnos(db, employee_id, mes, ano) if not tem_espelho else 0
+    if _plantoes:
+        horas_not = _d(_plantoes * HORAS_NOTURNAS_POR_PLANTAO)
+        fonte_horas = "escala"
+    else:
+        horas_not = _d(str(_hp.get("horas_noturnas", 0))) if (tem_ponto and not tem_espelho) else Decimal("0")
+    noturno_pendente_ponto = (not tem_ponto) and (not _plantoes) and (turno == "noturno")
     adic_noturno = Decimal("0")
     adic_hora_reduzida = Decimal("0")
     if horas_not > 0:
