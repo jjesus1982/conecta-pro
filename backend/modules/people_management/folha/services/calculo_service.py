@@ -464,7 +464,11 @@ def calcular_folha_colaborador(
         if _n_menor14 > 0:
             _sf_valor = _d(SALARIO_FAMILIA_QUOTA * _n_menor14 * fator_prop)
             proventos.append({
-                "codigo": "0020",
+                # 0095, NÃO 0020: o adicional noturno já usa 0020. codRubr é CHAVE no
+                # eSocial (S-1010/S-1200) e as naturezas são opostas — noturno incide INSS,
+                # salário-família não. Duplicar o código faz o evento ser rejeitado, ou pior,
+                # aceito com a incidência errada. Achado na comparação com a Portte (04/08).
+                "codigo": "0095",
                 "descricao": "Salario Familia",
                 "tipo": "provento",
                 "referencia": f"{_n_menor14} filho(s) <14",
