@@ -7,12 +7,14 @@
 // Chama POST /api/v1/consultores/chat/executar (gera-doc p/ todos os perfis) e baixa os PDFs
 // que a resposta traz em d.documentos[]. Bearer do localStorage access_token (URL relativa).
 import { useState, useRef, useEffect } from 'react';
-import { MessageCircle, X, Send, Download, Loader2 } from 'lucide-react';
+import { MessageCircle, X, Send, Download, Loader2, Paperclip } from 'lucide-react';
 
 type Doc = { nome?: string; arquivo_base64?: string; resumo?: string };
 type Msg = { role: 'user' | 'assistant'; text: string; docs?: Doc[]; aviso?: boolean };
 
 const ENDPOINT = '/api/v1/consultores/chat/executar';
+const ENDPOINT_ARQUIVO = '/api/v1/consultores/chat/executar-arquivo';
+const ACCEPT = '.pdf,.docx,.txt,.png,.jpg,.jpeg,.webp';
 const SUGGESTIONS = ['Gera o DRE do mês', 'Meu holerite', 'Monta uma proposta'];
 const NAVY = '#16277D';
 const GRAD = 'linear-gradient(135deg, #16277D, #F26522)';
@@ -37,24 +39,37 @@ export default function FloatingChat() {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { if (open) endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs, busy, open]);
 
   async function send(pergunta: string) {
     const q = (pergunta || '').trim();
-    if (!q || busy) return;
+    const anexo = file;
+    if ((!q && !anexo) || busy) return;
     setInput('');
-    setMsgs((m) => [...m, { role: 'user', text: q }]);
+    setFile(null);
+    if (fileRef.current) fileRef.current.value = '';
+    setMsgs((m) => [...m, { role: 'user', text: anexo ? `📎 ${anexo.name}${q ? `\n${q}` : ''}` : q }]);
     setBusy(true);
     let tok: string | null = null;
     try { tok = localStorage.getItem('access_token'); } catch { /* */ }
     try {
-      const res = await fetch(ENDPOINT, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
-        body: JSON.stringify({ pergunta: q }),
-      });
+      const auth = tok ? { Authorization: `Bearer ${tok}` } : {};
+      const res = anexo
+        ? await (() => {
+            const fd = new FormData();
+            fd.append('arquivo', anexo);
+            fd.append('pergunta', q);
+            return fetch(ENDPOINT_ARQUIVO, { method: 'POST', headers: auth, body: fd });
+          })()
+        : await fetch(ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...auth },
+            body: JSON.stringify({ pergunta: q }),
+          });
       const d = await res.json().catch(() => ({} as any));
       if (res.status === 401 || res.status === 403) {
         setMsgs((m) => [...m, { role: 'assistant', text: 'Sua sessão expirou. Faça login de novo para continuar.', aviso: true }]);
@@ -178,17 +193,54 @@ export default function FloatingChat() {
             <div ref={endRef} />
           </div>
 
-          {/* Rodapé — textarea + enviar */}
+          {/* Rodapé — anexo + textarea + enviar */}
           <form
             onSubmit={(e) => { e.preventDefault(); send(input); }}
-            className="flex-shrink-0 flex items-end gap-2 p-3"
+            className="flex-shrink-0 flex flex-col gap-2 p-3"
             style={{ borderTop: '1px solid #E7ECF3' }}
           >
+            {file && (
+              <div
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs"
+                style={{ background: '#F1F4FA', border: '1px solid #E7ECF3', color: '#16233f' }}
+              >
+                <Paperclip className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#F26522' }} />
+                <span className="flex-1 truncate">{file.name}</span>
+                <button
+                  type="button"
+                  onClick={() => { setFile(null); if (fileRef.current) fileRef.current.value = ''; }}
+                  aria-label="Remover anexo"
+                  className="flex-shrink-0"
+                  style={{ color: '#6b7280', background: 'transparent', border: 'none' }}
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+          <div className="flex items-end gap-2">
+            <input
+              ref={fileRef}
+              type="file"
+              accept={ACCEPT}
+              className="hidden"
+              onChange={(e) => setFile(e.target.files?.[0] || null)}
+            />
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={busy}
+              aria-label="Anexar arquivo (PDF, foto, documento)"
+              title="Anexar PDF, foto ou documento"
+              className="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-xl disabled:opacity-40 transition-colors hover:bg-[#F1F4FA]"
+              style={{ border: '1px solid #E7ECF3', background: '#fff', color: '#16277D' }}
+            >
+              <Paperclip className="w-4 h-4" />
+            </button>
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input); } }}
-              placeholder="Pergunte ou peça um documento…"
+              placeholder={file ? 'Pergunte sobre o anexo (opcional)…' : 'Pergunte, anexe um PDF/foto ou peça um documento…'}
               rows={1}
               disabled={busy}
               aria-label="Sua mensagem"
@@ -197,13 +249,14 @@ export default function FloatingChat() {
             />
             <button
               type="submit"
-              disabled={busy || !input.trim()}
+              disabled={busy || (!input.trim() && !file)}
               aria-label="Enviar"
               className="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-xl text-white disabled:opacity-40 transition-opacity"
               style={{ background: NAVY, border: 'none' }}
             >
               <Send className="w-4 h-4" />
             </button>
+          </div>
           </form>
         </div>
       )}

@@ -20,7 +20,7 @@ tier decide o resto:
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -115,6 +115,22 @@ async def _resolver_tier_e_tools(db: AsyncSession, user) -> tuple[OrqScope, list
     return OrqScope(tier="clt", employee_id=None), []
 
 
+_MODULO_AGENTE = {
+    "financeiro": "cfo", "fiscal": "fiscal", "juridico": "juridico",
+    "ged": "ged", "crm": "comercial", "operacional": "operacional", "dp": "chro",
+}
+
+
+def _system_for(user, pergunta: str) -> str:
+    """System base + injeção aditiva de conhecimento dos módulos do usuário (cap 2, fail-open)."""
+    from modules.ai.conversation.services.consultor_conhecimento_service import contexto_para_prompt
+    mods = user_modules(user)
+    sp = _SYSTEM_BASE
+    for agente in list({_MODULO_AGENTE[m] for m in mods if m in _MODULO_AGENTE})[:2]:
+        sp += contexto_para_prompt(agente, pergunta)
+    return sp
+
+
 @router.post("/consultar")
 async def consultar(
     payload: ConsultarIn,
@@ -134,23 +150,9 @@ async def consultar(
         return out
 
     scope, tools = await _resolver_tier_e_tools(db, user)
-
-    # Injeção aditiva de conhecimento de domínio (Fase 5.4b): só os módulos que o
-    # próprio usuário já enxerga (belt), CAP em 2 p/ não inchar o prompt. Fail-open
-    # (o serviço devolve "" se o .md do agente não existir).
-    from modules.ai.conversation.services.consultor_conhecimento_service import contexto_para_prompt
-    _MODULO_AGENTE = {
-        "financeiro": "cfo", "fiscal": "fiscal", "juridico": "juridico",
-        "ged": "ged", "crm": "comercial", "operacional": "operacional", "dp": "chro",
-    }
-    mods = user_modules(user)
-    system_prompt = _SYSTEM_BASE
-    for agente in list({_MODULO_AGENTE[m] for m in mods if m in _MODULO_AGENTE})[:2]:
-        system_prompt += contexto_para_prompt(agente, pergunta)
-
     return await run_engine(
         db, user, scope, tools, pergunta,
-        system_prompt=system_prompt, origem="consultor_escopado",
+        system_prompt=_system_for(user, pergunta), origem="consultor_escopado",
     )
 
 
@@ -165,18 +167,46 @@ async def executar(
     tool ainda aplica seu próprio gate/RBAC pela identidade real. O return traz `documentos`."""
     pergunta = payload.pergunta.strip()
     scope, tools = await _resolver_tier_e_tools(db, user)
-
-    from modules.ai.conversation.services.consultor_conhecimento_service import contexto_para_prompt
-    _MODULO_AGENTE = {
-        "financeiro": "cfo", "fiscal": "fiscal", "juridico": "juridico",
-        "ged": "ged", "crm": "comercial", "operacional": "operacional", "dp": "chro",
-    }
-    mods = user_modules(user)
-    system_prompt = _SYSTEM_BASE
-    for agente in list({_MODULO_AGENTE[m] for m in mods if m in _MODULO_AGENTE})[:2]:
-        system_prompt += contexto_para_prompt(agente, pergunta)
-
     return await run_engine(
         db, user, scope, tools, pergunta,
-        system_prompt=system_prompt, origem="consultor_executar",
+        system_prompt=_system_for(user, pergunta), origem="consultor_executar",
+    )
+
+
+@router.post("/executar-arquivo")
+async def executar_arquivo(
+    arquivo: UploadFile = File(...),
+    pergunta: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_active_user),
+):
+    """Chat com ANEXO: lê PDF/DOCX/TXT (texto) ou foto (vision) e interpreta, com as MESMAS
+    tools/gate/escopo do /executar. Foto vira image_url; documento vira texto na pergunta."""
+    from modules.ai.conversation.services.orquestrador.anexos import (
+        eh_imagem, extrair_texto_arquivo, imagem_data_url,
+    )
+    data = await arquivo.read()
+    if len(data) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Arquivo muito grande (máx 15MB).")
+    nome = arquivo.filename or "anexo"
+    base = (pergunta or "").strip()
+    imagens: list[str] = []
+    if eh_imagem(nome):
+        imagens.append(imagem_data_url(nome, data))
+        pergunta_final = base or "Analise e interprete esta imagem/foto anexada; descreva o que for relevante."
+    else:
+        texto = extrair_texto_arquivo(nome, data)
+        if len(texto) < 10:
+            raise HTTPException(
+                status_code=422,
+                detail="Não consegui extrair texto do arquivo (PDF escaneado? Tente mandar como foto/imagem).",
+            )
+        instr = base or "Analise e interprete este documento anexado; aponte o que for relevante."
+        pergunta_final = f'{instr}\n\n[Documento anexado: {nome}]\n"""\n{texto}\n"""'
+
+    scope, tools = await _resolver_tier_e_tools(db, user)
+    return await run_engine(
+        db, user, scope, tools, pergunta_final,
+        system_prompt=_system_for(user, pergunta_final), origem="consultor_executar_arquivo",
+        imagens=imagens or None,
     )

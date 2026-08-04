@@ -73,6 +73,7 @@ async def run_engine(
     max_rounds: int = 6,
     max_tokens: int = 1200,
     client=None,
+    imagens: list[str] | None = None,
 ) -> dict[str, Any]:
     if client is None:
         from openai import AsyncOpenAI  # noqa: PLC0415
@@ -83,9 +84,16 @@ async def run_engine(
     active_tools = [openai_schema(t) for t in tools]
     model = _model()
 
+    # Anexo-foto: content vira lista (texto + image_url) p/ o vision do gpt-5.1 enxergar.
+    # `pergunta` (str) segue intacta p/ audit/groundedness abaixo.
+    user_content: Any = pergunta
+    if imagens:
+        user_content = [{"type": "text", "text": pergunta}] + [
+            {"type": "image_url", "image_url": {"url": u}} for u in imagens
+        ]
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": pergunta},
+        {"role": "user", "content": user_content},
     ]
     tool_results: list[Any] = []  # tudo que as tools retornaram (fonte do groundedness)
     resposta = ""
