@@ -26,6 +26,7 @@ SLUG = "empresas"
 EXTRA_MENU: list[dict] = [
     {"id": "nova-liminar", "label": "Nova Liminar", "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 15h6M9 11h6"},
     {"id": "assinar-documentos", "label": "Assinar documentos", "icon": "M15.232 5.232l3.536 3.536M4 20h4l10.5-10.5a2.5 2.5 0 0 0-3.536-3.536L4.5 16.5V20z"},
+    {"id": "documentos-assinados", "label": "Documentos assinados", "icon": "M9 12l2 2 4-4M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"},
 ]
 
 
@@ -135,11 +136,15 @@ async def build(db) -> dict:
         "FROM sig_signature_requests r WHERE r.signer_type='company' AND upper(coalesce(r.status,''))='PENDING' "
         "ORDER BY r.created_at DESC LIMIT 100"))).fetchall()
     _opts = [{"value": p[0], "label": f"{p[1]}"} for p in _pend]
+    if _opts:
+        # 1ª opção = ASSINAR EM LOTE (todos os pendentes de uma vez, com 1 OTP).
+        _opts = [{"value": "__ALL__", "label": f"⚡ TODOS os pendentes ({len(_pend)}) — assinar em lote"}] + _opts
     out["assinar-documentos"] = {
         "title": "Assinar documentos da empresa",
-        "sub": (f"{len(_opts)} documento(s) aguardando a assinatura da empresa (ICP-Brasil A1). "
-                "Ao confirmar, você recebe um código OTP no e-mail para liberar a assinatura."
-                if _opts else "Nenhum documento aguardando a assinatura da empresa no momento."),
+        "sub": (f"{len(_pend)} documento(s) aguardando a assinatura da empresa (ICP-Brasil A1). "
+                "Selecione um documento ou 'TODOS' para assinar em lote. Ao confirmar, chega um "
+                "código OTP no seu e-mail para liberar. Veja o PDF de cada um nos botões abaixo."
+                if _pend else "Nenhum documento aguardando a assinatura da empresa no momento."),
         "cta": "Assinar como empresa", "type": "form",
         "submit": {"endpoint": "/api/v1/redesign/action/assinar-doc-empresa",
                    "okMsg": "Documento assinado pela empresa (ICP-Brasil)."},
@@ -149,9 +154,30 @@ async def build(db) -> dict:
             {"key": "otp_code", "label": "Código OTP (chega no seu e-mail após confirmar)", "type": "text",
              "span": "span 2", "ph": "Deixe em branco na 1ª vez — o código é enviado ao confirmar"},
         ],
-        # tabela de apoio: o que está pendente (visibilidade antes de assinar)
-        "rows": [{"cells": [t(p[1], 600, "#0F1B3A"), b((p[2] or '—'), "info"), t(p[3])]} for p in _pend],
-        "cols": ["Documento", "Tipo", "Criado em"], "grid": "2.4fr 1fr 1fr",
+        # Botões "Ver PDF" — revise cada documento ANTES de assinar (abre o PDF, gated admin).
+        "docs": [doc(f"Ver: {(p[1] or '')[:44]}",
+                     f"/api/v1/redesign/action/documento-empresa/{p[0]}", fmt="pdf")
+                 for p in _pend],
+    }
+
+    # ---- DOCUMENTOS JÁ ASSINADOS PELA EMPRESA (baixar o PDF assinado ICP-Brasil) ----
+    _ass = (await db.execute(text(
+        "SELECT r.id::text, r.title, coalesce(r.document_type,'—'), "
+        "to_char(coalesce(r.signed_at, r.updated_at),'DD/MM/YYYY HH24:MI'), "
+        "(r.signed_document_path IS NOT NULL) "
+        "FROM sig_signature_requests r WHERE r.signer_type='company' "
+        "AND upper(coalesce(r.status,'')) IN ('SIGNED','COMPLETED') "
+        "ORDER BY coalesce(r.signed_at, r.updated_at) DESC NULLS LAST LIMIT 200"))).fetchall()
+    out["documentos-assinados"] = {
+        "title": "Documentos assinados (empresa)",
+        "sub": f"{len(_ass)} documento(s) assinados pela empresa (ICP-Brasil A1). Baixe o PDF assinado.",
+        "cta": "—", "type": "table", "searchHint": "Buscar documento…",
+        "grid": "2.6fr 1fr 1.3fr", "cols": ["Documento", "Tipo", "Assinado em"],
+        "rows": [{
+            "cells": [t(a[1], 600, "#0F1B3A"), b((a[2] or '—'), "info"), t(a[3] or '—')],
+            "docs": [doc("Baixar assinado" if a[4] else "Ver documento",
+                         f"/api/v1/redesign/action/documento-empresa/{a[0]}", fmt="pdf")],
+        } for a in _ass],
     }
 
     return out
@@ -208,6 +234,46 @@ async def _rd_assinar_doc_empresa(current_user: CurrentActiveUser, payload: dict
     req_id = (payload.get("documento") or "").strip()
     if not req_id:
         raise HTTPException(status_code=400, detail="Selecione o documento a assinar.")
+    otp_code = (payload.get("otp_code") or "").strip()
+
+    # ---- LOTE: assina TODOS os pendentes da empresa com 1 OTP (cada assinar() commita) ----
+    if req_id == "__ALL__":
+        pend = (await db.execute(text(
+            "SELECT id::text, coalesce(document_path,'') FROM sig_signature_requests "
+            "WHERE signer_type='company' AND upper(coalesce(status,''))='PENDING'"))).fetchall()
+        if not pend:
+            raise HTTPException(status_code=400, detail="Nenhum documento pendente para assinar.")
+        ref = (payload.get("_gate_ref") or "").strip() or "assinatura-empresa-lote"
+
+        async def _dispatch_all():
+            svc = UniversalSignatureService(db)
+            ok = 0
+            fail = 0
+            for pid, ppath in pend:
+                try:
+                    await svc.assinar(
+                        request_id=_UUID(pid), signer_type=SignerType.COMPANY,
+                        signer_id=getattr(current_user, "id", None),
+                        signer_name=getattr(current_user, "full_name", None) or "JORDAN JESUS",
+                        level=SignatureLevel.QUALIFIED,
+                        certificate_ref={"pdf_path": ppath} if ppath else None)
+                    ok += 1
+                except Exception:  # noqa: BLE001 — um doc problemático não derruba o lote
+                    await db.rollback()
+                    fail += 1
+            return {"ok": True, "message": f"{ok} documento(s) assinados em lote pela empresa"
+                    + (f" · {fail} falharam (assine individualmente)" if fail else "") + "."}
+
+        try:
+            res = await money_gov(db, ref=ref, amount=None, otp_code=otp_code, real_dispatch=_dispatch_all,
+                                  label="assinatura_empresa_lote", dest=f"{len(pend)} documentos")
+        except OTPRequired as e:
+            return {"otp_required": True, "ref": e.ref,
+                    "message": f"Assinatura EM LOTE de {len(pend)} documento(s) preparada. {e.message}"}
+        except GateError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        return res
+
     row = (await db.execute(text(
         "SELECT title, signer_type, upper(coalesce(status,'')), document_path "
         "FROM sig_signature_requests WHERE id::text = :i"), {"i": req_id})).first()
@@ -242,3 +308,25 @@ async def _rd_assinar_doc_empresa(current_user: CurrentActiveUser, payload: dict
     except GateError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return res
+
+
+@router.get("/action/documento-empresa/{request_id}")
+async def _rd_documento_empresa(request_id: str, current_user: CurrentActiveUser, db=Depends(get_db)):
+    """Serve o PDF de uma solicitação de assinatura da EMPRESA (para revisar antes de assinar).
+    Gated: só admin/operator. Retorna o document_path (PDF já assinado se houver, senão o original)."""
+    import os as _os
+
+    from fastapi.responses import FileResponse
+
+    if (getattr(current_user, "role", "") or "") not in ("admin", "operator"):
+        raise HTTPException(status_code=403, detail="Acesso restrito à administração.")
+    row = (await db.execute(text(
+        "SELECT title, coalesce(signed_document_path, document_path), signer_type "
+        "FROM sig_signature_requests WHERE id::text = :i"), {"i": request_id})).first()
+    if not row or row[2] != "company":
+        raise HTTPException(status_code=404, detail="Documento não encontrado.")
+    path = row[1]
+    if not path or not _os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Arquivo PDF não disponível para este documento.")
+    safe_name = "".join(ch for ch in (row[0] or "documento") if ch.isalnum() or ch in " -_")[:60].strip() or "documento"
+    return FileResponse(path, media_type="application/pdf", filename=f"{safe_name}.pdf")
