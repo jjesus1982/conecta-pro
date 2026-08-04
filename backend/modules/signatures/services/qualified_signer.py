@@ -126,6 +126,7 @@ def assinar_pdf_icp_brasil(
     field_name: str = "AssinaturaEmpresaICPBrasil",
     contact_info: str | None = None,
     empresa_slug: str | None = None,
+    visivel: bool = True,
 ) -> QualifiedSignatureResult:
     """Assina um PDF com o certificado A1 da empresa (PAdES, ICP-Brasil).
 
@@ -202,11 +203,30 @@ def assinar_pdf_icp_brasil(
         location=location,
         contact_info=contact_info,
     )
-    pdf_signer = signers.PdfSigner(meta, signer=signer)
 
     out = io.BytesIO()
     try:
         writer = IncrementalPdfFileWriter(io.BytesIO(pdf_bytes))
+        # SELO VISÍVEL (como Sólides/DocuSign): campo de assinatura na ÚLTIMA página com
+        # aparência (titular do cert + data BR). Se qualquer coisa falhar, cai para
+        # assinatura INVISÍVEL (nunca bloqueia a assinatura por causa do carimbo visual).
+        stamp_style = None
+        if visivel:
+            try:
+                from pyhanko.sign.fields import SigFieldSpec, append_signature_field
+                from pyhanko.stamp import TextStampStyle
+
+                append_signature_field(
+                    writer,
+                    SigFieldSpec(sig_field_name=field_name, on_page=-1, box=(300, 52, 566, 138)),
+                )
+                stamp_style = TextStampStyle(
+                    stamp_text="ASSINADO DIGITALMENTE · ICP-Brasil\n%(signer)s\n%(ts)s",
+                    timestamp_format="%d/%m/%Y %H:%M",
+                )
+            except Exception:  # noqa: BLE001 — carimbo visível é best-effort
+                stamp_style = None
+        pdf_signer = signers.PdfSigner(meta, signer=signer, stamp_style=stamp_style)
         # pyhanko.sign_pdf() usa asyncio.run() internamente, o que estoura se já
         # houver um event loop (rotas async do FastAPI). Detectamos o loop e, se
         # existir, usamos a API async em um loop dedicado numa thread separada.

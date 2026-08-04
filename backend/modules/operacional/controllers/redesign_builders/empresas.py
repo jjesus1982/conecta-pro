@@ -34,6 +34,20 @@ def _obr_tone(s):
     return {"atrasada": "bad", "pendente": "warn", "concluida": "ok", "concluída": "ok"}.get((s or "").lower(), "info")
 
 
+def _pdf_valido(path: str | None) -> bool:
+    """True se document_path aponta para um PDF REAL no disco (assinável em ICP-Brasil).
+    Assinatura qualificada precisa do PDF; sem arquivo (ou corrompido) não há o que assinar."""
+    import os as _os
+
+    if not path or not _os.path.exists(path):
+        return False
+    try:
+        with open(path, "rb") as _fh:
+            return _fh.read(5).startswith(b"%PDF")
+    except Exception:  # noqa: BLE001
+        return False
+
+
 async def build(db) -> dict:
     out, safe, tbl = _helpers(db)
     out.update(await _base(db))
@@ -131,20 +145,27 @@ async def build(db) -> dict:
     # Lista as solicitações COMPANY pendentes (comunicado/contrato/…) e deixa o Jordan
     # assinar com o cert A1 do CNPJ (Patrimonial/Eletrônica, resolvido no assinador).
     # Trava OTP humano (e-mail ao Jordan) — a assinatura da razão social é ato sensível.
-    _pend = (await db.execute(text(
-        "SELECT r.id::text, r.title, coalesce(r.document_type,'—'), to_char(r.created_at,'DD/MM/YYYY') "
+    _pend_raw = (await db.execute(text(
+        "SELECT r.id::text, r.title, coalesce(r.document_type,'—'), to_char(r.created_at,'DD/MM/YYYY'), coalesce(r.document_path,'') "
         "FROM sig_signature_requests r WHERE r.signer_type='company' AND upper(coalesce(r.status,''))='PENDING' "
-        "ORDER BY r.created_at DESC LIMIT 100"))).fetchall()
+        "ORDER BY r.created_at DESC LIMIT 200"))).fetchall()
+    # Só documentos com PDF REAL no disco são assináveis (assinatura qualificada precisa do
+    # PDF). Propostas/contratos sem document_path (ou arquivo ausente/corrompido) são excluídos.
+    _pend = [p for p in _pend_raw if _pdf_valido(p[4])]
+    _sem_pdf = len(_pend_raw) - len(_pend)
     _opts = [{"value": p[0], "label": f"{p[1]}"} for p in _pend]
     if _opts:
-        # 1ª opção = ASSINAR EM LOTE (todos os pendentes de uma vez, com 1 OTP).
+        # 1ª opção = ASSINAR EM LOTE (todos os pendentes assináveis de uma vez, com 1 OTP).
         _opts = [{"value": "__ALL__", "label": f"⚡ TODOS os pendentes ({len(_pend)}) — assinar em lote"}] + _opts
+    _sub_nota = (f" ({_sem_pdf} sem PDF disponível ficaram de fora — gere/reenvie o documento primeiro.)"
+                 if _sem_pdf else "")
     out["assinar-documentos"] = {
         "title": "Assinar documentos da empresa",
         "sub": (f"{len(_pend)} documento(s) aguardando a assinatura da empresa (ICP-Brasil A1). "
                 "Selecione um documento ou 'TODOS' para assinar em lote. Ao confirmar, chega um "
                 "código OTP no seu e-mail para liberar. Veja o PDF de cada um nos botões abaixo."
-                if _pend else "Nenhum documento aguardando a assinatura da empresa no momento."),
+                + _sub_nota
+                if _pend else "Nenhum documento com PDF disponível aguardando assinatura." + _sub_nota),
         "cta": "Assinar como empresa", "type": "form",
         "submit": {"endpoint": "/api/v1/redesign/action/assinar-doc-empresa",
                    "okMsg": "Documento assinado pela empresa (ICP-Brasil)."},
@@ -238,11 +259,12 @@ async def _rd_assinar_doc_empresa(current_user: CurrentActiveUser, payload: dict
 
     # ---- LOTE: assina TODOS os pendentes da empresa com 1 OTP (cada assinar() commita) ----
     if req_id == "__ALL__":
-        pend = (await db.execute(text(
+        pend_raw = (await db.execute(text(
             "SELECT id::text, coalesce(document_path,'') FROM sig_signature_requests "
             "WHERE signer_type='company' AND upper(coalesce(status,''))='PENDING'"))).fetchall()
+        pend = [p for p in pend_raw if _pdf_valido(p[1])]  # só os com PDF real (assináveis)
         if not pend:
-            raise HTTPException(status_code=400, detail="Nenhum documento pendente para assinar.")
+            raise HTTPException(status_code=400, detail="Nenhum documento com PDF disponível para assinar.")
         ref = (payload.get("_gate_ref") or "").strip() or "assinatura-empresa-lote"
 
         async def _dispatch_all():
@@ -283,6 +305,9 @@ async def _rd_assinar_doc_empresa(current_user: CurrentActiveUser, payload: dict
         raise HTTPException(status_code=400, detail="Este documento não é uma assinatura da empresa.")
     if row[2] != "PENDING":
         raise HTTPException(status_code=400, detail="Este documento já foi assinado (ou não está pendente).")
+    if not _pdf_valido(row[3]):
+        raise HTTPException(status_code=400,
+                            detail="O PDF deste documento não está disponível — gere/reenvie o documento antes de assinar.")
 
     otp_code = (payload.get("otp_code") or "").strip()
     ref = (payload.get("_gate_ref") or "").strip() or f"assinatura-empresa:{req_id}"
