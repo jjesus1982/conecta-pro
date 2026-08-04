@@ -47,10 +47,20 @@ from modules.signatures.services.universal_signature_service import (
 
 logger = logging.getLogger(__name__)
 
-# Empresa (assinante COMPANY) — fonte da verdade da razão social/CNPJ (memória).
-EMPRESA_RAZAO = "CONECTAMAIS ELETRONICA LTDA"
-EMPRESA_CNPJ = "35.710.481/0001-03"
+# Empresa (assinante COMPANY) — razão social/CNPJ por empresa (multi-CNPJ).
+# A empresa dona do doc é resolvida em `garantir_solicitacao_assinatura` (pelo CPF
+# do funcionário, ou explícita) e grava-se `empresa_slug` no request; o assinador
+# ICP-Brasil (qualified_signer) escolhe o certificado A1 desse CNPJ.
 EMPRESA_REPRESENTANTE = "JORDAN JESUS"
+_EMPRESA_ASSINANTE: dict[str, dict[str, str]] = {
+    "conecta_eletronica": {"razao": "CONECTAMAIS ELETRONICA LTDA", "cnpj": "35.710.481/0001-03"},
+    "conecta_patrimonial": {"razao": "CONECTAMAIS PATRIMONIAL LTDA", "cnpj": "66.014.833/0001-10"},
+}
+_EMPRESA_SLUG_DEFAULT = "conecta_eletronica"
+
+
+def _empresa_assinante(empresa_slug: str | None) -> dict[str, str]:
+    return _EMPRESA_ASSINANTE.get(empresa_slug or _EMPRESA_SLUG_DEFAULT, _EMPRESA_ASSINANTE[_EMPRESA_SLUG_DEFAULT])
 
 # Política: quais tipos de assinante cada tipo de documento exige, na ordem.
 #   contract          → contrato de TRABALHO (funcionário + empresa)
@@ -118,8 +128,10 @@ def _build_signers(
     customer_email: str | None,
     customer_document: str | None,
     company_signer_id: uuid.UUID | str | None,
+    empresa_slug: str | None = None,
 ) -> list[SignerInput]:
     """Monta os SignerInput na ordem da política, a partir do contexto do doc."""
+    emp = _empresa_assinante(empresa_slug)
     signers: list[SignerInput] = []
     for idx, tipo in enumerate(tipos, start=1):
         if tipo == SignerType.EMPLOYEE:
@@ -136,9 +148,9 @@ def _build_signers(
             signers.append(
                 SignerInput(
                     signer_type=SignerType.COMPANY,
-                    signer_name=f"{EMPRESA_RAZAO} ({EMPRESA_REPRESENTANTE})",
+                    signer_name=f"{emp['razao']} ({EMPRESA_REPRESENTANTE})",
                     signer_id=_coerce_uuid(company_signer_id),
-                    signer_document=EMPRESA_CNPJ,
+                    signer_document=emp["cnpj"],
                     order=idx,
                 )
             )
@@ -153,6 +165,31 @@ def _build_signers(
                 )
             )
     return signers
+
+
+async def _empresa_slug_por_cpf(db: AsyncSession, cpf: str | None) -> str | None:
+    """Resolve a empresa dona do vínculo (empresas.slug) pelo CPF do funcionário.
+    None se sem CPF ou sem match — o assinador cai na Eletrônica (default seguro)."""
+    import re
+
+    from sqlalchemy import text
+
+    digitos = re.sub(r"\D", "", str(cpf or ""))
+    if not digitos:
+        return None
+    try:
+        row = await db.execute(
+            text(
+                "SELECT e.slug FROM employees emp JOIN empresas e ON e.id = emp.empresa_id "
+                "WHERE REGEXP_REPLACE(COALESCE(emp.cpf,''),'[^0-9]','','g') = :cpf LIMIT 1"
+            ),
+            {"cpf": digitos},
+        )
+        r = row.first()
+        return r[0] if r else None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Falha ao resolver empresa por CPF na assinatura: %s", exc)
+        return None
 
 
 def _coerce_uuid(value: uuid.UUID | str | None) -> uuid.UUID | None:
@@ -182,12 +219,17 @@ async def garantir_solicitacao_assinatura(
     customer_document: str | None = None,
     company_signer_id: uuid.UUID | str | None = None,
     requested_by: uuid.UUID | str | None = None,
+    empresa_slug: str | None = None,
 ) -> dict[str, Any] | None:
     """Garante que exista uma solicitação de assinatura para o documento (idempotente).
 
     Aplica a POLÍTICA por document_type e chama o motor. Se já houver solicitação,
     devolve o status atual sem criar outra. Erros são engolidos (retorna None) para
     nunca quebrar a geração do PDF.
+
+    `empresa_slug` (empresas.slug) define QUAL CNPJ assina (certificado A1 e razão
+    social do signatário COMPANY). Se None, é resolvido pelo CPF do funcionário
+    (`employee_document`); sem isso, cai na Eletrônica (default seguro, multi-CNPJ).
 
     Returns:
         dict com o resultado do motor (chave "created": bool). Para propostas,
@@ -208,6 +250,11 @@ async def garantir_solicitacao_assinatura(
             atual["public_token"] = _extract_public_token(atual)
             return atual
 
+        # Empresa dona do doc (multi-CNPJ): explícita, ou resolvida pelo CPF do
+        # funcionário. Sem match → None → Eletrônica (default seguro no assinador).
+        if not empresa_slug and employee_document:
+            empresa_slug = await _empresa_slug_por_cpf(db, employee_document)
+
         signers = _build_signers(
             tipos,
             employee_id=employee_id,
@@ -217,6 +264,7 @@ async def garantir_solicitacao_assinatura(
             customer_email=customer_email,
             customer_document=customer_document,
             company_signer_id=company_signer_id,
+            empresa_slug=empresa_slug,
         )
 
         result = await svc.criar_solicitacao_assinatura(
@@ -227,6 +275,7 @@ async def garantir_solicitacao_assinatura(
             document_hash=document_hash,
             document_path=document_path,
             requested_by=_coerce_uuid(requested_by),
+            metadata={"empresa_slug": empresa_slug or _EMPRESA_SLUG_DEFAULT},
         )
         result["created"] = True
         # Expõe o token do cliente (proposta) no topo, para o endpoint devolver o link.

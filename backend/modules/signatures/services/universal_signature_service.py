@@ -815,12 +815,26 @@ class UniversalSignatureService:
                 "Forneça pdf_bytes, req.document_path ou certificate_ref['pdf_path']."
             )
 
-        # 2) Assina (valida validade do cert dentro; senha só via env).
+        # 2) Empresa dona do doc (multi-CNPJ) → certificado A1 do CNPJ certo.
+        #    Prioridade: empresa_slug gravado no request (extra_data) → CNPJ do
+        #    signatário COMPANY → None (Eletrônica, default seguro no assinador).
+        empresa_slug = (req.extra_data or {}).get("empresa_slug") if req.extra_data else None
+        if not empresa_slug and req.signer_document:
+            import re as _re
+
+            _dig = _re.sub(r"\D", "", req.signer_document)
+            if _dig.startswith("66014833"):
+                empresa_slug = "conecta_patrimonial"
+            elif _dig.startswith("35710481"):
+                empresa_slug = "conecta_eletronica"
+
+        # 3) Assina (valida validade do cert dentro; senha só via env).
         result = assinar_pdf_icp_brasil(
             source,
             reason=f"Assinatura qualificada ICP-Brasil — {req.document_type or 'contrato'}",
             location="Manaus/AM",
             contact_info=signer_name,
+            empresa_slug=empresa_slug,
         )
 
         # 3) Grava o PDF assinado.

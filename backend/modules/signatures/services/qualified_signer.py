@@ -62,23 +62,50 @@ class QualifiedSignatureResult:
     certificate_valid_to: datetime
 
 
-def _cert_path() -> str:
-    """Caminho do .p12 — env `CERT_A1_PATH`, senão `CERTIFICATE_PATH`, senão default."""
-    return (
-        os.getenv("CERT_A1_PATH")
-        or os.getenv("CERTIFICATE_PATH")
-        or DEFAULT_CERT_PATH
-    )
+# Certificado A1 por EMPRESA (multi-CNPJ). Cada empresa tem seu .p12 e sua senha,
+# ambos vindos SÓ de env (nunca hardcoded/logados). empresa_slug None => Eletrônica
+# (CNPJ1): comportamento histórico byte-idêntico.
+_CERT_POR_EMPRESA: dict[str, dict] = {
+    "conecta_eletronica": {
+        "path_envs": ("CERT_A1_PATH", "CERTIFICATE_PATH"),
+        "path_default": DEFAULT_CERT_PATH,
+        "password_env": "CERT_A1_PASSWORD",
+    },
+    "conecta_patrimonial": {
+        "path_envs": ("CERT_A1_PATH_PATRIMONIAL",),
+        "path_default": "/app/credentials/certificates/patrimonial.pfx",
+        "password_env": "CERT_A1_PASSWORD_PATRIMONIAL",
+    },
+}
+_EMPRESA_DEFAULT = "conecta_eletronica"
 
 
-def _cert_password() -> bytes:
-    """Senha do .p12 — SOMENTE via env `CERT_A1_PASSWORD`. Nunca hardcoded/logada."""
-    pwd = os.getenv("CERT_A1_PASSWORD")
+def _cfg_empresa(empresa_slug: str | None) -> dict:
+    """Config de certificado da empresa (slug em empresas.slug). Slug desconhecido/None
+    cai na Eletrônica (CNPJ1) — nunca assume a empresa nova por acidente."""
+    return _CERT_POR_EMPRESA.get(empresa_slug or _EMPRESA_DEFAULT, _CERT_POR_EMPRESA[_EMPRESA_DEFAULT])
+
+
+def _cert_path(empresa_slug: str | None = None) -> str:
+    """Caminho do .p12 da empresa — env específica da empresa, senão default documentado."""
+    cfg = _cfg_empresa(empresa_slug)
+    for env in cfg["path_envs"]:
+        val = os.getenv(env)
+        if val:
+            return val
+    return cfg["path_default"]
+
+
+def _cert_password(empresa_slug: str | None = None) -> bytes:
+    """Senha do .p12 da empresa — SOMENTE via env específica. Nunca hardcoded/logada."""
+    cfg = _cfg_empresa(empresa_slug)
+    env = cfg["password_env"]
+    pwd = os.getenv(env)
     if not pwd:
         raise CertificadoIndisponivelError(
-            "Variável de ambiente CERT_A1_PASSWORD não definida. Configure-a no "
-            ".env (senha do certificado A1) antes de assinar contratos com "
-            "assinatura qualificada ICP-Brasil. A senha nunca é embutida no código."
+            f"Variável de ambiente {env} não definida. Configure-a no .env (senha do "
+            f"certificado A1 desta empresa) antes de assinar com assinatura qualificada "
+            f"ICP-Brasil. A senha nunca é embutida no código."
         )
     return pwd.encode("utf-8")
 
@@ -98,6 +125,7 @@ def assinar_pdf_icp_brasil(
     location: str = "Manaus/AM",
     field_name: str = "AssinaturaEmpresaICPBrasil",
     contact_info: str | None = None,
+    empresa_slug: str | None = None,
 ) -> QualifiedSignatureResult:
     """Assina um PDF com o certificado A1 da empresa (PAdES, ICP-Brasil).
 
@@ -131,14 +159,14 @@ def assinar_pdf_icp_brasil(
             "Adicione 'pyhanko' ao requirements e refaça o bake da imagem."
         ) from exc
 
-    cert_path = _cert_path()
+    cert_path = _cert_path(empresa_slug)
     if not os.path.exists(cert_path):
         raise CertificadoIndisponivelError(
-            f"Certificado A1 não encontrado em '{cert_path}'. Ajuste CERT_A1_PATH "
-            f"ou CERTIFICATE_PATH."
+            f"Certificado A1 não encontrado em '{cert_path}' (empresa "
+            f"'{empresa_slug or _EMPRESA_DEFAULT}'). Ajuste a env de caminho do cert."
         )
 
-    passphrase = _cert_password()  # levanta se env ausente
+    passphrase = _cert_password(empresa_slug)  # levanta se env ausente
 
     try:
         signer = signers.SimpleSigner.load_pkcs12(
@@ -226,8 +254,8 @@ def assinar_pdf_icp_brasil(
     )
 
 
-def certificado_status() -> dict:
-    """Diagnóstico do certificado A1 (para health/painel). Nunca expõe a senha.
+def certificado_status(empresa_slug: str | None = None) -> dict:
+    """Diagnóstico do certificado A1 da empresa (para health/painel). Nunca expõe a senha.
 
     Returns:
         Dict com disponibilidade, validade e titular. Se algo falhar, devolve
@@ -238,15 +266,16 @@ def certificado_status() -> dict:
     except ImportError:
         return {"available": False, "reason": "pyhanko não instalado (falta bake)."}
 
-    cert_path = _cert_path()
+    cfg = _cfg_empresa(empresa_slug)
+    cert_path = _cert_path(empresa_slug)
     if not os.path.exists(cert_path):
         return {"available": False, "reason": f"Certificado não encontrado em {cert_path}."}
-    if not os.getenv("CERT_A1_PASSWORD"):
-        return {"available": False, "reason": "CERT_A1_PASSWORD não configurada."}
+    if not os.getenv(cfg["password_env"]):
+        return {"available": False, "reason": f"{cfg['password_env']} não configurada."}
 
     try:
         signer = signers.SimpleSigner.load_pkcs12(
-            pfx_file=cert_path, passphrase=_cert_password()
+            pfx_file=cert_path, passphrase=_cert_password(empresa_slug)
         )
     except Exception:  # noqa: BLE001
         return {"available": False, "reason": "Falha ao abrir o certificado (senha?)."}
