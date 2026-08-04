@@ -1,24 +1,38 @@
-"""Fase 6 (balde FAZER) — ação DP reversível (🔵) via propor→aprovar.
+"""Fase 6 (balde FAZER) — ações DP via propor→aprovar.
 
-No chat, quem tem o módulo `dp` PROPÕE uma solicitação de férias; grava um
-PENDENTE na tabela nativa `hr_vacation_requests` (status inerte 'SUBMITTED', o
-MESMO que a tela do DP escreve) via `acoes.base.propor` — e NADA executa. A
-aprovação (status → 'APPROVED') continua sendo humana, na tela de férias
-(`aprovar_ferias`); a IA jamais efetiva.
+No chat, quem tem o módulo `dp` PROPÕE. A `propor()` NUNCA executa: grava só um
+PENDENTE + entrega no sino ao aprovador + audita. A execução real fica sempre na
+TELA humana (com o gate/OTP da tela).
 
-Reversível 🔵 (nada de dinheiro/eSocial); aprovador = ('admin',
-'gerente_operacional') (reusa ROLES_KIT_OP — mesma diretoria operacional do DP).
+Duas naturezas convivem aqui:
+
+1. REVERSÍVEL 🔵 — `solicitar_ferias`: grava um PENDENTE na tabela nativa
+   `hr_vacation_requests` (status inerte 'SUBMITTED', o MESMO que a tela escreve);
+   a aprovação (→'APPROVED') é humana na tela de férias. Aprovador =
+   ROLES_KIT_OP ('admin','gerente_operacional').
+
+2. PESADAS (diretoria) — `calcular_folha` (🟡), `fechar_folha` (🔴 IRREVERSÍVEL,
+   habilita pagamento/eSocial) e `concluir_admissao` (🔴 cria vínculo/eSocial).
+   Não há tabela de proposta nativa onde encaixar um PENDENTE inerte — o pendente
+   vive INTEIRAMENTE no sino+auditoria (idempotência nativa do `propor`, como o
+   GED faz com o kit JSON). `_inserir` só devolve um id sintético e NÃO toca a
+   folha/admissão: a IA NUNCA chama PayrollService/AdmissionService. Aprovador =
+   ROLES_MONEY (diretoria). action_url → a tela onde o humano executa (gate/OTP).
+   # ponytail: o gate 🟠 do brief não existe no set de `base.GATES` (🔴/🟡/🔵);
+   # mapeado p/ o gate válido mais honesto (fechar/admissão=🔴, calcular=🟡).
+
 Registra via `registrar_acao` (o agir_dispatcher colapsa em agir_dp(acao, dados)).
 """
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy import text
 
-from .acoes.base import ROLES_KIT_OP, propor
+from .acoes.base import ROLES_KIT_OP, ROLES_MONEY, propor
 from .agir_dispatcher import registrar_acao
 
 # Espelha a fonte canônica (vacation_controller.criar_vacation): condominio_id é
@@ -127,6 +141,108 @@ registrar_acao("dp", "solicitar_ferias",
                _propor_solicitar_ferias)
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Ações PESADAS (diretoria): folha (calcular/fechar) e admissão. propor() só cria
+# o PENDENTE no sino+audit; a EXECUÇÃO real fica na tela (gate/OTP). A IA NUNCA
+# chama PayrollService/AdmissionService — `_inserir` só devolve um id sintético.
+# ──────────────────────────────────────────────────────────────────────────────
+
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+
+
+def _periodo(mes, ano) -> tuple[int, int] | None:
+    try:
+        m = int(str(mes).split()[0])
+        a = int(str(ano).split()[0])
+    except (TypeError, ValueError, IndexError):
+        return None
+    if not (1 <= m <= 12) or not (2000 <= a <= 2100):
+        return None
+    return m, a
+
+
+async def _noop_ref(db) -> str:
+    """PENDENTE sem tabela nativa: só devolve id sintético (pendente vive no
+    sino+audit). NÃO escreve na folha/admissão — a IA nunca executa."""
+    return str(uuid.uuid4())
+
+
+async def _propor_calcular_folha(
+    db, user, scope, *, mes="", ano="", month="", year="", **_
+) -> dict[str, Any]:
+    per = _periodo(mes or month, ano or year)
+    if not per:
+        return {"erro": "mes (1-12) e ano (AAAA) são obrigatórios"}
+    m, a = per
+    return await propor(
+        db, user=user, scope=scope, dominio="folha_calcular", gate="🟡",
+        roles_aprovador=ROLES_MONEY, idempotency_key=f"folha_calc:{a}-{m:02d}",
+        titulo="[Proposta] Calcular folha",
+        corpo=f"Aprovar DISPARA o CÁLCULO da folha de {m:02d}/{a} na tela de folha — "
+              f"revise proventos/descontos antes. Nada é calculado até você aprovar.",
+        action_url="/modulos/dp/folha",
+        tool="propor_calcular_folha", args={"mes": m, "ano": a},
+        entity_type="hr_folha_calculo", inserir=_noop_ref,
+    )
+
+
+async def _propor_fechar_folha(
+    db, user, scope, *, mes="", ano="", month="", year="", **_
+) -> dict[str, Any]:
+    per = _periodo(mes or month, ano or year)
+    if not per:
+        return {"erro": "mes (1-12) e ano (AAAA) são obrigatórios"}
+    m, a = per
+    return await propor(
+        db, user=user, scope=scope, dominio="folha_fechar", gate="🔴",
+        roles_aprovador=ROLES_MONEY, idempotency_key=f"folha_fecha:{a}-{m:02d}",
+        titulo="[Proposta] FECHAR folha (irreversível)",
+        corpo=f"Aprovar FECHA a folha de {m:02d}/{a} na tela — operação IRREVERSÍVEL "
+              f"que habilita PAGAMENTO e a transmissão eSocial (S-1200). Confira TUDO "
+              f"antes; nada é fechado até você aprovar (gate/OTP na tela).",
+        action_url="/modulos/dp/folha",
+        tool="propor_fechar_folha", args={"mes": m, "ano": a},
+        entity_type="hr_folha_fechamento", inserir=_noop_ref,
+    )
+
+
+async def _propor_concluir_admissao(
+    db, user, scope, *, admission_id="", admissao="", candidato="", **_
+) -> dict[str, Any]:
+    aid = str(admission_id or admissao or candidato or "").strip()
+    if not _UUID_RE.match(aid):
+        return {"erro": "admission_id (uuid do processo de admissão) é obrigatório"}
+    return await propor(
+        db, user=user, scope=scope, dominio="admissao_concluir", gate="🔴",
+        roles_aprovador=ROLES_MONEY, idempotency_key=f"admissao_concluir:{aid}",
+        titulo="[Proposta] Concluir admissão",
+        corpo=f"Aprovar CONCLUI a admissão {aid} na tela — cria o VÍNCULO do funcionário "
+              f"e habilita eventos eSocial (S-2200)/folha. Nada é concluído até você "
+              f"aprovar na tela de admissão.",
+        action_url="/modulos/dp/admissao",
+        tool="propor_concluir_admissao", args={"admission_id": aid},
+        entity_type="admission_process", inserir=_noop_ref,
+    )
+
+
+registrar_acao("dp", "calcular_folha",
+               "PROPOR o cálculo da folha de um período (aprovação = diretoria). dados: "
+               "mes (1-12, obrig.), ano (AAAA, obrig.). NÃO calcula — a execução é humana "
+               "na tela de folha.",
+               _propor_calcular_folha)
+registrar_acao("dp", "fechar_folha",
+               "PROPOR o FECHAMENTO (IRREVERSÍVEL) da folha de um período — habilita "
+               "pagamento/eSocial (aprovação = diretoria). dados: mes (1-12, obrig.), "
+               "ano (AAAA, obrig.). NÃO fecha — a execução é humana na tela (gate/OTP).",
+               _propor_fechar_folha)
+registrar_acao("dp", "concluir_admissao",
+               "PROPOR a conclusão de um processo de admissão — cria vínculo/eSocial "
+               "(aprovação = diretoria). dados: admission_id (uuid, obrig.). NÃO conclui — "
+               "a execução é humana na tela de admissão.",
+               _propor_concluir_admissao)
+
+
 if __name__ == "__main__":
     import asyncio
     import os
@@ -166,10 +282,30 @@ if __name__ == "__main__":
         agir = get_tool("agir_dp")
         assert agir is not None and agir.module == "dp", "agir_dp não registrado no módulo dp"
 
+        # PROVA "não executa" (ações pesadas): se o caminho tocar QUALQUER executor
+        # real (calcular/fechar folha, concluir admissão), estoura. Nunca é chamado.
+        from modules.notifications.proativo import entrega
+        import modules.people_management.hr.services.payroll_service as _pay
+        import modules.people_management.hr.services.admission_service as _adm
+        executou = {"n": 0}
+
+        def _boom(nome):
+            async def _b(*a, **k):
+                executou["n"] += 1
+                raise AssertionError(f"executor real {nome} NÃO pode ser chamado pela IA")
+            return _b
+        _orig = (_pay.PayrollService.close_payroll,
+                 _pay.PayrollService.calculate_employee_payroll,
+                 _adm.AdmissionService.complete_admission)
+        _pay.PayrollService.close_payroll = _boom("close_payroll")
+        _pay.PayrollService.calculate_employee_payroll = _boom("calculate_employee_payroll")
+        _adm.AdmissionService.complete_admission = _boom("complete_admission")
+
         eng = create_async_engine(os.environ["DATABASE_URL"])
         Session = async_sessionmaker(eng, expire_on_commit=False)
         async with Session() as db:
             vac_ids: list[str] = []
+            heavy_ids: list[str] = []
             try:
                 disp = agir.handler
                 # funcionário real p/ passar na FK (a proposta precisa de um employee válido)
@@ -201,6 +337,45 @@ if __name__ == "__main__":
                 assert n == 1, f"idempotência férias falhou: {n} linhas"
                 print("TESTE a (solicitar_ferias: PENDENTE inerte 'SUBMITTED', não aprova, idempotente) PASS")
 
+                # ── (a-pesadas) calcular/fechar folha + concluir admissão: PENDENTE p/
+                #    DIRETORIA (ROLES_MONEY), pendente vive no sino, executor nunca roda,
+                #    idempotente por período/admissão. Sentinela 2099 → não colide c/ dado real.
+                admins = set(await entrega.resolver_usuarios_por_roles(db, ("admin",)))
+                assert admins, "esperado >=1 admin (diretoria) no banco"
+                pesadas = [
+                    ("calcular_folha", {"mes": 1, "ano": 2099}, "folha_calc:2099-01"),
+                    ("fechar_folha", {"mes": 1, "ano": 2099}, "folha_fecha:2099-01"),
+                    ("concluir_admissao",
+                     {"admission_id": "00000000-0000-0000-0000-00000000a099"},
+                     "admissao_concluir:00000000-0000-0000-0000-00000000a099"),
+                ]
+                for acao, dados, idem in pesadas:
+                    r = await disp(db, _U(), _S(), acao=acao, dados=dados)
+                    assert r.get("status") == "pendente" and not r.get("duplicado"), (acao, r)
+                    # aprovador = diretoria (admins), propositor (0xff, não-admin) preservados
+                    assert set(r.get("aprovadores") or []) == admins, (acao, r.get("aprovadores"), admins)
+                    heavy_ids.append(r["entity_id"])
+                    # pendente vive no sino como proposta_acao (não há tabela nativa)
+                    rt = (await db.execute(text(
+                        "SELECT reference_type FROM communication_notifications "
+                        "WHERE extra_data->>'idempotency_key' = :k LIMIT 1"), {"k": idem})).scalar()
+                    assert rt == "proposta_acao", (acao, rt)
+                    # idempotência por período/admissão: 2ª chamada idêntica → duplicado
+                    r2 = await disp(db, _U(), _S(), acao=acao, dados=dados)
+                    assert r2.get("duplicado") is True, (acao, r2)
+                    n = (await db.execute(text(
+                        "SELECT count(*) FROM communication_notifications "
+                        "WHERE extra_data->>'idempotency_key' = :k"), {"k": idem})).scalar()
+                    assert n == len(admins), (acao, n, len(admins))
+                assert executou["n"] == 0, "algum executor real da folha/admissão foi chamado"
+                print("TESTE a-pesadas (calcular/fechar folha + concluir admissão: PENDENTE "
+                      "p/ DIRETORIA, executor NUNCA roda, idempotente) PASS")
+
+                # dados inválidos das pesadas → recusa (não vira pendente)
+                assert "erro" in await disp(db, _U(), _S(), acao="calcular_folha", dados={"mes": 13, "ano": 2099})
+                assert "erro" in await disp(db, _U(), _S(), acao="concluir_admissao", dados={"admission_id": "nao-uuid"})
+                print("TESTE a-pesadas2 (mes/uuid inválido → recusa, sem pendente) PASS")
+
                 # ── (b) acao inválida → recusa + opções ──
                 rb = await disp(db, _U(), _S(), acao="aprovar_ferias", dados={})
                 assert rb.get("status") == "recusado" and "opções" in rb.get("motivo", ""), rb
@@ -219,22 +394,37 @@ if __name__ == "__main__":
                     "agir_dp vazou p/ outro módulo (RBAC quebrado)"
                 print("TESTE c (_gate sem dp → PermissionError; agir_dp só no belt de dp) PASS")
 
-                # ── (d) prova: PROPÔS sem executar (SUBMITTED, sem APPROVED/hr_approved) ──
-                print("TESTE d (solicitar_ferias PROPÕE sem executar: 'SUBMITTED', nunca 'APPROVED') PASS")
+                # ── (d) prova: PROPÔS sem executar (ferias 'SUBMITTED' sem APPROVED;
+                #    pesadas: nenhum executor de folha/admissão foi chamado) ──
+                assert executou["n"] == 0, "executor real rodou (a IA executou algo pesado)"
+                print("TESTE d (PROPÕE sem executar: férias 'SUBMITTED' nunca 'APPROVED'; "
+                      "folha/admissão nunca calculada/fechada/concluída) PASS")
                 print("\nTODAS AS PROVAS DE tools_acao_dp.py PASSARAM")
             finally:
+                _pay.PayrollService.close_payroll = _orig[0]
+                _pay.PayrollService.calculate_employee_payroll = _orig[1]
+                _adm.AdmissionService.complete_admission = _orig[2]
                 if vac_ids:
                     await db.execute(text(
                         "DELETE FROM hr_vacation_requests WHERE id = ANY(:i)"), {"i": vac_ids})
                     await db.execute(text(
                         "DELETE FROM audit_logs WHERE details->>'entity_id' = ANY(:i)"), {"i": vac_ids})
+                if heavy_ids:  # pesadas só deixam rastro em sino+audit (sem tabela nativa)
+                    await db.execute(text(
+                        "DELETE FROM audit_logs WHERE details->>'entity_id' = ANY(:i)"), {"i": heavy_ids})
                 await _limpar(db, "ferias:%")
+                for k in ("folha_calc:%", "folha_fecha:%", "admissao_concluir:%"):
+                    await _limpar(db, k)
                 await db.commit()
                 rem = (await db.execute(text(
                     "SELECT count(*) FROM hr_vacation_requests "
                     "WHERE hr_notes LIKE '%proposto via IA%' AND start_date >= '2099-01-01'"))).scalar()
-                assert rem == 0, f"remanescentes férias={rem}"
-                print("LIMPEZA OK — 0 remanescentes (hr_vacation_requests/audit/sino)")
+                rem_h = (await db.execute(text(
+                    "SELECT count(*) FROM communication_notifications WHERE "
+                    "extra_data->>'idempotency_key' LIKE 'folha_%' "
+                    "OR extra_data->>'idempotency_key' LIKE 'admissao_concluir:%'"))).scalar()
+                assert rem == 0 and rem_h == 0, f"remanescentes férias={rem} pesadas={rem_h}"
+                print("LIMPEZA OK — 0 remanescentes (hr_vacation_requests/audit/sino/pesadas)")
         await eng.dispose()
 
     asyncio.run(main())
