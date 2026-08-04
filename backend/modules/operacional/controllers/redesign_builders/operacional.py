@@ -635,35 +635,9 @@ async def rd_action_posto_localizacao(current_user: CurrentActiveUser, payload: 
     return {"ok": True, "message": "Localização do posto definida."}
 
 
-EXTRA_MENU: list[dict] = [
-    {"id": "rondas", "label": "Rondas",
-     "icon": "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"},
-    {"id": "passagem-turno-nova", "label": "Nova passagem", "icon": "M12 5v14M5 12h14"},
-    {"id": "instrucao-posto-editar", "label": "Editar instrução", "icon": "M12 5v14M5 12h14"},
-    {"id": "banco-horas-lancar", "label": "Lançar horas", "icon": "M12 5v14M5 12h14"},
-    {"id": "notificacoes-marcar-todas", "label": "Marcar notificações lidas", "icon": "M5 13l4 4L19 7"},
-    {"id": "checkin-manual", "label": "Check-in manual", "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
-    {"id": "posto-localizacao", "label": "Localização do posto", "icon": "M12 21s-8-4.5-8-11a8 8 0 1 1 16 0c0 6.5-8 11-8 11zM12 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"},
-    {"id": "nova-ronda", "label": "Nova ronda", "icon": "M12 5v14M5 12h14"},
-    {"id": "medida-submeter", "label": "Submeter medida", "icon": "M12 5v14M5 12h14"},
-    {"id": "medida-aprovar", "label": "Aprovar medida", "icon": "M20 6L9 17l-5-5"},
-    {"id": "medida-rejeitar", "label": "Rejeitar medida", "icon": "M18 6L6 18M6 6l12 12"},
-    {"id": "medida-documento", "label": "Documento da medida", "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"},
-    {"id": "escala-submeter", "label": "Submeter escala", "icon": "M12 5v14M5 12h14"},
-    {"id": "escala-aprovar", "label": "Aprovar escala", "icon": "M20 6L9 17l-5-5"},
-    {"id": "escala-rejeitar", "label": "Rejeitar escala", "icon": "M18 6L6 18M6 6l12 12"},
-    {"id": "escala-publicar", "label": "Publicar escala", "icon": "M22 2L11 13M22 2l-7 20-4-9-9-4z"},
-    {"id": "banco-horas-aprovar", "label": "Aprovar horas", "icon": "M20 6L9 17l-5-5"},
-    {"id": "banco-horas-rejeitar", "label": "Rejeitar horas", "icon": "M18 6L6 18M6 6l12 12"},
-    {"id": "substituicao-confirmar", "label": "Confirmar substituição", "icon": "M20 6L9 17l-5-5"},
-    {"id": "substituicao-rejeitar", "label": "Rejeitar substituição", "icon": "M18 6L6 18M6 6l12 12"},
-    {"id": "comunicado-publicar", "label": "Publicar comunicado", "icon": "M22 2L11 13M22 2l-7 20-4-9-9-4z"},
-    {"id": "alerta-ack", "label": "Reconhecer alerta", "icon": "M20 6L9 17l-5-5"},
-    {"id": "diarista-ativar", "label": "Ativar diarista", "icon": "M20 6L9 17l-5-5"},
-    {"id": "diarista-desativar", "label": "Desativar diarista", "icon": "M18 6L6 18M6 6l12 12"},
-    {"id": "diarista-avaliar", "label": "Avaliar diarista", "icon": "M11.5 2l2.6 6.9 7.4.3-5.8 4.6 2 7.1-6.2-4-6.2 4 2-7.1-5.8-4.6 7.4-.3z"},
-    {"id": "diarista-fechamento", "label": "Gerar fechamento diaristas", "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
-]
+# F0: menu extra ZERADO — as antigas entradas de ação viram ABAS dos 8 grupos (_op_grupos.py),
+# igual ao financeiro. A navegação agrupada evita a sidebar com 60+ itens soltos.
+EXTRA_MENU: list[dict] = []
 
 
 async def build(db) -> dict:
@@ -1406,5 +1380,13 @@ async def build(db) -> dict:
                        {"key": "competencia", "label": "Competência (AAAA-MM)*", "type": "text", "span": "span 1", "ph": "2026-07"}]}
     except Exception:  # noqa: BLE001
         await db.rollback()
+
+    # F0 — agrupa as ~62 telas/ações em 8 grupos (fundação tabs, igual ao financeiro).
+    # Chamado por ÚLTIMO: precisa de TODAS as telas/ações já montadas em out.
+    try:
+        from modules.operacional.controllers.redesign_builders._op_grupos import montar_grupos
+        montar_grupos(out)
+    except Exception:  # noqa: BLE001 — nunca derruba o módulo por causa da navegação
+        pass
 
     return out
