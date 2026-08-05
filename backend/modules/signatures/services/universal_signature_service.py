@@ -179,6 +179,14 @@ class SignatureEvidence:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
+# Documentos CO-ASSINADOS 1:1 (funcionário + empresa numa MESMA folha): selos empilhados
+# (funcionário=slot 1 acima, empresa=slot 0 rodapé) e encadeados (o 2º assina sobre o 1º).
+# Fora daqui (ex.: comunicado com N funcionários), cada assinatura gera sua própria via.
+_CO_SIGN: frozenset[str] = frozenset({
+    "payslip", "recibo_vt_vr", "espelho_ponto", "contract", "service_contract", "aviso_previo", "rescisao",
+})
+
+
 class UniversalSignatureService:
     """Motor central de assinatura eletrônica multi-signatário.
 
@@ -470,11 +478,16 @@ class UniversalSignatureService:
         # Só quando há PDF; best-effort — nunca quebra a assinatura se falhar.
         _signed_simple = None
         try:
-            _src = pdf_bytes or (self._read_pdf(req.document_path) if req.document_path else None)
+            _co = (req.document_type or "") in _CO_SIGN
+            # Co-assinado (holerite/VT-VR/espelho): assina SOBRE a versão já assinada do outro
+            # signatário (se houver), pra os dois selos ficarem na MESMA folha. Funcionário=slot 1 (acima).
+            _src = (await self._grupo_pdf_assinado(req)) if _co else None
+            _src = _src or pdf_bytes or (self._read_pdf(req.document_path) if req.document_path else None)
             if _src:
                 from modules.signatures.services.qualified_signer import _estampar_selo_eletronico
 
-                _stamped = _estampar_selo_eletronico(_src, eff_name, eff_doc, signature_hash, signed_at)
+                _stamped = _estampar_selo_eletronico(
+                    _src, eff_name, eff_doc, signature_hash, signed_at, slot=(1 if _co else 0))
                 _signed_simple = self._save_signed_pdf(
                     _stamped, document_type=req.document_type or "documento", request_id=req.id)
         except Exception:  # noqa: BLE001 — selo é best-effort
@@ -822,6 +835,10 @@ class UniversalSignatureService:
 
         # 1) Bytes do PDF a assinar.
         source = pdf_bytes
+        # Co-assinado: a empresa assina SOBRE a versão já assinada pelo funcionário (se houver),
+        # pra os dois selos ficarem na MESMA folha (empresa=slot 0, rodapé).
+        if source is None and (req.document_type or "") in _CO_SIGN:
+            source = await self._grupo_pdf_assinado(req)
         if source is None and certificate_ref and certificate_ref.get("pdf_path"):
             source = self._read_pdf(certificate_ref["pdf_path"])
         if source is None and req.document_path:
@@ -951,6 +968,28 @@ class UniversalSignatureService:
                 "valid_to": result.certificate_valid_to.isoformat(),
             },
         }
+
+    async def _grupo_pdf_assinado(self, req) -> bytes | None:
+        """Bytes do PDF já ASSINADO por OUTRO signatário do MESMO documento (co-assinatura).
+        Usado para encadear: o 2º signatário carimba sobre a versão do 1º, num só arquivo.
+        None se ninguém do grupo assinou ainda."""
+        from sqlalchemy import text as _text
+
+        try:
+            path = (await self.db.execute(_text(
+                "SELECT signed_document_path FROM sig_signature_requests "
+                "WHERE document_type = :dt AND CAST(document_id AS text) = :did "
+                "AND CAST(id AS text) <> :rid AND signed_document_path IS NOT NULL "
+                "ORDER BY coalesce(signed_at, updated_at) DESC LIMIT 1"),
+                {"dt": req.document_type, "did": str(req.document_id), "rid": str(req.id)})).scalar()
+        except Exception:  # noqa: BLE001
+            return None
+        if path:
+            import os as _os
+
+            if _os.path.exists(path):
+                return self._read_pdf(path)
+        return None
 
     @staticmethod
     def _read_pdf(path: str) -> bytes | None:

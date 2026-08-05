@@ -133,7 +133,7 @@ _RAZAO_POR_CNPJ = {
 }
 
 
-def _estampar_selo_eletronico(pdf_bytes: bytes, nome, cpf, sha256, quando=None) -> bytes:
+def _estampar_selo_eletronico(pdf_bytes: bytes, nome, cpf, sha256, quando=None, slot: int = 0) -> bytes:
     """SELO VISÍVEL da assinatura ELETRÔNICA SIMPLES (funcionário/cliente) — MP 2.200-2.
     Distinto do ICP-Brasil da empresa (acento VERDE + selo de check), CENTRALIZADO no rodapé
     da última página. É a camada visual; a prova é o hash SHA-256 + evidências. Best-effort."""
@@ -162,7 +162,7 @@ def _estampar_selo_eletronico(pdf_bytes: bytes, nome, cpf, sha256, quando=None) 
         w, h_pg = pg.rect.width, pg.rect.height
         bw, bh = 316, 76
         x0 = (w - bw) / 2
-        y0 = h_pg - bh - 44
+        y0 = h_pg - bh - 44 - slot * (bh + 8)  # slot 0 = rodapé; 1 = acima (empilha sem sobrepor)
         x1, y1 = x0 + bw, y0 + bh
         sh = pg.new_shape()
         sh.draw_rect(fitz.Rect(x0, y0, x1, y1))
@@ -188,7 +188,7 @@ def _estampar_selo_eletronico(pdf_bytes: bytes, nome, cpf, sha256, quando=None) 
         doc.close()
 
 
-def _estampar_selo_branded(pdf_bytes: bytes, subject_cn: str) -> bytes:
+def _estampar_selo_branded(pdf_bytes: bytes, subject_cn: str, slot: int = 0) -> bytes:
     """Desenha um SELO VISÍVEL branded (marca Conecta Mais) CENTRALIZADO no rodapé da
     última página — como Sólides/DocuSign. É a camada VISUAL; a validade jurídica vem da
     assinatura PAdES (que cobre este selo). Best-effort: erro aqui não bloqueia a assinatura.
@@ -223,7 +223,7 @@ def _estampar_selo_branded(pdf_bytes: bytes, subject_cn: str) -> bytes:
         w, h = pg.rect.width, pg.rect.height
         bw, bh = 316, 76
         x0 = (w - bw) / 2
-        y0 = h - bh - 44
+        y0 = h - bh - 44 - slot * (bh + 8)  # slot 0 = rodapé; 1 = acima (empilha sem sobrepor)
         x1, y1 = x0 + bw, y0 + bh
         sh = pg.new_shape()
         sh.draw_rect(fitz.Rect(x0, y0, x1, y1))
@@ -257,6 +257,7 @@ def assinar_pdf_icp_brasil(
     contact_info: str | None = None,
     empresa_slug: str | None = None,
     visivel: bool = True,
+    slot: int = 0,
 ) -> QualifiedSignatureResult:
     """Assina um PDF com o certificado A1 da empresa (PAdES, ICP-Brasil).
 
@@ -340,7 +341,7 @@ def assinar_pdf_icp_brasil(
     pdf_para_assinar = pdf_bytes
     if visivel:
         try:
-            pdf_para_assinar = _estampar_selo_branded(pdf_bytes, _cn(cert.subject))
+            pdf_para_assinar = _estampar_selo_branded(pdf_bytes, _cn(cert.subject), slot=slot)
         except Exception:  # noqa: BLE001
             pdf_para_assinar = pdf_bytes
 

@@ -69,12 +69,13 @@ POLITICA_ASSINANTES: dict[str, list[SignerType]] = {
     "contract": [SignerType.EMPLOYEE, SignerType.COMPANY],
     "service_contract": [SignerType.CUSTOMER, SignerType.COMPANY],
     "proposal": [SignerType.COMPANY, SignerType.CUSTOMER],
-    "recibo_vt_vr": [SignerType.EMPLOYEE],
-    "payslip": [SignerType.EMPLOYEE],
-    # Espelho de ponto mensal (Portaria 671): o FUNCIONÁRIO homologa (assina) o
-    # espelho do mês FECHADO no Meu Espaço. A empresa não co-assina digitalmente
-    # (o bloco de assinatura da empresa consta no PDF); nível SIMPLE (SHA-256).
-    "espelho_ponto": [SignerType.EMPLOYEE],
+    # Holerite e recibo de VT/VR: CO-ASSINADOS — funcionário (eletrônica) + empresa
+    # (qualificada ICP-Brasil). Selos empilhados; a empresa assina em lote (decisão Jordan).
+    "recibo_vt_vr": [SignerType.EMPLOYEE, SignerType.COMPANY],
+    "payslip": [SignerType.EMPLOYEE, SignerType.COMPANY],
+    # Espelho de ponto mensal (Portaria 671): FUNCIONÁRIO homologa (eletrônica) + EMPRESA
+    # co-assina (qualificada ICP-Brasil). Decisão Jordan (2026-08-05): selos empilhados.
+    "espelho_ponto": [SignerType.EMPLOYEE, SignerType.COMPANY],
     "aviso_previo": [SignerType.EMPLOYEE, SignerType.COMPANY],
     "rescisao": [SignerType.EMPLOYEE, SignerType.COMPANY],
     "licitacao": [SignerType.COMPANY],
@@ -94,7 +95,9 @@ POLITICA_ASSINANTES: dict[str, list[SignerType]] = {
 #   da EMPRESA (COMPANY), que é a titular do certificado. Funcionário e cliente
 #   não têm certificado próprio: assinam sempre em nível SIMPLE (SHA-256).
 #   Todos os demais document_types usam SIMPLE para todos os signatários.
-DOCUMENTOS_QUALIFICADOS: frozenset[str] = frozenset({"contract", "service_contract", "comunicado"})
+DOCUMENTOS_QUALIFICADOS: frozenset[str] = frozenset({
+    "contract", "service_contract", "comunicado", "payslip", "recibo_vt_vr", "espelho_ponto",
+})
 
 
 def nivel_assinatura(document_type: str, signer_type: SignerType) -> SignatureLevel:
