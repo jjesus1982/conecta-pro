@@ -181,6 +181,25 @@ def test_plantao_noturno_nao_absorve_o_descanso_como_almoco():
     assert all(r["total_hours"] == "12:00" for r in recs)
 
 
+def test_turno_da_virada_de_mes_conta_no_mes_da_entrada():
+    """31/07 21:00 -> 01/08 09:00 pertence a JULHO (mes da ENTRADA).
+
+    O pareador nao filtra por mes -- quem filtra e o SQL de quem o chama. Este teste
+    trava a convencao: se o par fosse datado pela SAIDA, o turno da virada seria contado
+    em agosto (e, com a janela do SQL alargada, contado nos DOIS meses).
+    """
+    rows = [
+        _punch("emp-11", "2026-07-31T21:00:00", "entrada", "a"),
+        _punch("emp-11", "2026-08-01T09:00:00", "saida", "b"),
+    ]
+
+    recs = TimeRecordService(None)._pair_punches(rows)
+
+    assert len(recs) == 1, f"esperado 1 registro, veio {len(recs)}: {recs}"
+    assert recs[0]["record_date"] == "2026-07-31"
+    assert recs[0]["total_hours"] == "12:00"
+
+
 def test_batida_orfa_nao_desalinha_o_resto():
     """Uma batida sem par nao pode embaralhar os dias seguintes."""
     rows = [

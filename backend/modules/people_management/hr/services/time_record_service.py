@@ -824,7 +824,13 @@ class TimeRecordService:
         month: int,
         year: int,
     ) -> dict[str, Any]:
-        """Calcula resumo mensal a partir das batidas em gp_clock_punches."""
+        """Calcula resumo mensal a partir das batidas em gp_clock_punches.
+
+        Consulta UM DIA a mais de cada lado e filtra depois de parear: o turno que entra
+        31/07 21:00 e sai 01/08 09:00 ficava sem a saida em julho e sem a entrada em agosto
+        -- sumia dos DOIS meses. O par conta no mes da ENTRADA, entao alargar a janela nao
+        duplica a virada: ela entra so no mes em que comecou.
+        """
         first_day = date(year, month, 1)
         last_day = date(year, month, calendar.monthrange(year, month)[1])
 
@@ -839,11 +845,22 @@ class TimeRecordService:
               AND (punch_timestamp)::date <= :d2
             ORDER BY punch_timestamp
         """)
-        result = await self.db.execute(sql, {"emp_id": str(employee_id), "d1": first_day, "d2": last_day})
+        result = await self.db.execute(
+            sql,
+            {
+                "emp_id": str(employee_id),
+                "d1": first_day - timedelta(days=1),
+                "d2": last_day + timedelta(days=1),
+            },
+        )
         rows = result.mappings().all()
 
-        # Emparelhar batidas
-        records = self._pair_punches(rows)
+        # Pareia na janela larga e mantem so os turnos que COMECARAM dentro do mes.
+        records = [
+            r
+            for r in self._pair_punches(rows)
+            if str(first_day) <= r["record_date"] <= str(last_day)
+        ]
 
         total_worked_minutes = 0
         total_overtime_minutes = 0
@@ -922,7 +939,16 @@ class TimeRecordService:
     # =========================================================================
 
     async def get_daily(self, record_date: date) -> dict[str, Any]:
-        """Retorna todos os registros de ponto de um dia especifico."""
+        """Retorna todos os registros de ponto de um dia especifico.
+
+        A janela do SQL e de TRES dias (vespera, dia, seguinte) e o filtro pelo dia pedido
+        acontece DEPOIS do pareamento. Motivo: o plantao 12x36 noturno entra 21:00 e sai
+        09:00 do dia seguinte. Consultando so o dia civil, as batidas que chegam sao
+        [saida de ontem, entrada de hoje] -- duas pontas de turnos DIFERENTES -- e o turno
+        real fica invisivel. Com a janela larga o par se forma inteiro e o registro sai
+        datado no dia da ENTRADA; os turnos da vespera e do dia seguinte caem fora no
+        filtro, entao nenhum dia mostra o turno do vizinho.
+        """
         sql = text("""
             SELECT
                 id, punch_id, employee_id, punch_type,
@@ -930,14 +956,19 @@ class TimeRecordService:
                 device_type, is_offline, posto_id, posto_nome,
                 created_at, updated_at
             FROM gp_clock_punches
-            WHERE (punch_timestamp)::date = :pdate
+            WHERE (punch_timestamp)::date >= :d1
+              AND (punch_timestamp)::date <= :d2
               AND employee_id NOT IN (SELECT id FROM employees WHERE coalesce(is_homologacao, false) = true)
             ORDER BY employee_id, punch_timestamp
         """)
-        result = await self.db.execute(sql, {"pdate": record_date})
+        result = await self.db.execute(
+            sql,
+            {"d1": record_date - timedelta(days=1), "d2": record_date + timedelta(days=1)},
+        )
         rows = result.mappings().all()
 
-        records = self._pair_punches(rows)
+        # Pareia na janela larga, devolve so o dia pedido (o par pertence ao dia da entrada).
+        records = [r for r in self._pair_punches(rows) if r["record_date"] == str(record_date)]
         records = await self._fill_employee_names(records)
 
         return {
