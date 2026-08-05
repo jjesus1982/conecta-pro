@@ -455,7 +455,7 @@ def calcular_folha_colaborador(
 
     # 0015 — Adicional de Periculosidade (por funcionário; 30% sobre o salário quando devido)
     adic_peric = Decimal("0")
-    if peric_pct > 0:
+    if peric_pct > 0 and not tem_espelho:  # tem_espelho -> o adicional vem da Portte
         adic_peric = _d(salario_base * peric_pct)
         proventos.append(
             {
@@ -469,7 +469,7 @@ def calcular_folha_colaborador(
 
     # 0016 — Adicional de Insalubridade (por funcionário; NR-15, quem faz a atividade insalubre)
     adic_insal = Decimal("0")
-    if insal_pct > 0:
+    if insal_pct > 0 and not tem_espelho:  # tem_espelho -> o adicional vem da Portte
         adic_insal = _d(salario_base * insal_pct)
         proventos.append(
             {
@@ -483,7 +483,7 @@ def calcular_folha_colaborador(
 
     # 0018 — Adicional de Ronda (CCT Cl.23ª: 15%, por funcionário que faz ronda no perímetro)
     adic_ronda = Decimal("0")
-    if ronda_pct > 0:
+    if ronda_pct > 0 and not tem_espelho:  # tem_espelho -> o adicional vem da Portte
         adic_ronda = _d(salario_base * ronda_pct)
         proventos.append(
             {
@@ -601,7 +601,7 @@ def calcular_folha_colaborador(
     # desligamento (mesmo fator_prop da base). Emitido ANTES de total_proventos e FORA do
     # base_inss (benefício não incide INSS/IRRF/FGTS). ponytail: dado só existe no espelho
     # Portte p/ jan-jun (backfill); meses futuros virão do cadastro real de dependentes.
-    if salario_base_cadastrado <= SALARIO_FAMILIA_TETO:
+    if salario_base_cadastrado <= SALARIO_FAMILIA_TETO and not tem_espelho:  # espelho manda
         _sf = db.execute(
             text("SELECT dependentes FROM employees WHERE CAST(id AS TEXT)=:e"), {"e": employee_id}
         ).scalar()
@@ -671,7 +671,9 @@ def calcular_folha_colaborador(
         )
 
     # 1010 — Desconto VT (4%)
-    desc_vt = _d(salario_base * DESC_VT_PCT)
+    # tem_espelho -> VT/VR/odonto/taxa vem da PORTTE: ela aplica POR PESSOA e o motor
+    # aplicava por REGRA uniforme (cobravamos VT de quem nao tem, ex. ERIKA R$71,50).
+    desc_vt = Decimal("0") if tem_espelho else _d(salario_base * DESC_VT_PCT)
     descontos.append(
         {
             "codigo": "1010",
@@ -680,10 +682,10 @@ def calcular_folha_colaborador(
             "referencia": "4% salario",
             "valor": float(desc_vt),
         }
-    )
+    ) if not tem_espelho else None
 
     # 1011 — Desconto VR (1%)
-    desc_vr = _d(salario_base * DESC_VR_PCT)
+    desc_vr = Decimal("0") if tem_espelho else _d(salario_base * DESC_VR_PCT)
     descontos.append(
         {
             "codigo": "1011",
@@ -692,7 +694,7 @@ def calcular_folha_colaborador(
             "referencia": "1% salario",
             "valor": float(desc_vr),
         }
-    )
+    ) if not tem_espelho else None
 
     # 1020 — Odontologico
     descontos.append(
@@ -703,13 +705,13 @@ def calcular_folha_colaborador(
             "referencia": "co-part. 50%",
             "valor": float(DESC_ODONTO),
         }
-    )
+    ) if not tem_espelho else None
 
     # Seguro de Vida REMOVIDO: valor não vinha de dado real e não consta na folha
     # oficial do Domínio. Só re-incluir quando houver apólice/valor confirmado pelo DP.
 
     # 1030 — Taxa negocial (bimestral)
-    if mes in MESES_TAXA_NEGOCIAL:
+    if mes in MESES_TAXA_NEGOCIAL and not tem_espelho:
         descontos.append(
             {
                 "codigo": "1030",

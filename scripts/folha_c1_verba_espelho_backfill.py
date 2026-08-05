@@ -48,8 +48,26 @@ def classifica(du):
     # --- ausência justificada PAGA (Portte emite como provento) ---
     if "AUSENCIA JUSTIFICADA" in du:
         return ("0052", "Ausencia Justificada", "provento", True)
-    # NOTA: plano odonto (titular/dependente) NÃO entra aqui de propósito — o motor já computa
-    # o plano (bucket está +690 OVER); jogar no espelho DOBRARIA o desconto.
+    # --- BENEFÍCIOS/ADICIONAIS: a Portte aplica POR PESSOA, o motor aplicava por REGRA
+    # uniforme. Era a maior parte do resíduo: cobrávamos VT de quem não tem (ERIKA, R$71,50)
+    # e taxa negocial de quem ela não cobra. Agora vêm do espelho e o motor SUPRIME os seus
+    # quando `tem_espelho` (senão dobraria — foi por isso que o odonto ficou de fora antes).
+    if "VALE TRANSPORTE" in du or du.startswith("VT"):
+        return ("1010", "Desconto VT", "desconto", False)
+    if "VALE ALIMENTACAO" in du or "VALE REFEICAO" in du:
+        return ("1011", "Desconto VR", "desconto", False)
+    if "ODONT" in du:
+        return ("1020", "Plano Odontologico", "desconto", False)
+    if "TAXA NEGOCIAL" in du or "CONTRIB" in du and "SIND" in du:
+        return ("1030", "Taxa Negocial CCT", "desconto", False)
+    if "INSALUBRIDADE" in du:
+        return ("0016", "Insalubridade", "provento", True)
+    if "PERICULOSIDADE" in du:
+        return ("0017", "Periculosidade", "provento", True)
+    if "RONDA" in du:
+        return ("0018", "Adicional de Ronda", "provento", True)
+    if "SALARIO FAMILIA" in du or "SALÁRIO FAMÍLIA" in du:
+        return ("0095", "Salario Familia", "provento", False)
     # --- faltas / afastamento ---
     if "AFAST" in du and "DOENCA" in du:
         if "INSS" in du:  # INSS paga → não incide INSS do empregador
