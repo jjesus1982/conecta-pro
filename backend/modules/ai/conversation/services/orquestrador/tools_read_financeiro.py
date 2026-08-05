@@ -125,6 +125,72 @@ async def _listar_pagamentos(db, user, scope, *, status=None, payment_type=None,
                                    from_date=None, to_date=None, limit=limit, db=db, current_user=user)
 
 
+async def _inter_saldo(db, user, scope, **_) -> Any:
+    _gate(user)
+    from modules.integrations.inter.inter_controller import get_saldo
+    return _dump(await get_saldo(current_user=user))
+
+
+async def _inter_extrato_resumo(db, user, scope, *, dias=30, **_) -> Any:
+    _gate(user)
+    from modules.integrations.inter.inter_controller import resumo_extrato
+    return _dump(await resumo_extrato(dias=int(dias), db=db, current_user=user))
+
+
+async def _pix_recebidos(db, user, scope, *, limit=50, **_) -> Any:
+    _gate(user)
+    from modules.integrations.inter.inter_controller import listar_pix_recebidos
+    return _dump(await listar_pix_recebidos(limit=int(limit), db=db, current_user=user))
+
+
+async def _cobrancas_inter(db, user, scope, *, status=None, limit=50, **_) -> Any:
+    _gate(user)
+    from modules.integrations.inter.inter_controller import listar_cobrancas
+    return _dump(await listar_cobrancas(status=status, limit=int(limit), db=db, current_user=user))
+
+
+async def _teto_diario_pagamentos(db, user, scope, **_) -> Any:
+    _gate(user)
+    from modules.integrations.inter.payment_controller import saldo_limite
+    return _dump(await saldo_limite(db=db, current_user=user))
+
+
+async def _previsao_custos_mensais(db, user, scope, **_) -> Any:
+    _gate(user)
+    from modules.financial.cfo_controller import previsao_custos
+    return _dump(await previsao_custos(current_user=user, db=db))
+
+
+async def _runway(db, user, scope, **_) -> Any:
+    _gate(user)
+    from modules.ai.conversation.controllers.executivo_controller import runway
+    return _dump(await runway(db=db, user=user))
+
+
+async def _margem_por_condominio(db, user, scope, **_) -> Any:
+    _gate(user)
+    from modules.ai.conversation.controllers.executivo_controller import margem_condominio
+    return _dump(await margem_condominio(db=db, user=user))
+
+
+async def _resumo_financeiro(db, user, scope, **_) -> Any:
+    _gate(user)
+    from modules.crm.controllers.growth_controller import financeiro_endpoint
+    return _dump(await financeiro_endpoint(db=db))
+
+
+async def _reembolsos(db, user, scope, *, status=None, **_) -> Any:
+    _gate(user)
+    from modules.reimbursement.controllers.reimbursement_controller import list_reimbursements
+    return _dump(await list_reimbursements(user=user, condominio_id=None, db=db, status_filter=status))
+
+
+async def _beneficiarios_pix(db, user, scope, *, q="", limite=12, **_) -> Any:
+    _gate(user)
+    from modules.financial.beneficiarios_controller import listar
+    return _dump(await listar(q=str(q or ""), limite=int(limite), current_user=user, db=db))
+
+
 # ---- registro das ops READ no dispatcher consultar_financeiro (filtros vão em `filtros`) ----
 
 registrar_read("financeiro", "dashboard",
@@ -153,3 +219,40 @@ registrar_read("financeiro", "pagamentos",
                "Lista pagamentos PIX (inter_payments). READ-ONLY: só mostra o que existe — NÃO "
                "prepara, aprova nem executa pagamento (isso é gate-OTP). Filtros: status, "
                "payment_type, limit.", _listar_pagamentos)
+registrar_read("financeiro", "inter_saldo",
+               "Saldo atual da conta Banco Inter (Eletrônica), leitura em tempo real. Sem filtros.",
+               _inter_saldo)
+registrar_read("financeiro", "inter_extrato_resumo",
+               "Resumo do extrato Inter: totais de crédito/débito por tipo nos últimos N dias. "
+               "Filtro: dias (default 30).", _inter_extrato_resumo)
+registrar_read("financeiro", "pix_recebidos",
+               "PIX recebidos na conta Inter (entradas identificadas em inter_pix_recebidos). "
+               "Filtro: limit. Vazio real = sem PIX, não fabrica.", _pix_recebidos)
+registrar_read("financeiro", "cobrancas_inter",
+               "Cobranças/boletos emitidos pelo Inter e seus status (inter_cobrancas). Filtros: "
+               "status, limit.", _cobrancas_inter)
+registrar_read("financeiro", "teto_diario_pagamentos",
+               "Teto diário de pagamentos (CONECTA_LIMITE_DIARIO) vs quanto já saiu hoje: "
+               "consumido e disponível. READ-ONLY. Sem filtros.", _teto_diario_pagamentos)
+registrar_read("financeiro", "previsao_custos_mensais",
+               "Previsibilidade de custos mensais: folha, FGTS, ISS, diaristas, fornecedores, "
+               "reembolsos e custos recorrentes registrados — cada valor com a fonte. Sem filtros.",
+               _previsao_custos_mensais)
+registrar_read("financeiro", "runway_ao_vivo",
+               "Runway de caixa AO VIVO por CNPJ: saldo do banco vivo ÷ folha mensal = meses, com "
+               "as_of. Não mistura contas; onde falta saldo/folha vem 'aguardando dado'. Sem filtros.",
+               _runway)
+registrar_read("financeiro", "margem_por_condominio",
+               "Margem por contrato: receita (contrato) − folha alocada (best-effort). Onde o "
+               "cruzamento não fecha, a folha vem 'aguardando dado', nunca estimada. Sem filtros.",
+               _margem_por_condominio)
+registrar_read("financeiro", "resumo_financeiro",
+               "Retrato financeiro: MRR, MRR anualizado, recebíveis previstos, inadimplência, "
+               "caixa do mês (entradas/saídas/saldo) e faturamento NFS-e. Sem filtros.",
+               _resumo_financeiro)
+registrar_read("financeiro", "reembolsos",
+               "Lista solicitações de REEMBOLSO (paginado). READ-ONLY: só lista, não aprova nem "
+               "paga. Filtro: status.", _reembolsos)
+registrar_read("financeiro", "beneficiarios_pix",
+               "Agenda de beneficiários PIX salvos (nome → chave). Filtros: q (busca parcial por "
+               "nome/chave/CPF-CNPJ), limite.", _beneficiarios_pix)

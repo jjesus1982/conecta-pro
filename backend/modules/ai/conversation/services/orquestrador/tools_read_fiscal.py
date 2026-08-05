@@ -119,6 +119,50 @@ async def _nfse_dashboard(db, user, scope, **_) -> Any:
     return _dump(await nfse_dashboard(current_user=user, db=db))
 
 
+async def _dashboard_fiscal(db, user, scope, **_) -> Any:
+    _gate(user)
+    from modules.financial.controllers.fiscal_dashboard_controller import get_dashboard_atual
+    return _dump(await get_dashboard_atual(_=user))
+
+
+async def _listar_nfse(db, user, scope, *, competencia=None, cliente=None, status=None,
+                       limit=200, offset=0, **_) -> Any:
+    _gate(user)
+    from modules.ged.controllers.nfse_controller import list_nfse
+    return _dump(await list_nfse(competencia=competencia, cliente=cliente, status=status,
+                                 limit=int(limit), offset=int(offset), current_user=user, db=db))
+
+
+async def _listar_nfse_entrada(db, user, scope, *, ano=2026, competencia=None,
+                               fornecedor_cnpj=None, categoria=None, empresa=None, **_) -> Any:
+    _gate(user)
+    from modules.financial.controllers.nfse_entrada_controller import listar_nfse_entrada
+    return _dump(await listar_nfse_entrada(ano=int(ano), competencia=competencia,
+                                           fornecedor_cnpj=fornecedor_cnpj, categoria=categoria,
+                                           empresa=empresa, db=db, _user=user))
+
+
+async def _resumo_nfse_entrada(db, user, scope, *, ano=2026, mes=None, **_) -> Any:
+    _gate(user)
+    from modules.financial.controllers.nfse_entrada_controller import resumo_fiscal
+    return _dump(await resumo_fiscal(ano=int(ano), mes=(int(mes) if mes else None),
+                                     db=db, _user=user))
+
+
+async def _alertas_obrigacoes(db, user, scope, *, dias=10, **_) -> Any:
+    _gate(user)
+    from modules.empresas.controllers.obligations_controller import alertas_vencimentos
+    return _dump(await alertas_vencimentos(dias=int(dias), current_user=user))
+
+
+async def _alertas_certificados(db, user, scope, *, tenant_id=None, **_) -> Any:
+    _gate(user)
+    from modules.government_integrations.controllers.dashboard_controller import (
+        listar_alertas_certificados,
+    )
+    return _dump(await listar_alertas_certificados(current_user=user, tenant_id=tenant_id))
+
+
 # ---- registro das ops READ no dispatcher consultar_fiscal (filtros vão em `filtros`) ----
 
 registrar_read(_MOD, "situacao_ecac",
@@ -148,3 +192,23 @@ registrar_read(_MOD, "nfse_dashboard",
                "Dashboard de faturamento de NFS-e emitidas (métricas por competência). "
                "CONSOLIDADO: soma os DOIS CNPJ (Eletrônica + Patrimonial) — não é de um só. "
                "Sem filtros.", _nfse_dashboard)
+registrar_read(_MOD, "dashboard_fiscal",
+               "Painel fiscal-financeiro consolidado do mês atual (DRE + notas + fluxo + estoque), "
+               "base p/ Lucro Real. Sem filtros.", _dashboard_fiscal)
+registrar_read(_MOD, "listar_nfse",
+               "Lista NFS-e EMITIDAS (fonte real gov.br nacional, só autorizadas cStat 100). "
+               "Filtros: competencia ('AAAA-MM'), cliente (parcial), status, limit, offset.",
+               _listar_nfse)
+registrar_read(_MOD, "listar_nfse_entrada",
+               "Lista NFS-e de ENTRADA (tomadas/recebidas contra os CNPJ) — custos/fornecedores, "
+               "com categoria e empresa. Filtros: ano, competencia, fornecedor_cnpj, categoria, "
+               "empresa (conecta_eletronica / conecta_patrimonial).", _listar_nfse_entrada)
+registrar_read(_MOD, "resumo_nfse_entrada",
+               "Resumo fiscal das NFS-e de entrada por fornecedor (base Receita Federal): bruto, "
+               "ISS retido. Filtros: ano, mes.", _resumo_nfse_entrada)
+registrar_read(_MOD, "alertas_obrigacoes",
+               "Alertas de obrigações acessórias/guias próximas de vencer em todas as empresas do "
+               "grupo. Filtro: dias (antecedência, default 10).", _alertas_obrigacoes)
+registrar_read(_MOD, "alertas_certificados",
+               "Alertas de vencimento de certificados digitais A1/A3. Filtro opcional: tenant_id.",
+               _alertas_certificados)
