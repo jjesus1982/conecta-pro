@@ -12,7 +12,8 @@
       "sub": "Pergunte qualquer coisa — caixa por CNPJ, folha, contratação, runway, briefing. As respostas cruzam os dados reais do ERP.",
       "type": "chat",
       "chat": {
-        "endpoint": "/api/v1/consultores/mcp/executivo/consultar",
+        "endpoint": "/api/v1/consultores/chat/consultar",
+        "persona": "ceo",
         "field": "pergunta",
         "placeholder": "Ex.: posso contratar 5 agentes de portaria este mês?",
         "suggestions": [

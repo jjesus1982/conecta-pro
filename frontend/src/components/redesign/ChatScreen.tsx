@@ -12,6 +12,9 @@ export default function ChatScreen({ scr }: { scr: any }) {
   const endpoint: string = cfg.endpoint || '';
   const field: string = cfg.field || 'pergunta';
   const suggestions: string[] = cfg.suggestions || [];
+  // Lente/persona: cfg.persona = default fixo; cfg.personas = [{value,label}] rende um seletor.
+  const personas: { value: string; label: string }[] = cfg.personas || [];
+  const [persona, setPersona] = useState<string>(cfg.persona || personas[0]?.value || '');
 
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
@@ -32,7 +35,7 @@ export default function ChatScreen({ scr }: { scr: any }) {
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
-        body: JSON.stringify({ [field]: q }),
+        body: JSON.stringify({ [field]: q, ...(persona ? { persona } : {}) }),
       });
       const d = await res.json().catch(() => ({} as any));
       if (res.status === 401 || res.status === 403) {
@@ -92,6 +95,22 @@ export default function ChatScreen({ scr }: { scr: any }) {
         {busy && <div style={{ alignSelf: 'flex-start', color: 'var(--ink-weak)', fontSize: 12 }}>Consultando os números reais…</div>}
         <div ref={endRef} />
       </div>
+
+      {personas.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '10px 0 2px' }}>
+          <span className="rd-label" style={{ margin: 0 }}>Lente</span>
+          <select
+            className="rd-input"
+            style={{ width: 'auto', fontSize: 12 }}
+            value={persona}
+            onChange={(e) => setPersona(e.target.value)}
+            disabled={busy}
+            aria-label="Lente do consultor"
+          >
+            {personas.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+          </select>
+        </div>
+      )}
 
       {cfg.disclaimer && <div style={{ fontSize: 11, color: 'var(--ink-weak)', margin: '10px 0 8px' }}>{cfg.disclaimer}</div>}
 

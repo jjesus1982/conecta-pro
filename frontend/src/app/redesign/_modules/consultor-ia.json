@@ -9,6 +9,17 @@
       "type": "chat",
       "chat": {
         "endpoint": "/api/v1/consultores/chat/consultar",
+        "persona": "ceo",
+        "personas": [
+          { "value": "ceo", "label": "CEO — visão executiva" },
+          { "value": "cfo", "label": "CFO — financeiro" },
+          { "value": "fiscal", "label": "Fiscal" },
+          { "value": "rh", "label": "DP/RH" },
+          { "value": "juridico", "label": "Jurídico" },
+          { "value": "comercial", "label": "Comercial" },
+          { "value": "operacional", "label": "Operacional" },
+          { "value": "ged", "label": "GED" }
+        ],
         "field": "pergunta",
         "placeholder": "Ex.: como está a cobertura dos meus postos hoje?",
         "suggestions": [
