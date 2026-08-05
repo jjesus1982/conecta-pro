@@ -318,6 +318,29 @@ def calcular_folha_colaborador(
         _dias_pagaveis = int(round(float(_dias_esp)))
         mes_parcial = float(_dias_esp) < _ndias_mes
 
+    # FÉRIAS going-forward (sem espelho): quem esteve de férias NÃO recebe o mês cheio — os
+    # dias de férias já saíram no adiantamento, pago até 2 dias antes (art. 145 CLT). Sem
+    # isto pagávamos em duplicidade: R$2.473 a mais em 3 pessoas só em julho/2026.
+    # Só APPROVED: em julho havia 5 solicitações SUBMITTED de 30 dias de gente que trabalhou
+    # o mês inteiro (o ADAILSON bateu ponto 116 vezes). Pedido não aprovado não é férias.
+    _fer_ini = _fer_fim = None
+    _ferias_dias = 0
+    if _dias_esp is None:
+        _mes_ini, _mes_fim = date(ano, mes, 1), date(ano, mes, _ndias_mes)
+        for _s, _e in db.execute(text(
+            "SELECT start_date, end_date FROM hr_vacation_requests "
+            "WHERE CAST(employee_id AS TEXT) = :e AND upper(status) = 'APPROVED' "
+            "AND start_date <= :fim AND end_date >= :ini ORDER BY start_date"),
+                {"e": employee_id, "ini": _mes_ini, "fim": _mes_fim}).fetchall():
+            _o_ini, _o_fim = max(_s, _mes_ini), min(_e, _mes_fim)  # interseção com a competência
+            _ferias_dias += (_o_fim - _o_ini).days + 1
+            _fer_ini = _o_ini if _fer_ini is None else min(_fer_ini, _o_ini)
+            _fer_fim = _o_fim if _fer_fim is None else max(_fer_fim, _o_fim)
+        if _ferias_dias:
+            _dias_pagaveis = max(0, _dias_pagaveis - _ferias_dias)
+            salario_base = _d(salario_base_full * Decimal(_dias_pagaveis) / Decimal("30"))
+            mes_parcial = True
+
     divisor = DIVISOR_ESCALA.get(escala, 220)
     dias_trab = DIAS_TRAB_ESCALA.get(escala, 22)
     hora_normal = _d(salario_base_full / divisor)
@@ -351,6 +374,41 @@ def calcular_folha_colaborador(
             "valor": float(salario_base),
         }
     )
+
+    # ===== FÉRIAS (going-forward) — estrutura derivada da folha da Portte, conferida ao
+    # centavo nos 3 casos de julho/2026 (ANTONIO VIEIRA, EDIWILSON, FRANCISCO RAMON):
+    #   dias férias = salário/30 × dias        vantagens = adicionais habituais × dias/30
+    #   1/3         = (férias + vantagens)/3   ← incide sobre a remuneração, não só os dias
+    #   adiantamento = (tudo acima) − INSS férias   ← já foi pago antes das férias
+    # O adiantamento anula os proventos no mês; o que sobra são os dias trabalhados.
+    # ⚠️ FALTA a média do art. 142 (rubrica 806 da Portte, R$134–172/pessoa): exige 12 meses
+    # de histórico e só temos 6 (jan-jun/2026). Fica DECLARADA como ausente, nunca estimada —
+    # e como ela entraria dos dois lados (provento e adiantamento), o líquido do mês quase
+    # não muda; quem sente é a base de INSS/FGTS.
+    ferias_inss_base = Decimal("0")
+    if _ferias_dias:
+        _vd = _d(salario_base_full / Decimal("30"))
+        _v_ferias = _d(_vd * _ferias_dias)
+        _v_vant = _d(salario_base_full * (peric_pct + insal_pct + ronda_pct) * _ferias_dias / Decimal("30"))
+        _v_terco = _d((_v_ferias + _v_vant) / Decimal("3"))
+        _bruto_fer = _v_ferias + _v_vant + _v_terco
+        _inss_fer = _d(calcular_inss(_bruto_fer))
+        _ref = f"{_ferias_dias} dias"
+        if _fer_ini and _fer_fim:
+            _ref += f" ({_fer_ini.strftime('%d/%m')}–{_fer_fim.strftime('%d/%m')})"
+        proventos.append({"codigo": "0060", "descricao": "Ferias", "tipo": "provento",
+                          "referencia": _ref, "valor": float(_v_ferias)})
+        if _v_vant > 0:
+            proventos.append({"codigo": "0062", "descricao": "Vantagens Ferias", "tipo": "provento",
+                              "referencia": "adicionais habituais", "valor": float(_v_vant)})
+        proventos.append({"codigo": "0061", "descricao": "1/3 Ferias", "tipo": "provento",
+                          "referencia": "33,33%", "valor": float(_v_terco)})
+        descontos.append({"codigo": "1002", "descricao": "INSS Ferias", "tipo": "desconto",
+                          "referencia": f"base R$ {_bruto_fer}", "valor": float(_inss_fer)})
+        descontos.append({"codigo": "0937", "descricao": "Adiantamento de Ferias", "tipo": "desconto",
+                          "referencia": "pago antes do gozo (art. 145 CLT)",
+                          "valor": float(_bruto_fer - _inss_fer)})
+        ferias_inss_base = _bruto_fer
 
     # ===== VERBAS DO ESPELHO (backfill Portte) — grupo variável/reflexo cujo valor-verdade
     # está no espelho jan-jun (intrajornada, hora noturna reduzida, DSR sobre variáveis).
