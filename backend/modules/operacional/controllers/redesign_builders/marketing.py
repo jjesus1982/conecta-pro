@@ -101,11 +101,10 @@ async def build(db) -> dict:
         "SELECT id, coalesce(name,'—'), coalesce(company,'—'), coalesce(source,'—'), "
         "coalesce(score,0), coalesce(status,'—') FROM leads WHERE coalesce(is_active,true) "
         "ORDER BY score DESC NULLS LAST, created_at DESC LIMIT 200",
-        lambda r: [t(r[1] or "—", 600, _ND), t(r[2]), t(_lead_src(r[3])), t(str(r[4])), _lead_status(r[5])],
-        actionsfn=lambda r: ([] if (r[5] or "").lower() in ("won", "converted", "ganho", "lost", "perdido") else [
-            {"title": f"Converter {r[1] or 'lead'} em cliente", "endpoint": f"{_MKT}/leads/{r[0]}/convert",
-             "method": "POST", "btnLabel": "Converter", "submitLabel": "Converter em cliente",
-             "btnStyle": "primary", "okMsg": "Lead convertido. Recarregue a tela.", "fields": []}])))
+        lambda r: [t(r[1] or "—", 600, _ND), t(r[2]), t(_lead_src(r[3])), t(str(r[4])), _lead_status(r[5])]))
+    # SEM ação de converter aqui: o funil lê `leads` (CRM) e /marketing/leads/{id}/convert
+    # busca em `marketing_leads` — tabelas distintas. A conversão vive no lead-magnet.
+    # O clássico também não tem escrita no funil (0 ações).
 
     # 2) Campanhas — marketing_campaigns (real; hoje 0 = honesto)
     await safe("campanhas", tbl(
@@ -121,14 +120,24 @@ async def build(db) -> dict:
             {"key": "budget", "label": "Orçamento (R$)", "type": "number", "value": float(r[4] or 0)},
         ]}))
 
-    # 3) Lead magnet — marketing_assets (real; 0 = honesto)
+    # 3) Lead magnet — marketing_leads (leads CAPTURADOS), espelhando o clássico
+    # (colunas Lead/Email/Campanha/Status/Ações). É aqui que a conversão para o CRM
+    # faz sentido: /marketing/leads/{id}/convert lê `marketing_leads`.
     await safe("lead-magnet", tbl(
-        "Lead magnet", "Materiais de captura", "Novo material",
-        ["Material", "Tipo", "Downloads", "Criado"],
-        "2fr 1.2fr 1fr 1fr",
-        "SELECT coalesce(name,'—'), coalesce(type::text,'—'), coalesce(downloads,0), created_at "
-        "FROM marketing_assets ORDER BY downloads DESC NULLS LAST, created_at DESC LIMIT 200",
-        lambda r: [t(r[0] or "—", 600, _ND), t(r[1]), t(str(r[2])), t(_d(r[3]))]))
+        "Lead magnet", "Leads capturados por campanha", "Novo lead",
+        ["Lead", "E-mail", "Campanha", "Status"],
+        "1.6fr 1.8fr 1.4fr 0.9fr",
+        "SELECT ml.id, coalesce(ml.name,'—'), coalesce(ml.email,'—'), coalesce(mc.name,'—'), "
+        "coalesce(ml.status,'—') FROM marketing_leads ml "
+        "LEFT JOIN marketing_campaigns mc ON mc.id = ml.campaign_id "
+        "ORDER BY ml.created_at DESC LIMIT 200",
+        lambda r: [t(r[1] or "—", 600, _ND), t(r[2]), t(r[3]), _bs(r[4])],
+        actionsfn=lambda r: ([] if (r[4] or "").lower() in ("converted", "convertido") else [
+            {"title": f"Converter {r[1] or 'lead'} em lead do CRM",
+             "endpoint": f"{_MKT}/leads/{r[0]}/convert", "method": "POST",
+             "btnLabel": "Converter", "submitLabel": "Converter para o CRM",
+             "btnStyle": "primary", "okMsg": "Lead convertido para o CRM. Recarregue a tela.",
+             "fields": []}])))
 
     # 4) Biblioteca — marketing_content_drafts (real; 0 = honesto)
     await safe("biblioteca", tbl(
@@ -195,9 +204,9 @@ async def build(db) -> dict:
             {"key": "name", "label": "Nome da campanha*", "type": "text", "span": "span 2"},
             {"key": "type", "label": "Tipo", "type": "select", "span": "span 1", "ph": "Tipo",
              "options": _opts([("organic", "Orgânica"), ("paid", "Paga")])},
-            {"key": "budget", "label": "Orçamento (R$)", "type": "number", "span": "span 1"},
-            {"key": "start_date", "label": "Início", "type": "date", "span": "span 1"},
-            {"key": "end_date", "label": "Fim", "type": "date", "span": "span 1"},
+            # value=0: campo number vazio vira "" e o float() do Pydantic estoura 422.
+            {"key": "budget", "label": "Orçamento (R$)", "type": "number", "span": "span 1", "value": 0},
+            # Datas ficam de fora de propósito: são opcionais e "" quebraria a coluna date.
             {"key": "description", "label": "Descrição", "type": "textarea", "span": "span 2"},
         ],
     }
@@ -231,7 +240,9 @@ async def build(db) -> dict:
     }
 
     # Religa os botões das tabelas (sem ctaTo o ModuleView não desenha o CTA).
-    for _tela, _destino in (("funil", "novo-lead"), ("campanhas", "nova-campanha"),
+    # "Novo lead" fica no lead-magnet (grava em marketing_leads, que é o que essa tela lê).
+    # No funil NÃO entra: ele lê `leads` do CRM e o lead criado não apareceria ali.
+    for _tela, _destino in (("lead-magnet", "novo-lead"), ("campanhas", "nova-campanha"),
                             ("copywriter", "gerar-texto"), ("estrategista", "nova-estrategia")):
         if _tela in out:
             out[_tela]["ctaTo"] = _destino
