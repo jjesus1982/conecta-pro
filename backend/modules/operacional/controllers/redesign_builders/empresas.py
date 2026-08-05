@@ -28,6 +28,7 @@ EXTRA_MENU: list[dict] = [
     {"id": "assinar-documentos", "label": "Assinar documentos", "icon": "M15.232 5.232l3.536 3.536M4 20h4l10.5-10.5a2.5 2.5 0 0 0-3.536-3.536L4.5 16.5V20z"},
     {"id": "documentos-assinados", "label": "Documentos assinados", "icon": "M9 12l2 2 4-4M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"},
     {"id": "ciencia-comunicados", "label": "Ciência dos comunicados", "icon": "M17 20h5v-2a4 4 0 0 0-3-3.87M9 20H4v-2a4 4 0 0 1 3-3.87m6-1.13a4 4 0 1 0-4-4 4 4 0 0 0 4 4z"},
+    {"id": "reorganizacao-juridico", "label": "Reorganização (jurídico)", "icon": "M3 6l9-4 9 4M4 10v8m16-8v8M2 18h20M8 10v5m4-5v5m4-5v5"},
 ]
 
 
@@ -234,6 +235,29 @@ async def build(db) -> dict:
         "rows": [_cie_row(c) for c in _cie],
     }
 
+    # ---- REORGANIZAÇÃO (documentos do jurídico) — abrir/baixar em PDF no timbrado ----
+    import os as _os
+    _JUR = {"mapa": "Mapa_Empregados_Patrimonial.pdf", "minutas": "Minutas_Revisadas_Comunicados.pdf"}
+    _jur_rows = []
+    if _os.path.exists(f"/app/uploads/juridico/{_JUR['mapa']}"):
+        _jur_rows.append({
+            "cells": [t("Mapa dos Empregados", 600, "#0F1B3A"),
+                      t("54 empregados CLT · nome, cargo, admissão · para o setor jurídico")],
+            "docs": [doc("Abrir/Baixar (PDF)", "/api/v1/redesign/action/doc-juridico/mapa", fmt="pdf")]})
+    if _os.path.exists(f"/app/uploads/juridico/{_JUR['minutas']}"):
+        _jur_rows.append({
+            "cells": [t("Minutas revisadas dos comunicados", 600, "#0F1B3A"),
+                      t("Rascunhos corrigidos (orientações do jurídico) — sujeitos à validação")],
+            "docs": [doc("Abrir/Baixar (PDF)", "/api/v1/redesign/action/doc-juridico/minutas", fmt="pdf")]})
+    out["reorganizacao-juridico"] = {
+        "title": "Reorganização — documentos do jurídico",
+        "sub": ("Documentos sobre a troca de empregador (Eletrônica → Patrimonial), no timbrado da empresa. "
+                "Os 3 comunicados anteriores foram RETIRADOS por orientação do jurídico; estes apoiam a reescrita."),
+        "cta": "—", "type": "table", "searchHint": "Buscar…",
+        "grid": "1.6fr 2.4fr", "cols": ["Documento", "O que é"],
+        "rows": _jur_rows,
+    }
+
     return out
 
 
@@ -388,3 +412,23 @@ async def _rd_documento_empresa(request_id: str, current_user: CurrentActiveUser
         raise HTTPException(status_code=404, detail="Arquivo PDF não disponível para este documento.")
     safe_name = "".join(ch for ch in (row[0] or "documento") if ch.isalnum() or ch in " -_")[:60].strip() or "documento"
     return FileResponse(path, media_type="application/pdf", filename=f"{safe_name}.pdf")
+
+
+@router.get("/action/doc-juridico/{slug}")
+async def _rd_doc_juridico(slug: str, current_user: CurrentActiveUser):
+    """Serve os PDFs (timbrados) da reorganização para o jurídico: mapa de empregados e minutas.
+    Whitelist fixa (não aceita caminho arbitrário). Gated: só admin/operator."""
+    import os as _os
+
+    from fastapi.responses import FileResponse
+
+    if (getattr(current_user, "role", "") or "") not in ("admin", "operator"):
+        raise HTTPException(status_code=403, detail="Acesso restrito à administração.")
+    files = {"mapa": "Mapa_Empregados_Patrimonial.pdf", "minutas": "Minutas_Revisadas_Comunicados.pdf"}
+    fn = files.get(slug)
+    if not fn:
+        raise HTTPException(status_code=404, detail="Documento não encontrado.")
+    path = f"/app/uploads/juridico/{fn}"
+    if not _os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Arquivo ainda não disponível.")
+    return FileResponse(path, media_type="application/pdf", filename=fn)
