@@ -280,7 +280,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>" \
 
 ---
 
-### Task 3: Alargar a janela SQL (dia civil e virada de mês)
+### Task 3: Alargar a janela SQL (dia civil e virada de mês) — ✅ CONCLUÍDA 2026-08-05
 
 **Files:**
 - Modify: `backend/modules/people_management/hr/services/time_record_service.py:919-929` (`get_daily`)
@@ -339,7 +339,7 @@ datado no dia da entrada, e **não** um turno sobre o descanso.
 
 ---
 
-### Task 4: `get_by_id` devolve o registro que contém a batida pedida
+### Task 4: `get_by_id` devolve o registro que contém a batida pedida — ✅ CONCLUÍDA 2026-08-05
 
 **Files:**
 - Modify: `backend/modules/people_management/hr/services/time_record_service.py:246-250`
