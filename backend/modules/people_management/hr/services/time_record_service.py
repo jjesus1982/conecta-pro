@@ -944,119 +944,112 @@ class TimeRecordService:
     # =========================================================================
 
     def _pair_punches(self, rows: list[Any]) -> list[dict[str, Any]]:
-        """Emparelha batidas de entrada/saida por employee+dia.
+        """Emparelha batidas por funcionario, em ordem CRONOLOGICA.
 
-        Agrupa todas as batidas de um funcionario em um dia e
-        monta o registro diario com entrada, almoco, saida e totais.
+        NAO agrupa por dia antes de parear: o plantao 12x36 noturno entra 21:00 e sai
+        09:00 do dia seguinte, e o agrupamento por dia partia o turno em dois registros
+        quebrados (240 de 853 dias-funcionario em julho/2026 = 28%). O par conta no dia
+        da ENTRADA -- mesma convencao de `horas_service.parear_batidas`, que e o
+        pareador canonico da folha (commit 9dd89246).
+
+        O `punch_type` NAO decide o par (a batida do noturno vem tipada errada com
+        frequencia); serve so para reconhecer o intervalo de almoco dentro de um turno
+        ja pareado. Batida sem par plausivel avanca UMA posicao -- avancar duas
+        desalinharia todo o resto do mes.
         """
         from collections import defaultdict
 
-        # Agrupar por (employee_id, date)
-        groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+        from modules.people_management.ponto.services.horas_service import MAX_TURNO_H
+
+        # Agrupar SO por funcionario -- o dia sai do par, nao da batida solta.
+        por_emp: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for row in rows:
             r = dict(row)
-            emp_id = str(r["employee_id"])
-            ts = r["punch_timestamp"]
-            day = str(ts.date()) if isinstance(ts, datetime) else str(ts)[:10]
-            groups[(emp_id, day)].append(r)
+            por_emp[str(r["employee_id"])].append(r)
 
         records = []
-        for (emp_id, day), punches in groups.items():
-            # Sort by timestamp
+        for emp_id, punches in por_emp.items():
             punches.sort(key=lambda p: p["punch_timestamp"])
 
-            clock_in = None
-            clock_out = None
-            clock_in_lunch = None
-            clock_out_lunch = None
-            lat = None
-            lng = None
-            source = None
-            first_id = None
-            created_at = None
-            updated_at = None
+            i = 0
+            while i < len(punches) - 1:
+                entrada_p, saida_p = punches[i], punches[i + 1]
+                clock_in = entrada_p["punch_timestamp"]
+                clock_out = saida_p["punch_timestamp"]
+                dur = _calc_minutes_between(clock_in, clock_out)
 
-            for p in punches:
-                ptype = str(p.get("punch_type", "")).lower()
-                ts = p["punch_timestamp"]
+                # Turno implausivel -> a primeira e orfa; avanca UMA e tenta de novo.
+                if not (0 < dur <= MAX_TURNO_H * 60):
+                    i += 1
+                    continue
 
-                if first_id is None:
-                    first_id = p.get("punch_id") or str(p.get("id", ""))
-                    lat = p.get("latitude")
-                    lng = p.get("longitude")
-                    created_at = p.get("created_at")
-                    device = str(p.get("device_type", "")).lower()
-                    if "tangerino" in str(p.get("punch_id", "")).lower() or "tng" in str(p.get("punch_id", "")).lower():
-                        source = "tangerino"
-                    elif device == "manual":
-                        source = "manual"
-                    else:
-                        source = "portal"
+                # Almoco: so quando o par seguinte cabe INTEIRO dentro deste turno
+                # (jornada diurna 8-12 / 13-17 chega como 4 batidas seguidas).
+                clock_in_lunch = clock_out_lunch = None
+                if (
+                    i + 3 < len(punches)
+                    and str(saida_p.get("punch_type", "")).lower() == "saida_almoco"
+                    and punches[i + 3]["punch_timestamp"] > clock_out
+                ):
+                    fim_turno = punches[i + 3]["punch_timestamp"]
+                    if 0 < _calc_minutes_between(clock_in, fim_turno) <= MAX_TURNO_H * 60:
+                        clock_in_lunch = clock_out
+                        clock_out_lunch = punches[i + 2]["punch_timestamp"]
+                        clock_out = fim_turno
+                        saida_p = punches[i + 3]
+                        dur = _calc_minutes_between(clock_in, clock_out) - _calc_minutes_between(
+                            clock_in_lunch, clock_out_lunch
+                        )
+                        i += 2  # consome as duas batidas de almoco a mais
 
-                updated_at = p.get("updated_at") or updated_at
+                i += 2
 
-                if ptype == "entrada" and clock_in is None:
-                    clock_in = ts
-                elif ptype == "saida_almoco" and clock_in_lunch is None:
-                    clock_in_lunch = ts
-                elif ptype == "retorno_almoco" and clock_out_lunch is None:
-                    clock_out_lunch = ts
-                elif ptype == "saida":
-                    clock_out = ts
+                device = str(entrada_p.get("device_type", "")).lower()
+                pid = str(entrada_p.get("punch_id", "")).lower()
+                if "tangerino" in pid or "tng" in pid:
+                    source = "tangerino"
+                elif device == "manual":
+                    source = "manual"
+                else:
+                    source = "portal"
 
-            # Calculate total hours
-            total_minutes = 0
-            if clock_in and clock_out:
-                total_minutes = _calc_minutes_between(clock_in, clock_out)
-                if clock_in_lunch and clock_out_lunch:
-                    lunch_minutes = _calc_minutes_between(clock_in_lunch, clock_out_lunch)
-                    total_minutes -= lunch_minutes
+                overtime_minutes = max(0, dur - 480)
+                created_at = entrada_p.get("created_at")
+                updated_at = saida_p.get("updated_at") or entrada_p.get("updated_at")
 
-            overtime_minutes = max(0, total_minutes - 480)
+                records.append(
+                    {
+                        "id": str(entrada_p.get("punch_id") or entrada_p.get("id", "")),
+                        "employee_id": emp_id,
+                        "employee_name": None,
+                        "record_date": str(clock_in.date()),
+                        "clock_in": clock_in.strftime("%H:%M"),
+                        "clock_out": clock_out.strftime("%H:%M"),
+                        "clock_in_lunch": clock_in_lunch.strftime("%H:%M") if clock_in_lunch else None,
+                        "clock_out_lunch": clock_out_lunch.strftime("%H:%M") if clock_out_lunch else None,
+                        "total_hours": _format_minutes(dur) if dur > 0 else None,
+                        "overtime_hours": _format_minutes(overtime_minutes)
+                        if overtime_minutes > 0
+                        else None,
+                        "status": "regular",
+                        "justification": None,
+                        "location_lat": entrada_p.get("latitude"),
+                        "location_lng": entrada_p.get("longitude"),
+                        "registered_by": source,
+                        "source": source,
+                        "created_at": created_at.isoformat()
+                        if isinstance(created_at, datetime)
+                        else str(created_at)
+                        if created_at
+                        else None,
+                        "updated_at": updated_at.isoformat()
+                        if isinstance(updated_at, datetime)
+                        else str(updated_at)
+                        if updated_at
+                        else None,
+                    }
+                )
 
-            # Determine status
-            status = "regular"
-            if not clock_in and not clock_out:
-                status = "falta"
-            elif clock_in and not clock_out:
-                status = "inconsistencia"
-
-            records.append(
-                {
-                    "id": str(first_id),
-                    "employee_id": emp_id,
-                    "employee_name": None,
-                    "record_date": day,
-                    "clock_in": clock_in.strftime("%H:%M") if isinstance(clock_in, datetime) else None,
-                    "clock_out": clock_out.strftime("%H:%M") if isinstance(clock_out, datetime) else None,
-                    "clock_in_lunch": clock_in_lunch.strftime("%H:%M")
-                    if isinstance(clock_in_lunch, datetime)
-                    else None,
-                    "clock_out_lunch": clock_out_lunch.strftime("%H:%M")
-                    if isinstance(clock_out_lunch, datetime)
-                    else None,
-                    "total_hours": _format_minutes(total_minutes) if total_minutes > 0 else None,
-                    "overtime_hours": _format_minutes(overtime_minutes) if overtime_minutes > 0 else None,
-                    "status": status,
-                    "justification": None,
-                    "location_lat": lat,
-                    "location_lng": lng,
-                    "registered_by": source or "system",
-                    "source": source,
-                    "created_at": created_at.isoformat()
-                    if isinstance(created_at, datetime)
-                    else str(created_at)
-                    if created_at
-                    else None,
-                    "updated_at": updated_at.isoformat()
-                    if isinstance(updated_at, datetime)
-                    else str(updated_at)
-                    if updated_at
-                    else None,
-                }
-            )
-
-        # Sort by date descending
         records.sort(key=lambda r: r["record_date"], reverse=True)
         return records
 
