@@ -199,22 +199,20 @@ async def consultar(
     user=Depends(get_current_active_user),
 ):
     pergunta = payload.pergunta.strip()
-
-    # DIRETORIA (admin) -> Orquestrador Executivo (Hermes) já deployado.
-    if (getattr(user, "role", "") or "").lower() == "admin":
-        from modules.ai.conversation.controllers.executivo_controller import (
-            ConsultarIn as _ExecIn,
-            consultar as _exec_consultar,
-        )
-        out = await _exec_consultar(_ExecIn(pergunta=pergunta), db=db, user=user)
-        out["tier"] = "diretoria"
-        return out
-
+    # UNIFICAÇÃO (colapsa o antigo desvio do admin p/ o Hermes-gateway): o dono passa pelo MESMO
+    # motor único (run_engine), com a persona EXECUTIVO (lente CEO) por padrão — a menos que uma
+    # persona/rota específica seja pedida. Cérebro é gpt-5 nos dois; aqui ganha identidade real +
+    # rascunhos + o alcance in-process (U2). Ver project_unificacao_hermes_chat_flutuante.
+    is_admin = (getattr(user, "role", "") or "").lower() == "admin"
+    persona = payload.persona or ("ceo" if is_admin else None)
     scope, tools = await _resolver_tier_e_tools(db, user)
-    return await run_engine(
+    out = await run_engine(
         db, user, scope, tools, pergunta,
-        system_prompt=_system_for(user, pergunta, payload.persona), origem="consultor_escopado",
+        system_prompt=_system_for(user, pergunta, persona), origem="consultor_escopado",
     )
+    if is_admin:
+        out["tier"] = "diretoria"
+    return out
 
 
 @router.post("/executar")
@@ -227,10 +225,11 @@ async def executar(
     admin/gestor recebe as tools org-wide de todos os módulos (inclui os gera-doc), cada
     tool ainda aplica seu próprio gate/RBAC pela identidade real. O return traz `documentos`."""
     pergunta = payload.pergunta.strip()
+    persona = payload.persona or (("ceo") if (getattr(user, "role", "") or "").lower() == "admin" else None)
     scope, tools = await _resolver_tier_e_tools(db, user)
     return await run_engine(
         db, user, scope, tools, pergunta,
-        system_prompt=_system_for(user, pergunta, payload.persona), origem="consultor_executar",
+        system_prompt=_system_for(user, pergunta, persona), origem="consultor_executar",
     )
 
 
@@ -266,6 +265,7 @@ async def executar_arquivo(
         instr = base or "Analise e interprete este documento anexado; aponte o que for relevante."
         pergunta_final = f'{instr}\n\n[Documento anexado: {nome}]\n"""\n{texto}\n"""'
 
+    persona = persona or ("ceo" if (getattr(user, "role", "") or "").lower() == "admin" else "")
     scope, tools = await _resolver_tier_e_tools(db, user)
     return await run_engine(
         db, user, scope, tools, pergunta_final,
