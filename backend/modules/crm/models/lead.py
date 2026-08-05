@@ -49,6 +49,12 @@ class LeadSource(StrEnum):
     EVENT = "event"
     PARTNER = "partner"
     WHATSAPP = "whatsapp"  # leads do agente WhatsApp (Jose Luis) — sem email
+    # Atribuição de marketing: derivadas do ?text= do link wa.me de onde a pessoa clicou
+    # (ver _origem_do_texto no connector whatsapp). Sem marcador -> WHATSAPP.
+    LANDING_PORTARIA_REMOTA = "landing_portaria_remota"
+    LANDING_AGENTES_PORTARIA = "landing_agentes_portaria"
+    LANDING_MONITORAMENTO = "landing_monitoramento"
+    INSTAGRAM_LINKTREE = "instagram_linktree"
     OTHER = "other"
 
 

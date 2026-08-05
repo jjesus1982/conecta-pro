@@ -11,6 +11,16 @@ from sqlalchemy import text
 
 from core.database import async_session_factory
 from modules.integrations.connectors.whatsapp.agent_service import _criar_lead_para_conversa
+from modules.integrations.connectors.whatsapp.controller import _match_or_create_lead
+
+# Caminho REAL de criação (webhook, 1ª mensagem) — é por onde nasce quase todo lead.
+CASOS_WEBHOOK = [
+    ("5592900000781", "Ola! quero saber sobre Portaria Remota", "landing_portaria_remota"),
+    ("5592900000782", "Preciso de agentes de portaria", "landing_agentes_portaria"),
+    ("5592900000783", "Quero MONITORAMENTO pro predio", "landing_monitoramento"),
+    ("5592900000784", "vim pelo instagram de voces", "instagram_linktree"),
+    ("5592900000785", "Oi, bom dia", "whatsapp"),
+]
 
 CASOS = [
     (99900771, "5592900000771", "Ol%C3%A1%21+quero+saber+sobre+Portaria+Remota", "landing_portaria_remota"),
@@ -24,6 +34,16 @@ CASOS = [
 async def main(limpar: bool = True) -> int:
     falhas = 0
     async with async_session_factory() as db:
+        print("=== caminho WEBHOOK (_match_or_create_lead) ===")
+        for phone, texto, esperado in CASOS_WEBHOOK:
+            lid = await _match_or_create_lead(db, phone, f"T7 verificacao {phone}", texto)
+            await db.commit()
+            src = (await db.execute(text("SELECT source FROM leads WHERE id=:i"), {"i": lid})).scalar()
+            ok = src == esperado
+            falhas += 0 if ok else 1
+            print(f"{'OK ' if ok else 'FALHA'} {texto[:34]!r} -> source={src!r} (esperado {esperado!r})")
+
+        print("\n=== caminho AUTO-CURA (_criar_lead_para_conversa) ===")
         for conv, phone, texto, esperado in CASOS:
             await db.execute(
                 text(
@@ -53,7 +73,7 @@ async def main(limpar: bool = True) -> int:
 
         if limpar:
             convs = [c for c, *_ in CASOS]
-            phones = [p for _, p, *_ in CASOS]
+            phones = [p for _, p, *_ in CASOS] + [p for p, *_ in CASOS_WEBHOOK]
             await db.execute(
                 text("DELETE FROM cwi_message_log WHERE chatwoot_conversation_id = ANY(:c)"), {"c": convs}
             )

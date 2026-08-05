@@ -199,8 +199,15 @@ def _safe_int(v) -> int | None:
         return None
 
 
-async def _match_or_create_lead(db: AsyncSession, phone_canonical: str, name: str | None) -> str | None:
-    """Dedup por telefone normalizado em leads.phone; cria Lead (source=whatsapp) se novo."""
+async def _match_or_create_lead(
+    db: AsyncSession, phone_canonical: str, name: str | None, texto: str | None = None
+) -> str | None:
+    """Dedup por telefone normalizado em leads.phone; cria Lead se novo.
+
+    `texto` é o conteúdo da mensagem que disparou a criação — como só criamos quando o
+    contato ainda não tem lead, ela é a PRIMEIRA mensagem e carrega o pré-preenchido do
+    link wa.me, de onde sai a origem (atribuição de marketing). Sem marcador -> whatsapp.
+    """
     # Lock por telefone (advisory transacional): serializa criação concorrente do mesmo
     # contato (2 webhooks simultâneos) -> evita lead duplicado. Auto-libera no commit/rollback.
     try:
@@ -224,6 +231,9 @@ async def _match_or_create_lead(db: AsyncSession, phone_canonical: str, name: st
     from modules.crm.repositories.lead_repository import LeadRepository
     from modules.crm.schemas.lead import LeadCreate
 
+    from .agent_service import _origem_do_texto
+
+    origem = _origem_do_texto(texto)
     lead_name = (name or "").strip() or f"WhatsApp {phone_canonical}"
     repo = LeadRepository(db)
     new_id: str | None = None
@@ -233,7 +243,7 @@ async def _match_or_create_lead(db: AsyncSession, phone_canonical: str, name: st
                 name=lead_name[:255],
                 email=None,
                 phone=phone_canonical,
-                source=LeadSource.WHATSAPP,
+                source=LeadSource(origem),
             )
         )
         new_id = lead.id
@@ -247,9 +257,9 @@ async def _match_or_create_lead(db: AsyncSession, phone_canonical: str, name: st
                 text(
                     "INSERT INTO leads (id,name,phone,source,status,score,probability,"
                     "expected_value,is_active,created_at,updated_at) VALUES "
-                    "(gen_random_uuid(),:n,:p,'whatsapp','new',0,0,0,true,now(),now()) RETURNING id"
+                    "(gen_random_uuid(),:n,:p,:src,'new',0,0,0,true,now(),now()) RETURNING id"
                 ),
-                {"n": lead_name[:255], "p": phone_canonical},
+                {"n": lead_name[:255], "p": phone_canonical, "src": origem},
             )
         ).scalar()
         new_id = str(lid) if lid else None
@@ -809,7 +819,7 @@ async def chatwoot_webhook(
     lead_id = None
     if direction == "in" and phone_canonical:
         try:
-            lead_id = await _match_or_create_lead(db, phone_canonical, name)
+            lead_id = await _match_or_create_lead(db, phone_canonical, name, content)
         except Exception as e:  # noqa: BLE001 — log nunca deve falhar por causa do lead
             logger.error("Webhook Chatwoot: falha ao criar/achar lead: %s", e)
 
