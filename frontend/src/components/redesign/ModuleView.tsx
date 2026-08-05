@@ -91,9 +91,29 @@ function DashScreen({ scr, onNav }: { scr: any; onNav?: (id: string) => void }) 
 // Termo do campo "Buscar…" do cabeçalho. Context (e não prop) porque a tabela pode estar
 // aninhada dentro de uma tela-grupo (tabs) — passar prop exigiria fiar por toda a árvore.
 const SearchCtx = createContext('');
+// Recarrega os dados da tela após uma ação de escrita. O fetch vive no componente
+// externo; sem isto a linha alterada só sai da tabela depois de F5 — foi a sensação
+// de "travado" reportada (a acao gravava, mas a tela nao dava sinal).
+const ReloadCtx = createContext<() => void>(() => {});
+
+/** Mensagem de erro legível do backend. FastAPI 422 devolve `detail` como LISTA de
+ *  objetos — jogar isso num template vira "[object Object]" (bug real em produção). */
+function msgErro(d: any): string {
+  const det = d?.detail;
+  if (typeof det === 'string') return det;
+  if (Array.isArray(det)) {
+    const partes = det
+      .map((e: any) => (typeof e === 'string' ? e : e?.msg))
+      .filter(Boolean);
+    if (partes.length) return partes.join(' · ');
+  }
+  if (typeof d?.message === 'string') return d.message;
+  return '';
+}
 
 function TableScreen({ scr }: { scr: any }) {
   const q = useContext(SearchCtx).trim().toLowerCase();
+  const recarregar = useContext(ReloadCtx);
   const allRows = scr.rows || [];
   // Seletor opcional por coluna (ex.: Competência na Folha): scr.filterCol = índice da coluna.
   // Dropdown filtra as linhas client-side; default = 1º valor (as linhas já vêm ordenadas desc).
@@ -221,8 +241,12 @@ function TableScreen({ scr }: { scr: any }) {
                   let tok: string | null = null; try { tok = localStorage.getItem('access_token'); } catch { /* */ }
                   const res = await fetch(editRow.endpoint, { method: editRow.method || 'PATCH', headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) }, body: JSON.stringify({ ...(editRow.fixed || {}), ...editVals }) });
                   const d = await res.json().catch(() => ({}));
-                  if (!res.ok) throw new Error(d.detail || 'Não foi possível salvar.');
-                  setEditMsg({ ok: true, text: d.message || editRow.okMsg || 'Salvo. Recarregue a tela para ver a alteração.' });
+                  if (!res.ok) throw new Error(msgErro(d) || 'Não foi possível salvar.');
+                  setEditMsg({ ok: true, text: d.message || editRow.okMsg || 'Salvo.' });
+                  // Mostra o OK por um instante, fecha o modal e recarrega os dados.
+                  // Antes o modal ficava aberto e a tabela nao mudava: o usuario clicava
+                  // de novo achando que nao tinha funcionado.
+                  setTimeout(() => { setEditRow(null); setEditMsg(null); recarregar(); }, 1100);
                 } catch (e) { setEditMsg({ ok: false, text: e instanceof Error ? e.message : 'Erro.' }); }
                 finally { setEditBusy(false); }
               }}>{editBusy ? 'Enviando…' : (editRow.submitLabel || 'Salvar')}</button>}
@@ -606,6 +630,8 @@ export default function ModuleView({ slug }: { slug: string }) {
   const [q, setQ] = useState(''); // termo do campo "Buscar…" (o input era decorativo: sem estado)
   // 'idle' sem token (exemplo direto) · 'loading' buscando · 'done' resolvido
   const [dataState, setDataState] = useState<'idle' | 'loading' | 'done'>('idle');
+  // Bumpado por ReloadCtx após uma ação de escrita → refaz o fetch da tela.
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     try { if (localStorage.getItem('rd-sidebar-collapsed') === '1') setCollapsed(true); } catch { /* */ }
@@ -646,7 +672,7 @@ export default function ModuleView({ slug }: { slug: string }) {
     };
     carregar();
     return () => { cancel = true; if (timer) clearTimeout(timer); };
-  }, [slug]);
+  }, [slug, reloadKey]);
 
   const toggle = () => setCollapsed((c) => { const n = !c; try { localStorage.setItem('rd-sidebar-collapsed', n ? '1' : '0'); } catch { /* */ } return n; });
   const go = (id: string, tabId?: string) => {
@@ -784,11 +810,13 @@ export default function ModuleView({ slug }: { slug: string }) {
               </div>
             : (isReal || scr?.type === 'chat')
               ? (
-                <SearchCtx.Provider value={q}>
-                  {scr?.type === 'tabs'
-                    ? <TabsScreen scr={scr} tab={activeTab} onTab={(id) => go(active, id)} onNav={go} />
-                    : <Screen scr={scr} onNav={go} />}
-                </SearchCtx.Provider>
+                <ReloadCtx.Provider value={() => setReloadKey((k) => k + 1)}>
+                  <SearchCtx.Provider value={q}>
+                    {scr?.type === 'tabs'
+                      ? <TabsScreen scr={scr} tab={activeTab} onTab={(id) => go(active, id)} onNav={go} />
+                      : <Screen scr={scr} onNav={go} />}
+                  </SearchCtx.Provider>
+                </ReloadCtx.Provider>
               )
               : <EmptyReal />}
         </main>
