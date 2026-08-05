@@ -94,6 +94,90 @@ async def _negociacoes_pendentes(db, user, scope, **_) -> dict[str, Any]:
     return await negociacoes_pendentes(db=db)
 
 
+async def _listar_leads(db, user, scope, *, status=None, source=None, is_hot=None,
+                        company=None, search=None, page=1, page_size=20, **_) -> dict[str, Any]:
+    _gate(user)
+    from modules.crm.controllers.lead_controller import list_leads
+    # rota tem Query(...) nos params; chamando direto passamos tudo explícito p/ não vazar Query objects.
+    res = await list_leads(current_user=user, db=db, page=page, page_size=page_size,
+                           status_filter=status, source=source, assigned_to_id=None,
+                           min_score=None, max_score=None, is_hot=is_hot,
+                           company=company, search=search)
+    return res.model_dump(mode="json")
+
+
+async def _pipeline(db, user, scope, **_) -> dict[str, Any]:
+    _gate(user)
+    from modules.crm.controllers.opportunity_controller import get_pipeline_stats
+    res = await get_pipeline_stats(current_user=user, db=db, owner_id=None)
+    return res.model_dump(mode="json")
+
+
+async def _reunioes(db, user, scope, *, futuras=True, **_) -> dict[str, Any]:
+    _gate(user)
+    from modules.crm.controllers.growth_controller import listar_reunioes_ep
+    return await listar_reunioes_ep(db=db, futuras=futuras)
+
+
+async def _followups_pendentes(db, user, scope, **_) -> dict[str, Any]:
+    _gate(user)
+    from modules.crm.controllers.growth_controller import followups_pendentes
+    return await followups_pendentes(db=db)
+
+
+async def _historico_followup(db, user, scope, *, deal_id=None, **_) -> dict[str, Any]:
+    _gate(user)
+    if not deal_id:
+        return {"status": "informe deal_id para ver o histórico de follow-up"}
+    from modules.crm.controllers.growth_controller import followups_historico
+    return await followups_historico(deal_id=str(deal_id), db=db)
+
+
+async def _painel_negociacoes(db, user, scope, **_) -> dict[str, Any]:
+    _gate(user)
+    from modules.crm.controllers.growth_controller import listar_negociacoes
+    return await listar_negociacoes(db=db)
+
+
+async def _resumo_comercial(db, user, scope, **_) -> dict[str, Any]:
+    _gate(user)
+    from modules.crm.controllers.growth_controller import relatorio_comercial_endpoint
+    return await relatorio_comercial_endpoint(db=db)
+
+
+async def _sequencias(db, user, scope, **_) -> Any:
+    _gate(user)
+    from modules.crm.controllers.growth_controller import list_sequences
+    return await list_sequences(db=db)
+
+
+async def _campanhas(db, user, scope, **_) -> dict[str, Any]:
+    _gate(user)
+    from modules.crm.controllers.marketing_controller import listar_campanhas
+    return await listar_campanhas(current_user=user, db=db)
+
+
+async def _contatos(db, user, scope, *, client_id=None, **_) -> dict[str, Any]:
+    _gate(user)
+    from modules.crm.controllers.contact_controller import listar_contatos
+    return await listar_contatos(current_user=user, client_id=client_id, db=db)
+
+
+async def _atividades(db, user, scope, *, client_id=None, limit=20, **_) -> dict[str, Any]:
+    _gate(user)
+    from modules.crm.controllers.contact_controller import listar_atividades
+    return await listar_atividades(current_user=user, client_id=client_id, limit=limit, db=db)
+
+
+async def _tarefas(db, user, scope, *, status=None, assigned_to_id=None, lead_id=None,
+                   opportunity_id=None, client_id=None, overdue=None, **_) -> dict[str, Any]:
+    _gate(user)
+    from modules.crm.controllers.contact_controller import listar_tarefas
+    return await listar_tarefas(current_user=user, status=status, assigned_to_id=assigned_to_id,
+                                lead_id=lead_id, opportunity_id=opportunity_id,
+                                client_id=client_id, overdue=overdue, db=db)
+
+
 # ---- registro das ops READ no dispatcher consultar_crm (filtros vão em `filtros`) ----
 
 registrar_read("crm", "clientes",
@@ -119,3 +203,35 @@ registrar_read("crm", "contratos",
 registrar_read("crm", "negociacoes_pendentes",
                "Propostas enviadas SEM resposta do cliente (negociações pendentes, com dias "
                "parados).", _negociacoes_pendentes)
+registrar_read("crm", "leads",
+               "Lista leads com paginação. Filtros: status, source, is_hot, company, search, "
+               "page, page_size.", _listar_leads)
+registrar_read("crm", "pipeline",
+               "Estatísticas do pipeline de vendas: valor total, valor ponderado, win rate, "
+               "tempo médio de fechamento.", _pipeline)
+registrar_read("crm", "reunioes",
+               "Lista as reuniões comerciais (por padrão só as futuras). Filtro: futuras "
+               "(true/false).", _reunioes)
+registrar_read("crm", "followups_pendentes",
+               "Follow-ups (toques) agendados/a fazer: deal, cliente, canal e data.",
+               _followups_pendentes)
+registrar_read("crm", "historico_followup",
+               "Histórico de follow-ups + respostas de UM deal. Filtro obrigatório: deal_id.",
+               _historico_followup)
+registrar_read("crm", "painel_negociacoes",
+               "Painel das negociações em aberto: cliente, proposta, quem conduz, última "
+               "resposta.", _painel_negociacoes)
+registrar_read("crm", "resumo_comercial",
+               "Raio-x de vendas: win/loss, conversão do funil, motivos de perda, ROI por canal, "
+               "ranking de MRR e ciclo médio.", _resumo_comercial)
+registrar_read("crm", "sequencias",
+               "Lista as sequências de cadência comercial (crm_sequences).", _sequencias)
+registrar_read("crm", "campanhas",
+               "Lista campanhas de marketing com total de leads, convertidos e ROI.", _campanhas)
+registrar_read("crm", "contatos",
+               "Lista contatos CRM (pessoas). Filtro opcional: client_id.", _contatos)
+registrar_read("crm", "atividades",
+               "Lista atividades CRM (interações). Filtros: client_id, limit.", _atividades)
+registrar_read("crm", "tarefas",
+               "Lista tarefas CRM. Filtros: status, assigned_to_id, lead_id, opportunity_id, "
+               "client_id, overdue.", _tarefas)
