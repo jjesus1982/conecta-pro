@@ -23,13 +23,19 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from datetime import date
 from typing import Any
 
+from sqlalchemy import text
+
 from .acoes.base import ROLES_KIT_OP, propor
+from .acoes.rascunho import criar_rascunho, registrar_executor
 from .agir_dispatcher import registrar_acao
 
 # Reusa a lista canônica de tipos válidos (não fabricar/duplicar).
 from modules.gedeon.services.kit_ficha_service import TIPOS_EVENTO
+# Tipos válidos de intercorrência (fonte única no consultor GED).
+from modules.gedeon.services.consultor_service import TIPOS_INTERCORRENCIA
 
 
 async def _propor_registrar_evento_kit(
@@ -83,6 +89,176 @@ registrar_acao("ged", "registrar_evento_kit",
                + ", ".join(TIPOS_EVENTO) + "), descricao (obrig.), funcionario, data. "
                "Fica pendente — a gravação na ficha é humana.",
                _propor_registrar_evento_kit)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# INTERCORRÊNCIAS (GEDEON) via CENTRAL DE RASCUNHOS — registrar/tratar/excluir.
+# O HANDLER (chat) só grava um AgentDraft inerte via `criar_rascunho` — NUNCA
+# executa. A execução real (INSERT/UPDATE/DELETE em gedeon_intercorrencias) roda
+# SÓ na aprovação, pelo EXECUTOR registrado, que reusa os MESMOS serviços de
+# domínio do consultor GED (consultor_service.registrar/tratar/excluir).
+# Aprovador = ROLES_KIT_OP (admin + gerente_operacional), coerente c/ o kit.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def _propor_registrar_intercorrencia(
+    db, user, scope, *, condominio: str = "", tipo: str = "", descricao: str = "",
+    competencia: str = "", funcionario: str = "", data: str = "",
+    impacto_folha: Any = True, **_
+) -> dict[str, Any]:
+    condominio = (condominio or "").strip()
+    tipo_n = (tipo or "").strip().lower()
+    descricao = (descricao or "").strip()
+    if len(condominio) < 2:
+        return {"erro": "condominio (>=2 chars) é obrigatório"}
+    if tipo_n not in TIPOS_INTERCORRENCIA:
+        return {"erro": f"tipo inválido; use um de: {', '.join(sorted(TIPOS_INTERCORRENCIA))}"}
+    if len(descricao) < 2:
+        return {"erro": "descricao (>=2 chars) é obrigatória"}
+    comp = (competencia or "").strip()[:7] or None
+    func = (funcionario or "").strip() or None
+    dt = (data or "").strip()
+    if dt:
+        try:
+            date.fromisoformat(dt[:10])
+        except (TypeError, ValueError):
+            return {"erro": "data inválida (esperado AAAA-MM-DD)"}
+    dt = dt[:10] or None
+    # impacto_folha aceita bool ou string; default True (a maioria das intercorrências mexe na folha).
+    impacto = str(impacto_folha).strip().lower() not in ("false", "0", "nao", "não", "n", "")
+    # 🟡 se afeta a folha (revisão mais atenta), 🔵 se não.
+    gate = "🟡" if impacto else "🔵"
+
+    chave = f"{condominio}|{comp or ''}|{tipo_n}|{func or ''}|{dt or ''}|{descricao}"
+    idem = f"interc_reg:{hashlib.sha1(chave.encode('utf-8')).hexdigest()[:16]}"
+    return await criar_rascunho(
+        db, user, tipo="registrar_intercorrencia", modulo="ged", gate=gate,
+        requires_otp=False, roles_aprovador=ROLES_KIT_OP, idempotency_key=idem,
+        titulo="Registrar intercorrência (rascunho)",
+        resumo=f"Aprovar REGISTRA a intercorrência '{tipo_n}' em {condominio}"
+               + (f" ({comp})" if comp else "")
+               + (f", func. {func}" if func else "")
+               + (f", data {dt}" if dt else "")
+               + (" — IMPACTA A FOLHA" if impacto else "")
+               + f": “{descricao[:120]}”. Só a aprovação grava; a IA não registra nada agora.",
+        payload={"condominio": condominio, "tipo": tipo_n, "descricao": descricao,
+                 "competencia": comp, "funcionario": func, "data_evento": dt,
+                 "impacto_folha": impacto},
+    )
+
+
+async def _resolver_intercorrencia(db, ref: str):
+    """Resolve um id de intercorrência (read-only) → (id:int, mapping) ou (None, None)."""
+    from modules.gedeon.services import consultor_service as _cs
+    await _cs._ensure_schema(db)  # cria tabelas vazias se faltarem (idempotente); não é a ação
+    try:
+        iid = int(str(ref).strip())
+    except (TypeError, ValueError):
+        return None, None
+    row = (await db.execute(text(
+        "SELECT id, condominio, tipo, status FROM gedeon_intercorrencias WHERE id = :i"),
+        {"i": iid})).mappings().first()
+    return (iid, row) if row else (None, None)
+
+
+async def _propor_tratar_intercorrencia(
+    db, user, scope, *, intercorrencia_id: Any = "", id: Any = "", resolucao: str = "", **_
+) -> dict[str, Any]:
+    ref = str(intercorrencia_id or id or "").strip()
+    if not ref:
+        return {"erro": "intercorrencia_id é obrigatório"}
+    iid, row = await _resolver_intercorrencia(db, ref)
+    if not row:
+        return {"erro": f"intercorrência '{ref}' não encontrada."}
+    resolucao = (resolucao or "").strip()
+    return await criar_rascunho(
+        db, user, tipo="tratar_intercorrencia", modulo="ged", gate="🔵",
+        requires_otp=False, roles_aprovador=ROLES_KIT_OP,
+        idempotency_key=f"interc_trat:{iid}",
+        titulo="Tratar intercorrência (rascunho)",
+        resumo=f"Aprovar marca a intercorrência #{iid} ({row['condominio']} · {row['tipo']}, "
+               f"hoje '{row['status']}') como TRATADA."
+               + (f" Resolução: “{resolucao[:120]}”." if resolucao else "")
+               + " Só a aprovação altera o status.",
+        payload={"intercorrencia_id": iid, "resolucao": resolucao or None},
+    )
+
+
+async def _propor_excluir_intercorrencia(
+    db, user, scope, *, intercorrencia_id: Any = "", id: Any = "", **_
+) -> dict[str, Any]:
+    ref = str(intercorrencia_id or id or "").strip()
+    if not ref:
+        return {"erro": "intercorrencia_id é obrigatório"}
+    iid, row = await _resolver_intercorrencia(db, ref)
+    if not row:
+        return {"erro": f"intercorrência '{ref}' não encontrada."}
+    return await criar_rascunho(
+        db, user, tipo="excluir_intercorrencia", modulo="ged", gate="🟡",
+        requires_otp=False, roles_aprovador=ROLES_KIT_OP,
+        idempotency_key=f"interc_del:{iid}",
+        titulo="EXCLUIR intercorrência (rascunho)",
+        resumo=f"⚠️ DESTRUTIVO: aprovar EXCLUI DEFINITIVAMENTE a intercorrência #{iid} "
+               f"({row['condominio']} · {row['tipo']}, status '{row['status']}') — "
+               f"não há como desfazer. Confira antes; só a aprovação apaga.",
+        payload={"intercorrencia_id": iid},
+    )
+
+
+# ── Executores (rodam SÓ na aprovação, via executar_rascunho) ─────────────────
+# Reusam os MESMOS serviços de domínio do consultor GED. Import por-módulo no
+# call-time p/ permitir monkeypatch no teste de bancada.
+
+
+async def _exec_registrar_intercorrencia(db, aprovador_user, payload: dict) -> str:
+    from modules.gedeon.services import consultor_service as cs
+    dt = payload.get("data_evento")
+    data_evento = date.fromisoformat(dt[:10]) if dt else None
+    r = await cs.registrar_intercorrencia(
+        db, condominio=str(payload["condominio"]), tipo=str(payload["tipo"]),
+        descricao=str(payload["descricao"]), competencia=payload.get("competencia"),
+        funcionario=payload.get("funcionario"), data_evento=data_evento,
+        impacto_folha=bool(payload.get("impacto_folha", True)),
+        created_by=str(getattr(aprovador_user, "id", None)),
+    )
+    return str(r["id"])
+
+
+async def _exec_tratar_intercorrencia(db, aprovador_user, payload: dict) -> str:
+    from modules.gedeon.services import consultor_service as cs
+    r = await cs.tratar_intercorrencia(db, int(payload["intercorrencia_id"]))
+    return str(r["id"])
+
+
+async def _exec_excluir_intercorrencia(db, aprovador_user, payload: dict) -> str:
+    from modules.gedeon.services import consultor_service as cs
+    iid = int(payload["intercorrencia_id"])
+    await cs.excluir_intercorrencia(db, iid)
+    return str(iid)
+
+
+registrar_executor("registrar_intercorrencia", _exec_registrar_intercorrencia)
+registrar_executor("tratar_intercorrencia", _exec_tratar_intercorrencia)
+registrar_executor("excluir_intercorrencia", _exec_excluir_intercorrencia)
+
+
+registrar_acao("ged", "registrar_intercorrencia",
+               "Criar um RASCUNHO p/ registrar uma intercorrência do mês na Central — "
+               "aprovação = admin/gerente operacional. dados: condominio (obrig.), tipo "
+               "(obrig., um de: " + ", ".join(sorted(TIPOS_INTERCORRENCIA)) + "), descricao "
+               "(obrig.), competencia (YYYY-MM), funcionario, data (AAAA-MM-DD), impacto_folha. "
+               "NÃO registra agora; só grava quando aprovarem na Central.",
+               _propor_registrar_intercorrencia)
+registrar_acao("ged", "tratar_intercorrencia",
+               "Criar um RASCUNHO p/ marcar uma intercorrência como TRATADA na Central — "
+               "aprovação = admin/gerente operacional. dados: intercorrencia_id (obrig.), "
+               "resolucao. NÃO altera agora; o status só muda ao aprovar na Central.",
+               _propor_tratar_intercorrencia)
+registrar_acao("ged", "excluir_intercorrencia",
+               "Criar um RASCUNHO p/ EXCLUIR (destrutivo) uma intercorrência na Central — "
+               "aprovação = admin/gerente operacional. dados: intercorrencia_id (obrig.). "
+               "NÃO exclui agora; só apaga ao aprovar na Central.",
+               _propor_excluir_intercorrencia)
 
 
 if __name__ == "__main__":
