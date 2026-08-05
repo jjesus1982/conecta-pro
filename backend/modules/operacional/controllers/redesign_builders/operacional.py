@@ -766,10 +766,23 @@ async def build(db) -> dict:
         out["reembolsos"] = await tbl(
             "Reembolsos", "Solicitações de reembolso (visibilidade)", "—",
             ["Código", "Descrição", "Valor", "Status"], "1fr 2fr 1fr 0.9fr",
-            "SELECT coalesce(code,'—'), coalesce(title,'—'), total_amount, coalesce(status::text,'—') "
+            "SELECT coalesce(code,'—'), coalesce(title,'—'), total_amount, coalesce(status::text,'—'), "
+            "coalesce(description,'—'), approved_amount, submitted_at, approved_at, coalesce(bank_code,'—') "
             "FROM reimbursement_requests ORDER BY submitted_at DESC NULLS LAST LIMIT 200",
             lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—')[:60]), t(brl(r[2]) if r[2] is not None else '—', 600),
-                       b((r[3] or '—').replace('_', ' ').capitalize(), _rt.get((r[3] or '').lower(), "info"))])
+                       b((r[3] or '—').replace('_', ' ').capitalize(), _rt.get((r[3] or '').lower(), "info"))],
+            editfn=lambda r: {
+                "btnLabel": "Ver reembolso", "readOnly": True, "title": f"Reembolso — {r[0]}",
+                "fields": [
+                    {"label": "Código", "value": r[0]}, {"label": "Status", "value": (r[3] or "—").replace("_", " ").capitalize()},
+                    {"label": "Título", "value": r[1], "span": "span 2"},
+                    {"label": "Descrição", "value": r[4], "span": "span 2"},
+                    {"label": "Valor solicitado", "value": brl(r[2]) if r[2] is not None else "—"},
+                    {"label": "Valor aprovado", "value": brl(r[5]) if r[5] is not None else "—"},
+                    {"label": "Submetido em", "value": _fmtdate(r[6])}, {"label": "Aprovado em", "value": _fmtdate(r[7])},
+                    {"label": "Banco", "value": r[8]},
+                ],
+            })
     except Exception:  # noqa: BLE001
         pass
 
@@ -847,12 +860,30 @@ async def build(db) -> dict:
             "Medidas administrativas", f"{n_med} medida(s) · fonte: disciplinary_actions", "—",
             ["Colaborador", "Tipo", "Motivo", "Data", "Status"], "1.8fr 1.2fr 1.6fr 0.9fr 1fr",
             "SELECT id, coalesce(employee_name,'—'), coalesce(action_type::text,'—'), "
-            "coalesce(reason_description, reason_category::text, '—'), incident_date, coalesce(status::text,'—') "
+            "coalesce(reason_description, reason_category::text, '—'), incident_date, coalesce(status::text,'—'), "
+            "coalesce(code,'—'), coalesce(reason_category::text,'—'), coalesce(witness_1_name,'—'), "
+            "coalesce(witness_2_name,'—'), created_at, coalesce(rejection_reason,'—'), "
+            "(employee_signature_id IS NOT NULL), (supervisor_signature_id IS NOT NULL), (hr_signature_id IS NOT NULL) "
             "FROM disciplinary_actions WHERE coalesce(is_active,true) "
             "ORDER BY coalesce(incident_date, created_at) DESC NULLS LAST LIMIT 200",
             lambda r: [t(r[1], 600, "#0F1B3A"), t((r[2] or '—').replace('_', ' ').capitalize()),
                        t((r[3] or '—')[:60]), t(_fmtdate(r[4])),
-                       b((r[5] or '—').replace('_', ' ').capitalize(), _med_tone.get((r[5] or '').lower(), "info"))])
+                       b((r[5] or '—').replace('_', ' ').capitalize(), _med_tone.get((r[5] or '').lower(), "info"))],
+            editfn=lambda r: {
+                "btnLabel": "Ver medida", "readOnly": True, "title": f"Medida — {r[1]}",
+                "fields": [
+                    {"label": "Código", "value": r[6]}, {"label": "Status", "value": (r[5] or "—").replace("_", " ").capitalize()},
+                    {"label": "Colaborador", "value": r[1], "span": "span 2"},
+                    {"label": "Tipo", "value": (r[2] or "—").replace("_", " ").capitalize()},
+                    {"label": "Categoria", "value": (r[7] or "—").replace("_", " ").capitalize()},
+                    {"label": "Data do incidente", "value": _fmtdate(r[4])}, {"label": "Registrada em", "value": _fmtdate(r[10])},
+                    {"label": "Motivo / descrição", "value": r[3], "span": "span 2"},
+                    {"label": "Testemunha 1", "value": r[8]}, {"label": "Testemunha 2", "value": r[9]},
+                    {"label": "Assinaturas", "span": "span 2",
+                     "value": f"Colaborador: {'sim' if r[12] else 'não'} · Supervisor: {'sim' if r[13] else 'não'} · RH: {'sim' if r[14] else 'não'}"},
+                    {"label": "Motivo da rejeição", "value": r[11], "span": "span 2"},
+                ],
+            })
     except Exception:  # noqa: BLE001 — nunca derruba o módulo
         pass
 
