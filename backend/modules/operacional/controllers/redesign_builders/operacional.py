@@ -753,10 +753,26 @@ async def build(db) -> dict:
         out["turnos"] = await tbl(
             "Turnos", "Turnos planejados/realizados", "—",
             ["Colaborador", "Data", "Início", "Fim", "Horas", "Status"], "1.6fr 0.9fr 0.8fr 0.8fr 0.7fr 0.9fr",
-            "SELECT coalesce(e.nome,'—'), s.shift_date, s.planned_start_time, s.planned_end_time, s.planned_hours, coalesce(s.status::text,'—') "
+            "SELECT coalesce(e.nome,'—'), s.shift_date, s.planned_start_time, s.planned_end_time, s.planned_hours, coalesce(s.status::text,'—'), "
+            "s.planned_break_minutes, s.actual_start_time, s.actual_end_time, s.actual_hours, s.overtime_hours, s.night_hours, coalesce(s.notes,'—') "
             "FROM shifts s LEFT JOIN employees e ON e.id=s.employee_id ORDER BY s.shift_date DESC NULLS LAST LIMIT 200",
             lambda r: [t(r[0], 600, "#0F1B3A"), t(_fmtdate(r[1])), t(str(r[2])[:5] if r[2] else '—'), t(str(r[3])[:5] if r[3] else '—'),
-                       t(f"{float(r[4]):.0f}h" if r[4] is not None else '—'), b((r[5] or '—').replace('_', ' ').capitalize(), _tt.get((r[5] or '').lower(), "info"))])
+                       t(f"{float(r[4]):.0f}h" if r[4] is not None else '—'), b((r[5] or '—').replace('_', ' ').capitalize(), _tt.get((r[5] or '').lower(), "info"))],
+            editfn=lambda r: {
+                "btnLabel": "Ver turno", "readOnly": True, "title": f"Turno — {r[0]}",
+                "fields": [
+                    {"label": "Colaborador", "value": r[0], "span": "span 2"},
+                    {"label": "Data", "value": _fmtdate(r[1])}, {"label": "Status", "value": (r[5] or "—").replace("_", " ").capitalize()},
+                    {"label": "Início previsto", "value": str(r[2])[:5] if r[2] else "—"}, {"label": "Fim previsto", "value": str(r[3])[:5] if r[3] else "—"},
+                    {"label": "Início real", "value": str(r[7])[:5] if r[7] else "—"}, {"label": "Fim real", "value": str(r[8])[:5] if r[8] else "—"},
+                    {"label": "Horas previstas", "value": (f"{float(r[4]):.1f}h" if r[4] is not None else "—")},
+                    {"label": "Horas realizadas", "value": (f"{float(r[9]):.1f}h" if r[9] is not None else "—")},
+                    {"label": "Intervalo (min)", "value": (str(r[6]) if r[6] is not None else "—")},
+                    {"label": "Horas extras", "value": (f"{float(r[10]):.1f}h" if r[10] is not None else "—")},
+                    {"label": "Horas noturnas", "value": (f"{float(r[11]):.1f}h" if r[11] is not None else "—")},
+                    {"label": "Notas", "value": r[12], "span": "span 2"},
+                ],
+            })
     except Exception:  # noqa: BLE001
         pass
 
@@ -852,12 +868,27 @@ async def build(db) -> dict:
             ["Código", "Inspetor", "Data", "Duração", "Ocorrências", "Status"],
             "1.1fr 1.6fr 1fr 0.8fr 0.9fr 0.9fr",
             "SELECT id, coalesce(code,'—'), coalesce(inspector_name,'—'), coalesce(scheduled_date, started_at), "
-            "duration_minutes, coalesce(total_occurrences,0), coalesce(status::text,'—') "
+            "duration_minutes, coalesce(total_occurrences,0), coalesce(status::text,'—'), "
+            "coalesce(inspector_role,'—'), started_at, coalesce(total_checkpoints,0), "
+            "coalesce(total_disciplinary_actions,0), coalesce(observations,'—') "
             "FROM inspection_rounds ORDER BY coalesce(scheduled_date, started_at, created_at) DESC NULLS LAST LIMIT 200",
             lambda r: [t(r[1], 600, "#0F1B3A"), t(r[2]), t(_fmtdate(r[3])),
                        t(f"{int(r[4])} min" if r[4] is not None else '—'), t(str(int(r[5] or 0))),
                        b((r[6] or '—').replace('_', ' ').capitalize(), _ron_tone.get((r[6] or '').lower(), "info"))],
-            docsfn=lambda r: [doc("Relatório (PDF)", f"/api/v1/operacional/rondas/{r[0]}/relatorio/pdf", fmt="pdf")])
+            docsfn=lambda r: [doc("Relatório (PDF)", f"/api/v1/operacional/rondas/{r[0]}/relatorio/pdf", fmt="pdf")],
+            editfn=lambda r: {
+                "btnLabel": "Ver ronda", "readOnly": True, "title": f"Ronda — {r[1]}",
+                "fields": [
+                    {"label": "Código", "value": r[1]}, {"label": "Status", "value": (r[6] or "—").replace("_", " ").capitalize()},
+                    {"label": "Inspetor", "value": r[2]}, {"label": "Função", "value": (r[7] or "—").replace("_", " ").capitalize()},
+                    {"label": "Agendada", "value": _fmtdate(r[3])}, {"label": "Iniciada", "value": _fmtdate(r[8])},
+                    {"label": "Duração", "value": (f"{int(r[4])} min" if r[4] is not None else "—")},
+                    {"label": "Checkpoints", "value": str(int(r[9] or 0))},
+                    {"label": "Ocorrências", "value": str(int(r[5] or 0))},
+                    {"label": "Medidas disciplinares", "value": str(int(r[10] or 0))},
+                    {"label": "Observações", "value": r[11], "span": "span 2"},
+                ],
+            })
     except Exception:  # noqa: BLE001
         pass
 
