@@ -18,6 +18,12 @@ const ACCEPT = '.pdf,.docx,.txt,.png,.jpg,.jpeg,.webp';
 const SUGGESTIONS = ['Gera o DRE do mês', 'Meu holerite', 'Monta uma proposta'];
 const NAVY = '#16277D';
 const GRAD = 'linear-gradient(135deg, #16277D, #F26522)';
+// Rota → lente ativa (rótulo p/ o usuário ver que o chat assumiu a persona do módulo).
+const PERSONA_LABEL: Record<string, string> = {
+  financeiro: 'CFO', crm: 'Comercial', juridico: 'Jurídico', fiscal: 'Fiscal',
+  operacional: 'Operacional', 'departamento-pessoal': 'DP/RH', 'gestao-de-pessoas': 'DP/RH',
+  rh: 'DP/RH', ged: 'GED', documentos: 'GED', aprovacoes: 'Executivo',
+};
 
 // base64 → download de PDF com o nome real. atob + loop p/ bytes (sem lib).
 function downloadPdf(nome: string, b64: string) {
@@ -40,10 +46,15 @@ export default function FloatingChat() {
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [persona, setPersona] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { if (open) endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs, busy, open]);
+  useEffect(() => {
+    if (!open) return;
+    try { setPersona(window.location.pathname.match(/\/redesign\/([a-z-]+)/)?.[1] || ''); } catch { /* */ }
+  }, [open]);
 
   async function send(pergunta: string) {
     const q = (pergunta || '').trim();
@@ -121,6 +132,11 @@ export default function FloatingChat() {
                 <MessageCircle className="w-4 h-4" />
               </div>
               <span className="text-sm font-semibold" style={{ color: '#16233f' }}>Assistente Conecta</span>
+              {PERSONA_LABEL[persona] && (
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(242,101,34,0.14)', color: '#C2410C' }}>
+                  {PERSONA_LABEL[persona]}
+                </span>
+              )}
             </div>
             <button
               type="button"
