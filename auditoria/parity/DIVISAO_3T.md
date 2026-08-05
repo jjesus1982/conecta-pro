@@ -59,6 +59,12 @@ ninguém faz em paralelo agora).
 - [x] T3 rh (10/10): vagas(job_positions 10)·candidaturas(applications 8)·onboarding(admission_processes 3)·treinamentos(trainings 5)·cursos(training_courses 9)·avaliacoes(operacional_avaliacoes_equipe 3)·carreira(career_plans 11)·clima(climate_surveys 3)·turnover(turnover_audit_logs 5)·ia(rh_consultas 4). Gotchas: enum status/category→::text, competencia DATE→to_char. Deploy+HTTP200 provado.
 - [x] T3 marketing (7/7, módulo era 100% mock): funil(leads 14 reais)·campanhas·lead-magnet·biblioteca·copywriter·estrategista·brand-voice (marketing_campaigns/assets/content_drafts reais, hoje 0=honesto). Deploy+HTTP200 provado.
 
+> ⚠️ **`ModuleView.tsx` — T5 assumiu (2026-08-05, autorizado pelo Jordan).**
+> `frontend/src/components/redesign/ModuleView.tsx` é INFRA COMPARTILHADA (renderiza todas as
+> telas do redesign e o modal de ~100 rotas `/redesign/action/*`, incluindo as de dinheiro).
+> Não tinha dono na divisão — que cobre só os builders. Commit `ce01b99a`: modal fecha e
+> recarrega após sucesso + erro 422 legível. **Quem for mexer aí: fale com o Jordan antes.**
+
 > ⚠️ **TRANSFERÊNCIA DE PROPRIEDADE — `marketing` T3 → T5 (2026-08-05, autorizada pelo Jordan).**
 > Motivo: Fase 1 (leitura) do marketing foi concluída pelo T3 em 22/07 e o T3 seguiu para folha.
 > O T5 assume o arquivo `redesign_builders/marketing.py` para executar a **Fase 2 (ações de
