@@ -238,12 +238,17 @@ async def build(db) -> dict:
     # ---- REORGANIZAÇÃO (documentos do jurídico) — abrir/baixar em PDF no timbrado ----
     import os as _os
     _JUR = {"mapa": "Mapa_Empregados_Patrimonial.pdf", "minutas": "Minutas_Revisadas_Comunicados.pdf"}
+    _mapa_assinado = (await db.execute(text(
+        "SELECT 1 FROM sig_signature_requests WHERE document_type='mapa_empregados' "
+        "AND signer_type='company' AND signed_document_path IS NOT NULL LIMIT 1"))).first() is not None
     _jur_rows = []
     if _os.path.exists(f"/app/uploads/juridico/{_JUR['mapa']}"):
         _jur_rows.append({
-            "cells": [t("Mapa dos Empregados", 600, "#0F1B3A"),
-                      t("54 empregados CLT · nome, cargo, admissão · para o setor jurídico")],
-            "docs": [doc("Abrir/Baixar (PDF)", "/api/v1/redesign/action/doc-juridico/mapa", fmt="pdf")]})
+            "cells": [t("Mapa dos Empregados" + (" — assinado ✓" if _mapa_assinado else ""), 600, "#0F1B3A"),
+                      t("Versão ASSINADA (selo ICP-Brasil) — clique para baixar" if _mapa_assinado
+                        else "Empregados CLT · nome, cargo, admissão · para o setor jurídico")],
+            "docs": [doc("Baixar assinado (PDF)" if _mapa_assinado else "Abrir/Baixar (PDF)",
+                         "/api/v1/redesign/action/doc-juridico/mapa", fmt="pdf")]})
     if _os.path.exists(f"/app/uploads/juridico/{_JUR['minutas']}"):
         _jur_rows.append({
             "cells": [t("Minutas revisadas dos comunicados", 600, "#0F1B3A"),
@@ -415,9 +420,10 @@ async def _rd_documento_empresa(request_id: str, current_user: CurrentActiveUser
 
 
 @router.get("/action/doc-juridico/{slug}")
-async def _rd_doc_juridico(slug: str, current_user: CurrentActiveUser):
+async def _rd_doc_juridico(slug: str, current_user: CurrentActiveUser, db=Depends(get_db)):
     """Serve os PDFs (timbrados) da reorganização para o jurídico: mapa de empregados e minutas.
-    Whitelist fixa (não aceita caminho arbitrário). Gated: só admin/operator."""
+    Whitelist fixa (não aceita caminho arbitrário). Gated: só admin/operator.
+    Se o documento já foi ASSINADO pela empresa, entrega a versão assinada (com selo)."""
     import os as _os
 
     from fastapi.responses import FileResponse
@@ -425,10 +431,18 @@ async def _rd_doc_juridico(slug: str, current_user: CurrentActiveUser):
     if (getattr(current_user, "role", "") or "") not in ("admin", "operator"):
         raise HTTPException(status_code=403, detail="Acesso restrito à administração.")
     files = {"mapa": "Mapa_Empregados_Patrimonial.pdf", "minutas": "Minutas_Revisadas_Comunicados.pdf"}
+    dtypes = {"mapa": "mapa_empregados"}  # documentos que passam pelo fluxo de assinatura
     fn = files.get(slug)
     if not fn:
         raise HTTPException(status_code=404, detail="Documento não encontrado.")
     path = f"/app/uploads/juridico/{fn}"
+    if slug in dtypes:  # já assinado? entrega a versão ASSINADA (com selo ICP-Brasil)
+        signed = (await db.execute(text(
+            "SELECT signed_document_path FROM sig_signature_requests "
+            "WHERE document_type=:d AND signer_type='company' AND signed_document_path IS NOT NULL "
+            "ORDER BY coalesce(signed_at, updated_at) DESC LIMIT 1"), {"d": dtypes[slug]})).scalar()
+        if signed and _os.path.exists(signed):
+            path, fn = signed, f"{fn[:-4]}_assinado.pdf"
     if not _os.path.exists(path):
         raise HTTPException(status_code=404, detail="Arquivo ainda não disponível.")
     return FileResponse(path, media_type="application/pdf", filename=fn)
