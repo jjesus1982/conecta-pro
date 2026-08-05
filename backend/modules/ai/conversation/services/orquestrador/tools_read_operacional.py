@@ -132,6 +132,64 @@ async def _presenca_ao_vivo(db, user, scope, **_) -> dict[str, Any]:
     return _dump(res)
 
 
+async def _grade_do_posto(db, user, scope, *, post_id=None, posto_id=None, mes=None, ano=None,
+                          **_) -> dict[str, Any]:
+    _gate(user)
+    pid = post_id or posto_id
+    if not pid:
+        return {"status": "informe post_id (id do posto) para ver a grade por pessoa"}
+    from modules.operacional.controllers.grade_controller import grade_do_posto
+    op = await _op_scope(db, user)
+    return await grade_do_posto(post_id=str(pid), mes=int(mes) if mes else None,
+                                ano=int(ano) if ano else None, scope=op, db=db)
+
+
+async def _alocacoes_vigentes(db, user, scope, *, post_id=None, **_) -> Any:
+    _gate(user)
+    from modules.operacional.controllers.allocation_controller import get_current_allocations
+    return _dump(await get_current_allocations(current_user=user, db=db, post_id=post_id))
+
+
+async def _substituicoes_pendentes(db, user, scope, *, post_id=None, **_) -> Any:
+    _gate(user)
+    from modules.operacional.controllers.substitution_controller import get_pending_substitutions
+    return _dump(await get_pending_substitutions(current_user=user, db=db, post_id=post_id))
+
+
+async def _relatorio_cobertura(db, user, scope, *, start_date=None, end_date=None, post_id=None,
+                               **_) -> Any:
+    _gate(user)
+    from datetime import date
+    from modules.operacional.controllers.reports_controller import coverage_report
+    sd = date.fromisoformat(start_date) if start_date else None
+    ed = date.fromisoformat(end_date) if end_date else None
+    return _dump(await coverage_report(_user=user, db=db, start_date=sd, end_date=ed, post_id=post_id))
+
+
+async def _colaboradores_sem_escala(db, user, scope, **_) -> Any:
+    _gate(user)
+    # controller síncrono (usa Session) — abre sessão sync própria; o db async não serve.
+    from core.database.session import get_sync_db
+    from modules.people_management.ponto.controllers.punch_controller import colaboradores_sem_escala
+    with get_sync_db() as sdb:
+        return _dump(await colaboradores_sem_escala(current_user=user, db=sdb))
+
+
+async def _dashboard_campo(db, user, scope, **_) -> Any:
+    _gate(user)
+    from modules.campo.controllers.campo_service_controller import campo_dashboard
+    return _dump(await campo_dashboard(current_user=user, session=db))
+
+
+async def _visitas_campo(db, user, scope, *, status=None, busca=None, page=1, page_size=50,
+                         **_) -> Any:
+    _gate(user)
+    from modules.campo.schemas.visita import VisitaFiltro
+    from modules.campo.services.visita_service import VisitaService
+    filtro = VisitaFiltro(status=status, busca=busca)
+    return _dump(await VisitaService(db).listar_visitas(filtro, int(page), int(page_size)))
+
+
 # ---- registro das ops READ no dispatcher consultar_operacional (filtros vão em `filtros`) ----
 
 registrar_read(_MOD, "postos",
@@ -157,3 +215,24 @@ registrar_read(_MOD, "dashboard",
 registrar_read(_MOD, "presenca_ao_vivo",
                "Quadro de presença do dia (esperados × presença real por posto, escopado).",
                _presenca_ao_vivo)
+registrar_read(_MOD, "grade_do_posto",
+               "Grade por PESSOA de um posto no mês (padrão derivado dos turnos reais). Filtros: "
+               "post_id (obrigatório), mes, ano.", _grade_do_posto)
+registrar_read(_MOD, "alocacoes_vigentes",
+               "Alocações vigentes (ativas neste momento). Filtro opcional: post_id.",
+               _alocacoes_vigentes)
+registrar_read(_MOD, "substituicoes_pendentes",
+               "Substituições pendentes (faltas aguardando confirmação de substituto). Filtro "
+               "opcional: post_id.", _substituicoes_pendentes)
+registrar_read(_MOD, "relatorio_cobertura",
+               "Relatório de cobertura (postos × alocações, taxa de cobertura no período). Filtros: "
+               "start_date, end_date ('AAAA-MM-DD'), post_id.", _relatorio_cobertura)
+registrar_read(_MOD, "colaboradores_sem_escala",
+               "Colaboradores ativos SEM escala definida (precisam de correção no DP). Sem filtros.",
+               _colaboradores_sem_escala)
+registrar_read(_MOD, "dashboard_campo",
+               "Painel do módulo de CAMPO (agentes em campo, check-ins do dia, ocorrências, "
+               "alertas). Sem filtros.", _dashboard_campo)
+registrar_read(_MOD, "visitas_campo",
+               "Lista visitas de campo (técnicas/comerciais). Filtros: status, busca, page, "
+               "page_size.", _visitas_campo)

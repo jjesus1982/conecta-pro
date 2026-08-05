@@ -82,6 +82,22 @@ async def _kits_config(db, user, scope, **_) -> Any:
     return _dump(await kits_config(current_user=user, db=db))
 
 
+async def _kit_ficha(db, user, scope, *, condominio=None, competencia=None, **_) -> Any:
+    _gate(user)
+    if not condominio:
+        return {"status": "informe condominio (nome do condomínio) para ver a ficha do kit"}
+    from modules.gedeon.controllers.orquestrador_controller import ficha_kit
+    # controller síncrono (lê o Drive, cacheado ~60s); não recebe db.
+    return _dump(ficha_kit(condominio=str(condominio), competencia=competencia, refresh=False,
+                           current_user=user))
+
+
+async def _kit_cronograma(db, user, scope, *, competencia=None, **_) -> Any:
+    _gate(user)
+    from modules.gedeon.controllers.orquestrador_controller import cronograma
+    return _dump(cronograma(competencia=competencia, current_user=user))
+
+
 # ---- registro das ops READ (roteadas por consultar_ged(consulta, filtros)) ----
 
 registrar_read(_MOD, "documentos",
@@ -100,3 +116,11 @@ registrar_read(_MOD, "kits_status",
 registrar_read(_MOD, "kits_config",
                "Configuração de kit por cliente ativo (tipo_kit e serviços) — qual checklist "
                "cada condomínio usa. Sem filtros.", _kits_config)
+registrar_read(_MOD, "kit_ficha",
+               "Ficha completa do kit de UM condomínio: completude, checklist (presente/falta), "
+               "eventos do mês e arquivos no Drive. Filtros: condominio (obrigatório, nome), "
+               "competencia ('MM.YYYY', default = mês anterior).", _kit_ficha)
+registrar_read(_MOD, "kit_cronograma",
+               "Cronograma do mês de entrega: quando cada documento deve estar pronto (salário 5º "
+               "dia útil, VT/VR dia 16, prazos de assinatura 48h). Filtro opcional: competencia "
+               "('MM.YYYY').", _kit_cronograma)

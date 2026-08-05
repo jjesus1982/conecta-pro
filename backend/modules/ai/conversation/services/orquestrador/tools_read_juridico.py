@@ -63,6 +63,45 @@ async def _panorama(db, user, scope, **_) -> Any:
     return _dump(await contexto_panorama(current_user=user, db=db))
 
 
+async def _obter_processo(db, user, scope, *, id=None, processo_id=None, **_) -> Any:
+    _gate(user)
+    pid = id or processo_id
+    if not pid:
+        return {"status": "informe id (id do processo) para ver o detalhe"}
+    from fastapi import HTTPException
+    from modules.juridico.processos_controller import obter
+    try:
+        return _dump(await obter(id=str(pid), current_user=user, db=db))
+    except HTTPException as e:
+        return {"status": "não encontrado", "motivo": str(e.detail)}
+
+
+async def _dossie(db, user, scope, *, tipo=None, identificador=None, **_) -> Any:
+    _gate(user)
+    # Dossiê READ-ONLY cross-módulo: só cruza REGISTROS reais (DP/folha/ponto/contratos/GED).
+    # Não gera texto jurídico novo — é leitura, não parecer.
+    from fastapi import HTTPException
+    from modules.juridico import context_controller as CC
+    t = (tipo or "").strip().lower()
+    try:
+        if t == "panorama":
+            return _dump(await CC.contexto_panorama(current_user=user, db=db))
+        if not identificador:
+            return {"status": "informe identificador (nome/CPF/id) para o dossiê"}
+        if t in ("funcionario", "funcionário", "pessoa"):
+            return _dump(await CC.contexto_funcionario(identificador=str(identificador),
+                                                       current_user=user, db=db))
+        if t == "contrato":
+            return _dump(await CC.contexto_contrato(contrato_id=str(identificador),
+                                                    current_user=user, db=db))
+        if t == "cliente":
+            return _dump(await CC.contexto_cliente(cliente_id=str(identificador),
+                                                   current_user=user, db=db))
+        return {"status": "tipo inválido", "tipos_validos": ["panorama", "funcionario", "contrato", "cliente"]}
+    except HTTPException as e:
+        return {"status": "não encontrado", "motivo": str(e.detail)}
+
+
 # ---- registro das ops READ (roteadas por consultar_juridico(consulta, filtros)) ----
 
 registrar_read(_MOD, "processos",
@@ -79,3 +118,10 @@ registrar_read(_MOD, "prazos",
 registrar_read(_MOD, "panorama",
                "Panorama jurídico da empresa: regime, quadro, certidões e obrigações fiscais "
                "(regularidade/passivo, dado real). Sem filtros.", _panorama)
+registrar_read(_MOD, "obter_processo",
+               "Detalhe de UM processo jurídico já gravado (dossiê + defesa). Filtro: id "
+               "(obrigatório, id do processo). Só leitura.", _obter_processo)
+registrar_read(_MOD, "dossie",
+               "Dossiê jurídico READ-ONLY cross-módulo (cruza registros reais, não gera parecer). "
+               "Filtros: tipo (panorama|funcionario|contrato|cliente), identificador "
+               "(nome/CPF/id — dispensável em 'panorama').", _dossie)
