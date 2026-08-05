@@ -27,6 +27,7 @@ EXTRA_MENU: list[dict] = [
     {"id": "nova-liminar", "label": "Nova Liminar", "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 15h6M9 11h6"},
     {"id": "assinar-documentos", "label": "Assinar documentos", "icon": "M15.232 5.232l3.536 3.536M4 20h4l10.5-10.5a2.5 2.5 0 0 0-3.536-3.536L4.5 16.5V20z"},
     {"id": "documentos-assinados", "label": "Documentos assinados", "icon": "M9 12l2 2 4-4M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"},
+    {"id": "ciencia-comunicados", "label": "Ciência dos comunicados", "icon": "M17 20h5v-2a4 4 0 0 0-3-3.87M9 20H4v-2a4 4 0 0 1 3-3.87m6-1.13a4 4 0 1 0-4-4 4 4 0 0 0 4 4z"},
 ]
 
 
@@ -199,6 +200,38 @@ async def build(db) -> dict:
             "docs": [doc("Baixar assinado" if a[4] else "Ver documento",
                          f"/api/v1/redesign/action/documento-empresa/{a[0]}", fmt="pdf")],
         } for a in _ass],
+    }
+
+    # ---- CIÊNCIA DOS COMUNICADOS (quantos funcionários já assinaram a ciência) ----
+    _cie = (await db.execute(text(
+        "SELECT r.title, "
+        "count(*) FILTER (WHERE r.signer_type='employee') AS total, "
+        "count(*) FILTER (WHERE r.signer_type='employee' AND upper(coalesce(r.status,'')) IN ('SIGNED','COMPLETED')) AS assinou, "
+        "bool_or(r.signer_type='company' AND upper(coalesce(r.status,'')) IN ('SIGNED','COMPLETED')) AS empresa_ok "
+        "FROM sig_signature_requests r WHERE r.document_type='comunicado' "
+        "GROUP BY r.title ORDER BY r.title"))).fetchall()
+
+    def _cie_row(c):
+        total = int(c[1] or 0)
+        assinou = int(c[2] or 0)
+        pct = round(100 * assinou / total) if total else 0
+        tone = "ok" if total and assinou >= total else ("warn" if assinou else "bad")
+        return {"cells": [
+            t(c[0], 600, "#0F1B3A"),
+            b("Empresa ✓" if c[3] else "Empresa pendente", "ok" if c[3] else "warn"),
+            t(f"{assinou}/{total}", 600),
+            b(f"{pct}%", tone),
+            t(f"{total - assinou} faltam" if total else "—", 500, "#64748B"),
+        ]}
+
+    out["ciencia-comunicados"] = {
+        "title": "Ciência dos comunicados",
+        "sub": ("Quantos funcionários já assinaram a ciência de cada comunicado. "
+                "Meta: 100% da equipe ciente." if _cie else "Nenhum comunicado publicado para ciência."),
+        "cta": "—", "type": "table", "searchHint": "Buscar comunicado…",
+        "grid": "2.6fr 1.1fr 0.8fr 0.7fr 1fr",
+        "cols": ["Comunicado", "Empresa", "Ciência", "%", "Pendentes"],
+        "rows": [_cie_row(c) for c in _cie],
     }
 
     return out

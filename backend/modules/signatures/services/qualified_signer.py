@@ -118,6 +118,70 @@ def _cn(name) -> str:
         return str(name.human_friendly)
 
 
+_SELO_SEAL_CANDS = (
+    "/app/uploads/assets/pdf/seal.png",
+    "/app/uploads/assets/conecta-mais/lototipo-conecta.png",
+    "/app/uploads/assets/conecta-mais/conecta-mais.png",
+    "/app/uploads/assets/pdf/cover.png",
+)
+
+
+def _estampar_selo_branded(pdf_bytes: bytes, subject_cn: str) -> bytes:
+    """Desenha um SELO VISÍVEL branded (marca Conecta Mais) CENTRALIZADO no rodapé da
+    última página — como Sólides/DocuSign. É a camada VISUAL; a validade jurídica vem da
+    assinatura PAdES (que cobre este selo). Best-effort: erro aqui não bloqueia a assinatura.
+
+    Cores da marca: navy #16277D / #2D5F8B, laranja #F26522. Mostra titular, CNPJ formatado,
+    AC emissora e data/hora de Manaus (UTC-4)."""
+    import re as _re
+    from datetime import timedelta
+
+    import fitz  # PyMuPDF
+
+    m = _re.match(r"(.*?):(\d{6,14})\s*$", (subject_cn or "").strip())
+    razao = (m.group(1) if m else (subject_cn or "")).strip()
+    dig = m.group(2) if m else ""
+    cnpj = f"{dig[:2]}.{dig[2:5]}.{dig[5:8]}/{dig[8:12]}-{dig[12:14]}" if len(dig) == 14 else dig
+    when = (datetime.now(timezone.utc) - timedelta(hours=4)).strftime("%d/%m/%Y %H:%M")  # Manaus
+
+    seal = next((c for c in _SELO_SEAL_CANDS if os.path.exists(c)), None)
+    navy = (0.086, 0.153, 0.290)
+    navy2 = (0.176, 0.365, 0.545)
+    orange = (0.949, 0.396, 0.133)
+    gray = (0.42, 0.47, 0.55)
+    light = (0.969, 0.980, 0.992)
+
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        pg = doc[-1]
+        w, h = pg.rect.width, pg.rect.height
+        bw, bh = 316, 76
+        x0 = (w - bw) / 2
+        y0 = h - bh - 44
+        x1, y1 = x0 + bw, y0 + bh
+        sh = pg.new_shape()
+        sh.draw_rect(fitz.Rect(x0, y0, x1, y1))
+        sh.finish(color=navy2, fill=light, width=1.1)
+        sh.draw_rect(fitz.Rect(x0, y0, x0 + 5, y1))
+        sh.finish(color=orange, fill=orange, width=0)
+        sh.commit()
+        if seal:
+            try:
+                pg.insert_image(fitz.Rect(x0 + 13, y0 + 17, x0 + 55, y0 + 59),
+                                filename=seal, keep_proportion=True, overlay=True)
+            except Exception:  # noqa: BLE001
+                pass
+        tx = x0 + 66
+        pg.insert_text((tx, y0 + 19), "ASSINADO DIGITALMENTE  ·  ICP-Brasil", fontsize=9, color=navy, fontname="hebo")
+        pg.insert_text((tx, y0 + 33), razao[:44], fontsize=8, color=navy2, fontname="hebo")
+        pg.insert_text((tx, y0 + 45), f"CNPJ {cnpj}  ·  AC SOLUTI (fé pública)", fontsize=7.2, color=gray, fontname="helv")
+        pg.insert_text((tx, y0 + 59), f"{when}  ·  Assinatura PAdES embutida  ·  conectamais.pro/verificar",
+                       fontsize=6.6, color=orange, fontname="helv")
+        return doc.tobytes(deflate=True)
+    finally:
+        doc.close()
+
+
 def assinar_pdf_icp_brasil(
     pdf_bytes: bytes,
     *,
@@ -204,29 +268,21 @@ def assinar_pdf_icp_brasil(
         contact_info=contact_info,
     )
 
+    # SELO VISÍVEL branded (marca Conecta Mais) desenhado ANTES de assinar — centralizado no
+    # rodapé da última página, como Sólides/DocuSign. A assinatura PAdES cobre o selo.
+    # Best-effort: se o desenho falhar, assina o PDF original (sem selo), nunca bloqueia.
+    pdf_para_assinar = pdf_bytes
+    if visivel:
+        try:
+            pdf_para_assinar = _estampar_selo_branded(pdf_bytes, _cn(cert.subject))
+        except Exception:  # noqa: BLE001
+            pdf_para_assinar = pdf_bytes
+
+    pdf_signer = signers.PdfSigner(meta, signer=signer)
+
     out = io.BytesIO()
     try:
-        writer = IncrementalPdfFileWriter(io.BytesIO(pdf_bytes))
-        # SELO VISÍVEL (como Sólides/DocuSign): campo de assinatura na ÚLTIMA página com
-        # aparência (titular do cert + data BR). Se qualquer coisa falhar, cai para
-        # assinatura INVISÍVEL (nunca bloqueia a assinatura por causa do carimbo visual).
-        stamp_style = None
-        if visivel:
-            try:
-                from pyhanko.sign.fields import SigFieldSpec, append_signature_field
-                from pyhanko.stamp import TextStampStyle
-
-                append_signature_field(
-                    writer,
-                    SigFieldSpec(sig_field_name=field_name, on_page=-1, box=(300, 52, 566, 138)),
-                )
-                stamp_style = TextStampStyle(
-                    stamp_text="ASSINADO DIGITALMENTE · ICP-Brasil\n%(signer)s\n%(ts)s",
-                    timestamp_format="%d/%m/%Y %H:%M",
-                )
-            except Exception:  # noqa: BLE001 — carimbo visível é best-effort
-                stamp_style = None
-        pdf_signer = signers.PdfSigner(meta, signer=signer, stamp_style=stamp_style)
+        writer = IncrementalPdfFileWriter(io.BytesIO(pdf_para_assinar))
         # pyhanko.sign_pdf() usa asyncio.run() internamente, o que estoura se já
         # houver um event loop (rotas async do FastAPI). Detectamos o loop e, se
         # existir, usamos a API async em um loop dedicado numa thread separada.
