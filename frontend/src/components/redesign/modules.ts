@@ -1,5 +1,6 @@
 // GERADO — índice dos módulos extraídos dos *.dc.html (fonte da verdade)
 import agendador from '@/app/redesign/_modules/agendador.json';
+import aprovacoes from '@/app/redesign/_modules/aprovacoes.json';
 import analytics from '@/app/redesign/_modules/analytics.json';
 import area_do_cliente from '@/app/redesign/_modules/area-do-cliente.json';
 import assistente from '@/app/redesign/_modules/assistente.json';
@@ -35,6 +36,7 @@ import suprimentos from '@/app/redesign/_modules/suprimentos.json';
 
 export const MODULES: Record<string, any> = {
   'agendador': agendador,
+  'aprovacoes': aprovacoes,
   'analytics': analytics,
   'area-do-cliente': area_do_cliente,
   'assistente': assistente,

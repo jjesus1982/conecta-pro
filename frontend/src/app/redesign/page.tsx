@@ -74,6 +74,7 @@ const GROUPS: { name: string; mods: Mod[] }[] = [
       { name: 'Agendador', desc: 'Tarefas agendadas', Icon: Clock },
       { name: 'Segurança', desc: 'LGPD e auditoria', Icon: Lock },
       { name: 'Assistente IA', desc: 'IA geral do sistema', Icon: Sparkles, org: true },
+      { name: 'Aprovações', desc: 'Rascunhos do agente', Icon: Bell, org: true },
       { name: 'Área do Cliente', desc: 'Portal externo', Icon: Headset },
       { name: 'Meu Espaço', desc: 'Área pessoal', Icon: User },
     ],
@@ -92,6 +93,7 @@ const SLUG: Record<string, string> = {
   'Suprimentos': 'suprimentos', 'Documentos': 'documentos',
   'Configurações': 'configuracoes', 'Integrações': 'integracoes', 'Automações': 'automacoes',
   'Agendador': 'agendador', 'Segurança': 'seguranca', 'Assistente IA': 'assistente',
+  'Aprovações': 'aprovacoes',
   'Área do Cliente': 'area-do-cliente', 'Meu Espaço': 'meu-espaco',
 };
 
