@@ -139,7 +139,11 @@ async def run_engine(
                     result = {"erro": "fora do seu escopo — aguardando dado"}
                 except Exception as e:  # noqa: BLE001 — tool nunca derruba o loop
                     logger.warning("orq tool %s falhou: %s", tc.function.name, e)
-                    result = {"erro": "não consegui obter esse dado agora"}
+                    # Erro TÉCNICO ≠ falta de permissão: não mascarar como "sem acesso"/"aguardando
+                    # dado" (isso fazia bug virar trava percebida). Sinalizar que é técnico + detalhe.
+                    result = {"erro": "erro técnico ao executar esta ação (NÃO é falta de permissão nem "
+                                      "dado ausente) — pode tentar de novo; se persistir, avise o suporte",
+                              "detalhe": str(e)[:200]}
             tool_results.append(result)
             # NÃO devolver o base64 do documento ao LLM: um PDF em base64 tem dezenas de
             # milhares de tokens e estoura o contexto (erro 400 context_length_exceeded).
