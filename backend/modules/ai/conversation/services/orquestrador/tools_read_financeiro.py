@@ -191,6 +191,45 @@ async def _beneficiarios_pix(db, user, scope, *, q="", limite=12, **_) -> Any:
     return _dump(await listar(q=str(q or ""), limite=int(limite), current_user=user, db=db))
 
 
+async def _cfo_panorama(db, user, scope, **_) -> Any:
+    _gate(user)
+    from modules.financial.cfo_controller import obter_panorama
+    return _dump(await obter_panorama(current_user=user, db=db))
+
+
+async def _recebido_por_cliente(db, user, scope, **_) -> Any:
+    _gate(user)
+    from modules.financial.cfo_controller import recebido_por_cliente
+    return _dump(await recebido_por_cliente(current_user=user, db=db))
+
+
+async def _adimplencia_clientes(db, user, scope, **_) -> Any:
+    _gate(user)
+    from modules.financial.cfo_controller import adimplencia_clientes
+    return _dump(await adimplencia_clientes(current_user=user, db=db))
+
+
+async def _projecao_caixa(db, user, scope, *, meses=6, **_) -> Any:
+    _gate(user)
+    from modules.financial.cfo_controller import projecao_caixa
+    return _dump(await projecao_caixa(meses=int(meses), current_user=user, db=db))
+
+
+async def _custos_recorrentes(db, user, scope, **_) -> Any:
+    _gate(user)
+    # LISTAR (read). Criar já é ação em agir_financeiro; remover NÃO entra aqui.
+    from modules.financial.cfo_controller import custos_listar
+    return _dump(await custos_listar(current_user=user, db=db))
+
+
+async def _briefing_executivo(db, user, scope, **_) -> Any:
+    _gate(user)
+    # Briefing executivo cross-módulo (caixa por CNPJ + COO + certidões + CRM), cada número com
+    # source. Gate de diretoria via módulo financeiro. Só leitura.
+    from modules.ai.conversation.controllers.executivo_controller import briefing
+    return _dump(await briefing(db=db, user=user))
+
+
 # ---- registro das ops READ no dispatcher consultar_financeiro (filtros vão em `filtros`) ----
 
 registrar_read("financeiro", "dashboard",
@@ -256,3 +295,25 @@ registrar_read("financeiro", "reembolsos",
 registrar_read("financeiro", "beneficiarios_pix",
                "Agenda de beneficiários PIX salvos (nome → chave). Filtros: q (busca parcial por "
                "nome/chave/CPF-CNPJ), limite.", _beneficiarios_pix)
+registrar_read("financeiro", "panorama",
+               "Panorama CFO: fotografia financeira real do ERP agora (caixa, MRR, recebíveis, "
+               "custos, tributos) — âncora do consultor financeiro. Sem filtros.", _cfo_panorama)
+registrar_read("financeiro", "recebido_por_cliente",
+               "Quanto CADA cliente pagou de verdade no banco (recebimentos identificados no "
+               "extrato Inter: PIX/boleto com nome do cliente) + total. Sem filtros.",
+               _recebido_por_cliente)
+registrar_read("financeiro", "adimplencia_clientes",
+               "MRR contratado × recebido no banco, POR cliente (quem está em dia / em atraso). "
+               "Números reais. Sem filtros.", _adimplencia_clientes)
+registrar_read("financeiro", "projecao_caixa",
+               "Projeção de caixa recorrente (saldo atual + MRR − custos mensais) nos próximos N "
+               "meses. Filtro: meses (default 6, máx 24).", _projecao_caixa)
+registrar_read("financeiro", "custos_recorrentes",
+               "Lista os custos recorrentes registrados (tributos, parcelamentos, acordos, fixos, "
+               "fornecedores). READ-ONLY: só lista — criar/remover é ação. Sem filtros.",
+               _custos_recorrentes)
+registrar_read("financeiro", "briefing_executivo",
+               "Briefing executivo cross-módulo (1-card): caixa DISCRIMINADA por CNPJ "
+               "(Inter/Eletrônica + Cora/Patrimonial + consolidado), postos descobertos (COO), "
+               "certidões vencendo (fiscal) e deals quentes (CRM) — cada número com source. "
+               "Gate de diretoria. Sem filtros.", _briefing_executivo)

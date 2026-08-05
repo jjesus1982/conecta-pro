@@ -190,6 +190,14 @@ async def _visitas_campo(db, user, scope, *, status=None, busca=None, page=1, pa
     return _dump(await VisitaService(db).listar_visitas(filtro, int(page), int(page_size)))
 
 
+async def _panorama(db, user, scope, **_) -> Any:
+    _gate(user)
+    # Panorama COO — postos, cobertura, escalas, diaristas e vínculos (CLT×diária) que o
+    # Consultor de Operações usa como âncora. Só leitura.
+    from modules.operacional.services import consultor_coo_service
+    return _dump(await consultor_coo_service.panorama(db))
+
+
 # ---- registro das ops READ no dispatcher consultar_operacional (filtros vão em `filtros`) ----
 
 registrar_read(_MOD, "postos",
@@ -236,3 +244,7 @@ registrar_read(_MOD, "dashboard_campo",
 registrar_read(_MOD, "visitas_campo",
                "Lista visitas de campo (técnicas/comerciais). Filtros: status, busca, page, "
                "page_size.", _visitas_campo)
+registrar_read(_MOD, "panorama",
+               "Panorama COO consolidado (dados reais): postos e cobertura (postos descobertos), "
+               "escalas, alocações, diaristas e vínculos (CLT×diária). Fotografia gerencial da "
+               "operação agora. Sem filtros.", _panorama)

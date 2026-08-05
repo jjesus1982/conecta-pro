@@ -163,6 +163,17 @@ async def _alertas_certificados(db, user, scope, *, tenant_id=None, **_) -> Any:
     return _dump(await listar_alertas_certificados(current_user=user, tenant_id=tenant_id))
 
 
+async def _panorama_grupo(db, user, scope, *, mes=None, ano=None, **_) -> Any:
+    _gate(user)
+    # Panorama fiscal CONSOLIDADO do grupo (receita, impostos, economia de liminares por empresa),
+    # dados reais. Base p/ o briefing fiscal executivo.
+    from datetime import date as _d
+    from modules.empresas.controllers.dashboard_controller import dashboard_fiscal_grupo
+    hoje = _d.today()
+    return _dump(await dashboard_fiscal_grupo(mes=int(mes or hoje.month), ano=int(ano or hoje.year),
+                                              db=db, current_user=user))
+
+
 # ---- registro das ops READ no dispatcher consultar_fiscal (filtros vão em `filtros`) ----
 
 registrar_read(_MOD, "situacao_ecac",
@@ -212,3 +223,7 @@ registrar_read(_MOD, "alertas_obrigacoes",
 registrar_read(_MOD, "alertas_certificados",
                "Alertas de vencimento de certificados digitais A1/A3. Filtro opcional: tenant_id.",
                _alertas_certificados)
+registrar_read(_MOD, "panorama_grupo",
+               "Panorama fiscal CONSOLIDADO do grupo no mês: receita, impostos e economia de "
+               "liminares POR empresa (Eletrônica + Patrimonial), dados reais — briefing fiscal "
+               "executivo. Filtros: mes, ano (default = mês/ano atual).", _panorama_grupo)

@@ -263,6 +263,21 @@ async def _candidatos(db, user, scope, *, status_filtro="todos", **_) -> dict[st
         return _dump(listar_candidatos(status_filtro=str(status_filtro), db=sdb, current_user=user))
 
 
+async def _panorama(db, user, scope, **_) -> dict[str, Any]:
+    _gate(user)
+    # Panorama CHRO — as 8 dimensões de gente (headcount, folha, ponto, férias, admissões,
+    # rescisões, SST, banco de horas) que o Consultor de RH usa como âncora. Só leitura.
+    from modules.people_management.services import consultor_chro_service
+    return _dump(await consultor_chro_service.panorama(db))
+
+
+async def _epis(db, user, scope, *, employee_id=None, **_) -> dict[str, Any]:
+    _gate(user)
+    from modules.people_management.sst.controllers.sst_controller import listar_epis
+    eid = str(employee_id) if employee_id else None
+    return _dump(await listar_epis(current_user=user, db=db, employee_id=eid))
+
+
 # ---- registro das ops READ no dispatcher consultar_dp (filtros vão em `filtros`) ----
 
 registrar_read("dp", "funcionarios",
@@ -326,3 +341,10 @@ registrar_read("dp", "recrutamento_overview",
 registrar_read("dp", "esocial_eventos",
                "Lista de eventos eSocial (transmissões próprias + espelho oficial do governo) com "
                "status. Filtro: limit (default 500, máx 2000).", _esocial_eventos)
+registrar_read("dp", "panorama",
+               "Panorama CHRO consolidado (8 dimensões reais de gente): headcount por status, "
+               "folha do mês, ponto/presença, férias, admissões, rescisões, SST e banco de horas. "
+               "Fotografia gerencial do DP agora. Sem filtros.", _panorama)
+registrar_read("dp", "epis",
+               "Entregas de EPI registradas (por colaborador): EPI, CA, NR, quantidade e status da "
+               "ficha assinada. Filtro opcional: employee_id (restringe a um funcionário).", _epis)

@@ -98,6 +98,16 @@ async def _kit_cronograma(db, user, scope, *, competencia=None, **_) -> Any:
     return _dump(cronograma(competencia=competencia, current_user=user))
 
 
+async def _intercorrencias(db, user, scope, *, condominio=None, competencia=None, status=None,
+                           limit=200, **_) -> Any:
+    _gate(user)
+    # LISTAR intercorrências de kit (read). Registrar/tratar/excluir são ações, fora deste balde.
+    from modules.gedeon.services.consultor_service import listar_intercorrencias
+    itens = await listar_intercorrencias(db, condominio=condominio, competencia=competencia,
+                                         status=status, limit=int(limit))
+    return {"total": len(itens), "intercorrencias": _dump(itens)}
+
+
 # ---- registro das ops READ (roteadas por consultar_ged(consulta, filtros)) ----
 
 registrar_read(_MOD, "documentos",
@@ -124,3 +134,8 @@ registrar_read(_MOD, "kit_cronograma",
                "Cronograma do mês de entrega: quando cada documento deve estar pronto (salário 5º "
                "dia útil, VT/VR dia 16, prazos de assinatura 48h). Filtro opcional: competencia "
                "('MM.YYYY').", _kit_cronograma)
+registrar_read(_MOD, "intercorrencias",
+               "Lista intercorrências dos kits (eventos que impactam a folha/entrega: rescisão, "
+               "afastamento, admissão etc.), com status e impacto. READ-ONLY: só lista — registrar/"
+               "tratar é ação. Filtros: condominio, competencia ('AAAA-MM'), status, limit.",
+               _intercorrencias)

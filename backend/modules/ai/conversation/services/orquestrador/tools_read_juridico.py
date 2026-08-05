@@ -76,6 +76,23 @@ async def _obter_processo(db, user, scope, *, id=None, processo_id=None, **_) ->
         return {"status": "não encontrado", "motivo": str(e.detail)}
 
 
+async def _analise_contrato(db, user, scope, *, contrato_id=None, id=None, **_) -> Any:
+    _gate(user)
+    cid = contrato_id or id
+    if not cid:
+        return {"status": "informe contrato_id (id do contrato) para a análise de cláusulas"}
+    # Análise READ-ONLY (regex+scoring) das cláusulas de UM contrato, rotulada HIPÓTESE de máquina.
+    # NÃO gera parecer nem texto jurídico novo — só roda padrões sobre o texto já gravado.
+    from modules.juridico.consultor_service import _analise_contrato_hipotese
+    bloco = await _analise_contrato_hipotese(db, str(cid))
+    if not bloco:
+        return {"contrato_id": str(cid), "status": "sem texto de contrato para analisar "
+                "(contrato inexistente ou sem conteúdo) — aguardando dado real."}
+    return {"contrato_id": str(cid),
+            "aviso": "HIPÓTESE de máquina (regex+scoring), NÃO é fato jurídico — valide o texto original.",
+            "analise": bloco.strip()}
+
+
 async def _dossie(db, user, scope, *, tipo=None, identificador=None, **_) -> Any:
     _gate(user)
     # Dossiê READ-ONLY cross-módulo: só cruza REGISTROS reais (DP/folha/ponto/contratos/GED).
@@ -125,3 +142,8 @@ registrar_read(_MOD, "dossie",
                "Dossiê jurídico READ-ONLY cross-módulo (cruza registros reais, não gera parecer). "
                "Filtros: tipo (panorama|funcionario|contrato|cliente), identificador "
                "(nome/CPF/id — dispensável em 'panorama').", _dossie)
+registrar_read(_MOD, "analise_contrato",
+               "Análise READ-ONLY das cláusulas de UM contrato (regex+scoring): tipo detectado, "
+               "nível/score de risco, cláusulas arriscadas e recomendações — rotulada HIPÓTESE de "
+               "máquina, NÃO gera parecer nem fato jurídico. Filtro: contrato_id (obrigatório).",
+               _analise_contrato)
