@@ -25,7 +25,10 @@ SLUG = "empresas"
 
 EXTRA_MENU: list[dict] = [
     {"id": "nova-liminar", "label": "Nova Liminar", "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 15h6M9 11h6"},
-    {"id": "assinar-documentos", "label": "Assinar documentos", "icon": "M15.232 5.232l3.536 3.536M4 20h4l10.5-10.5a2.5 2.5 0 0 0-3.536-3.536L4.5 16.5V20z"},
+    {"id": "assinar-holerites", "label": "Assinar holerites", "icon": "M9 12h6m-6 4h6m2 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"},
+    {"id": "assinar-espelhos", "label": "Assinar espelhos de ponto", "icon": "M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"},
+    {"id": "assinar-recibos", "label": "Assinar recibos VT/VR", "icon": "M4 4h16v12H5.17L4 17.17V4zm4 4h8M8 11h5"},
+    {"id": "assinar-documentos", "label": "Assinar — outros", "icon": "M15.232 5.232l3.536 3.536M4 20h4l10.5-10.5a2.5 2.5 0 0 0-3.536-3.536L4.5 16.5V20z"},
     {"id": "documentos-assinados", "label": "Documentos assinados", "icon": "M9 12l2 2 4-4M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"},
     {"id": "ciencia-comunicados", "label": "Ciência dos comunicados", "icon": "M17 20h5v-2a4 4 0 0 0-3-3.87M9 20H4v-2a4 4 0 0 1 3-3.87m6-1.13a4 4 0 1 0-4-4 4 4 0 0 0 4 4z"},
     {"id": "reorganizacao-juridico", "label": "Reorganização (jurídico)", "icon": "M3 6l9-4 9 4M4 10v8m16-8v8M2 18h20M8 10v5m4-5v5m4-5v5"},
@@ -150,38 +153,42 @@ async def build(db) -> dict:
     _pend_raw = (await db.execute(text(
         "SELECT r.id::text, r.title, coalesce(r.document_type,'—'), to_char(r.created_at,'DD/MM/YYYY'), coalesce(r.document_path,'') "
         "FROM sig_signature_requests r WHERE r.signer_type='company' AND upper(coalesce(r.status,''))='PENDING' "
-        "ORDER BY r.created_at DESC LIMIT 200"))).fetchall()
-    # Só documentos com PDF REAL no disco são assináveis (assinatura qualificada precisa do
-    # PDF). Propostas/contratos sem document_path (ou arquivo ausente/corrompido) são excluídos.
+        "ORDER BY r.created_at DESC LIMIT 500"))).fetchall()
+    # Só documentos com PDF REAL no disco são assináveis. Agrupa POR TIPO em telas separadas.
     _pend = [p for p in _pend_raw if _pdf_valido(p[4])]
-    _sem_pdf = len(_pend_raw) - len(_pend)
-    _opts = [{"value": p[0], "label": f"{p[1]}"} for p in _pend]
-    if _opts:
-        # 1ª opção = ASSINAR EM LOTE (todos os pendentes assináveis de uma vez, com 1 OTP).
-        _opts = [{"value": "__ALL__", "label": f"⚡ TODOS os pendentes ({len(_pend)}) — assinar em lote"}] + _opts
-    _sub_nota = (f" ({_sem_pdf} sem PDF disponível ficaram de fora — gere/reenvie o documento primeiro.)"
-                 if _sem_pdf else "")
-    out["assinar-documentos"] = {
-        "title": "Assinar documentos da empresa",
-        "sub": (f"{len(_pend)} documento(s) aguardando a assinatura da empresa (ICP-Brasil A1). "
-                "Selecione um documento ou 'TODOS' para assinar em lote. Ao confirmar, chega um "
-                "código OTP no seu e-mail para liberar. Veja o PDF de cada um nos botões abaixo."
-                + _sub_nota
-                if _pend else "Nenhum documento com PDF disponível aguardando assinatura." + _sub_nota),
-        "cta": "Assinar como empresa", "type": "form",
-        "submit": {"endpoint": "/api/v1/redesign/action/assinar-doc-empresa",
-                   "okMsg": "Documento assinado pela empresa (ICP-Brasil)."},
-        "fields": [
-            {"key": "documento", "label": "Documento a assinar*", "type": "select", "span": "span 2",
-             "options": _opts, "ph": "Selecione o documento"},
-            {"key": "otp_code", "label": "Código OTP (chega no seu e-mail após confirmar)", "type": "text",
-             "span": "span 2", "ph": "Deixe em branco na 1ª vez — o código é enviado ao confirmar"},
-        ],
-        # Botões "Ver PDF" — revise cada documento ANTES de assinar (abre o PDF, gated admin).
-        "docs": [doc(f"Ver: {(p[1] or '')[:44]}",
-                     f"/api/v1/redesign/action/documento-empresa/{p[0]}", fmt="pdf")
-                 for p in _pend],
-    }
+
+    def _tela_assinar(bucket, titulo, tag):
+        _o = [{"value": p[0], "label": p[1]} for p in bucket]
+        if _o:
+            _o = [{"value": f"__ALL__:{tag}", "label": f"⚡ TODOS ({len(bucket)}) — assinar em lote"}] + _o
+        return {
+            "title": titulo,
+            "sub": (f"{len(bucket)} documento(s) aguardando a sua assinatura (empresa, ICP-Brasil A1). "
+                    "Selecione um ou 'TODOS' para assinar em lote; o código OTP chega no e-mail ao confirmar. "
+                    "Veja o PDF de cada um nos botões abaixo."
+                    if bucket else "Nenhum documento deste tipo aguardando a sua assinatura no momento."),
+            "cta": "Assinar como empresa", "type": "form",
+            "submit": {"endpoint": "/api/v1/redesign/action/assinar-doc-empresa",
+                       "okMsg": "Documento assinado pela empresa (ICP-Brasil)."},
+            "fields": [
+                {"key": "documento", "label": "Documento a assinar*", "type": "select", "span": "span 2",
+                 "options": _o, "ph": "Selecione o documento"},
+                {"key": "otp_code", "label": "Código OTP (chega no seu e-mail após confirmar)", "type": "text",
+                 "span": "span 2", "ph": "Deixe em branco na 1ª vez — o código é enviado ao confirmar"},
+            ],
+            "docs": [doc(f"Ver: {(p[1] or '')[:44]}",
+                         f"/api/v1/redesign/action/documento-empresa/{p[0]}", fmt="pdf")
+                     for p in bucket],
+        }
+
+    _hol = [p for p in _pend if p[2] == "payslip"]
+    _esp = [p for p in _pend if p[2] == "espelho_ponto"]
+    _rec = [p for p in _pend if p[2] == "recibo_vt_vr"]
+    _oth = [p for p in _pend if p[2] not in ("payslip", "espelho_ponto", "recibo_vt_vr")]
+    out["assinar-holerites"] = _tela_assinar(_hol, "Assinar holerites", "payslip")
+    out["assinar-espelhos"] = _tela_assinar(_esp, "Assinar espelhos de ponto", "espelho_ponto")
+    out["assinar-recibos"] = _tela_assinar(_rec, "Assinar recibos de VT/VR", "recibo_vt_vr")
+    out["assinar-documentos"] = _tela_assinar(_oth, "Assinar — outros documentos", "outros")
 
     # ---- DOCUMENTOS JÁ ASSINADOS PELA EMPRESA (baixar o PDF assinado ICP-Brasil) ----
     _ass = (await db.execute(text(
@@ -319,15 +326,23 @@ async def _rd_assinar_doc_empresa(current_user: CurrentActiveUser, payload: dict
         raise HTTPException(status_code=400, detail="Selecione o documento a assinar.")
     otp_code = (payload.get("otp_code") or "").strip()
 
-    # ---- LOTE: assina TODOS os pendentes da empresa com 1 OTP (cada assinar() commita) ----
-    if req_id == "__ALL__":
-        pend_raw = (await db.execute(text(
-            "SELECT id::text, coalesce(document_path,'') FROM sig_signature_requests "
-            "WHERE signer_type='company' AND upper(coalesce(status,''))='PENDING'"))).fetchall()
+    # ---- LOTE por TIPO: "__ALL__:<tipo>" assina todos os pendentes daquele tipo com 1 OTP.
+    #      "__ALL__:outros" = tudo que não é holerite/espelho/recibo. "__ALL__" = todos. ----
+    if req_id.startswith("__ALL__"):
+        _tag = req_id.split(":", 1)[1] if ":" in req_id else None
+        _sql = ("SELECT id::text, coalesce(document_path,'') FROM sig_signature_requests "
+                "WHERE signer_type='company' AND upper(coalesce(status,''))='PENDING'")
+        _params: dict = {}
+        if _tag == "outros":
+            _sql += " AND coalesce(document_type,'') NOT IN ('payslip','espelho_ponto','recibo_vt_vr')"
+        elif _tag:
+            _sql += " AND document_type = :dt"
+            _params = {"dt": _tag}
+        pend_raw = (await db.execute(text(_sql), _params)).fetchall()
         pend = [p for p in pend_raw if _pdf_valido(p[1])]  # só os com PDF real (assináveis)
         if not pend:
             raise HTTPException(status_code=400, detail="Nenhum documento com PDF disponível para assinar.")
-        ref = (payload.get("_gate_ref") or "").strip() or "assinatura-empresa-lote"
+        ref = (payload.get("_gate_ref") or "").strip() or f"assinatura-empresa-lote:{_tag or 'all'}"
 
         async def _dispatch_all():
             svc = UniversalSignatureService(db)
