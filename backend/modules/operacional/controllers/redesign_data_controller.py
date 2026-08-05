@@ -124,7 +124,9 @@ async def _build_operacional(db: AsyncSession) -> dict:
 
     # Postos (tabela)
     prows = (await db.execute(text(
-        "SELECT p.name, c.name, p.shift_type, p.current_headcount, p.status "
+        "SELECT p.name, c.name, p.shift_type, p.current_headcount, p.status, "
+        "coalesce(p.address,'—'), coalesce(p.supervisor_name,'—'), coalesce(p.supervisor_phone,'—'), "
+        "p.geofence_raio_metros, p.latitude, p.longitude "
         "FROM posts p LEFT JOIN clients c ON c.id=p.client_id "
         "ORDER BY (p.status='active') DESC, p.name"
     ))).fetchall()
@@ -136,7 +138,19 @@ async def _build_operacional(db: AsyncSession) -> dict:
             t(name, 600, "#0F1B3A"), t(cli or "—"), t(shift or "—"),
             t(hc if hc is not None else 0),
             b("Ativo", "ok") if st == "active" else b("Inativo", "mut"),
-        ]} for name, cli, shift, hc, st in prows],
+        ], "edit": {
+            "btnLabel": "Ver posto", "readOnly": True, "title": f"Posto — {name}",
+            "fields": [
+                {"label": "Posto", "value": name, "span": "span 2"},
+                {"label": "Cliente", "value": cli or "—", "span": "span 2"},
+                {"label": "Turno", "value": shift or "—"}, {"label": "Vigilantes", "value": str(hc if hc is not None else 0)},
+                {"label": "Status", "value": "Ativo" if st == "active" else "Inativo"},
+                {"label": "Supervisor", "value": sup}, {"label": "Telefone supervisor", "value": supf},
+                {"label": "Endereço", "value": addr, "span": "span 2"},
+                {"label": "Coordenadas", "value": (f"{lat}, {lng}" if (lat is not None and lng is not None) else "—")},
+                {"label": "Raio geofence (m)", "value": (str(geo) if geo is not None else "—")},
+            ],
+        }} for name, cli, shift, hc, st, addr, sup, supf, geo, lat, lng in prows],
     }
 
     # Colaboradores (tabela)
@@ -293,7 +307,8 @@ async def _build_operacional(db: AsyncSession) -> dict:
         }} for n, c, px, tel, em, fu in drows]}
     # Leitura: Diárias (lançamentos recentes)
     lrows = (await db.execute(text(
-        "SELECT l.data, coalesce(d.nome,'—'), l.funcao, l.posto, l.valor, l.status "
+        "SELECT l.data, coalesce(d.nome,'—'), l.funcao, l.posto, l.valor, l.status, "
+        "coalesce(l.turno,'—'), coalesce(l.observacao,'—'), l.created_at "
         "FROM diaria_lancamentos l LEFT JOIN diaria_diaristas d ON d.id=l.diarista_id "
         "ORDER BY l.data DESC, l.id DESC LIMIT 200"))).fetchall()
     diarias_scr = {"title": "Lançamento de diárias", "sub": f"{len(lrows)} lançamentos", "cta": "Lançar diária",
@@ -301,8 +316,20 @@ async def _build_operacional(db: AsyncSession) -> dict:
         "type": "table", "searchHint": "Buscar…", "grid": "1fr 1.8fr 1.4fr 1.2fr 1fr 0.9fr",
         "cols": ["Data", "Diarista", "Função", "Posto", "Valor", "Status"],
         "rows": [{"cells": [t(dt.strftime('%d/%m/%Y') if dt else '—'), t(nm, 600, "#0F1B3A"), t(fu or '—'),
-                  t(po or '—'), t(brl(vl), 600), b("Lançado", "info") if (stt or '').lower() == 'lancado' else b(stt or '—', 'mut')]}
-                 for dt, nm, fu, po, vl, stt in lrows]}
+                  t(po or '—'), t(brl(vl), 600), b("Lançado", "info") if (stt or '').lower() == 'lancado' else b(stt or '—', 'mut')],
+                  "edit": {
+                      "btnLabel": "Ver diária", "readOnly": True, "title": f"Diária — {nm}",
+                      "fields": [
+                          {"label": "Diarista", "value": nm, "span": "span 2"},
+                          {"label": "Data", "value": dt.strftime('%d/%m/%Y') if dt else '—'},
+                          {"label": "Status", "value": (stt or '—').capitalize()},
+                          {"label": "Função", "value": fu or '—'}, {"label": "Posto", "value": po or '—'},
+                          {"label": "Turno", "value": tur}, {"label": "Valor", "value": brl(vl)},
+                          {"label": "Registrada em", "value": _fmtdate(cr)},
+                          {"label": "Observação", "value": obs, "span": "span 2"},
+                      ],
+                  }}
+                 for dt, nm, fu, po, vl, stt, tur, obs, cr in lrows]}
 
     cadastrar_diarista = {
         "title": "Cadastrar diarista", "sub": "Adicionar um diarista à lista (CPF e PIX obrigatórios — nunca inventar)",
