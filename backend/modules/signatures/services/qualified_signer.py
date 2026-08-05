@@ -144,7 +144,7 @@ def _estampar_selo_branded(pdf_bytes: bytes, subject_cn: str) -> bytes:
     razao = _re.sub(r"CONECTAMAIS", "CONECTA MAIS", razao, flags=_re.IGNORECASE)
     dig = m.group(2) if m else ""
     cnpj = f"{dig[:2]}.{dig[2:5]}.{dig[5:8]}/{dig[8:12]}-{dig[12:14]}" if len(dig) == 14 else dig
-    when = (datetime.now(timezone.utc) - timedelta(hours=4)).strftime("%d/%m/%Y %H:%M")  # Manaus
+    when = (datetime.now(timezone.utc) - timedelta(hours=4)).strftime("%d/%m/%Y %H:%M:%S")  # Manaus (com segundos)
 
     seal = next((c for c in _SELO_SEAL_CANDS if os.path.exists(c)), None)
     navy = (0.086, 0.153, 0.290)
