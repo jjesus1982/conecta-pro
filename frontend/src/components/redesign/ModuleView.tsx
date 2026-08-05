@@ -555,7 +555,7 @@ function EmptyReal() {
 }
 
 // TabsScreen (F0) — grupo com abas; cada aba renderiza uma tela normal pelos renderers existentes.
-function TabsScreen({ scr, tab, onTab }: { scr: any; tab: string; onTab: (id: string) => void }) {
+function TabsScreen({ scr, tab, onTab, onNav }: { scr: any; tab: string; onTab: (id: string) => void; onNav?: (id: string) => void }) {
   const tabs = Array.isArray(scr.tabs) ? scr.tabs : [];
   const act = tabs.find((x: any) => x.id === tab) || tabs[0];
   return (
@@ -569,7 +569,7 @@ function TabsScreen({ scr, tab, onTab }: { scr: any; tab: string; onTab: (id: st
           </button>
         ))}
       </div>
-      {act ? <Screen scr={act.screen} /> : <EmptyReal />}
+      {act ? <Screen scr={act.screen} onNav={onNav} /> : <EmptyReal />}
     </div>
   );
 }
@@ -783,7 +783,7 @@ export default function ModuleView({ slug }: { slug: string }) {
               ? (
                 <SearchCtx.Provider value={q}>
                   {scr?.type === 'tabs'
-                    ? <TabsScreen scr={scr} tab={activeTab} onTab={(id) => go(active, id)} />
+                    ? <TabsScreen scr={scr} tab={activeTab} onTab={(id) => go(active, id)} onNav={go} />
                     : <Screen scr={scr} onNav={go} />}
                 </SearchCtx.Provider>
               )
