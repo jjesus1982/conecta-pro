@@ -133,9 +133,12 @@ async def build(db) -> dict:
         "ORDER BY ml.created_at DESC LIMIT 200",
         lambda r: [t(r[1] or "—", 600, _ND), t(r[2]), t(r[3]), _bs(r[4])],
         actionsfn=lambda r: ([] if (r[4] or "").lower() in ("converted", "convertido") else [
-            {"title": f"Converter {r[1] or 'lead'} em lead do CRM",
+            # O botão da LINHA só abre o modal; o POST sai no botão do modal.
+            # Com fields=[] o modal abre em branco e parece que já executou — por isso
+            # título e submitLabel precisam deixar o 2º passo explícito.
+            {"title": f"Confirmar: converter “{r[1] or 'lead'}” em lead do CRM?",
              "endpoint": f"{_MKT}/leads/{r[0]}/convert", "method": "POST",
-             "btnLabel": "Converter", "submitLabel": "Converter para o CRM",
+             "btnLabel": "Converter", "submitLabel": "Sim, converter agora",
              "btnStyle": "primary", "okMsg": "Lead convertido para o CRM. Recarregue a tela.",
              "fields": []}])))
 
