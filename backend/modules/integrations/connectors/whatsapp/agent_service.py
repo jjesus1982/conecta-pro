@@ -13,7 +13,9 @@ import json
 import logging
 import os
 import re
+import unicodedata
 from datetime import UTC, datetime, timedelta, timezone
+from urllib.parse import unquote_plus
 from uuid import uuid4
 
 import aiohttp
@@ -792,6 +794,26 @@ async def _cliente_do_telefone(db, phone: str | None) -> dict | None:
     return {"id": str(row[0]), "name": row[1], "phone": row[2], "document_number": row[3]}
 
 
+# Atribuição de marketing: cada link wa.me (Linktree / landings) leva um ?text= distinto.
+# 1º match vence; ordem importa só se um marcador for prefixo de outro (hoje não é).
+_ORIGEM_MARCADORES = (
+    ("portaria remota", "landing_portaria_remota"),
+    ("agentes de portaria", "landing_agentes_portaria"),
+    ("monitoramento", "landing_monitoramento"),
+    ("instagram", "instagram_linktree"),
+)
+
+
+def _origem_do_texto(texto: str | None) -> str:
+    """Deriva leads.source do texto pré-preenchido do link wa.me. Sem marcador -> 'whatsapp'."""
+    t = unquote_plus(str(texto or ""))
+    t = "".join(c for c in unicodedata.normalize("NFKD", t) if not unicodedata.combining(c)).lower()
+    for marcador, origem in _ORIGEM_MARCADORES:
+        if marcador in t:
+            return origem
+    return "whatsapp"
+
+
 async def _criar_lead_para_conversa(db, conversation_id: int, nome: str | None = None) -> str | None:
     """Auto-cura: cria (ou reusa por telefone) um lead p/ a conversa quando não há lead
     válido vinculado (ex.: lead foi apagado). Vincula o lead_id no cwi_message_log."""
@@ -823,14 +845,25 @@ async def _criar_lead_para_conversa(db, conversation_id: int, nome: str | None =
             lid = existing
         else:
             nm = (nome or "Contato WhatsApp").strip()[:255] or "Contato WhatsApp"
+            # A 1ª mensagem carrega o ?text= do link wa.me de onde a pessoa clicou -> origem.
+            primeira = (
+                await db.execute(
+                    text(
+                        "SELECT content FROM cwi_message_log "
+                        "WHERE chatwoot_conversation_id=:c AND direction='in' "
+                        "ORDER BY created_at ASC LIMIT 1"
+                    ),
+                    {"c": conversation_id},
+                )
+            ).scalar()
             lid = (
                 await db.execute(
                     text(
                         "INSERT INTO leads (id,name,phone,source,status,score,probability,"
                         "expected_value,is_active,created_at,updated_at) VALUES "
-                        "(gen_random_uuid(),:n,:p,'whatsapp','new',0,0,0,true,now(),now()) RETURNING id"
+                        "(gen_random_uuid(),:n,:p,:src,'new',0,0,0,true,now(),now()) RETURNING id"
                     ),
-                    {"n": nm, "p": phone},
+                    {"n": nm, "p": phone, "src": _origem_do_texto(primeira)},
                 )
             ).scalar()
         await db.execute(
