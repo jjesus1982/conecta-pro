@@ -125,6 +125,68 @@ _SELO_SEAL_CANDS = (
     "/app/uploads/assets/pdf/cover.png",
 )
 
+# Razão social de EXIBIÇÃO por CNPJ (marca atual). Usado no selo visível, pois o
+# certificado A1 da Eletrônica traz a razão antiga ("JORDAN SANTOS DE JESUS LTDA").
+_RAZAO_POR_CNPJ = {
+    "35710481000103": "CONECTA MAIS ELETRÔNICA LTDA",
+    "66014833000110": "CONECTA MAIS PATRIMONIAL LTDA",
+}
+
+
+def _estampar_selo_eletronico(pdf_bytes: bytes, nome, cpf, sha256, quando=None) -> bytes:
+    """SELO VISÍVEL da assinatura ELETRÔNICA SIMPLES (funcionário/cliente) — MP 2.200-2.
+    Distinto do ICP-Brasil da empresa (acento VERDE + selo de check), CENTRALIZADO no rodapé
+    da última página. É a camada visual; a prova é o hash SHA-256 + evidências. Best-effort."""
+    import re as _re
+    from datetime import timedelta
+
+    import fitz  # PyMuPDF
+
+    if quando is not None and hasattr(quando, "strftime"):
+        when = quando.strftime("%d/%m/%Y %H:%M:%S")
+    else:
+        when = (datetime.now(timezone.utc) - timedelta(hours=4)).strftime("%d/%m/%Y %H:%M:%S")  # Manaus
+    dig = _re.sub(r"\D", "", str(cpf or ""))
+    cpf_f = f"{dig[:3]}.{dig[3:6]}.{dig[6:9]}-{dig[9:11]}" if len(dig) == 11 else (str(cpf or "").strip())
+    h = (str(sha256 or ""))[:24]
+
+    navy = (0.086, 0.153, 0.290)
+    green = (0.086, 0.53, 0.30)
+    greend = (0.055, 0.40, 0.23)
+    gray = (0.42, 0.47, 0.55)
+    light = (0.949, 0.980, 0.960)
+
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        pg = doc[-1]
+        w, h_pg = pg.rect.width, pg.rect.height
+        bw, bh = 316, 76
+        x0 = (w - bw) / 2
+        y0 = h_pg - bh - 44
+        x1, y1 = x0 + bw, y0 + bh
+        sh = pg.new_shape()
+        sh.draw_rect(fitz.Rect(x0, y0, x1, y1))
+        sh.finish(color=greend, fill=light, width=1.1)
+        sh.draw_rect(fitz.Rect(x0, y0, x0 + 5, y1))
+        sh.finish(color=green, fill=green, width=0)
+        sh.commit()
+        # selo de CHECK verde (distingue da assinatura ICP-Brasil da empresa)
+        cx, cy, rr = x0 + 34, y0 + 38, 16
+        s2 = pg.new_shape()
+        s2.draw_circle(fitz.Point(cx, cy), rr)
+        s2.finish(color=green, fill=None, width=1.5)
+        s2.draw_polyline([fitz.Point(cx - 7, cy + 1), fitz.Point(cx - 2, cy + 7), fitz.Point(cx + 8, cy - 7)])
+        s2.finish(color=green, width=2.2)
+        s2.commit()
+        tx = x0 + 66
+        pg.insert_text((tx, y0 + 19), "ASSINADO ELETRONICAMENTE", fontsize=9, color=greend, fontname="hebo")
+        pg.insert_text((tx, y0 + 33), f"{(str(nome or 'Funcionário'))[:40]}  ·  CPF {cpf_f}", fontsize=8, color=navy, fontname="hebo")
+        pg.insert_text((tx, y0 + 45), f"{when} (Manaus)  ·  via Conecta PRO (MP 2.200-2)", fontsize=7.2, color=gray, fontname="helv")
+        pg.insert_text((tx, y0 + 59), f"SHA-256: {h}…  ·  conectamais.pro/verificar", fontsize=6.6, color=green, fontname="helv")
+        return doc.tobytes(deflate=True)
+    finally:
+        doc.close()
+
 
 def _estampar_selo_branded(pdf_bytes: bytes, subject_cn: str) -> bytes:
     """Desenha um SELO VISÍVEL branded (marca Conecta Mais) CENTRALIZADO no rodapé da
@@ -139,11 +201,13 @@ def _estampar_selo_branded(pdf_bytes: bytes, subject_cn: str) -> bytes:
     import fitz  # PyMuPDF
 
     m = _re.match(r"(.*?):(\d{6,14})\s*$", (subject_cn or "").strip())
-    razao = (m.group(1) if m else (subject_cn or "")).strip()
-    # Exibição da MARCA no selo: "CONECTA MAIS" separado (o cert traz "CONECTAMAIS" junto).
-    razao = _re.sub(r"CONECTAMAIS", "CONECTA MAIS", razao, flags=_re.IGNORECASE)
     dig = m.group(2) if m else ""
     cnpj = f"{dig[:2]}.{dig[2:5]}.{dig[5:8]}/{dig[8:12]}-{dig[12:14]}" if len(dig) == 14 else dig
+    # Razão de EXIBIÇÃO por CNPJ (marca atual). O certificado pode trazer razão ANTIGA
+    # (o cert da Eletrônica tem "JORDAN SANTOS DE JESUS LTDA"); o CNPJ é o identificador.
+    razao = _RAZAO_POR_CNPJ.get(dig)
+    if not razao:  # fallback: razão do próprio cert, com a marca separada
+        razao = _re.sub(r"CONECTAMAIS", "CONECTA MAIS", (m.group(1) if m else (subject_cn or "")).strip(), flags=_re.IGNORECASE)
     when = (datetime.now(timezone.utc) - timedelta(hours=4)).strftime("%d/%m/%Y %H:%M:%S")  # Manaus (com segundos)
 
     seal = next((c for c in _SELO_SEAL_CANDS if os.path.exists(c)), None)

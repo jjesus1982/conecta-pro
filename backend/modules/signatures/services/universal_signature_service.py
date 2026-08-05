@@ -465,6 +465,21 @@ class UniversalSignatureService:
 
         ev = evidence or SignatureEvidence()
 
+        # SELO VISÍVEL da assinatura ELETRÔNICA (funcionário/cliente): carimba o PDF do
+        # documento com o selo verde (nome, CPF, data/hora, hash) e salva o caminho.
+        # Só quando há PDF; best-effort — nunca quebra a assinatura se falhar.
+        _signed_simple = None
+        try:
+            _src = pdf_bytes or (self._read_pdf(req.document_path) if req.document_path else None)
+            if _src:
+                from modules.signatures.services.qualified_signer import _estampar_selo_eletronico
+
+                _stamped = _estampar_selo_eletronico(_src, eff_name, eff_doc, signature_hash, signed_at)
+                _signed_simple = self._save_signed_pdf(
+                    _stamped, document_type=req.document_type or "documento", request_id=req.id)
+        except Exception:  # noqa: BLE001 — selo é best-effort
+            _signed_simple = None
+
         sig = Signature(
             id=uuid.uuid4(),
             tenant_id=DEFAULT_TENANT_ID,
@@ -501,6 +516,8 @@ class UniversalSignatureService:
         req.signing_device = ev.device
         req.signing_location = ev.location
         req.signed_document_hash = req.document_hash
+        if _signed_simple:
+            req.signed_document_path = _signed_simple
         req.updated_at = signed_at
         req.last_activity_at = signed_at
         req.audit_log = self._append_audit(
