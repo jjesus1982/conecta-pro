@@ -1,5 +1,18 @@
 """Fase E — persiste a folha do MOTOR em paralelo à Portte (`source_system='conecta'`).
 
+⚠️ ESTE SCRIPT NÃO É O CAMINHO OFICIAL DA FOLHA (decidido 05/08/2026, Task 6).
+
+O caminho oficial é a ação **`folha-gerar` da tela de DP** (`redesign_builders/
+departamento_pessoal.py`): ela grava mais colunas (competence_start/end, inss_value,
+irrf_value), registra QUEM gerou, escopa por condomínio (que é como o Jordan fecha) e
+alerta holerite com líquido zero — gente que não seria paga.
+
+O papel DESTE script é COMPARAÇÃO/BACKFILL das competências que têm espelho Portte
+(jan-jun), rodando contra o mesmo universo dela para bater 1:1. Para mês corrente, use a
+tela. Os dois hoje usam `calcular_folha_batch`/`calcular_folha_colaborador` com o mesmo
+universo (vínculo na competência, não `status='ativo'`) e produzem o MESMO resultado —
+julho: 53 holerites, R$90.582,48 nos dois. Se divergirem de novo, é regressão.
+
 NUNCA toca as linhas 'portte' (são a verdade). Idempotente: apaga só as 'conecta' da
 competência antes de reinserir. `payslip_code` próprio ('CONECTA-...') não colide com a
 UNIQUE (condominio_id, payslip_code) da linha Portte.

@@ -8,6 +8,7 @@ import calendar
 import re
 import unicodedata
 import logging
+from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
@@ -751,19 +752,31 @@ def calcular_folha_colaborador(
 
 
 def calcular_folha_batch(db: Session, mes: int, ano: int) -> dict[str, Any]:
-    """Calcula folha para todos os colaboradores CLT ativos.
+    """Calcula folha para todos os colaboradores CLT com VÍNCULO na competência.
+
+    Universo = quem teve vínculo no mês, não quem está ativo hoje. Filtrar por
+    `status='ativo'` puro fazia quem foi desligado no meio do mês SUMIR da folha e não
+    receber pelos dias trabalhados: em julho/2026 sumiram 3 desligados em 22/07 e a ELEN
+    (afastada), R$893,85 + proporcionais. Quem for admitido depois do fim do mês ou
+    desligado antes do início dele continua fora.
 
     EXCLUI funcionários de HOMOLOGAÇÃO (is_homologacao) — base de teste isolada da
     folha/eSocial reais. Ver [[project_ponto_facial_homologacao]].
     EXCLUI PJ (tipo_contrato='pj') — prestadores não entram na folha CLT (holerite/INSS/
     FGTS/eSocial); são pagos por fluxo PJ (PIX contra nota fiscal). Multi-CNPJ.
     """
+    _ini = date(ano, mes, 1)
+    _fim = date(ano + (mes == 12), (mes % 12) + 1, 1) - timedelta(days=1)
     employees = db.execute(
         text(
             "SELECT CAST(id AS TEXT) FROM employees "
-            "WHERE status='ativo' AND coalesce(is_homologacao, false) = false "
-            "AND COALESCE(LOWER(tipo_contrato),'') <> 'pj' ORDER BY nome"
-        )
+            "WHERE coalesce(is_homologacao, false) = false "
+            "AND COALESCE(LOWER(tipo_contrato),'') <> 'pj' "
+            "AND data_admissao IS NOT NULL AND data_admissao <= :fim "
+            "AND (status = 'ativo' "
+            "     OR COALESCE(data_desligamento, data_demissao) >= :ini) ORDER BY nome"
+        ),
+        {"ini": _ini, "fim": _fim},
     ).fetchall()
 
     holerites = []
@@ -774,7 +787,9 @@ def calcular_folha_batch(db: Session, mes: int, ano: int) -> dict[str, Any]:
     total_fgts = Decimal("0")
 
     for (eid,) in employees:
-        result = calcular_folha_colaborador(db, eid, mes, ano)
+        # historico=True: o universo acima já inclui quem tem vínculo na competência;
+        # sem isto o próprio cálculo tornaria a excluir o desligado e devolveria erro.
+        result = calcular_folha_colaborador(db, eid, mes, ano, historico=True)
         if "error" in result:
             erros.append({"employee_id": eid, "error": result["error"]})
             continue
