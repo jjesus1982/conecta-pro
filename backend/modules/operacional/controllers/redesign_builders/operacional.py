@@ -798,7 +798,7 @@ async def build(db) -> dict:
             "coalesce(departamento, setor, '—'), data_admissao, coalesce(status,'—'), "
             "coalesce(cpf,'—'), coalesce(telefone,'—'), coalesce(rg,'—'), data_nascimento, "
             "coalesce(posto_atual_nome,'—'), coalesce(cliente_nome,'—'), coalesce(pix_key, pix, '—'), "
-            "coalesce(gestor_nome,'—') "
+            "coalesce(gestor_nome,'—'), CAST(id AS TEXT) "
             "FROM employees ORDER BY nome LIMIT 300",
             lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), t(r[2]), t(r[3]), t(r[4]), t(_fmtdate(r[5])),
                        b((r[6] or '—').capitalize(), "ok" if (r[6] or '') == "ativo" else "mut")],
@@ -816,7 +816,18 @@ async def build(db) -> dict:
                     {"label": "Posto atual", "value": r[11]}, {"label": "Cliente", "value": r[12]},
                     {"label": "Chave PIX", "value": r[13], "span": "span 2"},
                 ],
-            })
+            },
+            actionsfn=lambda r: [{
+                "btnLabel": "Editar contato", "title": f"Editar contato — {r[0]}",
+                "endpoint": f"/api/v1/people-management/hr/employees/{r[15]}", "method": "PATCH",
+                "okMsg": "Contato atualizado. Recarregue a tela.",
+                "fields": [
+                    {"key": "celular", "label": "Telefone / Celular", "type": "text", "span": "span 2",
+                     "value": (r[8] if r[8] and r[8] != "—" else "")},
+                    {"key": "email", "label": "E-mail", "type": "text", "span": "span 2",
+                     "value": (r[1] if r[1] and r[1] != "—" else "")},
+                ],
+            }])
         # Afastados: MESMA definição do clássico (colaboradores page filtra status LIKE 'afastado%'
         # → afastado_inss), NÃO o afastados_ativos do SSTService (que conta afastamentos-registro).
         _afast = await _scalar(db, "SELECT count(*) FROM employees WHERE lower(coalesce(status,'')) LIKE 'afastado%'")
