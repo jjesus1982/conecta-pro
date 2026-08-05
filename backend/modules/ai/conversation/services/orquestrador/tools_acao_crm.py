@@ -22,6 +22,7 @@ from typing import Any
 from sqlalchemy import text
 
 from .acoes.base import ROLES_COMERCIAL, ROLES_MONEY, propor
+from .acoes.rascunho import criar_rascunho, registrar_executor
 from .agir_dispatcher import registrar_acao
 
 # ───────────────────────── criar_lead (🔵) ──────────────────────────────────
@@ -396,23 +397,18 @@ async def _propor_registrar_followup(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Ações PESADAS (diretoria) — molde tools_acao_dp: criar/ativar CONTRATO e ENVIAR
-# proposta ao cliente. Aprovador = ROLES_MONEY (diretoria). propor() só grava o
-# PENDENTE no sino+audit; a EXECUÇÃO/ENVIO real fica na TELA (o humano cria/ativa/
-# envia lá). A IA NUNCA chama ContractRepository (create/update_status) nem
-# proposal_delivery.send_proposal_email — `_inserir` só devolve um id sintético.
-# enviar_proposta é EXTERNO/LGPD (vai AO CLIENTE) → corpo inequívoco.
+# Ações PESADAS (diretoria) via CENTRAL DE RASCUNHOS — criar/ativar CONTRATO e
+# ENVIAR proposta ao cliente. O HANDLER (chat) só grava um AgentDraft inerte via
+# `criar_rascunho` — NUNCA executa. A execução real roda SÓ na aprovação, pelo
+# EXECUTOR registrado (`registrar_executor`), que reusa os MESMOS serviços de
+# domínio do clássico/REDESIGN-1 (ContractRepository.create, activate_contract,
+# send_proposal). Aprovador = ROLES_MONEY (diretoria). enviar_proposta é EXTERNO/
+# LGPD (vai AO CLIENTE) → resumo inequívoco; sem OTP (não é dinheiro), gate 🔴.
 # ──────────────────────────────────────────────────────────────────────────────
 
 
 def _slug(s: str) -> str:
     return "".join(c for c in (s or "").strip().lower() if c.isalnum() or c in " -")[:60].strip()
-
-
-async def _noop_ref(db) -> str:
-    """PENDENTE sem tabela nativa inerte: só devolve id sintético (o pendente vive
-    no sino+audit). NÃO cria/ativa contrato nem envia proposta — a IA nunca executa."""
-    return str(uuid.uuid4())
 
 
 async def _propor_criar_contrato(
@@ -422,22 +418,32 @@ async def _propor_criar_contrato(
     cli = str(cliente or cliente_nome or "").strip()
     if len(cli) < 2:
         return {"erro": "cliente (nome/razão social, >=2 chars) é obrigatório"}
+    # Resolve o cliente p/ um id REAL (read-only) — o executor precisa de client_id
+    # válido p/ ContractRepository.create. Falha cedo se o cliente não existe.
+    from modules.crm.services.orchestration import _resolve_cliente_ref
+    info = await _resolve_cliente_ref(db, cli)
+    if not info.get("cliente_id"):
+        return {"erro": f"cliente '{cli}' não encontrado no CRM — cadastre-o antes de criar o contrato."}
     prod = str(produto or "").strip()
     val = str(valor or "").strip()
     prz = str(prazo or vigencia_meses or "").strip()
+    try:
+        monthly = float(val.replace(".", "").replace(",", ".")) if val else 0.0
+    except (ValueError, TypeError):
+        monthly = 0.0
+    nome_contrato = (f"Contrato {prod} — {info['cliente_nome']}" if prod
+                     else f"Contrato — {info['cliente_nome']}")[:200]
     detalhe = ", ".join(x for x in (prod, f"R$ {val}" if val else "", f"{prz} meses" if prz else "") if x)
-    return await propor(
-        db, user=user, scope=scope, dominio="contrato_criar", gate="🟡",
-        roles_aprovador=ROLES_MONEY, idempotency_key=f"contrato_criar:{_slug(cli)}:{_slug(val)}",
-        titulo="[Proposta] Criar contrato (rascunho)",
-        corpo=f"Aprovar cria o contrato de '{cli}'"
-              + (f" ({detalhe})" if detalhe else "")
-              + " como RASCUNHO na tela de contratos — revise cláusulas/valor antes. "
-                "Nada é criado até você aprovar; a criação/ativação é humana na tela.",
-        action_url="/modulos/crm/contratos",
-        tool="propor_criar_contrato",
-        args={"cliente": cli, "produto": prod, "valor": val, "prazo": prz},
-        entity_type="contract", inserir=_noop_ref,
+    return await criar_rascunho(
+        db, user, tipo="criar_contrato", modulo="crm", gate="🟡", requires_otp=False,
+        roles_aprovador=ROLES_MONEY,
+        idempotency_key=f"contrato_criar:{_slug(cli)}:{_slug(val)}",
+        titulo="Criar contrato (rascunho)",
+        resumo=f"Aprovar CRIA o contrato de '{info['cliente_nome']}'"
+               + (f" ({detalhe})" if detalhe else "")
+               + " como RASCUNHO (status DRAFT) — revise cláusulas/valor. Só a aprovação cria.",
+        payload={"client_id": info["cliente_id"], "name": nome_contrato,
+                 "monthly_value": monthly, "description": (prod or None)},
     )
 
 
@@ -447,16 +453,21 @@ async def _propor_ativar_contrato(
     ref = str(contrato_id or contract_id or contrato_numero or numero or "").strip()
     if not ref:
         return {"erro": "contrato_id ou contrato_numero é obrigatório"}
-    return await propor(
-        db, user=user, scope=scope, dominio="contrato_ativar", gate="🔴",
-        roles_aprovador=ROLES_MONEY, idempotency_key=f"contrato_ativar:{_slug(ref)}",
-        titulo="[Proposta] ATIVAR contrato (vigência)",
-        corpo=f"Aprovar ATIVA o contrato {ref} na tela — coloca-o EM VIGÊNCIA "
-              f"(passa a valer, lança MRR/faturamento). Confira assinatura e dados "
-              f"antes; nada é ativado até você aprovar na tela de contratos.",
-        action_url="/modulos/crm/contratos",
-        tool="propor_ativar_contrato", args={"contrato_ref": ref},
-        entity_type="contract", inserir=_noop_ref,
+    # Resolve p/ o id REAL (read-only) — o executor chama activate_contract(contract_id).
+    row = (await db.execute(text(
+        "SELECT id::text AS id, contract_number, status::text AS status FROM contracts "
+        "WHERE id::text = :ref OR contract_number = :ref LIMIT 1"), {"ref": ref})).mappings().first()
+    if not row:
+        return {"erro": f"contrato '{ref}' não encontrado."}
+    return await criar_rascunho(
+        db, user, tipo="ativar_contrato", modulo="crm", gate="🔴", requires_otp=False,
+        roles_aprovador=ROLES_MONEY,
+        idempotency_key=f"contrato_ativar:{_slug(ref)}",
+        titulo="ATIVAR contrato (vigência)",
+        resumo=f"Aprovar ATIVA o contrato {row['contract_number']} — coloca-o EM VIGÊNCIA "
+               f"(passa a valer, lança MRR/faturamento). Confira assinatura e dados antes; "
+               f"só a aprovação ativa.",
+        payload={"contract_id": row["id"], "contract_number": row["contract_number"]},
     )
 
 
@@ -466,20 +477,64 @@ async def _propor_enviar_proposta(
     ref = str(proposta_id or proposal_id or numero or "").strip()
     if not ref:
         return {"erro": "proposta_id (ou numero da proposta) é obrigatório"}
-    cli = str(cliente or "").strip()
-    return await propor(
-        db, user=user, scope=scope, dominio="proposta_enviar", gate="🔴",
-        roles_aprovador=ROLES_MONEY, idempotency_key=f"proposta_enviar:{_slug(ref)}",
-        titulo="[Proposta] ENVIAR proposta AO CLIENTE",
-        corpo=f"⚠️ EXTERNO/LGPD: aprovar ENVIA a proposta {ref}"
-              + (f" AO CLIENTE '{cli}'" if cli else " AO CLIENTE")
-              + " (e-mail/WhatsApp externo — sai da empresa). CONFIRA o destinatário "
-                "e o conteúdo antes de aprovar; o envio real é disparado na TELA de "
-                "propostas. Nada é enviado até você aprovar.",
-        action_url="/modulos/crm/propostas",
-        tool="propor_enviar_proposta", args={"proposta_id": ref, "cliente": cli},
-        entity_type="proposal", inserir=_noop_ref,
+    # Resolve p/ o id REAL (read-only) — o executor chama send_proposal(proposal_id).
+    row = (await db.execute(text(
+        "SELECT id::text AS id, coalesce(number,'') AS number, coalesce(client_name,'') AS client_name "
+        "FROM proposals WHERE id::text = :ref OR number = :ref LIMIT 1"), {"ref": ref})).mappings().first()
+    if not row:
+        return {"erro": f"proposta '{ref}' não encontrada."}
+    cli = str(cliente or row["client_name"] or "").strip()
+    return await criar_rascunho(
+        db, user, tipo="enviar_proposta", modulo="crm", gate="🔴", requires_otp=False,
+        roles_aprovador=ROLES_MONEY,
+        idempotency_key=f"proposta_enviar:{_slug(ref)}",
+        titulo="ENVIAR proposta AO CLIENTE",
+        resumo=f"⚠️ EXTERNO/LGPD: aprovar ENVIA a proposta {row['number'] or ref}"
+               + (f" AO CLIENTE '{cli}'" if cli else " AO CLIENTE")
+               + " (e-mail externo — sai da empresa). CONFIRA destinatário e conteúdo; "
+                 "só a aprovação dispara o envio ao cliente.",
+        payload={"proposal_id": row["id"], "number": row["number"], "cliente": cli},
     )
+
+
+# ── Executores (rodam SÓ na aprovação, via executar_rascunho) ─────────────────
+# Reusam os MESMOS serviços de domínio do clássico/REDESIGN-1. Imports locais p/
+# o call-time resolver o attr do módulo (permite monkeypatch no teste de bancada).
+
+
+async def _exec_criar_contrato(db, aprovador_user, payload: dict) -> str:
+    from decimal import Decimal
+
+    from modules.crm.repositories.contract_repository import ContractRepository
+    from modules.crm.schemas.contract import ContractCreate
+    data = ContractCreate(
+        client_id=str(payload["client_id"]),
+        name=str(payload["name"])[:200],
+        monthly_value=Decimal(str(payload.get("monthly_value") or "0")),
+        start_date=date.today().isoformat(),
+        description=(payload.get("description") or None),
+    )
+    c = await ContractRepository(db).create(data, created_by_id=str(getattr(aprovador_user, "id", None)))
+    return str(c.id)
+
+
+async def _exec_ativar_contrato(db, aprovador_user, payload: dict) -> str:
+    from modules.crm.controllers.contract_controller import activate_contract
+    c = await activate_contract(
+        contract_id=str(payload["contract_id"]), current_user=aprovador_user, db=db)
+    return str(getattr(c, "id", payload["contract_id"]))
+
+
+async def _exec_enviar_proposta(db, aprovador_user, payload: dict) -> str:
+    from modules.crm.controllers.proposal_controller import send_proposal
+    p = await send_proposal(
+        proposal_id=str(payload["proposal_id"]), current_user=aprovador_user, db=db)
+    return str(getattr(p, "id", payload["proposal_id"]))
+
+
+registrar_executor("criar_contrato", _exec_criar_contrato)
+registrar_executor("ativar_contrato", _exec_ativar_contrato)
+registrar_executor("enviar_proposta", _exec_enviar_proposta)
 
 
 # ───────────────────────── registro (dispatcher agir_crm) ────────────────────
@@ -512,19 +567,19 @@ registrar_acao("crm", "registrar_followup",
                "'proposto' sem telefone (o envio ao cliente é humano).",
                _propor_registrar_followup)
 registrar_acao("crm", "criar_contrato",
-               "PROPOR a criação de um contrato (rascunho) — aprovação = diretoria. "
-               "dados: cliente (obrig.), produto, valor, prazo. NÃO cria — a "
-               "criação/ativação é humana na tela de contratos.",
+               "Criar um RASCUNHO de contrato na Central — aprovação = diretoria. dados: "
+               "cliente (obrig.), produto, valor, prazo. NÃO cria nada agora; o contrato "
+               "(status DRAFT) só é criado quando a diretoria aprovar na Central.",
                _propor_criar_contrato)
 registrar_acao("crm", "ativar_contrato",
-               "PROPOR a ATIVAÇÃO (vigência) de um contrato — aprovação = diretoria. "
-               "dados: contrato_id ou contrato_numero (obrig.). NÃO ativa — a execução "
-               "é humana na tela de contratos.",
+               "Propor a ATIVAÇÃO (vigência) de um contrato na Central — aprovação = "
+               "diretoria. dados: contrato_id ou contrato_numero (obrig.). NÃO ativa "
+               "agora; a ativação (MRR/faturamento) só roda ao aprovar na Central.",
                _propor_ativar_contrato)
 registrar_acao("crm", "enviar_proposta",
-               "PROPOR o ENVIO de uma proposta AO CLIENTE (EXTERNO/LGPD) — aprovação = "
-               "diretoria. dados: proposta_id (obrig.), cliente. NÃO envia — o envio ao "
-               "cliente é humano na tela de propostas.",
+               "Propor o ENVIO de uma proposta AO CLIENTE (EXTERNO/LGPD) na Central — "
+               "aprovação = diretoria. dados: proposta_id (obrig.), cliente. NÃO envia "
+               "agora; o envio ao cliente só dispara ao aprovar na Central.",
                _propor_enviar_proposta)
 
 
@@ -569,7 +624,6 @@ if __name__ == "__main__":
 
         # PROVA "não executa/envia" (ações pesadas): se o caminho tocar QUALQUER
         # executor real (criar/ativar contrato, enviar proposta ao cliente), estoura.
-        from modules.notifications.proativo import entrega
         import modules.crm.repositories.contract_repository as _crepo
         import modules.crm.services.proposal_delivery as _pdel
         executou = {"n": 0}
@@ -709,47 +763,54 @@ if __name__ == "__main__":
                 assert rf2.get("duplicado") is True, rf2
                 print("TESTE a6 (registrar_followup: PENDENTE inerte 'proposto' sem telefone, não envia, idempotente) PASS")
 
-                # ── (a-pesadas) criar/ativar contrato + enviar proposta: PENDENTE p/
-                #    DIRETORIA (ROLES_MONEY), pendente vive no sino (sem tabela nativa),
-                #    executor real NUNCA roda, idempotente. Sentinela → não colide c/ real.
-                admins = set(await entrega.resolver_usuarios_por_roles(db, ("admin",)))
-                assert admins, "esperado >=1 admin (diretoria) no banco"
+                # ── (a-pesadas) CENTRAL DE RASCUNHOS: criar/ativar contrato + enviar
+                #    proposta viram AgentDraft inerte (status='rascunho', p/ DIRETORIA).
+                #    O handler NUNCA executa (boom nos serviços reais → executou==0); os
+                #    refs são resolvidos de linhas REAIS (o rascunho é inerte, não cria/
+                #    ativa/envia — a execução real só roda na aprovação, coberta pelo
+                #    scripts/orq/test_central_crm.py).
+                cli_real = (await db.execute(text(
+                    "SELECT name FROM clients WHERE coalesce(ativo,true)=true ORDER BY name LIMIT 1"))).scalar()
+                ct_real = (await db.execute(text(
+                    "SELECT contract_number FROM contracts WHERE contract_number IS NOT NULL LIMIT 1"))).scalar()
+                prop_real = (await db.execute(text("SELECT id::text FROM proposals LIMIT 1"))).scalar()
                 pesadas = [
-                    ("criar_contrato", {"cliente": f"{SENT} Cli", "produto": "Portaria", "valor": "5000"},
-                     f"contrato_criar:{_slug(SENT + ' Cli')}:{_slug('5000')}"),
-                    ("ativar_contrato", {"contrato_numero": f"{SENT}-CT-1"},
-                     f"contrato_ativar:{_slug(SENT + '-CT-1')}"),
-                    ("enviar_proposta", {"proposta_id": f"{SENT}-PROP-1", "cliente": "ACME"},
-                     f"proposta_enviar:{_slug(SENT + '-PROP-1')}"),
+                    ("criar_contrato", {"cliente": cli_real, "produto": "Portaria", "valor": "5000"}, "🟡", cli_real),
+                    ("ativar_contrato", {"contrato_numero": ct_real}, "🔴", ct_real),
+                    ("enviar_proposta", {"proposta_id": prop_real}, "🔴", prop_real),
                 ]
-                for acao, dados, idem in pesadas:
+                for acao, dados, gate_exp, ref_real in pesadas:
+                    if not ref_real:
+                        print(f"TESTE a-pesadas[{acao}] SKIP (sem dado real p/ resolver ref)")
+                        continue
                     r = await disp(db, _U(), _S(), acao=acao, dados=dados)
-                    assert r.get("status") == "pendente" and not r.get("duplicado"), (acao, r)
-                    # aprovador = diretoria (admins); propositor (0xff, não-admin) preservado
-                    assert set(r.get("aprovadores") or []) == admins, (acao, r.get("aprovadores"), admins)
-                    heavy_ids.append(r["entity_id"])
-                    rt = (await db.execute(text(
-                        "SELECT reference_type FROM communication_notifications "
-                        "WHERE extra_data->>'idempotency_key' = :k LIMIT 1"), {"k": idem})).scalar()
-                    assert rt == "proposta_acao", (acao, rt)
+                    assert r.get("status") == "rascunho" and not r.get("duplicado"), (acao, r)
+                    did = r["draft_id"]; heavy_ids.append(did)
+                    row = (await db.execute(text(
+                        "SELECT tipo, modulo, status, gate FROM agent_drafts WHERE id = CAST(:i AS uuid)"),
+                        {"i": did})).mappings().first()
+                    assert row and row["tipo"] == acao and row["modulo"] == "crm" \
+                        and row["status"] == "rascunho" and row["gate"] == gate_exp, \
+                        (acao, dict(row) if row else None)
+                    # idempotência: 2ª chamada não duplica o rascunho vivo
                     r2 = await disp(db, _U(), _S(), acao=acao, dados=dados)
                     assert r2.get("duplicado") is True, (acao, r2)
-                    n = (await db.execute(text(
-                        "SELECT count(*) FROM communication_notifications "
-                        "WHERE extra_data->>'idempotency_key' = :k"), {"k": idem})).scalar()
-                    assert n == len(admins), (acao, n, len(admins))
-                # enviar_proposta 🔴: corpo inequívoco de que vai AO CLIENTE (externo/LGPD)
-                corpo_env = (await db.execute(text(
-                    "SELECT body FROM communication_notifications "
-                    "WHERE extra_data->>'idempotency_key' = :k LIMIT 1"),
-                    {"k": f"proposta_enviar:{_slug(SENT + '-PROP-1')}"})).scalar()
-                assert corpo_env and "CLIENTE" in corpo_env.upper() and "LGPD" in corpo_env.upper(), corpo_env
-                # ref obrigatória → recusa (sem pendente)
+                # enviar_proposta 🔴: resumo inequívoco de que vai AO CLIENTE (externo/LGPD)
+                if prop_real:
+                    resumo_env = (await db.execute(text(
+                        "SELECT resumo FROM agent_drafts WHERE tipo='enviar_proposta' "
+                        "AND id = ANY(CAST(:i AS uuid[]))"), {"i": heavy_ids})).scalar()
+                    assert resumo_env and "CLIENTE" in resumo_env.upper() and "LGPD" in resumo_env.upper(), resumo_env
+                # ref obrigatória → recusa (sem rascunho)
                 assert "erro" in await disp(db, _U(), _S(), acao="ativar_contrato", dados={})
                 assert "erro" in await disp(db, _U(), _S(), acao="enviar_proposta", dados={})
-                assert executou["n"] == 0, "executor real de contrato/proposta foi chamado"
-                print("TESTE a-pesadas (criar/ativar contrato + enviar proposta: PENDENTE p/ "
-                      "DIRETORIA, corpo AO CLIENTE/LGPD, executor NUNCA roda, idempotente) PASS")
+                # executor registrado p/ cada tipo (mas NÃO chamado na criação)
+                from .acoes.rascunho import EXECUTORES
+                assert {"criar_contrato", "ativar_contrato", "enviar_proposta"} <= set(EXECUTORES), set(EXECUTORES)
+                assert executou["n"] == 0, "executor real de contrato/proposta foi chamado na CRIAÇÃO"
+                print("TESTE a-pesadas (criar/ativar contrato + enviar proposta → AgentDraft "
+                      "'rascunho' p/ DIRETORIA, resumo AO CLIENTE/LGPD, executor registrado "
+                      "mas NÃO roda na criação, idempotente) PASS")
 
                 # ── (b) acao inválida → recusa + opções (fail-closed) ──
                 rb = await disp(db, _U(), _S(), acao="deletar_tudo", dados={})
@@ -778,9 +839,13 @@ if __name__ == "__main__":
                 _crepo.ContractRepository.create = _orig[0]
                 _crepo.ContractRepository.update_status = _orig[1]
                 _pdel.send_proposal_email = _orig[2]
-                if heavy_ids:  # pesadas só deixam rastro em sino+audit (sem tabela nativa)
+                if heavy_ids:  # pesadas = AgentDraft + sino (reference_id=draft) + audit (entity_id=draft)
+                    await db.execute(text(
+                        "DELETE FROM communication_notifications WHERE reference_id = ANY(:i)"), {"i": heavy_ids})
                     await db.execute(text(
                         "DELETE FROM audit_logs WHERE details->>'entity_id' = ANY(:i)"), {"i": heavy_ids})
+                    await db.execute(text(
+                        "DELETE FROM agent_drafts WHERE id = ANY(CAST(:i AS uuid[]))"), {"i": heavy_ids})
                 if lead_ids:
                     await db.execute(text("DELETE FROM leads WHERE id = ANY(:i)"), {"i": lead_ids})
                     await db.execute(text(
@@ -805,8 +870,6 @@ if __name__ == "__main__":
                 await _limpar(db, "visita:%" + SENT.lower() + "%")
                 await _limpar(db, "reuniao:%" + SENT.lower() + "%")
                 await _limpar(db, "followup:%")
-                for k in ("contrato_criar:%", "contrato_ativar:%", "proposta_enviar:%"):
-                    await _limpar(db, k)
                 await db.commit()
                 rem_l = (await db.execute(text(
                     "SELECT count(*) FROM leads WHERE name LIKE :n"), {"n": SENT + "%"})).scalar()
@@ -820,10 +883,15 @@ if __name__ == "__main__":
                     "SELECT count(*) FROM crm_meetings WHERE titulo LIKE :n"), {"n": SENT + "%"})).scalar()
                 rem_f = (await db.execute(text(
                     "SELECT count(*) FROM crm_followups WHERE mensagem LIKE :n"), {"n": SENT + "%"})).scalar()
-                assert rem_l == 0 and rem_t == 0 and rem_n == 0 and rem_v == 0 and rem_m == 0 and rem_f == 0, \
-                    f"remanescentes lead={rem_l} tarefa={rem_t} nota={rem_n} visita={rem_v} reuniao={rem_m} followup={rem_f}"
-                print("LIMPEZA OK — 0 remanescentes "
-                      "(leads/crm_tasks/crm_client_notes/crm_visit_reports/crm_meetings/crm_followups/audit/sino)")
+                rem_d = (await db.execute(text(
+                    "SELECT count(*) FROM agent_drafts WHERE id = ANY(CAST(:i AS uuid[]))"),
+                    {"i": heavy_ids or ["00000000-0000-0000-0000-000000000000"]})).scalar()
+                assert rem_l == 0 and rem_t == 0 and rem_n == 0 and rem_v == 0 and rem_m == 0 \
+                    and rem_f == 0 and rem_d == 0, \
+                    f"remanescentes lead={rem_l} tarefa={rem_t} nota={rem_n} visita={rem_v} " \
+                    f"reuniao={rem_m} followup={rem_f} rascunho={rem_d}"
+                print("LIMPEZA OK — 0 remanescentes (leads/crm_tasks/crm_client_notes/"
+                      "crm_visit_reports/crm_meetings/crm_followups/agent_drafts/audit/sino)")
         await eng.dispose()
 
     asyncio.run(main())
