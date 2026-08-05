@@ -217,6 +217,44 @@ def test_batida_orfa_nao_desalinha_o_resto():
     assert dias["2026-07-11"]["total_hours"] == "09:00"
 
 
+def test_registro_sabe_quais_batidas_consumiu():
+    """get_by_id precisa achar o turno que CONTEM a batida pedida, nao `records[0]`.
+
+    Os registros sao chaveados pela batida de ENTRADA, entao pedir a batida de SAIDA
+    nao acha registro nenhum por id. Com dois turnos no mesmo dia, `records[0]` devolvia
+    um turno arbitrario -- pedia-se um e recebia-se o outro.
+    """
+    rows = [
+        _punch("emp-12", "2026-07-10T08:00:00", "entrada", "a"),
+        _punch("emp-12", "2026-07-10T12:00:00", "saida", "b"),
+        _punch("emp-12", "2026-07-10T18:00:00", "entrada", "c"),
+        _punch("emp-12", "2026-07-10T22:00:00", "saida", "d"),
+    ]
+
+    recs = TimeRecordService(None)._pair_punches(rows, manter_origem=True)
+
+    assert len(recs) == 2, f"6h de intervalo nao e almoco — esperado 2 turnos: {recs}"
+    por_batida = {pid: r for r in recs for pid in r["_punch_ids"]}
+    assert por_batida["a"]["clock_in"] == "08:00"
+    assert por_batida["b"]["clock_in"] == "08:00"  # a SAIDA acha o turno da manha
+    assert por_batida["c"]["clock_in"] == "18:00"
+    assert por_batida["d"]["clock_in"] == "18:00"  # e nao o turno da manha
+
+
+def test_origem_das_batidas_nao_vaza_no_contrato_padrao():
+    """`_punch_ids` e interno: nunca pode aparecer na resposta da API."""
+    rows = [
+        _punch("emp-13", "2026-07-10T08:00:00", "entrada", "a"),
+        _punch("emp-13", "2026-07-10T17:00:00", "saida", "b"),
+    ]
+
+    recs = TimeRecordService(None)._pair_punches(rows)
+
+    assert recs, "sem registro para conferir"
+    for r in recs:
+        assert "_punch_ids" not in r, f"chave interna vazou no contrato: {sorted(r)}"
+
+
 def test_entrada_sem_saida_vira_inconsistencia():
     """Quem bateu entrada e nao bateu saida NAO pode sumir da tela.
 

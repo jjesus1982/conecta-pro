@@ -247,14 +247,28 @@ class TimeRecordService:
                     justification_id, created_at, updated_at
                 FROM gp_clock_punches
                 WHERE employee_id = :emp_id
-                  AND (punch_timestamp)::date = :pdate
+                  AND (punch_timestamp)::date >= :d1
+                  AND (punch_timestamp)::date <= :d2
                 ORDER BY punch_timestamp
             """)
-            day_result = await self.db.execute(day_sql, {"emp_id": emp_id, "pdate": punch_date})
+            # Janela de tres dias pelo mesmo motivo do get_daily: o turno do noturno cruza
+            # a meia-noite e no dia civil sozinho ele nao se forma.
+            day_result = await self.db.execute(
+                day_sql,
+                {
+                    "emp_id": emp_id,
+                    "d1": punch_date - timedelta(days=1),
+                    "d2": punch_date + timedelta(days=1),
+                },
+            )
             day_rows = day_result.mappings().all()
-            records = self._pair_punches(day_rows)
-            if records:
-                return records[0]
+            # Devolve o turno que CONTEM esta batida -- nao `records[0]`, que com dois turnos
+            # no mesmo dia era arbitrario. Os registros sao chaveados pela batida de ENTRADA,
+            # entao pedir a batida de SAIDA nunca acharia por id: dai o `_punch_ids`.
+            alvo = str(row.get("punch_id") or row.get("id", ""))
+            for r in self._pair_punches(day_rows, manter_origem=True):
+                if alvo in r.pop("_punch_ids", ()):
+                    return r
 
         return self._punch_to_record(dict(row))
 
@@ -1046,7 +1060,9 @@ class TimeRecordService:
             else None,
         }
 
-    def _pair_punches(self, rows: list[Any]) -> list[dict[str, Any]]:
+    def _pair_punches(
+        self, rows: list[Any], *, manter_origem: bool = False
+    ) -> list[dict[str, Any]]:
         """Emparelha batidas por funcionario, com DIRECAO.
 
         Nao agrupa por dia antes de parear: o plantao 12x36 noturno entra 21:00 e sai
@@ -1064,6 +1080,11 @@ class TimeRecordService:
         cronologica decide -- mas so se a duracao for turno plausivel. Batida sem par vira
         registro PARCIAL, nunca some. Orfa avanca UMA posicao: avancar duas desalinharia
         todo o resto do mes.
+
+        `manter_origem=True` preserva a chave interna `_punch_ids` (quais batidas cada
+        registro consumiu). So o get_by_id usa: os registros sao chaveados pela batida de
+        ENTRADA, entao pedir a batida de SAIDA nao acharia registro por id. A chave e
+        removida por padrao para nunca vazar no contrato da API.
         """
         from collections import defaultdict
 
@@ -1078,6 +1099,13 @@ class TimeRecordService:
         teto = MAX_TURNO_H * 60
         records: list[dict[str, Any]] = []
 
+        def _pid(p: dict[str, Any]) -> str:
+            return str(p.get("punch_id") or p.get("id", ""))
+
+        def _emite(reg: dict[str, Any], *consumidas: dict[str, Any]) -> None:
+            reg["_punch_ids"] = {_pid(x) for x in consumidas}
+            records.append(reg)
+
         for emp_id, punches in por_emp.items():
             punches.sort(key=lambda p: p["punch_timestamp"])
             n = len(punches)
@@ -1089,12 +1117,12 @@ class TimeRecordService:
                 # DIRECAO: uma saida nunca abre turno. E a ponta final de um turno que
                 # comecou antes desta janela -> registro parcial, nao par.
                 if tipo_a == "saida":
-                    records.append(self._registro(emp_id, None, a, None))
+                    _emite(self._registro(emp_id, None, a, None), a)
                     i += 1
                     continue
 
                 if i + 1 >= n:
-                    records.append(self._registro(emp_id, a, None, None))
+                    _emite(self._registro(emp_id, a, None, None), a)
                     break
 
                 b = punches[i + 1]
@@ -1120,8 +1148,9 @@ class TimeRecordService:
                         and 0 < bruto <= teto
                         and str(c.get("punch_type", "")).lower() != "saida"
                     ):
-                        records.append(
-                            self._registro(emp_id, a, d, bruto - intervalo, lunch=(b, c))
+                        _emite(
+                            self._registro(emp_id, a, d, bruto - intervalo, lunch=(b, c)),
+                            a, b, c, d,
                         )
                         i += 4
                         continue
@@ -1129,14 +1158,17 @@ class TimeRecordService:
                 dur = _calc_minutes_between(a["punch_timestamp"], b["punch_timestamp"])
                 if not (0 < dur <= teto):
                     # Sem turno plausivel: `a` fica orfa e avanca UMA posicao.
-                    records.append(self._registro(emp_id, a, None, None))
+                    _emite(self._registro(emp_id, a, None, None), a)
                     i += 1
                     continue
 
-                records.append(self._registro(emp_id, a, b, dur))
+                _emite(self._registro(emp_id, a, b, dur), a, b)
                 i += 2
 
         records.sort(key=lambda r: r["record_date"], reverse=True)
+        if not manter_origem:
+            for r in records:
+                r.pop("_punch_ids", None)
         return records
 
     def _punch_to_record(self, row: dict[str, Any]) -> dict[str, Any]:
