@@ -16,6 +16,15 @@ export default function ChatScreen({ scr }: { scr: any }) {
   const personas: { value: string; label: string }[] = cfg.personas || [];
   const [persona, setPersona] = useState<string>(cfg.persona || personas[0]?.value || '');
 
+  // Preset da lente via ?persona= na URL (client-only p/ dispensar Suspense no build).
+  useEffect(() => {
+    try {
+      const q = new URLSearchParams(window.location.search).get('persona');
+      if (q && personas.some((p) => p.value === q)) setPersona(q);
+    } catch { /* */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);

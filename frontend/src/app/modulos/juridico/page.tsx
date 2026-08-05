@@ -20,7 +20,7 @@ const fmt = (v: number | null | undefined) => (v == null ? '—' : `R$ ${(v || 0
 
 const ATALHOS = [
   { label: 'Central de Contratos', desc: 'Vigência, reajustes e assinaturas', href: '/modulos/juridico/contratos', icon: FileText, color: 'text-blue-600' },
-  { label: 'Consultor IA', desc: 'Perguntas jurídicas trabalhista/cível/tributária', href: '/modulos/juridico/consultor', icon: Bot, color: 'text-indigo-600' },
+  { label: 'Consultor IA', desc: 'Perguntas jurídicas trabalhista/cível/tributária', href: '/redesign/consultor-ia?persona=juridico', icon: Bot, color: 'text-indigo-600' },
   { label: 'Riscos', desc: 'Exposição trabalhista e tributária', href: '/modulos/juridico/riscos', icon: AlertTriangle, color: 'text-red-600' },
   { label: 'Pareceres', desc: 'Pareceres jurídicos emitidos', href: '/modulos/juridico/pareceres', icon: PenLine, color: 'text-purple-600' },
   { label: 'Análise', desc: 'Análise de cláusulas e documentos', href: '/modulos/juridico/analise', icon: Search, color: 'text-emerald-600' },
