@@ -7,7 +7,7 @@ from sqlalchemy import text as _sqltext
 from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
 from modules.operacional.controllers.redesign_data_controller import (
-    IC, S, _build_operacional, _fmtdate, _helpers, _scalar, b, brl, doc, t,
+    IC, S, _build_operacional, _fmtdate, _helpers, _scalar, b, brl, doc, initials, t,
 )
 
 SLUG = "operacional"
@@ -434,6 +434,37 @@ def _mgr_scope(current_user):
                             user_id=str(current_user.id),
                             user_name=(getattr(current_user, "name", "") or "redesign"),
                             is_manager=True)
+
+
+# Drill-down dos dashboards: KPI (por label) → tela de destino. O ModuleView torna o KPI
+# clicável (mostra "›" e navega) quando o KPI tem `to`. Tira os dashboards de "beco sem
+# saída" — clicar num número abre OS registros por trás dele.
+_KPI_DRILL = {
+    "Postos ativos": "postos", "Postos": "postos", "Descobertos": "presenca",
+    "Colaboradores": "colaboradores", "Colaboradores ativos": "colaboradores",
+    "Efetivo ativo": "colaboradores", "Total de agentes": "colaboradores",
+    "Alocações ativas": "alocacoes",
+    "Ocorrências abertas": "ocorrencias", "Ocorrências (7d)": "ocorrencias",
+    "Ocorrências (mês)": "ocorrencias", "Nível de risco": "ocorrencias",
+    "Rondas (mês)": "rondas", "Substituições (mês)": "substituicoes",
+    "Cobertos": "presenca", "Taxa de cobertura": "presenca", "Cobertura": "presenca",
+    "Presentes": "presenca", "Presentes hoje": "presenca", "Ausentes": "presenca",
+    "Medidas (mês)": "medidas-administrativas", "Passagens (mês)": "passagem-turno",
+    "Avaliações (semana)": "avaliacao-equipe",
+    "Postos sem escala vigente": "postos-sem-escala", "Escalas em rascunho": "escalas-rascunho",
+}
+
+
+def _aplicar_drill(out: dict) -> None:
+    """Seta `to` em cada KPI de dashboard (por label → tela). Só drilla p/ tela que EXISTE
+    em out (senão o clique levaria a nada — honesto). DEVE rodar ANTES de montar_grupos,
+    enquanto os dashboards ainda estão no topo de out (depois viram .screen das abas)."""
+    for scr in out.values():
+        if isinstance(scr, dict) and scr.get("type") == "dash":
+            for kpi in scr.get("kpis", []):
+                tgt = _KPI_DRILL.get(kpi.get("l"))
+                if tgt and tgt in out:
+                    kpi["to"] = tgt
 
 
 @router.post("/action/passagem-turno")
@@ -1232,6 +1263,22 @@ async def build(db) -> dict:
                 {"left": "Média de avaliação (semana)", "right": (f"{_mg:.1f}" if _mg is not None else "—"), **S["info"]},
             ]}],
         }
+        # DRILL-DOWN real: telas filtradas p/ os KPIs de alerta da triagem (clicar → ver OS records).
+        out["postos-sem-escala"] = {
+            "title": "Postos sem escala vigente", "sub": f"{_sv} posto(s) sem escala publicada em vigência",
+            "type": "table", "cols": ["Posto"], "grid": "1fr",
+            "rows": [{"cells": [t(p.post_nome or "—", 600, "#0F1B3A", initials(p.post_nome or ""))]}
+                     for p in (getattr(_te, "sem_vigencia", []) or [])]
+            or [{"cells": [t("Todos os postos têm escala vigente ✓", 500, "#16A34A")]}],
+        }
+        out["escalas-rascunho"] = {
+            "title": "Escalas em rascunho", "sub": f"{_dr} escala(s) não publicada(s)",
+            "type": "table", "cols": ["Escala", "Posto", "Competência", "Status"], "grid": "1.4fr 1.4fr 1fr 0.9fr",
+            "rows": [{"cells": [t(d.name or "—", 600, "#0F1B3A"), t(d.post_nome or "—"),
+                                t(f"{d.month:02d}/{d.year}" if d.month else "—"), b((d.status or "—").capitalize(), "warn")]}
+                     for d in (getattr(_te, "drafts", []) or [])]
+            or [{"cells": [t("Sem escalas em rascunho ✓", 500, "#16A34A"), t("—"), t("—"), b("—", "mut")]}],
+        }
     except Exception:  # noqa: BLE001
         await db.rollback()
 
@@ -1385,6 +1432,7 @@ async def build(db) -> dict:
     # Chamado por ÚLTIMO: precisa de TODAS as telas/ações já montadas em out.
     try:
         from modules.operacional.controllers.redesign_builders._op_grupos import montar_grupos
+        _aplicar_drill(out)   # KPIs clicáveis ANTES de agrupar (dashboards viram abas depois)
         montar_grupos(out)
     except Exception:  # noqa: BLE001 — nunca derruba o módulo por causa da navegação
         pass
