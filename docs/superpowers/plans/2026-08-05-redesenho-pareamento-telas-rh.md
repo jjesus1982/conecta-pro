@@ -48,11 +48,19 @@ DATABASE_URL="postgresql+asyncpg://postgres:${PGPW}@${PGIP}:5432/conecta_pro" \
 ALGORITMO ATUAL:   2246 batidas · 853 pareados · 606 fechados · 2 cruzam meia-noite · 540 órfãs
 ```
 
-**Alvo do redesenho:** turnos que cruzam a meia-noite deve subir de 2 para a ordem de ~120,
-e órfãs devem cair — **mas fechados NÃO deve chegar perto de 1077**. Aquele número veio da
-tentativa revertida, que fabricava. Um valor entre **850 e 1000** com órfãs entre 90 e 300
-é o esperado de um pareamento honesto. **Se fechados passar de 1050, suspeite de fabricação
-e pare.**
+**Alvo do redesenho:** turnos que cruzam a meia-noite deve subir de 2 para a ordem de ~120.
+
+> ⚠️ **A faixa de `fechados` que este plano estimou (850–1000) estava errada** e a métrica
+> de `órfãs` do script também (a fórmula `batidas − 2×registros` assume que todo registro
+> consome 2 batidas; com registros parciais e com almoço isso é falso — deu **−94**).
+>
+> A checagem que vale é a **CONTABILIDADE**: cada batida tem de ser usada exatamente uma vez.
+> `fechados_sem_almoço×2 + com_almoço×4 + parciais×1 == total_de_batidas`. Se não fechar,
+> há batida duplicada ou perdida. Complemento: **nenhum turno fechado pode abrir numa batida
+> tipada `saida`** (tem de dar 0).
+>
+> **Resultado real da Task 1** (07/2026): 769 registros · 675 fechados · 401 com almoço ·
+> 136 cruzam meia-noite · 94 parciais · `274×2 + 401×4 + 94×1 = 2246` ✅ · 0 abrindo em saída ✅
 
 ---
 
@@ -66,7 +74,7 @@ e pare.**
 
 ---
 
-### Task 1: Pareamento direcional (fecha os 3 xfail)
+### Task 1: Pareamento direcional (fecha os 3 xfail) — ✅ CONCLUÍDA 2026-08-05
 
 **Files:**
 - Modify: `backend/modules/people_management/hr/services/time_record_service.py` — método `_pair_punches` (linha ~946)
@@ -191,7 +199,25 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>" \
 
 ---
 
-### Task 2: Teto no intervalo de almoço
+### Task 2: ~~Teto no intervalo de almoço~~ — DOBRADA NA TASK 1 (2026-08-05) ✅
+
+> **A premissa desta task estava errada.** Ela supunha que o ramo de almoço casava por
+> `punch_type == 'saida_almoco'` e só faltava um teto. Medição na base real: **esse tipo
+> não existe** — julho/2026 tem 1171 `entrada` + 1075 `saida` e **zero** de almoço. O ramo
+> era código morto, e um teto num ramo que nunca dispara não resolve nada.
+>
+> Pior: sem detecção de almoço, a Task 1 sozinha partia **401 dos 754 dias-funcionário** em
+> dois registros de ~4h e inflava o contador de dias trabalhados em ~55% — regressão visível
+> na tela. Task 1 não era entregável sem isto, então as duas foram feitas juntas.
+>
+> **O que foi implementado:** almoço reconhecido pelo **intervalo** (buraco curto entre dois
+> pares de batida), não pelo tipo, com `MAX_ALMOCO_H = 3.0` separando intervalo de descanso.
+> Três testes novos cobrem: jornada com almoço sem tipo de almoço, intervalo de 8h que não
+> pode virar almoço, e as 36h entre plantões 12x36 que não podem ser absorvidas.
+>
+> Detalhe original preservado abaixo para registro.
+
+#### (original) Teto no intervalo de almoço
 
 **Files:**
 - Modify: `backend/modules/people_management/hr/services/time_record_service.py` — ramo de almoço dentro de `_pair_punches`
