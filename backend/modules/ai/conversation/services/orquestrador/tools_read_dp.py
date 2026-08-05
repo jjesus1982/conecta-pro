@@ -37,6 +37,17 @@ def _gate(user) -> None:
         raise PermissionError("dp")
 
 
+def _dump(obj) -> Any:
+    """Serializa retorno do controller (Pydantic v2 / lista / dict) → JSON-safe."""
+    if obj is None or isinstance(obj, (dict, str, int, float, bool)):
+        return obj
+    if hasattr(obj, "model_dump"):
+        return obj.model_dump(mode="json")
+    if isinstance(obj, (list, tuple)):
+        return [_dump(o) for o in obj]
+    return obj
+
+
 # ---- handlers (assinaturas heterogêneas dos controllers → handlers explícitos) ----
 
 async def _listar_funcionarios(db, user, scope, *, search=None, page=1, page_size=20, **_) -> dict[str, Any]:
@@ -155,6 +166,103 @@ async def _pendencias_aso(db, user, scope, *, dias=30, **_) -> dict[str, Any]:
     return {"asos_vencendo": vencendo, "sem_aso": sem_aso}
 
 
+async def _rescisoes(db, user, scope, *, status=None, page=1, page_size=20, **_) -> dict[str, Any]:
+    _gate(user)
+    from modules.people_management.hr.controllers.termination_controller import list_terminations
+    from modules.people_management.hr.models.termination import TerminationStatus
+    st = None
+    if status:
+        try:
+            st = TerminationStatus(status)
+        except ValueError:
+            return {"status": f"status inválido {status!r}; use um de "
+                              f"{[s.value for s in TerminationStatus]}"}
+    return _dump(await list_terminations(current_user=user, db=db, status=st, page=page, page_size=page_size))
+
+
+async def _justificativas_ponto_pendentes(db, user, scope, *, employee_id=None, **_) -> dict[str, Any]:
+    _gate(user)
+    from modules.people_management.ponto.controllers.punch_controller import get_justificativas_pendentes
+    eid = int(employee_id) if employee_id else None
+    itens = await get_justificativas_pendentes(employee_id=eid, db=db)
+    return {"total": len(itens), "justificativas": _dump(itens)}
+
+
+async def _saldo_ferias(db, user, scope, *, employee_id=None, **_) -> dict[str, Any]:
+    _gate(user)
+    if not employee_id:
+        return {"status": "informe employee_id (id do funcionário) para calcular o saldo de férias"}
+    from fastapi import HTTPException
+    from modules.people_management.hr.controllers.vacation_controller import get_vacation_balance
+    try:
+        return _dump(await get_vacation_balance(employee_id=str(employee_id), current_user=user, db=db))
+    except HTTPException as e:
+        return {"status": "indisponível", "motivo": str(e.detail)}
+
+
+async def _recrutamento_overview(db, user, scope, **_) -> dict[str, Any]:
+    _gate(user)
+    from modules.people_management.human_resources.controllers.recruitment_controller import recruitment_overview
+    return _dump(await recruitment_overview(current_user=user, db=db))
+
+
+async def _rubricas_folha(db, user, scope, **_) -> dict[str, Any]:
+    _gate(user)
+    from modules.people_management.hr.controllers.payroll_controller import list_rubricas
+    return _dump(await list_rubricas(current_user=user, db=db))
+
+
+async def _esocial_eventos(db, user, scope, *, limit=500, **_) -> dict[str, Any]:
+    _gate(user)
+    from modules.people_management.hr.controllers.esocial_controller import listar_eventos_esocial
+    lim = max(1, min(int(limit), 2000))
+    return _dump(await listar_eventos_esocial(current_user=user, db=db, limit=lim))
+
+
+# Controllers SÍNCRONOS (usam Session/get_sync_db) — abre sessão sync própria; o `db` async
+# do dispatcher não serve. São views gerenciais org-wide (dashboard/esteira), só leitura.
+
+async def _ponto_dashboard(db, user, scope, **_) -> dict[str, Any]:
+    _gate(user)
+    from core.database.session import get_sync_db
+    from modules.people_management.ponto.controllers.punch_controller import ponto_dashboard
+    with get_sync_db() as sdb:
+        return _dump(await ponto_dashboard(current_user=user, db=sdb))
+
+
+async def _folha_dashboard(db, user, scope, *, mes=None, ano=None, **_) -> dict[str, Any]:
+    _gate(user)
+    from core.database.session import get_sync_db
+    from modules.people_management.folha.controllers.folha_controller import folha_dashboard
+    with get_sync_db() as sdb:
+        return _dump(await folha_dashboard(current_user=user,
+                                           mes=int(mes) if mes else None,
+                                           ano=int(ano) if ano else None, db=sdb))
+
+
+async def _banco_horas(db, user, scope, *, employee_id=None, **_) -> dict[str, Any]:
+    _gate(user)
+    if not employee_id:
+        return {"status": "informe employee_id (id do funcionário) para consultar o banco de horas"}
+    from fastapi import HTTPException
+    from core.database.session import get_sync_db
+    from modules.people_management.ponto.controllers.punch_controller import banco_horas
+    with get_sync_db() as sdb:
+        try:
+            return _dump(await banco_horas(employee_id=str(employee_id), current_user=user, db=sdb))
+        except HTTPException as e:
+            return {"status": "indisponível", "motivo": str(e.detail)}
+
+
+async def _candidatos(db, user, scope, *, status_filtro="todos", **_) -> dict[str, Any]:
+    _gate(user)
+    from core.database.session import get_sync_db
+    from modules.people_management.human_resources.controllers.candidatos_esteira_controller import listar_candidatos
+    with get_sync_db() as sdb:
+        # controller síncrono (def) — sem await
+        return _dump(listar_candidatos(status_filtro=str(status_filtro), db=sdb, current_user=user))
+
+
 # ---- registro das ops READ no dispatcher consultar_dp (filtros vão em `filtros`) ----
 
 registrar_read("dp", "funcionarios",
@@ -188,3 +296,33 @@ registrar_read("dp", "estatisticas_admissoes",
 registrar_read("dp", "pendencias_aso",
                "Pendências de saúde ocupacional (SST): ASOs próximos do vencimento e colaboradores "
                "sem ASO periódico. Filtro: dias.", _pendencias_aso)
+registrar_read("dp", "ponto_dashboard",
+               "Painel gerencial do PONTO: presença, inconsistências CCT e banco de horas "
+               "(dados reais do dia). Sem filtros.", _ponto_dashboard)
+registrar_read("dp", "folha_dashboard",
+               "Painel gerencial da FOLHA do mês com totais por cargo (visão calculada). "
+               "Filtros: mes, ano (default = mês/ano atual).", _folha_dashboard)
+registrar_read("dp", "banco_horas",
+               "Saldo de banco de horas de UM funcionário, com prazo CCT (6 meses). "
+               "Filtro obrigatório: employee_id.", _banco_horas)
+registrar_read("dp", "saldo_ferias",
+               "Saldo de férias (dias adquiridos/gozados/disponíveis) de UM funcionário. "
+               "Filtro obrigatório: employee_id.", _saldo_ferias)
+registrar_read("dp", "rescisoes",
+               "Lista processos de RESCISÃO (com nome do colaborador). Filtros: status, page, "
+               "page_size.", _rescisoes)
+registrar_read("dp", "justificativas_ponto_pendentes",
+               "Justificativas de ponto pendentes de aprovação (org-wide). Filtro: employee_id "
+               "(opcional, restringe a um funcionário).", _justificativas_ponto_pendentes)
+registrar_read("dp", "rubricas_folha",
+               "Tabela de rubricas de folha cadastradas (código, descrição, tipo, incidências "
+               "INSS/IRRF/FGTS). Sem filtros.", _rubricas_folha)
+registrar_read("dp", "candidatos",
+               "Esteira de recrutamento: candidatos com dados e completude para o RH decidir. "
+               "Filtro: status_filtro (todos|candidato|aprovado|reprovado|em_admissao).", _candidatos)
+registrar_read("dp", "recrutamento_overview",
+               "Agregado de recrutamento: contagens reais de candidatos, vagas, vagas abertas, "
+               "aplicações e entrevistas. Sem filtros.", _recrutamento_overview)
+registrar_read("dp", "esocial_eventos",
+               "Lista de eventos eSocial (transmissões próprias + espelho oficial do governo) com "
+               "status. Filtro: limit (default 500, máx 2000).", _esocial_eventos)
