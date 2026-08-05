@@ -56,28 +56,70 @@ def _lead_src(v):
     return _LEAD_SRC.get((v or "").lower(), (v or "—").capitalize())
 
 
+_MKT = "/api/v1/marketing"
+
+# Formatos REAIS do copywriter (crm/services/copywriter_agent.py FORMATOS) — nunca inventar.
+_FORMATOS = [
+    ("instagram_post", "Post de Instagram"), ("facebook_post", "Post de Facebook"),
+    ("reel_roteiro", "Roteiro de Reels"), ("anuncio_meta", "Anúncio Meta (Facebook/Instagram Ads)"),
+    ("anuncio_google", "Anúncio Google (Search)"), ("email", "E-mail"),
+    ("whatsapp", "Mensagem de WhatsApp"),
+]
+# ContentStatus (crm/models/marketing_content.py)
+_STATUS = [("rascunho", "Rascunho"), ("aprovado", "Aprovado"), ("arquivado", "Arquivado")]
+
+
+def _opts(pares):
+    return [{"value": v, "label": l} for v, l in pares]
+
+
+def _conteudo_actions(r):
+    """Ações por peça da biblioteca. r[0]=id. Endpoints do marketing_controller (já existem)."""
+    cid = r[0]
+    return [
+        {"title": "Enviar peça por WhatsApp", "endpoint": f"{_MKT}/content/{cid}/send-whatsapp",
+         "method": "POST", "btnLabel": "WhatsApp", "submitLabel": "Enviar agora",
+         "btnStyle": "primary", "okMsg": "Peça enviada.",
+         "fields": [{"key": "numero", "label": "Número (DDD + número)*", "type": "text",
+                     "span": "span 2", "ph": "Ex.: 92 99999-9999"}]},
+        {"title": "Alterar status da peça", "endpoint": f"{_MKT}/content/{cid}/status",
+         "method": "PATCH", "btnLabel": "Status", "submitLabel": "Salvar status",
+         "okMsg": "Status atualizado. Recarregue a tela.",
+         "fields": [{"key": "status", "label": "Novo status*", "type": "select",
+                     "span": "span 2", "ph": "Selecione", "options": _opts(_STATUS)}]},
+    ]
+
+
 async def build(db) -> dict:
     out, safe, tbl = _helpers(db)
 
-    # 1) Funil — leads
+    # 1) Funil — leads. id em r[0] p/ a ação de conversão (POST /leads/{id}/convert).
     await safe("funil", tbl(
         "Funil", "Leads no funil comercial", "Novo lead",
         ["Lead", "Empresa", "Origem", "Score", "Status"],
         "1.8fr 1.6fr 1fr 0.7fr 0.9fr",
-        "SELECT coalesce(name,'—'), coalesce(company,'—'), coalesce(source,'—'), "
+        "SELECT id, coalesce(name,'—'), coalesce(company,'—'), coalesce(source,'—'), "
         "coalesce(score,0), coalesce(status,'—') FROM leads WHERE coalesce(is_active,true) "
         "ORDER BY score DESC NULLS LAST, created_at DESC LIMIT 200",
-        lambda r: [t(r[0] or "—", 600, _ND), t(r[1]), t(_lead_src(r[2])), t(str(r[3])), _lead_status(r[4])]))
+        lambda r: [t(r[1] or "—", 600, _ND), t(r[2]), t(_lead_src(r[3])), t(str(r[4])), _lead_status(r[5])],
+        actionsfn=lambda r: ([] if (r[5] or "").lower() in ("won", "converted", "ganho", "lost", "perdido") else [
+            {"title": f"Converter {r[1] or 'lead'} em cliente", "endpoint": f"{_MKT}/leads/{r[0]}/convert",
+             "method": "POST", "btnLabel": "Converter", "submitLabel": "Converter em cliente",
+             "btnStyle": "primary", "okMsg": "Lead convertido. Recarregue a tela.", "fields": []}])))
 
     # 2) Campanhas — marketing_campaigns (real; hoje 0 = honesto)
     await safe("campanhas", tbl(
         "Campanhas", "Campanhas de marketing", "Nova campanha",
         ["Campanha", "Tipo", "Status", "Orçamento", "Gasto"],
         "1.8fr 1fr 0.9fr 1fr 1fr",
-        "SELECT coalesce(name,'—'), coalesce(type::text,'—'), coalesce(status::text,'—'), "
+        "SELECT id, coalesce(name,'—'), coalesce(type::text,'—'), coalesce(status::text,'—'), "
         "coalesce(budget,0), coalesce(spent,0) FROM marketing_campaigns "
         "ORDER BY created_at DESC LIMIT 200",
-        lambda r: [t(r[0] or "—", 600, _ND), t(r[1]), _bs(r[2]), t(brl(r[3])), t(brl(r[4]))]))
+        lambda r: [t(r[1] or "—", 600, _ND), t(r[2]), _bs(r[3]), t(brl(r[4])), t(brl(r[5]))],
+        editfn=lambda r: {"endpoint": f"{_MKT}/campaigns/{r[0]}", "method": "PATCH", "fields": [
+            {"key": "name", "label": "Campanha", "type": "text", "value": r[1] or ""},
+            {"key": "budget", "label": "Orçamento (R$)", "type": "number", "value": float(r[4] or 0)},
+        ]}))
 
     # 3) Lead magnet — marketing_assets (real; 0 = honesto)
     await safe("lead-magnet", tbl(
@@ -93,10 +135,14 @@ async def build(db) -> dict:
         "Biblioteca", "Conteúdos produzidos", "Novo conteúdo",
         ["Título", "Formato", "Objetivo", "Status"],
         "2fr 1fr 1.4fr 0.9fr",
-        "SELECT coalesce(titulo,'—'), coalesce(formato_label, formato, '—'), "
+        "SELECT id, coalesce(titulo,'—'), coalesce(formato_label, formato, '—'), "
         "coalesce(objetivo,'—'), coalesce(status::text,'—') FROM marketing_content_drafts "
         "ORDER BY created_at DESC LIMIT 200",
-        lambda r: [t(r[0] or "—", 600, _ND), t(r[1]), t(r[2]), _bs(r[3])]))
+        lambda r: [t(r[1] or "—", 600, _ND), t(r[2]), t(r[3]), _bs(r[4])],
+        editfn=lambda r: {"endpoint": f"{_MKT}/content/{r[0]}", "method": "PATCH", "fields": [
+            {"key": "titulo", "label": "Título", "type": "text", "value": r[1] or ""},
+        ]},
+        actionsfn=_conteudo_actions))
 
     # 5) Copywriter IA — marketing_content_drafts (drafts gerados; 0 = honesto)
     await safe("copywriter", tbl(
@@ -126,5 +172,68 @@ async def build(db) -> dict:
         "coalesce(objetivo,'—'), coalesce(status::text,'—') FROM marketing_content_drafts "
         "WHERE modelo IS NOT NULL ORDER BY created_at DESC LIMIT 200",
         lambda r: [t(r[0] or "—", 600, _ND), t(r[1]), t(r[2]), _bs(r[3])]))
+
+    # ── FASE 2: telas-form de ESCRITA (apontam direto p/ marketing_controller, que já existe) ──
+    # ModuleView.tsx:737 só desenha o CTA se screens[ctaTo] existir no payload (não precisa de menu).
+    out["novo-lead"] = {
+        "title": "Novo lead", "sub": "Cadastrar um lead no funil", "cta": "Cadastrar lead",
+        "type": "form", "submit": {"endpoint": f"{_MKT}/leads/", "okMsg": "Lead cadastrado."},
+        "fields": [
+            {"key": "name", "label": "Nome*", "type": "text", "span": "span 2", "ph": "Nome do contato"},
+            {"key": "email", "label": "E-mail", "type": "text", "span": "span 1"},
+            {"key": "phone", "label": "Telefone", "type": "text", "span": "span 1"},
+            {"key": "whatsapp", "label": "WhatsApp", "type": "text", "span": "span 1"},
+            {"key": "source", "label": "Origem", "type": "select", "span": "span 1", "ph": "De onde veio",
+             "options": _opts([("website", "Website"), ("indicacao", "Indicação"), ("social_media", "Redes sociais"),
+                               ("whatsapp", "WhatsApp"), ("evento", "Evento"), ("outro", "Outros")])},
+        ],
+    }
+    out["nova-campanha"] = {
+        "title": "Nova campanha", "sub": "Criar uma campanha de marketing", "cta": "Criar campanha",
+        "type": "form", "submit": {"endpoint": f"{_MKT}/campaigns/", "okMsg": "Campanha criada."},
+        "fields": [
+            {"key": "name", "label": "Nome da campanha*", "type": "text", "span": "span 2"},
+            {"key": "type", "label": "Tipo", "type": "select", "span": "span 1", "ph": "Tipo",
+             "options": _opts([("organic", "Orgânica"), ("paid", "Paga")])},
+            {"key": "budget", "label": "Orçamento (R$)", "type": "number", "span": "span 1"},
+            {"key": "start_date", "label": "Início", "type": "date", "span": "span 1"},
+            {"key": "end_date", "label": "Fim", "type": "date", "span": "span 1"},
+            {"key": "description", "label": "Descrição", "type": "textarea", "span": "span 2"},
+        ],
+    }
+    out["gerar-texto"] = {
+        "title": "Copywriter IA", "sub": "Gerar texto na voz da marca Conecta Mais", "cta": "Gerar texto",
+        "type": "form", "submit": {"endpoint": f"{_MKT}/copywriter/generate", "okMsg": "Texto gerado."},
+        "fields": [
+            {"key": "formato", "label": "Formato*", "type": "select", "span": "span 1",
+             "ph": "O que gerar", "options": _opts(_FORMATOS)},
+            {"key": "n_variacoes", "label": "Variações", "type": "number", "span": "span 1", "value": 3},
+            {"key": "objetivo", "label": "Objetivo", "type": "text", "span": "span 1",
+             "ph": "Ex.: captar condomínios para portaria remota"},
+            {"key": "publico", "label": "Público", "type": "text", "span": "span 1",
+             "ph": "Ex.: síndicos e administradoras"},
+            {"key": "briefing", "label": "Briefing*", "type": "textarea", "span": "span 2",
+             "ph": "O que a peça precisa dizer"},
+        ],
+    }
+    out["nova-estrategia"] = {
+        "title": "Estrategista IA", "sub": "Montar plano de campanha (público, mensagem, canais)",
+        "cta": "Gerar plano", "type": "form",
+        "submit": {"endpoint": f"{_MKT}/estrategista/plan", "okMsg": "Plano gerado."},
+        "fields": [
+            {"key": "objetivo", "label": "Objetivo*", "type": "textarea", "span": "span 2",
+             "ph": "Ex.: captar 15 condomínios para portaria remota em Manaus"},
+            {"key": "periodo_dias", "label": "Período (dias)", "type": "number", "span": "span 1", "value": 30},
+            {"key": "orcamento", "label": "Orçamento", "type": "text", "span": "span 1", "ph": "Ex.: R$ 3.000"},
+            {"key": "canais_preferidos", "label": "Canais preferidos", "type": "text", "span": "span 2",
+             "ph": "Ex.: Instagram, WhatsApp, Google Ads"},
+        ],
+    }
+
+    # Religa os botões das tabelas (sem ctaTo o ModuleView não desenha o CTA).
+    for _tela, _destino in (("funil", "novo-lead"), ("campanhas", "nova-campanha"),
+                            ("copywriter", "gerar-texto"), ("estrategista", "nova-estrategia")):
+        if _tela in out:
+            out[_tela]["ctaTo"] = _destino
 
     return out
