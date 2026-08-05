@@ -56,6 +56,9 @@ export default function FloatingChat() {
     setBusy(true);
     let tok: string | null = null;
     try { tok = localStorage.getItem('access_token'); } catch { /* */ }
+    // Persona por CONTEXTO: a rota atual vira a lente (ex.: /redesign/financeiro → CFO).
+    let persona = '';
+    try { persona = (window.location.pathname.match(/\/redesign\/([a-z-]+)/)?.[1]) || ''; } catch { /* */ }
     try {
       const auth = tok ? { Authorization: `Bearer ${tok}` } : {};
       const res = anexo
@@ -63,12 +66,13 @@ export default function FloatingChat() {
             const fd = new FormData();
             fd.append('arquivo', anexo);
             fd.append('pergunta', q);
+            if (persona) fd.append('persona', persona);
             return fetch(ENDPOINT_ARQUIVO, { method: 'POST', headers: auth, body: fd });
           })()
         : await fetch(ENDPOINT, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...auth },
-            body: JSON.stringify({ pergunta: q }),
+            body: JSON.stringify({ pergunta: q, persona }),
           });
       const d = await res.json().catch(() => ({} as any));
       if (res.status === 401 || res.status === 403) {

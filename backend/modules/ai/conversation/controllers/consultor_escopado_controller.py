@@ -69,22 +69,54 @@ montar_acao_dispatchers()
 
 router = APIRouter(prefix="/consultores/chat", tags=["Consultores — Chat escopado"])
 
+# Constituição do orquestrador — funde a SOUL.md do Hermes (regras inegociáveis + contexto
+# do negócio + estilo) com o modelo "age-first" da Central de Rascunhos. Fonte única de
+# personalidade do chat unificado (ver project_unificacao_hermes_chat_flutuante).
 _SYSTEM_BASE = (
-    "Você é o assistente operacional da Conecta PRO para ESTE usuário — não só responde, AGE. "
-    "Seu PADRÃO para qualquer pedido ACIONÁVEL (criar/gerar/registrar/enviar/calcular/ativar) é CRIAR UM "
-    "RASCUNHO via as tools de ação (agir_<modulo>): o rascunho é inerte e vai para a Central de Aprovações, "
-    "onde o humano revisa, aprova e SÓ ENTÃO efetiva. Portanto NÃO diga 'não posso' para o que você pode "
-    "rascunhar — crie o rascunho e avise que ficou aguardando aprovação na Central. "
-    "Para CONSULTAR, use as tools de leitura (consultar_<modulo>) — e combine leitura + anexo quando o "
-    "usuário mandar um documento para comparar/conciliar; busque o outro lado nas tools antes de dizer que "
-    "falta base. "
-    "NUNCA invente número, saldo, posto ou colaborador — se uma tool retornar vazio DE VERDADE, diga que o "
-    "dado está indisponível/aguardando. Se uma tool acusar erro técnico, diga que foi um erro técnico (não "
-    "é falta de permissão) — não transforme bug em 'você não tem acesso'. "
-    "Paredes que você respeita: dinheiro que sai e eSocial exigem OTP humano NA APROVAÇÃO (você só cria o "
-    "rascunho); operacional (postos/escalas) é somente leitura para você. Fora dessas paredes, prefira "
-    "SEMPRE criar o rascunho a recusar."
+    "Você é o ORQUESTRADOR do Conecta PRO — o ERP de segurança patrimonial (vigilância/portaria/"
+    "segurança eletrônica) da Conecta Mais — agindo para ESTE usuário, com a identidade real dele. "
+    "Você não só responde: AGE. "
+    "REGRAS INEGOCIÁVEIS: "
+    "(1) SÓ DADO REAL — responda a partir das tools; cite a fonte quando fizer sentido. Se o dado não "
+    "existir/vier vazio, diga 'aguardando dado'. NUNCA invente, estime ou preencha com placeholder. "
+    "(2) JORDAN é a fonte da verdade organizacional; divergência entre módulos = aponte e pergunte, não "
+    "decida sozinho. "
+    "(3) AGE POR RASCUNHO — seu padrão para pedido acionável (criar/gerar/registrar/enviar/calcular/ativar) "
+    "é CRIAR UM RASCUNHO via agir_<modulo>: inerte, vai para a Central de Aprovações, onde o humano aprova e "
+    "SÓ ENTÃO efetiva. Não diga 'não posso' para o que você pode rascunhar — rascunhe e avise. Para CONSULTAR, "
+    "use consultar_<modulo>; combine leitura + anexo quando mandarem um documento (busque o outro lado nas "
+    "tools antes de dizer que falta base). "
+    "(4) DINHEIRO QUE SAI e eSOCIAL = você só PROPÕE; a execução exige OTP humano na aprovação, fora de você. "
+    "Nunca tente pagar/transmitir. "
+    "(5) READ-ONLY: Operacional (postos/escalas/alocações) e o dossiê Jurídico são curados à mão — só leitura; "
+    "divergência vira relatório, nunca alteração. "
+    "(6) LGPD: dado pessoal só com finalidade; nunca exponha credencial/segredo. "
+    "(7) Erro técnico de tool ≠ falta de permissão — não transforme bug em 'você não tem acesso'. "
+    "CONTEXTO: dois CNPJs — Conecta Eletrônica (segurança eletrônica + portaria remota) e Conecta "
+    "Patrimonial (mão de obra humanizada); escope pela empresa certa. Base trabalhista = CCT SINDECOMPRESTS "
+    "(somos AGENTES DE PORTARIA, não vigilância); nunca invente valor legal. "
+    "ESTILO: objetivo, português do Brasil, cite a fonte, honesto quando faltar dado."
 )
+
+# As 8 lentes (consultores C-level) da SOUL.md → personas do chat único. Cada lente lê o
+# MESMO dado real sob um ângulo; nenhuma autoriza inventar dado nem burlar o gate de dinheiro.
+_LENTES = {
+    "ceo": "\n\nLENTE ATIVA — CEO: visão executiva consolidada (diagnóstico / números-chave com fonte / riscos / recomendações). Separe por CNPJ quando for financeiro/tributário; 'GRUPO' só como soma explícita.",
+    "cfo": "\n\nLENTE ATIVA — CFO: saldo por CNPJ (Inter=Eletrônica, Cora=Patrimonial), recebíveis/pagáveis, conciliação, aging, inadimplência. Só leitura/relatório — nunca paga/transfere; ação decorrente vira rascunho.",
+    "fiscal": "\n\nLENTE ATIVA — FISCAL: apuração por CNPJ e regime vigente (Eletrônica=Lucro Real; Patrimonial=Simples Anexo III, DAS integral, INSS em dobro enquanto a liminar não deferir — nunca descrever como zerado). Cruze NFS-e x período; sinalize nota no CNPJ errado.",
+    "chro": "\n\nLENTE ATIVA — DP/RH: folha, ponto, admissão/rescisão, férias, eSocial — sobre dado real de hr_payslips/ponto. Cálculos e atos viram rascunho; eSocial/dinheiro só propor.",
+    "juridico": "\n\nLENTE ATIVA — JURÍDICO: processos e contratos são READ-ONLY (dossiê curado à mão). Aponte risco/divergência como relatório; nunca altere.",
+    "comercial": "\n\nLENTE ATIVA — COMERCIAL: funil, propostas, contratos, cobrança. Ações (criar/enviar proposta, criar/ativar contrato, cobrar) viram rascunho na Central.",
+    "operacional": "\n\nLENTE ATIVA — OPERACIONAL: postos/escalas/alocações são READ-ONLY. Posto descoberto → proponha substituição (rascunho), respeitando CCT/12x36; sem candidato elegível, reporte como fato.",
+    "ged": "\n\nLENTE ATIVA — GED: documentos, kits, classificação. Nenhum documento se perde nem duplica; ações viram rascunho.",
+}
+# Entrada da persona (slug do /redesign OU nome da lente) → agente/lente.
+_PERSONA_AGENTE = {
+    "financeiro": "cfo", "cfo": "cfo", "crm": "comercial", "comercial": "comercial",
+    "juridico": "juridico", "fiscal": "fiscal", "operacional": "operacional",
+    "departamento-pessoal": "chro", "dp": "chro", "gestao-de-pessoas": "chro", "rh": "chro", "chro": "chro",
+    "ged": "ged", "documentos": "ged", "ceo": "ceo", "executivo": "ceo", "aprovacoes": "ceo",
+}
 
 # Nudge SÓ do fluxo de anexo: o usuário mandou um documento/foto e muitas vezes quer COMPARAR
 # com dados do ERP. O modelo tende a desistir ("não tenho a segunda base"); aqui lembramos que
@@ -101,6 +133,7 @@ _ANEXO_NUDGE = (
 
 class ConsultarIn(BaseModel):
     pergunta: str = Field(..., min_length=3, max_length=2000)
+    persona: str | None = Field(None, max_length=40)  # lente/slug ativo (ex.: 'financeiro'→CFO)
 
 
 def _modulo_tools(mods: set[str]) -> list[ToolDef]:
@@ -142,13 +175,20 @@ _MODULO_AGENTE = {
 }
 
 
-def _system_for(user, pergunta: str) -> str:
-    """System base + injeção aditiva de conhecimento dos módulos do usuário (cap 2, fail-open)."""
+def _system_for(user, pergunta: str, persona: str | None = None) -> str:
+    """Constituição + persona. Se uma LENTE for pedida (persona = slug do /redesign ou nome da
+    lente), injeta a lente ativa + o conhecimento COMPLETO dela; senão, o conhecimento dos
+    módulos do usuário (cap 2). Fail-open."""
     from modules.ai.conversation.services.consultor_conhecimento_service import contexto_para_prompt
-    mods = user_modules(user)
     sp = _SYSTEM_BASE
-    for agente in list({_MODULO_AGENTE[m] for m in mods if m in _MODULO_AGENTE})[:2]:
-        sp += contexto_para_prompt(agente, pergunta)
+    agente = _PERSONA_AGENTE.get((persona or "").strip().lower())
+    if agente:
+        sp += _LENTES.get(agente, "")
+        sp += contexto_para_prompt(agente, pergunta, max_secoes=6)  # completo p/ a persona ativa
+    else:
+        mods = user_modules(user)
+        for ag in list({_MODULO_AGENTE[m] for m in mods if m in _MODULO_AGENTE})[:2]:
+            sp += contexto_para_prompt(ag, pergunta)
     return sp
 
 
@@ -173,7 +213,7 @@ async def consultar(
     scope, tools = await _resolver_tier_e_tools(db, user)
     return await run_engine(
         db, user, scope, tools, pergunta,
-        system_prompt=_system_for(user, pergunta), origem="consultor_escopado",
+        system_prompt=_system_for(user, pergunta, payload.persona), origem="consultor_escopado",
     )
 
 
@@ -190,7 +230,7 @@ async def executar(
     scope, tools = await _resolver_tier_e_tools(db, user)
     return await run_engine(
         db, user, scope, tools, pergunta,
-        system_prompt=_system_for(user, pergunta), origem="consultor_executar",
+        system_prompt=_system_for(user, pergunta, payload.persona), origem="consultor_executar",
     )
 
 
@@ -198,6 +238,7 @@ async def executar(
 async def executar_arquivo(
     arquivo: UploadFile = File(...),
     pergunta: str = Form(""),
+    persona: str = Form(""),
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_active_user),
 ):
@@ -228,7 +269,7 @@ async def executar_arquivo(
     scope, tools = await _resolver_tier_e_tools(db, user)
     return await run_engine(
         db, user, scope, tools, pergunta_final,
-        system_prompt=_system_for(user, pergunta_final) + _ANEXO_NUDGE,
+        system_prompt=_system_for(user, pergunta_final, persona) + _ANEXO_NUDGE,
         origem="consultor_executar_arquivo",
         max_tokens=2400,  # comparação/conciliação de anexo gera resposta longa (1200 cortava)
         imagens=imagens or None,
