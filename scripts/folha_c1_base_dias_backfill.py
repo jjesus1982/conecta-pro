@@ -29,7 +29,10 @@ def f(x):
 
 rows = {}
 with eng.connect() as c:
-    for m in range(1, 7):
+    # meses parametrizáveis: jan-jun foi a carga inicial; julho entrou em 05/08 quando a
+    # Portte fechou o mês. MESES=7 processa só julho; sem env, mantém o range original.
+    _ms = [int(x) for x in os.environ.get('MESES', '1,2,3,4,5,6').split(',')]
+    for m in _ms:
         for eid, ear in c.execute(text(
             "SELECT employee_id::text, earnings FROM hr_payslips "
             "WHERE reference_year=:a AND reference_month=:m AND source_system='portte'"),

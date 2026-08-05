@@ -55,8 +55,11 @@ def classifica(du):
         if "INSS" in du:  # INSS paga → não incide INSS do empregador
             return ("0051", "Afastamento INSS", "provento", False)
         return ("0050", "Afastamento Doenca (ate 15d)", "provento", True)  # empregador paga
-    if "DESCONTO HORAS AFAST" in du:  # espelho do que o INSS reembolsa; não incide
-        return ("1050", "Desconto Horas Afastadas", "desconto", False)
+    # A Portte lança o PAR que se anula: 8785 DIAS AFAST.INSS (provento) + 8801 DESCONTO
+    # DIAS AFASTADOS (desconto). Só "HORAS" não pegava "DESCONTO DIAS AFASTADOS" e a ELEN
+    # saía R$779,33 (+845 no líquido) acima da Portte, com o provento espelhado sozinho.
+    if "DESCONTO" in du and "AFAST" in du:  # espelho do que o INSS reembolsa; não incide
+        return ("1050", "Desconto Dias/Horas Afastados", "desconto", False)
     if "FALTA" in du and "DSR" in du:
         return ("1053", "DSR sobre Faltas", "desconto", True)
     if "HORAS FALTAS" in du:
@@ -82,7 +85,10 @@ def classifica(du):
 # (eid, mes, codigo) -> [descricao, tipo, incide, valor_acumulado]
 agg = defaultdict(lambda: [None, None, None, 0.0])
 with eng.connect() as c:
-    for m in range(1, 7):
+    # meses parametrizáveis: jan-jun foi a carga inicial; julho entrou em 05/08 quando a
+    # Portte fechou o mês. MESES=7 processa só julho; sem env, mantém o range original.
+    _ms = [int(x) for x in os.environ.get('MESES', '1,2,3,4,5,6').split(',')]
+    for m in _ms:
         for eid, ear, ded in c.execute(text(
             "SELECT employee_id::text, earnings, deductions FROM hr_payslips "
             "WHERE reference_year=:a AND reference_month=:m AND source_system='portte'"),

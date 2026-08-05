@@ -68,7 +68,10 @@ def main():
             "info": json.dumps(r["informative"] if isinstance(r["informative"], (list, dict)) else []),
             "inss_b": r["inss_base"], "inss_v": r["inss_value"], "irrf_b": r["irrf_base"], "irrf_v": r["irrf_value"],
             "fgts_b": r["fgts_base"], "fgts_v": r["fgts_value"],
-            "ext": r.get("matricula"), "batch": batch_id, "emp_cnpj": EMPRESA_CNPJ1, "now": now,
+            # empresa POR LINHA quando o load traz (jul/2026 em diante a folha humanizada é da
+            # PATRIMONIAL); cai na Eletrônica só para os meses antigos que não trazem o campo.
+            "ext": r.get("matricula"), "batch": batch_id,
+            "emp_cnpj": r.get("empresa_id") or EMPRESA_CNPJ1, "now": now,
         })
         ins += 1
     db.commit()
