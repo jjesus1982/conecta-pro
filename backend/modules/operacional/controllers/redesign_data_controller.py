@@ -159,7 +159,7 @@ async def _build_operacional(db: AsyncSession) -> dict:
 
     # Alocações (tabela)
     arows = (await db.execute(text(
-        "SELECT e.nome, c.name, al.funcao, al.ativo "
+        "SELECT e.nome, c.name, al.funcao, al.ativo, al.data_inicio, al.data_fim, al.created_at "
         "FROM employee_alocacoes al LEFT JOIN employees e ON e.id=al.employee_id "
         "LEFT JOIN clients c ON c.id=al.condominio_id "
         "ORDER BY al.ativo DESC, e.nome LIMIT 300"
@@ -171,7 +171,18 @@ async def _build_operacional(db: AsyncSession) -> dict:
         "rows": [{"cells": [
             t(nome or "—", 600, "#0F1B3A", initials(nome or "")), t(cli or "—"), t(funcao or "—"),
             b("Ativa", "ok") if ativo else b("Encerrada", "mut"),
-        ]} for nome, cli, funcao, ativo in arows],
+        ], "edit": {
+            "btnLabel": "Ver alocação", "readOnly": True, "title": f"Alocação — {nome or '—'}",
+            "fields": [
+                {"label": "Colaborador", "value": nome or "—", "span": "span 2"},
+                {"label": "Cliente / Posto", "value": cli or "—", "span": "span 2"},
+                {"label": "Função", "value": funcao or "—"},
+                {"label": "Status", "value": "Ativa" if ativo else "Encerrada"},
+                {"label": "Início", "value": _fmtdate(ini)},
+                {"label": "Fim", "value": _fmtdate(fim)},
+                {"label": "Registrada em", "value": _fmtdate(criada)},
+            ],
+        }} for nome, cli, funcao, ativo, ini, fim, criada in arows],
     }
 
     # Ocorrências (lista)
@@ -265,13 +276,21 @@ async def _build_operacional(db: AsyncSession) -> dict:
         ],
     }
     # Leitura: Diaristas
-    drows = (await db.execute(text("SELECT nome, cpf, coalesce(pix,'—') FROM diaria_diaristas WHERE ativo ORDER BY nome LIMIT 200"))).fetchall()
+    drows = (await db.execute(text("SELECT nome, cpf, coalesce(pix,'—'), coalesce(telefone,'—'), coalesce(email,'—'), coalesce(funcoes::text,'—') FROM diaria_diaristas WHERE ativo ORDER BY nome LIMIT 200"))).fetchall()
     # ctaTo: sem ele a ModuleView NÃO desenha o botão da tabela (ModuleView.tsx:706) — o gerente
     # abria a tela, não achava o botão e concluía que a opção não existia no redesign.
     diaristas_scr = {"title": "Diaristas", "sub": f"{len(drows)} diaristas ativos", "cta": "Novo diarista",
         "ctaTo": "cadastrar-diarista",
         "type": "table", "searchHint": "Buscar diarista…", "grid": "2fr 1.2fr 1.6fr", "cols": ["Diarista", "CPF", "PIX"],
-        "rows": [{"cells": [t(n, 600, "#0F1B3A", initials(n)), t(c or "—"), t(px)]} for n, c, px in drows]}
+        "rows": [{"cells": [t(n, 600, "#0F1B3A", initials(n)), t(c or "—"), t(px)], "edit": {
+            "btnLabel": "Ver diarista", "readOnly": True, "title": f"Diarista — {n}",
+            "fields": [
+                {"label": "Nome", "value": n, "span": "span 2"},
+                {"label": "CPF", "value": c or "—"}, {"label": "Chave PIX", "value": px},
+                {"label": "Telefone", "value": tel}, {"label": "E-mail", "value": em},
+                {"label": "Funções", "value": fu, "span": "span 2"},
+            ],
+        }} for n, c, px, tel, em, fu in drows]}
     # Leitura: Diárias (lançamentos recentes)
     lrows = (await db.execute(text(
         "SELECT l.data, coalesce(d.nome,'—'), l.funcao, l.posto, l.valor, l.status "
