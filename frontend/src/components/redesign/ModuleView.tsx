@@ -200,7 +200,9 @@ function TableScreen({ scr }: { scr: any }) {
               {editRow.fields.map((f: any, i: number) => (
                 <div key={i} style={{ gridColumn: f.span === 'span 2' ? '1 / -1' : 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <label style={{ fontSize: 12, color: 'var(--placeholder)', fontWeight: 600 }}>{f.label}</label>
-                  {f.type === 'select'
+                  {editRow.readOnly
+                    ? <div style={{ fontSize: 13.5, color: 'var(--ink, #16277D)', fontWeight: 600, padding: '4px 0', wordBreak: 'break-word' }}>{(f.value ?? editVals[f.key]) || '—'}</div>
+                    : f.type === 'select'
                     ? <select className="rd-input" value={editVals[f.key] ?? ''} onChange={(e) => setEditVals((s) => ({ ...s, [f.key]: e.target.value }))}>
                         {(f.options || []).map((o: any, k: number) => <option key={k} value={o.value}>{o.label}</option>)}
                       </select>
@@ -211,8 +213,9 @@ function TableScreen({ scr }: { scr: any }) {
               ))}
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
-              <button type="button" className="rd-btn rd-btn-outline" onClick={() => setEditRow(null)}>Cancelar</button>
-              <button type="button" className="rd-btn rd-btn-primary" disabled={editBusy} onClick={async () => {
+              {editRow.readOnly && <button type="button" className="rd-btn rd-btn-primary" onClick={() => setEditRow(null)}>Fechar</button>}
+              {!editRow.readOnly && <button type="button" className="rd-btn rd-btn-outline" onClick={() => setEditRow(null)}>Cancelar</button>}
+              {!editRow.readOnly && <button type="button" className="rd-btn rd-btn-primary" disabled={editBusy} onClick={async () => {
                 setEditBusy(true); setEditMsg(null);
                 try {
                   let tok: string | null = null; try { tok = localStorage.getItem('access_token'); } catch { /* */ }
@@ -222,7 +225,7 @@ function TableScreen({ scr }: { scr: any }) {
                   setEditMsg({ ok: true, text: d.message || editRow.okMsg || 'Salvo. Recarregue a tela para ver a alteração.' });
                 } catch (e) { setEditMsg({ ok: false, text: e instanceof Error ? e.message : 'Erro.' }); }
                 finally { setEditBusy(false); }
-              }}>{editBusy ? 'Enviando…' : (editRow.submitLabel || 'Salvar')}</button>
+              }}>{editBusy ? 'Enviando…' : (editRow.submitLabel || 'Salvar')}</button>}
             </div>
           </div>
         </div>

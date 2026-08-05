@@ -467,6 +467,27 @@ def _aplicar_drill(out: dict) -> None:
                     kpi["to"] = tgt
 
 
+def _ver_todas(out: dict) -> None:
+    """Clique-na-linha em TODA tabela: adiciona uma ação 'Ver' (modal read-only com os campos
+    da linha) onde ainda não há ver/editar. Uniforme, sem escrita — mata o 'clico e não abre
+    nada'. Detalhe rico/edição por tabela vem depois, por cima disto."""
+    for scr in out.values():
+        if not isinstance(scr, dict) or scr.get("type") != "table":
+            continue
+        cols = scr.get("cols", []) or []
+        titulo = scr.get("title", "Detalhe")
+        for row in scr.get("rows", []):
+            if row.get("edit") or any((a or {}).get("btnLabel") == "Ver" for a in (row.get("actions") or [])):
+                continue
+            campos = []
+            for c, cell in zip(cols, row.get("cells", []) or []):
+                val = cell.get("v") if isinstance(cell, dict) else cell
+                campos.append({"label": c, "value": (val if (val not in (None, "")) else "—")})
+            if campos:
+                row.setdefault("actions", []).insert(
+                    0, {"btnLabel": "Ver", "readOnly": True, "title": f"{titulo} — detalhe", "fields": campos})
+
+
 @router.post("/action/passagem-turno")
 async def rd_action_passagem_turno(current_user: CurrentActiveUser, payload: dict = Body(...),
                                    db=Depends(get_db)) -> dict:
@@ -761,10 +782,28 @@ async def build(db) -> dict:
             ["Colaborador", "Email", "Matrícula", "Cargo", "Departamento", "Admissão", "Status"],
             "1.6fr 1.8fr 0.8fr 1.3fr 1.1fr 0.9fr 0.8fr",
             "SELECT coalesce(nome,'—'), coalesce(email,'—'), coalesce(matricula,'—'), coalesce(cargo,'—'), "
-            "coalesce(departamento, setor, '—'), data_admissao, coalesce(status,'—') "
+            "coalesce(departamento, setor, '—'), data_admissao, coalesce(status,'—'), "
+            "coalesce(cpf,'—'), coalesce(telefone,'—'), coalesce(rg,'—'), data_nascimento, "
+            "coalesce(posto_atual_nome,'—'), coalesce(cliente_nome,'—'), coalesce(pix_key, pix, '—'), "
+            "coalesce(gestor_nome,'—') "
             "FROM employees ORDER BY nome LIMIT 300",
             lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), t(r[2]), t(r[3]), t(r[4]), t(_fmtdate(r[5])),
-                       b((r[6] or '—').capitalize(), "ok" if (r[6] or '') == "ativo" else "mut")])
+                       b((r[6] or '—').capitalize(), "ok" if (r[6] or '') == "ativo" else "mut")],
+            editfn=lambda r: {
+                "btnLabel": "Ver ficha", "readOnly": True, "title": f"Ficha — {r[0]}",
+                "fields": [
+                    {"label": "Nome", "value": r[0], "span": "span 2"},
+                    {"label": "CPF", "value": r[7]}, {"label": "RG", "value": r[9]},
+                    {"label": "Nascimento", "value": _fmtdate(r[10])}, {"label": "Matrícula", "value": r[2]},
+                    {"label": "Cargo", "value": r[3]}, {"label": "Departamento", "value": r[4]},
+                    {"label": "Admissão", "value": _fmtdate(r[5])},
+                    {"label": "Status", "value": (r[6] or "—").capitalize()},
+                    {"label": "E-mail", "value": r[1], "span": "span 2"},
+                    {"label": "Telefone", "value": r[8]}, {"label": "Gestor", "value": r[14]},
+                    {"label": "Posto atual", "value": r[11]}, {"label": "Cliente", "value": r[12]},
+                    {"label": "Chave PIX", "value": r[13], "span": "span 2"},
+                ],
+            })
         # Afastados: MESMA definição do clássico (colaboradores page filtra status LIKE 'afastado%'
         # → afastado_inss), NÃO o afastados_ativos do SSTService (que conta afastamentos-registro).
         _afast = await _scalar(db, "SELECT count(*) FROM employees WHERE lower(coalesce(status,'')) LIKE 'afastado%'")
@@ -1433,6 +1472,7 @@ async def build(db) -> dict:
     try:
         from modules.operacional.controllers.redesign_builders._op_grupos import montar_grupos
         _aplicar_drill(out)   # KPIs clicáveis ANTES de agrupar (dashboards viram abas depois)
+        _ver_todas(out)       # clique-na-linha (Ver) em toda tabela
         montar_grupos(out)
     except Exception:  # noqa: BLE001 — nunca derruba o módulo por causa da navegação
         pass
