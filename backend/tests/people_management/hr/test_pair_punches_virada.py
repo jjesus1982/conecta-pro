@@ -5,10 +5,9 @@ Task 3 da frente folha (commit 9dd89246): `ponto/services/horas_service.parear_b
 (canônico, cronológico) e `ponto/services/punch_service` (passou a delegar). O terceiro,
 `hr/services/time_record_service._pair_punches`, não foi alcançado.
 
-Este arquivo é a spec do redesenho do terceiro. Os `xfail(strict=True)` são os defeitos
-MEDIDOS que ele precisa fechar — quando um deles passar, o pytest FALHA de propósito,
-obrigando quem consertou a remover o marcador. Os testes sem marcador são guardas de
-regressão: já passam hoje e não podem quebrar.
+Este arquivo é a spec do terceiro pareador. Os 3 primeiros testes eram `xfail(strict)`
+documentando defeitos medidos; foram fechados pelo pareamento DIRECIONAL (Task 1 do
+plano 2026-08-05-redesenho-pareamento-telas-rh). Os demais são guardas de regressão.
 
 Tentativa de correção em 2026-08-05 (commit 5e0bbc1f) foi REVERTIDA: parear
 cronologicamente sem noção de direção fabricava turno de 12h sobre o período de
@@ -19,8 +18,6 @@ Rodar:
 """
 
 from datetime import datetime
-
-import pytest
 
 from modules.people_management.hr.services.time_record_service import TimeRecordService
 
@@ -42,16 +39,10 @@ def _punch(emp: str, ts: str, tipo: str, pid: str = "p1"):
 
 
 # ---------------------------------------------------------------------------
-# DEFEITOS MEDIDOS — o redesenho tem de fechar estes.
+# DEFEITOS FECHADOS pelo pareamento direcional — nao podem voltar.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFEITO: _pair_punches agrupa por (funcionario, DIA) antes de parear, "
-    "entao o plantao 12x36 noturno vira dois registros quebrados. "
-    "Medido julho/2026: 240 de 853 dias-funcionario (28%).",
-)
 def test_plantao_noturno_vira_um_registro_no_dia_da_entrada():
     """21:00 do dia 10 -> 09:00 do dia 11 = UM registro, datado no dia 10, 12h."""
     rows = [
@@ -70,11 +61,6 @@ def test_plantao_noturno_vira_um_registro_no_dia_da_entrada():
     assert r["status"] == "regular"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFEITO: mesmo do anterior, com dois funcionarios — o turno de cada um "
-    "cruza a meia-noite e some.",
-)
 def test_dois_funcionarios_no_noturno_nao_se_misturam():
     """Pareamento e por funcionario. A batida de um nunca fecha o turno do outro."""
     rows = [
@@ -93,14 +79,6 @@ def test_dois_funcionarios_no_noturno_nao_se_misturam():
     assert por_emp["emp-B"]["clock_out"] == "10:00"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFEITO (nunca fabricar): numa janela de UM dia civil, as batidas de um "
-    "noturno sao [saida de ontem, entrada de hoje] — duas pontas de turnos DIFERENTES. "
-    "O pareador junta as duas e inventa 12h de trabalho sobre o periodo de DESCANSO. "
-    "get_daily filtra exatamente um dia civil (time_record_service.py:919-929), entao "
-    "isso dispara estruturalmente para todo plantonista noturno.",
-)
 def test_janela_de_um_dia_do_noturno_nao_fabrica_turno():
     """Duas pontas soltas NAO podem virar um turno. No maximo, dois registros parciais."""
     rows = [
@@ -142,6 +120,65 @@ def test_turno_diurno_com_almoco_continua_funcionando():
     assert r["clock_in_lunch"] == "12:00"
     assert r["clock_out_lunch"] == "13:00"
     assert r["total_hours"] == "08:00"  # 9h de janela - 1h de almoco
+
+
+def test_jornada_com_almoco_sem_tipo_de_almoco_e_um_dia_so():
+    """A base REAL so tem 'entrada' e 'saida' — nao existe 'saida_almoco'.
+
+    Medido em julho/2026: 1171 batidas 'entrada' + 1075 'saida', ZERO de almoco. Detectar
+    almoco pelo TIPO e codigo morto em producao: a jornada 07-11 / 12-16 virava dois
+    registros de 4h no mesmo dia (401 dos 754 dias-funcionario), e o contador de dias
+    trabalhados inflava ~55%. O almoco tem de ser reconhecido pelo INTERVALO CURTO.
+    """
+    rows = [
+        _punch("emp-8", "2026-07-31T07:00:00", "entrada", "a"),
+        _punch("emp-8", "2026-07-31T11:00:00", "saida", "b"),
+        _punch("emp-8", "2026-07-31T12:00:00", "entrada", "c"),
+        _punch("emp-8", "2026-07-31T16:00:00", "saida", "d"),
+    ]
+
+    recs = TimeRecordService(None)._pair_punches(rows)
+
+    assert len(recs) == 1, f"dia partido em {len(recs)} registros: {recs}"
+    r = recs[0]
+    assert r["clock_in"] == "07:00"
+    assert r["clock_out"] == "16:00"
+    assert r["clock_in_lunch"] == "11:00"
+    assert r["clock_out_lunch"] == "12:00"
+    assert r["total_hours"] == "08:00"  # 9h de janela - 1h de intervalo
+
+
+def test_intervalo_longo_nao_vira_almoco():
+    """8h entre dois turnos sao DOIS turnos, nao um almoco de 8h."""
+    rows = [
+        _punch("emp-9", "2026-07-10T08:00:00", "entrada", "a"),
+        _punch("emp-9", "2026-07-10T12:00:00", "saida", "b"),
+        _punch("emp-9", "2026-07-10T20:00:00", "entrada", "c"),
+        _punch("emp-9", "2026-07-10T21:00:00", "saida", "d"),
+    ]
+
+    recs = TimeRecordService(None)._pair_punches(rows)
+
+    for r in recs:
+        assert not (r["clock_in"] == "08:00" and r["clock_out"] == "21:00"), (
+            f"intervalo de 8h virou almoco — pessoa aparece 13h em servico: {r}"
+        )
+
+
+def test_plantao_noturno_nao_absorve_o_descanso_como_almoco():
+    """36h de descanso entre plantoes nunca podem virar intervalo do mesmo turno."""
+    rows = [
+        _punch("emp-10", "2026-07-10T19:00:00", "entrada", "a"),
+        _punch("emp-10", "2026-07-11T07:00:00", "saida", "b"),
+        _punch("emp-10", "2026-07-12T19:00:00", "entrada", "c"),
+        _punch("emp-10", "2026-07-13T07:00:00", "saida", "d"),
+    ]
+
+    recs = TimeRecordService(None)._pair_punches(rows)
+
+    assert len(recs) == 2, f"os dois plantoes viraram {len(recs)} registro(s): {recs}"
+    assert {r["record_date"] for r in recs} == {"2026-07-10", "2026-07-12"}
+    assert all(r["total_hours"] == "12:00" for r in recs)
 
 
 def test_batida_orfa_nao_desalinha_o_resto():

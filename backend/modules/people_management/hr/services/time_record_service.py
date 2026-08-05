@@ -84,6 +84,13 @@ def _salvar_selfie_ponto(punch_id: str, foto_base64: str | None) -> str | None:
     return f"/uploads/ponto/{filename}"
 
 
+#: Teto do intervalo intrajornada, em HORAS. Acima disto o buraco entre dois pares de
+#: batida NAO e almoco -- sao dois turnos distintos (ou o descanso de 36h do 12x36).
+#: A CCT SINDECOMPRESTS preve intrajornada de 1h; 3h e folga generosa para cobrir
+#: jornada partida legitima sem engolir descanso.
+MAX_ALMOCO_H = 3.0
+
+
 def _format_minutes(total_minutes: int) -> str:
     """Formata minutos em HH:MM."""
     if total_minutes < 0:
@@ -943,120 +950,161 @@ class TimeRecordService:
     # HELPERS
     # =========================================================================
 
-    def _pair_punches(self, rows: list[Any]) -> list[dict[str, Any]]:
-        """Emparelha batidas de entrada/saida por employee+dia.
+    def _registro(
+        self,
+        emp_id: str,
+        entrada_p: dict[str, Any] | None,
+        saida_p: dict[str, Any] | None,
+        dur: int | None,
+        lunch: tuple[dict[str, Any], dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Monta UM registro diario a partir das pontas do turno.
 
-        Agrupa todas as batidas de um funcionario em um dia e
-        monta o registro diario com entrada, almoco, saida e totais.
+        Turno fechado -> entrada_p e saida_p preenchidos, `dur` em minutos liquidos.
+        Ponta solta -> so uma das duas, `dur=None`, status 'inconsistencia'. A ponta solta
+        NUNCA e descartada: o DP fecha ponto aberto por essa linha (a tela usa `!item.saida`
+        para mostrar o botao 'Saida' -- frontend/src/app/modulos/dp/ponto/page.tsx:566).
+        """
+        ref = entrada_p or saida_p
+        clock_in = entrada_p["punch_timestamp"] if entrada_p else None
+        clock_out = saida_p["punch_timestamp"] if saida_p else None
+        fechado = clock_in is not None and clock_out is not None
+
+        device = str(ref.get("device_type", "")).lower()
+        pid = str(ref.get("punch_id", "")).lower()
+        if "tangerino" in pid or "tng" in pid:
+            source = "tangerino"
+        elif device == "manual":
+            source = "manual"
+        else:
+            source = "portal"
+
+        # O par pertence ao dia da ENTRADA (mesma convencao de horas_service.parear_batidas):
+        # senao o turno da virada seria contado nos dois dias.
+        dia = (clock_in or clock_out).date()
+        overtime = max(0, dur - 480) if (fechado and dur) else 0
+        created_at = ref.get("created_at")
+        updated_at = (saida_p or {}).get("updated_at") or ref.get("updated_at")
+
+        return {
+            "id": str(ref.get("punch_id") or ref.get("id", "")),
+            "employee_id": emp_id,
+            "employee_name": None,
+            "record_date": str(dia),
+            "clock_in": clock_in.strftime("%H:%M") if clock_in else None,
+            "clock_out": clock_out.strftime("%H:%M") if clock_out else None,
+            "clock_in_lunch": lunch[0]["punch_timestamp"].strftime("%H:%M") if lunch else None,
+            "clock_out_lunch": lunch[1]["punch_timestamp"].strftime("%H:%M") if lunch else None,
+            "total_hours": _format_minutes(dur) if (fechado and dur and dur > 0) else None,
+            "overtime_hours": _format_minutes(overtime) if overtime > 0 else None,
+            "status": "regular" if fechado else "inconsistencia",
+            "justification": None,
+            "location_lat": ref.get("latitude"),
+            "location_lng": ref.get("longitude"),
+            "registered_by": source,
+            "source": source,
+            "created_at": created_at.isoformat()
+            if isinstance(created_at, datetime)
+            else str(created_at)
+            if created_at
+            else None,
+            "updated_at": updated_at.isoformat()
+            if isinstance(updated_at, datetime)
+            else str(updated_at)
+            if updated_at
+            else None,
+        }
+
+    def _pair_punches(self, rows: list[Any]) -> list[dict[str, Any]]:
+        """Emparelha batidas por funcionario, com DIRECAO.
+
+        Nao agrupa por dia antes de parear: o plantao 12x36 noturno entra 21:00 e sai
+        09:00 do dia seguinte, e o agrupamento por dia partia o turno em dois registros
+        quebrados (240 de 853 dias-funcionario em julho/2026 = 28%).
+
+        O `punch_type` NAO dita o horario -- as batidas do noturno vem tipadas erradas com
+        frequencia -- mas continua sendo a unica dica de DIRECAO disponivel, e por isso a
+        regra dura: **batida tipada 'saida' nao ABRE turno**. Numa janela de um dia civil
+        as batidas de um noturno sao [saida de ontem, entrada de hoje] -- duas pontas de
+        turnos DIFERENTES -- e parear as duas inventaria 12h de trabalho sobre o periodo de
+        DESCANSO. Foi exatamente esse o defeito que derrubou a tentativa 5e0bbc1f.
+
+        Quando os dois tipos sao iguais (o bug do noturno: duas 'entrada' seguidas), a ordem
+        cronologica decide -- mas so se a duracao for turno plausivel. Batida sem par vira
+        registro PARCIAL, nunca some. Orfa avanca UMA posicao: avancar duas desalinharia
+        todo o resto do mes.
         """
         from collections import defaultdict
 
-        # Agrupar por (employee_id, date)
-        groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+        from modules.people_management.ponto.services.horas_service import MAX_TURNO_H
+
+        # Agrupar SO por funcionario -- o dia sai do par, nao da batida solta.
+        por_emp: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for row in rows:
             r = dict(row)
-            emp_id = str(r["employee_id"])
-            ts = r["punch_timestamp"]
-            day = str(ts.date()) if isinstance(ts, datetime) else str(ts)[:10]
-            groups[(emp_id, day)].append(r)
+            por_emp[str(r["employee_id"])].append(r)
 
-        records = []
-        for (emp_id, day), punches in groups.items():
-            # Sort by timestamp
+        teto = MAX_TURNO_H * 60
+        records: list[dict[str, Any]] = []
+
+        for emp_id, punches in por_emp.items():
             punches.sort(key=lambda p: p["punch_timestamp"])
+            n = len(punches)
+            i = 0
+            while i < n:
+                a = punches[i]
+                tipo_a = str(a.get("punch_type", "")).lower()
 
-            clock_in = None
-            clock_out = None
-            clock_in_lunch = None
-            clock_out_lunch = None
-            lat = None
-            lng = None
-            source = None
-            first_id = None
-            created_at = None
-            updated_at = None
+                # DIRECAO: uma saida nunca abre turno. E a ponta final de um turno que
+                # comecou antes desta janela -> registro parcial, nao par.
+                if tipo_a == "saida":
+                    records.append(self._registro(emp_id, None, a, None))
+                    i += 1
+                    continue
 
-            for p in punches:
-                ptype = str(p.get("punch_type", "")).lower()
-                ts = p["punch_timestamp"]
+                if i + 1 >= n:
+                    records.append(self._registro(emp_id, a, None, None))
+                    break
 
-                if first_id is None:
-                    first_id = p.get("punch_id") or str(p.get("id", ""))
-                    lat = p.get("latitude")
-                    lng = p.get("longitude")
-                    created_at = p.get("created_at")
-                    device = str(p.get("device_type", "")).lower()
-                    if "tangerino" in str(p.get("punch_id", "")).lower() or "tng" in str(p.get("punch_id", "")).lower():
-                        source = "tangerino"
-                    elif device == "manual":
-                        source = "manual"
-                    else:
-                        source = "portal"
+                b = punches[i + 1]
 
-                updated_at = p.get("updated_at") or updated_at
+                # Jornada com intervalo: a-b-c-d formam UM turno quando o buraco entre o
+                # par (a,b) e o par (c,d) e curto. A base real so tem 'entrada' e 'saida'
+                # -- 'saida_almoco'/'retorno_almoco' NAO existem (medido em 07/2026: 1171
+                # 'entrada' + 1075 'saida', zero de almoco) --, entao o intervalo e
+                # reconhecido pelo TEMPO, nunca pelo tipo. Casar por tipo era codigo morto
+                # e partia 401 dos 754 dias-funcionario em dois registros de ~4h.
+                if i + 3 < n:
+                    c, d = punches[i + 2], punches[i + 3]
+                    intervalo = _calc_minutes_between(
+                        b["punch_timestamp"], c["punch_timestamp"]
+                    )
+                    bruto = _calc_minutes_between(
+                        a["punch_timestamp"], d["punch_timestamp"]
+                    )
+                    # MAX_ALMOCO_H separa almoco de descanso: as 36h entre plantoes 12x36
+                    # nunca podem ser absorvidas como intervalo do mesmo turno.
+                    if (
+                        0 < intervalo <= MAX_ALMOCO_H * 60
+                        and 0 < bruto <= teto
+                        and str(c.get("punch_type", "")).lower() != "saida"
+                    ):
+                        records.append(
+                            self._registro(emp_id, a, d, bruto - intervalo, lunch=(b, c))
+                        )
+                        i += 4
+                        continue
 
-                if ptype == "entrada" and clock_in is None:
-                    clock_in = ts
-                elif ptype == "saida_almoco" and clock_in_lunch is None:
-                    clock_in_lunch = ts
-                elif ptype == "retorno_almoco" and clock_out_lunch is None:
-                    clock_out_lunch = ts
-                elif ptype == "saida":
-                    clock_out = ts
+                dur = _calc_minutes_between(a["punch_timestamp"], b["punch_timestamp"])
+                if not (0 < dur <= teto):
+                    # Sem turno plausivel: `a` fica orfa e avanca UMA posicao.
+                    records.append(self._registro(emp_id, a, None, None))
+                    i += 1
+                    continue
 
-            # Calculate total hours
-            total_minutes = 0
-            if clock_in and clock_out:
-                total_minutes = _calc_minutes_between(clock_in, clock_out)
-                if clock_in_lunch and clock_out_lunch:
-                    lunch_minutes = _calc_minutes_between(clock_in_lunch, clock_out_lunch)
-                    total_minutes -= lunch_minutes
+                records.append(self._registro(emp_id, a, b, dur))
+                i += 2
 
-            overtime_minutes = max(0, total_minutes - 480)
-
-            # Determine status
-            status = "regular"
-            if not clock_in and not clock_out:
-                status = "falta"
-            elif clock_in and not clock_out:
-                status = "inconsistencia"
-
-            records.append(
-                {
-                    "id": str(first_id),
-                    "employee_id": emp_id,
-                    "employee_name": None,
-                    "record_date": day,
-                    "clock_in": clock_in.strftime("%H:%M") if isinstance(clock_in, datetime) else None,
-                    "clock_out": clock_out.strftime("%H:%M") if isinstance(clock_out, datetime) else None,
-                    "clock_in_lunch": clock_in_lunch.strftime("%H:%M")
-                    if isinstance(clock_in_lunch, datetime)
-                    else None,
-                    "clock_out_lunch": clock_out_lunch.strftime("%H:%M")
-                    if isinstance(clock_out_lunch, datetime)
-                    else None,
-                    "total_hours": _format_minutes(total_minutes) if total_minutes > 0 else None,
-                    "overtime_hours": _format_minutes(overtime_minutes) if overtime_minutes > 0 else None,
-                    "status": status,
-                    "justification": None,
-                    "location_lat": lat,
-                    "location_lng": lng,
-                    "registered_by": source or "system",
-                    "source": source,
-                    "created_at": created_at.isoformat()
-                    if isinstance(created_at, datetime)
-                    else str(created_at)
-                    if created_at
-                    else None,
-                    "updated_at": updated_at.isoformat()
-                    if isinstance(updated_at, datetime)
-                    else str(updated_at)
-                    if updated_at
-                    else None,
-                }
-            )
-
-        # Sort by date descending
         records.sort(key=lambda r: r["record_date"], reverse=True)
         return records
 
