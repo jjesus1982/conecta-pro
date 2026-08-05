@@ -337,7 +337,10 @@ def calcular_folha_colaborador(
             _fer_ini = _o_ini if _fer_ini is None else min(_fer_ini, _o_ini)
             _fer_fim = _o_fim if _fer_fim is None else max(_fer_fim, _o_fim)
         if _ferias_dias:
-            _dias_pagaveis = max(0, _dias_pagaveis - _ferias_dias)
+            # base 30 (mês comercial), NÃO os dias do calendário: em julho (31 dias) partir de 31
+            # pagava 1 dia a mais. A Portte usa 30 — EDIWILSON 30−20=10 e ANTONIO 30−14=16,
+            # exatamente os DIAS NORMAIS da folha dela.
+            _dias_pagaveis = max(0, min(_dias_pagaveis, 30) - _ferias_dias)
             salario_base = _d(salario_base_full * Decimal(_dias_pagaveis) / Decimal("30"))
             mes_parcial = True
 
