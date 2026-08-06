@@ -65,3 +65,9 @@ temp/
 # Tests
 tests/_obsolete/
 tests/_obsolete_phase1/
+
+# Grafos do graphify — artefato de analise, regeneravel em segundos com
+# `graphify update <path>`. O Dockerfile faz `COPY . .`, entao sem esta linha os
+# graph.json/graph.html iam para a imagem de producao: 66 MB medidos em 2026-08-06
+# espalhados por 6 diretorios (modules/, people_management/, operacional/, financial/...).
+graphify-out/
