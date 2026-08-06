@@ -3335,8 +3335,18 @@ def _discover_module_builders() -> list[str]:
         if hasattr(_m, "build"):
             BUILDERS[slug] = _m.build
         if hasattr(_m, "EXTRA_MENU"):
-            EXTRA_MENU.setdefault(slug, [])
-            EXTRA_MENU[slug].extend(_m.EXTRA_MENU)
+            # os builders declaram EXTRA_MENU como DICT {slug: [itens]} (é o formato de
+            # todos eles). `extend(dict)` adicionava as CHAVES, então o menu do módulo
+            # saía como ['aprovacoes'] — uma aba com o nome do slug e nenhuma das reais.
+            # Aceita as duas formas: dict {slug: [...]} ou lista solta.
+            _em = _m.EXTRA_MENU
+            _itens = _em.get(slug, []) if isinstance(_em, dict) else list(_em)
+            if _itens:
+                EXTRA_MENU.setdefault(slug, [])
+                # idempotente: recarregar o módulo não duplica a aba
+                _ids = {i.get("id") for i in EXTRA_MENU[slug] if isinstance(i, dict)}
+                EXTRA_MENU[slug].extend(
+                    i for i in _itens if isinstance(i, dict) and i.get("id") not in _ids)
         if hasattr(_m, "router"):
             router.include_router(_m.router)
         loaded.append(slug)
