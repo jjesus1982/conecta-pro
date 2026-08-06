@@ -29,6 +29,18 @@ def _is_admin(user) -> bool:
     return role == "admin" or perfil == "all"
 
 
+#: agrupamento por ÁREA — a mesa dela é organizada por assunto (Folha/Ponto/SST/...),
+#: não por nome técnico da ação.
+_AREA_DRAFT = {
+    "pagar_folha_lote": "Folha", "calcular_folha": "Folha", "fechar_folha": "Folha",
+    "fechar_ponto": "Ponto", "justificar_ponto": "Ponto",
+    "registrar_afastamento": "SST", "renovar_aso": "SST",
+    "registrar_ferias": "Férias", "solicitar_ferias": "Férias",
+    "registrar_desligamento": "Rescisão", "concluir_admissao": "Admissão",
+    "alocar_em_posto": "Operacional", "baixar_alocacao": "Operacional",
+}
+
+
 async def build(db: AsyncSession, current_user=None) -> dict:
     """Lista os rascunhos que ESTE usuário pode aprovar. Vazio real → tabela vazia honesta."""
     role = (getattr(current_user, "role", "") or "").lower()
@@ -43,6 +55,7 @@ async def build(db: AsyncSession, current_user=None) -> dict:
     def _row(r):
         badge, color, bg = _GATE_BADGE.get(r[4], ("—", "#64748B", "#F1F4FA"))
         cells = [
+            {"isText": True, "v": _AREA_DRAFT.get(r[1], "DP"), "w": 600, "tc": "#0F1B3A", "ini": ""},
             {"isText": True, "v": (r[1] or "").replace("_", " ").title(), "w": 600, "tc": "#0F1B3A", "ini": ""},
             {"isText": True, "v": (r[2] or "")[:80], "w": 500, "tc": "#334155", "ini": ""},
             {"isBadge": True, "v": badge, "color": color, "bg": bg},
@@ -75,14 +88,73 @@ async def build(db: AsyncSession, current_user=None) -> dict:
         "sub": (f"{len(rows)} rascunho(s) do agente aguardando sua aprovação"
                 if rows else "Nenhum rascunho aguardando aprovação"),
         "cta": "Atualizar", "type": "table", "searchHint": "Buscar rascunho…",
-        "grid": "1.2fr 2.2fr 0.7fr 1.2fr 0.9fr",
-        "cols": ["Tipo", "Descrição", "Risco", "Solicitado por", "Criado"],
+        "grid": "0.9fr 1.1fr 2.0fr 0.7fr 1.0fr 0.8fr",
+        "cols": ["Área", "Tipo", "Descrição", "Risco", "Solicitado por", "Criado"],
         "rows": [_row(r) for r in rows],
     }
-    return {"pendentes": scr}
+    return {"pendentes": scr, "prazos": await _tela_prazos(db, current_user)}
 
 
-EXTRA_MENU = {SLUG: [{"id": "pendentes", "label": "Aprovações", "icon": "M9 12l2 2 4-4M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18"}]}
+# --------------------------------------------------------------------------- #
+# A MESA DA PYETRA — o quadro de prazos, que é o que ela mantinha na parede
+# --------------------------------------------------------------------------- #
+#: os prazos NÃO vivem em `agent_drafts` — vêm dos watchers proativos, que gravam em
+#: `proativo_alert_state`. Sem esta tela a Central mostra só "o que o agente propôs" e
+#: deixa de fora "o que está vencendo", que é justamente a coluna do quadro dela.
+_SEV_BADGE = {
+    "critico": ("Crítico", "#B42318", "#FEF3F2"),
+    "atencao": ("Atenção", "#B54708", "#FFFAEB"),
+    "info": ("Info", "#175CD3", "#EFF8FF"),
+}
+
+
+async def _tela_prazos(db: AsyncSession, current_user=None) -> dict:
+    """Prazos vivos do DP, do mais urgente para o menos. Vazio real = vazio honesto."""
+    rows = (await db.execute(text(
+        "SELECT regra, severidade, title, body, first_seen_at "
+        "FROM proativo_alert_state "
+        "WHERE resolved_at IS NULL AND regra LIKE 'dp_%' "
+        "ORDER BY CASE severidade WHEN 'critico' THEN 0 WHEN 'atencao' THEN 1 ELSE 2 END, "
+        "         first_seen_at"
+    ))).fetchall()
+
+    _AREA = {
+        "dp_aviso_previo_vencendo": "Aviso prévio",
+        "dp_termino_experiencia": "Términos de contrato",
+        "dp_ferias_limite_gozo": "Férias",
+        "dp_retorno_ferias": "Férias",
+        "dp_desligamento_sem_processo": "Migração p/ o fluxo nativo",
+    }
+
+    def _linha(r):
+        badge, color, bg = _SEV_BADGE.get(r[1], ("—", "#64748B", "#F1F4FA"))
+        return {"cells": [
+            {"isText": True, "v": _AREA.get(r[0], r[0]), "w": 600, "tc": "#0F1B3A", "ini": ""},
+            {"isBadge": True, "v": badge, "color": color, "bg": bg},
+            {"isText": True, "v": (r[2] or "")[:70], "w": 600, "tc": "#0F1B3A", "ini": ""},
+            {"isText": True, "v": (r[3] or "")[:150], "w": 400, "tc": "#334155", "ini": ""},
+            {"isText": True, "v": r[4].strftime("%d/%m") if r[4] else "—", "w": 500,
+             "tc": "#64748B", "ini": ""},
+        ]}
+
+    return {
+        "title": "Prazos do DP",
+        "sub": (f"{len(rows)} prazo(s) vivos — do mais urgente para o menos"
+                if rows else "Nenhum prazo vencendo. Os vigias só enxergam o que já está "
+                             "no fluxo nativo; o que ainda vem da Portte não aparece aqui."),
+        "cta": "Atualizar", "type": "table", "searchHint": "Buscar prazo…",
+        "grid": "1.1fr 0.7fr 1.8fr 2.4fr 0.6fr",
+        "cols": ["Área", "Risco", "O quê", "Detalhe", "Desde"],
+        "rows": [_linha(r) for r in rows],
+    }
+
+
+EXTRA_MENU = {SLUG: [
+    {"id": "pendentes", "label": "Aprovações",
+     "icon": "M9 12l2 2 4-4M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18"},
+    {"id": "prazos", "label": "Prazos",
+     "icon": "M12 8v4l3 3M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18"},
+]}
 
 # --------------------------------------------------------------------------- #
 # Ações: aprovar / rejeitar rascunho (montadas em /api/v1/redesign/action/*)
