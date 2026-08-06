@@ -133,11 +133,8 @@ registrar_acao("financeiro", "registrar_custo_recorrente",
 # ─────────────────────────────────────────────────────────────────────────────
 from .acoes.rascunho import registrar_executor  # noqa: E402
 
-_TIPOS_AGENTE_FIN = (
-    "financeiro_recomendacao_risco",
-    "financeiro_alerta_fluxo_caixa",
-    "financeiro_recomendacao_cobranca",
-)
+# risco/fluxo = aceite governado (sem ação concreta segura). cobrança = aciona a régua (F2-b.2).
+_TIPOS_ACEITE = ("financeiro_recomendacao_risco", "financeiro_alerta_fluxo_caixa")
 
 
 async def _exec_aceite_recomendacao_agente(db: Any, aprovador: Any, payload: dict) -> str:
@@ -145,8 +142,31 @@ async def _exec_aceite_recomendacao_agente(db: Any, aprovador: Any, payload: dic
     return str(payload.get("category") or payload.get("origem") or "recomendacao")
 
 
-for _t in _TIPOS_AGENTE_FIN:
+async def _exec_regua_cobranca(db: Any, aprovador: Any, payload: dict) -> str:
+    """F2-b.2: aprovar a recomendação de cobrança ACIONA a régua — registra a tentativa
+    (collection_attempts++, next_collection_date, nota) em cada recebível VENCIDO. NÃO envia
+    ao cliente (comms = gate humano) nem move dinheiro. Anti-spam mesmo-dia embutido no serviço."""
+    from modules.financial.services.regua_cobranca_service import (
+        montar_fila_cobranca,
+        registrar_cobranca,
+    )
+
+    quem = str(getattr(aprovador, "nome", None) or getattr(aprovador, "email", None)
+               or getattr(aprovador, "id", None) or "gestor")
+    fila = await montar_fila_cobranca(db)
+    registrados = 0
+    for item in fila:
+        if item.get("contatado_hoje"):
+            continue  # anti-spam já cobre; evita chamada à toa
+        r = await registrar_cobranca(db, item["id"], item.get("canal") or "", quem=quem)
+        if r.get("ok"):
+            registrados += 1
+    return f"regua_cobranca:{registrados}_registradas"
+
+
+for _t in _TIPOS_ACEITE:
     registrar_executor(_t, _exec_aceite_recomendacao_agente)
+registrar_executor("financeiro_recomendacao_cobranca", _exec_regua_cobranca)
 
 
 if __name__ == "__main__":
