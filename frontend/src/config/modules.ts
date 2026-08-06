@@ -375,7 +375,6 @@ export const modules: Module[] = [
     permissions: ['module:financeiro'],
     enabled: true,
     subModules: [
-      { id: 'cfo-ia', title: 'CFO IA', href: '/modulos/financeiro/cfo', icon: 'Bot', permissions: ['module:financeiro'] },
       { id: 'dashboard-financeiro', title: 'Dashboard Financeiro', href: '/modulos/financeiro/dashboard', icon: 'LayoutDashboard', permissions: ['module:financeiro'] },
       { id: 'contratos', title: 'Contratos', href: '/modulos/financeiro/contratos', icon: 'FileText', permissions: ['module:financeiro'] },
       { id: 'contas-pagar', title: 'Contas a Pagar', href: '/modulos/financeiro/contas-pagar', icon: 'TrendingDown', permissions: ['module:financeiro'] },
