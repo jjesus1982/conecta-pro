@@ -872,6 +872,59 @@ def _ver_todas_rec(screens: dict) -> None:
         _apply(scr)
 
 
+# Drill dos dashboards por MÓDULO (KPI → tela). Match por startswith (robusto a rótulos com
+# data dinâmica, ex.: "Folha líquida (12/2026)"). Financeiro (50 KPIs, muito editado) fica
+# p/ a sessão dele. Só drilla p/ tela que EXISTE no módulo (honesto).
+_MOD_KPI_DRILL = {
+    "departamento-pessoal": {
+        "Colaboradores ativos": "funcionarios", "Admissões": "admissao",
+        "Solicitações de férias": "ferias", "Folha líquida": "folha",
+    },
+    "fiscal": {"Certidões": "certidoes", "NFS-e Emitidas": "nfse", "Faturamento": "nfse"},
+    "crm": {"Leads": "leads", "Propostas": "propostas", "Contratos": "contratos",
+            "Comissões": "comissoes"},
+}
+
+
+def _aplicar_drill_mod(screens: dict, slug: str) -> None:
+    """Torna clicável os KPIs dos dashboards do módulo `slug` (seta `to` por startswith).
+    Universal via dispatcher; só p/ telas que existem. Recorre em grupos."""
+    mp = _MOD_KPI_DRILL.get(slug)
+    if not mp:
+        return
+    ids = set()
+
+    def _collect(sc):
+        if not isinstance(sc, dict):
+            return
+        if sc.get("type") == "tabs":
+            for tb in (sc.get("tabs") or []):
+                if (tb or {}).get("id"):
+                    ids.add(tb["id"])
+                _collect((tb or {}).get("screen"))
+    for k, sc in screens.items():
+        ids.add(k)
+        _collect(sc)
+
+    def _apply(sc):
+        if not isinstance(sc, dict):
+            return
+        if sc.get("type") == "tabs":
+            for tb in (sc.get("tabs") or []):
+                _apply((tb or {}).get("screen"))
+        elif sc.get("type") == "dash":
+            for kpi in (sc.get("kpis") or []):
+                lbl = kpi.get("l") or ""
+                if kpi.get("to"):
+                    continue
+                for key, tgt in mp.items():
+                    if lbl.startswith(key) and tgt in ids:
+                        kpi["to"] = tgt
+                        break
+    for sc in screens.values():
+        _apply(sc)
+
+
 def _fmtdate(d, fmt="%d/%m/%Y"):
     return d.strftime(fmt) if d else "—"
 
@@ -3247,6 +3300,7 @@ async def redesign_data(slug: str, current_user: CurrentActiveUser, db: AsyncSes
         screens = await builder(db)
     try:
         _ver_todas_rec(screens)  # clique-na-linha 'Ver' universal (todos os módulos)
+        _aplicar_drill_mod(screens, slug)  # KPIs de dashboard clicáveis (DP/fiscal/crm)
     except Exception:  # noqa: BLE001 — navegação nunca derruba o dado
         pass
     return {"slug": slug, "screens": screens, "wired": list(screens.keys()), "extraMenu": EXTRA_MENU.get(slug, [])}
