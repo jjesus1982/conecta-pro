@@ -685,6 +685,151 @@ register(Regra(
 ))
 
 
+# ─────────────────────── dp_aso_vencendo ───────────────────────
+async def _detectar_aso_vencendo(db: AsyncSession) -> list[Achado]:
+    """ASO vencendo em ≤30 dias ou vencido. Sem ASO válido o colaborador não pode trabalhar
+    (NR-7) e a empresa responde em fiscalização."""
+    rows = (await db.execute(text(
+        # a coluna é `data_validade` (não data_vencimento) e o nome vem só do join
+        "SELECT a.id::text AS id, coalesce(e.nome, '—') AS nome, "
+        "       a.data_validade AS venc, (a.data_validade - current_date) AS dias, "
+        "       coalesce(a.tipo::text, '') AS tipo "
+        "FROM gp_asos a JOIN employees e ON CAST(e.id AS TEXT) = CAST(a.employee_id AS TEXT) "
+        "WHERE a.data_validade IS NOT NULL "
+        "  AND a.data_validade <= current_date + 30 "
+        "  AND lower(coalesce(e.status,'')) = 'ativo' "
+        # só o ASO MAIS RECENTE de cada pessoa: um antigo vencido não é pendência se já
+        # existe um novo válido — alertar sobre ele seria falso positivo
+        "  AND a.data_validade = (SELECT max(a2.data_validade) FROM gp_asos a2 "
+        "                         WHERE CAST(a2.employee_id AS TEXT) = CAST(a.employee_id AS TEXT)) "
+        "ORDER BY a.data_validade"
+    ))).mappings().all()
+    # AGREGA quando são muitos: 25 alertas individuais soterrariam a mesa e a Pyetra
+    # pararia de olhar — o alerta que enterra os outros é tão ruim quanto o que não existe.
+    # Até 5, alerta nominal (dá para agir um a um). Acima disso, 1 cartão com a contagem.
+    if len(rows) > 5:
+        vencidos = [r for r in rows if int(r["dias"]) < 0]
+        return [Achado(
+            correlation_id=f"dp_aso_lote:{len(rows)}:{len(vencidos)}",
+            dados={"lote": True, "total": len(rows), "vencidos": len(vencidos),
+                   "nomes": ", ".join(r["nome"] for r in rows[:6])
+                            + (f" e mais {len(rows) - 6}" if len(rows) > 6 else "")},
+        )]
+    return [Achado(
+        correlation_id=f"dp_aso_vencendo:{r['id']}",
+        dados={"nome": r["nome"], "venc": str(r["venc"]), "dias": int(r["dias"]),
+               "tipo": r["tipo"], "lote": False},
+    ) for r in rows]
+
+
+def _tpl_aso(d: dict) -> tuple[str, str]:
+    if d.get("lote"):
+        return (f"ASO: {d['vencidos']} vencido(s) de {d['total']} a renovar",
+                f"{d['vencidos']} colaborador(es) estão com ASO VENCIDO e {d['total']} no total "
+                f"precisam de renovação em até 30 dias. Sem ASO válido a pessoa não pode "
+                f"trabalhar (NR-7) e a empresa responde em fiscalização. "
+                f"São: {d['nomes']}. Agende o lote na tela de SST.")
+    if d["dias"] < 0:
+        return (f"🔴 ASO VENCIDO: {d['nome']}",
+                f"O ASO de {d['nome']} venceu em {d['venc']} — há {abs(d['dias'])} dia(s). "
+                f"Sem ASO válido a pessoa não pode trabalhar (NR-7) e a empresa responde em "
+                f"fiscalização. Agende a renovação.")
+    return (f"ASO vence em {d['dias']} dia(s): {d['nome']}",
+            f"O ASO de {d['nome']} vence em {d['venc']}. Agende a renovação antes para não "
+            f"parar o colaborador.")
+
+
+register(Regra(
+    nome="dp_aso_vencendo", familia="dp", severidade="critico",
+    roles_destino=("admin", "rh", "dp"),
+    action_url="/redesign/aprovacoes",
+    detectar=_detectar_aso_vencendo, template=_tpl_aso,
+))
+
+
+# ─────────────────────── dp_folha_devida ───────────────────────
+async def _detectar_folha_devida(db: AsyncSession) -> list[Achado]:
+    """Competência fechada e sem folha calculada — o ritmo mensal do quadro.
+
+    Dispara a partir do dia 1º do mês seguinte, se a competência anterior não tem nenhuma
+    linha `source_system='conecta'`. Só uma vez por competência (correlation_id).
+    """
+    from datetime import date
+
+    hoje = date.today()
+    ano, mes = (hoje.year, hoje.month - 1) if hoje.month > 1 else (hoje.year - 1, 12)
+    n = (await db.execute(text(
+        "SELECT count(*) FROM hr_payslips WHERE reference_year=:a AND reference_month=:m "
+        "AND source_system='conecta'"), {"a": ano, "m": mes})).scalar() or 0
+    if n:
+        return []
+    ativos = (await db.execute(text(
+        "SELECT count(*) FROM employees WHERE status='ativo'"))).scalar() or 0
+    if not ativos:  # base vazia → silêncio honesto
+        return []
+    return [Achado(
+        correlation_id=f"dp_folha_devida:{ano}-{mes:02d}",
+        dados={"comp": f"{mes:02d}/{ano}", "ativos": int(ativos)},
+    )]
+
+
+def _tpl_folha_devida(d: dict) -> tuple[str, str]:
+    return (f"Folha de {d['comp']} ainda não calculada",
+            f"A competência {d['comp']} fechou e não há folha calculada aqui "
+            f"({d['ativos']} colaborador(es) ativos). Gere pela tela de folha — é ela que "
+            f"alimenta holerite, eSocial e o pagamento.")
+
+
+register(Regra(
+    nome="dp_folha_devida", familia="dp", severidade="atencao",
+    roles_destino=("admin", "rh", "dp"),
+    action_url="/redesign/aprovacoes",
+    detectar=_detectar_folha_devida, template=_tpl_folha_devida,
+))
+
+
+# ─────────────────────── dp_ponto_a_fechar ───────────────────────
+async def _detectar_ponto_a_fechar(db: AsyncSession) -> list[Achado]:
+    """Mês virado e ponto do mês anterior sem fechamento, para quem TEM batida.
+
+    Só alerta sobre quem bateu ponto — quem não bateu não tem o que fechar, e cobrar
+    fechamento de quem não tem batida seria ruído da migração (o ponto vem do Sólides).
+    """
+    from datetime import date
+
+    hoje = date.today()
+    ano, mes = (hoje.year, hoje.month - 1) if hoje.month > 1 else (hoje.year - 1, 12)
+    n = (await db.execute(text(
+        "SELECT count(DISTINCT p.employee_id) FROM gp_clock_punches p "
+        "JOIN employees e ON CAST(e.id AS TEXT) = CAST(p.employee_id AS TEXT) "
+        "WHERE EXTRACT(MONTH FROM p.punch_timestamp)=:m AND EXTRACT(YEAR FROM p.punch_timestamp)=:a "
+        "  AND lower(coalesce(e.status,'')) = 'ativo' "
+        "  AND NOT EXISTS (SELECT 1 FROM gp_monthly_closings c "
+        "                  WHERE CAST(c.employee_id AS TEXT) = CAST(p.employee_id AS TEXT) "
+        "                    AND c.month=:m AND c.year=:a AND coalesce(c.fechado,false))"),
+        {"a": ano, "m": mes})).scalar() or 0
+    if not n:
+        return []
+    return [Achado(
+        correlation_id=f"dp_ponto_a_fechar:{ano}-{mes:02d}",
+        dados={"comp": f"{mes:02d}/{ano}", "n": int(n)},
+    )]
+
+
+def _tpl_ponto_a_fechar(d: dict) -> tuple[str, str]:
+    return (f"Ponto de {d['comp']}: {d['n']} sem fechamento",
+            f"{d['n']} colaborador(es) bateram ponto em {d['comp']} e o mês não foi fechado. "
+            f"O fechamento consolida horas, extras e faltas — é o que a folha consome.")
+
+
+register(Regra(
+    nome="dp_ponto_a_fechar", familia="dp", severidade="atencao",
+    roles_destino=("admin", "rh", "dp"),
+    action_url="/redesign/aprovacoes",
+    detectar=_detectar_ponto_a_fechar, template=_tpl_ponto_a_fechar,
+))
+
+
 # ─────────────────────── dp_retorno_ferias ───────────────────────
 async def _detectar_retorno_ferias(db: AsyncSession) -> list[Achado]:
     """Retorno de férias em ≤3 dias (o quadro da Pyetra rastreia isso à mão).

@@ -718,6 +718,139 @@ registrar_acao("dp", "justificar_ponto",
                "A decisão é sua — sem ela eu recuso. NÃO revisa: a execução é a aprovação.",
                _propor_justificar_ponto)
 
+# ═════════ F3.1 (restante) — holerites em lote, ASO e programação de férias ═════════
+async def _propor_gerar_holerites_lote(
+    db, user, scope, *, mes: int | str = 0, ano: int | str = 0, **_
+) -> dict[str, Any]:
+    """PROPÕE gerar os holerites da competência. Depende da folha JÁ calculada — se não
+    houver folha, recusa em vez de gerar holerite de nada."""
+    try:
+        m, a = int(str(mes).split()[0]), int(str(ano).split()[0])
+    except (ValueError, IndexError):
+        return {"erro": "mes (1-12) e ano são obrigatórios"}
+    if not (1 <= m <= 12) or not (2020 <= a <= 2100):
+        return {"erro": f"competência inválida: {m}/{a}"}
+
+    n = (await db.execute(text(
+        "SELECT count(*) FROM hr_payslips WHERE reference_year=:a AND reference_month=:m "
+        "AND source_system='conecta'"), {"a": a, "m": m})).scalar() or 0
+    if not n:
+        return {"erro": f"não há folha calculada em {m:02d}/{a} — gere a folha primeiro "
+                        f"(holerite sem folha não existe)"}
+
+    return await propor(
+        db, user=user, scope=scope, dominio="holerite_lote", gate="🟡",
+        roles_aprovador=ROLES_KIT_OP,
+        idempotency_key=f"dp:holerites_lote:{a}-{m:02d}",
+        titulo=f"Gerar holerites {m:02d}/{a} ({n} colaboradores)",
+        corpo=(f"A folha de {m:02d}/{a} tem {n} holerite(s) calculado(s) e podem ser "
+               f"publicados para o portal do colaborador. A publicação é o que os torna "
+               f"visíveis — antes disso ninguém vê."),
+        action_url="/redesign/aprovacoes",
+        tool="propor_gerar_holerites_lote", args={"mes": m, "ano": a},
+        entity_type="hr_holerite_lote", inserir=_noop_ref,
+    )
+
+
+registrar_acao("dp", "gerar_holerites_lote",
+               "PROPOR a geração/publicação dos holerites de uma competência. dados: mes, "
+               "ano. Recusa se não houver folha calculada. NÃO gera — a execução é humana.",
+               _propor_gerar_holerites_lote)
+
+
+async def _propor_renovar_aso(
+    db, user, scope, *, employee_id: str = "", funcionario: str = "", data: str = "", **_
+) -> dict[str, Any]:
+    """PROPÕE agendar a renovação do ASO de quem está vencido/vencendo."""
+    emp = str(employee_id or funcionario or "").strip()
+    if not emp:
+        return {"erro": "employee_id (uuid do funcionário) é obrigatório"}
+    try:
+        uuid.UUID(emp)
+    except (ValueError, AttributeError, TypeError):
+        return {"erro": "employee_id inválido (esperado uuid)"}
+
+    row = (await db.execute(text(
+        "SELECT e.nome, max(a.data_validade) AS venc "
+        "FROM employees e LEFT JOIN gp_asos a "
+        "  ON CAST(a.employee_id AS TEXT) = CAST(e.id AS TEXT) "
+        "WHERE CAST(e.id AS TEXT) = :e GROUP BY e.nome"), {"e": emp})).mappings().first()
+    if not row:
+        return {"erro": "funcionário não encontrado"}
+
+    quando = (data or "").strip()
+    situacao = (f"o ASO venceu em {row['venc']}" if row["venc"] else
+                "não há ASO registrado para esta pessoa")
+    return await propor(
+        db, user=user, scope=scope, dominio="aso_renovar", gate="🟡",
+        roles_aprovador=ROLES_KIT_OP,
+        idempotency_key=f"dp:renovar_aso:{emp}",
+        titulo=f"Renovar ASO: {row['nome']}",
+        corpo=(f"Para {row['nome']}, {situacao}. Sem ASO válido a pessoa não pode trabalhar "
+               f"(NR-7)."
+               + (f" Data proposta: {quando}." if quando else
+                  " ⚠️ CONFIRME a data do exame — eu não agendo clínica nem escolho data.")),
+        action_url="/redesign/aprovacoes",
+        tool="propor_renovar_aso", args={"employee_id": emp, "data": quando or None},
+        entity_type="gp_aso", inserir=_noop_ref,
+    )
+
+
+registrar_acao("dp", "renovar_aso",
+               "PROPOR a renovação/agendamento do ASO de um colaborador. dados: employee_id "
+               "(uuid), data (opcional). NÃO agenda — a execução é humana na tela de SST.",
+               _propor_renovar_aso)
+
+
+async def _propor_programacao_ferias(
+    db, user, scope, *, employee_id: str = "", funcionario: str = "", inicio: str = "", **_
+) -> dict[str, Any]:
+    """PROPÕE programar as férias de quem tem período aquisitivo vencendo.
+
+    Usa `employee_vacation_periods` (períodos REAIS, carregados da programação da Portte).
+    Recusa quem não tem saldo — não invento direito de férias.
+    """
+    emp = str(employee_id or funcionario or "").strip()
+    if not emp:
+        return {"erro": "employee_id (uuid do funcionário) é obrigatório"}
+    try:
+        uuid.UUID(emp)
+    except (ValueError, AttributeError, TypeError):
+        return {"erro": "employee_id inválido (esperado uuid)"}
+
+    row = (await db.execute(text(
+        "SELECT e.nome, p.days_remaining AS saldo, p.expires_at AS limite "
+        "FROM employee_vacation_periods p JOIN employees e ON e.id = p.employee_id "
+        "WHERE CAST(p.employee_id AS TEXT) = :e AND coalesce(p.days_remaining,0) > 0 "
+        "ORDER BY p.expires_at LIMIT 1"), {"e": emp})).mappings().first()
+    if not row:
+        return {"erro": "esse funcionário não tem saldo de férias em nenhum período "
+                        "aquisitivo aberto — não invento direito"}
+
+    ini = (inicio or "").strip()
+    return await propor(
+        db, user=user, scope=scope, dominio="ferias_programar", gate="🔵",
+        roles_aprovador=ROLES_KIT_OP,
+        idempotency_key=f"dp:programar_ferias:{emp}",
+        titulo=f"Programar férias: {row['nome']}",
+        corpo=(f"{row['nome']} tem {row['saldo']} dia(s) e o limite para gozo é "
+               f"{row['limite']}. Programar antes evita o pagamento em dobro (art. 137)."
+               + (f" Início proposto: {ini}." if ini else
+                  " ⚠️ CONFIRME a data de início — depende da escala e do acordo com a pessoa.")),
+        action_url="/redesign/aprovacoes",
+        tool="propor_programacao_ferias",
+        args={"employee_id": emp, "inicio": ini or None, "saldo": int(row["saldo"])},
+        entity_type="hr_vacation_plan", inserir=_noop_ref,
+    )
+
+
+registrar_acao("dp", "programar_ferias",
+               "PROPOR a programação de férias de quem tem período aquisitivo vencendo. "
+               "dados: employee_id (uuid), inicio (opcional). Recusa quem não tem saldo. "
+               "NÃO programa — a execução é humana.",
+               _propor_programacao_ferias)
+
+
 # ── EXECUTORES: rodam SÓ quando o humano aprova, e chamam o SERVIÇO OFICIAL ──
 # As três ações acima usam `_noop_ref` porque a entidade delas NÃO pode existir antes do OK
 # (afastamento nasce 'ativo' e mexe na folha; fechamento consolida; revisão altera registro).
