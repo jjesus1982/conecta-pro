@@ -397,6 +397,218 @@ register(Regra(
 ))
 
 
+# ═══════════════════════ DP · VIGÍLIA DE PRAZOS (Fase F2) ═══════════════════════
+# O quadro branco da Pyetra é 100% PRAZO, e vivia só na parede: o aviso prévio do Keyson
+# venceu e o funcionário seguiu trabalhando 7 dias — risco trabalhista puro. Estas regras
+# são o vigia que faltava.
+#
+# LEI (travada no plano): **captura ≥ vigília**. Um watcher sobre dado de baixa cobertura
+# MENTE. Por isso cada detector aqui devolve TAMBÉM o denominador (`universo`) — quantos
+# casos existem no mundo vs quantos estão registrados —, e o template DIZ isso na cara.
+# Silêncio de watcher cego é pior que alerta, porque parece "está tudo certo".
+
+MSG_SEM_REGISTRO = ("⚠️ Este vigia só enxerga o que está REGISTRADO no sistema. "
+                    "Se o caso não virou processo, ele não aparece aqui.")
+
+
+# ─────────────────────── dp_aviso_previo_vencendo ───────────────────────
+async def _detectar_aviso_previo(db: AsyncSession) -> list[Achado]:
+    """Aviso prévio vencendo em ≤7 dias ou JÁ VENCIDO (o caso Keyson).
+
+    Fonte: termination_processes.notice_start_date + notice_period_days (o dado existe).
+    Vencido é CRÍTICO: cada dia trabalhado além do prazo é passivo.
+    """
+    rows = (await db.execute(text(
+        "SELECT t.id::text AS id, e.nome AS nome, "
+        "       (t.notice_start_date + (t.notice_period_days || ' days')::interval)::date AS fim, "
+        "       ((t.notice_start_date + (t.notice_period_days || ' days')::interval)::date "
+        "        - current_date) AS dias "
+        "FROM termination_processes t JOIN employees e ON e.id = t.employee_id "
+        "WHERE t.notice_start_date IS NOT NULL AND coalesce(t.notice_period_days,0) > 0 "
+        "  AND lower(coalesce(t.status::text,'')) NOT IN ('concluido','concluído','cancelado','cancelled') "
+        "  AND (t.notice_start_date + (t.notice_period_days || ' days')::interval)::date "
+        "      <= current_date + 7"
+    ))).mappings().all()
+    # denominador honesto: quantos desligamentos existem SEM aviso registrado
+    sem_registro = (await db.execute(text(
+        "SELECT count(*) FROM termination_processes "
+        "WHERE notice_start_date IS NULL "
+        "AND lower(coalesce(status::text,'')) NOT IN ('concluido','concluído','cancelado','cancelled')"
+    ))).scalar() or 0
+    return [Achado(
+        correlation_id=f"dp_aviso_previo:{r['id']}:{r['fim']}",
+        dados={"nome": r["nome"], "fim": str(r["fim"]), "dias": int(r["dias"]),
+               "vencido": int(r["dias"]) < 0, "sem_registro": int(sem_registro)},
+    ) for r in rows]
+
+
+def _tpl_aviso_previo(d: dict) -> tuple[str, str]:
+    if d["vencido"]:
+        cabeca = f"🔴 Aviso prévio VENCIDO: {d['nome']}"
+        corpo = (f"O aviso prévio de {d['nome']} venceu em {d['fim']} — há {abs(d['dias'])} dia(s). "
+                 f"Se a pessoa continua trabalhando, cada dia é passivo trabalhista. "
+                 f"Formalize o desligamento ou registre a prorrogação.")
+    else:
+        cabeca = f"Aviso prévio vence em {d['dias']} dia(s): {d['nome']}"
+        corpo = (f"O aviso prévio de {d['nome']} vence em {d['fim']} ({d['dias']} dia(s)). "
+                 f"Prepare a rescisão para não estourar o prazo.")
+    if d["sem_registro"]:
+        corpo += f" {MSG_SEM_REGISTRO} Há {d['sem_registro']} desligamento(s) sem aviso registrado."
+    return cabeca, corpo
+
+
+register(Regra(
+    nome="dp_aviso_previo_vencendo", familia="dp", severidade="critico",
+    roles_destino=("admin", "rh", "dp"),
+    action_url="/redesign/aprovacoes",
+    detectar=_detectar_aviso_previo, template=_tpl_aviso_previo,
+))
+
+
+# ─────────────────────── dp_ferias_limite_gozo ───────────────────────
+async def _detectar_ferias_limite(db: AsyncSession) -> list[Achado]:
+    """Período aquisitivo com limite para gozo vencendo/vencido e saldo (art. 137).
+
+    Fonte: employee_vacation_periods (períodos REAIS, carregados da programação da Portte).
+
+    Duas exclusões que evitam alerta mentiroso — aprendidas medindo em 05/08:
+      • CONTRATO SUSPENSO não corre aquisitivo (caso ARYELTON: rescisão indireta em curso,
+        suspensão orientada pelo jurídico). Sem isso ele reaparece como falso positivo todo mês.
+      • Quem TEM verba de gozo na folha (rubrica 0060/1061) gozou de fato mesmo sem
+        solicitação — é buraco de LANÇAMENTO do DP, não risco art. 137. Rubrica genérica
+        (`LIKE '%FERIAS%'`) NÃO serve: 0061/0062 incluem proporcionais de RESCISÃO, que são
+        indenização e marcariam demitido como "gozou".
+    """
+    rows = (await db.execute(text(
+        "SELECT p.id::text AS id, e.nome AS nome, p.expires_at AS limite, "
+        "       p.days_remaining AS saldo, (p.expires_at - current_date) AS dias, "
+        "       EXISTS (SELECT 1 FROM folha_verba_espelho v "
+        "               WHERE v.employee_id = p.employee_id AND v.codigo IN ('0060','1061')) AS gozou "
+        "FROM employee_vacation_periods p JOIN employees e ON e.id = p.employee_id "
+        "WHERE coalesce(p.days_remaining,0) > 0 AND p.expires_at IS NOT NULL "
+        "  AND p.expires_at <= current_date + 30 "
+        # PJ não tem férias CLT. O ORLAILSON caiu aqui como falso 'art.137': foi desligado
+        # como CLT com férias INDENIZADAS (verba 0062, rescisão) e recontratado como PJ.
+        "  AND lower(coalesce(e.status,'')) NOT IN ('suspenso','demitido','inativo') "
+        "  AND lower(coalesce(e.status,'')) NOT LIKE 'pj%' "
+        "  AND lower(coalesce(e.tipo_contrato,'')) <> 'pj' "
+        "ORDER BY p.expires_at"
+    ))).mappings().all()
+    return [Achado(
+        correlation_id=f"dp_ferias_limite:{r['id']}",
+        dados={"nome": r["nome"], "limite": str(r["limite"]), "saldo": int(r["saldo"]),
+               "dias": int(r["dias"]), "gozou_sem_registro": bool(r["gozou"])},
+    ) for r in rows]
+
+
+def _tpl_ferias_limite(d: dict) -> tuple[str, str]:
+    if d["gozou_sem_registro"]:
+        return (
+            f"Férias sem registro: {d['nome']}",
+            f"A folha mostra que {d['nome']} gozou férias, mas não há solicitação registrada — "
+            f"o saldo aparece como {d['saldo']} dia(s) e o limite é {d['limite']}. "
+            f"NÃO é risco de férias em dobro; é lançamento faltando. Registre para o saldo bater.",
+        )
+    if d["dias"] < 0:
+        return (
+            f"🔴 Férias em DOBRO (art. 137): {d['nome']}",
+            f"O limite para gozo de {d['nome']} venceu em {d['limite']} — há {abs(d['dias'])} dia(s) — "
+            f"e ainda restam {d['saldo']} dia(s). Férias não concedidas no prazo são pagas EM DOBRO. "
+            f"{MSG_SEM_REGISTRO}",
+        )
+    return (
+        f"Férias vencem em {d['dias']} dia(s): {d['nome']}",
+        f"{d['nome']} tem {d['saldo']} dia(s) e o limite para gozo é {d['limite']} "
+        f"({d['dias']} dia(s)). Programe antes de virar pagamento em dobro.",
+    )
+
+
+register(Regra(
+    nome="dp_ferias_limite_gozo", familia="dp", severidade="critico",
+    roles_destino=("admin", "rh", "dp"),
+    action_url="/redesign/aprovacoes",
+    detectar=_detectar_ferias_limite, template=_tpl_ferias_limite,
+))
+
+
+# ─────────────────────── dp_desligamento_sem_processo ───────────────────────
+async def _detectar_desligamento_sem_processo(db: AsyncSession) -> list[Achado]:
+    """Pessoa com data de desligamento no cadastro e SEM processo de rescisão.
+
+    Este é o vigia do próprio vigia. O watcher de aviso prévio só enxerga o que virou
+    `termination_processes` — e o caso Keyson provou que o desligamento pode existir no
+    mundo (e no quadro da parede) sem existir no sistema. Sem esta regra, o silêncio do
+    watcher de prazo seria lido como "está tudo em ordem", que é a falha original.
+    """
+    rows = (await db.execute(text(
+        "SELECT e.id::text AS id, e.nome AS nome, "
+        "       coalesce(e.data_desligamento, e.data_demissao) AS dt "
+        "FROM employees e "
+        "WHERE coalesce(e.data_desligamento, e.data_demissao) IS NOT NULL "
+        "  AND coalesce(e.data_desligamento, e.data_demissao) >= current_date - 90 "
+        "  AND NOT EXISTS (SELECT 1 FROM termination_processes t WHERE t.employee_id = e.id) "
+        "ORDER BY 3 DESC"
+    ))).mappings().all()
+    return [Achado(
+        correlation_id=f"dp_desligamento_sem_processo:{r['id']}",
+        dados={"nome": r["nome"], "dt": str(r["dt"])},
+    ) for r in rows]
+
+
+def _tpl_desligamento_sem_processo(d: dict) -> tuple[str, str]:
+    return (
+        f"Desligamento sem processo: {d['nome']}",
+        f"{d['nome']} tem desligamento em {d['dt']} no cadastro, mas NÃO há processo de "
+        f"rescisão no sistema. Sem o processo não há aviso prévio para vigiar, não há TRCT "
+        f"e o eSocial S-2299 não nasce. Registre o processo para o prazo passar a ser vigiado.",
+    )
+
+
+register(Regra(
+    nome="dp_desligamento_sem_processo", familia="dp", severidade="atencao",
+    roles_destino=("admin", "rh", "dp"),
+    action_url="/redesign/aprovacoes",
+    detectar=_detectar_desligamento_sem_processo, template=_tpl_desligamento_sem_processo,
+))
+
+
+# ─────────────────────── dp_retorno_ferias ───────────────────────
+async def _detectar_retorno_ferias(db: AsyncSession) -> list[Achado]:
+    """Retorno de férias em ≤3 dias (o quadro da Pyetra rastreia isso à mão).
+
+    Só solicitações APROVADAS: em julho havia 5 SUBMITTED de 30 dias de gente que trabalhou
+    o mês inteiro (uma delas bateu ponto 116 vezes). Pedido não aprovado não é férias.
+    """
+    rows = (await db.execute(text(
+        "SELECT v.id::text AS id, e.nome AS nome, v.end_date AS fim, "
+        "       (v.end_date - current_date) AS dias "
+        "FROM hr_vacation_requests v JOIN employees e ON e.id = v.employee_id "
+        "WHERE upper(coalesce(v.status,'')) = 'APPROVED' "
+        "  AND v.end_date BETWEEN current_date - 1 AND current_date + 3 "
+        "ORDER BY v.end_date"
+    ))).mappings().all()
+    return [Achado(
+        correlation_id=f"dp_retorno_ferias:{r['id']}",
+        dados={"nome": r["nome"], "fim": str(r["fim"]), "dias": int(r["dias"])},
+    ) for r in rows]
+
+
+def _tpl_retorno_ferias(d: dict) -> tuple[str, str]:
+    quando = "hoje" if d["dias"] == 0 else (f"em {d['dias']} dia(s)" if d["dias"] > 0 else "ontem")
+    return (
+        f"Retorno de férias {quando}: {d['nome']}",
+        f"{d['nome']} volta de férias em {d['fim']}. Confirme a escala e o retorno ao posto.",
+    )
+
+
+register(Regra(
+    nome="dp_retorno_ferias", familia="dp", severidade="atencao",
+    roles_destino=("admin", "rh", "dp"),
+    action_url="/redesign/aprovacoes",
+    detectar=_detectar_retorno_ferias, template=_tpl_retorno_ferias,
+))
+
+
 if __name__ == "__main__":
     import asyncio
     import inspect
