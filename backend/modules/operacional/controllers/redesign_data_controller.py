@@ -841,6 +841,37 @@ def moved(group_id, tab_id):
     return {"type": "redirect", "groupRef": {"t": group_id, "tab": tab_id}}
 
 
+def _ver_todas_rec(screens: dict) -> None:
+    """Clique-na-linha 'Ver' (modal read-only com os campos da linha) em TODA tabela do
+    redesign onde ainda NÃO há ver/editar/ação. Recorre nos grupos (type=tabs). Universal e
+    sem escrita — aplicado no dispatcher a TODOS os módulos (mata o 'clico e não abre nada').
+    Ficha rica/edição por tabela continua sendo feita por cima disto (aquelas já têm edit → puladas)."""
+    def _apply(scr):
+        if not isinstance(scr, dict):
+            return
+        ty = scr.get("type")
+        if ty == "tabs":
+            for tab in (scr.get("tabs") or []):
+                _apply((tab or {}).get("screen"))
+            return
+        if ty != "table":
+            return
+        cols = scr.get("cols", []) or []
+        titulo = scr.get("title", "Detalhe")
+        for row in (scr.get("rows") or []):
+            if not isinstance(row, dict):
+                continue
+            if row.get("edit") or any((a or {}).get("btnLabel") == "Ver" for a in (row.get("actions") or [])):
+                continue
+            campos = [{"label": c, "value": (cell.get("v") if isinstance(cell, dict) else cell) or "—"}
+                      for c, cell in zip(cols, (row.get("cells") or []))]
+            if campos:
+                row.setdefault("actions", []).insert(
+                    0, {"btnLabel": "Ver", "readOnly": True, "title": f"{titulo} — detalhe", "fields": campos})
+    for scr in list(screens.values()):
+        _apply(scr)
+
+
 def _fmtdate(d, fmt="%d/%m/%Y"):
     return d.strftime(fmt) if d else "—"
 
@@ -3214,6 +3245,10 @@ async def redesign_data(slug: str, current_user: CurrentActiveUser, db: AsyncSes
         screens = await builder(db, current_user=current_user)
     else:
         screens = await builder(db)
+    try:
+        _ver_todas_rec(screens)  # clique-na-linha 'Ver' universal (todos os módulos)
+    except Exception:  # noqa: BLE001 — navegação nunca derruba o dado
+        pass
     return {"slug": slug, "screens": screens, "wired": list(screens.keys()), "extraMenu": EXTRA_MENU.get(slug, [])}
 
 
