@@ -124,6 +124,31 @@ registrar_acao("financeiro", "registrar_custo_recorrente",
                _propor_registrar_custo_recorrente)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# F2-b — EXECUTORES dos achados dos agentes do beat (risco/fluxo/cobrança).
+# O agente do beat CRIA o rascunho (propor→aprovar) via criar_rascunho; ao aprovar,
+# o executor abaixo roda. Aprovar = o humano ACEITA a recomendação — NÃO move dinheiro
+# (gate 🟡, sem OTP). A ação concreta (disparar régua etc.) segue humana/nas telas;
+# aqui o valor é o aceite GOVERNADO e auditado (draft vira 'executado' + decidido_por).
+# ─────────────────────────────────────────────────────────────────────────────
+from .acoes.rascunho import registrar_executor  # noqa: E402
+
+_TIPOS_AGENTE_FIN = (
+    "financeiro_recomendacao_risco",
+    "financeiro_alerta_fluxo_caixa",
+    "financeiro_recomendacao_cobranca",
+)
+
+
+async def _exec_aceite_recomendacao_agente(db: Any, aprovador: Any, payload: dict) -> str:
+    """Registra o ACEITE da recomendação do agente. Não efetiva dinheiro nem fabrica ação."""
+    return str(payload.get("category") or payload.get("origem") or "recomendacao")
+
+
+for _t in _TIPOS_AGENTE_FIN:
+    registrar_executor(_t, _exec_aceite_recomendacao_agente)
+
+
 if __name__ == "__main__":
     import asyncio
     import os

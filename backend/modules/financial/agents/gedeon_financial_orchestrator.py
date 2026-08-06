@@ -131,6 +131,26 @@ class GedeonFinancialOrchestrator:
             }
 
     # ─────────────────────────────────────────────────────────────────────
+    # F2-b — ACHADO DO AGENTE → RASCUNHO NA CENTRAL (propor→aprovar)
+    # ─────────────────────────────────────────────────────────────────────
+
+    async def _propor_draft(self, *, tipo: str, titulo: str, resumo: str,
+                            payload: dict[str, Any], idempotency_key: str) -> None:
+        """Cria (idempotente) um rascunho na Central a partir de um achado REAL do agente.
+        Best-effort: o draft NUNCA derruba a vigília. Nunca move dinheiro (gate 🟡, sem OTP)."""
+        try:
+            from modules.ai.conversation.services.orquestrador.acoes.rascunho import criar_rascunho
+
+            await criar_rascunho(
+                self.db, None,
+                tipo=tipo, modulo="financeiro", titulo=titulo, resumo=resumo,
+                payload=payload, gate="🟡", requires_otp=False, roles_aprovador=("admin",),
+                idempotency_key=idempotency_key,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[Gedeon] draft central falhou (segue): %s", e)
+
+    # ─────────────────────────────────────────────────────────────────────
     # EXECUÇÕES INDIVIDUAIS
     # ─────────────────────────────────────────────────────────────────────
 
@@ -166,6 +186,21 @@ class GedeonFinancialOrchestrator:
             except Exception as _pe:  # noqa: BLE001
                 logger.warning("[Gedeon] RiskMonitor persistência falhou (segue): %s", _pe)
                 await self.db.rollback()
+
+            # F2-b: achados ACIONÁVEIS (não-verdes) viram rascunho na Central. Idempotente
+            # por categoria (não spamma no beat de 5min: 1 rascunho vivo por categoria).
+            for a in alerts:
+                if a.get("level") in ("vermelho", "critico", "laranja"):
+                    cat = a.get("category", "geral")
+                    acao = a.get("action")
+                    await self._propor_draft(
+                        tipo="financeiro_recomendacao_risco",
+                        titulo=a.get("title", "Risco financeiro"),
+                        resumo=(a.get("description") or "") + (f" | Ação sugerida: {acao}" if acao else ""),
+                        payload={"category": cat, "level": a.get("level"), "action": acao,
+                                 "origem": "agente:risco"},
+                        idempotency_key=f"agente_risco:{cat}",
+                    )
             return {
                 "agent": "RiskMonitorAgent",
                 "alerts": alerts,
@@ -186,6 +221,23 @@ class GedeonFinancialOrchestrator:
             context = await self._get_context()
             agent = CashflowPredictorAgent(self.db)
             prediction = await agent.predict(days=90)
+
+            # F2-b: fluxo negativo ou com gap projetado → rascunho na Central.
+            if isinstance(prediction, dict) and (prediction.get("trend") == "negativo" or prediction.get("gaps")):
+                gaps = prediction.get("gaps") or []
+                prim = gaps[0].get("date") if gaps and isinstance(gaps[0], dict) else None
+                saldo90 = float(prediction.get("predicted_90d") or 0)
+                await self._propor_draft(
+                    tipo="financeiro_alerta_fluxo_caixa",
+                    titulo="Fluxo de caixa em atenção",
+                    resumo=(f"Projeção 90d: saldo previsto R$ {saldo90:,.2f}, tendência "
+                            f"{prediction.get('trend')}."
+                            + (f" Primeiro gap projetado em {prim}." if prim else "")
+                            + " Revise antes que o caixa aperte."),
+                    payload={"predicted_90d": saldo90, "trend": prediction.get("trend"),
+                             "gaps": gaps[:5], "origem": "agente:fluxo"},
+                    idempotency_key="agente_fluxo_caixa",
+                )
             return {
                 "agent": "CashflowPredictorAgent",
                 "prediction": prediction,
@@ -205,6 +257,22 @@ class GedeonFinancialOrchestrator:
             context = await self._get_context()
             agent = CollectionNegotiatorAgent(self.db)
             analysis = await agent.analisar()
+
+            # F2-b: inadimplência real → rascunho recomendando acionar a régua de cobrança.
+            ctx = context or {}
+            qtd = int(ctx.get("qtd_inadimplentes") or 0)
+            total = float(ctx.get("total_inadimplencia") or 0)
+            if qtd and total:
+                await self._propor_draft(
+                    tipo="financeiro_recomendacao_cobranca",
+                    titulo=f"{qtd} cliente(s) inadimplente(s) — R$ {total:,.2f}",
+                    resumo=(f"Há R$ {total:,.2f} em atraso ({qtd} cliente(s), "
+                            f"{ctx.get('taxa_inadimplencia_pct', 0)}% da receita dos últimos 30d). "
+                            f"Recomendado acionar a régua de cobrança."),
+                    payload={"qtd_inadimplentes": qtd, "total_inadimplencia": total,
+                             "origem": "agente:cobranca"},
+                    idempotency_key="agente_cobranca",
+                )
             return {
                 "agent": "CollectionNegotiatorAgent",
                 "analysis": analysis,
