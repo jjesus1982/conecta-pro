@@ -407,8 +407,12 @@ register(Regra(
 # casos existem no mundo vs quantos estão registrados —, e o template DIZ isso na cara.
 # Silêncio de watcher cego é pior que alerta, porque parece "está tudo certo".
 
-MSG_SEM_REGISTRO = ("⚠️ Este vigia só enxerga o que está REGISTRADO no sistema. "
-                    "Se o caso não virou processo, ele não aparece aqui.")
+# O Conecta PRO está EM CONSTRUÇÃO: hoje o dado vem em boa parte da Portte/eSocial e o
+# fluxo nativo vai sendo assumido módulo a módulo. Então "não está no sistema" quase nunca
+# é negligência do DP — é migração em curso. O texto do alerta precisa dizer isso, senão
+# soa como cobrança e a pessoa para de confiar no vigia.
+MSG_SEM_REGISTRO = ("⚠️ Este vigia só enxerga o que já está no fluxo nativo. Enquanto o "
+                    "dado vier da Portte/eSocial, o caso pode existir e não aparecer aqui.")
 
 
 # ─────────────────────── dp_aviso_previo_vencendo ───────────────────────
@@ -557,10 +561,11 @@ async def _detectar_desligamento_sem_processo(db: AsyncSession) -> list[Achado]:
 
 def _tpl_desligamento_sem_processo(d: dict) -> tuple[str, str]:
     return (
-        f"Desligamento sem processo: {d['nome']}",
-        f"{d['nome']} tem desligamento em {d['dt']} no cadastro, mas NÃO há processo de "
-        f"rescisão no sistema. Sem o processo não há aviso prévio para vigiar, não há TRCT "
-        f"e o eSocial S-2299 não nasce. Registre o processo para o prazo passar a ser vigiado.",
+        f"Desligamento a migrar para o fluxo nativo: {d['nome']}",
+        f"{d['nome']} tem desligamento em {d['dt']} no cadastro e ainda não tem processo de "
+        f"rescisão aqui — normal enquanto o Conecta PRO consome dado da Portte/eSocial e o "
+        f"fluxo nativo vai sendo assumido. Vale trazer para cá: é o processo que faz o "
+        f"aviso prévio ser vigiado, o TRCT sair e o S-2299 nascer.",
     )
 
 
