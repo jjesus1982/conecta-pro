@@ -572,6 +572,63 @@ register(Regra(
 ))
 
 
+# ─────────────────────── dp_termino_experiencia ───────────────────────
+async def _detectar_termino_experiencia(db: AsyncSession) -> list[Achado]:
+    """Fim de contrato de experiência (30 e 90 dias) chegando — a coluna "Términos de
+    Contrato" do quadro da Pyetra.
+
+    DERIVA DA ADMISSÃO, não do `tipo_contrato` — que é NULL em 50 de 52 ativos e faria o
+    watcher nascer cego. A derivação foi CONFERIDA contra o quadro dela (06/08):
+        ALEXANDRE/KELLY/NAILSON  adm 19/07 + 30 = 18/08  ← quadro diz 18/08
+        RENE/PAULO/EULER         adm 19/06 + 90 = 17/09  ← quadro diz 17/09
+    Bate ao dia nos dois marcos, então a convenção 30+60 está certa para esta empresa.
+
+    ⚠️ Assume contrato de experiência padrão. Quem entrou direto por prazo indeterminado
+    aparece aqui como falso positivo — por isso o corpo DIZ que é derivado da admissão e
+    pede para ignorar se não se aplica. Preencher `tipo_contrato` elimina o ruído; enquanto
+    ele for NULL, prefiro alertar de mais a deixar a coluna do quadro sem vigia nenhum.
+    Perder o marco converte o contrato em indeterminado por decurso de prazo.
+    """
+    rows = (await db.execute(text(
+        "SELECT e.id::text AS id, e.nome AS nome, e.data_admissao AS adm, m.marco AS marco, "
+        "       (e.data_admissao + m.marco) AS venc, "
+        "       ((e.data_admissao + m.marco) - current_date) AS dias "
+        "FROM employees e CROSS JOIN (VALUES (30), (90)) AS m(marco) "
+        "WHERE lower(coalesce(e.status,'')) = 'ativo' AND e.data_admissao IS NOT NULL "
+        "  AND lower(coalesce(e.tipo_contrato,'')) <> 'pj' "
+        "  AND (e.data_admissao + m.marco) BETWEEN current_date AND current_date + 15 "
+        "ORDER BY 5"
+    ))).mappings().all()
+    return [Achado(
+        correlation_id=f"dp_termino_exp:{r['id']}:{r['marco']}",
+        dados={"nome": r["nome"], "adm": str(r["adm"]), "marco": int(r["marco"]),
+               "venc": str(r["venc"]), "dias": int(r["dias"])},
+    ) for r in rows]
+
+
+def _tpl_termino_experiencia(d: dict) -> tuple[str, str]:
+    etapa = "1º período (30 dias)" if d["marco"] == 30 else "2º período (90 dias — final)"
+    fim = ("Decida a PRORROGAÇÃO para os 60 dias seguintes."
+           if d["marco"] == 30 else
+           "Decida entre EFETIVAR ou RESCINDIR. Passar da data converte o contrato em "
+           "prazo indeterminado por decurso, e aí a saída vira rescisão comum (com aviso "
+           "prévio e multa de FGTS).")
+    return (
+        f"Experiência vence em {d['dias']} dia(s): {d['nome']}",
+        f"{d['nome']} (admitido em {d['adm']}) fecha o {etapa} em {d['venc']}. {fim} "
+        f"Derivado da data de admissão — se esta pessoa não está em contrato de "
+        f"experiência, ignore e preencha `tipo_contrato` no cadastro para não repetir.",
+    )
+
+
+register(Regra(
+    nome="dp_termino_experiencia", familia="dp", severidade="critico",
+    roles_destino=("admin", "rh", "dp"),
+    action_url="/redesign/aprovacoes",
+    detectar=_detectar_termino_experiencia, template=_tpl_termino_experiencia,
+))
+
+
 # ─────────────────────── dp_retorno_ferias ───────────────────────
 async def _detectar_retorno_ferias(db: AsyncSession) -> list[Achado]:
     """Retorno de férias em ≤3 dias (o quadro da Pyetra rastreia isso à mão).
