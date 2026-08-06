@@ -243,6 +243,97 @@ registrar_acao("dp", "concluir_admissao",
                _propor_concluir_admissao)
 
 
+# ═════════════════ CAPTURA (F1) — propor REGISTRAR o que caiu fora ═════════════════
+# LEI: captura ≥ vigília. O watcher `dp_desligamento_sem_processo` achou 9 pessoas com
+# data de desligamento no cadastro e SEM processo de rescisão — o caso Keyson: o
+# desligamento existia no mundo (e no quadro da parede) e não no sistema, então não havia
+# aviso prévio para vigiar. Estas ações fecham o buraco de NASCIMENTO do dado, sempre
+# pela porta oficial (TerminationService.create_termination, a mesma da tela).
+
+async def _propor_registrar_desligamento(
+    db, user, scope, *, employee_id: str = "", funcionario: str = "",
+    tipo: str = "", aviso_dias: int | str = 0, **_
+) -> dict[str, Any]:
+    """PROPÕE abrir o processo de rescisão de quem já tem desligamento no cadastro.
+
+    Evidência ESPECÍFICA (nunca genérica): a data vem de `employees.data_desligamento`,
+    o fato de não haver processo vem de um NOT EXISTS em `termination_processes`.
+    Honestidade do não-derivável: o TIPO da rescisão (sem justa causa / pedido de demissão
+    / justa causa) e os dias de aviso NÃO são deriváveis do cadastro — o rascunho nasce
+    com o campo em aberto e pede confirmação, em vez de chutar.
+    """
+    emp = str(employee_id or funcionario or "").strip()
+    if not emp:
+        return {"erro": "employee_id (uuid do funcionário) é obrigatório"}
+    try:
+        uuid.UUID(emp)
+    except (ValueError, AttributeError, TypeError):
+        return {"erro": "employee_id inválido (esperado uuid)"}
+
+    row = (await db.execute(text(
+        "SELECT e.nome, coalesce(e.data_desligamento, e.data_demissao) AS dt, "
+        "       EXISTS (SELECT 1 FROM termination_processes t WHERE t.employee_id = e.id) AS tem "
+        "FROM employees e WHERE CAST(e.id AS TEXT) = :e"
+    ), {"e": emp})).mappings().first()
+    if not row:
+        return {"erro": "funcionário não encontrado"}
+    if not row["dt"]:
+        return {"erro": "esse funcionário não tem data de desligamento no cadastro — "
+                        "nada a capturar (não invento desligamento)"}
+    if row["tem"]:
+        return {"erro": "já existe processo de rescisão para esse funcionário"}
+
+    # tipo é do DP, não do agente: sem valor confiável o rascunho pede confirmação
+    tipo_norm = (tipo or "").strip().lower() or None
+    try:
+        dias = int(str(aviso_dias).split()[0]) if aviso_dias else 0
+    except (ValueError, IndexError):
+        dias = 0
+
+    async def _inserir(_db) -> str:
+        from modules.people_management.hr.services.termination_service import TerminationService
+
+        svc = TerminationService(_db)
+        proc = await svc.create_termination(
+            {"employee_id": emp,
+             "type": tipo_norm or "sem_justa_causa",
+             "termination_date": str(row["dt"]),
+             **({"notice_period_days": dias, "notice_start_date": str(row["dt"])} if dias else {})},
+            created_by_id=getattr(user, "id", None),
+        )
+        return str(proc.id)
+
+    falta = [] if tipo_norm else ["tipo da rescisão"]
+    if not dias:
+        falta.append("dias de aviso prévio")
+    aviso = (f" ⚠️ CONFIRME antes de aprovar: {', e '.join(falta)} — não é derivável do "
+             f"cadastro e eu não chuto.") if falta else ""
+
+    return await propor(
+        db, user=user, scope=scope, dominio="rescisao_registrar", gate="🔴",
+        roles_aprovador=ROLES_MONEY,  # rescisão gera verba: aprovação de diretoria
+        idempotency_key=f"dp:registrar_desligamento:{emp}",
+        titulo=f"Registrar rescisão: {row['nome']}",
+        corpo=(f"{row['nome']} tem desligamento em {row['dt']} no cadastro, mas NÃO há "
+               f"processo de rescisão no sistema — por isso o aviso prévio dele não está "
+               f"sendo vigiado, e o TRCT e o eSocial S-2299 não nascem.{aviso}"),
+        action_url="/redesign/aprovacoes",
+        tool="propor_registrar_desligamento",
+        args={"employee_id": emp, "tipo": tipo_norm, "aviso_dias": dias},
+        entity_type="termination_process",
+        inserir=_inserir,
+    )
+
+
+registrar_acao("dp", "registrar_desligamento",
+               "PROPOR abrir o processo de rescisão de quem JÁ tem data de desligamento no "
+               "cadastro e não tem processo (fecha o buraco que deixou o aviso prévio sem "
+               "vigia). dados: employee_id (uuid, obrig.), tipo (opcional), aviso_dias "
+               "(opcional). NÃO abre — a execução é a aprovação humana.",
+               _propor_registrar_desligamento)
+
+
+
 if __name__ == "__main__":
     import asyncio
     import os
