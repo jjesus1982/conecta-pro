@@ -697,12 +697,17 @@ async def advisor_chat(
     session: AsyncSession = Depends(get_db_session),
     current_user=Depends(get_current_user),
 ):
-    """
-    Chat com o Financial Advisor Agent.
-    Responde perguntas em linguagem natural com dados reais do sistema.
-    """
-    agent = FinancialAdvisorAgent(session)
-    return await agent.responder_pergunta(request.pergunta)
+    """Chat financeiro — F2-e: consolidado no cérebro REAL do CFO (LLM ancorado nos números),
+    aposentando o chat-template duplicado. Mesmo shape {resposta:...} que o front já lê."""
+    from modules.financial import cfo_service
+
+    try:
+        return await cfo_service.consultar(
+            session, area="estrategico", pergunta=request.pergunta,
+            user_id=str(getattr(current_user, "id", None)),
+        )
+    except ValueError as exc:
+        return {"resposta": str(exc), "escalonar": False}
 
 
 @router.get("/advisor/relatorio")
@@ -1000,27 +1005,31 @@ async def get_agents_status(
 
     from modules.financial.agents.skill_loader import SkillLoader
 
+    # F2-d parede "nunca fabricar": só estes 3 rodam AGENDADOS (celery beat). O restante
+    # é sob demanda (chamado por API/tela) — antes o schedule anunciava horários inexistentes.
     agents_config = [
+        {"name": "RiskMonitorAgent", "schedule": "a cada 5 min (beat)",
+         "skills": ["kpis-financeiros", "matriz-riscos-negocio"]},
+        {
+            "name": "CashflowPredictorAgent",
+            "schedule": "diário 07:15 (beat)",
+            "skills": ["projecao-fluxo-caixa-12-meses", "analise-fluxo-caixa-real"],
+        },
+        {"name": "CollectionNegotiatorAgent", "schedule": "diário 09:00 (beat)",
+         "skills": ["gestao-inadimplencia"]},
         {
             "name": "FinancialAdvisorAgent",
-            "schedule": "diário 07:30",
+            "schedule": "sob demanda",
             "skills": ["dre-gerencial", "kpis-financeiros", "analise-fluxo-caixa-real"],
         },
         {
-            "name": "CashflowPredictorAgent",
-            "schedule": "diário 07:00",
-            "skills": ["projecao-fluxo-caixa-12-meses", "analise-fluxo-caixa-real"],
-        },
-        {"name": "RiskMonitorAgent", "schedule": "5 minutos", "skills": ["kpis-financeiros", "matriz-riscos-negocio"]},
-        {"name": "CollectionNegotiatorAgent", "schedule": "diário 09:00", "skills": ["gestao-inadimplencia"]},
-        {
             "name": "PricingOptimizerAgent",
-            "schedule": "mensal dia 1",
+            "schedule": "sob demanda",
             "skills": ["framework-precificacao-margem", "break-even-ponto-equilibrio"],
         },
-        {"name": "TaxCalculatorAgent", "schedule": "trimestral dia 20", "skills": ["tributario-lucro-real"]},
-        {"name": "BillingAutomatorAgent", "schedule": "diário 08:00", "skills": []},
-        {"name": "CostingAnalyzerAgent", "schedule": "mensal dia 1", "skills": ["analise-margem-por-servico"]},
+        {"name": "TaxCalculatorAgent", "schedule": "sob demanda", "skills": ["tributario-lucro-real"]},
+        {"name": "BillingAutomatorAgent", "schedule": "sob demanda", "skills": []},
+        {"name": "CostingAnalyzerAgent", "schedule": "sob demanda", "skills": ["analise-margem-por-servico"]},
     ]
 
     skills_available = SkillLoader.list_available()
