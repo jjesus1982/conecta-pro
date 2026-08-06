@@ -201,8 +201,42 @@ async def _digest(db) -> dict:
             {"u": uid, "title": "Bom dia — o que precisa da sua atenção",
              "body": corpo, "extra": extra})
         notificacoes += 1
+    # ── Central: os CARTÕES esperando decisão ──────────────────────────────
+    # O digest acima consolida ALERTAS DE REGRA (o que os watchers viram). Este bloco
+    # cobre o outro lado: os RASCUNHOS abertos na Central, que é o trabalho já preparado
+    # esperando o OK. São coisas diferentes e as duas importam para a Pyetra — sem isto
+    # ela recebe "o que precisa de atenção" e não recebe "o que está pronto para aprovar".
+    cartoes = 0
+    try:
+        from modules.notifications.proativo.digest_dp import montar_digest
+
+        d = await montar_digest(db)
+        if d:  # None = nenhum cartão aberto → silêncio honesto, ninguém recebe
+            for uid in await resolver_usuarios_por_roles(db, ("admin", "rh", "dp")):
+                cid_c = f"digest_central:{uid}:{hoje}"
+                if (await db.execute(text(
+                    "SELECT 1 FROM communication_notifications "
+                    "WHERE user_id=:u AND extra_data->>'correlation_id'=:cid LIMIT 1"),
+                        {"u": uid, "cid": cid_c})).first():
+                    continue
+                await db.execute(text(
+                    f"INSERT INTO communication_notifications "
+                    f"(id, tenant_id, user_id, title, body, type, reference_type, "
+                    f" reference_id, action_url, extra_data, is_active, sent_at, created_at) "
+                    f"VALUES (gen_random_uuid(), :u, :u, :title, :body, 'sistema', "
+                    f" 'digest_central', NULL, '/redesign/aprovacoes', "
+                    f" CAST(:extra AS jsonb), true, {_NOW_}, {_NOW_})"),
+                    {"u": uid, "title": d["assunto"], "body": d["corpo"],
+                     "extra": json.dumps({"origem": "digest_central",
+                                          "correlation_id": cid_c,
+                                          "itens": d["total"], "criticos": d["criticos"]})})
+                cartoes += 1
+    except Exception as e:  # noqa: BLE001 — o digest de regras não pode cair por causa deste
+        logger.warning("[proativo] digest da Central falhou (%s)", e)
+
     await db.commit()
-    return {"destinatarios": len(por_user), "notificacoes": notificacoes}
+    return {"destinatarios": len(por_user), "notificacoes": notificacoes,
+            "digest_central": cartoes}
 
 
 @app.task(name="proativo.digest_diario", bind=True, max_retries=1)
