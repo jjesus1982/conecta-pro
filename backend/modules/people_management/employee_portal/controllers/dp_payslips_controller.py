@@ -265,6 +265,23 @@ async def publicar_payslip(
         except Exception as notif_err:
             logger.warning("Auto-notificação payslip falhou: %s", notif_err)
 
+        # AUTOMÁTICO (decisão Jordan 2026-08): ao PUBLICAR o holerite, gera espelho de ponto
+        # e recibo de VT/VR do funcionário e cria os 3 no fluxo de CO-ASSINATURA (funcionário
+        # + empresa). Best-effort, em thread — NUNCA quebra a publicação. Idempotente.
+        try:
+            import asyncio
+
+            from modules.people_management.folha.services.gerar_docs_mes_service import (
+                gerar_docs_funcionario,
+            )
+
+            _mes = int(payslip.reference_month)
+            _ano = int(payslip.reference_year)
+            _eid = str(payslip.employee_id)
+            asyncio.create_task(asyncio.to_thread(gerar_docs_funcionario, _mes, _ano, _eid))
+        except Exception as gen_err:  # noqa: BLE001
+            logger.warning("Auto-geração de documentos pós-publicação falhou: %s", gen_err)
+
         return {"message": "Contracheque publicado com sucesso.", "payslip_id": str(payslip_id)}
     except Exception as exc:
         await db.rollback()
