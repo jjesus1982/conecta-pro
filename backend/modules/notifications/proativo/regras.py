@@ -634,6 +634,57 @@ register(Regra(
 ))
 
 
+# ─────────────────────── dp_admissao_em_curso ───────────────────────
+async def _detectar_admissao_em_curso(db: AsyncSession) -> list[Achado]:
+    """Admissão parada antes da data prevista de início — a coluna "Admissões" do quadro.
+
+    O quadro dela encadeia prazos por etapa (docs → revisão → ASO → admissão). Aqui a regra
+    é mais simples e honesta: alerta quando a data prevista de início está chegando (ou
+    passou) e o processo NÃO está concluído. Não invento as sub-datas dela; uso a única
+    âncora que o sistema tem de verdade, que é `expected_start_date`.
+
+    Não alerta sobre admissão sem processo: enquanto o Conecta PRO consome dado da
+    Portte/eSocial, gente entra na folha sem passar por aqui, e cobrar isso como pendência
+    seria ruído de migração, não risco.
+    """
+    rows = (await db.execute(text(
+        "SELECT a.id::text AS id, coalesce(a.candidate_name, '—') AS nome, "
+        "       a.expected_start_date AS inicio, a.status::text AS st, "
+        "       (a.expected_start_date - current_date) AS dias, "
+        "       a.medical_exam_date AS aso "
+        "FROM admission_processes a "
+        "WHERE a.expected_start_date IS NOT NULL "
+        "  AND lower(coalesce(a.status::text,'')) NOT IN "
+        "      ('completed','concluido','concluído','cancelled','cancelado') "
+        "  AND a.expected_start_date <= current_date + 10 "
+        "ORDER BY a.expected_start_date"
+    ))).mappings().all()
+    return [Achado(
+        correlation_id=f"dp_admissao_curso:{r['id']}",
+        dados={"nome": r["nome"], "inicio": str(r["inicio"]), "dias": int(r["dias"]),
+               "status": (r["st"] or "").replace("_", " "), "tem_aso": r["aso"] is not None},
+    ) for r in rows]
+
+
+def _tpl_admissao_em_curso(d: dict) -> tuple[str, str]:
+    quando = (f"começa em {d['dias']} dia(s)" if d["dias"] > 0
+              else ("começa hoje" if d["dias"] == 0 else f"deveria ter começado há {abs(d['dias'])} dia(s)"))
+    aso = "" if d["tem_aso"] else " O ASO admissional ainda não tem data — sem ele a pessoa não pode iniciar."
+    return (
+        f"Admissão {quando}: {d['nome']}",
+        f"A admissão de {d['nome']} está em '{d['status']}' e o início previsto é "
+        f"{d['inicio']}.{aso} Conclua o processo para o vínculo, o contrato e o S-2200 nascerem.",
+    )
+
+
+register(Regra(
+    nome="dp_admissao_em_curso", familia="dp", severidade="atencao",
+    roles_destino=("admin", "rh", "dp"),
+    action_url="/redesign/aprovacoes",
+    detectar=_detectar_admissao_em_curso, template=_tpl_admissao_em_curso,
+))
+
+
 # ─────────────────────── dp_retorno_ferias ───────────────────────
 async def _detectar_retorno_ferias(db: AsyncSession) -> list[Achado]:
     """Retorno de férias em ≤3 dias (o quadro da Pyetra rastreia isso à mão).

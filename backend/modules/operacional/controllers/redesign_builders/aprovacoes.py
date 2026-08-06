@@ -124,6 +124,7 @@ async def _tela_prazos(db: AsyncSession, current_user=None) -> dict:
         "dp_ferias_limite_gozo": "Férias",
         "dp_retorno_ferias": "Férias",
         "dp_desligamento_sem_processo": "Migração p/ o fluxo nativo",
+        "dp_admissao_em_curso": "Admissões",
     }
 
     def _linha(r):
