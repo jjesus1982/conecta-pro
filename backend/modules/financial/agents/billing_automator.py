@@ -129,65 +129,20 @@ class BillingAutomatorAgent(BaseAgent):
         Calcula medição mensal estimada por tipo de serviço de portaria/serviços para condomínios.
         Retorna detalhamento de custos e valor total.
         """
-        tipo_norm = tipo.lower().strip()
-        periodo = max(1, periodo_dias)
-
-        # Tabela de parâmetros padrão por tipo (valores de referência SP)
-        params = {
-            "portaria": {
-                "custo_diario_posto": 350.0,
-                "he_percentual": 0.08,
-                "noturno_percentual": 0.12,
-                "label": "Portaria / Serviços para Condomínios",
-            },
-            "limpeza": {
-                "custo_diario_posto": 180.0,
-                "he_percentual": 0.05,
-                "noturno_percentual": 0.0,
-                "label": "Limpeza e Conservação",
-            },
-            "jardinagem": {
-                "custo_diario_posto": 120.0,
-                "he_percentual": 0.02,
-                "noturno_percentual": 0.0,
-                "label": "Jardinagem",
-            },
-            "seguranca_eletronica": {
-                "custo_diario_posto": 95.0,
-                "he_percentual": 0.0,
-                "noturno_percentual": 0.10,
-                "label": "Segurança Eletrônica / Monitoramento",
-            },
-            "portaria_remota": {
-                "custo_diario_posto": 75.0,
-                "he_percentual": 0.0,
-                "noturno_percentual": 0.08,
-                "label": "Portaria Remota",
-            },
-        }
-
-        params = params.get(tipo_norm, params["portaria"])
-        valor_base = round(params["custo_diario_posto"] * periodo, 2)
-        adicional_he = round(valor_base * params["he_percentual"], 2)
-        adicional_noturno = round(valor_base * params["noturno_percentual"], 2)
-        deducoes = 0.0
-        valor_total = round(valor_base + adicional_he + adicional_noturno - deducoes, 2)
-
+        # Parede "nunca fabricar": a medição real depende do custo do contrato
+        # (posto/folha), que NÃO é derivável de uma tabela fixa de referência. Sem
+        # essa fonte plugada, não devolvemos número inventado — devolvemos "aguardando dado".
+        # ponytail: plugar custo real por contrato_id (folha/posto) reativa o cálculo.
         return {
-            "tipo": tipo_norm,
-            "tipo_label": params["label"],
+            "status": "aguardando_dado",
+            "tipo": tipo.lower().strip(),
             "contrato_descricao": contrato_descricao,
-            "periodo_dias": periodo,
-            "valor_base": valor_base,
-            "adicional_he": adicional_he,
-            "adicional_noturno": adicional_noturno,
-            "deducoes": deducoes,
-            "valor_total": valor_total,
-            "detalhamento": {
-                "custo_diario": params["custo_diario_posto"],
-                "he_percentual": round(params["he_percentual"] * 100, 1),
-                "noturno_percentual": round(params["noturno_percentual"] * 100, 1),
-            },
+            "periodo_dias": max(1, periodo_dias),
+            "valor_total": None,
+            "motivo": (
+                "A medição precisa do custo real deste contrato (posto/folha). "
+                "Valores de referência fixos não representam o contrato — não exibimos número fabricado."
+            ),
         }
 
     # ------------------------------------------------------------------

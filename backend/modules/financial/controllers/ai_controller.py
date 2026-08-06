@@ -137,13 +137,58 @@ async def _calculate_default_metrics(session: AsyncSession, condominio_id: str):
     upcoming_payables = (await session.execute(payable_q)).scalar_one() or Decimal("0")
 
     default_rate = float(overdue_recv / total_recv * 100) if total_recv > 0 else 0.0
+    margin_avg, revenue_trend = await _real_margin_trend(session, condominio_id)
 
     return {
         "total_recv": total_recv,
         "overdue_recv": overdue_recv,
         "default_rate": default_rate,
         "upcoming_payables": upcoming_payables,
+        "margin_avg": margin_avg,
+        "revenue_trend": revenue_trend,
     }
+
+
+async def _real_margin_trend(session: AsyncSession, condominio_id: str) -> tuple[float, str]:
+    """Margem % e tendência de receita REAIS do banco (30d pago vs 30–60d). Nunca fabrica."""
+    from sqlalchemy import and_, func, select
+
+    from modules.financial.models.payable_account import PayableAccount
+    from modules.financial.models.receivable_account import ReceivableAccount, ReceivableStatus
+
+    today = date.today()
+    d30 = today - timedelta(days=30)
+    d60 = today - timedelta(days=60)
+
+    def _scope(q):
+        if condominio_id:
+            try:
+                return q.where(ReceivableAccount.condominio_id == UUID(condominio_id))
+            except Exception:  # noqa: S110
+                return q
+        return q
+
+    async def _sum(q):
+        return float((await session.execute(q)).scalar_one() or 0)
+
+    recv_30 = await _sum(_scope(select(func.coalesce(func.sum(ReceivableAccount.net_value), 0)).where(
+        and_(ReceivableAccount.payment_date >= d30, ReceivableAccount.payment_date <= today,
+             ReceivableAccount.status == ReceivableStatus.PAGA.value))))
+    recv_prev = await _sum(_scope(select(func.coalesce(func.sum(ReceivableAccount.net_value), 0)).where(
+        and_(ReceivableAccount.payment_date >= d60, ReceivableAccount.payment_date < d30,
+             ReceivableAccount.status == ReceivableStatus.PAGA.value))))
+    pay_30 = await _sum(select(func.coalesce(func.sum(PayableAccount.net_value), 0)).where(
+        and_(PayableAccount.payment_date >= d30, PayableAccount.payment_date <= today,
+             PayableAccount.status == "paga")))
+
+    margin = round((recv_30 - pay_30) / recv_30 * 100, 2) if recv_30 > 0 else 0.0
+    if recv_30 > recv_prev * 1.05:
+        trend = "subindo"
+    elif recv_30 < recv_prev * 0.95 and recv_prev > 0:
+        trend = "caindo"
+    else:
+        trend = "estavel"
+    return margin, trend
 
 
 def _build_alerts(metrics: dict) -> list[RiskAlert]:
@@ -254,8 +299,8 @@ def _build_health(metrics: dict, alerts: list[RiskAlert]) -> HealthCheck:
         classification=classification,
         liquidity=float(total_recv - overdue_recv),
         default_rate=default_rate,
-        revenue_trend="estavel",
-        margin_avg=0.0,
+        revenue_trend=metrics.get("revenue_trend", "estavel"),
+        margin_avg=metrics.get("margin_avg", 0.0),
         alerts_count=len(alerts),
     )
 
@@ -287,13 +332,15 @@ async def get_command_center(
     try:
         result = await run_command_center(session)
         hd = result.get("health", {})
+        # Parede "nunca fabricar": margem/tendência vêm do banco, não do 0.0 chumbado.
+        real_margin, real_trend = await _real_margin_trend(session, condominio_id)
         health = HealthCheck(
             score=hd.get("score", 70),
             classification=hd.get("classification", "bom"),
             liquidity=hd.get("liquidity", 0.0),
             default_rate=hd.get("default_rate", 0.0),
-            revenue_trend=hd.get("revenue_trend", "estavel"),
-            margin_avg=hd.get("margin_avg", 0.0),
+            revenue_trend=real_trend,
+            margin_avg=real_margin,
             alerts_count=hd.get("alerts_count", 0),
         )
         alerts = [RiskAlert(**a) for a in result.get("alerts", []) if isinstance(a, dict)]
@@ -418,95 +465,6 @@ async def get_risks(
         return alerts
 
 
-# ===================================================================
-# ENDPOINT 3 — ADVISOR (LLM com fallback baseado em regras)
-# ===================================================================
-
-
-@router.post("/advisor", status_code=201)
-async def ask_advisor(
-    question: str = Query(...),
-    condominio_id: str = Query(default=""),
-    current_user=Depends(get_current_user),
-):
-    """
-    Responde perguntas financeiras em linguagem natural.
-
-    Usa o LLM Provider (Anthropic) quando a API key estiver configurada.
-    Caso contrário, aplica lógica de regras como fallback inteligente.
-    """
-    from core.config.settings import settings
-
-    question_lower = question.lower()
-
-    # Tentar LLM se a key estiver disponível
-    api_key = getattr(settings, "ANTHROPIC_API_KEY", None)
-    if api_key:
-        try:
-            from modules.ai.conversation.services.llm_provider import LLMModel, LLMProvider
-
-            llm = LLMProvider()
-            system_prompt = (
-                "Você é um assistente financeiro especializado em empresas de segurança patrimonial. "
-                "Responda de forma concisa e prática, focando em ações concretas. "
-                "Use linguagem simples, sem jargões. Máximo de 3 parágrafos."
-            )
-            answer = await llm.generate(
-                model=LLMModel.CLAUDE_3_HAIKU,
-                system=system_prompt,
-                messages=[{"role": "user", "content": question}],
-                max_tokens=512,
-            )
-            return {"answer": answer, "data": None}
-        except Exception as exc:
-            logger.warning("LLM indisponível, usando fallback: %s", exc)
-
-    # Fallback baseado em regras
-    if any(w in question_lower for w in ["contrato", "rentável", "rentavel", "margem"]):
-        return {
-            "answer": (
-                "Para visualizar a margem por contrato, acesse a página de Custeio ABC e filtre por "
-                "tipo de serviço. Os contratos de Portaria Remota e Segurança Eletrônica tendem a ter "
-                "as maiores margens (35-40%)."
-            ),
-            "data": None,
-        }
-    if any(w in question_lower for w in ["inadimpl", "atraso", "cobrança", "cobranca"]):
-        return {
-            "answer": (
-                "Acesse Cobranças > Inadimplentes para ver a lista completa. "
-                "Priorize clientes com mais de 30 dias de atraso e ative a régua de cobrança automática."
-            ),
-            "data": None,
-        }
-    if any(w in question_lower for w in ["fluxo", "caixa", "saldo"]):
-        return {
-            "answer": (
-                "Acesse Fluxo de Caixa para ver a previsão de 90 dias. "
-                "O painel mostra gaps projetados e sugere ações preventivas."
-            ),
-            "data": None,
-        }
-    if any(w in question_lower for w in ["custo", "horas extras", "folha"]):
-        return {
-            "answer": (
-                "Acesse Custeio ABC para ver o custo detalhado por posto e contrato. "
-                "Anomalias de horas extras aparecem como alertas no dashboard."
-            ),
-            "data": None,
-        }
-
-    return {
-        "answer": (
-            "Posso ajudar com análise de inadimplência, fluxo de caixa, "
-            "custos por contrato e precificação. "
-            "Faça uma pergunta específica sobre essas áreas."
-        ),
-        "data": None,
-    }
-
-
-# ===================================================================
 # ENDPOINT 4 — CASHFLOW PREDICTION
 # ===================================================================
 

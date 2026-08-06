@@ -4,9 +4,6 @@ Contas a Pagar, Contas a Receber, Fluxo de Caixa, Compras e Contabilidade.
 """
 
 # Contas a Pagar
-# Contabilidade
-from modules.financial.services.accounting_ai_service import AccountingAIService
-
 # Fluxo de Caixa
 from modules.financial.services.cashflow_ai_service import CashFlowAIService
 from modules.financial.services.cashflow_service import CashFlowProjection, CashFlowService
@@ -32,8 +29,6 @@ __all__ = [
     "CashFlowAIService",
     # Compras
     "PurchaseAIService",
-    # Contabilidade
-    "AccountingAIService",
     # Fiscal
     "FiscalAIService",
 ]

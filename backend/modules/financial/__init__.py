@@ -190,8 +190,6 @@ from modules.financial.repositories import (  # noqa: E402
 # SERVICES PRINCIPAIS (Re-exports para acesso direto)
 # =============================================================================
 from modules.financial.services import (  # noqa: E402
-    # Contabilidade
-    AccountingAIService,
     CashFlowAIService,
     # Fluxo de Caixa
     CashFlowService,
@@ -367,7 +365,6 @@ __all__ = [
     "CashFlowService",
     "CashFlowAIService",
     "PurchaseAIService",
-    "AccountingAIService",
     "FiscalAIService",
     # =========================================================================
     # SERVICES - Custeio ABC
