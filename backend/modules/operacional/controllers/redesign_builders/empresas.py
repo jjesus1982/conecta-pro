@@ -25,6 +25,7 @@ SLUG = "empresas"
 
 EXTRA_MENU: list[dict] = [
     {"id": "nova-liminar", "label": "Nova Liminar", "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 15h6M9 11h6"},
+    {"id": "gerar-docs-mes", "label": "Gerar documentos do mês", "icon": "M12 4v16m8-8H4"},
     {"id": "assinar-holerites", "label": "Assinar holerites", "icon": "M9 12h6m-6 4h6m2 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"},
     {"id": "assinar-espelhos", "label": "Assinar espelhos de ponto", "icon": "M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"},
     {"id": "assinar-recibos", "label": "Assinar recibos VT/VR", "icon": "M4 4h16v12H5.17L4 17.17V4zm4 4h8M8 11h5"},
@@ -270,6 +271,27 @@ async def build(db) -> dict:
         "rows": _jur_rows,
     }
 
+    # ---- GERAR DOCUMENTOS DO MÊS (holerite/espelho/recibo) direto no sistema ----
+    out["gerar-docs-mes"] = {
+        "title": "Gerar documentos do mês para assinatura",
+        "sub": ("Gera os documentos do mês (holerite, espelho de ponto, recibo de VT/VR) de TODOS os "
+                "funcionários CLT ativos da Patrimonial e cria cada um no fluxo de co-assinatura "
+                "(funcionário + empresa). Roda em segundo plano; os documentos aparecem em 'Assinar "
+                "documentos' e no Meu Espaço de cada funcionário. Idempotente — rodar de novo não duplica."),
+        "cta": "Gerar documentos", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/gerar-docs-mes",
+                   "okMsg": "Geração iniciada — os documentos aparecerão em alguns minutos."},
+        "fields": [
+            {"key": "competencia", "label": "Competência (MM/AAAA)*", "type": "text", "span": "span 1", "ph": "07/2026"},
+            {"key": "tipo", "label": "Tipo", "type": "select", "span": "span 1", "options": [
+                {"value": "todos", "label": "Todos (holerite + espelho + recibo)"},
+                {"value": "holerite", "label": "Só holerites"},
+                {"value": "espelho", "label": "Só espelhos de ponto"},
+                {"value": "recibo", "label": "Só recibos de VT/VR"},
+            ]},
+        ],
+    }
+
     return out
 
 
@@ -461,3 +483,37 @@ async def _rd_doc_juridico(slug: str, current_user: CurrentActiveUser, db=Depend
     if not _os.path.exists(path):
         raise HTTPException(status_code=404, detail="Arquivo ainda não disponível.")
     return FileResponse(path, media_type="application/pdf", filename=fn)
+
+
+@router.post("/action/gerar-docs-mes")
+async def _rd_gerar_docs_mes(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Gera os documentos do mês (holerite/espelho/recibo) de todos os CLT ativos da
+    Patrimonial e cria cada um no fluxo de co-assinatura. Roda em THREAD (não trava a API);
+    retorna na hora. Gated: só admin/operator."""
+    import asyncio
+    import logging
+    import re as _re
+
+    if (getattr(current_user, "role", "") or "") not in ("admin", "operator"):
+        raise HTTPException(status_code=403, detail="Acesso restrito à administração.")
+
+    m = _re.match(r"^\s*(\d{1,2})\s*/\s*(\d{4})\s*$", payload.get("competencia") or "")
+    if not m:
+        raise HTTPException(status_code=400, detail="Informe a competência no formato MM/AAAA (ex.: 07/2026).")
+    mes, ano = int(m.group(1)), int(m.group(2))
+    if not (1 <= mes <= 12):
+        raise HTTPException(status_code=400, detail="Mês inválido (1 a 12).")
+    tipo = (payload.get("tipo") or "todos").strip()
+    tipos = {"holerite", "espelho", "recibo"} if tipo == "todos" else {tipo}
+
+    from modules.people_management.folha.services.gerar_docs_mes_service import gerar_docs_mes
+
+    async def _bg() -> None:
+        try:
+            await asyncio.to_thread(gerar_docs_mes, mes, ano, tipos)
+        except Exception as exc:  # noqa: BLE001
+            logging.getLogger(__name__).error("gerar-docs-mes bg falhou (%02d/%d): %s", mes, ano, exc)
+
+    asyncio.create_task(_bg())
+    return {"ok": True, "message": (f"Geração de '{tipo}' para {mes:02d}/{ano} iniciada. Os documentos "
+                                    "aparecerão em 'Assinar documentos' e no Meu Espaço em alguns minutos.")}
