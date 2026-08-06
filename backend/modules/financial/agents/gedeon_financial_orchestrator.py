@@ -44,11 +44,17 @@ class GedeonFinancialOrchestrator:
             today = date.today()
             past_30 = today - timedelta(days=30)
 
+            # F2-f: data EFETIVA de caixa (payment_date costuma ser NULL em 'paga') → fallback
+            # p/ recebimento/baixa/último update, senão receita/despesa 30d ficam 0 com caixa real.
+            rdate = func.coalesce(ReceivableAccount.payment_date, ReceivableAccount.data_recebimento,
+                                  ReceivableAccount.write_off_date, func.date(ReceivableAccount.updated_at))
+            pdate = func.coalesce(PayableAccount.payment_date, func.date(PayableAccount.updated_at))
+
             # Receita: recebíveis pagos nos últimos 30 dias
             recv_30_q = select(func.coalesce(func.sum(ReceivableAccount.net_value), 0)).where(
                 and_(
-                    ReceivableAccount.payment_date >= past_30,
-                    ReceivableAccount.payment_date <= today,
+                    rdate >= past_30,
+                    rdate <= today,
                     ReceivableAccount.status == ReceivableStatus.PAGA.value,
                 )
             )
@@ -57,8 +63,8 @@ class GedeonFinancialOrchestrator:
             # Despesas: pagáveis pagos nos últimos 30 dias
             pay_30_q = select(func.coalesce(func.sum(PayableAccount.net_value), 0)).where(
                 and_(
-                    PayableAccount.payment_date >= past_30,
-                    PayableAccount.payment_date <= today,
+                    pdate >= past_30,
+                    pdate <= today,
                     PayableAccount.status == PayableStatus.PAGA.value,
                 )
             )

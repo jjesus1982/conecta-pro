@@ -18,7 +18,6 @@ from modules.financial.agents.billing_automator import BillingAutomatorAgent
 from modules.financial.agents.cashflow_predictor import CashflowPredictorAgent
 from modules.financial.agents.collection_negotiator import CollectionNegotiatorAgent
 from modules.financial.agents.financial_advisor import FinancialAdvisorAgent
-from modules.financial.agents.orchestrator import run_command_center
 from modules.financial.agents.pricing_optimizer import PricingOptimizerAgent
 from modules.financial.agents.risk_monitor import RiskMonitorAgent
 
@@ -171,14 +170,20 @@ async def _real_margin_trend(session: AsyncSession, condominio_id: str) -> tuple
     async def _sum(q):
         return float((await session.execute(q)).scalar_one() or 0)
 
+    # F2-f: muitos recebíveis 'paga' têm payment_date NULL → usa a DATA EFETIVA de caixa
+    # (recebimento/baixa/último update) como fallback, senão a margem 30d fica 0 com caixa real.
+    rdate = func.coalesce(ReceivableAccount.payment_date, ReceivableAccount.data_recebimento,
+                          ReceivableAccount.write_off_date, func.date(ReceivableAccount.updated_at))
+    pdate = func.coalesce(PayableAccount.payment_date, func.date(PayableAccount.updated_at))
+
     recv_30 = await _sum(_scope(select(func.coalesce(func.sum(ReceivableAccount.net_value), 0)).where(
-        and_(ReceivableAccount.payment_date >= d30, ReceivableAccount.payment_date <= today,
+        and_(rdate >= d30, rdate <= today,
              ReceivableAccount.status == ReceivableStatus.PAGA.value))))
     recv_prev = await _sum(_scope(select(func.coalesce(func.sum(ReceivableAccount.net_value), 0)).where(
-        and_(ReceivableAccount.payment_date >= d60, ReceivableAccount.payment_date < d30,
+        and_(rdate >= d60, rdate < d30,
              ReceivableAccount.status == ReceivableStatus.PAGA.value))))
     pay_30 = await _sum(select(func.coalesce(func.sum(PayableAccount.net_value), 0)).where(
-        and_(PayableAccount.payment_date >= d30, PayableAccount.payment_date <= today,
+        and_(pdate >= d30, pdate <= today,
              PayableAccount.status == "paga")))
 
     margin = round((recv_30 - pay_30) / recv_30 * 100, 2) if recv_30 > 0 else 0.0
@@ -329,64 +334,43 @@ async def get_command_center(
         alerts_count=0,
     )
 
+    # F2-c: caminho ÚNICO e honesto (sem o orquestrador redundante). Métricas reais do
+    # banco → health/alerts/insights; cashflow direto do CashflowPredictorAgent.
     try:
-        result = await run_command_center(session)
-        hd = result.get("health", {})
-        # Parede "nunca fabricar": margem/tendência vêm do banco, não do 0.0 chumbado.
-        real_margin, real_trend = await _real_margin_trend(session, condominio_id)
-        health = HealthCheck(
-            score=hd.get("score", 70),
-            classification=hd.get("classification", "bom"),
-            liquidity=hd.get("liquidity", 0.0),
-            default_rate=hd.get("default_rate", 0.0),
-            revenue_trend=real_trend,
-            margin_avg=real_margin,
-            alerts_count=hd.get("alerts_count", 0),
-        )
-        alerts = [RiskAlert(**a) for a in result.get("alerts", []) if isinstance(a, dict)]
-        insights = [AIInsight(**i) for i in result.get("insights", []) if isinstance(i, dict)]
-        cf = result.get("cashflow")
+        metrics = await _calculate_default_metrics(session, condominio_id)
+        alerts = _build_alerts(metrics)
+        insights = _build_insights(metrics)
+        health = _build_health(metrics, alerts)
+
         cashflow = None
-        if cf and isinstance(cf, dict):
-            try:
+        try:
+            pred = await CashflowPredictorAgent(session).predict(days=90)
+            if isinstance(pred, dict):
                 cashflow = CashflowPrediction(
-                    current_balance=cf.get("current_balance", 0.0),
-                    predicted_30d=cf.get("predicted_30d", 0.0),
-                    predicted_60d=cf.get("predicted_60d", 0.0),
-                    predicted_90d=cf.get("predicted_90d", 0.0),
-                    trend=cf.get("trend", "estavel"),
-                    confidence=cf.get("confidence", 0.3),
-                    points=[CashflowPoint(**p) for p in cf.get("points", [])],
-                    gaps=cf.get("gaps", []),
-                    scenario_optimistic=cf.get("scenario_optimistic", 0.0),
-                    scenario_pessimistic=cf.get("scenario_pessimistic", 0.0),
+                    current_balance=pred.get("current_balance", 0.0),
+                    predicted_30d=pred.get("predicted_30d", 0.0),
+                    predicted_60d=pred.get("predicted_60d", 0.0),
+                    predicted_90d=pred.get("predicted_90d", 0.0),
+                    trend=pred.get("trend", "estavel"),
+                    confidence=pred.get("confidence", 0.3),
+                    points=[CashflowPoint(**p) for p in pred.get("points", [])],
+                    gaps=pred.get("gaps", []),
+                    scenario_optimistic=pred.get("scenario_optimistic", 0.0),
+                    scenario_pessimistic=pred.get("scenario_pessimistic", 0.0),
                 )
-            except Exception as exc:
-                logger.debug("Erro ao montar CashflowPrediction: %s", exc)
+        except Exception as exc:
+            logger.debug("Erro ao montar CashflowPrediction: %s", exc)
 
         return CommandCenterResponse(
             health=health,
             alerts=alerts,
             insights=insights,
             cashflow=cashflow,
-            updated_at=result.get("updated_at", datetime.now().isoformat()),
+            updated_at=datetime.now().isoformat(),
         )
 
     except Exception as exc:
-        logger.warning("Erro no command center (agentes): %s. Usando fallback.", exc)
-        try:
-            metrics = await _calculate_default_metrics(session, condominio_id)
-            fallback_alerts = _build_alerts(metrics)
-            fallback_insights = _build_insights(metrics)
-            fallback_health = _build_health(metrics, fallback_alerts)
-            return CommandCenterResponse(
-                health=fallback_health,
-                alerts=fallback_alerts,
-                insights=fallback_insights,
-                updated_at=datetime.now().isoformat(),
-            )
-        except Exception as exc2:
-            logger.warning("Erro no fallback do command center: %s", exc2)
+        logger.warning("Erro no command center: %s. Usando health default.", exc)
 
     return CommandCenterResponse(
         health=default_health,
