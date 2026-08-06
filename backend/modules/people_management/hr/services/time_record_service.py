@@ -880,10 +880,14 @@ class TimeRecordService:
         total_overtime_minutes = 0
         total_late_minutes = 0
         total_absences = 0
-        total_days = 0
+        # DIAS DISTINTOS, nao registros: desde a Task 1 um registro e um TURNO, e quem
+        # trabalha manha e noite gera dois no mesmo dia. Somar registros inflava o contador
+        # (julho/2026: 769 registros para 724 dias reais, ate +5 por pessoa no mes). Mesma
+        # convencao do pareador canonico horas_service.parear_batidas.
+        dias_trabalhados: set[str] = set()
 
         for rec in records:
-            total_days += 1
+            dias_trabalhados.add(rec["record_date"])
             if rec.get("total_hours"):
                 try:
                     parts = rec["total_hours"].split(":")
@@ -910,7 +914,7 @@ class TimeRecordService:
             "month": month,
             "year": year,
             "total_work_days": work_days,
-            "total_worked_days": total_days,
+            "total_worked_days": len(dias_trabalhados),
             "total_hours_worked": _format_minutes(total_worked_minutes),
             "total_hours_worked_minutes": total_worked_minutes,
             "total_overtime_minutes": total_overtime_minutes,

@@ -241,6 +241,55 @@ def test_registro_sabe_quais_batidas_consumiu():
     assert por_batida["d"]["clock_in"] == "18:00"  # e nao o turno da manha
 
 
+class _FakeResult:
+    """Resultado minimo de db.execute para os testes do resumo mensal."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    def mappings(self):
+        return self
+
+    def all(self):
+        return self._rows
+
+    def first(self):
+        return None  # _get_employee_name -> sem nome
+
+
+class _FakeDB:
+    def __init__(self, rows):
+        self._rows = rows
+
+    async def execute(self, _sql, _params=None):
+        return _FakeResult(self._rows)
+
+
+async def test_resumo_mensal_conta_dias_distintos_nao_turnos():
+    """Dois turnos no mesmo dia sao UM dia trabalhado.
+
+    Ate a Task 1 cada dia civil gerava exatamente um registro, entao somar registros
+    equivalia a somar dias. Agora registro = TURNO: quem trabalha manha e noite gera dois,
+    e o contador inflava. Medido em julho/2026: 769 registros para 724 dias-funcionario
+    reais, com ate +5 dias fantasma por pessoa no mes. A convencao correta e a do pareador
+    canonico (horas_service.parear_batidas): contar datas DISTINTAS.
+    """
+    rows = [
+        _punch("emp-14", "2026-07-10T08:00:00", "entrada", "a"),
+        _punch("emp-14", "2026-07-10T12:00:00", "saida", "b"),
+        _punch("emp-14", "2026-07-10T18:00:00", "entrada", "c"),  # 6h depois: outro turno
+        _punch("emp-14", "2026-07-10T22:00:00", "saida", "d"),
+    ]
+
+    svc = TimeRecordService(_FakeDB(rows))
+    resumo = await svc._calculate_summary_from_punches("emp-14", 7, 2026)
+
+    assert resumo["total_worked_days"] == 1, (
+        f"dois turnos no mesmo dia contaram como {resumo['total_worked_days']} dias"
+    )
+    assert resumo["total_hours_worked"] == "08:00"  # 4h + 4h, as horas somam normalmente
+
+
 def test_origem_das_batidas_nao_vaza_no_contrato_padrao():
     """`_punch_ids` e interno: nunca pode aparecer na resposta da API."""
     rows = [
