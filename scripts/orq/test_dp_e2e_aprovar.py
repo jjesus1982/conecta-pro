@@ -125,6 +125,10 @@ async def main() -> None:
             print("\nE2E DO CICLO COMPLETO PASSOU — propor→aprovar→executar e propor→reprovar")
     finally:
         async with S() as db:
+            # o rascunho do teste de reprovação também é resíduo — sem isto ele fica
+            # visível na Central de produção (foi assim que 2 apareceram para o Jordan)
+            await db.execute(text("DELETE FROM agent_drafts WHERE titulo LIKE :m"),
+                             {"m": f"{MARCA}%"})
             if eid:
                 await db.execute(text(
                     "DELETE FROM sst_afastamentos WHERE CAST(employee_id AS TEXT)=:e"), {"e": eid})
@@ -136,7 +140,10 @@ async def main() -> None:
             await db.commit()
             rem = (await db.execute(text("SELECT count(*) FROM employees WHERE nome LIKE :m"),
                                     {"m": f"{MARCA}%"})).scalar()
-            assert rem == 0, f"resíduo: {rem}"
+            rem_d = (await db.execute(text(
+                "SELECT count(*) FROM agent_drafts WHERE titulo LIKE :m"),
+                {"m": f"{MARCA}%"})).scalar()
+            assert rem == 0 and rem_d == 0, f"resíduo: {rem} func, {rem_d} rascunhos"
             print("LIMPEZA OK — 0 resíduo")
         await eng.dispose()
 
