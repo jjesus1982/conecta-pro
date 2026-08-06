@@ -124,6 +124,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     except Exception as e:
         logger.warning(f"CCT propagação: falha ao registrar subscribers ({e})")
 
+    # Saga DP → financeiro/operacional. O bus dp.* já estava VIVO (11 publishers reais,
+    # chamados), mas só o GEDEON escutava — financeiro/operacional publicavam e não
+    # assinavam nada do DP. A cadeia nunca teve a metade que REAGE; aqui ela ganha.
+    # Os subscribers PROPÕEM na Central (nunca pagam, nunca escrevem escala).
+    try:
+        from modules.financial.subscribers import dp_saga_folha
+        from modules.operacional.subscribers import dp_saga_pessoal
+
+        dp_saga_folha.registrar_subscribers()
+        dp_saga_pessoal.registrar_subscribers()
+        logger.info("Saga DP: subscribers financeiro/operacional ativos")
+    except Exception as e:
+        logger.warning(f"Saga DP: falha ao registrar subscribers ({e})")
+
     # GDrive: carregar tokens e conectar no startup
     try:
         from modules.gdrive.services.gdrive_service import gdrive_service as _gdrive_service
