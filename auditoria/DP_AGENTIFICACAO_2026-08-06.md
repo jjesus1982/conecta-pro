@@ -116,18 +116,112 @@ falharam **antes** de alcançar o `finally`. Descobri porque o watcher subiu de 
 conferir o décimo. O vigia acabou servindo de sentinela do meu próprio teste. Cleanup em
 `finally` não cobre falha no setup.
 
-## O que ficou de fora, e por quê
+---
 
-Nada bloqueado por decisão sua — ficou por orçamento de contexto desta sessão:
+# Rodada 2 — os pontos levantados pelo T3
 
-- **F1.2** captura de admissão/afastamento (mesmo molde de F1.1, direto)
-- **F3.1** rotineiras extras no `agir_dp` — holerites em lote, fechar/justificar ponto, renovar
-  ASO, programação de férias. *`calcular_folha` e `fechar_folha` já existiam e já propõem.*
-- **F5.1** a mesa visual da Pyetra no /redesign. A Central já está no ar e **recebe tudo que
-  foi construído**; falta o agrupamento por tipo e o calendário de prazos.
-- **F5.3** E2E aprovar→executar. Cada peça está provada isolada; falta o encadeamento.
-- **Watcher de término de experiência** — `tipo_contrato` é NULL em 78 de 90 cadastros.
-  Nasceria cego. Espera a captura preencher o campo.
+## F4 · A saga está VIVA — e o risco que ele apontou era real
+
+Ele insistiu que *bake concluído ≠ vivo*, porque o `try/except` do registro **engole exceção**.
+Estava certo, e o furo era concreto: às 12h de hoje o código estava no container e **o processo
+em execução nunca havia registrado nada** — container de 10:33, commit da saga de 12:26, log
+sem "Saga DP". Casca silenciosa clássica.
+
+Fechado com as **duas** provas que ele exigiu:
+
+**1 · registro no processo novo**
+```
+14:26:04  Saga DP→Financeiro: subscriber de folha_fechada ativo
+14:26:04  Saga DP→Operacional: subscribers de admissão/demissão ativos
+14:26:04  Saga DP: subscribers financeiro/operacional ativos
+```
+
+**2 · evento real atravessando o worker** — publiquei um `dp.folha.fechada` no Redis Stream,
+**sem chamar o handler direto**:
+```
+publicado no Redis Stream: True
+>>> RASCUNHO CRIADO PELO WORKER após 1,5s
+    tipo=pagar_folha_lote   gate=🔴   requires_otp=True   status=rascunho
+```
+
+Também confirmei que `_dispatch` lê `self._handlers` **em tempo de entrega** — então a ordem
+(consumer inicia na linha 98, subscribers na 126) não é problema.
+
+## F5.3 · E2E propor→aprovar→executar
+
+Cobaia: `registrar_afastamento` (🟡 reversível, percorre o caminho completo). A asserção que
+mais importa é a quinta: **ação 🔴 de dinheiro não tem executor registrado** — pagar segue no
+T1 com OTP na tela, sem caminho de execução automática. A parede está de pé.
+
+## F5.1 · A mesa da Pyetra
+
+Descobri que os prazos **não vivem em `agent_drafts`** — vêm dos watchers, em
+`proativo_alert_state`. A Central mostrava só "o que o agente propôs" e deixava de fora "o que
+está vencendo", que é justamente a coluna do quadro dela.
+
+Nova tela **Prazos**, ordenada por urgência e agrupada por **área** — Férias, Términos de
+contrato, Aviso prévio, Migração, Admissões — porque é assim que ela pensa, não por nome
+técnico de regra. **16 prazos vivos** hoje.
+
+## Término de experiência · o `tipo_contrato` era red herring
+
+Eu havia deferido por `tipo_contrato` ser NULL em 50 de 52 ativos. **O campo nunca foi
+necessário**: as datas saem de `data_admissao` com a convenção 30+60.
+
+Conferi contra o quadro manuscrito e bate **ao dia**:
+
+| quadro da Pyetra | watcher |
+|---|---|
+| "17/08 Meri, Jeovane" | MEIRE 17/08 · JEOVANE 17/08 |
+| "18/08 Alexandre, Kelly, Nailson" | os três em 18/08 |
+
+Validar o vigia contra a realidade dela — exibido == realidade — foi o que deu confiança na
+derivação.
+
+## Digest · existia e ninguém chamava
+
+O T3 acertou: `montar_digest` era casca. **Não criei um segundo agendamento** — já havia
+`proativo.digest_diario` às 07:00. Descobri que ele consolida *alertas de regra*, enquanto os
+cartões da Central são outra coisa. Complementares, então liguei o meu **dentro** da task
+existente, com dedup próprio. `EMAIL_FROM` está vazio, então entrega no **sino**; o e-mail liga
+quando setarem a variável.
+
+## O reframe que o Jordan provocou
+
+Eu tinha escrito os alertas como se "não está no sistema" fosse falha de registro do DP. **Não
+é** — o Conecta PRO está em construção, o dado vem da Portte e do eSocial, e o fluxo nativo vai
+sendo assumido módulo a módulo.
+
+Reescrevi: *"Desligamento a migrar para o fluxo nativo"*, explicando por que vale trazer. Isso
+não é redação: um alerta que soa como cobrança faz a Pyetra parar de olhar o vigia, e aí ele
+volta a ser inútil — que era o problema original.
+
+Pelo mesmo motivo, **não alerto sobre "admissão sem processo"**.
+
+---
+
+## Estado final
+
+| fase | |
+|---|---|
+| F0 higiene · F1 captura · F1.2 afastamento + admissão | ✅ |
+| F2 vigília — **6 watchers, 16 prazos vivos** | ✅ |
+| F3.1 rotineiras de ponto | ✅ |
+| **F4 saga — VIVA, provada com evento real pelo worker** | ✅ |
+| F5.1 mesa · F5.2 digest · F5.3 E2E | ✅ |
+
+**28 provas, zero resíduo.** Motor intocado: `calculo_service`, espelho da Portte,
+`folha-gerar`, períodos aquisitivos, a paridade de R$29,80 de julho.
+
+## O único item deliberadamente fora
+
+O **ritmo mensal do quadro** — VT/VR nos dias 12-14, kit 18-21, pagamento dia 20.
+
+Não é esquecimento: é **calendário recorrente dela**, não prazo derivado de dado. Hardcodar as
+datas seria fabricar agenda, e quebraria no primeiro mês em que a rotina mudasse.
+
+O caminho honesto: a Pyetra cadastra a recorrência uma vez, aí vira dado e o watcher passa a
+ser legítimo.
 
 ## O território do motor ficou intocado
 
