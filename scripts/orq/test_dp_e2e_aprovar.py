@@ -94,7 +94,35 @@ async def main() -> None:
                      f"de execução automática; o pagamento é do T1 com OTP na tela")
             print("E2E-5 (ação 🔴 de dinheiro NÃO tem executor: pagar é do T1 com OTP) PASS")
 
-            print("\nE2E DO CICLO COMPLETO PASSOU — propor→aprovar→executar encadeado")
+            # ── 6. REPROVAR não executa ────────────────────────────────────────
+            # o ramo da recusa é tão importante quanto o do aceite: se reprovar deixasse
+            # o executor rodar, a trava humana seria decorativa.
+            from modules.operacional.controllers.redesign_builders import aprovacoes as _ap
+
+            did = (await db.execute(text(
+                "INSERT INTO agent_drafts (id, tipo, modulo, titulo, resumo, payload, status, "
+                " gate, requires_otp, roles_aprovador, criado_por_agente, created_at) "
+                "VALUES (gen_random_uuid(), 'registrar_afastamento', 'dp', :t, 'bancada', "
+                " CAST(:p AS jsonb), 'rascunho', '🟡', false, ARRAY['admin'], true, now()) "
+                "RETURNING id::text"),
+                {"t": f"{MARCA} reprovar",
+                 "p": f'{{"employee_id":"{eid}","tipo":"licenca","inicio":"2099-06-01"}}'})).scalar()
+            await db.commit()
+            antes = (await db.execute(text(
+                "SELECT count(*) FROM sst_afastamentos WHERE CAST(employee_id AS TEXT)=:e"),
+                {"e": eid})).scalar()
+            await _ap.rejeitar_rascunho(current_user=_U(), draft_id=did,
+                                       payload={"motivo": "bancada"}, db=db)
+            depois = (await db.execute(text(
+                "SELECT count(*) FROM sst_afastamentos WHERE CAST(employee_id AS TEXT)=:e"),
+                {"e": eid})).scalar()
+            st = (await db.execute(text(
+                "SELECT status FROM agent_drafts WHERE id::text = :d"), {"d": did})).scalar()
+            assert depois == antes, f"REPROVAR EXECUTOU! {antes} → {depois}"
+            assert str(st).lower() in ("rejeitado", "rejected", "recusado"), f"status={st!r}"
+            print(f"E2E-6 (reprovar NÃO executa: nada criado, status={st!r}) PASS")
+
+            print("\nE2E DO CICLO COMPLETO PASSOU — propor→aprovar→executar e propor→reprovar")
     finally:
         async with S() as db:
             if eid:
