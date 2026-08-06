@@ -46,8 +46,7 @@ class GedeonFinancialOrchestrator:
 
             # F2-f: data EFETIVA de caixa (payment_date costuma ser NULL em 'paga') → fallback
             # p/ recebimento/baixa/último update, senão receita/despesa 30d ficam 0 com caixa real.
-            rdate = func.coalesce(ReceivableAccount.payment_date, ReceivableAccount.data_recebimento,
-                                  ReceivableAccount.write_off_date, func.date(ReceivableAccount.updated_at))
+            rdate = func.coalesce(ReceivableAccount.payment_date, func.date(ReceivableAccount.updated_at))
             pdate = func.coalesce(PayableAccount.payment_date, func.date(PayableAccount.updated_at))
 
             # Receita: recebíveis pagos nos últimos 30 dias

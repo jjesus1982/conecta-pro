@@ -172,8 +172,7 @@ async def _real_margin_trend(session: AsyncSession, condominio_id: str) -> tuple
 
     # F2-f: muitos recebíveis 'paga' têm payment_date NULL → usa a DATA EFETIVA de caixa
     # (recebimento/baixa/último update) como fallback, senão a margem 30d fica 0 com caixa real.
-    rdate = func.coalesce(ReceivableAccount.payment_date, ReceivableAccount.data_recebimento,
-                          ReceivableAccount.write_off_date, func.date(ReceivableAccount.updated_at))
+    rdate = func.coalesce(ReceivableAccount.payment_date, func.date(ReceivableAccount.updated_at))
     pdate = func.coalesce(PayableAccount.payment_date, func.date(PayableAccount.updated_at))
 
     recv_30 = await _sum(_scope(select(func.coalesce(func.sum(ReceivableAccount.net_value), 0)).where(
