@@ -243,10 +243,9 @@ class TestSkillsImport:
 
         assert NotifierSkill.SKILL_NAME == "smart_notifier"
 
-    def test_import_orchestrator(self):
-        from modules.people_management.integration.skills import OrchestratorSkill
-
-        assert OrchestratorSkill.SKILL_NAME == "people_orchestrator"
+    # test_import_orchestrator REMOVIDO 06/08: OrchestratorSkill era casca — 0 importador
+    # vivo (so este teste, que apenas provava que a classe importa). Removido junto com
+    # hr/skills/* na higiene F0. Ver docs/superpowers/plans/2026-08-06-dp-agentificacao.md
 
 
 class TestServicesImport:
