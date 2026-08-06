@@ -33,6 +33,7 @@ from typing import Any
 from sqlalchemy import text
 
 from .acoes.base import ROLES_KIT_OP, ROLES_MONEY, propor
+from .acoes.rascunho import registrar_executor
 from .agir_dispatcher import registrar_acao
 
 # Espelha a fonte canônica (vacation_controller.criar_vacation): condominio_id é
@@ -519,3 +520,240 @@ if __name__ == "__main__":
         await eng.dispose()
 
     asyncio.run(main())
+
+# ═════════ F1.2 CAPTURA — afastamento que aconteceu e não virou registro ═════════
+async def _propor_registrar_afastamento(
+    db, user, scope, *, employee_id: str = "", funcionario: str = "",
+    tipo: str = "", inicio: str = "", fim: str = "", cid: str = "", motivo: str = "", **_
+) -> dict[str, Any]:
+    """PROPÕE registrar um afastamento (licença/atestado) pela porta oficial.
+
+    A cobertura de afastamento no DP é de ~24% da realidade — a pessoa se afasta, o atestado
+    fica no papel, e o sistema não sabe. Isso quebra a folha (o desconto não sai), o eSocial
+    S-2230 e o painel de estabilidade.
+
+    Executor chama `leave_controller.criar_leave` — a MESMA função da tela dp/licencas. Isso
+    NÃO é preciosismo: é lá que mora a derivação de **estabilidade acidentária** (art. 118 da
+    Lei 8.213). Reimplementar o INSERT aqui faria um acidente lançado pelo agente não gerar
+    estabilidade, e o colaborador poderia ser demitido dentro do período estável —
+    reintegração + salários. Segundo escritor nessa regra é passivo, não é estilo.
+    """
+    emp = str(employee_id or funcionario or "").strip()
+    if not emp:
+        return {"erro": "employee_id (uuid do funcionário) é obrigatório"}
+    try:
+        uuid.UUID(emp)
+    except (ValueError, AttributeError, TypeError):
+        return {"erro": "employee_id inválido (esperado uuid)"}
+
+    def _d(v: str) -> date | None:
+        try:
+            return date.fromisoformat(str(v)[:10]) if v else None
+        except (TypeError, ValueError):
+            return None
+
+    di = _d(inicio)
+    if not di:
+        return {"erro": "inicio (data AAAA-MM-DD) é obrigatório — não invento data de afastamento"}
+    df = _d(fim)
+
+    row = (await db.execute(text(
+        "SELECT nome FROM employees WHERE CAST(id AS TEXT) = :e"), {"e": emp})).first()
+    if not row:
+        return {"erro": "funcionário não encontrado"}
+
+    ja = (await db.execute(text(
+        "SELECT count(*) FROM sst_afastamentos WHERE CAST(employee_id AS TEXT) = :e "
+        "AND data_inicio = :di"), {"e": emp, "di": di})).scalar()
+    if ja:
+        return {"erro": f"já existe afastamento de {row[0]} iniciando em {di}"}
+
+    tipo_norm = (tipo or "").strip().lower() or None
+
+    # `criar_leave` nasce com status='ativo' — NÃO é inerte, e afastamento ativo já mexe na
+    # folha. Diferente de férias ('SUBMITTED') e rescisão ('initiated'), que nascem parados.
+    # Então aqui a proposta NÃO cria a linha: usa `_noop_ref` e a execução real acontece no
+    # executor, quando o humano aprova.
+
+    falta = [x for x in (("tipo do afastamento" if not tipo_norm else None),
+                         ("data de retorno prevista" if not df else None),
+                         ("CID" if not cid else None)) if x]
+    aviso = (f" ⚠️ CONFIRME antes de aprovar: {', e '.join(falta)} — não é derivável e eu não "
+             f"chuto. O tipo e o CID definem se gera ESTABILIDADE (art. 118).") if falta else ""
+
+    return await propor(
+        db, user=user, scope=scope, dominio="afastamento_registrar", gate="🟡",
+        roles_aprovador=ROLES_KIT_OP,
+        idempotency_key=f"dp:registrar_afastamento:{emp}:{di}",
+        titulo=f"Registrar afastamento: {row[0]}",
+        corpo=(f"Afastamento de {row[0]} a partir de {di}"
+               + (f" até {df}" if df else "") + " ainda não está no sistema. "
+               f"Sem o registro, o desconto não sai na folha, o S-2230 não nasce e o "
+               f"painel de estabilidade não enxerga.{aviso}"),
+        action_url="/redesign/aprovacoes",
+        tool="propor_registrar_afastamento",
+        args={"employee_id": emp, "tipo": tipo_norm, "inicio": str(di),
+              "fim": str(df) if df else None, "cid": cid or None},
+        entity_type="sst_afastamento",
+        inserir=_noop_ref,
+    )
+
+
+registrar_acao("dp", "registrar_afastamento",
+               "PROPOR registrar um afastamento/licença que aconteceu e não está no sistema "
+               "(cobertura hoje ~24%). dados: employee_id (uuid, obrig.), inicio (AAAA-MM-DD, "
+               "obrig.), tipo, fim, cid, motivo (opcionais). NÃO registra — a execução é a "
+               "aprovação humana, e ela chama a MESMA função da tela (que deriva estabilidade).",
+               _propor_registrar_afastamento)
+
+
+# ═════════════ F3.1 ROTINEIRAS — o trabalho repetitivo da Pyetra ═════════════
+async def _propor_fechar_ponto(
+    db, user, scope, *, employee_id: str = "", funcionario: str = "",
+    mes: int | str = 0, ano: int | str = 0, **_
+) -> dict[str, Any]:
+    """PROPÕE fechar o ponto mensal. Executor chama `PunchService.fechar_mes` (o da tela)."""
+    emp = str(employee_id or funcionario or "").strip()
+    if not emp:
+        return {"erro": "employee_id (uuid do funcionário) é obrigatório"}
+    try:
+        uuid.UUID(emp)
+        m, a = int(str(mes).split()[0]), int(str(ano).split()[0])
+    except (ValueError, IndexError, AttributeError, TypeError):
+        return {"erro": "employee_id (uuid), mes (1-12) e ano são obrigatórios"}
+    if not (1 <= m <= 12) or not (2020 <= a <= 2100):
+        return {"erro": f"competência inválida: {m}/{a}"}
+
+    row = (await db.execute(text(
+        "SELECT nome FROM employees WHERE CAST(id AS TEXT) = :e"), {"e": emp})).first()
+    if not row:
+        return {"erro": "funcionário não encontrado"}
+
+    # groundedness: o corpo carrega o número REAL de batidas, não uma promessa vaga
+    n = (await db.execute(text(
+        "SELECT count(*) FROM gp_clock_punches WHERE CAST(employee_id AS TEXT) = :e "
+        "AND EXTRACT(MONTH FROM punch_timestamp) = :m AND EXTRACT(YEAR FROM punch_timestamp) = :a"),
+        {"e": emp, "m": m, "a": a})).scalar() or 0
+
+    # fechar mês CONSOLIDA horas/faltas e a folha consome — nada disso pode existir antes
+    # do OK. `_noop_ref`: o pendente vive no sino/audit; o executor fecha na aprovação.
+
+    return await propor(
+        db, user=user, scope=scope, dominio="ponto_fechar", gate="🟡",
+        roles_aprovador=ROLES_KIT_OP,
+        idempotency_key=f"dp:fechar_ponto:{emp}:{a}-{m:02d}",
+        titulo=f"Fechar ponto {m:02d}/{a}: {row[0]}",
+        corpo=(f"O ponto de {row[0]} em {m:02d}/{a} tem {n} batida(s) e pode ser fechado. "
+               f"O fechamento consolida horas, extras e faltas — e é o que a folha consome."),
+        action_url="/redesign/aprovacoes",
+        tool="propor_fechar_ponto",
+        args={"employee_id": emp, "mes": m, "ano": a},
+        entity_type="gp_monthly_closing",
+        inserir=_noop_ref,
+    )
+
+
+registrar_acao("dp", "fechar_ponto",
+               "PROPOR o fechamento do ponto mensal de um colaborador. dados: employee_id "
+               "(uuid), mes (1-12), ano. NÃO fecha — a execução é a aprovação humana.",
+               _propor_fechar_ponto)
+
+
+async def _propor_justificar_ponto(
+    db, user, scope, *, justification_id: str = "", justificativa_id: str = "",
+    decisao: str = "", acao: str = "", notas: str = "", **_
+) -> dict[str, Any]:
+    """PROPÕE deferir/indeferir uma justificativa de ponto.
+
+    Executor chama `PunchService.revisar_justificativa` — a mesma da tela. A DECISÃO
+    (aprovar/rejeitar) vem de quem aprova, não do agente: sem ela, recusa.
+    """
+    jid = str(justification_id or justificativa_id or "").strip()
+    if not jid:
+        return {"erro": "justification_id (uuid da justificativa) é obrigatório"}
+    try:
+        uuid.UUID(jid)
+    except (ValueError, AttributeError, TypeError):
+        return {"erro": "justification_id inválido (esperado uuid)"}
+
+    d = (decisao or acao or "").strip().lower()
+    if d not in ("aprovar", "rejeitar"):
+        return {"erro": "decisao deve ser 'aprovar' ou 'rejeitar' — deferir ou indeferir "
+                        "justificativa é juízo humano, eu não decido por você"}
+
+    row = (await db.execute(text(
+        # `justification_id` (não o id da linha) é a chave que o serviço oficial usa —
+        # `revisar_justificativa` faz where(JustificationModel.justification_id == ...).
+        "SELECT j.employee_id::text, coalesce(e.nome,'—'), "
+        "       coalesce(j.reason, j.justification_type, '') "
+        "FROM gp_justifications j "
+        "LEFT JOIN employees e ON CAST(e.id AS TEXT) = CAST(j.employee_id AS TEXT) "
+        "WHERE CAST(j.justification_id AS TEXT) = :j OR CAST(j.id AS TEXT) = :j"),
+        {"j": jid})).first()
+    if not row:
+        return {"erro": "justificativa não encontrada"}
+
+    # revisar_justificativa ALTERA o registro existente (defere/indefere) — a mudança só
+    # pode acontecer na aprovação, não na proposta.
+
+    return await propor(
+        db, user=user, scope=scope, dominio="ponto_justificativa", gate="🔵",
+        roles_aprovador=ROLES_KIT_OP,
+        idempotency_key=f"dp:justificar_ponto:{jid}:{d}",
+        titulo=f"{'Deferir' if d == 'aprovar' else 'Indeferir'} justificativa: {row[1]}",
+        corpo=(f"Justificativa de ponto de {row[1]}"
+               + (f" ({row[2]})" if row[2] else "") + f" — proposta: {d}."
+               + (f" Observação: {notas}" if notas else "")),
+        action_url="/redesign/aprovacoes",
+        tool="propor_justificar_ponto",
+        args={"justification_id": jid, "decisao": d, "notas": notas or None},
+        entity_type="gp_justification",
+        inserir=_noop_ref,
+    )
+
+
+registrar_acao("dp", "justificar_ponto",
+               "PROPOR deferir ou indeferir uma justificativa de ponto. dados: "
+               "justification_id (uuid), decisao ('aprovar'|'rejeitar'), notas (opcional). "
+               "A decisão é sua — sem ela eu recuso. NÃO revisa: a execução é a aprovação.",
+               _propor_justificar_ponto)
+
+# ── EXECUTORES: rodam SÓ quando o humano aprova, e chamam o SERVIÇO OFICIAL ──
+# As três ações acima usam `_noop_ref` porque a entidade delas NÃO pode existir antes do OK
+# (afastamento nasce 'ativo' e mexe na folha; fechamento consolida; revisão altera registro).
+# É aqui que a execução real acontece — uma porta só, a mesma da tela.
+
+async def _exec_registrar_afastamento(db, user, payload: dict) -> Any:
+    from modules.people_management.hr.controllers.leave_controller import criar_leave
+
+    return await criar_leave(
+        {"employee_id": payload.get("employee_id"),
+         "leave_type": payload.get("tipo") or "licenca",
+         "start_date": payload.get("inicio"), "end_date": payload.get("fim"),
+         "cid": payload.get("cid"), "notes": payload.get("motivo")},
+        user, db,
+    )
+
+
+async def _exec_fechar_ponto(db, user, payload: dict) -> Any:
+    from modules.people_management.ponto.services.punch_service import PunchService
+
+    return await PunchService(db).fechar_mes(
+        payload["employee_id"], int(payload["mes"]), int(payload["ano"]),
+        str(getattr(user, "id", "") or ""),
+    )
+
+
+async def _exec_justificar_ponto(db, user, payload: dict) -> Any:
+    from modules.people_management.ponto.services.punch_service import PunchService
+
+    return await PunchService(db).revisar_justificativa(
+        payload["justification_id"], payload["decisao"],
+        str(getattr(user, "id", "") or ""), payload.get("notas"),
+    )
+
+
+registrar_executor("registrar_afastamento", _exec_registrar_afastamento)
+registrar_executor("fechar_ponto", _exec_fechar_ponto)
+registrar_executor("justificar_ponto", _exec_justificar_ponto)
+
