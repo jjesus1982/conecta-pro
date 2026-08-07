@@ -134,3 +134,6 @@ det-robot/.env
 det-robot/out/
 det-robot/*.pem
 auditoria/reconciliacao_folha_2026-07-25/backup_folha_razao.json
+
+# Grafos do graphify — artefato de analise, regeneravel. Nunca versionar.
+graphify-out/
