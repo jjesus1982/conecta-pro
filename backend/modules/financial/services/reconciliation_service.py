@@ -260,12 +260,14 @@ def conciliar_transacao(tx_id: str, conn) -> dict:
                     status = 'pago',
                     payment_date = %s,
                     paid_at = NOW(),
+                    paid_value = %s,
+                    remaining_value = 0,
                     transacao_bancaria_id = %s,
                     comprovante_id = %s,
                     updated_at = NOW()
                 WHERE id = %s
                 """,
-                (tx_date, tx_id, tx_id, str(pay_id)),
+                (tx_date, float(match["net_value"]), tx_id, tx_id, str(pay_id)),
             )
             conn.commit()
             return {
