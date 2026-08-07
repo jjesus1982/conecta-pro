@@ -1,12 +1,18 @@
 """Pydantic schemas para SST."""
 
+from datetime import date
+
 from pydantic import BaseModel, Field
 
 
 class ASOCreate(BaseModel):
     employee_id: str
     tipo: str = Field(..., description="admissional|periodico|demissional|retorno_trabalho|mudanca_funcao")
-    data_agendamento: str
+    # `date`, não `str`: gp_asos.data_agendamento é DATE e o controller passa este valor
+    # direto para o model. Como str, o asyncpg estourava DataError ('str' object has no
+    # attribute 'toordinal') e POST /sst/aso devolvia 500 — sempre, para qualquer chamador.
+    # Com `date` o Pydantic converte o ISO na fronteira e recusa lixo com 422 em vez de 500.
+    data_agendamento: date
     clinica: str | None = None
 
 
