@@ -3153,14 +3153,13 @@ EXTRA_MENU = {
         {"id": "registrar-entrega-epi", "label": "Registrar entrega de EPI", "icon": "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"},
         {"id": "registrar-justificativa-ponto", "label": "Justificar ponto", "icon": "M12 8v4l3 2M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"},
     ],
-    "departamento-pessoal": [
-        {"id": "calcular-rescisao", "label": "Calcular rescisão", "icon": "M9 7h6M9 11h6M9 15h4M5 3h14a1 1 0 0 1 1 1v16l-3-2-2 2-2-2-2 2-2-2-3 2V4a1 1 0 0 1 1-1z"},
-        {"id": "calcular-ferias", "label": "Calcular férias", "icon": "M17 8C8 10 5.9 16.2 3.8 21.7c-.3.7.3 1.3 1 1L8 21c9-2 11-8 13-13M12 2v4M20 6l-2 2"},
-        {"id": "beneficios-cct", "label": "Benefícios CCT", "icon": "M20 12v10H4V12M2 7h20v5H2zM12 22V7M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"},
-        {"id": "saldo-ferias", "label": "Saldo de férias", "icon": "M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"},
-        {"id": "registrar-reembolso", "label": "Registrar reembolso", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-        {"id": "solicitar-ferias", "label": "Solicitar férias", "icon": "M17 8C8 10 5.9 16.2 3.8 21.7c-.3.7.3 1.3 1 1L8 21c9-2 11-8 13-13M12 2v4M20 6l-2 2"},
-    ],
+    # F0 — zerado: os 6 itens que estavam aqui (calcular-rescisao, calcular-ferias,
+    # beneficios-cct, saldo-ferias, registrar-reembolso, solicitar-ferias) viraram ABAS dos 8
+    # grupos do DP (_dp_grupos.py). Este dict é SOMADO ao menu do pacote e ao EXTRA_MENU do
+    # builder — deixá-los aqui os fazia reaparecer soltos no topo, ao lado do grupo que já os
+    # continha. Terceira fonte de menu do mesmo módulo: quem for reagrupar outro módulo tem
+    # que zerar as TRÊS (pacote JSON, EXTRA_MENU do builder, e este).
+    "departamento-pessoal": [],
     "recrutamento": [
         {"id": "abrir-vaga", "label": "Abrir vaga", "icon": "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8M19 8v6M22 11h-6"},
     ],
