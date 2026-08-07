@@ -19,9 +19,21 @@ Quatro camadas que não existiam em lugar nenhum: **eventos** (quem avisa quem),
 102 declarados
  59 publicados por alguém
  25 fluem PONTA A PONTA (publicado E escutado)
- 34 publicados NO VAZIO — ninguém escuta
+ 34 publicados sem handler in-process
  43 nunca referenciados
 ```
+
+**O barramento está VIVO** (medido em 2026-08-07, Redis **db 1**): 281 eventos gravados
+nos streams — dp 150 · operacional 63 · sistema 32 · ponto 18 · financeiro 5 · fiscal 4 ·
+rh 4 · saúde 3 · ged 2.
+
+⚠️ **"No vazio" é impreciso.** `publish()` faz `xadd` com `maxlen=10000` **antes** de
+qualquer handler: o evento é **gravado e replayável** mesmo sem assinante. O que falta é
+alguém *reagir* — a informação não se perde.
+
+⚠️ **SOPHIA registra 15 padrões** como subscriber no boot (visto no log do container), com
+suporte a wildcard (`dp.*`). Minha varredura por arquivo não capturou isso, então a contagem
+de "escutados" é **piso, não teto**.
 
 ### A descoberta central: a orquestra tem um ouvinte só
 
