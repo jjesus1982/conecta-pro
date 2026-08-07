@@ -1524,6 +1524,10 @@ async def _rd_pagar_folha_pj(current_user: CurrentActiveUser, payload: dict = Bo
         raise HTTPException(status_code=400, detail=r.get("mensagem") or "OTP inválido ou obrigatório.")
     if not r.get("ok"):
         raise HTTPException(status_code=400, detail=r.get("mensagem") or "Não foi possível executar o lote.")
+    # Link pagamento→baixa (PJ): folha PJ paga de verdade (Inter, OTP) → baixa o pagável PJ da competência.
+    await _baixar_pagavel_folha(db, mes, ano,
+                                quem=str(getattr(current_user, "nome", None) or getattr(current_user, "id", "")),
+                                pj=True)
     return {"ok": True, "message": f"Lote pago: {r.get('pagos', 0)} pago(s), {r.get('falhas', 0)} falha(s)."}
 
 
@@ -1651,22 +1655,27 @@ async def _rd_folha_clt_cora(db, payload: dict) -> dict:
         f"está em DP → Holerites.{aviso}")}
 
 
-async def _baixar_pagavel_folha(db, mes: int, ano: int, quem: str = "") -> None:
-    """Link pagamento→baixa: depois que a folha CLT foi PAGA de verdade (money-out já OTP-gated via
-    Inter), dá baixa no pagável da folha daquela competência (se existir e pendente). Bookkeeping
-    best-effort: NUNCA derruba o pagamento, idempotente (só 'pendente'), NÃO move dinheiro. Assim a
-    folha não fica 'pendente' no livro depois de paga (era o caso do registro velho de Março)."""
+async def _baixar_pagavel_folha(db, mes: int, ano: int, quem: str = "", pj: bool = False) -> None:
+    """Link pagamento→baixa: depois que a folha foi PAGA de verdade (money-out já OTP-gated via Inter),
+    dá baixa no pagável da folha daquela competência (se existir e pendente). Bookkeeping best-effort:
+    NUNCA derruba o pagamento, idempotente (só 'pendente'), NÃO move dinheiro. `pj`=folha de prestadores
+    (casa 'folha/pagamento/prestador' COM 'pj'); CLT casa 'folha' SEM 'pj' — pra um pagamento não baixar
+    o pagável do outro. Assim a folha não fica 'pendente' no livro depois de paga (caso do velho Março)."""
     import logging as _logging
+    # cond é LITERAL escolhida por flag interna (não é input do usuário) — sem risco de injeção.
+    cond = ("description ~* 'pj' AND description ~* 'folha|pagamento|prestador'" if pj
+            else "description ~* 'folha' AND description !~* 'pj|prestador'")
+    origem = "PJ" if pj else "CLT"
     try:
         await db.execute(text(
             "UPDATE payable_accounts SET status='pago', payment_date=CURRENT_DATE, paid_at=NOW(), "
             "paid_value=net_value, remaining_value=0, updated_at=NOW(), "
             "internal_notes = coalesce(internal_notes,'') || :nota "
-            "WHERE status='pendente' AND description ILIKE '%folha%' "
+            f"WHERE status='pendente' AND {cond} "
             "AND date_trunc('month', due_date) BETWEEN make_date(:ano,:mes,1) "
             "    AND make_date(:ano,:mes,1) + interval '1 month'"),
             {"ano": ano, "mes": mes,
-             "nota": f" | baixa auto: folha {mes:02d}/{ano} paga via sistema por {quem or 'gestor'}"})
+             "nota": f" | baixa auto: folha {origem} {mes:02d}/{ano} paga via sistema por {quem or 'gestor'}"})
         await db.commit()
     except Exception as e:  # noqa: BLE001
         try:
