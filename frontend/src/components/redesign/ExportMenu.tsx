@@ -40,7 +40,7 @@ export function ExportMenu({ cols, rows, nome, titulo }: {
       {open && (
         <div style={{
           position: 'absolute', right: 0, top: 'calc(100% + 4px)', zIndex: 50, minWidth: 150,
-          background: 'var(--card, #fff)', border: '1px solid var(--line, #E2E8F0)', borderRadius: 10,
+          background: 'var(--surface, #fff)', border: '1px solid var(--line, #E2E8F0)', borderRadius: 10,
           boxShadow: '0 8px 24px rgba(15,27,58,0.14)', overflow: 'hidden', padding: 4,
         }}>
           <button type="button" style={item} onClick={() => go('xlsx')}

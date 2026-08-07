@@ -152,7 +152,7 @@ function TableScreen({ scr }: { scr: any }) {
         <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
           <label style={{ fontSize: 12.5, color: 'var(--placeholder)', fontWeight: 600 }}>{scr.filterLabel || 'Filtrar'}:</label>
           <select value={active} onChange={(e) => setSel(e.target.value)}
-            style={{ padding: '6px 12px', borderRadius: 8, fontSize: 13, border: '1px solid var(--border, #d8dee9)', background: 'var(--card, #fff)', color: 'var(--ink, #16277D)', fontWeight: 600, cursor: 'pointer' }}>
+            style={{ padding: '6px 12px', borderRadius: 8, fontSize: 13, border: '1px solid var(--border, #d8dee9)', background: 'var(--surface, #fff)', color: 'var(--ink, #16277D)', fontWeight: 600, cursor: 'pointer' }}>
             {filterVals.map((v: string, i: number) => <option key={i} value={v}>{v}</option>)}
           </select>
           <span style={{ fontSize: 12, color: 'var(--placeholder)' }}>{rows.length} folha(s)</span>
@@ -220,7 +220,7 @@ function TableScreen({ scr }: { scr: any }) {
       )}
       {editRow && (
         <div onClick={() => setEditRow(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,27,58,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--card, #fff)', borderRadius: 14, padding: 20, width: 'min(560px, 94vw)', maxHeight: '88vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--surface, #fff)', borderRadius: 14, padding: 20, width: 'min(560px, 94vw)', maxHeight: '88vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>
             <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink, #16277D)', marginBottom: 12 }}>{editRow.title || 'Editar'}</div>
             {editMsg && <div className={`rd-badge ${editMsg.ok ? 'rd-b-success' : 'rd-b-error'}`} style={{ height: 'auto', padding: '8px 12px', fontSize: 12.5, marginBottom: 10, display: 'block' }}>{editMsg.text}</div>}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
