@@ -64,7 +64,7 @@ class GedeonFinancialOrchestrator:
                 and_(
                     pdate >= past_30,
                     pdate <= today,
-                    PayableAccount.status == PayableStatus.PAGA.value,
+                    PayableAccount.status.in_(("pago", "paga")),
                 )
             )
             despesas_30d = float((await self.db.execute(pay_30_q)).scalar_one() or 0)

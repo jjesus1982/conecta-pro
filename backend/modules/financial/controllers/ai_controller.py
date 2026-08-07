@@ -130,7 +130,7 @@ async def _calculate_default_metrics(session: AsyncSession, condominio_id: str):
         and_(
             PayableAccount.due_date >= today,
             PayableAccount.due_date <= week_ahead,
-            PayableAccount.status.notin_(["paga", "cancelada"]),
+            PayableAccount.status.notin_(["pago", "paga", "cancelada"]),
         )
     )
     upcoming_payables = (await session.execute(payable_q)).scalar_one() or Decimal("0")
@@ -183,7 +183,7 @@ async def _real_margin_trend(session: AsyncSession, condominio_id: str) -> tuple
              ReceivableAccount.status == ReceivableStatus.PAGA.value))))
     pay_30 = await _sum(select(func.coalesce(func.sum(PayableAccount.net_value), 0)).where(
         and_(pdate >= d30, pdate <= today,
-             PayableAccount.status == "paga")))
+             PayableAccount.status.in_(("pago", "paga")))))
 
     margin = round((recv_30 - pay_30) / recv_30 * 100, 2) if recv_30 > 0 else 0.0
     if recv_30 > recv_prev * 1.05:
@@ -523,7 +523,7 @@ async def get_cashflow_prediction(
         pay_q = select(func.coalesce(func.sum(PayableAccount.net_value), 0)).where(
             and_(
                 PayableAccount.payment_date >= past_30,
-                PayableAccount.status == "paga",
+                PayableAccount.status.in_(("pago", "paga")),
             )
         )
         avg_pay_month = float((await session.execute(pay_q)).scalar_one() or 0)
