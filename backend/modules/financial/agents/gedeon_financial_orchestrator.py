@@ -99,7 +99,7 @@ class GedeonFinancialOrchestrator:
                 and_(
                     PayableAccount.due_date >= today,
                     PayableAccount.due_date <= today + timedelta(days=30),
-                    PayableAccount.status.notin_(("paga", "cancelada")),  # em aberto (enum não tem ABERTA)
+                    PayableAccount.status.notin_(("pago", "paga", "cancelada")),  # em aberto ('pago'=dado real)
                 )
             )
             a_pagar_30d = float((await self.db.execute(a_pagar_q)).scalar_one() or 0)

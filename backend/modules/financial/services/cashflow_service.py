@@ -81,7 +81,7 @@ class CashFlowService:
         # ~18 de 71 pagáveis / ~21 de 9 recebíveis), então a projeção por parcela
         # ficava quase vazia → valor incoerente (ex.: −R$67). Projetamos as DUAS
         # pontas por data de vencimento: pagáveis (saída) e recebíveis (entrada).
-        _CLOSED_PAY = ("paga", "cancelada")
+        _CLOSED_PAY = ("pago", "paga", "cancelada")  # 'pago'=dado real; 'paga'=enum legado
         _CLOSED_REC = ("paga", "pago", "cancelada")
 
         projections_map: dict[date, CashFlowProjection] = {}

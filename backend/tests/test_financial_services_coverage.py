@@ -2594,7 +2594,7 @@ class TestFinancialEnums:
         from modules.financial.models.payable_account import PayableStatus
 
         assert PayableStatus.PENDENTE == "pendente"
-        assert PayableStatus.PAGA == "paga"
+        assert PayableStatus.PAGA == "pago"
         assert PayableStatus.CANCELADA == "cancelada"
         assert PayableStatus.APROVADA == "aprovada"
         assert PayableStatus.AGENDADA == "agendada"

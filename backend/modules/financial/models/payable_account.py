@@ -36,7 +36,7 @@ class PayableStatus(StrEnum):
     PENDENTE = "pendente"  # Aguardando vencimento
     VENCIDA = "vencida"  # Vencida e não paga
     PARCIAL = "parcial"  # Parcialmente paga
-    PAGA = "paga"  # Totalmente paga
+    PAGA = "pago"  # Totalmente paga. Valor 'pago' = o que a conciliação bancária grava (dado real).
     CANCELADA = "cancelada"  # Cancelada
     SUSPENSA = "suspensa"  # Suspensa temporariamente
     AGENDADA = "agendada"  # Agendada para pagamento
