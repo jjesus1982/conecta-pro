@@ -128,6 +128,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         from modules.people_management.human_resources.subscribers import rh_notificacoes
 
         rh_notificacoes.registrar_subscribers()
+
+        # GED → espelha cliente novo em ged_clients. O evento gedeon.cliente.espelhar
+        # disparava 10x sem ninguem reagir; 10 dos 21 clientes do CRM nao tinham espelho.
+        from modules.ged.subscribers import espelhar_cliente
+
+        espelhar_cliente.registrar_subscribers()
     except Exception as e:
         logger.warning(f"CCT propagação: falha ao registrar subscribers ({e})")
 

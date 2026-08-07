@@ -273,6 +273,11 @@ class EventTypes:
     # ── GED ───────────────────────────────────────────────────────────────
     GED_DOCUMENTO_CRIADO = "ged.documento.criado"
     GED_DOCUMENTO_ATUALIZADO = "ged.documento.atualizado"
+    # Formalizado em 2026-08-07: existia como string literal em gedeon.py, publicado 10x
+    # e invisível para quem lesse este catálogo. O valor NÃO muda — os eventos já gravados
+    # no stream continuam casando.
+    GEDEON_CLIENTE_ESPELHAR = "gedeon.cliente.espelhar"
+
     GED_KIT_INICIADO = "ged.kit.iniciado"
     GED_KIT_MONTADO = "ged.kit.montado"
     GED_KIT_ENVIADO = "ged.kit.enviado"

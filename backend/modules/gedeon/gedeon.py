@@ -526,7 +526,7 @@ class Gedeon:
 
         await event_bus.publish(
             ConectaEvent(
-                event_type="gedeon.cliente.espelhar",
+                event_type=EventTypes.GEDEON_CLIENTE_ESPELHAR,
                 payload={
                     "cliente_id": cliente_id,
                     "nome": nome,
