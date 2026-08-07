@@ -320,6 +320,62 @@ async def rd_action_comunicado_publicar(current_user: CurrentActiveUser, payload
                                      current_user=current_user, db=db), "publicado", "comunicado")
 
 
+@router.post("/action/comunicado-criar")
+async def rd_action_comunicado_criar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    from fastapi import HTTPException
+
+    from modules.operacional.communication.controllers.announcement_controller import create_announcement
+    from modules.operacional.communication.schemas.communication_schemas import AnnouncementCreate
+    titulo = (payload.get("title") or "").strip()
+    conteudo = (payload.get("content") or "").strip()
+    if len(titulo) < 3 or len(conteudo) < 10:
+        raise HTTPException(status_code=400, detail="Título (mín. 3) e conteúdo (mín. 10) são obrigatórios.")
+    data = AnnouncementCreate(title=titulo, content=conteudo,
+                              priority=(payload.get("priority") or "normal"),
+                              category=(payload.get("category") or "informativo"))
+    res = await create_announcement(data=data, current_user=current_user, db=db)
+    return {"ok": True, "msg": "Comunicado criado (rascunho). Publique para enviar.", "id": str(getattr(res, "id", "") or "")}
+
+
+@router.post("/action/comunicado-editar")
+async def rd_action_comunicado_editar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    import uuid as _uuid
+
+    from fastapi import HTTPException
+
+    from modules.operacional.communication.controllers.announcement_controller import update_announcement
+    from modules.operacional.communication.schemas.communication_schemas import AnnouncementUpdate
+    cid = (payload.get("announcement_id") or "").strip()
+    try:
+        _cid = _uuid.UUID(cid)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Selecione o comunicado.")
+    upd = {k: (payload.get(k) or "").strip() for k in ("title", "content") if (payload.get(k) or "").strip()}
+    for k in ("priority", "category"):
+        if payload.get(k):
+            upd[k] = payload[k]
+    if not upd:
+        raise HTTPException(status_code=400, detail="Nada para atualizar.")
+    await update_announcement(announcement_id=_cid, data=AnnouncementUpdate(**upd), current_user=current_user, db=db)
+    return {"ok": True, "msg": "Comunicado atualizado (só rascunho/agendado é editável)."}
+
+
+@router.post("/action/comunicado-excluir")
+async def rd_action_comunicado_excluir(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    import uuid as _uuid
+
+    from fastapi import HTTPException
+
+    from modules.operacional.communication.controllers.announcement_controller import delete_announcement
+    cid = (payload.get("announcement_id") or "").strip()
+    try:
+        _cid = _uuid.UUID(cid)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Selecione o comunicado.")
+    await delete_announcement(announcement_id=_cid, current_user=current_user, db=db)
+    return {"ok": True, "msg": "Comunicado excluído."}
+
+
 @router.post("/action/alerta-ack")
 async def rd_action_alerta_ack(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
     from fastapi import HTTPException
@@ -623,6 +679,42 @@ async def rd_action_nova_ronda(current_user: CurrentActiveUser, payload: dict = 
         raise HTTPException(status_code=400, detail=str(ge))
     rid = getattr(r, "id", None)
     return {"ok": True, "id": str(rid) if rid else None, "code": getattr(r, "code", None), "message": "Ronda criada"}
+
+
+@router.post("/action/ronda-transicao")
+async def rd_action_ronda_transicao(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Ciclo de vida da ronda pelo gestor (iniciar/pausar/retomar/concluir/cancelar).
+    Reusa os controllers reais do inspection_round (mantém o publish de evento no concluir).
+    O serviço valida o estado — transição inválida devolve 400."""
+    import uuid as _uuid
+
+    from fastapi import HTTPException
+
+    from modules.operacional.inspection_rounds.controllers.inspection_round_controller import (
+        cancel_round, complete_round, pause_round, resume_round, start_round)
+    from modules.operacional.inspection_rounds.services.inspection_round_service import InspectionRoundService
+    rid = (payload.get("round_id") or "").strip()
+    acao = (payload.get("acao") or "").strip()
+    try:
+        _rid = _uuid.UUID(rid)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Selecione a ronda.")
+    svc = InspectionRoundService(db)
+    ops = {
+        "iniciar": lambda: start_round(round_id=_rid, current_user=current_user, data=None, service=svc),
+        "pausar": lambda: pause_round(round_id=_rid, current_user=current_user, service=svc),
+        "retomar": lambda: resume_round(round_id=_rid, current_user=current_user, service=svc),
+        "concluir": lambda: complete_round(round_id=_rid, current_user=current_user, data=None, service=svc),
+        "cancelar": lambda: cancel_round(round_id=_rid, current_user=current_user,
+                                         reason=(payload.get("motivo") or None), service=svc),
+    }
+    fn = ops.get(acao)
+    if not fn:
+        raise HTTPException(status_code=400, detail="Ação inválida (iniciar/pausar/retomar/concluir/cancelar).")
+    await fn()
+    return {"ok": True, "msg": f"Ronda: '{acao}' aplicado."}
+
+
 @router.post("/action/notificacoes-marcar-todas")
 async def rd_action_notif_marcar_todas(current_user: CurrentActiveUser, payload: dict = Body(default={}),
                                        db=Depends(get_db)) -> dict:
@@ -685,6 +777,28 @@ async def rd_action_posto_localizacao(current_user: CurrentActiveUser, payload: 
     except GateError as ge:
         raise HTTPException(status_code=400, detail=str(ge))
     return {"ok": True, "message": "Localização do posto definida."}
+
+
+@router.post("/action/posto-editar")
+async def rd_action_posto_editar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Edita dados cadastrais do posto (nome/endereço/cidade/UF/CEP) — reuso do update_post real."""
+    from uuid import UUID
+
+    from modules.operacional.controllers.post_controller import update_post
+    from modules.operacional.schemas.post import PostUpdate
+    post_id = (payload.get("post_id") or "").strip()
+    try:
+        _pid = UUID(post_id)
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail="Selecione o posto.")
+    upd = {k: (payload.get(k) or "").strip() for k in ("name", "address", "city", "zip_code") if (payload.get(k) or "").strip()}
+    uf = (payload.get("state") or "").strip().upper()
+    if uf:
+        upd["state"] = uf[:2]
+    if not upd:
+        raise HTTPException(status_code=400, detail="Nada para atualizar.")
+    await update_post(post_id=_pid, data=PostUpdate(**upd), current_user=current_user, db=db)
+    return {"ok": True, "message": "Posto atualizado."}
 
 
 # F0: menu extra ZERADO — as antigas entradas de ação viram ABAS dos 8 grupos (_op_grupos.py),
@@ -1056,6 +1170,21 @@ async def build(db) -> dict:
                 {"key": "observations", "label": "Observações", "type": "textarea", "span": "span 2", "ph": "Opcional…"},
             ],
         }
+        _ron_ativas = (await db.execute(_sqltext(
+            "SELECT id, coalesce(code,'—'), coalesce(status::text,'—'), scheduled_date FROM inspection_rounds "
+            "WHERE coalesce(status::text,'') NOT IN ('concluida','cancelada','concluída') "
+            "ORDER BY coalesce(scheduled_date, created_at) DESC LIMIT 200"))).fetchall()
+        out["ronda-transicao"] = {
+            "title": "Andamento da ronda", "sub": "Iniciar, pausar, retomar, concluir ou cancelar uma ronda (gestor)", "cta": "Aplicar",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/ronda-transicao", "okMsg": "Transição aplicada"},
+            "fields": [
+                {"key": "round_id", "label": "Ronda*", "type": "select", "span": "span 2", "ph": "Selecione a ronda",
+                 "options": [{"value": str(i), "label": f"{c} · {st}" + (f" · {dt.strftime('%d/%m')}" if dt else "")} for i, c, st, dt in _ron_ativas]},
+                {"key": "acao", "label": "Ação*", "type": "select", "span": "span 1", "ph": "Selecione",
+                 "options": [{"value": v, "label": l} for v, l in [("iniciar", "Iniciar"), ("pausar", "Pausar"), ("retomar", "Retomar"), ("concluir", "Concluir"), ("cancelar", "Cancelar")]]},
+                {"key": "motivo", "label": "Motivo (se cancelar)", "type": "text", "span": "span 1", "ph": "Opcional"},
+            ],
+        }
         # ── 3 edge-actions ligadas 2026-08-04 (marcar-todas notif · checkin manual · localização posto) ──
         out["notificacoes-marcar-todas"] = {
             "title": "Marcar notificações como lidas", "sub": "Marca TODAS as suas notificações como lidas", "cta": "Marcar todas",
@@ -1083,6 +1212,18 @@ async def build(db) -> dict:
                 {"key": "lat", "label": "Latitude*", "type": "text", "span": "span 1", "ph": "Ex.: -3.10194"},
                 {"key": "lng", "label": "Longitude*", "type": "text", "span": "span 1", "ph": "Ex.: -60.02510"},
                 {"key": "raio_metros", "label": "Raio (metros)", "type": "text", "span": "span 1", "ph": "Opcional, ex.: 100"},
+            ],
+        }
+        out["posto-editar"] = {
+            "title": "Editar posto", "sub": "Atualiza dados cadastrais do posto (nome/endereço/cidade/UF/CEP)", "cta": "Salvar posto",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/posto-editar", "okMsg": "Posto atualizado"},
+            "fields": [
+                {"key": "post_id", "label": "Posto*", "type": "select", "span": "span 2", "ph": "Selecione o posto", "options": _post_opts},
+                {"key": "name", "label": "Novo nome", "type": "text", "span": "span 2", "ph": "Deixe vazio p/ manter"},
+                {"key": "address", "label": "Endereço", "type": "text", "span": "span 2", "ph": "Deixe vazio p/ manter"},
+                {"key": "city", "label": "Cidade", "type": "text", "span": "span 1", "ph": "Manter"},
+                {"key": "state", "label": "UF", "type": "text", "span": "span 1", "ph": "Ex.: AM"},
+                {"key": "zip_code", "label": "CEP", "type": "text", "span": "span 1", "ph": "Manter"},
             ],
         }
     except Exception:  # noqa: BLE001
@@ -1514,6 +1655,28 @@ async def build(db) -> dict:
             "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/comunicado-publicar", "okMsg": "Comunicado publicado"},
             "fields": [{"key": "announcement_id", "label": "Comunicado (rascunho)*", "type": "select", "span": "span 2", "ph": "Selecione",
                         "options": [{"value": str(i), "label": tt} for i, tt in _ann]}]}
+        _prio_opt = [{"value": v, "label": l} for v, l in [("normal", "Normal"), ("baixa", "Baixa"), ("alta", "Alta"), ("urgente", "Urgente")]]
+        _cat_opt = [{"value": v, "label": l} for v, l in [("informativo", "Informativo"), ("procedimento", "Procedimento"), ("alerta", "Alerta"), ("treinamento", "Treinamento"), ("politica", "Política")]]
+        _ann_opt = [{"value": str(i), "label": tt} for i, tt in _ann]
+        out["comunicado-novo"] = {
+            "title": "Novo comunicado", "sub": "Cria um comunicado (nasce como rascunho — publique depois)", "cta": "Criar comunicado",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/comunicado-criar", "okMsg": "Comunicado criado (rascunho)"},
+            "fields": [{"key": "title", "label": "Título*", "type": "text", "span": "span 2", "ph": "Mín. 3 caracteres"},
+                       {"key": "content", "label": "Conteúdo*", "type": "textarea", "span": "span 2", "ph": "Mín. 10 caracteres"},
+                       {"key": "priority", "label": "Prioridade", "type": "select", "span": "span 1", "options": _prio_opt},
+                       {"key": "category", "label": "Categoria", "type": "select", "span": "span 1", "options": _cat_opt}]}
+        out["comunicado-editar"] = {
+            "title": "Editar comunicado", "sub": "Edita título/conteúdo/prioridade (só rascunho ou agendado)", "cta": "Salvar alterações",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/comunicado-editar", "okMsg": "Comunicado atualizado"},
+            "fields": [{"key": "announcement_id", "label": "Comunicado (rascunho)*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _ann_opt},
+                       {"key": "title", "label": "Novo título", "type": "text", "span": "span 2", "ph": "Deixe vazio p/ manter"},
+                       {"key": "content", "label": "Novo conteúdo", "type": "textarea", "span": "span 2", "ph": "Deixe vazio p/ manter"},
+                       {"key": "priority", "label": "Prioridade", "type": "select", "span": "span 1", "ph": "Manter", "options": _prio_opt},
+                       {"key": "category", "label": "Categoria", "type": "select", "span": "span 1", "ph": "Manter", "options": _cat_opt}]}
+        out["comunicado-excluir"] = {
+            "title": "Excluir comunicado", "sub": "Remove um comunicado em rascunho", "cta": "Excluir",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/comunicado-excluir", "okMsg": "Comunicado excluído"},
+            "fields": [{"key": "announcement_id", "label": "Comunicado*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _ann_opt}]}
         _alr = (await db.execute(_sqltext(
             "SELECT id, coalesce(title,'—'), coalesce(severity::text,'—') FROM communication_alerts "
             "WHERE coalesce(is_active,true) AND acknowledged_by IS NULL ORDER BY created_at DESC LIMIT 200"))).fetchall()

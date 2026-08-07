@@ -23,7 +23,7 @@ GRUPOS = [
         ("postos", "Postos"), ("presenca", "Presença hoje"), ("instrucoes-posto", "Instruções de posto"),
         ("passagem-turno", "Passagem de turno"), ("passagem-turno-nova", "Nova passagem"),
         ("instrucao-posto-editar", "Editar instrução"), ("checkin-manual", "Check-in manual"),
-        ("posto-localizacao", "Localização do posto")]),
+        ("posto-localizacao", "Localização do posto"), ("posto-editar", "Editar posto")]),
     ("g-equipe", "Equipe & Ponto", "Colaboradores, avaliação e banco de horas", [
         ("colaboradores", "Colaboradores"), ("avaliacao-equipe", "Avaliação de equipe"),
         ("banco-horas", "Banco de horas"), ("banco-horas-lancar", "Lançar horas"),
@@ -42,11 +42,13 @@ GRUPOS = [
     ("g-rondas", "Rondas & Ocorrências", "Rondas, mobile e ocorrências", [
         ("rondas", "Rondas"), ("ronda-mobile", "Ronda mobile"), ("ocorrencias", "Ocorrências"),
         ("ocorrencia-rapida", "Ocorrência rápida"), ("resolver-ocorrencia", "Resolver ocorrência"),
-        ("comentar-ocorrencia", "Comentar ocorrência"), ("nova-ronda", "Nova ronda")]),
+        ("comentar-ocorrencia", "Comentar ocorrência"), ("nova-ronda", "Nova ronda"),
+        ("ronda-transicao", "Andamento da ronda")]),
     ("g-comunicacao", "Comunicação", "Comunicados e notificações", [
         ("comunicados", "Comunicados"), ("notificacoes", "Notificações"),
-        ("comunicado-publicar", "Publicar comunicado"), ("alerta-ack", "Reconhecer alerta"),
-        ("notificacoes-marcar-todas", "Marcar todas lidas")]),
+        ("comunicado-novo", "Novo comunicado"), ("comunicado-publicar", "Publicar comunicado"),
+        ("comunicado-editar", "Editar comunicado"), ("comunicado-excluir", "Excluir comunicado"),
+        ("alerta-ack", "Reconhecer alerta"), ("notificacoes-marcar-todas", "Marcar todas lidas")]),
 ]
 
 
