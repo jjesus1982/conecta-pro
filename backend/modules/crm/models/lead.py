@@ -125,6 +125,19 @@ class Lead(Base):
     # Payload de Click-to-WhatsApp (CTWA) vindo do anúncio Meta.
     ad_referral: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
+    # Elo lead -> cliente. A COLUNA JÁ EXISTIA no banco e NÃO estava mapeada aqui
+    # (drift model×banco): setattr(lead,"client_id",v) virava atributo Python solto,
+    # o endpoint devolvia 200 e NADA persistia. É o par de `clients.lead_id`
+    # (esse sim já mapeado) e o que fecha origem -> cliente -> contrato -> MRR.
+    # Sem ForeignKey() aqui de propósito: `clients` vive em modules.clients e não
+    # está no mesmo registry quando só o Lead é importado — declarar a FK quebra
+    # com NoReferencedTableError. A integridade REAL já existe no banco
+    # (constraint leads_client_id_fkey -> clients); o ORM só precisa da coluna
+    # para persistir o valor.
+    client_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False), nullable=True, index=True
+    )
+
     # Scoring e probabilidade
     score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     probability: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)

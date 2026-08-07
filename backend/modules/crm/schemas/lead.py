@@ -58,6 +58,11 @@ class LeadUpdate(BaseModel):
     assigned_to_id: str | None = None
     expected_value: float | None = Field(None, ge=0)
     next_contact_at: datetime | None = None
+    # Elo lead -> cliente: é o que permite responder "qual origem traz o cliente
+    # que mais paga". LeadRepository.update já copia campo a campo via
+    # model_dump(exclude_unset=True), então basta o campo existir aqui — desde que
+    # o model TAMBÉM mapeie a coluna (ver Lead.client_id).
+    client_id: str | None = None
 
 
 class LeadResponse(BaseModel):
