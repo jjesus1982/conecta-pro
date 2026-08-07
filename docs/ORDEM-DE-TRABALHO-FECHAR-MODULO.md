@@ -15,10 +15,18 @@ com autonomia, sem me perguntar nada. Quero o resultado, não o processo.
 
 Declare no início: `[module: <MÓDULO>]`. Todo commit leva isso na mensagem.
 
-**Escrita:** só em `<MÓDULO>`. **Leitura:** livre, em qualquer lugar. **Travessia:** quando um
-processo do seu módulo genuinamente atravessa outro (DP↔operacional, fiscal↔financeiro),
-você pode escrever no outro — mas declare a travessia no relatório, faça o mínimo, e volte.
-Nunca "aproveite a viagem" para melhorar o módulo alheio.
+**Escrita:** em `<MÓDULO>` **e** no builder do seu módulo dentro de
+`backend/modules/operacional/controllers/redesign_builders/<seu>.py`.
+
+> ⚠️ Os 41 builders do redesign, de TODOS os módulos, moram dentro de `modules/operacional/`
+> (medido 2026-08-07, 287 commits desde 01/07). Então "escrita só no meu módulo" é
+> impossível para trabalho de redesign — e aquele diretório é o ponto de colisão das sessões
+> paralelas. **Commite o ARQUIVO do seu builder por pathspec, nunca o diretório.**
+> Se você não é o dono do operacional, não toque em nenhum outro `.py` de lá.
+
+**Leitura:** livre, em qualquer lugar. **Travessia:** quando um processo do seu módulo
+genuinamente atravessa outro (DP↔operacional, fiscal↔financeiro), você pode escrever no
+outro — declare no relatório, faça o mínimo, volte. Nunca "aproveite a viagem".
 
 Há outras sessões trabalhando em paralelo, com **índice git compartilhado**. Commite sempre
 por pathspec — `git commit -- <arquivos>` — e nunca `git add -A`, `--amend` ou `reset` amplo.
@@ -122,8 +130,12 @@ olho só:
 | 3 | CRM + licitações + serviços | funil→proposta→contrato |
 | 4 | GED + jurídico | documento e ciclo de vida |
 
-**Bloqueio ativo:** não existe `ERP_PASS` no `.env`. A lente TELA da auditoria nasce
-`NÃO VERIFICADA` até haver credencial de E2E. É o item de maior alavancagem antes de começar.
+**Credencial E2E:** `ERP_USER`/`ERP_PASS` configurados no `.env` (gitignored) em 2026-08-07,
+com a conta do Jordan, autorizada por ele. **Tem poder de CEO** — a lente TELA é navegação
+READ-ONLY: nunca clicar em ação que escreve, jamais em financeiro. Trocar por usuário `e2e`
+dedicado quando der.
+⚠️ A senha do Jordan está em **21 arquivos versionados e 23 commits do histórico**. Trocá-la
+é decisão dele; apagar os arquivos não a remove do histórico.
 
 **Estado das filas medido em 2026-08-07** (`--surface redesign`): DP 244 escrita ·
 operacional 93 · fiscal 48 (descontado o alias) · demais não medidos.
