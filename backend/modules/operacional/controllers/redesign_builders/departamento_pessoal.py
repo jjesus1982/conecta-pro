@@ -434,46 +434,12 @@ async def rd_action_reembolso_rejeitar(current_user: CurrentActiveUser, rid: str
     if not req:
         raise HTTPException(status_code=404, detail="Reembolso não encontrado.")
     return {"ok": True, "message": "Reembolso rejeitado."}
-# Item de nav da tela de ação "Aviso prévio de férias" (form → gera doc). É SOMADO ao EXTRA_MENU
-# global do slug (redesign_data_controller._discover_module_builders), sem tocar a fundação.
-EXTRA_MENU: list[dict] = [
-    {"id": "aviso-ferias", "label": "Aviso de férias",
-     "icon": "M17 8C8 10 5.9 16.2 3.8 21.7c-.3.7.3 1.3 1 1L8 21c9-2 11-8 13-13M12 2v4M20 6l-2 2"},
-    {"id": "contracheques-lote", "label": "Contracheques em lote",
-     "icon": "M9 7h6M9 11h6M9 15h4M5 3h14a1 1 0 0 1 1 1v16H4V4a1 1 0 0 1 1-1z"},
-    {"id": "fechar-mes-ponto", "label": "Fechar mês (ponto)",
-     "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
-    {"id": "cadastrar-pix-key", "label": "Cadastrar chave PIX",
-     "icon": "M12 2a5 5 0 0 0-5 5v3H5v11h14V10h-2V7a5 5 0 0 0-5-5zM9 10V7a3 3 0 0 1 6 0v3"},
-    {"id": "chaves-pix", "label": "Chaves PIX (todos)",
-     "icon": "M15 7a4 4 0 1 1-4 4M2 12h9M7 9v6M11 12l3-3M14 15l-3-3"},
-    {"id": "folha-gerar", "label": "Gerar folha (Conecta PRO)",
-     "icon": "M9 12l2 2 4-4M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7z"},
-    {"id": "pareamento-folha", "label": "Folha: Conecta × Portte",
-     "icon": "M8 3v18M16 3v18M3 8h18M3 16h18"},
-    {"id": "folha-por-condominio", "label": "Folha por condomínio",
-     "icon": "M3 21h18M5 21V7l7-4 7 4v14M9 21v-5h6v5M9 11h.01M15 11h.01"},
-    {"id": "folha-nao-conformidades", "label": "Não conformidades (folha)",
-     "icon": "M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h16.9a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01"},
-    {"id": "folha-apontamento", "label": "Apontar folha",
-     "icon": "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"},
-    {"id": "importar-cadastro", "label": "Importar cadastro (CSV)",
-     "icon": "M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"},
-    {"id": "nova-admissao", "label": "Nova admissão",
-     "icon": "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8M19 8v6M22 11h-6"},
-    {"id": "sync-ferias-solides", "label": "Sincronizar férias (Sólides)",
-     "icon": "M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"},
-    {"id": "prestadores-pj", "label": "Prestadores PJ",
-     "icon": "M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM3 20v-1a6 6 0 0 1 12 0v1M16 3.13a4 4 0 0 1 0 7.75M21 20v-1a6 6 0 0 0-4-5.65"},
-    {"id": "registrar-licenca", "label": "Registrar licença/afastamento",
-     "icon": "M9 12h6m-3-3v6M4 4h16v16H4z"},
-    {"id": "renovar-aso", "label": "Agendar/renovar ASO",
-     "icon": "M12 8v8m-4-4h8M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18"},
-    {"id": "revisar-justificativa", "label": "Revisar justificativa de ponto",
-     "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
-    {"id": "nova-certificacao", "label": "Nova certificação",
-     "icon": "M9 12l2 2 4-4M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7z"},
-]
+# F0 — menu extra ZERADO (idêntico ao financeiro): as 24 entradas soltas viram ABAS dos 8
+# grupos (_dp_grupos.py) e o menu do módulo passa a ser só os grupos, declarado no pacote
+# `_modules/departamento-pessoal.json`. As telas continuam TODAS montadas no build; só saem
+# da navegação de topo. Menu em UM lugar só — o front soma pacote + EXTRA_MENU, então
+# declarar nos dois duplicaria cada aba.
+EXTRA_MENU: list[dict] = []
 
 # datas: as tabelas usam date/timestamp; formatador defensivo local
 _ND = "#0F1B3A"
@@ -2108,5 +2074,13 @@ async def build(db, current_user=None) -> dict:
             await db.rollback()
         except Exception:
             pass
+
+    # F0 — agrupa as 49 telas em 8 grupos com abas (mesma fundação do financeiro).
+    # POR ÚLTIMO, sempre: `montar_grupos` captura as telas já montadas e troca as antigas por
+    # stubs de redirect. Qualquer tela adicionada DEPOIS desta linha ficaria fora de grupo —
+    # montada, mas sem entrada no menu e sem aba: invisível.
+    from modules.operacional.controllers.redesign_builders._dp_grupos import montar_grupos
+
+    montar_grupos(out)
 
     return out
