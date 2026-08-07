@@ -995,17 +995,32 @@ WITH intra AS (
 ), p AS (
   SELECT k.employee_id, k.punch_timestamp AS ts,
          (i.employee_id IS NOT NULL) AS sem_almoco,
-         row_number() OVER (PARTITION BY k.employee_id ORDER BY k.punch_timestamp) AS rn
+         extract(epoch FROM (k.punch_timestamp - lag(k.punch_timestamp)
+           OVER (PARTITION BY k.employee_id ORDER BY k.punch_timestamp))) / 3600 AS gap_h
   FROM gp_clock_punches k
   LEFT JOIN intra i ON i.employee_id = k.employee_id
   WHERE k.punch_timestamp >= date_trunc('month', now()) - interval '{meses - 1} months'
     AND k.employee_id NOT IN (SELECT id FROM employees WHERE coalesce(is_homologacao,false) = true)
-), j AS (
-  -- GROUP BY e não window: o Postgres não implementa `agg(... ORDER BY ...) OVER (...)`
-  SELECT employee_id, sem_almoco,
-         array_agg(ts ORDER BY ts) AS marcas
+), b AS (
+  -- Jornada = corte por INTERVALO entre batidas, com limiar POR GRUPO. Duas tentativas
+  -- anteriores falharam: agrupar de N em N desliza quando falta uma batida (52% das jornadas
+  -- ficavam com duração impossível, a pior com 944h) e agrupar por data parte o turno que
+  -- atravessa a meia-noite.
+  --
+  -- Os limiares saíram da distribuição real dos intervalos (agosto + 2 meses):
+  --   • sem almoço (12x36): dentro do turno 10–14h · entre turnos 24h+   -> corta em 16h
+  --   • com almoço:         dentro do turno 0–8h  · entre turnos 14h+    -> corta em 10h
+  -- Um limiar único não serve: 14h é "mesmo turno" para um grupo e "outro dia" para o outro.
+  SELECT employee_id, sem_almoco, ts,
+         sum(CASE WHEN gap_h IS NULL
+                       OR gap_h > (CASE WHEN sem_almoco THEN 16 ELSE 10 END)
+                  THEN 1 ELSE 0 END)
+           OVER (PARTITION BY employee_id ORDER BY ts) AS jornada
   FROM p
-  GROUP BY employee_id, sem_almoco, (rn - 1) / (CASE WHEN sem_almoco THEN 2 ELSE 4 END)
+), j AS (
+  -- GROUP BY e não window: o Postgres não implementa `agg(... ORDER BY ...) OVER (...)`.
+  SELECT employee_id, sem_almoco, array_agg(ts ORDER BY ts) AS marcas
+  FROM b GROUP BY employee_id, sem_almoco, jornada
 ), d AS (
   SELECT employee_id, sem_almoco, marcas,
          (marcas[1])::date AS dia,
@@ -1033,10 +1048,15 @@ def _linha_ponto(r):
     almoco = None
     if not r[5] and n >= 4:                       # 4 batidas: saída e volta do almoço
         almoco = (marcas[2] - marcas[1]).total_seconds() / 60
+    # Guarda de plausibilidade. Nem o pareamento alternado sobrevive a batida faltando no
+    # 12x36: o par desliza e junta dias diferentes (~7% das jornadas). Quando a duração passa
+    # de 16h a jornada está QUEBRADA, e aí não existe total honesto a mostrar — exibir
+    # "59:02 trabalhadas" seria número inventado. A linha aparece marcada para o DP resolver.
+    quebrada = bool(ent and sai and (sai - ent).total_seconds() > 16 * 3600)
     liq = None
-    if ent and sai:
+    if ent and sai and not quebrada:
         liq = (sai - ent).total_seconds() / 60 - (almoco or 0)
-    completo = n >= esperado
+    completo = n >= esperado and not quebrada
     return [
         t(r[0] or "—", 600, _ND, initials(r[0] or "")),
         t(_d(r[1])),
@@ -1044,9 +1064,9 @@ def _linha_ponto(r):
         t(f"{_hm(int(almoco))}" if almoco else ("—" if r[5] else "--:--")),
         t(sai.strftime("%H:%M") if sai else "--:--"),
         t(_hm(int(liq)) if (liq is not None and liq > 0) else "--:--"),
-        {"isBadge": True, "v": f"{n}/{esperado}",
-         "color": "#0F7B4F" if completo else "#B45309",
-         "bg": "#E7F6EF" if completo else "#FEF3C7"},
+        {"isBadge": True, "v": ("revisar" if quebrada else f"{n}/{esperado}"),
+         "color": "#B91C1C" if quebrada else ("#0F7B4F" if completo else "#B45309"),
+         "bg": "#FEE2E2" if quebrada else ("#E7F6EF" if completo else "#FEF3C7")},
         t(r[6]),
     ]
 
