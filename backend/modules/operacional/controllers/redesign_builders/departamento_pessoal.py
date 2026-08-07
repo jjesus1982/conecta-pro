@@ -9,7 +9,9 @@ Telas novas: admissao · aviso-previo · ponto · fechamento-ponto · licencas �
 reembolsos · contratos · documentos · certificacao · esocial.
 """
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+import logging
+
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
 
 from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
@@ -26,6 +28,7 @@ from modules.operacional.controllers.redesign_data_controller import (
 
 SLUG = "departamento-pessoal"
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -114,6 +117,123 @@ def _require_dp_dep(current_user: CurrentActiveUser) -> None:
     from core.auth.module_scope import user_has_module
     if not (user_has_module(current_user, "people-management") or user_has_module(current_user, "financeiro")):
         raise HTTPException(status_code=403, detail="Gerar folha é restrito ao DP/Financeiro.")
+
+
+#: Campos que cada formulário aceita, por alvo. A chave é EXATAMENTE a `key` do campo na tela —
+#: o front funde o que volta daqui direto no formulário, então inventar nome aqui vira campo
+#: que some sem aviso. Mudou a tela, mude aqui (o teste `test_dp_extrair_documento.py` cruza os dois).
+_CAMPOS_EXTRAIVEIS = {
+    "admissao": {
+        "candidate_name": "nome completo da pessoa",
+        "cpf": "CPF, só dígitos ou formatado",
+        "birth_date": "data de nascimento em AAAA-MM-DD",
+        "position": "cargo/função, se o documento disser",
+        "pis_pasep": "número do PIS/PASEP/NIT",
+    },
+    "prestador_pj": {
+        "nome": "nome completo da pessoa OU razão social",
+        "cpf": "CPF do responsável, só dígitos ou formatado",
+        "papel": "função/atividade descrita",
+    },
+}
+
+_PROMPT_EXTRACAO = (
+    "Você extrai dados de documentos brasileiros (RG, CNH, CPF, CTPS, carteira de trabalho "
+    "digital, comprovante de PIS, cartão CNPJ, contrato social).\n\n"
+    "Devolva SOMENTE um objeto JSON, sem texto em volta, com estas chaves:\n{chaves}\n\n"
+    "REGRAS INEGOCIÁVEIS:\n"
+    "1. Só preencha uma chave se o valor estiver LEGÍVEL no documento. Não deduza, não "
+    "complete, não corrija. Na dúvida, devolva string vazia.\n"
+    "2. É melhor devolver vazio do que devolver errado: quem confere é uma pessoa do DP, e "
+    "um CPF trocado vira admissão errada no eSocial.\n"
+    "3. Datas sempre em AAAA-MM-DD. Se o documento mostrar só parte da data, devolva vazio.\n"
+    "4. Nunca invente cargo/função a partir do tipo do documento.\n"
+    'Formato: {{"campos": {{"chave": "valor"}}, "documento": "que documento é este, 3 palavras"}}'
+)
+
+
+@router.post("/action/extrair-documento")
+async def extrair_documento(
+    current_user: CurrentActiveUser,
+    arquivo: UploadFile = File(...),
+    alvo: str = Form("admissao"),
+) -> dict:
+    """Lê um documento (foto ou PDF) e DEVOLVE os campos legíveis para o formulário.
+
+    NÃO cria admissão, não cria prestador, não grava arquivo, não persiste nada. É leitura pura:
+    o retorno alimenta o formulário na tela e **a pessoa confere e submete**. A criação continua
+    sendo o mesmo POST de sempre, com o mesmo gate.
+
+    Foi feito assim de propósito. Um extrator que já cria o registro transformaria erro de OCR em
+    admissão errada — e admissão errada vira evento no eSocial. Aqui o pior caso é um campo vindo
+    em branco ou torto, que quem preenche vê antes de salvar.
+
+    Reusa `anexos.py` (o mesmo leitor do chat com anexo): foto vai por visão, PDF/DOCX vira texto.
+    """
+    campos = _CAMPOS_EXTRAIVEIS.get(alvo)
+    if not campos:
+        raise HTTPException(status_code=422, detail=f"Alvo desconhecido: {alvo!r}")
+
+    data = await arquivo.read()
+    if len(data) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Arquivo muito grande (máx 15MB).")
+    if not data:
+        raise HTTPException(status_code=422, detail="Arquivo vazio.")
+
+    from modules.ai.conversation.services.orquestrador.anexos import (
+        eh_imagem,
+        extrair_texto_arquivo,
+        imagem_data_url,
+    )
+
+    nome_arq = arquivo.filename or "anexo"
+    chaves = "\n".join(f"- {k}: {d}" for k, d in campos.items())
+    instr = _PROMPT_EXTRACAO.format(chaves=chaves)
+
+    if eh_imagem(nome_arq):
+        conteudo = [{"type": "text", "text": instr},
+                    {"type": "image_url", "image_url": {"url": imagem_data_url(nome_arq, data)}}]
+    else:
+        texto = extrair_texto_arquivo(nome_arq, data)
+        if len(texto) < 10:
+            raise HTTPException(
+                status_code=422,
+                detail="Não consegui ler o arquivo. Se for PDF escaneado, mande como foto.")
+        # teto de texto: contrato social inteiro estoura o contexto e não melhora a extração
+        conteudo = [{"type": "text", "text": f"{instr}\n\nDOCUMENTO:\n\"\"\"\n{texto[:20000]}\n\"\"\""}]
+
+    import json as _json
+    import os as _os
+
+    from openai import AsyncOpenAI
+
+    cli = AsyncOpenAI(timeout=float(_os.getenv("AGENT_OPENAI_TIMEOUT", "90") or 90))
+    try:
+        r = await cli.chat.completions.create(
+            model=_os.getenv("OPENAI_AGENT_MODEL", "gpt-5.1"),
+            messages=[{"role": "user", "content": conteudo}],
+            response_format={"type": "json_object"},
+            max_completion_tokens=600,
+        )
+        bruto = _json.loads(r.choices[0].message.content or "{}")
+    except Exception as e:  # noqa: BLE001 — falha de leitura não pode derrubar a tela
+        logger.warning("[dp] extrair_documento falhou (%s): %s", nome_arq, e)
+        raise HTTPException(status_code=502, detail="Não consegui interpretar o documento agora. "
+                                                    "Preencha à mão ou tente outra foto.") from e
+
+    # só devolve chave conhecida e não-vazia: chave desconhecida viraria campo fantasma no form,
+    # e string vazia sobrescreveria o que a pessoa já digitou
+    lidos = {k: str(v).strip() for k, v in (bruto.get("campos") or {}).items()
+             if k in campos and str(v or "").strip()}
+    return {
+        "ok": True,
+        "campos": lidos,
+        "documento": str(bruto.get("documento") or "")[:60],
+        "message": (f"Li {len(lidos)} campo(s) do documento. **Confira antes de salvar** — "
+                    f"o que não estava legível ficou em branco."
+                    if lidos else
+                    "Não consegui ler nenhum campo deste arquivo. Preencha à mão."),
+    }
 
 
 @router.post("/action/cadastrar-pix-key", dependencies=[Depends(_require_dp_dep)])
@@ -749,6 +869,97 @@ async def _rescisao_screen(db):
 # única porta"). Estas 3 faltavam; fechar-mês, aviso-de-férias e contracheques-em-lote já
 # existiam. Os endpoints são os MESMOS que os executores chamam.
 
+#: status em que a admissão já não aceita edição/cancelamento (terminou ou já foi cancelada)
+_ADM_FINAL = ("cancelled", "cancelada", "completed", "concluida", "concluída")
+
+
+def _acoes_admissao(r) -> list[dict] | None:
+    """EDITAR e EXCLUIR por linha da tabela de Admissão.
+
+    r = (candidate_name, cpf, position, department, expected_start_date, status, id)
+
+    Ambas batem no MESMO `PATCH /hr/admissions/{id}` que já existe — nenhum endpoint novo.
+    A diferença é o corpo: editar manda os campos do formulário; excluir manda só
+    `status=cancelled`, em `fixed` (não como campo), para não virar caixa de texto editável
+    onde daria para digitar outro status.
+
+    Some das linhas já concluídas/canceladas: editar uma admissão concluída não desfaz o
+    colaborador que ela criou, então o botão seria mentira.
+    """
+    if (r[5] or "").lower() in _ADM_FINAL:
+        return None
+    aid = r[6]
+    base = f"/api/v1/people-management/hr/admissions/{aid}"
+    nome = r[0] or "—"
+    return [
+        {"title": f"Editar admissão — {nome}", "endpoint": base, "method": "PATCH",
+         "btnLabel": "Editar", "submitLabel": "Salvar", "btnStyle": "outline",
+         "okMsg": "Admissão atualizada. Recarregue a tela.",
+         "fields": [
+             {"key": "candidate_name", "label": "Candidato", "type": "text", "span": "span 2",
+              "value": r[0] or ""},
+             {"key": "cpf", "label": "CPF", "type": "text", "span": "span 1", "value": r[1] or ""},
+             {"key": "position", "label": "Cargo", "type": "text", "span": "span 1",
+              "value": (r[2] if r[2] not in (None, "—") else "")},
+             {"key": "department", "label": "Departamento", "type": "text", "span": "span 1",
+              "value": (r[3] if r[3] not in (None, "—") else "")},
+             # date input exige ISO; _d() formata p/ exibir (dd/mm) e quebraria o campo
+             {"key": "expected_start_date", "label": "Início previsto", "type": "date",
+              "span": "span 1", "value": (r[4].isoformat() if r[4] else "")},
+             {"key": "salary_proposed", "label": "Salário proposto", "type": "text",
+              "span": "span 1", "value": ""},
+         ]},
+        {"title": f"Excluir admissão — {nome}", "endpoint": base, "method": "PATCH",
+         "btnLabel": "Excluir", "submitLabel": "Excluir", "btnStyle": "danger",
+         "okMsg": "Admissão cancelada. Recarregue a tela.",
+         # status vai em `fixed`: entra no corpo e NÃO é renderizado como input
+         "fixed": {"status": "cancelled"},
+         "fields": [
+             {"key": "notes", "label": "Motivo (fica no histórico)", "type": "text",
+              "span": "span 2", "ph": "Ex.: candidato desistiu"},
+         ]},
+    ]
+
+
+def _acoes_prestador_pj(r) -> list[dict]:
+    """EDITAR e EXCLUIR por linha da tabela de Prestadores PJ, ao lado do "Regenerar link".
+
+    r = (id, nome, papel_pj, status, cnpj, autocadastro_token, empresa, created_at)
+
+    Prestador PJ é um `employees` com tipo_contrato='pj' → usa o `PATCH /hr/employees/{id}`
+    que o DP já expõe (o mesmo que o Operacional reusou para editar contato). Também não há
+    DELETE de colaborador: "Excluir" inativa (status='inativo'). Apagar a linha levaria junto
+    vínculo, pagamentos e histórico — o prestador existiu, e o sistema tem que continuar
+    sabendo disso.
+    """
+    eid = r[0]
+    base = f"/api/v1/people-management/hr/employees/{eid}"
+    nome = r[1] or "—"
+    acoes = [
+        {"title": f"Editar prestador — {nome}", "endpoint": base, "method": "PATCH",
+         "btnLabel": "Editar", "submitLabel": "Salvar", "btnStyle": "outline",
+         "okMsg": "Prestador atualizado. Recarregue a tela.",
+         "fields": [
+             {"key": "nome", "label": "Nome", "type": "text", "span": "span 2", "value": r[1] or ""},
+             {"key": "papel_pj", "label": "Papel/Função", "type": "text", "span": "span 1",
+              "value": (r[2] if r[2] not in (None, "—") else "")},
+             {"key": "cnpj", "label": "CNPJ", "type": "text", "span": "span 1",
+              "value": (r[4] if r[4] not in (None, "—", "pendente") else "")},
+             {"key": "email", "label": "E-mail", "type": "text", "span": "span 1", "value": ""},
+             {"key": "celular", "label": "Celular", "type": "text", "span": "span 1", "value": ""},
+         ]},
+    ]
+    if (r[3] or "").lower() != "inativo":
+        acoes.append(
+            {"title": f"Excluir prestador — {nome}", "endpoint": base, "method": "PATCH",
+             "btnLabel": "Excluir", "submitLabel": "Excluir", "btnStyle": "danger",
+             "okMsg": "Prestador inativado. Recarregue a tela.",
+             "fixed": {"status": "inativo"},
+             "fields": [{"key": "observacoes", "label": "Motivo (fica no histórico)",
+                         "type": "text", "span": "span 2", "ph": "Ex.: contrato encerrado"}]})
+    return acoes
+
+
 def _tela_registrar_licenca(_emp_opts) -> dict:
     return {
         "title": "Registrar licença/afastamento",
@@ -1291,6 +1502,15 @@ async def build(db, current_user=None) -> dict:
     # AÇÃO por-linha "Concluir" (POST /admissions/{id}/complete) — CRIA o Employee e dispara
     # onboarding/GEDEON. Só p/ status ≠ cancelada/concluída. Form pré-preenchido do candidato
     # (nome/cpf/depto do processo); cargo/salário/datas o backend deriva da admissão + CCT.
+    #
+    # "Ver" a linha inteira já vem do clique-na-linha universal (modal read-only). Faltavam
+    # EDITAR e EXCLUIR, pedidos pelo Jordan em 07/08.
+    #
+    # NÃO EXISTE DELETE de processo de admissão no backend — e não vou criar. Apagar o processo
+    # some com a trilha de quem foi contratado, quando e sob quais dados; o eSocial e a
+    # fiscalização trabalhista dependem justamente disso. "Excluir" aqui é PATCH status=cancelled:
+    # sai da lista de trabalho, continua auditável e dá para reverter. Se um dia for preciso
+    # apagar de verdade (linha criada por engano), é decisão do Jordan e vira endpoint próprio.
     await safe("admissao", tbl(
         "Admissão", "Processos de admissão", "Nova admissão",
         ["Candidato", "CPF", "Cargo", "Departamento", "Início previsto", "Status"],
@@ -1313,7 +1533,8 @@ async def build(db, current_user=None) -> dict:
                                {"key": "telefone", "label": "Telefone", "type": "text", "span": "span 1", "value": ""},
                                {"key": "matricula", "label": "Matrícula", "type": "text", "span": "span 1", "value": ""},
                            ]}
-                          if (r[5] or "").lower() not in ("cancelled", "cancelada", "completed", "concluida", "concluída") else None)))
+                          if (r[5] or "").lower() not in ("cancelled", "cancelada", "completed", "concluida", "concluída") else None),
+        actionsfn=lambda r: _acoes_admissao(r)))
 
     # 2) Aviso prévio — employees em aviso (query real; hoje 0 = honesto "nenhum")
     await safe("aviso-previo", tbl(
@@ -1627,13 +1848,15 @@ async def build(db, current_user=None) -> dict:
         "ORDER BY e.created_at DESC NULLS LAST LIMIT 300",
         lambda r: [t(r[1] or "—", 600, _ND, initials(r[1] or "")), t(r[2]), t(r[6]),
                    _pj_status(r[3]), t(r[4]), t(_d(r[7]))],
+        # Regenerar link (some quando já concluído) + Editar/Excluir (sempre).
         actionsfn=lambda r: (
-            [{"title": f"Regenerar link — {r[1] or '—'}",
-              "endpoint": f"/api/v1/people-management/human-resources/prestadores-pj/{r[0]}/regenerar-link",
-              "method": "POST", "btnLabel": "Regenerar link", "btnStyle": "outline",
-              "submitLabel": "Regenerar link",
-              "okMsg": "Link regenerado. Recarregue a tela.", "fields": []}]
-            if (r[3] or "").lower() != "pj_ativo" else None)))
+            ([{"title": f"Regenerar link — {r[1] or '—'}",
+               "endpoint": f"/api/v1/people-management/human-resources/prestadores-pj/{r[0]}/regenerar-link",
+               "method": "POST", "btnLabel": "Regenerar link", "btnStyle": "outline",
+               "submitLabel": "Regenerar link",
+               "okMsg": "Link regenerado. Recarregue a tela.", "fields": []}]
+             if (r[3] or "").lower() != "pj_ativo" else [])
+            + _acoes_prestador_pj(r))))
     if out.get("prestadores-pj"):
         out["prestadores-pj"]["ctaTo"] = "novo-prestador-pj"
 
@@ -1647,6 +1870,10 @@ async def build(db, current_user=None) -> dict:
         "cta": "Cadastrar",
         "submit": {"endpoint": "/api/v1/people-management/human-resources/prestadores-pj",
                    "okMsg": "Prestador cadastrado"},
+        "prefill": {"endpoint": "/api/v1/redesign/action/extrair-documento", "alvo": "prestador_pj",
+                    "label": "Anexar documento e preencher",
+                    "hint": "RG, CNH, cartão CNPJ ou contrato social — foto ou PDF",
+                    "accept": "image/*,.pdf,.docx"},
         "fields": [
             {"key": "nome", "label": "Nome*", "type": "text", "span": "span 2", "ph": "Nome completo"},
             {"key": "empresa", "label": "Empresa*", "type": "select", "span": "span 1", "ph": "Selecione",
@@ -1813,6 +2040,12 @@ async def build(db, current_user=None) -> dict:
         "sub": "Abrir processo de admissão — dados do candidato (documentos e exames no fluxo seguinte)",
         "cta": "Abrir admissão",
         "submit": {"endpoint": "/api/v1/people-management/hr/admissions", "okMsg": "Processo de admissão aberto"},
+        # Anexar RG/CNH/CTPS e preencher o que estiver legível. Só PREENCHE — quem salva é
+        # a pessoa, depois de conferir. Ver `POST /action/extrair-documento`.
+        "prefill": {"endpoint": "/api/v1/redesign/action/extrair-documento", "alvo": "admissao",
+                    "label": "Anexar documento e preencher",
+                    "hint": "RG, CNH, CTPS ou comprovante de PIS — foto ou PDF",
+                    "accept": "image/*,.pdf,.docx"},
         "fields": [
             {"key": "candidate_name", "label": "Nome do candidato*", "type": "text", "span": "span 2", "ph": "Nome completo"},
             {"key": "cpf", "label": "CPF*", "type": "text", "span": "span 1", "ph": "000.000.000-00"},

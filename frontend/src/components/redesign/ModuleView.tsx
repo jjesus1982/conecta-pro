@@ -332,6 +332,49 @@ function FormScreen({ scr }: { scr: any }) {
   const [colar, setColar] = useState(''); // campo "colar código" (PIX copia-e-cola / linha digitável)
   const set = (k: string, v: string) => setVals((s) => ({ ...s, [k]: v }));
   const gated = !!(scr.submit && scr.submit.gated); // ação money/gov (visual de aviso)
+  const [preBusy, setPreBusy] = useState(false);
+  const [preMsg, setPreMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  /** Lê um documento anexado e PREENCHE o formulário. Nunca submete.
+   *  Não sobrescreve o que já foi digitado: quem está na tela viu o documento e pode ter
+   *  corrigido um campo que o OCR leu torto — a leitura da máquina não pode ganhar da pessoa. */
+  async function prefillDoc(file: File | undefined, cfg: any) {
+    if (!file || !cfg) return;
+    setPreBusy(true); setPreMsg(null);
+    try {
+      let tok = ''; try { tok = localStorage.getItem('access_token') || ''; } catch { /* */ }
+      const fd = new FormData();
+      fd.append('arquivo', file);
+      if (cfg.alvo) fd.append('alvo', cfg.alvo);
+      const res = await fetch(cfg.endpoint, {
+        method: 'POST',
+        headers: { ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
+        body: fd,
+      });
+      const r = await res.json().catch(() => ({}));
+      if (!res.ok) { setPreMsg({ ok: false, text: msgErro(r) || 'Não consegui ler o documento.' }); return; }
+      const campos = (r && r.campos) || {};
+      const aplicados: string[] = [];
+      setVals((s) => {
+        const n = { ...s };
+        for (const [k, v] of Object.entries(campos)) {
+          if (v == null || v === '') continue;
+          if (n[k]) continue;              // já digitado → a pessoa manda
+          n[k] = String(v); aplicados.push(k);
+        }
+        return n;
+      });
+      const n = Object.keys(campos).length;
+      setPreMsg({
+        ok: n > 0,
+        text: n > 0
+          ? `${r.documento ? r.documento + ' — ' : ''}${n} campo(s) lido(s). Confira antes de salvar.`
+          : (r.message || 'Nenhum campo legível neste arquivo. Preencha à mão.'),
+      });
+    } catch {
+      setPreMsg({ ok: false, text: 'Falha ao enviar o documento.' });
+    } finally { setPreBusy(false); }
+  }
 
   // Preenche o form a partir da resposta de um endpoint de decode (fills = {campoForm: chaveResposta}).
   function aplicarFills(r: any, fills: Record<string, string>) {
@@ -502,6 +545,24 @@ function FormScreen({ scr }: { scr: any }) {
         </div>
       )}
       {scanOpen && <ScannerPagamento onClose={() => setScanOpen(false)} onDetect={onScan} />}
+      {/* Anexar documento e PREENCHER (scr.prefill). Diferente de scr.attach: aquele manda o
+          arquivo junto no submit; este só LÊ e devolve campos, sem criar nada. O que voltar cai
+          no formulário e a pessoa confere antes de salvar — por isso nunca submete sozinho. */}
+      {scr.prefill && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <label className="rd-btn rd-btn-outline" style={{ cursor: preBusy ? 'wait' : 'pointer', opacity: preBusy ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, padding: '7px 12px' }}>
+            📄 {preBusy ? 'Lendo o documento…' : (scr.prefill.label || 'Anexar documento e preencher')}
+            <input type="file" accept={scr.prefill.accept || 'image/*,.pdf'} style={{ display: 'none' }}
+              disabled={preBusy}
+              onChange={(e) => { prefillDoc(e.target.files?.[0], scr.prefill); e.currentTarget.value = ''; }} />
+          </label>
+          {scr.prefill.hint && !preMsg && <span className="rd-scr-sub" style={{ margin: 0 }}>{scr.prefill.hint}</span>}
+          {preMsg && (
+            <span className={`rd-badge ${preMsg.ok ? 'rd-b-success' : 'rd-b-error'}`}
+              style={{ height: 'auto', padding: '6px 10px', fontSize: 12 }}>{preMsg.text}</span>
+          )}
+        </div>
+      )}
       {scr.originField && (
         <div className="rd-field" style={{ gridColumn: 'span 2' }}>
           <label className="rd-label" style={{ textTransform: 'none', letterSpacing: 0, fontSize: 11 }}>
