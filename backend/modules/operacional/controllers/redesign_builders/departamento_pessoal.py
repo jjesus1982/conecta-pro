@@ -465,6 +465,12 @@ EXTRA_MENU: list[dict] = [
      "icon": "M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"},
     {"id": "prestadores-pj", "label": "Prestadores PJ",
      "icon": "M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM3 20v-1a6 6 0 0 1 12 0v1M16 3.13a4 4 0 0 1 0 7.75M21 20v-1a6 6 0 0 0-4-5.65"},
+    {"id": "registrar-licenca", "label": "Registrar licença/afastamento",
+     "icon": "M9 12h6m-3-3v6M4 4h16v16H4z"},
+    {"id": "renovar-aso", "label": "Agendar/renovar ASO",
+     "icon": "M12 8v8m-4-4h8M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18"},
+    {"id": "revisar-justificativa", "label": "Revisar justificativa de ponto",
+     "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
     {"id": "nova-certificacao", "label": "Nova certificação",
      "icon": "M9 12l2 2 4-4M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7z"},
 ]
@@ -770,11 +776,118 @@ async def _rescisao_screen(db):
             "rows": out_rows}
 
 
+
+# ─── PORTAS MANUAIS (lei "uma operação, duas portas") ─────────────────────────
+# Cada ação que o agente PROPÕE precisa existir também como formulário, senão a Pyetra
+# depende do agente para operar — o oposto do combinado ("o chat é braço direito, não a
+# única porta"). Estas 3 faltavam; fechar-mês, aviso-de-férias e contracheques-em-lote já
+# existiam. Os endpoints são os MESMOS que os executores chamam.
+
+def _tela_registrar_licenca(_emp_opts) -> dict:
+    return {
+        "title": "Registrar licença/afastamento",
+        "sub": "Mesma porta que o agente usa ao propor — grava em sst_afastamentos e deriva "
+               "estabilidade acidentária (art. 118) quando o tipo/CID indicam.",
+        "cta": "Registrar", "type": "form",
+        "submit": {"endpoint": "/api/v1/people-management/hr/leaves",
+                   "okMsg": "Licença registrada"},
+        "fields": [
+            {"key": "employee_id", "label": "Colaborador*", "type": "select", "span": "span 2",
+             "ph": "Selecione", "options": _emp_opts},
+            {"key": "leave_type", "label": "Tipo*", "type": "select", "span": "span 1",
+             "ph": "Selecione", "options": [
+                 {"value": "licenca", "label": "Licença"},
+                 {"value": "doenca", "label": "Doença (atestado)"},
+                 {"value": "acidente", "label": "Acidente de trabalho"},
+                 {"value": "maternidade", "label": "Maternidade"},
+                 {"value": "inss", "label": "Afastamento INSS (+15 dias)"}]},
+            {"key": "cid", "label": "CID", "type": "text", "span": "span 1",
+             "ph": "define estabilidade em acidente"},
+            {"key": "start_date", "label": "Início*", "type": "date", "span": "span 1"},
+            {"key": "end_date", "label": "Fim previsto", "type": "date", "span": "span 1"},
+            {"key": "notes", "label": "Motivo/observação", "type": "text", "span": "span 2"},
+        ],
+    }
+
+
+def _tela_renovar_aso(_emp_opts) -> dict:
+    return {
+        "title": "Agendar/renovar ASO",
+        "sub": "Sem ASO válido o colaborador não pode trabalhar (NR-7). Mesma porta que o "
+               "agente usa ao propor a renovação.",
+        "cta": "Agendar", "type": "form",
+        "submit": {"endpoint": "/api/v1/people-management/sst/aso", "okMsg": "ASO agendado"},
+        "fields": [
+            {"key": "employee_id", "label": "Colaborador*", "type": "select", "span": "span 2",
+             "ph": "Selecione", "options": _emp_opts},
+            {"key": "tipo", "label": "Tipo*", "type": "select", "span": "span 1",
+             "ph": "Selecione", "options": [
+                 {"value": "periodico", "label": "Periódico"},
+                 {"value": "admissional", "label": "Admissional"},
+                 {"value": "demissional", "label": "Demissional"},
+                 {"value": "retorno", "label": "Retorno ao trabalho"},
+                 {"value": "mudanca_funcao", "label": "Mudança de função"}]},
+            {"key": "data_agendamento", "label": "Data do exame*", "type": "date", "span": "span 1"},
+            {"key": "clinica", "label": "Clínica", "type": "text", "span": "span 2"},
+        ],
+    }
+
+
+async def _tela_revisar_justificativa(db) -> dict:
+    from sqlalchemy import text as _sql
+
+    rows = (await db.execute(_sql(
+        "SELECT CAST(j.justification_id AS TEXT), coalesce(e.nome,'—'), "
+        "       coalesce(j.reason, j.justification_type, ''), j.created_at "
+        "FROM gp_justifications j "
+        "LEFT JOIN employees e ON CAST(e.id AS TEXT) = CAST(j.employee_id AS TEXT) "
+        "WHERE lower(coalesce(j.status,'')) IN ('pendente','pending','em_analise') "
+        "ORDER BY j.created_at LIMIT 100"))).fetchall()
+    # a rota oficial leva o ID NO PATH (/ponto/justificativa/{id}/revisar), então cada
+    # linha tem a própria ação — não dá para usar um form único com select.
+    def _linha(r):
+        jid = r[0]
+        acao = lambda dec, lbl, estilo: {  # noqa: E731
+            "title": f"{lbl}: {r[1]}",
+            "endpoint": f"/api/v1/people-management/ponto/justificativa/{jid}/revisar",
+            "method": "POST", "btnLabel": lbl, "submitLabel": lbl, "btnStyle": estilo,
+            "okMsg": f"Justificativa {lbl.lower()}a.",
+            "fields": [{"key": "action", "type": "hidden", "value": dec},
+                       {"key": "notes", "label": "Observação (opcional)", "type": "text"}],
+        }
+        return {"cells": [
+            {"isText": True, "v": r[1][:28], "w": 600, "tc": "#0F1B3A", "ini": ""},
+            {"isText": True, "v": (r[2] or "")[:60], "w": 500, "tc": "#334155", "ini": ""},
+            {"isText": True, "v": r[3].strftime("%d/%m") if r[3] else "—", "w": 500,
+             "tc": "#64748B", "ini": ""},
+        ], "actions": [acao("aprovar", "Deferir", "primary"),
+                       acao("rejeitar", "Indeferir", "danger")]}
+
+    return {
+        "title": "Revisar justificativa de ponto",
+        "sub": (f"{len(rows)} justificativa(s) pendente(s). Deferir ou indeferir é juízo "
+                f"humano — o agente propõe, quem decide é você."
+                if rows else "Nenhuma justificativa pendente."),
+        "cta": "Atualizar", "type": "table", "searchHint": "Buscar…",
+        "grid": "1.4fr 2.6fr 0.6fr",
+        "cols": ["Colaborador", "Motivo", "Desde"],
+        "rows": [_linha(r) for r in rows],
+    }
+
+
 async def build(db) -> dict:
     # Base = tudo que o _build_dp já entrega (telas VIVAS + ferramentas).
     out = await _build_dp(db)
     # tbl é apenas um construtor query→dict ligado a este db; safe local grava no `out` base.
     _out2, _safe2, tbl = _helpers(db)
+
+    async def _emp_opts_ativos():
+        from sqlalchemy import text as _sqlt
+
+        rs = (await db.execute(_sqlt(
+            "SELECT CAST(id AS TEXT), nome FROM employees WHERE status='ativo' ORDER BY nome"
+        ))).fetchall()
+        return [{"value": r[0], "label": r[1]} for r in rs]
 
     async def safe(key, coro):
         try:
@@ -1969,6 +2082,18 @@ async def build(db) -> dict:
                     if _lbl.startswith(_pref) and out.get(_dest):
                         _k["to"] = _dest
                         break
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
+    # portas manuais (uma operação, duas portas) — mesmas rotas dos executores do agente
+    try:
+        _eo = await _emp_opts_ativos()
+        out["registrar-licenca"] = _tela_registrar_licenca(_eo)
+        out["renovar-aso"] = _tela_renovar_aso(_eo)
+        out["revisar-justificativa"] = await _tela_revisar_justificativa(db)
     except Exception:
         try:
             await db.rollback()

@@ -851,6 +851,104 @@ registrar_acao("dp", "programar_ferias",
                _propor_programacao_ferias)
 
 
+# ═════════ F1.1 (original do plano) — CAPTURA de férias gozadas sem solicitação ═════════
+async def _propor_registrar_ferias(
+    db, user, scope, *, employee_id: str = "", funcionario: str = "",
+    inicio: str = "", dias: int | str = 0, **_
+) -> dict[str, Any]:
+    """PROPÕE registrar férias que a FOLHA prova terem sido gozadas e não têm solicitação.
+
+    Evidência ESPECÍFICA — códigos `0060` (Horas Férias = pagamento do dia gozado) e `1061`
+    (Adiantamento, que só existe para quem de fato sai de férias). NUNCA `LIKE '%FERIAS%'`:
+    `0061/0062` incluem proporcionais de RESCISÃO, que são indenização, e marcariam como
+    "gozou" quem foi demitido. Foi assim que o ORLAILSON quase entrou na lista — verba 0062,
+    desligado como CLT e recontratado PJ.
+
+    Honestidade do não-derivável: os DIAS não saem do valor. A rubrica é "**Horas** Férias" e
+    dividir pelo valor-dia deu 39,6 dias para o ANTONIO DINIZ, acima do máximo legal —
+    converter hora→dia exige presumir jornada. Sem `dias` informado, o rascunho nasce pedindo
+    confirmação em vez de chutar.
+    """
+    emp = str(employee_id or funcionario or "").strip()
+    if not emp:
+        return {"erro": "employee_id (uuid do funcionário) é obrigatório"}
+    try:
+        uuid.UUID(emp)
+    except (ValueError, AttributeError, TypeError):
+        return {"erro": "employee_id inválido (esperado uuid)"}
+
+    ev = (await db.execute(text(
+        "SELECT e.nome AS nome, string_agg(DISTINCT v.mes::text, ', ' ORDER BY v.mes::text) AS meses, "
+        "       round(sum(v.valor)::numeric, 2) AS total "
+        "FROM folha_verba_espelho v JOIN employees e ON e.id = v.employee_id "
+        "WHERE CAST(v.employee_id AS TEXT) = :e AND v.codigo IN ('0060', '1061') "
+        "GROUP BY e.nome"), {"e": emp})).mappings().first()
+    if not ev:
+        return {"erro": "não há evidência de FÉRIAS GOZADAS na folha desse funcionário "
+                        "(rubricas 0060/1061). Não registro férias sem prova de gozo"}
+
+    ja = (await db.execute(text(
+        "SELECT count(*) FROM hr_vacation_requests WHERE CAST(employee_id AS TEXT) = :e"),
+        {"e": emp})).scalar()
+    if ja:
+        return {"erro": f"{ev['nome']} já tem {ja} solicitação(ões) registrada(s) — "
+                        f"nada a capturar"}
+
+    def _d(v: str) -> date | None:
+        try:
+            return date.fromisoformat(str(v)[:10]) if v else None
+        except (TypeError, ValueError):
+            return None
+
+    sd = _d(inicio)
+    try:
+        n = int(str(dias).split()[0]) if dias else 0
+    except (ValueError, IndexError):
+        n = 0
+
+    falta = [x for x in (("data de início" if not sd else None),
+                         ("quantidade de dias" if n < 1 else None)) if x]
+    aviso = (f" ⚠️ CONFIRME antes de aprovar: {', e '.join(falta)}. A folha prova QUE gozou, "
+             f"não QUANTOS dias — a rubrica é em HORAS e converter exige presumir jornada. "
+             f"Eu não chuto isso.") if falta else ""
+
+    async def _inserir(_db) -> str:
+        from modules.people_management.hr.controllers.vacation_controller import criar_vacation
+
+        r = await criar_vacation(
+            {"employee_id": emp, "start_date": str(sd) if sd else None,
+             "days_requested": n or None,
+             "internal_notes": f"capturado da folha (competências {ev['meses']})"},
+            user, _db,
+        )
+        return str((r or {}).get("id") or uuid.uuid4())
+
+    return await propor(
+        db, user=user, scope=scope, dominio="ferias_registrar", gate="🟡",
+        roles_aprovador=ROLES_KIT_OP,
+        idempotency_key=f"dp:registrar_ferias:{emp}",
+        titulo=f"Registrar férias gozadas: {ev['nome']}",
+        corpo=(f"A folha pagou férias a {ev['nome']} na(s) competência(s) {ev['meses']} "
+               f"(R$ {ev['total']}), e não há solicitação registrada. Sem o registro o saldo "
+               f"do período aquisitivo fica alto e a rescisão pode pagar férias já gozadas."
+               + aviso),
+        action_url="/redesign/aprovacoes",
+        tool="propor_registrar_ferias",
+        args={"employee_id": emp, "inicio": str(sd) if sd else None, "dias": n or None,
+              "evidencia": {"meses": ev["meses"], "total": float(ev["total"])}},
+        entity_type="hr_vacation_request",
+        inserir=_noop_ref,  # a solicitação só nasce na aprovação (executor abaixo)
+    )
+
+
+registrar_acao("dp", "registrar_ferias",
+               "PROPOR registrar férias que a FOLHA prova terem sido gozadas e não têm "
+               "solicitação. dados: employee_id (uuid, obrig.), inicio e dias (opcionais — "
+               "sem eles o rascunho PEDE confirmação, porque a rubrica é em horas). Recusa "
+               "quem não tem evidência de gozo. NÃO registra — a execução é a aprovação.",
+               _propor_registrar_ferias)
+
+
 # ── EXECUTORES: rodam SÓ quando o humano aprova, e chamam o SERVIÇO OFICIAL ──
 # As três ações acima usam `_noop_ref` porque a entidade delas NÃO pode existir antes do OK
 # (afastamento nasce 'ativo' e mexe na folha; fechamento consolida; revisão altera registro).
@@ -886,6 +984,18 @@ async def _exec_justificar_ponto(db, user, payload: dict) -> Any:
     )
 
 
+async def _exec_registrar_ferias(db, user, payload: dict) -> Any:
+    from modules.people_management.hr.controllers.vacation_controller import criar_vacation
+
+    return await criar_vacation(
+        {"employee_id": payload.get("employee_id"), "start_date": payload.get("inicio"),
+         "days_requested": payload.get("dias"),
+         "internal_notes": "capturado da folha (aprovado na Central)"},
+        user, db,
+    )
+
+
+registrar_executor("registrar_ferias", _exec_registrar_ferias)
 registrar_executor("registrar_afastamento", _exec_registrar_afastamento)
 registrar_executor("fechar_ponto", _exec_fechar_ponto)
 registrar_executor("justificar_ponto", _exec_justificar_ponto)

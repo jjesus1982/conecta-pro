@@ -139,7 +139,11 @@ with eng.begin() as c:
             codigo text NOT NULL, descricao text, valor numeric DEFAULT 0,
             tipo text DEFAULT 'provento', incide_inss boolean DEFAULT true,
             fonte text, PRIMARY KEY (employee_id, ano, mes, codigo))"""))
-    c.execute(text("DELETE FROM folha_verba_espelho WHERE ano=:a AND fonte=:f"), {"a": ANO, "f": FONTE})
+    # APAGA SÓ OS MESES QUE VAI REINSERIR. Antes era `ano=:a AND fonte=:f` — o ANO
+    # INTEIRO. Rodar com MESES=7 apagava jan-jun e reinseria só julho: perdi 6 meses
+    # de espelho em 06/08 e só percebi ao auditar a captura de férias.
+    c.execute(text("DELETE FROM folha_verba_espelho WHERE ano=:a AND fonte=:f "
+                   "AND mes = ANY(:ms)"), {"a": ANO, "f": FONTE, "ms": _ms})
     for (eid, m, cod), (desc, tipo, inc, val) in agg.items():
         c.execute(text("""
             INSERT INTO folha_verba_espelho (employee_id, ano, mes, codigo, descricao, valor, tipo, incide_inss, fonte)
