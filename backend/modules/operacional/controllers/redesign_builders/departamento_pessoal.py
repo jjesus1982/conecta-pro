@@ -833,7 +833,7 @@ def _tela_renovar_aso(_emp_opts) -> dict:
     }
 
 
-async def _tela_revisar_justificativa(db) -> dict:
+async def _tela_revisar_justificativa(db, current_user=None) -> dict:
     from sqlalchemy import text as _sql
 
     rows = (await db.execute(_sql(
@@ -845,15 +845,24 @@ async def _tela_revisar_justificativa(db) -> dict:
         "ORDER BY j.created_at LIMIT 100"))).fetchall()
     # a rota oficial leva o ID NO PATH (/ponto/justificativa/{id}/revisar), então cada
     # linha tem a própria ação — não dá para usar um form único com select.
+    # A rota é **PUT** (não POST) e o schema `JustificationReview` exige `reviewer_id`:
+    # com POST dá 405 e sem reviewer_id dá 422. Quem revisa é quem está na tela, então o
+    # id sai do current_user injetado pelo dispatcher — não é campo que a Pyetra digita.
+    _rev = str(getattr(current_user, "id", "") or "")
+
     def _linha(r):
         jid = r[0]
         acao = lambda dec, lbl, estilo: {  # noqa: E731
             "title": f"{lbl}: {r[1]}",
             "endpoint": f"/api/v1/people-management/ponto/justificativa/{jid}/revisar",
-            "method": "POST", "btnLabel": lbl, "submitLabel": lbl, "btnStyle": estilo,
+            "method": "PUT", "btnLabel": lbl, "submitLabel": lbl, "btnStyle": estilo,
             "okMsg": f"Justificativa {lbl.lower()}a.",
-            "fields": [{"key": "action", "type": "hidden", "value": dec},
-                       {"key": "notes", "label": "Observação (opcional)", "type": "text"}],
+            # `fixed` e não `type:"hidden"`: o ModuleView não conhece campo hidden — ele cairia
+            # no ramo <input type="text">, virando duas caixas editáveis (uma com "aprovar",
+            # outra com o UUID do revisor). Editável significa que dava para transformar um
+            # deferir em indeferir digitando na caixa. `fixed` vai no body e não é renderizado.
+            "fixed": {"action": dec, "reviewer_id": _rev},
+            "fields": [{"key": "notes", "label": "Observação (opcional)", "type": "text"}],
         }
         return {"cells": [
             {"isText": True, "v": r[1][:28], "w": 600, "tc": "#0F1B3A", "ini": ""},
@@ -875,7 +884,7 @@ async def _tela_revisar_justificativa(db) -> dict:
     }
 
 
-async def build(db) -> dict:
+async def build(db, current_user=None) -> dict:
     # Base = tudo que o _build_dp já entrega (telas VIVAS + ferramentas).
     out = await _build_dp(db)
     # tbl é apenas um construtor query→dict ligado a este db; safe local grava no `out` base.
@@ -2093,7 +2102,7 @@ async def build(db) -> dict:
         _eo = await _emp_opts_ativos()
         out["registrar-licenca"] = _tela_registrar_licenca(_eo)
         out["renovar-aso"] = _tela_renovar_aso(_eo)
-        out["revisar-justificativa"] = await _tela_revisar_justificativa(db)
+        out["revisar-justificativa"] = await _tela_revisar_justificativa(db, current_user)
     except Exception:
         try:
             await db.rollback()

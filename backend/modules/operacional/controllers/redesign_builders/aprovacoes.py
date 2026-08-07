@@ -14,6 +14,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
+
+# `CurrentActiveUser` é `Annotated["User", Depends(...)]` — com "User" como forward ref STRING.
+# Este arquivo tem `from __future__ import annotations`, então o FastAPI resolve as anotações
+# via get_type_hints() no namespace DESTE módulo. Sem `User` aqui, a resolução falha em
+# silêncio e o FastAPI degrada `current_user` para QUERY PARAM — o endpoint passa a exigir
+# `?current_user=` e responde 422 a todo clique. Foi exatamente o que matou o botão Aprovar.
+# Este import existe para o forward ref resolver; não remover por parecer "não usado".
+from core.models.user import User  # noqa: F401
 from modules.ai.conversation.models.agent_draft import AgentDraft
 
 SLUG = "aprovacoes"
