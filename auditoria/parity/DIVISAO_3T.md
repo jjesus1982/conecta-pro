@@ -59,6 +59,32 @@ ninguém faz em paralelo agora).
 - [x] T3 rh (10/10): vagas(job_positions 10)·candidaturas(applications 8)·onboarding(admission_processes 3)·treinamentos(trainings 5)·cursos(training_courses 9)·avaliacoes(operacional_avaliacoes_equipe 3)·carreira(career_plans 11)·clima(climate_surveys 3)·turnover(turnover_audit_logs 5)·ia(rh_consultas 4). Gotchas: enum status/category→::text, competencia DATE→to_char. Deploy+HTTP200 provado.
 - [x] T3 marketing (7/7, módulo era 100% mock): funil(leads 14 reais)·campanhas·lead-magnet·biblioteca·copywriter·estrategista·brand-voice (marketing_campaigns/assets/content_drafts reais, hoje 0=honesto). Deploy+HTTP200 provado.
 
+> 🔴 **PENDÊNCIA ABERTA — 8 caminhos concorrentes criam LEAD (achado por graphify, 2026-08-06).**
+> Não há um serviço comum de criação de lead. Oito pontos de escrita, em 3 módulos:
+> ```
+> visita_registrar_lead()      crm/controllers/growth_controller.py
+> create_lead()                crm/controllers/lead_controller.py
+> converter_lead_para_crm()    crm/controllers/marketing_controller.py
+> criar_mkt_lead()             crm/controllers/marketing_controller.py
+> registrar_lead_da_visita()   crm/services/visit_reports.py
+> _criar_lead_para_conversa()  integrations/connectors/whatsapp/agent_service.py
+> _tool_registrar_lead()       integrations/connectors/whatsapp/agent_service.py
+> _match_or_create_lead()      integrations/connectors/whatsapp/controller.py
+> ```
+> **Consequência já materializada:** a atribuição de origem (`leads.source`, commits `bbf18868`
+> + `65abeeed`) cobre só **2 dos 8**. Lead criado por visita/growth/lead_controller continua sem
+> origem correta → MRR por canal fica incompleto. Cada caminho reimplementa dedup, origem e
+> scoring à sua maneira.
+> **Contexto do grafo:** `Lead` é o nó mais conectado de todo o subsistema (grau 76, vs 37 do
+> 2º) — vizinhos fortes: DashboardService, LeadScoringEngine, LeadService. Mexer em `Lead`
+> reverbera em dashboard e scoring. Foi por isso que o enum fechado `LeadSource` derrubou o
+> caminho principal em 05/08.
+> **Proposta (NÃO executada — precisa de decisão do Jordan):** consolidar num único
+> `LeadService.criar()` que centralize dedup + origem + scoring. É refactor de módulo alheio
+> (CRM = T4; WhatsApp = sem dono definido) e de alcance grande — merece tarefa própria, não
+> emenda. Grafo em `/tmp/mkt_graph/graphify-out/` (recorte isolado; NÃO sobrescreve o grafo
+> fiscal em `/opt/conecta-pro/graphify-out/`).
+
 > ⚠️ **`ModuleView.tsx` — T5 assumiu (2026-08-05, autorizado pelo Jordan).**
 > `frontend/src/components/redesign/ModuleView.tsx` é INFRA COMPARTILHADA (renderiza todas as
 > telas do redesign e o modal de ~100 rotas `/redesign/action/*`, incluindo as de dinheiro).
