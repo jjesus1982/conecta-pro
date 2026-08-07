@@ -209,56 +209,33 @@ def conciliar_transacao(tx_id: str, conn) -> dict:
 
     # ── SAÍDA (amount<0) → buscar em payable_accounts ────────────────────────
     if es_saida:
-        # Estratégia 1: valor exato ±R$0,01 + CNPJ da contraparte + data ±3 dias
+        # Auto-baixa SÓ com match FORTE: valor exato ±R$0,01 + data ±3 dias + NOME da contraparte
+        # aparece no pagável + candidato ÚNICO. Por quê: valor-só casa demais (R$150 = 3 PIX de
+        # pessoas diferentes) e o CNPJ vem PLACEHOLDER (12345678000199 nos dois lados) — o nome da
+        # contraparte é o único sinal confiável. Sem nome que confere → NÃO auto-baixa (vai p/ baixa
+        # manual, requires_justification). Estratégias antigas (CNPJ placeholder, valor-só, fuzzy ±2%)
+        # foram removidas: risco de baixar a conta ERRADA = fabricar baixa.
         match = None
         tipo_match = ""
-        if cnpj_contraparte:
+        _tokens = [w for w in re.split(r"[^A-Za-zÀ-ÿ]+", (nome_contraparte or "")) if len(w) >= 4]
+        _tok = max(_tokens, key=len) if _tokens else ""
+        if _tok:
             cur.execute(
                 """
-                SELECT pa.id, pa.description, pa.gross_value, pa.net_value,
-                       pa.due_date, pa.status, s.cpf_cnpj as supplier_cnpj
-                FROM payable_accounts pa
-                LEFT JOIN suppliers s ON s.id = pa.supplier_id
-                WHERE pa.status = 'pendente'
-                  AND ABS(pa.gross_value - %s) <= %s
-                  AND pa.due_date BETWEEN %s AND %s
-                  AND REPLACE(REPLACE(REPLACE(REPLACE(s.cpf_cnpj,'.',''),'-',''),'/',''),' ','') = %s
-                ORDER BY ABS(pa.gross_value - %s)
-                LIMIT 1
-                """,
-                (float(valor_abs), float(TOLERANCE), data_min, data_max, cnpj_contraparte, float(valor_abs)),
-            )
-            match = cur.fetchone()
-            tipo_match = "exato_cnpj_valor_data"
-
-        # Estratégia 2: valor exato ±R$0,01 + data ±3 dias, SÓ SE HOUVER 1 CANDIDATO (sem ambiguidade).
-        # Auto-baixa exige match EXATO e ÚNICO. A antiga estratégia fuzzy (±2% / ±7 dias) foi REMOVIDA:
-        # match fraco = risco de baixar a conta ERRADA = fabricar baixa. Esses casos ficam p/ baixa manual.
-        if not match:
-            cur.execute(
-                """
-                SELECT count(*) AS n
+                SELECT id, description, gross_value, net_value, due_date, status
                 FROM payable_accounts
                 WHERE status = 'pendente'
                   AND ABS(gross_value - %s) <= %s
                   AND due_date BETWEEN %s AND %s
+                  AND lower(description) LIKE lower(%s)
+                LIMIT 2
                 """,
-                (float(valor_abs), float(TOLERANCE), data_min, data_max),
+                (float(valor_abs), float(TOLERANCE), data_min, data_max, f"%{_tok}%"),
             )
-            if (cur.fetchone() or {}).get("n") == 1:
-                cur.execute(
-                    """
-                    SELECT id, description, gross_value, net_value, due_date, status
-                    FROM payable_accounts
-                    WHERE status = 'pendente'
-                      AND ABS(gross_value - %s) <= %s
-                      AND due_date BETWEEN %s AND %s
-                    LIMIT 1
-                    """,
-                    (float(valor_abs), float(TOLERANCE), data_min, data_max),
-                )
-                match = cur.fetchone()
-                tipo_match = "valor_exato_data_unico"
+            _cands = cur.fetchall()
+            if len(_cands) == 1:
+                match = _cands[0]
+                tipo_match = "valor_data_nome_unico"
 
         if match:
             pay_id = match["id"]
