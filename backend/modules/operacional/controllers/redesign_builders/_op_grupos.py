@@ -16,7 +16,8 @@ GRUPOS = [
         ("substituicoes", "Substituições"), ("escala-submeter", "Submeter escala"),
         ("escala-aprovar", "Aprovar escala"), ("escala-rejeitar", "Rejeitar escala"),
         ("escala-publicar", "Publicar escala"), ("substituicao-confirmar", "Confirmar substituição"),
-        ("substituicao-rejeitar", "Rejeitar substituição"), ("registrar-falta", "Registrar falta"),
+        ("substituicao-rejeitar", "Rejeitar substituição"), ("substituicao-concluir", "Concluir substituição"),
+        ("registrar-falta", "Registrar falta"),
         ("escalar-substituto", "Escalar substituto"), ("postos-sem-escala", "Postos sem escala"),
         ("escalas-rascunho", "Escalas em rascunho")]),
     ("g-postos", "Postos & Presença", "Postos, presença, instruções e passagem de turno", [

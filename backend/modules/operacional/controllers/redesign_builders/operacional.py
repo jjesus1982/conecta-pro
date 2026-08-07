@@ -865,6 +865,23 @@ async def rd_action_avaliacao_criar(current_user: CurrentActiveUser, payload: di
     return {"ok": True, "msg": "Avaliação registrada."}
 
 
+@router.post("/action/substituicao-concluir")
+async def rd_action_substituicao_concluir(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Conclui uma substituição confirmada (reuso do complete_substitution real)."""
+    from fastapi import HTTPException
+
+    from modules.operacional.controllers.substitution_controller import complete_substitution
+    sid = (payload.get("substitution_id") or "").strip()
+    if not sid:
+        raise HTTPException(status_code=400, detail="Selecione a substituição.")
+    try:
+        oh = float(payload.get("overtime_hours") or 0)
+    except (TypeError, ValueError):
+        oh = 0.0
+    await complete_substitution(substitution_id=sid, current_user=current_user, db=db, overtime_hours=oh, additional_cost=0)
+    return {"ok": True, "msg": "Substituição concluída."}
+
+
 # F0: menu extra ZERADO — as antigas entradas de ação viram ABAS dos 8 grupos (_op_grupos.py),
 # igual ao financeiro. A navegação agrupada evita a sidebar com 60+ itens soltos.
 EXTRA_MENU: list[dict] = []
@@ -1732,6 +1749,16 @@ async def build(db) -> dict:
             "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/substituicao-rejeitar", "okMsg": "Substituição rejeitada"},
             "fields": [{"key": "substitution_id", "label": "Substituição (pendente)*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _sub_opt},
                        {"key": "reason", "label": "Motivo*", "type": "text", "span": "span 2", "ph": "Mín. 5 caracteres"}]}
+        _sub_c = (await db.execute(_sqltext(
+            "SELECT s.id, coalesce(p.name,'—'), coalesce(eo.nome,'—') FROM substitutions s "
+            "LEFT JOIN posts p ON p.id=s.post_id LEFT JOIN employees eo ON eo.id=s.original_employee_id "
+            "WHERE coalesce(s.is_active,true) AND s.status::text='confirmed' ORDER BY s.requested_at DESC NULLS LAST LIMIT 200"))).fetchall()
+        out["substituicao-concluir"] = {
+            "title": "Concluir substituição", "sub": "Marca como concluída uma substituição já confirmada", "cta": "Concluir",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/substituicao-concluir", "okMsg": "Substituição concluída"},
+            "fields": [{"key": "substitution_id", "label": "Substituição (confirmada)*", "type": "select", "span": "span 2", "ph": "Selecione",
+                        "options": [{"value": str(i), "label": f"{p} · falta {n}"} for i, p, n in _sub_c]},
+                       {"key": "overtime_hours", "label": "Horas extras", "type": "text", "span": "span 1", "ph": "Opcional, ex.: 2"}]}
         _ann = (await db.execute(_sqltext(
             "SELECT id, coalesce(titulo,'—') FROM communication_announcements WHERE coalesce(is_active,true) "
             "AND status::text NOT IN ('publicado','published') ORDER BY created_at DESC LIMIT 200"))).fetchall()
