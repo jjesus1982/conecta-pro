@@ -27,7 +27,8 @@ GRUPOS = [
     ("g-equipe", "Equipe & Ponto", "Colaboradores, avaliação e banco de horas", [
         ("colaboradores", "Colaboradores"), ("avaliacao-equipe", "Avaliação de equipe"),
         ("banco-horas", "Banco de horas"), ("banco-horas-lancar", "Lançar horas"),
-        ("banco-horas-aprovar", "Aprovar horas"), ("banco-horas-rejeitar", "Rejeitar horas")]),
+        ("banco-horas-aprovar", "Aprovar horas"), ("banco-horas-rejeitar", "Rejeitar horas"),
+        ("banco-horas-compensar", "Compensar horas")]),
     ("g-diaristas", "Diaristas", "Diárias, cadastro, escala e fechamento", [
         ("diarias", "Lançar diárias"), ("diaristas", "Diaristas"), ("diaristas-escala", "Escala diaristas"),
         ("diaristas-fechamento", "Fechamento"), ("lancar-diaria", "Lançar diária"),
@@ -48,7 +49,8 @@ GRUPOS = [
         ("comunicados", "Comunicados"), ("notificacoes", "Notificações"),
         ("comunicado-novo", "Novo comunicado"), ("comunicado-publicar", "Publicar comunicado"),
         ("comunicado-editar", "Editar comunicado"), ("comunicado-excluir", "Excluir comunicado"),
-        ("alerta-ack", "Reconhecer alerta"), ("notificacoes-marcar-todas", "Marcar todas lidas")]),
+        ("alerta-criar", "Novo alerta"), ("alerta-ack", "Reconhecer alerta"),
+        ("notificacoes-marcar-todas", "Marcar todas lidas")]),
 ]
 
 

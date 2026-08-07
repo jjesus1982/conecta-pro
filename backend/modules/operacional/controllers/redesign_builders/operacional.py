@@ -801,6 +801,48 @@ async def rd_action_posto_editar(current_user: CurrentActiveUser, payload: dict 
     return {"ok": True, "message": "Posto atualizado."}
 
 
+@router.post("/action/alerta-criar")
+async def rd_action_alerta_criar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Cria um alerta operacional (reuso do create_alert real). Par do 'Reconhecer alerta'."""
+    from fastapi import HTTPException
+
+    from modules.operacional.communication.controllers.notification_controller import create_alert
+    from modules.operacional.communication.schemas.communication_schemas import AlertCreate
+    titulo = (payload.get("title") or "").strip()
+    msg = (payload.get("message") or "").strip()
+    if len(titulo) < 3 or len(msg) < 3:
+        raise HTTPException(status_code=400, detail="Título e mensagem (mín. 3) são obrigatórios.")
+    data = AlertCreate(title=titulo, message=msg,
+                       alert_type=(payload.get("alert_type") or "posto_descoberto"),
+                       severity=(payload.get("severity") or "warning"))
+    await create_alert(data=data, current_user=current_user, db=db)
+    return {"ok": True, "msg": "Alerta criado."}
+
+
+@router.post("/action/banco-horas-compensar")
+async def rd_action_banco_horas_compensar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Lança compensação de banco de horas de um colaborador (reuso do compensate_hours real)."""
+    import uuid as _uuid
+
+    from fastapi import HTTPException
+
+    from modules.operacional.controllers.time_bank_controller import compensate_hours
+    from modules.operacional.schemas.time_bank import TimeBankCompensate
+    eid = (payload.get("employee_id") or "").strip()
+    try:
+        _eid = _uuid.UUID(eid)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Selecione o colaborador.")
+    try:
+        data = TimeBankCompensate(hours=float(payload.get("hours")),
+                                  compensation_date=(payload.get("compensation_date") or None),
+                                  notes=(payload.get("notes") or None))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Dados inválidos (horas/data): {e}")
+    await compensate_hours(employee_id=_eid, data=data, current_user=current_user, db=db)
+    return {"ok": True, "msg": "Compensação de horas lançada."}
+
+
 # F0: menu extra ZERADO — as antigas entradas de ação viram ABAS dos 8 grupos (_op_grupos.py),
 # igual ao financeiro. A navegação agrupada evita a sidebar com 60+ itens soltos.
 EXTRA_MENU: list[dict] = []
@@ -1159,6 +1201,16 @@ async def build(db) -> dict:
                 {"key": "reference_date", "label": "Data de referência*", "type": "date", "span": "span 1"},
                 {"key": "reason", "label": "Motivo", "type": "text", "span": "span 1", "ph": "Opcional"},
                 {"key": "description", "label": "Descrição", "type": "textarea", "span": "span 2", "ph": "Opcional…"},
+            ],
+        }
+        out["banco-horas-compensar"] = {
+            "title": "Compensar horas", "sub": "Registra a compensação (folga) contra o saldo do colaborador", "cta": "Compensar",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/banco-horas-compensar", "okMsg": "Compensação lançada"},
+            "fields": [
+                {"key": "employee_id", "label": "Colaborador*", "type": "select", "span": "span 2", "ph": "Selecione o colaborador", "options": _emp_opts},
+                {"key": "hours", "label": "Horas a compensar*", "type": "text", "span": "span 1", "ph": "Ex.: 8 ou 2.5"},
+                {"key": "compensation_date", "label": "Data da compensação*", "type": "date", "span": "span 1"},
+                {"key": "notes", "label": "Observações", "type": "textarea", "span": "span 2", "ph": "Opcional…"},
             ],
         }
         out["nova-ronda"] = {
@@ -1685,6 +1737,18 @@ async def build(db) -> dict:
             "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/alerta-ack", "okMsg": "Alerta reconhecido"},
             "fields": [{"key": "alert_id", "label": "Alerta ativo*", "type": "select", "span": "span 2", "ph": "Selecione",
                         "options": [{"value": str(i), "label": f"[{sv}] {tt}"} for i, tt, sv in _alr]}]}
+        out["alerta-criar"] = {
+            "title": "Novo alerta", "sub": "Emite um alerta operacional para a equipe", "cta": "Criar alerta",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/alerta-criar", "okMsg": "Alerta criado"},
+            "fields": [
+                {"key": "title", "label": "Título*", "type": "text", "span": "span 2", "ph": "Mín. 3 caracteres"},
+                {"key": "message", "label": "Mensagem*", "type": "textarea", "span": "span 2", "ph": "Mín. 3 caracteres"},
+                {"key": "alert_type", "label": "Tipo", "type": "select", "span": "span 1", "options": [{"value": v, "label": l} for v, l in [
+                    ("posto_descoberto", "Posto descoberto"), ("falta_detectada", "Falta detectada"),
+                    ("sla_vencendo", "SLA vencendo"), ("ocorrencia_critica", "Ocorrência crítica")]]},
+                {"key": "severity", "label": "Severidade", "type": "select", "span": "span 1", "options": [{"value": v, "label": l} for v, l in [
+                    ("warning", "Aviso"), ("info", "Informativo"), ("error", "Erro"), ("critical", "Crítico")]]},
+            ]}
         _di_on = (await db.execute(_sqltext("SELECT id, coalesce(nome,'—') FROM diarists WHERE coalesce(ativo,true) ORDER BY nome LIMIT 300"))).fetchall()
         _di_off = (await db.execute(_sqltext("SELECT id, coalesce(nome,'—') FROM diarists WHERE NOT coalesce(ativo,true) ORDER BY nome LIMIT 300"))).fetchall()
         _di_all = (await db.execute(_sqltext("SELECT id, coalesce(nome,'—') FROM diarists ORDER BY nome LIMIT 300"))).fetchall()
