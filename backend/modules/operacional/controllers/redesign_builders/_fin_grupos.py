@@ -17,7 +17,7 @@ GRUPOS = [
         ("faturamento", "Faturamento"), ("clientes", "Clientes"),
         ("registrar-conta-receber", "Registrar")]),
     ("g-pagar", "Pagar", "Contas a pagar, folha e pagamentos (gated OTP)", [
-        ("contas-pagar", "Contas a Pagar"), ("fila-aprovacao", "Aprovação"),
+        ("contas-pagar", "Contas a Pagar"), ("baixar-pagavel", "Dar baixa"), ("fila-aprovacao", "Aprovação"),
         ("audit-log", "Audit log"), ("pagamentos-inter", "Pagamentos Inter"),
         ("pagamentos-pj", "Folha PJ"), ("pagar-folha-pj", "Pagar folha PJ"),
         ("pagar-folha-clt", "Pagar folha CLT"),

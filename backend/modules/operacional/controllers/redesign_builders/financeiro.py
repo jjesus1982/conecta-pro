@@ -532,6 +532,23 @@ ORDER BY b.comp DESC, b.cnpj"""
         ],
     }
 
+    # ---- Dar baixa em conta a pagar (bookkeeping — marca pago, NÃO move dinheiro) ---------
+    out["baixar-pagavel"] = {
+        "title": "Dar baixa em conta a pagar",
+        "sub": "Quando a conta JÁ foi paga (PIX/boleto/dinheiro). NÃO move dinheiro — só registra "
+               "que foi paga, com a data, p/ sair do 'a pagar' e entrar no fluxo de caixa real. "
+               "Pagar de verdade é o fluxo com OTP. O ID está na tabela Contas a Pagar.",
+        "cta": "Registrar baixa", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/baixar-pagavel",
+                   "confirm": "Confirma que esta conta JÁ foi paga? Ela é MARCADA como paga (não paga de novo).",
+                   "okMsg": "Baixa registrada."},
+        "fields": [
+            {"key": "payable_id", "label": "ID da conta a pagar*", "type": "text", "span": "span 1", "ph": "cole o ID da tabela"},
+            {"key": "data_pagamento", "label": "Data do pagamento", "type": "text", "span": "span 1", "ph": "AAAA-MM-DD (vazio=hoje)"},
+            {"key": "valor", "label": "Valor pago (vazio = total)", "type": "text", "span": "span 1", "ph": "ex.: 1500.00"},
+        ],
+    }
+
     # ---- Diaristas a cadastrar (do histórico de PIX R$32) ---------------------------------
     try:
         import modules.financial.pagamentos_diaristas_service as _sd
@@ -1898,6 +1915,54 @@ async def _rd_marcar_pago_externo(current_user: CurrentActiveUser, payload: dict
     if isinstance(r, dict) and r.get("ok") is False:
         raise HTTPException(status_code=400, detail=r.get("mensagem") or "Não foi possível marcar.")
     return {"ok": True, "message": f"Pagamento {pid} marcado como pago por fora — não entra mais no lote."}
+
+
+@router.post("/action/baixar-pagavel")
+async def _rd_baixar_pagavel(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Dá BAIXA numa conta a pagar já quitada — marca 'pago' + data (bookkeeping). NÃO move dinheiro
+    (pagar de verdade = fluxo gated com OTP). Idempotente: bloqueia conta já paga/cancelada."""
+    import uuid as _uuid
+    from datetime import date as _date
+    from decimal import Decimal as _Dec
+
+    from sqlalchemy import select as _select
+
+    from modules.financial.models.payable_account import PayableAccount, PayableStatus
+
+    raw = str(payload.get("payable_id") or payload.get("id") or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Informe o ID da conta a pagar (está na tabela Contas a Pagar).")
+    try:
+        pid = _uuid.UUID(raw)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="ID inválido.")
+    pa = (await db.execute(_select(PayableAccount).where(PayableAccount.id == pid))).scalar_one_or_none()
+    if not pa:
+        raise HTTPException(status_code=404, detail="Conta a pagar não encontrada.")
+    if pa.status in (PayableStatus.PAGA.value, "paga", PayableStatus.CANCELADA.value):
+        raise HTTPException(status_code=400, detail=f"Conta já está '{pa.status}' — nada a baixar.")
+
+    ds = str(payload.get("data_pagamento") or "").strip()
+    try:
+        pay_date = _date.fromisoformat(ds) if ds else _date.today()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Data inválida (use AAAA-MM-DD).")
+
+    if pa.paid_value is None:
+        pa.paid_value = _Dec("0")
+    restante = _Dec(str(pa.net_value)) - _Dec(str(pa.paid_value))
+    vs = str(payload.get("valor") or "").strip().replace(",", ".")
+    try:
+        val = _Dec(vs) if vs else restante
+    except Exception:
+        raise HTTPException(status_code=400, detail="Valor inválido.")
+    if val <= 0:
+        raise HTTPException(status_code=400, detail="Valor deve ser maior que zero.")
+
+    pa.register_payment(val, pay_date)  # paid_value += val; payment_date; update_status → 'pago' se quitado
+    await db.commit()
+    return {"ok": True, "message": f"Baixa registrada: {pa.description} — R$ {float(val):,.2f} em "
+            f"{pay_date.isoformat()} (status {pa.status})."}
 
 
 @router.post("/action/programar-vtvr-dia")
