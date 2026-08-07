@@ -34,7 +34,8 @@ def _redis(*args: str) -> str:
         cmd += ["-a", pw.group(1).strip(), "--no-auth-warning"]
     cmd += ["-n", DB, *args]
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=60).stdout
+        # S603: argv montado aqui, sem shell e sem entrada externa — nao ha injecao.
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=60).stdout  # noqa: S603
     except Exception as exc:  # noqa: BLE001 — observabilidade nunca derruba nada
         sys.stderr.write(f"redis indisponivel: {exc}\n")
         return ""
@@ -63,7 +64,8 @@ def quem_escuta() -> dict[str, set[str]]:
                 continue
             try:
                 t = f.read_text(errors="ignore")
-            except Exception:  # noqa: BLE001
+            except OSError:
+                # S112: arquivo ilegivel e ruido esperado numa varredura; pular e correto.
                 continue
             if ".subscribe(" not in t:
                 continue
