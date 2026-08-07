@@ -1,0 +1,520 @@
+=== BACKEND RECON v2 — prefixo 'operacional' · superficie: SO redesign (gap p/ matar o classico) ===
+rotas montadas: 304 · EXPOSTAS: 108 · ORFAS: 196
+  das orfas: 102 provaveis FALSO-ORFAO (builder le a tabela direto)
+             94 candidatas reais — destas, 93 sao de ESCRITA
+GERADORES DE DOCUMENTO orfaos: 0
+
+### 🔴 GERADORES ORFAOS (documento codado, sem superficie) — prioridade
+
+### 🟠 ORFAS DE ESCRITA (acao que o front nao alcanca) — fila de trabalho
+  POST     /api/v1/operacional/alertas/{alert_id}/acknowledge 
+           → Confirmar alerta
+  DELETE   /api/v1/operacional/allocations/bulk 
+           → Deleta múltiplas alocações em lote (soft delete).
+  PATCH    /api/v1/operacional/allocations/bulk 
+           → Atualiza múltiplas alocações em lote.
+  POST     /api/v1/operacional/allocations/{allocation_id}/terminate 
+           → Encerra uma alocação.
+  POST     /api/v1/operacional/assinaturas/verificar 
+           → Verificar assinatura
+  POST     /api/v1/operacional/comunicacao/alertas 
+           → Criar alerta
+  POST     /api/v1/operacional/comunicacao/alertas/{alert_id}/acknowledge 
+           → Confirmar alerta
+  POST     /api/v1/operacional/comunicacao/comunicados 
+           → Criar comunicado
+  PATCH    /api/v1/operacional/comunicacao/comunicados/{announcement_id:uuid} 
+           → Atualizar comunicado
+  DELETE   /api/v1/operacional/comunicacao/comunicados/{announcement_id:uuid} 
+           → Remover comunicado
+  POST     /api/v1/operacional/comunicacao/comunicados/{announcement_id:uuid}/confirmar 
+           → Confirmar leitura
+  POST     /api/v1/operacional/comunicacao/comunicados/{announcement_id:uuid}/publicar 
+           → Publicar comunicado
+  POST     /api/v1/operacional/comunicacao/notificacoes/marcar-todas 
+           → Marcar todas como lidas
+  DELETE   /api/v1/operacional/comunicacao/notificacoes/{notification_id} 
+           → Remover notificacao
+  POST     /api/v1/operacional/comunicacao/notificacoes/{notification_id}/lida 
+           → Marcar como lida
+  POST     /api/v1/operacional/comunicados 
+           → Criar comunicado
+  PATCH    /api/v1/operacional/comunicados/{announcement_id:uuid} 
+           → Atualizar comunicado
+  DELETE   /api/v1/operacional/comunicados/{announcement_id:uuid} 
+           → Remover comunicado
+  POST     /api/v1/operacional/comunicados/{announcement_id:uuid}/publicar 
+           → Publicar comunicado
+  POST     /api/v1/operacional/consultor/perguntar 
+           → Pergunta ao Consultor Operacional (ancorado na operação real)
+  POST     /api/v1/operacional/consultor/perguntar-arquivo 
+           → Consulta analisando um anexo (PDF/DOCX/TXT/CSV)
+  DELETE   /api/v1/operacional/diarias/lancamentos/{lancamento_id} 
+           → Exclui um lançamento
+  POST     /api/v1/operacional/diarias/lancar 
+           → Lança uma diária (valor automático pela tabela de preços)
+  POST     /api/v1/operacional/diaristas/assignments 
+           → Cria uma alocação de diarista.
+  POST     /api/v1/operacional/diaristas/assignments/{assignment_id}/cancel 
+           → Cancela uma alocação.
+  POST     /api/v1/operacional/diaristas/evaluations 
+           → Cria uma avaliação.
+  POST     /api/v1/operacional/diaristas/fiscal/calcular-retencoes 🏛️
+           → Calcular retenções
+  POST     /api/v1/operacional/diaristas/fiscal/rpa 🏛️
+           → Gerar RPA
+  POST     /api/v1/operacional/diaristas/payments/generate 💰
+           → Gera pagamento a partir de agendamentos concluídos.
+  POST     /api/v1/operacional/diaristas/payments/payroll-generate 💰
+           → Gera pagamentos em lote a partir do fechamento de folha.
+  POST     /api/v1/operacional/diaristas/payments/{payment_id}/process 💰
+           → Processa pagamento.
+  POST     /api/v1/operacional/diaristas/schedules 
+           → Cria um agendamento avulso.
+  POST     /api/v1/operacional/diaristas/schedules/batch 
+           → Cria escala diaria em lote para uma data.
+  POST     /api/v1/operacional/diaristas/schedules/checkin 
+           → Registra check-in.
+  POST     /api/v1/operacional/diaristas/schedules/checkout 
+           → Registra check-out.
+  POST     /api/v1/operacional/diaristas/schedules/{schedule_id}/cancel 
+           → Cancela um agendamento.
+  POST     /api/v1/operacional/diaristas/schedules/{schedule_id}/confirm 
+           → Confirma um agendamento.
+  POST     /api/v1/operacional/diaristas/{diarist_id}/activate 
+           → Ativa uma diarista.
+  POST     /api/v1/operacional/diaristas/{diarist_id}/deactivate 
+           → Desativa uma diarista.
+  PUT      /api/v1/operacional/grade/{post_id}/colaborador 
+           → Redesenha a grade de UMA pessoa já alocada no posto (turno/alternância/padrão).
+  POST     /api/v1/operacional/grade/{post_id}/colaborador 
+           → Encaixa uma pessoa NOVA na grade do posto (ex.: recém-admitido). Cria a
+  DELETE   /api/v1/operacional/grade/{post_id}/colaborador/{employee_id} 
+           → Encerra a pessoa na grade: cancela os turnos FUTUROS dela no posto a partir
+  POST     /api/v1/operacional/medidas-administrativas/gerar-documento 
+           → Gerar documento
+  POST     /api/v1/operacional/medidas-administrativas/ia/recomendar 
+           → Obter recomendacao de medida
+  POST     /api/v1/operacional/medidas-administrativas/ia/validar-conformidade 
+           → Validar conformidade legal
+  POST     /api/v1/operacional/medidas-administrativas/ia/verificar-proporcionalidade 
+           → Verificar proporcionalidade
+  POST     /api/v1/operacional/medidas-administrativas/templates 
+           → Criar template
+  PATCH    /api/v1/operacional/medidas-administrativas/templates/{template_id} 
+           → Atualizar template
+  DELETE   /api/v1/operacional/medidas-administrativas/templates/{template_id} 
+           → Remover template
+  POST     /api/v1/operacional/medidas-administrativas/{action_id}/assinar 
+           → Assinar documento
+  POST     /api/v1/operacional/medidas-administrativas/{action_id}/recusar-assinatura 
+           → Registrar recusa de assinatura
+  POST     /api/v1/operacional/notificacoes/marcar-todas 
+           → Marcar todas como lidas
+  DELETE   /api/v1/operacional/notificacoes/{notification_id} 
+           → Remover notificacao
+  POST     /api/v1/operacional/notificacoes/{notification_id}/lida 
+           → Marcar como lida
+  POST     /api/v1/operacional/occurrences/{occurrence_id}/attachments 
+           → Adiciona anexo a uma ocorrência.
+  POST     /api/v1/operacional/occurrences/{occurrence_id}/comments 
+           → Adiciona comentário a uma ocorrência.
+  POST     /api/v1/operacional/occurrences/{occurrence_id}/resolve 
+           → Resolve uma ocorrência.
+  POST     /api/v1/operacional/passagem-turno/{passagem_id}/lida 
+           → Confirma a leitura da passagem: adiciona {user_id, nome, em} ao JSONB
+  POST     /api/v1/operacional/posts/{post_id}/definir-localizacao 
+           → Grava a localização REAL do posto (lat/lng capturados pelo GPS no local).
+  POST     /api/v1/operacional/presenca/substituir/{substitution_id} 
+           → Escala o substituto do dia: funcionário (turno espelho) ou diarista (diária automática).
+  POST     /api/v1/operacional/rondas/{round_id}/aplicar-medida-disciplinar 
+           → Aplicar medida disciplinar
+  POST     /api/v1/operacional/rondas/{round_id}/cancelar 
+           → Cancelar ronda
+  POST     /api/v1/operacional/rondas/{round_id}/concluir 
+           → Concluir ronda
+  POST     /api/v1/operacional/rondas/{round_id}/pausar 
+           → Pausar ronda
+  POST     /api/v1/operacional/rondas/{round_id}/registrar-ocorrencia 
+           → Registrar ocorrencia
+  POST     /api/v1/operacional/rondas/{round_id}/retomar 
+           → Retomar ronda
+  POST     /api/v1/operacional/scale-optimizer/otimizar 
+           → Otimiza alocação de colaboradores para uma data específica.
+  POST     /api/v1/operacional/scale-optimizer/otimizar-mes 
+           → Otimiza escalas para um mês inteiro.
+  POST     /api/v1/operacional/scales/auto-generate 
+           → Gera escalas automaticamente para todos os postos com alocações ativas.
+  POST     /api/v1/operacional/scales/generate 
+           → Gera escala automaticamente com IA.
+  POST     /api/v1/operacional/scales/templates/ 
+           → Cria um novo template de escala manualmente.
+  POST     /api/v1/operacional/scales/templates/from-scale 
+           → Cria um template a partir de uma escala existente.
+  PATCH    /api/v1/operacional/scales/templates/{template_id} 
+           → Atualiza um template.
+  DELETE   /api/v1/operacional/scales/templates/{template_id} 
+           → Remove um template (soft delete).
+  POST     /api/v1/operacional/scales/templates/{template_id}/apply 
+           → Aplica um template criando nova escala.
+  POST     /api/v1/operacional/scales/{scale_id}/approve 
+           → Aprova uma escala.
+  POST     /api/v1/operacional/scales/{scale_id}/publish 
+           → Publica uma escala.
+  POST     /api/v1/operacional/scales/{scale_id}/reject 
+           → Rejeita uma escala em aprovação.
+  PATCH    /api/v1/operacional/shifts/bulk 
+           → Atualiza múltiplos turnos em lote.
+  POST     /api/v1/operacional/shifts/{shift_id}/check-out 
+           → Registra saída do turno.
+  POST     /api/v1/operacional/shifts/{shift_id}/mark-missed 
+           → Marca turno como falta.
+  POST     /api/v1/operacional/substitutions/suggest 
+           → Sugere substitutos usando IA.
+  POST     /api/v1/operacional/substitutions/{substitution_id}/complete 
+           → Marca substituição como concluída.
+  POST     /api/v1/operacional/substitutions/{substitution_id}/confirm 
+           → Confirma uma substituição atribuindo o substituto.
+  POST     /api/v1/operacional/substitutions/{substitution_id}/reject 
+           → Rejeita uma substituição.
+  POST     /api/v1/operacional/time-bank/ 
+           → Cria uma nova entrada no banco de horas.
+  POST     /api/v1/operacional/time-bank/compensate/{employee_id} 
+           → Registra compensação de horas.
+  PATCH    /api/v1/operacional/time-bank/{entry_id} 
+           → Atualiza uma entrada do banco.
+  DELETE   /api/v1/operacional/time-bank/{entry_id} 
+           → Remove uma entrada do banco (soft delete).
+  POST     /api/v1/operacional/time-bank/{entry_id}/approve 
+           → Aprova uma entrada no banco de horas.
+  POST     /api/v1/operacional/time-bank/{entry_id}/reject 
+           → Rejeita uma entrada no banco de horas.
+  POST     /api/v1/operacional/unificado/alocar-diarista 
+           → Alocar diarista a condomínio
+  POST     /api/v1/operacional/unificado/desalocar-diarista/{assignment_id} 
+           → Desalocar diarista
+
+### ⚪ ORFAS DE LEITURA (candidatas reais, sem escrita)
+           /api/v1/operacional/comunicacao/ws/operacional/alertas  → WebSocket para alertas em tempo real.
+
+### 🔵 PROVAVEIS FALSO-ORFAO (102) — builder le a tabela direto
+  GET      /api/v1/operacional/ai/command-center  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/ai/performance-overview  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/allocations/available-employees  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/allocations/current  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/allocations/employee/{employee_id}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/allocations/post/{post_id}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/allocations/stats  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/assinaturas/documento/{document_id}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/assinaturas/{signature_id}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/avaliacoes/consolidado  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/avaliacoes/equipe  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/comunicacao/alertas  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/comunicacao/alertas/ativos  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/comunicacao/comunicados  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/comunicacao/comunicados/nao-lidos  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/comunicacao/comunicados/{announcement_id:uuid}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/comunicacao/comunicados/{announcement_id:uuid}/leituras  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/comunicacao/notificacoes  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/comunicacao/notificacoes/nao-lidas/count  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/comunicados  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/comunicados/nao-lidos  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/comunicados/{announcement_id:uuid}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/comunicados/{announcement_id:uuid}/leituras  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/consultor/historico  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/diarias/cadastros  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/diarias/lancamentos  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/diarias/resumo-diarista  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/diarias/resumo-gerencial  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/diaristas/ai/availability  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/diaristas/ai/optimize  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/diaristas/ai/performance/{diarist_id}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/diaristas/ai/suggest  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/diaristas/assignments  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/diaristas/assignments/{assignment_id}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/diaristas/consulta-cpf/{cpf}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/diaristas/evaluations  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/diaristas/evaluations/{evaluation_id}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/diaristas/fiscal/codigos-servico  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/diaristas/fiscal/relatorio/retencoes  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/diaristas/fiscal/simular/{valor_bruto}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/diaristas/fiscal/tabelas/irrf  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/diaristas/payments/payroll-report  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/diaristas/schedules  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/diaristas/schedules/today  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/diaristas/schedules/{schedule_id}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/diaristas/statistics/general  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/diaristas/statistics/ranking  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/diaristas/{diarist_id}/metrics  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/employees/solides  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/grade/{post_id}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/kpi-trends  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/kpi-trends/  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/kpi-trends/coverage-prediction  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/kpi-trends/coverage-prediction/  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/kpi-trends/performance-scores  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/medidas-administrativas/estatisticas  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/medidas-administrativas/funcionario/{employee_id}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/medidas-administrativas/templates  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/medidas-administrativas/templates/{template_id}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/notificacoes  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/notificacoes/nao-lidas/count  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/occurrences/by-post/{post_id}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/occurrences/stats  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/occurrences/{occurrence_id}/comments  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/ocorrencias/stats  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/posts/client/{client_id}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/posts/contract/{contract_id}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/posts/stats  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/presenca/substitutos/{substitution_id}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/reports/costs  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/reports/coverage  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/reports/hours  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/reports/overtime  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/rondas/gestao/resumo-inspetores  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/rondas/minhas-rondas  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/rondas/stats  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/scale-optimizer/status  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/scale-templates/  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/scales/stats  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/scales/templates/  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/scales/templates/stats  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/scales/templates/{template_id}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/shifts/scale/{scale_id}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/shifts/today  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/substitutions/by-date/{target_date}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/time-bank/  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/time-bank/alerts  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/time-bank/expiring  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/time-bank/monthly-summary/{employee_id}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/time-bank/pending  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/time-bank/recommendations/{employee_id}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/time-bank/stats  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/time-bank/summary/{employee_id}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/time-bank/{entry_id}  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/triagem/painel  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/unificado/dashboard  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/unificado/kpi-trends  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/unificado/kpis  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/unificado/metricas  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/unificado/ocupacao  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/unificado/resumo-dia  (tabela: operacional_post_orders)
+  GET      /api/v1/operacional/unificado/sugerir-diarista/{post_id}  (tabela: operacional_post_orders)
+
+### ✅ EXPOSTAS (108) — com o arquivo que prova
+  GET      /api/v1/operacional/alertas
+           → Listar alertas ativos  [co-ocorrencia alertas+operacional] backend/modules/operacional/controllers/redesign_builders/_fin_visao.py
+  POST     /api/v1/operacional/alertas
+           → Criar alerta  [co-ocorrencia alertas+operacional] backend/modules/operacional/controllers/redesign_builders/_fin_visao.py
+  GET      /api/v1/operacional/alertas/ativos
+           → Alertas ativos do usuario  [co-ocorrencia alertas+ativos] backend/modules/operacional/controllers/redesign_builders/saude_ocupacional.py
+  GET      /api/v1/operacional/allocations
+           → Lista alocações com filtros e paginação.  [co-ocorrencia allocations+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/operacional/allocations/
+           → Cria uma nova alocação de funcionário em posto.  [co-ocorrencia allocations+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/allocations/
+           → Lista alocações com filtros e paginação.  [co-ocorrencia allocations+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  PATCH    /api/v1/operacional/allocations/{allocation_id:uuid}
+           → Atualiza uma alocação.  [co-ocorrencia allocations+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  DELETE   /api/v1/operacional/allocations/{allocation_id:uuid}
+           → Remove uma alocação (soft delete).  [co-ocorrencia allocations+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/allocations/{allocation_id}
+           → Busca alocação por ID.  [co-ocorrencia allocations+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/operacional/avaliacoes/
+           → Registra avaliação de um funcionário da equipe (nota 1-5).  [co-ocorrencia avaliacoes+operacional] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/operacional/avaliacoes/
+           → Lista bruta de avaliações do escopo (filtros: posto, período de competência).  [co-ocorrencia avaliacoes+operacional] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/operacional/banco-horas/
+           → Lista banco de horas (alias PT-BR de /time-bank).  [co-ocorrencia banco-horas+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+           /api/v1/operacional/comunicacao/ws/operacional/notifications
+           → WebSocket para notificacoes em tempo real.  [co-ocorrencia comunicacao+notifications] frontend/src/components/redesign/RdBell.tsx
+  GET      /api/v1/operacional/comunicacao/ws/status
+           → Status das conexoes WebSocket  [co-ocorrencia comunicacao+operacional] frontend/src/components/redesign/RdBell.tsx
+  POST     /api/v1/operacional/comunicados/{announcement_id:uuid}/confirmar
+           → Confirmar leitura  [co-ocorrencia comunicados+confirmar] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  GET      /api/v1/operacional/consultor/panorama
+           → Fotografia real da operação (postos, alocações, diaristas, ocorrências)  [co-ocorrencia panorama+consultor] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/dashboard/
+           → Dashboard operacional com KPIs consolidados.  [co-ocorrencia dashboard+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/operacional/diarias/diaristas
+           → Cadastra um diarista (CPF + PIX válidos obrigatórios; telefone ou e-mail)  [co-ocorrencia diarias+diaristas] backend/modules/operacional/controllers/redesign_builders/_op_grupos.py
+  PATCH    /api/v1/operacional/diarias/diaristas/{diarista_id}
+           → Atualiza cadastro do diarista (CPF/PIX validados; não permite limpar; ativo=false inativa)  [co-ocorrencia diarias+diaristas] backend/modules/operacional/controllers/redesign_builders/_op_grupos.py
+  DELETE   /api/v1/operacional/diarias/diaristas/{diarista_id}
+           → Apaga o diarista (ou INATIVA se tiver histórico de lançamentos)  [co-ocorrencia diarias+diaristas] backend/modules/operacional/controllers/redesign_builders/_op_grupos.py
+  GET      /api/v1/operacional/diaristas
+           → Lista diaristas com filtros.  [co-ocorrencia diaristas+operacional] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/operacional/diaristas/
+           → Cria uma nova diarista.  [co-ocorrencia diaristas+operacional] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/operacional/diaristas/
+           → Lista diaristas com filtros.  [co-ocorrencia diaristas+operacional] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/operacional/diaristas/available
+           → Busca diaristas disponíveis para uma data.  [co-ocorrencia available+diaristas] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/operacional/diaristas/fiscal/documentos
+           → Listar documentos  [co-ocorrencia diaristas+fiscal] backend/modules/operacional/controllers/redesign_builders/_fin_grupos.py
+  GET      /api/v1/operacional/diaristas/fiscal/documentos/{documento_id}
+           → Obter documento  [co-ocorrencia diaristas+fiscal] backend/modules/operacional/controllers/redesign_builders/_fin_grupos.py
+  GET      /api/v1/operacional/diaristas/fiscal/relatorio/diarista/{diarist_id}
+           → Relatório do diarista  [co-ocorrencia relatorio+diarista] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/diaristas/fiscal/tabelas/inss
+           → Tabela INSS  [co-ocorrencia inss+diaristas] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/operacional/diaristas/payments
+           → Cria um pagamento.  [co-ocorrencia payments+diaristas] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/operacional/diaristas/payments
+           → Lista pagamentos.  [co-ocorrencia payments+diaristas] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/operacional/diaristas/payments/pending
+           → Lista pagamentos pendentes.  [co-ocorrencia payments+diaristas] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/operacional/diaristas/payments/{payment_id}
+           → Busca pagamento por ID.  [co-ocorrencia payments+diaristas] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/operacional/diaristas/{diarist_id}
+           → Busca diarista por ID.  [co-ocorrencia diaristas+operacional] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  PUT      /api/v1/operacional/diaristas/{diarist_id}
+           → Atualiza diarista.  [co-ocorrencia diaristas+operacional] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  DELETE   /api/v1/operacional/diaristas/{diarist_id}
+           → Remove diarista (soft delete).  [co-ocorrencia diaristas+operacional] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/operacional/employees/
+           → Lista funcionarios com paginacao e filtros.  [co-ocorrencia employees+operacional] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/operacional/employees/
+           → Cria um novo funcionário no sistema.  [co-ocorrencia employees+operacional] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  PATCH    /api/v1/operacional/employees/{employee_id}
+           → Atualiza dados de um funcionário.  [co-ocorrencia employees+operacional] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/operacional/ferias/
+           → Lista ferias (alias PT-BR de /vacations).  [co-ocorrencia ferias+operacional] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/operacional/grade/postos
+           → Postos ativos do escopo, com nº de pessoas na grade do mês corrente.  [co-ocorrencia grade+postos] backend/modules/operacional/controllers/redesign_builders/_op_grupos.py
+  GET      /api/v1/operacional/instrucoes-posto/
+           → Lista os postos ativos do escopo com a situação das instruções de cada um.  [co-ocorrencia instrucoes-posto+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/instrucoes-posto/{post_id}
+           → Instruções vigentes do posto. Líder só do escopo (403 fora); gestor qualquer.  [co-ocorrencia instrucoes-posto+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  PUT      /api/v1/operacional/instrucoes-posto/{post_id}
+           → Upsert das instruções do posto — SÓ GESTOR (scope.is_manager).  [co-ocorrencia instrucoes-posto+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/operacional/medidas-administrativas
+           → Criar medida disciplinar  [co-ocorrencia medidas-administrativas+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/medidas-administrativas
+           → Listar medidas disciplinares  [co-ocorrencia medidas-administrativas+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/medidas-administrativas/pendentes
+           → Listar pendentes de aprovacao  [co-ocorrencia medidas-administrativas+pendentes] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/medidas-administrativas/{action_id}
+           → Buscar medida por ID  [co-ocorrencia medidas-administrativas+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  PATCH    /api/v1/operacional/medidas-administrativas/{action_id}
+           → Atualizar medida  [co-ocorrencia medidas-administrativas+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  DELETE   /api/v1/operacional/medidas-administrativas/{action_id}
+           → Remover medida  [co-ocorrencia medidas-administrativas+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/operacional/medidas-administrativas/{action_id}/aprovar
+           → Aprovar medida  [co-ocorrencia medidas-administrativas+aprovar] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/operacional/medidas-administrativas/{action_id}/rejeitar
+           → Rejeitar medida  [co-ocorrencia medidas-administrativas+rejeitar] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/operacional/medidas-administrativas/{action_id}/submeter
+           → Submeter para aprovacao  [co-ocorrencia submeter+medidas-administrativas] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/operacional/occurrences/
+           → Cria uma nova ocorrência disciplinar/operacional.  [co-ocorrencia occurrences+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/occurrences/
+           → Lista ocorrências com filtros e paginação.  [co-ocorrencia occurrences+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/occurrences/{occurrence_id}
+           → Busca ocorrência por ID.  [co-ocorrencia occurrences+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  PATCH    /api/v1/operacional/occurrences/{occurrence_id}
+           → Atualiza uma ocorrência.  [co-ocorrencia occurrences+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  DELETE   /api/v1/operacional/occurrences/{occurrence_id}
+           → Deleta (soft delete) uma ocorrência.  [co-ocorrencia occurrences+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/ocorrencias/
+           → Lista ocorrencias (alias PT-BR de /occurrences).  [co-ocorrencia ocorrencias+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/operacional/passagem-turno/
+           → Registra a passagem de turno de um posto.  [co-ocorrencia passagem-turno+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/passagem-turno/
+           → Lista passagens de turno do escopo do usuário.  [co-ocorrencia passagem-turno+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/operacional/posts/
+           → Cria um novo posto de trabalho.  [co-ocorrencia posts+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/posts/
+           → Lista postos com filtros e paginação.  [co-ocorrencia posts+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/posts/{post_id}
+           → Busca posto por ID.  [co-ocorrencia posts+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  PATCH    /api/v1/operacional/posts/{post_id}
+           → Atualiza um posto.  [co-ocorrencia posts+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  DELETE   /api/v1/operacional/posts/{post_id}
+           → Remove um posto (soft delete).  [co-ocorrencia posts+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/operacional/presenca/checkin-manual/{shift_id}
+           → Check-in manual de um turno de HOJE pelo líder do posto ou gestor.  [co-ocorrencia checkin-manual+presenca] backend/modules/operacional/controllers/redesign_builders/_op_grupos.py
+  POST     /api/v1/operacional/presenca/falta/{shift_id}
+           → Marca a falta do turno e abre a substituição do dia (idempotente).  [co-ocorrencia presenca+falta] backend/modules/operacional/controllers/redesign_builders/_op_grupos.py
+  GET      /api/v1/operacional/presenca/hoje
+           → Quadro de presença do dia (default: hoje em Manaus), escopado por posto.  [co-ocorrencia presenca+hoje] backend/modules/operacional/controllers/redesign_builders/_op_grupos.py
+  POST     /api/v1/operacional/rondas/
+           → Criar ronda de inspecao  [co-ocorrencia rondas+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/rondas/
+           → Listar rondas  [co-ocorrencia rondas+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/rondas/dashboard
+           → Dashboard de rondas  [co-ocorrencia rondas+dashboard] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  GET      /api/v1/operacional/rondas/{round_id}
+           → Buscar ronda  [co-ocorrencia rondas+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  PATCH    /api/v1/operacional/rondas/{round_id}
+           → Atualizar ronda  [co-ocorrencia rondas+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  DELETE   /api/v1/operacional/rondas/{round_id}
+           → Remover ronda  [co-ocorrencia rondas+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/operacional/rondas/{round_id}/checkpoints
+           → Criar checkpoint  [co-ocorrencia checkpoints+rondas] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/rondas/{round_id}/checkpoints
+           → Listar checkpoints  [co-ocorrencia checkpoints+rondas] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  PATCH    /api/v1/operacional/rondas/{round_id}/checkpoints/{checkpoint_id}
+           → Atualizar checkpoint  [co-ocorrencia checkpoints+rondas] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/operacional/rondas/{round_id}/checkpoints/{checkpoint_id}/fotos
+           → Anexar foto ao checkpoint  [co-ocorrencia checkpoints+fotos] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/rondas/{round_id}/checkpoints/{checkpoint_id}/fotos/{nome}
+           → Baixar foto do checkpoint  [co-ocorrencia checkpoints+fotos] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/operacional/rondas/{round_id}/iniciar
+           → Iniciar ronda  [co-ocorrencia iniciar+rondas] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/rondas/{round_id}/relatorio/pdf
+           → Relatório da ronda em PDF (marca Conecta)  [co-ocorrencia relatorio+rondas] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/operacional/scales/
+           → Cria uma nova escala.  [co-ocorrencia scales+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/scales/
+           → Lista escalas com filtros e paginação.  [co-ocorrencia scales+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/scales/{scale_id}
+           → Busca escala por ID.  [co-ocorrencia scales+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  PATCH    /api/v1/operacional/scales/{scale_id}
+           → Atualiza uma escala.  [co-ocorrencia scales+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  DELETE   /api/v1/operacional/scales/{scale_id}
+           → Remove uma escala (soft delete).  [co-ocorrencia scales+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/operacional/scales/{scale_id}/submit
+           → Envia escala para aprovação.  [co-ocorrencia scales+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/operacional/shifts/
+           → Cria um novo turno.  [co-ocorrencia shifts+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/shifts/
+           → Lista turnos com filtros e paginação.  [co-ocorrencia shifts+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  PATCH    /api/v1/operacional/shifts/{shift_id:uuid}
+           → Atualiza um turno.  [co-ocorrencia shifts+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  DELETE   /api/v1/operacional/shifts/{shift_id:uuid}
+           → Remove um turno (soft delete).  [co-ocorrencia shifts+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/shifts/{shift_id}
+           → Busca turno por ID.  [co-ocorrencia shifts+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/operacional/shifts/{shift_id}/check-in
+           → Registra entrada no turno.  [co-ocorrencia check-in+shifts] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/operacional/substitutions/
+           → Cria uma nova solicitação de substituição.  [co-ocorrencia substitutions+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/substitutions/
+           → Lista substituições com filtros e paginação.  [co-ocorrencia substitutions+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/substitutions/pending
+           → Lista substituições pendentes (aguardando confirmação).  [co-ocorrencia substitutions+pending] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/substitutions/{substitution_id}
+           → Busca substituição por ID.  [co-ocorrencia substitutions+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  PATCH    /api/v1/operacional/substitutions/{substitution_id}
+           → Atualiza uma substituição.  [co-ocorrencia substitutions+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  DELETE   /api/v1/operacional/substitutions/{substitution_id}
+           → Remove uma substituição (soft delete).  [co-ocorrencia substitutions+operacional] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/vacations
+           → Lista solicitações de férias (fonte canônica: hr_vacation_requests, módulo DP).  [co-ocorrencia vacations+operacional] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/operacional/vacations
+           → DESABILITADO: escrita é responsabilidade do módulo DP.  [co-ocorrencia vacations+operacional] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/operacional/vacations/{request_id}
+           → Busca uma solicitação pelo ID (fonte canônica: hr_vacation_requests).  [co-ocorrencia vacations+operacional] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  PATCH    /api/v1/operacional/vacations/{request_id}
+           → DESABILITADO: escrita é responsabilidade do módulo DP.  [co-ocorrencia vacations+operacional] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  DELETE   /api/v1/operacional/vacations/{request_id}
+           → DESABILITADO: cancelamento é responsabilidade do módulo DP.  [co-ocorrencia vacations+operacional] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/operacional/vacations/{request_id}/approve
+           → DESABILITADO: aprovação é responsabilidade do módulo DP.  [co-ocorrencia approve+vacations] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/operacional/vacations/{request_id}/reject
+           → DESABILITADO: rejeição é responsabilidade do módulo DP.  [co-ocorrencia reject+vacations] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+           /api/v1/operacional/ws/notifications/{room}
+           → WebSocket endpoint para notificações operacionais em tempo real.  [co-ocorrencia notifications+operacional] frontend/src/components/redesign/RdBell.tsx
+  GET      /api/v1/operacional/ws/status
+           → Retorna status das conexões WebSocket ativas.  [segmento unico 'operacional' (prova fraca)] backend/modules/operacional/controllers/redesign_builders/_fin_visao.py

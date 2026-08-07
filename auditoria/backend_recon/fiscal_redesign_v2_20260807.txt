@@ -1,0 +1,330 @@
+=== BACKEND RECON v2 — prefixo 'fiscal' · superficie: SO redesign (gap p/ matar o classico) ===
+rotas montadas: 193 · EXPOSTAS: 45 · ORFAS: 148
+  das orfas: 60 provaveis FALSO-ORFAO (builder le a tabela direto)
+             88 candidatas reais — destas, 74 sao de ESCRITA
+GERADORES DE DOCUMENTO orfaos: 3
+
+### 🔴 GERADORES ORFAOS (documento codado, sem superficie) — prioridade
+  POST     /api/v1/fiscal/nfe-entrada/upload-xml 🏛️
+           → Upload XML de NF-e de compra — atualiza estoque
+           motivo: segmento nao citado no front: nfe-entrada,upload-xml
+  POST     /api/v1/government/sped-fiscal/gerar/download 🏛️
+           → Download arquivo SPED
+           motivo: segmento nao citado no front: sped-fiscal
+  POST     /api/v1/government/sped-fiscal/gerar/download 🏛️
+           → Download arquivo SPED
+           motivo: segmento nao citado no front: sped-fiscal
+
+### 🟠 ORFAS DE ESCRITA (acao que o front nao alcanca) — fila de trabalho
+  POST     /api/v1/financial/fiscal/calcular/comparativo-regimes 🏛️
+           → Comparar Simples vs Lucro Real
+  POST     /api/v1/financial/fiscal/calcular/lucro-real 🏛️
+           → Calcular impostos Lucro Real
+  POST     /api/v1/financial/fiscal/calcular/retencoes-nfse 🏛️
+           → Calcular retenções na fonte NFS-e
+  POST     /api/v1/financial/fiscal/calcular/simples 🏛️
+           → Calcular DAS Simples Nacional
+  POST     /api/v1/financial/fiscal/calcular/verificar-limite-simples 🏛️
+           → Verificar limite do Simples Nacional
+  POST     /api/v1/financial/fiscal/cfop 🏛️
+           → Cria um novo CFOP.
+  PATCH    /api/v1/financial/fiscal/cfop/{cfop_id} 🏛️
+           → Atualiza CFOP.
+  POST     /api/v1/financial/fiscal/das/calcular 🏛️
+           → Calcula DAS do Simples Nacional.
+  POST     /api/v1/financial/fiscal/fiscal/calcular/comparativo-regimes 🏛️
+           → Comparar Simples vs Lucro Real
+  POST     /api/v1/financial/fiscal/fiscal/calcular/lucro-real 🏛️
+           → Calcular impostos Lucro Real
+  POST     /api/v1/financial/fiscal/fiscal/calcular/retencoes-nfse 🏛️
+           → Calcular retenções na fonte NFS-e
+  POST     /api/v1/financial/fiscal/fiscal/calcular/simples 🏛️
+           → Calcular DAS Simples Nacional
+  POST     /api/v1/financial/fiscal/fiscal/calcular/verificar-limite-simples 🏛️
+           → Verificar limite do Simples Nacional
+  POST     /api/v1/financial/fiscal/fiscal/cfop 🏛️
+           → Cria um novo CFOP.
+  PATCH    /api/v1/financial/fiscal/fiscal/cfop/{cfop_id} 🏛️
+           → Atualiza CFOP.
+  POST     /api/v1/financial/fiscal/fiscal/das/calcular 🏛️
+           → Calcula DAS do Simples Nacional.
+  POST     /api/v1/financial/fiscal/fiscal/ncm 🏛️
+           → Cria um novo NCM.
+  PATCH    /api/v1/financial/fiscal/fiscal/ncm/{ncm_id} 🏛️
+           → Atualiza NCM.
+  POST     /api/v1/financial/fiscal/fiscal/nfe 🏛️
+           → Cria uma nova NF-e.
+  POST     /api/v1/financial/fiscal/fiscal/nfe/cancelar 🏛️
+           → Cancela NF-e autorizada.
+  POST     /api/v1/financial/fiscal/fiscal/nfe/emitir 🏛️
+           → Emite NF-e para a SEFAZ.
+  POST     /api/v1/financial/fiscal/fiscal/nfe/inutilizar 🏛️
+           → Inutiliza faixa de numeracao de NF-e.
+  PATCH    /api/v1/financial/fiscal/fiscal/nfe/{nfe_id} 🏛️
+           → Atualiza NF-e em rascunho. Lê/grava a tabela REAL `nfes` (o model NFe aponta p/ `nfe`,
+  POST     /api/v1/financial/fiscal/fiscal/obrigacao 🏛️
+           → Cria obrigacao fiscal.
+  PATCH    /api/v1/financial/fiscal/fiscal/obrigacao/{obrigacao_id} 🏛️
+           → Atualiza obrigacao fiscal.
+  POST     /api/v1/financial/fiscal/fiscal/retencao/calcular 🏛️
+           → Calcula retencoes federais para um valor de servico.
+  POST     /api/v1/financial/fiscal/fiscal/sped 🏛️
+           → Cria arquivo SPED.
+  POST     /api/v1/financial/fiscal/fiscal/sped/gerar 🏛️
+           → Gera arquivo SPED.
+  POST     /api/v1/financial/fiscal/fiscal/sped/{sped_id}/validar 🏛️
+           → Valida arquivo SPED.
+  POST     /api/v1/financial/fiscal/fiscal/suframa/config 🏛️
+           → Cria configuracao SUFRAMA.
+  POST     /api/v1/financial/fiscal/fiscal/suframa/operacao 🏛️
+           → Registra operacao com beneficio SUFRAMA.
+  POST     /api/v1/financial/fiscal/ncm 🏛️
+           → Cria um novo NCM.
+  PATCH    /api/v1/financial/fiscal/ncm/{ncm_id} 🏛️
+           → Atualiza NCM.
+  POST     /api/v1/financial/fiscal/nfe 🏛️
+           → Cria uma nova NF-e.
+  POST     /api/v1/financial/fiscal/nfe/cancelar 🏛️
+           → Cancela NF-e autorizada.
+  POST     /api/v1/financial/fiscal/nfe/emitir 🏛️
+           → Emite NF-e para a SEFAZ.
+  POST     /api/v1/financial/fiscal/nfe/inutilizar 🏛️
+           → Inutiliza faixa de numeracao de NF-e.
+  PATCH    /api/v1/financial/fiscal/nfe/{nfe_id} 🏛️
+           → Atualiza NF-e em rascunho. Lê/grava a tabela REAL `nfes` (o model NFe aponta p/ `nfe`,
+  POST     /api/v1/financial/fiscal/obrigacao 🏛️
+           → Cria obrigacao fiscal.
+  PATCH    /api/v1/financial/fiscal/obrigacao/{obrigacao_id} 🏛️
+           → Atualiza obrigacao fiscal.
+  POST     /api/v1/financial/fiscal/retencao/calcular 🏛️
+           → Calcula retencoes federais para um valor de servico.
+  POST     /api/v1/financial/fiscal/sped 🏛️
+           → Cria arquivo SPED.
+  POST     /api/v1/financial/fiscal/sped/gerar 🏛️
+           → Gera arquivo SPED.
+  POST     /api/v1/financial/fiscal/sped/{sped_id}/validar 🏛️
+           → Valida arquivo SPED.
+  POST     /api/v1/financial/fiscal/suframa/config 🏛️
+           → Cria configuracao SUFRAMA.
+  POST     /api/v1/financial/fiscal/suframa/operacao 🏛️
+           → Registra operacao com beneficio SUFRAMA.
+  POST     /api/v1/financial/pagamentos-pj/item/{item_id}/nota-fiscal 💰🏛️
+           → Marca a nota fiscal do prestador (libera p/ o lote)
+  POST     /api/v1/fiscal/consultor/perguntar 🏛️
+           → Pergunta ao Consultor Fiscal (ancorado nos dados reais)
+  POST     /api/v1/fiscal/consultor/perguntar-arquivo 🏛️
+           → Consulta analisando um anexo (PDF/DOCX/TXT/CSV)
+  POST     /api/v1/fiscal/guias-drive/sync 🏛️
+           → Puxar guias/parcelamentos da pasta do Drive
+  POST     /api/v1/fiscal/guias-drive/{obligacao_id}/preparar-pagamento 💰🏛️
+           → Preparar pagamento da guia (gate OTP)
+  POST     /api/v1/fiscal/nfe-entrada/sync-sefaz 🏛️
+           → Sincronizar NF-e entrada via SEFAZ
+  POST     /api/v1/fiscal/nfe/emitir 🏛️
+           → Emite NF-e produto via SEFAZ-AM
+  POST     /api/v1/fiscal/nfse-multi/calcular-tributos 🏛️
+           → Calcular tributos NFS-e com liminares
+  POST     /api/v1/fiscal/nfse-multi/preparar 🏛️
+           → Preparar NFS-e com empresa e liminares automaticas
+  POST     /api/v1/government/sped-fiscal/apuracao 🏛️
+           → Calcular apuração
+  POST     /api/v1/government/sped-fiscal/apuracao 🏛️
+           → Calcular apuração
+  POST     /api/v1/government/sped-fiscal/documento 🏛️
+           → Adicionar documento
+  POST     /api/v1/government/sped-fiscal/documento 🏛️
+           → Adicionar documento
+  POST     /api/v1/government/sped-fiscal/gerar 🏛️
+           → Gerar arquivo SPED
+  POST     /api/v1/government/sped-fiscal/gerar 🏛️
+           → Gerar arquivo SPED
+  POST     /api/v1/government/sped-fiscal/inventario 🏛️
+           → Adicionar item inventário
+  POST     /api/v1/government/sped-fiscal/inventario 🏛️
+           → Adicionar item inventário
+  DELETE   /api/v1/government/sped-fiscal/limpar 🏛️
+           → Limpar dados
+  DELETE   /api/v1/government/sped-fiscal/limpar 🏛️
+           → Limpar dados
+  POST     /api/v1/government/sped-fiscal/participante 🏛️
+           → Adicionar participante
+  POST     /api/v1/government/sped-fiscal/participante 🏛️
+           → Adicionar participante
+  POST     /api/v1/government/sped-fiscal/produto 🏛️
+           → Adicionar produto
+  POST     /api/v1/government/sped-fiscal/produto 🏛️
+           → Adicionar produto
+  POST     /api/v1/operacional/diaristas/fiscal/calcular-retencoes 🏛️
+           → Calcular retenções
+  POST     /api/v1/operacional/diaristas/fiscal/rpa 🏛️
+           → Gerar RPA
+
+### ⚪ ORFAS DE LEITURA (candidatas reais, sem escrita)
+  GET      /api/v1/fiscal-dashboard/atual  → Dashboard do mês atual
+  GET      /api/v1/fiscal-dashboard/{mes}/{ano}  → Dashboard fiscal-financeiro completo
+  GET      /api/v1/government/ecac/situacao-fiscal  → Consulta situacao fiscal
+  GET      /api/v1/government/ecac/situacao-fiscal  → Consulta situacao fiscal
+  GET      /api/v1/government/sped-fiscal/blocos  → Lista blocos
+  GET      /api/v1/government/sped-fiscal/blocos  → Lista blocos
+  GET      /api/v1/government/sped-fiscal/documentos  → Lista documentos
+  GET      /api/v1/government/sped-fiscal/documentos  → Lista documentos
+  GET      /api/v1/government/sped-fiscal/participantes  → Lista participantes
+  GET      /api/v1/government/sped-fiscal/participantes  → Lista participantes
+  GET      /api/v1/government/sped-fiscal/produtos  → Lista produtos
+  GET      /api/v1/government/sped-fiscal/produtos  → Lista produtos
+  GET      /api/v1/government/sped-fiscal/status  → Status do SPED Fiscal
+  GET      /api/v1/government/sped-fiscal/status  → Status do SPED Fiscal
+
+### 🔵 PROVAVEIS FALSO-ORFAO (60) — builder le a tabela direto
+  GET      /api/v1/financial/fiscal/cfop  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/cfop/codigo/{codigo}  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/cfop/vigilancia-zfm  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/cfop/{cfop_id}  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/das/receita-12-meses  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/fiscal/cfop  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/fiscal/cfop/codigo/{codigo}  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/fiscal/cfop/vigilancia-zfm  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/fiscal/cfop/{cfop_id}  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/fiscal/das/receita-12-meses  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/fiscal/ncm  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/fiscal/ncm/codigo/{codigo}  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/fiscal/ncm/{ncm_id}  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/fiscal/nfe  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/fiscal/nfe/chave/{chave_acesso}  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/fiscal/nfe/{nfe_id}  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/fiscal/nfse/retencoes/competencia  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/fiscal/obrigacao  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/fiscal/obrigacao/atrasadas  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/fiscal/obrigacao/pendentes  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/fiscal/obrigacao/{obrigacao_id}  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/fiscal/sped  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/fiscal/sped/{sped_id}  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/fiscal/stats  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/fiscal/suframa/config  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/fiscal/suframa/economia  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/fiscal/suframa/operacoes  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/ncm  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/ncm/codigo/{codigo}  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/ncm/{ncm_id}  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/nfe  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/nfe/chave/{chave_acesso}  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/nfe/{nfe_id}  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/nfse/retencoes/competencia  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/obrigacao  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/obrigacao/atrasadas  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/obrigacao/pendentes  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/obrigacao/{obrigacao_id}  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/sped  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/sped/{sped_id}  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/stats  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/stats-real  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/suframa/config  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/suframa/economia  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/fiscal/suframa/operacoes  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/nfse-entrada/resumo-fiscal  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/financial/relatorios/painel-fiscal  (tabela: financial_pagamentos_pj)
+  GET      /api/v1/fiscal/consultor/historico  (tabela: fiscal_liminares)
+  GET      /api/v1/fiscal/nfe-entrada/estoque  (tabela: fiscal_liminares)
+  GET      /api/v1/fiscal/nfe-entrada/listar  (tabela: fiscal_liminares)
+  GET      /api/v1/fiscal/nfe/listar  (tabela: fiscal_liminares)
+  GET      /api/v1/fiscal/nfe/sefaz-status  (tabela: fiscal_liminares)
+  GET      /api/v1/fiscal/nfe/{nfe_id}/status  (tabela: fiscal_liminares)
+  GET      /api/v1/fiscal/nfse-multi/empresas  (tabela: fiscal_liminares)
+  GET      /api/v1/fiscal/nfse-multi/identificar-empresa/{tipo_servico}  (tabela: fiscal_liminares)
+  GET      /api/v1/fiscal/nfse-multi/servicos  (tabela: fiscal_liminares)
+  GET      /api/v1/operacional/diaristas/fiscal/codigos-servico  (tabela: operacional_avaliacoes_equipe)
+  GET      /api/v1/operacional/diaristas/fiscal/relatorio/retencoes  (tabela: operacional_avaliacoes_equipe)
+  GET      /api/v1/operacional/diaristas/fiscal/simular/{valor_bruto}  (tabela: operacional_avaliacoes_equipe)
+  GET      /api/v1/operacional/diaristas/fiscal/tabelas/irrf  (tabela: operacional_avaliacoes_equipe)
+
+### ✅ EXPOSTAS (45) — com o arquivo que prova
+  GET      /api/v1/empresas/dashboard/fiscal/grupo
+           → Dashboard fiscal consolidado do grupo — dados reais.  [co-ocorrencia dashboard+empresas] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/fiscal/das
+           → Cria DAS do Simples Nacional.  [co-ocorrencia financial+fiscal] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  GET      /api/v1/financial/fiscal/das
+           → Lista DAS do Simples Nacional.  [co-ocorrencia financial+fiscal] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  GET      /api/v1/financial/fiscal/das/competencia
+           → Busca DAS de uma competencia.  [co-ocorrencia financial+competencia] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  GET      /api/v1/financial/fiscal/das/faixas
+           → Retorna tabela de faixas do Simples Nacional.  [co-ocorrencia faixas+financial] backend/modules/operacional/controllers/redesign_builders/_fin_pagar.py
+  GET      /api/v1/financial/fiscal/dashboard
+           → Dashboard fiscal — lê a tabela REAL `nfses` (o model antigo apontava p/ `nfse`,  [co-ocorrencia dashboard+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/fiscal/fiscal/das
+           → Cria DAS do Simples Nacional.  [co-ocorrencia financial+fiscal] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  GET      /api/v1/financial/fiscal/fiscal/das
+           → Lista DAS do Simples Nacional.  [co-ocorrencia financial+fiscal] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  GET      /api/v1/financial/fiscal/fiscal/das/competencia
+           → Busca DAS de uma competencia.  [co-ocorrencia financial+competencia] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  GET      /api/v1/financial/fiscal/fiscal/das/faixas
+           → Retorna tabela de faixas do Simples Nacional.  [co-ocorrencia faixas+financial] backend/modules/operacional/controllers/redesign_builders/_fin_pagar.py
+  GET      /api/v1/financial/fiscal/fiscal/dashboard
+           → Dashboard fiscal — lê a tabela REAL `nfses` (o model antigo apontava p/ `nfse`,  [co-ocorrencia dashboard+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/fiscal/fiscal/nfse
+           → Cria uma nova NFS-e.  [co-ocorrencia nfse+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/fiscal/fiscal/nfse
+           → Lista NFS-e emitidas da fonte autoritativa `nfse_emitidas_nacional`.  [co-ocorrencia nfse+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/fiscal/fiscal/nfse-emitida/{chave}/danfse
+           → DANFSe (PDF) da NFS-e emitida (portal nacional)  [co-ocorrencia danfse+nfse-emitida] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/fiscal/fiscal/nfse/cancelar
+           → Cancela NFS-e autorizada.  [co-ocorrencia cancelar+nfse] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/fiscal/fiscal/nfse/emitir
+           → Emite NFS-e para a prefeitura de Manaus (ABRASF 2.0, produção real).  [co-ocorrencia emitir+nfse] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/fiscal/fiscal/nfse/{nfse_id}
+           → Busca NFS-e por ID. Le a tabela REAL `nfses` (o model antigo apontava p/ `nfse`,  [co-ocorrencia nfse+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  PATCH    /api/v1/financial/fiscal/fiscal/nfse/{nfse_id}
+           → Atualiza NFS-e em rascunho. Lê/grava a tabela REAL `nfses` (o model NFSe aponta p/ `nfse`,  [co-ocorrencia nfse+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/fiscal/fiscal/nfse/{nfse_id}/danfse
+           → DANFSe (PDF) da NFS-e  [co-ocorrencia danfse+nfse] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/fiscal/fiscal/retencao
+           → Cria configuracao de retencao federal.  [co-ocorrencia retencao+financial] backend/modules/operacional/controllers/redesign_builders/_fin_bancos.py
+  GET      /api/v1/financial/fiscal/fiscal/retencao
+           → Lista configuracoes de retencao.  [co-ocorrencia retencao+financial] backend/modules/operacional/controllers/redesign_builders/_fin_bancos.py
+  GET      /api/v1/financial/fiscal/fiscal/retencao/{retencao_id}
+           → Busca configuracao de retencao por ID.  [co-ocorrencia retencao+financial] backend/modules/operacional/controllers/redesign_builders/_fin_bancos.py
+  PATCH    /api/v1/financial/fiscal/fiscal/retencao/{retencao_id}
+           → Atualiza configuracao de retencao.  [co-ocorrencia retencao+financial] backend/modules/operacional/controllers/redesign_builders/_fin_bancos.py
+  POST     /api/v1/financial/fiscal/fiscal/sped/{sped_id}/transmitir
+           → Transmite arquivo SPED.  [co-ocorrencia sped+transmitir] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  POST     /api/v1/financial/fiscal/nfse
+           → Cria uma nova NFS-e.  [co-ocorrencia nfse+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/fiscal/nfse
+           → Lista NFS-e emitidas da fonte autoritativa `nfse_emitidas_nacional`.  [co-ocorrencia nfse+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/fiscal/nfse-emitida/{chave}/danfse
+           → DANFSe (PDF) da NFS-e emitida (portal nacional)  [co-ocorrencia danfse+nfse-emitida] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/fiscal/nfse/cancelar
+           → Cancela NFS-e autorizada.  [co-ocorrencia cancelar+nfse] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/fiscal/nfse/emitir
+           → Emite NFS-e para a prefeitura de Manaus (ABRASF 2.0, produção real).  [co-ocorrencia emitir+nfse] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/fiscal/nfse/{nfse_id}
+           → Busca NFS-e por ID. Le a tabela REAL `nfses` (o model antigo apontava p/ `nfse`,  [co-ocorrencia nfse+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  PATCH    /api/v1/financial/fiscal/nfse/{nfse_id}
+           → Atualiza NFS-e em rascunho. Lê/grava a tabela REAL `nfses` (o model NFSe aponta p/ `nfse`,  [co-ocorrencia nfse+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/fiscal/nfse/{nfse_id}/danfse
+           → DANFSe (PDF) da NFS-e  [co-ocorrencia danfse+nfse] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/fiscal/retencao
+           → Cria configuracao de retencao federal.  [co-ocorrencia retencao+financial] backend/modules/operacional/controllers/redesign_builders/_fin_bancos.py
+  GET      /api/v1/financial/fiscal/retencao
+           → Lista configuracoes de retencao.  [co-ocorrencia retencao+financial] backend/modules/operacional/controllers/redesign_builders/_fin_bancos.py
+  GET      /api/v1/financial/fiscal/retencao/{retencao_id}
+           → Busca configuracao de retencao por ID.  [co-ocorrencia retencao+financial] backend/modules/operacional/controllers/redesign_builders/_fin_bancos.py
+  PATCH    /api/v1/financial/fiscal/retencao/{retencao_id}
+           → Atualiza configuracao de retencao.  [co-ocorrencia retencao+financial] backend/modules/operacional/controllers/redesign_builders/_fin_bancos.py
+  POST     /api/v1/financial/fiscal/sped/{sped_id}/transmitir
+           → Transmite arquivo SPED.  [co-ocorrencia sped+transmitir] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  GET      /api/v1/fiscal/consultor/panorama
+           → Fotografia fiscal real (notas, ISS, certidões, obrigações)  [co-ocorrencia panorama+consultor] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/fiscal/guias-drive/guia-onvio/{fonte}/{guia_id}/pdf
+           → PDF real da guia FGTS/INSS (Onvio)  [co-ocorrencia guia-onvio+guias-drive] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  GET      /api/v1/fiscal/guias-drive/pdf/{obligacao_id}
+           → Ver/baixar o PDF real da guia  [co-ocorrencia guias-drive+fiscal] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  GET      /api/v1/fiscal/guias-drive/status
+           → Status da pasta de guias no Drive  [co-ocorrencia guias-drive+fiscal] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  GET      /api/v1/operacional/diaristas/fiscal/documentos
+           → Listar documentos  [co-ocorrencia diaristas+fiscal] backend/modules/operacional/controllers/redesign_builders/_fin_grupos.py
+  GET      /api/v1/operacional/diaristas/fiscal/documentos/{documento_id}
+           → Obter documento  [co-ocorrencia diaristas+fiscal] backend/modules/operacional/controllers/redesign_builders/_fin_grupos.py
+  GET      /api/v1/operacional/diaristas/fiscal/relatorio/diarista/{diarist_id}
+           → Relatório do diarista  [co-ocorrencia relatorio+diarista] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/operacional/diaristas/fiscal/tabelas/inss
+           → Tabela INSS  [co-ocorrencia inss+diaristas] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
