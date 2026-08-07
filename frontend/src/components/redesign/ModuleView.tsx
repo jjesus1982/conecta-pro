@@ -194,6 +194,13 @@ function TableScreen({ scr }: { scr: any }) {
               )}
             </div>
           ))}
+          {rows.length === 0 && (
+            <div className="rd-tbl-row" style={{ gridTemplateColumns: '1fr' }}>
+              <span className="rd-tbl-cell" style={{ color: 'var(--placeholder)', fontSize: 13, padding: '18px 4px' }}>
+                Nenhum registro ainda — os dados aparecem aqui assim que houver lançamentos.
+              </span>
+            </div>
+          )}
         </div>
       </div>
       {Array.isArray(scr.panels) && scr.panels.length > 0 && (

@@ -440,7 +440,7 @@ def _mgr_scope(current_user):
 # clicável (mostra "›" e navega) quando o KPI tem `to`. Tira os dashboards de "beco sem
 # saída" — clicar num número abre OS registros por trás dele.
 _KPI_DRILL = {
-    "Postos ativos": "postos", "Postos": "postos", "Descobertos": "presenca",
+    "Postos ativos": "postos", "Postos": "postos", "Descobertos": "cobertura-risco",
     "Colaboradores": "colaboradores", "Colaboradores ativos": "colaboradores",
     "Efetivo ativo": "colaboradores", "Total de agentes": "colaboradores",
     "Alocações ativas": "alocacoes",
@@ -1186,6 +1186,22 @@ async def build(db) -> dict:
                  **(S["bad"] if (it.get("coverage_rate") or 0) < 50 else S["warn"] if (it.get("coverage_rate") or 0) < 100 else S["ok"])}
                 for it in piores] or [{"left": "Sem postos cadastrados", "right": "—", **S["mut"]}]}],
         }
+        # Preditor de cobertura REAL (substitui o stub CoveragePredictorAgent que devolvia {}):
+        # lista os postos em risco de descobrir = cobertura < 100% (dado real, sem ML/fabricação).
+        _risco = sorted((it for it in items if (it.get("coverage_rate") or 0) < 100),
+                        key=lambda x: x.get("coverage_rate") or 0)
+        out["cobertura-risco"] = {
+            "title": "Cobertura em risco",
+            "sub": f"{len(_risco)} posto(s) abaixo de 100% · aja antes de descobrir",
+            "type": "table", "searchHint": "Buscar posto…", "grid": "2.4fr 1fr 1fr",
+            "cols": ["Posto", "Cobertura", "Risco"],
+            "rows": [{"cells": [
+                t(it.get("post_name") or "—", 600, "#0F1B3A"),
+                t(f"{(it.get('coverage_rate') or 0):.0f}%", 600),
+                b("Crítico", "bad") if (it.get("coverage_rate") or 0) < 50 else b("Atenção", "warn"),
+            ]} for it in _risco]
+            or [{"cells": [t("Todos os postos 100% cobertos ✓", 500, "#16A34A"), t("100%"), b("OK", "ok")]}],
+        }
     except Exception:  # noqa: BLE001
         pass
 
@@ -1277,32 +1293,27 @@ async def build(db) -> dict:
             ]}],
         }
 
-    try:  # Consultor Operacional (COO) — reusa panorama (fotografia real da operação)
-        from modules.operacional.services import consultor_coo_service as _coo
-        pan = await _coo.panorama(db)
-        _cob = pan.get("cobertura", {}) or {}
-        _oc = pan.get("ocorrencias", {}) or {}
-        _fn = pan.get("funcionarios", {}) or {}
-        _es = pan.get("escalas", {}) or {}
-        _pct = _cob.get("percentual")
-        out["consultor"] = {
-            "title": "Consultor Operacional (COO)", "sub": "Fotografia real da operação — perguntas analíticas no chat interno", "type": "dash", "panelGrid": "1fr",
-            "kpis": [
-                {"v": str(pan.get("postos", {}).get("ativos", 0)), "l": "Postos ativos", "icon": IC["shield"], "color": "#0F1B3A"},
-                {"v": str(pan.get("alocacoes_ativas", 0)), "l": "Alocações ativas", "icon": IC["users"], "color": "#0F1B3A"},
-                {"v": str(_oc.get("abertas", 0)), "l": "Ocorrências abertas", "icon": IC["alert"], "color": "#C2410C" if (_oc.get("abertas") or 0) else "#0F1B3A"},
-                {"v": (f"{_pct}%" if _pct is not None else "—"), "l": "Cobertura", "icon": IC["shield"], "color": "#0F1B3A"},
+    # Consultor Operacional (COO) — chat ancorado na operação real, roteado ao chat CENTRAL
+    # (mesma engine do chat flutuante: run_engine agent-first; ações sensíveis viram rascunho).
+    # Antes era um dash estático (dados já duplicados em KPIs/Cobertura/Presença) → virou chat de verdade.
+    out["consultor"] = {
+        "title": "Consultor Operacional (COO)",
+        "sub": "Chat ancorado na operação real — postos, escalas, cobertura, ocorrências",
+        "type": "chat",
+        "chat": {
+            "endpoint": "/api/v1/consultores/chat/executar",
+            "field": "pergunta",
+            "persona": "operacional",
+            "placeholder": "Ex.: Quais postos estão descobertos hoje?",
+            "suggestions": [
+                "Quais postos estão descobertos hoje?",
+                "Onde a cobertura está em risco?",
+                "Resumo das ocorrências abertas da semana",
+                "Quais escalas vencem nos próximos dias?",
             ],
-            "panels": [{"title": "Panorama da operação", "rows": [
-                {"left": "Colaboradores ativos", "right": str(_fn.get("ativos", 0)), **S["ok"]},
-                {"left": "Afastados INSS", "right": str(_fn.get("afastados_inss", 0)), **(S["warn"] if (_fn.get("afastados_inss") or 0) else S["mut"])},
-                {"left": "Diaristas ativos", "right": str(pan.get("diaristas", {}).get("ativos", 0)), **S["info"]},
-                {"left": "Escalas vigentes hoje", "right": str(_es.get("vigentes_hoje", 0)), **S["info"]},
-                {"left": "Postos descobertos", "right": str(len(_cob.get("postos_descobertos", []) or [])), **(S["bad"] if _cob.get("postos_descobertos") else S["ok"])},
-            ]}],
-        }
-    except Exception:  # noqa: BLE001
-        await db.rollback()
+            "disclaimer": "Respostas ancoradas nos dados reais da operação. Ações sensíveis viram rascunho para aprovação.",
+        },
+    }
 
     # ── Balde C: campo/geo — tabela real (mapa/ronda-mobile/escalas-visual/campo) + triagem derivada ──
     try:  # Mapa — georreferenciamento real dos postos

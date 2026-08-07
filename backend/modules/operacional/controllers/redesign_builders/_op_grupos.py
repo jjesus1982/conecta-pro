@@ -6,7 +6,8 @@ from modules.operacional.controllers.redesign_data_controller import grp, moved
 
 GRUPOS = [
     ("g-visao", "Visão Geral", "Cobertura, KPIs, mapa, campo e IA", [
-        ("visao", "Resumo"), ("kpi", "KPIs"), ("cobertura", "Cobertura"), ("mapa", "Mapa"),
+        ("visao", "Resumo"), ("kpi", "KPIs"), ("cobertura", "Cobertura"),
+        ("cobertura-risco", "Cobertura em risco"), ("mapa", "Mapa"),
         ("campo", "Campo"), ("triagem", "Triagem"), ("relatorios", "Relatórios"),
         ("consultor", "Consultor IA"), ("agentes", "Agentes"), ("ai-command-center", "AI Command")]),
     ("g-escalas", "Escalas & Turnos", "Escalas, grade, alocações, turnos e substituições", [
