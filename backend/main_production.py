@@ -121,6 +121,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
         cct_propagation.registrar_subscribers()
         logger.info("CCT propagação: subscribers de cargo/CCT ativos (bidirecional)")
+
+        # RH → sino: avaliação, marco de carreira e onboarding concluído. Estes três
+        # eventos disparavam sem ninguém reagir (medido 2026-08-07). Autorizado pelo
+        # Jordan a tocar este arquivo para registrá-los.
+        from modules.people_management.human_resources.subscribers import rh_notificacoes
+
+        rh_notificacoes.registrar_subscribers()
     except Exception as e:
         logger.warning(f"CCT propagação: falha ao registrar subscribers ({e})")
 

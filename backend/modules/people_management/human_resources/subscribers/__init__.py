@@ -1,0 +1,1 @@
+"""Subscribers do módulo RH."""
