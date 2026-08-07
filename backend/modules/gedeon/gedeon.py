@@ -87,6 +87,13 @@ class Gedeon:
         event_bus.subscribe("crm.cliente.ativo", self._on_cliente_ativo)
         event_bus.subscribe("crm.contrato.assinado", self._on_contrato_assinado)
 
+        # ── Ligados em 2026-08-07 (decisão Jordan) ────
+        # Disparavam sem ninguém reagir: dp.contrato.criado 5x, saude.ppra.atualizado 3x
+        # nos streams. Só registram no contexto do kit — não criam posto, não movem
+        # dinheiro, não transmitem ao governo. Ver auditoria/decisoes/eventos_orfaos_20260807.md
+        event_bus.subscribe(EventTypes.DP_CONTRATO_CRIADO, self._on_contrato_trabalho_criado)
+        event_bus.subscribe(EventTypes.SAUDE_PPRA_ATUALIZADO, self._on_ppra_atualizado)
+
         # ── SOPHIA v2.0 — indexação automática cross-módulo ───────────────────
         try:
             from modules.gedeon.subscribers.sophia_subscriber import registrar_subscriber
@@ -430,6 +437,59 @@ class Gedeon:
             )
             docs["espelhos_ponto"] = espelhos
             await gedeon_context.update(event.cliente_id, competencia, "documentos_gerados", docs)
+
+    async def _on_contrato_trabalho_criado(self, event: ConectaEvent) -> None:
+        """Contrato de trabalho criado → registra no contexto do kit que há doc a coletar.
+
+        Ligado em 2026-08-07: o evento disparava 5x sem ninguém reagir. Só ANOTA — quem
+        monta o kit é o fluxo existente. Não solicita assinatura nem transmite ao eSocial;
+        as duas coisas ficaram na fila de decisão por serem irreversíveis.
+        """
+        p = event.payload
+        competencia = datetime.utcnow().strftime("%Y-%m")
+        if not event.cliente_id:
+            return
+        await gedeon_context.append_evento(
+            event.cliente_id,
+            competencia,
+            "movimentacao_pessoal",
+            {
+                "event_id": event.event_id,
+                "tipo": "contrato_trabalho_criado",
+                "funcionario_id": p.get("funcionario_id", ""),
+                "contract_id": p.get("contract_id", ""),
+                "tipo_contrato": p.get("tipo_contrato", ""),
+                "requer_doc": True,
+                "docs_necessarios": ["Contrato de trabalho assinado"],
+            },
+        )
+
+    async def _on_ppra_atualizado(self, event: ConectaEvent) -> None:
+        """PPRA atualizado → registra no contexto para o kit de SST refletir o risco novo.
+
+        Ligado em 2026-08-07: disparava 3x sem reação. Só ANOTA o setor e o nível de risco;
+        não reemite ASO nem notifica funcionário — isso mudaria comportamento de saúde
+        ocupacional e não foi decidido.
+        """
+        p = event.payload
+        competencia = datetime.utcnow().strftime("%Y-%m")
+        if not event.cliente_id:
+            return
+        await gedeon_context.append_evento(
+            event.cliente_id,
+            competencia,
+            "saude_ocupacional",
+            {
+                "event_id": event.event_id,
+                "tipo": "ppra_atualizado",
+                "mapping_id": p.get("mapping_id", ""),
+                "setor": p.get("setor", ""),
+                "nivel_risco": p.get("nivel_risco", ""),
+                "avaliador": p.get("avaliador", ""),
+                "requer_doc": True,
+                "docs_necessarios": ["PPRA atualizado"],
+            },
+        )
 
     async def _on_falta_confirmada(self, event: ConectaEvent) -> None:
         p = event.payload

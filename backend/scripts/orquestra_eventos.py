@@ -48,9 +48,14 @@ def catalogo() -> dict[str, str]:
 
 
 def quem_escuta() -> dict[str, set[str]]:
-    """evento -> modulos com `.subscribe(` no mesmo arquivo que cita o EventTypes.
+    """evento -> modulos que assinam.
 
-    PISO, nao teto: a SOPHIA registra 15 padroes com wildcard em runtime e nao aparece aqui.
+    Captura o 1o argumento de `subscribe(...)` nas DUAS formas: `EventTypes.X` e string
+    literal. A 1a versao so via a constante, e por isso deu `crm.cliente.ativo` como orfao
+    quando o GEDEON ja o assinava por literal (gedeon.py:87). Errar isso faz escrever
+    handler duplicado — exatamente o que nao se pode.
+
+    Ainda e PISO: a SOPHIA registra seus padroes por funcao propria em runtime.
     """
     cat = catalogo()
     sub: dict[str, set[str]] = defaultdict(set)
@@ -69,9 +74,12 @@ def quem_escuta() -> dict[str, set[str]]:
                 continue
             if ".subscribe(" not in t:
                 continue
-            for c in re.findall(r"EventTypes\.([A-Z_]{4,})", t):
-                if c in cat:
-                    sub[cat[c]].add(m.name)
+            for const, lit in re.findall(
+                r'subscribe\(\s*(?:EventTypes\.([A-Z_]{4,})|["\']([a-z][a-z0-9_.*]+)["\'])', t
+            ):
+                ev = cat.get(const) if const else lit
+                if ev:
+                    sub[ev].add(m.name)
     return sub
 
 
