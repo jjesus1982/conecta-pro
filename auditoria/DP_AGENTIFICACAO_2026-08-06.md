@@ -213,6 +213,74 @@ Pelo mesmo motivo, **não alerto sobre "admissão sem processo"**.
 **28 provas, zero resíduo.** Motor intocado: `calculo_service`, espelho da Portte,
 `folha-gerar`, períodos aquisitivos, a paridade de R$29,80 de julho.
 
+---
+
+# Rodada 3 — a auditoria "executou 100%?"
+
+O Jordan perguntou se estava tudo feito. Eu havia declarado F0–F5 completo. **Não estava.**
+A medição contra o DONE do plano achou três buracos — e fechá-los achou um quarto, meu e grave.
+
+## O que faltava
+
+**1 · A aba não apareceria na tela.** Existia no builder e não no `aprovacoes.json`. Eu vi os
+16 prazos por chamada **direta ao builder** e chamei de "mesa entregue". É exatamente o erro que
+a regra *verificar na tela, não no builder* existe para impedir.
+
+**2 · Três watchers do plano faltavam** (ASO, folha-devida, ponto-a-fechar). Eu tinha construído
+três *outros* e contado como se cobrisse o pedido.
+
+**3 · Três de cinco ações do F3.1 faltavam** (holerites em lote, renovar ASO, programar férias).
+
+**4 · A captura de FÉRIAS — a F1.1 que o plano nomeava.** Eu construí `registrar_desligamento`
+no lugar, porque o watcher achou os 9 desligamentos e pareceu mais urgente. Foi uma troca que
+fiz sem registrar como troca.
+
+**5 · Portas manuais.** Aqui eu errei o diagnóstico: disse que faltavam 6, faltavam **3** — meu
+grep buscava `fechar_ponto` e a tela se chama `fechar-mes-ponto`.
+
+## O teste ao vivo no navegador
+
+Testei com Playwright, e a **tela mostrou dois defeitos que nenhuma verificação por API pegaria**:
+
+- **abas duplicadas** — eu declarei o menu nos dois lados (JSON + builder) e o front soma;
+- **dois cartões de teste meus visíveis na Central de produção** — o `finally` do E2E limpava o
+  afastamento e o funcionário, mas não o rascunho.
+
+Eu tinha validado o payload da API e afirmado que a tela recebia tudo certo. **O payload estava
+correto e a tela estava errada.**
+
+## 🔴 O estrago que eu mesmo causei, e quase não vi
+
+O backfill do espelho apagava `WHERE ano = :a AND fonte = :f` — **o ano inteiro**. Ao rodar com
+`MESES=7`, apaguei **jan a junho** e reinseri só julho: seis meses de `folha_verba_espelho` e
+`folha_dias_espelho` perdidos.
+
+Só apareceu porque a captura de férias voltou **zero** pessoas quando eu esperava seis. O teste
+que eu estava escrevendo virou o detector do estrago que eu tinha causado antes.
+
+Restaurado de `hr_payslips` source `portte`, que estava intacto: **7 meses, 2.347 verbas + 356
+dias**. O `DELETE` agora é por mês. **Paridade de julho conferida depois: +R$28,89, intacta.**
+
+E uma **rota fantasma** pega antes de ir ao ar: apontei a justificativa para
+`/hr/ponto/justificativa/revisar`, que não existe. A real leva o id no **path**.
+
+---
+
+## Estado final
+
+| | |
+|---|--:|
+| ações no `agir_dp` | **12** |
+| watchers de prazo | **9** |
+| portas manuais | completas |
+| provas | **28**, zero resíduo |
+| paridade da folha de julho | **+R$28,89** |
+| motor | intocado |
+
+Frontend rebuildado e **verificado no navegador**: 2 abas sem duplicação, "Prazos do DP — 15
+prazos vivos", zero resíduo de bancada. Sessão do Chrome encerrada; os 12 processos que
+restaram são do `det-robot` (perfil `/state/profile`) e foram preservados.
+
 ## O único item deliberadamente fora
 
 O **ritmo mensal do quadro** — VT/VR nos dias 12-14, kit 18-21, pagamento dia 20.
