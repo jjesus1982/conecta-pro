@@ -219,6 +219,11 @@ def conciliar_transacao(tx_id: str, conn) -> dict:
         tipo_match = ""
         _tokens = [w for w in re.split(r"[^A-Za-zÀ-ÿ]+", (nome_contraparte or "")) if len(w) >= 4]
         _tok = max(_tokens, key=len) if _tokens else ""
+        # Janela ±30d p/ pagável: fornecedores net-30 pagam ~30d ANTES do vencimento (débito antecede
+        # o due_date). Nome + valor exato + ÚNICO é forte; a guarda de unicidade rejeita ambíguos mesmo
+        # na janela larga — sem risco de fabricar. (Recebível segue com a janela estreita global.)
+        _pay_dmin = tx_date - timedelta(days=30)
+        _pay_dmax = tx_date + timedelta(days=30)
         if _tok:
             cur.execute(
                 """
@@ -230,7 +235,7 @@ def conciliar_transacao(tx_id: str, conn) -> dict:
                   AND lower(description) LIKE lower(%s)
                 LIMIT 2
                 """,
-                (float(valor_abs), float(TOLERANCE), data_min, data_max, f"%{_tok}%"),
+                (float(valor_abs), float(TOLERANCE), _pay_dmin, _pay_dmax, f"%{_tok}%"),
             )
             _cands = cur.fetchall()
             if len(_cands) == 1:
