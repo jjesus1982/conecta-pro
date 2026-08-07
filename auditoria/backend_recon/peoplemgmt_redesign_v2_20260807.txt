@@ -1,0 +1,1193 @@
+=== BACKEND RECON v2 — prefixo 'people-management' · superficie: SO redesign (gap p/ matar o classico) ===
+rotas montadas: 698 · EXPOSTAS: 205 · ORFAS: 493
+  das orfas: 131 provaveis FALSO-ORFAO (builder le a tabela direto)
+             362 candidatas reais — destas, 244 sao de ESCRITA
+GERADORES DE DOCUMENTO orfaos: 19
+
+### 🔴 GERADORES ORFAOS (documento codado, sem superficie) — prioridade
+  POST     /api/v1/people-management/hr/payroll/payroll/esocial/transmit/{export_id} 💰🏛️
+           → Transmitir ao eSocial
+           motivo: segmento nao citado no front: payroll,transmit
+  POST     /api/v1/people-management/hr/payroll/payroll/exports/ 💰
+           → Criar exportação
+           motivo: segmento nao citado no front: payroll
+  GET      /api/v1/people-management/hr/payroll/payroll/exports/ 💰
+           → Listar exportações
+           motivo: segmento nao citado no front: payroll
+  GET      /api/v1/people-management/hr/payroll/payroll/exports/formats/available 💰
+           → Formatos disponíveis
+           motivo: segmento nao citado no front: formats,payroll
+  POST     /api/v1/people-management/hr/payroll/payroll/exports/process-pending 💰
+           → Processar pendentes
+           motivo: segmento nao citado no front: payroll,process-pending
+  GET      /api/v1/people-management/hr/payroll/payroll/exports/{export_id} 💰
+           → Buscar exportação
+           motivo: segmento nao citado no front: payroll
+  POST     /api/v1/people-management/hr/payroll/payroll/exports/{export_id}/cancel 💰
+           → Cancelar exportação
+           motivo: segmento nao citado no front: payroll
+  GET      /api/v1/people-management/hr/payroll/payroll/exports/{export_id}/download-info 💰
+           → Info para download
+           motivo: segmento nao citado no front: download-info,payroll
+  GET      /api/v1/people-management/hr/payroll/payroll/exports/{export_id}/file 💰
+           → Download do arquivo
+           motivo: segmento nao citado no front: payroll
+  POST     /api/v1/people-management/hr/payroll/payroll/exports/{export_id}/process 💰
+           → Processar exportação
+           motivo: segmento nao citado no front: payroll,process
+  GET      /api/v1/people-management/hr/payroll/payroll/exports/{export_id}/progress 💰
+           → Progresso da exportação
+           motivo: segmento nao citado no front: payroll,progress
+  POST     /api/v1/people-management/hr/payroll/payroll/exports/{export_id}/retry 💰
+           → Retentar exportação
+           motivo: segmento nao citado no front: payroll,retry
+  POST     /api/v1/people-management/hr/ponto/espelho/solicitar-homologacao/{mes}/{ano} 
+           → Enviar espelhos fechados para homologação (assinatura do funcionário)
+           motivo: segmento nao citado no front: solicitar-homologacao
+  GET      /api/v1/people-management/portal/my-payslips/{month}/{year}/pdf 💰
+           → Download PDF do contracheque
+           motivo: segmento nao citado no front: my-payslips
+  GET      /api/v1/people-management/portal/self-service/meu-espelho/{mes}/{ano}/pdf 
+           → Baixar o PDF do meu espelho de ponto (mês)
+           motivo: segmento nao citado no front: meu-espelho,self-service
+  GET      /api/v1/people-management/portal/self-service/meus-documentos/{document_id}/download 
+           → Baixar/ver um documento meu
+           motivo: segmento nao citado no front: meus-documentos,self-service
+  GET      /api/v1/people-management/portal/self-service/meus-holerites 💰
+           → Meus holerites
+           motivo: segmento nao citado no front: meus-holerites,self-service
+  GET      /api/v1/people-management/portal/self-service/meus-holerites/{month}/{year} 💰
+           → Holerite por mês/ano
+           motivo: segmento nao citado no front: meus-holerites,self-service
+  GET      /api/v1/people-management/portal/self-service/meus-holerites/{month}/{year}/pdf 💰
+           → Baixar PDF do holerite
+           motivo: segmento nao citado no front: meus-holerites,self-service
+
+### 🟠 ORFAS DE ESCRITA (acao que o front nao alcanca) — fila de trabalho
+  POST     /api/v1/people-management/admin/cct/cache/invalidar 
+           → Invalida todo o cache CCT no Redis (usar após atualizações).
+  PUT      /api/v1/people-management/admin/cct/cargos/{cargo_id} 
+           → Atualiza piso salarial ou adicionais de um cargo.
+  POST     /api/v1/people-management/admin/cct/convencoes/{convencao_id}/cargos 
+           → Adiciona cargo com piso salarial a uma convenção.
+  POST     /api/v1/people-management/admin/cct/convencoes/{convencao_id}/feriados 
+           → Adiciona feriado à convenção.
+  DELETE   /api/v1/people-management/admin/cct/feriados/{feriado_id} 
+           → Remove feriado.
+  POST     /api/v1/people-management/certifications/gerar-folha/{competencia} 💰
+           → Gera a fila de certificacoes da folha de uma competencia (YYYY-MM) do golden set Dominio.
+  POST     /api/v1/people-management/dp/payroll/pay-batch 💰
+           → Agendamento lote folha — pendente_pagamento
+  PUT      /api/v1/people-management/dp/payslips/folha/funcionario/{employee_id}/pix-key 💰
+           → Cadastrar/atualizar chave PIX do funcionário (exige OTP)
+  POST     /api/v1/people-management/dp/payslips/folha/funcionario/{employee_id}/pix-key/gerar-otp 💰
+           → Gera OTP p/ liberar a troca de chave PIX (e-mail Jordan)
+  POST     /api/v1/people-management/dp/payslips/folha/pagar-via-pix/{mes}/{ano} 💰
+           → Pagar folha completa via PIX Inter (exige OTP)
+  POST     /api/v1/people-management/dp/payslips/importar-lote 💰
+           → Importa múltiplos contracheques de uma vez. Máximo 100 por lote.
+  PATCH    /api/v1/people-management/dp/payslips/{payslip_id}/publicar 💰
+           → Publica contracheque — torna visível no portal do funcionário.
+  POST     /api/v1/people-management/folha/importar-alterdata 💰
+           → Importar folha do Alterdata (CSV, status_code=201)
+  POST     /api/v1/people-management/ged/clients/{client_id}/portal-access 
+           → Habilita ou desabilita o acesso ao portal do cliente.
+  POST     /api/v1/people-management/ged/config/drive 
+           → Salva configuração do Drive (folder_id, etc.).
+  POST     /api/v1/people-management/ged/config/drive/connect 
+           → Inicia conexão com Google Drive.
+  DELETE   /api/v1/people-management/ged/config/drive/disconnect 
+           → Desconecta o Google Drive.
+  POST     /api/v1/people-management/ged/config/schedule 
+           → Salva configuração de agendamento.
+  POST     /api/v1/people-management/ged/documents/ingestao/historica 
+           → Processa todos os ZIPs historicos da pasta Google Drive e alimenta SOPHIA.
+  POST     /api/v1/people-management/ged/documents/{document_id}/sign 
+           → Assina digitalmente um documento.
+  POST     /api/v1/people-management/ged/kits/auto-assemble 
+           → Monta kits automaticamente para todos os clientes ativos.
+  POST     /api/v1/people-management/ged/kits/{kit_id}/approve 
+           → Aprova o kit documental.
+  POST     /api/v1/people-management/ged/kits/{kit_id}/enviar 
+           → Envia kit via GDrive + Email (atômico).
+  POST     /api/v1/people-management/ged/kits/{kit_id}/send 
+           → Marca o kit como enviado com metodo e destinatario.
+  POST     /api/v1/people-management/ged/kits/{kit_id}/send-email 
+           → Envia kit por email para o cliente via EmailKitService (HTML + link Drive).
+  POST     /api/v1/people-management/hr/beneficios/config 
+           → Cria configuracao de beneficio por empresa.
+  POST     /api/v1/people-management/hr/beneficios/validar 
+           → Valida beneficios de um colaborador contra obrigatorios CCT.
+  POST     /api/v1/people-management/hr/contracts/{contract_id}/document 
+           → Gerar Documento de Contrato
+  POST     /api/v1/people-management/hr/discipline/assinaturas/verificar 
+           → Verificar assinatura
+  POST     /api/v1/people-management/hr/discipline/from-occurrence/{occurrence_id} 
+           → Criar Ação Disciplinar de Ocorrência
+  POST     /api/v1/people-management/hr/discipline/medidas-administrativas 🏛️
+           → Criar medida disciplinar
+  POST     /api/v1/people-management/hr/discipline/medidas-administrativas/gerar-documento 🏛️
+           → Gerar documento
+  POST     /api/v1/people-management/hr/discipline/medidas-administrativas/ia/recomendar 🏛️
+           → Obter recomendacao de medida
+  POST     /api/v1/people-management/hr/discipline/medidas-administrativas/ia/validar-conformidade 🏛️
+           → Validar conformidade legal
+  POST     /api/v1/people-management/hr/discipline/medidas-administrativas/ia/verificar-proporcionalidade 🏛️
+           → Verificar proporcionalidade
+  POST     /api/v1/people-management/hr/discipline/medidas-administrativas/templates 🏛️
+           → Criar template
+  PATCH    /api/v1/people-management/hr/discipline/medidas-administrativas/templates/{template_id} 🏛️
+           → Atualizar template
+  DELETE   /api/v1/people-management/hr/discipline/medidas-administrativas/templates/{template_id} 🏛️
+           → Remover template
+  PATCH    /api/v1/people-management/hr/discipline/medidas-administrativas/{action_id} 🏛️
+           → Atualizar medida
+  DELETE   /api/v1/people-management/hr/discipline/medidas-administrativas/{action_id} 🏛️
+           → Remover medida
+  POST     /api/v1/people-management/hr/discipline/medidas-administrativas/{action_id}/aprovar 🏛️
+           → Aprovar medida
+  POST     /api/v1/people-management/hr/discipline/medidas-administrativas/{action_id}/assinar 🏛️
+           → Assinar documento
+  POST     /api/v1/people-management/hr/discipline/medidas-administrativas/{action_id}/recusar-assinatura 🏛️
+           → Registrar recusa de assinatura
+  POST     /api/v1/people-management/hr/discipline/medidas-administrativas/{action_id}/rejeitar 🏛️
+           → Rejeitar medida
+  POST     /api/v1/people-management/hr/discipline/medidas-administrativas/{action_id}/submeter 🏛️
+           → Submeter para aprovacao
+  POST     /api/v1/people-management/hr/esocial/s2200/gerar 🏛️
+           → Gerar XML S-2200 Admissao
+  POST     /api/v1/people-management/hr/esocial/s2299/gerar 🏛️
+           → Gerar XML S-2299 Desligamento
+  POST     /api/v1/people-management/hr/esocial/validar 🏛️
+           → Validar XML eSocial
+  POST     /api/v1/people-management/hr/payroll/benefits 💰
+           → Cadastrar Benefício
+  DELETE   /api/v1/people-management/hr/payroll/benefits/{benefit_id} 💰
+           → Desativar Benefício
+  POST     /api/v1/people-management/hr/payroll/close 💰
+           → Fechar Folha Mensal
+  POST     /api/v1/people-management/hr/payroll/payroll/esocial/batch/generate 💰🏛️
+           → Gerar lote eSocial
+  POST     /api/v1/people-management/hr/payroll/payroll/esocial/batch/transmit 💰🏛️
+           → Transmitir lote
+  POST     /api/v1/people-management/hr/payroll/payroll/esocial/generate 💰🏛️
+           → Gerar evento eSocial
+  POST     /api/v1/people-management/hr/payroll/payroll/events/ 💰
+           → Criar evento
+  POST     /api/v1/people-management/hr/payroll/payroll/events/bulk 💰
+           → Criar eventos em lote
+  POST     /api/v1/people-management/hr/payroll/payroll/events/employee/{employee_id}/period/{period_id}/recalculate 💰
+           → Recalcular funcionário
+  PUT      /api/v1/people-management/hr/payroll/payroll/events/{event_id} 💰
+           → Atualizar evento
+  POST     /api/v1/people-management/hr/payroll/payroll/events/{event_id}/adjust 💰
+           → Ajustar valor
+  POST     /api/v1/people-management/hr/payroll/payroll/events/{event_id}/cancel 💰
+           → Cancelar evento
+  POST     /api/v1/people-management/hr/payroll/payroll/periods/ 💰
+           → Criar período de folha
+  PUT      /api/v1/people-management/hr/payroll/payroll/periods/{period_id} 💰
+           → Atualizar período
+  DELETE   /api/v1/people-management/hr/payroll/payroll/periods/{period_id} 💰
+           → Excluir período
+  POST     /api/v1/people-management/hr/payroll/payroll/periods/{period_id}/approve 💰
+           → Aprovar período
+  POST     /api/v1/people-management/hr/payroll/payroll/periods/{period_id}/calculate 💰
+           → Calcular folha
+  POST     /api/v1/people-management/hr/payroll/payroll/periods/{period_id}/close 💰
+           → Fechar período
+  POST     /api/v1/people-management/hr/payroll/payroll/periods/{period_id}/reopen 💰
+           → Reabrir período
+  POST     /api/v1/people-management/hr/ponto/fechar-mes 
+           → Calcular o espelho do mês e fechar os que não têm anomalia aberta
+  POST     /api/v1/people-management/hr/reimbursements/{request_id}/cancel 
+           → Cancela uma solicitação.
+  POST     /api/v1/people-management/hr/reimbursements/{request_id}/items 
+           → Adiciona item a uma solicitação.
+  PUT      /api/v1/people-management/hr/reimbursements/{request_id}/items/{item_id} 
+           → Atualiza um item.
+  DELETE   /api/v1/people-management/hr/reimbursements/{request_id}/items/{item_id} 
+           → Remove um item.
+  POST     /api/v1/people-management/hr/reimbursements/{request_id}/process 
+           → Processa reembolso aprovado gerando conta a pagar.
+  POST     /api/v1/people-management/hr/time-records/clock-in 
+           → Batida de Entrada
+  POST     /api/v1/people-management/hr/time-records/clock-out/{record_id} 
+           → Batida de Saída
+  POST     /api/v1/people-management/hr/time-tracking/from-operations 
+           → Registrar Ponto de Turno Operacional
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/justifications/ 
+           → Criar justificativa
+  PATCH    /api/v1/people-management/hr/time-tracking/time-tracking/justifications/{justification_id} 
+           → Atualizar justificativa
+  DELETE   /api/v1/people-management/hr/time-tracking/time-tracking/justifications/{justification_id} 
+           → Excluir justificativa
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/justifications/{justification_id}/analyze 
+           → Iniciar análise
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/justifications/{justification_id}/approve 
+           → Aprovar justificativa
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/justifications/{justification_id}/attachments 
+           → Adicionar anexo
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/justifications/{justification_id}/partial-approve 
+           → Aprovar parcialmente
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/justifications/{justification_id}/reject 
+           → Rejeitar justificativa
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/justifications/{justification_id}/submit 
+           → Submeter justificativa
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/justifications/{justification_id}/verify 
+           → Verificar justificativa (RH)
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/overtime/ 
+           → Registrar hora extra
+  PATCH    /api/v1/people-management/hr/time-tracking/time-tracking/overtime/{overtime_id} 
+           → Atualizar hora extra
+  DELETE   /api/v1/people-management/hr/time-tracking/time-tracking/overtime/{overtime_id} 
+           → Excluir hora extra
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/overtime/{overtime_id}/approve 
+           → Aprovar hora extra
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/overtime/{overtime_id}/compensate 
+           → Registrar compensação
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/overtime/{overtime_id}/mark-paid 
+           → Marcar como paga
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/overtime/{overtime_id}/pre-approve 
+           → Pré-aprovar hora extra
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/overtime/{overtime_id}/reject 
+           → Rejeitar hora extra
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-entries/ 
+           → Registrar ponto
+  PATCH    /api/v1/people-management/hr/time-tracking/time-tracking/time-entries/{entry_id} 
+           → Atualizar registro
+  DELETE   /api/v1/people-management/hr/time-tracking/time-tracking/time-entries/{entry_id} 
+           → Excluir registro
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-entries/{entry_id}/approve 
+           → Aprovar registro
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-entries/{entry_id}/manual-adjust 
+           → Ajuste manual
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-entries/{entry_id}/reject 
+           → Rejeitar registro
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-entries/{entry_id}/resolve-anomaly 
+           → Resolver anomalia
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/ 
+           → Criar folha de ponto
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/batch-action 
+           → Ação em lote
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/generate 
+           → Gerar folha de ponto
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/generate-batch 
+           → Gerar folhas em lote
+  DELETE   /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/{sheet_id} 
+           → Excluir folha de ponto
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/{sheet_id}/approve/employee 
+           → Aprovação do funcionário
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/{sheet_id}/approve/hr 
+           → Aprovação do RH
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/{sheet_id}/approve/manager 
+           → Aprovação do gestor
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/{sheet_id}/close 
+           → Fechar folha de ponto
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/{sheet_id}/recalculate 
+           → Recalcular folha
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/{sheet_id}/reopen 
+           → Reabrir folha de ponto
+  POST     /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/{sheet_id}/send-to-payroll 💰
+           → Enviar para folha de pagamento
+  POST     /api/v1/people-management/human-resources/ativacao-ponto/disparar 
+           → Dispara o link de primeiro acesso (e-mail + WhatsApp). `dry_run=true` só simula.
+  POST     /api/v1/people-management/human-resources/ativacao-ponto/{employee_id}/reenviar 
+           → Reenvia o link a UMA pessoa (cobrar quem ainda não fez).
+  POST     /api/v1/people-management/human-resources/candidatos/{candidato_id}/decisao 
+           → RH aprova ou reprova o candidato. NÃO ativa nem propaga (isso é a Fase 4).
+  POST     /api/v1/people-management/human-resources/candidatos/{candidato_id}/verificar 
+           → Roda as verificações reais por CPF e devolve o dossiê + score.
+  POST     /api/v1/people-management/human-resources/career/plans 
+           → Criar plano de carreira
+  PUT      /api/v1/people-management/human-resources/career/plans/{plan_id} 
+           → Atualizar plano de carreira
+  DELETE   /api/v1/people-management/human-resources/career/plans/{plan_id} 
+           → Remover plano de carreira
+  PUT      /api/v1/people-management/human-resources/career/plans/{plan_id}/milestones 
+           → Atualizar milestones do plano
+  POST     /api/v1/people-management/human-resources/career/plans/{plan_id}/milestones/{milestone_index}/complete 
+           → Concluir milestone
+  POST     /api/v1/people-management/human-resources/evaluation-360/ciclos 
+           → Cria um novo ciclo de avaliacao 360 para um funcionario.
+  POST     /api/v1/people-management/human-resources/evaluation-360/ciclos/{ciclo_id}/responder 
+           → Registra a resposta do avaliador LOGADO (identidade vem do token, nao do payload).
+  POST     /api/v1/people-management/human-resources/evaluation-360/ciclos/{ciclo_id}/respostas 
+           → Registra a resposta de um avaliador no ciclo 360.
+  POST     /api/v1/people-management/human-resources/evaluation-360/ciclos/{ciclo_id}/start 
+           → Inicia a fase de coleta de respostas do ciclo.
+  POST     /api/v1/people-management/human-resources/onboarding/{employee_id}/checklist/{item_id}/concluir 
+           → Marca etapa do checklist como concluida.
+  POST     /api/v1/people-management/human-resources/performance/review-cycle 
+           → Iniciar ciclo de avaliacao
+  POST     /api/v1/people-management/human-resources/recruitment/applications/ 
+           → Criar candidatura
+  POST     /api/v1/people-management/human-resources/recruitment/applications/bulk-action 
+           → Ação em lote
+  POST     /api/v1/people-management/human-resources/recruitment/applications/position/{position_id}/update-ranking 
+           → Atualizar ranking
+  PUT      /api/v1/people-management/human-resources/recruitment/applications/{application_id} 
+           → Atualizar candidatura
+  DELETE   /api/v1/people-management/human-resources/recruitment/applications/{application_id} 
+           → Remover candidatura
+  POST     /api/v1/people-management/human-resources/recruitment/applications/{application_id}/accept-proposal 
+           → Aceitar proposta
+  POST     /api/v1/people-management/human-resources/recruitment/applications/{application_id}/advance 
+           → Avançar etapa
+  POST     /api/v1/people-management/human-resources/recruitment/applications/{application_id}/hire 
+           → Contratar
+  POST     /api/v1/people-management/human-resources/recruitment/applications/{application_id}/matching 
+           → Recalcular matching
+  POST     /api/v1/people-management/human-resources/recruitment/applications/{application_id}/proposal 
+           → Enviar proposta
+  POST     /api/v1/people-management/human-resources/recruitment/applications/{application_id}/reject 
+           → Rejeitar candidatura
+  POST     /api/v1/people-management/human-resources/recruitment/applications/{application_id}/reject-proposal 
+           → Recusar proposta
+  PUT      /api/v1/people-management/human-resources/recruitment/applications/{application_id}/score 
+           → Atualizar scores
+  POST     /api/v1/people-management/human-resources/recruitment/applications/{application_id}/toggle-favorite 
+           → Alternar favorito
+  POST     /api/v1/people-management/human-resources/recruitment/applications/{application_id}/toggle-shortlist 
+           → Alternar lista restrita
+  POST     /api/v1/people-management/human-resources/recruitment/candidates/ 
+           → Criar candidato
+  POST     /api/v1/people-management/human-resources/recruitment/candidates/import 
+           → Importar candidato de currículo
+  PUT      /api/v1/people-management/human-resources/recruitment/candidates/{candidate_id} 
+           → Atualizar candidato
+  DELETE   /api/v1/people-management/human-resources/recruitment/candidates/{candidate_id} 
+           → Remover candidato
+  POST     /api/v1/people-management/human-resources/recruitment/candidates/{candidate_id}/activate 
+           → Ativar candidato
+  POST     /api/v1/people-management/human-resources/recruitment/candidates/{candidate_id}/archive 
+           → Arquivar candidato
+  POST     /api/v1/people-management/human-resources/recruitment/candidates/{candidate_id}/block 
+           → Bloquear candidato
+  POST     /api/v1/people-management/human-resources/recruitment/candidates/{candidate_id}/note 
+           → Adicionar nota
+  PUT      /api/v1/people-management/human-resources/recruitment/candidates/{candidate_id}/tags 
+           → Atualizar tags
+  POST     /api/v1/people-management/human-resources/recruitment/candidates/{candidate_id}/unblock 
+           → Desbloquear candidato
+  POST     /api/v1/people-management/human-resources/recruitment/candidates/{primary_id}/merge/{secondary_id} 
+           → Mesclar duplicados
+  POST     /api/v1/people-management/human-resources/recruitment/interviews/ 💰
+           → Agendar entrevista
+  PUT      /api/v1/people-management/human-resources/recruitment/interviews/{interview_id} 💰
+           → Atualizar entrevista
+  DELETE   /api/v1/people-management/human-resources/recruitment/interviews/{interview_id} 💰
+           → Remover entrevista
+  POST     /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}/cancel 💰
+           → Cancelar entrevista
+  POST     /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}/complete 💰
+           → Completar entrevista
+  POST     /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}/confirm-candidate 💰
+           → Confirmar presença candidato
+  POST     /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}/confirm-interviewer 💰
+           → Confirmar presença entrevistador
+  POST     /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}/evaluation 💰
+           → Adicionar avaliação
+  POST     /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}/no-show 💰
+           → Marcar não compareceu
+  POST     /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}/reschedule 💰
+           → Reagendar entrevista
+  POST     /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}/start 💰
+           → Iniciar entrevista
+  POST     /api/v1/people-management/human-resources/recruitment/job-positions/ 
+           → Criar vaga
+  PUT      /api/v1/people-management/human-resources/recruitment/job-positions/{position_id} 
+           → Atualizar vaga
+  DELETE   /api/v1/people-management/human-resources/recruitment/job-positions/{position_id} 
+           → Remover vaga
+  POST     /api/v1/people-management/human-resources/recruitment/job-positions/{position_id}/close 
+           → Fechar vaga
+  POST     /api/v1/people-management/human-resources/recruitment/job-positions/{position_id}/duplicate 
+           → Duplicar vaga
+  POST     /api/v1/people-management/human-resources/recruitment/job-positions/{position_id}/pause 
+           → Pausar vaga
+  POST     /api/v1/people-management/human-resources/recruitment/job-positions/{position_id}/publish 
+           → Publicar vaga
+  POST     /api/v1/people-management/human-resources/recruitment/job-positions/{position_id}/reopen 
+           → Reabrir vaga
+  POST     /api/v1/people-management/human-resources/recruitment/resume/parse 
+           → Faz parsing de currículo PDF/DOCX usando IA.
+  POST     /api/v1/people-management/human-resources/recruitment/resume/parse-text 
+           → Analisa texto de currículo já extraído (sem upload de arquivo).
+  POST     /api/v1/people-management/human-resources/training/ 
+           → Criar treinamento/turma
+  POST     /api/v1/people-management/human-resources/training/courses 
+           → Criar curso de treinamento
+  PUT      /api/v1/people-management/human-resources/training/courses/{course_id} 
+           → Atualizar curso
+  DELETE   /api/v1/people-management/human-resources/training/courses/{course_id} 
+           → Desativar curso
+  POST     /api/v1/people-management/human-resources/training/enrollments 
+           → Matricular funcionario em treinamento
+  PUT      /api/v1/people-management/human-resources/training/enrollments/{enrollment_id} 
+           → Atualizar matricula
+  POST     /api/v1/people-management/human-resources/training/enrollments/{enrollment_id}/certificate 
+           → Emitir certificado
+  PUT      /api/v1/people-management/human-resources/training/{training_id} 
+           → Atualizar treinamento
+  POST     /api/v1/people-management/human-resources/training/{training_id}/complete 
+           → Concluir treinamento
+  POST     /api/v1/people-management/integration/dp-to-ops/termination-notify 
+           → DP notifica Operacoes sobre rescisao.
+  POST     /api/v1/people-management/integration/dp-to-ops/vacation-approved 
+           → DP notifica Operacoes sobre ferias aprovadas.
+  POST     /api/v1/people-management/integration/dp-to-rh/admission-completed 
+           → DP notifica RH sobre admissao concluida.
+  POST     /api/v1/people-management/integration/ops-to-dp/check-availability 
+           → Operacoes verifica no DP se funcionario esta disponivel.
+  POST     /api/v1/people-management/integration/ops-to-dp/occurrence 
+           → Operacoes notifica DP sobre ocorrencia grave.
+  POST     /api/v1/people-management/integration/ops-to-dp/payroll-data 💰
+           → Operacoes envia dados de turnos para calculo de folha.
+  POST     /api/v1/people-management/integration/ops-to-dp/shift-closed 
+           → Operacoes notifica DP sobre fechamento de turno.
+  POST     /api/v1/people-management/integration/portal-to-dp/document-signed 
+           → Portal notifica DP sobre assinatura digital de documento.
+  POST     /api/v1/people-management/integration/rh-to-dp/candidate-approved 
+           → RH notifica DP sobre aprovacao de candidato.
+  POST     /api/v1/people-management/integration/rh-to-ops/mandatory-training-check 
+           → RH verifica treinamentos obrigatorios antes de alocacao.
+  POST     /api/v1/people-management/ponto/sincronizar-solides 
+           → Sincronizar ponto com Solides Tangerino
+  POST     /api/v1/people-management/ponto/sync 
+           → Sincroniza batidas feitas em modo offline.
+  POST     /api/v1/people-management/ponto/sync-escalas 
+           → Sincronizar escalas de trabalho do Sólides
+  POST     /api/v1/people-management/portal/auth/login 
+           → Autentica funcionario por CPF + senha ou CPF + data de nascimento.
+  POST     /api/v1/people-management/portal/auth/logout 
+           → Logout do portal (invalida sessao client-side).
+  POST     /api/v1/people-management/portal/auth/primeiro-acesso 
+           → Primeiro acesso ao portal: define senha usando CPF + data de nascimento.
+  POST     /api/v1/people-management/portal/auth/refresh 
+           → Renova token de acesso usando refresh token.
+  POST     /api/v1/people-management/portal/auth/reset-senha 
+           → Reset de senha do portal: redefine senha usando CPF + data de nascimento.
+  POST     /api/v1/people-management/portal/autocadastro-pj/concluir 🏛️
+           → Conclui o cadastro PJ → status 'pj_ativo'. Dois modos:
+  POST     /api/v1/people-management/portal/autocadastro-pj/documento 🏛️
+           → Upload de documento PJ (cartão CNPJ / contrato social / RG). OCR opcional pré-preenche.
+  POST     /api/v1/people-management/portal/candidato/termo-aceite 
+           → Registra o aceite do termo com valor probatório (texto+versão+hash+CPF+IP+UA+
+  POST     /api/v1/people-management/portal/cct/calculadora 
+           → Simulador de verbas rescisorias baseado no perfil do funcionario.
+  POST     /api/v1/people-management/portal/homologacao/autocadastro 🏛️
+           → Autocadastro público (token) de um testador de homologação.
+  POST     /api/v1/people-management/portal/login-facial 
+           → Login por rosto: compara contra TODOS os funcionários ativos com rosto (1:N) e
+  PUT      /api/v1/people-management/portal/my-data 
+           → Atualizar meus dados
+  POST     /api/v1/people-management/portal/my-documents/{id}/sign 
+           → Assinar documento
+  POST     /api/v1/people-management/portal/my-notifications/test-trigger 
+           → Disparar notificacao de teste (apenas development, status_code=201)
+  PATCH    /api/v1/people-management/portal/my-notifications/{notification_id}/read 
+           → Marcar notificacao como lida
+  POST     /api/v1/people-management/portal/ouvidoria-admin/{manifestacao_id}/responder 
+           → Responde/atualiza o status de uma manifestação (a resposta fica visível ao autor
+  POST     /api/v1/people-management/portal/primeiro-acesso/buscar-pis 
+           → Busca o PIS/NIS por CPF via API (p/ os poucos que não sabem). Hoje: 46/50 já têm
+  POST     /api/v1/people-management/portal/primeiro-acesso/completar 
+           → Tela 2: grava os campos preenchidos DIRETO em employees (fonte única).
+  POST     /api/v1/people-management/portal/primeiro-acesso/concluir 
+           → Tela 3: exige cadastro 100%, cadastra o rosto, define a SENHA = CPF e ativa o
+  POST     /api/v1/people-management/portal/primeiro-acesso/contingencia-rosto 
+           → CONTINGÊNCIA: o funcionário não conseguiu cadastrar o rosto (câmera/celular fraco).
+  POST     /api/v1/people-management/portal/primeiro-acesso/identificar 
+           → Tela 1: CPF → confirma que é funcionário ativo e devolve dados + o que falta.
+  POST     /api/v1/people-management/portal/self-service/bater-ponto 
+           → Bater ponto (funcionário) — GPS geofence + selfie
+  POST     /api/v1/people-management/portal/self-service/batida-contingencia 
+           → CONTINGÊNCIA: o funcionário não conseguiu bater pelo rosto (câmera/celular fraco).
+  POST     /api/v1/people-management/portal/self-service/documentos/upload 
+           → O funcionário envia um documento — cai na ficha dele. Atestado médico também
+  POST     /api/v1/people-management/portal/self-service/facial/batida 
+           → Batida com GATE RÍGIDO facial: só registra com match=true contra a referência.
+  POST     /api/v1/people-management/portal/self-service/facial/cadastrar 🏛️
+           → Cadastra/atualiza o rosto de referência do funcionário (obrigatório no onboarding).
+  PUT      /api/v1/people-management/portal/self-service/meus-dados 
+           → Atualizar meus dados (dados pessoais/contato)
+  PATCH    /api/v1/people-management/portal/self-service/minhas-notificacoes/{notification_id}/lida 
+           → Marcar minha notificação como lida
+  POST     /api/v1/people-management/portal/self-service/ouvidoria 
+           → Abre uma manifestação de ouvidoria. Se anônima, NÃO guardamos o employee_id
+  POST     /api/v1/people-management/portal/self-service/solicitar-reembolso 
+           → Solicitar reembolso (funcionário logado)
+  POST     /api/v1/people-management/sst/aso/retroativo 
+           → Carga retroativa de ASO feito em PAPEL antes do sistema.
+  POST     /api/v1/people-management/sst/aso/{aso_id}/anexo 
+           → Anexa o ASO digitalizado (PDF/JPG/PNG, max 10MB) a um ASO existente.
+  POST     /api/v1/people-management/sst/asos/agendar-lote 
+           → Agenda ASOs em massa (regularização) — reusa a lógica do POST /sst/aso.
+  POST     /api/v1/people-management/sst/assinaturas/ativar-acessos 
+           → Ativação em massa do acesso ao Portal do Funcionário (REUSA o fluxo existente).
+  POST     /api/v1/people-management/sst/cipa/reunioes 
+           → Registra reuniao da CIPA.
+  POST     /api/v1/people-management/sst/epi/fichas/{ficha_id}/assinar 
+           → Funcionário assina a PRÓPRIA ficha digitalmente (token do Portal).
+  POST     /api/v1/people-management/sst/esocial/transmitir-lote 🏛️
+           → Transmite um LOTE assistido ao eSocial: {tipo, ref_ids[], max_itens<=20}.
+  PUT      /api/v1/people-management/sst/ltcat 
+           → Atualiza o registro do LTCAT (responsável, validade, status, observações).
+  POST     /api/v1/people-management/sst/treinamentos 
+           → Registra treinamento NR REALIZADO (NR-1, NR-6, brigada, 1ºs socorros).
+  DELETE   /api/v1/people-management/sst/treinamentos/{treinamento_id} 
+           → Exclui um registro de treinamento (correção de lançamento errado).
+
+### ⚪ ORFAS DE LEITURA (candidatas reais, sem escrita)
+  GET      /api/v1/people-management/hr/admissions/checklist  → Checklist de Documentos
+  GET      /api/v1/people-management/hr/admissions/stats  → Estatísticas de Admissão
+  GET      /api/v1/people-management/hr/beneficios/config  → Lista configuracoes de beneficios ativas.
+  GET      /api/v1/people-management/hr/beneficios/taxa-negocial  → Retorna informacoes da taxa negocial sindical 2026.
+  GET      /api/v1/people-management/hr/discipline/assinaturas/documento/{document_id}  → Listar assinaturas do documento
+  GET      /api/v1/people-management/hr/discipline/assinaturas/{signature_id}  → Buscar assinatura
+  GET      /api/v1/people-management/hr/discipline/medidas-administrativas  → Listar medidas disciplinares
+  GET      /api/v1/people-management/hr/discipline/medidas-administrativas/estatisticas  → Estatisticas de medidas
+  GET      /api/v1/people-management/hr/discipline/medidas-administrativas/funcionario/{employee_id}  → Historico do funcionario
+  GET      /api/v1/people-management/hr/discipline/medidas-administrativas/pendentes  → Listar pendentes de aprovacao
+  GET      /api/v1/people-management/hr/discipline/medidas-administrativas/{action_id}  → Buscar medida por ID
+  GET      /api/v1/people-management/hr/payroll/payroll/events/{event_id}  → Buscar evento
+  GET      /api/v1/people-management/hr/payroll/rubricas  → Listar Rubricas de Referência
+  GET      /api/v1/people-management/hr/payroll/summary  → Resumo da folha salarial
+  GET      /api/v1/people-management/hr/ponto/fechamento-status  → Status de fechamento do ponto por funcionário (calculado/anomalia/fechado/homologado)
+  GET      /api/v1/people-management/hr/reimbursements/approvals/pending  → Lista solicitações pendentes de aprovação.
+  GET      /api/v1/people-management/hr/reimbursements/attachment-types  → Lista tipos de anexo disponíveis (enum).
+  GET      /api/v1/people-management/hr/reimbursements/categories  → Lista categorias de reembolso disponíveis. Admins veem todas.
+  GET      /api/v1/people-management/hr/reimbursements/expense-types  → Lista tipos de despesa disponíveis (enum).
+  GET      /api/v1/people-management/hr/reimbursements/ready-for-payment  → Lista solicitações aprovadas prontas para pagamento.
+  GET      /api/v1/people-management/hr/reimbursements/stats  → Retorna estatísticas de reembolsos. Admins veem todos.
+  GET      /api/v1/people-management/hr/reports/headcount  → Relatório de Headcount
+  GET      /api/v1/people-management/hr/time-records/daily/{record_date}  → Registros do Dia
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/overtime/  → Listar horas extras
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/overtime/pending-approval  → Horas extras pendentes de aprovação
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/overtime/pending-compensation  → Horas extras pendentes de compensação
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/overtime/pending-payment  → Horas extras pendentes de pagamento
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/overtime/stats  → Estatísticas de horas extras
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/overtime/{overtime_id}  → Buscar hora extra por ID
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-entries/  → Listar registros de ponto
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-entries/pending-approval  → Registros pendentes de aprovação
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-entries/stats  → Estatísticas de registros
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-entries/with-anomalies  → Registros com anomalias
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-entries/{entry_id}  → Buscar registro por ID
+  GET      /api/v1/people-management/human-resources/ativacao-ponto  → Lista os 50 CLT com status de ativação + canais disponíveis.
+  GET      /api/v1/people-management/human-resources/ativacao-ponto/monitor  → Painel AO VIVO do rollout: adesão (ativação/rosto/contingência), batidas de hoje
+  GET      /api/v1/people-management/human-resources/candidatos/{candidato_id}/dossie  → Dossiê armazenado (checks + score). Se ainda não foi verificado, score None.
+  GET      /api/v1/people-management/human-resources/evaluation-360/ciclos  → Lista ciclos de avaliacao 360.
+  GET      /api/v1/people-management/human-resources/evaluation-360/ciclos/{ciclo_id}/relatorio  → Gera relatorio completo com pontos fortes, pontos de melhoria e comentarios.
+  GET      /api/v1/people-management/human-resources/evaluation-360/ciclos/{ciclo_id}/resultado  → Calcula e retorna o resultado consolidado da avaliacao 360.
+  GET      /api/v1/people-management/human-resources/evaluation-360/pendencias  → Ciclos 360 em coleta que o avaliador logado ainda nao respondeu.
+  GET      /api/v1/people-management/human-resources/evaluation-360/resultados  → Resultados agregados por avaliado — calculados so de respostas reais.
+  GET      /api/v1/people-management/human-resources/onboarding/pendencias  → Itens vencidos ou proximos do vencimento.
+  GET      /api/v1/people-management/human-resources/onboarding/{employee_id}/checklist  → Checklist de onboarding do colaborador.
+  GET      /api/v1/people-management/human-resources/prestadores-pj/links-empresa  → Os 2 LINKS FIXOS de empresa (autocadastro livre — 'manda e esquece'). A pessoa preenche
+  GET      /api/v1/people-management/human-resources/recruitment  → Agregado honesto de recrutamento: contagens reais das tabelas.
+  GET      /api/v1/people-management/human-resources/recruitment/interviews  → Lista entrevistas com filtros e paginação.
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/  → Listar entrevistas
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/available-slots  → Horários disponíveis
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/by-date-range  → Por período
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/calendar/{interviewer_id}  → Calendário de entrevistas
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/pending-confirmation  → Pendentes de confirmação
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/pending-result  → Pendentes de resultado
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/stats  → Estatísticas de entrevistas
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/today  → Entrevistas de hoje
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/upcoming  → Próximas entrevistas
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}  → Buscar entrevista
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}/questions  → Sugestões de perguntas
+  GET      /api/v1/people-management/human-resources/turnover/desligados-sem-motivo  → Lista os desligados cujo motivo ainda não foi informado (gap da análise de turnover).
+  GET      /api/v1/people-management/human-resources/turnover/motivos  → Distribuicao por motivo de desligamento nos ultimos 12 meses.
+  GET      /api/v1/people-management/ponto/colaboradores-sem-escala  → Colaboradores sem escala definida
+  GET      /api/v1/people-management/ponto/justificativas/pendentes  → Lista justificativas pendentes de aprovacao.
+  GET      /api/v1/people-management/ponto/onboarding/completude  → Completude do cadastro (onboarding) por funcionário — painel do DP
+  GET      /api/v1/people-management/ponto/relatorio/inconsistencias  → Relatorio de inconsistencias CCT
+  GET      /api/v1/people-management/portal/auth/me  → Retorna dados do funcionario autenticado.
+  GET      /api/v1/people-management/portal/autocadastro-pj/dados  → Empresa de destino (do link) + dados se for pré-semeado. A pessoa NUNCA escolhe a empresa.
+  GET      /api/v1/people-management/portal/autocadastro-pj/termo  → termo pj
+  GET      /api/v1/people-management/portal/banco-horas  → Retorna saldo atual do banco de horas do funcionario.
+  GET      /api/v1/people-management/portal/candidato/termo  → Texto e versão do termo de consentimento para exibir antes do cadastro.
+  GET      /api/v1/people-management/portal/comunicados  → Retorna comunicados e avisos do DP para o funcionario.
+  GET      /api/v1/people-management/portal/homologacao/painel  → Checklist de homologação por testador: dados, facial, ponto, espelho.
+  GET      /api/v1/people-management/portal/my-benefits  → Retorna beneficios do funcionario com valores da CCT 2026.
+  GET      /api/v1/people-management/portal/my-data  → Meus dados pessoais
+  GET      /api/v1/people-management/portal/my-documents  → Meus documentos
+  GET      /api/v1/people-management/portal/my-documents/{id}/verify-signature  → Verificar assinatura
+  GET      /api/v1/people-management/portal/my-notifications  → Minhas notificacoes
+  GET      /api/v1/people-management/portal/my-payslips  → Meus contracheques
+  GET      /api/v1/people-management/portal/my-payslips/{month}/{year}  → Contracheque especifico
+  GET      /api/v1/people-management/portal/my-schedules  → Minha escala
+  GET      /api/v1/people-management/portal/my-schedules/current-month  → Escala do mes atual
+  GET      /api/v1/people-management/portal/my-schedules/next-shift  → Proximo turno
+  GET      /api/v1/people-management/portal/my-trainings/certificates  → Meus certificados de treinamento
+  GET      /api/v1/people-management/portal/my-vacations/balance  → Saldo de ferias
+  GET      /api/v1/people-management/portal/onboarding-status  → Status do onboarding obrigatório
+  GET      /api/v1/people-management/portal/ouvidoria-admin  → Lista as manifestações. Anônimas vêm SEM identidade (sigilo preservado).
+  GET      /api/v1/people-management/portal/painel-ponto  → Painel ao vivo (público por token). Fatos no banco, nunca estimado.
+  GET      /api/v1/people-management/portal/perfil  → Retorna perfil completo do funcionario autenticado.
+  GET      /api/v1/people-management/portal/self-service/categorias-reembolso  → Categorias de reembolso disponíveis
+  GET      /api/v1/people-management/portal/self-service/facial/referencia  → Descriptor de referência do funcionário (para o app comparar ao vivo).
+  GET      /api/v1/people-management/portal/self-service/me  → Meu resumo (funcionário logado)
+  GET      /api/v1/people-management/portal/self-service/meu-ponto  → Meu espelho de ponto
+  GET      /api/v1/people-management/portal/self-service/meus-beneficios  → Meus benefícios
+  GET      /api/v1/people-management/portal/self-service/meus-dados  → Meus dados pessoais
+  GET      /api/v1/people-management/portal/self-service/meus-documentos  → Meus documentos
+  GET      /api/v1/people-management/portal/self-service/meus-documentos-a-assinar  → Meus documentos pendentes de assinatura
+  GET      /api/v1/people-management/portal/self-service/meus-reembolsos  → Meus reembolsos (funcionário logado)
+  GET      /api/v1/people-management/portal/self-service/meus-treinamentos  → Meus treinamentos (matrículas)
+  GET      /api/v1/people-management/portal/self-service/minha-cct  → Minha CCT / meus direitos e piso
+  GET      /api/v1/people-management/portal/self-service/minha-escala  → Minha escala do mês
+  GET      /api/v1/people-management/portal/self-service/minha-escala/proximo-turno  → Meu próximo turno
+  GET      /api/v1/people-management/portal/self-service/minhas-ferias/saldo  → Meu saldo de férias
+  GET      /api/v1/people-management/portal/self-service/minhas-ferias/solicitacoes  → Minhas solicitações de férias
+  GET      /api/v1/people-management/portal/self-service/minhas-notificacoes  → Minhas notificações / comunicados
+  GET      /api/v1/people-management/portal/self-service/onboarding-status  → Status do onboarding obrigatório (funcionário logado)
+  GET      /api/v1/people-management/portal/self-service/ouvidoria/minhas  → As manifestações IDENTIFICADAS do funcionário (as anônimas não ficam vinculadas).
+  GET      /api/v1/people-management/portal/self-service/ponto-hoje  → Meu ponto de hoje (funcionário)
+
+### 🔵 PROVAVEIS FALSO-ORFAO (131) — builder le a tabela direto
+  GET      /api/v1/people-management/admin/cct/convencao-vigente  (tabela: cct_convencoes)
+  GET      /api/v1/people-management/admin/cct/convencoes/{convencao_id}/cargos  (tabela: cct_convencoes)
+  GET      /api/v1/people-management/admin/cct/convencoes/{convencao_id}/feriados  (tabela: cct_convencoes)
+  GET      /api/v1/people-management/dp/payslips/folha/pagar-via-pix/{mes}/{ano}/preview  (tabela: hr_payslips)
+  GET      /api/v1/people-management/dp/payslips/folha/pagar-via-pix/{mes}/{ano}/status  (tabela: hr_payslips)
+  GET      /api/v1/people-management/folha/conferencia/{mes}/{ano}  (tabela: folha)
+  GET      /api/v1/people-management/ged/config/document-types  (tabela: ged_kit_access_logs)
+  GET      /api/v1/people-management/ged/config/drive  (tabela: ged_kit_access_logs)
+  GET      /api/v1/people-management/ged/config/email-templates  (tabela: ged_kit_access_logs)
+  GET      /api/v1/people-management/ged/config/schedule  (tabela: ged_kit_access_logs)
+  GET      /api/v1/people-management/ged/documents/ingestao/status  (tabela: ged_kit_access_logs)
+  GET      /api/v1/people-management/ged/documents/pending-signatures  (tabela: ged_kit_access_logs)
+  GET      /api/v1/people-management/ged/kits/summary  (tabela: ged_kit_access_logs)
+  GET      /api/v1/people-management/hr/cct/cargos  (tabela: cct_convencoes)
+  GET      /api/v1/people-management/hr/contracts/employee/{employee_id}/current  (tabela: employment_contracts)
+  GET      /api/v1/people-management/hr/contracts/employee/{employee_id}/download-aviso/{filename}  (tabela: employment_contracts)
+  GET      /api/v1/people-management/hr/discipline/employee/{employee_id}/history  (tabela: hr_employee_documents)
+  GET      /api/v1/people-management/hr/discipline/medidas-administrativas/templates  (tabela: ai_email_templates)
+  GET      /api/v1/people-management/hr/discipline/medidas-administrativas/templates/{template_id}  (tabela: ai_email_templates)
+  GET      /api/v1/people-management/hr/employees/discipline  (tabela: employees)
+  GET      /api/v1/people-management/hr/employees/search  (tabela: employees)
+  GET      /api/v1/people-management/hr/employees/stats  (tabela: employees)
+  GET      /api/v1/people-management/hr/employees/{employee_id}/profile  (tabela: employees)
+  GET      /api/v1/people-management/hr/esocial/events  (tabela: esocial_eventos_espelho)
+  GET      /api/v1/people-management/hr/payroll/benefits  (tabela: employee_benefits)
+  GET      /api/v1/people-management/hr/payroll/employee/{employee_id}/calculate  (tabela: hr_employee_documents)
+  GET      /api/v1/people-management/hr/payroll/employee/{employee_id}/payslip-pdf  (tabela: hr_employee_documents)
+  GET      /api/v1/people-management/hr/payroll/payroll/esocial/events  (tabela: esocial_eventos_espelho)
+  GET      /api/v1/people-management/hr/payroll/payroll/esocial/integration  (tabela: esocial_eventos_espelho)
+  GET      /api/v1/people-management/hr/payroll/payroll/esocial/receipt/{export_id}  (tabela: esocial_eventos_espelho)
+  GET      /api/v1/people-management/hr/payroll/payroll/esocial/rubrica-mapping  (tabela: esocial_eventos_espelho)
+  GET      /api/v1/people-management/hr/payroll/payroll/esocial/status  (tabela: esocial_eventos_espelho)
+  GET      /api/v1/people-management/hr/payroll/payroll/esocial/validate  (tabela: esocial_eventos_espelho)
+  GET      /api/v1/people-management/hr/payroll/payroll/events/employee/{employee_id}/period/{period_id}  (tabela: hr_employee_documents)
+  GET      /api/v1/people-management/hr/payroll/payroll/events/employee/{employee_id}/period/{period_id}/summary  (tabela: hr_employee_documents)
+  GET      /api/v1/people-management/hr/payroll/payroll/events/period/{period_id}  (tabela: fin_accounting_periods)
+  GET      /api/v1/people-management/hr/payroll/payroll/events/period/{period_id}/by-category  (tabela: fin_accounting_periods)
+  GET      /api/v1/people-management/hr/payroll/payroll/events/period/{period_id}/totals  (tabela: fin_accounting_periods)
+  GET      /api/v1/people-management/hr/payroll/payroll/periods/  (tabela: fin_accounting_periods)
+  GET      /api/v1/people-management/hr/payroll/payroll/periods/current  (tabela: fin_accounting_periods)
+  GET      /api/v1/people-management/hr/payroll/payroll/periods/{period_id}  (tabela: fin_accounting_periods)
+  GET      /api/v1/people-management/hr/time-records/employee/{employee_id}/summary  (tabela: hr_employee_documents)
+  GET      /api/v1/people-management/hr/time-tracking/employee/{employee_id}/entries  (tabela: hr_employee_documents)
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/justifications/  (tabela: gp_justifications)
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/justifications/medical-leaves  (tabela: gp_justifications)
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/justifications/pending-approval  (tabela: gp_justifications)
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/justifications/pending-verification  (tabela: gp_justifications)
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/justifications/stats  (tabela: gp_justifications)
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/justifications/{justification_id}  (tabela: gp_justifications)
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/overtime/employee/{employee_id}/summary  (tabela: hr_employee_documents)
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-entries/employee/{employee_id}/day/{entry_date}  (tabela: hr_employee_documents)
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/  (tabela: time_sheets)
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/pending-employee-approval  (tabela: time_sheets)
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/pending-hr-approval  (tabela: time_sheets)
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/pending-manager-approval  (tabela: time_sheets)
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/ready-to-close  (tabela: time_sheets)
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/stats  (tabela: time_sheets)
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/{sheet_id}  (tabela: time_sheets)
+  GET      /api/v1/people-management/hr/time-tracking/time-tracking/time-sheets/{sheet_id}/report  (tabela: time_sheets)
+  GET      /api/v1/people-management/hr/vacations/employee/{employee_id}/balance  (tabela: hr_employee_documents)
+  GET      /api/v1/people-management/human-resources/career/plans  (tabela: career_plans)
+  GET      /api/v1/people-management/human-resources/career/plans/{plan_id}  (tabela: career_plans)
+  GET      /api/v1/people-management/human-resources/climate/absenteismo/alertas  (tabela: climate_surveys)
+  GET      /api/v1/people-management/human-resources/climate/absenteismo/dashboard  (tabela: climate_surveys)
+  GET      /api/v1/people-management/human-resources/climate/alerts  (tabela: climate_surveys)
+  GET      /api/v1/people-management/human-resources/climate/dashboard  (tabela: climate_surveys)
+  GET      /api/v1/people-management/human-resources/climate/surveys  (tabela: climate_surveys)
+  GET      /api/v1/people-management/human-resources/performance/visao-integrada  (tabela: performance_reviews)
+  GET      /api/v1/people-management/human-resources/performance/visao-integrada/{employee_id}  (tabela: performance_reviews)
+  GET      /api/v1/people-management/human-resources/recruitment/applications  (tabela: applications)
+  GET      /api/v1/people-management/human-resources/recruitment/applications/  (tabela: applications)
+  GET      /api/v1/people-management/human-resources/recruitment/applications/active  (tabela: applications)
+  GET      /api/v1/people-management/human-resources/recruitment/applications/candidate/{candidate_id}  (tabela: applications)
+  GET      /api/v1/people-management/human-resources/recruitment/applications/favorites  (tabela: applications)
+  GET      /api/v1/people-management/human-resources/recruitment/applications/position/{position_id}  (tabela: applications)
+  GET      /api/v1/people-management/human-resources/recruitment/applications/shortlisted/{position_id}  (tabela: applications)
+  GET      /api/v1/people-management/human-resources/recruitment/applications/stats  (tabela: applications)
+  GET      /api/v1/people-management/human-resources/recruitment/applications/{application_id}  (tabela: applications)
+  GET      /api/v1/people-management/human-resources/recruitment/candidates  (tabela: candidates)
+  GET      /api/v1/people-management/human-resources/recruitment/candidates/  (tabela: candidates)
+  GET      /api/v1/people-management/human-resources/recruitment/candidates/active  (tabela: candidates)
+  GET      /api/v1/people-management/human-resources/recruitment/candidates/blocked  (tabela: candidates)
+  GET      /api/v1/people-management/human-resources/recruitment/candidates/email/{email}  (tabela: candidates)
+  GET      /api/v1/people-management/human-resources/recruitment/candidates/recently-active  (tabela: candidates)
+  GET      /api/v1/people-management/human-resources/recruitment/candidates/search-skills  (tabela: candidates)
+  GET      /api/v1/people-management/human-resources/recruitment/candidates/stats  (tabela: candidates)
+  GET      /api/v1/people-management/human-resources/recruitment/candidates/{candidate_id}  (tabela: candidates)
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/application/{application_id}  (tabela: applications)
+  GET      /api/v1/people-management/human-resources/recruitment/job-positions  (tabela: job_positions)
+  GET      /api/v1/people-management/human-resources/recruitment/job-positions/  (tabela: job_positions)
+  GET      /api/v1/people-management/human-resources/recruitment/job-positions/code/{code}  (tabela: job_positions)
+  GET      /api/v1/people-management/human-resources/recruitment/job-positions/expiring  (tabela: job_positions)
+  GET      /api/v1/people-management/human-resources/recruitment/job-positions/open  (tabela: job_positions)
+  GET      /api/v1/people-management/human-resources/recruitment/job-positions/stats  (tabela: job_positions)
+  GET      /api/v1/people-management/human-resources/recruitment/job-positions/{position_id}  (tabela: job_positions)
+  GET      /api/v1/people-management/human-resources/training/  (tabela: trainings)
+  GET      /api/v1/people-management/human-resources/training/certificates  (tabela: trainings)
+  GET      /api/v1/people-management/human-resources/training/certificates/  (tabela: trainings)
+  GET      /api/v1/people-management/human-resources/training/certificates/expiring  (tabela: trainings)
+  GET      /api/v1/people-management/human-resources/training/courses  (tabela: trainings)
+  GET      /api/v1/people-management/human-resources/training/courses/{course_id}  (tabela: trainings)
+  GET      /api/v1/people-management/human-resources/training/enrollments  (tabela: trainings)
+  GET      /api/v1/people-management/human-resources/training/mandatory-check/{employee_id}  (tabela: trainings)
+  GET      /api/v1/people-management/human-resources/training/{training_id}  (tabela: trainings)
+  GET      /api/v1/people-management/integration/status  (tabela: integration_logs)
+  GET      /api/v1/people-management/portal/candidato/cargos  (tabela: cct_cargos)
+  GET      /api/v1/people-management/portal/cct/adicional-noturno  (tabela: cct_convencoes)
+  GET      /api/v1/people-management/portal/cct/direitos  (tabela: cct_convencoes)
+  GET      /api/v1/people-management/portal/cct/feriados  (tabela: cct_convencoes)
+  GET      /api/v1/people-management/portal/my-trainings/enrollments  (tabela: training_enrollments)
+  GET      /api/v1/people-management/portal/my-vacations/requests  (tabela: lgpd_erasure_requests)
+  GET      /api/v1/people-management/portal/ponto/historico  (tabela: nfse_manaus_historico)
+  GET      /api/v1/people-management/sst/aso/{aso_id}/anexo  (tabela: sst_fichas_epi)
+  GET      /api/v1/people-management/sst/asos/regularizacao  (tabela: sst_fichas_epi)
+  GET      /api/v1/people-management/sst/asos/sem-aso  (tabela: sst_fichas_epi)
+  GET      /api/v1/people-management/sst/asos/vencendo  (tabela: sst_fichas_epi)
+  GET      /api/v1/people-management/sst/assinaturas/rollout  (tabela: sst_fichas_epi)
+  GET      /api/v1/people-management/sst/calendario-legal  (tabela: sst_fichas_epi)
+  GET      /api/v1/people-management/sst/cat/taxa-acidente  (tabela: sst_fichas_epi)
+  GET      /api/v1/people-management/sst/cipa/membros  (tabela: sst_fichas_epi)
+  GET      /api/v1/people-management/sst/cipa/reunioes  (tabela: sst_fichas_epi)
+  GET      /api/v1/people-management/sst/epi/fichas/minhas  (tabela: sst_fichas_epi)
+  GET      /api/v1/people-management/sst/esocial/acompanhamento  (tabela: sst_fichas_epi)
+  GET      /api/v1/people-management/sst/ltcat/status  (tabela: sst_fichas_epi)
+  GET      /api/v1/people-management/sst/nr1/colaboradores-risco  (tabela: sst_fichas_epi)
+  GET      /api/v1/people-management/sst/pcmso/esteira  (tabela: sst_fichas_epi)
+  GET      /api/v1/people-management/sst/pcmso/status  (tabela: sst_fichas_epi)
+  GET      /api/v1/people-management/sst/ppra/status  (tabela: sst_fichas_epi)
+  GET      /api/v1/people-management/sst/prontuario/{employee_id}  (tabela: sst_fichas_epi)
+  GET      /api/v1/people-management/sst/regularizacao/descalcos  (tabela: sst_fichas_epi)
+  GET      /api/v1/people-management/sst/treinamentos  (tabela: sst_fichas_epi)
+
+### ✅ EXPOSTAS (205) — com o arquivo que prova
+  GET      /api/v1/people-management/admin/cct/convencoes
+           → Lista todas as convenções coletivas cadastradas.  [co-ocorrencia cct+convencoes] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/admin/cct/convencoes
+           → Cria nova convenção coletiva.  [co-ocorrencia cct+convencoes] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  PUT      /api/v1/people-management/admin/cct/convencoes/{convencao_id}
+           → Atualiza dados de uma convenção (ex: marcar como vigente).  [co-ocorrencia cct+convencoes] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/admin/cct/convencoes/{convencao_id}/beneficios
+           → Lista benefícios obrigatórios de uma convenção.  [co-ocorrencia cct+convencoes] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/admin/cct/convencoes/{convencao_id}/beneficios
+           → Adiciona benefício obrigatório à convenção.  [co-ocorrencia cct+convencoes] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/certifications
+           → Cria uma certificacao PENDENTE (com hash do conteudo) para um calculo.  [co-ocorrencia certifications+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/certifications
+           → Fila de certificacoes (default: todas; filtra por status e/ou competencia).  [co-ocorrencia certifications+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/certifications/
+           → Cria uma certificacao PENDENTE (com hash do conteudo) para um calculo.  [co-ocorrencia certifications+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/certifications/
+           → Fila de certificacoes (default: todas; filtra por status e/ou competencia).  [co-ocorrencia certifications+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/certifications/{cert_id}
+           → O pacote de conferencia: calculado vs esperado (Dominio) vs divergencia.  [co-ocorrencia certifications+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  PATCH    /api/v1/people-management/certifications/{cert_id}/certify
+           → Assina (o trabalho humano de conferir vira fato rastreavel: quem, quando, hash).  [co-ocorrencia certifications+certify] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  PATCH    /api/v1/people-management/certifications/{cert_id}/reject
+           → Rejeita com motivo obrigatorio.  [co-ocorrencia certifications+reject] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/dp/payslips
+           → Lista contracheques com filtros. Acessível apenas pelo DP/admin.  [co-ocorrencia payslips+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/dp/payslips/
+           → Lista contracheques com filtros. Acessível apenas pelo DP/admin.  [co-ocorrencia payslips+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/dp/payslips/
+           → Cria contracheque manualmente. Status inicial: DRAFT.  [co-ocorrencia payslips+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/dp/payslips/folha/pagar-via-pix/{mes}/{ano}/gerar-otp
+           → Gera OTP (e-mail Jordan) p/ liberar o pagamento da folha  [co-ocorrencia gerar-otp+pagar-via-pix] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/people-management/dp/payslips/folha/upload
+           → Upload PDF Extrato Mensal Domínio/Portte — importa rubricas  [co-ocorrencia payslips+upload] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/dp/payslips/{payslip_id}
+           → Retorna detalhe de um contracheque.  [co-ocorrencia payslips+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  DELETE   /api/v1/people-management/dp/payslips/{payslip_id}
+           → Soft delete de contracheque (marca como CANCELLED — o model não tem is_active).  [co-ocorrencia payslips+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/dp/payslips/{payslip_id}/pdf
+           → Download PDF do Holerite  [co-ocorrencia payslips+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  PATCH    /api/v1/people-management/dp/payslips/{payslip_id}/rascunho
+           → Reverte contracheque para rascunho.  [co-ocorrencia payslips+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/folha/ajuste/{employee_id}
+           → Ajuste manual de rubrica no holerite  [co-ocorrencia ajuste+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/folha/calcular/todos/{mes}/{ano}
+           → Calcular folha de todos os colaboradores  [co-ocorrencia calcular+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/folha/calcular/{employee_id}/{mes}/{ano}
+           → Calcular holerite de um colaborador  [co-ocorrencia calcular+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/folha/dashboard
+           → Dashboard gerencial da folha  [co-ocorrencia people-management+dashboard] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/people-management/folha/fechar/{mes}/{ano}
+           → Fechamento mensal da folha  [co-ocorrencia fechar+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/folha/holerite/{employee_id}/{mes}/{ano}
+           → Obter holerite final  [co-ocorrencia holerite+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/folha/holerite/{employee_id}/{mes}/{ano}/pdf
+           → Baixar holerite em PDF (padrão-ouro Conecta Mais, 1 folha A4)  [co-ocorrencia holerite+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/folha/recibo-vt-vr/{employee_id}/{mes}/{ano}/pdf
+           → Baixar Recibo de VT e VR em PDF (padrão-ouro Conecta Mais)  [co-ocorrencia recibo-vt-vr+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/folha/resumo/{mes}/{ano}
+           → Resumo totalizador da folha  [co-ocorrencia people-management+resumo] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/people-management/folha/rubricas
+           → Listar rubricas cadastradas  [co-ocorrencia rubricas+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/folha/{mes:int}/{ano:int}/pdf
+           → Exportar FOLHA CONSOLIDADA em PDF (resumo + detalhamento por colaborador)  [co-ocorrencia people-management+folha] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/ged/clients
+           → Lista clientes GED com paginacao e filtros.  [co-ocorrencia ged+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/ged/clients
+           → Cria um novo cliente GED (condominio ou administradora).  [co-ocorrencia ged+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/ged/clients/{client_id}
+           → Retorna detalhes de um cliente GED pelo ID.  [co-ocorrencia ged+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  PUT      /api/v1/people-management/ged/clients/{client_id}
+           → Atualiza parcialmente um cliente GED.  [co-ocorrencia ged+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  DELETE   /api/v1/people-management/ged/clients/{client_id}
+           → Remove um cliente GED. Nao permite se possuir kits.  [co-ocorrencia ged+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/ged/documents
+           → Lista documentos com filtros e paginacao.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/ged/documents
+           → Upload manual de documento para um kit.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/ged/documents/{document_id}
+           → Retorna detalhes de um documento pelo ID.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  PUT      /api/v1/people-management/ged/documents/{document_id}
+           → Atualiza metadados de um documento.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  DELETE   /api/v1/people-management/ged/documents/{document_id}
+           → Remove um documento de um kit.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/ged/documents/{document_id}/download
+           → Download do arquivo de um documento.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/ged/kits
+           → Lista kits documentais com filtros e paginacao.  [co-ocorrencia kits+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  GET      /api/v1/people-management/ged/kits
+           → Lista kits documentais com filtros e paginacao.  [co-ocorrencia kits+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  POST     /api/v1/people-management/ged/kits
+           → Cria um novo kit documental para um cliente/mes.  [co-ocorrencia kits+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  GET      /api/v1/people-management/ged/kits/dashboard
+           → Dashboard completo dos kits documentais.  [co-ocorrencia kits+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  GET      /api/v1/people-management/ged/kits/{kit_id}
+           → Retorna detalhes de um kit com resumo de documentos.  [co-ocorrencia kits+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  PUT      /api/v1/people-management/ged/kits/{kit_id}
+           → Atualiza campos editaveis de um kit.  [co-ocorrencia kits+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  DELETE   /api/v1/people-management/ged/kits/{kit_id}
+           → Remove um kit. Somente permitido se status = EM_MONTAGEM.  [co-ocorrencia kits+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  POST     /api/v1/people-management/ged/kits/{kit_id}/build
+           → Dispara montagem automatica do kit.  [co-ocorrencia kits+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  GET      /api/v1/people-management/ged/kits/{kit_id}/export/pdf
+           → Gera e retorna o PDF consolidado do kit para download.  [co-ocorrencia kits+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  GET      /api/v1/people-management/ged/kits/{kit_id}/export/zip
+           → Gera e retorna o ZIP do kit para download.  [co-ocorrencia kits+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  GET      /api/v1/people-management/hr
+           → Summary do Módulo RH  [segmento unico 'people-management' (prova fraca)] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/admissions
+           → Listar Admissões  [co-ocorrencia admissions+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/admissions
+           → Iniciar Processo de Admissão  [co-ocorrencia admissions+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/admissions/{admission_id}
+           → Buscar Admissão  [co-ocorrencia admissions+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  PATCH    /api/v1/people-management/hr/admissions/{admission_id}
+           → Atualizar Admissão  [co-ocorrencia admissions+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/admissions/{admission_id}/complete
+           → Concluir Admissão  [co-ocorrencia admissions+complete] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/admissions/{admission_id}/documents
+           → Upload de Documento  [co-ocorrencia admissions+documents] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/admissions/{admission_id}/documents
+           → Listar Documentos da Admissão  [co-ocorrencia admissions+documents] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/beneficios
+           → Retorna lista completa de beneficios da CCT 2026.  [co-ocorrencia beneficios+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/benefits
+           → Listar Benefícios  [co-ocorrencia benefits+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/benefits
+           → Criar Benefício  [co-ocorrencia benefits+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/benefits/employee/{employee_id}
+           → Benefícios por Funcionário  [co-ocorrencia benefits+employee] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/benefits/employee/{employee_id}/total
+           → Custo Total de Benefícios  [co-ocorrencia benefits+employee] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/benefits/{benefit_id}
+           → Buscar Benefício  [co-ocorrencia benefits+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  PATCH    /api/v1/people-management/hr/benefits/{benefit_id}
+           → Atualizar Benefício  [co-ocorrencia benefits+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  DELETE   /api/v1/people-management/hr/benefits/{benefit_id}
+           → Cancelar Benefício  [co-ocorrencia benefits+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/cct/conformidade
+           → Verificar Conformidade Salarial  [co-ocorrencia cct+conformidade] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/cct/funcionarios
+           → Funcionários Vinculados à CCT  [co-ocorrencia cct+funcionarios] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/cct/resumo
+           → Resumo CCT 2026  [co-ocorrencia cct+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/contracts
+           → Listar Contratos  [co-ocorrencia people-management+contracts] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/contracts
+           → Criar Contrato  [co-ocorrencia people-management+contracts] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/contracts/employee/{employee_id}
+           → Contratos por Funcionário  [co-ocorrencia employee+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/contracts/employee/{employee_id}/download/{filename}
+           → Download do Contrato Gerado  [co-ocorrencia employee+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/contracts/employee/{employee_id}/gerar-aviso-previo-ferias-html
+           → Gerar HTML do Aviso Prévio de Férias  [co-ocorrencia gerar-aviso-previo-ferias-html+employee] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/contracts/employee/{employee_id}/gerar-contrato-html
+           → Gerar HTML do Contrato de Trabalho  [co-ocorrencia gerar-contrato-html+employee] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/contracts/{contract_id}
+           → Buscar Contrato  [co-ocorrencia people-management+contracts] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  PATCH    /api/v1/people-management/hr/contracts/{contract_id}
+           → Atualizar Contrato  [co-ocorrencia people-management+contracts] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/contracts/{contract_id}/pdf
+           → Download PDF do Contrato  [co-ocorrencia people-management+contracts] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/documents
+           → Listar Documentos de Funcionários  [co-ocorrencia documents+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/documents/{doc_id}/download
+           → Baixar/visualizar documento do funcionário  [co-ocorrencia documents+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/employees
+           → Listar Funcionários  [co-ocorrencia people-management+employees] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/employees/cpf/{cpf}
+           → Buscar Funcionário por CPF  [co-ocorrencia cpf+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/employees/import-cadastro
+           → Importar cadastro (CSV do contador/Onvio)  [co-ocorrencia import-cadastro+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/employees/{employee_id}
+           → Buscar Funcionário por ID  [co-ocorrencia people-management+employees] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  PATCH    /api/v1/people-management/hr/employees/{employee_id}
+           → Atualizar Funcionário  [co-ocorrencia people-management+employees] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/employees/{employee_id}/deductions
+           → Listar Deduções do Funcionário  [co-ocorrencia deductions+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/employees/{employee_id}/deductions
+           → Criar Dedução  [co-ocorrencia deductions+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  PATCH    /api/v1/people-management/hr/employees/{employee_id}/deductions/{deduction_id}
+           → Editar Dedução  [co-ocorrencia deductions+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  DELETE   /api/v1/people-management/hr/employees/{employee_id}/deductions/{deduction_id}
+           → Excluir Dedução (soft-delete)  [co-ocorrencia deductions+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/leaves
+           → Listar Afastamentos  [co-ocorrencia leaves+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/leaves
+           → Registrar licença/afastamento  [co-ocorrencia leaves+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/leaves/
+           → Registra licença/afastamento (tela dp/licencas) -> sst_afastamentos.  [co-ocorrencia leaves+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/payroll-export/contracheque/{employee_id}/{competencia}
+           → Gerar Contracheque PDF  [co-ocorrencia payroll-export+contracheque] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/payroll-export/contracheques-batch/{competencia}
+           → Gerar Contracheques em Lote  [co-ocorrencia contracheques-batch+payroll-export] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/payroll-export/dominio/{competencia}
+           → Exportar Folha para Domínio  [co-ocorrencia payroll-export+dominio] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/ponto/calcular
+           → (Re)calcular o espelho de UM funcionário sem fechar o mês  [co-ocorrencia calcular+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/ponto/espelho/painel/{mes}/{ano}
+           → Painel de fechamento de ponto (status por funcionário)  [co-ocorrencia espelho+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/ponto/espelho/{employee_id}/{mes}/{ano}/pdf
+           → Baixar espelho de ponto em PDF (padrão-ouro, Portaria 671)  [co-ocorrencia espelho+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/reimbursements/
+           → Cria uma nova solicitação de reembolso.  [co-ocorrencia reimbursements+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/reimbursements/
+           → Lista todas as solicitações de reembolso (para gestores). Admins veem todos.  [co-ocorrencia reimbursements+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  DELETE   /api/v1/people-management/hr/reimbursements/attachments/{attachment_id}
+           → Remove um anexo.  [co-ocorrencia attachments+reimbursements] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/reimbursements/attachments/{attachment_id}/download
+           → Download de anexo.  [co-ocorrencia attachments+reimbursements] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/reimbursements/my
+           → Lista solicitações do usuário autenticado.  [co-ocorrencia reimbursements+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/reimbursements/{request_id}
+           → Busca solicitação por ID.  [co-ocorrencia reimbursements+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  PUT      /api/v1/people-management/hr/reimbursements/{request_id}
+           → Atualiza uma solicitação (apenas em rascunho).  [co-ocorrencia reimbursements+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  DELETE   /api/v1/people-management/hr/reimbursements/{request_id}
+           → Exclui uma solicitação (apenas em rascunho).  [co-ocorrencia reimbursements+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/reimbursements/{request_id}/analyze
+           → Inicia análise de uma solicitação.  [co-ocorrencia analyze+reimbursements] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/reimbursements/{request_id}/approve
+           → Aprova uma solicitação de reembolso.  [co-ocorrencia approve+reimbursements] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/reimbursements/{request_id}/attachments
+           → Upload de comprovante/anexo.  [co-ocorrencia attachments+reimbursements] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/reimbursements/{request_id}/attachments
+           → Lista anexos de uma solicitação.  [co-ocorrencia attachments+reimbursements] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/reimbursements/{request_id}/reject
+           → Rejeita uma solicitação de reembolso.  [co-ocorrencia reimbursements+reject] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/reimbursements/{request_id}/return
+           → Devolve solicitação para rascunho.  [co-ocorrencia reimbursements+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/reimbursements/{request_id}/submit
+           → Submete solicitação para aprovação.  [co-ocorrencia reimbursements+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/terminations
+           → Listar Rescisões  [co-ocorrencia terminations+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/terminations
+           → Iniciar Processo de Rescisão  [co-ocorrencia terminations+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/terminations/{termination_id}
+           → Buscar Rescisão  [co-ocorrencia terminations+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  PATCH    /api/v1/people-management/hr/terminations/{termination_id}
+           → Atualizar Rescisão  [co-ocorrencia terminations+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/terminations/{termination_id}/aviso-previo/pdf
+           → Download PDF do Aviso Prévio  [co-ocorrencia aviso-previo+terminations] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/terminations/{termination_id}/calculate
+           → Calcular Verbas Rescisórias  [co-ocorrencia calculate+terminations] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/terminations/{termination_id}/complete
+           → Concluir Rescisão  [co-ocorrencia terminations+complete] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/terminations/{termination_id}/trct/pdf
+           → Download PDF do TRCT  [co-ocorrencia terminations+trct] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/time-records
+           → Listar Registros de Ponto  [co-ocorrencia time-records+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/time-records
+           → Lançamento Manual de Ponto  [co-ocorrencia time-records+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/time-records/{record_id}
+           → Buscar Registro de Ponto  [co-ocorrencia time-records+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  PATCH    /api/v1/people-management/hr/time-records/{record_id}
+           → Atualizar/Justificar Registro  [co-ocorrencia time-records+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/vacations
+           → Listar Solicitações de Férias  [co-ocorrencia vacations+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/vacations
+           → Criar solicitação de férias  [co-ocorrencia vacations+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/vacations/
+           → Cria solicitação de férias na FONTE DA VERDADE (hr_vacation_requests).  [co-ocorrencia vacations+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/vacations/employee/{employee_id}
+           → Férias por Funcionário  [co-ocorrencia vacations+employee] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/vacations/sync-solides
+           → Sincronizar Férias do Sólides  [co-ocorrencia sync-solides+vacations] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/hr/vacations/{vacation_id}
+           → Buscar Solicitação de Férias  [co-ocorrencia vacations+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  DELETE   /api/v1/people-management/hr/vacations/{vacation_id}
+           → Cancelar solicitação de férias  [co-ocorrencia vacations+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  DELETE   /api/v1/people-management/hr/vacations/{vacation_id}/
+           → Cancela (soft-delete) a solicitação na fonte canônica — NUNCA hard-delete.  [co-ocorrencia vacations+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/vacations/{vacation_id}/approve
+           → Aprovar Férias  [co-ocorrencia approve+vacations] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/vacations/{vacation_id}/aviso-previo
+           → Gerar Aviso Prévio de Férias (PDF)  [co-ocorrencia aviso-previo+vacations] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/hr/vacations/{vacation_id}/reject
+           → Rejeitar solicitação de férias  [co-ocorrencia reject+vacations] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/human-resources/candidatos
+           → Lista os candidatos da esteira, com dados e completude p/ o RH decidir.  [co-ocorrencia candidatos+human-resources] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/people-management/human-resources/candidatos/postos
+           → Postos ativos para o RH escolher ao aprovar (com vaga em destaque).  [co-ocorrencia candidatos+human-resources] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/people-management/human-resources/candidatos/{candidato_id}
+           → Ficha completa do candidato para revisão do RH.  [co-ocorrencia candidatos+human-resources] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/people-management/human-resources/candidatos/{candidato_id}/admissao
+           → Checklist de admissão do colaborador aprovado + resumo (bloqueios legais).  [co-ocorrencia candidatos+admissao] backend/modules/operacional/controllers/redesign_builders/rh.py
+  POST     /api/v1/people-management/human-resources/candidatos/{candidato_id}/admissao/{item_key}
+           → Marca um item do checklist. Itens com gate humano (ASO, eSocial S-2200) só  [co-ocorrencia candidatos+admissao] backend/modules/operacional/controllers/redesign_builders/rh.py
+  POST     /api/v1/people-management/human-resources/candidatos/{candidato_id}/aprovar
+           → APROVA o candidato e PROPAGA pela cadeia: DP (ativa, matrícula, CCT/salário,  [co-ocorrencia candidatos+human-resources] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/people-management/human-resources/candidatos/{candidato_id}/documento/{doc_id}
+           → Serve o PDF/imagem de um documento do candidato (certidão do robô ou anexo) — RH autenticado.  [co-ocorrencia candidatos+human-resources] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/people-management/human-resources/onboarding/dashboard
+           → Dashboard de onboarding com dados reais.  [co-ocorrencia human-resources+onboarding] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/human-resources/performance/reviews
+           → Criar avaliacao de desempenho  [co-ocorrencia performance+reviews] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/people-management/human-resources/performance/reviews
+           → Listar avaliacoes de desempenho  [co-ocorrencia performance+reviews] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/people-management/human-resources/performance/reviews/{review_id}
+           → Buscar avaliacao por ID  [co-ocorrencia performance+reviews] backend/modules/operacional/controllers/redesign_builders/rh.py
+  PUT      /api/v1/people-management/human-resources/performance/reviews/{review_id}
+           → Atualizar avaliacao  [co-ocorrencia performance+reviews] backend/modules/operacional/controllers/redesign_builders/rh.py
+  DELETE   /api/v1/people-management/human-resources/performance/reviews/{review_id}
+           → Remover avaliacao (somente rascunho)  [co-ocorrencia performance+reviews] backend/modules/operacional/controllers/redesign_builders/rh.py
+  POST     /api/v1/people-management/human-resources/performance/reviews/{review_id}/complete
+           → Concluir avaliacao  [co-ocorrencia performance+reviews] backend/modules/operacional/controllers/redesign_builders/rh.py
+  POST     /api/v1/people-management/human-resources/prestadores-pj
+           → Cria (pré-semeia) um prestador PJ e devolve o link individual de autocadastro.  [co-ocorrencia prestadores-pj+human-resources] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/human-resources/prestadores-pj
+           → Lista os prestadores PJ (com status do autocadastro + link pra recopiar).  [co-ocorrencia prestadores-pj+human-resources] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/human-resources/prestadores-pj/{prestador_id}/regenerar-link
+           → Gera um novo token (invalida o link antigo) — útil se o link vazar.  [co-ocorrencia prestadores-pj+regenerar-link] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/human-resources/turnover/dashboard
+           → Dashboard de turnover com dados reais.  [co-ocorrencia turnover+human-resources] backend/modules/operacional/controllers/redesign_builders/rh.py
+  POST     /api/v1/people-management/human-resources/turnover/registrar-motivo
+           → Registra o motivo REAL de desligamento (informado pelo RH) de um colaborador já desligado.  [co-ocorrencia registrar-motivo+turnover] backend/modules/operacional/controllers/redesign_builders/rh.py
+  POST     /api/v1/people-management/ponto/ajuste
+           → Ajuste manual de ponto pelo DP  [co-ocorrencia ajuste+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/ponto/banco-horas/{employee_id}
+           → Saldo banco de horas  [co-ocorrencia banco-horas+people-management] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/people-management/ponto/batida
+           → Registra uma batida de ponto (entrada, saida, almoco).  [co-ocorrencia batida+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/ponto/batida/me
+           → Registra batida do funcionário autenticado — resolve employee e tipo automaticamente.  [co-ocorrencia batida+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/ponto/batidas/me
+           → Retorna as batidas de hoje do funcionário autenticado.  [co-ocorrencia batidas+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/ponto/batidas/{employee_id}
+           → Retorna batidas de um funcionario em um dia.  [co-ocorrencia batidas+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/ponto/dashboard
+           → Dashboard gerencial do ponto  [co-ocorrencia people-management+dashboard] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/people-management/ponto/espelho/{employee_id}
+           → Retorna espelho de ponto mensal.  [co-ocorrencia espelho+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/ponto/fechamento
+           → Fecha o ponto mensal de um funcionario.  [co-ocorrencia fechamento+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/ponto/fechamento-mes
+           → Fecha o ponto mensal de TODOS os funcionários ativos (tela Fechamento Mensal).  [co-ocorrencia fechamento-mes+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/ponto/fechamento/status
+           → Status de fechamento por competência (estado REAL)  [co-ocorrencia fechamento+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/ponto/folha-pdf/{employee_id}
+           → Gerar folha de ponto HTML por funcionário/mês  [co-ocorrencia folha-pdf+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/ponto/folha-pdf/{employee_id}/download
+           → Download da folha de ponto HTML  [co-ocorrencia folha-pdf+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/ponto/justificativa
+           → Cria justificativa de atraso ou falta.  [co-ocorrencia justificativa+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  PUT      /api/v1/people-management/ponto/justificativa/{justification_id}/revisar
+           → Aprova ou rejeita uma justificativa.  [co-ocorrencia justificativa+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/portal/candidato/autocadastro
+           → Autocadastro público (token) de um CANDIDATO a uma vaga.  [co-ocorrencia autocadastro+candidato] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/portal/candidato/documento
+           → Recebe um documento (foto/PDF), EXTRAI os campos com IA e devolve pra  [co-ocorrencia candidato+portal] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/portal/candidato/status
+           → Acompanhamento público do status da candidatura, pelo CPF (sem login).  [co-ocorrencia candidato+portal] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/portal/contrato
+           → Retorna dados contratuais do funcionario.  [co-ocorrencia portal+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/portal/dashboard
+           → Retorna dados do dashboard do funcionario autenticado.  [co-ocorrencia portal+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/sst/afastamentos
+           → Lista afastamentos (com dados reais dos 5 colaboradores Solides).  [co-ocorrencia afastamentos+sst] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/sst/afastamentos
+           → Registra novo afastamento com regras CCT 2026 automaticas.  [co-ocorrencia afastamentos+sst] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/sst/afastamentos/{afastamento_id}
+           → Detalhe de um afastamento.  [co-ocorrencia afastamentos+sst] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  PUT      /api/v1/people-management/sst/afastamentos/{afastamento_id}/retorno
+           → Registra retorno de afastamento (calcula estabilidade CCT).  [co-ocorrencia afastamentos+sst] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/sst/ajuda-medicamento/ativos
+           → Colaboradores recebendo ajuda medicamento R$ 300/mes (CCT 2026).  [co-ocorrencia ajuda-medicamento+sst] backend/modules/operacional/controllers/redesign_builders/saude_ocupacional.py
+  POST     /api/v1/people-management/sst/aso
+           → Agenda um ASO.  [co-ocorrencia aso+sst] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/sst/aso
+           → Lista ASOs.  [co-ocorrencia aso+sst] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  PUT      /api/v1/people-management/sst/aso/{aso_id}/resultado
+           → Registra resultado de ASO realizado.  [co-ocorrencia aso+sst] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/sst/cat
+           → Abre CAT (Comunicacao de Acidente de Trabalho).  [co-ocorrencia cat+sst] backend/modules/operacional/controllers/redesign_builders/saude_ocupacional.py
+  GET      /api/v1/people-management/sst/cat
+           → Lista CATs registradas.  [co-ocorrencia cat+sst] backend/modules/operacional/controllers/redesign_builders/saude_ocupacional.py
+  POST     /api/v1/people-management/sst/cat/{cat_id}/transmitir
+           → Botão 'Transmitir ao eSocial' — (re)enfileira o S-2210 da CAT.  [co-ocorrencia cat+sst] backend/modules/operacional/controllers/redesign_builders/saude_ocupacional.py
+  GET      /api/v1/people-management/sst/dashboard
+           → Dashboard SST com dados reais dos colaboradores.  [co-ocorrencia sst+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/sst/epi
+           → Registra entrega de EPI e gera a FICHA DE EPI digital (NR-6).  [co-ocorrencia epi+sst] backend/modules/operacional/controllers/redesign_builders/saude_ocupacional.py
+  GET      /api/v1/people-management/sst/epi
+           → Lista entregas de EPI.  [co-ocorrencia epi+sst] backend/modules/operacional/controllers/redesign_builders/saude_ocupacional.py
+  GET      /api/v1/people-management/sst/epi/fichas
+           → Lista fichas de EPI (status honesto: pendente_assinatura|assinada).  [co-ocorrencia epi+fichas] backend/modules/operacional/controllers/redesign_builders/saude_ocupacional.py
+  POST     /api/v1/people-management/sst/epi/fichas/gerar
+           → Gera ficha de EPI consolidando as entregas SEM ficha de um funcionário.  [co-ocorrencia epi+fichas] backend/modules/operacional/controllers/redesign_builders/saude_ocupacional.py
+  GET      /api/v1/people-management/sst/epi/fichas/{ficha_id}/pdf
+           → Download do PDF padrão-ouro da ficha (bloco de autenticidade se assinada).  [co-ocorrencia epi+fichas] backend/modules/operacional/controllers/redesign_builders/saude_ocupacional.py
+  GET      /api/v1/people-management/sst/esocial/fila
+           → Fila do backlog eSocial (S-2220/S-2230/S-2240) com dry-run honesto por item.  [co-ocorrencia esocial+sst] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/sst/estabilidade/ativos
+           → Colaboradores em estabilidade pos-acidente (CCT 2026 Clausula 29a).  [co-ocorrencia estabilidade+sst] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/sst/nr1/compliance
+           → Painel 'CALÇADO NR-1' por funcionário ativo — score HONESTO.  [co-ocorrencia nr1+compliance] backend/modules/operacional/controllers/redesign_builders/saude_ocupacional.py
+  GET      /api/v1/people-management/sst/nr1/compliance/pdf
+           → Relatório de Compliance NR-1 em PDF padrão-ouro (marca Conecta Mais).  [co-ocorrencia nr1+compliance] backend/modules/operacional/controllers/redesign_builders/saude_ocupacional.py
+  GET      /api/v1/people-management/sst/nr1/dashboard
+           → Dashboard NR-1 — indice de risco calculado dinamicamente.  [co-ocorrencia nr1+sst] backend/modules/operacional/controllers/redesign_builders/saude_ocupacional.py
+  GET      /api/v1/people-management/sst/ppp/{employee_id}
+           → Gera PPP (Perfil Profissiográfico Previdenciário) de um funcionário.  [co-ocorrencia ppp+sst] backend/modules/operacional/controllers/redesign_builders/saude_ocupacional.py
+  GET      /api/v1/people-management/sst/ppp/{employee_id}/pdf
+           → PPP em PDF padrão-ouro (marca Conecta Mais) — documento oficial p/ INSS.  [co-ocorrencia ppp+sst] backend/modules/operacional/controllers/redesign_builders/saude_ocupacional.py
+  POST     /api/v1/people-management/sst/risco
+           → Mapeia um risco ocupacional.  [co-ocorrencia sst+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/sst/riscos
+           → Lista riscos ocupacionais (gp_risks) com nome legível do posto.  [co-ocorrencia sst+people-management] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+           /api/v1/people-management/ws/gp/{user_id}
+           → Endpoint WebSocket para eventos de Gestao de Pessoas.  [segmento unico 'people-management' (prova fraca)] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
