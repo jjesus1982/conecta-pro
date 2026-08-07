@@ -33,6 +33,7 @@ GRUPOS = [
         ("banco-horas-compensar", "Compensar horas")]),
     ("g-diaristas", "Diaristas", "Diárias, cadastro, escala e fechamento", [
         ("diarias", "Lançar diárias"), ("diaristas", "Diaristas"), ("diaristas-escala", "Escala diaristas"),
+        ("diarista-escala-criar", "Escalar diarista"),
         ("diaristas-fechamento", "Fechamento"), ("lancar-diaria", "Lançar diária"),
         ("cadastrar-diarista", "Cadastrar diarista"), ("diarista-ativar", "Ativar diarista"),
         ("diarista-desativar", "Desativar diarista"), ("diarista-avaliar", "Avaliar diarista"),

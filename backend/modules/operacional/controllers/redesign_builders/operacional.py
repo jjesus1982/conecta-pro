@@ -882,6 +882,35 @@ async def rd_action_substituicao_concluir(current_user: CurrentActiveUser, paylo
     return {"ok": True, "msg": "Substituição concluída."}
 
 
+@router.post("/action/diarista-escala-criar")
+async def rd_action_diarista_escala_criar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Agenda um diarista (diarist_schedules) — reuso do DiaristService.create_schedule.
+    Dá create-path à tabela diarist_schedules (antes só-leitura no redesign). valor_previsto ≠ pagamento (OTP fica no financeiro)."""
+    import uuid as _uuid
+
+    from fastapi import HTTPException
+
+    from modules.operacional.diaristas.schemas.diarist_schemas import DiaristScheduleCreate
+    from modules.operacional.diaristas.services.diarist_service import DiaristService
+    try:
+        did = _uuid.UUID((payload.get("diarist_id") or "").strip())
+        cond = _uuid.UUID((payload.get("condominio_id") or "").strip())
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Selecione diarista e condomínio.")
+    if not (payload.get("data_trabalho") or "").strip():
+        raise HTTPException(status_code=400, detail="Informe a data de trabalho.")
+    kw = {"diarist_id": did, "condominio_id": cond, "data_trabalho": payload["data_trabalho"].strip()}
+    for k in ("hora_inicio", "hora_fim", "valor_previsto", "observacoes"):
+        if payload.get(k):
+            kw[k] = payload[k]
+    try:
+        data = DiaristScheduleCreate(**kw)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Dados inválidos: {e}")
+    r = await DiaristService(db).create_schedule(data)
+    return {"ok": True, "msg": "Escala de diarista criada.", "id": str(getattr(r, "id", "") or "")}
+
+
 # F0: menu extra ZERADO — as antigas entradas de ação viram ABAS dos 8 grupos (_op_grupos.py),
 # igual ao financeiro. A navegação agrupada evita a sidebar com 60+ itens soltos.
 EXTRA_MENU: list[dict] = []
@@ -1835,6 +1864,19 @@ async def build(db) -> dict:
             "fields": [{"key": "condominio_id", "label": "Condomínio*", "type": "select", "span": "span 2", "ph": "Selecione",
                         "options": [{"value": str(i), "label": n} for i, n in _conds]},
                        {"key": "competencia", "label": "Competência (AAAA-MM)*", "type": "text", "span": "span 1", "ph": "2026-07"}]}
+        out["diarista-escala-criar"] = {
+            "title": "Escalar diarista (agenda)", "sub": "Agenda um diarista para um dia num condomínio (valor previsto ≠ pagamento)", "cta": "Escalar",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/diarista-escala-criar", "okMsg": "Escala criada"},
+            "fields": [
+                {"key": "diarist_id", "label": "Diarista*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _diopt(_di_on)},
+                {"key": "condominio_id", "label": "Condomínio*", "type": "select", "span": "span 2", "ph": "Selecione",
+                 "options": [{"value": str(i), "label": n} for i, n in _conds]},
+                {"key": "data_trabalho", "label": "Data*", "type": "date", "span": "span 1"},
+                {"key": "hora_inicio", "label": "Início", "type": "text", "span": "span 1", "ph": "HH:MM (pad 08:00)"},
+                {"key": "hora_fim", "label": "Fim", "type": "text", "span": "span 1", "ph": "HH:MM (pad 17:00)"},
+                {"key": "valor_previsto", "label": "Valor previsto (R$)", "type": "text", "span": "span 1", "ph": "Opcional"},
+                {"key": "observacoes", "label": "Observações", "type": "textarea", "span": "span 2", "ph": "Opcional…"},
+            ]}
     except Exception:  # noqa: BLE001
         await db.rollback()
 
