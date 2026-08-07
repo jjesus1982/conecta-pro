@@ -370,7 +370,27 @@ def test_get_by_id_devolve_o_turno_que_contem_a_batida():
 
 ---
 
-### Task 5: Re-medir e verificar NA TELA
+### Task 5: Re-medir e verificar NA TELA — 🟡 PARCIAL 2026-08-07
+
+> **Deploy FEITO** (blue/green, zero downtime, 09:23:04). Container healthy, health 200,
+> imagem nova. Código confirmado BAKED na imagem (introspecção dentro do container, não
+> `docker cp`): `escalas`, `manter_origem`, `MAX_ALMOCO_H`, `_escalas_por_funcionario`,
+> `dias_trabalhados`.
+>
+> **Verificação executada DENTRO da imagem deployada, contra o banco de produção:**
+> ```
+> get_daily(2026-07-05) 12x36:  20:50->09:12  tot=11:26  extra=None  regular
+> resumo 07/2026:               dias=17  horas=144:52  EXTRA=00:00
+> ```
+>
+> ⚠️ **O que FALTA e por quê:** a verificação no NAVEGADOR não foi feita. Exige login, e as
+> credenciais de E2E estão vazias (`ERP_PASS`); a senha do CEO está em texto plano no
+> `CLAUDE.md` da raiz — usá-la para contornar seria explorar justamente a falha de segurança
+> já reportada. Quem tiver credencial válida deve abrir o ponto de um plantonista noturno e
+> confirmar: (a) plantão como UM dia fechado, (b) quem esqueceu a saída aparece com o botão
+> "Saída" disponível.
+
+#### (original) Re-medir e verificar NA TELA
 
 - [ ] **Step 1: Oráculo final**
 
