@@ -181,7 +181,12 @@ def conciliar_transacao(tx_id: str, conn) -> dict:
 
     valor_abs = abs(Decimal(str(tx["amount"])))
     tx_date = tx["transaction_date"]
-    tx_type = tx["transaction_type"]  # 'debit' | 'credit'
+    tx_type = tx["transaction_type"]  # 'debit' | 'credit' | 'pix_enviado' | ...
+    # Direção pelo SINAL do amount (confiável): saída (baixa de pagável) = amount<0; entrada = amount>0.
+    # Antes só olhava transaction_type=='debit', cego aos 4267 pix_enviado (a saída real dominante).
+    _amount_raw = Decimal(str(tx["amount"]))
+    es_saida = _amount_raw < 0
+    es_entrada = _amount_raw > 0
     descricao = tx["description"] or ""
 
     data_min = tx_date - timedelta(days=DATE_WINDOW)
@@ -202,8 +207,8 @@ def conciliar_transacao(tx_id: str, conn) -> dict:
     # Salvar contraparte na transação (enriquecimento)
     _atualizar_contraparte(tx_id, nome_contraparte, cnpj_contraparte, cur)
 
-    # ── DÉBITO → buscar em payable_accounts ──────────────────────────────────
-    if tx_type == "debit":
+    # ── SAÍDA (amount<0) → buscar em payable_accounts ────────────────────────
+    if es_saida:
         # Estratégia 1: valor exato ±R$0,01 + CNPJ da contraparte + data ±3 dias
         match = None
         tipo_match = ""
@@ -226,40 +231,34 @@ def conciliar_transacao(tx_id: str, conn) -> dict:
             match = cur.fetchone()
             tipo_match = "exato_cnpj_valor_data"
 
-        # Estratégia 2: valor exato ±R$0,01, data ±3 dias (sem CNPJ)
+        # Estratégia 2: valor exato ±R$0,01 + data ±3 dias, SÓ SE HOUVER 1 CANDIDATO (sem ambiguidade).
+        # Auto-baixa exige match EXATO e ÚNICO. A antiga estratégia fuzzy (±2% / ±7 dias) foi REMOVIDA:
+        # match fraco = risco de baixar a conta ERRADA = fabricar baixa. Esses casos ficam p/ baixa manual.
         if not match:
             cur.execute(
                 """
-                SELECT id, description, gross_value, net_value, due_date, status
+                SELECT count(*) AS n
                 FROM payable_accounts
                 WHERE status = 'pendente'
                   AND ABS(gross_value - %s) <= %s
                   AND due_date BETWEEN %s AND %s
-                ORDER BY ABS(gross_value - %s)
-                LIMIT 1
                 """,
-                (float(valor_abs), float(TOLERANCE), data_min, data_max, float(valor_abs)),
+                (float(valor_abs), float(TOLERANCE), data_min, data_max),
             )
-            match = cur.fetchone()
-            tipo_match = "valor_exato_data"
-
-        # Estratégia 3: valor ±2%, data ±7 dias (flexível)
-        if not match:
-            margem = float(valor_abs * TOLERANCE_PCT)
-            cur.execute(
-                """
-                SELECT id, description, gross_value, net_value, due_date, status
-                FROM payable_accounts
-                WHERE status = 'pendente'
-                  AND ABS(gross_value - %s) <= %s
-                  AND due_date BETWEEN %s AND %s
-                ORDER BY ABS(gross_value - %s)
-                LIMIT 1
-                """,
-                (float(valor_abs), margem, data_min_flex, data_max_flex, float(valor_abs)),
-            )
-            match = cur.fetchone()
-            tipo_match = "valor_flex_2pct"
+            if (cur.fetchone() or {}).get("n") == 1:
+                cur.execute(
+                    """
+                    SELECT id, description, gross_value, net_value, due_date, status
+                    FROM payable_accounts
+                    WHERE status = 'pendente'
+                      AND ABS(gross_value - %s) <= %s
+                      AND due_date BETWEEN %s AND %s
+                    LIMIT 1
+                    """,
+                    (float(valor_abs), float(TOLERANCE), data_min, data_max),
+                )
+                match = cur.fetchone()
+                tipo_match = "valor_exato_data_unico"
 
         if match:
             pay_id = match["id"]
@@ -321,8 +320,8 @@ def conciliar_transacao(tx_id: str, conn) -> dict:
                 "descricao": descricao,
             }
 
-    # ── CRÉDITO → buscar em receivable_accounts ───────────────────────────────
-    elif tx_type == "credit":
+    # ── ENTRADA (amount>0) → buscar em receivable_accounts ───────────────────
+    elif es_entrada:
         # Salvar contraparte também para créditos
         _atualizar_contraparte(tx_id, nome_contraparte, cnpj_contraparte, cur)
 
@@ -443,6 +442,47 @@ def conciliar_transacao(tx_id: str, conn) -> dict:
             }
 
     return {"status": "tipo_nao_processado", "tipo": tx_type}
+
+
+def conciliar_saidas(limite: int = 2000) -> dict:
+    """Auto-baixa de PAGÁVEIS por conciliação — SÓ saídas (amount<0), SÓ match EXATO (CNPJ+valor+data,
+    ou valor+data com candidato ÚNICO). Não toca recebíveis. Idempotente (pula conciliado/justificado).
+    Bookkeeping: marca 'pago' quando o débito bate exatamente com um pagável pendente. NÃO move dinheiro.
+    Para o beat diário. Os débitos sem match exato ficam com requires_justification p/ baixa manual."""
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id FROM bank_transactions
+        WHERE reconciliation_status NOT IN ('conciliado', 'justificado')
+          AND amount < 0
+        ORDER BY transaction_date DESC
+        LIMIT %s
+        """,
+        (limite,),
+    )
+    tx_ids = [str(r[0]) for r in cur.fetchall()]
+    cur.close()
+
+    baixados = 0
+    sem_match = 0
+    erros = 0
+    for tx_id in tx_ids:
+        try:
+            r = conciliar_transacao(tx_id, conn)
+            if r.get("tipo") == "debito_payable" and r.get("status") == "conciliado":
+                baixados += 1
+            else:
+                sem_match += 1
+        except Exception:  # noqa: BLE001 — uma tx nunca derruba o batch
+            erros += 1
+            try:
+                conn.rollback()
+            except Exception:  # noqa: BLE001, S110
+                pass
+    conn.close()
+    return {"baixados_auto": baixados, "sem_match_ou_ambiguo": sem_match,
+            "erros": erros, "total_saidas": len(tx_ids)}
 
 
 def conciliar_todas(limite: int = 649) -> dict:

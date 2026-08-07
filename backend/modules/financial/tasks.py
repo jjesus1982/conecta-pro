@@ -155,6 +155,26 @@ def inter_reconciliacao_diaria_task(self):
 
 
 @app.task(
+    name="financial.auto_baixa_pagaveis",
+    bind=True,
+    max_retries=1,
+)
+def auto_baixa_pagaveis_task(self):
+    """Auto-BAIXA de contas a pagar por conciliação — SÓ match EXATO (CNPJ+valor+data, ou valor+data
+    com candidato ÚNICO). Bookkeeping: marca 'pago' quando o débito bancário bate exatamente com um
+    pagável pendente. NÃO move dinheiro (pagar = fluxo OTP). Débitos sem match exato ficam p/ baixa
+    manual. Idempotente (pula conciliado/justificado). Roda após o sync do extrato."""
+    try:
+        from modules.financial.services import reconciliation_service as _rec
+        result = _rec.conciliar_saidas()
+        logger.info("[Financial Task] auto_baixa_pagaveis: %s", result)
+        return result
+    except Exception as exc:
+        logger.error("[Financial Task] auto_baixa_pagaveis error: %s", exc)
+        raise self.retry(exc=exc)
+
+
+@app.task(
     name="financial.inter_monitorar_pendentes",
     bind=True,
     max_retries=1,

@@ -206,6 +206,12 @@ app.conf.beat_schedule = {
         "schedule": crontab(hour=8, minute=0),
         "options": {"queue": "gov.batch"},
     },
+    # Auto-baixa de contas a pagar por conciliação (SÓ match exato) — após o sync do extrato (08:00).
+    "financeiro-auto-baixa-pagaveis": {
+        "task": "financial.auto_baixa_pagaveis",
+        "schedule": crontab(hour=8, minute=30),
+        "options": {"queue": "gov.batch"},
+    },
     # ── Multi-CNPJ E4: extrato Cora (Patrimonial) + conciliação líquido×NFS-e ──
     "financeiro-extrato-cora-diario": {
         "task": "financial.cora_sync_extrato",
