@@ -194,8 +194,9 @@ class TimeRecordService:
         result = await self.db.execute(sql, params)
         rows = result.mappings().all()
 
-        # Emparelhar batidas por employee + dia
-        records = self._pair_punches(rows)
+        records = self._pair_punches(
+            rows, escalas=await self._escalas_por_funcionario(rows)
+        )
         records = await self._fill_employee_names(records)
 
         # Filter by status if requested
@@ -266,7 +267,8 @@ class TimeRecordService:
             # no mesmo dia era arbitrario. Os registros sao chaveados pela batida de ENTRADA,
             # entao pedir a batida de SAIDA nunca acharia por id: dai o `_punch_ids`.
             alvo = str(row.get("punch_id") or row.get("id", ""))
-            for r in self._pair_punches(day_rows, manter_origem=True):
+            escalas = await self._escalas_por_funcionario(day_rows)
+            for r in self._pair_punches(day_rows, manter_origem=True, escalas=escalas):
                 if alvo in r.pop("_punch_ids", ()):
                     return r
 
@@ -872,7 +874,9 @@ class TimeRecordService:
         # Pareia na janela larga e mantem so os turnos que COMECARAM dentro do mes.
         records = [
             r
-            for r in self._pair_punches(rows)
+            for r in self._pair_punches(
+                rows, escalas=await self._escalas_por_funcionario(rows)
+            )
             if str(first_day) <= r["record_date"] <= str(last_day)
         ]
 
@@ -893,8 +897,15 @@ class TimeRecordService:
                     parts = rec["total_hours"].split(":")
                     mins = int(parts[0]) * 60 + int(parts[1])
                     total_worked_minutes += mins
-                    if mins > 480:  # 8h
-                        total_overtime_minutes += mins - 480
+                except (ValueError, IndexError):
+                    pass
+            # Soma a extra que o REGISTRO ja calculou -- recalcular aqui com o limiar de 480
+            # ignoraria a escala e devolveria hora extra para o 12x36 (decisao Jordan
+            # 2026-08-06). Fonte unica: _registro.
+            if rec.get("overtime_hours"):
+                try:
+                    ph = rec["overtime_hours"].split(":")
+                    total_overtime_minutes += int(ph[0]) * 60 + int(ph[1])
                 except (ValueError, IndexError):
                     pass
             if rec.get("status") in ("falta",):
@@ -986,7 +997,13 @@ class TimeRecordService:
         rows = result.mappings().all()
 
         # Pareia na janela larga, devolve so o dia pedido (o par pertence ao dia da entrada).
-        records = [r for r in self._pair_punches(rows) if r["record_date"] == str(record_date)]
+        records = [
+                r
+                for r in self._pair_punches(
+                    rows, escalas=await self._escalas_por_funcionario(rows)
+                )
+                if r["record_date"] == str(record_date)
+            ]
         records = await self._fill_employee_names(records)
 
         return {
@@ -1006,6 +1023,7 @@ class TimeRecordService:
         saida_p: dict[str, Any] | None,
         dur: int | None,
         lunch: tuple[dict[str, Any], dict[str, Any]] | None = None,
+        escala: str | None = None,
     ) -> dict[str, Any]:
         """Monta UM registro diario a partir das pontas do turno.
 
@@ -1031,7 +1049,13 @@ class TimeRecordService:
         # O par pertence ao dia da ENTRADA (mesma convencao de horas_service.parear_batidas):
         # senao o turno da virada seria contado nos dois dias.
         dia = (clock_in or clock_out).date()
-        overtime = max(0, dur - 480) if (fechado and dur) else 0
+        # DECISAO Jordan 2026-08-06: escala 12x36 NAO gera hora extra -- a CCT compensa o
+        # plantao por escala, nao por sobrejornada. As 4h alem das 8h de referencia sao a
+        # natureza do plantao, nao trabalho extraordinario. As HORAS trabalhadas continuam
+        # reais; so o rotulo de "extra" sai. Sem escala cadastrada seguimos a convencao da
+        # folha (calculo_service: `escala = emp[3] or "12x36"`), que trata o vazio como 12x36.
+        _e12x36 = (escala or "12x36").strip().lower() == "12x36"
+        overtime = 0 if _e12x36 else (max(0, dur - 480) if (fechado and dur) else 0)
         created_at = ref.get("created_at")
         updated_at = (saida_p or {}).get("updated_at") or ref.get("updated_at")
 
@@ -1065,7 +1089,11 @@ class TimeRecordService:
         }
 
     def _pair_punches(
-        self, rows: list[Any], *, manter_origem: bool = False
+        self,
+        rows: list[Any],
+        *,
+        manter_origem: bool = False,
+        escalas: dict[str, str] | None = None,
     ) -> list[dict[str, Any]]:
         """Emparelha batidas por funcionario, com DIRECAO.
 
@@ -1084,6 +1112,9 @@ class TimeRecordService:
         cronologica decide -- mas so se a duracao for turno plausivel. Batida sem par vira
         registro PARCIAL, nunca some. Orfa avanca UMA posicao: avancar duas desalinharia
         todo o resto do mes.
+
+        `escalas` mapeia employee_id -> escala_padrao (12x36 | 44h). Quem e 12x36 nao gera
+        hora extra (decisao do Jordan 2026-08-06). Ausente = tratado como 12x36, igual a folha.
 
         `manter_origem=True` preserva a chave interna `_punch_ids` (quais batidas cada
         registro consumiu). So o get_by_id usa: os registros sao chaveados pela batida de
@@ -1106,6 +1137,8 @@ class TimeRecordService:
         def _pid(p: dict[str, Any]) -> str:
             return str(p.get("punch_id") or p.get("id", ""))
 
+        _esc = escalas or {}
+
         def _emite(reg: dict[str, Any], *consumidas: dict[str, Any]) -> None:
             reg["_punch_ids"] = {_pid(x) for x in consumidas}
             records.append(reg)
@@ -1121,12 +1154,12 @@ class TimeRecordService:
                 # DIRECAO: uma saida nunca abre turno. E a ponta final de um turno que
                 # comecou antes desta janela -> registro parcial, nao par.
                 if tipo_a == "saida":
-                    _emite(self._registro(emp_id, None, a, None), a)
+                    _emite(self._registro(emp_id, None, a, None, escala=_esc.get(emp_id)), a)
                     i += 1
                     continue
 
                 if i + 1 >= n:
-                    _emite(self._registro(emp_id, a, None, None), a)
+                    _emite(self._registro(emp_id, a, None, None, escala=_esc.get(emp_id)), a)
                     break
 
                 b = punches[i + 1]
@@ -1153,7 +1186,7 @@ class TimeRecordService:
                         and str(c.get("punch_type", "")).lower() != "saida"
                     ):
                         _emite(
-                            self._registro(emp_id, a, d, bruto - intervalo, lunch=(b, c)),
+                            self._registro(emp_id, a, d, bruto - intervalo, lunch=(b, c), escala=_esc.get(emp_id)),
                             a, b, c, d,
                         )
                         i += 4
@@ -1162,11 +1195,11 @@ class TimeRecordService:
                 dur = _calc_minutes_between(a["punch_timestamp"], b["punch_timestamp"])
                 if not (0 < dur <= teto):
                     # Sem turno plausivel: `a` fica orfa e avanca UMA posicao.
-                    _emite(self._registro(emp_id, a, None, None), a)
+                    _emite(self._registro(emp_id, a, None, None, escala=_esc.get(emp_id)), a)
                     i += 1
                     continue
 
-                _emite(self._registro(emp_id, a, b, dur), a, b)
+                _emite(self._registro(emp_id, a, b, dur, escala=_esc.get(emp_id)), a, b)
                 i += 2
 
         records.sort(key=lambda r: r["record_date"], reverse=True)
@@ -1199,6 +1232,26 @@ class TimeRecordService:
             "created_at": row["created_at"].isoformat() if isinstance(row.get("created_at"), datetime) else None,
             "updated_at": row["updated_at"].isoformat() if isinstance(row.get("updated_at"), datetime) else None,
         }
+
+    async def _escalas_por_funcionario(self, rows: list[Any]) -> dict[str, str]:
+        """escala_padrao dos funcionarios presentes nas batidas (uma consulta, em lote).
+
+        Mesma fonte que a folha usa (`employees.escala_padrao`). Serve a regra do Jordan de
+        2026-08-06: 12x36 nao gera hora extra. Falha em silencio devolvendo {} -- sem escala
+        o pareador trata como 12x36, que e o lado conservador (nao inventa hora extra).
+        """
+        ids = {str(r["employee_id"]) for r in rows if r.get("employee_id") is not None}
+        if not ids:
+            return {}
+        try:
+            res = await self.db.execute(
+                text("SELECT id::text, escala_padrao FROM employees WHERE id::text = ANY(:ids)"),
+                {"ids": list(ids)},
+            )
+            return {row[0]: row[1] for row in res.fetchall() if row[1]}
+        except Exception:  # noqa: BLE001 — tela de ponto nao cai por causa da escala
+            logger.warning("Nao foi possivel resolver escala_padrao; tratando como 12x36")
+            return {}
 
     async def _get_employee_name(self, employee_id: str) -> str | None:
         """Busca nome do funcionario por ID."""

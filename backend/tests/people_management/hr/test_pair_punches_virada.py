@@ -97,6 +97,60 @@ def test_janela_de_um_dia_do_noturno_nao_fabrica_turno():
 
 
 # ---------------------------------------------------------------------------
+# HORA EXTRA POR ESCALA — decisao do Jordan em 2026-08-06.
+# ---------------------------------------------------------------------------
+
+
+def test_plantao_12x36_nao_gera_hora_extra():
+    """Decisao Jordan 2026-08-06: a CCT compensa o 12x36 por ESCALA, nao por sobrejornada.
+
+    O plantao tem 12h por natureza; as 4h alem das 8h de referencia nao sao trabalho
+    extraordinario. Sem esta regra, um agente 12x36 aparecia com ~+60h/mes de hora extra
+    na tela do RH -- numero que a folha nao paga e que induziria o DP ao erro.
+    """
+    rows = [
+        _punch("emp-15", "2026-07-10T19:00:00", "entrada", "a"),
+        _punch("emp-15", "2026-07-11T07:00:00", "saida", "b"),
+    ]
+
+    recs = TimeRecordService(None)._pair_punches(rows, escalas={"emp-15": "12x36"})
+
+    assert recs[0]["total_hours"] == "12:00", "as HORAS trabalhadas continuam reais"
+    assert recs[0]["overtime_hours"] is None, "12x36 nao gera hora extra"
+
+
+def test_escala_44h_continua_gerando_hora_extra():
+    """A regra e do 12x36. Quem e 44h e ficou 10h fez 2h extras DE VERDADE."""
+    rows = [
+        _punch("emp-16", "2026-07-10T08:00:00", "entrada", "a"),
+        _punch("emp-16", "2026-07-10T18:00:00", "saida", "b"),
+    ]
+
+    recs = TimeRecordService(None)._pair_punches(rows, escalas={"emp-16": "44h"})
+
+    assert recs[0]["total_hours"] == "10:00"
+    assert recs[0]["overtime_hours"] == "02:00"
+
+
+def test_escala_desconhecida_nao_inventa_hora_extra():
+    """Sem escala cadastrada, segue a convencao da folha: trata como 12x36.
+
+    `calculo_service` resolve com `escala = emp[3] or "12x36"`. Adotar o mesmo default
+    aqui evita que um cadastro incompleto (1 funcionario ativo com escala_padrao nula em
+    2026-08-06) vire hora extra fantasma na tela.
+    """
+    rows = [
+        _punch("emp-17", "2026-07-10T19:00:00", "entrada", "a"),
+        _punch("emp-17", "2026-07-11T07:00:00", "saida", "b"),
+    ]
+
+    recs = TimeRecordService(None)._pair_punches(rows)  # sem mapa de escalas
+
+    assert recs[0]["total_hours"] == "12:00"
+    assert recs[0]["overtime_hours"] is None
+
+
+# ---------------------------------------------------------------------------
 # GUARDAS DE REGRESSAO — passam hoje, nao podem quebrar no redesenho.
 # ---------------------------------------------------------------------------
 
