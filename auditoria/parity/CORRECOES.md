@@ -81,3 +81,23 @@ Estratégia aprovada (2026-07-20): B+C — clássico segue operacional; corrijo 
 
 **Commits:** `2ab0b3a5` (KPI "não calculado"+coluna Atualizado) · `fa1c3860` (3 coletores reais) · `c5a4b41f` (fix 502 + sync background) · docs `1f3aa795`/`92e4ed37`/`179bb54c`. Frota celery recriada na imagem `fb37e651`. Provado no browser (Playwright): telas `saldos` e `raio-x` com dado real, screenshots salvos.
 | 39 | juridico | Riscos jurídicos VAZIO (clássico mostra 53 colab) | tela `riscos` reusa riscos_service.riscos_trabalhista (números batem) | oráculo+build: 53 colab, total R$242.007,79, 1ª linha idêntica ao clássico | ✅ FECHADO (Fase 2, fidelidade) |
+
+## 2026-08-07 · T5 · Marketing Agentificação (plano 2026-08-07) — Rung 1
+
+### Task 1a — elo lead→cliente: drift model×banco CORRIGIDO · commit `bc059add`
+**Furo encontrado no plano:** a Task 1 mandava só adicionar `client_id` ao `LeadUpdate`.
+Insuficiente — `Lead.client_id` **não estava mapeado no SQLAlchemy** (a coluna e a FK
+`leads_client_id_fkey` já existiam no banco). Sem o mapeamento, `setattr` viraria atributo
+Python solto: PUT devolveria 200, tela verde, e `leads.client_id` seguiria 0/27.
+Quarto caso do mesmo padrão de falso-positivo neste módulo.
+
+- `Lead.client_id` mapeado **sem** `ForeignKey()` — `clients` vive em `modules.clients`,
+  fora do registry quando só o Lead é importado (`NoReferencedTableError`). Integridade
+  real permanece no banco.
+- `LeadUpdate.client_id` adicionado. `LeadRepository.update` intocado (já copia via
+  `model_dump(exclude_unset=True)`).
+- `Client.lead_id` **já estava** mapeado — o drift era unilateral.
+
+**PROVA (banco):** `LeadRepository.update(lead, LeadUpdate(client_id=...))` → `SELECT
+client_id FROM leads WHERE id=...` retornou o valor gravado → revertido para NULL
+(base limpa). Sem pytest no container; asserções rodadas via `python3 -c` no `conecta-pro-backend`.
