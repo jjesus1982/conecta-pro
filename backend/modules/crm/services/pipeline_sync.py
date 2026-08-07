@@ -60,6 +60,44 @@ def stage_for_proposal_status(status: str | None) -> str:
     return _STATUS_TO_STAGE.get((status or "").lower(), "proposal")
 
 
+async def _lead_id_for_proposal(db: AsyncSession, proposal) -> str | None:
+    """Lead de ORIGEM da proposta: match ÚNICO por telefone canônico ou e-mail.
+    Ambíguo (2+ leads) ou sem match -> None. Nunca adivinha."""
+    from modules.crm.services.phone import match_key_br
+
+    key = match_key_br(getattr(proposal, "client_phone", None))
+    email = (getattr(proposal, "client_email", None) or "").strip().lower()
+    if not key and not email:
+        return None
+    rows = (
+        await db.execute(
+            text(
+                "SELECT id, phone, lower(coalesce(email,'')) FROM leads WHERE coalesce(is_active,true) "
+                "AND (right(regexp_replace(coalesce(phone,''),'\\D','','g'),8)=:p8 "
+                "     OR (:em<>'' AND lower(coalesce(email,''))=:em))"
+            ),
+            # Sem telefone: sentinela não-dígito ('-' nunca casa com right(dígitos,8), e ''
+            # casaria com todo lead sem telefone). \x00 é proibido em texto no Postgres.
+            {"p8": key[-8:] if key else "-", "em": email},
+        )
+    ).all()
+    ids = {str(r[0]) for r in rows if (key and match_key_br(r[1]) == key) or (email and r[2] == email)}
+    return ids.pop() if len(ids) == 1 else None
+
+
+async def _link_lead_client(db: AsyncSession, lead_id: str | None, client_id: str | None) -> None:
+    """Elo nos DOIS sentidos (leads.client_id / clients.lead_id). Idempotente: só preenche
+    o que está vazio, nunca sobrescreve um elo já curado. Caller commita."""
+    if not (lead_id and client_id):
+        return
+    await db.execute(
+        text("UPDATE clients SET lead_id=:l WHERE id=:c AND lead_id IS NULL"), {"l": lead_id, "c": client_id}
+    )
+    await db.execute(
+        text("UPDATE leads SET client_id=:c WHERE id=:l AND client_id IS NULL"), {"c": client_id, "l": lead_id}
+    )
+
+
 async def ensure_opportunity_for_lead(db: AsyncSession, lead) -> str | None:
     """Lead qualificado -> deal no pipeline. Idempotente (1 deal por lead_id) e best-effort.
     new/contacted não criam deal; lost só move um deal existente p/ Perdido."""
@@ -161,6 +199,9 @@ async def sync_opportunity_for_proposal(db: AsyncSession, proposal) -> str | Non
         opp = Opportunity(
             id=str(uuid4()),
             title=(getattr(proposal, "title", None) or f"Proposta {numero}")[:255],
+            # Forward-link da atribuição: sem lead_id aqui, o elo lead->cliente nunca nasce
+            # (é daqui que _ensure_client_from_proposal tira o lead_id do cliente).
+            lead_id=await _lead_id_for_proposal(db, proposal),
             contact_name=(
                 getattr(proposal, "client_company", None) or getattr(proposal, "client_name", None) or "Cliente"
             )[:255],
@@ -209,31 +250,17 @@ async def ensure_contract_for_proposal(db: AsyncSession, proposal) -> str | None
         if existing:
             return str(existing[0])
 
-        # Resolve cliente por documento (CNPJ/CPF) na própria sessão da request.
+        # Resolve o cliente por documento (CNPJ/CPF): acha ou cria, e liga o elo lead<->cliente.
         digits = re.sub(r"\D", "", getattr(proposal, "client_document", "") or "")
-        client_id = None
-        if digits:
-            row = (
-                await db.execute(
-                    text(
-                        "SELECT id FROM clients WHERE regexp_replace(coalesce(document_number,''),'\\D','','g')=:d AND ativo LIMIT 1"
-                    ),
-                    {"d": digits},
-                )
-            ).first()
-            if row:
-                client_id = str(row[0])
+        if not digits:
+            logger.info(
+                "Won->contrato: proposta %s sem CNPJ/CPF -> contrato não criado", getattr(proposal, "number", "?")
+            )
+            return None
+        client_id = await _ensure_client_from_proposal(proposal, digits)
         if not client_id:
-            # Cliente não cadastrado -> cria automaticamente a partir dos dados da proposta.
-            if not digits:
-                logger.info(
-                    "Won->contrato: proposta %s sem CNPJ/CPF -> contrato não criado", getattr(proposal, "number", "?")
-                )
-                return None
-            client_id = await _ensure_client_from_proposal(proposal, digits)
-            if not client_id:
-                logger.info("Won->contrato: falha ao criar cliente p/ proposta %s", getattr(proposal, "number", "?"))
-                return None
+            logger.info("Won->contrato: falha ao resolver cliente p/ proposta %s", getattr(proposal, "number", "?"))
+            return None
 
         # Monta e cria o contrato (DRAFT) via repositório.
         from modules.crm.models.contract import ContractType
@@ -328,6 +355,16 @@ async def _ensure_client_from_proposal(proposal, digits: str) -> str | None:
         email = getattr(proposal, "client_email", None)
         opp_id = getattr(proposal, "opportunity_id", None)
         async with async_session_factory() as s:
+            lead_id = None
+            if opp_id:
+                lr = (
+                    await s.execute(text("SELECT lead_id FROM opportunities WHERE id=:o"), {"o": str(opp_id)})
+                ).first()
+                if lr and lr[0]:
+                    lead_id = str(lr[0])
+            if not lead_id:
+                lead_id = await _lead_id_for_proposal(s, proposal)
+
             row = (
                 await s.execute(
                     text(
@@ -337,14 +374,10 @@ async def _ensure_client_from_proposal(proposal, digits: str) -> str | None:
                 )
             ).first()
             if row:
+                # Cliente já existia: o elo continua sendo nosso (é o join da atribuição).
+                await _link_lead_client(s, lead_id, str(row[0]))
+                await s.commit()
                 return str(row[0])
-            lead_id = None
-            if opp_id:
-                lr = (
-                    await s.execute(text("SELECT lead_id FROM opportunities WHERE id=:o"), {"o": str(opp_id)})
-                ).first()
-                if lr and lr[0]:
-                    lead_id = str(lr[0])
             seq_row = (
                 await s.execute(
                     text(
@@ -378,6 +411,8 @@ async def _ensure_client_from_proposal(proposal, digits: str) -> str | None:
                     },
                 )
             ).first()
+            # clients.lead_id já foi no INSERT; falta o lado leads.client_id.
+            await _link_lead_client(s, lead_id, str(ins[0]))
             await s.commit()
             logger.info("Won->contrato: cliente %s criado da proposta %s", code, getattr(proposal, "number", "?"))
             return str(ins[0])

@@ -5,6 +5,8 @@ Módulo majoritariamente não construído no clássico: só `leads` tem dado rea
 drafts de conteúdo) → 0 linhas HONESTAS ("aguardando dado"), nunca mock.
 """
 
+from sqlalchemy import text
+
 from modules.operacional.controllers.redesign_data_controller import (
     _helpers,
     b,
@@ -94,14 +96,32 @@ async def build(db) -> dict:
     out, safe, tbl = _helpers(db)
 
     # 1) Funil — leads. id em r[0] p/ a ação de conversão (POST /leads/{id}/convert).
+    # Clientes ativos p/ o select da ação "Vincular a cliente" (molde: crm.py cli_opts).
+    _cli_opts = [{"value": str(i), "label": n} for i, n in (await db.execute(text(
+        "SELECT id, name FROM clients WHERE coalesce(ativo,true)=true ORDER BY name LIMIT 500"))).fetchall()]
+
+    def _funil_actions(r):
+        """Elo lead->cliente pela tela. PUT /crm/leads/{id} (LeadUpdate aceita client_id).
+        É o join da atribuição de origem — sem ele, MRR por origem é chute."""
+        ja = r[6]
+        return [{"title": f"Vincular “{r[1] or 'lead'}” a um cliente"
+                 + (f" (hoje: {ja})" if ja else ""),
+                 "endpoint": f"/api/v1/crm/leads/{r[0]}", "method": "PUT",
+                 "btnLabel": "Vincular", "submitLabel": "Salvar vínculo",
+                 "btnStyle": "primary", "okMsg": "Lead vinculado ao cliente. Recarregue a tela.",
+                 "fields": [{"key": "client_id", "label": "Cliente*", "type": "select", "span": "span 2",
+                             "ph": "Selecione o cliente", "options": _cli_opts}]}]
+
     await safe("funil", tbl(
         "Funil", "Leads no funil comercial", "Novo lead",
         ["Lead", "Empresa", "Origem", "Score", "Status"],
         "1.8fr 1.6fr 1fr 0.7fr 0.9fr",
-        "SELECT id, coalesce(name,'—'), coalesce(company,'—'), coalesce(source,'—'), "
-        "coalesce(score,0), coalesce(status,'—') FROM leads WHERE coalesce(is_active,true) "
-        "ORDER BY score DESC NULLS LAST, created_at DESC LIMIT 200",
-        lambda r: [t(r[1] or "—", 600, _ND), t(r[2]), t(_lead_src(r[3])), t(str(r[4])), _lead_status(r[5])]))
+        "SELECT l.id, coalesce(l.name,'—'), coalesce(l.company,'—'), coalesce(l.source,'—'), "
+        "coalesce(l.score,0), coalesce(l.status,'—'), cl.name FROM leads l "
+        "LEFT JOIN clients cl ON cl.id = l.client_id WHERE coalesce(l.is_active,true) "
+        "ORDER BY l.score DESC NULLS LAST, l.created_at DESC LIMIT 200",
+        lambda r: [t(r[1] or "—", 600, _ND), t(r[2]), t(_lead_src(r[3])), t(str(r[4])), _lead_status(r[5])],
+        actionsfn=_funil_actions))
     # SEM ação de converter aqui: o funil lê `leads` (CRM) e /marketing/leads/{id}/convert
     # busca em `marketing_leads` — tabelas distintas. A conversão vive no lead-magnet.
     # O clássico também não tem escrita no funil (0 ações).

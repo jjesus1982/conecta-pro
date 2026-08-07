@@ -27,6 +27,16 @@ def canonical_br(raw: object) -> str | None:
     return d[:20] or None
 
 
+def match_key_br(raw: object) -> str | None:
+    """Chave de PAREAMENTO: DDD + 8 últimos dígitos ('9285844357'). Casa '9285844357' com
+    '92985844357'/'+5592985844357' (nono dígito e DDI variam entre cadastros). None se < 10
+    dígitos (curto demais p/ afirmar que é a mesma pessoa — nunca adivinhar)."""
+    c = canonical_br(raw)
+    if not c or len(c) < 10:
+        return None
+    return c[:2] + c[-8:]
+
+
 def to_e164_br(raw: object) -> str | None:
     """+55DDDNUMERO. Valida 10 (fixo) ou 11 (celular) dígitos nacionais. None se inválido."""
     c = canonical_br(raw)
