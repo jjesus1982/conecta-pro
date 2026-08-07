@@ -59,18 +59,37 @@ ninguém faz em paralelo agora).
 - [x] T3 rh (10/10): vagas(job_positions 10)·candidaturas(applications 8)·onboarding(admission_processes 3)·treinamentos(trainings 5)·cursos(training_courses 9)·avaliacoes(operacional_avaliacoes_equipe 3)·carreira(career_plans 11)·clima(climate_surveys 3)·turnover(turnover_audit_logs 5)·ia(rh_consultas 4). Gotchas: enum status/category→::text, competencia DATE→to_char. Deploy+HTTP200 provado.
 - [x] T3 marketing (7/7, módulo era 100% mock): funil(leads 14 reais)·campanhas·lead-magnet·biblioteca·copywriter·estrategista·brand-voice (marketing_campaigns/assets/content_drafts reais, hoje 0=honesto). Deploy+HTTP200 provado.
 
-> 🔴 **PENDÊNCIA ABERTA — 8 caminhos concorrentes criam LEAD (achado por graphify, 2026-08-06).**
-> Não há um serviço comum de criação de lead. Oito pontos de escrita, em 3 módulos:
+> 🔴 **PENDÊNCIA ABERTA — 10 caminhos concorrentes criam LEAD.**
+> _(Revisado 2026-08-07 por leitura função-a-função. A versão anterior dizia "8" e estava
+> ERRADA: eu inferi semântica dos rótulos do grafo sem abrir as funções. O grafo mostra
+> proximidade, não o que cada função faz.)_
+> Não há um serviço comum de criação de lead. Dez pontos de escrita em `leads`, em 4 módulos:
 > ```
-> visita_registrar_lead()      crm/controllers/growth_controller.py
-> create_lead()                crm/controllers/lead_controller.py
-> converter_lead_para_crm()    crm/controllers/marketing_controller.py
-> criar_mkt_lead()             crm/controllers/marketing_controller.py
-> registrar_lead_da_visita()   crm/services/visit_reports.py
-> _criar_lead_para_conversa()  integrations/connectors/whatsapp/agent_service.py
-> _tool_registrar_lead()       integrations/connectors/whatsapp/agent_service.py
-> _match_or_create_lead()      integrations/connectors/whatsapp/controller.py
+> create_lead()                 crm/controllers/lead_controller.py:33      dedup: email
+> converter_lead_para_crm()     crm/controllers/marketing_controller.py:223  dedup: NENHUM
+> converter_licitacao_para_crm() crm/controllers/marketing_controller.py:330 dedup: NENHUM
+> registrar_lead_da_visita()    crm/services/visit_reports.py:191          dedup: telefone
+> _criar_lead_para_conversa()   whatsapp/agent_service.py:817              dedup: telefone
+> _match_or_create_lead()       whatsapp/controller.py:202                 dedup: telefone+ativo
+> _propor_criar_lead()          ai/.../tools_acao_crm.py:35                dedup: nome+fone+email
+> rd_action_lead()              operacional/.../redesign_data_controller.py:2252  dedup: email
+> public_form_submit()   🔴     crm/controllers/growth_controller.py:640   dedup: NENHUM · SEM AUTH
+> public_booking_create() 🔴    crm/controllers/growth_controller.py:772   dedup: NENHUM · SEM AUTH
 > ```
+> **NÃO são pontos de criação** (constavam errado antes): `visita_registrar_lead` (wrapper HTTP
+> de registrar_lead_da_visita) · `_tool_registrar_lead` (só UPDATE; cria via auto-cura) ·
+> `criar_mkt_lead` (escreve em `marketing_leads`, NUNCA em `leads`).
+>
+> 🔴 **Dois endpoints PÚBLICOS sem auth e sem dedup** — superfície aberta de flood de lead.
+> 🔴 **`probability` em escalas incompatíveis EM PRODUÇÃO**: `0.3`/`0.6` (marketing) vs `50`
+> (visitas) vs `0–100` (ORM). Coluna Float sem constraint, e `weighted_value`/`is_hot` leem
+> esse campo → métrica de pipeline mistura fração com percentual hoje.
+> 🟡 Scoring só em 3 dos 10; o resto grava constante. `SOURCE_SCORES` não conhece as 5 fontes
+> novas (lead de landing pontua como "other"). Dois motores concorrentes: `create_lead` chama
+> o `LeadScoringEngine` e o `recompute_lead_score` sobrescreve em seguida.
+> ✅ **Já existe o que falta:** `crm/services/phone.py` → `match_key_br()` (DDD + 8 últimos
+> dígitos, resolve nono dígito e DDI) e `pipeline_sync._lead_id_for_proposal` (casa por
+> telefone OU email, devolve None se ambíguo). Não escrever dedup novo.
 > **Consequência já materializada:** a atribuição de origem (`leads.source`, commits `bbf18868`
 > + `65abeeed`) cobre só **2 dos 8**. Lead criado por visita/growth/lead_controller continua sem
 > origem correta → MRR por canal fica incompleto. Cada caminho reimplementa dedup, origem e
