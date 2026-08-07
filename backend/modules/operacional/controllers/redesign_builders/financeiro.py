@@ -1651,6 +1651,31 @@ async def _rd_folha_clt_cora(db, payload: dict) -> dict:
         f"está em DP → Holerites.{aviso}")}
 
 
+async def _baixar_pagavel_folha(db, mes: int, ano: int, quem: str = "") -> None:
+    """Link pagamento→baixa: depois que a folha CLT foi PAGA de verdade (money-out já OTP-gated via
+    Inter), dá baixa no pagável da folha daquela competência (se existir e pendente). Bookkeeping
+    best-effort: NUNCA derruba o pagamento, idempotente (só 'pendente'), NÃO move dinheiro. Assim a
+    folha não fica 'pendente' no livro depois de paga (era o caso do registro velho de Março)."""
+    import logging as _logging
+    try:
+        await db.execute(text(
+            "UPDATE payable_accounts SET status='pago', payment_date=CURRENT_DATE, paid_at=NOW(), "
+            "paid_value=net_value, remaining_value=0, updated_at=NOW(), "
+            "internal_notes = coalesce(internal_notes,'') || :nota "
+            "WHERE status='pendente' AND description ILIKE '%folha%' "
+            "AND date_trunc('month', due_date) BETWEEN make_date(:ano,:mes,1) "
+            "    AND make_date(:ano,:mes,1) + interval '1 month'"),
+            {"ano": ano, "mes": mes,
+             "nota": f" | baixa auto: folha {mes:02d}/{ano} paga via sistema por {quem or 'gestor'}"})
+        await db.commit()
+    except Exception as e:  # noqa: BLE001
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001, S110
+            pass
+        _logging.getLogger("financeiro.redesign").warning("[folha] baixa do pagável falhou (segue): %s", e)
+
+
 @router.post("/action/pagar-folha-clt", dependencies=[Depends(_require_financeiro_dep)])
 async def _rd_pagar_folha_clt(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
     """Pagar a FOLHA CLT (líquido dos funcionários) via PIX Inter — DINHEIRO QUE SAI.
@@ -1683,6 +1708,9 @@ async def _rd_pagar_folha_clt(current_user: CurrentActiveUser, payload: dict = B
         raise HTTPException(status_code=400, detail=r.get("mensagem") or "OTP inválido ou obrigatório.")
     if not r.get("ok"):
         raise HTTPException(status_code=400, detail=r.get("mensagem") or "Não foi possível pagar a folha.")
+    # Link pagamento→baixa: folha paga de verdade (Inter, OTP) → baixa o pagável da competência.
+    await _baixar_pagavel_folha(db, mes, ano,
+                                quem=str(getattr(current_user, "nome", None) or getattr(current_user, "id", "")))
     return {"ok": True, "message": f"Folha CLT paga: {r.get('pagos', r.get('sucesso', 0))} funcionário(s), "
             f"{r.get('falhas', 0)} falha(s)."}
 
