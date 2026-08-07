@@ -843,6 +843,28 @@ async def rd_action_banco_horas_compensar(current_user: CurrentActiveUser, paylo
     return {"ok": True, "msg": "Compensação de horas lançada."}
 
 
+@router.post("/action/avaliacao-criar")
+async def rd_action_avaliacao_criar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Registra avaliação de um colaborador (nota 1-5) — reuso do criar_avaliacao real.
+    Dá create-path à tabela operacional_avaliacoes_equipe (antes só-leitura no redesign)."""
+    from fastapi import HTTPException
+
+    from modules.operacional.team_evaluations.controllers.team_evaluation_controller import criar_avaliacao
+    from modules.operacional.team_evaluations.schemas import AvaliacaoCreate
+    eid = (payload.get("employee_id") or "").strip()
+    if not eid:
+        raise HTTPException(status_code=400, detail="Selecione o colaborador.")
+    try:
+        nota = int(payload.get("nota"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Nota (1 a 5) é obrigatória.")
+    data = AvaliacaoCreate(employee_id=eid, nota=nota,
+                           observacao=(payload.get("observacao") or None),
+                           competencia=(payload.get("competencia") or None))
+    await criar_avaliacao(data=data, scope=_mgr_scope(current_user), db=db)
+    return {"ok": True, "msg": "Avaliação registrada."}
+
+
 # F0: menu extra ZERADO — as antigas entradas de ação viram ABAS dos 8 grupos (_op_grupos.py),
 # igual ao financeiro. A navegação agrupada evita a sidebar com 60+ itens soltos.
 EXTRA_MENU: list[dict] = []
@@ -1211,6 +1233,17 @@ async def build(db) -> dict:
                 {"key": "hours", "label": "Horas a compensar*", "type": "text", "span": "span 1", "ph": "Ex.: 8 ou 2.5"},
                 {"key": "compensation_date", "label": "Data da compensação*", "type": "date", "span": "span 1"},
                 {"key": "notes", "label": "Observações", "type": "textarea", "span": "span 2", "ph": "Opcional…"},
+            ],
+        }
+        out["avaliacao-criar"] = {
+            "title": "Avaliar colaborador", "sub": "Registra avaliação de desempenho (nota 1 a 5) — alimenta o histórico da equipe", "cta": "Registrar avaliação",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/avaliacao-criar", "okMsg": "Avaliação registrada"},
+            "fields": [
+                {"key": "employee_id", "label": "Colaborador*", "type": "select", "span": "span 2", "ph": "Selecione o colaborador", "options": _emp_opts},
+                {"key": "nota", "label": "Nota (1-5)*", "type": "select", "span": "span 1", "ph": "Selecione",
+                 "options": [{"value": str(n), "label": f"{n} — {l}"} for n, l in [(5, "Excelente"), (4, "Bom"), (3, "Regular"), (2, "Abaixo"), (1, "Ruim")]]},
+                {"key": "competencia", "label": "Competência", "type": "date", "span": "span 1"},
+                {"key": "observacao", "label": "Observação", "type": "textarea", "span": "span 2", "ph": "Opcional…"},
             ],
         }
         out["nova-ronda"] = {

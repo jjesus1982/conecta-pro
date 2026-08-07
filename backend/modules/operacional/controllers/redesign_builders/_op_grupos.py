@@ -26,6 +26,7 @@ GRUPOS = [
         ("posto-localizacao", "Localização do posto"), ("posto-editar", "Editar posto")]),
     ("g-equipe", "Equipe & Ponto", "Colaboradores, avaliação e banco de horas", [
         ("colaboradores", "Colaboradores"), ("avaliacao-equipe", "Avaliação de equipe"),
+        ("avaliacao-criar", "Avaliar colaborador"),
         ("banco-horas", "Banco de horas"), ("banco-horas-lancar", "Lançar horas"),
         ("banco-horas-aprovar", "Aprovar horas"), ("banco-horas-rejeitar", "Rejeitar horas"),
         ("banco-horas-compensar", "Compensar horas")]),
