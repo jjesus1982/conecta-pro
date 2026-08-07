@@ -861,7 +861,23 @@ def _ver_todas_rec(screens: dict) -> None:
         for row in (scr.get("rows") or []):
             if not isinstance(row, dict):
                 continue
-            if row.get("edit") or any((a or {}).get("btnLabel") == "Ver" for a in (row.get("actions") or [])):
+            # Pular quando a linha JÁ tem como ser vista: uma ação "Ver", ou um `edit` que é
+            # de fato ver/editar o registro (ficha rica). Um `edit` cujo rótulo é AÇÃO DE
+            # DOMÍNIO ("Concluir", "Regenerar link", "Aprovar") não mostra a linha — ele faz
+            # outra coisa — e tratá-lo como visualização deixava a linha sem nenhum "Ver".
+            # Foi o que aconteceu na Admissão: a linha viva tinha Concluir/Editar/Excluir e
+            # nenhum Ver, enquanto as canceladas (sem ação) tinham.
+            # o default "Editar" só vale quando EXISTE um edit — sem esta guarda, linha
+            # nenhuma (que é a maioria) caía no default e era pulada, e as tabelas perdiam
+            # o "Ver" que já tinham. Pego ao conferir Prestadores PJ, não pela Admissão.
+            _e = row.get("edit")
+            if _e and (_e.get("btnLabel") or "Editar").strip().lower() in (
+                    "ver", "editar", "detalhe", "detalhes", "abrir"):
+                continue
+            # startswith e não igualdade: linhas com "Ver reembolso"/"Ver turno"/"Ver ronda" já
+            # abrem o registro — somar um "Ver" genérico ao lado seria só ruído.
+            if any(((a or {}).get("btnLabel") or "").strip().lower().startswith("ver")
+                   for a in (row.get("actions") or [])):
                 continue
             campos = [{"label": c, "value": (cell.get("v") if isinstance(cell, dict) else cell) or "—"}
                       for c, cell in zip(cols, (row.get("cells") or []))]
