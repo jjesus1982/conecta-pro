@@ -960,6 +960,97 @@ def _acoes_prestador_pj(r) -> list[dict]:
     return acoes
 
 
+#: Condomínios cujos AGENTES DE PORTARIA recebem intrajornada: trabalham a jornada inteira sem
+#: parar para almoço, então batem ponto 2×/dia (entrada e saída). Regra do Jordan em 07/08.
+#: Conferido contra a folha de julho: 18 dos 20 agentes de portaria destes 4 receberam a rubrica
+#: 0030/0031 (Intrajornada Diurno/Noturna) e NINGUÉM fora destes 4 recebeu. As 2 exceções são de
+#: mês parcial. SERVIÇOS GERAIS destes mesmos condomínios: 0 de 6 — esses almoçam e batem 4×.
+#: Medido nas batidas de agosto: 1,8 batidas/dia neste grupo contra 3,7 nos demais.
+#: `MIRANTE` = Mirante das Flores (confirmado pelo Jordan) e é DIFERENTE de `IDEAL FLORES`
+#: (= Ideal Flores da Cidade) — os nomes curtos na tabela `condominios` são abreviação.
+_CONDS_INTRAJORNADA = ("VILLA PÁSSAROS", "VILLA DEI FIORI", "PRIME ARENA", "MIRANTE")
+
+
+def _sql_ponto(meses: int = 3) -> str:
+    # 3 meses e não 12: o seletor de competência é CLIENT-SIDE (filterCol), então todo mês
+    # carregado viaja no payload — 4 meses davam 2,3 MB só nesta tela. 3 meses = mês corrente
+    # + 2 anteriores, ~1450 jornadas. Para ir mais atrás sem inchar a resposta, o caminho é um
+    # seletor server-side (refetch por competência), que é mudança de frontend.
+    """Batidas pareadas por JORNADA, com a competência para o seletor de mês.
+
+    O agrupamento usa o número ESPERADO de batidas de cada pessoa (2 ou 4) em vez de agrupar
+    por data de calendário: o 12x36 noturno entra ~19h e sai ~07h do dia seguinte, e agrupar
+    por `punch_timestamp::date` partia a jornada em dois dias furados.
+
+    A coluna "Batidas" mostra lidas/esperadas. Dia com menos batidas que o esperado aparece
+    como 3/4 — que é justamente o que o DP precisa enxergar. Não invento a batida que falta.
+    """
+    conds = ", ".join(f"'{c}'" for c in _CONDS_INTRAJORNADA)
+    return f"""
+WITH intra AS (
+  SELECT DISTINCT a.employee_id
+  FROM employee_alocacoes a JOIN condominios c ON c.id = a.condominio_id
+  WHERE a.ativo AND c.nome IN ({conds})
+    AND unaccent(upper(coalesce(a.funcao,''))) LIKE '%PORTARIA%'
+), p AS (
+  SELECT k.employee_id, k.punch_timestamp AS ts,
+         (i.employee_id IS NOT NULL) AS sem_almoco,
+         row_number() OVER (PARTITION BY k.employee_id ORDER BY k.punch_timestamp) AS rn
+  FROM gp_clock_punches k
+  LEFT JOIN intra i ON i.employee_id = k.employee_id
+  WHERE k.punch_timestamp >= date_trunc('month', now()) - interval '{meses - 1} months'
+    AND k.employee_id NOT IN (SELECT id FROM employees WHERE coalesce(is_homologacao,false) = true)
+), j AS (
+  -- GROUP BY e não window: o Postgres não implementa `agg(... ORDER BY ...) OVER (...)`
+  SELECT employee_id, sem_almoco,
+         array_agg(ts ORDER BY ts) AS marcas
+  FROM p
+  GROUP BY employee_id, sem_almoco, (rn - 1) / (CASE WHEN sem_almoco THEN 2 ELSE 4 END)
+), d AS (
+  SELECT employee_id, sem_almoco, marcas,
+         (marcas[1])::date AS dia,
+         array_length(marcas, 1) AS n,
+         CASE WHEN sem_almoco THEN 2 ELSE 4 END AS esperado
+  FROM j
+)
+SELECT e.nome, d.dia, d.marcas, d.n, d.esperado, d.sem_almoco,
+       to_char(d.dia, 'MM/YYYY') AS competencia, CAST(d.employee_id AS TEXT)
+FROM d LEFT JOIN employees e ON e.id = d.employee_id
+ORDER BY d.dia DESC, e.nome LIMIT 2000
+"""
+
+
+def _linha_ponto(r):
+    """Uma jornada: entrada, intervalo, saída e horas efetivamente trabalhadas.
+
+    Para quem almoça, o intervalo (2ª→3ª batida) é DESCONTADO do total — senão a tela mostraria
+    a pessoa trabalhando a hora do almoço. Para quem tem intrajornada não há o que descontar:
+    o turno é contínuo, e é por isso que a rubrica existe na folha.
+    """
+    marcas, n, esperado = r[2] or [], r[3] or 0, r[4]
+    ent = marcas[0] if marcas else None
+    sai = marcas[-1] if n >= 2 else None
+    almoco = None
+    if not r[5] and n >= 4:                       # 4 batidas: saída e volta do almoço
+        almoco = (marcas[2] - marcas[1]).total_seconds() / 60
+    liq = None
+    if ent and sai:
+        liq = (sai - ent).total_seconds() / 60 - (almoco or 0)
+    completo = n >= esperado
+    return [
+        t(r[0] or "—", 600, _ND, initials(r[0] or "")),
+        t(_d(r[1])),
+        t(ent.strftime("%H:%M") if ent else "--:--"),
+        t(f"{_hm(int(almoco))}" if almoco else ("—" if r[5] else "--:--")),
+        t(sai.strftime("%H:%M") if sai else "--:--"),
+        t(_hm(int(liq)) if (liq is not None and liq > 0) else "--:--"),
+        {"isBadge": True, "v": f"{n}/{esperado}",
+         "color": "#0F7B4F" if completo else "#B45309",
+         "bg": "#E7F6EF" if completo else "#FEF3C7"},
+        t(r[6]),
+    ]
+
+
 def _tela_registrar_licenca(_emp_opts) -> dict:
     return {
         "title": "Registrar licença/afastamento",
@@ -1553,48 +1644,43 @@ async def build(db, current_user=None) -> dict:
     _ENT = "lower(coalesce(punch_type,'')) LIKE 'entrada%'"
     _SAI = "(lower(coalesce(punch_type,'')) LIKE 'saida%' OR lower(coalesce(punch_type,'')) LIKE 'saída%')"
     await safe("ponto", tbl(
-        "Ponto", "Registros diários — entrada, saída e total", "—",
-        ["Colaborador", "Data", "Entrada", "Saída", "Total Horas"],
-        "2fr 1fr 0.9fr 0.9fr 1fr",
-        # Pareamento por JORNADA, não por data de calendário. O 12x36 NOTURNO entra ~19h do
-        # dia D e sai ~07h do dia D+1; agrupar por `punch_timestamp::date` PARTIA a jornada em
-        # dois "dias furados" (medido: só 9% dos dias do noturno apareciam pareados, e a coluna
-        # Saída mostrava "--:--"). Parear batidas alternadas (1ª→2ª, 3ª→4ª) atravessa a
-        # meia-noite: os furos reais caem de ~840 batidas para 29.
-        "SELECT e.nome, d.dia, d.entrada, d.saida, d.total_min, CAST(d.employee_id AS TEXT) FROM ("
-        "  SELECT employee_id, (min(ts))::date AS dia, min(ts) AS entrada, "
-        "         CASE WHEN count(*) > 1 THEN max(ts) END AS saida, "
-        "         CASE WHEN count(*) > 1 THEN (extract(epoch FROM (max(ts)-min(ts)))/60)::int END AS total_min "
-        "  FROM ("
-        "    SELECT employee_id, punch_timestamp AS ts, "
-        "           row_number() OVER (PARTITION BY employee_id ORDER BY punch_timestamp) AS rn "
-        "    FROM gp_clock_punches "
-        "    WHERE employee_id NOT IN (SELECT id FROM employees WHERE coalesce(is_homologacao,false)=true)"
-        "  ) o GROUP BY employee_id, (rn+1)/2"
-        ") d LEFT JOIN employees e ON e.id = d.employee_id "
-        "ORDER BY d.entrada DESC, e.nome LIMIT 300",
-        lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(_d(r[1])),
-                   t(r[2].strftime("%H:%M") if r[2] else "--:--"),
-                   t(r[3].strftime("%H:%M") if r[3] else "--:--"),
-                   t(_hm(r[4]) if (r[4] is not None and r[4] > 0) else "--:--")],
+        "Ponto",
+        "Jornadas do mês corrente. Troque a competência para ver meses anteriores. "
+        "A coluna Batidas mostra lidas/esperadas: quem tem intrajornada bate 2× (entrada e "
+        "saída), os demais batem 4× (entrada, almoço, volta, saída).",
+        "—",
+        ["Colaborador", "Data", "Entrada", "Intervalo", "Saída", "Trabalhadas", "Batidas",
+         "Competência"],
+        "1.7fr 0.8fr 0.7fr 0.8fr 0.7fr 0.9fr 0.7fr 0.9fr",
+        _sql_ponto(),
+        _linha_ponto,
         # AÇÃO por-linha: ajuste de ponto do DP. Grava batida REAL em gp_clock_punches
         # (device_type='ajuste_dp') — a MESMA tabela que esta tela lê. Vai pelo proxy
         # /redesign/action/ponto-ajuste porque `ajustado_por` tem que ser a identidade
         # REAL do usuário logado (nunca chumbada no builder).
+        # r[7] = employee_id (mudou de r[5] quando a query ganhou intervalo/batidas/competência).
         editfn=lambda r: {
             "title": f"Ajustar ponto — {r[0] or '—'} ({_d(r[1])})",
-            "endpoint": f"/api/v1/redesign/action/ponto-ajuste?eid={r[5]}&dia={r[1]}",
+            "endpoint": f"/api/v1/redesign/action/ponto-ajuste?eid={r[7]}&dia={r[1]}",
             "method": "POST", "btnLabel": "Ajustar", "submitLabel": "Registrar ajuste",
             "okMsg": "Ajuste registrado. Recarregue a tela.",
             "fields": [
                 {"key": "punch_type", "label": "Tipo*", "type": "select", "span": "span 1",
-                 "ph": "Selecione", "options": [{"value": "entrada", "label": "Entrada"},
-                                                {"value": "saida", "label": "Saída"}]},
+                 "ph": "Selecione", "options": [
+                     {"value": "entrada", "label": "Entrada"},
+                     {"value": "saida_almoco", "label": "Saída para almoço"},
+                     {"value": "volta_almoco", "label": "Volta do almoço"},
+                     {"value": "saida", "label": "Saída"}]},
                 {"key": "hora", "label": "Hora (HH:MM)*", "type": "text", "span": "span 1", "value": ""},
                 {"key": "motivo", "label": "Motivo (mín. 5 caracteres)*", "type": "textarea",
                  "span": "span 2", "value": ""},
             ],
         }))
+    # Seletor de competência: dropdown client-side sobre a coluna 7. As linhas vêm em ordem
+    # decrescente, então o 1º valor — o mês corrente — já abre selecionado, e os anteriores
+    # ficam na lista. É a chave `filterCol` da TELA, não parâmetro do tbl().
+    if out.get("ponto"):
+        out["ponto"]["filterCol"] = 7
 
     # 4) Fechamento de ponto — MESMA fonte do clássico (time_sheets via painel_fechamento), NÃO
     #    gp_monthly_closings. Última competência com dado; status derivado (Homologado/Aguardando
