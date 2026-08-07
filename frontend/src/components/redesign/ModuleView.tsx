@@ -681,6 +681,18 @@ export default function ModuleView({ slug }: { slug: string }) {
     return () => { cancel = true; if (timer) clearTimeout(timer); };
   }, [slug, reloadKey]);
 
+  // Módulo cujo menu vem TODO do backend (JSON do pacote com "menu": []) nasce SEM tela ativa:
+  // o useState inicial lê menu[0] do pacote, que não existe, e `active` fica ''. Como
+  // `isReal = !!patches[active]` não tem fallback (ao contrário de `scr`, logo abaixo), a tela
+  // exibe "Aguardando dado" para sempre — mesmo com a API devolvendo linhas. Foi o que manteve
+  // a Central de Aprovações vazia com 3 rascunhos no banco: a lista existia, ninguém a via.
+  // Só entra quando `active` está vazio, então não atropela ?t= nem clique do usuário.
+  useEffect(() => {
+    if (active) return;
+    const primeira = normMenu(extraMenu)[0]?.id;
+    if (primeira) setActive(primeira);
+  }, [extraMenu, active]);
+
   const toggle = () => setCollapsed((c) => { const n = !c; try { localStorage.setItem('rd-sidebar-collapsed', n ? '1' : '0'); } catch { /* */ } return n; });
   const go = (id: string, tabId?: string) => {
     setQ(''); // troca de tela zera a busca (senão a tela nova abre filtrada e parece vazia)
