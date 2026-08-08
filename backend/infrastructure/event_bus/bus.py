@@ -242,7 +242,15 @@ class EventTypes:
     OPS_COMUNICADO_PUBLICADO = "operacional.comunicado.publicado"
 
     # ── DP (complemento) ──────────────────────────────────────────────────
-    DP_PONTO_REGISTRADO = "dp.ponto.registrado"
+    #: DEPRECADO em 2026-08-07 (decisão Jordan). Duplica `PONTO_BATIDA_REGISTRADA`, que é o
+    #: canônico: os dois gravam em `gp_clock_punches` e anunciam o mesmo fato, mas só o
+    #: canônico carrega punch_timestamp, cliente_id e geolocalização — e `cliente_id` é o que
+    #: o gedeon_context exige. Este nasce no caminho CLÁSSICO do HR (4 pontos de chamada em
+    #: hr/controllers) e morre junto com ele.
+    #: NÃO registrar subscriber aqui NEM no canônico enquanto os dois coexistirem: a mesma
+    #: batida contaria DUAS VEZES, dependendo de por qual tela foi registrada.
+    #: Ver auditoria/decisoes/eventos_investigacao_20260807.md
+    DP_PONTO_REGISTRADO = "dp.ponto.registrado"  # deprecated → use PONTO_BATIDA_REGISTRADA
     DP_ESOCIAL_GERADO = "dp.esocial.gerado"
 
     # ── RH ────────────────────────────────────────────────────────────────

@@ -235,7 +235,17 @@ async def publish_ponto_registrado(
     record_id: str = "",
     extra: dict[str, Any] | None = None,
 ) -> None:
-    """Publica evento quando uma batida de ponto é registrada."""
+    """DEPRECADO — publica `dp.ponto.registrado` a partir do caminho CLÁSSICO do HR.
+
+    Decisão Jordan 2026-08-07: o canônico é `ponto.batida.registrada`
+    (`ponto/publishers.py:publish_batida_registrada`), único que carrega punch_timestamp,
+    cliente_id e geolocalização. Os dois gravam na MESMA tabela (`gp_clock_punches`) e
+    anunciam o MESMO fato — é duplicação de subsistema, não de evento.
+
+    Continua publicando para não quebrar os 4 pontos de chamada em `hr/controllers`; morre
+    junto com o caminho clássico. **Não registre subscriber neste evento nem no canônico
+    enquanto os dois coexistirem** — a mesma batida contaria duas vezes.
+    """
     try:
         await event_bus.publish(
             ConectaEvent(
