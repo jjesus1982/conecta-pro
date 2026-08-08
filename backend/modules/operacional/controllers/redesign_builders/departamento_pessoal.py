@@ -976,7 +976,17 @@ def _acoes_prestador_pj(r) -> list[dict]:
 # A fonte passa a ser `employees.recebe_intrajornada`, que é o campo que existe para isto e é
 # o mesmo que a folha consome. Onde o cadastro estiver errado, o conserto é num lugar só e vale
 # para tela e folha ao mesmo tempo — em vez de uma lista de condomínios que envelhece calada.
-_SQL_INTRAJORNADA = "SELECT id AS employee_id FROM employees WHERE recebe_intrajornada = true"
+# A trava do CARGO é de propósito. Jordan, 08/08: "todos os auxiliares de serviços gerais,
+# todos os artífices, todos os jardineiros batem 4×, independente do condomínio; essa regra só
+# muda para os agentes de portaria". Ou seja: fora da portaria não existe caso de 2 batidas.
+# Sem esta trava, um `recebe_intrajornada=true` errado no cadastro de um serviços gerais faria a
+# tela esperar 2 batidas de quem almoça — foi o caso real da VANDERLICE (serviços gerais, 44h,
+# flag true, 3,69 batidas/dia medidas). O flag sozinho é dado que erra; cargo + flag, não.
+_SQL_INTRAJORNADA = (
+    "SELECT id AS employee_id FROM employees "
+    "WHERE recebe_intrajornada = true "
+    "  AND unaccent(upper(coalesce(cargo,''))) LIKE '%PORTARIA%'"
+)
 
 
 def _sql_ponto(meses: int = 3) -> str:
