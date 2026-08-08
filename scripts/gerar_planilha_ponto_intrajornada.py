@@ -36,10 +36,19 @@ WITH aloc AS (
   FROM employee_alocacoes a JOIN condominios c ON c.id = a.condominio_id
   WHERE a.ativo ORDER BY a.employee_id, a.data_inicio DESC NULLS LAST
 ), dia AS (
-  SELECT employee_id, punch_timestamp::date d, count(*) n
+  SELECT employee_id, punch_timestamp::date d, count(*) n,
+         min(punch_timestamp) AS primeira, max(punch_timestamp) AS ultima
   FROM gp_clock_punches WHERE punch_timestamp >= '2026-07-01' GROUP BY 1, 2
 ), bat AS (
-  SELECT employee_id, round(avg(n), 2) AS media, count(*) AS dias FROM dia GROUP BY 1
+  -- Horário HABITUAL, não média: média de horário não significa nada quando o turno atravessa
+  -- a meia-noite (07:00 e 19:00 dariam 13:00, que ninguém trabalha). Uso a MODA da hora —
+  -- a hora que mais se repete — e mostro o intervalo observado ao lado.
+  SELECT employee_id, round(avg(n), 2) AS media, count(*) AS dias,
+         mode() WITHIN GROUP (ORDER BY to_char(primeira, 'HH24:00')) AS h_entrada,
+         mode() WITHIN GROUP (ORDER BY to_char(ultima,  'HH24:00')) AS h_saida,
+         min(to_char(primeira, 'HH24:MI')) AS ent_min,
+         max(to_char(primeira, 'HH24:MI')) AS ent_max
+  FROM dia GROUP BY 1
 ), fol AS (
   SELECT DISTINCT employee_id::text AS eid FROM folha_verba_espelho
   WHERE codigo IN ('0030','0031') AND mes = 7 AND ano = 2026
@@ -53,7 +62,12 @@ SELECT e.nome,
        e.recebe_intrajornada             AS flag_cadastro,
        (f.eid IS NOT NULL)               AS folha_julho,
        b.media                           AS batidas_dia,
-       coalesce(b.dias, 0)               AS dias_com_batida
+       coalesce(b.dias, 0)               AS dias_com_batida,
+       coalesce(b.h_entrada, '—')        AS h_entrada,
+       coalesce(b.h_saida, '—')          AS h_saida,
+       CASE WHEN b.ent_min IS NULL THEN '—'
+            WHEN b.ent_min = b.ent_max THEN b.ent_min
+            ELSE b.ent_min || '–' || b.ent_max END AS faixa_entrada
 FROM employees e
 LEFT JOIN aloc al ON al.employee_id = e.id
 LEFT JOIN bat  b  ON b.employee_id  = e.id
@@ -68,14 +82,18 @@ CABECALHO = [
     ("Cadastro diz\nrecebe intrajornada", 18),
     ("Folha jul\npagou intrajornada", 16),
     ("Batidas/dia\n(jul+ago)", 13), ("Dias com\nbatida", 10),
+    ("Entrada\nhabitual", 11), ("Saída\nhabitual", 11),
+    ("Faixa de entrada\nobservada", 16),
     ("Divergência", 34),
     ("→ RECEBE INTRAJORNADA?\n(preencher: SIM / NAO)", 26),
     ("→ Quantas batidas por turno?\n(preencher: 2 / 4)", 26),
+    ("→ Horário CORRETO\nentrada (ex.: 07:00)", 20),
+    ("→ Horário CORRETO\nsaída (ex.: 19:00)", 20),
     ("→ Observação", 34),
 ]
 
 #: colunas que o Jordan preenche
-PRIMEIRA_A_PREENCHER = 12
+PRIMEIRA_A_PREENCHER = 15
 
 
 def _divergencia(flag, folha, media) -> str:
@@ -128,7 +146,8 @@ def main() -> None:
             "sim" if r["folha_julho"] else "não",
             float(r["batidas_dia"]) if r["batidas_dia"] is not None else None,
             r["dias_com_batida"],
-            div, None, None, None,
+            r["h_entrada"], r["h_saida"], r["faixa_entrada"],
+            div, None, None, None, None, None,
         ])
         if div:                                   # linha com divergência fica marcada
             for col in range(1, len(CABECALHO) + 1):
@@ -136,11 +155,13 @@ def main() -> None:
 
     # legenda
     ws.append([])
-    ws.append(["LEGENDA — as 3 últimas colunas (laranja) são para você preencher."])
+    ws.append(["LEGENDA — as 3 últimas colunas (laranja) são para você preencher (intrajornada, batidas, horário de entrada e saída, observação)."])
     ws.append(["Linha amarela = cadastro, folha e batidas contam histórias diferentes; "
                "é onde vale mais a sua conferência."])
     ws.append(["Batidas/dia perto de 2 = não almoça (recebe intrajornada). "
                "Perto de 4 = almoça uma hora."])
+    ws.append(["Entrada/saída habitual = a hora que MAIS se repete nas batidas (moda), não a "
+               "média — média não vale para turno que vira a meia-noite."])
     ws.append(["Média cai abaixo do esperado quando falta batida — por isso o número vem com "
                "os dias, para você ver o peso da amostra."])
     for i in range(4):
