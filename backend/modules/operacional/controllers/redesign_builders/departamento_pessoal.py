@@ -960,15 +960,23 @@ def _acoes_prestador_pj(r) -> list[dict]:
     return acoes
 
 
-#: Condomínios cujos AGENTES DE PORTARIA recebem intrajornada: trabalham a jornada inteira sem
-#: parar para almoço, então batem ponto 2×/dia (entrada e saída). Regra do Jordan em 07/08.
-#: Conferido contra a folha de julho: 18 dos 20 agentes de portaria destes 4 receberam a rubrica
-#: 0030/0031 (Intrajornada Diurno/Noturna) e NINGUÉM fora destes 4 recebeu. As 2 exceções são de
-#: mês parcial. SERVIÇOS GERAIS destes mesmos condomínios: 0 de 6 — esses almoçam e batem 4×.
-#: Medido nas batidas de agosto: 1,8 batidas/dia neste grupo contra 3,7 nos demais.
-#: `MIRANTE` = Mirante das Flores (confirmado pelo Jordan) e é DIFERENTE de `IDEAL FLORES`
-#: (= Ideal Flores da Cidade) — os nomes curtos na tabela `condominios` são abreviação.
-_CONDS_INTRAJORNADA = ("VILLA PÁSSAROS", "VILLA DEI FIORI", "PRIME ARENA", "MIRANTE")
+# QUEM BATE 2× E QUEM BATE 4×
+#
+# Quem recebe o adicional de INTRAJORNADA não para para almoçar: entra, cumpre o turno inteiro
+# (12x36 — e só agente de portaria trabalha nessa escala) e sai. Duas batidas por turno. Quem
+# NÃO recebe tira uma hora de almoço e bate quatro vezes: entrada, saída p/ almoço, volta, saída.
+#
+# O determinante é o ADICIONAL, e ele é por PESSOA — não por condomínio e não por cargo.
+# Minha primeira versão chaveava numa lista de 4 condomínios e estava errada por construção:
+#   • Laranjeiras tem agentes de portaria que ALMOÇAM (medido: 3,4 / 3,9 / 4,0 batidas/dia);
+#   • Ideal Flores tem agente de portaria COM intrajornada (MAIARA: 2,2 batidas/dia);
+#   • os dois condomínios ficavam do lado errado da lista.
+# Correção do Jordan em 08/08: "a questão é função, é a escala, é o perfil da função".
+#
+# A fonte passa a ser `employees.recebe_intrajornada`, que é o campo que existe para isto e é
+# o mesmo que a folha consome. Onde o cadastro estiver errado, o conserto é num lugar só e vale
+# para tela e folha ao mesmo tempo — em vez de uma lista de condomínios que envelhece calada.
+_SQL_INTRAJORNADA = "SELECT id AS employee_id FROM employees WHERE recebe_intrajornada = true"
 
 
 def _sql_ponto(meses: int = 3) -> str:
@@ -985,13 +993,9 @@ def _sql_ponto(meses: int = 3) -> str:
     A coluna "Batidas" mostra lidas/esperadas. Dia com menos batidas que o esperado aparece
     como 3/4 — que é justamente o que o DP precisa enxergar. Não invento a batida que falta.
     """
-    conds = ", ".join(f"'{c}'" for c in _CONDS_INTRAJORNADA)
     return f"""
 WITH intra AS (
-  SELECT DISTINCT a.employee_id
-  FROM employee_alocacoes a JOIN condominios c ON c.id = a.condominio_id
-  WHERE a.ativo AND c.nome IN ({conds})
-    AND unaccent(upper(coalesce(a.funcao,''))) LIKE '%PORTARIA%'
+  {_SQL_INTRAJORNADA}
 ), p AS (
   SELECT k.employee_id, k.punch_timestamp AS ts,
          (i.employee_id IS NOT NULL) AS sem_almoco,
