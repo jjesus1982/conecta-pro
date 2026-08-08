@@ -312,28 +312,16 @@ def conciliar_transacao(tx_id: str, conn) -> dict:
         match = None
         tipo_match = ""
 
-        # Estratégia 1: valor exato ±R$0,01 + CNPJ da contraparte + data ±3 dias
-        if cnpj_contraparte:
-            cur.execute(
-                """
-                SELECT ra.id, ra.description, ra.gross_value, ra.net_value,
-                       ra.due_date, ra.status, c.cpf_cnpj as customer_cnpj
-                FROM receivable_accounts ra
-                LEFT JOIN customers c ON c.id = ra.customer_id
-                WHERE ra.status = 'pendente'
-                  AND ABS(ra.gross_value - %s) <= %s
-                  AND ra.due_date BETWEEN %s AND %s
-                  AND REPLACE(REPLACE(REPLACE(REPLACE(c.cpf_cnpj,'.',''),'-',''),'/',''),' ','') = %s
-                ORDER BY ABS(ra.gross_value - %s)
-                LIMIT 1
-                """,
-                (float(valor_abs), float(TOLERANCE), data_min, data_max, cnpj_contraparte, float(valor_abs)),
-            )
-            match = cur.fetchone()
-            tipo_match = "exato_cnpj_valor_data"
-
-        # Estratégia 2: valor exato ±R$0,01, data ±3 dias (sem CNPJ)
-        if not match:
+        # Auto-baixa de recebível SÓ com match FORTE (espelha o débito): valor exato ±R$0,01 +
+        # data ±30d + NOME do pagador (contraparte) no recebível (customer_name/descrição) +
+        # candidato ÚNICO. Por quê: valor-só e ±2% casam demais — um PIX de OUTRO cliente baixaria
+        # o recebível errado = fabricar. Removidas as estratégias CNPJ-placeholder, valor-só e fuzzy.
+        # Sem nome que confere → NÃO auto-baixa (fica requires_justification / baixa manual).
+        _rec_dmin = tx_date - timedelta(days=30)
+        _rec_dmax = tx_date + timedelta(days=30)
+        _tokens = [w for w in re.split(r"[^A-Za-zÀ-ÿ]+", (nome_contraparte or "")) if len(w) >= 4]
+        _tok = max(_tokens, key=len) if _tokens else ""
+        if _tok:
             cur.execute(
                 """
                 SELECT id, description, gross_value, net_value, due_date, status
@@ -341,31 +329,15 @@ def conciliar_transacao(tx_id: str, conn) -> dict:
                 WHERE status = 'pendente'
                   AND ABS(gross_value - %s) <= %s
                   AND due_date BETWEEN %s AND %s
-                ORDER BY ABS(gross_value - %s)
-                LIMIT 1
+                  AND lower(coalesce(customer_name,'') || ' ' || coalesce(description,'')) LIKE lower(%s)
+                LIMIT 2
                 """,
-                (float(valor_abs), float(TOLERANCE), data_min, data_max, float(valor_abs)),
+                (float(valor_abs), float(TOLERANCE), _rec_dmin, _rec_dmax, f"%{_tok}%"),
             )
-            match = cur.fetchone()
-            tipo_match = "valor_exato_data"
-
-        # Estratégia 3: valor ±2%, data ±7 dias (flexível)
-        if not match:
-            margem = float(valor_abs * TOLERANCE_PCT)
-            cur.execute(
-                """
-                SELECT id, description, gross_value, net_value, due_date, status
-                FROM receivable_accounts
-                WHERE status = 'pendente'
-                  AND ABS(gross_value - %s) <= %s
-                  AND due_date BETWEEN %s AND %s
-                ORDER BY ABS(gross_value - %s)
-                LIMIT 1
-                """,
-                (float(valor_abs), margem, data_min_flex, data_max_flex, float(valor_abs)),
-            )
-            match = cur.fetchone()
-            tipo_match = "valor_flex_2pct"
+            _cands = cur.fetchall()
+            if len(_cands) == 1:
+                match = _cands[0]
+                tipo_match = "valor_data_nome_unico"
 
         if match:
             rec_id = match["id"]
@@ -382,11 +354,12 @@ def conciliar_transacao(tx_id: str, conn) -> dict:
                 """,
                 (recon_session_id, rec_id, tx_date, tx_id),
             )
-            # Marcar receivable como recebido + vincular transação bancária
+            # Marcar receivable como PAGA (valor do enum ReceivableStatus.PAGA; 'recebido' era órfão —
+            # não existia no enum, a régua seguia cobrando e sumia dos dashboards) + vincular transação.
             cur.execute(
                 """
                 UPDATE receivable_accounts SET
-                    status = 'recebido',
+                    status = 'paga',
                     payment_date = %s,
                     data_recebimento = %s,
                     transacao_bancaria_id = %s,
