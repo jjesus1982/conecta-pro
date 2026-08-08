@@ -347,6 +347,11 @@ class BudgetService:
             report.executions.append(execution)
 
         report.calculate_summary()
+        # Orçado REAL do mês = financial_orcamentos (o que o usuário define), não valor fixo/por-centro.
+        report.total_budgeted = await self._orcamento_meses(year, month, month)
+        report.total_variance = report.total_budgeted - report.total_realized
+        report.variance_pct = ((report.total_variance / report.total_budgeted) * Decimal("100")
+                               if report.total_budgeted > 0 else Decimal("0"))
         return report
 
     async def get_ytd_execution(
@@ -404,6 +409,15 @@ class BudgetService:
             report.executions.append(execution)
 
         report.calculate_summary()
+        # Orçado REAL YTD = soma de financial_orcamentos dos meses 1..through_month. Preenche também os
+        # atributos *_ytd que o controller lê (antes inexistentes → o YTD retornava zeros por bug de nome).
+        report.total_budgeted = await self._orcamento_meses(year, 1, through_month)
+        report.total_variance = report.total_budgeted - report.total_realized
+        report.total_budgeted_ytd = report.total_budgeted
+        report.total_realized_ytd = report.total_realized
+        report.total_variance_ytd = report.total_variance
+        report.variance_pct = ((report.total_variance / report.total_budgeted) * Decimal("100")
+                               if report.total_budgeted > 0 else Decimal("0"))
         return report
 
     async def get_cost_center_budget(
@@ -685,12 +699,28 @@ class BudgetService:
         year: int,  # pylint: disable=unused-argument
         month: int,  # pylint: disable=unused-argument
     ) -> Decimal:
-        """Obtém orçamento de uma conta para o mês.
+        """Orçamento POR CONTA — não há orçamento por conta no dado (o usuário define orçamento
+        MENSAL total em financial_orcamentos). Retorna 0 (honesto): NUNCA o valor fixo de demonstração.
+        O total real do relatório vem de `_orcamento_meses` (financial_orcamentos)."""
+        return Decimal("0")
 
-        Nota: Em produção, buscaria de uma tabela de orçamento por conta.
-        """
-        # Placeholder - retorna valor fixo para demonstração
-        return Decimal("10000")
+    async def _orcamento_meses(self, year: int, m_from: int, m_to: int) -> Decimal:
+        """Orçamento REAL definido pelo usuário em `financial_orcamentos` (chave 'month_AAAA_MM'),
+        somado dos meses m_from..m_to. Sem orçamento definido → 0 (honesto, nunca fabrica)."""
+        from sqlalchemy import text as _text
+
+        rows = (await self.session.execute(_text(
+            "SELECT chave, valor FROM financial_orcamentos WHERE chave LIKE :p"),
+            {"p": f"month_{year}_%"})).fetchall()
+        total = Decimal("0")
+        for chave, valor in rows:
+            try:
+                mm = int(str(chave).rsplit("_", 1)[-1])
+            except (ValueError, IndexError):
+                continue
+            if m_from <= mm <= m_to:
+                total += Decimal(str(valor or 0))
+        return total
 
     @staticmethod
     def _get_month_name(month: int) -> str:
