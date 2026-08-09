@@ -245,20 +245,33 @@ async def converter_lead_para_crm(
         if cr:
             campaign_name = cr[0]
 
-    # Criar lead no CRM
-    crm_result = await db.execute(
-        text("""
-        INSERT INTO leads (id, name, email, phone, company, source, status, score, probability, expected_value, is_active, created_at, updated_at)
-        VALUES (gen_random_uuid(), :name, :email, :phone, :name, :source, 'new', 50, 0.3, 0, true, NOW(), NOW()) RETURNING id
-    """),
-        {
-            "name": mkt_lead.name,
-            "email": mkt_lead.email or f"{mkt_lead.name.lower().replace(' ', '.')}@lead.conecta",
-            "phone": mkt_lead.phone,
-            "source": f"campanha_{campaign_name}",
-        },
-    )
-    crm_lead_id = str(crm_result.fetchone()[0])
+    # Dedup (mesmo telefone = mesmo lead): se esse contato já é lead do CRM, aponta
+    # para o existente em vez de duplicar. Preserva a origem já gravada — quem veio
+    # pelo WhatsApp em junho não "vira" lead de campanha por converter um lead-magnet.
+    from modules.crm.repositories.lead_repository import LeadRepository
+
+    existente = await LeadRepository(db).find_duplicate(phone=mkt_lead.phone)
+    if existente:
+        crm_lead_id = str(existente.id)
+    else:
+        # INSERT cru mantido de propósito: `source` aqui é `campanha_{nome}`, que está
+        # FORA do enum LeadSource — passar por LeadCreate daria 422 e perderíamos a
+        # atribuição da campanha. Normalizar isso é item separado (ver plano, Passo 5).
+        # probability=30 (não 0.3): a coluna é percentual 0-100, como o ORM grava.
+        # Valor fracionário aqui contaminaria weighted_value e is_hot.
+        crm_result = await db.execute(
+            text("""
+            INSERT INTO leads (id, name, email, phone, company, source, status, score, probability, expected_value, is_active, created_at, updated_at)
+            VALUES (gen_random_uuid(), :name, :email, :phone, :name, :source, 'new', 50, 30, 0, true, NOW(), NOW()) RETURNING id
+        """),
+            {
+                "name": mkt_lead.name,
+                "email": mkt_lead.email or f"{mkt_lead.name.lower().replace(' ', '.')}@lead.conecta",
+                "phone": mkt_lead.phone,
+                "source": f"campanha_{campaign_name}",
+            },
+        )
+        crm_lead_id = str(crm_result.fetchone()[0])
 
     # Atualizar marketing lead
     await db.execute(
@@ -334,19 +347,31 @@ async def converter_licitacao_para_crm(
     db: AsyncSession = Depends(get_async_session),
 ):
     """Converte licitação vencida em lead CRM — fecha ciclo licitação→CRM."""
-    crm_result = await db.execute(
-        text("""
-        INSERT INTO leads (id, name, email, phone, company, source, status, score, probability, expected_value, is_active, created_at, updated_at)
-        VALUES (gen_random_uuid(), :name, :email, '', :company, 'licitacao', 'qualified', 70, 0.6, :value, true, NOW(), NOW()) RETURNING id
-    """),
-        {
-            "name": data.orgao,
-            "email": f"licitacao.{data.numero_edital or 'novo'}@lead.conecta",
-            "company": data.orgao,
-            "value": data.valor,
-        },
-    )
-    crm_lead_id = str(crm_result.fetchone()[0])
+    # Sem telefone aqui, então o dedup cai no e-mail — que é determinístico por edital.
+    # Sem isso, converter a MESMA licitação duas vezes criava dois leads.
+    from modules.crm.repositories.lead_repository import LeadRepository
+
+    email_lead = f"licitacao.{data.numero_edital or 'novo'}@lead.conecta"
+    existente = await LeadRepository(db).find_duplicate(email=email_lead)
+    if existente:
+        crm_lead_id = str(existente.id)
+    else:
+        # INSERT cru mantido: source 'licitacao' está FORA do enum LeadSource (passar
+        # por LeadCreate daria 422). Normalizar o enum é item separado (plano, Passo 5).
+        # probability=60 (não 0.6): coluna é percentual 0-100, como o ORM grava.
+        crm_result = await db.execute(
+            text("""
+            INSERT INTO leads (id, name, email, phone, company, source, status, score, probability, expected_value, is_active, created_at, updated_at)
+            VALUES (gen_random_uuid(), :name, :email, '', :company, 'licitacao', 'qualified', 70, 60, :value, true, NOW(), NOW()) RETURNING id
+        """),
+            {
+                "name": data.orgao,
+                "email": email_lead,
+                "company": data.orgao,
+                "value": data.valor,
+            },
+        )
+        crm_lead_id = str(crm_result.fetchone()[0])
     await db.commit()
 
     return {
