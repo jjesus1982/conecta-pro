@@ -225,7 +225,10 @@ class LeadRepository:
             query = query.where(Lead.status == filters.status.value)
 
         if filters.source:
-            query = query.where(Lead.source == filters.source.value)
+            # `filters.source` é str (LeadFilter foi alargado p/ alcançar origens fora do
+            # enum, gravadas por INSERT cru). `getattr(..., "value", ...)` mantém
+            # compatibilidade com quem ainda passar um LeadSource.
+            query = query.where(Lead.source == getattr(filters.source, "value", filters.source))
 
         if filters.assigned_to_id:
             query = query.where(Lead.assigned_to_id == filters.assigned_to_id)
