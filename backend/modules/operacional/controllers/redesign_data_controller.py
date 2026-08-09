@@ -2296,10 +2296,23 @@ async def rd_action_lead(
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"Dados inválidos: {e}")
     repo = LeadRepository(db)
+    # Guard de e-mail PRESERVADO (contrato atual do endpoint: e-mail repetido = 400).
     if data.email and await repo.get_by_email(data.email):
         raise HTTPException(status_code=400, detail="Já existe um lead com este e-mail.")
-    lead = await repo.create(data)
-    return {"ok": True, "id": str(lead.id), "message": "Lead criado com sucesso"}
+    # create_or_get acrescenta o dedup por TELEFONE (mesmo telefone = mesmo lead).
+    # Quando reaproveita, a resposta DIZ isso — devolver "criado com sucesso" sem ter
+    # criado nada é o falso positivo que confunde quem está na tela.
+    lead, criado = await repo.create_or_get(data)
+    if criado:
+        return {"ok": True, "id": str(lead.id), "message": "Lead criado com sucesso"}
+    return {
+        "ok": True,
+        "id": str(lead.id),
+        "message": (
+            f"Este telefone já é do lead “{lead.name}” — reaproveitado em vez de "
+            f"duplicar (origem {lead.source} preservada)."
+        ),
+    }
 
 
 @router.post("/action/task")
