@@ -2022,6 +2022,109 @@ async def build(db) -> dict:
     except Exception:  # noqa: BLE001
         await db.rollback()
 
+    # ── Apuração ponto → saldo (o "motor de acúmulo" que nunca existiu) ─────────────────
+    # DERIVADO, nunca gravado automaticamente: pareia entrada→saída em SEQUÊNCIA (o intervalo
+    # de almoço fica de fora naturalmente) e compara com planned_hours da escala. Pares com
+    # gap >16h são descartados (batida órfã) e o dia entra na coluna "Pendências" — sem isso
+    # min(entrada)/max(saída) contaria o almoço como trabalhado e inflaria a HE.
+    # Lançar no banco de horas continua ATO HUMANO (aba "Lançar horas"), nunca automático.
+    try:
+        _sql_apur = """
+        WITH b AS (
+          SELECT employee_id, punch_timestamp AS ts, punch_type,
+                 lead(punch_timestamp) OVER (PARTITION BY employee_id ORDER BY punch_timestamp) AS prox_ts,
+                 lead(punch_type)      OVER (PARTITION BY employee_id ORDER BY punch_timestamp) AS prox_tp
+          FROM gp_clock_punches WHERE punch_timestamp > now() - interval '30 days'),
+        par AS (SELECT employee_id, ts::date AS d, EXTRACT(EPOCH FROM (prox_ts-ts))/3600.0 AS h
+                FROM b WHERE punch_type='entrada' AND prox_tp='saida' AND prox_ts>ts
+                  AND prox_ts-ts < interval '16 hours'),
+        orf AS (SELECT DISTINCT employee_id, ts::date AS d FROM b
+                WHERE punch_type='entrada' AND (prox_tp IS DISTINCT FROM 'saida' OR prox_ts-ts >= interval '16 hours')),
+        realiz AS (SELECT employee_id, d, sum(h) AS h_real FROM par GROUP BY 1,2),
+        prev AS (SELECT s.employee_id, s.shift_date AS d, coalesce(s.planned_hours,8) AS h_prev
+                 FROM shifts s WHERE s.shift_date > current_date-30 AND coalesce(s.is_active,true)
+                   AND s.employee_id IS NOT NULL)
+        SELECT e.nome, round(sum(r.h_real)::numeric,1), round(sum(p.h_prev)::numeric,1),
+               round(sum(r.h_real-p.h_prev)::numeric,1),
+               (SELECT count(*) FROM orf o WHERE o.employee_id=r.employee_id)
+        FROM realiz r JOIN prev p ON p.employee_id=r.employee_id AND p.d=r.d
+        JOIN employees e ON e.id=r.employee_id
+        GROUP BY e.nome, r.employee_id ORDER BY 4 DESC LIMIT 300
+        """
+
+        def _saldo_cell(v):
+            v = float(v or 0)
+            if v > 0.5:
+                return b(f"+{v:.1f}h", "warn")
+            if v < -0.5:
+                return b(f"{v:.1f}h", "bad")
+            return b(f"{v:+.1f}h", "ok")
+
+        out["banco-horas-apuracao"] = await tbl(
+            "Apuração de horas (ponto × escala)",
+            "Últimos 30 dias · realizado = pares entrada→saída das batidas reais (intervalo já descontado) "
+            "vs previsto na escala. Cálculo derivado — não lança nada: use 'Lançar horas' para efetivar.",
+            "—", ["Colaborador", "Realizado", "Previsto", "Saldo", "Pendências"],
+            "2fr 0.9fr 0.9fr 0.9fr 1fr", _sql_apur,
+            lambda r: [t(r[0] or "—", 600, "#0F1B3A"), t(f"{r[1] or 0}h"), t(f"{r[2] or 0}h"),
+                       _saldo_cell(r[3]),
+                       b(f"{r[4]} dia(s) c/ batida solta", "warn") if (r[4] or 0) else b("Consistente", "ok")])
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+
+    # ── Ausentes hoje: fecha o elo quadro-de-presença → Registrar falta (1 clique) ──────
+    # O fluxo existia mas ninguém achava: o form pedia escolher o turno num dropdown. Aqui a
+    # ação nasce NA LINHA do ausente, com shift_id já preenchido → vira 1 clique.
+    try:
+        out["ausentes-hoje"] = await tbl(
+            "Ausentes hoje", "Turnos de hoje sem check-in e sem batida de ponto · registre a falta na linha "
+            "(abre a substituição automaticamente)", "—",
+            ["Colaborador", "Posto", "Turno previsto", "Cargo"], "1.6fr 1.6fr 1fr 1.2fr",
+            "SELECT e.nome, p.name, to_char(s.planned_start_time,'HH24:MI'), coalesce(e.cargo,'—'), s.id::text "
+            "FROM shifts s JOIN posts p ON p.id=s.post_id JOIN employees e ON e.id=s.employee_id "
+            "WHERE s.shift_date=current_date AND coalesce(s.is_active,true) AND s.actual_start_time IS NULL "
+            "  AND coalesce(s.status::text,'') NOT IN ('cancelled','completed','missed') "
+            "  AND NOT EXISTS (SELECT 1 FROM gp_clock_punches gp WHERE gp.employee_id=s.employee_id "
+            "                  AND gp.punch_timestamp::date=s.shift_date) "
+            "ORDER BY p.name, e.nome LIMIT 200",
+            lambda r: [t(r[0] or "—", 600, "#0F1B3A"), t(r[1] or "—"), t(r[2] or "—"), t(r[3] or "—")],
+            actionsfn=lambda r: [{
+                "btnLabel": "Registrar falta", "btnStyle": "primary",
+                "title": f"Registrar falta — {r[0]}",
+                "endpoint": "/api/v1/redesign/action/falta", "method": "POST",
+                "okMsg": "Falta registrada — substituição aberta.",
+                "fields": [
+                    {"key": "shift_id", "label": "Turno", "type": "text", "span": "span 2", "value": r[4]},
+                    {"key": "motivo", "label": "Motivo*", "type": "select", "span": "span 1", "ph": "Motivo",
+                     "options": [{"value": v, "label": lb} for v, lb in [
+                         ("falta", "Falta (sem aviso)"), ("atestado", "Atestado"),
+                         ("emergencia", "Emergência"), ("pessoal", "Pessoal"), ("outro", "Outro")]]},
+                    {"key": "detalhes", "label": "Detalhes", "type": "textarea", "span": "span 2", "ph": "Opcional…"},
+                ],
+            }])
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+
+    # ── Checkpoints de ronda: a parte do trabalho de CAMPO que o gestor precisa VER ────
+    # Registrar checkpoint/foto é do app mobile; conferir o que foi feito é do desktop.
+    try:
+        out["ronda-checkpoints"] = await tbl(
+            "Checkpoints de ronda", "O que foi verificado em campo (registro vem do app mobile)", "—",
+            ["Ronda", "Posto", "Checkpoint", "Colaborador", "Situação", "Data"],
+            "1fr 1.4fr 1.6fr 1.4fr 1fr 0.9fr",
+            "SELECT coalesce(r.code,'—'), coalesce(c.post_name,'—'), coalesce(c.title,'—'), "
+            "       coalesce(c.employee_name,'—'), coalesce(c.status::text,'—'), c.created_at, "
+            "       coalesce(c.infraction_severity::text,'') "
+            "FROM inspection_checkpoints c LEFT JOIN inspection_rounds r ON r.id=c.inspection_round_id "
+            "WHERE coalesce(c.is_active,true) ORDER BY c.created_at DESC NULLS LAST LIMIT 300",
+            lambda r: [t(r[0] or "—", 600, "#0F1B3A"), t(r[1] or "—"), t(r[2] or "—"), t(r[3] or "—"),
+                       b((r[4] or "—").replace("_", " ").capitalize(),
+                         "bad" if (r[6] or "").lower() in ("grave", "gravissima") else
+                         ("warn" if r[6] else "ok")),
+                       t(_fmtdate(r[5]))])
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+
     # F0 — agrupa as ~62 telas/ações em 8 grupos (fundação tabs, igual ao financeiro).
     # Chamado por ÚLTIMO: precisa de TODAS as telas/ações já montadas em out.
     try:

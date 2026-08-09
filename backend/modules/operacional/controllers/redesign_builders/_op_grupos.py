@@ -21,14 +21,16 @@ GRUPOS = [
         ("escalar-substituto", "Escalar substituto"), ("postos-sem-escala", "Postos sem escala"),
         ("escalas-rascunho", "Escalas em rascunho")]),
     ("g-postos", "Postos & Presença", "Postos, presença, instruções e passagem de turno", [
-        ("postos", "Postos"), ("presenca", "Presença hoje"), ("instrucoes-posto", "Instruções de posto"),
+        ("postos", "Postos"), ("presenca", "Presença hoje"), ("ausentes-hoje", "Ausentes hoje"),
+        ("instrucoes-posto", "Instruções de posto"),
         ("passagem-turno", "Passagem de turno"), ("passagem-turno-nova", "Nova passagem"),
         ("instrucao-posto-editar", "Editar instrução"), ("checkin-manual", "Check-in manual"),
         ("posto-localizacao", "Localização do posto"), ("posto-editar", "Editar posto")]),
     ("g-equipe", "Equipe & Ponto", "Colaboradores, avaliação e banco de horas", [
         ("colaboradores", "Colaboradores"), ("avaliacao-equipe", "Avaliação de equipe"),
         ("avaliacao-criar", "Avaliar colaborador"),
-        ("banco-horas", "Banco de horas"), ("banco-horas-lancar", "Lançar horas"),
+        ("banco-horas", "Banco de horas"), ("banco-horas-apuracao", "Apuração (ponto × escala)"),
+        ("banco-horas-lancar", "Lançar horas"),
         ("banco-horas-aprovar", "Aprovar horas"), ("banco-horas-rejeitar", "Rejeitar horas"),
         ("banco-horas-compensar", "Compensar horas"), ("banco-horas-editar", "Editar horas"),
         ("banco-horas-excluir", "Excluir horas")]),
@@ -46,7 +48,8 @@ GRUPOS = [
         ("medida-aprovar", "Aprovar medida"), ("medida-rejeitar", "Rejeitar medida"),
         ("medida-documento", "Documento da medida")]),
     ("g-rondas", "Rondas & Ocorrências", "Rondas, mobile e ocorrências", [
-        ("rondas", "Rondas"), ("ronda-mobile", "Ronda mobile"), ("ocorrencias", "Ocorrências"),
+        ("rondas", "Rondas"), ("ronda-checkpoints", "Checkpoints"), ("ronda-mobile", "Ronda mobile"),
+        ("ocorrencias", "Ocorrências"),
         ("ocorrencia-rapida", "Ocorrência rápida"), ("resolver-ocorrencia", "Resolver ocorrência"),
         ("comentar-ocorrencia", "Comentar ocorrência"), ("nova-ronda", "Nova ronda"),
         ("ronda-transicao", "Andamento da ronda")]),
