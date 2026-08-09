@@ -161,6 +161,7 @@ def _retencoes_e_syncs(out: dict) -> None:
         "type": "form",
         "submit": {"endpoint": "/api/v1/financial/fiscal/calcular/retencoes-nfse",
                    "okMsg": "Retenções calculadas", "showResult": True},
+        "cta": "Calcular",
         "fields": [
             {"key": "valor_servico", "label": "Valor da nota (R$)*", "type": "number",
              "span": "span 1", "ph": "10000.00"},
@@ -269,6 +270,7 @@ def _calculadoras_tributarias(out: dict) -> None:
         "type": "form",
         "submit": {"endpoint": "/api/v1/financial/fiscal/calcular/simples",
                    "okMsg": "DAS calculado", "showResult": True},
+        "cta": "Calcular",
         "fields": [
             {"key": "receita_mes", "label": "Receita bruta do mês (R$)*", "type": "number",
              "span": "span 1", "ph": "50000.00"},
@@ -285,6 +287,7 @@ def _calculadoras_tributarias(out: dict) -> None:
         "type": "form",
         "submit": {"endpoint": "/api/v1/financial/fiscal/calcular/lucro-real",
                    "okMsg": "Impostos calculados", "showResult": True},
+        "cta": "Calcular",
         "fields": [
             {"key": "receita_mes", "label": "Receita do mês (R$)*", "type": "number",
              "span": "span 1", "ph": "100000.00"},
@@ -301,6 +304,7 @@ def _calculadoras_tributarias(out: dict) -> None:
         "type": "form",
         "submit": {"endpoint": "/api/v1/financial/fiscal/calcular/comparativo-regimes",
                    "okMsg": "Comparativo calculado", "showResult": True},
+        "cta": "Comparar",
         "fields": [
             {"key": "receita_anual", "label": "Receita bruta anual (R$)*", "type": "number",
              "span": "span 1", "ph": "1200000.00"},
@@ -317,6 +321,7 @@ def _calculadoras_tributarias(out: dict) -> None:
         "type": "form",
         "submit": {"endpoint": "/api/v1/financial/fiscal/calcular/verificar-limite-simples",
                    "okMsg": "Limite verificado", "showResult": True},
+        "cta": "Verificar",
         "fields": [
             {"key": "rbt12", "label": "Receita bruta 12 meses (R$)*", "type": "number",
              "span": "span 2", "ph": "500000.00"},
