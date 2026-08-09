@@ -325,6 +325,7 @@ function FormScreen({ scr }: { scr: any }) {
   const [files, setFiles] = useState<Record<string, File | null>>({});
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [resultado, setResultado] = useState<Record<string, unknown> | null>(null); // painel opt-in (scr.submit.showResult)
   const [otp, setOtp] = useState<{ ref: string; code: string } | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [attMsg, setAttMsg] = useState<string | null>(null);
@@ -480,6 +481,7 @@ function FormScreen({ scr }: { scr: any }) {
   }
 
   async function submit(withOtp = false) {
+    setResultado(null);
     if (!scr.submit) return;
     setBusy(true); setMsg(null);
     try {
@@ -493,14 +495,19 @@ function FormScreen({ scr }: { scr: any }) {
       if (!res.ok) throw new Error(d.detail || 'Não foi possível concluir.');
       // honesto: mostra a mensagem REAL do backend (não inventa sucesso)
       setMsg({ ok: d.ok !== false, text: d.message || scr.submit.okMsg || 'Concluído.' });
+      // Gancho de RESULTADO (opt-in scr.submit.showResult): forms de CÁLCULO devolvem escalares
+      // (ex.: valor_das, alíquota) que o gestor precisa VER. Sem a flag, nada muda nos outros forms.
+      const _showRes = !!(scr.submit && (scr.submit as { showResult?: boolean }).showResult);
+      if (_showRes && d && typeof d === 'object') setResultado(d as Record<string, unknown>);
       // Gancho de documento: ações que GERAM um doc (aviso de férias, recibos, exports) devolvem
       // d.doc {url, fmt} → abre direto (aditivo; formas sem d.doc não mudam).
       if (d && d.doc && d.doc.url) { try { await abrirDoc(d.doc as DocRef); } catch { /* abre manual depois */ } }
-      setVals({}); setFiles({}); setOtp(null); setConfirming(false);
+      setFiles({}); setOtp(null); setConfirming(false);
+      if (!_showRes) setVals({}); // calculadora: mantém os inputs p/ recalcular; write: limpa
       // Fio solto: após um write bem-sucedido, re-busca os dados do módulo para que os selects
-      // de OUTROS forms (ex.: excluir depois de criar) reflitam a mudança sem F5. Delay p/ o
-      // usuário ver a mensagem de sucesso antes do refresh.
-      if (d.ok !== false) setTimeout(() => { try { recarregar(); } catch { /* noop */ } }, 1200);
+      // de OUTROS forms reflitam a mudança sem F5. Calculadora (showResult) NÃO recarrega — não
+      // escreve nada e o reload apagaria o painel de resultado (armadilha do recarregar 1200ms).
+      if (d.ok !== false && !_showRes) setTimeout(() => { try { recarregar(); } catch { /* noop */ } }, 1200);
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : 'Erro.' });
     } finally { setBusy(false); }
@@ -518,6 +525,37 @@ function FormScreen({ scr }: { scr: any }) {
           {msg.text}
         </div>
       )}
+      {resultado && (() => {
+        const fmt = (v: unknown) => typeof v === 'number' ? v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(v);
+        const pretty = (k: string) => k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+        const skip = new Set(['ok', 'message', 'doc', 'otp_required', 'ref', 'otp', 'erro', 'detail']);
+        const rows: Array<{ label: string; value: string | null }> = [];
+        for (const [k, v] of Object.entries(resultado)) {
+          if (skip.has(k)) continue;
+          if (v && typeof v === 'object' && !Array.isArray(v)) {
+            rows.push({ label: pretty(k), value: null });
+            for (const [k2, v2] of Object.entries(v as Record<string, unknown>)) {
+              if (v2 !== null && typeof v2 !== 'object') rows.push({ label: '· ' + pretty(k2), value: fmt(v2) });
+            }
+          } else if (v !== null && !Array.isArray(v)) {
+            rows.push({ label: pretty(k), value: fmt(v) });
+          }
+        }
+        if (!rows.length) return null;
+        return (
+          <div style={{ background: 'var(--card, rgba(127,127,127,0.06))', border: '1px solid rgba(127,127,127,0.2)', borderRadius: 10, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.75, marginBottom: 4 }}>Resultado</div>
+            {rows.map((r, i) => r.value === null ? (
+              <div key={i} style={{ fontSize: 12, fontWeight: 700, opacity: 0.6, marginTop: 4 }}>{r.label}</div>
+            ) : (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 14, fontSize: 12.5 }}>
+                <span style={{ opacity: 0.7 }}>{r.label}</span>
+                <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{r.value}</span>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
       {scr.attach && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <label className="rd-btn rd-btn-outline" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, padding: '7px 12px' }}>

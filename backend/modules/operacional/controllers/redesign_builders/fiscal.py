@@ -160,7 +160,7 @@ def _retencoes_e_syncs(out: dict) -> None:
         "sub": "INSS, IR, CSLL, PIS e COFINS retidos por nota. Escolha o regime do CNPJ emissor.",
         "type": "form",
         "submit": {"endpoint": "/api/v1/financial/fiscal/calcular/retencoes-nfse",
-                   "okMsg": "Retenções calculadas"},
+                   "okMsg": "Retenções calculadas", "showResult": True},
         "fields": [
             {"key": "valor_servico", "label": "Valor da nota (R$)*", "type": "number",
              "span": "span 1", "ph": "10000.00"},
@@ -268,7 +268,7 @@ def _calculadoras_tributarias(out: dict) -> None:
         "sub": "Anexo III. Aplica liminares se informadas. Cálculo puro: não transmite nada.",
         "type": "form",
         "submit": {"endpoint": "/api/v1/financial/fiscal/calcular/simples",
-                   "okMsg": "DAS calculado"},
+                   "okMsg": "DAS calculado", "showResult": True},
         "fields": [
             {"key": "receita_mes", "label": "Receita bruta do mês (R$)*", "type": "number",
              "span": "span 1", "ph": "50000.00"},
@@ -284,7 +284,7 @@ def _calculadoras_tributarias(out: dict) -> None:
         "sub": "IRPJ, CSLL, PIS e COFINS não-cumulativos, ISS.",
         "type": "form",
         "submit": {"endpoint": "/api/v1/financial/fiscal/calcular/lucro-real",
-                   "okMsg": "Impostos calculados"},
+                   "okMsg": "Impostos calculados", "showResult": True},
         "fields": [
             {"key": "receita_mes", "label": "Receita do mês (R$)*", "type": "number",
              "span": "span 1", "ph": "100000.00"},
@@ -300,7 +300,7 @@ def _calculadoras_tributarias(out: dict) -> None:
         "sub": "Qual regime paga menos para uma receita anual. Responde a transição de CNPJ.",
         "type": "form",
         "submit": {"endpoint": "/api/v1/financial/fiscal/calcular/comparativo-regimes",
-                   "okMsg": "Comparativo calculado"},
+                   "okMsg": "Comparativo calculado", "showResult": True},
         "fields": [
             {"key": "receita_anual", "label": "Receita bruta anual (R$)*", "type": "number",
              "span": "span 1", "ph": "1200000.00"},
@@ -316,7 +316,7 @@ def _calculadoras_tributarias(out: dict) -> None:
         "sub": "Quanto falta para estourar o teto e ser desenquadrado.",
         "type": "form",
         "submit": {"endpoint": "/api/v1/financial/fiscal/calcular/verificar-limite-simples",
-                   "okMsg": "Limite verificado"},
+                   "okMsg": "Limite verificado", "showResult": True},
         "fields": [
             {"key": "rbt12", "label": "Receita bruta 12 meses (R$)*", "type": "number",
              "span": "span 2", "ph": "500000.00"},
