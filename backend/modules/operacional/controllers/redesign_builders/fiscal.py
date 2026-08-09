@@ -4,6 +4,8 @@ nfse-multi/sped/ecac/consultor = capacidade sem tabela → honesto vazio."""
 import os
 from datetime import date as _date
 
+from sqlalchemy import text as _sql
+
 from modules.operacional.controllers.redesign_data_controller import (
     _ICF,
     IC,
@@ -27,6 +29,7 @@ EXTRA_MENU: list[dict] = [
     {"id": "calc-lucro-real", "label": "Calcular Lucro Real", "icon": _ICO_CALC},
     {"id": "calc-comparativo", "label": "Comparar regimes", "icon": _ICO_CALC},
     {"id": "calc-limite-simples", "label": "Limite do Simples", "icon": _ICO_CALC},
+    {"id": "nova-obrigacao", "label": "Nova obrigação", "icon": _ICO_CALC},
 ]
 
 _GTONE = {"pago": "ok", "paga": "ok", "conciliado": "ok", "pendente": "warn", "vencido": "bad", "vencida": "bad"}
@@ -131,7 +134,55 @@ async def build(db) -> dict:
         pass
 
     _calculadoras_tributarias(out)
+    await _nova_obrigacao(db, out)
     return out
+
+
+async def _nova_obrigacao(db, out: dict) -> None:
+    """Formulário de criar obrigação fiscal — o KPI 'Obrigações em aberto' não tinha por onde.
+
+    `POST /financial/fiscal/obrigacao` existe e estava sem superfície (raio-x 2026-08-07).
+    Wiring puro: o submit aponta direto para ela. O gate `fiscal:obrigacao:create` continua
+    valendo no backend — a tela não afrouxa permissão.
+
+    O select de condomínio sai do banco: sem opção real, o campo viraria caixa vazia e o
+    POST falharia com condominio_id inválido. Sem condomínio cadastrado, a tela não é criada.
+    """
+    try:
+        rows = (
+            await db.execute(
+                _sql("SELECT id::text, nome FROM condominios WHERE coalesce(ativo,true) ORDER BY nome")
+            )
+        ).fetchall()
+    except Exception:  # noqa: BLE001 — a tela não pode derrubar o módulo
+        return
+    if not rows:
+        return
+
+    out["nova-obrigacao"] = {
+        "title": "Nova obrigação fiscal",
+        "sub": "DAS, DCTF, DIRF, EFD… — alimenta o KPI 'Obrigações em aberto'.",
+        "type": "form",
+        "submit": {"endpoint": "/api/v1/financial/fiscal/obrigacao",
+                   "okMsg": "Obrigação criada"},
+        "fields": [
+            {"key": "condominio_id", "label": "Condomínio*", "type": "select", "span": "span 2",
+             "ph": "Selecione", "options": [{"value": r[0], "label": r[1]} for r in rows]},
+            {"key": "tipo", "label": "Tipo*", "type": "select", "span": "span 1", "ph": "Selecione",
+             "options": [{"value": x, "label": x} for x in
+                         ("DAS", "DCTF", "DIRF", "EFD", "FGTS", "INSS", "ISS", "IRPJ", "CSLL")]},
+            {"key": "nome", "label": "Nome*", "type": "text", "span": "span 1",
+             "ph": "DAS competência 07/2026"},
+            {"key": "competencia_mes", "label": "Mês da competência", "type": "number",
+             "span": "span 1", "ph": "1 a 12"},
+            {"key": "competencia_ano", "label": "Ano da competência*", "type": "number",
+             "span": "span 1", "ph": str(_date.today().year)},
+            {"key": "data_vencimento", "label": "Vencimento*", "type": "date", "span": "span 1"},
+            {"key": "valor_devido", "label": "Valor devido (R$)", "type": "number",
+             "span": "span 1", "ph": "0.00"},
+            {"key": "descricao", "label": "Descrição", "type": "text", "span": "span 2"},
+        ],
+    }
 
 
 def _calculadoras_tributarias(out: dict) -> None:
