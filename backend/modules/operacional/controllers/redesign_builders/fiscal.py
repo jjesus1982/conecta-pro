@@ -5,11 +5,29 @@ import os
 from datetime import date as _date
 
 from modules.operacional.controllers.redesign_data_controller import (
-    IC, _ICF, _build_fiscal, _fmtdate, _helpers, _scalar, b, brl, doc, t,
+    _ICF,
+    IC,
+    _build_fiscal,
+    _fmtdate,
+    _helpers,
+    _scalar,
+    b,
+    brl,
+    doc,
+    t,
 )
 
 SLUG = "fiscal"
-EXTRA_MENU: list[dict] = []
+
+#: Lido pelo loader no IMPORT e deduplicado por "id" (ver f82d7448 — dict virava aba
+#: fantasma). NUNCA popular isto dentro de build(): cresceria a cada requisição.
+_ICO_CALC = "M9 11H3v10h6V11zM15 3H9v18h6V3zM21 7h-6v14h6V7z"
+EXTRA_MENU: list[dict] = [
+    {"id": "calc-simples", "label": "Calcular DAS (Simples)", "icon": _ICO_CALC},
+    {"id": "calc-lucro-real", "label": "Calcular Lucro Real", "icon": _ICO_CALC},
+    {"id": "calc-comparativo", "label": "Comparar regimes", "icon": _ICO_CALC},
+    {"id": "calc-limite-simples", "label": "Limite do Simples", "icon": _ICO_CALC},
+]
 
 _GTONE = {"pago": "ok", "paga": "ok", "conciliado": "ok", "pendente": "warn", "vencido": "bad", "vencida": "bad"}
 
@@ -111,4 +129,83 @@ async def build(db) -> dict:
             ]
     except Exception:  # noqa: BLE001 — a visão não pode derrubar o módulo
         pass
+
+    _calculadoras_tributarias(out)
     return out
+
+
+def _calculadoras_tributarias(out: dict) -> None:
+    """Liga as 4 calculadoras que o backend já tem e nenhuma tela alcançava.
+
+    Medido em 2026-08-07 (`backend_recon fiscal --surface redesign`): o motor tributário
+    inteiro estava codado e sem superfície. As rotas existem em
+    `financial/controllers/fiscal_controller.py` e são **cálculo puro** — nenhuma transmite
+    nada ao governo, apesar da flag 🏛️ que o recon põe por causa de 'das'/'fiscal' no path.
+
+    O `submit.endpoint` aponta DIRETO para a rota existente: zero backend novo, é wiring.
+    """
+    _LIMINARES = [
+        {"value": "pis_cofins_zero", "label": "PIS/COFINS zerado"},
+        {"value": "inss_nao_retido", "label": "INSS não retido"},
+    ]
+
+    out["calc-simples"] = {
+        "title": "Calcular DAS — Simples Nacional",
+        "sub": "Anexo III. Aplica liminares se informadas. Cálculo puro: não transmite nada.",
+        "type": "form",
+        "submit": {"endpoint": "/api/v1/financial/fiscal/calcular/simples",
+                   "okMsg": "DAS calculado"},
+        "fields": [
+            {"key": "receita_mes", "label": "Receita bruta do mês (R$)*", "type": "number",
+             "span": "span 1", "ph": "50000.00"},
+            {"key": "rbt12", "label": "Receita acumulada 12 meses (R$)*", "type": "number",
+             "span": "span 1", "ph": "500000.00"},
+            {"key": "liminares", "label": "Liminares ativas", "type": "multiselect",
+             "span": "span 2", "options": _LIMINARES},
+        ],
+    }
+
+    out["calc-lucro-real"] = {
+        "title": "Calcular impostos — Lucro Real",
+        "sub": "IRPJ, CSLL, PIS e COFINS não-cumulativos, ISS.",
+        "type": "form",
+        "submit": {"endpoint": "/api/v1/financial/fiscal/calcular/lucro-real",
+                   "okMsg": "Impostos calculados"},
+        "fields": [
+            {"key": "receita_mes", "label": "Receita do mês (R$)*", "type": "number",
+             "span": "span 1", "ph": "100000.00"},
+            {"key": "receita_trimestre", "label": "Receita do trimestre (R$)*", "type": "number",
+             "span": "span 1", "ph": "300000.00"},
+            {"key": "custos_dedutiveis_mes", "label": "Créditos PIS/COFINS do mês (R$)",
+             "type": "number", "span": "span 2", "ph": "0.00"},
+        ],
+    }
+
+    out["calc-comparativo"] = {
+        "title": "Comparar regimes — Simples × Lucro Real",
+        "sub": "Qual regime paga menos para uma receita anual. Responde a transição de CNPJ.",
+        "type": "form",
+        "submit": {"endpoint": "/api/v1/financial/fiscal/calcular/comparativo-regimes",
+                   "okMsg": "Comparativo calculado"},
+        "fields": [
+            {"key": "receita_anual", "label": "Receita bruta anual (R$)*", "type": "number",
+             "span": "span 1", "ph": "1200000.00"},
+            {"key": "custos_dedutiveis_anual", "label": "Custos dedutíveis no ano (R$)",
+             "type": "number", "span": "span 1", "ph": "0.00"},
+            {"key": "liminares", "label": "Liminares ativas", "type": "multiselect",
+             "span": "span 2", "options": _LIMINARES},
+        ],
+    }
+
+    out["calc-limite-simples"] = {
+        "title": "Verificar limite do Simples",
+        "sub": "Quanto falta para estourar o teto e ser desenquadrado.",
+        "type": "form",
+        "submit": {"endpoint": "/api/v1/financial/fiscal/calcular/verificar-limite-simples",
+                   "okMsg": "Limite verificado"},
+        "fields": [
+            {"key": "rbt12", "label": "Receita bruta 12 meses (R$)*", "type": "number",
+             "span": "span 2", "ph": "500000.00"},
+        ],
+    }
+
