@@ -12,6 +12,7 @@ from core.logging import logger
 from modules.crm.models.lead import Lead, LeadStatus
 from modules.crm.schemas.lead import LeadCreate, LeadFilter, LeadStats, LeadUpdate
 from modules.crm.services.lead_service import lead_service
+from modules.crm.services.phone import match_key_br
 
 
 class LeadRepository:
@@ -19,6 +20,101 @@ class LeadRepository:
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+
+    async def find_duplicate(
+        self, phone: str | None = None, email: str | None = None
+    ) -> Lead | None:
+        """Lead existente do MESMO contato — ponto único de dedup do CRM.
+
+        Regra (decisão do Jordan, 2026-08-07): mesmo telefone = mesmo lead.
+        Casa por `match_key_br` (DDD + 8 últimos dígitos), que tolera nono dígito e
+        variação de DDI — o mesmo helper já usado por `pipeline_sync`.
+
+        O SQL apenas PRÉ-FILTRA pelos 8 últimos dígitos; quem decide é o
+        `match_key_br` em Python. Assim a regra de pareamento tem UMA fonte só, em
+        vez de viver duplicada entre Python e SQL.
+
+        Devolve None quando AMBÍGUO (2+ candidatos): nunca escolher entre dois leads
+        — mesma semântica de `pipeline_sync._lead_id_for_proposal`.
+
+        Só considera lead ativo: lead desativado não deve capturar contato novo.
+        Telefone curto demais (< 10 dígitos) → `match_key_br` devolve None e caímos
+        no e-mail, se houver. Nunca adivinhar.
+        """
+        chave = match_key_br(phone)
+        if chave:
+            sufixo = chave[-8:]
+            res = await self.db.execute(
+                select(Lead).where(
+                    Lead.is_active.is_(True),
+                    func.right(func.regexp_replace(Lead.phone, r"\D", "", "g"), 8) == sufixo,
+                )
+            )
+            # Confirma com a regra canônica (o sufixo sozinho ignora o DDD).
+            candidatos = [lead for lead in res.scalars().all() if match_key_br(lead.phone) == chave]
+            if len(candidatos) == 1:
+                return candidatos[0]
+            if len(candidatos) > 1:
+                logger.warning(
+                    f"Dedup ambíguo p/ telefone …{sufixo}: {len(candidatos)} leads ativos. "
+                    "Não escolho — criando lead novo."
+                )
+            return None
+
+        if email:
+            alvo = email.strip().lower()
+            res = await self.db.execute(
+                select(Lead).where(Lead.is_active.is_(True), func.lower(Lead.email) == alvo)
+            )
+            candidatos = res.scalars().all()
+            return candidatos[0] if len(candidatos) == 1 else None
+
+        return None
+
+    async def create_or_get(self, data: LeadCreate, *, dedup: bool = True) -> tuple[Lead, bool]:
+        """PONTO ÚNICO de criação de lead. Devolve `(lead, criado)`.
+
+        Com `dedup=True` (padrão) e já existindo lead ATIVO do mesmo contato
+        (ver `find_duplicate`), devolve o EXISTENTE em vez de duplicar.
+
+        No lead reencontrado preenche APENAS campos vazios — nunca sobrescreve o
+        que já tem valor. `source` é preservado de propósito: a origem é a do
+        PRIMEIRO contato, e reescrevê-la apagaria a atribuição de marketing
+        (quem já falou com a gente antes não "vira" lead de campanha nova).
+
+        `dedup=False` existe para o chamador que precisa mesmo de registro novo;
+        use com motivo declarado, não por conveniência.
+        """
+        if dedup:
+            existente = await self.find_duplicate(phone=data.phone, email=data.email)
+            if existente:
+                if self._preencher_vazios(existente, data):
+                    existente.score, existente.probability = lead_service.calculate_score(existente)
+                    await self.db.commit()
+                    await self.db.refresh(existente)
+                logger.info(
+                    f"Lead reaproveitado: {existente.id} — origem preservada "
+                    f"({existente.source}), não duplicado"
+                )
+                return existente, False
+        return await self.create(data), True
+
+    @staticmethod
+    def _preencher_vazios(lead: Lead, data: LeadCreate) -> bool:
+        """Completa só o que está vazio no lead existente. Devolve True se mudou algo.
+
+        NUNCA toca em `source` nem sobrescreve campo já preenchido.
+        """
+        mudou = False
+        for campo in (
+            "email", "phone", "company", "position", "company_size",
+            "industry", "notes", "expected_value", "assigned_to_id",
+        ):
+            novo = getattr(data, campo, None)
+            if novo and not getattr(lead, campo, None):
+                setattr(lead, campo, novo)
+                mudou = True
+        return mudou
 
     async def create(self, data: LeadCreate) -> Lead:
         """

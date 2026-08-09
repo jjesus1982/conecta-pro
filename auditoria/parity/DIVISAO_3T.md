@@ -59,6 +59,17 @@ ninguém faz em paralelo agora).
 - [x] T3 rh (10/10): vagas(job_positions 10)·candidaturas(applications 8)·onboarding(admission_processes 3)·treinamentos(trainings 5)·cursos(training_courses 9)·avaliacoes(operacional_avaliacoes_equipe 3)·carreira(career_plans 11)·clima(climate_surveys 3)·turnover(turnover_audit_logs 5)·ia(rh_consultas 4). Gotchas: enum status/category→::text, competencia DATE→to_char. Deploy+HTTP200 provado.
 - [x] T3 marketing (7/7, módulo era 100% mock): funil(leads 14 reais)·campanhas·lead-magnet·biblioteca·copywriter·estrategista·brand-voice (marketing_campaigns/assets/content_drafts reais, hoje 0=honesto). Deploy+HTTP200 provado.
 
+> ⚠️ **CONSOLIDAÇÃO DE LEAD — T5 assumiu CRM + WhatsApp (2026-08-09, autorizado pelo Jordan).**
+> Escopo: `crm/repositories/lead_repository.py`, `crm/services/`, e os 10 pontos que criam lead
+> em `crm/controllers/`, `integrations/connectors/whatsapp/`, `ai/.../tools_acao_crm.py`,
+> `operacional/.../redesign_data_controller.py` (só a função `rd_action_lead`).
+> **T4 (CRM) e quem mantém o WhatsApp: falem com o Jordan antes de mexer nesses arquivos.**
+> Plano: `~/.claude/plans/quando-concluirmos-o-marketing-zesty-finch.md`.
+> Regra decidida pelo Jordan: **mesmo telefone = mesmo lead**. Impacto medido em produção
+> (2026-08-09): 28 leads, 1 par de duplicata — e é artefato de teste nosso. Risco retroativo ≈ 0.
+> ⚠️ NÃO mexo em `redesign_data_controller.py` além de `rd_action_lead` — é o registry
+> compartilhado da paridade (regra 1).
+
 > 🔴 **PENDÊNCIA ABERTA — 10 caminhos concorrentes criam LEAD.**
 > _(Revisado 2026-08-07 por leitura função-a-função. A versão anterior dizia "8" e estava
 > ERRADA: eu inferi semântica dos rótulos do grafo sem abrir as funções. O grafo mostra
