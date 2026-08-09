@@ -30,6 +30,9 @@ EXTRA_MENU: list[dict] = [
     {"id": "calc-comparativo", "label": "Comparar regimes", "icon": _ICO_CALC},
     {"id": "calc-limite-simples", "label": "Limite do Simples", "icon": _ICO_CALC},
     {"id": "nova-obrigacao", "label": "Nova obrigação", "icon": _ICO_CALC},
+    {"id": "calc-retencoes", "label": "Calcular retenções", "icon": _ICO_CALC},
+    {"id": "sync-guias", "label": "Sincronizar guias", "icon": _ICO_CALC},
+    {"id": "sync-nfe-entrada", "label": "Puxar NF-e de compra", "icon": _ICO_CALC},
 ]
 
 _GTONE = {"pago": "ok", "paga": "ok", "conciliado": "ok", "pendente": "warn", "vencido": "bad", "vencida": "bad"}
@@ -135,7 +138,67 @@ async def build(db) -> dict:
 
     _calculadoras_tributarias(out)
     await _nova_obrigacao(db, out)
+    _retencoes_e_syncs(out)
     return out
+
+
+def _retencoes_e_syncs(out: dict) -> None:
+    """Retenção na fonte + os dois sincronizadores que não tinham botão.
+
+    RETENÇÕES importa agora: a liminar de PIS/COFINS/INSS da Patrimonial **não foi
+    deferida**, então há retenção real sobre as NFS-e. Provado 201 com R$10.000 →
+    INSS 1.100 · IR 150 · CSLL 100 · PIS 65 · COFINS 300.
+
+    Os dois syncs PUXAM, não transmitem — a diferença que decide o risco:
+      `nfe-entrada/sync-sefaz` → `buscar_nfe_recebidas`, consulta a distribuição do SEFAZ-AM
+      `guias-drive/sync`       → baixa e classifica os PDFs do pacote mensal do Drive
+    Nenhum dos dois emite, cancela ou inutiliza nota. Emissão continua FORA (fala com a
+    SEFAZ e é irreversível — decisão do Jordan, não wiring).
+    """
+    out["calc-retencoes"] = {
+        "title": "Calcular retenções na fonte — NFS-e",
+        "sub": "INSS, IR, CSLL, PIS e COFINS retidos por nota. Escolha o regime do CNPJ emissor.",
+        "type": "form",
+        "submit": {"endpoint": "/api/v1/financial/fiscal/calcular/retencoes-nfse",
+                   "okMsg": "Retenções calculadas"},
+        "fields": [
+            {"key": "valor_servico", "label": "Valor da nota (R$)*", "type": "number",
+             "span": "span 1", "ph": "10000.00"},
+            {"key": "regime_empresa", "label": "Regime do emissor*", "type": "select",
+             "span": "span 1", "ph": "Selecione", "options": [
+                 {"value": "simples_nacional", "label": "Simples Nacional (Patrimonial)"},
+                 {"value": "lucro_real", "label": "Lucro Real (Eletrônica)"}]},
+            {"key": "liminares", "label": "Liminares ativas", "type": "multiselect",
+             "span": "span 2", "options": [
+                 {"value": "pis_cofins_zero", "label": "PIS/COFINS zerado"},
+                 {"value": "inss_nao_retido", "label": "INSS não retido"}]},
+        ],
+    }
+
+    out["sync-guias"] = {
+        "title": "Sincronizar guias do Drive",
+        "sub": "Baixa e classifica os PDFs do pacote mensal (Portte/Onvio) em obrigações.",
+        "type": "form",
+        "submit": {"endpoint": "/api/v1/fiscal/guias-drive/sync", "okMsg": "Guias sincronizadas"},
+        "fields": [
+            {"key": "forcar", "label": "Reprocessar PDFs já sincronizados", "type": "select",
+             "span": "span 2", "ph": "Não", "options": [
+                 {"value": "false", "label": "Não — só os novos"},
+                 {"value": "true", "label": "Sim — reprocessar tudo"}]},
+        ],
+    }
+
+    out["sync-nfe-entrada"] = {
+        "title": "Puxar NF-e de compra (SEFAZ-AM)",
+        "sub": "Consulta a distribuição do SEFAZ. Só LÊ — não emite, não cancela, não inutiliza.",
+        "type": "form",
+        "submit": {"endpoint": "/api/v1/fiscal/nfe-entrada/sync-sefaz",
+                   "okMsg": "Consulta enviada ao SEFAZ"},
+        "fields": [
+            {"key": "ultimo_nsu", "label": "Último NSU", "type": "text", "span": "span 2",
+             "ph": "0 — começa do início"},
+        ],
+    }
 
 
 async def _nova_obrigacao(db, out: dict) -> None:
