@@ -2041,12 +2041,18 @@ async def build(db) -> dict:
         orf AS (SELECT DISTINCT employee_id, ts::date AS d FROM b
                 WHERE punch_type='entrada' AND (prox_tp IS DISTINCT FROM 'saida' OR prox_ts-ts >= interval '16 hours')),
         realiz AS (SELECT employee_id, d, sum(h) AS h_real FROM par GROUP BY 1,2),
-        prev AS (SELECT s.employee_id, s.shift_date AS d, coalesce(s.planned_hours,8) AS h_prev
+        -- previsto agregado POR PESSOA-DIA (senão o JOIN multiplica o realizado: há até 4
+        -- registros de turno no mesmo dia) e SEM turno cancelado (as versões antigas da escala
+        -- ficam como 'cancelled' na mesma data — somá-las inflava o previsto p/ 48h/dia).
+        prev AS (SELECT s.employee_id, s.shift_date AS d, sum(coalesce(s.planned_hours,8)) AS h_prev
                  FROM shifts s WHERE s.shift_date > current_date-30 AND coalesce(s.is_active,true)
-                   AND s.employee_id IS NOT NULL)
+                   AND s.employee_id IS NOT NULL
+                   AND coalesce(s.status::text,'') NOT IN ('cancelled','canceled','cancelada')
+                 GROUP BY 1,2)
         SELECT e.nome, round(sum(r.h_real)::numeric,1), round(sum(p.h_prev)::numeric,1),
                round(sum(r.h_real-p.h_prev)::numeric,1),
-               (SELECT count(*) FROM orf o WHERE o.employee_id=r.employee_id)
+               (SELECT count(*) FROM orf o WHERE o.employee_id=r.employee_id),
+               count(*) AS dias
         FROM realiz r JOIN prev p ON p.employee_id=r.employee_id AND p.d=r.d
         JOIN employees e ON e.id=r.employee_id
         GROUP BY e.nome, r.employee_id ORDER BY 4 DESC LIMIT 300
@@ -2062,11 +2068,12 @@ async def build(db) -> dict:
 
         out["banco-horas-apuracao"] = await tbl(
             "Apuração de horas (ponto × escala)",
-            "Últimos 30 dias · realizado = pares entrada→saída das batidas reais (intervalo já descontado) "
-            "vs previsto na escala. Cálculo derivado — não lança nada: use 'Lançar horas' para efetivar.",
-            "—", ["Colaborador", "Realizado", "Previsto", "Saldo", "Pendências"],
-            "2fr 0.9fr 0.9fr 0.9fr 1fr", _sql_apur,
-            lambda r: [t(r[0] or "—", 600, "#0F1B3A"), t(f"{r[1] or 0}h"), t(f"{r[2] or 0}h"),
+            "Últimos 30 dias · compara só os dias COM batida: realizado = pares entrada→saída reais "
+            "(intervalo já descontado) vs previsto na escala vigente (turno cancelado não conta). "
+            "Cálculo derivado — não lança nada: use 'Lançar horas' para efetivar.",
+            "—", ["Colaborador", "Dias", "Realizado", "Previsto", "Saldo", "Pendências"],
+            "2fr 0.6fr 0.9fr 0.9fr 0.9fr 1.1fr", _sql_apur,
+            lambda r: [t(r[0] or "—", 600, "#0F1B3A"), t(f"{r[5]}d"), t(f"{r[1] or 0}h"), t(f"{r[2] or 0}h"),
                        _saldo_cell(r[3]),
                        b(f"{r[4]} dia(s) c/ batida solta", "warn") if (r[4] or 0) else b("Consistente", "ok")])
     except Exception:  # noqa: BLE001
