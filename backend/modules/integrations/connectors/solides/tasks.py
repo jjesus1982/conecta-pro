@@ -9,6 +9,7 @@ import asyncio
 import logging
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from uuid import UUID, uuid4
 
 from celery import shared_task
@@ -918,7 +919,24 @@ def _sync_punches_from_tangerino(condominio_id: str | None = None, days_back: in
                                 ts = rec.get(ts_field)
                                 if not ts:
                                     continue
-                                punch_dt = datetime.fromtimestamp(ts / 1000)
+                                # O Tangerino codifica o epoch em horário de BRASÍLIA (UTC-3),
+                                # não em UTC. Quem bate 08:00 em Manaus vira epoch de 11:00 UTC;
+                                # convertendo aqui (container em America/Manaus, UTC-4) dava
+                                # 07:00 — uma hora ATRASADA em relação ao relógio de Manaus, que
+                                # é o que vale para nós.
+                                #
+                                # Medido contra a planilha conferida pelo Jordan em 09/08: 22 de
+                                # 32 colaboradores com desvio de exatamente -60 min (Celiane
+                                # entra 08:00 e o banco dizia 07:00).
+                                #
+                                # Lê-se em Brasília e toma-se o relógio de parede, que é o
+                                # horário real da batida. Não uso `+ timedelta(hours=1)` porque
+                                # o número mágico esconde o porquê; assim a intenção fica no
+                                # código. (O Brasil não tem horário de verão desde 2019, então a
+                                # diferença é fixa — se voltar, o ZoneInfo acompanha e o +1h não.)
+                                punch_dt = datetime.fromtimestamp(
+                                    ts / 1000, ZoneInfo("America/Sao_Paulo")
+                                ).replace(tzinfo=None)
                                 punch_id = f"tang-{sid}-{ts}-{ptype}"
                                 up = conn.execute(
                                     sa_text(
