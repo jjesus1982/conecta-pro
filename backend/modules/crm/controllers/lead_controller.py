@@ -51,6 +51,17 @@ async def create_lead(
                 detail="Já existe um lead com este email",
             )
 
+    # Duplicado por TELEFONE (mesmo telefone = mesmo lead). Aqui o guard é 400, e não
+    # reaproveitamento silencioso como no rd_action_lead: este endpoint devolve
+    # LeadResponse, então reaproveitar faria quem pediu para criar "João" receber de
+    # volta "Maria" com 201 Created. Avisar de quem é o telefone é mais útil.
+    duplicado = await repo.find_duplicate(phone=data.phone)
+    if duplicado:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Já existe um lead com este telefone: {duplicado.name}",
+        )
+
     lead = await repo.create(data)
     await log_activity(db, "lead_created", "Lead criado", lead_id=str(lead.id), user_id=str(current_user.id))
     logger.info(f"Lead criado por {current_user.email}: {lead.id}")
