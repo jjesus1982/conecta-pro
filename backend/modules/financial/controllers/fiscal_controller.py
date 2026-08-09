@@ -709,19 +709,16 @@ async def inutilizar_numeracao(
     repo: FiscalRepository = Depends(get_repository),
     current_user: dict = Depends(require_permission("fiscal:nfe:inutilizar")),
 ) -> dict[str, Any]:
-    """Inutiliza faixa de numeracao de NF-e."""
-    # TODO: Implementar inutilizacao na SEFAZ
-    logger.info(
-        f"Inutilizando NF-e serie {data.serie} numeros "
-        f"{data.numero_inicial} a {data.numero_final}: {data.justificativa}"
+    """Inutiliza faixa de numeração de NF-e na SEFAZ — NÃO IMPLEMENTADO. Não finge inutilização
+    (parede fiscal: nada é enviado à SEFAZ, não devolvemos 'inutilizada com sucesso')."""
+    raise HTTPException(
+        status_code=501,
+        detail=(
+            f"Inutilização de numeração NF-e (série {data.serie}, {data.numero_inicial}–"
+            f"{data.numero_final}) ainda não implementada. Nada é enviado à SEFAZ — o sistema "
+            "não simula inutilização fiscal."
+        ),
     )
-
-    return {
-        "message": "Numeracao inutilizada com sucesso",
-        "serie": data.serie,
-        "numero_inicial": data.numero_inicial,
-        "numero_final": data.numero_final,
-    }
 
 
 # ============================================================
@@ -984,12 +981,13 @@ async def cancelar_nfse(
             detail="Apenas NFS-e autorizada pode ser cancelada",
         )
 
-    # TODO: Implementar cancelamento na prefeitura
-    logger.info(f"Cancelando NFS-e {nfse.numero_nfse}: {data.codigo_cancelamento}")
-
-    await repo.update_nfse(data.nfse_id, {"status": "cancelada"})
-
-    return {"message": "NFS-e cancelada com sucesso", "nfse_id": str(data.nfse_id)}
+    # NÃO IMPLEMENTADO: cancelamento na prefeitura. NÃO marca 'cancelada' no banco sem cancelar de
+    # verdade — a nota apareceria cancelada aqui mas seguiria VÁLIDA no fisco = fabricação perigosa.
+    raise HTTPException(
+        status_code=501,
+        detail="Cancelamento de NFS-e na prefeitura ainda não implementado. A nota NÃO é marcada "
+               "como cancelada — o sistema não simula cancelamento fiscal (a nota segue válida no fisco).",
+    )
 
 
 @router.get("/nfse/retencoes/competencia")
