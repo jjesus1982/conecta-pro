@@ -1869,7 +1869,12 @@ async def accounting_dre(
     periodo: str | None = Query(None, description="Período YYYY-MM"),
     _current_user: dict = Depends(get_current_user),
 ) -> dict:
-    """DRE simplificada a partir dos lançamentos contábeis."""
+    """DRE a partir dos lançamentos contábeis reais (accounting_entries).
+
+    Plano de contas REAL: 4.x = RECEITA (4.1.1 = serviços/NFS-e), 5.x = DESPESA (5.1 = pessoal/folha+
+    encargos, 5.2 = operacional/tomadas), 5.2.2 = ISS (dedução da receita). Os filtros antigos usavam
+    3.1.1/4.x (outro plano) e zeravam tudo mesmo com 1396 lançamentos e R$1,8M de receita real.
+    """
     try:
         conn = _get_raw_conn()
         cur = conn.cursor()
@@ -1877,11 +1882,11 @@ async def accounting_dre(
         cur.execute(
             """
             SELECT
-                sum(CASE WHEN conta_credito LIKE '3.1.1%%' THEN valor ELSE 0 END)::float as receita_bruta,
-                sum(CASE WHEN conta_debito  LIKE '3.1.2%%' THEN valor ELSE 0 END)::float as deducoes,
-                sum(CASE WHEN conta_debito  LIKE '4.1.1%%' THEN valor ELSE 0 END)::float as despesa_pessoal,
-                sum(CASE WHEN conta_debito  LIKE '4.1.2%%' THEN valor ELSE 0 END)::float as despesa_encargos,
-                sum(CASE WHEN conta_debito  LIKE '4%%' OR conta_debito LIKE '3.2%%'
+                sum(CASE WHEN conta_credito LIKE '4%%' THEN valor ELSE 0 END)::float as receita_bruta,
+                sum(CASE WHEN conta_debito  LIKE '5.2.2%%' THEN valor ELSE 0 END)::float as deducoes,
+                sum(CASE WHEN conta_debito  LIKE '5.1%%' THEN valor ELSE 0 END)::float as despesa_pessoal,
+                sum(CASE WHEN conta_debito  LIKE '5.1.1.02%%' THEN valor ELSE 0 END)::float as despesa_encargos,
+                sum(CASE WHEN conta_debito  LIKE '5%%' AND conta_debito NOT LIKE '5.2.2%%'
                          THEN valor ELSE 0 END)::float as despesas_operacionais,
                 sum(CASE WHEN tipo_lancamento = 'nfse_emitida' THEN valor ELSE 0 END)::float as receita_servicos,
                 count(*) as total_lancamentos
