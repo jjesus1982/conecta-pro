@@ -212,6 +212,12 @@ app.conf.beat_schedule = {
         "schedule": crontab(hour=8, minute=30),
         "options": {"queue": "gov.batch"},
     },
+    # Propõe rascunho de baixa na Central p/ grandes pendentes vencidos (propor->aprovar, sem auto-baixa)
+    "financeiro-propor-baixa-pendentes": {
+        "task": "financial.propor_baixa_pendentes",
+        "schedule": crontab(hour=8, minute=45),
+        "options": {"queue": "gov.batch"},
+    },
     # ── Multi-CNPJ E4: extrato Cora (Patrimonial) + conciliação líquido×NFS-e ──
     "financeiro-extrato-cora-diario": {
         "task": "financial.cora_sync_extrato",

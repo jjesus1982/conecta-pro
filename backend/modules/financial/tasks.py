@@ -186,7 +186,7 @@ async def _propor_baixa_pendentes(session) -> dict:
     rows = (await session.execute(text(
         "SELECT id::text, coalesce(description,'conta a pagar'), net_value, due_date "
         "FROM payable_accounts WHERE status='pendente' AND due_date < current_date - interval '30 day' "
-        "AND net_value >= 500 ORDER BY net_value DESC LIMIT 25"))).fetchall()
+        "AND net_value >= 500 ORDER BY net_value DESC LIMIT 40"))).fetchall()
     criados = 0
     for pid, desc, val, due in rows:
         try:
