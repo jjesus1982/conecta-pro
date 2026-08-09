@@ -70,7 +70,22 @@ ninguém faz em paralelo agora).
 > ⚠️ NÃO mexo em `redesign_data_controller.py` além de `rd_action_lead` — é o registry
 > compartilhado da paridade (regra 1).
 
-> 🔴 **PENDÊNCIA ABERTA — 10 caminhos concorrentes criam LEAD.**
+> ✅ **RESOLVIDO (2026-08-09) — os 10 caminhos compartilham UMA regra de dedup.**
+> `LeadRepository.find_duplicate()` (usa `phone.match_key_br`: DDD + 8 últimos dígitos) é o
+> ponto único de pareamento. `create_or_get()` reaproveita em vez de duplicar, preservando
+> `source` (origem é do PRIMEIRO contato). Commits: `edccad2f` (base) · `57fe4850` ·
+> `a39f6bde` · `fbd6922e` · `0e9a233e` (os 6 restantes + SOURCE_SCORES).
+> A **regra** é única; a **reação** varia por endpoint de propósito: 400 onde a resposta é o
+> próprio lead (`create_lead`), reaproveitamento com aviso onde há mensagem (`rd_action_lead`),
+> silencioso nas conversões. Forçar um comportamento só seria pior.
+> Também corrigido: `probability` `0.3`/`0.6` → `30`/`60` (coluna é percentual; fração
+> contaminaria `weighted_value`/`is_hot`) e `SOURCE_SCORES` ganhou as 5 fontes do funil
+> (landing pontuava como "outros").
+> **Ainda aberto:** `LeadFilter.source` é enum estrito → leads com `campanha_*`,
+> `visita_tecnica`, `licitacao` seguem infiltráveis por origem na API · `phone.py` sem testes ·
+> dois motores de scoring concorrentes (`LeadScoringEngine` × `recompute_lead_score`).
+
+> 🔴 ~~PENDÊNCIA ABERTA~~ — **HISTÓRICO** — 10 caminhos concorrentes criavam LEAD.
 > _(Revisado 2026-08-07 por leitura função-a-função. A versão anterior dizia "8" e estava
 > ERRADA: eu inferi semântica dos rótulos do grafo sem abrir as funções. O grafo mostra
 > proximidade, não o que cada função faz.)_

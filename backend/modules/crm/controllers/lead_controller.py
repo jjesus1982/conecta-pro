@@ -94,7 +94,7 @@ async def list_leads(  # pylint: disable=too-many-locals
     page: int = Query(1, ge=1, description="Página atual"),
     page_size: int = Query(20, ge=1, le=100, description="Itens por página"),
     status_filter: LeadStatus | None = Query(None, alias="status"),
-    source: LeadSource | None = None,
+    source: str | None = None,  # str p/ alcançar origens fora do enum (ver LeadFilter)
     assigned_to_id: str | None = None,
     min_score: int | None = Query(None, ge=0, le=100),
     max_score: int | None = Query(None, ge=0, le=100),

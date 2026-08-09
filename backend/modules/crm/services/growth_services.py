@@ -104,6 +104,14 @@ async def recompute_lead_score(db: AsyncSession, lead_id: str) -> int | None:
             .mappings()
             .all()
         )
+        # SEM regras ativas não há o que aplicar — sair ANTES de gravar. Antes o loop
+        # não rodava, `score` ficava 0 e o UPDATE ZERAVA o score que o LeadScoringEngine
+        # tinha acabado de calcular (create_lead e public_form_submit chamam os dois em
+        # sequência). Produção tem 0 regras ativas, então todo lead por esses caminhos
+        # nascia com score 0.
+        if not rules:
+            return None
+
         score = 0
         for r in rules:
             if match_operator(_entity_value(entity, r["field"]), r["operator"], r["value"]):

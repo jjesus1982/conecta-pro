@@ -111,7 +111,11 @@ class LeadFilter(BaseModel):
     """Schema para filtros de busca de Leads."""
 
     status: LeadStatus | None = None
-    source: LeadSource | None = None
+    # `str`, não `LeadSource`: o banco tem origens fora do enum, gravadas por caminhos
+    # que usam INSERT cru (`campanha_{nome}`, `visita_tecnica`, `licitacao`). Com o tipo
+    # estrito esses leads eram INFILTRÁVEIS por origem — o filtro dava 422 antes de
+    # chegar na query. Widening é retrocompatível: os valores do enum são strings.
+    source: str | None = None
     assigned_to_id: str | None = None
     min_score: int | None = Field(None, ge=0, le=100)
     max_score: int | None = Field(None, ge=0, le=100)
