@@ -76,7 +76,7 @@ class CostingAnalyzerAgent(BaseAgent):
     async def get_margin_by_service_type(self) -> list[dict]:
         """
         Retorna margem média por tipo de serviço para o mês atual e os
-        2 meses anteriores.  Se a tabela estiver vazia, retorna dados demo.
+        2 meses anteriores. Tabela vazia → retorna VAZIO honesto (0.0, fonte='sem_dados'); NÃO fabrica.
         """
         from modules.financial.models.contract_cost import ContractCost
 
@@ -105,7 +105,7 @@ class CostingAnalyzerAgent(BaseAgent):
         result = (await self.session.execute(q)).all()
 
         if not result:
-            self.logger.info("[costing_analyzer] Tabela vazia — retornando dados demo.")
+            self.logger.info("[costing_analyzer] Tabela vazia — retornando vazio honesto (sem_dados).")
             return _EMPTY_MARGINS
 
         rows = []

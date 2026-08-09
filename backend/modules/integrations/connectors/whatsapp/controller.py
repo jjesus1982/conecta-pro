@@ -214,22 +214,16 @@ async def _match_or_create_lead(
         await db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:p)::bigint)"), {"p": phone_canonical})
     except Exception:  # noqa: BLE001 — sem lock é pior, mas não fatal
         pass
-    row = (
-        await db.execute(
-            text(
-                "SELECT id FROM leads "
-                "WHERE regexp_replace(coalesce(phone, ''), '\\D', '', 'g') = :p "
-                "AND is_active = true LIMIT 1"
-            ),
-            {"p": phone_canonical},
-        )
-    ).first()
-    if row:
-        return str(row[0])
-
     from modules.crm.models.lead import LeadSource
     from modules.crm.repositories.lead_repository import LeadRepository
     from modules.crm.schemas.lead import LeadCreate
+
+    # Dedup via find_duplicate (match_key_br: DDD + 8 últimos dígitos). O SELECT anterior
+    # exigia igualdade EXATA dos dígitos — o mesmo contato chegando com/sem nono dígito ou
+    # com DDI virava lead novo. Regra agora é a mesma dos outros 9 caminhos.
+    existente = await LeadRepository(db).find_duplicate(phone=phone_canonical)
+    if existente:
+        return str(existente.id)
 
     from .agent_service import _origem_do_texto
 

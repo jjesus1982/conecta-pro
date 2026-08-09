@@ -164,9 +164,31 @@ async def _exec_regua_cobranca(db: Any, aprovador: Any, payload: dict) -> str:
     return f"regua_cobranca:{registrados}_registradas"
 
 
+async def _exec_baixa_pagavel(db: Any, aprovador: Any, payload: dict) -> str:
+    """Aprovar → dá BAIXA no pagável proposto (marca 'pago', bookkeeping). NÃO move dinheiro (pagar
+    de verdade é o fluxo OTP); idempotente (só 'pendente'). É o "sim, essa conta JÁ foi paga" do gestor
+    sobre um pendente vencido — resolve os grandes pendentes (folha/tributos/fornecedores) sem auto-baixa
+    cega e sem fabricar (o humano confirma cada um)."""
+    from sqlalchemy import text as _text
+
+    pid = str(payload.get("payable_id") or "").strip()
+    if not pid:
+        return "sem_payable_id"
+    quem = str(getattr(aprovador, "nome", None) or getattr(aprovador, "id", None) or "gestor")
+    await db.execute(_text(
+        "UPDATE payable_accounts SET status='pago', "
+        "payment_date=coalesce(payment_date, due_date, CURRENT_DATE), paid_at=NOW(), "
+        "paid_value=net_value, remaining_value=0, updated_at=NOW(), "
+        "internal_notes=coalesce(internal_notes,'') || :nota "
+        "WHERE id::text = :id AND status='pendente'"),
+        {"id": pid, "nota": f" | baixa aprovada na Central por {quem}"})
+    return f"baixa_pagavel:{pid[:8]}"
+
+
 for _t in _TIPOS_ACEITE:
     registrar_executor(_t, _exec_aceite_recomendacao_agente)
 registrar_executor("financeiro_recomendacao_cobranca", _exec_regua_cobranca)
+registrar_executor("financeiro_baixa_pagavel", _exec_baixa_pagavel)
 
 
 if __name__ == "__main__":

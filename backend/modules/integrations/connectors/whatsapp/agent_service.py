@@ -830,17 +830,13 @@ async def _criar_lead_para_conversa(db, conversation_id: int, nome: str | None =
         ).scalar()
         if not phone:
             return None
-        # dedup por telefone NORMALIZADO (consistente com _match_or_create_lead / perfil;
-        # leads criados pela UI podem ter pontuação no phone) — evita lead duplicado.
-        existing = (
-            await db.execute(
-                text(
-                    "SELECT id FROM leads WHERE regexp_replace(coalesce(phone,''),'\\D','','g') = :p "
-                    "ORDER BY updated_at DESC LIMIT 1"
-                ),
-                {"p": phone},
-            )
-        ).scalar()
+        # dedup via find_duplicate (match_key_br: DDD + 8 últimos dígitos) — mesma regra
+        # dos outros 9 caminhos. Antes exigia igualdade EXATA dos dígitos E não filtrava
+        # is_active, então divergia do webhook: o mesmo contato podia casar aqui e não lá.
+        from modules.crm.repositories.lead_repository import LeadRepository
+
+        _dup = await LeadRepository(db).find_duplicate(phone=phone)
+        existing = str(_dup.id) if _dup else None
         if existing:
             lid = existing
         else:

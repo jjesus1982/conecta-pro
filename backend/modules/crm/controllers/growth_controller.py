@@ -649,11 +649,22 @@ async def public_form_submit(slug: str, payload: dict, request: Request, db: Asy
     email = payload.get("email")
     phone = payload.get("phone") or payload.get("telefone")
     company = payload.get("company") or payload.get("empresa")
-    # cria o lead via ORM (aplica defaults score/probability/expected_value)
-    lead = Lead(name=name, email=email, phone=phone, company=company, source=form["source"] or "website", status="new")
-    db.add(lead)
-    await db.flush()
-    lead_id = str(lead.id)
+    # Dedup (endpoint PÚBLICO, sem auth: antes não tinha nenhum — cada submit criava lead).
+    # Reaproveita o lead existente do mesmo contato; a origem dele é preservada.
+    from modules.crm.repositories.lead_repository import LeadRepository
+
+    _dup = await LeadRepository(db).find_duplicate(phone=phone, email=email)
+    if _dup:
+        lead_id = str(_dup.id)
+    else:
+        # cria o lead via ORM (aplica defaults score/probability/expected_value)
+        lead = Lead(
+            name=name, email=email, phone=phone, company=company,
+            source=form["source"] or "website", status="new",
+        )
+        db.add(lead)
+        await db.flush()
+        lead_id = str(lead.id)
     xff = request.headers.get("x-forwarded-for")
     ip = xff.split(",")[0].strip() if xff else (request.client.host if request.client else None)
     await db.execute(
@@ -775,11 +786,18 @@ async def public_booking_create(slug: str, data: BookingIn, db: AsyncSession = D
     link = await _one(db, "SELECT id FROM crm_booking_links WHERE slug=:s AND is_active=true", {"s": slug})
     if not link:
         raise HTTPException(404, "Link de agendamento não encontrado")
-    # cria lead do agendamento
-    lead = Lead(name=data.name[:255], email=data.email, phone=data.phone, source="website", status="new")
-    db.add(lead)
-    await db.flush()
-    lead_id = str(lead.id)
+    # Dedup (endpoint PÚBLICO, sem auth: antes não tinha nenhum — cada agendamento
+    # criava lead novo, mesmo do contato que já era lead).
+    from modules.crm.repositories.lead_repository import LeadRepository
+
+    _dup = await LeadRepository(db).find_duplicate(phone=data.phone, email=data.email)
+    if _dup:
+        lead_id = str(_dup.id)
+    else:
+        lead = Lead(name=data.name[:255], email=data.email, phone=data.phone, source="website", status="new")
+        db.add(lead)
+        await db.flush()
+        lead_id = str(lead.id)
     booking = await _one(
         db,
         """

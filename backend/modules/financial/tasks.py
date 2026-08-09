@@ -174,6 +174,52 @@ def auto_baixa_pagaveis_task(self):
         raise self.retry(exc=exc)
 
 
+async def _propor_baixa_pendentes(session) -> dict:
+    """Para cada conta a pagar VENCIDA há +30d e ainda pendente (>= R$500), cria um RASCUNHO na
+    Central propondo a baixa (propor→aprovar). Resolve os grandes pendentes (folha/tributos/
+    fornecedores sem match automático 1:1) SEM auto-baixa cega: o gestor aprova o que já foi pago.
+    Idempotente (1 rascunho por pagável, via idempotency_key). NÃO move dinheiro."""
+    from sqlalchemy import text
+
+    from modules.ai.conversation.services.orquestrador.acoes.rascunho import criar_rascunho
+
+    rows = (await session.execute(text(
+        "SELECT id::text, coalesce(description,'conta a pagar'), net_value, due_date "
+        "FROM payable_accounts WHERE status='pendente' AND due_date < current_date - interval '30 day' "
+        "AND net_value >= 500 ORDER BY net_value DESC LIMIT 25"))).fetchall()
+    criados = 0
+    for pid, desc, val, due in rows:
+        try:
+            r = await criar_rascunho(
+                session, None,
+                tipo="financeiro_baixa_pagavel", modulo="financeiro",
+                titulo=f"Dar baixa: {str(desc)[:48]} — R$ {float(val):,.2f}",
+                resumo=(f"Conta vencida em {due} e ainda PENDENTE no sistema. Se ela JÁ foi paga, "
+                        f"aprove para dar baixa (marca 'pago', NÃO move dinheiro). Se ainda não foi "
+                        f"paga, dispense. (folha/tributo/fornecedor sem baixa automática.)"),
+                payload={"payable_id": pid, "valor": float(val), "origem": "proposta_baixa_vencidos"},
+                gate="🟡", requires_otp=False, roles_aprovador=("admin",),
+                idempotency_key=f"baixa_pagavel:{pid}")
+            if isinstance(r, dict) and r.get("status") == "rascunho" and not r.get("duplicado"):
+                criados += 1
+        except Exception as _e:  # noqa: BLE001 — um item nunca derruba o lote
+            logger.warning("[Financial Task] propor_baixa %s: %s", pid, _e)
+    return {"propostos": criados, "candidatos_vencidos": len(rows)}
+
+
+@app.task(name="financial.propor_baixa_pendentes", bind=True, max_retries=1)
+def propor_baixa_pendentes_task(self):
+    """Propõe rascunho de baixa na Central para grandes pendentes vencidos (propor→aprovar).
+    Bookkeeping: NÃO move dinheiro; o gestor aprova o que já foi pago. Idempotente."""
+    try:
+        result = _run_async(_propor_baixa_pendentes)
+        logger.info("[Financial Task] propor_baixa_pendentes: %s", result)
+        return result
+    except Exception as exc:
+        logger.error("[Financial Task] propor_baixa_pendentes error: %s", exc)
+        raise self.retry(exc=exc)
+
+
 @app.task(
     name="financial.inter_monitorar_pendentes",
     bind=True,

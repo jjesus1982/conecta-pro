@@ -742,7 +742,7 @@ async def get_margin_by_service_type(
     Retorna margem média por tipo de serviço (portaria, limpeza, jardinagem,
     seguranca_eletronica, portaria_remota) para o mês atual e os 2 anteriores.
 
-    Se não houver dados reais, retorna benchmarks de demonstração.
+    Sem dados reais → retorna vazio honesto (fonte='sem_dados'); NÃO fabrica benchmarks.
     """
     from modules.financial.agents.costing_analyzer import CostingAnalyzerAgent
 

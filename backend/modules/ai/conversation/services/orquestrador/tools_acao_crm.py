@@ -50,6 +50,17 @@ async def _propor_criar_lead(
         if existente:
             return existente
 
+        # Dedup por CONTATO (match_key_br: DDD + 8 últimos dígitos) — mesma regra dos
+        # outros 9 caminhos. O SELECT acima casa nome+telefone+email LITERAIS, então
+        # telefone com máscara ou nome escrito diferente escapava e duplicava.
+        from modules.crm.repositories.lead_repository import LeadRepository
+
+        _dup = await LeadRepository(db).find_duplicate(
+            phone=(phone or "").strip() or None, email=(email or "").strip() or None
+        )
+        if _dup:
+            return str(_dup.id)
+
         lid = str(uuid.uuid4())
         # assigned_to_id tem FK ENFORCED p/ users(id) (ON DELETE SET NULL). Subquery
         # valida a existência em 1 round-trip (usuário real → grava id; senão NULL),

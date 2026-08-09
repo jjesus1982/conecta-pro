@@ -199,19 +199,15 @@ async def registrar_lead_da_visita(
     nome = rel["cliente_nome"] or "Cliente (visita)"
     lead_id = rel.get("lead_id")
     phone_c = canonical_br(telefone) if telefone else None
-    # acha lead existente por telefone, senão cria
+    # acha lead existente por telefone, senão cria — via find_duplicate (match_key_br:
+    # DDD + 8 últimos dígitos). O SELECT anterior exigia igualdade EXATA dos dígitos, então
+    # o mesmo contato salvo com/sem nono dígito ou com DDI virava lead novo.
     if not lead_id and phone_c:
-        ex = (
-            await db.execute(
-                text(
-                    "SELECT id FROM leads WHERE regexp_replace(coalesce(phone,''),'\\D','','g')=:p "
-                    "AND is_active LIMIT 1"
-                ),
-                {"p": phone_c},
-            )
-        ).first()
+        from modules.crm.repositories.lead_repository import LeadRepository
+
+        ex = await LeadRepository(db).find_duplicate(phone=phone_c)
         if ex:
-            lead_id = str(ex[0])
+            lead_id = str(ex.id)
     if not lead_id:
         row = (
             (

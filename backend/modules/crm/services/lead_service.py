@@ -41,6 +41,17 @@ class LeadScoringEngine:  # pylint: disable=too-few-public-methods
         LeadSource.PARTNER.value: 90,
         LeadSource.COLD_CALL.value: 40,
         LeadSource.OTHER.value: 50,
+        # Fontes do funil Instagram → Linktree → landing → WhatsApp (2026-08).
+        # Sem estas entradas caíam no default 50, ou seja: lead que veio de uma
+        # landing pontuava igual a "outros", e a atribuição não valia nada no score.
+        # Landing = intenção declarada (a pessoa buscou o serviço) → alto.
+        LeadSource.LANDING_PORTARIA_REMOTA.value: 85,
+        LeadSource.LANDING_AGENTES_PORTARIA.value: 85,
+        LeadSource.LANDING_MONITORAMENTO.value: 85,
+        # Linktree/Instagram = topo de funil, interesse menos qualificado que landing.
+        LeadSource.INSTAGRAM_LINKTREE.value: 70,
+        # WhatsApp direto, sem marcador de origem: não dá para saber de onde veio.
+        LeadSource.WHATSAPP.value: 60,
     }
 
     # Scores por tamanho de empresa
