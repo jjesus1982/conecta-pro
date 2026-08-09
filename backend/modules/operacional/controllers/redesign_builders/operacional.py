@@ -911,6 +911,108 @@ async def rd_action_diarista_escala_criar(current_user: CurrentActiveUser, paylo
     return {"ok": True, "msg": "Escala de diarista criada.", "id": str(getattr(r, "id", "") or "")}
 
 
+@router.post("/action/banco-horas-editar")
+async def rd_action_bh_editar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Edita um lançamento de banco de horas PENDENTE (horas/motivo/descrição) — reuso do update_entry."""
+    from fastapi import HTTPException
+
+    from modules.operacional.controllers.time_bank_controller import update_entry
+    from modules.operacional.schemas.time_bank import TimeBankUpdate
+    eid = (payload.get("entry_id") or "").strip()
+    if not eid:
+        raise HTTPException(status_code=400, detail="Selecione o lançamento.")
+    upd = {}
+    if payload.get("hours"):
+        try:
+            upd["hours"] = float(payload["hours"])
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Horas inválidas.")
+    for k in ("reason", "description"):
+        if (payload.get(k) or "").strip():
+            upd[k] = payload[k].strip()
+    if not upd:
+        raise HTTPException(status_code=400, detail="Nada para atualizar.")
+    await update_entry(entry_id=eid, data=TimeBankUpdate(**upd), current_user=current_user, db=db)
+    return {"ok": True, "msg": "Lançamento atualizado."}
+
+
+@router.post("/action/banco-horas-excluir")
+async def rd_action_bh_excluir(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Exclui um lançamento de banco de horas — reuso do delete_entry."""
+    from fastapi import HTTPException
+
+    from modules.operacional.controllers.time_bank_controller import delete_entry
+    eid = (payload.get("entry_id") or "").strip()
+    if not eid:
+        raise HTTPException(status_code=400, detail="Selecione o lançamento.")
+    await delete_entry(entry_id=eid, current_user=current_user, db=db)
+    return {"ok": True, "msg": "Lançamento excluído."}
+
+
+@router.post("/action/diaria-excluir")
+async def rd_action_diaria_excluir(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Exclui um lançamento de diária (status 'lancado') — reuso do excluir_lancamento."""
+    from fastapi import HTTPException
+
+    from modules.operacional.diaristas.diarias_service import excluir_lancamento
+    try:
+        _lid = int(payload.get("lancamento_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Selecione o lançamento.")
+    res = await excluir_lancamento(db, _lid)
+    await db.commit()
+    return {"ok": True, "msg": (res.get("message") if isinstance(res, dict) else None) or "Lançamento de diária excluído."}
+
+
+@router.post("/action/diarista-assignment-criar")
+async def rd_action_assignment_criar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Cria uma alocação recorrente de diarista (diarist_assignments — tabela própria, NÃO allocations).
+    Reuso do DiaristService.create_assignment."""
+    import uuid as _uuid
+
+    from fastapi import HTTPException
+
+    from modules.operacional.diaristas.schemas.diarist_schemas import DiaristAssignmentCreate
+    from modules.operacional.diaristas.services.diarist_service import DiaristService
+    try:
+        did = _uuid.UUID((payload.get("diarist_id") or "").strip())
+        cond = _uuid.UUID((payload.get("condominio_id") or "").strip())
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Selecione diarista e condomínio.")
+    if not (payload.get("data_inicio") or "").strip():
+        raise HTTPException(status_code=400, detail="Informe a data de início.")
+    kw = {"diarist_id": did, "condominio_id": cond,
+          "servico_tipo": (payload.get("servico_tipo") or "portaria").strip(),
+          "data_inicio": payload["data_inicio"].strip()}
+    for k in ("data_fim", "servico_descricao", "local_servico"):
+        if payload.get(k):
+            kw[k] = payload[k]
+    try:
+        data = DiaristAssignmentCreate(**kw)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Dados inválidos: {e}")
+    r = await DiaristService(db).create_assignment(data)
+    return {"ok": True, "msg": "Alocação de diarista criada.", "id": str(getattr(r, "id", "") or "")}
+
+
+@router.post("/action/diarista-assignment-cancelar")
+async def rd_action_assignment_cancelar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Cancela uma alocação recorrente de diarista — reuso do DiaristService.cancel_assignment."""
+    import uuid as _uuid
+
+    from fastapi import HTTPException
+
+    from modules.operacional.diaristas.services.diarist_service import DiaristService
+    try:
+        _aid = _uuid.UUID((payload.get("assignment_id") or "").strip())
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Selecione a alocação.")
+    ok = await DiaristService(db).cancel_assignment(_aid)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Alocação não encontrada.")
+    return {"ok": True, "msg": "Alocação cancelada."}
+
+
 # F0: menu extra ZERADO — as antigas entradas de ação viram ABAS dos 8 grupos (_op_grupos.py),
 # igual ao financeiro. A navegação agrupada evita a sidebar com 60+ itens soltos.
 EXTRA_MENU: list[dict] = []
@@ -1758,6 +1860,17 @@ async def build(db) -> dict:
             "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/banco-horas-rejeitar", "okMsg": "Lançamento rejeitado"},
             "fields": [{"key": "entry_id", "label": "Lançamento (pendente)*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _tbopt},
                        {"key": "reason", "label": "Motivo da rejeição*", "type": "text", "span": "span 2", "ph": "Mín. 5 caracteres"}]}
+        out["banco-horas-editar"] = {
+            "title": "Editar banco de horas", "sub": "Corrige horas/motivo de um lançamento pendente", "cta": "Salvar",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/banco-horas-editar", "okMsg": "Lançamento atualizado"},
+            "fields": [{"key": "entry_id", "label": "Lançamento (pendente)*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _tbopt},
+                       {"key": "hours", "label": "Novas horas", "type": "text", "span": "span 1", "ph": "Deixe vazio p/ manter"},
+                       {"key": "reason", "label": "Motivo", "type": "text", "span": "span 1", "ph": "Opcional"},
+                       {"key": "description", "label": "Descrição", "type": "textarea", "span": "span 2", "ph": "Opcional…"}]}
+        out["banco-horas-excluir"] = {
+            "title": "Excluir banco de horas", "sub": "Remove um lançamento pendente", "cta": "Excluir",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/banco-horas-excluir", "okMsg": "Lançamento excluído"},
+            "fields": [{"key": "entry_id", "label": "Lançamento (pendente)*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _tbopt}]}
     except Exception:  # noqa: BLE001
         await db.rollback()
 
@@ -1877,6 +1990,35 @@ async def build(db) -> dict:
                 {"key": "valor_previsto", "label": "Valor previsto (R$)", "type": "text", "span": "span 1", "ph": "Opcional"},
                 {"key": "observacoes", "label": "Observações", "type": "textarea", "span": "span 2", "ph": "Opcional…"},
             ]}
+        out["diarista-assignment-criar"] = {
+            "title": "Alocar diarista (recorrente)", "sub": "Vincula um diarista a um condomínio por um período", "cta": "Alocar",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/diarista-assignment-criar", "okMsg": "Alocação criada"},
+            "fields": [
+                {"key": "diarist_id", "label": "Diarista*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _diopt(_di_on)},
+                {"key": "condominio_id", "label": "Condomínio*", "type": "select", "span": "span 2", "ph": "Selecione",
+                 "options": [{"value": str(i), "label": n} for i, n in _conds]},
+                {"key": "servico_tipo", "label": "Tipo de serviço", "type": "text", "span": "span 1", "ph": "Ex.: portaria"},
+                {"key": "data_inicio", "label": "Início*", "type": "date", "span": "span 1"},
+                {"key": "data_fim", "label": "Fim", "type": "date", "span": "span 1"},
+                {"key": "servico_descricao", "label": "Descrição", "type": "textarea", "span": "span 2", "ph": "Opcional…"},
+            ]}
+        _asg = (await db.execute(_sqltext(
+            "SELECT a.id, coalesce(d.nome,'—'), a.data_inicio FROM diarist_assignments a "
+            "LEFT JOIN diarists d ON d.id=a.diarist_id WHERE coalesce(a.ativo,true) "
+            "ORDER BY a.data_inicio DESC NULLS LAST LIMIT 200"))).fetchall()
+        out["diarista-assignment-cancelar"] = {
+            "title": "Cancelar alocação de diarista", "sub": "Encerra uma alocação recorrente ativa", "cta": "Cancelar",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/diarista-assignment-cancelar", "okMsg": "Alocação cancelada"},
+            "fields": [{"key": "assignment_id", "label": "Alocação ativa*", "type": "select", "span": "span 2", "ph": "Selecione",
+                        "options": [{"value": str(i), "label": f"{n} · desde {_fmtdate(dt)}"} for i, n, dt in _asg]}]}
+        _dl = (await db.execute(_sqltext(
+            "SELECT l.id, coalesce(l.posto,'—'), l.data, coalesce(l.funcao,'—') FROM diaria_lancamentos l "
+            "WHERE l.status='lancado' ORDER BY l.data DESC NULLS LAST LIMIT 300"))).fetchall()
+        out["diaria-excluir"] = {
+            "title": "Excluir lançamento de diária", "sub": "Remove um lançamento de diária (status 'lançado')", "cta": "Excluir",
+            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/diaria-excluir", "okMsg": "Lançamento excluído"},
+            "fields": [{"key": "lancamento_id", "label": "Lançamento*", "type": "select", "span": "span 2", "ph": "Selecione",
+                        "options": [{"value": str(i), "label": f"{po} · {fn} · {_fmtdate(dt)}"} for i, po, dt, fn in _dl]}]}
     except Exception:  # noqa: BLE001
         await db.rollback()
 

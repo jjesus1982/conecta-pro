@@ -331,6 +331,7 @@ function FormScreen({ scr }: { scr: any }) {
   const [scanOpen, setScanOpen] = useState(false);
   const [colar, setColar] = useState(''); // campo "colar código" (PIX copia-e-cola / linha digitável)
   const set = (k: string, v: string) => setVals((s) => ({ ...s, [k]: v }));
+  const recarregar = useContext(ReloadCtx); // re-busca os dados do módulo após um write (refresca selects de outros forms)
   const gated = !!(scr.submit && scr.submit.gated); // ação money/gov (visual de aviso)
   const [preBusy, setPreBusy] = useState(false);
   const [preMsg, setPreMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -496,6 +497,10 @@ function FormScreen({ scr }: { scr: any }) {
       // d.doc {url, fmt} → abre direto (aditivo; formas sem d.doc não mudam).
       if (d && d.doc && d.doc.url) { try { await abrirDoc(d.doc as DocRef); } catch { /* abre manual depois */ } }
       setVals({}); setFiles({}); setOtp(null); setConfirming(false);
+      // Fio solto: após um write bem-sucedido, re-busca os dados do módulo para que os selects
+      // de OUTROS forms (ex.: excluir depois de criar) reflitam a mudança sem F5. Delay p/ o
+      // usuário ver a mensagem de sucesso antes do refresh.
+      if (d.ok !== false) setTimeout(() => { try { recarregar(); } catch { /* noop */ } }, 1200);
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : 'Erro.' });
     } finally { setBusy(false); }
