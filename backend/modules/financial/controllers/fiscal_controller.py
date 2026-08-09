@@ -1086,31 +1086,15 @@ async def gerar_sped(
     repo: FiscalRepository = Depends(get_repository),
     current_user: dict = Depends(require_permission("fiscal:sped:gerar")),
 ) -> dict[str, Any]:
-    """Gera arquivo SPED.
-
-    TODO: Implementar geracao de arquivos SPED
-    """
-    logger.info(f"Gerando SPED {data.tipo} para {data.ano}/{data.mes or 'anual'}")
-
-    # Cria registro
-    sped = await repo.create_sped_file(
-        condominio_id,
-        {
-            "tipo": data.tipo,
-            "ano": data.ano,
-            "mes": data.mes,
-            "finalidade": data.finalidade,
-            "status": "gerando",
-        },
+    """Gera arquivo SPED — NÃO IMPLEMENTADO. Não fabrica arquivo nem registra um SPED 'gerando'
+    que nunca conclui (parede fiscal: documento fiscal não finge estado sem ação real)."""
+    raise HTTPException(
+        status_code=501,
+        detail=(
+            f"Geração de arquivo SPED ({data.tipo}) ainda não implementada. Nenhum arquivo é "
+            "gerado e nenhum registro 'gerando' é criado — o sistema não simula documento fiscal."
+        ),
     )
-
-    # TODO: Implementar geracao assincrona
-
-    return {
-        "message": "Geracao de SPED iniciada",
-        "sped_id": str(sped.id),
-        "tipo": data.tipo,
-    }
 
 
 @router.post("/sped/{sped_id}/validar", status_code=201)
@@ -1124,12 +1108,12 @@ async def validar_sped(
     if not sped:
         raise HTTPException(status_code=404, detail="SPED nao encontrado")
 
-    # TODO: Implementar validacao com PVA
-    logger.info(f"Validando SPED {sped.id}")
-
-    await repo.update_sped_file(sped_id, {"status": "validando"})
-
-    return {"message": "Validacao iniciada", "sped_id": str(sped_id)}
+    # NÃO IMPLEMENTADO: validação PVA. Não altera o status para 'validando' sem validação real.
+    raise HTTPException(
+        status_code=501,
+        detail="Validação de SPED (PVA/Sped) ainda não implementada — o status não é alterado "
+               "para 'validando' sem validação de verdade.",
+    )
 
 
 @router.post("/sped/{sped_id}/transmitir", status_code=201)
@@ -1143,18 +1127,13 @@ async def transmitir_sped(
     sped = await repo.get_sped_file_by_id(sped_id)
     if not sped:
         raise HTTPException(status_code=404, detail="SPED nao encontrado")
-    if sped.status not in ["validado", "assinado"]:
-        raise HTTPException(
-            status_code=400,
-            detail="SPED precisa estar validado/assinado para transmitir",
-        )
-
-    # TODO: Implementar transmissao
-    logger.info(f"Transmitindo SPED {sped.id} - ambiente {data.ambiente}")
-
-    await repo.update_sped_file(sped_id, {"status": "transmitindo"})
-
-    return {"message": "Transmissao iniciada", "sped_id": str(sped_id)}
+    # NÃO IMPLEMENTADO: transmissão ao fisco. NADA é transmitido e o status NÃO vira 'transmitindo'
+    # (parede fiscal: jamais dizer transmitido/autorizado sem transmissão de verdade).
+    raise HTTPException(
+        status_code=501,
+        detail="Transmissão de SPED ao fisco ainda não implementada. Nada é enviado e o status "
+               "não é alterado — o sistema não simula transmissão fiscal.",
+    )
 
 
 # ============================================================
