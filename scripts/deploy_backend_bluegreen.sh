@@ -76,6 +76,9 @@ if ! mkdir "$LOCK" 2>/dev/null; then
   log "ERRO: lock ocupado ($LOCK) — outro deploy em andamento"; exit 1
 fi
 trap 'rm -rf "$LOCK" 2>/dev/null' EXIT  # rm -rf (não rmdir): libera mesmo se houver owner file dentro (senão o lock vaza e trava o fanout)
+# Quem está segurando — o `com_lock.sh` lê isto para a espera não ser cega ("lock ocupado
+# por: deploy blue/green pid=X desde HH:MM" é acionável; "lock ocupado" não é).
+printf 'deploy blue/green pid=%s desde=%s\n' "$$" "$(date '+%F %T')" > "$LOCK/owner" 2>/dev/null
 
 log "═══ BLUE/GREEN INICIADO ═══"
 

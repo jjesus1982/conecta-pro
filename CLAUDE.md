@@ -100,6 +100,35 @@ cd /opt/conecta-pro
 python3 agents/orchestrator_geral.py
 ```
 
+## REGRA CRÍTICA — NUNCA CONSTRUIR A IMAGEM DO BACKEND FORA DO LOCK
+### Origem: 2026-08-10 — drift de workers medido duas vezes no mesmo dia
+
+**NUNCA** rodar `docker compose build backend` (nem `up -d --build backend`) direto.
+**SEMPRE** um destes, que seguram o lock `/tmp/conecta_deploy.lock`:
+
+```bash
+./scripts/deploy_backend_bluegreen.sh          # deploy completo (já builda dentro do lock)
+./scripts/build_backend.sh                     # só a imagem, esperando o lock
+./scripts/com_lock.sh <qualquer comando>       # qualquer operação que mexa na imagem
+```
+
+### Por que essa regra existe
+
+`conecta-pro-backend:latest` é a **mesma imagem dos 8 workers de celery**. Um build avulso
+troca essa tag. Se isso acontece durante o passo 7 do deploy — que recria os workers **um a
+um**, levando ~12 min — a tag muda no meio do laço: os workers já recriados ficam com a
+imagem anterior (que vira órfã) e o resto pega a nova.
+
+Medido em 10/08/2026, duas vezes: **2 e depois 4 workers** rodando código velho, **todos
+reportando `healthy`**. `docker ps` mostrava oito containers saudáveis.
+
+O lock **serializa deploys**, não builds avulsos — era exatamente esse o buraco. E "healthy"
+nunca denunciou código velho: foi assim que o `celery-beat` rodou **46 dias** em loop de
+crash sem ninguém ver.
+
+O deploy agora roda `./scripts/checar_drift_workers.sh` no fim e **falha** se sobrar drift.
+Se você viu esse erro, o culpado provável é um build fora do lock rodando em paralelo.
+
 ## REGRA CRÍTICA — DEPLOY FRONTEND SEM ChunkLoadError
 ### Origem: CPRO12 (2026-05-05) — DevOps fix chunks
 
