@@ -557,11 +557,15 @@ function FormScreen({ scr }: { scr: any }) {
         </div>
       )}
       {resultado && (() => {
-        // Inteiro é CONTAGEM (86 notas), não dinheiro: sem casas decimais. Só o
-        // fracionário ganha 2 casas — senão "86 documentos" vira "86,00".
-        const fmt = (v: unknown) => typeof v !== 'number' ? String(v)
-          : Number.isInteger(v) ? v.toLocaleString('pt-BR')
-          : v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        // CONTAGEM x DINHEIRO. Não dá pra decidir pelo valor: 86 (notas) e 250000
+        // (reais) são ambos inteiros — por isso quem decide é o NOME do campo.
+        // Dinheiro sempre com 2 casas (R$250.000,00 ao lado de R$42.050,83);
+        // contagem sem casas (86 documentos, não "86,00").
+        const MOEDA = /valor|receita|saldo|liquido|líquido|bruto|economia|preco|preço|custo|salario|salário|das|irpj|csll|cofins|pis|cpp|iss|inss|fgts|multa|juros|desconto/i;
+        const fmt = (v: unknown, k = '') => typeof v !== 'number' ? String(v)
+          : (MOEDA.test(k) || !Number.isInteger(v))
+            ? v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            : v.toLocaleString('pt-BR');
         const pretty = (k: string) => k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
         const skip = new Set(['ok', 'message', 'doc', 'otp_required', 'ref', 'otp', 'erro', 'detail']);
         const rows: Array<{ label: string; value: string | null }> = [];
@@ -570,10 +574,10 @@ function FormScreen({ scr }: { scr: any }) {
           if (v && typeof v === 'object' && !Array.isArray(v)) {
             rows.push({ label: pretty(k), value: null });
             for (const [k2, v2] of Object.entries(v as Record<string, unknown>)) {
-              if (v2 !== null && typeof v2 !== 'object') rows.push({ label: '· ' + pretty(k2), value: fmt(v2) });
+              if (v2 !== null && typeof v2 !== 'object') rows.push({ label: '· ' + pretty(k2), value: fmt(v2, k2) });
             }
           } else if (v !== null && !Array.isArray(v)) {
-            rows.push({ label: pretty(k), value: fmt(v) });
+            rows.push({ label: pretty(k), value: fmt(v, k) });
           }
         }
         if (!rows.length) return null;
