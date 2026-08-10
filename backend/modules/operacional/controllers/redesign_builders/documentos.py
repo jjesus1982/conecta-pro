@@ -1,4 +1,6 @@
 """Documentos/GED (T1) — override do _build_documentos + telas kits e pastas (leitura real)."""
+from datetime import date
+
 from sqlalchemy import text
 
 from modules.operacional.controllers.redesign_data_controller import (
@@ -13,6 +15,10 @@ EXTRA_MENU: list[dict] = [
     {"id": "gedeon-intercorrencia", "label": "Registrar intercorrência", "icon": _ICO_D},
     {"id": "sophia-indexar", "label": "Indexar acervo (SOPHIA)", "icon": _ICO_D},
     {"id": "kits-montar", "label": "Montar kits do mês", "icon": _ICO_D},
+    {"id": "kits-pdfs-mes", "label": "Gerar PDFs dos kits do mês", "icon": _ICO_D},
+    {"id": "kit-real-mes", "label": "Gerar kits reais do mês", "icon": _ICO_D},
+    {"id": "sophia-reindexar", "label": "Re-indexar acervo (SOPHIA v2)", "icon": _ICO_D},
+    {"id": "ingestao-historica", "label": "Ingestão histórica do Drive", "icon": _ICO_D},
 ]
 
 
@@ -138,6 +144,56 @@ async def build(db) -> dict:
                "Não sobrescreve kit existente.",
         "cta": "Montar", "type": "form",
         "submit": {"endpoint": "/api/v1/ged/kits/montar", "okMsg": "Kits montados"},
+        "fields": [],
+    }
+
+    # ── Rotas de QUERY PARAM ligadas SEM tela de campo (2026-08-10) ──────────────────
+    # O renderizador manda JSON no CORPO e estas rotas leem QUERY. Mas o endpoint do form
+    # aceita query fixa (padrao ja usado no financeiro: "...sync-recebidos?dias=30"), e
+    # endpoint sem parametro de corpo IGNORA o corpo. Entao query derivavel = botao que
+    # funciona, sem uma linha de frontend e sem rota nova.
+    #
+    # E nao e so conveniencia: os defaults destas rotas estao CONGELADOS em marco/2026
+    # (mes=3, ano=2026, reference_month="2026-03-01"). Um botao seco geraria documento da
+    # competencia errada em silencio. Embutir o mes corrente CORRIGE isso.
+    _hoje = date.today()
+    _comp = f"{_hoje.year:04d}-{_hoje.month:02d}"
+    out["kits-pdfs-mes"] = {
+        "title": f"Gerar PDFs dos kits — {_hoje.month:02d}/{_hoje.year}",
+        "sub": "Gera os PDFs de todos os kits da competência corrente. A competência é a de "
+               "hoje, não a do sistema (o padrão da rota está preso em março/2026).",
+        "cta": "Gerar PDFs", "type": "form",
+        "submit": {"endpoint": f"/api/v1/ged/kits/generate-all-pdfs?reference_month={_comp}-01",
+                   "okMsg": "Geração dos PDFs disparada",
+                   "confirm": f"Gera os PDFs de TODOS os kits de {_hoje.month:02d}/{_hoje.year}. Confirma?"},
+        "fields": [],
+    }
+    out["kit-real-mes"] = {
+        "title": f"Gerar kits reais — {_hoje.month:02d}/{_hoje.year}",
+        "sub": "Monta os kits reais (com documento de verdade) da competência corrente.",
+        "cta": "Gerar kits", "type": "form",
+        "submit": {"endpoint": f"/api/v1/ged/kit-real/gerar-todos?mes={_hoje.month}&ano={_hoje.year}",
+                   "okMsg": "Geração dos kits reais disparada",
+                   "confirm": f"Gera os kits reais de TODOS os clientes em {_hoje.month:02d}/{_hoje.year}. Confirma?"},
+        "fields": [],
+    }
+    out["sophia-reindexar"] = {
+        "title": "Re-indexar acervo (SOPHIA v2)",
+        "sub": "Refaz os embeddings do acervo na versão 2. Mais pesado que indexar — use "
+               "quando a busca estiver devolvendo resultado ruim.",
+        "cta": "Re-indexar", "type": "form",
+        "submit": {"endpoint": "/api/v1/gedeon/sophia/reindexar", "okMsg": "Re-indexação disparada",
+                   "confirm": "Re-indexar refaz o acervo INTEIRO e consome bastante máquina. Confirma?"},
+        "fields": [],
+    }
+    out["ingestao-historica"] = {
+        "title": "Ingestão histórica do Drive",
+        "sub": "Processa os ZIPs históricos da pasta do Drive e alimenta a SOPHIA. "
+               "Idempotente por arquivo já processado.",
+        "cta": "Processar", "type": "form",
+        "submit": {"endpoint": "/api/v1/people-management/ged/documents/ingestao/historica",
+                   "okMsg": "Ingestão histórica disparada",
+                   "confirm": "Processa TODOS os ZIPs históricos da pasta. Demorado. Confirma?"},
         "fields": [],
     }
 

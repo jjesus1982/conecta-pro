@@ -1,5 +1,7 @@
 """Integrações (T1) — delega ao _build_integracoes e ESTENDE com logs (chamadas de
 integração) e sync (histórico de sincronização Sólides). Leitura real."""
+from datetime import date
+
 from modules.operacional.controllers.redesign_data_controller import (
     _build_integracoes, _helpers, b, t,
 )
@@ -12,6 +14,8 @@ EXTRA_MENU: list[dict] = [
     {"id": "solides-sincronizar", "label": "Sincronizar ponto (Sólides)", "icon": _ICO_I},
     {"id": "drive-conectar", "label": "Conectar Google Drive", "icon": _ICO_I},
     {"id": "drive-desconectar", "label": "Desconectar Google Drive", "icon": _ICO_I},
+    {"id": "onvio-extrair", "label": "Extrair valores (Onvio)", "icon": _ICO_I},
+    {"id": "solides-vincular-kits", "label": "Vincular benefícios aos kits", "icon": _ICO_I},
 ]
 
 
@@ -83,6 +87,25 @@ async def build(db) -> dict:
         "submit": {"endpoint": "/api/v1/people-management/ged/config/drive/disconnect",
                    "method": "DELETE", "okMsg": "Google Drive desconectado",
                    "confirm": "Desconectar o Drive interrompe o GED de guardar e buscar kits. Confirma?"},
+        "fields": [],
+    }
+    # Query fixa no endpoint (padrão já usado no financeiro): rota que lê QUERY funciona
+    # sem tela de campo quando o valor é derivável. Ver nota longa em documentos.py.
+    _h = date.today()
+    out["onvio-extrair"] = {
+        "title": "Extrair valores dos documentos (Onvio)",
+        "sub": "Lê os documentos importados e extrai os valores. Só processa o que ainda não "
+               "foi extraído — rodar de novo não refaz o que já saiu.",
+        "cta": "Extrair", "type": "form",
+        "submit": {"endpoint": "/api/v1/onvio/extrair-valores", "okMsg": "Extração disparada"},
+        "fields": [],
+    }
+    out["solides-vincular-kits"] = {
+        "title": f"Vincular benefícios aos kits — {_h.month:02d}/{_h.year}",
+        "sub": "Liga os benefícios do Sólides aos kits da competência corrente (VT/VR).",
+        "cta": "Vincular", "type": "form",
+        "submit": {"endpoint": f"/api/v1/integrations/solides/beneficios/vincular-kits?mes_ref={_h.month:02d}.{_h.year}",
+                   "okMsg": "Vinculação disparada"},
         "fields": [],
     }
 
