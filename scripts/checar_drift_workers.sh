@@ -20,7 +20,10 @@ ref=$(docker inspect --format '{{.Image}}' "$REF_CONTAINER" 2>/dev/null) || {
     echo "ERRO: $REF_CONTAINER não está de pé."; exit 2; }
 
 # Um deploy em curso deixa o green com imagem nova por alguns minutos — não é drift.
-if pgrep -f "deploy_backend_blue[g]reen.sh" >/dev/null 2>&1; then
+# DENTRO_DO_DEPLOY=1: quem chama é o próprio deploy, no fim dele. O aviso seria sempre
+# verdadeiro (o pgrep acha o script que me chamou) e sempre inútil — ali o deploy já
+# terminou o que importa.
+if [ "${DENTRO_DO_DEPLOY:-0}" != "1" ] && pgrep -f "deploy_backend_blue[g]reen.sh" >/dev/null 2>&1; then
     echo "AVISO: deploy em curso — o resultado abaixo é instantâneo e pode mudar."
 fi
 

@@ -126,6 +126,10 @@ cleanup_green
 if [ "$SKIP_CELERY" = "1" ]; then
   log "7/7 celery: PULADO (SKIP_CELERY=1) — os workers seguem com o código anterior"
   log "═══ BLUE/GREEN CONCLUÍDO — zero downtime (backend apenas) ═══"
+  # Mostra QUAIS ficaram para trás. Aqui o drift é intencional, então não falha o deploy —
+  # mas fica registrado no log, com nome e sobrenome, em vez de virar dívida invisível.
+  log "workers que ficaram com o código anterior (drift intencional deste SKIP_CELERY):"
+  DENTRO_DO_DEPLOY=1 ./scripts/checar_drift_workers.sh 2>&1 | tee -a "$LOG"
   exit 0
 fi
 
@@ -152,4 +156,21 @@ if [ -n "$FALHOS" ]; then
   log "    Esses seguem com o código ANTIGO. Tasks/watchers alterados NÃO estão valendo neles."
   exit 1
 fi
+# ── Verificação pós-deploy: os workers ficaram MESMO com a imagem do backend? ────────
+# Recriar não garante: se alguém reconstruir a imagem POR FORA deste script enquanto o
+# laço do passo 7 roda, a tag `latest` muda no meio e os workers já recriados ficam com a
+# imagem anterior — que vira órfã. Medido duas vezes em 10/08/2026 (2 e depois 4 workers).
+# O lock NÃO protege contra isso: ele serializa deploys, não `docker compose build` avulso.
+# E "healthy" não denuncia código velho — foi assim que o beat rodou 46 dias quebrado.
+log "verificação pós-deploy — imagem dos workers × backend:"
+DENTRO_DO_DEPLOY=1 ./scripts/checar_drift_workers.sh 2>&1 | tee -a "$LOG"
+if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+  log "⚠ DRIFT APÓS O DEPLOY — worker(es) ficaram com imagem anterior."
+  log "  Causa provável: build da imagem por fora deste script durante o passo 7."
+  log "  Corrigir SÓ os acusados (rápido), em vez de reassar tudo:"
+  log "    docker compose -f docker-compose.yml -f docker-compose.celery.yml \\"
+  log "      up -d --no-deps --force-recreate <servico>"
+  exit 1
+fi
+
 log "═══ BLUE/GREEN CONCLUÍDO — zero downtime, backend + $TOTAL worker(s) ═══"
