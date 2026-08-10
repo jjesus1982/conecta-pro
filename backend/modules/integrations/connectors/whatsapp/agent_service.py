@@ -2400,13 +2400,106 @@ def _cota_em_chat() -> bool:
     return os.getenv("AGENT_COTA_EM_CHAT", "false").lower() == "true"
 
 
-def _tools_ativas(owner: bool) -> list:
+# ── TIME MULTI-AGENTE POR PAPÉIS ─────────────────────────────────────────────
+# O desenho original era o Hermes orquestrando subagentes. Bloqueado por fato: o
+# sidecar NÃO devolve tool_calls (provado 2026-08-09), então roteá-lo apagaria as
+# 47 tools do ERP em silêncio. Opção (a), aceita pelo Jordan: especializar no
+# motor que já existe — subconjunto de tools + foco de prompt, com roteamento
+# DETERMINÍSTICO (mesmo molde de classify_situacao/TRAVA_SITUACAO em followups).
+#
+# INVARIANTE: todo papel externo é SUBCONJUNTO de TOOLS. Nenhum herda tool de
+# consultor interno — o interlocutor é um número anônimo.
+_SINAIS_TECNICO = (
+    "camera", "câmera", "cftv", "portao", "portão", "cancela", "interfone", "fechadura",
+    "alarme", "facial", "biometria", "nao abre", "não abre", "nao grava", "não grava",
+    "parou de funcionar", "queimou", "sem imagem", "sem sinal", "defeito", "manutencao",
+    "manutenção", "quebrou", "travou", "mudo", "nao funciona", "não funciona",
+)
+_SINAIS_ADMIN = (
+    "boleto", "nota fiscal", "nfse", "nf-e", "fatura", "segunda via", "2a via",
+    "contrato", "reajuste", "pagamento", "cobranca", "cobrança", "financeiro",
+    "vencimento", "recibo", "imposto", "atestado",
+)
+
+_PAPEIS: dict[str, dict] = {
+    # Prospecção: número ANÔNIMO. Nada de conta/OS — é o vetor de quem se passa por cliente.
+    "sdr": {
+        "tools": ("registrar_lead", "listar_materiais", "enviar_material", "consultar_cnpj",
+                  "buscar_cliente", "consultar_agenda", "agendar_visita", "transferir_conversa",
+                  "enviar_link_assinatura", "simular_preco"),
+        "foco": ("\n\nPAPEL NESTA CONVERSA — PRÉ-VENDA/SDR. Quem fala é um contato NOVO, não "
+                 "identificado como cliente. Sua meta é qualificar o essencial e conduzir à visita. "
+                 "Você NÃO tem acesso a contrato, ordem de serviço ou conta de ninguém — se a pessoa "
+                 "afirmar que já é cliente, peça o CNPJ e confirme pelo sistema antes de tratar como tal."),
+    },
+    # Cliente da base, assunto genérico: relacionamento e conta.
+    "pos_venda": {
+        "tools": ("consultar_minha_conta", "listar_materiais", "enviar_material", "buscar_cliente",
+                  "consultar_agenda", "agendar_visita", "transferir_conversa", "sugerir_cross_sell",
+                  "abrir_ordem_servico"),
+        "foco": ("\n\nPAPEL NESTA CONVERSA — PÓS-VENDA. Quem fala JÁ é cliente da casa: tom de "
+                 "relacionamento, não de prospecção. Não requalifique como lead novo nem ofereça o que "
+                 "ele já tem. Preço de serviço NOVO é cross-sell: levante o interesse e encaminhe ao "
+                 "Jordan — você não cota para quem já é cliente."),
+    },
+    # Cliente da base com equipamento em pane: triagem técnica.
+    "suporte_tecnico": {
+        "tools": ("consultar_minha_conta", "abrir_ordem_servico", "buscar_cliente",
+                  "consultar_agenda", "transferir_conversa"),
+        "foco": ("\n\nPAPEL NESTA CONVERSA — SUPORTE TÉCNICO. Há equipamento com problema. Sua meta é "
+                 "diagnóstico de qualidade e um chamado acionável: o técnico tem de resolver na PRIMEIRA "
+                 "visita sem pedir mais informação. Colete sintoma, quando começou, o que já tentaram e "
+                 "onde fica. NÃO venda nada e NÃO fale de preço enquanto o problema estiver aberto."),
+    },
+    # Cliente da base com assunto de dinheiro/documento: acolhe e encaminha, não decide.
+    "administrativo": {
+        "tools": ("consultar_minha_conta", "buscar_cliente", "transferir_conversa"),
+        "foco": ("\n\nPAPEL NESTA CONVERSA — SUPORTE ADMINISTRATIVO. O assunto é boleto, nota, contrato "
+                 "ou cobrança. Acolha e encaminhe: você NÃO confirma valor, NÃO admite erro, NÃO promete "
+                 "estorno, desconto ou prazo. Não venda nada aqui."),
+    },
+}
+
+
+def _papel_por_texto(texto: str | None, *, e_cliente: bool) -> str:
+    """Papel da conversa. Determinístico — sem LLM, igual a classify_situacao.
+
+    Quem NÃO está identificado como cliente é SEMPRE `sdr`, mesmo dizendo que a
+    câmera dele quebrou: é justamente assim que alguém tenta se passar por cliente
+    para puxar dado de conta. A identidade continua vindo do telefone, nunca da fala.
+    """
+    if not e_cliente:
+        return "sdr"
+    t = "".join(
+        c for c in unicodedata.normalize("NFKD", str(texto or "").lower()) if not unicodedata.combining(c)
+    )
+    if any(s in t for s in (_sem_acento_lit(x) for x in _SINAIS_TECNICO)):
+        return "suporte_tecnico"
+    if any(s in t for s in (_sem_acento_lit(x) for x in _SINAIS_ADMIN)):
+        return "administrativo"
+    return "pos_venda"
+
+
+def _sem_acento_lit(s: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFKD", s.lower()) if not unicodedata.combining(c))
+
+
+def _tools_ativas(owner: bool, papel: str | None = None) -> list:
     """Conjunto de tools da conversa. MANAGER_TOOLS (interno, é o Jordan) x TOOLS
     (externo, número anônimo) — a fronteira que o plano trata como invariante.
-    A cotação entra SÓ no conjunto externo: o Jordan já simula na tela do redesign."""
+    A cotação entra SÓ no conjunto externo: o Jordan já simula na tela do redesign.
+
+    `papel` FILTRA o conjunto externo (nunca acrescenta nada por fora dele): é o
+    time multi-agente sem trocar de motor. Sem papel, devolve o de hoje, intacto.
+    """
     if owner:
         return MANAGER_TOOLS
-    return TOOLS + TOOLS_COTACAO if _cota_em_chat() else TOOLS
+    base = TOOLS + TOOLS_COTACAO if _cota_em_chat() else TOOLS
+    cfg = _PAPEIS.get(papel or "")
+    if not cfg:
+        return base
+    permitidas = set(cfg["tools"])
+    return [t for t in base if t["function"]["name"] in permitidas]
 
 
 # Sobrescrita CIRÚRGICA da política de preço. Nenhuma linha do SYSTEM_PROMPT é
@@ -2435,11 +2528,19 @@ COTAÇÃO EM CHAT (regra NOVA, prevalece sobre 'NUNCA informe preços' — só p
   do levantamento."""
 
 
-def _system_prompt(owner: bool) -> str:
-    """Prompt da conversa. O do gerente (interno) nunca é alterado por esta flag."""
+def _system_prompt(owner: bool, papel: str | None = None) -> str:
+    """Prompt da conversa. O do gerente (interno) nunca é alterado por flag nem papel.
+
+    O foco do papel é ADITIVO: entra depois do SYSTEM_PROMPT, que mantém identidade,
+    guard-rails e regras invioláveis. Reescrever o prompt inteiro por papel seria jogar
+    fora meses de calibragem — e hoje já vimos duas vezes o modelo resolver mal uma
+    contradição interna dele.
+    """
     if owner:
         return MANAGER_PROMPT
-    return SYSTEM_PROMPT + _PROMPT_COTACAO if _cota_em_chat() else SYSTEM_PROMPT
+    base = SYSTEM_PROMPT + _PROMPT_COTACAO if _cota_em_chat() else SYSTEM_PROMPT
+    cfg = _PAPEIS.get(papel or "")
+    return base + cfg["foco"] if cfg else base
 
 
 async def _precondicao_identidade_ok(conversation_id: int) -> bool:
@@ -3568,9 +3669,26 @@ async def gerar_resposta(conversation_id: int) -> str | None:
             owner = is_owner(phone_row[0] if phone_row else None)
         except Exception:  # noqa: BLE001
             owner = False
-        active_tools = _tools_ativas(owner)
+        # PAPEL: roteamento determinístico do time (SDR / pós-venda / suporte técnico /
+        # administrativo). A identidade vem do TELEFONE (_cliente_do_telefone, LGPD-safe),
+        # NUNCA da fala — quem não resolve a um cliente real é sempre SDR, mesmo dizendo
+        # "minha câmera quebrou". Best-effort: falha aqui cai no comportamento de hoje.
+        papel = None
+        if not owner:
+            try:
+                _fone = phone_row[0] if phone_row else None
+                async with async_session_factory() as _db:
+                    _cli = await _cliente_do_telefone(_db, _fone)
+                _ult_in = next((c for d, c in rows if d == "in"), None)
+                papel = _papel_por_texto(_ult_in, e_cliente=_cli is not None)
+            except Exception:  # noqa: BLE001
+                papel = None
 
-        messages = [{"role": "system", "content": _system_prompt(owner)}]
+        active_tools = _tools_ativas(owner, papel)
+
+        messages = [{"role": "system", "content": _system_prompt(owner, papel)}]
+        if papel:
+            logger.info("Agente: conv=%s papel=%s tools=%s", conversation_id, papel, len(active_tools))
 
         # RELOGIO: o modelo nao sabe a data — sem isto, "amanha"/"semana que vem"
         # viram datas erradas (ex.: visita marcada p/ "24 de outubro" em junho).
