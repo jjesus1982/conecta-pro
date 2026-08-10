@@ -20,15 +20,41 @@ rota de dev) e 7 **gated** (dinheiro que sai / transmissão ao governo).
 > Correção de triagem: `integrations/banking/ted/transfer` caiu em LIGAR por falha da minha
 > regra (ela via `transferencia`, não `transfer`). **É dinheiro saindo — é GATED.** Não ligar.
 
-## Feito (33 telas, no ar)
+## ⚠️ A recon superestima o progresso — leia antes de comemorar
 
-| Módulo | Telas | Commit |
+Depois de ligar, a recon caiu de **191 → 112** órfãs de escrita. **Esse número é otimista.**
+Escrevi 46 telas apontando para **43 rotas órfãs** — não 79.
+
+A causa é minha: os comentários que escrevi nos builders explicando **o que NÃO liguei**
+("de fora: `/docs/orcamento/pdf` exige lista de objetos") colocaram o token `orcamento`
+dentro do arquivo. A recon exige co-ocorrência de tokens no mesmo arquivo — e leu meu
+comentário como prova de cobertura. Verificado: `/crm/docs/orcamento/pdf`,
+`/crm/visitas/achados`, `/crm/apresentacoes/gerar`, `/gedeon/sophia/perguntar` e
+`/ged/kits/generate-all-pdfs` aparecem **cobertos** e não foram ligados.
+
+**Métrica confiável:** contar `submit.endpoint` distintos nos builders e cruzar com o
+inventário — não o balde de órfãos depois da edição.
+
+```bash
+grep -rhoE '"endpoint": "/api/v1/[^"]+"' redesign_builders/*.py | sort -u
+```
+
+Consertar exige tokenizar ignorando comentário e docstring. Enquanto não for feito,
+**desconfie de queda no número de órfãos logo após alguém editar um builder.**
+
+## Feito (46 telas → 43 rotas órfãs, no ar)
+
+| Módulo | Telas | O quê |
 |---|---:|---|
-| CRM | 17 | ficha, negociação, WhatsApp, reuniões, visitas, OS em PDF, follow-up, NPS, reativar, simular |
-| RH — CCT | 6 | hora extra, adicional noturno, 13º, validar/auditar salário, reajuste |
+| CRM | 18 | ficha, quem conduz, WhatsApp, reuniões, visitas, OS em PDF, follow-up, NPS, reativar, simular, consultor |
+| RH | 11 | 6 calculadoras da CCT, limpar cache, consultor, 3 de apoio à decisão disciplinar |
 | Jurídico | 4 | consultor, coletar DET, login do robô, semear base |
 | Documentos | 4 | consultor GEDEON, intercorrência, indexar SOPHIA, montar kits |
+| Integrações | 4 | Onvio, ponto Sólides, conectar/desconectar Drive |
 | Licitações | 2 | sincronizar PNCP, sincronizar preços |
+| Empresas | 1 | resumo contábil do mês |
+| Relatórios | 1 | recalcular KPIs |
+| Gestão de pessoas | 1 | consultor |
 
 Todas provadas com `build()` real contra o banco, menu e telas casados nos dois sentidos.
 
