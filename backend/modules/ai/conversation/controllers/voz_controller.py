@@ -29,9 +29,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/consultores/voz", tags=["Consultores — Voz (TTS)"])
 
 MODELO = "gpt-4o-mini-tts"
-# Vozes da OpenAI que soam bem em pt-BR (testadas). coral = padrão: natural e clara.
+# Vozes da OpenAI que soam bem em pt-BR (testadas por amostra com o Jordan).
 VOZES_OPENAI = {"coral", "nova", "verse", "sage", "alloy", "echo", "shimmer", "ballad", "ash"}
-PADRAO = "coral"
+PADRAO = os.getenv("VOZ_TTS_PADRAO", "verse")   # Jordan escolheu "verse" (expressiva).
+# Fica no BACKEND de proposito: trocar a voz vira restart, nao rebuild do frontend.
 # Direção de atuação: é isto que tira o sotaque de locutor de propaganda.
 TOM = ("Fale em português do Brasil, natural e direto, como um colega de trabalho experiente "
        "conversando. Ritmo normal, sem entonação de locutor, sem entusiasmo artificial. "
