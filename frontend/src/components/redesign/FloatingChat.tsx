@@ -85,11 +85,28 @@ export default function FloatingChat() {
     } catch { /* voz é opcional: falhar aqui nunca quebra o chat */ }
   }, [msgs, falarRespostas]);
 
-  function alternarMicrofone() {
+  // Erro de voz PRECISA aparecer: a 1ª versão engolia a falha e o botão parecia morto.
+  function avisoVoz(texto: string) {
+    setMsgs((m) => [...m, { role: 'assistant', text: texto, aviso: true }]);
+  }
+
+  async function alternarMicrofone() {
     if (typeof window === 'undefined') return;
     if (ouvindo) { try { recRef.current?.stop(); } catch { /* */ } return; }
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) return;
+    if (!SR) { avisoVoz('Este navegador não reconhece voz. Use o Chrome ou o Edge.'); return; }
+
+    // Pede o microfone ANTES: é o que faz o navegador mostrar o pedido de permissão.
+    // Sem isto o SpeechRecognition podia falhar calado quando a permissão não existia.
+    try {
+      const st = await navigator.mediaDevices.getUserMedia({ audio: true });
+      st.getTracks().forEach((t) => t.stop());   // só queríamos a permissão
+    } catch {
+      avisoVoz('Preciso do microfone para ouvir. Clique no cadeado 🔒 ao lado do endereço, '
+             + 'libere o Microfone e tente de novo.');
+      return;
+    }
+
     const rec = new SR();
     rec.lang = 'pt-BR';
     rec.interimResults = true;   // mostra o texto enquanto fala
@@ -103,15 +120,36 @@ export default function FloatingChat() {
       }
       setInput((ditado + parcial).trim());
     };
-    rec.onerror = () => setOuvindo(false);
+    let erro = '';
+    rec.onerror = (e: any) => {
+      erro = e?.error || 'desconhecido';
+      setOuvindo(false);
+      // 'no-speech' e 'aborted' são normais (silêncio / usuário parou): não viram aviso.
+      if (erro === 'no-speech' || erro === 'aborted') return;
+      const recado: Record<string, string> = {
+        'not-allowed': 'O microfone está bloqueado para este site. Clique no cadeado 🔒 ao lado do endereço, libere o Microfone e recarregue.',
+        'service-not-allowed': 'O navegador bloqueou o serviço de voz. Verifique as permissões do site.',
+        'audio-capture': 'Não encontrei nenhum microfone conectado.',
+        network: 'O reconhecimento de voz do Chrome precisa de internet e não conseguiu conectar.',
+      };
+      avisoVoz(recado[erro] || `Não consegui usar o microfone (${erro}).`);
+    };
     rec.onend = () => {
       setOuvindo(false);
       // Envia sozinho ao terminar de falar — é o que dá sensação de conversa.
       // Seguro porque o chat CRIA RASCUNHO: nada é executado sem aprovação humana.
       const texto = ditado.trim();
       if (texto) send(texto);
+      else if (!erro) avisoVoz('Não captei nenhuma fala. Tente falar mais perto do microfone.');
     };
-    try { rec.start(); recRef.current = rec; setOuvindo(true); } catch { setOuvindo(false); }
+    try {
+      rec.start();
+      recRef.current = rec;
+      setOuvindo(true);
+    } catch (e: any) {
+      setOuvindo(false);
+      avisoVoz(`Não consegui iniciar o microfone: ${e?.message || e}`);
+    }
   }
 
   useEffect(() => { if (open) endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs, busy, open]);
