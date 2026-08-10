@@ -85,3 +85,22 @@ def test_intrajornada_e_dado_interno_e_nao_pode_vazar_na_cotacao():
     from modules.integrations.connectors.whatsapp import agent_service as ag
 
     assert "adic_intrajornada" in ag._CAMPOS_INTERNOS_COTACAO
+
+
+def test_todo_flag_do_motor_existe_no_simulador_da_api():
+    """Trava a drift que custou caro: um adicional novo no motor que o /pricing/simular
+    não conhece faz a MESMA função sair mais barata por ali do que pelo José Luís."""
+    from modules.crm.controllers.growth_controller import SimularIn
+
+    faltando = set(pricing_cct.FLAGS_FUNCAO) - set(SimularIn.model_fields)
+    assert not faltando, f"SimularIn não conhece: {sorted(faltando)}"
+
+
+def test_todo_flag_do_motor_e_lido_da_funcao_pelo_agente():
+    """Mesmo risco pelo lado do WhatsApp: flag que o SQL do agente não seleciona
+    vira adicional silenciosamente não cobrado na cotação ao cliente."""
+    from modules.integrations.connectors.whatsapp import agent_service as ag
+
+    sql = ag._SQL_FUNCOES_ATIVAS.lower()
+    faltando = [k for k in pricing_cct.FLAGS_FUNCAO if k not in sql]
+    assert not faltando, f"_SQL_FUNCOES_ATIVAS não seleciona: {faltando}"

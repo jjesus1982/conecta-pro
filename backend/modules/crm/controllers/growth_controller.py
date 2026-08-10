@@ -171,6 +171,7 @@ class SimularIn(BaseModel):
     noturno: bool = False
     hora_reduzida: bool = False
     ronda: bool = False
+    intrajornada: bool = False
     periculosidade: bool = False
     insalubridade: bool = False
     margem: float | None = None
@@ -179,30 +180,23 @@ class SimularIn(BaseModel):
 @router.post("/pricing/simular")
 async def pricing_simular(data: SimularIn, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
     """Simula o preço de uma função (replica o simulador da planilha). Aceita função existente OU salário base."""
-    from modules.crm.services.pricing_cct import calcular, carregar_params
+    from modules.crm.services.pricing_cct import FLAGS_FUNCAO, calcular, carregar_params
 
     base, jornada = data.salario_base, data.jornada_dias
-    flags = {
-        "noturno": data.noturno,
-        "hora_reduzida": data.hora_reduzida,
-        "ronda": data.ronda,
-        "periculosidade": data.periculosidade,
-        "insalubridade": data.insalubridade,
-        "margem": data.margem,
-    }
+    # FLAGS_FUNCAO é a fonte única (pricing_cct). Enumerar à mão aqui já custou caro:
+    # um adicional novo no motor ficava de fora e este simulador cotava mais barato
+    # que /pricing/funcoes e que o José Luís, para a MESMA função.
+    flags = {k: bool(getattr(data, k, False)) for k in FLAGS_FUNCAO}
+    flags["margem"] = data.margem
     if data.funcao and base is None:
-        row = await _one(
-            db,
-            """SELECT salario_base, jornada_dias, noturno, hora_reduzida, ronda,
-                                periculosidade, insalubridade FROM crm_pricing_funcoes WHERE nome ILIKE :n""",
-            {"n": data.funcao},
-        )
+        # SELECT * de propósito: imune a coluna de flag nova na crm_pricing_funcoes.
+        row = await _one(db, "SELECT * FROM crm_pricing_funcoes WHERE nome ILIKE :n", {"n": data.funcao})
         if row:
             base = float(row["salario_base"])
             jornada = int(row["jornada_dias"])
             # a função carrega seus adicionais; o payload pode ATIVAR mais (OR)
-            for k in ("noturno", "hora_reduzida", "ronda", "periculosidade", "insalubridade"):
-                flags[k] = bool(flags.get(k)) or bool(row[k])
+            for k in FLAGS_FUNCAO:
+                flags[k] = bool(flags.get(k)) or bool(row.get(k))
     if base is None:
         base = 1670
     r = calcular(base, jornada, flags, await carregar_params(db))
