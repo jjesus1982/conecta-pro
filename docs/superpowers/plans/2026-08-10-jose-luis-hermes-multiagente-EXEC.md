@@ -950,6 +950,38 @@ Módulo financeiro/redesign (T4), não meu. Registrado para o Jordan decidir o d
 
    Reverter por função: `UPDATE crm_pricing_funcoes SET intrajornada=false WHERE nome='<função>';`
 
+   ### 🔒 Gate contra a folha — `scripts/test_pricing_params_vs_folha.py` (`8fc24308`)
+
+   O episódio inteiro passou meses invisível porque dois dos erros se compensavam. Este gate
+   fecha a porta: deriva cada parâmetro do **holerite** e falha se o banco divergir.
+
+   ```bash
+   docker exec -e PYTHONPATH=/app -w /app conecta-pro-backend \
+     python3 scripts/test_pricing_params_vs_folha.py
+   ```
+
+   | parâmetro | no banco | na folha | desvio |
+   |---|--:|--:|--:|
+   | `noturno` | 13,333% | 13,333% | 0,0% |
+   | `hora_reduzida` | 15,867% | 14,993% | 5,8% |
+   | `intrajornada_noturna` | 15,696% | 14,992% | 4,7% |
+   | `intrajornada` | 12,500% | 12,500% | 0,0% |
+   | `ronda` | 15,000% | 14,979% | 0,1% |
+
+   **Mediana, não média** — rescisão e mês parcial poluem a média e virariam alarme falso.
+   **TOL = 10%**, calibrado para a classe de erro que de fato aconteceu (33% a 50% de desvio);
+   apertar para 2% só treina todo mundo a ignorar o gate.
+   **Provado que pega:** com `ronda` de volta em 10%, acusa **33,2%** e sai com `exit 1`.
+
+   ### 🧩 Buraco que eu mesmo abri e fechei (`f059057e`)
+
+   Ao adicionar a flag, `POST /crm/pricing/simular` ficou para trás: enumerava as flags à mão em
+   **três** lugares (schema `SimularIn`, SELECT de colunas, loop de OR). A MESMA função sairia
+   mais barata por ali do que por `/crm/pricing/funcoes` e do que pelo José Luís.
+   Corrigido na raiz: `FLAGS_FUNCAO` (em `pricing_cct`) vira fonte única e o SELECT vira
+   `SELECT *`. **Dois testes travam a drift** para o próximo adicional — um pelo lado da API
+   (`SimularIn` cobre `FLAGS_FUNCAO`), outro pelo SQL do agente (`_SQL_FUNCOES_ATIVAS`).
+
    **Provado com o flag ligado e depois revertido ao centavo:**
    AGP P1 Noturno 6.256,54 → **6.882,78** (+626,24, rótulo `Intrajornada not.`) ·
    ASG 5.431,84 → **5.930,58** (+498,74, rótulo `Intrajornada`).
