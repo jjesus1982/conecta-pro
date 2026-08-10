@@ -26,6 +26,7 @@ EXTRA_MENU: list[dict] = [
     {"id": "cct-validar-salario", "label": "CCT — Validar salário", "icon": _ICO_CCT},
     {"id": "cct-auditar-salario", "label": "CCT — Auditar salário", "icon": _ICO_CCT},
     {"id": "cct-reajuste", "label": "CCT — Reajuste", "icon": _ICO_CCT},
+    {"id": "consultor-perguntar", "label": "Consultor de RH", "icon": _ICO_CCT},
 ]
 
 # 12x36 e a jornada real dos agentes de portaria — nasce selecionada como padrao do campo.
@@ -389,6 +390,19 @@ async def build(db) -> dict:
              "ph": "1670.00"},
             {"key": "cargo", "label": "Cargo — define se está no piso", "type": "text",
              "span": "span 1", "ph": "Ex.: Agente de Portaria"},
+        ],
+    }
+
+    out["consultor-perguntar"] = {
+        "title": "Consultor de RH",
+        "sub": "Pergunta ancorada nos dados reais de RH. É consulta — não altera nada.",
+        "cta": "Perguntar", "type": "form",
+        "submit": {"endpoint": "/api/v1/rh/consultor/perguntar", "okMsg": "Consulta respondida",
+                   "showResult": True},
+        "fields": [
+            {"key": "area", "label": "Área*", "type": "text", "span": "span 2",
+             "ph": "Ex.: treinamento, clima, carreira"},
+            {"key": "pergunta", "label": "Pergunta*", "type": "textarea", "span": "span 2"},
         ],
     }
 

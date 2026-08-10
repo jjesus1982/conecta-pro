@@ -5,7 +5,11 @@ from modules.operacional.controllers.redesign_data_controller import (
 )
 
 SLUG = "integracoes"
-EXTRA_MENU: list[dict] = []
+_ICO_I = "M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"
+
+EXTRA_MENU: list[dict] = [
+    {"id": "onvio-reclassificar", "label": "Reclassificar (Onvio)", "icon": _ICO_I},
+]
 
 
 async def build(db) -> dict:
@@ -43,5 +47,15 @@ async def build(db) -> dict:
                        b((r[7] or '—').capitalize(), _st.get((r[7] or '').lower(), "info"))])
     except Exception:  # noqa: BLE001
         pass
+
+    # Fio solto (2026-08-10): a reclassificação do Onvio existia no backend sem botão.
+    out["onvio-reclassificar"] = {
+        "title": "Reclassificar lançamentos (Onvio)",
+        "sub": "Reprocessa a classificação contábil dos lançamentos importados do Onvio. "
+               "Não apaga lançamento — só reclassifica.",
+        "cta": "Reclassificar", "type": "form",
+        "submit": {"endpoint": "/api/v1/onvio/reclassificar", "okMsg": "Reclassificação disparada"},
+        "fields": [],
+    }
 
     return out

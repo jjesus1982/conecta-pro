@@ -201,6 +201,7 @@ EXTRA_MENU: list[dict] = [
     {"id": "reativar-lead", "label": "Reativar lead frio", "icon": _ICO_CHAT},
     # Análise
     {"id": "simular-fechamento", "label": "Simular fechamento", "icon": _ICO_DOC},
+    {"id": "consultor-comercial", "label": "Consultor comercial", "icon": _ICO_CHAT},
 ]
 
 # Toda rota de contato tem `confirmar`: False = PREVIEW (resolve o número, não envia).
@@ -617,6 +618,19 @@ async def build(db) -> dict:
              "ph": "Ex.: proposta — simula todos desse estágio"},
             {"key": "deals", "label": "Ou negócios específicos (ids separados por vírgula)",
              "type": "text", "span": "span 1"},
+        ],
+    }
+    out["consultor-comercial"] = {
+        "title": "Consultor comercial",
+        "sub": "Pergunta ancorada no funil e nos contratos reais. É consulta — não altera nada.",
+        "cta": "Perguntar", "type": "form",
+        "submit": {"endpoint": "/api/v1/comercial/consultor/perguntar",
+                   "okMsg": "Consulta respondida", "showResult": True},
+        "fields": [
+            {"key": "area", "label": "Área*", "type": "text", "span": "span 2",
+             "ph": "Ex.: funil, propostas, contratos, metas"},
+            {"key": "pergunta", "label": "Pergunta*", "type": "textarea", "span": "span 2",
+             "ph": "Ex.: quais propostas estão paradas há mais de 15 dias?"},
         ],
     }
 
