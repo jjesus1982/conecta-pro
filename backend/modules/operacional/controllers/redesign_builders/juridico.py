@@ -7,7 +7,14 @@ from modules.operacional.controllers.redesign_data_controller import (
 )
 
 SLUG = "juridico"
-EXTRA_MENU: list[dict] = []  # det-comunicacoes já vem do EXTRA_MENU do monólito
+_ICO_J = "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"
+
+EXTRA_MENU: list[dict] = [  # det-comunicacoes já vem do EXTRA_MENU do monólito
+    {"id": "consultor-perguntar", "label": "Consultor jurídico", "icon": _ICO_J},
+    {"id": "det-coletar", "label": "Coletar DET", "icon": _ICO_J},
+    {"id": "det-robo-login", "label": "Login do robô DET", "icon": _ICO_J},
+    {"id": "conhecimento-seed", "label": "Semear base de conhecimento", "icon": _ICO_J},
+]
 
 
 async def build(db) -> dict:
@@ -175,5 +182,55 @@ async def build(db) -> dict:
             pass
     except Exception:  # noqa: BLE001 — riscos não derruba o resto do módulo
         pass
+
+    # ── FIOS SOLTOS DO JURIDICO (2026-08-10) ────────────────────────────────────────
+    # DE FORA: /det/ingest-robo (o ROBO empurra, com x_robo_token — quem chama nao e
+    # tela) e /consultor/perguntar-arquivo (mistura query param com upload multipart;
+    # o renderizador manda multipart OU json, nao os dois — form ai sairia quebrado).
+    out["consultor-perguntar"] = {
+        "title": "Consultor jurídico",
+        "sub": "Pergunta ancorada nos processos e contratos reais. É CONSULTA — não gera "
+               "parecer assinado nem peça processual.",
+        "cta": "Perguntar", "type": "form",
+        # showResult: a resposta E o produto. Sem a flag a tela diria "Consulta feita" e
+        # descartaria o texto — botao mudo. Opt-in; ignorada ate o front subir.
+        "submit": {"endpoint": "/api/v1/juridico/consultor/perguntar",
+                   "okMsg": "Consulta respondida", "showResult": True},
+        "fields": [
+            {"key": "area", "label": "Área*", "type": "select", "span": "span 1", "ph": "Selecione",
+             "options": [{"value": "trabalhista", "label": "Trabalhista"},
+                         {"value": "civel", "label": "Cível"},
+                         {"value": "tributaria", "label": "Tributária"}]},
+            {"key": "contrato_id", "label": "Contrato (id) — opcional", "type": "text", "span": "span 1"},
+            {"key": "pergunta", "label": "Pergunta*", "type": "textarea", "span": "span 2",
+             "ph": "Ex.: qual o risco de passivo em rescisão sem justa causa neste contrato?"},
+        ],
+    }
+    out["det-coletar"] = {
+        "title": "Coletar DET (Domicílio Eletrônico Trabalhista)",
+        "sub": "Dispara a coleta da caixa do DET pelo robô e registra as mensagens no ERP.",
+        "cta": "Coletar agora", "type": "form",
+        "submit": {"endpoint": "/api/v1/juridico/det/robo/coletar",
+                   "okMsg": "Coleta disparada — as mensagens aparecem em Comunicações DET",
+                   "confirm": "Dispara a coleta no gov.br pelo robô. Confirma?"},
+        "fields": [],
+    }
+    out["det-robo-login"] = {
+        "title": "Login supervisionado do robô DET",
+        "sub": "Sobe o navegador do robô no noVNC para você fazer o login do gov.br à mão. "
+               "Use quando a coleta falhar por sessão expirada.",
+        "cta": "Abrir login", "type": "form",
+        "submit": {"endpoint": "/api/v1/juridico/det/robo/login",
+                   "okMsg": "Navegador do robô aberto — conclua o login no noVNC"},
+        "fields": [],
+    }
+    out["conhecimento-seed"] = {
+        "title": "Semear base de conhecimento jurídico",
+        "sub": "Carrega os casos e procedimentos reais na base do consultor. Idempotente — "
+               "rodar de novo não duplica.",
+        "cta": "Semear", "type": "form",
+        "submit": {"endpoint": "/api/v1/juridico/conhecimento/seed", "okMsg": "Base semeada"},
+        "fields": [],
+    }
 
     return out

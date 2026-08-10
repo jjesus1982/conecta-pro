@@ -607,7 +607,11 @@ async def build(db) -> dict:
         "title": "Simular fechamento (what-if)",
         "sub": "Se estes negócios fecharem, como fica ganho × meta. Não altera nada.",
         "cta": "Simular", "type": "form",
-        "submit": {"endpoint": "/api/v1/crm/simular-fechamento", "okMsg": "Simulação executada"},
+        # showResult: sem ele a tela diria "Simulação executada" e jogaria fora o numero — que
+        # e o produto inteiro de um what-if. A flag e opt-in no ModuleView; enquanto o front nao
+        # subir ela e ignorada (chave desconhecida), entao ligar agora e seguro e ja nasce certo.
+        "submit": {"endpoint": "/api/v1/crm/simular-fechamento", "okMsg": "Simulação executada",
+                   "showResult": True},
         "fields": [
             {"key": "estagio", "label": "Estágio inteiro", "type": "text", "span": "span 1",
              "ph": "Ex.: proposta — simula todos desse estágio"},
