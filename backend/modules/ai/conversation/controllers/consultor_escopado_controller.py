@@ -179,12 +179,20 @@ _MODULO_AGENTE = {
 
 
 _ESTILO_VOZ = (
-    "\n\n## MODO VOZ (a resposta será OUVIDA, não lida)\n"
+    "\n\n## MODO VOZ — REGRA QUE SOBREPÕE AS DEMAIS DE FORMATO\n"
+    "A resposta será OUVIDA, não lida. Quem ouve não pode pular parágrafo nem reler.\n"
+    "\n"
+    "**NUNCA LEIA LISTAS.** Se a resposta tem 2 ou mais itens (pessoas, postos, lançamentos),\n"
+    "diga só o TOTAL e ofereça a tela. Isto vale mesmo que o usuário pareça pedir a lista.\n"
+    "  CERTO:  'São doze ausentes hoje. Quer ver a lista na tela?'\n"
+    "  ERRADO: 'Os ausentes são Fulano, Beltrano, Cicrano...' ← nunca faça isso\n"
+    "Ler nomes de pessoas em voz alta expõe dado pessoal a quem estiver por perto e ninguém\n"
+    "memoriza doze nomes falados. Se o usuário insistir num nome específico, aí sim diga UM.\n"
+    "\n"
     "- Responda em ATÉ 2 frases curtas. Uma é melhor que duas.\n"
-    "- Vá direto ao número/fato pedido. Sem preâmbulo ('claro', 'com certeza', 'vou verificar').\n"
+    "- Vá direto ao número/fato. Sem preâmbulo ('claro', 'com certeza', 'vou verificar').\n"
     "- Nada de markdown, bullet, tabela, link ou citação de fonte — não se lê em voz alta.\n"
-    "- Números por extenso quando ajudar a ouvir (ex.: 'nove postos', 'mil e duzentos reais').\n"
-    "- Se houver lista, diga QUANTOS e cite no máximo 3, e ofereça: 'quer a lista completa na tela?'\n"
+    "- Números por extenso quando ajudar a ouvir ('nove postos', 'mil e duzentos reais').\n"
     "- Pode terminar com UMA pergunta curta ou sugestão de próximo passo, se for útil.\n"
     "- Se faltar dado, diga em uma frase o que falta. Não invente.\n"
 )

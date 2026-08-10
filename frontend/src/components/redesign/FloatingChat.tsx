@@ -95,7 +95,7 @@ export default function FloatingChat() {
         const r = await fetch(ENDPOINT_VOZ, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
-          body: JSON.stringify({ texto: ultima.text, voz: 'francisca', velocidade: 4 }),
+          body: JSON.stringify({ texto: ultima.text, voz: 'coral', velocidade: 1.0 }),
         });
         if (!r.ok) throw new Error(String(r.status));
         const url = URL.createObjectURL(await r.blob());
