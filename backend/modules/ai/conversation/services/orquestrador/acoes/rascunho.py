@@ -13,6 +13,7 @@ pelo controller de aprovação, que faz o gate de OTP antes).
 """
 from __future__ import annotations
 
+import os
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -32,6 +33,37 @@ EXECUTORES: dict[str, Callable[[AsyncSession, Any, dict], Awaitable[Any]]] = {}
 
 def registrar_executor(tipo: str, fn: Callable[[AsyncSession, Any, dict], Awaitable[Any]]) -> None:
     EXECUTORES[tipo] = fn
+
+
+# Quem responde pelo FINANCEIRO. Regra do Jordan: é dele e da Pyetra — o role
+# 'admin' cru inclui conta genérica (admin@), robô (mcp-service@) e a conta
+# pessoal duplicada da mesma pessoa, virando 5 destinatários para o que é de 2.
+_FINANCEIRO_PADRAO = "jjesus@conectamais.pro,pjesus@conectamais.pro"
+_MODULOS_FINANCEIROS = ("financeiro", "financial")
+
+
+def _e_financeiro(modulo: str, tipo: str) -> bool:
+    """Rascunho de dinheiro (por módulo OU por prefixo do tipo)."""
+    m = (modulo or "").strip().lower()
+    t = (tipo or "").strip().lower()
+    return m in _MODULOS_FINANCEIROS or t.startswith(("financeiro_", "financial_"))
+
+
+async def _somente_financeiro(db: AsyncSession, user_ids: list[str]) -> list[str]:
+    """Filtra os aprovadores já resolvidos, deixando só quem responde pelo
+    financeiro. Env `CONECTA_FINANCEIRO_EMAILS` (csv) sobrepõe o padrão.
+    É FILTRO, não fonte: quem não passou no role nunca entra por aqui."""
+    if not user_ids:
+        return []
+    permitidos = [e.strip().lower() for e in os.getenv(
+        "CONECTA_FINANCEIRO_EMAILS", _FINANCEIRO_PADRAO).split(",") if e.strip()]
+    if not permitidos:
+        return user_ids
+    rows = (await db.execute(text(
+        "SELECT id::text FROM users WHERE id::text = ANY(:ids) "
+        "  AND lower(coalesce(email,'')) = ANY(:emails)"),
+        {"ids": list(user_ids), "emails": permitidos})).fetchall()
+    return [r[0] for r in rows]
 
 
 async def criar_rascunho(
@@ -69,6 +101,13 @@ async def criar_rascunho(
 
     # Aprovadores por role (SEM excluir o solicitante — propositor = agente).
     aprovadores = await entrega.resolver_usuarios_por_roles(db, roles_aprovador)
+    # Módulo financeiro NÃO segue o role 'admin' cru: role admin inclui conta
+    # genérica (admin@), robô (mcp-service@) e conta pessoal duplicada da mesma
+    # pessoa — 5 destinatários para o que é de 2. Regra do Jordan: financeiro é
+    # dele e da Pyetra. Allowlist por e-mail, configurável, aplicada como FILTRO
+    # (nunca amplia o que o role já autorizou).
+    if _e_financeiro(modulo, tipo):
+        aprovadores = await _somente_financeiro(db, aprovadores)
     if not aprovadores:
         return {"erro": "nenhum aprovador ativo para este tipo — rascunho recusado (fail-closed)"}
 
