@@ -169,7 +169,12 @@ function TableScreen({ scr }: { scr: any }) {
         </div>
       )}
       <div className="rd-tbl-scroll">
-        <div className="rd-tbl-inner">
+        {/* min-width cresce com o nº de colunas. Era 680px fixo, então a Folha (12 colunas)
+            espremia tudo para caber e o ellipsis comia justamente o VALOR: "R$ 1.67…",
+            "R$ 797,…". Numa tela de folha, número cortado é pior que rolagem lateral —
+            ninguém confere salário por reticências. ~112px por coluna é o que faz
+            "R$ 1.670,00" caber inteiro na fonte 13px. */}
+        <div className="rd-tbl-inner" style={{ minWidth: `max(680px, ${cols.length * 112}px)` }}>
           <div className="rd-tbl-head" style={{ gridTemplateColumns: grid }}>
             {cols.map((c: string, i: number) => <span className="rd-tbl-th" key={i}>{c}</span>)}
           </div>

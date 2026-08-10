@@ -152,6 +152,60 @@ _PROMPT_EXTRACAO = (
 )
 
 
+def _imagens_do_arquivo(nome: str, data: bytes) -> list[str]:
+    """Devolve o(s) data URL de imagem que o modelo consegue enxergar. Lista vazia = não é
+    imagem, tenta-se texto.
+
+    Detecta por CONTEÚDO (magic bytes), não por extensão. A versão anterior usava
+    `eh_imagem()`, que só conhece .png/.jpg/.jpeg/.webp/.gif — foto de iPhone chega como
+    **.heic** e caía no ramo de texto: o binário virava lixo utf-8, o modelo recebia lixo e
+    devolvia zero campo. Foi exatamente o que aconteceu com a CNH que o Jordan anexou.
+
+    PDF sem camada de texto (documento escaneado ou foto salva como PDF) é RASTERIZADO com o
+    fitz e vai por visão — antes ele morria no "não consegui ler o arquivo".
+    """
+    import base64
+
+    cab = data[:12]
+    mime = None
+    if cab.startswith(b"\x89PNG"):
+        mime = "image/png"
+    elif cab.startswith(b"\xff\xd8\xff"):
+        mime = "image/jpeg"
+    elif cab.startswith(b"GIF8"):
+        mime = "image/gif"
+    elif cab[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        mime = "image/webp"
+    if mime:
+        return [f"data:{mime};base64,{base64.b64encode(data).decode()}"]
+
+    # HEIC/HEIF: 'ftyp' no offset 4 com marca heic/heix/hevc/mif1. O modelo não lê HEIC e não
+    # temos pillow-heif; recusa explicando o que fazer, em vez de mandar lixo e dizer que não
+    # achou nada — o erro fica no lugar certo.
+    if data[4:8] == b"ftyp" and data[8:12].lower() in (b"heic", b"heix", b"hevc", b"mif1"):
+        raise HTTPException(
+            status_code=422,
+            detail="Foto em HEIC (formato do iPhone). No iPhone: Ajustes → Câmera → Formatos "
+                   "→ 'Mais compatível', ou mande um print da foto. JPG e PNG funcionam.")
+
+    if cab.startswith(b"%PDF"):
+        from modules.ai.conversation.services.orquestrador.anexos import extrair_texto_arquivo
+        if len(extrair_texto_arquivo(nome, data)) >= 10:
+            return []                       # tem texto: o ramo de texto lê melhor e é barato
+        try:                                # sem texto = escaneado -> rasteriza p/ visão
+            import fitz
+            doc = fitz.open(stream=data, filetype="pdf")
+            urls = []
+            for pagina in list(doc)[:2]:    # CNH/RG cabem em 1-2 páginas; mais é custo à toa
+                png = pagina.get_pixmap(dpi=150).tobytes("png")
+                urls.append(f"data:image/png;base64,{base64.b64encode(png).decode()}")
+            doc.close()
+            return urls
+        except Exception as e:  # noqa: BLE001 — PDF ruim cai no ramo de texto, que erra melhor
+            logger.warning("[dp] rasterizar PDF falhou (%s): %s", nome, e)
+    return []
+
+
 @router.post("/action/extrair-documento")
 async def extrair_documento(
     current_user: CurrentActiveUser,
@@ -180,25 +234,22 @@ async def extrair_documento(
     if not data:
         raise HTTPException(status_code=422, detail="Arquivo vazio.")
 
-    from modules.ai.conversation.services.orquestrador.anexos import (
-        eh_imagem,
-        extrair_texto_arquivo,
-        imagem_data_url,
-    )
+    from modules.ai.conversation.services.orquestrador.anexos import extrair_texto_arquivo
 
     nome_arq = arquivo.filename or "anexo"
     chaves = "\n".join(f"- {k}: {d}" for k, d in campos.items())
     instr = _PROMPT_EXTRACAO.format(chaves=chaves)
+    imagens = _imagens_do_arquivo(nome_arq, data)
 
-    if eh_imagem(nome_arq):
-        conteudo = [{"type": "text", "text": instr},
-                    {"type": "image_url", "image_url": {"url": imagem_data_url(nome_arq, data)}}]
+    if imagens:
+        conteudo = [{"type": "text", "text": instr}]
+        conteudo += [{"type": "image_url", "image_url": {"url": u}} for u in imagens]
     else:
         texto = extrair_texto_arquivo(nome_arq, data)
         if len(texto) < 10:
             raise HTTPException(
                 status_code=422,
-                detail="Não consegui ler o arquivo. Se for PDF escaneado, mande como foto.")
+                detail="Não consegui ler o arquivo. Tente uma foto do documento (JPG ou PNG).")
         # teto de texto: contrato social inteiro estoura o contexto e não melhora a extração
         conteudo = [{"type": "text", "text": f"{instr}\n\nDOCUMENTO:\n\"\"\"\n{texto[:20000]}\n\"\"\""}]
 
@@ -1247,6 +1298,14 @@ async def build(db, current_user=None) -> dict:
         "CAST(p.id AS TEXT), CAST(p.employee_id AS TEXT), p.reference_month, p.reference_year, "
         "to_char(make_date(p.reference_year, p.reference_month, 1),'MM/YYYY') "
         "FROM hr_payslips p LEFT JOIN employees e ON e.id=p.employee_id "
+        # Competência no FUTURO fica de fora. Existem 47 folhas em 11/2026 e 47 em 12/2026
+        # (source=conecta, status=draft) — provavelmente uma geração de teste com competência
+        # errada. Como a tela ordena desc e abre na primeira, ela abria em DEZEMBRO com o
+        # sistema em agosto: a Pyetra veria uma folha que não existe como se fosse a atual.
+        # Filtrar aqui é honesto (não apago folha de ninguém) e conserta a tela hoje; as 94
+        # linhas futuras seguem no banco para o Jordan decidir se apaga.
+        "WHERE make_date(p.reference_year, p.reference_month, 1) "
+        "      <= date_trunc('month', current_date) "
         "ORDER BY p.reference_year DESC, p.reference_month DESC, e.nome LIMIT 500",
         lambda r: [t(r[12], 600, _ND), t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]), t(brl(r[2])),
                    t(brl(r[3])), t(brl(r[4])), t(brl(r[5])), t(brl(r[6]), 600), _folha_status(r[7])],

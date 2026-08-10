@@ -329,9 +329,15 @@
 .rd-tbl-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
 .rd-tbl-scroll { overflow-x: auto; }
 .rd-tbl-inner { min-width: 680px; }
-.rd-tbl-head { display: grid; padding: 12px 20px; background: #F7F9FC; border-bottom: 1px solid var(--border); }
-.rd-tbl-th { font-weight: 700; font-size: 11px; color: var(--ink-weak); text-transform: uppercase; letter-spacing: 0.06em; }
-.rd-tbl-row { display: grid; padding: 13px 20px; border-bottom: 1px solid var(--fill); align-items: center; }
+/* gap no CABEÇALHO: as células (.rd-tbl-cell) já tinham gap 10px e corte de texto, o
+   cabeçalho não tinha nenhum dos dois — então título longo transbordava por cima do vizinho e
+   saía "COMPETÊNCIACOLABORADOR", "DESCONTOSLÍQUIDO", "TRABALHADAS BATIDAS". Aparecia em toda
+   tabela do redesign, não só no DP. */
+.rd-tbl-head { display: grid; gap: 10px; padding: 12px 20px; background: #F7F9FC; border-bottom: 1px solid var(--border); }
+.rd-tbl-th { font-weight: 700; font-size: 11px; color: var(--ink-weak); text-transform: uppercase; letter-spacing: 0.06em;
+             min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* mesmo gap na linha, senão cabeçalho e conteúdo desalinham coluna a coluna */
+.rd-tbl-row { display: grid; gap: 10px; padding: 13px 20px; border-bottom: 1px solid var(--fill); align-items: center; }
 .rd-tbl-row:last-child { border-bottom: none; }
 .rd-tbl-row:hover { background: var(--fill); }
 .rd-tbl-cell { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 13px; }
