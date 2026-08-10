@@ -25,6 +25,35 @@ Os dois commits foram feitos em **índice temporário** (`GIT_INDEX_FILE` + `rea
 outra sessão: `git add` teria publicado o inacabado deles sob o meu commit. A árvore
 commitada é o HEAD anterior mais as minhas linhas, e nada do WIP alheio.
 
+## 2ª rodada (autorizada pelo Jordan) — o que fechou depois
+
+O que travava 8 delas era o renderizador não saber mandar **lista de objetos**. Ganhou o
+tipo de campo **`json`**: textarea parseado antes do envio, opt-in, com a forma esperada no
+placeholder. Destravou orçamento com itens, apresentação com slides, achados da visita,
+signatários, holerites em lote, colaboradores do ciclo de avaliação, verbas do S-2299 e as
+listas do otimizador.
+
+Fecharam também: orçado do mês, faturamento de contrato ativado, pagáveis das NFS-e (com
+tabela **própria** lendo `nfse_entrada`, que é a que o serviço consulta — a tela antiga lê
+`nfse_tomadas_nacional`, tabela diferente), as 3 de justificativa, otimizador de escala
+(entra porque **sugere**, não grava), alocar diarista, importar folha do Alterdata, eSocial
+S-2299 **gerando o XML sem transmitir**, solicitar assinatura e onboard por cliente.
+
+### O que segue fora, agora com o motivo verificado
+
+| Rota | Por quê |
+|---|---|
+| `banking/ted/transfer` | **Sem OTP, sem teto, sem confirmação** — li o handler: vai direto ao adaptador do Inter. Botão ali é transferência de um clique para qualquer CPF/CNPJ. Precisa do gate antes. |
+| `conciliar/auto`, `bank-reconciliations/auto` | já têm botão pela ação `conciliar-auto` |
+| `payables/auto-criar/{nota_id}` | mesma operação da singular, que foi ligada |
+| `scales/{id}/reject` | já exposto por `escala-rejeitar` |
+| `desalocar-diarista/{id}` | já exposto por `diarista-assignment-cancelar` |
+| `allocations/bulk`, `shifts/bulk` | editam em massa o território curado, e a interface seria colar JSON de alocação — botão que existe para satisfazer contador, não para ser usado |
+| `det/ingest-robo` | o robô empurra com token; não há humano nesse fluxo |
+| `portal/auth/reset-senha`, `self-service/bater-ponto` | fluxo de login e batida com GPS + selfie: pertencem ao portal, não ao ERP |
+| `notifications/register-device` | registro de aparelho do app móvel |
+| `discipline/from-occurrence/{id}` | fechado por outro caminho: o formulário de nova medida passou a aceitar `occurrence_id` |
+
 ## Fora por decisão — e a decisão é reversível
 
 **Território curado à mão (8).** `allocations/bulk`, `shifts/bulk`, `alocar`/`desalocar
