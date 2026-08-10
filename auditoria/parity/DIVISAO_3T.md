@@ -133,9 +133,12 @@ ninguém faz em paralelo agora).
 > ✅ **JOSÉ LUÍS — COTAÇÃO PELA TABELA CCT (T5, 2026-08-09).** Commits `e64d0f51` ·
 > `9a31bcae` · `d845a0b3`. Imagem baked + recreate (durável, não `docker cp`).
 > Tool `simular_preco` em `whatsapp/agent_service.py` lê `crm_pricing_funcoes` e usa
-> `crm/services/pricing_cct.py` (Lucro Real, CCT 2026). **Atrás de `AGENT_COTA_EM_CHAT`,
-> DESLIGADA em produção** — com a flag off, `_tools_ativas(False) is TOOLS`, zero
-> mudança de comportamento. Retorno projetado: custo/encargo/margem/lucro não saem
+> `crm/services/pricing_cct.py` (Lucro Real, CCT 2026). **`AGENT_COTA_EM_CHAT=true` —
+> LIGADA em produção pelo Jordan em 2026-08-09** (`.env` linha 223; backend +
+> celery-batch recriados). O José Luís passa valor de tabela por posto/mês a número
+> anônimo. Desligar = `false` + `up -d --no-deps backend celery-batch` (~1min, sem
+> rebuild); com a flag off `_tools_ativas(False) is TOOLS`, comportamento anterior
+> byte a byte. Retorno projetado: custo/encargo/margem/lucro não saem
 > para número anônimo (lista negra testada). Plano e provas em
 > `docs/superpowers/plans/2026-08-10-jose-luis-hermes-multiagente-EXEC.md`.
 > ⚠️ **Hermes NÃO orquestra o José Luís** — o sidecar não devolve `tool_calls`

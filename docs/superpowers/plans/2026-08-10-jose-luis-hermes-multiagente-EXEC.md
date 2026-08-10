@@ -4,7 +4,11 @@
 >
 > Commits: `e64d0f51` (projeção) · `9a31bcae` (tool) · `d845a0b3` (prompt).
 > **Imagem baked e recreated** — o código sobreviveu ao recreate (não é `docker cp`).
-> **`AGENT_COTA_EM_CHAT` continua DESLIGADA em produção** (decisão registrada abaixo).
+> **`AGENT_COTA_EM_CHAT=true` — LIGADA em produção pelo Jordan em 2026-08-09**, após a
+> entrega e as provas. O José Luís está cotando valor de tabela para cliente real.
+> ⚠️ Ligada **com os 3 parâmetros `(CONFIRMAR)` ainda não confirmados** (`iss`, `ronda`,
+> `hora_reduzida`) — sinalizado antes, decisão do Jordan. Desligar:
+> `AGENT_COTA_EM_CHAT=false` no `.env` + `up -d --no-deps backend celery-batch`.
 >
 > | Prova | Resultado |
 > |---|---|
