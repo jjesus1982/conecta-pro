@@ -130,6 +130,26 @@ ninguém faz em paralelo agora).
 > emenda. Grafo em `/tmp/mkt_graph/graphify-out/` (recorte isolado; NÃO sobrescreve o grafo
 > fiscal em `/opt/conecta-pro/graphify-out/`).
 
+> ✅ **JOSÉ LUÍS — COTAÇÃO PELA TABELA CCT (T5, 2026-08-09).** Commits `e64d0f51` ·
+> `9a31bcae` · `d845a0b3`. Imagem baked + recreate (durável, não `docker cp`).
+> Tool `simular_preco` em `whatsapp/agent_service.py` lê `crm_pricing_funcoes` e usa
+> `crm/services/pricing_cct.py` (Lucro Real, CCT 2026). **Atrás de `AGENT_COTA_EM_CHAT`,
+> DESLIGADA em produção** — com a flag off, `_tools_ativas(False) is TOOLS`, zero
+> mudança de comportamento. Retorno projetado: custo/encargo/margem/lucro não saem
+> para número anônimo (lista negra testada). Plano e provas em
+> `docs/superpowers/plans/2026-08-10-jose-luis-hermes-multiagente-EXEC.md`.
+> ⚠️ **Hermes NÃO orquestra o José Luís** — o sidecar não devolve `tool_calls`
+> (provado); roteá-lo apagaria as 47 tools do ERP em silêncio.
+> 🔴 **Para o T4:** `rd_action_simular_preco` (redesign/financeiro) cota via
+> `PricingEngine`, que tem alíquotas de **Lucro Presumido** hardcoded (PIS 0,65% /
+> COFINS 3% + IRPJ/CSLL presumido), sem o repasse de 7,5% da CCT Cláusula 2ª §3º e
+> com margem default 35% (a casa parametrizou 15%). A empresa está em **Lucro Real
+> desde 01/2026**. Não toquei — é módulo de vocês.
+> 🟡 **Para quem cuidar de testes:** `tests/modules/` tem 489 falhas pré-existentes,
+> 238 delas `RuntimeError: no current event loop` (atinge inter, mobile,
+> notifications, cobranca). `asyncio.set_event_loop` em `tests/conftest.py:42` **não**
+> resolve — testado. Efeito cumulativo da suíte; nenhuma metade isolada reproduz.
+
 > ⚠️ **`ModuleView.tsx` — T5 assumiu (2026-08-05, autorizado pelo Jordan).**
 > `frontend/src/components/redesign/ModuleView.tsx` é INFRA COMPARTILHADA (renderiza todas as
 > telas do redesign e o modal de ~100 rotas `/redesign/action/*`, incluindo as de dinheiro).
