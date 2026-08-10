@@ -935,6 +935,42 @@ def _score_lead(q: dict, *, cnpj: str = "", cargo: str = "") -> int:
     return max(0, min(100, score))
 
 
+# Limiar de qualificação. 'quente' já vale 35 no _score_lead; >=60 exige ficha
+# consistente (temperatura + CNPJ/cargo + urgência). Calibrado sobre os leads reais
+# de 2026-08: Anderson 67/quente e Juan 59/quente qualificam; Débora 50/morno fica
+# em 'contacted'.
+_QUALIFICA_SCORE_MIN = 60
+# Ordem do funil que o AGENTE pode percorrer. Estados além destes são do humano.
+_ORDEM_STATUS_AGENTE = {"new": 0, "contacted": 1, "qualified": 2}
+
+
+def _status_por_qualificacao(ficha: dict, score: int) -> str:
+    """Status que a ficha justifica. Só SOBE: quem aplica garante o não-rebaixamento."""
+    if str(ficha.get("temperatura") or "").lower() == "quente" or score >= _QUALIFICA_SCORE_MIN:
+        return "qualified"
+    return "contacted"
+
+
+async def _telefone_interno(db, conversation_id: int) -> bool:
+    """True se a conversa é de número interno (Jordan/Pedro/time) — não entra no funil.
+
+    ARMADILHA: `_numeros_internos()` NÃO inclui o Jordan por padrão — ele testa do
+    próprio número e o agente DEVE responder a ele. Mas para PIPELINE o dono também
+    tem de ficar de fora, senão os testes dele viram oportunidade (o lead
+    'Jordan Jesus', score 75, é a prova de que já poluiu). Por isso `is_owner()`
+    além de `_numeros_internos()`.
+    """
+    try:
+        from modules.crm.services.orchestration import is_owner  # noqa: PLC0415
+
+        phone = await _phone_da_conversa(db, conversation_id)
+        if not phone:
+            return False
+        return is_owner(phone) or re.sub(r"\D", "", str(phone)) in _numeros_internos()
+    except Exception:  # noqa: BLE001 — na dúvida NÃO qualifica (fail-closed)
+        return True
+
+
 async def _tool_registrar_lead(args: dict, conversation_id: int) -> dict:
     """Atualiza o lead da conversa no CRM com os dados coletados na conversa.
 
@@ -1040,6 +1076,22 @@ async def _tool_registrar_lead(args: dict, conversation_id: int) -> dict:
                 sets.append("qualificacao = coalesce(qualificacao, '{}'::jsonb) || cast(:qual as jsonb)")
                 params["qual"] = json.dumps(qual, ensure_ascii=False)
 
+                # ELO QUE FALTAVA: a qualificação passa a MOVER o lead no funil.
+                # Sem isto o lead morre em 'new' e ensure_opportunity_for_lead nunca
+                # abre (pipeline_sync sai fora quando o status não está no mapa) —
+                # nenhum lead de WhatsApp virava oportunidade. O CASE garante que só
+                # SOBE e que status humano (proposal/negotiation/won/lost) jamais é
+                # rebaixado pelo agente.
+                _novo = _status_por_qualificacao(merged, qual["score_lead"])
+                if not await _telefone_interno(db, conversation_id):
+                    sets.append(
+                        "status = CASE WHEN status IN ('new','contacted') "
+                        "AND :novo_ord > CASE status WHEN 'new' THEN 0 ELSE 1 END "
+                        "THEN :novo ELSE status END"
+                    )
+                    params["novo"] = _novo
+                    params["novo_ord"] = _ORDEM_STATUS_AGENTE[_novo]
+
             if not sets:
                 return {"ok": True, "info": "nenhum campo novo para registrar"}
 
@@ -1054,6 +1106,24 @@ async def _tool_registrar_lead(args: dict, conversation_id: int) -> dict:
                 logger.warning("Agente registrar_lead: 0 linhas (lead=%s sumiu)", lead_id)
                 return {"ok": False, "motivo": "lead nao encontrado para atualizar"}
             await db.commit()
+
+            # Lead qualificado -> deal no pipeline. Idempotente (dedup por lead_id
+            # dentro do pipeline_sync) e best-effort. DEPOIS do commit acima de
+            # propósito: ensure_opportunity_for_lead commita por conta própria, e
+            # chamá-la antes publicaria trabalho parcial. Até 2026-08-10 esta chamada
+            # não existia em lugar nenhum do caminho do agente — por isso 26 de 28
+            # leads sem oportunidade.
+            try:
+                from modules.crm.models.lead import Lead  # noqa: PLC0415
+                from modules.crm.services.pipeline_sync import (  # noqa: PLC0415
+                    ensure_opportunity_for_lead,
+                )
+
+                _lead = await db.get(Lead, lead_id)
+                if _lead and (_lead.status or "") == "qualified":
+                    await ensure_opportunity_for_lead(db, _lead)
+            except Exception as _e:  # noqa: BLE001 — pipeline nunca quebra o atendimento
+                logger.warning("Pipeline a partir do agente falhou (lead=%s): %s", lead_id, _e)
         logger.info("Agente registrar_lead: lead=%s campos=%s", lead_id, list(params.keys()))
         return {"ok": True, "registrado": [k for k in params if k != "id"]}
     except Exception as e:  # noqa: BLE001
