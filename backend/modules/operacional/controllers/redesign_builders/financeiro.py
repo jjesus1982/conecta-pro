@@ -549,6 +549,28 @@ ORDER BY b.comp DESC, b.cnpj"""
         ],
     }
 
+    out["baixar-recebivel"] = {
+        "title": "Dar baixa em conta a receber",
+        "sub": "Quando o cliente JÁ pagou. O valor que cai na conta costuma ser MENOR que a nota "
+               "por causa da retenção na fonte (INSS 11%, IR 1%…) — informe o valor que entrou "
+               "de verdade e diga se a diferença é retenção (quita a nota) ou pagamento parcial "
+               "(fica saldo em aberto). NÃO move dinheiro: só registra o recebimento.",
+        "cta": "Registrar recebimento", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/baixar-recebivel",
+                   "okMsg": "Recebimento registrado.", "showResult": True},
+        "fields": [
+            {"key": "receivable_id", "label": "ID da conta a receber*", "type": "text", "span": "span 1",
+             "ph": "cole o ID da tabela Contas a Receber"},
+            {"key": "valor_recebido", "label": "Valor que entrou (vazio = total da nota)", "type": "text",
+             "span": "span 1", "ph": "ex.: 36932.63"},
+            {"key": "data_recebimento", "label": "Data do crédito", "type": "text", "span": "span 1",
+             "ph": "AAAA-MM-DD (vazio = hoje)"},
+            {"key": "tratamento", "label": "Diferença (se houver)*", "type": "select", "span": "span 1",
+             "options": [{"value": "retencao", "label": "Retenção na fonte — quita a nota"},
+                         {"value": "parcial", "label": "Pagamento parcial — deixa saldo em aberto"}]},
+        ],
+    }
+
     out["registrar-obrigacoes"] = {
         "title": "Registrar obrigações como conta a pagar",
         "sub": "Varre as fontes REAIS do que a empresa deve — NFS-e tomadas (serviço com nota), "
@@ -1986,6 +2008,78 @@ async def _rd_marcar_pago_externo(current_user: CurrentActiveUser, payload: dict
     if isinstance(r, dict) and r.get("ok") is False:
         raise HTTPException(status_code=400, detail=r.get("mensagem") or "Não foi possível marcar.")
     return {"ok": True, "message": f"Pagamento {pid} marcado como pago por fora — não entra mais no lote."}
+
+
+@router.post("/action/baixar-recebivel")
+async def _rd_baixar_recebivel(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Registra o RECEBIMENTO de uma conta a receber (bookkeeping — não move dinheiro).
+
+    O crédito que cai na conta é quase sempre MENOR que a nota por retenção na fonte
+    (INSS 11%, IRRF 1%…). A diferença NÃO é inadimplência: é imposto retido pelo
+    tomador. Quem decide o tratamento é o humano — o sistema não adivinha."""
+    import uuid as _uuid
+    from datetime import date as _date
+    from decimal import Decimal as _Dec
+
+    from sqlalchemy import text as _text
+
+    raw = str(payload.get("receivable_id") or payload.get("id") or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Informe o ID da conta a receber.")
+    try:
+        rid = _uuid.UUID(raw)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="ID inválido.")
+
+    row = (await db.execute(_text(
+        "SELECT description, net_value, status, customer_name FROM receivable_accounts WHERE id = :i"
+    ), {"i": str(rid)})).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Conta a receber não encontrada.")
+    if str(row[2]) in ("paga", "cancelada"):
+        raise HTTPException(status_code=400, detail=f"Conta já está '{row[2]}'. Nada a fazer.")
+
+    nota = _Dec(str(row[1] or 0))
+    bruto = str(payload.get("valor_recebido") or "").strip().replace(".", "").replace(",", ".")
+    try:
+        recebido = _Dec(bruto) if bruto else nota
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail="Valor inválido.")
+    if recebido <= 0:
+        raise HTTPException(status_code=400, detail="Valor recebido deve ser maior que zero.")
+
+    dt = str(payload.get("data_recebimento") or "").strip()
+    try:
+        quando = _date.fromisoformat(dt) if dt else _date.today()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Data inválida (use AAAA-MM-DD).")
+
+    diferenca = nota - recebido
+    parcial = diferenca > 0 and str(payload.get("tratamento") or "retencao").strip().lower() == "parcial"
+    novo_status = "parcial" if parcial else "paga"
+
+    await db.execute(_text(
+        """
+        UPDATE receivable_accounts
+           SET status = :st, paid_value = :pv, remaining_value = :rv,
+               payment_date = :dt, data_recebimento = :dt, updated_at = NOW()
+         WHERE id = :i
+        """
+    ), {"st": novo_status, "pv": float(recebido),
+        "rv": float(diferenca if parcial else 0), "dt": quando, "i": str(rid)})
+    await db.commit()
+
+    msg = f"{row[0]}: recebido R$ {float(recebido):,.2f}"
+    if diferenca > 0:
+        msg += (f" — saldo em aberto R$ {float(diferenca):,.2f}" if parcial
+                else f" (retenção na fonte R$ {float(diferenca):,.2f} — nota quitada)")
+    return {
+        "ok": True, "message": msg, "conta": row[0], "cliente": row[3],
+        "valor_da_nota": float(nota), "valor_recebido": float(recebido),
+        "diferenca": float(diferenca),
+        "tratamento": "pagamento parcial" if parcial else "retencao na fonte",
+        "status": novo_status, "data": quando.isoformat(),
+    }
 
 
 @router.post("/action/registrar-obrigacoes")

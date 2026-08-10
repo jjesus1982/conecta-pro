@@ -15,7 +15,7 @@ GRUPOS = [
         ("recorrencia", "Recorrência (MRR)"), ("gerar-cobrancas", "Gerar cobranças"), ("boletos", "Boletos"),
         ("emitir-boleto", "Emitir boleto"), ("cobrar-pix", "Cobrar PIX"),
         ("faturamento", "Faturamento"), ("clientes", "Clientes"),
-        ("gerar-recebiveis", "Gerar do mês"), ("registrar-conta-receber", "Registrar")]),
+        ("gerar-recebiveis", "Gerar do mês"), ("baixar-recebivel", "Dar baixa"), ("registrar-conta-receber", "Registrar")]),
     ("g-pagar", "Pagar", "Contas a pagar, folha e pagamentos (gated OTP)", [
         ("contas-pagar", "Contas a Pagar"), ("baixar-pagavel", "Dar baixa"), ("fila-aprovacao", "Aprovação"),
         ("audit-log", "Audit log"), ("pagamentos-inter", "Pagamentos Inter"),

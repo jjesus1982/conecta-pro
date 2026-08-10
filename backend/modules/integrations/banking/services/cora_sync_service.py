@@ -145,7 +145,11 @@ def sincronizar_extrato_cora(dias: int = 60) -> dict:
                     "acc": conta["id"],
                     "ttype": "credit" if t.amount > 0 else "debit",
                     "cat": "recebimento_cliente" if t.amount > 0 else "pagamento",
-                    "amount": float(abs(t.amount)),
+                    # SINAL PRESERVADO. Com abs(), 112 saídas da Cora (R$129.817,61 —
+                    # salário, PIX a pessoas) ficavam gravadas como CRÉDITO: inflavam
+                    # receita e o fluxo de caixa, e a conciliação (que decide
+                    # pagável×recebível pelo SINAL) tentava casá-las contra recebíveis.
+                    "amount": float(t.amount),
                     "descr": f"[CORA] {t.description or t.transaction_type}"[:250],
                     "tdate": t.date.date(),
                     "ext": t.transaction_id,
