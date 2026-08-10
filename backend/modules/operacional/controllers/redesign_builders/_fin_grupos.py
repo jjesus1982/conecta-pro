@@ -30,7 +30,7 @@ GRUPOS = [
         ("cora", "Banco Cora"), ("banking", "Extrato"), ("pix-recebidos", "PIX recebidos"),
         ("sincronizar-pix", "Sincronizar PIX"), ("devolver-pix", "Devolver PIX"),
         ("ajustar-saldo", "Ajustar saldo"),
-        ("conciliacao-bancaria", "Conciliação (extrato)"), ("conciliar-auto", "Rodar conciliação"),
+        ("conciliacao-bancaria", "Conciliação (extrato)"), ("conciliar-auto", "Rodar conciliação"), ("conciliar-classificados", "2ª passada (classificados)"),
         ("conciliacao-consolidada", "Consolidado por mês"), ("consolidacao-grupo", "Consolidação multi-CNPJ"),
         ("conciliacao-por-liquido", "Por líquido (NFS-e×banco)"), ("aplicar-conciliacao-liquido", "Aplicar conciliação"),
         ("conciliacao", "Conciliação de folha"), ("inter-pagamentos", "Inter (pagtos)")]),

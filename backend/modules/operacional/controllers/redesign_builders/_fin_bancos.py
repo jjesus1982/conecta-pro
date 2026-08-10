@@ -74,6 +74,22 @@ async def build_bancos(db, out: dict) -> None:
         "fields": [],
     }
 
+    # ── 2ª passada: débitos JÁ CLASSIFICADOS podem virar baixa PROVADA ────────────
+    out["conciliar-classificados"] = {
+        "title": "Reconciliar débitos já classificados",
+        "sub": "Enquanto o contas a pagar era casca, um débito de fornecedor não tinha nota pra "
+               "casar e classificar era o fim da linha. Com as NFS-e tomadas registradas, esses "
+               "débitos podem virar baixa PROVADA pelo extrato — sobem de 'explicado por alguém' "
+               "para 'ligado ao documento'. Mesmo match forte (nome + valor exato + candidato "
+               "único): não afrouxa nada, não move dinheiro. Vale rodar depois de registrar "
+               "obrigações novas.",
+        "cta": "Rodar 2ª passada", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/conciliar-classificados", "gated": False,
+                   "confirm": "Reavaliar os débitos já classificados contra as notas registradas?",
+                   "okMsg": "Concluído.", "showResult": True},
+        "fields": [],
+    }
+
     # ── Conciliação CONSOLIDADA por mês: líquido faturado (NFS-e) × recebido no banco
     # (Inter+Cora). Modelo mensal (robusto ao lag de pagamento). O que cai no banco é o
     # LÍQUIDO (bruto − ISS − retenções), por isso comparamos com valor_liquido, não bruto. ──

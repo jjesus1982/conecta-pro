@@ -2337,6 +2337,33 @@ async def _rd_ajustar_saldo(current_user: CurrentActiveUser, payload: dict = Bod
             f"Lançamento de ajuste gravado no extrato (motivo: {motivo[:60]})."}
 
 
+@router.post("/action/conciliar-classificados")
+async def _rd_conciliar_classificados(current_user: CurrentActiveUser, payload: dict = Body(default={})) -> dict:
+    """Segunda passada sobre os débitos JÁ CLASSIFICADOS ('justificado').
+
+    Enquanto o contas-a-pagar era casca, um débito de fornecedor não tinha nota
+    pra casar e classificar era o fim da linha. Com as NFS-e tomadas registradas
+    como pagável, esses débitos podem virar baixa PROVADA — sobem de "explicado
+    por uma pessoa" para "ligado ao documento". Mesmo match forte de sempre
+    (nome + valor exato + candidato único): não afrouxa nada, não move dinheiro.
+    Vale rodar depois de registrar obrigações novas."""
+    from starlette.concurrency import run_in_threadpool
+
+    from modules.financial.services.reconciliation_service import conciliar_justificados
+    r = await run_in_threadpool(conciliar_justificados)
+    ok = r.get("baixados_auto", 0)
+    return {
+        "ok": True,
+        "message": f"{ok} pagável(is) ganharam baixa PROVADA pelo extrato "
+                   f"(de {r.get('total_avaliados', 0)} débitos já classificados). "
+                   f"{r.get('sem_match', 0)} seguem sem documento que case.",
+        "baixados": ok,
+        "avaliados": r.get("total_avaliados", 0),
+        "sem_match": r.get("sem_match", 0),
+        "erros": r.get("erros", 0),
+    }
+
+
 @router.post("/action/conciliar-auto")
 async def _rd_conciliar_auto(current_user: CurrentActiveUser, payload: dict = Body(default={}), db=Depends(get_db)) -> dict:
     """Roda o matching automático (extrato × contas a pagar/receber). Bookkeeping — só marca
