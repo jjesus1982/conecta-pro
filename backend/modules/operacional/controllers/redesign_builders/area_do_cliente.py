@@ -18,6 +18,7 @@ EXTRA_MENU: list[dict] = [
     {"id": "portal-onboard", "label": "Convidar clientes sem acesso", "icon": "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"},
     {"id": "portal-resumo-mensal", "label": "Disparar resumo mensal", "icon": "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"},
     {"id": "ged-clientes", "label": "Acesso dos clientes ao portal", "icon": "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"},
+    {"id": "portal-onboard-cliente", "label": "Onboard de um cliente", "icon": "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"},
 ]
 _ND = "#0F1B3A"
 
@@ -154,12 +155,30 @@ async def build(db) -> dict:
         "1.8fr 1fr 0.7fr 0.8fr 0.9fr 0.9fr",
         "SELECT k.id, coalesce(c.name, k.client_id::text), coalesce(to_char(k.reference_month,'MM/YYYY'),'—'), "
         "coalesce(k.total_documents,0), coalesce(k.documents_signed,0), "
-        "coalesce(k.completion_percentage,0), coalesce(k.status::text,'—') "
+        "coalesce(k.completion_percentage,0), coalesce(k.status::text,'—'), "
+        # client_id e competência ISO acrescentados no FIM (r[7], r[8]): as rotas do gdrive
+        # levam os dois no CAMINHO. Acrescentar no fim não desloca os índices já usados.
+        "k.client_id::text, coalesce(to_char(k.reference_month,'YYYY-MM'),'') "
         "FROM ged_document_kits k LEFT JOIN ged_clients c ON c.id = k.client_id "
         "ORDER BY k.created_at DESC LIMIT 200",
         lambda r: [t("—" if _is_uuid(r[1]) else (r[1] or "—"), 600, _ND), t(r[2]), t(str(r[3])), t(str(r[4])),
                    t(f"{float(r[5]):.0f}%"), _st(r[6])],
-        docsfn=lambda r: [doc("Kit ZIP", f"/api/v1/ged/kits/{r[0]}/download-zip", fmt="zip", mode="blob")]))
+        docsfn=lambda r: [doc("Kit ZIP", f"/api/v1/ged/kits/{r[0]}/download-zip", fmt="zip", mode="blob")],
+        actionsfn=lambda r: None if not r[8] else [
+            {"title": f"Montar no Drive o kit de {r[1]} ({r[8]})",
+             "sub": "Monta ou atualiza a pasta do kit no Google Drive.",
+             "endpoint": f"/api/v1/gdrive/kits/{r[7]}/{r[8]}/montar",
+             "method": "POST", "btnLabel": "Montar no Drive", "submitLabel": "Montar agora",
+             "btnStyle": "outline", "okMsg": "Montagem disparada. Recarregue.", "fields": []},
+            {"title": f"Enviar por e-mail o kit de {r[1]} ({r[8]})",
+             "sub": "Efeito EXTERNO: o cliente recebe agora. Destinatário vazio usa o contato "
+                    "cadastrado dele.",
+             "endpoint": f"/api/v1/gdrive/kits/{r[7]}/{r[8]}/enviar-email",
+             "method": "POST", "btnLabel": "Enviar", "submitLabel": "Enviar ao cliente",
+             "btnStyle": "primary", "okMsg": "Kit enviado. Recarregue.",
+             "fields": [{"key": "destinatario", "label": "Enviar para (vazio = contato do cliente)",
+                         "type": "text", "value": "", "span": "span 2"}]},
+        ]))
 
     # 6) Relatórios / analytics — agregado real de recebíveis por status
     await safe("analytics", tbl(
@@ -240,5 +259,26 @@ async def build(db) -> dict:
                          {"key": "password", "label": "Senha", "type": "text", "value": "",
                           "span": "span 1"}])},
         ]))
+
+    # Onboard de UM cliente (2026-08-10): a rota leva {client_id} no CAMINHO. Aqui como
+    # tela porque o cliente vem digitado; a versao em LOTE ja esta em 'portal-onboard'.
+    out["portal-onboard-cliente"] = {
+        "title": "Onboard de um cliente no portal",
+        "sub": "Prepara o acesso de UM cliente. Para todos que nunca logaram, use "
+               "'Convidar clientes sem acesso'.",
+        "cta": "Executar", "type": "form",
+        "submit": {"endpoint": "/api/v1/portal/access-management/onboard", "query": True,
+                   "okMsg": "Onboard processado", "showResult": True,
+                   "confirm": "Se voce marcou o envio, o cliente recebe o convite agora. Confirma?"},
+        "fields": [
+            {"key": "client_id", "label": "Cliente (id)*", "type": "text", "span": "span 2"},
+            {"key": "enviar_email", "label": "Enviar e-mail?", "type": "select", "span": "span 1",
+             "ph": "Nao (padrao)",
+             "options": [{"value": "false", "label": "Nao - so prepara"},
+                         {"value": "true", "label": "Sim - envia o convite"}]},
+            {"key": "email_override", "label": "Enviar para outro e-mail", "type": "text",
+             "span": "span 1", "ph": "opcional"},
+        ],
+    }
 
     return out
