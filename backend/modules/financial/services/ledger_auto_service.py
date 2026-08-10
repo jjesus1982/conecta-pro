@@ -18,10 +18,12 @@ Plano de contas simplificado (Lucro Real Conecta Mais):
 
 from __future__ import annotations
 
+import calendar
 import logging
 import os
 import re
 import unicodedata
+from datetime import date
 
 import psycopg2
 
@@ -39,6 +41,18 @@ _STOP_NOME = {"DE", "DA", "DO", "DOS", "DAS", "E", "JUNIOR", "FILHO", "NETO", "S
 # existentes/retroativos. O CNPJ 2 (Patrimonial/Simples) usa o próprio empresa_id.
 EMPRESA_PRINCIPAL_ID = "619a3df1-8bce-49ce-b77a-04f80a0e8491"
 CNPJ_PRINCIPAL = "35710481000103"
+
+
+def _fim_do_mes(periodo: str | None) -> date | None:
+    """'2026-07' → date(2026, 7, 31). Data de competência quando o holerite não
+    traz payment_date nem competence_end. Devolve None se não der pra derivar."""
+    m = re.match(r"^(\d{4})-(\d{1,2})$", str(periodo or "").strip())
+    if not m:
+        return None
+    ano, mes = int(m.group(1)), int(m.group(2))
+    if not 1 <= mes <= 12:
+        return None
+    return date(ano, mes, calendar.monthrange(ano, mes)[1])
 
 
 def _raw_db_url() -> str:
@@ -70,8 +84,14 @@ class LedgerAutoService:
             )
 
     def _post(self, cur, *, data, cd, cc, valor, hist, tipo, ref, periodo, empresa_id) -> int:
-        """Insere um lançamento se o documento_ref ainda não existe. Retorna 1/0."""
-        if not valor or float(valor) <= 0:
+        """Insere um lançamento se o documento_ref ainda não existe. Retorna 1/0.
+
+        `data` NULL é RECUSADO aqui: `data_lancamento` é NOT NULL, e um único
+        registro sem data derrubava a transação inteira — o fechamento da empresa
+        toda ia junto (o razão parou em julho/2026 por causa disso). Recusar 1
+        lançamento é infinitamente melhor que perder o fechamento.
+        """
+        if not valor or float(valor) <= 0 or data is None:
             return 0
         cur.execute(
             """
@@ -100,8 +120,22 @@ class LedgerAutoService:
             (empresa_id,),
         )
         n_sal = n_fgts = 0
+        sem_data = futuros = 0
+        hoje = date.today()
         for code, periodo, pay_date, comp_end, bruto, fgts in cur.fetchall():
-            data = pay_date or comp_end
+            # 456 dos 821 holerites (os gerados pelo nosso motor) não têm data
+            # nenhuma — só a competência. Regime de COMPETÊNCIA: a obrigação nasce
+            # no último dia do mês de referência.
+            data = pay_date or comp_end or _fim_do_mes(periodo)
+            if data is None:
+                sem_data += 1
+                continue
+            # Não se fecha período que ainda não aconteceu. Sem esta guarda, folha
+            # com competência futura (ex.: 2026-11/12 na Eletrônica, 47+47 registros
+            # de total idêntico) entraria no razão como despesa real.
+            if (data.year, data.month) > (hoje.year, hoje.month):
+                futuros += 1
+                continue
             code = code or f"{periodo}"
             n_sal += self._post(
                 cur, data=data, cd="5.1.1.01", cc="2.1.1.01", valor=bruto,
@@ -113,7 +147,8 @@ class LedgerAutoService:
                 hist=f"FGTS patronal {periodo} - {code}", tipo="encargo_fgts",
                 ref=f"FGTS-{code}", periodo=periodo, empresa_id=empresa_id,
             )
-        return {"salarios": n_sal, "fgts": n_fgts}
+        return {"salarios": n_sal, "fgts": n_fgts,
+                "sem_data_ignorados": sem_data, "competencia_futura_ignorados": futuros}
 
     def _lancar_receita_e_iss_nacional(self, cur, empresa_id) -> dict:
         """Receita de serviços + ISS a partir das NFS-e REAIS do portal NACIONAL (gov.br/ADN),
