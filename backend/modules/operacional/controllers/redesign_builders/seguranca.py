@@ -19,6 +19,7 @@ SLUG = "seguranca"
 EXTRA_MENU: list[dict] = [
     {"id": "lgpd-pia", "label": "LGPD — nova avaliação (PIA)", "icon": "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"},
     {"id": "lgpd-apagamento", "label": "LGPD — pedido de apagamento", "icon": "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"},
+    {"id": "erasure-pedidos", "label": "LGPD — pedidos de apagamento", "icon": "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"},
 ]
 
 
@@ -98,5 +99,29 @@ async def build(db) -> dict:
                    "confirm": "Registra um pedido formal de apagamento de dados (LGPD). Confirma?"},
         "fields": [],
     }
+
+    # Pedidos de apagamento (2026-08-10): processar leva {request_id} no CAMINHO -> acao
+    # por LINHA. Apagar dado de titular e irreversivel: a acao exige confirmacao digitada.
+    await safe("erasure-pedidos", tbl(
+        "LGPD — pedidos de apagamento", "Solicitacoes de eliminacao de dados", "—",
+        ["Titular", "Motivo", "Escopo", "Prazo", "Status"], "1.8fr 1.4fr 1.2fr 1fr 0.9fr",
+        "SELECT id, coalesce(titular_email,'—'), coalesce(reason,'—'), coalesce(scope::text,'—'), "
+        "deadline_at, coalesce(status::text,'—') "
+        "FROM lgpd_erasure_requests ORDER BY created_at DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[1], 600, "#0F1B3A"), t((r[2] or '—')[:40]), t(r[3]),
+                   t(str(r[4])[:10] if r[4] else '—'),
+                   b((r[5] or '—').capitalize(), "ok" if (r[5] or '').lower() in ("completed", "concluido") else "warn")],
+        actionsfn=lambda r: None if (r[5] or '').lower() in ("completed", "concluido") else [
+            {"title": f"Processar o apagamento de {r[1]}",
+             "sub": "APAGA os dados do titular nos sistemas afetados. E IRREVERSIVEL — a LGPD "
+                    "obriga, mas nao ha desfazer. Digite APAGAR para confirmar.",
+             "endpoint": f"/api/v1/security/lgpd/erasure/{r[0]}/processar?confirmar=true",
+             "method": "POST", "btnLabel": "Processar", "submitLabel": "Executar apagamento",
+             "btnStyle": "outline", "okMsg": "Apagamento processado. Recarregue.",
+             "fields": [
+                 {"key": "confirmacao_digitada", "label": "Digite APAGAR para confirmar",
+                  "type": "text", "value": "", "span": "span 2"},
+             ]},
+        ]))
 
     return out

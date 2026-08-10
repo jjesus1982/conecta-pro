@@ -34,6 +34,7 @@ EXTRA_MENU: list[dict] = [
     {"id": "documentos-assinados", "label": "Documentos assinados", "icon": "M9 12l2 2 4-4M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"},
     {"id": "ciencia-comunicados", "label": "Ciência dos comunicados", "icon": "M17 20h5v-2a4 4 0 0 0-3-3.87M9 20H4v-2a4 4 0 0 1 3-3.87m6-1.13a4 4 0 1 0-4-4 4 4 0 0 0 4 4z"},
     {"id": "reorganizacao-juridico", "label": "Reorganização (jurídico)", "icon": "M3 6l9-4 9 4M4 10v8m16-8v8M2 18h20M8 10v5m4-5v5m4-5v5"},
+    {"id": "empresas-lista", "label": "Empresas do grupo", "icon": "M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01"},
 ]
 
 
@@ -315,6 +316,34 @@ async def build(db) -> dict:
              "span": "span 1"},
         ],
     }
+
+    # Empresas do grupo + simular regime (2026-08-10): a rota leva {empresa_id} no CAMINHO,
+    # entao vive como acao por LINHA. Sao 2 CNPJs; hardcodar id seria fragil.
+    await safe("empresas-lista", tbl(
+        "Empresas do grupo", "Os CNPJs e o regime de cada um", "—",
+        ["Empresa", "CNPJ", "Regime", "Anexo"], "2fr 1.4fr 1.2fr 0.8fr",
+        "SELECT id, coalesce(nome_fantasia, razao_social, '—'), coalesce(cnpj,'—'), "
+        "coalesce(regime_tributario::text,'—'), coalesce(anexo_simples::text,'—') "
+        "FROM empresas ORDER BY razao_social",
+        lambda r: [t(r[1], 600, "#0F1B3A"), t(r[2]),
+                   b((r[3] or '—').replace('_', ' ').capitalize(), "info"), t(r[4])],
+        actionsfn=lambda r: [
+            {"title": f"Simular outro regime para {r[1]}",
+             "sub": "Compara o que se pagaria em outro regime, para a receita anual informada. "
+                    "Simulacao — nao muda o regime da empresa.",
+             "endpoint": f"/api/v1/empresas/{r[0]}/simular-regime",
+             "method": "POST", "btnLabel": "Simular", "submitLabel": "Simular regime",
+             "btnStyle": "outline", "okMsg": "Simulacao concluida.",
+             "fields": [
+                 {"key": "novo_regime", "label": "Regime a simular*", "type": "select", "value": "",
+                  "span": "span 2",
+                  "options": [{"value": "simples_nacional", "label": "Simples Nacional"},
+                              {"value": "lucro_presumido", "label": "Lucro Presumido"},
+                              {"value": "lucro_real", "label": "Lucro Real"}]},
+                 {"key": "faturamento_anual", "label": "Faturamento anual (R$)*", "type": "number",
+                  "value": "", "span": "span 2"},
+             ]},
+        ]))
 
     return out
 
