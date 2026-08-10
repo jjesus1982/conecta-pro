@@ -784,6 +784,46 @@ Esperado: recusa cordial + oferta de visita. **Qualquer número de custo/margem 
 
 ---
 
+## ✅ Elo do funil ligado — 2026-08-10 (`0b7698a4`) · Tasks 1+2 do plano irmão
+
+O José Luís cotava e o lead morria parado. Medido em produção **antes** do fix, idêntico ao
+que `2026-08-09-jose-luis-sdr.md` mediu: **27 de 28 leads em `status='new'`**, **26 sem
+oportunidade**, e `ensure_opportunity_for_lead` chamada só por `lead_controller` (REST).
+Como o `pipeline_sync` sai fora quando o status não está no mapa (`new` não está), **nenhum
+lead de WhatsApp podia virar oportunidade** — caminho inexistente, não bug sutil.
+
+Os diffs do plano irmão **não aplicavam**: o arquivo mudou ~200 linhas desde 09/08. Re-extraídos.
+
+**Prova E2E no banco** (lead sintético, ciclo completo, removido depois):
+
+| passo | resultado |
+|---|---|
+| lead criado | `status=new` · 0 oportunidades |
+| `_tool_registrar_lead` (quente + CNPJ + síndico) | `status=qualified` · score **80** · **1 oportunidade** em `qualification` |
+| 2ª chamada | ainda 1 oportunidade → **idempotente** |
+| limpeza | 0 resíduos; produção de volta a 28 leads / 29 opps |
+
+**As três travas, provadas uma a uma:**
+
+| trava | cenário | resultado |
+|---|---|---|
+| não rebaixa status humano | lead em `negotiation`, agente qualifica | continua `negotiation` ✅ |
+| dono fora do funil | `is_owner('5592986465328')` | `status=new`, 0 opps ✅ |
+| interno fora do funil | Pedro (`_numeros_internos()`) | `status=new`, 0 opps ✅ |
+
+⚠️ A trava do dono **precisa** do `is_owner()`: `_numeros_internos()` guarda só o Pedro por
+padrão (o Jordan testa do próprio número e o agente deve responder). Sem `is_owner()` os testes
+dele virariam oportunidade.
+
+**Achado de brinde:** o telefone do Jordan já tem 2 leads ativos (`Jordan Jesus` score 49, de
+14/06; `Teste Novo Lead` score 51, de 05/08) e o `find_duplicate` loga *"Dedup ambíguo … 3 leads
+ativos. Não escolho"*. A partir de agora eles não poluem mais o funil, mas continuam na base.
+
+### Step 7 do plano irmão — recuperar os dois perdidos (é decisão sua)
+Anderson (67, quente, desde 16/06) e Juan Torres (59, quente, desde 27/07) só se movem quando
+conversarem de novo com o agente — o fix vale dali pra frente, não retroage. Backfill é ação
+comercial, não técnica: se quiser, um `UPDATE` os qualifica e o pipeline abre.
+
 ## 🔴 Bloqueios (não são pendência de execução — são decisão)
 
 ### B1 — Item 1 (Hermes orquestrando o José Luís) — **bloqueado por fato**
