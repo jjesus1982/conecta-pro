@@ -28,7 +28,21 @@ EXTRA_MENU: list[dict] = [
     {"id": "cct-reajuste", "label": "CCT — Reajuste", "icon": _ICO_CCT},
     {"id": "consultor-perguntar", "label": "Consultor de RH", "icon": _ICO_CCT},
     {"id": "cct-invalidar-cache", "label": "CCT — Limpar cache", "icon": _ICO_CCT},
+    # Apoio à DECISÃO disciplinar — consultivo: nenhuma destas cria, aprova ou aplica medida.
+    {"id": "disc-recomendar", "label": "Disciplinar — recomendar medida", "icon": _ICO_CCT},
+    {"id": "disc-conformidade", "label": "Disciplinar — conformidade CLT", "icon": _ICO_CCT},
+    {"id": "disc-proporcionalidade", "label": "Disciplinar — proporcionalidade", "icon": _ICO_CCT},
 ]
+
+_MOTIVO = [{"value": v, "label": lbl} for v, lbl in (
+    ("falta", "Falta"), ("atraso", "Atraso"), ("insubordinacao", "Insubordinação"),
+    ("indisciplina", "Indisciplina"), ("dano_patrimonio", "Dano ao patrimônio"),
+    ("negligencia", "Negligência"), ("embriaguez", "Embriaguez"),
+    ("abandono_emprego", "Abandono de emprego"), ("ato_improbidade", "Ato de improbidade"),
+    ("violacao_segredo", "Violação de segredo"))]
+_MEDIDA = [{"value": v, "label": lbl} for v, lbl in (
+    ("advertencia_verbal", "Advertência verbal"), ("advertencia_escrita", "Advertência escrita"),
+    ("suspensao", "Suspensão"), ("demissao_justa_causa", "Demissão por justa causa"))]
 
 # 12x36 e a jornada real dos agentes de portaria — nasce selecionada como padrao do campo.
 _JORNADAS = [{"value": "12x36", "label": "12x36 (agentes de portaria)"},
@@ -414,6 +428,74 @@ async def build(db) -> dict:
         "submit": {"endpoint": "/api/v1/people-management/admin/cct/cache/invalidar",
                    "okMsg": "Cache da CCT limpo"},
         "fields": [],
+    }
+
+    # ── APOIO À DECISÃO DISCIPLINAR (2026-08-10) ────────────────────────────────────
+    # O sistema tinha 17 rotas de medida disciplinar sem superficie: da para VER a medida
+    # (KPI e lista no operacional) e nao da para agir. As 14 de ACAO (criar, submeter,
+    # aprovar, rejeitar, assinar, recusar, templates) ficam com o terminal do operacional,
+    # porque o menu delas vive em _op_grupos.py e o modulo e curado a mao.
+    #
+    # Estas 3 sao CONSULTIVAS — nao criam, nao aprovam, nao aplicam nada. Sao o passo que
+    # vem ANTES de decidir, e por isso cabem no RH sem invadir o operacional.
+    #
+    # As 3 quase entraram como "botao seco": meu extrator ignora parametro chamado
+    # `request` (achando que e o Request do FastAPI) e aqui `request` E o modelo Pydantic.
+    # Sairiam sem nenhum campo e dariam 422 em todo clique. Reconferi as 12 telas secas que
+    # ja tinha entregue — todas secas de verdade.
+    out["disc-recomendar"] = {
+        "title": "Disciplinar — qual medida cabe aqui?",
+        "sub": "Recomenda o tipo de medida com base no histórico do colaborador. É opinião "
+               "de apoio: não cria medida nenhuma.",
+        "cta": "Recomendar", "type": "form",
+        "submit": {"endpoint": "/api/v1/people-management/hr/discipline/medidas-administrativas/ia/recomendar",
+                   "okMsg": "Recomendação gerada", "showResult": True},
+        "fields": [
+            {"key": "employee_id", "label": "Colaborador (id)*", "type": "text", "span": "span 1"},
+            {"key": "incident_date", "label": "Data do ocorrido*", "type": "date", "span": "span 1"},
+            {"key": "reason_category", "label": "Motivo*", "type": "select", "span": "span 2",
+             "ph": "Selecione", "options": _MOTIVO},
+            {"key": "reason_description", "label": "O que aconteceu*", "type": "textarea",
+             "span": "span 2", "ph": "Descreva o fato — é o que sustenta a medida"},
+        ],
+    }
+    out["disc-conformidade"] = {
+        "title": "Disciplinar — a medida está conforme a CLT?",
+        "sub": "Confere a medida pretendida contra a CLT (prazo entre o fato e a aplicação, "
+               "enquadramento). Consulta — não aplica nada.",
+        "cta": "Validar", "type": "form",
+        "submit": {"endpoint": "/api/v1/people-management/hr/discipline/medidas-administrativas/ia/validar-conformidade",
+                   "okMsg": "Conformidade validada", "showResult": True},
+        "fields": [
+            {"key": "action_type", "label": "Medida pretendida*", "type": "select", "span": "span 2",
+             "ph": "Selecione", "options": _MEDIDA},
+            {"key": "reason_category", "label": "Motivo*", "type": "select", "span": "span 2",
+             "ph": "Selecione", "options": _MOTIVO},
+            {"key": "incident_date", "label": "Data do ocorrido*", "type": "date", "span": "span 1"},
+            {"key": "application_date", "label": "Data da aplicação*", "type": "date", "span": "span 1"},
+            {"key": "reason_description", "label": "O que aconteceu*", "type": "textarea",
+             "span": "span 2"},
+        ],
+    }
+    out["disc-proporcionalidade"] = {
+        "title": "Disciplinar — a medida é proporcional?",
+        "sub": "Pesa a medida contra o histórico (advertências e suspensões anteriores) e o "
+               "tempo de casa. É o teste que evita punição desproporcional.",
+        "cta": "Verificar", "type": "form",
+        "submit": {"endpoint": "/api/v1/people-management/hr/discipline/medidas-administrativas/ia/verificar-proporcionalidade",
+                   "okMsg": "Proporcionalidade verificada", "showResult": True},
+        "fields": [
+            {"key": "action_type", "label": "Medida pretendida*", "type": "select", "span": "span 2",
+             "ph": "Selecione", "options": _MEDIDA},
+            {"key": "reason_category", "label": "Motivo*", "type": "select", "span": "span 2",
+             "ph": "Selecione", "options": _MOTIVO},
+            {"key": "previous_warnings", "label": "Advertências anteriores*", "type": "number",
+             "span": "span 1", "ph": "0"},
+            {"key": "previous_suspensions", "label": "Suspensões anteriores*", "type": "number",
+             "span": "span 1", "ph": "0"},
+            {"key": "employee_tenure_days", "label": "Tempo de casa (dias)*", "type": "number",
+             "span": "span 2", "ph": "Ex.: 540"},
+        ],
     }
 
     return out
