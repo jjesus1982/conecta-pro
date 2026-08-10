@@ -942,9 +942,29 @@ O sidecar não devolve `tool_calls` (A2). Roteá-lo apagaria as 47 tools em sil�
 
 **Recomendação: (a), com (b) como checagem barata antes.** Nada disso está nesta branch.
 
-### B2 — Item 4 (Instagram DM)
+### B2 — Item 4 (Instagram DM) — **bloqueado por pré-requisito externo, verificado em 2026-08-10**
 
-O sidecar expõe só `/v1/models` e `/v1/chat/completions` (`hermes-agent`). **Não há canal de Instagram** — a hipótese "é só configuração" do plano original não se confirma. Continua sendo integração Meta na mão. Não estimado aqui.
+Não é "não deu tempo": é cadeia de pré-requisitos que **não é código**. Os fatos:
+
+| verificação | resultado |
+|---|---|
+| inboxes no Chatwoot | **1 só**: `WhatsApp 0800 880 4414`, tipo `Channel::Api` |
+| canais Meta nativos (`channel_facebook_pages`) | **0** |
+| credenciais Meta no backend (`META_CAPI_TOKEN`) | **ausente** |
+| ponte de mensageria rodando | `baileys-api` — WhatsApp, não Instagram |
+| canal de Instagram no sidecar Hermes | inexistente (só `/v1/models` e `/v1/chat/completions`) |
+
+Para existir DM de Instagram é preciso, **nesta ordem**: conta Instagram Profissional ligada a um
+Meta Business → app Meta com `instagram_manage_messages` (passa por **App Review** da Meta) →
+canal criado no Chatwoot. Nada disso se escreve daqui.
+
+**Não implementei identidade de Instagram de propósito.** Seria código para um canal que não
+existe, adivinhando o formato do payload — a versão em código de fabricar dado.
+
+**O que fica mapeado para quando o canal existir** (achado real, não suposição): o webhook cria
+lead apenas `if direction == "in" and phone_canonical` (`whatsapp/controller.py:831`). Um DM de
+Instagram **não tem telefone** — a mensagem seria logada e o agente responderia, mas **sem lead,
+sem funil e sem atribuição**. É uma linha de guarda a resolver no dia, com o payload real na mão.
 
 ### B3 — `rd_action_simular_preco` cota com o regime errado (A3)
 
