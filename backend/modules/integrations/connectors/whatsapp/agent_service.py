@@ -2176,7 +2176,61 @@ _TOOL_ALLOWLIST: dict[str, dict] = {
     "agendar_visita": {"kind": "write"},
     "transferir_conversa": {"kind": "write"},
     "sugerir_cross_sell": {"kind": "read"},
+    # Cotar é LEITURA de tabela — autônomo por escopo. Propor/enviar continua
+    # sendo 'action' com gate humano (enviar_link_assinatura). Não inverter.
+    "simular_preco": {"kind": "read"},
 }
+
+
+# ── COTAÇÃO: fronteira INTERNO × EXTERNO ─────────────────────────────────────
+# pricing_cct.calcular_funcao devolve a ficha COMPLETA (custo, encargo, margem,
+# lucro, divisor). Isso é dado interno: quem fala aqui é um número de WhatsApp
+# ANÔNIMO, não o Jordan autenticado. Os 8 consultores do chat flutuante podem
+# citar margem porque a autorização deles aconteceu no LOGIN; aqui não houve
+# login nenhum. Por isso a resposta é PROJETADA, e a projeção é testada.
+_CAMPOS_INTERNOS_COTACAO = frozenset({
+    "salario_base", "salario_bruto", "adic_noturno", "adic_hora_reduzida",
+    "adic_ronda", "adic_risco", "encargos", "encargos_pct", "vt", "vr",
+    "beneficios", "repasse", "repasse_pct", "custo_total", "tributos_pct",
+    "margem", "divisor", "markup_pct", "lucro_liquido",
+})
+
+
+def _int_clamp(valor, padrao: int, minimo: int, maximo: int) -> int:
+    """postos/meses chegam do LLM (logo, do cliente). Nunca confiar no valor cru."""
+    try:
+        n = int(valor)
+    except (TypeError, ValueError):
+        return padrao
+    return max(minimo, min(n, maximo))
+
+
+def _cotacao_publica(r: dict, postos, meses) -> dict:
+    """Projeta a ficha CCT para o que pode ser dito a um número anônimo.
+
+    Só preço. Custo, encargo, margem e lucro NÃO entram — nem como chave nem
+    dentro de texto. `_CAMPOS_INTERNOS_COTACAO` é a lista negra e o teste
+    test_projecao_nao_vaza_nenhum_campo_interno é quem garante.
+    """
+    postos = _int_clamp(postos, 1, 1, 200)
+    meses = _int_clamp(meses, 12, 1, 60)
+    unit = round(float(r.get("preco") or 0), 2)
+    return {
+        "ok": True,
+        "funcao": r.get("funcao"),
+        "adicionais": r.get("adicionais"),
+        "postos": postos,
+        "meses": meses,
+        "preco_posto_mes": unit,
+        "mensal": round(unit * postos, 2),
+        "contrato": round(unit * postos * meses, 2),
+        "instrucao": (
+            "Valor de TABELA (CCT vigente), por posto/mês, sujeito a visita técnica. "
+            "Diga o valor com naturalidade e siga para a visita. NUNCA cite nem estime "
+            "custo, encargo, margem, lucro ou imposto — não estão aqui e não são seus. "
+            "Desconto, prazo e condição comercial são do Jordan."
+        ),
+    }
 
 
 async def _precondicao_identidade_ok(conversation_id: int) -> bool:
