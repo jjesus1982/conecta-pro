@@ -7,7 +7,7 @@
 // Chama POST /api/v1/consultores/chat/executar (gera-doc p/ todos os perfis) e baixa os PDFs
 // que a resposta traz em d.documentos[]. Bearer do localStorage access_token (URL relativa).
 import { useState, useRef, useEffect } from 'react';
-import { MessageCircle, X, Send, Download, Loader2, Paperclip } from 'lucide-react';
+import { MessageCircle, X, Send, Download, Loader2, Paperclip, Mic, Volume2, VolumeX } from 'lucide-react';
 
 type Doc = { nome?: string; arquivo_base64?: string; resumo?: string };
 type Msg = { role: 'user' | 'assistant'; text: string; docs?: Doc[]; aviso?: boolean };
@@ -50,7 +50,77 @@ export default function FloatingChat() {
   const fileRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
+  // ── Voz (Web Speech API) — POC: ditar e ouvir ───────────────────────────────
+  // Roda 100% no navegador: o áudio NÃO sai daqui e não há custo por uso. Por isso
+  // não usamos Gemini Live/Whisper nesta prova — se a interação por voz provar valor,
+  // aí sim vale STT/TTS próprio (faster-whisper + Kokoro) para ter voz melhor.
+  const [ouvindo, setOuvindo] = useState(false);
+  const [falarRespostas, setFalarRespostas] = useState(false);
+  const [temVoz, setTemVoz] = useState(false);
+  const recRef = useRef<any>(null);
+  const ultimaFaladaRef = useRef<string>('');
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    setTemVoz(!!SR && 'speechSynthesis' in window);
+  }, []);
+
+  // Lê a última resposta do assistente quando o alto-falante está ligado.
+  useEffect(() => {
+    if (!falarRespostas || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    const ultima = [...msgs].reverse().find((m) => m.role === 'assistant');
+    if (!ultima || !ultima.text || ultima.text === ultimaFaladaRef.current) return;
+    ultimaFaladaRef.current = ultima.text;
+    try {
+      window.speechSynthesis.cancel();
+      // Markdown e URL não se leem bem em voz alta; limpa antes de falar.
+      const limpo = ultima.text.replace(/[*_`#>|]/g, '').replace(/https?:\/\/\S+/g, 'link').slice(0, 700);
+      const u = new SpeechSynthesisUtterance(limpo);
+      u.lang = 'pt-BR';
+      u.rate = 1.05;
+      const vozPt = window.speechSynthesis.getVoices().find((v) => v.lang?.toLowerCase().startsWith('pt'));
+      if (vozPt) u.voice = vozPt;
+      window.speechSynthesis.speak(u);
+    } catch { /* voz é opcional: falhar aqui nunca quebra o chat */ }
+  }, [msgs, falarRespostas]);
+
+  function alternarMicrofone() {
+    if (typeof window === 'undefined') return;
+    if (ouvindo) { try { recRef.current?.stop(); } catch { /* */ } return; }
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) return;
+    const rec = new SR();
+    rec.lang = 'pt-BR';
+    rec.interimResults = true;   // mostra o texto enquanto fala
+    rec.continuous = false;      // encerra sozinho no silêncio
+    let ditado = '';
+    rec.onresult = (e: any) => {
+      let parcial = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) ditado += t; else parcial += t;
+      }
+      setInput((ditado + parcial).trim());
+    };
+    rec.onerror = () => setOuvindo(false);
+    rec.onend = () => {
+      setOuvindo(false);
+      // Envia sozinho ao terminar de falar — é o que dá sensação de conversa.
+      // Seguro porque o chat CRIA RASCUNHO: nada é executado sem aprovação humana.
+      const texto = ditado.trim();
+      if (texto) send(texto);
+    };
+    try { rec.start(); recRef.current = rec; setOuvindo(true); } catch { setOuvindo(false); }
+  }
+
   useEffect(() => { if (open) endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs, busy, open]);
+  // Ao fechar o painel: para de ouvir e de falar (nada continua rodando escondido).
+  useEffect(() => {
+    if (open) return;
+    try { recRef.current?.stop(); } catch { /* */ }
+    try { window.speechSynthesis?.cancel(); } catch { /* */ }
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     try { setPersona(window.location.pathname.match(/\/redesign\/([a-z-]+)/)?.[1] || ''); } catch { /* */ }
@@ -256,11 +326,52 @@ export default function FloatingChat() {
             >
               <Paperclip className="w-4 h-4" />
             </button>
+            {temVoz && (
+              <>
+                <button
+                  type="button"
+                  onClick={alternarMicrofone}
+                  disabled={busy}
+                  aria-label={ouvindo ? 'Parar de ouvir' : 'Falar em vez de digitar'}
+                  title={ouvindo ? 'Ouvindo… fale e pare para enviar' : 'Falar em vez de digitar'}
+                  className="relative w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-xl disabled:opacity-40 transition-colors hover:bg-[#F1F4FA]"
+                  style={ouvindo
+                    ? { border: '1px solid #F26522', background: '#F26522', color: '#fff' }
+                    : { border: '1px solid #E7ECF3', background: '#fff', color: '#16277D' }}
+                >
+                  <Mic className="w-4 h-4" />
+                  {ouvindo && (
+                    <span
+                      aria-hidden
+                      className="absolute w-9 h-9 rounded-xl"
+                      style={{ border: '2px solid #F26522', animation: 'ping 1.4s cubic-bezier(0,0,.2,1) infinite' }}
+                    />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFalarRespostas((v) => {
+                      if (v) { try { window.speechSynthesis?.cancel(); } catch { /* */ } }
+                      return !v;
+                    });
+                  }}
+                  aria-label={falarRespostas ? 'Desligar leitura em voz alta' : 'Ler respostas em voz alta'}
+                  title={falarRespostas ? 'Leitura em voz alta ligada' : 'Ler respostas em voz alta'}
+                  className="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-xl transition-colors hover:bg-[#F1F4FA]"
+                  style={falarRespostas
+                    ? { border: '1px solid #16277D', background: '#16277D', color: '#fff' }
+                    : { border: '1px solid #E7ECF3', background: '#fff', color: '#6b7280' }}
+                >
+                  {falarRespostas ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                </button>
+              </>
+            )}
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input); } }}
-              placeholder={file ? 'Pergunte sobre o anexo (opcional)…' : 'Pergunte, anexe um PDF/foto ou peça um documento…'}
+              placeholder={ouvindo ? 'Ouvindo… pode falar' : (file ? 'Pergunte sobre o anexo (opcional)…' : 'Pergunte, fale pelo microfone ou anexe um PDF/foto…')}
               rows={1}
               disabled={busy}
               aria-label="Sua mensagem"
