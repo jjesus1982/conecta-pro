@@ -1018,6 +1018,9 @@ async def rd_action_assignment_cancelar(current_user: CurrentActiveUser, payload
 EXTRA_MENU: list[dict] = [
     {"id": "consultor-op", "label": "Consultor operacional", "icon": "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M12 8v4M12 16h.01"},
     {"id": "consultor-op-arquivo", "label": "Consultor operacional — com anexo", "icon": "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M12 8v4M12 16h.01"},
+    {"id": "otimizar-escala", "label": "Otimizador de escala (dia)", "icon": "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M12 8v4M12 16h.01"},
+    {"id": "otimizar-escala-mes", "label": "Otimizador de escala (mes)", "icon": "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M12 8v4M12 16h.01"},
+    {"id": "diarista-alocar", "label": "Alocar diarista", "icon": "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M12 8v4M12 16h.01"},
 ]
 
 
@@ -2212,6 +2215,62 @@ async def build(db) -> dict:
             {"key": "area", "label": "Área", "type": "text", "span": "span 1"},
             {"key": "posto", "label": "Posto", "type": "text", "span": "span 1"},
             {"key": "pergunta", "label": "Pergunta*", "type": "textarea", "span": "span 2"},
+        ],
+    }
+
+    # ── Otimizador e diarista (2026-08-10) ──────────────────────────────────────────
+    # O OTIMIZADOR apenas SUGERE — nao grava escala nem alocacao. Por isso entra, ao
+    # contrario de allocations/bulk e shifts/bulk, que EDITAM em massa o territorio curado
+    # a mao e ficam de fora por decisao (ver FECHAMENTO_FIOS_SOLTOS.md).
+    # Alocar diarista GRAVA, entao nasce com dialogo dizendo o que faz.
+    out["otimizar-escala"] = {
+        "title": "Otimizador de escala — um dia",
+        "sub": "Sugere a melhor distribuicao de colaboradores nos postos para a data. "
+               "SUGESTAO: nao grava escala nem alocacao, so devolve a proposta.",
+        "cta": "Otimizar", "type": "form",
+        "submit": {"endpoint": "/api/v1/operacional/scale-optimizer/otimizar",
+                   "okMsg": "Otimizacao concluida", "showResult": True},
+        "fields": [
+            {"key": "target_date", "label": "Data*", "type": "date", "span": "span 2"},
+            {"key": "employees", "label": "Colaboradores*", "type": "json", "span": "span 2",
+             "ph": '["id-do-colaborador-1", "id-do-colaborador-2"]'},
+            {"key": "posts", "label": "Postos*", "type": "json", "span": "span 2",
+             "ph": '["id-do-posto-1", "id-do-posto-2"]'},
+        ],
+    }
+    out["otimizar-escala-mes"] = {
+        "title": "Otimizador de escala — mes inteiro",
+        "sub": "Mesma sugestao, para a competencia toda. Continua sendo proposta: nada e "
+               "gravado.",
+        "cta": "Otimizar", "type": "form",
+        "submit": {"endpoint": "/api/v1/operacional/scale-optimizer/otimizar-mes",
+                   "okMsg": "Otimizacao concluida", "showResult": True},
+        "fields": [
+            {"key": "year", "label": "Ano*", "type": "number", "span": "span 1", "ph": "2026"},
+            {"key": "month", "label": "Mes*", "type": "number", "span": "span 1", "ph": "8"},
+            {"key": "employees", "label": "Colaboradores*", "type": "json", "span": "span 2",
+             "ph": '["id-do-colaborador-1", "id-do-colaborador-2"]'},
+            {"key": "posts", "label": "Postos*", "type": "json", "span": "span 2",
+             "ph": '["id-do-posto-1", "id-do-posto-2"]'},
+        ],
+    }
+    out["diarista-alocar"] = {
+        "title": "Alocar diarista",
+        "sub": "Aloca um diarista em condominio por periodo. GRAVA a alocacao — confira o "
+               "periodo antes.",
+        "cta": "Alocar", "type": "form",
+        "submit": {"endpoint": "/api/v1/operacional/unificado/alocar-diarista",
+                   "okMsg": "Diarista alocado",
+                   "confirm": "Isto GRAVA a alocacao do diarista no periodo informado. Confirma?"},
+        "fields": [
+            {"key": "diarista_id", "label": "Diarista (id)*", "type": "text", "span": "span 1"},
+            {"key": "condominio_id", "label": "Condominio (id)*", "type": "text", "span": "span 1"},
+            {"key": "data_inicio", "label": "Inicio*", "type": "date", "span": "span 1"},
+            {"key": "data_fim", "label": "Fim", "type": "date", "span": "span 1"},
+            {"key": "unidade_id", "label": "Unidade (id)", "type": "text", "span": "span 1"},
+            {"key": "valor_acordado", "label": "Valor acordado (R$)", "type": "number",
+             "span": "span 1"},
+            {"key": "observacoes", "label": "Observacoes", "type": "textarea", "span": "span 2"},
         ],
     }
 

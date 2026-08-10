@@ -258,6 +258,18 @@ async def build(db) -> dict:
                           "span": "span 1"},
                          {"key": "password", "label": "Senha", "type": "text", "value": "",
                           "span": "span 1"}])},
+            {"title": f"Onboard de {r[1]} no portal",
+             "sub": "Prepara o acesso deste cliente. Deixe o envio em 'false' para preparar "
+                    "sem avisar ninguém.",
+             "endpoint": f"/api/v1/portal/access-management/{r[0]}/onboard",
+             "method": "POST", "btnLabel": "Onboard", "submitLabel": "Executar onboard",
+             "btnStyle": "outline", "okMsg": "Onboard processado. Recarregue.",
+             "fields": [
+                 {"key": "enviar_email", "label": "Enviar convite por e-mail? (true/false)",
+                  "type": "text", "value": "false", "span": "span 1"},
+                 {"key": "email_override", "label": "Enviar para outro e-mail", "type": "text",
+                  "value": "", "span": "span 1"},
+             ]},
         ]))
 
     # Onboard de UM cliente (2026-08-10): a rota leva {client_id} no CAMINHO. Aqui como

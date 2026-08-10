@@ -203,6 +203,11 @@ EXTRA_MENU: list[dict] = [
     {"id": "simular-fechamento", "label": "Simular fechamento", "icon": _ICO_DOC},
     {"id": "consultor-comercial", "label": "Consultor comercial", "icon": _ICO_CHAT},
     {"id": "consultor-comercial-arquivo", "label": "Consultor comercial — com anexo", "icon": _ICO_CHAT},
+    {"id": "doc-orcamento", "label": "Orcamento (PDF)", "icon": _ICO_DOC},
+    {"id": "apresentacao-gerar", "label": "Gerar apresentacao", "icon": _ICO_DOC},
+    {"id": "visita-achados", "label": "Anexar achados a visita", "icon": _ICO_DOC},
+    {"id": "asset-upload", "label": "Enviar logo/selo", "icon": _ICO_DOC},
+    {"id": "expurgar-teste", "label": "Arquivar documentos de teste", "icon": _ICO_DOC},
 ]
 
 # Toda rota de contato tem `confirmar`: False = PREVIEW (resolve o número, não envia).
@@ -670,6 +675,95 @@ async def build(db) -> dict:
             {"key": "arquivo", "label": "Arquivo*", "type": "file", "span": "span 2"},
             {"key": "area", "label": "Área", "type": "text", "span": "span 2", "ph": "Ex.: funil, propostas, contratos"},
             {"key": "pergunta", "label": "Pergunta*", "type": "textarea", "span": "span 2"},
+        ],
+    }
+
+    # ── Rotas que pedem LISTA DE OBJETOS (2026-08-10) ───────────────────────────────
+    # Destravadas pelo campo `type: json` do ModuleView: o textarea e parseado antes do
+    # envio. O placeholder mostra a FORMA esperada — sem isso o usuario adivinha.
+    out["doc-orcamento"] = {
+        "title": "Orcamento / proposta (PDF)",
+        "sub": "Gera o orcamento no padrao-ouro com selo. Os itens vao em lista — o exemplo "
+               "no campo mostra o formato.",
+        "cta": "Gerar PDF", "type": "form",
+        "submit": {"endpoint": "/api/v1/crm/docs/orcamento/pdf", "okMsg": "Orcamento gerado"},
+        "fields": [
+            {"key": "cliente", "label": "Cliente*", "type": "text", "span": "span 2"},
+            {"key": "titulo", "label": "Titulo", "type": "text", "span": "span 1"},
+            {"key": "numero", "label": "Numero", "type": "text", "span": "span 1",
+             "ph": "vazio = automatico"},
+            {"key": "documento", "label": "CNPJ/CPF do cliente", "type": "text", "span": "span 1"},
+            {"key": "cidade", "label": "Cidade", "type": "text", "span": "span 1"},
+            {"key": "objeto", "label": "Objeto", "type": "textarea", "span": "span 2"},
+            {"key": "itens", "label": "Itens*", "type": "json", "span": "span 2",
+             "ph": '[{"descricao": "Camera IP 4MP", "quantidade": 8, "valor_unitario": 450.00}, '
+                   '{"descricao": "Instalacao", "quantidade": 1, "valor_unitario": 1200.00}]'},
+            {"key": "desconto_avista_pct", "label": "Desconto a vista (%)", "type": "number",
+             "span": "span 1"},
+            {"key": "parcelas", "label": "Parcelas", "type": "number", "span": "span 1"},
+            {"key": "entrada", "label": "Entrada (R$)", "type": "number", "span": "span 1"},
+            {"key": "observacao", "label": "Observacao", "type": "textarea", "span": "span 2"},
+        ],
+    }
+    out["apresentacao-gerar"] = {
+        "title": "Gerar apresentacao",
+        "sub": "Apresentacao no padrao Conecta PRO. Os slides vao em lista — cada um com "
+               "titulo e conteudo.",
+        "cta": "Gerar", "type": "form",
+        "submit": {"endpoint": "/api/v1/crm/apresentacoes/gerar", "okMsg": "Apresentacao gerada"},
+        "fields": [
+            {"key": "titulo", "label": "Titulo*", "type": "text", "span": "span 2"},
+            {"key": "subtitulo", "label": "Subtitulo", "type": "text", "span": "span 2"},
+            {"key": "cliente", "label": "Cliente", "type": "text", "span": "span 1"},
+            {"key": "local", "label": "Local", "type": "text", "span": "span 1"},
+            {"key": "data", "label": "Data", "type": "text", "span": "span 1", "ph": "DD/MM/AAAA"},
+            {"key": "slides", "label": "Slides", "type": "json", "span": "span 2",
+             "ph": '[{"titulo": "Quem somos", "conteudo": "Texto do slide"}, '
+                   '{"titulo": "Proposta", "conteudo": "..."}]'},
+        ],
+    }
+    out["visita-achados"] = {
+        "title": "Anexar achados ao relatorio de visita",
+        "sub": "Analises de foto, audio, video ou notas. Vao em lista, um achado por objeto.",
+        "cta": "Anexar", "type": "form",
+        "submit": {"endpoint": "/api/v1/crm/visitas/achados", "okMsg": "Achados anexados"},
+        "fields": [
+            {"key": "ref", "label": "Visita — id ou referencia*", "type": "text", "span": "span 2"},
+            {"key": "achados", "label": "Achados*", "type": "json", "span": "span 2",
+             "ph": '[{"tipo": "foto", "descricao": "Portao sem fechadura eletronica"}, '
+                   '{"tipo": "nota", "descricao": "Cliente pediu orcamento de CFTV"}]'},
+        ],
+    }
+    out["asset-upload"] = {
+        "title": "Enviar logo ou selo",
+        "sub": "Grava a imagem no volume persistente, para os documentos usarem. O conteudo "
+               "vai em base64 — util quando nao da para subir arquivo.",
+        "cta": "Enviar", "type": "form",
+        "submit": {"endpoint": "/api/v1/crm/assets/upload", "okMsg": "Asset gravado",
+                   "showResult": True},
+        "fields": [
+            {"key": "tipo", "label": "Tipo", "type": "select", "span": "span 1", "ph": "Selecione",
+             "options": [{"value": "logo", "label": "Logo"}, {"value": "selo", "label": "Selo"}]},
+            {"key": "nome", "label": "Nome do arquivo", "type": "text", "span": "span 1",
+             "ph": "ex.: logo_patrimonial.png"},
+            {"key": "conteudo_base64", "label": "Conteudo em base64*", "type": "textarea",
+             "span": "span 2", "ph": "cole o base64 da imagem"},
+        ],
+    }
+    out["expurgar-teste"] = {
+        "title": "Arquivar documentos de teste",
+        "sub": "Arquiva (soft-delete) TODOS os documentos marcados como teste. Nao toca em "
+               "documento real. Sem confirmar, a rota so mostra o que seria arquivado.",
+        "cta": "Executar", "type": "form",
+        "submit": {"endpoint": "/api/v1/crm/docs/expurgar-teste", "query": True,
+                   "okMsg": "Expurgo processado", "showResult": True,
+                   "confirm": "Se voce marcou CONFIRMAR, todos os documentos de teste sao "
+                              "arquivados agora. Confirma?"},
+        "fields": [
+            {"key": "confirmar", "label": "Confirmar de verdade?", "type": "select",
+             "span": "span 2", "ph": "Nao — so mostrar (padrao)",
+             "options": [{"value": "false", "label": "Nao — so mostrar o que seria arquivado"},
+                         {"value": "true", "label": "SIM — arquivar agora"}]},
         ],
     }
 

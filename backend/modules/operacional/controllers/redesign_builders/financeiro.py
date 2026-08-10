@@ -41,6 +41,12 @@ EXTRA_MENU: list[dict] = [
     {"id": "estoque-saida", "label": "Registrar saída de estoque", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
     {"id": "nfse-sync-prestador", "label": "Sincronizar NFS-e emitidas", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
     {"id": "custos-recorrentes-lista", "label": "Custos recorrentes", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "orcamento-kv", "label": "Orcado do mes", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "billing-contrato-ativado", "label": "Faturamento de contrato ativado", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "payables-auto-criar", "label": "Criar pagaveis das NFS-e", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "just-registrar", "label": "Justificar transacao", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "just-classificar", "label": "Classificar transacoes", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "just-alertar", "label": "Alertar pendencias de justificativa", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
 ]
 
 
@@ -1534,6 +1540,90 @@ ORDER BY b.comp DESC, b.cnpj"""
         ]))
     if isinstance(out.get("custos-recorrentes-lista"), dict):
         out["custos-recorrentes-lista"]["ctaTo"] = "custo-recorrente-novo"
+
+    # ── Ultimo lote de fios soltos do financeiro (2026-08-10) ───────────────────────
+    # payable/auto-criar e payables/auto-criar (singular e plural) fazem a MESMA coisa —
+    # ligo UMA. Duas telas identicas seria a duplicacao que o Jordan proibiu.
+    out["orcamento-kv"] = {
+        "title": "Orcado do mes",
+        "sub": "Define o valor orcado por chave. E o que a comparacao orcado x realizado "
+               "usa — sem isto ela cai no valor fixo antigo.",
+        "cta": "Salvar", "type": "form",
+        "submit": {"endpoint": "/api/v1/financial/relatorios/orcamentos-kv", "method": "PUT",
+                   "okMsg": "Orcado salvo", "showResult": True},
+        "fields": [
+            {"key": "chave", "label": "Chave*", "type": "text", "span": "span 1",
+             "ph": "ex.: 2026-08 ou folha:2026-08"},
+            {"key": "valor", "label": "Valor orcado (R$)*", "type": "number", "span": "span 1"},
+        ],
+    }
+    out["billing-contrato-ativado"] = {
+        "title": "Registrar faturamento de contrato ativado",
+        "sub": "Abre o faturamento de um contrato que entrou em vigencia. Use quando a "
+               "ativacao aconteceu por fora e o financeiro nao acompanhou.",
+        "cta": "Registrar", "type": "form",
+        "submit": {"endpoint": "/api/v1/financial/ai/billing/contrato-ativado",
+                   "okMsg": "Faturamento registrado", "showResult": True},
+        "fields": [
+            {"key": "contrato_id", "label": "Contrato (id)*", "type": "text", "span": "span 2"},
+            {"key": "cliente_nome", "label": "Cliente", "type": "text", "span": "span 1"},
+            {"key": "valor_mensal", "label": "Valor mensal (R$)*", "type": "number", "span": "span 1"},
+            {"key": "tipo_servico", "label": "Tipo de servico*", "type": "text", "span": "span 2",
+             "ph": "ex.: portaria, seguranca eletronica"},
+        ],
+    }
+    out["payables-auto-criar"] = {
+        "title": "Criar contas a pagar das NFS-e recebidas",
+        "sub": "Varre as NFS-e de entrada sem pagavel vinculado e cria o pagavel de cada uma. "
+               "So LANCA a conta — nao paga nada.",
+        "cta": "Criar pagaveis", "type": "form",
+        "submit": {"endpoint": "/api/v1/financial/payables/auto-criar",
+                   "okMsg": "Pagaveis criados", "showResult": True,
+                   "confirm": "Cria conta a pagar para TODA NFS-e de entrada sem pagavel. Confirma?"},
+        "fields": [],
+    }
+    out["just-registrar"] = {
+        "title": "Justificar uma transacao",
+        "sub": "Explica a que se refere um lancamento do extrato. E o que tira a transacao "
+               "da lista de pendentes.",
+        "cta": "Justificar", "type": "form",
+        "submit": {"endpoint": "/api/v1/justificativa/registrar", "okMsg": "Justificativa registrada"},
+        "fields": [
+            {"key": "transacao_id", "label": "Transacao (id)*", "type": "text", "span": "span 2"},
+            {"key": "categoria", "label": "Categoria*", "type": "text", "span": "span 1",
+             "ph": "ex.: folha, tributo, fornecedor"},
+            {"key": "responsavel", "label": "Responsavel", "type": "text", "span": "span 1"},
+            {"key": "descricao", "label": "Descricao*", "type": "textarea", "span": "span 2"},
+        ],
+    }
+    out["just-classificar"] = {
+        "title": "Classificar transacoes automaticamente",
+        "sub": "Sugere categoria para as transacoes sem justificativa. Deixe APLICAR em nao "
+               "para so ver a sugestao antes de gravar.",
+        "cta": "Classificar", "type": "form",
+        "submit": {"endpoint": "/api/v1/justificativa/classificar-auto", "query": True,
+                   "okMsg": "Classificacao processada", "showResult": True,
+                   "confirm": "Se voce marcou APLICAR, as categorias sao gravadas agora. Confirma?"},
+        "fields": [
+            {"key": "aplicar", "label": "Aplicar de verdade?", "type": "select", "span": "span 2",
+             "ph": "Nao — so sugerir (padrao)",
+             "options": [{"value": "false", "label": "Nao — so mostrar a sugestao"},
+                         {"value": "true", "label": "SIM — gravar as categorias"}]},
+            {"key": "apenas_sem_categoria", "label": "So as sem categoria?", "type": "select",
+             "span": "span 1", "ph": "Sim",
+             "options": [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Nao"}]},
+            {"key": "responsavel", "label": "Responsavel", "type": "text", "span": "span 1"},
+        ],
+    }
+    out["just-alertar"] = {
+        "title": "Alertar pendencias de justificativa",
+        "sub": "Avisa quem precisa justificar transacao parada. Notificacao interna — vai "
+               "para o sino, nao para fora.",
+        "cta": "Alertar", "type": "form",
+        "submit": {"endpoint": "/api/v1/justificativa/alertar", "okMsg": "Alertas enviados",
+                   "showResult": True},
+        "fields": [],
+    }
 
     return out
 

@@ -24,6 +24,8 @@ EXTRA_MENU: list[dict] = [
     {"id": "hermes-classificar", "label": "Classificar documento (Hermes)", "icon": _ICO_D},
     {"id": "ged-agendamento", "label": "Agendamento de envio do GED", "icon": _ICO_D},
     {"id": "intercorrencias", "label": "Intercorrências do mês", "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
+    {"id": "ged-agendamento-pm", "label": "Agendamento do GED (envio)", "icon": _ICO_D},
+    {"id": "assinatura-solicitar", "label": "Solicitar assinatura", "icon": _ICO_D},
 ]
 
 
@@ -331,5 +333,35 @@ async def build(db) -> dict:
              "btnStyle": "outline", "okMsg": "Intercorrência excluída. Recarregue a tela.",
              "fields": []},
         ]))
+
+    out["ged-agendamento-pm"] = {
+        "title": "Agendamento do GED — salvar como esta",
+        "sub": "Grava a configuracao de envio corrente. Rota DIFERENTE da tela 'Agendamento "
+               "de envio do GED': aquela edita os campos, esta persiste o estado atual.",
+        "cta": "Salvar", "type": "form",
+        "submit": {"endpoint": "/api/v1/people-management/ged/config/schedule",
+                   "okMsg": "Agendamento salvo", "showResult": True},
+        "fields": [],
+    }
+
+    out["assinatura-solicitar"] = {
+        "title": "Solicitar assinatura de documento",
+        "sub": "Abre o pedido de assinatura. Os signatarios vao em LISTA — o exemplo no "
+               "campo mostra a forma esperada.",
+        "cta": "Solicitar", "type": "form",
+        "submit": {"endpoint": "/api/v1/signatures/requests", "okMsg": "Assinatura solicitada",
+                   "showResult": True},
+        "fields": [
+            {"key": "title", "label": "Titulo*", "type": "text", "span": "span 2"},
+            {"key": "document_type", "label": "Tipo do documento*", "type": "text",
+             "span": "span 1", "ph": "ex.: contrato, holerite"},
+            {"key": "document_id", "label": "Documento (id)*", "type": "text", "span": "span 1"},
+            {"key": "document_name", "label": "Nome do arquivo", "type": "text", "span": "span 1"},
+            {"key": "expires_in_days", "label": "Expira em (dias)", "type": "number",
+             "span": "span 1"},
+            {"key": "signers", "label": "Signatarios*", "type": "json", "span": "span 2",
+             "ph": '[{"nome": "Jordan Jesus", "email": "jordan@exemplo.com", "cpf": "000.000.000-00"}]'},
+        ],
+    }
 
     return out

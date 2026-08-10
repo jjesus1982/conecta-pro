@@ -41,6 +41,10 @@ EXTRA_MENU: list[dict] = [
     {"id": "disc-template-novo", "label": "Novo modelo de medida", "icon": _ICO_CCT},
     {"id": "disc-verificar-assinatura", "label": "Verificar assinatura", "icon": _ICO_CCT},
     {"id": "cct-convencoes", "label": "CCT — convencoes e feriados", "icon": _ICO_CCT},
+    {"id": "folha-alterdata", "label": "Importar folha (Alterdata)", "icon": _ICO_CCT},
+    {"id": "holerites-lote", "label": "Importar holerites em lote", "icon": _ICO_CCT},
+    {"id": "ciclo-avaliacao", "label": "Iniciar ciclo de avaliacao", "icon": _ICO_CCT},
+    {"id": "esocial-s2299", "label": "eSocial S-2299 (gerar XML)", "icon": _ICO_CCT},
 ]
 
 _MOTIVO = [{"value": v, "label": lbl} for v, lbl in (
@@ -720,5 +724,73 @@ async def build(db) -> dict:
                   "span": "span 2"},
              ]},
         ]))
+
+    # ── Ultimo lote (2026-08-10) ────────────────────────────────────────────────────
+    # Estas quatro sao de DP/RH. Ficam aqui porque departamento_pessoal.py esta com
+    # trabalho NAO COMMITADO de outra sessao — mexer la levaria o inacabado deles junto.
+    out["folha-alterdata"] = {
+        "title": "Importar folha do Alterdata",
+        "sub": "Le o CSV exportado do Alterdata e carrega a folha da competencia. Confira "
+               "mes e ano: importar na competencia errada mistura folha.",
+        "cta": "Importar", "type": "form",
+        "submit": {"endpoint": "/api/v1/people-management/folha/importar-alterdata",
+                   "multipart": True, "query": True,
+                   "okMsg": "Folha importada", "showResult": True,
+                   "confirm": "Importa a folha do CSV na competencia informada. Confirma?"},
+        "fields": [
+            {"key": "arquivo", "label": "CSV do Alterdata*", "type": "file", "span": "span 2"},
+            {"key": "mes", "label": "Mes*", "type": "number", "span": "span 1", "ph": "8"},
+            {"key": "ano", "label": "Ano*", "type": "number", "span": "span 1", "ph": "2026"},
+        ],
+    }
+    out["holerites-lote"] = {
+        "title": "Importar holerites em lote",
+        "sub": "Ate 100 por lote. Cada item e um holerite; o exemplo mostra a forma.",
+        "cta": "Importar", "type": "form",
+        "submit": {"endpoint": "/api/v1/people-management/dp/payslips/importar-lote",
+                   "query": True, "okMsg": "Lote importado", "showResult": True},
+        "fields": [
+            {"key": "items", "label": "Holerites*", "type": "json", "span": "span 2",
+             "ph": '[{"employee_id": "...", "competencia": "2026-08", "valor_liquido": 1670.00}]'},
+        ],
+    }
+    out["ciclo-avaliacao"] = {
+        "title": "Iniciar ciclo de avaliacao",
+        "sub": "Abre o ciclo para os colaboradores escolhidos, com um avaliador responsavel.",
+        "cta": "Iniciar", "type": "form",
+        "submit": {"endpoint": "/api/v1/people-management/human-resources/performance/review-cycle",
+                   "query": True, "okMsg": "Ciclo iniciado", "showResult": True},
+        "fields": [
+            {"key": "employee_ids", "label": "Colaboradores*", "type": "json", "span": "span 2",
+             "ph": '["id-do-colaborador-1", "id-do-colaborador-2"]'},
+            {"key": "reviewer_id", "label": "Avaliador (id)*", "type": "text", "span": "span 2"},
+            {"key": "review_type", "label": "Tipo", "type": "select", "span": "span 1",
+             "ph": "Selecione",
+             "options": [{"value": "annual", "label": "Anual"},
+                         {"value": "semiannual", "label": "Semestral"},
+                         {"value": "quarterly", "label": "Trimestral"},
+                         {"value": "probation", "label": "Experiencia"}]},
+            {"key": "period_start", "label": "Inicio do periodo", "type": "date", "span": "span 1"},
+            {"key": "period_end", "label": "Fim do periodo", "type": "date", "span": "span 1"},
+        ],
+    }
+    out["esocial-s2299"] = {
+        "title": "eSocial S-2299 — gerar XML de desligamento",
+        "sub": "GERA o XML e para por aqui. NAO transmite ao eSocial: quem transmite a folha "
+               "hoje e a Portte, e transmitir daqui geraria evento DUPLICADO no governo.",
+        "cta": "Gerar XML", "type": "form",
+        "submit": {"endpoint": "/api/v1/people-management/hr/esocial/s2299/gerar",
+                   "okMsg": "XML gerado (nao transmitido)", "showResult": True},
+        "fields": [
+            {"key": "cpf", "label": "CPF*", "type": "text", "span": "span 1"},
+            {"key": "matricula", "label": "Matricula*", "type": "text", "span": "span 1"},
+            {"key": "data_desligamento", "label": "Data do desligamento*", "type": "date",
+             "span": "span 1"},
+            {"key": "motivo", "label": "Motivo", "type": "text", "span": "span 1"},
+            {"key": "verbas_rescisorias", "label": "Verbas rescisorias", "type": "json",
+             "span": "span 2",
+             "ph": '[{"codigo": "1000", "valor": 1670.00}, {"codigo": "5502", "valor": 320.00}]'},
+        ],
+    }
 
     return out
