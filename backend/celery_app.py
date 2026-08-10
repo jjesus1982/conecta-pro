@@ -212,12 +212,7 @@ app.conf.beat_schedule = {
         "schedule": crontab(hour=8, minute=30),
         "options": {"queue": "gov.batch"},
     },
-    # Propõe rascunho de baixa na Central p/ grandes pendentes vencidos (propor->aprovar, sem auto-baixa)
-    "financeiro-propor-baixa-pendentes": {
-        "task": "financial.propor_baixa_pendentes",
-        "schedule": crontab(hour=8, minute=45),
-        "options": {"queue": "gov.batch"},
-    },
+    # (financeiro-propor-baixa-pendentes vive abaixo do dict — está DESLIGADO)
     # Registra como pagável o que a empresa deve (NFS-e tomadas, folha, guias).
     # Roda ANTES da auto-baixa: primeiro a obrigação existe, depois o extrato a liquida.
     "financeiro-registrar-obrigacoes": {
@@ -705,6 +700,22 @@ app.conf.beat_schedule = {
         "options": {"queue": "gov.batch"},
     },
 }
+
+# ── Propor baixa de pagáveis: DESLIGADO a pedido do Jordan (2026-08-09) ───────
+# O beat varria pagáveis vencidos >30d e ≥R$500 e criava 1 rascunho de baixa por
+# conta na Central (40/dia). Com o contas-a-pagar recém-reconstruído (69 → 297
+# contas), isso viraria ~103 rascunhos de fila para contas cujo pagamento ainda
+# não foi provado no extrato — ruído, não decisão. A ação manual "Dar baixa"
+# (grupo Pagar) e a auto-baixa por conciliação seguem funcionando normalmente.
+# Religar NÃO precisa de deploy: basta CONECTA_PROPOR_BAIXA=1 no .env da raiz e
+# recriar os workers.
+if os.getenv("CONECTA_PROPOR_BAIXA", "0").strip().lower() in ("1", "true", "sim"):
+    app.conf.beat_schedule["financeiro-propor-baixa-pendentes"] = {
+        "task": "financial.propor_baixa_pendentes",
+        "schedule": crontab(hour=8, minute=45),
+        "options": {"queue": "gov.batch"},
+    }
+
 
 
 if __name__ == "__main__":
