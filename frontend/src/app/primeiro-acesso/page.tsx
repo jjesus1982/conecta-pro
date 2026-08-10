@@ -45,6 +45,7 @@ export default function PrimeiroAcessoPage() {
   const [faltantes, setFaltantes] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [buscandoPis, setBuscandoPis] = useState(false);
+  const [buscandoCep, setBuscandoCep] = useState(false);
   const [erro, setErro] = useState('');
 
   const soDigitos = (v: string) => v.replace(/\D/g, '');
@@ -53,6 +54,41 @@ export default function PrimeiroAcessoPage() {
     return d.replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2');
   };
   const set = (k: string, v: string) => setForm((p) => ({ ...p, [k]: v }));
+
+  /** CEP digitado -> preenche rua, bairro, cidade e UF sozinho.
+   *
+   *  47 dos 51 colaboradores não têm endereço nenhum no cadastro, e esta tela só avança com
+   *  tudo preenchido. Sem isto, cada pessoa digita quatro campos de endereço no celular, de
+   *  pé, antes de conseguir cadastrar o rosto — e quem trava no meio volta a bater ponto no
+   *  Sólides, que é o que a migração está tentando evitar.
+   *
+   *  Mesmo par de fontes do /candidato (BrasilAPI, com ViaCEP de reserva): duas gratuitas e
+   *  sem chave. Falhou nas duas, o campo continua editável à mão — nunca bloqueia.
+   *  Não sobrescreve o que a pessoa já digitou. */
+  const buscarCep = async (bruto: string) => {
+    const cep = (bruto || '').replace(/\D/g, '');
+    if (cep.length !== 8) return;
+    setBuscandoCep(true);
+    let d: { logradouro?: string; bairro?: string; cidade?: string; uf?: string } | null = null;
+    try {
+      const r = await fetch(`https://brasilapi.com.br/api/cep/v1/${cep}`);
+      if (r.ok) { const j = await r.json(); d = { logradouro: j.street, bairro: j.neighborhood, cidade: j.city, uf: j.state }; }
+    } catch { /* cai no ViaCEP */ }
+    if (!d?.cidade) {
+      try {
+        const r2 = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+        if (r2.ok) { const j = await r2.json(); if (!j.erro) d = { logradouro: j.logradouro, bairro: j.bairro, cidade: j.localidade, uf: j.uf }; }
+      } catch { /* silencioso: o campo segue editável */ }
+    }
+    if (d) setForm((f) => ({
+      ...f,
+      logradouro: f.logradouro || d!.logradouro || '',
+      bairro: f.bairro || d!.bairro || '',
+      cidade: f.cidade || d!.cidade || '',
+      uf: f.uf || d!.uf || '',
+    }));
+    setBuscandoCep(false);
+  };
 
   // ── Tela 1: CPF → identifica ──────────────────────────────────────────────
   const identificar = useCallback(async () => {
@@ -208,6 +244,17 @@ export default function PrimeiroAcessoPage() {
                               className="shrink-0 rounded-xl border-2 border-[#16277D] text-[#16277D] px-3 flex items-center gap-1 text-[13px] font-semibold disabled:opacity-50">
                               {buscandoPis ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Search className="w-4 h-4" /> Buscar</>}
                             </button>
+                          )}
+                        </div>
+                      ) : c.key === 'cep' ? (
+                        // dispara ao sair do campo E ao completar 8 dígitos: no celular muita
+                        // gente não tira o foco, vai direto no próximo campo
+                        <div className="relative">
+                          <input value={form.cep || ''} inputMode="numeric" className={inputCls('cep')}
+                            onChange={(e) => { set('cep', e.target.value); void buscarCep(e.target.value); }}
+                            onBlur={(e) => void buscarCep(e.target.value)} />
+                          {buscandoCep && (
+                            <Loader2 className="w-4 h-4 animate-spin absolute right-3 top-1/2 -translate-y-1/2 text-[#16277D]" />
                           )}
                         </div>
                       ) : (
