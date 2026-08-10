@@ -6,7 +6,14 @@ from modules.operacional.controllers.redesign_data_controller import (
 )
 
 SLUG = "documentos"
-EXTRA_MENU: list[dict] = []
+_ICO_D = "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6"
+
+EXTRA_MENU: list[dict] = [
+    {"id": "gedeon-perguntar", "label": "Consultor GEDEON", "icon": _ICO_D},
+    {"id": "gedeon-intercorrencia", "label": "Registrar intercorrência", "icon": _ICO_D},
+    {"id": "sophia-indexar", "label": "Indexar acervo (SOPHIA)", "icon": _ICO_D},
+    {"id": "kits-montar", "label": "Montar kits do mês", "icon": _ICO_D},
+]
 
 
 async def build(db) -> dict:
@@ -68,5 +75,70 @@ async def build(db) -> dict:
         "FROM ged_folders ORDER BY coalesce(path,'') LIMIT 200",
         lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), t((r[2] or '—').replace('_', ' ').capitalize()), t(f"{int(r[3] or 0)}"),
                    b((r[4] or '—').capitalize(), "ok" if (r[4] or '').lower() in ("ativa", "ativo", "active") else "mut")]))
+
+    # ── FIOS SOLTOS DE GED/GEDEON (2026-08-10) ────────────────────────────────────────
+    # DE FORA: sophia/perguntar, sophia/reindexar, hermes/classificar, kit-real/gerar-todos,
+    # kits/generate-all-pdfs e config/schedule usam QUERY PARAM, e o form manda JSON no
+    # CORPO — ligar assim entrega botao que sempre falha. Precisam de acao /redesign/action
+    # que traduza corpo->query, ou de suporte a query no renderizador.
+    # kits/{kit_id}/* e intercorrencias/{id} levam id no CAMINHO -> acao por linha.
+    out["gedeon-perguntar"] = {
+        "title": "Consultor GEDEON",
+        "sub": "Pergunta ancorada nos kits reais do GED. É consulta — não altera documento.",
+        "cta": "Perguntar", "type": "form",
+        "submit": {"endpoint": "/api/v1/gedeon/consultor/perguntar",
+                   "okMsg": "Consulta respondida", "showResult": True},
+        "fields": [
+            {"key": "area", "label": "Área*", "type": "text", "span": "span 1",
+             "ph": "Ex.: folha, documentos, kit"},
+            {"key": "condominio", "label": "Condomínio", "type": "text", "span": "span 1"},
+            {"key": "competencia", "label": "Competência", "type": "text", "span": "span 1",
+             "ph": "AAAA-MM"},
+            {"key": "pergunta", "label": "Pergunta*", "type": "textarea", "span": "span 2",
+             "ph": "Ex.: quais documentos faltam no kit deste mês?"},
+        ],
+    }
+    out["gedeon-intercorrencia"] = {
+        "title": "Registrar intercorrência do mês",
+        "sub": "Contratação, demissão, falta — o que aconteceu no condomínio e afeta o kit "
+               "(e, se marcar, a folha).",
+        "cta": "Registrar", "type": "form",
+        "submit": {"endpoint": "/api/v1/gedeon/consultor/intercorrencias",
+                   "okMsg": "Intercorrência registrada"},
+        "fields": [
+            {"key": "condominio", "label": "Condomínio*", "type": "text", "span": "span 1"},
+            {"key": "tipo", "label": "Tipo*", "type": "select", "span": "span 1", "ph": "Selecione",
+             "options": [{"value": "contratacao", "label": "Contratação"},
+                         {"value": "demissao", "label": "Demissão"},
+                         {"value": "falta", "label": "Falta"},
+                         {"value": "afastamento", "label": "Afastamento"},
+                         {"value": "outro", "label": "Outro"}]},
+            {"key": "funcionario", "label": "Colaborador", "type": "text", "span": "span 1"},
+            {"key": "data_evento", "label": "Data do evento", "type": "date", "span": "span 1"},
+            {"key": "competencia", "label": "Competência", "type": "text", "span": "span 1",
+             "ph": "AAAA-MM"},
+            {"key": "impacto_folha", "label": "Impacta a folha?", "type": "select", "span": "span 1",
+             "ph": "Não", "options": [{"value": "false", "label": "Não"},
+                                      {"value": "true", "label": "Sim"}]},
+            {"key": "descricao", "label": "O que aconteceu*", "type": "textarea", "span": "span 2"},
+        ],
+    }
+    out["sophia-indexar"] = {
+        "title": "Indexar acervo (SOPHIA)",
+        "sub": "Varre e indexa o acervo completo de documentos. Pesado — rode fora do horário "
+               "de pico.",
+        "cta": "Indexar", "type": "form",
+        "submit": {"endpoint": "/api/v1/gedeon/sophia/indexar", "okMsg": "Indexação disparada",
+                   "confirm": "A indexação varre TODO o acervo e consome bastante máquina. Confirma?"},
+        "fields": [],
+    }
+    out["kits-montar"] = {
+        "title": "Montar kits do mês",
+        "sub": "Cria o kit dos clientes ativos que ainda não têm kit no mês corrente. "
+               "Não sobrescreve kit existente.",
+        "cta": "Montar", "type": "form",
+        "submit": {"endpoint": "/api/v1/ged/kits/montar", "okMsg": "Kits montados"},
+        "fields": [],
+    }
 
     return out

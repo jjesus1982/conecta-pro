@@ -16,7 +16,12 @@ from modules.operacional.controllers.redesign_data_controller import (
 )
 
 SLUG = "licitacoes"
-EXTRA_MENU: list[dict] = []
+_ICO_L = "M3 3v18h18M7 16l4-4 3 3 5-6"
+
+EXTRA_MENU: list[dict] = [
+    {"id": "sync-pncp", "label": "Sincronizar PNCP", "icon": _ICO_L},
+    {"id": "sync-precos", "label": "Sincronizar preços", "icon": _ICO_L},
+]
 _ND = "#0F1B3A"
 
 
@@ -160,5 +165,27 @@ async def build(db) -> dict:
         out["certidoes"]["docs"] = [doc(
             "Certidão (arquivo indisponível)", disabled=True,
             motivo="bidding_certificates.arquivo_url vazio e sem rota de download — CND só como metadado")]
+
+    # ── FIOS SOLTOS DE LICITACOES (2026-08-10) — os 2 gatilhos manuais de sync ─────────
+    # As 4 rotas /bidding/erp/* (converter, crm, medicao, fatura) ficaram DE FORA: levam
+    # {contract_id}/{medicao_id} no CAMINHO, e o endpoint do form e fixo. Lugar certo delas
+    # e acao por LINHA na tabela de contratos publicos — nao tela pedindo UUID colado.
+    out["sync-pncp"] = {
+        "title": "Sincronizar com o PNCP",
+        "sub": "Puxa editais e contratos do Portal Nacional de Contratações Públicas. "
+               "Só LÊ do portal — não envia nada, não assina nada.",
+        "cta": "Sincronizar agora", "type": "form",
+        "submit": {"endpoint": "/api/v1/bidding/sync/pncp/trigger",
+                   "okMsg": "Sincronização com o PNCP disparada"},
+        "fields": [],
+    }
+    out["sync-precos"] = {
+        "title": "Sincronizar preços referenciais",
+        "sub": "Atualiza a tabela de preços de referência usada para montar proposta.",
+        "cta": "Sincronizar agora", "type": "form",
+        "submit": {"endpoint": "/api/v1/bidding/sync/precos/trigger",
+                   "okMsg": "Sincronização de preços disparada"},
+        "fields": [],
+    }
 
     return out
