@@ -853,6 +853,50 @@ dimensionamento (unidades/postos) que a ficha não tem — é o Bloco C do plano
 agente PERGUNTAR o dimensionamento). Enquanto for 0, elas aparecem no funil mas **não somam no
 forecast ponderado**.
 
+## ✅ Task 7 do plano irmão — o agente pergunta o dimensionamento (`36d6d02b`)
+
+**Baseline** (medido antes de mexer, bate com o plano): `unidades` **2/7 (29%)**,
+`postos_portaria_hoje` **1/7 (14%)**. O schema da tool **já tinha** todos os campos
+(`unidades`, `blocos`, `portoes_veiculares`, `tem_guarita`, `postos_portaria_hoje`…) — o agente
+simplesmente não perguntava. Duas causas, ambas no prompt:
+
+**1. Porte estava listado como essencial e a frase seguinte o rebaixava** a detalhe *"só se a
+conversa fluir"*. Agora é essencial de verdade, com enquadramento **consultivo** ancorado no
+ganho do cliente, UMA pergunta por vez e recuo imediato se a pessoa tiver pressa.
+
+**2. ⭐ Contradição dentro do próprio prompt.** A regra do CNPJ (rígida — *"prioridade número 1"*,
+*"NÃO avance sem o CNPJ"*, política pedida pelo Jordan) brigava com *"registre cada dado em
+silêncio"*. O modelo resolveu pela mais enfática e **parou de registrar**: no E2E pediu CNPJ
+**3× escalando** (*"te peço só mais uma vez"*) e **ignorou** 120 aptos, 4 blocos e 2 postos que
+a cliente ofereceu de graça.
+**Não afrouxei a política** — separei o que ela nunca quis juntar: **REGISTRAR NÃO É AVANÇAR**
+(a trava é sobre qualificar/encaminhar, jamais sobre gravar dado) + teto explícito de 2 pedidos.
+
+### 🐛 Bug de dado achado no caminho
+`postos_portaria_hoje` **não estava** na coerção numérica → entrava texto cru no JSONB
+(`'2 postos de portaria hoje'`). E quem **estava** na lista, se viesse `'120 apartamentos'`, era
+**deletado em silêncio** — o dado que o cliente deu de graça sumia, e a métrica acusaria ausência
+sem ninguém saber por quê. `_coagir_numericos()` extraída e testada (11 casos): extrai o primeiro
+número, só descarta quando não há número nenhum. `_CAMPOS_CONTAGEM` é a lista, com teste que
+cobra campo novo.
+
+### Prova E2E (Cenário 4, permanente no gate)
+Cliente **não** entrega o porte de graça — senão o teste mediria sorte.
+
+> **turno 3** — *"Pra eu te indicar o modelo certo (e não te sugerir posto a mais nem a menos),
+> quantas unidades tem aí no Vila Verde?"*
+> **turno 4** — `registrar_lead(unidades=120, blocos=4, postos_portaria_hoje=2)`
+
+Uma pergunta por turno em todos os turnos. O oráculo do teste é **o argumento da tool**, não o
+texto: numa versão anterior o check passava porque o agente **ecoava** o que a cliente dissera,
+sem registrar nada.
+
+### O que NÃO foi feito, de propósito
+`expected_value` continua sem ser derivado. A ordem do plano é capturar → medir ~2 semanas
+(`unidades` > 60%) → derivar. `backend/scripts/medir_captura_dimensionamento.py` mede e avisa
+quando liberar; hoje diz `AINDA NÃO — unidades em 29%`. Âncoras da época: mediana R$ 10.954 ·
+média R$ 19.264 · faixa R$ 500–65.842.
+
 ## 🔴 Bloqueios (não são pendência de execução — são decisão)
 
 ### B1 — Item 1 (Hermes orquestrando o José Luís) — **bloqueado por fato**
