@@ -897,6 +897,37 @@ sem registrar nada.
 quando liberar; hoje diz `AINDA NÃO — unidades em 29%`. Âncoras da época: mediana R$ 10.954 ·
 média R$ 19.264 · faixa R$ 500–65.842.
 
+## ✅ Tasks 3 e 4 do plano irmão — atribuição de campanha e fim da subcontagem (`866cde08`)
+
+**Task 3 — parser de campanha.** `_atribuicao_do_texto()` lê `[c:<slug>]` do `?text=` do wa.me e
+grava `utm_campaign` / `utm_source` / `utm_medium`. `_origem_do_texto` virou wrapper — os 8 casos
+do teste antigo seguem passando. **Sem marcador não inventa UTM**: a chave nem existe.
+A gravação é `UPDATE` separado de propósito — `LeadCreate` não tem esses campos e mexer nele
+rippla nos 10 pontos de criação de lead. Só no 1º toque (`WHERE utm_campaign IS NULL`), porque
+atribuição é do primeiro contato.
+
+**Task 4 — subcontagem.** `metricas_jose_luis` filtrava `source='whatsapp'` **exato**, deixando
+fora todo lead que o próprio agente captou por landing/Instagram. Agora usa `ORIGENS_JOSE_LUIS`.
+
+**Provado pelo caminho real** (`_match_or_create_lead`, o do webhook):
+
+| entrada | resultado |
+|---|---|
+| `"Quero portaria remota [c:lote2_agosto]"` | `source=landing_portaria_remota` · `utm_campaign=lote2_agosto` · `utm_source=whatsapp` · `utm_medium=link` |
+| `"Bom dia, quero um orçamento"` | `source=whatsapp` · UTM todas `None` |
+| métrica com 1 lead de landing | filtro antigo **16**, filtro novo **17** — o lead era invisível |
+
+### ⚠️ O efeito hoje é ZERO nas duas, e isso é o estado real
+**0 de 20 leads têm `utm_campaign`** e **nenhum** tem origem de landing. Não é o parser que falha
+— é o **link que não emite marcador**. Isto é metade de um contrato de 2 pontas:
+
+1. marketing embute `[c:<slug>]` no `?text=` do wa.me — **pendência do Jordan**
+2. José Luís parseia e grava — **feito**
+
+O parser fica pronto e inerte até lá, sem fabricar dado nenhum. A campanha
+*"Portaria Remota — Manaus 2026"* já existe como âncora. Quando o link carregar o marcador:
+`SELECT count(*) FILTER (WHERE utm_campaign IS NOT NULL) FROM leads;` sai de 0.
+
 ## 🔴 Bloqueios (não são pendência de execução — são decisão)
 
 ### B1 — Item 1 (Hermes orquestrando o José Luís) — **bloqueado por fato**
