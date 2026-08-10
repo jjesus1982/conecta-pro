@@ -646,6 +646,11 @@ async def build(db) -> dict:
             {"key": "suspension_days", "label": "Dias de suspensao (max 30)", "type": "number",
              "span": "span 1", "ph": "so para suspensao"},
             {"key": "witness_1_name", "label": "Testemunha", "type": "text", "span": "span 1"},
+            # Vincula a medida a uma OCORRENCIA registrada. Fecha, por aqui, a capacidade da
+            # rota /discipline/from-occurrence/{id}: a tela de ocorrencias e montada pelo
+            # monolito, em territorio curado — pendurar acao la custaria mais do que vale.
+            {"key": "occurrence_id", "label": "Ocorrencia de origem (id)", "type": "text",
+             "span": "span 2", "ph": "opcional — cole o id da ocorrencia que gerou a medida"},
             {"key": "reason_description", "label": "O que aconteceu*", "type": "textarea",
              "span": "span 2", "ph": "E o que sustenta a medida — seja especifico"},
         ],
