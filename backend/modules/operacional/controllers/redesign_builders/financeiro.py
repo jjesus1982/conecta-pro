@@ -549,6 +549,40 @@ ORDER BY b.comp DESC, b.cnpj"""
         ],
     }
 
+    out["registrar-obrigacoes"] = {
+        "title": "Registrar obrigações como conta a pagar",
+        "sub": "Varre as fontes REAIS do que a empresa deve — NFS-e tomadas (serviço com nota), "
+               "folha por competência e guias FGTS/INSS — e registra o que ainda não está no "
+               "contas a pagar. Idempotente: rodar de novo não duplica. NÃO move dinheiro. "
+               "Comece por PREVISUALIZAR: mostra o que faria sem gravar nada.",
+        "cta": "Executar", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/registrar-obrigacoes",
+                   "okMsg": "Concluído.", "showResult": True},
+        "fields": [
+            {"key": "modo", "label": "Modo*", "type": "select", "span": "span 1",
+             "options": [{"value": "preview", "label": "Previsualizar (não grava)"},
+                         {"value": "aplicar", "label": "Aplicar (grava no contas a pagar)"}]},
+        ],
+    }
+
+    out["gerar-recebiveis"] = {
+        "title": "Gerar contas a receber do mês",
+        "sub": "Um recebível por CONTRATO ativo na competência, com o CNPJ credor correto. "
+               "É o que faz aging, inadimplência e régua de cobrança terem substrato. "
+               "NÃO emite cobrança ao cliente: boleto/PIX é outro ato, com decisão sua. "
+               "Idempotente por contrato/competência.",
+        "cta": "Executar", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/gerar-recebiveis",
+                   "okMsg": "Concluído.", "showResult": True},
+        "fields": [
+            {"key": "mes", "label": "Mês", "type": "text", "span": "span 1", "ph": "1-12 (vazio = mês atual)"},
+            {"key": "ano", "label": "Ano", "type": "text", "span": "span 1", "ph": "vazio = ano atual"},
+            {"key": "modo", "label": "Modo*", "type": "select", "span": "span 1",
+             "options": [{"value": "preview", "label": "Previsualizar (não grava)"},
+                         {"value": "aplicar", "label": "Aplicar (grava no contas a receber)"}]},
+        ],
+    }
+
     # ---- Diaristas a cadastrar (do histórico de PIX R$32) ---------------------------------
     try:
         import modules.financial.pagamentos_diaristas_service as _sd
@@ -1952,6 +1986,71 @@ async def _rd_marcar_pago_externo(current_user: CurrentActiveUser, payload: dict
     if isinstance(r, dict) and r.get("ok") is False:
         raise HTTPException(status_code=400, detail=r.get("mensagem") or "Não foi possível marcar.")
     return {"ok": True, "message": f"Pagamento {pid} marcado como pago por fora — não entra mais no lote."}
+
+
+@router.post("/action/registrar-obrigacoes")
+async def _rd_registrar_obrigacoes(current_user: CurrentActiveUser, payload: dict = Body(...)) -> dict:
+    """Registra como pagável o que a empresa deve (NFS-e tomadas, folha, guias).
+    `modo=preview` (padrão) não grava nada. NÃO move dinheiro."""
+    from starlette.concurrency import run_in_threadpool
+
+    from modules.financial.services.payable_sources_service import gerar_pagaveis
+
+    aplicar = str(payload.get("modo") or "preview").strip().lower() == "aplicar"
+    r = await run_in_threadpool(gerar_pagaveis, preview=not aplicar)
+    fontes = {f["fonte"]: f["criados"] for f in r.get("fontes", [])}
+    ignorados = {
+        k: v
+        for f in r.get("fontes", [])
+        for k, v in f.items()
+        if k.endswith("ignorados") and v
+    }
+    verbo = "Registradas" if aplicar else "Seriam registradas"
+    return {
+        "ok": True,
+        "message": f"{verbo} {r['total_criados']} obrigações — R$ {r['total_valor']:,.2f}"
+                   + ("" if aplicar else " (nada gravado: previsualização)"),
+        "modo": r["modo"],
+        "total": r["total_criados"],
+        "valor_total": r["total_valor"],
+        "por_fonte": fontes,
+        **({"ignorados_por_regra": ignorados} if ignorados else {}),
+    }
+
+
+@router.post("/action/gerar-recebiveis")
+async def _rd_gerar_recebiveis(current_user: CurrentActiveUser, payload: dict = Body(...)) -> dict:
+    """Recebível por contrato/competência. NÃO emite cobrança ao cliente."""
+    from datetime import date as _date
+
+    from starlette.concurrency import run_in_threadpool
+
+    from modules.financial.services.receivable_contract_service import gerar_recebiveis
+
+    hoje = _date.today()
+    try:
+        mes = int(str(payload.get("mes") or hoje.month).strip())
+        ano = int(str(payload.get("ano") or hoje.year).strip())
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Mês/ano inválidos.")
+    aplicar = str(payload.get("modo") or "preview").strip().lower() == "aplicar"
+    r = await run_in_threadpool(gerar_recebiveis, mes, ano, preview=not aplicar)
+    if not r.get("ok"):
+        raise HTTPException(status_code=400, detail=r.get("erro") or "Não foi possível gerar.")
+    verbo = "Gerados" if aplicar else "Seriam gerados"
+    return {
+        "ok": True,
+        "message": f"{verbo} {r['criados']} recebíveis de {r['competencia']} — "
+                   f"R$ {r['valor_total']:,.2f}"
+                   + (f" ({r['ja_existiam']} já existiam)" if r.get("ja_existiam") else "")
+                   + ("" if aplicar else " — nada gravado: previsualização"),
+        "modo": r["modo"],
+        "competencia": r["competencia"],
+        "criados": r["criados"],
+        "ja_existiam": r.get("ja_existiam", 0),
+        "valor_total": r["valor_total"],
+        "aviso": r.get("aviso"),
+    }
 
 
 @router.post("/action/baixar-pagavel")

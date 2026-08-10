@@ -105,14 +105,14 @@ def gerar_recebiveis(mes: int, ano: int, preview: bool = True) -> dict:
                 cur.execute(
                     """
                     INSERT INTO receivable_accounts (
-                        id, condominio_id, code, customer_id, customer_name, customer_document,
+                        id, condominio_id, code, customer_name, customer_document,
                         description, gross_value, net_value,
                         issue_date, due_date, competence_date,
                         reference_month, competencia_mes, competencia_ano,
                         status, is_recurring, recurring_day, origem, empresa_id,
                         metadata, created_at, updated_at
                     ) VALUES (
-                        gen_random_uuid(), %s, %s, %s, %s, %s,
+                        gen_random_uuid(), %s, %s, %s, %s,
                         %s, %s, %s,
                         %s, %s, %s,
                         %s, %s, %s,
@@ -120,12 +120,15 @@ def gerar_recebiveis(mes: int, ano: int, preview: bool = True) -> dict:
                         %s::jsonb, NOW(), NOW()
                     )
                     """,
-                    (cond_id, code, client_id, (nome or "")[:150], (doc or "")[:20],
+                    # customer_id fica NULO de propósito: a FK aponta para `customers`,
+                    # e o contrato referencia `clients` — entidades distintas. A
+                    # identidade do cliente vai em customer_name/document + metadata.
+                    (cond_id, code, (nome or "")[:150], (doc or "")[:20],
                      desc[:250], float(valor), float(valor),
                      primeiro, vencimento, primeiro,
                      ref_month, mes, ano,
                      dia, empresa_id,
-                     f'{{"contract_id": "{cid}", "origem": "contrato"}}'),
+                     f'{{"contract_id": "{cid}", "client_id": "{client_id}", "origem": "contrato"}}'),
                 )
             if preview:
                 conn.rollback()

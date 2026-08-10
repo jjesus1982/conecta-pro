@@ -183,7 +183,9 @@ def _folha(cur, cond_id: str, preview: bool) -> dict:
         if (ano, mes) > lim:
             futuros += 1
             continue
-        code = f"FOLHA-{(slug or 'empresa')}-{periodo}"
+        # `code` é varchar(30): 'FOLHA-conecta_patrimonial-2026-07' não cabe.
+        sigla = (slug or "EMP").replace("conecta_", "")[:6].upper()
+        code = f"FOLHA-{sigla}-{periodo}"
         cur.execute("SELECT 1 FROM payable_accounts WHERE code = %s LIMIT 1", (code,))
         if cur.fetchone():
             existentes += 1

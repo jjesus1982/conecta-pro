@@ -152,10 +152,16 @@ def _atualizar_contraparte(tx_id: str, nome: str, cnpj: str, cur) -> None:
         )
 
 
-def conciliar_transacao(tx_id: str, conn) -> dict:
+def conciliar_transacao(tx_id: str, conn, permitir_justificado: bool = False) -> dict:
     """
     Tenta conciliar uma transação bancária específica.
     Retorna dict com status, tipo_match e referência conciliada.
+
+    `permitir_justificado`: um débito CLASSIFICADO ('justificado') continua sendo
+    o pagamento de alguma nota. Enquanto o contas-a-pagar era casca, não havia
+    documento pra casar e classificar era o fim da linha. Com as notas tomadas
+    registradas, esses débitos merecem uma segunda passada. O match forte
+    (nome + valor exato + candidato único) é o que protege contra falso positivo.
     """
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -172,7 +178,8 @@ def conciliar_transacao(tx_id: str, conn) -> dict:
     if not tx:
         return {"erro": "Transação não encontrada"}
 
-    if tx["reconciliation_status"] in ("conciliado", "justificado"):
+    _bloqueio = ("conciliado",) if permitir_justificado else ("conciliado", "justificado")
+    if tx["reconciliation_status"] in _bloqueio:
         return {"status": "ja_conciliado", "reconciliation_id": str(tx["reconciliation_id"] or "")}
 
     # Obter/criar sessão de conciliação para o período da transação
@@ -440,6 +447,48 @@ def conciliar_saidas(limite: int = 2000) -> dict:
     conn.close()
     return {"baixados_auto": baixados, "sem_match_ou_ambiguo": sem_match,
             "erros": erros, "total_saidas": len(tx_ids)}
+
+
+def conciliar_justificados(limite: int = 4000) -> dict:
+    """Segunda passada sobre os débitos JÁ CLASSIFICADOS ('justificado').
+
+    Motivo: enquanto o contas-a-pagar tinha 69 registros, um débito de fornecedor
+    não tinha nota pra casar — classificar era o fim da linha. Com as NFS-e tomadas
+    registradas como pagável, esses débitos podem virar baixa provada. Sobe o débito
+    de "explicado por uma pessoa" para "ligado ao documento".
+    Mesmo match FORTE de sempre (nome + valor exato + único): não afrouxa nada.
+    """
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id FROM bank_transactions
+        WHERE reconciliation_status = 'justificado' AND amount < 0
+        ORDER BY transaction_date DESC
+        LIMIT %s
+        """,
+        (limite,),
+    )
+    tx_ids = [str(r[0]) for r in cur.fetchall()]
+    cur.close()
+
+    baixados = sem_match = erros = 0
+    for tx_id in tx_ids:
+        try:
+            r = conciliar_transacao(tx_id, conn, permitir_justificado=True)
+            if r.get("tipo") == "debito_payable" and r.get("status") == "conciliado":
+                baixados += 1
+            else:
+                sem_match += 1
+        except Exception:  # noqa: BLE001 — uma tx nunca derruba o batch
+            erros += 1
+            try:
+                conn.rollback()
+            except Exception:  # noqa: BLE001, S110
+                pass
+    conn.close()
+    return {"baixados_auto": baixados, "sem_match": sem_match,
+            "erros": erros, "total_avaliados": len(tx_ids)}
 
 
 def conciliar_todas(limite: int = 649) -> dict:

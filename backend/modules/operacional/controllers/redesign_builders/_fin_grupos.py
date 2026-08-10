@@ -15,7 +15,7 @@ GRUPOS = [
         ("recorrencia", "Recorrência (MRR)"), ("gerar-cobrancas", "Gerar cobranças"), ("boletos", "Boletos"),
         ("emitir-boleto", "Emitir boleto"), ("cobrar-pix", "Cobrar PIX"),
         ("faturamento", "Faturamento"), ("clientes", "Clientes"),
-        ("registrar-conta-receber", "Registrar")]),
+        ("gerar-recebiveis", "Gerar do mês"), ("registrar-conta-receber", "Registrar")]),
     ("g-pagar", "Pagar", "Contas a pagar, folha e pagamentos (gated OTP)", [
         ("contas-pagar", "Contas a Pagar"), ("baixar-pagavel", "Dar baixa"), ("fila-aprovacao", "Aprovação"),
         ("audit-log", "Audit log"), ("pagamentos-inter", "Pagamentos Inter"),
@@ -24,7 +24,7 @@ GRUPOS = [
         ("pagamentos-diaristas", "Diaristas"), ("diarias-sobrepostas", "Sobrepostas à folha CLT"), ("programar-vtvr-dia", "Programar VT+VR do dia"), ("adicionar-vtvr-avulso", "VT+VR avulso"), ("programar-diarias-mes", "Lote mensal (dia 15)"), ("marcar-pago-externo", "Pago por fora"), ("diaristas-a-cadastrar", "Diaristas a cadastrar"), ("pagar-diaristas", "Pagar diaristas"),
         ("pagar-boleto", "Pagar boleto"), ("enviar-pix", "PIX / Transferir"),
         ("transferir-ted", "TED"), ("pagar-darf", "DARF"), ("pagar-gps", "GPS / INSS"),
-        ("cancelar-pagamento", "Cancelar pagto"), ("registrar-conta-pagar", "Registrar")]),
+        ("cancelar-pagamento", "Cancelar pagto"), ("registrar-obrigacoes", "Registrar obrigações"), ("registrar-conta-pagar", "Registrar")]),
     ("g-bancos", "Bancos & Conciliação", "Saldos, extratos e conciliação", [
         ("saldos", "Saldos"), ("contas-bancarias", "Contas"), ("inter", "Banco Inter"),
         ("cora", "Banco Cora"), ("banking", "Extrato"), ("pix-recebidos", "PIX recebidos"),

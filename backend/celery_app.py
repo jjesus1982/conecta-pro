@@ -218,6 +218,21 @@ app.conf.beat_schedule = {
         "schedule": crontab(hour=8, minute=45),
         "options": {"queue": "gov.batch"},
     },
+    # Registra como pagável o que a empresa deve (NFS-e tomadas, folha, guias).
+    # Roda ANTES da auto-baixa: primeiro a obrigação existe, depois o extrato a liquida.
+    "financeiro-registrar-obrigacoes": {
+        "task": "financial.registrar_obrigacoes",
+        "schedule": crontab(hour=8, minute=15),
+        "options": {"queue": "gov.batch"},
+    },
+    # Recebível por contrato/competência — dia 1 de cada mês. Sem isso o contas-a-receber
+    # fica vazio e aging/inadimplência/régua de cobrança giram no vácuo.
+    # NÃO emite cobrança ao cliente: boleto/PIX é ato separado, com decisão humana.
+    "financeiro-gerar-recebiveis-mensal": {
+        "task": "financial.gerar_recebiveis_mes",
+        "schedule": crontab(hour=6, minute=0, day_of_month=1),
+        "options": {"queue": "gov.batch"},
+    },
     # ── Multi-CNPJ E4: extrato Cora (Patrimonial) + conciliação líquido×NFS-e ──
     "financeiro-extrato-cora-diario": {
         "task": "financial.cora_sync_extrato",

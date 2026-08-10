@@ -220,6 +220,41 @@ def propor_baixa_pendentes_task(self):
         raise self.retry(exc=exc)
 
 
+@app.task(name="financial.registrar_obrigacoes", bind=True, max_retries=1)
+def registrar_obrigacoes_task(self):
+    """Registra como PAGÁVEL o que a empresa deve, a partir das fontes reais
+    (NFS-e tomadas, folha, guias). Idempotente por chave natural — rodar de novo
+    não duplica. NÃO move dinheiro: registrar a obrigação ≠ pagar."""
+    from modules.financial.services.payable_sources_service import gerar_pagaveis
+
+    try:
+        result = gerar_pagaveis(preview=False)
+        logger.info("[Financial Task] registrar_obrigacoes: %s", result.get("total_criados"))
+        return {k: v for k, v in result.items() if k != "fontes"}
+    except Exception as exc:
+        logger.error("[Financial Task] registrar_obrigacoes error: %s", exc)
+        raise self.retry(exc=exc)
+
+
+@app.task(name="financial.gerar_recebiveis_mes", bind=True, max_retries=1)
+def gerar_recebiveis_mes_task(self):
+    """Recebível por contrato/competência do mês CORRENTE. Sem isso o contas-a-receber
+    fica vazio e aging/inadimplência/régua giram no vácuo. NÃO emite cobrança ao
+    cliente (boleto/PIX é ato separado, com decisão humana). Idempotente."""
+    from datetime import date as _date
+
+    from modules.financial.services.receivable_contract_service import gerar_recebiveis
+
+    try:
+        hoje = _date.today()
+        result = gerar_recebiveis(hoje.month, hoje.year, preview=False)
+        logger.info("[Financial Task] gerar_recebiveis_mes: %s", result.get("criados"))
+        return {k: v for k, v in result.items() if k != "itens"}
+    except Exception as exc:
+        logger.error("[Financial Task] gerar_recebiveis_mes error: %s", exc)
+        raise self.retry(exc=exc)
+
+
 @app.task(
     name="financial.inter_monitorar_pendentes",
     bind=True,
