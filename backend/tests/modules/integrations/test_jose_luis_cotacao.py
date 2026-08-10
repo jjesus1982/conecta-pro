@@ -226,6 +226,23 @@ def test_prompt_do_gerente_intocado(monkeypatch):
     assert ag._system_prompt(owner=True) is ag.MANAGER_PROMPT
 
 
+def test_prompt_nao_desautoriza_o_proprio_historico_da_conversa():
+    """Regressão real: 'Memória e histórico NÃO são fonte de valor' fazia o agente
+    tratar o preço que ELE MESMO acabara de cotar como não-confiável e recuar
+    ('esse valor eu usei como exemplo'). 'histórico' virou ambíguo com o histórico
+    DESTA conversa. A proibição tem de nomear o que é: atendimento ANTERIOR."""
+    p = ag._PROMPT_COTACAO
+    assert "Memória e histórico NÃO são fonte de valor" not in p
+    assert "anterior" in p.lower()
+
+
+def test_prompt_manda_repetir_o_mesmo_valor_sem_recuar():
+    """O preço que a ferramenta devolveu nesta conversa continua valendo."""
+    p = ag._PROMPT_COTACAO.lower()
+    assert "mesmo número" in p or "mesmo numero" in p
+    assert "exemplo" in p  # instrução explícita de não chamar o valor de 'exemplo'
+
+
 async def test_falha_no_banco_nao_derruba_o_atendimento(monkeypatch):
     monkeypatch.setenv("AGENT_COTA_EM_CHAT", "true")
 
