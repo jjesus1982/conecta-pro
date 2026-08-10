@@ -225,9 +225,10 @@ async def _match_or_create_lead(
     if existente:
         return str(existente.id)
 
-    from .agent_service import _origem_do_texto
+    from .agent_service import _atribuicao_do_texto
 
-    origem = _origem_do_texto(texto)
+    atrib = _atribuicao_do_texto(texto)
+    origem = atrib["source"]
     lead_name = (name or "").strip() or f"WhatsApp {phone_canonical}"
     repo = LeadRepository(db)
     new_id: str | None = None
@@ -257,6 +258,22 @@ async def _match_or_create_lead(
             )
         ).scalar()
         new_id = str(lid) if lid else None
+
+    # UTM da campanha, quando o link trouxe `[c:<slug>]`. UPDATE separado de propósito:
+    # o LeadCreate não tem esses campos e mexer nele rippla nos 10 pontos de criação de
+    # lead. Best-effort — atribuição nunca impede o lead de nascer nem a resposta de sair.
+    if new_id and atrib.get("utm_campaign"):
+        try:
+            await db.execute(
+                text(
+                    "UPDATE leads SET utm_campaign=:c, utm_source=:s, utm_medium=:m, updated_at=now() "
+                    "WHERE id=:i AND utm_campaign IS NULL"  # 1º toque manda: não sobrescreve atribuição
+                ),
+                {"c": atrib["utm_campaign"], "s": atrib["utm_source"], "m": atrib["utm_medium"], "i": new_id},
+            )
+            await db.commit()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Webhook: UTM não gravada p/ lead=%s: %s", new_id, e)
 
     # Conversions API (Meta): avisa a Meta do lead NOVO. Best-effort, dorme sem token.
     if new_id:

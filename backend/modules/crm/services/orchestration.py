@@ -1309,13 +1309,21 @@ async def diagnostico_ciclo(db: AsyncSession) -> dict:
 
 async def metricas_jose_luis(db: AsyncSession) -> dict:
     """Funil/desempenho do José Luís no ciclo (dados reais)."""
+    # Origens do agente vêm da fonte única (inclui landings/Instagram). Antes o filtro
+    # era source='whatsapp' EXATO e a métrica SUBCONTAVA a própria captura do José Luís:
+    # todo lead que ele pegou por landing ou Instagram ficava fora do número dele.
+    from modules.integrations.connectors.whatsapp.agent_service import (  # noqa: PLC0415
+        ORIGENS_JOSE_LUIS,
+    )
+
     leads = (
         (
             await db.execute(
                 text("""
-        SELECT count(*) total, count(*) FILTER (WHERE source='whatsapp') AS por_whatsapp,
+        SELECT count(*) total, count(*) FILTER (WHERE source = ANY(:origens_jl)) AS por_whatsapp,
                count(*) FILTER (WHERE created_at >= now() - interval '30 days') AS ult_30d
-        FROM leads WHERE is_active""")
+        FROM leads WHERE is_active"""),
+                {"origens_jl": list(ORIGENS_JOSE_LUIS)},
             )
         )
         .mappings()

@@ -847,14 +847,41 @@ _ORIGEM_MARCADORES = (
 )
 
 
-def _origem_do_texto(texto: str | None) -> str:
-    """Deriva leads.source do texto pré-preenchido do link wa.me. Sem marcador -> 'whatsapp'."""
+# Origens que nascem no José Luís (webhook/auto-cura). FONTE ÚNICA — métrica e
+# atribuição devem usar esta tupla, nunca a string 'whatsapp' solta: era o bug de
+# subcontagem em metricas_jose_luis, que deixava de fora o lead que o próprio
+# agente captou por landing/Instagram.
+ORIGENS_JOSE_LUIS = ("whatsapp", *(origem for _, origem in _ORIGEM_MARCADORES))
+# Marca de campanha embutida pelo marketing no ?text= do wa.me: "[c:lote2_portaria]".
+_RE_CAMPANHA = re.compile(r"\[c:([a-z0-9_\-]{1,60})\]", re.IGNORECASE)
+
+
+def _atribuicao_do_texto(texto: str | None) -> dict:
+    """Origem + UTM a partir do texto pré-preenchido do wa.me.
+
+    Sem marcador de campanha NÃO inventa UTM: a chave simplesmente não vem
+    (regra da casa: nunca fabricar dado). Metade de um contrato de 2 pontas — a
+    outra é o marketing embutir `[c:<slug>]` no link. Enquanto o link não emitir,
+    isto fica inerte e `utm_campaign` segue nulo, honestamente.
+    """
     t = unquote_plus(str(texto or ""))
     t = "".join(c for c in unicodedata.normalize("NFKD", t) if not unicodedata.combining(c)).lower()
+    atrib: dict[str, str] = {"source": "whatsapp"}
     for marcador, origem in _ORIGEM_MARCADORES:
         if marcador in t:
-            return origem
-    return "whatsapp"
+            atrib["source"] = origem
+            break
+    m = _RE_CAMPANHA.search(t)
+    if m:
+        atrib["utm_campaign"] = m.group(1).lower()
+        atrib["utm_source"] = "whatsapp"
+        atrib["utm_medium"] = "link"
+    return atrib
+
+
+def _origem_do_texto(texto: str | None) -> str:
+    """Compat: só a origem (leads.source). Chamadores antigos seguem funcionando."""
+    return _atribuicao_do_texto(texto)["source"]
 
 
 async def _criar_lead_para_conversa(db, conversation_id: int, nome: str | None = None) -> str | None:
