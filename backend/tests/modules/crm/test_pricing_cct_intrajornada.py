@@ -80,7 +80,7 @@ def test_rotulo_dos_adicionais(flags, esperado):
     assert r is not None
 
 
-def test_intrajornada_e_dado_INTERNO_e_nao_pode_vazar_na_cotacao():
+def test_intrajornada_e_dado_interno_e_nao_pode_vazar_na_cotacao():
     """O valor do adicional é composição de custo — não sai para número anônimo."""
     from modules.integrations.connectors.whatsapp import agent_service as ag
 
