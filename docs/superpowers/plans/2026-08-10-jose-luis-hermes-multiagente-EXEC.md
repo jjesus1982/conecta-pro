@@ -920,11 +920,35 @@ Módulo financeiro/redesign (T4), não meu. Registrado para o Jordan decidir o d
    `crm_pricing_funcoes.intrajornada` (coluna aditiva, `DEFAULT false`) · 2 chaves em
    `crm_pricing_params` · `agent_service._SQL_FUNCOES_ATIVAS` + `_CAMPOS_INTERNOS_COTACAO`.
 
-   **Nasce DESLIGADO em todas as 10 funções — zero mudança de preço.** Só 14 de 47 agentes de
-   portaria recebem: depende de o posto ter rendição para o intervalo. Ligar é desenho do posto:
-   ```sql
-   UPDATE crm_pricing_funcoes SET intrajornada=true WHERE nome='<função>';
-   ```
+   ### Ligada nas 4 funções AGP — 2026-08-10 (decisão do Jordan)
+
+   **A tabela de preço não tem dimensão de posto**, só de função — e dentro de uma função, parte
+   dos postos paga intrajornada e parte não. Foi preciso decidir por população:
+
+   | evidência | número |
+   |---|--:|
+   | pessoas noturnas que recebem em ALGUM mês | **16 de 25 (64%)** |
+   | dessas, o padrão é estável | **SEMPRE 12 · NUNCA 9 · às vezes 4** |
+   | onde os 16 recebedores estão | **14 são AGENTE DE PORTARIA** (1 ASG, 1 Líder) |
+   | as 4 variantes AGP têm recebedor? | sim — P1 Diurno 5 · P1 Noturno 5 · Rond. Not. 4 · Rond. Diurno 1 |
+
+   **Ligada em:** `AGP P1 Diurno` · `AGP P1 Noturno` · `AGP Rondante Diurno` · `AGP Rondante Noturno`.
+   **Deixada desligada em:** ASG, ASG Insalubre, Artífice, Jardineiro, Aux. Administrativo,
+   Líder de Portaria — 1 recebedor isolado não justifica reprecificar a função inteira.
+
+   | função | antes | agora | delta |
+   |---|--:|--:|--:|
+   | AGP P1 Diurno | 5.091,49 | **5.590,22** | +498,73 |
+   | AGP P1 Noturno | 6.256,54 | **6.882,78** | +626,24 |
+   | AGP Rondante Diurno | 5.689,97 | **6.188,71** | +498,74 |
+   | AGP Rondante Noturno | 6.855,02 | **7.481,27** | +626,25 |
+
+   **O critério do erro:** um posto de 12x36 com uma pessoa só não tem quem cubra o intervalo —
+   a intrajornada é estrutural. Cotar sem ela trava o contrato abaixo do custo, e isso não se
+   desfaz. Cotar com ela num posto que tenha rendição gera folga que o Jordan desconta na
+   negociação. O erro caro é o de baixo.
+
+   Reverter por função: `UPDATE crm_pricing_funcoes SET intrajornada=false WHERE nome='<função>';`
 
    **Provado com o flag ligado e depois revertido ao centavo:**
    AGP P1 Noturno 6.256,54 → **6.882,78** (+626,24, rótulo `Intrajornada not.`) ·
