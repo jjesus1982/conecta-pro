@@ -30,7 +30,17 @@ SLUG = "financeiro"
 
 # F0: menu extra ZERADO — as antigas entradas viram ABAS dos 7 grupos (_fin_grupos.py).
 # As telas continuam montadas no build; só saem da navegação de topo.
-EXTRA_MENU: list[dict] = []
+EXTRA_MENU: list[dict] = [
+    {"id": "cfo-perguntar", "label": "Consultor CFO", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "cfo-perguntar-arquivo", "label": "Consultor CFO — com anexo", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "pricing-calcular", "label": "Calcular preço de serviço", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "custo-registrar", "label": "Registrar custo de contrato", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "custo-recorrente-novo", "label": "Novo custo recorrente", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "cashflow-sync", "label": "Sincronizar fluxo de caixa", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "beneficiarios-seed", "label": "Semear beneficiários", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "estoque-saida", "label": "Registrar saída de estoque", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "nfse-sync-prestador", "label": "Sincronizar NFS-e emitidas", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+]
 
 
 async def _fetch_live_balance(bank_code, bank_name):
@@ -1370,6 +1380,132 @@ ORDER BY b.comp DESC, b.cnpj"""
         out["diarias-sobrepostas"]["filterLabel"] = "Pagamento"
 
     montar_grupos(out)
+
+    # ── Fios soltos do financeiro (2026-08-10) ─────────────────────────────────────
+    # DE FORA de proposito: conciliar/auto e bank-reconciliations/auto JA tem botao pela
+    # acao /redesign/action/conciliar-auto (nao duplicar); auto-criar-payables e
+    # ai/billing/contrato-ativado sao gatilhos de integracao, nao fluxo de tela; e o que
+    # move DINHEIRO segue no fluxo com OTP, fora daqui.
+    out["cfo-perguntar"] = {
+        "title": "Consultor CFO",
+        "sub": "Pergunta ancorada no razao, no fluxo e nos contratos reais. E consulta - "
+               "nao lanca, nao paga, nao baixa nada.",
+        "cta": "Perguntar", "type": "form",
+        "submit": {"endpoint": "/api/v1/financial/cfo/perguntar", "okMsg": "Consulta respondida",
+                   "showResult": True},
+        "fields": [
+            {"key": "area", "label": "Area*", "type": "text", "span": "span 2",
+             "ph": "Ex.: margem, inadimplencia, fluxo de caixa"},
+            {"key": "pergunta", "label": "Pergunta*", "type": "textarea", "span": "span 2"},
+        ],
+    }
+    out["cfo-perguntar-arquivo"] = {
+        "title": "Consultor CFO - analisando um anexo",
+        "sub": "Anexe extrato, boleto ou planilha e pergunte sobre o documento.",
+        "cta": "Analisar", "type": "form",
+        "submit": {"endpoint": "/api/v1/financial/cfo/perguntar-arquivo",
+                   "multipart": True, "query": True,
+                   "okMsg": "Analise concluida", "showResult": True},
+        "fields": [
+            {"key": "arquivo", "label": "Arquivo*", "type": "file", "span": "span 2"},
+            {"key": "area", "label": "Area", "type": "text", "span": "span 2"},
+            {"key": "pergunta", "label": "Pergunta*", "type": "textarea", "span": "span 2"},
+        ],
+    }
+    out["pricing-calcular"] = {
+        "title": "Calcular preco de servico",
+        "sub": "Preco sugerido a partir do custo real (CCT, escala, localizacao). Calculo - "
+               "nao grava proposta.",
+        "cta": "Calcular", "type": "form",
+        "submit": {"endpoint": "/api/v1/financial/ai/pricing/calculate",
+                   "okMsg": "Preco calculado", "showResult": True},
+        "fields": [
+            {"key": "tipo", "label": "Tipo de servico", "type": "text", "span": "span 1",
+             "ph": "Ex.: portaria"},
+            {"key": "quantidade", "label": "Quantidade de postos", "type": "number",
+             "span": "span 1", "ph": "1"},
+            {"key": "escala", "label": "Escala", "type": "text", "span": "span 1", "ph": "12x36"},
+            {"key": "localizacao", "label": "Localizacao", "type": "text", "span": "span 1",
+             "ph": "Manaus"},
+        ],
+    }
+    out["custo-registrar"] = {
+        "title": "Registrar custo de contrato",
+        "sub": "Lanca o custo real do contrato na competencia - e o que alimenta a margem.",
+        "cta": "Registrar", "type": "form",
+        "submit": {"endpoint": "/api/v1/financial/ai/costing/registrar", "okMsg": "Custo registrado"},
+        "fields": [
+            {"key": "tipo", "label": "Tipo*", "type": "text", "span": "span 1",
+             "ph": "Ex.: folha, material"},
+            {"key": "mes", "label": "Competencia*", "type": "text", "span": "span 1",
+             "ph": "AAAA-MM"},
+            {"key": "custo_total", "label": "Custo total (R$)*", "type": "number", "span": "span 1"},
+            {"key": "margem_contratual", "label": "Margem contratual (%)", "type": "number",
+             "span": "span 1"},
+            {"key": "contrato_id", "label": "Contrato (id)", "type": "text", "span": "span 2"},
+        ],
+    }
+    out["custo-recorrente-novo"] = {
+        "title": "Novo custo recorrente",
+        "sub": "Despesa que se repete todo mes (aluguel, software, seguro). Entra no fluxo "
+               "projetado.",
+        "cta": "Cadastrar", "type": "form",
+        "submit": {"endpoint": "/api/v1/financial/cfo/custos-recorrentes",
+                   "okMsg": "Custo recorrente cadastrado"},
+        "fields": [
+            {"key": "categoria", "label": "Categoria*", "type": "text", "span": "span 1",
+             "ph": "Ex.: software"},
+            {"key": "valor", "label": "Valor mensal (R$)*", "type": "number", "span": "span 1"},
+            {"key": "dia_vencimento", "label": "Dia do vencimento", "type": "number",
+             "span": "span 1", "ph": "10"},
+            {"key": "parcelas_total", "label": "Total de parcelas", "type": "number",
+             "span": "span 1", "ph": "vazio = sem fim"},
+            {"key": "descricao", "label": "Descricao*", "type": "text", "span": "span 2"},
+            {"key": "observacao", "label": "Observacao", "type": "textarea", "span": "span 2"},
+        ],
+    }
+    out["cashflow-sync"] = {
+        "title": "Sincronizar fluxo de caixa",
+        "sub": "Recalcula o fluxo a partir de recebiveis e pagaveis. So recalcula - nao "
+               "cria nem baixa lancamento.",
+        "cta": "Sincronizar", "type": "form",
+        "submit": {"endpoint": "/api/v1/financial/cashflow/sync", "okMsg": "Fluxo sincronizado",
+                   "showResult": True},
+        "fields": [],
+    }
+    out["beneficiarios-seed"] = {
+        "title": "Semear beneficiarios",
+        "sub": "Carrega a base de beneficiarios de pagamento. Idempotente. NAO paga ninguem.",
+        "cta": "Semear", "type": "form",
+        "submit": {"endpoint": "/api/v1/financial/beneficiarios/seed",
+                   "okMsg": "Beneficiarios semeados", "showResult": True},
+        "fields": [],
+    }
+    out["estoque-saida"] = {
+        "title": "Registrar saida de estoque",
+        "sub": "Baixa material do estoque real, com o servico que consumiu.",
+        "cta": "Registrar saida", "type": "form",
+        "submit": {"endpoint": "/api/v1/financial/inventory/real/saida", "okMsg": "Saida registrada"},
+        "fields": [
+            {"key": "item_code", "label": "Codigo do item*", "type": "text", "span": "span 1"},
+            {"key": "quantidade", "label": "Quantidade*", "type": "number", "span": "span 1"},
+            {"key": "servico_ref", "label": "Servico / OS", "type": "text", "span": "span 1"},
+            {"key": "nfse_id", "label": "NFS-e (id)", "type": "text", "span": "span 1"},
+            {"key": "motivo", "label": "Motivo", "type": "textarea", "span": "span 2"},
+        ],
+    }
+    out["nfse-sync-prestador"] = {
+        "title": "Sincronizar NFS-e emitidas",
+        "sub": "Puxa do Portal Nacional as notas que emitimos. So LE do portal - nao emite "
+               "nem cancela nada.",
+        "cta": "Sincronizar", "type": "form",
+        "submit": {"endpoint": "/api/v1/financial/nfse/sync-prestador", "query": True,
+                   "okMsg": "Sincronizacao disparada", "showResult": True},
+        "fields": [
+            {"key": "data_inicio", "label": "De", "type": "date", "span": "span 1"},
+            {"key": "data_fim", "label": "Ate", "type": "date", "span": "span 1"},
+        ],
+    }
 
     return out
 

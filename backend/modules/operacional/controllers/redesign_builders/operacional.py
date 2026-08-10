@@ -1015,7 +1015,10 @@ async def rd_action_assignment_cancelar(current_user: CurrentActiveUser, payload
 
 # F0: menu extra ZERADO — as antigas entradas de ação viram ABAS dos 8 grupos (_op_grupos.py),
 # igual ao financeiro. A navegação agrupada evita a sidebar com 60+ itens soltos.
-EXTRA_MENU: list[dict] = []
+EXTRA_MENU: list[dict] = [
+    {"id": "consultor-op", "label": "Consultor operacional", "icon": "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M12 8v4M12 16h.01"},
+    {"id": "consultor-op-arquivo", "label": "Consultor operacional — com anexo", "icon": "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M12 8v4M12 16h.01"},
+]
 
 
 async def build(db) -> dict:
@@ -2176,5 +2179,40 @@ async def build(db) -> dict:
         montar_grupos(out)
     except Exception:  # noqa: BLE001 — nunca derruba o módulo por causa da navegação
         pass
+
+    # ── Consultor operacional (2026-08-10) ─────────────────────────────────────────
+    # SÓ os dois consultores. As outras 8 rotas órfãs deste módulo (allocations/bulk,
+    # shifts/bulk, alocar/desalocar diarista, scales/reject, scale-optimizer) mexem em
+    # ALOCAÇÃO e ESCALA — território curado à mão pelo Jordan, read-only para agentes.
+    # Ligar botão ali seria o sistema discordando dele em silêncio. Divergência vira
+    # relatório, não ação.
+    out["consultor-op"] = {
+        "title": "Consultor operacional",
+        "sub": "Pergunta ancorada em postos, escalas e presença reais. É consulta — não "
+               "cria posto, não move alocação.",
+        "cta": "Perguntar", "type": "form",
+        "submit": {"endpoint": "/api/v1/operacional/consultor/perguntar",
+                   "okMsg": "Consulta respondida", "showResult": True},
+        "fields": [
+            {"key": "area", "label": "Área*", "type": "text", "span": "span 1",
+             "ph": "Ex.: cobertura, faltas, escala"},
+            {"key": "posto", "label": "Posto", "type": "text", "span": "span 1"},
+            {"key": "pergunta", "label": "Pergunta*", "type": "textarea", "span": "span 2"},
+        ],
+    }
+    out["consultor-op-arquivo"] = {
+        "title": "Consultor operacional — analisando um anexo",
+        "sub": "Anexe uma escala, um relatório de ronda ou uma foto de ocorrência e pergunte.",
+        "cta": "Analisar", "type": "form",
+        "submit": {"endpoint": "/api/v1/operacional/consultor/perguntar-arquivo",
+                   "multipart": True, "query": True,
+                   "okMsg": "Análise concluída", "showResult": True},
+        "fields": [
+            {"key": "arquivo", "label": "Arquivo*", "type": "file", "span": "span 2"},
+            {"key": "area", "label": "Área", "type": "text", "span": "span 1"},
+            {"key": "posto", "label": "Posto", "type": "text", "span": "span 1"},
+            {"key": "pergunta", "label": "Pergunta*", "type": "textarea", "span": "span 2"},
+        ],
+    }
 
     return out

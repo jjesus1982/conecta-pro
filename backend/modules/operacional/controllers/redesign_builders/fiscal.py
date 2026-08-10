@@ -33,6 +33,10 @@ EXTRA_MENU: list[dict] = [
     {"id": "calc-retencoes", "label": "Calcular retenções", "icon": _ICO_CALC},
     {"id": "sync-guias", "label": "Sincronizar guias", "icon": _ICO_CALC},
     {"id": "sync-nfe-entrada", "label": "Puxar NF-e de compra", "icon": _ICO_CALC},
+    {"id": "consultor-fiscal", "label": "Consultor fiscal", "icon": _ICO_CALC},
+    {"id": "consultor-fiscal-arquivo", "label": "Consultor fiscal — com anexo", "icon": _ICO_CALC},
+    {"id": "nfse-multi-tributos", "label": "Tributos da NFS-e (multi-CNPJ)", "icon": _ICO_CALC},
+    {"id": "nfe-entrada-xml", "label": "Importar XML de NF-e de compra", "icon": _ICO_CALC},
 ]
 
 _GTONE = {"pago": "ok", "paga": "ok", "conciliado": "ok", "pendente": "warn", "vencido": "bad", "vencida": "bad"}
@@ -139,6 +143,63 @@ async def build(db) -> dict:
     _calculadoras_tributarias(out)
     await _nova_obrigacao(db, out)
     _retencoes_e_syncs(out)
+    # ── Fios soltos do fiscal, 2a rodada (2026-08-10) ───────────────────────────────
+    out["consultor-fiscal"] = {
+        "title": "Consultor fiscal",
+        "sub": "Pergunta ancorada nas notas, guias e obrigações reais. É consulta — não "
+               "emite, não transmite, não cancela nada.",
+        "cta": "Perguntar", "type": "form",
+        "submit": {"endpoint": "/api/v1/fiscal/consultor/perguntar",
+                   "okMsg": "Consulta respondida", "showResult": True},
+        "fields": [
+            {"key": "area", "label": "Área*", "type": "text", "span": "span 1",
+             "ph": "Ex.: NFS-e, Simples, retenções"},
+            {"key": "ano", "label": "Ano", "type": "number", "span": "span 1", "ph": "2026"},
+            {"key": "pergunta", "label": "Pergunta*", "type": "textarea", "span": "span 2"},
+        ],
+    }
+    out["consultor-fiscal-arquivo"] = {
+        "title": "Consultor fiscal — analisando um anexo",
+        "sub": "Anexe guia, nota ou intimação e pergunte sobre o documento.",
+        "cta": "Analisar", "type": "form",
+        "submit": {"endpoint": "/api/v1/fiscal/consultor/perguntar-arquivo",
+                   "multipart": True, "query": True,
+                   "okMsg": "Análise concluída", "showResult": True},
+        "fields": [
+            {"key": "arquivo", "label": "Arquivo*", "type": "file", "span": "span 2"},
+            {"key": "area", "label": "Área", "type": "text", "span": "span 1"},
+            {"key": "ano", "label": "Ano", "type": "number", "span": "span 1", "ph": "2026"},
+            {"key": "pergunta", "label": "Pergunta*", "type": "textarea", "span": "span 2"},
+        ],
+    }
+    out["nfse-multi-tributos"] = {
+        "title": "Tributos da NFS-e (multi-CNPJ)",
+        "sub": "Calcula os tributos de uma nota aplicando as liminares do CNPJ escolhido. "
+               "Cálculo puro — não emite nota.",
+        "cta": "Calcular", "type": "form",
+        "submit": {"endpoint": "/api/v1/fiscal/nfse-multi/calcular-tributos",
+                   "okMsg": "Tributos calculados", "showResult": True},
+        "fields": [
+            {"key": "valor_servico", "label": "Valor do serviço (R$)*", "type": "number",
+             "span": "span 1", "ph": "1000.00"},
+            {"key": "empresa_slug", "label": "Empresa", "type": "select", "span": "span 1",
+             "ph": "Selecione", "options": [
+                 {"value": "eletronica", "label": "ConectaMais Eletrônica"},
+                 {"value": "patrimonial", "label": "ConectaMais Patrimonial"}]},
+        ],
+    }
+    out["nfe-entrada-xml"] = {
+        "title": "Importar XML de NF-e de compra",
+        "sub": "Lê o XML da nota do fornecedor e atualiza o estoque. É ENTRADA: não emite "
+               "nem transmite nada ao fisco.",
+        "cta": "Importar", "type": "form",
+        "submit": {"endpoint": "/api/v1/fiscal/nfe-entrada/upload-xml",
+                   "multipart": True, "okMsg": "XML importado", "showResult": True},
+        "fields": [
+            {"key": "arquivo", "label": "XML da NF-e*", "type": "file", "span": "span 2"},
+        ],
+    }
+
     return out
 
 
