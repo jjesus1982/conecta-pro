@@ -173,9 +173,42 @@ async def rd_action_proposal_send(current_user: CurrentActiveUser, pid: str, db=
         "Proposta enviada ao cliente", "proposta")
 
 
+_ICO_DOC = "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 15h6M9 11h6"
+_ICO_CHAT = "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+_ICO_CAL = "M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"
+
 EXTRA_MENU: list[dict] = [
-    {"id": "novo-contrato", "label": "Novo contrato",
-     "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 15h6M9 11h6"},
+    {"id": "novo-contrato", "label": "Novo contrato", "icon": _ICO_DOC},
+    # Ficha viva / negociação
+    {"id": "cliente-anotar", "label": "Anotar na ficha", "icon": _ICO_CHAT},
+    {"id": "negociacao-responsavel", "label": "Quem conduz", "icon": _ICO_CHAT},
+    {"id": "whatsapp-cadastrar", "label": "Cadastrar WhatsApp", "icon": _ICO_CHAT},
+    # Reuniões
+    {"id": "reuniao-sugerir", "label": "Sugerir reunião", "icon": _ICO_CAL},
+    {"id": "reuniao-confirmar", "label": "Confirmar reunião", "icon": _ICO_CAL},
+    {"id": "reuniao-cancelar", "label": "Cancelar reunião", "icon": _ICO_CAL},
+    # Visitas
+    {"id": "visita-montar", "label": "Montar relatório de visita", "icon": _ICO_DOC},
+    {"id": "visita-registrar-lead", "label": "Lead a partir da visita", "icon": _ICO_DOC},
+    # Documento
+    {"id": "doc-ordem-servico", "label": "Ordem de serviço (PDF)", "icon": _ICO_DOC},
+    # Follow-up / contato com o cliente
+    {"id": "followup-tocar", "label": "Tocar cliente", "icon": _ICO_CHAT},
+    {"id": "followup-lote", "label": "Tocar em lote", "icon": _ICO_CHAT},
+    {"id": "followup-resposta", "label": "Registrar retorno", "icon": _ICO_CHAT},
+    {"id": "followup-optout", "label": "Opt-out (não perturbe)", "icon": _ICO_CHAT},
+    {"id": "nps-enviar", "label": "Enviar NPS", "icon": _ICO_CHAT},
+    {"id": "reativar-lead", "label": "Reativar lead frio", "icon": _ICO_CHAT},
+    # Análise
+    {"id": "simular-fechamento", "label": "Simular fechamento", "icon": _ICO_DOC},
+]
+
+# Toda rota de contato tem `confirmar`: False = PREVIEW (resolve o número, não envia).
+# O select nasce vazio e campo intocado nao e enviado -> o default do backend (False) vale,
+# entao o caminho preguicoso do usuario e o SEGURO: simula. Enviar exige escolha explicita.
+_CONFIRMAR = [
+    {"value": "false", "label": "Só simular — mostra o que seria enviado (padrão)"},
+    {"value": "true", "label": "ENVIAR de verdade ao cliente"},
 ]
 
 
@@ -350,5 +383,237 @@ async def build(db) -> dict:
         out["contratos"]["ctaTo"] = "novo-contrato"
     except Exception:  # noqa: BLE001
         await db.rollback()
+
+    # ────────────────────────────────────────────────────────────────────────────────
+    # FIOS SOLTOS DO CRM (2026-08-10) — 16 capacidades que o backend ja tinha e o
+    # redesign nao alcancava. Medido com backend-recon; contratos extraidos por
+    # introspecao dos modelos Pydantic (eval_str), nao adivinhados.
+    #
+    # DE FORA ficaram, de proposito:
+    #   · /docs/orcamento/pdf e /visitas/achados — exigem LISTA DE OBJETOS (itens,
+    #     achados) e o renderizador de form so tem campo escalar. Form mentiroso e
+    #     pior que ausencia de form.
+    #   · /apresentacoes/gerar — mesma razao (estrutura de slides).
+    #   · /docs/expurgar-teste — soft-delete em MASSA. Botao para isso e convite a
+    #     acidente; se for preciso, que seja com gate proprio.
+    #   · /assets/upload — infra (logo/selo), nao fluxo de usuario.
+    #   · /proposals/{id}/send-* — sao por-proposta: lugar certo e a acao por linha da
+    #     tabela de propostas (_proposta_actions), nao uma tela solta pedindo o UUID.
+    # ────────────────────────────────────────────────────────────────────────────────
+    out["cliente-anotar"] = {
+        "title": "Anotar na ficha do cliente",
+        "sub": "A anotação entra na ficha viva — o José Luís lê e usa no atendimento.",
+        "cta": "Anotar", "type": "form",
+        "submit": {"endpoint": "/api/v1/crm/clientes/anotar", "okMsg": "Anotação registrada"},
+        "fields": [
+            {"key": "ref", "label": "Cliente (CNPJ, nome ou id)*", "type": "text", "span": "span 2",
+             "ph": "Ex.: 12.345.678/0001-90 ou CONDOMINIO LIFE CENTRO"},
+            {"key": "nota", "label": "Anotação*", "type": "textarea", "span": "span 2",
+             "ph": "O que aconteceu / o que combinaram / o que observar da próxima vez"},
+        ],
+    }
+    out["negociacao-responsavel"] = {
+        "title": "Definir quem conduz a negociação",
+        "sub": "'jordan' PAUSA o acompanhamento automático do José Luís nesse cliente.",
+        "cta": "Definir", "type": "form",
+        "submit": {"endpoint": "/api/v1/crm/negociacoes/responsavel", "okMsg": "Responsável definido"},
+        "fields": [
+            {"key": "cliente", "label": "Cliente (CNPJ, nome ou id)*", "type": "text", "span": "span 2"},
+            {"key": "responsavel", "label": "Quem conduz*", "type": "select", "span": "span 2",
+             "ph": "Selecione", "options": [
+                 {"value": "jordan", "label": "Jordan — pausa o José Luís neste cliente"},
+                 {"value": "jose_luis", "label": "José Luís — acompanhamento automático"}]},
+        ],
+    }
+    out["whatsapp-cadastrar"] = {
+        "title": "Cadastrar WhatsApp do cliente",
+        "sub": "Normaliza para E.164. Só grava o número — não envia nada.",
+        "cta": "Cadastrar", "type": "form",
+        "submit": {"endpoint": "/api/v1/crm/whatsapp/cadastrar", "okMsg": "WhatsApp cadastrado"},
+        "fields": [
+            {"key": "cnpj_ou_id", "label": "Cliente — CNPJ ou id*", "type": "text", "span": "span 1"},
+            {"key": "numero", "label": "Número*", "type": "text", "span": "span 1",
+             "ph": "(92) 99999-9999 ou +5592999999999"},
+        ],
+    }
+    out["reuniao-sugerir"] = {
+        "title": "Sugerir reunião",
+        "sub": "Entra como 'sugerido' — só vira agendada quando você confirma.",
+        "cta": "Sugerir", "type": "form",
+        "submit": {"endpoint": "/api/v1/crm/reunioes", "okMsg": "Reunião sugerida"},
+        "fields": [
+            {"key": "titulo", "label": "Título*", "type": "text", "span": "span 2",
+             "ph": "Ex.: Apresentação da proposta — Cond. Life Centro"},
+            {"key": "quando_iso", "label": "Quando* (AAAA-MM-DDTHH:MM)", "type": "text", "span": "span 1",
+             "ph": "2026-08-15T14:30"},
+            {"key": "cliente_nome", "label": "Cliente", "type": "text", "span": "span 1"},
+            {"key": "local", "label": "Local", "type": "text", "span": "span 1",
+             "ph": "Presencial (endereço) ou link"},
+            {"key": "tipo", "label": "Tipo", "type": "select", "span": "span 1", "ph": "Selecione",
+             "options": [{"value": "presencial", "label": "Presencial"},
+                         {"value": "online", "label": "Online"},
+                         {"value": "telefone", "label": "Telefone"}]},
+            {"key": "notes", "label": "Pauta / observações", "type": "textarea", "span": "span 2"},
+        ],
+    }
+    for _sid, _tit, _ep, _cta, _ok in (
+        ("reuniao-confirmar", "Confirmar reunião", "confirmar", "Confirmar", "Reunião confirmada"),
+        ("reuniao-cancelar", "Cancelar reunião", "cancelar", "Cancelar reunião", "Reunião cancelada"),
+    ):
+        out[_sid] = {
+            "title": _tit, "sub": "O id da reunião está na tela de reuniões/agenda.",
+            "cta": _cta, "type": "form",
+            "submit": {"endpoint": f"/api/v1/crm/reunioes/{_ep}", "okMsg": _ok},
+            "fields": [{"key": "meeting_id", "label": "ID da reunião*", "type": "text", "span": "span 2",
+                        "ph": "cole o id da reunião"}],
+        }
+    out["visita-montar"] = {
+        "title": "Montar relatório de visita",
+        "sub": "Persiste o relatório sintetizado da visita técnica.",
+        "cta": "Gravar relatório", "type": "form",
+        "submit": {"endpoint": "/api/v1/crm/visitas/montar", "okMsg": "Relatório gravado"},
+        "fields": [
+            {"key": "ref", "label": "Visita — id ou referência*", "type": "text", "span": "span 2"},
+            {"key": "situacao_atual", "label": "Situação atual", "type": "textarea", "span": "span 2",
+             "ph": "O que existe hoje no cliente"},
+            {"key": "diagnostico_tecnico", "label": "Diagnóstico técnico", "type": "textarea", "span": "span 2"},
+            {"key": "oportunidade_comercial", "label": "Oportunidade comercial", "type": "textarea", "span": "span 2"},
+            {"key": "proximos_passos", "label": "Próximos passos", "type": "textarea", "span": "span 2"},
+        ],
+    }
+    out["visita-registrar-lead"] = {
+        "title": "Criar lead a partir da visita",
+        "sub": "Cria/atualiza lead + oportunidade. Passa pelo dedup por telefone — cliente "
+               "que já existe é reaproveitado, não duplicado.",
+        "cta": "Registrar", "type": "form",
+        "submit": {"endpoint": "/api/v1/crm/visitas/registrar-lead", "okMsg": "Lead registrado"},
+        "fields": [
+            {"key": "ref", "label": "Visita — id ou referência*", "type": "text", "span": "span 2"},
+            {"key": "telefone", "label": "Telefone", "type": "text", "span": "span 1"},
+            {"key": "cnpj", "label": "CNPJ", "type": "text", "span": "span 1"},
+            {"key": "valor_estimado", "label": "Valor estimado (R$)", "type": "text", "span": "span 1",
+             "ph": "0,00"},
+        ],
+    }
+    out["doc-ordem-servico"] = {
+        "title": "Ordem de serviço (PDF)",
+        "sub": "Gera a OS no padrão-ouro com selo. O gerador já existia e não tinha botão.",
+        "cta": "Gerar PDF", "type": "form",
+        "submit": {"endpoint": "/api/v1/crm/docs/ordem-servico/pdf", "okMsg": "Ordem de serviço gerada"},
+        "fields": [
+            {"key": "cliente", "label": "Cliente*", "type": "text", "span": "span 2"},
+            {"key": "servico", "label": "Serviço*", "type": "text", "span": "span 2",
+             "ph": "Ex.: Instalação de CFTV — 8 câmeras"},
+            {"key": "descricao", "label": "Descrição", "type": "textarea", "span": "span 2"},
+            {"key": "endereco", "label": "Endereço", "type": "text", "span": "span 2"},
+            {"key": "responsavel", "label": "Responsável", "type": "text", "span": "span 1"},
+            {"key": "valor", "label": "Valor (R$)", "type": "text", "span": "span 1", "ph": "0,00"},
+            {"key": "prazo", "label": "Prazo", "type": "text", "span": "span 1", "ph": "Ex.: 5 dias úteis"},
+            {"key": "numero", "label": "Número da OS", "type": "text", "span": "span 1",
+             "ph": "vazio = automático"},
+            {"key": "documento", "label": "CNPJ/CPF do cliente", "type": "text", "span": "span 1"},
+            {"key": "observacoes", "label": "Observações", "type": "textarea", "span": "span 2"},
+        ],
+    }
+    out["followup-tocar"] = {
+        "title": "Tocar cliente (follow-up manual)",
+        "sub": "Toque do José Luís por WhatsApp. Deixe 'só simular' para ver o texto e o número "
+               "resolvido ANTES de enviar.",
+        "cta": "Executar", "type": "form",
+        "submit": {"endpoint": "/api/v1/crm/followups", "okMsg": "Follow-up processado",
+                   "confirm": "Se você escolheu ENVIAR, uma mensagem real sai para o cliente agora. Confirma?"},
+        "fields": [
+            {"key": "mensagem", "label": "Mensagem*", "type": "textarea", "span": "span 2"},
+            {"key": "cliente", "label": "Cliente (CNPJ, nome ou id)", "type": "text", "span": "span 1"},
+            {"key": "deal_id", "label": "Oportunidade (id)", "type": "text", "span": "span 1"},
+            {"key": "lead_id", "label": "Lead (id)", "type": "text", "span": "span 1"},
+            {"key": "proposal_id", "label": "Proposta (id)", "type": "text", "span": "span 1"},
+            {"key": "confirmar", "label": "Enviar de verdade?", "type": "select", "span": "span 2",
+             "ph": "Só simular (padrão)", "options": _CONFIRMAR},
+        ],
+    }
+    out["followup-lote"] = {
+        "title": "Tocar em lote — propostas pendentes",
+        "sub": "Atinge TODOS os clientes com proposta pendente. Simule primeiro: a prévia diz "
+               "quantos e quais seriam tocados.",
+        "cta": "Executar", "type": "form",
+        "submit": {"endpoint": "/api/v1/crm/followups/lote", "okMsg": "Lote processado",
+                   "confirm": "LOTE: se você escolheu ENVIAR, isto dispara mensagens reais para "
+                              "TODOS os clientes com proposta pendente. Confirma?"},
+        "fields": [
+            {"key": "mensagem", "label": "Mensagem (vazio = template padrão)", "type": "textarea",
+             "span": "span 2"},
+            {"key": "confirmar", "label": "Enviar de verdade?", "type": "select", "span": "span 2",
+             "ph": "Só simular (padrão)", "options": _CONFIRMAR},
+        ],
+    }
+    out["followup-resposta"] = {
+        "title": "Registrar retorno do cliente",
+        "sub": "Para quando o cliente respondeu por fora (ligação, presencial) e o inbound "
+               "automático não capturou.",
+        "cta": "Registrar", "type": "form",
+        "submit": {"endpoint": "/api/v1/crm/followups/resposta", "okMsg": "Retorno registrado"},
+        "fields": [
+            {"key": "deal_id", "label": "Oportunidade (id)", "type": "text", "span": "span 1"},
+            {"key": "followup_id", "label": "Follow-up (id)", "type": "text", "span": "span 1"},
+            {"key": "status", "label": "Status", "type": "select", "span": "span 1", "ph": "Selecione",
+             "options": [{"value": "respondido", "label": "Respondeu"},
+                         {"value": "sem_resposta", "label": "Sem resposta"},
+                         {"value": "recusou", "label": "Recusou"}]},
+            {"key": "classificacao", "label": "Classificação", "type": "text", "span": "span 1",
+             "ph": "Ex.: quente / morno / frio"},
+            {"key": "nota", "label": "O que o cliente disse", "type": "textarea", "span": "span 2"},
+        ],
+    }
+    out["followup-optout"] = {
+        "title": "Opt-out — não perturbe",
+        "sub": "Marca o número para NÃO receber mais follow-ups. Protege o cliente e a operação.",
+        "cta": "Marcar opt-out", "type": "form",
+        "submit": {"endpoint": "/api/v1/crm/followups/optout", "okMsg": "Número marcado como opt-out"},
+        "fields": [
+            {"key": "numero", "label": "Número*", "type": "text", "span": "span 1",
+             "ph": "(92) 99999-9999"},
+            {"key": "motivo", "label": "Motivo", "type": "text", "span": "span 1",
+             "ph": "Ex.: pediu para não receber"},
+        ],
+    }
+    out["nps-enviar"] = {
+        "title": "Enviar pesquisa NPS",
+        "sub": "Pergunta de 0 a 10 por WhatsApp. Simule antes para conferir o número.",
+        "cta": "Executar", "type": "form",
+        "submit": {"endpoint": "/api/v1/crm/nps/enviar", "okMsg": "NPS processado",
+                   "confirm": "Se você escolheu ENVIAR, a pesquisa sai agora para o cliente. Confirma?"},
+        "fields": [
+            {"key": "ref", "label": "Cliente (CNPJ, nome ou id)*", "type": "text", "span": "span 2"},
+            {"key": "confirmar", "label": "Enviar de verdade?", "type": "select", "span": "span 2",
+             "ph": "Só simular (padrão)", "options": _CONFIRMAR},
+        ],
+    }
+    out["reativar-lead"] = {
+        "title": "Reativar lead frio",
+        "sub": "Reengaja por WhatsApp um lead parado. Simule antes.",
+        "cta": "Executar", "type": "form",
+        "submit": {"endpoint": "/api/v1/crm/reativar-lead", "okMsg": "Reativação processada",
+                   "confirm": "Se você escolheu ENVIAR, a mensagem sai agora para o lead. Confirma?"},
+        "fields": [
+            {"key": "ref", "label": "Lead (id, telefone ou nome)*", "type": "text", "span": "span 2"},
+            {"key": "mensagem", "label": "Mensagem (vazio = template padrão)", "type": "textarea",
+             "span": "span 2"},
+            {"key": "confirmar", "label": "Enviar de verdade?", "type": "select", "span": "span 2",
+             "ph": "Só simular (padrão)", "options": _CONFIRMAR},
+        ],
+    }
+    out["simular-fechamento"] = {
+        "title": "Simular fechamento (what-if)",
+        "sub": "Se estes negócios fecharem, como fica ganho × meta. Não altera nada.",
+        "cta": "Simular", "type": "form",
+        "submit": {"endpoint": "/api/v1/crm/simular-fechamento", "okMsg": "Simulação executada"},
+        "fields": [
+            {"key": "estagio", "label": "Estágio inteiro", "type": "text", "span": "span 1",
+             "ph": "Ex.: proposta — simula todos desse estágio"},
+            {"key": "deals", "label": "Ou negócios específicos (ids separados por vírgula)",
+             "type": "text", "span": "span 1"},
+        ],
+    }
 
     return out
