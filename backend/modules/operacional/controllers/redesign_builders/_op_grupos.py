@@ -44,7 +44,8 @@ GRUPOS = [
         ("diarista-fechamento", "Gerar fechamento")]),
     ("g-disciplina", "Disciplina & RH", "Disciplinar, medidas e reembolsos", [
         ("disciplinar", "Disciplinar"), ("medidas-administrativas", "Medidas admin."),
-        ("reembolsos", "Reembolsos"), ("medida-submeter", "Submeter medida"),
+        ("reembolsos", "Reembolsos"), ("medida-assinar", "Assinar medida"),
+        ("medida-submeter", "Submeter medida"),
         ("medida-aprovar", "Aprovar medida"), ("medida-rejeitar", "Rejeitar medida"),
         ("medida-documento", "Documento da medida")]),
     ("g-rondas", "Rondas & Ocorrências", "Rondas, mobile e ocorrências", [

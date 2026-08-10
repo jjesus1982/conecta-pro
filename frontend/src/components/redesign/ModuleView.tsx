@@ -9,6 +9,12 @@ import { MODULES } from './modules';
 // Scanner de câmera (QR PIX + código de barras de boleto) — reusa o componente do clássico.
 // client-only (usa a câmera); só carrega quando o usuário abre o scanner.
 const ScannerPagamento = dynamic(() => import('@/components/financeiro/ScannerPagamento'), { ssr: false });
+// Assinatura de medida disciplinar: reusa o modal JÁ PROVADO do clássico (pad de traço +
+// geolocalização + recusa com 2 testemunhas/Art. 477). O backend exige signature_data em
+// base64, que um form declarativo não produz — por isso o componente entra inteiro aqui.
+const DisciplinarySignatureModal = dynamic(
+  () => import('@/components/operacional/disciplinary-signature-modal').then((m) => m.DisciplinarySignatureModal),
+  { ssr: false });
 const RdChart = dynamic(() => import('./RdChart'), { ssr: false });
 import { rdLogout } from './session';
 import { DocButtons } from './DocButtons';
@@ -139,7 +145,11 @@ function TableScreen({ scr }: { scr: any }) {
   const hasRowDocs = allRows.some((r: any) => Array.isArray(r.docs) && r.docs.length > 0);
   const hasRowEdit = allRows.some((r: any) => r.edit && Array.isArray(r.edit.fields));
   const hasRowActions = allRows.some((r: any) => Array.isArray(r.actions) && r.actions.length);
-  const hasActions = hasRowDocs || hasRowEdit || hasRowActions;
+  // row.sign = payload de medida disciplinar → abre o pad de assinatura do clássico.
+  const hasRowSign = allRows.some((r: any) => r.sign && r.sign.id);
+  const [signRow, setSignRow] = useState<any>(null);
+  const [signerType, setSignerType] = useState<string>('employee');
+  const hasActions = hasRowDocs || hasRowEdit || hasRowActions || hasRowSign;
   const grid = hasActions ? `${scr.grid} minmax(200px, auto)` : scr.grid;
   const cols = hasActions ? [...(scr.cols || []), hasRowDocs ? 'Documento' : 'Ações'] : (scr.cols || []);
   const [editRow, setEditRow] = useState<any>(null);
@@ -190,6 +200,18 @@ function TableScreen({ scr }: { scr: any }) {
                       {a.btnLabel || 'Ação'}
                     </button>
                   ))}
+                  {row.sign && row.sign.id && (
+                    <>
+                      <button type="button" className="rd-btn rd-btn-primary" style={{ padding: '5px 10px', fontSize: 12 }}
+                        onClick={() => { setSignerType('employee'); setSignRow(row.sign); }}>
+                        Assinar (funcionário)
+                      </button>
+                      <button type="button" className="rd-btn rd-btn-outline" style={{ padding: '5px 10px', fontSize: 12 }}
+                        onClick={() => { setSignerType('manager'); setSignRow(row.sign); }}>
+                        Assinar (empresa)
+                      </button>
+                    </>
+                  )}
                 </span>
               )}
             </div>
@@ -260,6 +282,15 @@ function TableScreen({ scr }: { scr: any }) {
             </div>
           </div>
         </div>
+      )}
+      {signRow && (
+        <DisciplinarySignatureModal
+          isOpen
+          action={signRow as any}
+          signerType={signerType as any}
+          onClose={() => setSignRow(null)}
+          onSuccess={() => { setSignRow(null); recarregar(); }}
+        />
       )}
     </div>
   );

@@ -2132,6 +2132,41 @@ async def build(db) -> dict:
     except Exception:  # noqa: BLE001
         await db.rollback()
 
+    # ── Assinatura de medida disciplinar: PORTA o fluxo já provado do clássico ─────────
+    # Não é form declarativo (o backend exige signature_data = base64 do traço, ≥100 chars,
+    # + geolocalização): a linha entrega o payload e o front abre o SignaturePad já existente
+    # (components/operacional/disciplinary-signature-modal), mesmo padrão do ScannerPagamento.
+    # Cobre os dois lados: ciência do FUNCIONÁRIO e assinatura da EMPRESA (gestor/diretoria),
+    # e a recusa com 2 testemunhas (Art. 477 CLT) vem junto no componente.
+    try:
+        _med = (await db.execute(_sqltext(
+            "SELECT id::text, coalesce(code,'—'), coalesce(action_type::text,'—'), coalesce(status::text,'—'), "
+            "       coalesce(employee_name,'—'), coalesce(employee_cpf,''), incident_date, "
+            "       coalesce(reason_description,'') "
+            "FROM disciplinary_actions WHERE coalesce(is_active,true) "
+            "  AND coalesce(status::text,'') NOT IN ('rascunho','draft','cancelada','cancelled') "
+            "ORDER BY incident_date DESC NULLS LAST LIMIT 200"))).fetchall()
+        out["medida-assinar"] = {
+            "title": "Assinar medida disciplinar",
+            "sub": f"{len(_med)} medida(s) aplicada(s) · assinatura por traço com geolocalização · "
+                   "recusa do funcionário registra 2 testemunhas (Art. 477 CLT)",
+            "cta": "—", "type": "table", "searchHint": "Buscar colaborador…",
+            "grid": "1fr 1.6fr 1.2fr 1fr 1fr",
+            "cols": ["Código", "Colaborador", "Tipo", "Situação", "Incidente"],
+            "rows": [{
+                "cells": [t(m[1], 600, "#0F1B3A"), t(m[4]), t((m[2] or "—").replace("_", " ").capitalize()),
+                          b((m[3] or "—").capitalize(), "ok" if (m[3] or "") == "assinada" else "warn"),
+                          t(_fmtdate(m[6]))],
+                # payload consumido pelo DisciplinarySignatureModal (shape DisciplinaryAction)
+                "sign": {"id": m[0], "code": m[1], "action_type": m[2], "status": m[3],
+                         "employee_name": m[4], "employee_cpf": m[5],
+                         "incident_date": (m[6].isoformat() if m[6] else None),
+                         "reason_description": m[7]},
+            } for m in _med],
+        }
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+
     # F0 — agrupa as ~62 telas/ações em 8 grupos (fundação tabs, igual ao financeiro).
     # Chamado por ÚLTIMO: precisa de TODAS as telas/ações já montadas em out.
     try:
