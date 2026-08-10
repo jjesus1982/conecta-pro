@@ -7,6 +7,40 @@
 
 ---
 
+> ## ✅ CAPI LIGADO EM PRODUÇÃO — 2026-08-10, com o Jordan
+>
+> | | |
+> |---|---|
+> | conjunto de dados | `Conecta PRO - Leads` · **1793060062113359** |
+> | token | tipo `SYSTEM_USER`, **permanente**, escopo `read_ads_dataset_quality` |
+> | app (auto-criado pela Meta) | `Conversions API Application` · 991735013894149 |
+> | usuário do sistema (auto-criado) | `Conversions API System User` · 61593308574184 |
+> | conta de anúncios (criada hoje) | `Conecta Mais - Anúncios` · **act_27813105738300215** |
+> | portfólio | 959107583761655 |
+>
+> **Provado com lead REAL, não com dado inventado:** enviei o evento `Lead` do
+> **Juan Torres** (score 59, quente, Solteco) — o mesmo que estava perdido no funil
+> desde 27/07 e foi recuperado hoje. Telefone em SHA-256. A Graph API devolveu 200.
+>
+> **O default do código estava errado:** `META_DATASET_ID` tinha `1646163319127517`
+> hardcoded, que **não existe neste negócio**. Falharia em silêncio. Agora declarado
+> no `.env`.
+>
+> ### ⛔ Trilho de Ads travado — motivo exato
+> O botão **Gerar token** do usuário do sistema fica **desabilitado**. Não é permissão
+> nem atributo faltando: a conta de anúncios está atribuída com **acesso total** e o app
+> aparece em "Apps instalados". O problema é que o `Conversions API Application` foi
+> **criado automaticamente pela Meta para o CAPI** — app de propósito único, não emite
+> token para a Marketing API.
+>
+> Precisa de um app **próprio** em `developers.facebook.com/apps`, e a criação exige
+> **verificação por SMS que não chegou** (possivelmente segurada pela sinalização de
+> acesso de dois IPs no mesmo dia). Retomar em 24h.
+>
+> **Descoberta útil:** o fluxo do Events Manager **contorna o botão cinza** de "Usuários
+> do sistema" — ele criou usuário do sistema E app sozinho, sem verificação de empresa.
+> Serviu para o CAPI; não serve para Ads.
+
 ## Trilho 1 — Conversions API (CAPI) · **já construído, dormindo**
 
 **Serve para:** dizer à Meta, server-side, toda vez que um lead nasce. É o que liga o
