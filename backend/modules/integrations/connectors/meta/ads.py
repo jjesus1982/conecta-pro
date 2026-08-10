@@ -1,0 +1,198 @@
+"""
+Meta Ads (Marketing API) → Conecta PRO
+
+Puxa CAMPANHA e GASTO da conta de anúncios da Conecta Mais para
+`marketing_campaigns`, que já tem as colunas certas (`budget`, `spent`,
+`utm_campaign`). Fecha o laço que hoje está aberto:
+
+    gasto do anúncio (Meta)  ÷  leads gerados (CRM, por utm_campaign)  =  CAC
+
+Sem isto, marketing decide por sensação: o Conecta PRO sabe quantos leads
+vieram de cada campanha (quando o link carrega `[c:<slug>]`), mas não sabe
+quanto cada uma custou.
+
+**Não precisa de App Review.** Ler a PRÓPRIA conta de anúncios com um System
+User do próprio Business Manager é acesso a ativo próprio. Review é exigido
+para agir em nome de terceiros (ex.: mensageria de Instagram) — outro trilho.
+
+Dorme até o token estar configurado, no mesmo padrão do `capi.py`: nenhuma
+chamada, nenhum erro, nenhum ruído.
+
+Configuração (env):
+  META_ADS_TOKEN       -> System User token com `ads_read` (SECRET; vazio = desligado)
+  META_AD_ACCOUNT_ID   -> id da conta de anúncios, com o prefixo (ex.: act_123456789)
+  META_GRAPH_VERSION   -> versão da Graph API (default v21.0, mesmo do capi.py)
+
+Uso:
+  from modules.integrations.connectors.meta.ads import sincronizar_campanhas
+  resultado = await sincronizar_campanhas(db)          # últimos 30 dias
+  resultado = await sincronizar_campanhas(db, dias=7)
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from datetime import date, timedelta
+
+import aiohttp
+from sqlalchemy import text
+
+logger = logging.getLogger(__name__)
+
+_GRAPH = "https://graph.facebook.com"
+_TIMEOUT = aiohttp.ClientTimeout(total=30)
+
+
+def _token() -> str:
+    # Lido a cada chamada para refletir mudança de env sem rebuild (igual capi.py).
+    return os.getenv("META_ADS_TOKEN", "").strip()
+
+
+def _conta() -> str:
+    c = os.getenv("META_AD_ACCOUNT_ID", "").strip()
+    return c if c.startswith("act_") or not c else f"act_{c}"
+
+
+def ads_ativo() -> bool:
+    """True quando há token E conta configurados. Sem isso, dorme."""
+    return bool(_token() and _conta())
+
+
+async def _get(sessao: aiohttp.ClientSession, caminho: str, params: dict) -> dict | None:
+    versao = os.getenv("META_GRAPH_VERSION", "v21.0")
+    url = f"{_GRAPH}/{versao}/{caminho}"
+    try:
+        async with sessao.get(url, params={**params, "access_token": _token()}, timeout=_TIMEOUT) as r:
+            corpo = await r.json()
+            if r.status != 200:
+                # A Meta devolve o motivo em error.message — logar isso vale mais que o status.
+                erro = (corpo or {}).get("error", {})
+                logger.error(
+                    "Meta Ads: HTTP %s em %s — %s (code=%s subcode=%s)",
+                    r.status, caminho, erro.get("message"), erro.get("code"), erro.get("error_subcode"),
+                )
+                return None
+            return corpo
+    except Exception as e:  # noqa: BLE001 — rede/timeout nunca derruba quem chamou
+        logger.error("Meta Ads: falha em %s: %s", caminho, e)
+        return None
+
+
+async def sincronizar_campanhas(db, *, dias: int = 30) -> dict:
+    """Traz campanhas + gasto do período e grava em `marketing_campaigns`.
+
+    Idempotente: casa por `external_id` = id da campanha na Meta (chave estável;
+    o NOME o marketing renomeia). **`utm_campaign` NÃO é tocada** — ela guarda o
+    slug que o link carrega (`[c:lote2]`) e é a chave de junção com `leads`.
+    Gravar o id numérico da Meta ali quebraria o join para sempre.
+    """
+    if not ads_ativo():
+        return {"ok": False, "motivo": "META_ADS_TOKEN/META_AD_ACCOUNT_ID ausentes — sincronia dorme"}
+
+    desde = (date.today() - timedelta(days=dias)).isoformat()
+    ate = date.today().isoformat()
+    vistos, gravados = 0, 0
+
+    async with aiohttp.ClientSession() as s:
+        campanhas = await _get(
+            s,
+            f"{_conta()}/campaigns",
+            {"fields": "id,name,status,daily_budget,lifetime_budget,start_time,stop_time", "limit": 200},
+        )
+        if campanhas is None:
+            return {"ok": False, "motivo": "Meta não respondeu (ver log)"}
+
+        # Insights numa chamada só, agrupado por campanha — evita N+1 na Graph API.
+        insights = await _get(
+            s,
+            f"{_conta()}/insights",
+            {
+                "level": "campaign",
+                "fields": "campaign_id,spend,impressions,clicks",
+                "time_range": f'{{"since":"{desde}","until":"{ate}"}}',
+                "limit": 500,
+            },
+        )
+    gasto = {
+        i["campaign_id"]: i for i in ((insights or {}).get("data") or []) if i.get("campaign_id")
+    }
+
+    for c in (campanhas.get("data") or []):
+        vistos += 1
+        ins = gasto.get(c["id"], {})
+        # Meta devolve orçamento em CENTAVOS (string). Dividir aqui, uma vez.
+        orcamento = c.get("daily_budget") or c.get("lifetime_budget")
+        orcamento = (float(orcamento) / 100) if orcamento else None
+        await db.execute(
+            text(
+                """
+                INSERT INTO marketing_campaigns
+                    (id, name, type, status, budget, spent, start_date, end_date,
+                     utm_source, utm_medium, external_id, created_at, updated_at)
+                VALUES (gen_random_uuid(), :nome, 'meta_ads', :status, :orc, :gasto,
+                        :inicio, :fim, 'meta', 'paid', :cid, now(), now())
+                ON CONFLICT (external_id) DO UPDATE SET
+                    name = excluded.name, status = excluded.status,
+                    budget = coalesce(excluded.budget, marketing_campaigns.budget),
+                    spent = excluded.spent, updated_at = now()
+                    -- utm_campaign de fora do SET de propósito: é do humano/link, não da Meta
+                """
+            ),
+            {
+                "nome": (c.get("name") or "(sem nome)")[:255],
+                "status": (c.get("status") or "").lower()[:40],
+                "orc": orcamento,
+                "gasto": float(ins.get("spend") or 0),
+                "inicio": (c.get("start_time") or "")[:10] or None,
+                "fim": (c.get("stop_time") or "")[:10] or None,
+                "cid": c["id"],
+            },
+        )
+        gravados += 1
+    await db.commit()
+    logger.info("Meta Ads: %s campanhas vistas, %s gravadas (janela %sd)", vistos, gravados, dias)
+    return {"ok": True, "campanhas": vistos, "gravadas": gravados, "desde": desde, "ate": ate}
+
+
+async def cac_por_campanha(db, *, dias: int = 30) -> list[dict]:
+    """CAC por campanha: gasto da Meta ÷ leads que o Conecta PRO atribuiu a ela.
+
+    A junção é `marketing_campaigns.utm_campaign` × `leads.utm_campaign` — e ela
+    exige DUAS coisas que hoje faltam: (1) alguém preencher `utm_campaign` na
+    campanha, com o mesmo slug do link; (2) o link do wa.me carregar `[c:<slug>]`.
+    Sem isso o CAC sai como **None, não 0**: "nenhum lead" e "não sei quantos"
+    são coisas diferentes, e um 0 faria a campanha parecer fracasso quando o que
+    há é ausência de medição.
+    """
+    linhas = (
+        await db.execute(
+            text(
+                """
+                SELECT c.name, c.utm_campaign, c.status,
+                       coalesce(c.spent, 0) AS gasto,
+                       count(l.id) FILTER (WHERE l.created_at >= now() - make_interval(days => :d)) AS leads
+                  FROM marketing_campaigns c
+                  LEFT JOIN leads l ON l.utm_campaign = c.utm_campaign
+                 WHERE c.type = 'meta_ads'
+                 GROUP BY c.id, c.name, c.utm_campaign, c.status, c.spent
+                 ORDER BY gasto DESC
+                """
+            ),
+            {"d": dias},
+        )
+    ).mappings().all()
+    saida = []
+    for r in linhas:
+        leads = r["leads"] or 0
+        saida.append(
+            {
+                "campanha": r["name"],
+                "status": r["status"],
+                "gasto": float(r["gasto"]),
+                "leads": leads,
+                # None (não 0) quando não há lead atribuído: é ausência de dado, não CAC infinito.
+                "cac": round(float(r["gasto"]) / leads, 2) if leads else None,
+            }
+        )
+    return saida
