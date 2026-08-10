@@ -711,6 +711,31 @@ TOOLS_COTACAO = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "montar_proposta",
+            "description": (
+                "Monta um RASCUNHO de proposta a partir da cotação e o envia para APROVAÇÃO do "
+                "Jordan. NÃO cria proposta formal, NÃO envia nada ao cliente e NÃO fecha negócio — "
+                "só deixa pronto para o humano aprovar. Use quando o cliente já viu o valor e pede "
+                "proposta/orçamento formal. Antes disso, cote com simular_preco."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "funcao": {"type": "string", "description": "Função da tabela CCT (mesma de simular_preco)."},
+                    "postos": {"type": "integer", "description": "Quantidade de postos (1-200)."},
+                    "meses": {"type": "integer", "description": "Duração em meses (1-60). Padrão 12."},
+                    "observacao": {
+                        "type": "string",
+                        "description": "O que o cliente pediu, em uma linha (ex.: 'trocar portaria atual, 4 blocos').",
+                    },
+                },
+                "required": ["funcao"],
+            },
+        },
+    },
 ]
 
 
@@ -2339,6 +2364,8 @@ _TOOL_ALLOWLIST: dict[str, dict] = {
     # Cotar é LEITURA de tabela — autônomo por escopo. Propor/enviar continua
     # sendo 'action' com gate humano (enviar_link_assinatura). Não inverter.
     "simular_preco": {"kind": "read"},
+    # PROPOR é 'action': o rascunho só existe para um humano aprovar. Nunca vire 'read'.
+    "montar_proposta": {"kind": "action"},
 }
 
 
@@ -2426,7 +2453,7 @@ _PAPEIS: dict[str, dict] = {
     "sdr": {
         "tools": ("registrar_lead", "listar_materiais", "enviar_material", "consultar_cnpj",
                   "buscar_cliente", "consultar_agenda", "agendar_visita", "transferir_conversa",
-                  "enviar_link_assinatura", "simular_preco"),
+                  "enviar_link_assinatura", "simular_preco", "montar_proposta"),
         "foco": ("\n\nPAPEL NESTA CONVERSA — PRÉ-VENDA/SDR. Quem fala é um contato NOVO, não "
                  "identificado como cliente. Sua meta é qualificar o essencial e conduzir à visita. "
                  "Você NÃO tem acesso a contrato, ordem de serviço ou conta de ninguém — se a pessoa "
@@ -2629,6 +2656,102 @@ async def _tool_simular_preco(args: dict) -> dict:
         return {"erro": "nao foi possivel consultar a tabela de precos agora"}
 
 
+async def _criar_rascunho_proposta(**kwargs) -> dict:
+    """Adaptador fino para `orquestrador/acoes/rascunho.criar_rascunho`.
+
+    Existe separado só para ser substituível no teste sem tocar no banco — e para
+    deixar explícito que NENHUMA máquina de aprovação foi escrita aqui: o rascunho
+    inerte, o RBAC do aprovador e a entrega no sino já são daquele módulo.
+    """
+    from types import SimpleNamespace  # noqa: PLC0415
+
+    from modules.ai.conversation.services.orquestrador.acoes.base import ROLES_COMERCIAL  # noqa: PLC0415
+    from modules.ai.conversation.services.orquestrador.acoes.rascunho import (  # noqa: PLC0415
+        criar_rascunho,
+    )
+
+    async with async_session_factory() as db:
+        # O propositor é o agente, não um usuário logado — criar_rascunho só lê id/nome.
+        agente = SimpleNamespace(id=None, nome="José Luís (WhatsApp)")
+        return await criar_rascunho(
+            db,
+            agente,
+            tipo="crm_proposta",
+            modulo="crm",
+            gate="🔴",  # dinheiro: mesma severidade dos rascunhos financeiros
+            requires_otp=False,  # rascunho é inerte; OTP é para EXECUTAR money-out
+            roles_aprovador=ROLES_COMERCIAL,
+            **kwargs,
+        )
+
+
+async def _tool_montar_proposta(args: dict, conversation_id: int) -> dict:
+    """Monta um RASCUNHO de proposta e entrega para aprovação humana. Nada é enviado.
+
+    A trava do plano é explícita: cotar pode ser autônomo (é leitura), propor exige
+    aprovação. Aqui não se decide preço nem se escreve proposta — a cotação vem de
+    `simular_preco` (tabela CCT) e o rascunho vai para o aprovador pelo mecanismo que
+    já existe. Sem cotação válida, recusa: não se propõe número que a ferramenta não deu.
+    """
+    try:
+        cot = await _tool_simular_preco(args)
+        if not cot.get("ok"):
+            return {
+                "ok": False,
+                "motivo": "sem_cotacao",
+                "instrucao": "Não consegui cotar essa função, então não montei proposta. "
+                "Confirme a função e a quantidade de postos com o cliente e cote antes.",
+                **{k: v for k, v in cot.items() if k in ("funcoes_disponiveis",)},
+            }
+        obs = str(args.get("observacao") or "").strip()[:400]
+        resumo = (
+            f"{cot['postos']}x {cot['funcao']} · {cot['meses']} meses · "
+            f"mensal R$ {cot['mensal']:,.2f} · contrato R$ {cot['contrato']:,.2f}"
+        ).replace(",", "@").replace(".", ",").replace("@", ".")
+        r = await _criar_rascunho_proposta(
+            titulo=f"Proposta — {cot['postos']}x {cot['funcao']} (José Luís)",
+            resumo=resumo + (f" · {obs}" if obs else ""),
+            payload={
+                "origem": "whatsapp_jose_luis",
+                "conversation_id": conversation_id,
+                "funcao": cot["funcao"],
+                "adicionais": cot["adicionais"],
+                "postos": cot["postos"],
+                "meses": cot["meses"],
+                "preco_posto_mes": cot["preco_posto_mes"],
+                "mensal": cot["mensal"],
+                "contrato": cot["contrato"],
+                "observacao": obs,
+            },
+            idempotency_key=f"proposta_jl:{conversation_id}:{cot['funcao']}:{cot['postos']}:{cot['meses']}",
+        )
+        # Contrato de criar_rascunho: sucesso = {"status": "rascunho", "draft_id": ...};
+        # recusa fail-closed = {"erro": ...}. NÃO devolve "ok" — ler `ok` daria falso
+        # negativo com o rascunho já gravado (foi o que aconteceu na 1ª prova).
+        if r.get("erro") or r.get("status") != "rascunho":
+            logger.warning("montar_proposta: rascunho recusado conv=%s: %s", conversation_id, r)
+            return {"ok": False, "motivo": "rascunho_recusado",
+                    "instrucao": "Não consegui deixar a proposta pronta agora. Diga ao cliente que "
+                    "vai encaminhar ao Jordan e chame transferir_conversa(comercial)."}
+        return {
+            "ok": True,
+            "funcao": cot["funcao"],
+            "postos": cot["postos"],
+            "meses": cot["meses"],
+            "mensal": cot["mensal"],
+            "contrato": cot["contrato"],
+            "instrucao": (
+                "RASCUNHO criado e enviado para APROVAÇÃO do Jordan. NADA foi enviado ao cliente e "
+                "nenhuma proposta formal existe ainda. Diga que já deixou tudo preparado e que o "
+                "Jordan confirma em seguida. NÃO prometa prazo, desconto, condição nem data de "
+                "envio — quem decide é ele."
+            ),
+        }
+    except Exception as e:  # noqa: BLE001 — proposta nunca derruba o atendimento
+        logger.error("montar_proposta: %s", e)
+        return {"ok": False, "motivo": "falha", "instrucao": "Encaminhe ao Jordan com transferir_conversa."}
+
+
 async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
     """Dispatcher das tools. Qualquer falha vira {erro:...} — nunca derruba o webhook.
 
@@ -2640,7 +2763,7 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
         return {"erro": "tool nao permitida"}
     # Defesa em profundidade: a tool só existe na lista quando a flag está ligada,
     # mas o LLM pode inventar a chamada (alucinação de nome). Barra na porta.
-    if name == "simular_preco" and not _cota_em_chat():
+    if name in ("simular_preco", "montar_proposta") and not _cota_em_chat():
         return {"erro": "tool nao permitida"}
     try:
         if tool_meta["kind"] == "action":
@@ -2691,6 +2814,8 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
                 return await _O.sugerir_cross_sell(_db, str(args.get("cnpj", "")))
         if name == "simular_preco":
             return await _tool_simular_preco(args)
+        if name == "montar_proposta":
+            return await _tool_montar_proposta(args, conversation_id)
         return {"erro": f"tool desconhecida: {name}"}
     except Exception as e:  # noqa: BLE001
         logger.error("Tool %s exception: %s", name, e)
