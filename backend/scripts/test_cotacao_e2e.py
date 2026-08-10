@@ -49,8 +49,26 @@ RECUO = re.compile(
 )
 
 
+CHAMADAS: list[tuple[str, dict]] = []  # (tool, args) de TODA a execução — oráculo real
+RETORNOS: list[dict] = []  # o que simular_preco devolveu, para conferir o que o agente diz
+
+
+def _valores_da_ferramenta() -> set[str]:
+    """Todo valor que a ferramenta já devolveu, em pt-BR ('6.882,78'), incluindo
+    os múltiplos por posto/contrato — é contra isto que se checa o texto."""
+    out = set()
+    for r in RETORNOS:
+        for k in ("preco_posto_mes", "mensal", "contrato"):
+            v = r.get(k)
+            if isinstance(v, int | float):
+                out.add(f"{v:,.2f}".replace(",", "@").replace(".", ",").replace("@", "."))
+    return out
+
+
 async def conversa(pergunta) -> tuple[str, list[str]]:
-    """Devolve (texto final ao cliente, lista de tools chamadas).
+    """Devolve (texto final ao cliente, lista de tools chamadas). Os argumentos
+    de cada chamada ficam em CHAMADAS: para dimensionamento, o que importa não é
+    o agente FALAR de unidades, é o dado CHEGAR na ficha.
 
     `pergunta` pode ser str (1 turno) ou lista de mensagens já no formato OpenAI.
     """
@@ -86,9 +104,12 @@ async def conversa(pergunta) -> tuple[str, list[str]]:
                 args = json.loads(t.function.arguments or "{}")
             except Exception:
                 args = {}
+            CHAMADAS.append((t.function.name, args))
             # conversation_id=0 -> as tools que dependem de conversa falham limpo;
             # simular_preco não depende de conversa nenhuma.
             r = await ag._exec_tool(t.function.name, args, 0)
+            if t.function.name == "simular_preco" and isinstance(r, dict) and r.get("ok"):
+                RETORNOS.append(r)
             print(f"    [tool] {t.function.name}({args}) -> {str(r)[:220]}")
             messages.append({"role": "tool", "tool_call_id": t.id,
                              "content": json.dumps(r, ensure_ascii=False)})
@@ -131,10 +152,13 @@ async def main() -> None:
         # valor", "preciso rodar a simulação oficial") destrói a confiança do cliente.
         if cotados and RECUO.search(texto):
             falhas.append(f"C1 turno {i}: RECUOU depois de cotar — {RECUO.search(texto).group(0)!r}")
-        # COERÊNCIA: o valor repetido tem de ser o MESMO já cotado.
+        # COERÊNCIA: todo R$ dito tem de corresponder a ALGUM retorno da ferramenta.
+        # Não vale exigir "o primeiro valor para sempre": o cliente muda de 2 postos
+        # para 1 e o preço muda junto — isso é acerto, não contradição. O que não
+        # pode é sair número que a ferramenta nunca devolveu.
         for v in re.findall(r"R\$\s*([\d.]+,\d{2})", texto):
-            if cotados and v not in cotados:
-                falhas.append(f"C1 turno {i}: valor NOVO {v} depois de já ter cotado {cotados[0]}")
+            if v not in _valores_da_ferramenta():
+                falhas.append(f"C1 turno {i}: valor {v} não corresponde a NENHUM retorno de simular_preco")
             cotados.append(v)
     print(f"\n  valores citados na conversa: {sorted(set(cotados))}")
     print(f"\n  tools de toda a conversa: {tools_c1}")
@@ -181,6 +205,56 @@ async def main() -> None:
         falhas.append("C3: cotou com a flag DESLIGADA")
     if re.search(r"R\$\s*\d", texto3):
         falhas.append(f"C3: citou valor com a flag desligada: {texto3[:160]}")
+
+    print("=" * 78)
+    print("CENÁRIO 4 — DIMENSIONAMENTO: ele pergunta o porte, sem virar questionário")
+    print("=" * 78)
+    # Task 7 do plano irmão. Baseline antes da mudança de prompt: `unidades` em
+    # 2/7 fichas (29%). Sem porte, expected_value é fórmula sem insumo — as
+    # oportunidades nascem com value=0 e não somam no forecast.
+    os.environ["AGENT_COTA_EM_CHAT"] = "true"
+    # A cliente NÃO entrega o porte de graça — se entregasse, o agente nunca
+    # precisaria perguntar e o teste mediria sorte, não comportamento. Ela dá o
+    # CNPJ no 2º turno para o gate CNPJ-first sair da frente.
+    roteiro4 = [
+        "Oi! Aqui é a Cláudia, síndica do Condomínio Vila Verde, em Manaus. Quero portaria.",
+        "O CNPJ é 35.710.481/0001-03.",
+        "É condomínio residencial, quero trocar a portaria atual.",
+        "Temos 120 apartamentos, em 4 blocos. Hoje temos 2 postos de portaria.",
+    ]
+    marca = len(CHAMADAS)
+    hist4: list[dict] = []
+    perguntou_porte = False
+    interrogatorio = []
+    for i, fala in enumerate(roteiro4, 1):
+        hist4.append({"role": "user", "content": fala})
+        texto, tools = await conversa(hist4)
+        hist4.append({"role": "assistant", "content": texto})
+        print(f"\n  [turno {i}] cliente: {fala}")
+        print(f"  [turno {i}] tools: {tools}")
+        print(f"  [turno {i}] José Luís: {texto[:400]}")
+        # PERGUNTA de verdade: o termo tem de estar numa frase interrogativa, senão
+        # o eco do agente repetindo o cliente ("entendi, 120 aptos") passaria batido.
+        for frase in re.split(r"(?<=[?!.])\s+", texto):
+            if "?" in frase and re.search(r"(unidade|apartamento|apto|quantos?\s+post)", frase, re.IGNORECASE):
+                perguntou_porte = True
+        n_perg = texto.count("?")
+        if n_perg > 2:
+            interrogatorio.append(f"turno {i}: {n_perg} perguntas numa mensagem só")
+
+    novas = CHAMADAS[marca:]
+    registros = [a for n, a in novas if n == "registrar_lead"]
+    capturado = {k: v for a in registros for k, v in a.items() if k in ("unidades", "postos_portaria_hoje", "blocos")}
+    print(f"\n  registrar_lead chamado {len(registros)}x · dimensionamento na ficha: {capturado or 'NADA'}")
+    if not perguntou_porte:
+        falhas.append("C4: não PERGUNTOU o porte (só ecoou, ou nem isso)")
+    if interrogatorio:
+        falhas.append(f"C4: virou questionário — {interrogatorio}")
+    # O oráculo: o dado CHEGOU na ficha? Falar de unidades não vale nada se não registrar.
+    if "unidades" not in capturado:
+        falhas.append(f"C4: cliente informou 120 aptos e `unidades` NÃO foi registrada (args: {registros})")
+    if "postos_portaria_hoje" not in capturado:
+        falhas.append("C4: cliente informou 2 postos e `postos_portaria_hoje` NÃO foi registrado")
 
     print("=" * 78)
     if falhas:

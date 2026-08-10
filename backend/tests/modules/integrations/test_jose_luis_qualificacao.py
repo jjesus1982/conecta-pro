@@ -48,6 +48,72 @@ def test_limiar_e_o_calibrado_nos_leads_reais():
     assert ag._QUALIFICA_SCORE_MIN == 60
 
 
+def test_prompt_pede_dimensionamento_como_essencial_nao_como_detalhe():
+    """Baseline medido em 2026-08-10: `unidades` em 2/7 fichas (29%) e
+    `postos_portaria_hoje` em 1/7 (14%). O schema da tool JÁ tinha os campos —
+    o agente simplesmente não perguntava, porque o prompt listava porte como
+    essencial e na frase seguinte mandava não insistir ('detalhes só se a
+    conversa fluir'). Sem porte, `expected_value` é fórmula sem insumo."""
+    p = ag.SYSTEM_PROMPT
+    assert "PORTE" in p
+    assert "unidades" in p and "postos_portaria_hoje" in p
+    # a frase que anulava o pedido não pode voltar
+    assert "Detalhes (motivação, sistema atual, portões, etc.) só se a conversa fluir" not in p
+
+
+def test_prompt_protege_contra_interrogatorio():
+    """A régua do plano irmão: capturar porte SEM virar questionário. Uma pergunta
+    por vez, ancorada no que o cliente ganha — não uma bateria de campos."""
+    p = ag.SYSTEM_PROMPT
+    assert "UMA pergunta por vez" in p
+    assert "questionário" in p  # a proibição continua no texto
+
+
+def test_dimensionamento_ainda_nao_deriva_valor():
+    """Ordem do plano irmão: CAPTURA primeiro, mede 2 semanas (>60%), só então
+    deriva expected_value. Derivar agora seria fórmula sem insumo em ~85% dos casos."""
+    p = ag.SYSTEM_PROMPT
+    for proibido in ("expected_value", "valor esperado do negócio", "estime o valor do contrato"):
+        assert proibido not in p
+
+
+@pytest.mark.parametrize(
+    "entrada,esperado",
+    [
+        # o que o LLM manda de verdade (visto no E2E): texto descritivo, não número
+        ({"postos_portaria_hoje": "2 postos de portaria hoje"}, {"postos_portaria_hoje": 2}),
+        ({"unidades": "120 apartamentos"}, {"unidades": 120}),
+        ({"blocos": "4 blocos"}, {"blocos": 4}),
+        # o que já funcionava tem de continuar funcionando
+        ({"unidades": 120}, {"unidades": 120}),
+        ({"unidades": "120"}, {"unidades": 120}),
+        ({"unidades": 120.0}, {"unidades": 120}),
+        # sem número nenhum -> não grava lixo
+        ({"unidades": "não sei"}, {}),
+        ({"unidades": ""}, {}),  # já filtrada antes na prática; descartar é o certo
+        # campo não-numérico passa intacto
+        ({"segmento": "condominio"}, {"segmento": "condominio"}),
+        # bool não vira número (tem_guarita tem tratamento próprio)
+        ({"tem_guarita": True}, {"tem_guarita": True}),
+    ],
+)
+def test_coercao_numerica_nao_perde_dado_em_silencio(entrada, esperado):
+    """Antes: `int(float('2 postos de portaria'))` levantava e o campo era DELETADO
+    sem log. O dado que o cliente deu de graça sumia, e a métrica de captura
+    contaria o campo como ausente sem ninguém saber por quê. E
+    `postos_portaria_hoje` nem estava na lista — entrava texto cru no JSONB."""
+    d = dict(entrada)
+    ag._coagir_numericos(d)
+    assert d == esperado
+
+
+def test_coercao_cobre_todo_campo_de_contagem():
+    """Campo de contagem novo no schema tem de entrar na coerção, senão vira texto
+    no JSONB e quebra a derivação de expected_value lá na frente."""
+    for campo in ("unidades", "blocos", "portoes_veiculares", "entradas_pedestres", "postos_portaria_hoje"):
+        assert campo in ag._CAMPOS_CONTAGEM
+
+
 def test_agente_nunca_alcanca_status_humano():
     """proposal/negotiation/won/lost são do humano. A ordem do agente para em
     'qualified' — quem aplica garante o não-rebaixamento no SQL."""

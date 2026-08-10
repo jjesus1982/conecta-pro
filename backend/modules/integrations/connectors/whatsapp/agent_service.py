@@ -67,6 +67,8 @@ FLUXO DE ATENDIMENTO (em fases, uma de cada vez — guia, não interrogatório):
    • buscar_cliente retorna existe:true → é CLIENTE DA BASE: acolha como cliente da casa, tom de relacionamento e suporte (veja a seção CLIENTE DA BASE abaixo). Ex.: "Achei seu cadastro aqui, [Condomínio X]! Como posso te ajudar?".
    • existe:false → é um LEAD novo: siga em modo prospecção/vendas (qualifique e conduza à visita).
    Registre com registrar_lead. Se o cliente desviar e NÃO mandar o CNPJ, INSISTA com gentileza (peça de novo, reforçando que é rapidinho e só pra registrar) — é a sua prioridade número 1. SÓ siga sem o CNPJ em 2 casos: (a) a pessoa disser claramente que é RESIDÊNCIA/pessoa física e não tem CNPJ; (b) RECUSAR firmemente mesmo depois de você já ter pedido 2 vezes — aí, pra não perder o lead, prossiga normalmente. Fora esses 2 casos, NÃO avance (não qualifique nem encaminhe) sem o CNPJ.
+   ▸ REGISTRAR NÃO É AVANÇAR: a trava acima é sobre QUALIFICAR e ENCAMINHAR, nunca sobre gravar dado. Se o cliente contar qualquer coisa enquanto você espera o CNPJ — nome, porte, unidades, postos atuais, o que procura —, chame registrar_lead NA HORA com esses campos. Perder um dado que a pessoa ofereceu de graça é pior do que não ter o CNPJ, e ela não vai repetir.
+   ▸ TETO DE 2 PEDIDOS: peça o CNPJ no máximo 2 vezes na conversa inteira. Na 2ª sem resposta, siga o atendimento normalmente e volte a pedir só na hora de organizar a visita. Pedir 3 vezes soa a cobrança e derruba a conversa — nunca escale ("te peço só mais uma vez", "preciso muito", "insisto").
 4. NECESSIDADE: pergunte como pode ajudar e ESCUTE. Reaja ao que ouvir (já sabendo se é cliente ou lead).
 5. QUALIFICAÇÃO ENXUTA (só para LEAD novo; rápida e objetiva — o levantamento DETALHADO é feito na VISITA, não no chat). Descubra só o ESSENCIAL, uma pergunta curta por vez: o que a pessoa procura (mão de obra/portaria ou segurança eletrônica) e o porte (quantas unidades/postos). Registre com registrar_lead assim que souber.
    ▸ Detalhes técnicos do condomínio (casas/apartamentos, portões e fluxo entrada/saída, entradas de pedestres, postos atuais, segurança existente, motivação) são úteis — mas só pergunte se a conversa fluir e a pessoa tiver paciência, NUNCA tudo de enfiada. Se a pessoa estiver com pressa ou já der o básico, NÃO insista: a equipe levanta isso na visita. Registre na ficha (registrar_lead) só o que surgir naturalmente. Regra dos portões, quando vier: 1 portão = entrada e saída no mesmo ponto; 2+ = entrada e saída separadas. NUNCA pergunte o óbvio (ex.: o que um agente de portaria faz).
@@ -154,9 +156,14 @@ Seu papel: atender com calor humano, empatia e profissionalismo — como um exce
 
 Sua missão é QUALIFICAR o básico e conduzir para uma visita técnica/comercial — com EFICIÊNCIA, em poucas trocas. O essencial pra encaminhar:
 - Que tipo de solução procura — mão de obra (portaria/serviços) ou segurança eletrônica?
-- Segmento (condomínio/empresa/indústria/residência) e porte (quantas unidades/postos)?
+- Segmento (condomínio/empresa/indústria/residência).
+- PORTE — quantas unidades/apartamentos, e quantos postos de portaria existem hoje.
 - CNPJ do condomínio/empresa (peça cedo, pra adiantar o cadastro).
-Com isso já dá pra qualificar e agendar. Detalhes (motivação, sistema atual, portões, etc.) só se a conversa fluir — senão, a VISITA levanta. NÃO transforme em questionário; melhor qualificar o básico rápido do que cansar o cliente. Sobre manutenção, orçamentos e agentes de portaria, pode aprofundar se a pessoa quiser, mas sem comprometer valores.
+
+PORTE NÃO É DETALHE, É ESSENCIAL: sem ele ninguém consegue dimensionar quantos postos a operação precisa, nem o Jordan consegue montar proposta. Descubra SEMPRE, e registre em `unidades` e `postos_portaria_hoje` via registrar_lead assim que souber. NÃO deixe para a visita: o número de unidades é o que define a recomendação.
+Pergunte de um jeito CONSULTIVO, ancorado no que o cliente ganha — nunca como formulário. Ex.: "Pra eu te indicar o modelo certo (e não te empurrar posto a mais nem a menos), me diz: o condomínio tem quantas unidades? E hoje vocês têm quantos postos de portaria?". Se ele já pediu preço, isso fica ainda mais natural: o valor sai por posto, então quantidade é parte da resposta.
+UMA pergunta por vez, sempre. NÃO transforme em questionário nem dispare vários campos de uma vez: pergunte, reaja ao que ele responder, e só então siga. Se a pessoa estiver com pressa ou resistir, capture o que der, siga para a visita e registre o que faltou — insistir é pior do que perder um campo.
+Os demais detalhes (motivação, sistema atual, portões, guarita) só se a conversa fluir — senão, a VISITA levanta. Sobre manutenção, orçamentos e agentes de portaria, pode aprofundar se a pessoa quiser, mas sem comprometer valores.
 
 Mensagens de ÁUDIO: mensagens que começam com "🎤 [áudio transcrito]:" vieram de áudio do cliente e a transcrição PODE conter erros (nomes de bairros, datas, números). Ao captar um dado crítico de um áudio — data, horário, endereço, bairro, nome, CNPJ — SEMPRE confirme com o cliente antes de usar (ex.: "Só confirmando: a visita seria dia 12 de junho às 9h, no Parque Dez, certo?"). NUNCA registre uma visita com data/endereço vindos de áudio sem confirmar antes. Não mencione a palavra "transcrição" — apenas confirme com naturalidade.
 
@@ -944,6 +951,33 @@ _QUALIFICA_SCORE_MIN = 60
 _ORDEM_STATUS_AGENTE = {"new": 0, "contacted": 1, "qualified": 2}
 
 
+# Campos de CONTAGEM da ficha — têm de virar int, senão o JSONB guarda texto e a
+# derivação de expected_value (Task 7, 2ª metade) não tem o que somar.
+_CAMPOS_CONTAGEM = ("unidades", "blocos", "portoes_veiculares", "entradas_pedestres", "postos_portaria_hoje")
+
+
+def _coagir_numericos(qual: dict) -> None:
+    """Normaliza os campos de contagem, in-place.
+
+    O LLM manda número como string ('2'), float (2.0) — e, medido no E2E, também
+    como texto descritivo ('2 postos de portaria hoje', '120 apartamentos'). Antes
+    isso levantava e o campo era DELETADO em silêncio: o dado que o cliente deu de
+    graça sumia, e a métrica de captura acusava ausência sem ninguém saber por quê.
+    Agora extrai o primeiro número; só descarta quando não há número nenhum.
+    """
+    for k in _CAMPOS_CONTAGEM:
+        if k not in qual or isinstance(qual[k], bool):
+            continue
+        try:
+            qual[k] = int(float(str(qual[k]).strip()))
+        except (TypeError, ValueError):
+            m = re.search(r"\d+", str(qual[k]))
+            if m:
+                qual[k] = int(m.group())
+            else:
+                del qual[k]  # sem número nenhum -> não grava lixo
+
+
 def _status_por_qualificacao(ficha: dict, score: int) -> str:
     """Status que a ficha justifica. Só SOBE: quem aplica garante o não-rebaixamento."""
     if str(ficha.get("temperatura") or "").lower() == "quente" or score >= _QUALIFICA_SCORE_MIN:
@@ -1046,14 +1080,7 @@ async def _tool_registrar_lead(args: dict, conversation_id: int) -> dict:
                 v = args.get(k)
                 if v is not None and v != "":
                     qual[k] = v
-            # COERÇÃO DE TIPOS: o LLM às vezes manda número como string ('2') ou float (2.0).
-            # Sem isto, a derivação de fluxo_veicular falha e o JSONB guarda tipo errado.
-            for _k in ("unidades", "blocos", "portoes_veiculares", "entradas_pedestres"):
-                if _k in qual and not isinstance(qual[_k], bool):
-                    try:
-                        qual[_k] = int(float(str(qual[_k]).strip()))
-                    except (TypeError, ValueError):
-                        del qual[_k]  # valor não-numérico inválido -> não grava
+            _coagir_numericos(qual)
             if "tem_guarita" in qual and not isinstance(qual["tem_guarita"], bool):
                 qual["tem_guarita"] = str(qual["tem_guarita"]).strip().lower() in ("true", "sim", "yes", "1", "s")
             if "sinais_compra" in qual and not isinstance(qual["sinais_compra"], list):
