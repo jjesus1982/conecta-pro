@@ -35,6 +35,11 @@ EXTRA_MENU: list[dict] = [
     {"id": "consultor-arquivo", "label": "Consultor de RH — com anexo", "icon": _ICO_CCT},
     {"id": "curriculo-texto", "label": "Analisar currículo (texto)", "icon": _ICO_CCT},
     {"id": "curriculo-arquivo", "label": "Analisar currículo (PDF/DOCX)", "icon": _ICO_CCT},
+    {"id": "disc-medidas", "label": "Medidas disciplinares", "icon": _ICO_CCT},
+    {"id": "disc-nova", "label": "Nova medida disciplinar", "icon": _ICO_CCT},
+    {"id": "disc-templates", "label": "Modelos de medida", "icon": _ICO_CCT},
+    {"id": "disc-template-novo", "label": "Novo modelo de medida", "icon": _ICO_CCT},
+    {"id": "disc-verificar-assinatura", "label": "Verificar assinatura", "icon": _ICO_CCT},
 ]
 
 _MOTIVO = [{"value": v, "label": lbl} for v, lbl in (
@@ -538,6 +543,149 @@ async def build(db) -> dict:
                    "multipart": True, "okMsg": "Currículo analisado", "showResult": True},
         "fields": [
             {"key": "file", "label": "Currículo (PDF ou DOCX)*", "type": "file", "span": "span 2"},
+        ],
+    }
+
+    # ── CICLO DE VIDA DISCIPLINAR (2026-08-10) ──────────────────────────────────────
+    # O sistema tinha 17 rotas e nenhuma acao alcancavel: dava para VER a medida (KPI no
+    # operacional) e nao dava para criar, submeter, aprovar, rejeitar ou assinar. As 8 de
+    # {action_id} viram acao por LINHA aqui; a listagem e a fonte do id.
+    #
+    # Fica no RH, e nao no operacional, porque o menu de la vive em _op_grupos.py — modulo
+    # curado a mao. Medida disciplinar e assunto de RH; o operacional segue mostrando o KPI.
+    _DISC_TONE = {"rascunho": "mut", "pendente_aprovacao": "warn", "aprovada": "ok",
+                  "rejeitada": "bad", "pendente_assinatura": "warn", "assinada": "ok",
+                  "recusada_assinatura": "bad", "aplicada": "ok", "cancelada": "mut"}
+
+    def _disc_acoes(r):
+        aid, st = r[0], (r[6] or "").lower()
+        A = []
+        if st == "rascunho":
+            A.append({"title": f"Submeter para aprovacao — {r[1]}",
+                      "endpoint": f"/api/v1/people-management/hr/discipline/medidas-administrativas/{aid}/submeter",
+                      "method": "POST", "btnLabel": "Submeter", "submitLabel": "Submeter para aprovacao",
+                      "btnStyle": "primary", "okMsg": "Medida submetida. Recarregue.", "fields": []})
+        if st == "pendente_aprovacao":
+            A.append({"title": f"Aprovar a medida de {r[1]}",
+                      "sub": "Aprovada, ela segue para assinatura do colaborador.",
+                      "endpoint": f"/api/v1/people-management/hr/discipline/medidas-administrativas/{aid}/aprovar",
+                      "method": "POST", "btnLabel": "Aprovar", "submitLabel": "Aprovar medida",
+                      "btnStyle": "primary", "okMsg": "Medida aprovada. Recarregue.", "fields": []})
+            A.append({"title": f"Rejeitar a medida de {r[1]}",
+                      "endpoint": f"/api/v1/people-management/hr/discipline/medidas-administrativas/{aid}/rejeitar",
+                      "method": "POST", "btnLabel": "Rejeitar", "submitLabel": "Rejeitar medida",
+                      "btnStyle": "outline", "okMsg": "Medida rejeitada. Recarregue.",
+                      "fields": [{"key": "motivo", "label": "Motivo da rejeicao", "type": "textarea",
+                                  "value": "", "span": "span 2"}]})
+        if st in ("aprovada", "pendente_assinatura"):
+            A.append({"title": f"Registrar assinatura — {r[1]}",
+                      "endpoint": f"/api/v1/people-management/hr/discipline/medidas-administrativas/{aid}/assinar",
+                      "method": "POST", "btnLabel": "Assinar", "submitLabel": "Registrar assinatura",
+                      "btnStyle": "primary", "okMsg": "Assinatura registrada. Recarregue.", "fields": []})
+            A.append({"title": f"Registrar RECUSA de assinatura — {r[1]}",
+                      "sub": "O colaborador se recusou a assinar. A CLT admite; o registro com "
+                             "testemunha e o que sustenta a medida.",
+                      "endpoint": f"/api/v1/people-management/hr/discipline/medidas-administrativas/{aid}/recusar-assinatura",
+                      "method": "POST", "btnLabel": "Recusou", "submitLabel": "Registrar recusa",
+                      "btnStyle": "outline", "okMsg": "Recusa registrada. Recarregue.",
+                      "fields": [{"key": "testemunha", "label": "Testemunha da recusa", "type": "text",
+                                  "value": "", "span": "span 2"}]})
+        A.append({"title": f"Gerar o documento da medida de {r[1]}",
+                  "endpoint": f"/api/v1/people-management/hr/discipline/medidas-administrativas/gerar-documento?action_id={aid}",
+                  "method": "POST", "btnLabel": "Documento", "submitLabel": "Gerar documento",
+                  "btnStyle": "outline", "okMsg": "Documento gerado.", "fields": []})
+        if st in ("rascunho", "rejeitada"):
+            A.append({"title": f"Excluir a medida de {r[1]}",
+                      "sub": "So em rascunho ou rejeitada — medida aplicada nao se apaga.",
+                      "endpoint": f"/api/v1/people-management/hr/discipline/medidas-administrativas/{aid}",
+                      "method": "DELETE", "btnLabel": "Excluir", "submitLabel": "Excluir medida",
+                      "btnStyle": "outline", "okMsg": "Medida excluida. Recarregue.", "fields": []})
+        return A or None
+
+    await safe("disc-medidas", tbl(
+        "Medidas disciplinares", "Ciclo completo: criar, submeter, aprovar, assinar", "Nova medida",
+        ["Colaborador", "Medida", "Motivo", "Ocorrido", "Status"],
+        "1.7fr 1.2fr 1.2fr 1fr 1.1fr",
+        "SELECT id, coalesce(employee_name,'—'), coalesce(action_type::text,'—'), "
+        "coalesce(reason_category::text,'—'), incident_date, coalesce(code,'—'), "
+        "coalesce(status::text,'—') "
+        "FROM disciplinary_actions ORDER BY created_at DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[1], 600, _ND, initials(r[1] or "")),
+                   b((r[2] or '—').replace('_', ' ').capitalize(), "info"),
+                   t((r[3] or '—').replace('_', ' ').capitalize()),
+                   t(str(r[4])[:10] if r[4] else '—'),
+                   b((r[6] or '—').replace('_', ' ').capitalize(), _DISC_TONE.get((r[6] or '').lower(), "info"))],
+        actionsfn=_disc_acoes))
+    if isinstance(out.get("disc-medidas"), dict):
+        out["disc-medidas"]["ctaTo"] = "disc-nova"
+
+    out["disc-nova"] = {
+        "title": "Nova medida disciplinar",
+        "sub": "Nasce como RASCUNHO — nada acontece com o colaborador ate voce submeter e "
+               "alguem aprovar. Use as telas de apoio antes: recomendar, conformidade, "
+               "proporcionalidade.",
+        "cta": "Criar rascunho", "type": "form",
+        "submit": {"endpoint": "/api/v1/people-management/hr/discipline/medidas-administrativas",
+                   "okMsg": "Medida criada (rascunho)"},
+        "fields": [
+            {"key": "employee_id", "label": "Colaborador (id)*", "type": "text", "span": "span 1"},
+            {"key": "employee_name", "label": "Nome do colaborador*", "type": "text", "span": "span 1"},
+            {"key": "employee_cpf", "label": "CPF*", "type": "text", "span": "span 1"},
+            {"key": "employee_position", "label": "Cargo", "type": "text", "span": "span 1"},
+            {"key": "action_type", "label": "Medida*", "type": "select", "span": "span 1",
+             "ph": "Selecione", "options": _MEDIDA},
+            {"key": "reason_category", "label": "Motivo*", "type": "select", "span": "span 1",
+             "ph": "Selecione", "options": _MOTIVO},
+            {"key": "incident_date", "label": "Data do ocorrido*", "type": "date", "span": "span 1"},
+            {"key": "application_date", "label": "Data de aplicacao", "type": "date", "span": "span 1"},
+            {"key": "suspension_days", "label": "Dias de suspensao (max 30)", "type": "number",
+             "span": "span 1", "ph": "so para suspensao"},
+            {"key": "witness_1_name", "label": "Testemunha", "type": "text", "span": "span 1"},
+            {"key": "reason_description", "label": "O que aconteceu*", "type": "textarea",
+             "span": "span 2", "ph": "E o que sustenta a medida — seja especifico"},
+        ],
+    }
+    await safe("disc-templates", tbl(
+        "Modelos de medida", "Textos-padrao por tipo de medida", "Novo modelo",
+        ["Modelo", "Tipo", "Padrao"], "2fr 1.4fr 0.8fr",
+        "SELECT id, coalesce(name,'—'), coalesce(action_type::text,'—'), coalesce(is_default,false) "
+        "FROM disciplinary_templates ORDER BY created_at DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[1], 600, _ND), b((r[2] or '—').replace('_', ' ').capitalize(), "info"),
+                   b("Padrao", "ok") if r[3] else b("—", "mut")],
+        actionsfn=lambda r: [
+            {"title": f"Excluir o modelo {r[1]}",
+             "endpoint": f"/api/v1/people-management/hr/discipline/medidas-administrativas/templates/{r[0]}",
+             "method": "DELETE", "btnLabel": "Excluir", "submitLabel": "Excluir modelo",
+             "btnStyle": "outline", "okMsg": "Modelo excluido. Recarregue.", "fields": []},
+        ]))
+    if isinstance(out.get("disc-templates"), dict):
+        out["disc-templates"]["ctaTo"] = "disc-template-novo"
+
+    out["disc-template-novo"] = {
+        "title": "Novo modelo de medida",
+        "sub": "Texto-padrao usado ao gerar o documento da medida.",
+        "cta": "Criar modelo", "type": "form",
+        "submit": {"endpoint": "/api/v1/people-management/hr/discipline/medidas-administrativas/templates",
+                   "okMsg": "Modelo criado"},
+        "fields": [
+            {"key": "name", "label": "Nome do modelo*", "type": "text", "span": "span 1"},
+            {"key": "action_type", "label": "Para qual medida*", "type": "select", "span": "span 1",
+             "ph": "Selecione", "options": _MEDIDA},
+            {"key": "description", "label": "Descricao", "type": "text", "span": "span 2"},
+            {"key": "content", "label": "Texto do documento*", "type": "textarea", "span": "span 2"},
+        ],
+    }
+    out["disc-verificar-assinatura"] = {
+        "title": "Verificar assinatura de documento",
+        "sub": "Confere se a assinatura registrada corresponde ao documento. Leitura — nao "
+               "assina nem invalida nada.",
+        "cta": "Verificar", "type": "form",
+        "submit": {"endpoint": "/api/v1/people-management/hr/discipline/assinaturas/verificar",
+                   "okMsg": "Verificacao concluida", "showResult": True},
+        "fields": [
+            {"key": "signature_id", "label": "Assinatura (id)*", "type": "text", "span": "span 2"},
+            {"key": "document_content", "label": "Conteudo do documento*", "type": "textarea",
+             "span": "span 2"},
         ],
     }
 
