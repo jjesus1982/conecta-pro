@@ -32,6 +32,9 @@ EXTRA_MENU: list[dict] = [
     {"id": "disc-recomendar", "label": "Disciplinar — recomendar medida", "icon": _ICO_CCT},
     {"id": "disc-conformidade", "label": "Disciplinar — conformidade CLT", "icon": _ICO_CCT},
     {"id": "disc-proporcionalidade", "label": "Disciplinar — proporcionalidade", "icon": _ICO_CCT},
+    {"id": "consultor-arquivo", "label": "Consultor de RH — com anexo", "icon": _ICO_CCT},
+    {"id": "curriculo-texto", "label": "Analisar currículo (texto)", "icon": _ICO_CCT},
+    {"id": "curriculo-arquivo", "label": "Analisar currículo (PDF/DOCX)", "icon": _ICO_CCT},
 ]
 
 _MOTIVO = [{"value": v, "label": lbl} for v, lbl in (
@@ -495,6 +498,46 @@ async def build(db) -> dict:
              "span": "span 1", "ph": "0"},
             {"key": "employee_tenure_days", "label": "Tempo de casa (dias)*", "type": "number",
              "span": "span 2", "ph": "Ex.: 540"},
+        ],
+    }
+
+    # ── Anexo e currículo (submit.query; nas de anexo, multipart+query) ─────────────
+    out["consultor-arquivo"] = {
+        "title": "Consultor de RH — analisando um anexo",
+        "sub": "Anexe o documento e pergunte sobre ele. O arquivo é lido para responder, "
+               "não fica guardado.",
+        "cta": "Analisar", "type": "form",
+        "submit": {"endpoint": "/api/v1/rh/consultor/perguntar-arquivo",
+                   "multipart": True, "query": True,
+                   "okMsg": "Análise concluída", "showResult": True},
+        "fields": [
+            {"key": "arquivo", "label": "Arquivo*", "type": "file", "span": "span 2"},
+            {"key": "area", "label": "Área", "type": "text", "span": "span 2",
+             "ph": "Ex.: treinamento, clima, carreira"},
+            {"key": "pergunta", "label": "Pergunta*", "type": "textarea", "span": "span 2"},
+        ],
+    }
+    out["curriculo-texto"] = {
+        "title": "Analisar currículo (texto colado)",
+        "sub": "Extrai dados estruturados do currículo. Use quando você já tem o texto — "
+               "para arquivo, use a tela ao lado.",
+        "cta": "Analisar", "type": "form",
+        "submit": {"endpoint": "/api/v1/people-management/human-resources/recruitment/resume/parse-text",
+                   "query": True, "okMsg": "Currículo analisado", "showResult": True},
+        "fields": [
+            {"key": "text", "label": "Texto do currículo*", "type": "textarea", "span": "span 2",
+             "ph": "Cole o conteúdo do currículo"},
+        ],
+    }
+    out["curriculo-arquivo"] = {
+        "title": "Analisar currículo (PDF/DOCX)",
+        "sub": "Faz o parsing do arquivo e devolve os dados estruturados. Não cria candidato "
+               "— é leitura.",
+        "cta": "Analisar", "type": "form",
+        "submit": {"endpoint": "/api/v1/people-management/human-resources/recruitment/resume/parse",
+                   "multipart": True, "okMsg": "Currículo analisado", "showResult": True},
+        "fields": [
+            {"key": "file", "label": "Currículo (PDF ou DOCX)*", "type": "file", "span": "span 2"},
         ],
     }
 

@@ -14,6 +14,7 @@ EXTRA_MENU: list[dict] = [  # det-comunicacoes já vem do EXTRA_MENU do monólit
     {"id": "det-coletar", "label": "Coletar DET", "icon": _ICO_J},
     {"id": "det-robo-login", "label": "Login do robô DET", "icon": _ICO_J},
     {"id": "conhecimento-seed", "label": "Semear base de conhecimento", "icon": _ICO_J},
+    {"id": "consultor-arquivo", "label": "Consultor jurídico — com anexo", "icon": _ICO_J},
 ]
 
 
@@ -231,6 +232,20 @@ async def build(db) -> dict:
         "cta": "Semear", "type": "form",
         "submit": {"endpoint": "/api/v1/juridico/conhecimento/seed", "okMsg": "Base semeada"},
         "fields": [],
+    }
+
+    out["consultor-arquivo"] = {
+        "title": "Consultor jurídico — com anexo",
+        "sub": "Anexe contrato, notificação ou peça e pergunte sobre o documento. O arquivo é lido para responder, não fica guardado.",
+        "cta": "Analisar", "type": "form",
+        "submit": {"endpoint": "/api/v1/juridico/consultor/perguntar-arquivo",
+                   "multipart": True, "query": True,
+                   "okMsg": "Análise concluída", "showResult": True},
+        "fields": [
+            {"key": "arquivo", "label": "Arquivo*", "type": "file", "span": "span 2"},
+            {"key": "area", "label": "Área", "type": "text", "span": "span 2", "ph": "Ex.: trabalhista, cível, tributária"},
+            {"key": "pergunta", "label": "Pergunta*", "type": "textarea", "span": "span 2"},
+        ],
     }
 
     return out

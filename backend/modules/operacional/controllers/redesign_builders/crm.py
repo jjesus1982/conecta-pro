@@ -202,6 +202,7 @@ EXTRA_MENU: list[dict] = [
     # Análise
     {"id": "simular-fechamento", "label": "Simular fechamento", "icon": _ICO_DOC},
     {"id": "consultor-comercial", "label": "Consultor comercial", "icon": _ICO_CHAT},
+    {"id": "consultor-comercial-arquivo", "label": "Consultor comercial — com anexo", "icon": _ICO_CHAT},
 ]
 
 # Toda rota de contato tem `confirmar`: False = PREVIEW (resolve o número, não envia).
@@ -631,6 +632,20 @@ async def build(db) -> dict:
              "ph": "Ex.: funil, propostas, contratos, metas"},
             {"key": "pergunta", "label": "Pergunta*", "type": "textarea", "span": "span 2",
              "ph": "Ex.: quais propostas estão paradas há mais de 15 dias?"},
+        ],
+    }
+
+    out["consultor-comercial-arquivo"] = {
+        "title": "Consultor comercial — com anexo",
+        "sub": "Anexe edital, proposta do concorrente ou contrato e pergunte sobre ele. O arquivo é lido para responder, não fica guardado.",
+        "cta": "Analisar", "type": "form",
+        "submit": {"endpoint": "/api/v1/comercial/consultor/perguntar-arquivo",
+                   "multipart": True, "query": True,
+                   "okMsg": "Análise concluída", "showResult": True},
+        "fields": [
+            {"key": "arquivo", "label": "Arquivo*", "type": "file", "span": "span 2"},
+            {"key": "area", "label": "Área", "type": "text", "span": "span 2", "ph": "Ex.: funil, propostas, contratos"},
+            {"key": "pergunta", "label": "Pergunta*", "type": "textarea", "span": "span 2"},
         ],
     }
 

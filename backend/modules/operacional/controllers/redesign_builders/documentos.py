@@ -19,6 +19,10 @@ EXTRA_MENU: list[dict] = [
     {"id": "kit-real-mes", "label": "Gerar kits reais do mês", "icon": _ICO_D},
     {"id": "sophia-reindexar", "label": "Re-indexar acervo (SOPHIA v2)", "icon": _ICO_D},
     {"id": "ingestao-historica", "label": "Ingestão histórica do Drive", "icon": _ICO_D},
+    {"id": "sophia-perguntar", "label": "Perguntar ao acervo (SOPHIA)", "icon": _ICO_D},
+    {"id": "gedeon-perguntar-arquivo", "label": "Consultor GEDEON — com anexo", "icon": _ICO_D},
+    {"id": "hermes-classificar", "label": "Classificar documento (Hermes)", "icon": _ICO_D},
+    {"id": "ged-agendamento", "label": "Agendamento de envio do GED", "icon": _ICO_D},
 ]
 
 
@@ -195,6 +199,94 @@ async def build(db) -> dict:
                    "okMsg": "Ingestão histórica disparada",
                    "confirm": "Processa TODOS os ZIPs históricos da pasta. Demorado. Confirma?"},
         "fields": [],
+    }
+
+    # ── Rotas de QUERY PARAM com entrada do usuário (submit.query) ──────────────────
+    # O renderizador ganhou `submit.query`: os campos viram query string em vez de ficarem
+    # só no corpo. Opt-in — sem a flag nada muda nos ~200 forms existentes.
+    out["sophia-perguntar"] = {
+        "title": "Perguntar ao acervo (SOPHIA)",
+        "sub": "Busca em linguagem natural sobre TODO o acervo indexado. Se vier vazio, "
+               "provavelmente falta indexar — use 'Indexar acervo' antes.",
+        "cta": "Perguntar", "type": "form",
+        "submit": {"endpoint": "/api/v1/gedeon/sophia/perguntar", "query": True,
+                   "okMsg": "Consulta respondida", "showResult": True},
+        "fields": [
+            {"key": "pergunta", "label": "Pergunta*", "type": "textarea", "span": "span 2",
+             "ph": "Ex.: em que mês entregamos o último atestado do condomínio X?"},
+            {"key": "cliente_id", "label": "Cliente (id)", "type": "text", "span": "span 1"},
+            {"key": "funcionario_id", "label": "Colaborador (id)", "type": "text", "span": "span 1"},
+            {"key": "modulo", "label": "Módulo", "type": "text", "span": "span 1",
+             "ph": "Ex.: folha, sst, fiscal"},
+            {"key": "competencia", "label": "Competência", "type": "text", "span": "span 1",
+             "ph": "AAAA-MM"},
+        ],
+    }
+    out["gedeon-perguntar-arquivo"] = {
+        "title": "Consultor GEDEON — analisando um anexo",
+        "sub": "Anexe PDF, DOCX, TXT ou CSV e pergunte sobre ele. O arquivo NÃO é guardado "
+               "no acervo — é lido para responder.",
+        "cta": "Analisar", "type": "form",
+        # multipart + query: o ARQUIVO vai no corpo, os demais campos na URL. Foi para isto
+        # que o submit.query passou a valer também no caminho multipart.
+        "submit": {"endpoint": "/api/v1/gedeon/consultor/perguntar-arquivo",
+                   "multipart": True, "query": True,
+                   "okMsg": "Análise concluída", "showResult": True},
+        "fields": [
+            {"key": "arquivo", "label": "Arquivo*", "type": "file", "span": "span 2"},
+            {"key": "area", "label": "Área*", "type": "text", "span": "span 1",
+             "ph": "Ex.: folha, documentos"},
+            {"key": "condominio", "label": "Condomínio", "type": "text", "span": "span 1"},
+            {"key": "competencia", "label": "Competência", "type": "text", "span": "span 1",
+             "ph": "AAAA-MM"},
+            {"key": "pergunta", "label": "Pergunta*", "type": "textarea", "span": "span 2"},
+        ],
+    }
+    out["hermes-classificar"] = {
+        "title": "Classificar documento (Hermes)",
+        "sub": "Diz em que categoria do GED um documento se encaixa, a partir do nome e de "
+               "um trecho do conteúdo. Só classifica — não move nem grava nada.",
+        "cta": "Classificar", "type": "form",
+        "submit": {"endpoint": "/api/v1/gedeon/hermes/classificar", "query": True,
+                   "okMsg": "Documento classificado", "showResult": True},
+        "fields": [
+            {"key": "nome_arquivo", "label": "Nome do arquivo*", "type": "text", "span": "span 2",
+             "ph": "Ex.: DARF_08_2026.pdf"},
+            {"key": "conteudo_preview", "label": "Trecho do conteúdo", "type": "textarea",
+             "span": "span 2", "ph": "Cole as primeiras linhas — ajuda quando o nome é genérico"},
+        ],
+    }
+    out["ged-agendamento"] = {
+        "title": "Agendamento de envio do GED",
+        "sub": "Quando e por onde o kit vai para o cliente. Campos em branco não são "
+               "alterados — o backend só aceita as chaves conhecidas.",
+        "cta": "Salvar agendamento", "type": "form",
+        "submit": {"endpoint": "/api/v1/ged/config/schedule", "method": "PUT",
+                   "okMsg": "Agendamento salvo", "showResult": True},
+        "fields": [
+            {"key": "ativo", "label": "Agendamento ativo?", "type": "select", "span": "span 1",
+             "ph": "Selecione", "options": [{"value": "true", "label": "Sim"},
+                                            {"value": "false", "label": "Não"}]},
+            {"key": "envio_automatico", "label": "Envio automático?", "type": "select",
+             "span": "span 1", "ph": "Selecione",
+             "options": [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]},
+            {"key": "dia_envio", "label": "Dia do mês", "type": "number", "span": "span 1",
+             "ph": "Ex.: 5"},
+            {"key": "hora_envio", "label": "Hora", "type": "text", "span": "span 1",
+             "ph": "HH:MM"},
+            {"key": "canal_envio", "label": "Canal", "type": "select", "span": "span 1",
+             "ph": "Selecione", "options": [{"value": "email", "label": "E-mail"},
+                                            {"value": "whatsapp", "label": "WhatsApp"},
+                                            {"value": "portal", "label": "Portal do cliente"}]},
+            {"key": "destinatarios", "label": "Destinatários", "type": "text", "span": "span 1",
+             "ph": "e-mails separados por vírgula"},
+            {"key": "incluir_kits", "label": "Incluir kits?", "type": "select", "span": "span 1",
+             "ph": "Selecione", "options": [{"value": "true", "label": "Sim"},
+                                            {"value": "false", "label": "Não"}]},
+            {"key": "incluir_certidoes", "label": "Incluir certidões?", "type": "select",
+             "span": "span 1", "ph": "Selecione",
+             "options": [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]},
+        ],
     }
 
     return out

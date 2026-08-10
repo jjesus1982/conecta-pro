@@ -14,7 +14,10 @@ from modules.operacional.controllers.redesign_data_controller import (
 )
 
 SLUG = "area-do-cliente"
-EXTRA_MENU: list[dict] = []
+EXTRA_MENU: list[dict] = [
+    {"id": "portal-onboard", "label": "Convidar clientes sem acesso", "icon": "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"},
+    {"id": "portal-resumo-mensal", "label": "Disparar resumo mensal", "icon": "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"},
+]
 _ND = "#0F1B3A"
 
 
@@ -166,5 +169,43 @@ async def build(db) -> dict:
         "FROM receivable_accounts WHERE coalesce(ativo,true) GROUP BY status "
         "ORDER BY sum(net_value) DESC NULLS LAST LIMIT 50",
         lambda r: [_st(r[0]), t(str(r[1])), t(brl(r[2]), 600)]))
+
+    # ── Portal do cliente (2026-08-10) — duas rotas de query sem tela ───────────────
+    out["portal-onboard"] = {
+        "title": "Convidar clientes que nunca acessaram",
+        "sub": "Cria/renova o acesso de quem ainda não logou no portal. Deixe o envio de "
+               "e-mail em 'Não' para preparar sem avisar ninguém.",
+        "cta": "Executar", "type": "form",
+        "submit": {"endpoint": "/api/v1/portal/access-management/onboard/nao-logados",
+                   "query": True, "okMsg": "Onboarding processado", "showResult": True,
+                   "confirm": "Se você marcou o envio de e-mail, os clientes recebem convite agora. Confirma?"},
+        "fields": [
+            {"key": "enviar_email", "label": "Enviar e-mail de convite?", "type": "select",
+             "span": "span 2", "ph": "Não (padrão)",
+             "options": [{"value": "false", "label": "Não — só prepara o acesso"},
+                         {"value": "true", "label": "Sim — envia o convite agora"}]},
+        ],
+    }
+    out["portal-resumo-mensal"] = {
+        "title": "Disparar resumo mensal ao cliente",
+        "sub": "Envia o resumo do mês. Sem cliente informado, vale para todos — confira "
+               "antes de marcar o envio.",
+        "cta": "Executar", "type": "form",
+        "submit": {"endpoint": "/api/v1/portal/access-management/resumo-mensal/disparar",
+                   "query": True, "okMsg": "Resumo mensal processado", "showResult": True,
+                   "confirm": "Se você marcou o envio, o resumo sai por e-mail agora. Sem cliente informado, vale para TODOS. Confirma?"},
+        "fields": [
+            {"key": "client_id", "label": "Cliente (id) — vazio = todos", "type": "text",
+             "span": "span 1"},
+            {"key": "competencia", "label": "Competência", "type": "text", "span": "span 1",
+             "ph": "AAAA-MM"},
+            {"key": "enviar_email", "label": "Enviar e-mail?", "type": "select", "span": "span 1",
+             "ph": "Não (padrão)",
+             "options": [{"value": "false", "label": "Não — só gera"},
+                         {"value": "true", "label": "Sim — envia agora"}]},
+            {"key": "email_override", "label": "Enviar para outro e-mail", "type": "text",
+             "span": "span 1", "ph": "opcional — útil para testar"},
+        ],
+    }
 
     return out

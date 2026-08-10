@@ -11,6 +11,7 @@ SLUG = "saude-ocupacional"
 EXTRA_MENU: list[dict] = [
     {"id": "fichas-epi", "label": "Fichas de EPI",
      "icon": "M9 12l2 2 4-4M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"},
+    {"id": "cipa-reuniao", "label": "Registrar reunião da CIPA", "icon": "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"},
 ]
 
 
@@ -143,5 +144,24 @@ async def build(db) -> dict:
             ])
     except Exception:  # noqa: BLE001
         pass
+
+    # CIPA (2026-08-10): o backend registrava a reuniao e nao havia tela. O endpoint recebe
+    # um dict livre; as chaves lidas sao data_reuniao (obrigatoria), tipo e pauta.
+    out["cipa-reuniao"] = {
+        "title": "Registrar reunião da CIPA",
+        "sub": "Ata mínima da reunião: data, tipo e pauta. Ordinária é a do calendário; "
+               "extraordinária é a convocada fora dele.",
+        "cta": "Registrar", "type": "form",
+        "submit": {"endpoint": "/api/v1/people-management/sst/cipa/reunioes",
+                   "okMsg": "Reunião da CIPA registrada"},
+        "fields": [
+            {"key": "data_reuniao", "label": "Data da reunião*", "type": "date", "span": "span 1"},
+            {"key": "tipo", "label": "Tipo", "type": "select", "span": "span 1", "ph": "Ordinária",
+             "options": [{"value": "ordinaria", "label": "Ordinária"},
+                         {"value": "extraordinaria", "label": "Extraordinária"}]},
+            {"key": "pauta", "label": "Pauta", "type": "textarea", "span": "span 2",
+             "ph": "O que foi tratado"},
+        ],
+    }
 
     return out

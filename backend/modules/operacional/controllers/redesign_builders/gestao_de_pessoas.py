@@ -20,6 +20,7 @@ SLUG = "gestao-de-pessoas"
 EXTRA_MENU: list[dict] = [
     {"id": "consultor-gestao", "label": "Consultor de gestão",
      "icon": "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M12 8v4M12 16h.01"},
+    {"id": "consultor-gestao-arquivo", "label": "Consultor de gestão — com anexo", "icon": "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M12 8v4M12 16h.01"},
 ]
 
 # GED · Envios — ação em PT + ator legível (nome real, ou rótulo do tipo quando é UUID cru no log)
@@ -177,6 +178,20 @@ async def build(db) -> dict:
         "fields": [
             {"key": "area", "label": "Área*", "type": "text", "span": "span 2",
              "ph": "Ex.: banco de horas, treinamentos, cargos"},
+            {"key": "pergunta", "label": "Pergunta*", "type": "textarea", "span": "span 2"},
+        ],
+    }
+
+    out["consultor-gestao-arquivo"] = {
+        "title": "Consultor de gestão — com anexo",
+        "sub": "Anexe o documento e pergunte sobre ele. O arquivo é lido para responder, não fica guardado.",
+        "cta": "Analisar", "type": "form",
+        "submit": {"endpoint": "/api/v1/gestao/consultor/perguntar-arquivo",
+                   "multipart": True, "query": True,
+                   "okMsg": "Análise concluída", "showResult": True},
+        "fields": [
+            {"key": "arquivo", "label": "Arquivo*", "type": "file", "span": "span 2"},
+            {"key": "area", "label": "Área", "type": "text", "span": "span 2", "ph": "Ex.: banco de horas, treinamentos"},
             {"key": "pergunta", "label": "Pergunta*", "type": "textarea", "span": "span 2"},
         ],
     }

@@ -16,6 +16,11 @@ from modules.operacional.controllers.redesign_data_controller import (  # noqa: 
 )
 
 SLUG = "seguranca"
+EXTRA_MENU: list[dict] = [
+    {"id": "lgpd-pia", "label": "LGPD — nova avaliação (PIA)", "icon": "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"},
+    {"id": "lgpd-apagamento", "label": "LGPD — pedido de apagamento", "icon": "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"},
+]
+
 
 
 async def build(db) -> dict:
@@ -71,5 +76,27 @@ async def build(db) -> dict:
         "FROM lgpd_pia_assessments ORDER BY created_at DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0], 600, "#0F1B3A"), b((r[1] or '—').capitalize(), "info"),
                    b((r[2] or '—').capitalize(), "warn"), b("Sim", "warn") if r[3] else b("Não", "mut"), t(_fmtdate(r[4]))]))
+
+    # ── LGPD (2026-08-10) — as duas rotas existiam sem tela. O parametro `service` do
+    # backend e injecao de dependencia, nao entrada do usuario: sao botoes secos.
+    out["lgpd-pia"] = {
+        "title": "LGPD — abrir avaliação de impacto (PIA)",
+        "sub": "Cria uma Avaliação de Impacto à Proteção de Dados. É o registro formal "
+               "exigido quando um tratamento novo pode gerar risco ao titular.",
+        "cta": "Abrir PIA", "type": "form",
+        "submit": {"endpoint": "/api/v1/security/lgpd/pia/create", "okMsg": "PIA aberta",
+                   "showResult": True},
+        "fields": [],
+    }
+    out["lgpd-apagamento"] = {
+        "title": "LGPD — registrar pedido de apagamento",
+        "sub": "Registra o pedido de eliminação de dados de um titular. Abre o pedido — "
+               "não apaga nada sozinho; o apagamento tem trâmite próprio.",
+        "cta": "Registrar pedido", "type": "form",
+        "submit": {"endpoint": "/api/v1/security/lgpd/erasure/request",
+                   "okMsg": "Pedido de apagamento registrado", "showResult": True,
+                   "confirm": "Registra um pedido formal de apagamento de dados (LGPD). Confirma?"},
+        "fields": [],
+    }
 
     return out
