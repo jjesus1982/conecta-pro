@@ -17,6 +17,7 @@ SLUG = "area-do-cliente"
 EXTRA_MENU: list[dict] = [
     {"id": "portal-onboard", "label": "Convidar clientes sem acesso", "icon": "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"},
     {"id": "portal-resumo-mensal", "label": "Disparar resumo mensal", "icon": "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"},
+    {"id": "ged-clientes", "label": "Acesso dos clientes ao portal", "icon": "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"},
 ]
 _ND = "#0F1B3A"
 
@@ -207,5 +208,37 @@ async def build(db) -> dict:
              "span": "span 1", "ph": "opcional — útil para testar"},
         ],
     }
+
+    # Acesso ao portal (2026-08-10): a rota leva {client_id} no CAMINHO -> acao por LINHA.
+    # Habilitar acesso CRIA CREDENCIAL: a acao pede usuario e senha explicitamente, em vez
+    # de gerar em silencio.
+    await safe("ged-clientes", tbl(
+        "Acesso ao portal", "Quem do lado do cliente tem acesso", "—",
+        ["Cliente", "CNPJ", "Contato", "Acesso", "Usuario"],
+        "1.8fr 1.2fr 1.4fr 0.8fr 1fr",
+        "SELECT id, coalesce(name,'—'), coalesce(cnpj,'—'), coalesce(contact_name,'—'), "
+        "coalesce(portal_access_enabled,false), coalesce(portal_username,'—') "
+        "FROM ged_clients WHERE coalesce(is_active,true) ORDER BY name LIMIT 200",
+        lambda r: [t(r[1], 600, "#0F1B3A"), t(r[2]), t(r[3]),
+                   b("Ativo", "ok") if r[4] else b("Sem acesso", "mut"), t(r[5])],
+        actionsfn=lambda r: [
+            {"title": ("Desativar o acesso de " if r[4] else "Liberar acesso ao portal para ") + str(r[1]),
+             "sub": ("O cliente perde o acesso imediatamente." if r[4] else
+                     "Cria a credencial do cliente. Combine a senha por um canal seguro — "
+                     "ela nao e reenviada depois."),
+             "endpoint": f"/api/v1/people-management/ged/clients/{r[0]}/portal-access",
+             "method": "POST", "btnLabel": "Desativar" if r[4] else "Liberar",
+             "submitLabel": "Desativar acesso" if r[4] else "Liberar acesso",
+             "btnStyle": "outline" if r[4] else "primary",
+             "okMsg": "Acesso atualizado. Recarregue.",
+             "fields": ([{"key": "enabled", "label": "Confirme: desativar (false)", "type": "text",
+                          "value": "false", "span": "span 2"}] if r[4] else
+                        [{"key": "enabled", "label": "Ativar (true)", "type": "text",
+                          "value": "true", "span": "span 2"},
+                         {"key": "username", "label": "Usuario", "type": "text", "value": "",
+                          "span": "span 1"},
+                         {"key": "password", "label": "Senha", "type": "text", "value": "",
+                          "span": "span 1"}])},
+        ]))
 
     return out

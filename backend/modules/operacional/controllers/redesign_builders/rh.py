@@ -40,6 +40,7 @@ EXTRA_MENU: list[dict] = [
     {"id": "disc-templates", "label": "Modelos de medida", "icon": _ICO_CCT},
     {"id": "disc-template-novo", "label": "Novo modelo de medida", "icon": _ICO_CCT},
     {"id": "disc-verificar-assinatura", "label": "Verificar assinatura", "icon": _ICO_CCT},
+    {"id": "cct-convencoes", "label": "CCT — convencoes e feriados", "icon": _ICO_CCT},
 ]
 
 _MOTIVO = [{"value": v, "label": lbl} for v, lbl in (
@@ -688,5 +689,36 @@ async def build(db) -> dict:
              "span": "span 2"},
         ],
     }
+
+    # Convencoes da CCT (2026-08-10): adicionar feriado leva {convencao_id} no CAMINHO ->
+    # acao por LINHA. Feriado da convencao muda o calculo de hora extra a 100%.
+    await safe("cct-convencoes", tbl(
+        "CCT — convencoes", "Convencoes coletivas e seus feriados", "—",
+        ["Sindicato", "Registro MTE", "Vigencia", "Municipio", "Vigente"],
+        "2fr 1.2fr 1.4fr 1fr 0.8fr",
+        "SELECT id, coalesce(sindicato_trabalhadores,'—'), coalesce(registro_mte,'—'), "
+        "data_inicio, data_fim, coalesce(municipio,'—'), coalesce(is_vigente,false) "
+        "FROM cct_convencoes ORDER BY data_inicio DESC NULLS LAST LIMIT 100",
+        lambda r: [t((r[1] or '—')[:44], 600, _ND), t(r[2]),
+                   t(f"{str(r[3])[:10]} a {str(r[4])[:10]}" if r[3] and r[4] else '—'),
+                   t(r[5]), b("Vigente", "ok") if r[6] else b("—", "mut")],
+        actionsfn=lambda r: [
+            {"title": f"Adicionar feriado a convencao {r[2]}",
+             "sub": "Feriado da convencao muda o calculo: hora extra em feriado e 100%, nao 50%. "
+                    "Depois de adicionar, limpe o cache da CCT.",
+             "endpoint": f"/api/v1/people-management/admin/cct/convencoes/{r[0]}/feriados",
+             "method": "POST", "btnLabel": "Feriado", "submitLabel": "Adicionar feriado",
+             "btnStyle": "outline", "okMsg": "Feriado adicionado. Limpe o cache da CCT.",
+             "fields": [
+                 {"key": "data_feriado", "label": "Data*", "type": "date", "value": "", "span": "span 1"},
+                 {"key": "tipo", "label": "Tipo*", "type": "select", "value": "", "span": "span 1",
+                  "options": [{"value": "nacional", "label": "Nacional"},
+                              {"value": "estadual", "label": "Estadual"},
+                              {"value": "municipal", "label": "Municipal"},
+                              {"value": "categoria", "label": "Da categoria"}]},
+                 {"key": "nome", "label": "Nome do feriado*", "type": "text", "value": "",
+                  "span": "span 2"},
+             ]},
+        ]))
 
     return out
