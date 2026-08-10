@@ -14,6 +14,7 @@ type Msg = { role: 'user' | 'assistant'; text: string; docs?: Doc[]; aviso?: boo
 
 const ENDPOINT = '/api/v1/consultores/chat/executar';
 const ENDPOINT_ARQUIVO = '/api/v1/consultores/chat/executar-arquivo';
+const ENDPOINT_VOZ = '/api/v1/consultores/voz/falar';   // TTS neural (edge-tts) no servidor
 const ACCEPT = '.pdf,.docx,.txt,.png,.jpg,.jpeg,.webp';
 const SUGGESTIONS = ['Gera o DRE do mês', 'Meu holerite', 'Monta uma proposta'];
 const NAVY = '#16277D';
@@ -59,6 +60,7 @@ export default function FloatingChat() {
   const [temVoz, setTemVoz] = useState(false);
   const recRef = useRef<any>(null);
   const ultimaFaladaRef = useRef<string>('');
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -75,33 +77,48 @@ export default function FloatingChat() {
   }, []);
 
   // Lê a última resposta do assistente quando o alto-falante está ligado.
+  // Voz NEURAL do servidor (edge-tts). A do navegador (speechSynthesis) ficou só como
+  // reserva: usa a voz do sistema operacional e soa robótica demais.
   useEffect(() => {
-    if (!falarRespostas || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    if (!falarRespostas || typeof window === 'undefined') return;
     const ultima = [...msgs].reverse().find((m) => m.role === 'assistant');
     if (!ultima || !ultima.text || ultima.text === ultimaFaladaRef.current) return;
     ultimaFaladaRef.current = ultima.text;
-    try {
-      window.speechSynthesis.cancel();
-      // Markdown e URL não se leem bem em voz alta; limpa antes de falar.
-      const limpo = ultima.text.replace(/[*_`#>|]/g, '').replace(/https?:\/\/\S+/g, 'link').slice(0, 700);
-      const u = new SpeechSynthesisUtterance(limpo);
-      u.lang = 'pt-BR';
-      u.rate = 1.02;
-      u.pitch = 1.0;
-      // A 1ª versão pegava a PRIMEIRA voz "pt" da lista — normalmente a do sistema, que soa
-      // robótica. As boas (neurais, servidas pelo Google) aparecem depois. Ordem de preferência:
-      // Google pt-BR > qualquer pt-BR não-local > pt-BR > pt.
-      const vozes = window.speechSynthesis.getVoices();
-      const ptBR = vozes.filter((v) => /^pt[-_]?BR/i.test(v.lang || ''));
-      const melhor =
-        ptBR.find((v) => /google/i.test(v.name)) ||
-        ptBR.find((v) => v.localService === false) ||
-        ptBR.find((v) => /(luciana|francisca|maria|natural|neural)/i.test(v.name)) ||
-        ptBR[0] ||
-        vozes.find((v) => /^pt/i.test(v.lang || ''));
-      if (melhor) u.voice = melhor;
-      window.speechSynthesis.speak(u);
-    } catch { /* voz é opcional: falhar aqui nunca quebra o chat */ }
+
+    let cancelado = false;
+    (async () => {
+      try { window.speechSynthesis?.cancel(); } catch { /* */ }
+      if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+      let tok: string | null = null;
+      try { tok = localStorage.getItem('access_token'); } catch { /* */ }
+      try {
+        const r = await fetch(ENDPOINT_VOZ, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
+          body: JSON.stringify({ texto: ultima.text, voz: 'francisca', velocidade: 4 }),
+        });
+        if (!r.ok) throw new Error(String(r.status));
+        const url = URL.createObjectURL(await r.blob());
+        if (cancelado) { URL.revokeObjectURL(url); return; }
+        const a = new Audio(url);
+        audioRef.current = a;
+        a.onended = () => URL.revokeObjectURL(url);
+        await a.play();
+      } catch {
+        // Reserva: se o TTS do servidor cair, fala com a voz do navegador em vez de emudecer.
+        try {
+          const limpo = ultima.text.replace(/[*_`#>|]/g, '').replace(/https?:\/\/\S+/g, 'link').slice(0, 700);
+          const u = new SpeechSynthesisUtterance(limpo);
+          u.lang = 'pt-BR';
+          const vozes = window.speechSynthesis.getVoices();
+          const ptBR = vozes.filter((v) => /^pt[-_]?BR/i.test(v.lang || ''));
+          const melhor = ptBR.find((v) => /google/i.test(v.name)) || ptBR.find((v) => v.localService === false) || ptBR[0];
+          if (melhor) u.voice = melhor;
+          window.speechSynthesis.speak(u);
+        } catch { /* voz é opcional: falhar aqui nunca quebra o chat */ }
+      }
+    })();
+    return () => { cancelado = true; };
   }, [msgs, falarRespostas]);
 
   // Erro de voz PRECISA aparecer: a 1ª versão engolia a falha e o botão parecia morto.
@@ -194,6 +211,7 @@ export default function FloatingChat() {
     if (open) return;
     try { recRef.current?.stop(); } catch { /* */ }
     try { window.speechSynthesis?.cancel(); } catch { /* */ }
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
   }, [open]);
   useEffect(() => {
     if (!open) return;
@@ -227,7 +245,8 @@ export default function FloatingChat() {
         : await fetch(ENDPOINT, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...auth },
-            body: JSON.stringify({ pergunta: q, persona }),
+            // voz=true => o backend responde em ATÉ 2 frases: texto longo lido em voz alta é insuportável.
+            body: JSON.stringify({ pergunta: q, persona, voz: falarRespostas }),
           });
       const d = await res.json().catch(() => ({} as any));
       if (res.status === 401 || res.status === 403) {

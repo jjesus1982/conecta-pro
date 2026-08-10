@@ -1109,6 +1109,14 @@ try:
         logger.info("Consultor escopado controller: OK")
     except Exception as _e:
         logger.warning(f"Consultor escopado controller: {_e}")
+    # Voz (TTS neural) do chat flutuante — a voz do navegador soava robótica.
+    try:
+        from modules.ai.conversation.controllers.voz_controller import router as _voz_router
+
+        api_router.include_router(_voz_router)
+        logger.info("Voz (TTS) controller: OK")
+    except Exception as _e:
+        logger.warning(f"Voz (TTS) controller: {_e}")
     # Consultor MCP (Fase 5 / Task 3): superfície que o conector MCP chama (consulta unificada 🟢).
     try:
         from modules.ai.conversation.controllers.consultor_mcp_controller import (

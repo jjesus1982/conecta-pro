@@ -134,6 +134,9 @@ _ANEXO_NUDGE = (
 class ConsultarIn(BaseModel):
     pergunta: str = Field(..., min_length=3, max_length=2000)
     persona: str | None = Field(None, max_length=40)  # lente/slug ativo (ex.: 'financeiro'→CFO)
+    # Modo voz: a resposta vai ser OUVIDA, não lida. Texto longo em voz alta é insuportável —
+    # o ouvinte não pode "pular parágrafo". Encurta e tira formatação que não se lê bem.
+    voz: bool = False
 
 
 def _modulo_tools(mods: set[str]) -> list[ToolDef]:
@@ -175,7 +178,19 @@ _MODULO_AGENTE = {
 }
 
 
-def _system_for(user, pergunta: str, persona: str | None = None) -> str:
+_ESTILO_VOZ = (
+    "\n\n## MODO VOZ (a resposta será OUVIDA, não lida)\n"
+    "- Responda em ATÉ 2 frases curtas. Uma é melhor que duas.\n"
+    "- Vá direto ao número/fato pedido. Sem preâmbulo ('claro', 'com certeza', 'vou verificar').\n"
+    "- Nada de markdown, bullet, tabela, link ou citação de fonte — não se lê em voz alta.\n"
+    "- Números por extenso quando ajudar a ouvir (ex.: 'nove postos', 'mil e duzentos reais').\n"
+    "- Se houver lista, diga QUANTOS e cite no máximo 3, e ofereça: 'quer a lista completa na tela?'\n"
+    "- Pode terminar com UMA pergunta curta ou sugestão de próximo passo, se for útil.\n"
+    "- Se faltar dado, diga em uma frase o que falta. Não invente.\n"
+)
+
+
+def _system_for(user, pergunta: str, persona: str | None = None, voz: bool = False) -> str:
     """Constituição + persona. Se uma LENTE for pedida (persona = slug do /redesign ou nome da
     lente), injeta a lente ativa + o conhecimento COMPLETO dela; senão, o conhecimento dos
     módulos do usuário (cap 2). Fail-open."""
@@ -189,6 +204,8 @@ def _system_for(user, pergunta: str, persona: str | None = None) -> str:
         mods = user_modules(user)
         for ag in list({_MODULO_AGENTE[m] for m in mods if m in _MODULO_AGENTE})[:2]:
             sp += contexto_para_prompt(ag, pergunta)
+    if voz:
+        sp += _ESTILO_VOZ   # por último: manda no formato, não no conteúdo
     return sp
 
 
@@ -229,7 +246,7 @@ async def executar(
     scope, tools = await _resolver_tier_e_tools(db, user)
     return await run_engine(
         db, user, scope, tools, pergunta,
-        system_prompt=_system_for(user, pergunta, persona), origem="consultor_executar",
+        system_prompt=_system_for(user, pergunta, persona, voz=payload.voz), origem="consultor_executar",
     )
 
 
