@@ -8,7 +8,7 @@ services:
   # Celery Worker - Alta Prioridade (eSocial, FGTS)
   # ==========================================================================
   celery-priority:
-    image: conecta-pro-backend:latest
+    image: ${BACKEND_IMAGE:-conecta-pro-backend:latest}
     container_name: conecta-pro-celery-priority
     restart: unless-stopped
     mem_limit: 2g
@@ -47,7 +47,7 @@ services:
   # Celery Worker - SEFAZ (NF-e, CT-e, MDF-e)
   # ==========================================================================
   celery-sefaz:
-    image: conecta-pro-backend:latest
+    image: ${BACKEND_IMAGE:-conecta-pro-backend:latest}
     container_name: conecta-pro-celery-sefaz
     restart: unless-stopped
     mem_limit: 2g
@@ -86,7 +86,7 @@ services:
   # Celery Worker - NFS-e
   # ==========================================================================
   celery-nfse:
-    image: conecta-pro-backend:latest
+    image: ${BACKEND_IMAGE:-conecta-pro-backend:latest}
     container_name: conecta-pro-celery-nfse
     restart: unless-stopped
     mem_limit: 2g
@@ -125,7 +125,7 @@ services:
   # Celery Worker - Batch/Sync/Monitoramento
   # ==========================================================================
   celery-batch:
-    image: conecta-pro-backend:latest
+    image: ${BACKEND_IMAGE:-conecta-pro-backend:latest}
     container_name: conecta-pro-celery-batch
     restart: unless-stopped
     mem_limit: 2g
@@ -169,7 +169,7 @@ services:
   # Celery Worker - Integrações (Sólides, APIs Externas)
   # ==========================================================================
   celery-integrations:
-    image: conecta-pro-backend:latest
+    image: ${BACKEND_IMAGE:-conecta-pro-backend:latest}
     container_name: conecta-pro-celery-integrations
     restart: unless-stopped
     mem_limit: 2g
@@ -210,7 +210,7 @@ services:
   # Celery Worker - Operacional (Notificações Push)
   # ==========================================================================
   celery-operacional:
-    image: conecta-pro-backend:latest
+    image: ${BACKEND_IMAGE:-conecta-pro-backend:latest}
     container_name: conecta-pro-celery-operacional
     restart: unless-stopped
     mem_limit: 2g
@@ -248,7 +248,7 @@ services:
   # Celery Beat - Scheduler
   # ==========================================================================
   celery-beat:
-    image: conecta-pro-backend:latest
+    image: ${BACKEND_IMAGE:-conecta-pro-backend:latest}
     container_name: conecta-pro-celery-beat
     restart: unless-stopped
     mem_limit: 2g
@@ -289,7 +289,7 @@ services:
   # Flower - Celery Monitoring (Opcional)
   # ==========================================================================
   flower:
-    image: conecta-pro-backend:latest
+    image: ${BACKEND_IMAGE:-conecta-pro-backend:latest}
     container_name: conecta-pro-flower
     restart: unless-stopped
     # CORRECAO F8: Removido --broker_api (flag exclusiva de RabbitMQ, invalida para Redis

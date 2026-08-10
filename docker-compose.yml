@@ -54,6 +54,13 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    # BACKEND_IMAGE fixa a imagem EXATA de um deploy. Sem a variável = conecta-pro-backend:latest,
+    # que é o nome derivado de sempre — nada muda para quem roda `docker compose` na mão.
+    # O deploy blue/green captura o ID logo após o build e passa esta variável em TODOS os
+    # `up` seguintes (green, primário e os 8 workers). Assim, se alguém reconstruir a imagem
+    # no meio do deploy, a tag `latest` muda mas o deploy em curso continua com a SUA imagem —
+    # backend e workers terminam no mesmo código. Antes disso, drift medido 3x em 10/08/2026.
+    image: ${BACKEND_IMAGE:-conecta-pro-backend:latest}
     container_name: conecta-pro-backend
     restart: unless-stopped
     stop_grace_period: 30s

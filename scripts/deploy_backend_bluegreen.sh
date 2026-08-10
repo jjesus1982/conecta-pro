@@ -86,6 +86,19 @@ log "═══ BLUE/GREEN INICIADO ═══"
 log "1/7 build..."
 docker compose build backend >>"$LOG" 2>&1 || { log "ERRO no build"; exit 1; }
 
+# FIXA a imagem deste deploy. Sem isto, todo `up` daqui pra frente resolve a tag `latest`
+# no instante em que roda — e o passo 7 leva ~12 min recriando os workers um a um. Um build
+# por fora do lock nesse intervalo troca a tag no meio: parte dos containers fica com a
+# imagem antiga (que vira órfã) e parte com a nova, todos "healthy". Medido 3x em 10/08/2026
+# (2, depois 4, depois 7 workers). Com o ID fixo, um build concorrente pode mexer na tag à
+# vontade: ESTE deploy termina inteiro na MESMA imagem.
+export BACKEND_IMAGE
+BACKEND_IMAGE=$(docker image inspect conecta-pro-backend:latest --format '{{.Id}}' 2>/dev/null)
+if [ -z "${BACKEND_IMAGE:-}" ]; then
+  log "ERRO: não consegui resolver o ID da imagem recém-construída"; exit 1
+fi
+log "  imagem deste deploy: ${BACKEND_IMAGE#sha256:}"
+
 # 2. Sobe GREEN com a imagem nova (tráfego segue no primário)
 log "2/7 subindo green (8081)..."
 $COMPOSE_BG up -d --no-deps backend-green >>"$LOG" 2>&1 || { log "ERRO ao subir green"; cleanup_green; exit 1; }
