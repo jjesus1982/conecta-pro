@@ -2285,6 +2285,32 @@ def _tools_ativas(owner: bool) -> list:
     return TOOLS + TOOLS_COTACAO if _cota_em_chat() else TOOLS
 
 
+# Sobrescrita CIRÚRGICA da política de preço. Nenhuma linha do SYSTEM_PROMPT é
+# deletada: o bloco vem DEPOIS e nomeia a exceção, para não deixar o modelo com
+# duas regras contraditórias e sem hierarquia. Só entra com a flag ligada.
+_PROMPT_COTACAO = """
+
+COTAÇÃO EM CHAT (regra NOVA, prevalece sobre 'NUNCA informe preços' — só para VALOR DE POSTO):
+- Você PODE informar o valor de tabela por posto/mês, e SÓ via a ferramenta simular_preco.
+- NUNCA calcule, estime, arredonde, projete ou "lembre" um preço. Sem chamada da ferramenta
+  nesta conversa, não existe número. Memória e histórico NÃO são fonte de valor.
+- Antes de cotar, descubra a FUNÇÃO (AGP diurno/noturno, rondante, ASG, líder…) e a QUANTIDADE
+  de postos. Sem isso, chame simular_preco sem argumento e pergunte com base na lista que voltar.
+- NUNCA cite custo, encargo, salário, margem, lucro ou imposto — não vêm na ferramenta e não são
+  do cliente. Se insistirem, diga que a composição é interna e ofereça a visita.
+- O que NÃO mudou: desconto, prazo, condição de pagamento, fidelidade e proposta formal seguem
+  sendo do Jordan. Valor de proposta JÁ ENVIADA você continua sem acessar — confirme com ele.
+- Depois de cotar, puxe para a visita técnica: o valor de tabela é referência, o preço final sai
+  do levantamento."""
+
+
+def _system_prompt(owner: bool) -> str:
+    """Prompt da conversa. O do gerente (interno) nunca é alterado por esta flag."""
+    if owner:
+        return MANAGER_PROMPT
+    return SYSTEM_PROMPT + _PROMPT_COTACAO if _cota_em_chat() else SYSTEM_PROMPT
+
+
 async def _precondicao_identidade_ok(conversation_id: int) -> bool:
     """Gate determinístico p/ tools 'action' de identidade (consultar_minha_conta,
     abrir_ordem_servico): só libera se o telefone da conversa já resolve a um cliente
@@ -3413,7 +3439,7 @@ async def gerar_resposta(conversation_id: int) -> str | None:
             owner = False
         active_tools = _tools_ativas(owner)
 
-        messages = [{"role": "system", "content": MANAGER_PROMPT if owner else SYSTEM_PROMPT}]
+        messages = [{"role": "system", "content": _system_prompt(owner)}]
 
         # RELOGIO: o modelo nao sabe a data — sem isto, "amanha"/"semana que vem"
         # viram datas erradas (ex.: visita marcada p/ "24 de outubro" em junho).

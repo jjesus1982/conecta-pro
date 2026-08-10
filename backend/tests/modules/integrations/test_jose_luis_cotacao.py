@@ -200,6 +200,31 @@ async def test_match_parcial_e_sem_acento(monkeypatch):
     assert not (ag._CAMPOS_INTERNOS_COTACAO & set(out))
 
 
+# ── política do prompt ───────────────────────────────────────────────────────
+
+
+def test_prompt_sem_bloco_de_preco_por_padrao(monkeypatch):
+    monkeypatch.delenv("AGENT_COTA_EM_CHAT", raising=False)
+    assert ag._system_prompt(owner=False) is ag.SYSTEM_PROMPT
+    assert "COTAÇÃO EM CHAT" not in ag._system_prompt(owner=False)
+    assert "NUNCA informe preços" in ag._system_prompt(owner=False)
+
+
+def test_prompt_com_bloco_quando_ligado(monkeypatch):
+    monkeypatch.setenv("AGENT_COTA_EM_CHAT", "true")
+    p = ag._system_prompt(owner=False)
+    assert "COTAÇÃO EM CHAT" in p
+    assert "simular_preco" in p
+    # A proibição original continua no texto (nada foi deletado) e o bloco vem DEPOIS:
+    # a exceção é nomeada explicitamente, senão o modelo fica com duas regras sem hierarquia.
+    assert p.index("NUNCA informe preços") < p.index("COTAÇÃO EM CHAT")
+
+
+def test_prompt_do_gerente_intocado(monkeypatch):
+    monkeypatch.setenv("AGENT_COTA_EM_CHAT", "true")
+    assert ag._system_prompt(owner=True) is ag.MANAGER_PROMPT
+
+
 async def test_falha_no_banco_nao_derruba_o_atendimento(monkeypatch):
     monkeypatch.setenv("AGENT_COTA_EM_CHAT", "true")
 
