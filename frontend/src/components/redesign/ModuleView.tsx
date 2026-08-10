@@ -557,7 +557,11 @@ function FormScreen({ scr }: { scr: any }) {
         </div>
       )}
       {resultado && (() => {
-        const fmt = (v: unknown) => typeof v === 'number' ? v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(v);
+        // Inteiro é CONTAGEM (86 notas), não dinheiro: sem casas decimais. Só o
+        // fracionário ganha 2 casas — senão "86 documentos" vira "86,00".
+        const fmt = (v: unknown) => typeof v !== 'number' ? String(v)
+          : Number.isInteger(v) ? v.toLocaleString('pt-BR')
+          : v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         const pretty = (k: string) => k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
         const skip = new Set(['ok', 'message', 'doc', 'otp_required', 'ref', 'otp', 'erro', 'detail']);
         const rows: Array<{ label: string; value: string | null }> = [];
