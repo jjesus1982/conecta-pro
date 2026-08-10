@@ -54,8 +54,14 @@ cleanup_green() { $COMPOSE_BG rm -sf backend-green >/dev/null 2>&1; }
 # imagem que a tag deixou de apontar — usar o que está rodando faria a lista encolher a cada
 # execução. Assim, worker novo que alguém adicionar amanhã entra sozinho.
 svcs_da_imagem_backend() {
+  # Casa QUALQUER linha de image que mencione a imagem do backend — inclusive a forma com
+  # variavel: `image: ${BACKEND_IMAGE:-conecta-pro-backend:latest}`.
+  # Antes o padrao exigia a string exata `image: conecta-pro-backend:latest`. Quando o pin
+  # por ID entrou (10/08/2026), o awk parou de casar e o passo 7 anunciou "recriando 0
+  # worker(s)" — deploy que parecia OK e nao levava codigo nenhum para os 8 workers.
+  # Pego na primeira execucao pela verificacao pos-deploy.
   awk '/^  [a-z0-9-]+:$/ {s=$1; sub(":","",s)}
-       /^    image: conecta-pro-backend:latest$/ {print s}' docker-compose.celery.yml
+       /^    image:.*conecta-pro-backend/ {print s}' docker-compose.celery.yml
 }
 
 wait_container_health() {  # $1 = nome do container, $2 = timeout
