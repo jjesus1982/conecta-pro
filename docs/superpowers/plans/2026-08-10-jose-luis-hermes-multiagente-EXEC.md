@@ -857,12 +857,24 @@ Módulo financeiro/redesign (T4), não meu. Registrado para o Jordan decidir o d
 
    ⚠️ `noturno` (20%) não estava marcado e também não bate: folha realizada 10,67% do base — está para MAIS, compensando parte. `pricing_cct.calcular` aplica os quatro como **% do salário base**, não sobre horas noturnas. **Rever os quatro juntos.**
 
-   Aplicar (decisão do Jordan — muda preço a cliente):
-   ```sql
-   UPDATE crm_pricing_params SET valor=0.15,  updated_at=now() WHERE chave='ronda';
-   UPDATE crm_pricing_params SET valor=0.128, updated_at=now() WHERE chave='hora_reduzida';
-   -- sem recreate: pricing_cct.carregar_params() lê o banco a cada cotação
-   ```
+   **Refinado com o valor MODAL da folha** (mês cheio, base 1670 — a média engana, é puxada
+   por pro-rata). `folha_verba_espelho`:
+
+   | verba | modal = % do base | param | situação |
+   |---|--:|--:|---|
+   | Ad. de Ronda (0018) | **15,00%** (32×, exato) | 10% → 15% | ✅ **APLICADO 2026-08-09** |
+   | Hora Noturna Reduzida (0021) | **16,87%** | 8% | ❌ aberto |
+   | Ad. Noturno (0020) | **12,44%** (28×) e 13,33% (2 escalas) | 20% | ⚠️ aberto (para MAIS) |
+   | Intrajornada Noturna (0031) | **15,74%**, 16 pessoas | **não existe** | ❌ aberto, exige código |
+
+   Ronda aplicado → Rondante Diurno 5.490,48→**5.689,97** · Rondante Noturno 6.607,65→**6.807,14**.
+   Valeu na hora (`carregar_params()` lê o banco a cada cotação, sem deploy).
+   Rollback: `UPDATE crm_pricing_params SET valor=0.10 WHERE chave='ronda';`
+
+   **Os outros três seguem abertos de propósito:** `noturno` iria para BAIXO (decisão comercial),
+   e `intrajornada` exige **mudança de código** em `pricing_cct.py` (param novo + flag por função
+   em `crm_pricing_funcoes`), não só dado. A planilha `Formacao_Preco_CCT2026_ConectaMais` que o
+   `pricing_cct.py` diz replicar **não está no repo** — sem ela, fechar os quatro é chute.
 3. **Margem 15%** (`crm_pricing_params.margem`) é a que vale para cotação externa? A tela do redesign usa 35%.
 4. **Quem corrige o `rd_action_simular_preco`** (B3) — T4 ou T5?
 5. **Tabela cotada hoje** (valor de tabela por posto/mês, 12 meses, extraído do banco):
