@@ -973,6 +973,28 @@ Módulo financeiro/redesign (T4), não meu. Registrado para o Jordan decidir o d
    apertar para 2% só treina todo mundo a ignorar o gate.
    **Provado que pega:** com `ronda` de volta em 10%, acusa **33,2%** e sai com `exit 1`.
 
+   ### 🗣️ Prompt fazia o agente RECUAR depois de cotar (`f6118b69`)
+
+   Sintoma no E2E: cotava `R$ 6.882,78` e no turno seguinte dizia *"esse valor eu usei como
+   exemplo, mas não posso te passar número sem rodar a simulação oficial"* — e reabria pergunta
+   já respondida. Recuar depois de dar o preço derruba a confiança no momento exato da decisão.
+
+   **Causa:** o bullet `Memória e histórico NÃO são fonte de valor` foi escrito pensando em
+   memória de atendimentos ANTERIORES. O modelo leu "histórico" como o histórico **desta**
+   conversa e passou a tratar o próprio número como não-confiável.
+
+   **Fix:** a proibição nomeia o que é (atendimento anterior + base de conhecimento) e afirma que
+   o retorno da ferramenta nesta conversa é fonte legítima; bullet novo manda repetir o **mesmo
+   número** sem reabrir pergunta respondida e proíbe chamar o valor de "exemplo".
+
+   **Provado em 5 turnos:** cotou → repetiu igual → confirmou. `valores citados na conversa:
+   ['6.882,78']` — um só. `scripts/test_cotacao_e2e.py` virou gate permanente, com detector de
+   RECUO (regex de "foi só exemplo" / "não posso passar valor" / "simulação oficial") e de valor
+   divergente. Custa tokens OpenAI — é gate manual, não CI:
+   ```bash
+   docker exec -e PYTHONPATH=/app -w /app conecta-pro-backend python3 scripts/test_cotacao_e2e.py
+   ```
+
    ### 🧩 Buraco que eu mesmo abri e fechei (`f059057e`)
 
    Ao adicionar a flag, `POST /crm/pricing/simular` ficou para trás: enumerava as flags à mão em
