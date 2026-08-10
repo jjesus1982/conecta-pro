@@ -898,9 +898,43 @@ Módulo financeiro/redesign (T4), não meu. Registrado para o Jordan decidir o d
      do turno e posto/pausa — nenhum separa os grupos. Nossa fórmula CLT dá 1,0; a Portte paga
      1,8–2,025. Usei a **média ponderada** para precificar (defensável: é o que a empresa paga
      em média por posto), mas a constante em si precisa da cláusula ou da Priscila (DP).
-   - **`INTRAJORNADA NOTURNA` (cód. 245) não existe no engine.** 9 holerites, mesmo valor da
-     hora reduzida (~15,9% do base). Custo real não precificado — exige **código** (param novo
-     + flag por função em `crm_pricing_funcoes`), não só dado.
+   - ~~`INTRAJORNADA NOTURNA` não existe no engine~~ → ✅ **IMPLEMENTADA em 2026-08-10** (abaixo).
+
+   ### ✅ Intrajornada não gozada no motor de preço — 2026-08-10 (`61fe541e`)
+
+   Lida do holerite, não modelada:
+
+   | rubrica | multiplicador da hora normal | decomposição |
+   |---|--:|---|
+   | `244` INTRAJORNADA DIURNO | **x1,5** (5 de 8) | hora + **HE 50%** — bate com `cct_cargos.horas_extras_percentual` |
+   | `245` INTRAJORNADA NOTURNA | **x1,799** (5) e x2,024 (3) | **x1,799 = 1,5 × 1,20** = HE 50% + adicional noturno 20% |
+
+   > ⭐ **Isso deriva a constante 1,8** que `FOLHA_noturno_escala_2026-08-04.md` tentou explicar e
+   > não conseguiu: não é fórmula de hora reduzida, é **hora extra noturna**. O grupo x2,024 segue
+   > sem explicação (2,024/1,799 = 1,125 exato — nenhuma hipótese testada fecha).
+
+   1h por plantão. Em 15 plantões sobre 180h/mês → `intrajornada` **12,5%** · `intrajornada_noturna` **15,6958%**.
+
+   **Mudanças:** `pricing_cct.py` (2 params em `_DEFAULTS`, `intra` em `calcular()` somando ao
+   `bruto`, `adic_intrajornada` no retorno, `rotulo_adicionais()` extraída p/ testar sem banco) ·
+   `crm_pricing_funcoes.intrajornada` (coluna aditiva, `DEFAULT false`) · 2 chaves em
+   `crm_pricing_params` · `agent_service._SQL_FUNCOES_ATIVAS` + `_CAMPOS_INTERNOS_COTACAO`.
+
+   **Nasce DESLIGADO em todas as 10 funções — zero mudança de preço.** Só 14 de 47 agentes de
+   portaria recebem: depende de o posto ter rendição para o intervalo. Ligar é desenho do posto:
+   ```sql
+   UPDATE crm_pricing_funcoes SET intrajornada=true WHERE nome='<função>';
+   ```
+
+   **Provado com o flag ligado e depois revertido ao centavo:**
+   AGP P1 Noturno 6.256,54 → **6.882,78** (+626,24, rótulo `Intrajornada not.`) ·
+   ASG 5.431,84 → **5.930,58** (+498,74, rótulo `Intrajornada`).
+   Ficha interna: `adic_intrajornada` = R$ 262,12 = 15,6958% × 1.670 ✓. `adic_intrajornada`
+   entrou na lista negra — **não vaza na cotação** (é composição de custo). 38 testes verdes.
+
+   > O adicional de R$ 262,12 vira R$ 626,24 de preço porque atravessa encargos (61,24%),
+   > repasse CCT (7,5%) e o divisor de tributos+margem. **Um posto com intrajornada está sendo
+   > cotado ~R$ 626/mês abaixo do custo enquanto o flag não for ligado nele.**
 3. **Margem 15%** (`crm_pricing_params.margem`) é a que vale para cotação externa? A tela do redesign usa 35%.
 4. **Quem corrige o `rd_action_simular_preco`** (B3) — T4 ou T5?
 5. **Tabela cotada hoje** (valor de tabela por posto/mês, 12 meses, extraído do banco):

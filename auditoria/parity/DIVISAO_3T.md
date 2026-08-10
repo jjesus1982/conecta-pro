@@ -143,6 +143,11 @@ ninguém faz em paralelo agora).
 > `docs/superpowers/plans/2026-08-10-jose-luis-hermes-multiagente-EXEC.md`.
 > ⚠️ **Hermes NÃO orquestra o José Luís** — o sidecar não devolve `tool_calls`
 > (provado); roteá-lo apagaria as 47 tools do ERP em silêncio.
+> 📌 **T5 tocou `crm/services/pricing_cct.py`** (2026-08-10, a pedido do Jordan): parâmetros
+> `noturno`/`hora_reduzida`/`ronda` corrigidos pelo HOLERITE (`hr_payslip_items.referencia`) e
+> **intrajornada não gozada implementada** (flag aditivo `crm_pricing_funcoes.intrajornada`,
+> nasce `false` → zero mudança de preço). Reusado por `redesign_builders/crm.py` (`_build_precificacao`)
+> — o `SELECT *` de lá já leva a coluna nova sem alteração. **T4: o motor mudou, a tela não.**
 > 🔴 **Para o T4:** `rd_action_simular_preco` (redesign/financeiro) cota via
 > `PricingEngine`, que tem alíquotas de **Lucro Presumido** hardcoded (PIS 0,65% /
 > COFINS 3% + IRPJ/CSLL presumido), sem o repasse de 7,5% da CCT Cláusula 2ª §3º e
