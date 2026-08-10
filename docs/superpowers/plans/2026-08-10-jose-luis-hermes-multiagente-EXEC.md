@@ -819,10 +819,39 @@ dele virariam oportunidade.
 14/06; `Teste Novo Lead` score 51, de 05/08) e o `find_duplicate` loga *"Dedup ambíguo … 3 leads
 ativos. Não escolho"*. A partir de agora eles não poluem mais o funil, mas continuam na base.
 
-### Step 7 do plano irmão — recuperar os dois perdidos (é decisão sua)
-Anderson (67, quente, desde 16/06) e Juan Torres (59, quente, desde 27/07) só se movem quando
-conversarem de novo com o agente — o fix vale dali pra frente, não retroage. Backfill é ação
-comercial, não técnica: se quiser, um `UPDATE` os qualifica e o pipeline abre.
+### ✅ Step 7 do plano irmão — os dois perdidos RECUPERADOS (`cefed22c`)
+
+`backend/scripts/backfill_leads_qualificados.py`, dry-run por padrão. **Não reimplementa regra
+nenhuma**: usa `_status_por_qualificacao` (decisão), `_telefone_interno` (trava) e
+`ensure_opportunity_for_lead` (pipeline, idempotente) — regra muda, script muda junto.
+
+| lead | de → para | oportunidade |
+|---|---|---|
+| **Anderson** (67, quente, parado desde 16/06) | `qualified` → `qualified` | **aberta** |
+| **Juan Torres** (59, quente, Solteco, 27/07) | `new` → `qualified` | **aberta** |
+
+Ambas em `stage=qualification`, `probability=20`, notes `Gerada automaticamente do lead qualificado`.
+
+| métrica | antes | depois |
+|---|--:|--:|
+| oportunidades | 29 | **31** |
+| oportunidades com `lead_id` | 2 | **4** |
+| leads sem oportunidade | 26 | **24** |
+| leads em `qualified` | 1 | **2** |
+
+**Duas armadilhas que o script pegou:**
+
+1. **`Anderson` já estava `qualified` e mesmo assim sem oportunidade** — status certo, elo
+   faltando. O SQL inicial só olhava `new`/`contacted` e o deixaria de fora: metade do pedido.
+   Por isso `qualified` entra na busca, e para esses a ficha **não** é reavaliada (alguém já decidiu).
+2. **`Jordan Jesus` (score 75) QUALIFICA pela regra** e é o telefone do dono. Backfill cego
+   colocaria o teste do Jordan no funil comercial. O `_telefone_interno` pulou — provado no preview.
+   `Anderson Leão` (outro Anderson, sem ficha) também ficou de fora, corretamente.
+
+⚠️ **As duas oportunidades nasceram com `value=0`.** Não é bug: `expected_value` exige
+dimensionamento (unidades/postos) que a ficha não tem — é o Bloco C do plano irmão (Task 7, o
+agente PERGUNTAR o dimensionamento). Enquanto for 0, elas aparecem no funil mas **não somam no
+forecast ponderado**.
 
 ## 🔴 Bloqueios (não são pendência de execução — são decisão)
 
