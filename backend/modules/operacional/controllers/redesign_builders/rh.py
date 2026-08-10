@@ -16,7 +16,23 @@ from modules.operacional.controllers.redesign_data_controller import (
 )
 
 SLUG = "rh"
-EXTRA_MENU: list[dict] = []
+_ICO_CCT = "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"
+
+EXTRA_MENU: list[dict] = [
+    # CCT SINDECOMPRESTS AM000613/2025 — as 6 calculadoras existiam no backend sem tela.
+    {"id": "cct-hora-extra", "label": "CCT — Hora extra", "icon": _ICO_CCT},
+    {"id": "cct-noturno", "label": "CCT — Adicional noturno", "icon": _ICO_CCT},
+    {"id": "cct-decimo-terceiro", "label": "CCT — 13º salário", "icon": _ICO_CCT},
+    {"id": "cct-validar-salario", "label": "CCT — Validar salário", "icon": _ICO_CCT},
+    {"id": "cct-auditar-salario", "label": "CCT — Auditar salário", "icon": _ICO_CCT},
+    {"id": "cct-reajuste", "label": "CCT — Reajuste", "icon": _ICO_CCT},
+]
+
+# 12x36 e a jornada real dos agentes de portaria — nasce selecionada como padrao do campo.
+_JORNADAS = [{"value": "12x36", "label": "12x36 (agentes de portaria)"},
+             {"value": "44h", "label": "44h semanais"},
+             {"value": "40h", "label": "40h semanais"}]
+_SIM_NAO = [{"value": "false", "label": "Não"}, {"value": "true", "label": "Sim"}]
 _ND = "#0F1B3A"
 
 
@@ -270,5 +286,110 @@ async def build(db) -> dict:
         "SELECT coalesce(area,'—'), coalesce(competencia,'—'), coalesce(pergunta,'—'), "
         "coalesce(escalonar,false), created_at FROM rh_consultas ORDER BY created_at DESC LIMIT 200",
         lambda r: [t(_area(r[0]), 600, _ND), t(r[1]), t((r[2] or "—")[:90]), _bb(r[3], "Sim", "Não", "bad", "ok"), t(_d(r[4]))]))
+
+    # ── CCT SINDECOMPRESTS AM000613/2025 — 6 calculadoras sem tela (2026-08-10) ──────
+    # O backend calculava hora extra, adicional noturno com hora reduzida (52min30s), 13o,
+    # piso e reajuste; nada disso tinha superficie. Sao a base da folha e o Portte era a
+    # unica forma de conferir. Contratos por introspecao dos schemas, nao adivinhados.
+    #
+    # TODAS levam showResult: o numero E o produto. Sem a flag a tela diria "Calculado" e
+    # jogaria fora o valor — o defeito que o QA do fiscal achou. Ate o front subir a chave
+    # e ignorada, entao ja nasce certo.
+    #
+    # NENHUMA move dinheiro nem escreve folha: sao calculo puro. A unica que grava e
+    # 'auditar', que registra o resultado da auditoria — e esta marcada como tal.
+    out["cct-hora-extra"] = {
+        "title": "CCT — Calcular hora extra",
+        "sub": "50% em dia normal, 100% em feriado. Inclui intrajornada não concedida.",
+        "cta": "Calcular", "type": "form",
+        "submit": {"endpoint": "/api/v1/cct/jornadas/hora-extra", "okMsg": "Hora extra calculada",
+                   "showResult": True},
+        "fields": [
+            {"key": "salario_base", "label": "Salário base (R$)*", "type": "number", "span": "span 1",
+             "ph": "1670.00"},
+            {"key": "jornada_tipo", "label": "Jornada", "type": "select", "span": "span 1",
+             "ph": "12x36 (padrão)", "options": _JORNADAS},
+            {"key": "horas_extras_normais", "label": "Horas extras — dia normal", "type": "number",
+             "span": "span 1", "ph": "0"},
+            {"key": "horas_extras_feriado", "label": "Horas extras — feriado", "type": "number",
+             "span": "span 1", "ph": "0"},
+            {"key": "intrajornada_nao_concedida", "label": "Intrajornada não concedida?",
+             "type": "select", "span": "span 2", "ph": "Não", "options": _SIM_NAO},
+        ],
+    }
+    out["cct-noturno"] = {
+        "title": "CCT — Calcular adicional noturno",
+        "sub": "Hora noturna reduzida (52min30s) no período 22h–05h, como manda a CCT.",
+        "cta": "Calcular", "type": "form",
+        "submit": {"endpoint": "/api/v1/cct/jornadas/adicional-noturno",
+                   "okMsg": "Adicional noturno calculado", "showResult": True},
+        "fields": [
+            {"key": "salario_base", "label": "Salário base (R$)*", "type": "number", "span": "span 1",
+             "ph": "1670.00"},
+            {"key": "jornada_tipo", "label": "Jornada", "type": "select", "span": "span 1",
+             "ph": "12x36 (padrão)", "options": _JORNADAS},
+            {"key": "horas_noturnas", "label": "Horas no período noturno (22h–05h)*", "type": "number",
+             "span": "span 2", "ph": "Ex.: 56"},
+        ],
+    }
+    out["cct-decimo-terceiro"] = {
+        "title": "CCT — Calcular 13º salário",
+        "sub": "Integral e proporcional, com as duas parcelas e o prazo da segunda (20/dez).",
+        "cta": "Calcular", "type": "form",
+        "submit": {"endpoint": "/api/v1/cct/rescisao/decimo-terceiro", "okMsg": "13º calculado",
+                   "showResult": True},
+        "fields": [
+            {"key": "salario_base", "label": "Salário base (R$)*", "type": "number", "span": "span 1",
+             "ph": "1670.00"},
+            {"key": "meses_trabalhados", "label": "Meses trabalhados* (1 a 12)", "type": "number",
+             "span": "span 1", "ph": "12"},
+            {"key": "adicionais_mensais", "label": "Adicionais mensais (R$)", "type": "number",
+             "span": "span 2", "ph": "0 — noturno, insalubridade, etc."},
+        ],
+    }
+    out["cct-validar-salario"] = {
+        "title": "CCT — Validar salário contra o piso",
+        "sub": "Confere se o salário respeita o piso do cargo na CCT. Só consulta — não grava.",
+        "cta": "Validar", "type": "form",
+        "submit": {"endpoint": "/api/v1/cct/salarios/validar", "okMsg": "Salário validado",
+                   "showResult": True},
+        "fields": [
+            {"key": "cargo", "label": "Cargo (como está na tabela CCT)*", "type": "text",
+             "span": "span 2", "ph": "Ex.: Agente de Portaria"},
+            {"key": "salario_atual", "label": "Salário atual (R$)*", "type": "number", "span": "span 1",
+             "ph": "1670.00"},
+            {"key": "employee_id", "label": "Colaborador (id) — opcional", "type": "text",
+             "span": "span 1"},
+        ],
+    }
+    out["cct-auditar-salario"] = {
+        "title": "CCT — Auditar salário (registra)",
+        "sub": "Mesma validação da tela anterior, porém GRAVA a auditoria no banco para "
+               "trilha. Use quando quiser deixar registro; para só conferir, use Validar.",
+        "cta": "Auditar e registrar", "type": "form",
+        "submit": {"endpoint": "/api/v1/cct/salarios/auditar", "okMsg": "Auditoria registrada",
+                   "showResult": True},
+        "fields": [
+            {"key": "cargo", "label": "Cargo (como está na tabela CCT)*", "type": "text",
+             "span": "span 2", "ph": "Ex.: Agente de Portaria"},
+            {"key": "salario_atual", "label": "Salário atual (R$)*", "type": "number", "span": "span 1",
+             "ph": "1670.00"},
+            {"key": "employee_id", "label": "Colaborador (id)", "type": "text", "span": "span 1"},
+        ],
+    }
+    out["cct-reajuste"] = {
+        "title": "CCT — Calcular reajuste",
+        "sub": "7,1% para quem está no piso, 4,5% acima dele. Informe o cargo para o sistema "
+               "saber em qual regra você cai.",
+        "cta": "Calcular", "type": "form",
+        "submit": {"endpoint": "/api/v1/cct/salarios/reajuste", "okMsg": "Reajuste calculado",
+                   "showResult": True},
+        "fields": [
+            {"key": "salario_atual", "label": "Salário atual (R$)*", "type": "number", "span": "span 1",
+             "ph": "1670.00"},
+            {"key": "cargo", "label": "Cargo — define se está no piso", "type": "text",
+             "span": "span 1", "ph": "Ex.: Agente de Portaria"},
+        ],
+    }
 
     return out
