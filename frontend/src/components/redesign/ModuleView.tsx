@@ -486,6 +486,21 @@ function FormScreen({ scr }: { scr: any }) {
     } catch { setAttMsg('Falha ao ler o arquivo.'); }
   }
 
+  // Campos `type: "json"` chegam como TEXTO do textarea e a rota espera lista/objeto.
+  // Converte só esses; o que não for JSON válido segue como texto e o backend responde o
+  // erro real — melhor que engolir e mandar coisa errada em silêncio.
+  function corpoComJson(): Record<string, unknown> {
+    const campos: any[] = scr.fields || [];
+    const out: Record<string, unknown> = { ...vals };
+    for (const f of campos) {
+      if (f?.type !== 'json') continue;
+      const bruto = (vals as Record<string, string>)[f.key];
+      if (bruto == null || bruto === '') { delete out[f.key]; continue; }
+      try { out[f.key] = JSON.parse(bruto); } catch { /* deixa o texto; o backend diz o que faltou */ }
+    }
+    return out;
+  }
+
   async function fire(extra: Record<string, unknown>) {
     let tok: string | null = null;
     try { tok = localStorage.getItem('access_token'); } catch { /* */ }
@@ -524,7 +539,7 @@ function FormScreen({ scr }: { scr: any }) {
     const res = await fetch(_url, {
       method: scr.submit.method || 'POST',
       headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
-      body: JSON.stringify({ ...vals, ...extra }),
+      body: JSON.stringify({ ...corpoComJson(), ...extra }),
     });
     const d = await res.json().catch(() => ({}));
     return { res, d };
@@ -692,7 +707,7 @@ function FormScreen({ scr }: { scr: any }) {
                 <option value="">{f.ph || 'Selecione…'}</option>
                 {(f.options || []).map((o: any) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
-            ) : f.type === 'textarea' ? (
+            ) : (f.type === 'textarea' || f.type === 'json') ? (
               <textarea className="rd-input" style={{ height: 92, paddingTop: 10, resize: 'vertical' }}
                 placeholder={f.ph} value={vals[f.key] || ''} onChange={(e) => set(f.key, e.target.value)} />
             ) : (
