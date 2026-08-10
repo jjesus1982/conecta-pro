@@ -89,8 +89,39 @@ chave é ignorada, então ligar já com ela é seguro e nasce certo.
    `analytics/kpis/recalcular`, `onvio/reclassificar`, `signatures/requests`,
    `ged/config/drive/connect|disconnect`, `ponto/sincronizar-solides`,
    `admin/cct/cache/invalidar`.
-3. **Os 43 de query param** — precisam de uma ação `/redesign/action/*` que traduza corpo
-   para query, ou de suporte a query no renderizador. Decisão de arquitetura, não de módulo.
+3. **Os 43 de query param — parcialmente resolvidos (2026-08-10).**
+
+   Duas descobertas mataram boa parte sem tocar em frontend nem criar rota:
+   - o endpoint do form aceita **query fixa** (`...sync-recebidos?dias=30` já existia no
+     financeiro);
+   - endpoint **sem parâmetro de corpo ignora o corpo**, então o JSON que o renderizador
+     manda não atrapalha.
+
+   Query derivável = botão que funciona. **6 ligados** (PDFs dos kits do mês, kits reais do
+   mês, re-indexar SOPHIA, ingestão histórica, extrair valores Onvio, vincular benefícios).
+
+   ⚠️ Não era só conveniência: os defaults dessas rotas estão **congelados em março/2026**
+   (`mes=3`, `reference_month="2026-03-01"`). Botão seco geraria documento da competência
+   errada em silêncio.
+
+   **O que sobra precisa de entrada do usuário** (≈7) ou de **upload** (≈11). A correção é
+   4 linhas no `ModuleView.tsx`, em `fire()`:
+
+   ```ts
+   let url = scr.submit.endpoint;
+   if (scr.submit.query) {                                   // opt-in; sem a flag nada muda
+     const qs = new URLSearchParams();
+     for (const [k, v] of Object.entries({ ...vals, ...extra })) if (v != null && v !== '') qs.append(k, String(v));
+     url += (url.includes('?') ? '&' : '?') + qs.toString();
+   }
+   // usar `url` no fetch; o corpo pode continuar indo — a rota de query o ignora
+   ```
+
+   **Por que não apliquei:** o arquivo tem **31 linhas não commitadas de outra sessão**
+   (filtro de tabela, largura de coluna e o fix do rodapé que mostrava "Jordan Jesus" para
+   qualquer usuário logado). `git add -- <arquivo>` levaria o trabalho deles junto,
+   publicando código inacabado sob meu commit. Não há staging parcial não-interativo aqui.
+   **Quem commitar o `ModuleView.tsx` a seguir: aplique o patch acima junto.**
 4. **Os 43 de path param** — ação por linha nas tabelas que já existem. Trabalho por tabela.
 5. **Handoffs**: financeiro (9), operacional (7 + disciplinar), fiscal (2).
 
