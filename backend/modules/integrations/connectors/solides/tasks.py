@@ -893,7 +893,22 @@ def _sync_punches_from_tangerino(condominio_id: str | None = None, days_back: in
     try:
         with engine.connect() as conn:
             emps = conn.execute(
-                sa_text("SELECT id::text, solides_id FROM employees WHERE solides_id IS NOT NULL AND status = 'ativo'")
+                # NÃO filtrar por status='ativo'. Quem volta de afastamento continua batendo
+                # ponto no Sólides, mas ficava invisível aqui até alguém lembrar de mudar o
+                # cadastro — e a batida dela simplesmente não entrava. Caso real (09/08):
+                # ELEN XAVIER NUNES voltou ao trabalho, estava batendo ponto no Sólides e o
+                # nosso banco parou no dia do afastamento.
+                #
+                # Invertido: puxa de todo mundo que não saiu da empresa. Quem não bate não
+                # devolve registro (a API dá 404 e o loop segue), então o custo de incluir
+                # afastado/suspenso é zero — e a batida passa a ser o que REVELA o retorno,
+                # em vez de depender de alguém atualizar o status antes.
+                sa_text(
+                    "SELECT id::text, solides_id FROM employees "
+                    "WHERE solides_id IS NOT NULL "
+                    "  AND coalesce(status,'') NOT IN ('demitido', 'inativo') "
+                    "  AND coalesce(is_homologacao, false) = false"
+                )
             ).fetchall()
             with httpx.Client(timeout=25) as client:
                 for emp_id, sid in emps:
