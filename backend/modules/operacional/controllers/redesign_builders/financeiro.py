@@ -40,6 +40,7 @@ EXTRA_MENU: list[dict] = [
     {"id": "beneficiarios-seed", "label": "Semear beneficiários", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
     {"id": "estoque-saida", "label": "Registrar saída de estoque", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
     {"id": "nfse-sync-prestador", "label": "Sincronizar NFS-e emitidas", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "custos-recorrentes-lista", "label": "Custos recorrentes", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
 ]
 
 
@@ -1506,6 +1507,33 @@ ORDER BY b.comp DESC, b.cnpj"""
             {"key": "data_fim", "label": "Ate", "type": "date", "span": "span 1"},
         ],
     }
+
+    # Custos recorrentes (2026-08-10): o DELETE leva {custo_id} no CAMINHO -> acao por LINHA.
+    # A tela de criar ja existe acima; faltava ver e remover.
+    await safe("custos-recorrentes-lista", tbl(
+        "Custos recorrentes", "Despesas que se repetem todo mes", "Novo custo",
+        ["Categoria", "Descricao", "Valor", "Vencimento", "Estado"],
+        "1.2fr 2fr 1fr 0.9fr 0.9fr",
+        "SELECT id, coalesce(categoria,'—'), coalesce(descricao,'—'), coalesce(valor,0), "
+        "dia_vencimento, parcelas_pagas, parcelas_total, coalesce(ativo,true) "
+        # SEM filtro por ativo: os 3 registros de hoje estao inativos, e esconde-los deixaria
+        # a aba vazia mentindo que nao existe custo recorrente nenhum. Melhor mostrar com o
+        # estado a vista; remover so aparece no que esta ativo.
+        "FROM financial_custos_recorrentes ORDER BY coalesce(ativo,true) DESC, valor DESC "
+        "NULLS LAST LIMIT 200",
+        lambda r: [b((r[1] or '—').capitalize(), "info"), t((r[2] or '—')[:60], 600, "#0F1B3A"),
+                   t(brl(r[3]), 600),
+                   t(f"dia {int(r[4])}" if r[4] else "—"),
+                   b("Ativo", "ok") if r[7] else b("Inativo", "mut")],
+        actionsfn=lambda r: None if not r[7] else [
+            {"title": f"Remover o custo recorrente: {r[2]}",
+             "sub": "Para de projetar esta despesa no fluxo. Nao apaga lancamento ja feito.",
+             "endpoint": f"/api/v1/financial/cfo/custos-recorrentes/{r[0]}",
+             "method": "DELETE", "btnLabel": "Remover", "submitLabel": "Remover custo",
+             "btnStyle": "outline", "okMsg": "Custo removido. Recarregue.", "fields": []},
+        ]))
+    if isinstance(out.get("custos-recorrentes-lista"), dict):
+        out["custos-recorrentes-lista"]["ctaTo"] = "custo-recorrente-novo"
 
     return out
 
