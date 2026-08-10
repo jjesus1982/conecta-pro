@@ -928,6 +928,42 @@ O parser fica pronto e inerte até lá, sem fabricar dado nenhum. A campanha
 *"Portaria Remota — Manaus 2026"* já existe como âncora. Quando o link carregar o marcador:
 `SELECT count(*) FILTER (WHERE utm_campaign IS NOT NULL) FROM leads;` sai de 0.
 
+## ✅ FRENTE FECHADA — 2026-08-10
+
+| item | commit | estado |
+|---|---|---|
+| SDR 1 — qualificação move o lead | `0b7698a4` | ✅ |
+| SDR 2 — abre oportunidade | `0b7698a4` | ✅ |
+| SDR 3 — parser de campanha | `866cde08` | ✅ (inerte até o link emitir `[c:]`) |
+| SDR 4 — subcontagem | `866cde08` | ✅ |
+| SDR 5 — watchdog no sino | `25ed6297` | ✅ |
+| SDR 6 — reconciliar sombra | `35d8c44b` | ✅ 4→5 |
+| SDR 7 — pergunta dimensionamento | `36d6d02b` | ✅ |
+| SDR 8 — proposta com gate humano | `baed6740` | ✅ |
+| Multi-agente 1 — time por papéis | `569c6650` | ✅ opção (a) |
+| Multi-agente 2 — cotar | `9a31bcae` | ✅ |
+| Multi-agente 3 — autonomia por escopo | — | ✅ já existia |
+| Multi-agente 4 — Instagram DM | `d72cd971` | ⛔ App Review da Meta |
+| QA E2E navegador | `e498f952` | ✅ |
+
+### Verificação final, tudo junto
+```
+gate E2E do agente (modelo real)      exit=0
+gate da folha (params × holerite)     OK, todos dentro de 10%
+QA E2E navegador (Playwright)         OK, 4 telas
+suite                                 152 passed (1 falha pré-existente: test_d6_inter)
+saúde                                 backend/batch/beat/frontend healthy · health 200 · público 200
+```
+
+**Prova visual** em `/tmp/qa_e2e/`: `01_login` · `02_crm_dashboard` (Leads por status: New 26, **Qualified 2**)
+· `02b_oportunidades` (**Anderson** e **Juan Torres** em Qualificação) · `03_sino` (**"4 conversa(s)
+esfriaram — retomar?"**) · `04_precificacao` (AGP P1 Diurno **5.590,22** · P1 Noturno **6.882,78** ·
+Rondante Diurno **6.188,71** · Rondante Noturno **7.481,27**).
+
+> Durante a verificação, **outro terminal rodou um blue-green deploy** e recriou o backend no meio
+> do gate (apareceu `conecta-pro-backend-green`). Conferido depois: todo o código desta frente
+> sobreviveu ao deploy dele — o blue-green assa a árvore git, e os commits já estavam lá.
+
 ## 🔴 Bloqueios (não são pendência de execução — são decisão)
 
 ### B1 — Item 1 (Hermes orquestrando o José Luís) — **bloqueado por fato**
