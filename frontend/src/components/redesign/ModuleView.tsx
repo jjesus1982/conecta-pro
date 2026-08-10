@@ -492,24 +492,9 @@ function FormScreen({ scr }: { scr: any }) {
     // Upload multipart (scr.submit.multipart): manda arquivo(s) + campos como FormData. Sem
     // Content-Type manual (o browser põe o boundary). scr.submit.fixed = campos constantes
     // (ex.: folder_id/category); titleFromFile = usa o nome do arquivo como title se faltar.
-    if (scr.submit.multipart) {
-      const fd = new FormData();
-      for (const [k, v] of Object.entries(scr.submit.fixed || {})) fd.append(k, String(v));
-      for (const [k, v] of Object.entries({ ...vals, ...extra })) { if (v != null && v !== '') fd.append(k, String(v)); }
-      let firstName = '';
-      for (const [k, f] of Object.entries(files)) { if (f) { fd.append(k, f); if (!firstName) firstName = f.name; } }
-      if (scr.submit.titleFromFile && firstName && !fd.has('title')) fd.append('title', firstName);
-      const resm = await fetch(scr.submit.endpoint, {
-        method: scr.submit.method || 'POST',
-        headers: { ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
-        body: fd,
-      });
-      const dm = await resm.json().catch(() => ({}));
-      return { res: resm, d: dm };
-    }
-    // scr.submit.query: a rota lê os campos como QUERY PARAM, não do corpo. Opt-in — sem a
-    // flag nada muda. O corpo continua indo: rota que declara só query o ignora, e manter o
-    // envio evita ter dois caminhos de fetch para dar manutenção.
+    // _url é montado ANTES do branch multipart porque as rotas de anexo (consultor
+    // perguntar-arquivo, currículo, folha Alterdata) recebem o ARQUIVO no corpo e os demais
+    // campos como QUERY — as duas coisas ao mesmo tempo.
     let _url = scr.submit.endpoint;
     if (scr.submit.query) {
       const _qs = new URLSearchParams();
@@ -517,6 +502,25 @@ function FormScreen({ scr }: { scr: any }) {
       const _s = _qs.toString();
       if (_s) _url += (_url.includes('?') ? '&' : '?') + _s;   // preserva query já fixa no endpoint
     }
+    if (scr.submit.multipart) {
+      const fd = new FormData();
+      for (const [k, v] of Object.entries(scr.submit.fixed || {})) fd.append(k, String(v));
+      // com query, os campos JÁ foram para a URL: repetir no FormData faria o backend ver o
+      // mesmo campo duas vezes, por dois canais.
+      if (!scr.submit.query) for (const [k, v] of Object.entries({ ...vals, ...extra })) { if (v != null && v !== '') fd.append(k, String(v)); }
+      let firstName = '';
+      for (const [k, f] of Object.entries(files)) { if (f) { fd.append(k, f); if (!firstName) firstName = f.name; } }
+      if (scr.submit.titleFromFile && firstName && !fd.has('title')) fd.append('title', firstName);
+      const resm = await fetch(_url, {
+        method: scr.submit.method || 'POST',
+        headers: { ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
+        body: fd,
+      });
+      const dm = await resm.json().catch(() => ({}));
+      return { res: resm, d: dm };
+    }
+    // JSON: o corpo continua indo mesmo com query — rota que declara só query o ignora, e
+    // manter um caminho único de fetch evita duas manutenções.
     const res = await fetch(_url, {
       method: scr.submit.method || 'POST',
       headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
