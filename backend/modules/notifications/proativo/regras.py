@@ -974,3 +974,50 @@ if __name__ == "__main__":
         await eng.dispose()
 
     asyncio.run(main())
+
+
+# ─────────────────────── dp_ponto_de_afastado ───────────────────────
+async def _detectar_ponto_de_afastado(db: AsyncSession) -> list[Achado]:
+    """Batida de ponto de quem está AFASTADO ou SUSPENSO.
+
+    Quem está afastado pelo INSS não deveria bater ponto. Quando bate, só há três explicações
+    e as três exigem alguém olhando hoje, não no fechamento:
+      • voltou e ninguém encerrou o afastamento (a folha vai pagar errado);
+      • outra pessoa está cobrindo o posto e batendo COM O CRACHÁ DELE — o ponto fica no nome
+        errado, e isso é o que mais dói numa reclamatória;
+      • o cadastro está errado (não está afastado de verdade).
+
+    Nasceu de um caso real em 09/08: CINTIA, afastada pelo INSS, apareceu com 3 noites
+    batidas. Só foi vista porque eu estava conferindo outra coisa — por isso virou vigília.
+
+    Não apaga nada: a batida é registro e, se for crachá de terceiro, é a evidência.
+    """
+    rows = (await db.execute(text(
+        "SELECT CAST(e.id AS TEXT) AS id, coalesce(e.nome,'—') AS nome, "
+        "       coalesce(e.status,'') AS status, count(*) AS n, "
+        "       max(k.punch_timestamp)::date AS ultima "
+        "FROM gp_clock_punches k JOIN employees e ON e.id = k.employee_id "
+        "WHERE lower(coalesce(e.status,'')) IN "
+        "        ('afastado_inss','afastado','suspenso','licenca','afastado_acidente') "
+        "  AND k.punch_timestamp >= current_date - 30 "
+        "  AND coalesce(e.is_homologacao,false) = false "
+        "GROUP BY 1,2,3"
+    ))).mappings().all()
+    return [Achado(correlation_id=f"dp_ponto_de_afastado:{r['id']}:{r['ultima']}",
+                   dados=dict(r)) for r in rows]
+
+
+def _tpl_ponto_afastado(d: dict) -> tuple[str, str]:
+    return (f"Ponto batido por quem está afastado: {d['nome']}",
+            f"{d['nome']} está com status '{d['status']}' e registrou {d['n']} batida(s) nos "
+            f"últimos 30 dias, a última em {d['ultima']}. Ou voltou e o afastamento não foi "
+            f"encerrado, ou outra pessoa está batendo com o crachá dele. Confira com o posto "
+            f"antes do fechamento — não apague a batida.")
+
+
+register(Regra(
+    nome="dp_ponto_de_afastado", familia="dp", severidade="critico",
+    roles_destino=("admin", "rh", "dp"),
+    action_url="/redesign/departamento-pessoal?t=g-ponto&tab=ponto",
+    detectar=_detectar_ponto_de_afastado, template=_tpl_ponto_afastado,
+))
