@@ -857,24 +857,50 @@ Módulo financeiro/redesign (T4), não meu. Registrado para o Jordan decidir o d
 
    ⚠️ `noturno` (20%) não estava marcado e também não bate: folha realizada 10,67% do base — está para MAIS, compensando parte. `pricing_cct.calcular` aplica os quatro como **% do salário base**, não sobre horas noturnas. **Rever os quatro juntos.**
 
-   **Refinado com o valor MODAL da folha** (mês cheio, base 1670 — a média engana, é puxada
-   por pro-rata). `folha_verba_espelho`:
+   ### ⭐ FECHADO pelo HOLERITE (`hr_payslip_items.referencia`) — 2026-08-10
 
-   | verba | modal = % do base | param | situação |
+   A CCT está no sistema (`cct_convencoes` SINDECOMPRESTS × SINDICOND-AM, MTE AM000613/2025;
+   `cct_cargos` com piso + noturno 20% + HE noturna 100% + jornada 44h; `cct_beneficios`).
+   **Mas ronda / hora-reduzida / intrajornada não estão nas tabelas CCT** — estão no holerite,
+   na coluna `referencia` (horas `HH:MM` ou percentual `15,00`). Esse é o oráculo.
+
+   **Estrutura lida do holerite** (12x36 noturno, base R$ 1.670):
+
+   | rubrica | referência | valor | o que prova |
+   |---|---|--:|---|
+   | `1` HORAS NORMAIS | `180:00` | 1.670,00 | **180h/mês** → hora = R$ 9,2778 |
+   | `246` AD. NOTURNO | `112:00` | 207,82 | **20% × horas noturnas** (x0,20 exato em **15/18**) |
+   | `247` HORA NOT REDUZIDA | `14:00` | 262,91 | 1h/plantão a **x1,799** (8 holerites) ou **x2,024** (7) |
+   | `224` AD. DE RONDA | `15,00` | 250,50 | **a referência É o percentual: 15% do base**, exato |
+
+   8h fictícias/plantão = 7h de relógio (22h–05h) × 60/52,5. Com 15 plantões → 120h noturnas.
+
+   **Conversão para % do salário base** (é assim que `pricing_cct.calcular` aplica):
+   `noturno` = 0,20 × 120/180 = **13,333%** · `hora_reduzida` = 1,904 × 15/180 = **15,867%** · `ronda` = **15%**
+
+   | chave | era | virou | status |
    |---|--:|--:|---|
-   | Ad. de Ronda (0018) | **15,00%** (32×, exato) | 10% → 15% | ✅ **APLICADO 2026-08-09** |
-   | Hora Noturna Reduzida (0021) | **16,87%** | 8% | ❌ aberto |
-   | Ad. Noturno (0020) | **12,44%** (28×) e 13,33% (2 escalas) | 20% | ⚠️ aberto (para MAIS) |
-   | Intrajornada Noturna (0031) | **15,74%**, 16 pessoas | **não existe** | ❌ aberto, exige código |
+   | `ronda` | 10% | **15%** | ✅ aplicado |
+   | `noturno` | 20% | **13,333%** | ✅ aplicado |
+   | `hora_reduzida` | 8% | **15,867%** | ✅ aplicado |
+   | `iss` | 5% | 5% | ✅ confirmado (NFS-e reais 11.02 / 110201) |
 
-   Ronda aplicado → Rondante Diurno 5.490,48→**5.689,97** · Rondante Noturno 6.607,65→**6.807,14**.
-   Valeu na hora (`carregar_params()` lê o banco a cada cotação, sem deploy).
-   Rollback: `UPDATE crm_pricing_params SET valor=0.10 WHERE chave='ronda';`
+   **Preço novo:** AGP P1 Noturno 6.208,66→**6.256,54** · Rondante Diurno 5.490,48→**5.689,97** ·
+   Rondante Noturno 6.607,65→**6.855,02**. Diurnas sem ronda inalteradas. Vale na hora, sem deploy.
+   Rollback: `UPDATE crm_pricing_params SET valor=0.10 WHERE chave='ronda';` (+ `0.20` noturno, `0.08` hora_reduzida).
 
-   **Os outros três seguem abertos de propósito:** `noturno` iria para BAIXO (decisão comercial),
-   e `intrajornada` exige **mudança de código** em `pricing_cct.py` (param novo + flag por função
-   em `crm_pricing_funcoes`), não só dado. A planilha `Formacao_Preco_CCT2026_ConectaMais` que o
-   `pricing_cct.py` diz replicar **não está no repo** — sem ela, fechar os quatro é chute.
+   **Por que ninguém tinha notado:** `noturno` estava para MAIS e `hora_reduzida` para MENOS —
+   os dois erros quase se anulavam (28% vs 29,2% real).
+
+   ### 🔴 Segue aberto (não é chute que resolve)
+   - **O multiplicador da hora reduzida tem 2 grupos, x1,799 e x2,024, sem explicação.**
+     `auditoria/FOLHA_noturno_escala_2026-08-04.md` já bateu aqui: testou salário-base, horário
+     do turno e posto/pausa — nenhum separa os grupos. Nossa fórmula CLT dá 1,0; a Portte paga
+     1,8–2,025. Usei a **média ponderada** para precificar (defensável: é o que a empresa paga
+     em média por posto), mas a constante em si precisa da cláusula ou da Priscila (DP).
+   - **`INTRAJORNADA NOTURNA` (cód. 245) não existe no engine.** 9 holerites, mesmo valor da
+     hora reduzida (~15,9% do base). Custo real não precificado — exige **código** (param novo
+     + flag por função em `crm_pricing_funcoes`), não só dado.
 3. **Margem 15%** (`crm_pricing_params.margem`) é a que vale para cotação externa? A tela do redesign usa 35%.
 4. **Quem corrige o `rd_action_simular_preco`** (B3) — T4 ou T5?
 5. **Tabela cotada hoje** (valor de tabela por posto/mês, 12 meses, extraído do banco):
