@@ -83,6 +83,17 @@ async def gerar_plano(
 
     plano = _extrair_json(resp.content)
     fallback = "local" in (resp.model or "").lower()
+
+    # Modelo não produziu texto → NÃO reportar sucesso. Sem esta guarda o retorno abaixo
+    # entregava ok=True com `resumo` VAZIO: a tela dizia "plano gerado" e mostrava nada.
+    # Mesmo princípio do copywriter — sucesso mudo é pior que erro explícito.
+    if not (resp.content or "").strip():
+        return {
+            "ok": False,
+            "erro": "O modelo não retornou conteúdo. Tente novamente ou reduza o objetivo.",
+            "modelo": resp.model,
+        }
+
     if not plano:
         return {
             "ok": True,

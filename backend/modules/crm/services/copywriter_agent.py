@@ -191,7 +191,11 @@ async def gerar_copy(
     resp = await provider.generate(
         messages=[{"role": "user", "content": brief_user}],
         system_prompt=system_prompt,
-        max_tokens=2000,
+        # 8000, não 2000: o modelo atual (gpt-5) é de RACIOCÍNIO e gasta a cota pensando
+        # antes de escrever. Com 2000 o raciocínio esgotava o orçamento e a resposta vinha
+        # VAZIA — medido: 2000 -> 0 chars, 8000 -> 2566, 16000 -> 2631. Prompt curto passava,
+        # então o bug só aparecia no uso real. Mesmo valor que o estrategista já usava.
+        max_tokens=8000,
         temperature=temperatura,
     )
 
@@ -209,6 +213,18 @@ async def gerar_copy(
     else:
         # Fallback: devolve o texto cru como 1 variação (não perde o trabalho do modelo).
         variacoes = [{"titulo": "Rascunho", "conteudo": resp.content.strip(), "observacao": ""}]
+
+    # Modelo não produziu texto → NÃO reportar sucesso. Antes devolvia ok=True com uma
+    # variação de conteúdo VAZIO: a tela dizia "gerado" e entregava peça em branco.
+    # Peça vazia salva na biblioteca é pior que erro — vira lixo silencioso.
+    if not any((v.get("conteudo") or "").strip() for v in variacoes):
+        return {
+            "ok": False,
+            "erro": "O modelo não retornou conteúdo. Tente novamente ou reduza o briefing.",
+            "formato": formato,
+            "formato_label": formato_cfg["label"],
+            "modelo": resp.model,
+        }
 
     fallback = "local" in (resp.model or "").lower()
     return {
