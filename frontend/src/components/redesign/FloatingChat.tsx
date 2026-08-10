@@ -64,6 +64,14 @@ export default function FloatingChat() {
     if (typeof window === 'undefined') return;
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     setTemVoz(!!SR && 'speechSynthesis' in window);
+    // getVoices() volta VAZIO na 1ª chamada (o navegador carrega as vozes de forma assíncrona).
+    // Sem este aquecimento, a 1ª fala sempre usava a voz padrão — a robótica.
+    try {
+      window.speechSynthesis?.getVoices();
+      window.speechSynthesis?.addEventListener?.('voiceschanged', () => {
+        window.speechSynthesis.getVoices();
+      }, { once: true });
+    } catch { /* voz é opcional */ }
   }, []);
 
   // Lê a última resposta do assistente quando o alto-falante está ligado.
@@ -78,9 +86,20 @@ export default function FloatingChat() {
       const limpo = ultima.text.replace(/[*_`#>|]/g, '').replace(/https?:\/\/\S+/g, 'link').slice(0, 700);
       const u = new SpeechSynthesisUtterance(limpo);
       u.lang = 'pt-BR';
-      u.rate = 1.05;
-      const vozPt = window.speechSynthesis.getVoices().find((v) => v.lang?.toLowerCase().startsWith('pt'));
-      if (vozPt) u.voice = vozPt;
+      u.rate = 1.02;
+      u.pitch = 1.0;
+      // A 1ª versão pegava a PRIMEIRA voz "pt" da lista — normalmente a do sistema, que soa
+      // robótica. As boas (neurais, servidas pelo Google) aparecem depois. Ordem de preferência:
+      // Google pt-BR > qualquer pt-BR não-local > pt-BR > pt.
+      const vozes = window.speechSynthesis.getVoices();
+      const ptBR = vozes.filter((v) => /^pt[-_]?BR/i.test(v.lang || ''));
+      const melhor =
+        ptBR.find((v) => /google/i.test(v.name)) ||
+        ptBR.find((v) => v.localService === false) ||
+        ptBR.find((v) => /(luciana|francisca|maria|natural|neural)/i.test(v.name)) ||
+        ptBR[0] ||
+        vozes.find((v) => /^pt/i.test(v.lang || ''));
+      if (melhor) u.voice = melhor;
       window.speechSynthesis.speak(u);
     } catch { /* voz é opcional: falhar aqui nunca quebra o chat */ }
   }, [msgs, falarRespostas]);
@@ -99,11 +118,28 @@ export default function FloatingChat() {
     // Pede o microfone ANTES: é o que faz o navegador mostrar o pedido de permissão.
     // Sem isto o SpeechRecognition podia falhar calado quando a permissão não existia.
     try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        avisoVoz('Este navegador não expõe o microfone (precisa de HTTPS e de um navegador atual).');
+        return;
+      }
       const st = await navigator.mediaDevices.getUserMedia({ audio: true });
       st.getTracks().forEach((t) => t.stop());   // só queríamos a permissão
-    } catch {
-      avisoVoz('Preciso do microfone para ouvir. Clique no cadeado 🔒 ao lado do endereço, '
-             + 'libere o Microfone e tente de novo.');
+    } catch (e: any) {
+      // Distinguir a causa importa: "libere no cadeado" é conselho INÚTIL quando o bloqueio
+      // é do servidor (Permissions-Policy) — foi o que aconteceu na 1ª tentativa do Jordan.
+      const causa = e?.name || '';
+      if (causa === 'NotAllowedError' && String(e?.message || '').toLowerCase().includes('permissions policy')) {
+        avisoVoz('O microfone está bloqueado pela política de segurança do site (Permissions-Policy). '
+               + 'Não é permissão do navegador — precisa liberar no servidor.');
+      } else if (causa === 'NotAllowedError') {
+        avisoVoz('Permissão do microfone negada. Clique no cadeado 🔒 ao lado do endereço, libere o Microfone e recarregue.');
+      } else if (causa === 'NotFoundError' || causa === 'DevicesNotFoundError') {
+        avisoVoz('Nenhum microfone encontrado neste computador.');
+      } else if (causa === 'NotReadableError') {
+        avisoVoz('O microfone está em uso por outro programa (Meet, Zoom, gravador). Feche e tente de novo.');
+      } else {
+        avisoVoz(`Não consegui acessar o microfone (${causa || 'erro desconhecido'}).`);
+      }
       return;
     }
 

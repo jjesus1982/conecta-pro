@@ -86,7 +86,11 @@ const nextConfig: NextConfig = {
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          { key: 'Permissions-Policy', value: 'geolocation=(self), microphone=(), camera=(self)' },
+          // microphone=(self): ditado por voz no chat flutuante. Era `microphone=()`, que
+          // proíbe até o PRÓPRIO site — o navegador bloqueava antes de pedir permissão, e
+          // liberar no cadeado não adiantava. `(self)` mantém terceiros/iframes proibidos;
+          // quem decide continua sendo o usuário, no prompt do navegador.
+          { key: 'Permissions-Policy', value: 'geolocation=(self), microphone=(self), camera=(self)' },
           { key: 'X-DNS-Prefetch-Control', value: 'off' },
           { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
           { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
@@ -94,11 +98,12 @@ const nextConfig: NextConfig = {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+              // impeccable live mode roda em http://localhost:8400 — só em dev
+              `script-src 'self' 'unsafe-eval' 'unsafe-inline'${process.env.NODE_ENV !== 'production' ? ' http://localhost:8400' : ''}`,
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "img-src 'self' data: blob: https://erp.conectamais.pro https://*.amazonaws.com",
               "font-src 'self' data: https://fonts.gstatic.com",
-              "connect-src 'self' https://erp.conectamais.pro wss://erp.conectamais.pro https://*.amazonaws.com https://viacep.com.br https://brasilapi.com.br",
+              `connect-src 'self' https://erp.conectamais.pro wss://erp.conectamais.pro https://*.amazonaws.com https://viacep.com.br https://brasilapi.com.br${process.env.NODE_ENV !== 'production' ? ' http://localhost:8400' : ''}`,
               "frame-ancestors 'none'",
               "base-uri 'self'",
               "form-action 'self'",
