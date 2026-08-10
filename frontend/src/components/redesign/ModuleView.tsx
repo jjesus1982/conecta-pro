@@ -507,7 +507,17 @@ function FormScreen({ scr }: { scr: any }) {
       const dm = await resm.json().catch(() => ({}));
       return { res: resm, d: dm };
     }
-    const res = await fetch(scr.submit.endpoint, {
+    // scr.submit.query: a rota lê os campos como QUERY PARAM, não do corpo. Opt-in — sem a
+    // flag nada muda. O corpo continua indo: rota que declara só query o ignora, e manter o
+    // envio evita ter dois caminhos de fetch para dar manutenção.
+    let _url = scr.submit.endpoint;
+    if (scr.submit.query) {
+      const _qs = new URLSearchParams();
+      for (const [k, v] of Object.entries({ ...vals, ...extra })) if (v != null && v !== '') _qs.append(k, String(v));
+      const _s = _qs.toString();
+      if (_s) _url += (_url.includes('?') ? '&' : '?') + _s;   // preserva query já fixa no endpoint
+    }
+    const res = await fetch(_url, {
       method: scr.submit.method || 'POST',
       headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
       body: JSON.stringify({ ...vals, ...extra }),
