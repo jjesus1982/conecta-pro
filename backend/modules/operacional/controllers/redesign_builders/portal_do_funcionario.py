@@ -24,7 +24,9 @@ from modules.operacional.controllers.redesign_data_controller import (
 )
 
 SLUG = "portal-do-funcionario"
-EXTRA_MENU: list[dict] = []
+EXTRA_MENU: list[dict] = [
+    {"id": "ouvidoria", "label": "Ouvidoria", "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
+]
 _ND = "#0F1B3A"
 
 
@@ -225,5 +227,32 @@ async def build(db, current_user=None) -> dict:
         f"FROM employees WHERE id::text={me_lit} LIMIT 1",
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(_cpf(r[1])), t(r[2]),
                    t(_d(r[3])), t((r[4] or "—").replace("_", " ")), t(r[5]), t(r[6])]))
+
+    # Ouvidoria (2026-08-10): responder leva {manifestacao_id} no caminho -> acao por LINHA.
+    # A mensagem do colaborador aparece; a resposta fica visivel a ele.
+    await safe("ouvidoria", tbl(
+        "Ouvidoria", "Manifestações dos colaboradores", "—",
+        ["Protocolo", "Categoria", "Mensagem", "Anônima", "Status"],
+        "1fr 1.1fr 2.2fr 0.8fr 0.9fr",
+        "SELECT id, coalesce(protocolo,'—'), coalesce(categoria::text,'—'), coalesce(mensagem,'—'), "
+        "coalesce(anonimo,false), coalesce(status::text,'aberta') "
+        "FROM ouvidoria_manifestacoes ORDER BY created_at DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[1], 600, "#0F1B3A"), t((r[2] or '—').capitalize()), t((r[3] or '—')[:90]),
+                   b("Sim", "warn") if r[4] else b("Não", "mut"),
+                   b((r[5] or '—').capitalize(), "ok" if (r[5] or '').lower() in ("respondida", "encerrada") else "warn")],
+        actionsfn=lambda r: [
+            {"title": f"Responder a manifestação {r[1]}",
+             "sub": "A resposta fica VISÍVEL ao autor. Se for anônima, você responde sem saber quem é.",
+             "endpoint": f"/api/v1/people-management/portal/ouvidoria-admin/{r[0]}/responder",
+             "method": "POST", "btnLabel": "Responder", "submitLabel": "Enviar resposta",
+             "btnStyle": "primary", "okMsg": "Resposta registrada. Recarregue a tela.",
+             "fields": [
+                 {"key": "resposta", "label": "Resposta ao colaborador*", "type": "textarea",
+                  "span": "span 2", "value": ""},
+                 {"key": "status", "label": "Novo status", "type": "select", "span": "span 2",
+                  "value": "", "options": [{"value": "respondida", "label": "Respondida"},
+                                           {"value": "encerrada", "label": "Encerrada"}]},
+             ]},
+        ]))
 
     return out

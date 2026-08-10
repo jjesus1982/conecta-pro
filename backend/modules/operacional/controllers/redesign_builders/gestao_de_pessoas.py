@@ -21,6 +21,8 @@ EXTRA_MENU: list[dict] = [
     {"id": "consultor-gestao", "label": "Consultor de gestão",
      "icon": "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M12 8v4M12 16h.01"},
     {"id": "consultor-gestao-arquivo", "label": "Consultor de gestão — com anexo", "icon": "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M12 8v4M12 16h.01"},
+    {"id": "carreira-planos", "label": "Planos de carreira", "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
+    {"id": "treinamento-inscricoes", "label": "Inscrições em treinamento", "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
 ]
 
 # GED · Envios — ação em PT + ator legível (nome real, ou rótulo do tipo quando é UUID cru no log)
@@ -59,7 +61,31 @@ async def build(db) -> dict:
                      "ok" if (r[2] or "").lower() in ("aprovado", "approved", "enviado", "sent", "completo") else "warn"),
                    t(str(r[3]) if r[3] is not None else '—'), t(str(r[4]) if r[4] is not None else '—'),
                    t(f"{float(r[5]):.0f}%" if r[5] is not None else '—', 600)],
-        docsfn=lambda r: [doc("Kit (ZIP)", f"/api/v1/ged/kits/{r[6]}/download-zip", fmt="zip", mode="blob")]))
+        docsfn=lambda r: [doc("Kit (ZIP)", f"/api/v1/ged/kits/{r[6]}/download-zip", fmt="zip", mode="blob")],
+        # Ações por LINHA: as 3 rotas de kit levam {kit_id} no CAMINHO, então o lugar delas é
+        # aqui — o id vem da linha. Como tela solta, exigiriam colar UUID à mão.
+        actionsfn=lambda r: [
+            {"title": f"Gerar os PDFs do kit de {r[0]}",
+             "sub": "Refaz os PDFs de todos os documentos DESTE kit.",
+             "endpoint": f"/api/v1/ged/kits/{r[6]}/generate-pdfs",
+             "method": "POST", "btnLabel": "Gerar PDFs", "submitLabel": "Gerar agora",
+             "btnStyle": "outline", "okMsg": "Geração dos PDFs disparada. Recarregue a tela.",
+             "fields": []},
+            {"title": f"Anexar as NFS-e ao kit de {r[0]}",
+             "sub": "Busca as NFS-e reais do cliente na competência e junta ao kit, gerando "
+                    "os PDFs. Não emite nota — só anexa o que já existe.",
+             "endpoint": f"/api/v1/ged/kits/{r[6]}/add-nfse",
+             "method": "POST", "btnLabel": "Anexar NFS-e", "submitLabel": "Anexar agora",
+             "btnStyle": "outline", "okMsg": "NFS-e anexadas ao kit. Recarregue a tela.",
+             "fields": []},
+            {"title": f"Enviar o kit de {r[0]} por e-mail",
+             "sub": "Manda o kit ao cliente com o link do Drive. Efeito EXTERNO: o cliente "
+                    "recebe agora.",
+             "endpoint": f"/api/v1/people-management/ged/kits/{r[6]}/send-email",
+             "method": "POST", "btnLabel": "Enviar", "submitLabel": "Enviar ao cliente agora",
+             "btnStyle": "primary", "okMsg": "Kit enviado ao cliente. Recarregue a tela.",
+             "fields": []},
+        ]))
 
     # ---- GED · Envios (ged_kit_access_logs — eventos de entrega/acesso) ----
     await safe("ged-envios", tbl(
@@ -195,5 +221,45 @@ async def build(db) -> dict:
             {"key": "pergunta", "label": "Pergunta*", "type": "textarea", "span": "span 2"},
         ],
     }
+
+    # Carreira e treinamento (2026-08-10): concluir milestone, atualizar milestones e emitir
+    # certificado levam {id} no CAMINHO -> acao por LINHA das listagens abaixo.
+    await safe("carreira-planos", tbl(
+        "Planos de carreira", "Trilha de cada colaborador", "—",
+        ["Colaborador", "Cargo atual", "Cargo alvo", "Prazo", "Status"],
+        "1.6fr 1.3fr 1.3fr 0.8fr 0.9fr",
+        "SELECT p.id, coalesce(e.nome,'—'), coalesce(p.current_position,'—'), "
+        "coalesce(p.target_position,'—'), p.estimated_timeline_months, coalesce(p.status::text,'—') "
+        "FROM career_plans p LEFT JOIN employees e ON e.id = p.employee_id "
+        "ORDER BY p.created_at DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[1], 600, "#0F1B3A", initials(r[1] or "")), t(r[2]), t(r[3]),
+                   t(f"{int(r[4])} meses" if r[4] else "—"),
+                   b((r[5] or '—').capitalize(), "ok" if (r[5] or '').lower() in ("active", "ativo", "completed") else "warn")],
+        actionsfn=lambda r: [
+            {"title": f"Concluir uma etapa do plano de {r[1]}",
+             "sub": "Informe o número da etapa (a 1ª é 0). Marca como concluída na trilha.",
+             "endpoint": f"/api/v1/people-management/human-resources/career/plans/{r[0]}/milestones/0/complete",
+             "method": "POST", "btnLabel": "Concluir 1ª etapa", "submitLabel": "Concluir etapa",
+             "btnStyle": "primary", "okMsg": "Etapa concluída. Recarregue a tela.", "fields": []},
+        ]))
+    await safe("treinamento-inscricoes", tbl(
+        "Inscrições em treinamento", "Quem está inscrito e quem já pode receber certificado", "—",
+        ["Colaborador", "Status", "Inscrição", "Presença", "Nota"],
+        "1.8fr 1fr 1fr 1fr 0.7fr",
+        "SELECT i.id, coalesce(e.nome,'—'), coalesce(i.status::text,'—'), i.enrolled_at, "
+        "i.attended_at, i.score "
+        "FROM training_enrollments i LEFT JOIN employees e ON e.id = i.employee_id "
+        "ORDER BY i.enrolled_at DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[1], 600, "#0F1B3A", initials(r[1] or "")),
+                   b((r[2] or '—').capitalize(), "ok" if (r[2] or '').lower() in ("completed", "concluido", "attended") else "warn"),
+                   t(_fmtdate(r[3])), t(_fmtdate(r[4])),
+                   t(f"{float(r[5]):.0f}" if r[5] is not None else "—")],
+        actionsfn=lambda r: [
+            {"title": f"Emitir certificado — {r[1]}",
+             "sub": "Só faz sentido para quem concluiu o treinamento.",
+             "endpoint": f"/api/v1/people-management/human-resources/training/enrollments/{r[0]}/certificate",
+             "method": "POST", "btnLabel": "Certificado", "submitLabel": "Emitir certificado",
+             "btnStyle": "primary", "okMsg": "Certificado emitido. Recarregue a tela.", "fields": []},
+        ] if r[4] or (r[2] or '').lower() in ("completed", "concluido", "attended") else None))
 
     return out

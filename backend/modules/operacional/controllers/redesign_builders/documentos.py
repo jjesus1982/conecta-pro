@@ -23,6 +23,7 @@ EXTRA_MENU: list[dict] = [
     {"id": "gedeon-perguntar-arquivo", "label": "Consultor GEDEON — com anexo", "icon": _ICO_D},
     {"id": "hermes-classificar", "label": "Classificar documento (Hermes)", "icon": _ICO_D},
     {"id": "ged-agendamento", "label": "Agendamento de envio do GED", "icon": _ICO_D},
+    {"id": "intercorrencias", "label": "Intercorrências do mês", "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
 ]
 
 
@@ -75,7 +76,23 @@ async def build(db) -> dict:
         "FROM ged_document_kits ORDER BY reference_month DESC NULLS LAST, completion_percentage DESC LIMIT 200",
         lambda r: [t(r[1] or '—', 600, "#0F1B3A"), t(f"{int(r[2] or 0)}"), t(f"{int(r[3] or 0)}"), t(f"{int(r[4] or 0)}"),
                    t(f"{float(r[5] or 0):.0f}%", 600), b((r[6] or '—').replace('_', ' ').capitalize(), _kit_tone.get((r[6] or '').lower(), "info"))],
-        docsfn=lambda r: [doc("Kit ZIP", f"/api/v1/ged/kits/{r[0]}/download-zip", fmt="zip", mode="blob")]))
+        docsfn=lambda r: [doc("Kit ZIP", f"/api/v1/ged/kits/{r[0]}/download-zip", fmt="zip", mode="blob")],
+        actionsfn=lambda r: [
+            {"title": f"Gerar os PDFs do kit {r[1]}",
+             "endpoint": f"/api/v1/ged/kits/{r[0]}/generate-pdfs",
+             "method": "POST", "btnLabel": "Gerar PDFs", "submitLabel": "Gerar agora",
+             "btnStyle": "outline", "okMsg": "Geração dos PDFs disparada. Recarregue.", "fields": []},
+            {"title": f"Anexar as NFS-e ao kit {r[1]}",
+             "sub": "Junta as NFS-e reais do cliente na competência. Não emite nota.",
+             "endpoint": f"/api/v1/ged/kits/{r[0]}/add-nfse",
+             "method": "POST", "btnLabel": "Anexar NFS-e", "submitLabel": "Anexar agora",
+             "btnStyle": "outline", "okMsg": "NFS-e anexadas. Recarregue.", "fields": []},
+            {"title": f"Enviar o kit {r[1]} ao cliente por e-mail",
+             "sub": "Efeito EXTERNO: o cliente recebe agora, com o link do Drive.",
+             "endpoint": f"/api/v1/people-management/ged/kits/{r[0]}/send-email",
+             "method": "POST", "btnLabel": "Enviar", "submitLabel": "Enviar ao cliente agora",
+             "btnStyle": "primary", "okMsg": "Kit enviado ao cliente. Recarregue.", "fields": []},
+        ]))
 
     # Pastas (GED / Drive) — ged_folders (8)
     await safe("pastas", tbl(
@@ -87,11 +104,10 @@ async def build(db) -> dict:
                    b((r[4] or '—').capitalize(), "ok" if (r[4] or '').lower() in ("ativa", "ativo", "active") else "mut")]))
 
     # ── FIOS SOLTOS DE GED/GEDEON (2026-08-10) ────────────────────────────────────────
-    # DE FORA: sophia/perguntar, sophia/reindexar, hermes/classificar, kit-real/gerar-todos,
-    # kits/generate-all-pdfs e config/schedule usam QUERY PARAM, e o form manda JSON no
-    # CORPO — ligar assim entrega botao que sempre falha. Precisam de acao /redesign/action
-    # que traduza corpo->query, ou de suporte a query no renderizador.
-    # kits/{kit_id}/* e intercorrencias/{id} levam id no CAMINHO -> acao por linha.
+    # As de QUERY PARAM (sophia, hermes, kits do mês, agendamento) foram ligadas depois, com
+    # o `submit.query` que o ModuleView ganhou. As de {id} no caminho viraram ação por LINHA
+    # na tabela de kits e na de intercorrências, logo abaixo — é o lugar delas: o id vem da
+    # linha, e não de um UUID colado à mão.
     out["gedeon-perguntar"] = {
         "title": "Consultor GEDEON",
         "sub": "Pergunta ancorada nos kits reais do GED. É consulta — não altera documento.",
@@ -288,5 +304,32 @@ async def build(db) -> dict:
              "options": [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]},
         ],
     }
+
+    # Intercorrencias (2026-08-10): a criacao ja tinha tela; TRATAR e EXCLUIR levam {id} no
+    # caminho, entao vivem como acao por LINHA desta listagem.
+    await safe("intercorrencias", tbl(
+        "Intercorrências", "Eventos do mês que afetam o kit (e, quando marcado, a folha)", "—",
+        ["Condomínio", "Tipo", "Colaborador", "Evento", "Folha", "Status"],
+        "1.6fr 1fr 1.4fr 1fr 0.7fr 0.9fr",
+        "SELECT id, coalesce(condominio,'—'), coalesce(tipo::text,'—'), coalesce(funcionario,'—'), "
+        "data_evento, coalesce(impacto_folha,false), coalesce(status::text,'aberta') "
+        "FROM gedeon_intercorrencias ORDER BY created_at DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[1], 600, "#0F1B3A"), t((r[2] or '—').capitalize()), t(r[3]),
+                   t(str(r[4]) if r[4] else '—'),
+                   b("Sim", "bad") if r[5] else b("Não", "mut"),
+                   b((r[6] or '—').capitalize(), "ok" if (r[6] or '').lower() == "tratada" else "warn")],
+        actionsfn=lambda r: None if (r[6] or '').lower() == "tratada" else [
+            {"title": f"Marcar como tratada — {r[1]}",
+             "endpoint": f"/api/v1/gedeon/consultor/intercorrencias/{r[0]}/tratar",
+             "method": "PATCH", "btnLabel": "Tratar", "submitLabel": "Marcar como tratada",
+             "btnStyle": "primary", "okMsg": "Intercorrência tratada. Recarregue a tela.",
+             "fields": []},
+            {"title": f"Excluir a intercorrência de {r[1]}",
+             "sub": "Use só quando o registro foi feito por engano — some do histórico.",
+             "endpoint": f"/api/v1/gedeon/consultor/intercorrencias/{r[0]}",
+             "method": "DELETE", "btnLabel": "Excluir", "submitLabel": "Excluir registro",
+             "btnStyle": "outline", "okMsg": "Intercorrência excluída. Recarregue a tela.",
+             "fields": []},
+        ]))
 
     return out

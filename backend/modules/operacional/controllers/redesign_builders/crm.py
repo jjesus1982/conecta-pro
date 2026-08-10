@@ -215,14 +215,38 @@ _CONFIRMAR = [
 
 
 def _proposta_actions(r):
-    """Enviar proposta ao cliente (externo) — só quando faz sentido (rascunho/aprovada)."""
+    """Ações da proposta por LINHA. As 3 rotas de envio levam {proposal_id} no CAMINHO —
+    é aqui que elas cabem: o id vem da linha, não de um UUID colado à mão numa tela solta.
+    Só aparecem em rascunho/aprovada, que é quando enviar faz sentido (a rota 404 no resto)."""
     if (r[5] or "").lower() not in ("draft", "approved"):
         return None
-    return [{"title": f"Enviar proposta {r[1]} ao cliente",
-             "endpoint": f"/api/v1/redesign/action/proposal-send?pid={r[0]}",
-             "method": "POST", "btnLabel": "Enviar", "submitLabel": "Enviar ao cliente (e-mail)",
-             "btnStyle": "primary", "okMsg": "Proposta enviada ao cliente (e-mail). Recarregue a tela.",
-             "fields": []}]
+    pid = r[0]
+    return [
+        {"title": f"Enviar proposta {r[1]} ao cliente",
+         "endpoint": f"/api/v1/redesign/action/proposal-send?pid={pid}",
+         "method": "POST", "btnLabel": "Enviar", "submitLabel": "Enviar ao cliente (e-mail)",
+         "btnStyle": "primary", "okMsg": "Proposta enviada ao cliente (e-mail). Recarregue a tela.",
+         "fields": []},
+        {"title": f"Enviar {r[1]} pelo WhatsApp do José Luís",
+         "sub": "PDF + link de assinatura, com rastreio de leitura.",
+         "endpoint": f"/api/v1/crm/proposals/{pid}/send-whatsapp",
+         "method": "POST", "btnLabel": "WhatsApp", "submitLabel": "Enviar por WhatsApp agora",
+         "btnStyle": "outline", "okMsg": "Proposta enviada por WhatsApp. Recarregue a tela.",
+         "fields": []},
+        {"title": f"Enviar {r[1]} por e-mail E WhatsApp",
+         "sub": "Manda os dois; o WhatsApp cita o e-mail para o cliente não achar que é golpe.",
+         "endpoint": f"/api/v1/crm/proposals/{pid}/send-completo",
+         "method": "POST", "btnLabel": "E-mail + Zap", "submitLabel": "Enviar pelos dois canais",
+         "btnStyle": "outline", "okMsg": "Proposta enviada por e-mail e WhatsApp. Recarregue.",
+         "fields": []},
+        {"title": f"Marcar {r[1]} como enviada (sem reenviar)",
+         "sub": "Use quando você mandou por fora — WhatsApp pessoal, impressa, em reunião. "
+                "Só acerta o status; NÃO manda nada ao cliente.",
+         "endpoint": f"/api/v1/crm/proposals/{pid}/marcar-enviada",
+         "method": "POST", "btnLabel": "Já enviei", "submitLabel": "Marcar como enviada",
+         "btnStyle": "outline", "okMsg": "Proposta marcada como enviada. Recarregue a tela.",
+         "fields": []},
+    ]
 
 
 def _contrato_actions(r):
