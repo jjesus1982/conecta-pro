@@ -47,6 +47,8 @@ EXTRA_MENU: list[dict] = [
     {"id": "just-registrar", "label": "Justificar transacao", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
     {"id": "just-classificar", "label": "Classificar transacoes", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
     {"id": "just-alertar", "label": "Alertar pendencias de justificativa", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "nfse-entrada-payaveis", "label": "NFS-e entrada x pagavel", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "nfse-entrada-auto-payaveis", "label": "Criar pagaveis (todas)", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
 ]
 
 
@@ -1622,6 +1624,41 @@ ORDER BY b.comp DESC, b.cnpj"""
         "cta": "Alertar", "type": "form",
         "submit": {"endpoint": "/api/v1/justificativa/alertar", "okMsg": "Alertas enviados",
                    "showResult": True},
+        "fields": [],
+    }
+
+    # NFS-e entrada x pagavel (2026-08-10). Tabela PROPRIA, lendo `nfse_entrada` — que e a
+    # que o payable_auto_service consulta (filtra payable_id IS NULL). A tela 'NFS-e entrada'
+    # que ja existia le `nfse_tomadas_nacional`, tabela DIFERENTE: pendurar a acao la daria
+    # botao que nunca acha a nota.
+    await safe("nfse-entrada-payaveis", tbl(
+        "NFS-e entrada x pagavel", "Notas de fornecedor e a conta a pagar de cada uma", "—",
+        ["Prestador", "Numero", "Competencia", "Valor", "Pagavel"],
+        "1.8fr 1fr 1fr 1fr 1fr",
+        # competencia aqui e DATE, nao texto: coalesce com travessao faz o Postgres recusar
+        # ("invalid input syntax for type date"). Mesma familia da armadilha do enum — sai
+        # como coluna crua e a formatacao fica no Python.
+        "SELECT id, coalesce(prestador_nome,'—'), coalesce(numero_nfse,'—'), "
+        "competencia, coalesce(valor_servico,0), payable_id "
+        "FROM nfse_entrada ORDER BY data_emissao DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[1], 600, "#0F1B3A"), t(r[2]), t(str(r[3])[:7] if r[3] else '—'),
+                   t(brl(r[4]), 600),
+                   b("Criado", "ok") if r[5] else b("Sem pagavel", "warn")],
+        actionsfn=lambda r: None if r[5] else [
+            {"title": f"Criar a conta a pagar desta nota — {r[1]}",
+             "sub": "Lanca o pagavel a partir da nota. So LANCA — nao paga.",
+             "endpoint": f"/api/v1/financial/payable/auto-criar/{r[0]}",
+             "method": "POST", "btnLabel": "Criar pagavel", "submitLabel": "Criar conta a pagar",
+             "btnStyle": "primary", "okMsg": "Pagavel criado. Recarregue.", "fields": []},
+        ]))
+    out["nfse-entrada-auto-payaveis"] = {
+        "title": "Criar pagaveis de TODAS as NFS-e de entrada",
+        "sub": "Varre as notas de fornecedor sem pagavel e lanca a conta de cada uma. "
+               "Hoje nao ha nenhuma pendente — o botao fica honesto mesmo assim.",
+        "cta": "Criar pagaveis", "type": "form",
+        "submit": {"endpoint": "/api/v1/financial/nfse-entrada/auto-criar-payables",
+                   "okMsg": "Pagaveis criados", "showResult": True,
+                   "confirm": "Lanca conta a pagar para TODA NFS-e de entrada sem pagavel. Confirma?"},
         "fields": [],
     }
 
