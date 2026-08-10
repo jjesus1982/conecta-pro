@@ -841,12 +841,28 @@ Módulo financeiro/redesign (T4), não meu. Registrado para o Jordan decidir o d
    docker compose -f docker-compose.yml -f docker-compose.celery.yml up -d --no-deps backend
    # desligar = remover a linha e recriar. Reversível em ~1min, sem rebuild.
    ```
-2. **Confirmar os 3 parâmetros `(CONFIRMAR)`** antes disso — são a base de todo preço:
-   | chave | valor hoje | label no banco |
-   |---|--:|---|
-   | `iss` | 5,00% | ISS Manaus **(CONFIRMAR)** |
-   | `ronda` | 10,00% | Adicional de ronda **(CONFIRMAR)** |
-   | `hora_reduzida` | 8,00% | Hora noturna reduzida **(CONFIRMAR)** |
+2. ~~Confirmar os 3 parâmetros `(CONFIRMAR)`~~ → **VERIFICADO em 2026-08-09. 2 dos 3 estão errados.**
+
+   Verificação contra fonte independente, não opinião. Rótulos atualizados no banco; **valores intocados**.
+
+   | chave | banco | evidência independente | veredito |
+   |---|--:|---|---|
+   | `iss` | 5% | NFS-e **reais** de "Serviços de portaria" cód. 11.02 / 110201 saem a 5% | ✅ confirmado |
+   | `ronda` | 10% | CCT Cl.23ª = 15% · `employees.adicional_ronda_percentual` = 15% (16 pessoas) · folha realizada 13,22% | ❌ subestimado |
+   | `hora_reduzida` | 8% | folha realizada (`folha_verba_espelho` cód. 0021) = 12,80% do base, n=114 | ❌ subestimado |
+
+   **Impacto medido** de corrigir para 15% / 12,8%, por posto/mês:
+   AGP P1 Noturno **+R$ 191,51** · AGP Rondante Diurno **+R$ 199,49** · AGP Rondante Noturno **+R$ 391,01**.
+   Posto de ronda está sendo cotado abaixo do custo real, **com o agente cotando ao vivo**.
+
+   ⚠️ `noturno` (20%) não estava marcado e também não bate: folha realizada 10,67% do base — está para MAIS, compensando parte. `pricing_cct.calcular` aplica os quatro como **% do salário base**, não sobre horas noturnas. **Rever os quatro juntos.**
+
+   Aplicar (decisão do Jordan — muda preço a cliente):
+   ```sql
+   UPDATE crm_pricing_params SET valor=0.15,  updated_at=now() WHERE chave='ronda';
+   UPDATE crm_pricing_params SET valor=0.128, updated_at=now() WHERE chave='hora_reduzida';
+   -- sem recreate: pricing_cct.carregar_params() lê o banco a cada cotação
+   ```
 3. **Margem 15%** (`crm_pricing_params.margem`) é a que vale para cotação externa? A tela do redesign usa 35%.
 4. **Quem corrige o `rd_action_simular_preco`** (B3) — T4 ou T5?
 5. **Tabela cotada hoje** (valor de tabela por posto/mês, 12 meses, extraído do banco):
