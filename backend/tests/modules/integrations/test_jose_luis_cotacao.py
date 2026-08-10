@@ -17,6 +17,7 @@ RESULTADO_CCT = {
     "adic_noturno": 334.0,
     "adic_hora_reduzida": 133.6,
     "adic_ronda": 0.0,
+    "adic_intrajornada": 262.11,
     "adic_risco": 0.0,
     "salario_bruto": 2137.6,
     "encargos": 1309.06,

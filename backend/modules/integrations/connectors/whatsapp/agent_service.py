@@ -2226,7 +2226,7 @@ _TOOL_ALLOWLIST: dict[str, dict] = {
 # login nenhum. Por isso a resposta é PROJETADA, e a projeção é testada.
 _CAMPOS_INTERNOS_COTACAO = frozenset({
     "salario_base", "salario_bruto", "adic_noturno", "adic_hora_reduzida",
-    "adic_ronda", "adic_risco", "encargos", "encargos_pct", "vt", "vr",
+    "adic_ronda", "adic_intrajornada", "adic_risco", "encargos", "encargos_pct", "vt", "vr",
     "beneficios", "repasse", "repasse_pct", "custo_total", "tributos_pct",
     "margem", "divisor", "markup_pct", "lucro_liquido",
 })
@@ -2350,7 +2350,7 @@ async def _precondicao_pede_assinatura(conversation_id: int) -> bool:
 # Colunas exatas que pricing_cct.calcular_funcao consome (flags + salário + jornada).
 _SQL_FUNCOES_ATIVAS = (
     "SELECT nome, salario_base, jornada_dias, noturno, hora_reduzida, ronda, "
-    "periculosidade, insalubridade FROM crm_pricing_funcoes "
+    "intrajornada, periculosidade, insalubridade FROM crm_pricing_funcoes "
     "WHERE coalesce(ativo, true) ORDER BY ordem NULLS LAST"
 )
 

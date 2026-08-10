@@ -14,6 +14,14 @@ ENCARGO_KEYS = ("inss", "rat_fap", "terceiros", "fgts", "ferias_terco", "decimo_
 _DEFAULTS = {  # fallback se faltar algum parâmetro no banco
     "noturno": 0.20,
     "hora_reduzida": 0.08,
+    # Intrajornada não gozada = 1h/plantão paga como hora extra. Lida do HOLERITE
+    # (hr_payslip_items.referencia): cód. 244 diurno x1,5 (HE 50%, bate com
+    # cct_cargos.horas_extras_percentual) e cód. 245 noturno x1,883 médio
+    # (x1,799 = 1,5 x 1,20, HE 50% + adicional noturno 20%; e um grupo em x2,024
+    # que ninguém consegue derivar — ver FOLHA_noturno_escala_2026-08-04.md).
+    # Em 15 plantões sobre 180h/mês: 1,5 x 15/180 = 12,5% · 1,883 x 15/180 = 15,7%.
+    "intrajornada": 0.125,
+    "intrajornada_noturna": 0.156958,
     "ronda": 0.0,
     "periculosidade": 0.30,
     "insalubridade": 0.10,
@@ -53,6 +61,14 @@ def calcular(salario_base, jornada_dias: int, flags: dict, params: dict) -> dict
     noturno = base * p["noturno"] if flags.get("noturno") else 0.0
     hora_red = base * p["hora_reduzida"] if flags.get("hora_reduzida") else 0.0
     ronda = base * p["ronda"] if flags.get("ronda") else 0.0
+    # Intrajornada não gozada: só quem NÃO tem rendição para o intervalo. Não é
+    # default (14 de 47 agentes de portaria recebem) — vem do flag da função.
+    # A taxa noturna é maior porque a HE leva o adicional noturno em cima.
+    intra = (
+        base * (p["intrajornada_noturna"] if flags.get("noturno") else p["intrajornada"])
+        if flags.get("intrajornada")
+        else 0.0
+    )
     # peric e insalub NÃO acumulam — periculosidade tem prioridade
     if flags.get("periculosidade"):
         risco = base * p["periculosidade"]
@@ -60,7 +76,7 @@ def calcular(salario_base, jornada_dias: int, flags: dict, params: dict) -> dict
         risco = base * p["insalubridade"]
     else:
         risco = 0.0
-    bruto = base + noturno + hora_red + ronda + risco
+    bruto = base + noturno + hora_red + ronda + intra + risco
     enc_pct = sum(p[k] for k in ENCARGO_KEYS)
     encargos = bruto * enc_pct
     vt = max(0.0, p["vt_dia"] * jornada_dias - bruto * p["vt_desconto"])
@@ -78,6 +94,7 @@ def calcular(salario_base, jornada_dias: int, flags: dict, params: dict) -> dict
         "adic_noturno": round(noturno, 2),
         "adic_hora_reduzida": round(hora_red, 2),
         "adic_ronda": round(ronda, 2),
+        "adic_intrajornada": round(intra, 2),
         "adic_risco": round(risco, 2),
         "salario_bruto": round(bruto, 2),
         "encargos": round(encargos, 2),
@@ -97,12 +114,12 @@ def calcular(salario_base, jornada_dias: int, flags: dict, params: dict) -> dict
     }
 
 
-async def calcular_funcao(db, row: dict, margem=None) -> dict:
-    params = await carregar_params(db)
-    flags = {k: row.get(k) for k in ("noturno", "hora_reduzida", "ronda", "periculosidade", "insalubridade")}
-    if margem is not None:
-        flags["margem"] = margem
-    r = calcular(row["salario_base"], int(row["jornada_dias"]), flags, params)
+FLAGS_FUNCAO = ("noturno", "hora_reduzida", "ronda", "intrajornada", "periculosidade", "insalubridade")
+
+
+def rotulo_adicionais(flags: dict, params: dict) -> str:
+    """Rótulo legível dos adicionais da função. Fora de calcular_funcao p/ ser
+    testável sem banco (calcular_funcao precisa de db só para carregar_params)."""
     adic = []
     if flags.get("noturno"):
         adic.append("Noturno")
@@ -110,10 +127,21 @@ async def calcular_funcao(db, row: dict, margem=None) -> dict:
         adic.append("Hora red.")
     if flags.get("ronda") and params["ronda"] > 0:
         adic.append("Ronda")
+    if flags.get("intrajornada"):
+        adic.append("Intrajornada not." if flags.get("noturno") else "Intrajornada")
     if flags.get("periculosidade"):
         adic.append("Peric.30%")
     if flags.get("insalubridade"):
         adic.append("Insal.10%")
+    return ", ".join(adic) if adic else "—"
+
+
+async def calcular_funcao(db, row: dict, margem=None) -> dict:
+    params = await carregar_params(db)
+    flags = {k: row.get(k) for k in FLAGS_FUNCAO}
+    if margem is not None:
+        flags["margem"] = margem
+    r = calcular(row["salario_base"], int(row["jornada_dias"]), flags, params)
     r["funcao"] = row["nome"]
-    r["adicionais"] = ", ".join(adic) if adic else "—"
+    r["adicionais"] = rotulo_adicionais(flags, params)
     return r
