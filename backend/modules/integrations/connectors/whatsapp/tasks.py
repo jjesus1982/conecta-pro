@@ -2,13 +2,15 @@
 Tasks Celery do agente José Luís (WhatsApp).
 
 whatsapp.followup_conversas — encontra conversas que ESFRIARAM (cliente sumiu
-apos a ultima resposta) e envia ao Jordan, via Telegram, a lista com um rascunho
+apos a ultima resposta) e entrega no SINO a lista com um rascunho
 de retomada por conversa. NADA e enviado ao cliente automaticamente — o aval e
 humano (Jordan/equipe decide e manda).
 """
 
 import logging
 import os
+import re
+from datetime import date
 
 from celery_app import app
 
@@ -40,25 +42,37 @@ def _run_async(coro):
     return asyncio.run(_inner())
 
 
-def _telegram_send(text_msg: str) -> bool:
-    """Entrega a lista ao Jordan via Telegram (credenciais do env). Best-effort."""
-    token = os.getenv("MONITOR_BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN") or ""
-    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
-    if not token or not chat_id:
-        logger.warning("followup_conversas: TELEGRAM ausente — lista NAO enviada (so log)")
-        return False
-    try:
-        import requests  # noqa: PLC0415
+async def _entregar_no_sino(
+    session, *, title: str, body: str, correlation_id: str, severidade: str = "atencao"
+) -> int:
+    """Materializa o alerta no sino (communication_notifications) p/ os roles comerciais.
 
-        r = requests.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": text_msg[:4000], "parse_mode": "HTML"},
-            timeout=15,
-        )
-        return r.status_code == 200
-    except Exception as e:  # noqa: BLE001
-        logger.error("followup_conversas: telegram falhou: %s", e)
-        return False
+    Substitui o antigo envio por bot externo: canal banido na casa E degradava
+    mal — sem token no worker, só logava warning e a lista NÃO chegava a ninguém,
+    silêncio que parece funcionamento. Aqui o RBAC é resolvido server-side e a
+    entrega é auditável. Devolve quantos destinatários receberam (0 = ninguém).
+    """
+    from modules.notifications.proativo.entrega import (  # noqa: PLC0415
+        enviar_individual,
+        resolver_usuarios_por_roles,
+    )
+
+    dest = await resolver_usuarios_por_roles(session, ("admin",))
+    if not dest:
+        logger.warning("%s: nenhum destinatario p/ os roles — alerta NAO entregue", correlation_id)
+        return 0
+    await enviar_individual(
+        session,
+        user_ids=dest,
+        title=title[:200],
+        body=body[:4000],
+        familia="comercial",
+        severidade=severidade,
+        correlation_id=correlation_id,
+        action_url="/redesign/crm",
+    )
+    await session.commit()
+    return len(dest)
 
 
 async def _coletar_conversas_frias(session):
@@ -126,7 +140,7 @@ def _rascunho_followup(nome: str | None, dias: int, tema: str | None) -> str:
 
 @app.task(name="whatsapp.followup_conversas", bind=True, max_retries=1)
 def followup_conversas(self):  # noqa: ARG001
-    """Diario: lista conversas frias + rascunho CONTEXTUAL de retomada -> Telegram do Jordan."""
+    """Diario: conversas frias + rascunho de retomada -> SINO (communication_notifications)."""
     try:
         rows = _run_async(_coletar_conversas_frias)
     except Exception as e:  # noqa: BLE001
@@ -134,25 +148,33 @@ def followup_conversas(self):  # noqa: ARG001
         return {"ok": False}
 
     if not rows:
-        _telegram_send("🤖 <b>José Luís — follow-up diário</b>\n\nNenhuma conversa esfriada nas últimas 24h–7d. 👌")
+        # Silêncio honesto: nada esfriou -> ninguém é notificado. Mandar "nada hoje"
+        # todos os dias é ruído que treina o time a ignorar o sino.
         return {"ok": True, "frias": 0}
 
-    linhas = ["🤖 <b>José Luís — conversas que esfriaram</b> (aguardando SEU aval; nada foi enviado)\n"]
-    for conv, phone, quando, nome, empresa, _status, assunto in rows:
+    linhas = []
+    for conv, phone, quando, nome, empresa, _status, assunto in rows:  # noqa: B007
         dias = max(1, (__import__("datetime").datetime.now(quando.tzinfo) - quando).days)
         quem = f"{nome}" + (f" ({empresa})" if empresa else "")
         tema = (assunto or "—").replace("\n", " ")[:90]
         toque = "1 (lembrete)" if dias <= 2 else ("2 (oferta de visita)" if dias <= 6 else "3 (último toque)")
         rascunho = _rascunho_followup(nome, dias, tema)
         linhas.append(
-            f"• <b>{quem}</b> — conv #{conv}, parado há {dias}d · toque {toque}\n"
+            f"• {quem} — conv #{conv}, parado há {dias}d · toque {toque}\n"
             f"  Último assunto: {tema}\n"
-            f"  📋 Sugestão p/ retomar: <i>{rascunho}</i>\n"
+            f"  Sugestão p/ retomar: {rascunho}\n"
         )
-    linhas.append("\nPara retomar: responda na conversa do Chatwoot (a sugestão acima é só um rascunho).")
-    _telegram_send("\n".join(linhas))
-    logger.info("followup_conversas: %s conversas frias notificadas", len(rows))
-    return {"ok": True, "frias": len(rows)}
+    corpo = "\n".join(linhas) + "\nNada foi enviado ao cliente — a sugestão é rascunho."
+    dest = _run_async(
+        lambda s: _entregar_no_sino(
+            s,
+            title=f"{len(rows)} conversa(s) esfriaram — retomar?",
+            body=corpo,
+            correlation_id=f"followup_frio:{date.today().isoformat()}",
+        )
+    )
+    logger.info("followup_conversas: %s conversas frias -> %s destinatarios", len(rows), dest)
+    return {"ok": True, "frias": len(rows), "destinatarios": dest}
 
 
 # ======================= QUALITY MONITORING / LOOP DE APRENDIZADO =======================
@@ -270,7 +292,7 @@ async def _auditar_conversas(session, horas: int = 24, limite: int = 15) -> list
 
 @app.task(name="whatsapp.auditar_qualidade", bind=True, max_retries=1)
 def auditar_qualidade(self):  # noqa: ARG001
-    """Diario: audita a qualidade das conversas do José Luís e manda digest no Telegram."""
+    """Diario: audita a qualidade das conversas do José Luís e entrega o digest no SINO."""
     try:
         results = _run_async(_auditar_conversas)
     except Exception as e:  # noqa: BLE001
@@ -278,7 +300,7 @@ def auditar_qualidade(self):  # noqa: ARG001
         return {"ok": False}
 
     if not results:
-        _telegram_send("🔎 <b>Auditoria José Luís</b>\n\nNenhuma conversa com atendimento nas últimas 24h.")
+        # Silêncio honesto, igual ao follow-up: sem atendimento não há o que auditar.
         return {"ok": True, "n": 0}
 
     n = len(results)
@@ -310,9 +332,18 @@ def auditar_qualidade(self):  # noqa: ARG001
                  and (_flag(r, "conduziu_visita") or _flag(r, "pediu_cnpj")))
     if gold_n:
         L.append(f"\n🏆 {gold_n} conversa(s) viraram exemplo (gold) — o José Luís vai espelhar daqui pra frente.")
-    _telegram_send("\n".join(L))
-    logger.info("auditar_qualidade: %s conversas auditadas, media %.1f", n, media)
-    return {"ok": True, "n": n, "media": round(media, 1)}
+    corpo = re.sub(r"</?[a-z]+>", "", "\n".join(L))  # tags de markup antigas; o sino é texto puro
+    dest = _run_async(
+        lambda s: _entregar_no_sino(
+            s,
+            title=f"Auditoria José Luís — {n} conversa(s), média {media:.1f}",
+            body=corpo,
+            correlation_id=f"auditoria_jl:{date.today().isoformat()}",
+            severidade="atencao" if media < 7 else "info",
+        )
+    )
+    logger.info("auditar_qualidade: %s conversas, media %.1f -> %s destinatarios", n, media, dest)
+    return {"ok": True, "n": n, "media": round(media, 1), "destinatarios": dest}
 
 
 # ============================================================================
