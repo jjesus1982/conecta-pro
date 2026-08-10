@@ -16,6 +16,9 @@ EXTRA_MENU: list[dict] = [
     {"id": "drive-desconectar", "label": "Desconectar Google Drive", "icon": _ICO_I},
     {"id": "onvio-extrair", "label": "Extrair valores (Onvio)", "icon": _ICO_I},
     {"id": "solides-vincular-kits", "label": "Vincular benefícios aos kits", "icon": _ICO_I},
+    {"id": "inter-sync-cobrancas", "label": "Sincronizar cobrancas (Inter)", "icon": _ICO_I},
+    {"id": "inter-hermes-linkar", "label": "Vincular extrato aos kits (Hermes)", "icon": _ICO_I},
+    {"id": "whatsapp-nfse", "label": "Avisar NFS-e por WhatsApp", "icon": _ICO_I},
 ]
 
 
@@ -107,6 +110,37 @@ async def build(db) -> dict:
         "submit": {"endpoint": f"/api/v1/integrations/solides/beneficios/vincular-kits?mes_ref={_h.month:02d}.{_h.year}",
                    "okMsg": "Vinculação disparada"},
         "fields": [],
+    }
+
+    out["inter-sync-cobrancas"] = {
+        "title": "Sincronizar status das cobrancas (Inter)",
+        "sub": "Consulta a API do Inter e atualiza o status das cobrancas a receber. So LE "
+               "do banco - nao emite cobranca nem baixa nada sozinho.",
+        "cta": "Sincronizar", "type": "form",
+        "submit": {"endpoint": "/api/v1/financeiro/inter/cobrancas/sincronizar-status",
+                   "okMsg": "Sincronizacao disparada", "showResult": True},
+        "fields": [],
+    }
+    out["inter-hermes-linkar"] = {
+        "title": f"Vincular extrato do Inter aos kits - {_h.month:02d}/{_h.year}",
+        "sub": "Liga cada transacao do extrato ao documento certo do kit. Vinculo - nao "
+               "move dinheiro.",
+        "cta": "Vincular", "type": "form",
+        "submit": {"endpoint": f"/api/v1/financeiro/inter/hermes/linkar?mes_ref={_h.year}-{_h.month:02d}",
+                   "okMsg": "Vinculacao disparada", "showResult": True},
+        "fields": [],
+    }
+    out["whatsapp-nfse"] = {
+        "title": "Avisar o cliente da NFS-e por WhatsApp",
+        "sub": "Manda a notificacao da nota emitida. Efeito EXTERNO: a mensagem sai agora.",
+        "cta": "Enviar", "type": "form",
+        "submit": {"endpoint": "/api/v1/whatsapp/send/nfse-notification", "query": True,
+                   "okMsg": "Notificacao enviada", "showResult": True,
+                   "confirm": "Envia a mensagem ao cliente AGORA. Confirma?"},
+        "fields": [
+            {"key": "user_id", "label": "Destinatario (id do usuario)*", "type": "text",
+             "span": "span 2"},
+        ],
     }
 
     return out

@@ -15,7 +15,9 @@ from modules.operacional.controllers.redesign_data_controller import (
 )
 
 SLUG = "marketing"
-EXTRA_MENU: list[dict] = []
+EXTRA_MENU: list[dict] = [
+    {"id": "licitacao-para-crm", "label": "Licitacao vira oportunidade", "icon": "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"},
+]
 _ND = "#0F1B3A"
 
 
@@ -269,5 +271,23 @@ async def build(db) -> dict:
                             ("copywriter", "gerar-texto"), ("estrategista", "nova-estrategia")):
         if _tela in out:
             out[_tela]["ctaTo"] = _destino
+
+    # Fio solto (2026-08-10): converter licitacao em oportunidade do CRM nao tinha tela.
+    out["licitacao-para-crm"] = {
+        "title": "Transformar licitacao em oportunidade",
+        "sub": "Cria a oportunidade no CRM a partir do edital. Passa pelo dedup — orgao que "
+               "ja e cliente e reaproveitado, nao duplicado.",
+        "cta": "Converter", "type": "form",
+        "submit": {"endpoint": "/api/v1/marketing/licitacao/convert-to-crm",
+                   "okMsg": "Oportunidade criada", "showResult": True},
+        "fields": [
+            {"key": "orgao", "label": "Orgao*", "type": "text", "span": "span 2",
+             "ph": "Ex.: Prefeitura de Manaus"},
+            {"key": "objeto", "label": "Objeto*", "type": "textarea", "span": "span 2",
+             "ph": "O que o edital contrata"},
+            {"key": "valor", "label": "Valor estimado (R$)", "type": "number", "span": "span 1"},
+            {"key": "numero_edital", "label": "Numero do edital", "type": "text", "span": "span 1"},
+        ],
+    }
 
     return out

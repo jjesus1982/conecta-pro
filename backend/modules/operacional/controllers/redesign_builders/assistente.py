@@ -17,6 +17,7 @@ SLUG = "assistente"
 EXTRA_MENU: list[dict] = [
     {"id": "memorias", "label": "Memórias do consultor", "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
     {"id": "anomalias", "label": "Alertas de anomalia", "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
+    {"id": "consultor-feedback", "label": "Dar feedback ao consultor", "icon": "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"},
 ]
 
 
@@ -104,5 +105,23 @@ async def build(db, current_user=None) -> dict:
              "method": "POST", "btnLabel": "Descartar", "submitLabel": "Descartar alerta",
              "btnStyle": "outline", "okMsg": "Alerta descartado. Recarregue.", "fields": []},
         ]))
+
+    out["consultor-feedback"] = {
+        "title": "Dar feedback sobre uma resposta do consultor",
+        "sub": "E assim que ele melhora: dizer se a resposta serviu e, quando nao serviu, "
+               "qual era a certa. O id da consulta aparece no historico.",
+        "cta": "Enviar feedback", "type": "form",
+        "submit": {"endpoint": "/api/v1/ai/consultor/feedback", "okMsg": "Feedback registrado"},
+        "fields": [
+            {"key": "consulta_id", "label": "Consulta (id)*", "type": "number", "span": "span 1"},
+            {"key": "origem", "label": "Origem*", "type": "text", "span": "span 1",
+             "ph": "Ex.: rh, fiscal, cfo"},
+            {"key": "util", "label": "A resposta serviu?*", "type": "select", "span": "span 2",
+             "ph": "Selecione", "options": [{"value": "true", "label": "Sim, serviu"},
+                                            {"value": "false", "label": "Nao serviu"}]},
+            {"key": "correcao", "label": "Qual era a resposta certa?", "type": "textarea",
+             "span": "span 2", "ph": "Preencha quando nao serviu - e isto que ensina"},
+        ],
+    }
 
     return out
