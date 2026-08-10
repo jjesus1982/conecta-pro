@@ -9,6 +9,9 @@ _ICO_I = "M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 11a5 5 0 0 0-7 0l-3 3a5
 
 EXTRA_MENU: list[dict] = [
     {"id": "onvio-reclassificar", "label": "Reclassificar (Onvio)", "icon": _ICO_I},
+    {"id": "solides-sincronizar", "label": "Sincronizar ponto (Sólides)", "icon": _ICO_I},
+    {"id": "drive-conectar", "label": "Conectar Google Drive", "icon": _ICO_I},
+    {"id": "drive-desconectar", "label": "Desconectar Google Drive", "icon": _ICO_I},
 ]
 
 
@@ -55,6 +58,31 @@ async def build(db) -> dict:
                "Não apaga lançamento — só reclassifica.",
         "cta": "Reclassificar", "type": "form",
         "submit": {"endpoint": "/api/v1/onvio/reclassificar", "okMsg": "Reclassificação disparada"},
+        "fields": [],
+    }
+    out["solides-sincronizar"] = {
+        "title": "Sincronizar ponto com o Sólides Tangerino",
+        "sub": "Puxa as batidas do Sólides para o ERP. Só LÊ do Sólides — não escreve lá.",
+        "cta": "Sincronizar agora", "type": "form",
+        "submit": {"endpoint": "/api/v1/people-management/ponto/sincronizar-solides",
+                   "okMsg": "Sincronização de ponto disparada"},
+        "fields": [],
+    }
+    out["drive-conectar"] = {
+        "title": "Conectar Google Drive",
+        "sub": "Inicia a conexão usada pelo GED para guardar e buscar os kits.",
+        "cta": "Conectar", "type": "form",
+        "submit": {"endpoint": "/api/v1/people-management/ged/config/drive/connect",
+                   "okMsg": "Conexão com o Drive iniciada"},
+        "fields": [],
+    }
+    out["drive-desconectar"] = {
+        "title": "Desconectar Google Drive",
+        "sub": "Encerra a conexão. O GED para de guardar e buscar kits no Drive até reconectar.",
+        "cta": "Desconectar", "type": "form",
+        "submit": {"endpoint": "/api/v1/people-management/ged/config/drive/disconnect",
+                   "method": "DELETE", "okMsg": "Google Drive desconectado",
+                   "confirm": "Desconectar o Drive interrompe o GED de guardar e buscar kits. Confirma?"},
         "fields": [],
     }
 

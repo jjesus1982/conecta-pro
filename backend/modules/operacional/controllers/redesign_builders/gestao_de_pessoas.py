@@ -17,6 +17,10 @@ from modules.operacional.controllers.redesign_data_controller import (  # noqa: 
 )
 
 SLUG = "gestao-de-pessoas"
+EXTRA_MENU: list[dict] = [
+    {"id": "consultor-gestao", "label": "Consultor de gestão",
+     "icon": "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M12 8v4M12 16h.01"},
+]
 
 # GED · Envios — ação em PT + ator legível (nome real, ou rótulo do tipo quando é UUID cru no log)
 _GED_ACTION = {"viewed": "Visualizado", "downloaded": "Baixado", "sent": "Enviado",
@@ -162,5 +166,19 @@ async def build(db) -> dict:
                    t(f"{float(r[4]):.0f}h" if r[4] is not None else "—"), t(f"{float(r[5]):.0f}h" if r[5] else "—"),
                    b(str(int(r[6] or 0)), "bad" if (r[6] or 0) > 0 else "ok"), t(str(int(r[7] or 0))),
                    b("Fechado", "ok") if r[8] else b("Aberto", "warn")]))
+
+    # Fio solto (2026-08-10): o consultor de gestão existia no backend sem tela.
+    out["consultor-gestao"] = {
+        "title": "Consultor de gestão de pessoas",
+        "sub": "Pergunta ancorada no quadro real de pessoas. É consulta — não altera nada.",
+        "cta": "Perguntar", "type": "form",
+        "submit": {"endpoint": "/api/v1/gestao/consultor/perguntar",
+                   "okMsg": "Consulta respondida", "showResult": True},
+        "fields": [
+            {"key": "area", "label": "Área*", "type": "text", "span": "span 2",
+             "ph": "Ex.: banco de horas, treinamentos, cargos"},
+            {"key": "pergunta", "label": "Pergunta*", "type": "textarea", "span": "span 2"},
+        ],
+    }
 
     return out

@@ -6,7 +6,9 @@ from datetime import date as _date
 from modules.operacional.controllers.redesign_data_controller import _build_relatorios, _scalar, doc
 
 SLUG = "relatorios"
-EXTRA_MENU: list[dict] = []
+EXTRA_MENU: list[dict] = [
+    {"id": "kpis-recalcular", "label": "Recalcular KPIs", "icon": "M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"},
+]
 
 
 async def build(db) -> dict:
@@ -40,4 +42,16 @@ async def build(db) -> dict:
         }
     except Exception:  # noqa: BLE001
         pass
+
+    # Fio solto (2026-08-10): o recálculo dos KPIs executivos existia sem botão — os
+    # painéis mostravam número velho e não havia como forçar a atualização pela tela.
+    out["kpis-recalcular"] = {
+        "title": "Recalcular KPIs executivos",
+        "sub": "Refaz o cálculo dos indicadores a partir do banco. Use quando o painel "
+               "parecer defasado. Só recalcula — não altera lançamento nenhum.",
+        "cta": "Recalcular", "type": "form",
+        "submit": {"endpoint": "/api/v1/analytics/executive/kpis/recalcular",
+                   "okMsg": "Recálculo dos KPIs disparado"},
+        "fields": [],
+    }
     return out

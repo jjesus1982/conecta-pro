@@ -25,6 +25,7 @@ SLUG = "empresas"
 
 EXTRA_MENU: list[dict] = [
     {"id": "nova-liminar", "label": "Nova Liminar", "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 15h6M9 11h6"},
+    {"id": "resumo-contabil", "label": "Resumo contábil do mês", "icon": "M3 3v18h18M7 16l4-4 3 3 5-6"},
     {"id": "gerar-docs-mes", "label": "Gerar documentos do mês", "icon": "M12 4v16m8-8H4"},
     {"id": "assinar-holerites", "label": "Assinar holerites", "icon": "M9 12h6m-6 4h6m2 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"},
     {"id": "assinar-espelhos", "label": "Assinar espelhos de ponto", "icon": "M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"},
@@ -289,6 +290,29 @@ async def build(db) -> dict:
                 {"value": "espelho", "label": "Só espelhos de ponto"},
                 {"value": "recibo", "label": "Só recibos de VT/VR"},
             ]},
+        ],
+    }
+
+    # Fio solto (2026-08-10): o resumo contábil mensal existia no backend sem tela.
+    out["resumo-contabil"] = {
+        "title": "Resumo contábil do mês",
+        "sub": "Consolida receitas, folha, impostos e despesas administrativas da empresa "
+               "no período. Os valores em branco são buscados do sistema.",
+        "cta": "Gerar resumo", "type": "form",
+        "submit": {"endpoint": "/api/v1/empresas/contabilidade/resumo-mensal",
+                   "okMsg": "Resumo gerado", "showResult": True},
+        "fields": [
+            {"key": "empresa_slug", "label": "Empresa*", "type": "select", "span": "span 1",
+             "ph": "Selecione", "options": [
+                 {"value": "eletronica", "label": "ConectaMais Eletrônica"},
+                 {"value": "patrimonial", "label": "ConectaMais Patrimonial"}]},
+            {"key": "periodo", "label": "Competência*", "type": "text", "span": "span 1",
+             "ph": "AAAA-MM"},
+            {"key": "receitas", "label": "Receitas (R$) — sobrepor", "type": "number", "span": "span 1"},
+            {"key": "custos_folha", "label": "Folha (R$) — sobrepor", "type": "number", "span": "span 1"},
+            {"key": "impostos", "label": "Impostos (R$) — sobrepor", "type": "number", "span": "span 1"},
+            {"key": "despesas_admin", "label": "Despesas admin. (R$) — sobrepor", "type": "number",
+             "span": "span 1"},
         ],
     }
 

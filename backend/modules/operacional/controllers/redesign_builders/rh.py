@@ -27,6 +27,7 @@ EXTRA_MENU: list[dict] = [
     {"id": "cct-auditar-salario", "label": "CCT — Auditar salário", "icon": _ICO_CCT},
     {"id": "cct-reajuste", "label": "CCT — Reajuste", "icon": _ICO_CCT},
     {"id": "consultor-perguntar", "label": "Consultor de RH", "icon": _ICO_CCT},
+    {"id": "cct-invalidar-cache", "label": "CCT — Limpar cache", "icon": _ICO_CCT},
 ]
 
 # 12x36 e a jornada real dos agentes de portaria — nasce selecionada como padrao do campo.
@@ -404,6 +405,15 @@ async def build(db) -> dict:
              "ph": "Ex.: treinamento, clima, carreira"},
             {"key": "pergunta", "label": "Pergunta*", "type": "textarea", "span": "span 2"},
         ],
+    }
+    out["cct-invalidar-cache"] = {
+        "title": "CCT — Limpar cache",
+        "sub": "Use depois de alterar piso, convenção ou feriado: as calculadoras acima leem "
+               "do cache e continuariam devolvendo o valor antigo.",
+        "cta": "Limpar cache", "type": "form",
+        "submit": {"endpoint": "/api/v1/people-management/admin/cct/cache/invalidar",
+                   "okMsg": "Cache da CCT limpo"},
+        "fields": [],
     }
 
     return out
