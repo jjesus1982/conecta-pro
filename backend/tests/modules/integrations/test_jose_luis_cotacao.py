@@ -85,3 +85,128 @@ def test_projecao_clampa_entrada_do_llm(postos, meses, postos_ok, meses_ok):
     out = ag._cotacao_publica(RESULTADO_CCT, postos=postos, meses=meses)
     assert out["postos"] == postos_ok
     assert out["meses"] == meses_ok
+
+
+# ── gate da flag ─────────────────────────────────────────────────────────────
+
+
+def test_tool_ausente_com_flag_desligada(monkeypatch):
+    """Default = comportamento de hoje. Sem a flag, o agente não sabe cotar."""
+    monkeypatch.delenv("AGENT_COTA_EM_CHAT", raising=False)
+    assert ag._tools_ativas(owner=False) is ag.TOOLS
+    nomes = {t["function"]["name"] for t in ag._tools_ativas(owner=False)}
+    assert "simular_preco" not in nomes
+
+
+def test_tool_presente_com_flag_ligada(monkeypatch):
+    monkeypatch.setenv("AGENT_COTA_EM_CHAT", "true")
+    nomes = {t["function"]["name"] for t in ag._tools_ativas(owner=False)}
+    assert "simular_preco" in nomes
+
+
+def test_modo_gerente_nao_ganha_a_tool(monkeypatch):
+    """MANAGER_TOOLS é o conjunto INTERNO. O Jordan já cota na tela do redesign;
+    misturar os conjuntos é justamente o risco que o plano proíbe."""
+    monkeypatch.setenv("AGENT_COTA_EM_CHAT", "true")
+    assert ag._tools_ativas(owner=True) is ag.MANAGER_TOOLS
+    nomes = {t["function"]["name"] for t in ag._tools_ativas(owner=True)}
+    assert "simular_preco" not in nomes
+
+
+async def test_dispatcher_recusa_com_flag_desligada(monkeypatch):
+    """Defesa em profundidade: mesmo que o LLM invente a chamada, o dispatcher barra."""
+    monkeypatch.delenv("AGENT_COTA_EM_CHAT", raising=False)
+    out = await ag._exec_tool("simular_preco", {"funcao": "AGP P1 Diurno"}, conversation_id=1)
+    # "nao permitida" (barrado pelo gate), NÃO "desconhecida" (que passaria por acidente
+    # antes da tool existir e deixaria o teste verde sem testar o gate).
+    assert out == {"erro": "tool nao permitida"}
+
+
+# ── a tool, com um banco de mentira (o banco de verdade é provado na Task 4) ──
+
+FUNCOES_FAKE = [
+    {"nome": "AGP P1 Diurno", "salario_base": 1670.0, "jornada_dias": 15, "noturno": False,
+     "hora_reduzida": False, "ronda": False, "periculosidade": False, "insalubridade": False},
+    {"nome": "AGP P1 Noturno", "salario_base": 1670.0, "jornada_dias": 15, "noturno": True,
+     "hora_reduzida": True, "ronda": False, "periculosidade": False, "insalubridade": False},
+]
+
+
+class _FakeResult:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def mappings(self):
+        return self
+
+    def all(self):
+        return self._rows
+
+
+class _FakeDB:
+    def __init__(self, rows):
+        self._rows = rows
+
+    async def execute(self, *_a, **_k):
+        return _FakeResult(self._rows)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_a):
+        return False
+
+
+def _fingir_banco(monkeypatch, rows=FUNCOES_FAKE):
+    monkeypatch.setattr(ag, "async_session_factory", lambda: _FakeDB(rows))
+
+
+async def test_funcao_inexistente_devolve_lista_real_e_nao_chuta(monkeypatch):
+    """'Nunca fabricar dado': sem match, devolve as funções REAIS, não um preço."""
+    monkeypatch.setenv("AGENT_COTA_EM_CHAT", "true")
+    _fingir_banco(monkeypatch)
+    out = await ag._tool_simular_preco({"funcao": "astronauta", "postos": 2})
+    assert out["ok"] is False
+    assert out["motivo"] == "funcao_nao_encontrada"
+    assert "AGP P1 Diurno" in out["funcoes_disponiveis"]
+    assert not any(k in out for k in ("preco_posto_mes", "mensal", "contrato"))
+
+
+async def test_sem_funcao_pede_a_funcao_em_vez_de_cotar(monkeypatch):
+    monkeypatch.setenv("AGENT_COTA_EM_CHAT", "true")
+    _fingir_banco(monkeypatch)
+    out = await ag._tool_simular_preco({"postos": 2})
+    assert out["motivo"] == "funcao_nao_informada"
+    assert out["funcoes_disponiveis"] == ["AGP P1 Diurno", "AGP P1 Noturno"]
+
+
+async def test_match_parcial_e_sem_acento(monkeypatch):
+    """O cliente escreve 'agp p1 noturno'; a tabela tem 'AGP P1 Noturno'."""
+    monkeypatch.setenv("AGENT_COTA_EM_CHAT", "true")
+    _fingir_banco(monkeypatch)
+    vistos = {}
+
+    async def _falso_calcular(_db, row, *_a, **_k):
+        vistos["nome"] = row["nome"]
+        return dict(RESULTADO_CCT)
+
+    from modules.crm.services import pricing_cct
+
+    monkeypatch.setattr(pricing_cct, "calcular_funcao", _falso_calcular)
+    out = await ag._tool_simular_preco({"funcao": "p1 noturno", "postos": 2, "meses": 24})
+    assert vistos["nome"] == "AGP P1 Noturno"
+    assert out["ok"] is True
+    assert out["mensal"] == round(RESULTADO_CCT["preco"] * 2, 2)
+    assert not (ag._CAMPOS_INTERNOS_COTACAO & set(out))
+
+
+async def test_falha_no_banco_nao_derruba_o_atendimento(monkeypatch):
+    monkeypatch.setenv("AGENT_COTA_EM_CHAT", "true")
+
+    def _explode():
+        raise RuntimeError("banco fora do ar")
+
+    monkeypatch.setattr(ag, "async_session_factory", _explode)
+    out = await ag._tool_simular_preco({"funcao": "AGP P1 Diurno"})
+    assert out.get("erro")
+    assert "preco_posto_mes" not in out

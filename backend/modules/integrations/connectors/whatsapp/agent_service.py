@@ -671,6 +671,42 @@ TOOLS = [
 ]
 
 
+# Tool de COTAÇÃO — fora de TOOLS de propósito: entra só quando AGENT_COTA_EM_CHAT=true
+# (ver _tools_ativas). Com a flag desligada o agente segue com as regras "NUNCA informe
+# preços" do SYSTEM_PROMPT, sem uma linha de comportamento alterada.
+TOOLS_COTACAO = [
+    {
+        "type": "function",
+        "function": {
+            "name": "simular_preco",
+            "description": (
+                "Cota o valor de TABELA de um posto (por posto/mês) consultando a tabela CCT "
+                "vigente da Conecta Mais. Use quando o cliente pedir preço/valor/quanto custa "
+                "e você já souber a FUNÇÃO e a QUANTIDADE de postos. NUNCA calcule nem estime "
+                "preço por conta própria — sempre chame esta ferramenta. Se não souber a função, "
+                "chame sem argumento 'funcao' para receber a lista das funções disponíveis."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "funcao": {
+                        "type": "string",
+                        "description": (
+                            "Nome da função na tabela CCT (ex.: 'AGP P1 Diurno', 'AGP P1 Noturno', "
+                            "'AGP Rondante Noturno', 'ASG', 'Líder de Portaria'). AGP = Agente de "
+                            "Portaria; ASG = Auxiliar de Serviços Gerais. Aceita nome parcial."
+                        ),
+                    },
+                    "postos": {"type": "integer", "description": "Quantidade de postos (1-200). Padrão 1."},
+                    "meses": {"type": "integer", "description": "Duração do contrato em meses (1-60). Padrão 12."},
+                },
+                "required": [],
+            },
+        },
+    },
+]
+
+
 async def _tool_consultar_cnpj(cnpj: str) -> dict:
     """Consulta CNPJ na BrasilAPI (reusa o cliente existente: cache + circuit breaker). Nunca estoura."""
     try:
@@ -2233,6 +2269,22 @@ def _cotacao_publica(r: dict, postos, meses) -> dict:
     }
 
 
+def _cota_em_chat() -> bool:
+    """Política do Jordan: cotar em chat é decisão de negócio, não de código.
+    Desligada por padrão — o SYSTEM_PROMPT proíbe preço em 6 pontos e essa
+    proibição só cai quando o Jordan liga a flag."""
+    return os.getenv("AGENT_COTA_EM_CHAT", "false").lower() == "true"
+
+
+def _tools_ativas(owner: bool) -> list:
+    """Conjunto de tools da conversa. MANAGER_TOOLS (interno, é o Jordan) x TOOLS
+    (externo, número anônimo) — a fronteira que o plano trata como invariante.
+    A cotação entra SÓ no conjunto externo: o Jordan já simula na tela do redesign."""
+    if owner:
+        return MANAGER_TOOLS
+    return TOOLS + TOOLS_COTACAO if _cota_em_chat() else TOOLS
+
+
 async def _precondicao_identidade_ok(conversation_id: int) -> bool:
     """Gate determinístico p/ tools 'action' de identidade (consultar_minha_conta,
     abrir_ordem_servico): só libera se o telefone da conversa já resolve a um cliente
@@ -2269,6 +2321,56 @@ async def _precondicao_pede_assinatura(conversation_id: int) -> bool:
         return False
 
 
+# Colunas exatas que pricing_cct.calcular_funcao consome (flags + salário + jornada).
+_SQL_FUNCOES_ATIVAS = (
+    "SELECT nome, salario_base, jornada_dias, noturno, hora_reduzida, ronda, "
+    "periculosidade, insalubridade FROM crm_pricing_funcoes "
+    "WHERE coalesce(ativo, true) ORDER BY ordem NULLS LAST"
+)
+
+
+def _achatar(s) -> str:
+    """minúsculas sem acento — o cliente escreve 'agp p1 noturno', a tabela tem 'AGP P1 Noturno'."""
+    t = unicodedata.normalize("NFKD", str(s or "").lower())
+    return "".join(c for c in t if not unicodedata.combining(c))
+
+
+async def _tool_simular_preco(args: dict) -> dict:
+    """Cota pela tabela CCT do banco. O agente CONSULTA, nunca calcula.
+
+    Reusa modules.crm.services.pricing_cct (Lucro Real, CCT 2026, método do
+    divisor) — a engine calibrada da casa. NÃO usa PricingEngine: aquela classe
+    tem alíquotas de Lucro Presumido hardcoded e ignora o repasse de 7,5% da
+    CCT Cláusula 2ª §3º. Retorno passa por _cotacao_publica.
+    """
+    from modules.crm.services import pricing_cct  # noqa: PLC0415
+
+    try:
+        pedido = _achatar(args.get("funcao"))
+        async with async_session_factory() as db:
+            linhas = (await db.execute(text(_SQL_FUNCOES_ATIVAS))).mappings().all()
+            if not linhas:
+                return {"ok": False, "motivo": "tabela_de_precos_vazia"}
+            alvo = None
+            if pedido:
+                alvo = next((r for r in linhas if pedido in _achatar(r["nome"])), None)
+            if alvo is None:
+                # Sem match (ou sem função informada) NÃO se chuta um preço: devolve o
+                # cardápio real e deixa o LLM perguntar qual é. "Nunca fabricar dado."
+                return {
+                    "ok": False,
+                    "motivo": "funcao_nao_encontrada" if pedido else "funcao_nao_informada",
+                    "funcoes_disponiveis": [r["nome"] for r in linhas],
+                    "instrucao": "Pergunte ao cliente qual função ele precisa (AGP = Agente de "
+                    "Portaria, ASG = Auxiliar de Serviços Gerais) e chame de novo. NÃO estime valor.",
+                }
+            ficha = await pricing_cct.calcular_funcao(db, dict(alvo))
+        return _cotacao_publica(ficha, args.get("postos"), args.get("meses"))
+    except Exception as e:  # noqa: BLE001 — cotação nunca derruba o atendimento
+        logger.error("simular_preco: %s", e)
+        return {"erro": "nao foi possivel consultar a tabela de precos agora"}
+
+
 async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
     """Dispatcher das tools. Qualquer falha vira {erro:...} — nunca derruba o webhook.
 
@@ -2277,6 +2379,10 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
     """
     tool_meta = _TOOL_ALLOWLIST.get(name)
     if tool_meta is None:
+        return {"erro": "tool nao permitida"}
+    # Defesa em profundidade: a tool só existe na lista quando a flag está ligada,
+    # mas o LLM pode inventar a chamada (alucinação de nome). Barra na porta.
+    if name == "simular_preco" and not _cota_em_chat():
         return {"erro": "tool nao permitida"}
     try:
         if tool_meta["kind"] == "action":
@@ -2325,6 +2431,8 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
 
             async with async_session_factory() as _db:
                 return await _O.sugerir_cross_sell(_db, str(args.get("cnpj", "")))
+        if name == "simular_preco":
+            return await _tool_simular_preco(args)
         return {"erro": f"tool desconhecida: {name}"}
     except Exception as e:  # noqa: BLE001
         logger.error("Tool %s exception: %s", name, e)
@@ -3303,7 +3411,7 @@ async def gerar_resposta(conversation_id: int) -> str | None:
             owner = is_owner(phone_row[0] if phone_row else None)
         except Exception:  # noqa: BLE001
             owner = False
-        active_tools = MANAGER_TOOLS if owner else TOOLS
+        active_tools = _tools_ativas(owner)
 
         messages = [{"role": "system", "content": MANAGER_PROMPT if owner else SYSTEM_PROMPT}]
 
