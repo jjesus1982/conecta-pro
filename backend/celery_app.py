@@ -160,6 +160,12 @@ app.conf.update(
     task_default_queue="gov.batch",
 )
 
+# Falha de tarefa agendada -> alerta no sino (uma por tarefa por dia).
+# Import por EFEITO COLATERAL: o decorador @task_failure.connect registra o
+# manipulador. Sem isto, tarefa que estoura todo dia so aparece no log do
+# container — foi assim que o fechamento contabil parou em julho/2026.
+from modules.notifications import task_falha  # noqa: E402,F401
+
 # Beat Schedule (tarefas agendadas)
 app.conf.beat_schedule = {
     # ── Fase 0: reconciliação do sino (espinha de completude, imune a evento perdido) ──
