@@ -176,6 +176,26 @@ _MODULO_AGENTE = {
     "financeiro": "cfo", "fiscal": "fiscal", "juridico": "juridico",
     "ged": "ged", "crm": "comercial", "operacional": "operacional", "dp": "chro",
 }
+_AGENTE_MODULO = {agente: modulo for modulo, agente in _MODULO_AGENTE.items()}
+
+
+def _lente_permitida(user, agente: str) -> bool:
+    """A lente pedida pelo cliente é do módulo do usuário?
+
+    Achado de 11/08/2026 (oráculo RBAC nº 8): `persona` vinha do payload e ninguém a
+    checava. O belt de tools segurava o DADO — um CLT nunca recebeu tool de financeiro —
+    mas a lente injeta o KB curado daquele domínio no system prompt. Bastava um porteiro
+    mandar `persona: "financeiro"` para levar o briefing do CFO: estrutura societária,
+    CNPJs, bancos por empresa, regime tributário, playbook de fechamento.
+
+    Escopo é do servidor, nunca do payload. `ceo` é consolidada e não tem módulo próprio:
+    só admin. Negar aqui não dá erro — cai no default (conhecimento dos módulos do próprio
+    usuário), que é o comportamento de quem não pede lente nenhuma.
+    """
+    if (getattr(user, "role", "") or "").lower() == "admin":
+        return True
+    modulo = _AGENTE_MODULO.get(agente)
+    return bool(modulo) and modulo in user_modules(user)
 
 
 _ESTILO_VOZ = (
@@ -213,6 +233,8 @@ def _system_for(user, pergunta: str, persona: str | None = None, voz: bool = Fal
     from modules.ai.conversation.services.consultor_conhecimento_service import contexto_para_prompt
     sp = _SYSTEM_BASE
     agente = _PERSONA_AGENTE.get((persona or "").strip().lower())
+    if agente and not _lente_permitida(user, agente):
+        agente = None  # lente fora do escopo do usuário → default, não erro (ver _lente_permitida)
     if agente:
         sp += _LENTES.get(agente, "")
         sp += contexto_para_prompt(agente, pergunta, max_secoes=6)  # completo p/ a persona ativa

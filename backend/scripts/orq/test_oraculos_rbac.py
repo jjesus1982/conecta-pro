@@ -13,8 +13,8 @@ e determinístico — o que se prova ali é a DELEGAÇÃO (rota/handler responde
 Identidades reais (verificadas contra o banco vivo):
 - GESTOR   = papel `supervisor`  (módulos ged/dp/operacional/sst; SEM financeiro/fiscal)
 - LÍDER    = papel `lider` com vínculo de colaborador (lidera >=1 posto via posts.leader_id)
-- CLT      = employee CELIANE (196 batidas reais)
-- CLIENTE  = ged_clients GREEN HILLS + outro condomínio com portal habilitado
+- CLT      = colaborador com mais batidas reais (resolvido em runtime)
+- CLIENTE  = um ged_client com portal habilitado + outro (resolvidos em runtime)
 - DIRETORIA= papel `admin` (delega ao executivo)
 """
 from __future__ import annotations
@@ -33,6 +33,7 @@ from core.database import async_session_factory
 from modules.ai.conversation.controllers.consultor_escopado_controller import (
     ConsultarIn,
     _resolver_tier_e_tools,
+    _system_for,
     consultar as scoped_consultar,
 )
 from modules.ai.conversation.services.orquestrador.engine import OrqScope
@@ -86,7 +87,7 @@ async def _user(db, papel: str):
 # ── Oráculos (cada um retorna None se PASS; levanta AssertionError se a fronteira vazar) ──
 
 async def oraculo_1_gestor(db) -> None:
-    """GESTOR (gonzaga) NÃO vê financeiro/fiscal: nem no belt (tools), nem no handler."""
+    """GESTOR NÃO vê financeiro/fiscal: nem no belt (tools), nem no handler."""
     gonzaga = await _user(db, PAPEL_GESTOR)
     scope, tools = await _resolver_tier_e_tools(db, gonzaga)
     names = {t.name for t in tools}
@@ -104,11 +105,11 @@ async def oraculo_1_gestor(db) -> None:
 
 
 async def oraculo_2_lider(db) -> None:
-    """LÍDER (erika) só o(s) SEU(S) posto(s); posto de outro é impossível: escopo vazio = aguardando."""
+    """LÍDER só o(s) SEU(S) posto(s); posto de outro é impossível: escopo vazio = aguardando."""
     erika = await _user(db, PAPEL_LIDER)
     scope, _ = await _resolver_tier_e_tools(db, erika)
-    assert scope.tier == "lider", f"erika não resolveu como líder: tier={scope.tier}"
-    assert scope.post_ids, "líder sem post_ids — pré-condição real quebrou (erika não lidera posto)"
+    assert scope.tier == "lider", f"líder não resolveu como líder: tier={scope.tier}"
+    assert scope.post_ids, "líder sem post_ids — pré-condição real quebrou (o líder achado não lidera posto)"
 
     # Escopo com post_ids=[] (outro líder sem posto / posto alheio) => aguardando dado, nunca dado.
     vazio = await tr.get_tool("posto_escala_hoje").handler(
@@ -257,9 +258,28 @@ async def oraculo_8_tier_nao_forjavel(db) -> None:
     """PROBE de robustez: o tier NÃO é forjável via payload — a entrada da rota só tem 'pergunta'.
     O tier/escopo é resolvido no servidor a partir da identidade (get_current_active_user)."""
     campos = set(ConsultarIn.model_fields.keys())
-    assert campos == {"pergunta"}, f"payload expõe campos além de 'pergunta' (tier forjável?): {campos}"
     for proibido in ("tier", "employee_id", "post_ids", "client_id", "scope"):
         assert proibido not in campos, f"payload aceita '{proibido}' — tier/escopo forjável"
+
+    # O assert era `campos == {"pergunta"}`. Campo novo no payload é legítimo (persona e voz
+    # entraram com o chat unificado) — o que não pode é campo novo que MOVA escopo. Cada um
+    # aqui é uma decisão consciente; um campo desconhecido reprova até alguém julgá-lo.
+    BENIGNOS = {"pergunta", "persona", "voz"}
+    novos = campos - BENIGNOS
+    assert not novos, f"campo novo em ConsultarIn não avaliado quanto a escopo: {novos}"
+
+    # `persona` escolhe a LENTE, e a lente injeta o KB curado do domínio no system prompt.
+    # Sem gate (achado de 11/08/2026), um CLT pedindo persona='financeiro' levava o briefing
+    # do CFO — estrutura societária, bancos por CNPJ, regime tributário. O belt de tools
+    # segurava o dado; o conhecimento vazava. Aqui se prova que a lente respeita o módulo.
+    clt = await exigir_usuario_com_colaborador(db, "funcionario")
+    sp_clt = _system_for(clt, "qual o saldo por CNPJ?", persona="financeiro")
+    assert "LENTE ATIVA — CFO" not in sp_clt, "CLT forjou a lente CFO via persona no payload"
+    assert "35.710.481" not in sp_clt, "KB do CFO (CNPJ/estrutura societária) vazou para o CLT"
+
+    admin = await _user(db, PAPEL_ADMIN)
+    sp_admin = _system_for(admin, "qual o saldo por CNPJ?", persona="financeiro")
+    assert "LENTE ATIVA — CFO" in sp_admin, "gate da lente barrou quem TEM o módulo (falso positivo)"
 
 
 _ORACULOS = [
