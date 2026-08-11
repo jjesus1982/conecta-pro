@@ -11,10 +11,19 @@ import { MessageCircle, X, Send, Download, Loader2, Paperclip, Mic, Volume2, Vol
 
 type Doc = { nome?: string; arquivo_base64?: string; resumo?: string };
 type Msg = { role: 'user' | 'assistant'; text: string; docs?: Doc[]; aviso?: boolean };
+type Rascunho = { draft_id: string; titulo?: string; tipo?: string; gate?: string };
+
+// Confirmação falada: só estas palavras aprovam, e só o rascunho MAIS RECENTE.
+// Lista curta de propósito — quanto menor, menor a chance de a transcrição inventar um "sim".
+const CONFIRMA = /^\s*(confirma|confirmar|confirmado|aprova|aprovar|aprovado|pode aprovar|pode executar|isso mesmo|ok pode)\s*[.!]?\s*$/i;
+const CANCELA = /^\s*(cancela|cancelar|não|nao|deixa|esquece|para)\s*[.!]?\s*$/i;
+// Janela curta: confirmar "sem querer" 10 minutos depois seria aprovar às cegas.
+const JANELA_CONFIRMA_MS = 3 * 60 * 1000;
 
 const ENDPOINT = '/api/v1/consultores/chat/executar';
 const ENDPOINT_ARQUIVO = '/api/v1/consultores/chat/executar-arquivo';
-const ENDPOINT_VOZ = '/api/v1/consultores/voz/falar';   // TTS neural (edge-tts) no servidor
+const ENDPOINT_VOZ = '/api/v1/consultores/voz/falar';
+const ENDPOINT_APROVAR = '/api/v1/redesign/action/aprovar-rascunho';  // confirmar sem sair da conversa
 const ACCEPT = '.pdf,.docx,.txt,.png,.jpg,.jpeg,.webp';
 const SUGGESTIONS = ['Gera o DRE do mês', 'Meu holerite', 'Monta uma proposta'];
 const NAVY = '#16277D';
@@ -48,6 +57,9 @@ export default function FloatingChat() {
   const [busy, setBusy] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [persona, setPersona] = useState('');
+  // Rascunho aguardando confirmação — o chat cria, o humano aprova. Guardamos o instante
+  // para expirar a janela: confirmar às cegas 10 minutos depois não é confirmar, é sorte.
+  const [pendente, setPendente] = useState<{ r: Rascunho; em: number } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -61,6 +73,20 @@ export default function FloatingChat() {
   const recRef = useRef<any>(null);
   const ultimaFaladaRef = useRef<string>('');
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // O navegador bloqueia audio.play() sem gesto recente do usuário. Antes isso caía no catch
+  // e voltava pra voz do navegador — o Jordan ouvia a voz robótica achando que era a nossa.
+  // Destravamos UM elemento no clique do alto-falante (gesto) e reusamos ele sempre.
+  const destravadoRef = useRef(false);
+  function destravarAudio() {
+    if (destravadoRef.current) return;
+    try {
+      const a = new Audio();
+      a.src = 'data:audio/mp3;base64,//uQxAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACcQCA';
+      a.volume = 0;
+      a.play().then(() => { destravadoRef.current = true; }).catch(() => { /* tenta de novo no próximo clique */ });
+      audioRef.current = a;
+    } catch { /* */ }
+  }
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -100,12 +126,24 @@ export default function FloatingChat() {
         if (!r.ok) throw new Error(String(r.status));
         const url = URL.createObjectURL(await r.blob());
         if (cancelado) { URL.revokeObjectURL(url); return; }
-        const a = new Audio(url);
+        const a = audioRef.current && destravadoRef.current ? audioRef.current : new Audio();
+        a.src = url; a.volume = 1;
         audioRef.current = a;
         a.onended = () => URL.revokeObjectURL(url);
-        await a.play();
+        try {
+          await a.play();
+        } catch {
+          // Autoplay bloqueado: NÃO cair na voz robótica em silêncio — dizer o que houve.
+          URL.revokeObjectURL(url);
+          setMsgs((m) => [...m, { role: 'assistant', aviso: true,
+            text: 'O navegador bloqueou o áudio. Clique no alto-falante uma vez para liberar e pergunte de novo.' }]);
+        }
+        return;
       } catch {
-        // Reserva: se o TTS do servidor cair, fala com a voz do navegador em vez de emudecer.
+        // Reserva: voz do navegador. AVISA que é reserva — antes o Jordan ouvia a voz robótica
+        // achando que era a nossa e concluía (com razão) que a voz estava ruim.
+        setMsgs((m) => [...m, { role: 'assistant', aviso: true,
+          text: 'Não consegui gerar a voz boa agora; usando a voz do navegador (mais robótica).' }]);
         try {
           const limpo = ultima.text.replace(/[*_`#>|]/g, '').replace(/https?:\/\/\S+/g, 'link').slice(0, 700);
           const u = new SpeechSynthesisUtterance(limpo);
@@ -124,6 +162,47 @@ export default function FloatingChat() {
   // Erro de voz PRECISA aparecer: a 1ª versão engolia a falha e o botão parecia morto.
   function avisoVoz(texto: string) {
     setMsgs((m) => [...m, { role: 'assistant', text: texto, aviso: true }]);
+  }
+
+  /** Aprova o rascunho pendente (dito ou digitado). NÃO é atalho para executar qualquer coisa:
+   *  só vale para o ÚLTIMO rascunho, dentro da janela, e o backend continua checando permissão.
+   *  Dinheiro/eSocial não executa aqui — o backend devolve needsOtp e mandamos para a tela de OTP. */
+  async function confirmarPendente() {
+    if (!pendente || busy) return;
+    const { r, em } = pendente;
+    if (Date.now() - em > JANELA_CONFIRMA_MS) {
+      setPendente(null);
+      setMsgs((m) => [...m, { role: 'assistant', aviso: true,
+        text: 'Faz tempo demais desde que criei esse rascunho. Confirme na Central de Aprovações para não haver dúvida.' }]);
+      return;
+    }
+    setBusy(true);
+    let tok: string | null = null;
+    try { tok = localStorage.getItem('access_token'); } catch { /* */ }
+    try {
+      const res = await fetch(`${ENDPOINT_APROVAR}?draft_id=${encodeURIComponent(r.draft_id)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
+        body: '{}',
+      });
+      const d = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        setMsgs((m) => [...m, { role: 'assistant', aviso: true,
+          text: d?.detail || `Não consegui aprovar (erro ${res.status}).` }]);
+      } else if (d.needsOtp) {
+        // Parede intocada: dinheiro/eSocial nunca é executado por voz.
+        setMsgs((m) => [...m, { role: 'assistant',
+          text: 'Autorizado. Como envolve dinheiro, o envio final precisa do seu código OTP na tela de pagamento.' }]);
+        if (d.action_url) setTimeout(() => { try { window.location.href = d.action_url; } catch { /* */ } }, 1500);
+      } else {
+        setMsgs((m) => [...m, { role: 'assistant', text: d.message || 'Feito.' }]);
+      }
+    } catch {
+      setMsgs((m) => [...m, { role: 'assistant', text: 'Falha de rede ao aprovar. Tente de novo.', aviso: true }]);
+    } finally {
+      setPendente(null);
+      setBusy(false);
+    }
   }
 
   async function alternarMicrofone() {
@@ -222,6 +301,22 @@ export default function FloatingChat() {
     const q = (pergunta || '').trim();
     const anexo = file;
     if ((!q && !anexo) || busy) return;
+    // "confirma"/"cancela" com rascunho pendente NÃO vira pergunta ao modelo: é decisão do
+    // humano sobre uma ação concreta. Mandar ao LLM seria pedir que ele adivinhasse o que
+    // aprovar — e ele poderia criar OUTRO rascunho em vez de executar o que está na mesa.
+    if (pendente && !anexo && CONFIRMA.test(q)) {
+      setInput('');
+      setMsgs((m) => [...m, { role: 'user', text: q }]);
+      await confirmarPendente();
+      return;
+    }
+    if (pendente && !anexo && CANCELA.test(q)) {
+      setInput('');
+      setPendente(null);
+      setMsgs((m) => [...m, { role: 'user', text: q },
+        { role: 'assistant', text: 'Certo, não executei nada. O rascunho continua na Central de Aprovações.' }]);
+      return;
+    }
     setInput('');
     setFile(null);
     if (fileRef.current) fileRef.current.value = '';
@@ -254,9 +349,12 @@ export default function FloatingChat() {
       } else if (!res.ok) {
         setMsgs((m) => [...m, { role: 'assistant', text: (d && d.detail) || `Não consegui responder agora (erro ${res.status}).`, aviso: true }]);
       } else {
+        // Rascunho criado nesta resposta → habilita confirmar aqui mesmo (falando ou digitando).
+        const rasc: Rascunho | null = d.rascunho && d.rascunho.draft_id ? d.rascunho : null;
+        setPendente(rasc ? { r: rasc, em: Date.now() } : null);
         setMsgs((m) => [...m, {
           role: 'assistant',
-          text: d.resposta || '(sem resposta)',
+          text: (d.resposta || '(sem resposta)') + (rasc ? '\n\nDiga "confirma" para eu executar, ou "cancela".' : ''),
           docs: Array.isArray(d.documentos) ? d.documentos.filter((x: Doc) => x && x.arquivo_base64) : [],
         }]);
       }
@@ -444,6 +542,7 @@ export default function FloatingChat() {
                 <button
                   type="button"
                   onClick={() => {
+                    destravarAudio();   // gesto do usuário = permissão de tocar áudio depois
                     setFalarRespostas((v) => {
                       if (v) { try { window.speechSynthesis?.cancel(); } catch { /* */ } }
                       return !v;

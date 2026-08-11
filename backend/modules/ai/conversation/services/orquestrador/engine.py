@@ -50,6 +50,19 @@ def _extrair_documentos(tool_results: list[Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _extrair_rascunho(tool_results: list[Any]) -> dict[str, Any] | None:
+    """Último rascunho criado nesta rodada (criar_rascunho devolve status='rascunho'+draft_id).
+
+    Vai no retorno para o chat poder oferecer a CONFIRMAÇÃO na hora — sem isto o usuário
+    precisa sair da conversa e ir à Central de Aprovações. `gate` viaja junto porque decide
+    se dá para confirmar ali mesmo ou se o caminho é OTP (dinheiro/eSocial)."""
+    for r in reversed(tool_results):
+        if isinstance(r, dict) and r.get("status") == "rascunho" and r.get("draft_id"):
+            return {"draft_id": str(r["draft_id"]), "titulo": r.get("titulo", ""),
+                    "tipo": r.get("tipo", ""), "gate": r.get("gate", "")}
+    return None
+
+
 @dataclass
 class OrqScope:
     tier: str  # "gestor" | "lider" | "clt" | "cliente"
@@ -191,4 +204,5 @@ async def run_engine(
         "provider": provider, "modelo": model, "grounded": grounded,
         "flags": flags, "origem": origem, "tier": scope.tier, "disclaimer": _DISCLAIMER,
         "documentos": _extrair_documentos(tool_results),
+        "rascunho": _extrair_rascunho(tool_results),   # p/ confirmar sem sair da conversa
     }
