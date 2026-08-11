@@ -16,7 +16,7 @@ com instrucao para emissao manual — nunca quebra o pipeline.
 import asyncio
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -110,6 +110,34 @@ class SefazAMClient:
         html_lower = html.lower()
         now = datetime.utcnow().isoformat()
 
+        # ── O veredito só vale se a resposta for SOBRE ESTE CNPJ ──────────────────
+        # Medido em 11/08/2026: este parser recebia a PÁGINA DE SERVIÇO do órgão (que
+        # explica o que é uma certidão) e casava as palavras dela. Resultado: veredito
+        # idêntico para qualquer CNPJ — o de Manaus dizia `irregular` até para o Banco do
+        # Brasil; o da Sefaz dizia `regular` até para o CNPJ inexistente 11111111111111,
+        # sempre com a mesma validade (que era o fallback hoje+180d, não documento).
+        # Página que não cita o CNPJ perguntado não é resposta: é folheto.
+        _digitos = re.sub(r"\D", "", cnpj or "")
+        _html_digitos = re.sub(r"\D", "", html_lower)
+        _cita_cnpj = bool(_digitos) and _digitos in _html_digitos
+        # A citação do CNPJ sozinha NÃO basta: o portal ecoa a query string (`?cnpj=...`)
+        # de volta no HTML, então até um CNPJ inexistente "aparece" na página. Certidão de
+        # verdade sempre traz DATA DE VALIDADE — sem data no documento, não há veredito.
+        _tem_data = bool(re.search(r"\d{2}/\d{2}/\d{4}", html_lower))
+        if not _cita_cnpj or not _tem_data:
+            return {
+                "cnpj": cnpj,
+                "tipo_certidao": None,
+                "situacao": "requer_manual",
+                "regular": None,
+                "data_validade": None,
+                "requer_manual": True,
+                "nota": ("Resposta do portal não menciona o CNPJ consultado — é página "
+                         "informativa, não resultado. Emitir manualmente no portal."),
+                "url": url,
+                "consultado_em": now,
+            }
+
         # Detectar tipo de certidao
         tipo_certidao: str | None = None
         if any(x in html_lower for x in ["certidão negativa", "certidao negativa", "nada consta"]):
@@ -130,8 +158,8 @@ class SefazAMClient:
             except ValueError:
                 pass
 
-        if data_validade is None:
-            data_validade = (datetime.utcnow() + timedelta(days=self.VALIDADE_DIAS)).isoformat()
+        # Sem data no documento não há validade. O fallback que existia aqui
+        # (hoje + VALIDADE_DIAS) foi metade da fabricação de 11/08/2026.
 
         # Extrair numero da certidao
         num_match = re.search(r"n[uú]mero[^\d]*([\d][\d\.\/\-]+)", html_lower)
