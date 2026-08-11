@@ -44,9 +44,13 @@ class InterClient:
     # ── Saldo ────────────────────────────────────────────────────────────────
 
     async def consultar_saldo(self, data: date | None = None):
-        """Retorna AccountBalance com disponivel, bloqueado, total."""
+        """Retorna AccountBalance com disponivel, bloqueado, total.
+
+        `data` era aceita e IGNORADA — quem pedisse o saldo de 31/03 recebia o de
+        hoje sem nenhum aviso, e acreditaria nele.
+        """
         try:
-            return await self._adapter.get_balance()
+            return await self._adapter.get_balance(data)
         except Exception as exc:
             raise InterError(f"Erro ao consultar saldo Inter: {exc}") from exc
 

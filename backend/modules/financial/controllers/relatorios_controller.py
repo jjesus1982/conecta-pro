@@ -417,10 +417,11 @@ async def balancete_real(
         "SELECT coalesce(sum(amount), 0) FROM bank_transactions"
     ))).scalar() or 0), 2)
     divergencia = round(saldo_contabil_banco - extrato, 2)
-    # `current_balance` é informativo, NÃO oráculo: em 11/08/2026 estava parado
-    # desde 14/04. Vem com a data para que ninguém confie num número velho.
+    # A data do saldo é `last_balance_update` — quem grava é o sync do Inter.
+    # `last_sync_at` é coluna MORTA em bank_accounts: nada escreve nela, e ler
+    # dela fazia a tela anunciar "parado desde 14/04" com o saldo do dia.
     reg = (await db.execute(_sql(
-        "SELECT coalesce(sum(current_balance), 0), max(last_sync_at) FROM bank_accounts"
+        "SELECT coalesce(sum(current_balance), 0), max(last_balance_update) FROM bank_accounts"
     ))).first()
 
     return {

@@ -248,14 +248,24 @@ class InterAdapter(BaseBankingAdapter):
 
         return response.json() if response.text else {}
 
-    async def get_balance(self) -> AccountBalance:
-        """Consulta saldo da conta Inter."""
-        data = await self._request("GET", "/banking/v2/saldo")
+    async def get_balance(self, data_saldo: date | None = None) -> AccountBalance:
+        """Consulta saldo da conta Inter. Com `data_saldo`, o saldo NAQUELE dia.
 
+        O saldo histórico é o que permite auditar o extrato: em 11/08/2026 foi
+        assim que se descobriu que o /extrato só retorna de 07/02 em diante e que
+        R$12.117,13 de fevereiro tinham sumido por causa disso.
+        """
+        params = {"dataSaldo": data_saldo.strftime("%Y-%m-%d")} if data_saldo else None
+        raw = await self._request("GET", "/banking/v2/saldo", params=params)
+
+        # 'bloqueado' é a soma dos três: cheque, judicial e administrativo. Ler só
+        # o de cheque escondia bloqueio judicial, que é justamente o que importa.
+        bloqueado = sum(self._parse_amount(raw.get(k, 0)) for k in
+                        ("bloqueadoCheque", "bloqueadoJudicialmente", "bloqueadoAdministrativo"))
         return AccountBalance(
-            available=self._parse_amount(data.get("disponivel", 0)),
-            blocked=self._parse_amount(data.get("bloqueadoCheque", 0)),
-            total=self._parse_amount(data.get("disponivel", 0)),
+            available=self._parse_amount(raw.get("disponivel", 0)),
+            blocked=bloqueado,
+            total=self._parse_amount(raw.get("disponivel", 0)),
             currency="BRL",
             updated_at=datetime.now(),
         )
