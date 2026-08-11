@@ -5,7 +5,13 @@ fin_accounting_periods (3), fin_cost_centers (1). Leitura; postar/estornar segue
 from sqlalchemy import text
 
 from modules.operacional.controllers.redesign_data_controller import (
-    S, _fmtdate, _helpers, _scalar, b, brl, t,
+    S,
+    _fmtdate,
+    _helpers,
+    _scalar,
+    b,
+    brl,
+    t,
 )
 
 
@@ -277,6 +283,7 @@ async def build_contabil(db, out: dict) -> None:
     # Reusa get_dre (mesmo do PDF/clássico) — isolado, read-only. ──────────────────────────────
     try:
         from datetime import date as _date
+
         from modules.financial.controllers.relatorios_controller import get_dre as _get_dre
         _d = await _get_dre(ano=_date.today().year, mes_inicio=1, mes_fim=12,
                             comparativo=False, condominio_id=None, db=db)
@@ -584,7 +591,8 @@ async def build_contabil(db, out: dict) -> None:
     # Reusa _status_linha do pareamento_fiscal_service (testado). Oráculo: sem guia = "aguardando". ─
     try:
         from sqlalchemy import text as _text
-        from modules.financial.services.pareamento_fiscal_service import _status_linha, _inss_total
+
+        from modules.financial.services.pareamento_fiscal_service import _inss_total, _status_linha
         _EMPRESAS = [("Eletrônica", "619a3df1-8bce-49ce-b77a-04f80a0e8491"),
                      ("Patrimonial", "7d79ed12-d480-4906-b2e0-2b2c4d299bab")]
         _rows, _mat = [], []
