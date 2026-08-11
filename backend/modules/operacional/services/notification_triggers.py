@@ -128,6 +128,11 @@ class OperacionalNotificationTriggers:
                 return {"success": True, "late_employees": 0, "notifications_sent": 0,
                         "details": [], "obs": "sem destinatários operacionais (role)"}
 
+            # TZ CANÔNICO: a sessão do Postgres roda em UTC, então CURRENT_DATE vira o
+            # dia SEGUINTE a partir das 20h de Manaus. Esta query compara a hora do
+            # turno com `now() AT TIME ZONE 'America/Manaus'` — misturar as duas bases
+            # na MESMA comparação (e na janela de busca da batida) desalinha o dia
+            # inteiro à noite. Medido em 2026-08-10 23h: CURRENT_DATE=11/08 e Manaus=10/08.
             # Escala esperada de hoje SEM batida na janela do turno (tolerância aplicada),
             # já em fuso Manaus. A cauda noturna (D+1 até 07:00) cobre turnos que viram o dia.
             late_rows = self.db.execute(
@@ -138,7 +143,7 @@ class OperacionalNotificationTriggers:
                            lu.id::text AS leader_user_id,
                            EXTRACT(EPOCH FROM (
                              now() AT TIME ZONE 'America/Manaus'
-                             - (CURRENT_DATE + sh.planned_start_time)
+                             - ((now() AT TIME ZONE 'America/Manaus')::date + sh.planned_start_time)
                            ))/60 AS minutes_late
                     FROM shifts sh
                     JOIN posts p ON p.id = sh.post_id
@@ -150,14 +155,14 @@ class OperacionalNotificationTriggers:
                       AND sh.is_active = TRUE
                       AND coalesce(e.is_homologacao, false) = false  -- não alerta base de teste
                       AND lower(coalesce(sh.status,'')) IN ('scheduled','agendado','ativo')
-                      AND (CURRENT_DATE + sh.planned_start_time)
+                      AND ((now() AT TIME ZONE 'America/Manaus')::date + sh.planned_start_time)
                           <= (now() AT TIME ZONE 'America/Manaus') - (:tol || ' minutes')::interval
                       AND NOT EXISTS (
                         SELECT 1 FROM gp_clock_punches cp
                         WHERE cp.employee_id = e.id
                           AND (cp.punch_timestamp)
-                              BETWEEN (CURRENT_DATE + sh.planned_start_time - interval '1 hour')
-                                  AND (CURRENT_DATE + sh.planned_start_time + interval '12 hours')
+                              BETWEEN ((now() AT TIME ZONE 'America/Manaus')::date + sh.planned_start_time - interval '1 hour')
+                                  AND ((now() AT TIME ZONE 'America/Manaus')::date + sh.planned_start_time + interval '12 hours')
                       )
                       -- dedup: já notificamos este shift hoje?
                       AND NOT EXISTS (
