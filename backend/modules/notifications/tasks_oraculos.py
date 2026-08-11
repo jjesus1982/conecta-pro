@@ -169,6 +169,43 @@ def publicar_no_sino(resumo: dict) -> int:
     return len(destinatarios)
 
 
+#: Onde fica o "rodou". `system_configs` já existe para isto (chave única, todo o resto com
+#: default) e estava vazia — nenhuma migração, nenhuma tabela nova.
+_CHAVE_BATIDA = "oraculos.ultima_varredura"
+
+_SQL_BATER = """
+    INSERT INTO system_configs (id, chave, valor, descricao, grupo)
+    VALUES (gen_random_uuid(), :chave, :valor,
+            'Instante da última varredura dos oráculos (vigiado por orq.checar_varredura_ausente)',
+            'oraculos')
+    ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor, updated_at = NOW()
+"""
+
+
+def bater_ponto(resumo: dict) -> None:
+    """Registra que a varredura ACONTECEU — verde ou vermelha, tanto faz.
+
+    Sem isto, silêncio no sino significa duas coisas opostas: "tudo verde" e "o cron nunca
+    rodou". É a mesma ambiguidade que deixou os 59 oráculos apodrecerem sem ninguém notar.
+    A batida é o que permite alguém perguntar "quando foi a última vez?" e ter resposta.
+    """
+    import json
+    from datetime import UTC, datetime
+
+    from sqlalchemy import text
+
+    from core.database.session import SyncSessionLocal
+
+    valor = json.dumps({
+        "em": datetime.now(UTC).isoformat(timespec="seconds"),
+        "total": resumo["total"], "verdes": resumo["verdes"],
+        "vermelhos": resumo["vermelhos"], "nao_rodados": resumo["nao_rodados"],
+    })
+    with SyncSessionLocal() as db:
+        db.execute(text(_SQL_BATER), {"chave": _CHAVE_BATIDA, "valor": valor})
+        db.commit()
+
+
 def _self_check() -> None:
     """Sem banco: a mensagem tem que caber no sino e nunca esconder corte."""
     falso = {"total": 59, "vermelhos": 9, "nao_rodados": 1, "nomes_nao_rodados": ["test_y.py"],
@@ -196,6 +233,11 @@ if __name__ == "__main__":
           f"{resumo['nao_rodados']} não rodados em {dur}s")
     for f in resumo["falhas"]:
         print(f"  x {f['oraculo']} — {f['motivo']}")
+
+    try:
+        bater_ponto(resumo)  # antes do sino: "rodou" vale mesmo quando não há o que avisar
+    except Exception as exc:  # noqa: BLE001 — não perder a varredura por causa da batida
+        print(f"[oraculos] NÃO consegui bater ponto: {type(exc).__name__}: {exc}")
 
     if not resumo["falhas"] and not resumo["nao_rodados"]:
         raise SystemExit(0)  # verde = silêncio: nada no sino

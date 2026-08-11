@@ -46,6 +46,9 @@ app = Celery(
         "modules.notifications.proativo.tasks",
         # Fase 5.6a (LT2): detector de anomalia de pagamento (beat + sino diretoria).
         "modules.ai.fraud_detection.tasks",
+        # Vigia de AUSÊNCIA da varredura dos oráculos (a varredura em si roda por cron do
+        # host; quem vigia não pode depender do mesmo mecanismo que vigia).
+        "modules.notifications.tasks_vigia_oraculos",
     ],
 )
 
@@ -108,6 +111,7 @@ app.conf.task_routes = {
     # Operacional - Notificações Push
     "operacional.check_late_employees": {"queue": "operacional"},
     "operacional.check_pending_approvals": {"queue": "operacional"},
+    "operacional.lembrete_ponto_whatsapp": {"queue": "operacional"},
     # Operacional - Banco de Horas / Relatórios
     "operacional.expire_time_bank_entries": {"queue": "operacional"},
     "operacional.send_shift_reminders": {"queue": "operacional"},
@@ -184,6 +188,14 @@ app.conf.beat_schedule = {
     #    2026-07-25: app.conf.timezone (acima) == "America/Manaus" E o container
     #    celery-beat roda com TZ=America/Manaus — o crontab do celery interpreta a
     #    hora no timezone configurado, então hour=7 já É 07:00 Manaus (não 07:00 UTC).
+    # ── Alarme de AUSÊNCIA: se a varredura dos oráculos não rodou nas últimas 30h, o sino
+    #    toca. Sem isto, silêncio significa "tudo verde" E "o cron nunca disparou" — a mesma
+    #    ambiguidade que deixou 59 oráculos apodrecerem. 08:11, depois da janela das 05:00.
+    "oraculos-vigia-ausencia": {
+        "task": "orq.checar_varredura_ausente",
+        "schedule": crontab(hour=8, minute=11),
+        "options": {"queue": "gov.batch"},
+    },
     # ── Os 59 oráculos NÃO rodam aqui: um oráculo tem pico de 894 MB (importa o app) e
     #    todo worker tem limite de 2 GB com 1,39 GB em uso — a varredura derrubaria por OOM
     #    o worker de gov/financeiro/integrações. Roda por cron do host no container do
@@ -430,6 +442,14 @@ app.conf.beat_schedule = {
     "operacional-check-late-employees": {
         "task": "operacional.check_late_employees",
         "schedule": 300.0,  # 5 minutos
+        "options": {"queue": "operacional"},
+    },
+    # Lembrete de ponto por WhatsApp — a cada 60s (as janelas são de 1 minuto).
+    # Volume real baixo: só dispara nos minutos -15, 0 e +10 de cada turno, e para
+    # na batida. Kill switch: PONTO_LEMBRETE_ENABLED (default false = só loga).
+    "operacional-lembrete-ponto-whatsapp": {
+        "task": "operacional.lembrete_ponto_whatsapp",
+        "schedule": 60.0,
         "options": {"queue": "operacional"},
     },
     # Verifica aprovações pendentes a cada 1 hora
