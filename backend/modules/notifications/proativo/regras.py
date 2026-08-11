@@ -1141,3 +1141,73 @@ register(Regra(
     action_url="/redesign/financeiro?t=g-bancos",
     detectar=_detectar_extrato_duplicado, template=_tpl_extrato_duplicado,
 ))
+
+
+# ─────────────────────────── caixa_divergente ───────────────────────────
+# O razão precisa provar contra o extrato. Antes da escrituração ele conhecia
+# 266 de 4.517 movimentações e dizia R$1.401.547,03 no banco — nada avisava.
+#
+# O oráculo NÃO é `bank_accounts.current_balance`: esse campo está parado desde
+# 14/04/2026 (a âncora `balance_after` de 13/04 projeta R$20.081,84 e o cadastro
+# diz R$9.619,35). Alarme sobre número velho toca sozinho e é desligado.
+#
+# O oráculo é o EXTRATO: toda movimentação tem que ter lançamento e todo
+# lançamento em conta de banco tem que vir de uma movimentação. Isso é exato,
+# não estatístico — por isso a tolerância cobre só arredondamento.
+TOLERANCIA_CAIXA = 1.00
+
+SQL_CAIXA_DIVERGENTE = """
+    SELECT
+        (SELECT coalesce(sum(CASE WHEN conta_debito LIKE '1.1.1%' THEN valor ELSE -valor END), 0)
+         FROM accounting_entries
+         WHERE conta_debito LIKE '1.1.1%' OR conta_credito LIKE '1.1.1%') AS razao,
+        (SELECT coalesce(sum(amount), 0) FROM bank_transactions) AS extrato,
+        (SELECT count(*) FROM bank_transactions b
+          WHERE b.amount <> 0
+            AND NOT EXISTS (SELECT 1 FROM accounting_entries a
+                            WHERE a.bank_transaction_id = b.id)) AS sem_lancamento
+"""
+
+
+async def _detectar_caixa_divergente(db: AsyncSession) -> list[Achado]:
+    r = (await db.execute(text(SQL_CAIXA_DIVERGENTE))).mappings().first()
+    if not r:
+        return []
+    razao = float(r["razao"] or 0)
+    extrato = float(r["extrato"] or 0)
+    dif = abs(razao - extrato)
+    sem = int(r["sem_lancamento"] or 0)
+    if dif <= TOLERANCIA_CAIXA and sem == 0:
+        return []
+    return [Achado(
+        # Correlaciona pelo par (diferença, pendentes): enquanto o furo não muda
+        # não repica o sino todo dia; mudou, avisa de novo.
+        correlation_id=f"caixa_divergente:{round(dif)}:{sem}",
+        dados={"razao": round(razao, 2), "extrato": round(extrato, 2),
+               "divergencia": round(dif, 2), "sem_lancamento": sem,
+               "tolerancia": TOLERANCIA_CAIXA},
+    )]
+
+
+def _tpl_caixa_divergente(d: dict) -> tuple[str, str]:
+    if d["sem_lancamento"] and d["divergencia"] <= d["tolerancia"]:
+        titulo = f"{d['sem_lancamento']} movimentação(ões) do banco sem lançamento"
+    else:
+        titulo = f"Caixa não bate: R$ {d['divergencia']:,.2f} de diferença"
+    return (
+        titulo,
+        f"O razão diz R$ {d['razao']:,.2f} nas contas de banco e o extrato soma "
+        f"R$ {d['extrato']:,.2f} — diferença de R$ {d['divergencia']:,.2f}.\n\n"
+        f"Movimentações sem lançamento no razão: {d['sem_lancamento']}.\n\n"
+        f"Ou entrou movimentação que não foi escriturada, ou lançou-se algo que o "
+        f"extrato não tem. Conferir o beat financeiro-escriturar-extrato (05:20) e "
+        f"a prova de caixa no balancete.",
+    )
+
+
+register(Regra(
+    nome="caixa_divergente", familia="financeiro", severidade="critico",
+    roles_destino=("admin",),  # LGPD: financeiro SÓ diretoria
+    action_url="/redesign/financeiro?t=g-contabil",
+    detectar=_detectar_caixa_divergente, template=_tpl_caixa_divergente,
+))

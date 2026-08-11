@@ -105,6 +105,18 @@ def test_documento_ref_do_extrato_e_unico_por_transacao():
     assert a.startswith("EXTRATO-")
 
 
+def test_regra_caixa_divergente_registrada_e_com_tolerancia():
+    """Alarme que dispara com a divergência estrutural de hoje nasce tocando e é
+    desligado em duas semanas. A tolerância é pequena de propósito: o invariante
+    razão×extrato é exato, não estatístico."""
+    from modules.notifications.proativo.regras import REGISTRY, TOLERANCIA_CAIXA
+
+    assert "caixa_divergente" in REGISTRY
+    assert REGISTRY["caixa_divergente"].severidade == "critico"
+    assert TOLERANCIA_CAIXA > 0, "tolerância zero faz o alarme tocar por arredondamento"
+    assert TOLERANCIA_CAIXA < 100, "tolerância larga esconde exatamente o que a regra caça"
+
+
 def test_toda_conta_do_mapa_tem_motivo():
     """O motivo vai para o histórico do lançamento — quem auditar em 2030
     precisa saber por que aquela conta foi escolhida."""
