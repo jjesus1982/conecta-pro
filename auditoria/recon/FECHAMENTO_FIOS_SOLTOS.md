@@ -99,6 +99,30 @@ menu (invisível), indentação quebrada, e parêntese cortado no lugar errado. 
 últimas o Python acusou; na primeira, só a conferência **menu × tela nos dois sentidos**
 pegou. Edição à mão é mais lenta e erra menos.
 
+## Medição final (2026-08-10, com o instrumento já consertado)
+
+```
+4.192 rotas montadas · 4.032 expostas (96%) · 46 sem tela
+```
+
+Contra **197** no início do dia. E as 46 não são fila de trabalho:
+
+| Natureza | Qtd | |
+|---|---:|---|
+| máquina-a-máquina | 19 | 10 `integration/*` (DP↔operacional↔RH), 6 webhooks (Inter/Cora), robô do DET, dev, MCP |
+| dinheiro / governo | 11 | PIX da folha, chave PIX, refund, propor-pagamento, `transmitir-s1000` |
+| já expostas por outro caminho | 9 | conciliar, escala-rejeitar, cancelar alocação, publicar holerite |
+| portal / app, não ERP | 5 | login, reset de senha, bater ponto com GPS+selfie, registro de aparelho |
+| edição em massa de território curado | 2 | `allocations/bulk`, `shifts/bulk` |
+
+**O instrumento foi consertado antes desta medição** (v2.2): comentário e docstring deixaram
+de entrar no índice. Antes do conserto ele dizia 36 — bajulando quem documenta exclusão.
+Provado com 4 rotas citadas só em comentário: viraram órfãs, corretamente.
+
+⚠️ **Sobra um problema que não é fio solto:** `integrations/banking/ted/transfer` não tem
+OTP, nem teto, nem confirmação — vai direto ao adaptador do Inter. Não é falta de tela, é
+falta de gate. Precisa de backend antes de qualquer botão.
+
 ## Como medir de novo (e por que o número engana)
 
 O número confiável é o dos `submit.endpoint` colhidos do `build()` **em execução**, não do
