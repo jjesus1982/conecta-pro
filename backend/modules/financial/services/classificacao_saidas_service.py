@@ -37,6 +37,10 @@ CATEGORIAS: tuple[tuple[str, str], ...] = (
     ("imposto", "Imposto / guia — INSS, FGTS, DAS, DARF"),
     ("transferencia_interna", "Transferência entre empresas do grupo"),
     ("taxa_bancaria", "Taxa bancária"),
+    # Despesa da EMPRESA que alguém adiantou (café, Uber, material). Não é
+    # remuneração de quem recebe — sem esta opção, um reembolso de R$56,85 ao
+    # Eliziel entrava como pró-labore dele e inflava o que ele ganhou.
+    ("reembolso", "Reembolso — despesa da empresa adiantada por alguém"),
     ("diversos", "Diversos — pequeno valor, sem enquadramento"),
 )
 CATEGORIAS_VALIDAS = frozenset(k for k, _ in CATEGORIAS)

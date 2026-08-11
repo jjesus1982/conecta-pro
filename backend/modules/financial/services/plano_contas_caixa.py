@@ -51,7 +51,10 @@ _MAPA_SAIDA: dict[str, tuple[str, str]] = {
     # "não sei" que já estava gravado. Chutar conta aqui seria fabricar.
     "outros": (CONTA_SAIDA_A_CLASSIFICAR, "categoria legada 'outros' — sem enquadramento"),
     "outro": (CONTA_SAIDA_A_CLASSIFICAR, "categoria legada 'outro' — sem enquadramento"),
-    "reembolso": (CONTA_SAIDA_A_CLASSIFICAR, "reembolso sem destino informado"),
+    # Reembolso é despesa da EMPRESA que alguém adiantou — não é remuneração de
+    # quem recebe. R$56,85 de "Café treinamento" estava entrando como pró-labore
+    # do Eliziel, inflando o que ele ganhou.
+    "reembolso": ("5.1.1.08", "despesa da empresa adiantada por colaborador"),
 }
 
 # 'imposto' é guarda-chuva: o passivo certo depende do tributo. Sem afinar,

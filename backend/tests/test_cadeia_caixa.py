@@ -100,6 +100,18 @@ def test_dialeto_legado_da_base_tem_destino():
     assert contrapartida_saida("outros", "PIX")[0] == CONTA_SAIDA_A_CLASSIFICAR
 
 
+def test_reembolso_nao_e_remuneracao_de_quem_recebe():
+    """R$56,85 de "Café treinamento" estava como pró-labore do Eliziel — ou seja,
+    contado como o que ELE ganhou. É despesa da empresa que ele adiantou."""
+    conta, _ = contrapartida_saida("reembolso", "CAFE TREINAMENTO")
+    assert conta == "5.1.1.08"
+    assert conta != contrapartida_saida("pj_prolabore", "PIX")[0]
+
+    from modules.financial.services.classificacao_saidas_service import CATEGORIAS_VALIDAS
+
+    assert "reembolso" in CATEGORIAS_VALIDAS, "sem estar na lista fechada, ninguém consegue escolher"
+
+
 def test_escriturar_tem_preview_por_padrao():
     import inspect
 
