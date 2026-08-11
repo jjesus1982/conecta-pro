@@ -50,6 +50,22 @@
 > chega, o `developers.facebook.com` não autentica e a sessão expira em poucos minutos.
 > Foi o acesso de dois IPs no mesmo dia (a automação daqui) que disparou a sinalização.
 >
+> ### Login automatizado: descartado com teste de controle (2026-08-11)
+>
+> Depois da troca de senha, `meta_sessao.py login_fb` foi rodado duas vezes no
+> `facebook.com/login.php`: uma com a senha **correta**, outra com uma senha
+> **propositalmente errada**. As duas devolveram a MESMA tela e a MESMA frase —
+> *"As informações de login que você inseriu estão incorretas"*.
+>
+> Mensagem idêntica para credencial válida e inválida significa que ela não fala
+> sobre a credencial: é recusa de login por IP de datacenter, disfarçada. Idêntico
+> ao que o Instagram fez em 10/08. **As credenciais do Jordan estão corretas** — não
+> há o que ajustar nelas, e insistir só arrisca bloquear a conta de novo.
+>
+> **Única via de sessão que funciona: cookies exportados do navegador do Jordan**
+> (`c_user`, `xs`, `datr`, `sb`), que é como o Business Manager foi acessado com
+> sucesso em todas as rodadas.
+>
 > ### Destravar — só o Jordan pode, nesta ordem
 >
 > 1. **Trocar a senha** do Facebook pessoal no próprio celular (o banner "Alterar senha").
