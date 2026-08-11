@@ -330,7 +330,7 @@ async def build(db) -> dict:
         actionsfn=lambda r: [
             {"title": f"Simular outro regime para {r[1]}",
              "sub": "Compara o que se pagaria em outro regime, para a receita anual informada. "
-                    "Simulacao — nao muda o regime da empresa.",
+                    "Simulacao — não muda o regime da empresa.",
              "endpoint": f"/api/v1/empresas/{r[0]}/simular-regime",
              "method": "POST", "btnLabel": "Simular", "submitLabel": "Simular regime",
              "btnStyle": "outline", "okMsg": "Simulacao concluida.",

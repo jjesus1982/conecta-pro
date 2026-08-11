@@ -244,7 +244,7 @@ async def build(db) -> dict:
             {"title": ("Desativar o acesso de " if r[4] else "Liberar acesso ao portal para ") + str(r[1]),
              "sub": ("O cliente perde o acesso imediatamente." if r[4] else
                      "Cria a credencial do cliente. Combine a senha por um canal seguro — "
-                     "ela nao e reenviada depois."),
+                     "ela não e reenviada depois."),
              "endpoint": f"/api/v1/people-management/ged/clients/{r[0]}/portal-access",
              "method": "POST", "btnLabel": "Desativar" if r[4] else "Liberar",
              "submitLabel": "Desativar acesso" if r[4] else "Liberar acesso",
@@ -281,12 +281,12 @@ async def build(db) -> dict:
         "cta": "Executar", "type": "form",
         "submit": {"endpoint": "/api/v1/portal/access-management/onboard", "query": True,
                    "okMsg": "Onboard processado", "showResult": True,
-                   "confirm": "Se voce marcou o envio, o cliente recebe o convite agora. Confirma?"},
+                   "confirm": "Se você marcou o envio, o cliente recebe o convite agora. Confirma?"},
         "fields": [
             {"key": "client_id", "label": "Cliente (id)*", "type": "text", "span": "span 2"},
             {"key": "enviar_email", "label": "Enviar e-mail?", "type": "select", "span": "span 1",
-             "ph": "Nao (padrao)",
-             "options": [{"value": "false", "label": "Nao - so prepara"},
+             "ph": "Não (padrão)",
+             "options": [{"value": "false", "label": "Não - so prepara"},
                          {"value": "true", "label": "Sim - envia o convite"}]},
             {"key": "email_override", "label": "Enviar para outro e-mail", "type": "text",
              "span": "span 1", "ph": "opcional"},

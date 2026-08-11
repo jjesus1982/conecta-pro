@@ -108,8 +108,8 @@ async def build(db, current_user=None) -> dict:
 
     out["consultor-feedback"] = {
         "title": "Dar feedback sobre uma resposta do consultor",
-        "sub": "E assim que ele melhora: dizer se a resposta serviu e, quando nao serviu, "
-               "qual era a certa. O id da consulta aparece no historico.",
+        "sub": "E assim que ele melhora: dizer se a resposta serviu e, quando não serviu, "
+               "qual era a certa. O id da consulta aparece no histórico.",
         "cta": "Enviar feedback", "type": "form",
         "submit": {"endpoint": "/api/v1/ai/consultor/feedback", "okMsg": "Feedback registrado"},
         "fields": [
@@ -118,9 +118,9 @@ async def build(db, current_user=None) -> dict:
              "ph": "Ex.: rh, fiscal, cfo"},
             {"key": "util", "label": "A resposta serviu?*", "type": "select", "span": "span 2",
              "ph": "Selecione", "options": [{"value": "true", "label": "Sim, serviu"},
-                                            {"value": "false", "label": "Nao serviu"}]},
+                                            {"value": "false", "label": "Não serviu"}]},
             {"key": "correcao", "label": "Qual era a resposta certa?", "type": "textarea",
-             "span": "span 2", "ph": "Preencha quando nao serviu - e isto que ensina"},
+             "span": "span 2", "ph": "Preencha quando não serviu - e isto que ensina"},
         ],
     }
 

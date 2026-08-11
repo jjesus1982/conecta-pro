@@ -41,14 +41,14 @@ EXTRA_MENU: list[dict] = [
     {"id": "estoque-saida", "label": "Registrar saída de estoque", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
     {"id": "nfse-sync-prestador", "label": "Sincronizar NFS-e emitidas", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
     {"id": "custos-recorrentes-lista", "label": "Custos recorrentes", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "orcamento-kv", "label": "Orcado do mes", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "orcamento-kv", "label": "Orçado do mes", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
     {"id": "billing-contrato-ativado", "label": "Faturamento de contrato ativado", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "payables-auto-criar", "label": "Criar pagaveis das NFS-e", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "just-registrar", "label": "Justificar transacao", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "just-classificar", "label": "Classificar transacoes", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "just-alertar", "label": "Alertar pendencias de justificativa", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "nfse-entrada-payaveis", "label": "NFS-e entrada x pagavel", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "nfse-entrada-auto-payaveis", "label": "Criar pagaveis (todas)", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "payables-auto-criar", "label": "Criar pagáveis das NFS-e", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "just-registrar", "label": "Justificar transação", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "just-classificar", "label": "Classificar transações", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "just-alertar", "label": "Alertar pendências de justificativa", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "nfse-entrada-payaveis", "label": "NFS-e entrada x pagável", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    {"id": "nfse-entrada-auto-payaveis", "label": "Criar pagáveis (todas)", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
 ]
 
 
@@ -1398,7 +1398,7 @@ ORDER BY b.comp DESC, b.cnpj"""
     out["cfo-perguntar"] = {
         "title": "Consultor CFO",
         "sub": "Pergunta ancorada no razao, no fluxo e nos contratos reais. E consulta - "
-               "nao lanca, nao paga, nao baixa nada.",
+               "não lança, não paga, não baixa nada.",
         "cta": "Perguntar", "type": "form",
         "submit": {"endpoint": "/api/v1/financial/cfo/perguntar", "okMsg": "Consulta respondida",
                    "showResult": True},
@@ -1414,7 +1414,7 @@ ORDER BY b.comp DESC, b.cnpj"""
         "cta": "Analisar", "type": "form",
         "submit": {"endpoint": "/api/v1/financial/cfo/perguntar-arquivo",
                    "multipart": True, "query": True,
-                   "okMsg": "Analise concluida", "showResult": True},
+                   "okMsg": "Análise concluida", "showResult": True},
         "fields": [
             {"key": "arquivo", "label": "Arquivo*", "type": "file", "span": "span 2"},
             {"key": "area", "label": "Area", "type": "text", "span": "span 2"},
@@ -1422,14 +1422,14 @@ ORDER BY b.comp DESC, b.cnpj"""
         ],
     }
     out["pricing-calcular"] = {
-        "title": "Calcular preco de servico",
-        "sub": "Preco sugerido a partir do custo real (CCT, escala, localizacao). Calculo - "
-               "nao grava proposta.",
+        "title": "Calcular preço de serviço",
+        "sub": "Preço sugerido a partir do custo real (CCT, escala, localização). Cálculo - "
+               "não grava proposta.",
         "cta": "Calcular", "type": "form",
         "submit": {"endpoint": "/api/v1/financial/ai/pricing/calculate",
-                   "okMsg": "Preco calculado", "showResult": True},
+                   "okMsg": "Preço calculado", "showResult": True},
         "fields": [
-            {"key": "tipo", "label": "Tipo de servico", "type": "text", "span": "span 1",
+            {"key": "tipo", "label": "Tipo de serviço", "type": "text", "span": "span 1",
              "ph": "Ex.: portaria"},
             {"key": "quantidade", "label": "Quantidade de postos", "type": "number",
              "span": "span 1", "ph": "1"},
@@ -1440,7 +1440,7 @@ ORDER BY b.comp DESC, b.cnpj"""
     }
     out["custo-registrar"] = {
         "title": "Registrar custo de contrato",
-        "sub": "Lanca o custo real do contrato na competencia - e o que alimenta a margem.",
+        "sub": "Lança o custo real do contrato na competência - e o que alimenta a margem.",
         "cta": "Registrar", "type": "form",
         "submit": {"endpoint": "/api/v1/financial/ai/costing/registrar", "okMsg": "Custo registrado"},
         "fields": [
@@ -1475,37 +1475,37 @@ ORDER BY b.comp DESC, b.cnpj"""
     }
     out["cashflow-sync"] = {
         "title": "Sincronizar fluxo de caixa",
-        "sub": "Recalcula o fluxo a partir de recebiveis e pagaveis. So recalcula - nao "
-               "cria nem baixa lancamento.",
+        "sub": "Recalcula o fluxo a partir de recebiveis e pagáveis. So recalcula - não "
+               "cria nem baixa lançamento.",
         "cta": "Sincronizar", "type": "form",
         "submit": {"endpoint": "/api/v1/financial/cashflow/sync", "okMsg": "Fluxo sincronizado",
                    "showResult": True},
         "fields": [],
     }
     out["beneficiarios-seed"] = {
-        "title": "Semear beneficiarios",
-        "sub": "Carrega a base de beneficiarios de pagamento. Idempotente. NAO paga ninguem.",
+        "title": "Semear beneficiários",
+        "sub": "Carrega a base de beneficiários de pagamento. Idempotente. NAO paga ninguem.",
         "cta": "Semear", "type": "form",
         "submit": {"endpoint": "/api/v1/financial/beneficiarios/seed",
-                   "okMsg": "Beneficiarios semeados", "showResult": True},
+                   "okMsg": "Beneficiários semeados", "showResult": True},
         "fields": [],
     }
     out["estoque-saida"] = {
-        "title": "Registrar saida de estoque",
-        "sub": "Baixa material do estoque real, com o servico que consumiu.",
-        "cta": "Registrar saida", "type": "form",
-        "submit": {"endpoint": "/api/v1/financial/inventory/real/saida", "okMsg": "Saida registrada"},
+        "title": "Registrar saída de estoque",
+        "sub": "Baixa material do estoque real, com o serviço que consumiu.",
+        "cta": "Registrar saída", "type": "form",
+        "submit": {"endpoint": "/api/v1/financial/inventory/real/saida", "okMsg": "Saída registrada"},
         "fields": [
-            {"key": "item_code", "label": "Codigo do item*", "type": "text", "span": "span 1"},
+            {"key": "item_code", "label": "Código do item*", "type": "text", "span": "span 1"},
             {"key": "quantidade", "label": "Quantidade*", "type": "number", "span": "span 1"},
-            {"key": "servico_ref", "label": "Servico / OS", "type": "text", "span": "span 1"},
+            {"key": "servico_ref", "label": "Serviço / OS", "type": "text", "span": "span 1"},
             {"key": "nfse_id", "label": "NFS-e (id)", "type": "text", "span": "span 1"},
             {"key": "motivo", "label": "Motivo", "type": "textarea", "span": "span 2"},
         ],
     }
     out["nfse-sync-prestador"] = {
         "title": "Sincronizar NFS-e emitidas",
-        "sub": "Puxa do Portal Nacional as notas que emitimos. So LE do portal - nao emite "
+        "sub": "Puxa do Portal Nacional as notas que emitimos. So LE do portal - não emite "
                "nem cancela nada.",
         "cta": "Sincronizar", "type": "form",
         "submit": {"endpoint": "/api/v1/financial/nfse/sync-prestador", "query": True,
@@ -1535,7 +1535,7 @@ ORDER BY b.comp DESC, b.cnpj"""
                    b("Ativo", "ok") if r[7] else b("Inativo", "mut")],
         actionsfn=lambda r: None if not r[7] else [
             {"title": f"Remover o custo recorrente: {r[2]}",
-             "sub": "Para de projetar esta despesa no fluxo. Nao apaga lancamento ja feito.",
+             "sub": "Para de projetar esta despesa no fluxo. Não apaga lançamento ja feito.",
              "endpoint": f"/api/v1/financial/cfo/custos-recorrentes/{r[0]}",
              "method": "DELETE", "btnLabel": "Remover", "submitLabel": "Remover custo",
              "btnStyle": "outline", "okMsg": "Custo removido. Recarregue.", "fields": []},
@@ -1547,22 +1547,22 @@ ORDER BY b.comp DESC, b.cnpj"""
     # payable/auto-criar e payables/auto-criar (singular e plural) fazem a MESMA coisa —
     # ligo UMA. Duas telas identicas seria a duplicacao que o Jordan proibiu.
     out["orcamento-kv"] = {
-        "title": "Orcado do mes",
-        "sub": "Define o valor orcado por chave. E o que a comparacao orcado x realizado "
+        "title": "Orçado do mes",
+        "sub": "Define o valor orçado por chave. E o que a comparacao orçado x realizado "
                "usa — sem isto ela cai no valor fixo antigo.",
         "cta": "Salvar", "type": "form",
         "submit": {"endpoint": "/api/v1/financial/relatorios/orcamentos-kv", "method": "PUT",
-                   "okMsg": "Orcado salvo", "showResult": True},
+                   "okMsg": "Orçado salvo", "showResult": True},
         "fields": [
             {"key": "chave", "label": "Chave*", "type": "text", "span": "span 1",
              "ph": "ex.: 2026-08 ou folha:2026-08"},
-            {"key": "valor", "label": "Valor orcado (R$)*", "type": "number", "span": "span 1"},
+            {"key": "valor", "label": "Valor orçado (R$)*", "type": "number", "span": "span 1"},
         ],
     }
     out["billing-contrato-ativado"] = {
         "title": "Registrar faturamento de contrato ativado",
         "sub": "Abre o faturamento de um contrato que entrou em vigencia. Use quando a "
-               "ativacao aconteceu por fora e o financeiro nao acompanhou.",
+               "ativacao aconteceu por fora e o financeiro não acompanhou.",
         "cta": "Registrar", "type": "form",
         "submit": {"endpoint": "/api/v1/financial/ai/billing/contrato-ativado",
                    "okMsg": "Faturamento registrado", "showResult": True},
@@ -1570,28 +1570,28 @@ ORDER BY b.comp DESC, b.cnpj"""
             {"key": "contrato_id", "label": "Contrato (id)*", "type": "text", "span": "span 2"},
             {"key": "cliente_nome", "label": "Cliente", "type": "text", "span": "span 1"},
             {"key": "valor_mensal", "label": "Valor mensal (R$)*", "type": "number", "span": "span 1"},
-            {"key": "tipo_servico", "label": "Tipo de servico*", "type": "text", "span": "span 2",
-             "ph": "ex.: portaria, seguranca eletronica"},
+            {"key": "tipo_servico", "label": "Tipo de serviço*", "type": "text", "span": "span 2",
+             "ph": "ex.: portaria, seguranca eletrônica"},
         ],
     }
     out["payables-auto-criar"] = {
         "title": "Criar contas a pagar das NFS-e recebidas",
-        "sub": "Varre as NFS-e de entrada sem pagavel vinculado e cria o pagavel de cada uma. "
-               "So LANCA a conta — nao paga nada.",
-        "cta": "Criar pagaveis", "type": "form",
+        "sub": "Varre as NFS-e de entrada sem pagável vinculado e cria o pagável de cada uma. "
+               "So LANÇA a conta — não paga nada.",
+        "cta": "Criar pagáveis", "type": "form",
         "submit": {"endpoint": "/api/v1/financial/payables/auto-criar",
-                   "okMsg": "Pagaveis criados", "showResult": True,
-                   "confirm": "Cria conta a pagar para TODA NFS-e de entrada sem pagavel. Confirma?"},
+                   "okMsg": "Pagáveis criados", "showResult": True,
+                   "confirm": "Cria conta a pagar para TODA NFS-e de entrada sem pagável. Confirma?"},
         "fields": [],
     }
     out["just-registrar"] = {
-        "title": "Justificar uma transacao",
-        "sub": "Explica a que se refere um lancamento do extrato. E o que tira a transacao "
+        "title": "Justificar uma transação",
+        "sub": "Explica a que se refere um lançamento do extrato. E o que tira a transação "
                "da lista de pendentes.",
         "cta": "Justificar", "type": "form",
         "submit": {"endpoint": "/api/v1/justificativa/registrar", "okMsg": "Justificativa registrada"},
         "fields": [
-            {"key": "transacao_id", "label": "Transacao (id)*", "type": "text", "span": "span 2"},
+            {"key": "transacao_id", "label": "Transação (id)*", "type": "text", "span": "span 2"},
             {"key": "categoria", "label": "Categoria*", "type": "text", "span": "span 1",
              "ph": "ex.: folha, tributo, fornecedor"},
             {"key": "responsavel", "label": "Responsavel", "type": "text", "span": "span 1"},
@@ -1599,17 +1599,17 @@ ORDER BY b.comp DESC, b.cnpj"""
         ],
     }
     out["just-classificar"] = {
-        "title": "Classificar transacoes automaticamente",
-        "sub": "Sugere categoria para as transacoes sem justificativa. Deixe APLICAR em nao "
-               "para so ver a sugestao antes de gravar.",
+        "title": "Classificar transações automaticamente",
+        "sub": "Sugere categoria para as transações sem justificativa. Deixe APLICAR em não "
+               "para so ver a sugestão antes de gravar.",
         "cta": "Classificar", "type": "form",
         "submit": {"endpoint": "/api/v1/justificativa/classificar-auto", "query": True,
                    "okMsg": "Classificacao processada", "showResult": True,
-                   "confirm": "Se voce marcou APLICAR, as categorias sao gravadas agora. Confirma?"},
+                   "confirm": "Se você marcou APLICAR, as categorias são gravadas agora. Confirma?"},
         "fields": [
             {"key": "aplicar", "label": "Aplicar de verdade?", "type": "select", "span": "span 2",
-             "ph": "Nao — so sugerir (padrao)",
-             "options": [{"value": "false", "label": "Nao — so mostrar a sugestao"},
+             "ph": "Não — so sugerir (padrão)",
+             "options": [{"value": "false", "label": "Não — so mostrar a sugestão"},
                          {"value": "true", "label": "SIM — gravar as categorias"}]},
             {"key": "apenas_sem_categoria", "label": "So as sem categoria?", "type": "select",
              "span": "span 1", "ph": "Sim",
@@ -1618,9 +1618,9 @@ ORDER BY b.comp DESC, b.cnpj"""
         ],
     }
     out["just-alertar"] = {
-        "title": "Alertar pendencias de justificativa",
-        "sub": "Avisa quem precisa justificar transacao parada. Notificacao interna — vai "
-               "para o sino, nao para fora.",
+        "title": "Alertar pendências de justificativa",
+        "sub": "Avisa quem precisa justificar transação parada. Notificação interna — vai "
+               "para o sino, não para fora.",
         "cta": "Alertar", "type": "form",
         "submit": {"endpoint": "/api/v1/justificativa/alertar", "okMsg": "Alertas enviados",
                    "showResult": True},
@@ -1632,7 +1632,7 @@ ORDER BY b.comp DESC, b.cnpj"""
     # que ja existia le `nfse_tomadas_nacional`, tabela DIFERENTE: pendurar a acao la daria
     # botao que nunca acha a nota.
     await safe("nfse-entrada-payaveis", tbl(
-        "NFS-e entrada x pagavel", "Notas de fornecedor e a conta a pagar de cada uma", "—",
+        "NFS-e entrada x pagável", "Notas de fornecedor e a conta a pagar de cada uma", "—",
         ["Prestador", "Numero", "Competencia", "Valor", "Pagavel"],
         "1.8fr 1fr 1fr 1fr 1fr",
         # competencia aqui e DATE, nao texto: coalesce com travessao faz o Postgres recusar
@@ -1646,19 +1646,19 @@ ORDER BY b.comp DESC, b.cnpj"""
                    b("Criado", "ok") if r[5] else b("Sem pagavel", "warn")],
         actionsfn=lambda r: None if r[5] else [
             {"title": f"Criar a conta a pagar desta nota — {r[1]}",
-             "sub": "Lanca o pagavel a partir da nota. So LANCA — nao paga.",
+             "sub": "Lança o pagável a partir da nota. So LANÇA — não paga.",
              "endpoint": f"/api/v1/financial/payable/auto-criar/{r[0]}",
-             "method": "POST", "btnLabel": "Criar pagavel", "submitLabel": "Criar conta a pagar",
-             "btnStyle": "primary", "okMsg": "Pagavel criado. Recarregue.", "fields": []},
+             "method": "POST", "btnLabel": "Criar pagável", "submitLabel": "Criar conta a pagar",
+             "btnStyle": "primary", "okMsg": "Pagável criado. Recarregue.", "fields": []},
         ]))
     out["nfse-entrada-auto-payaveis"] = {
-        "title": "Criar pagaveis de TODAS as NFS-e de entrada",
-        "sub": "Varre as notas de fornecedor sem pagavel e lanca a conta de cada uma. "
-               "Hoje nao ha nenhuma pendente — o botao fica honesto mesmo assim.",
-        "cta": "Criar pagaveis", "type": "form",
+        "title": "Criar pagáveis de TODAS as NFS-e de entrada",
+        "sub": "Varre as notas de fornecedor sem pagável e lança a conta de cada uma. "
+               "Hoje não ha nenhuma pendente — o botao fica honesto mesmo assim.",
+        "cta": "Criar pagáveis", "type": "form",
         "submit": {"endpoint": "/api/v1/financial/nfse-entrada/auto-criar-payables",
-                   "okMsg": "Pagaveis criados", "showResult": True,
-                   "confirm": "Lanca conta a pagar para TODA NFS-e de entrada sem pagavel. Confirma?"},
+                   "okMsg": "Pagáveis criados", "showResult": True,
+                   "confirm": "Lança conta a pagar para TODA NFS-e de entrada sem pagável. Confirma?"},
         "fields": [],
     }
 
@@ -2425,7 +2425,7 @@ async def _rd_gerar_recebiveis(current_user: CurrentActiveUser, payload: dict = 
     verbo = "Gerados" if aplicar else "Seriam gerados"
     return {
         "ok": True,
-        "message": f"{verbo} {r['criados']} recebíveis de {r['competencia']} — "
+        "message": f"{verbo} {r['criados']} recebíveis de {r['competência']} — "
                    f"R$ {r['valor_total']:,.2f}"
                    + (f" ({r['ja_existiam']} já existiam)" if r.get("ja_existiam") else "")
                    + ("" if aplicar else " — nada gravado: previsualização"),

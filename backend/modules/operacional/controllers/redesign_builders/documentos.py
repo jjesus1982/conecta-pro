@@ -346,7 +346,7 @@ async def build(db) -> dict:
 
     out["assinatura-solicitar"] = {
         "title": "Solicitar assinatura de documento",
-        "sub": "Abre o pedido de assinatura. Os signatarios vao em LISTA — o exemplo no "
+        "sub": "Abre o pedido de assinatura. Os signatários vao em LISTA — o exemplo no "
                "campo mostra a forma esperada.",
         "cta": "Solicitar", "type": "form",
         "submit": {"endpoint": "/api/v1/signatures/requests", "okMsg": "Assinatura solicitada",

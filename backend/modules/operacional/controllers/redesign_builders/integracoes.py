@@ -115,7 +115,7 @@ async def build(db) -> dict:
     out["inter-sync-cobrancas"] = {
         "title": "Sincronizar status das cobrancas (Inter)",
         "sub": "Consulta a API do Inter e atualiza o status das cobrancas a receber. So LE "
-               "do banco - nao emite cobranca nem baixa nada sozinho.",
+               "do banco - não emite cobranca nem baixa nada sozinho.",
         "cta": "Sincronizar", "type": "form",
         "submit": {"endpoint": "/api/v1/financeiro/inter/cobrancas/sincronizar-status",
                    "okMsg": "Sincronizacao disparada", "showResult": True},
@@ -123,7 +123,7 @@ async def build(db) -> dict:
     }
     out["inter-hermes-linkar"] = {
         "title": f"Vincular extrato do Inter aos kits - {_h.month:02d}/{_h.year}",
-        "sub": "Liga cada transacao do extrato ao documento certo do kit. Vinculo - nao "
+        "sub": "Liga cada transação do extrato ao documento certo do kit. Vinculo - não "
                "move dinheiro.",
         "cta": "Vincular", "type": "form",
         "submit": {"endpoint": f"/api/v1/financeiro/inter/hermes/linkar?mes_ref={_h.year}-{_h.month:02d}",
@@ -132,13 +132,13 @@ async def build(db) -> dict:
     }
     out["whatsapp-nfse"] = {
         "title": "Avisar o cliente da NFS-e por WhatsApp",
-        "sub": "Manda a notificacao da nota emitida. Efeito EXTERNO: a mensagem sai agora.",
+        "sub": "Manda a notificação da nota emitida. Efeito EXTERNO: a mensagem sai agora.",
         "cta": "Enviar", "type": "form",
         "submit": {"endpoint": "/api/v1/whatsapp/send/nfse-notification", "query": True,
-                   "okMsg": "Notificacao enviada", "showResult": True,
+                   "okMsg": "Notificação enviada", "showResult": True,
                    "confirm": "Envia a mensagem ao cliente AGORA. Confirma?"},
         "fields": [
-            {"key": "user_id", "label": "Destinatario (id do usuario)*", "type": "text",
+            {"key": "user_id", "label": "Destinatario (id do usuário)*", "type": "text",
              "span": "span 2"},
         ],
     }

@@ -15,7 +15,7 @@ EXTRA_MENU: list[dict] = [  # det-comunicacoes já vem do EXTRA_MENU do monólit
     {"id": "det-robo-login", "label": "Login do robô DET", "icon": _ICO_J},
     {"id": "conhecimento-seed", "label": "Semear base de conhecimento", "icon": _ICO_J},
     {"id": "consultor-arquivo", "label": "Consultor jurídico — com anexo", "icon": _ICO_J},
-    {"id": "det-coletar-auto", "label": "Coleta automatica do DET", "icon": _ICO_J},
+    {"id": "det-coletar-auto", "label": "Coleta automática do DET", "icon": _ICO_J},
 ]
 
 
@@ -250,9 +250,9 @@ async def build(db) -> dict:
     }
 
     out["det-coletar-auto"] = {
-        "title": "Coleta automatica do DET",
-        "sub": "Dispara a coleta pelo caminho automatico (gov.br OAuth). Enquanto o OAuth "
-               "nao estiver habilitado, ela devolve estado honesto em vez de fingir coleta. "
+        "title": "Coleta automática do DET",
+        "sub": "Dispara a coleta pelo caminho automático (gov.br OAuth). Enquanto o OAuth "
+               "não estiver habilitado, ela devolve estado honesto em vez de fingir coleta. "
                "Para coletar de fato hoje, use 'Coletar DET' (robo).",
         "cta": "Disparar", "type": "form",
         "submit": {"endpoint": "/api/v1/juridico/det/coletar", "okMsg": "Coleta solicitada",

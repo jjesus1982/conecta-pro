@@ -114,7 +114,7 @@ async def build(db) -> dict:
         actionsfn=lambda r: None if (r[5] or '').lower() in ("completed", "concluido") else [
             {"title": f"Processar o apagamento de {r[1]}",
              "sub": "APAGA os dados do titular nos sistemas afetados. E IRREVERSIVEL — a LGPD "
-                    "obriga, mas nao ha desfazer. Digite APAGAR para confirmar.",
+                    "obriga, mas não ha desfazer. Digite APAGAR para confirmar.",
              "endpoint": f"/api/v1/security/lgpd/erasure/{r[0]}/processar?confirmar=true",
              "method": "POST", "btnLabel": "Processar", "submitLabel": "Executar apagamento",
              "btnStyle": "outline", "okMsg": "Apagamento processado. Recarregue.",

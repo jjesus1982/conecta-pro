@@ -43,7 +43,7 @@ EXTRA_MENU: list[dict] = [
     {"id": "cct-convencoes", "label": "CCT — convencoes e feriados", "icon": _ICO_CCT},
     {"id": "folha-alterdata", "label": "Importar folha (Alterdata)", "icon": _ICO_CCT},
     {"id": "holerites-lote", "label": "Importar holerites em lote", "icon": _ICO_CCT},
-    {"id": "ciclo-avaliacao", "label": "Iniciar ciclo de avaliacao", "icon": _ICO_CCT},
+    {"id": "ciclo-avaliacao", "label": "Iniciar ciclo de avaliação", "icon": _ICO_CCT},
     {"id": "esocial-s2299", "label": "eSocial S-2299 (gerar XML)", "icon": _ICO_CCT},
 ]
 
@@ -601,7 +601,7 @@ async def build(db) -> dict:
                   "btnStyle": "outline", "okMsg": "Documento gerado.", "fields": []})
         if st in ("rascunho", "rejeitada"):
             A.append({"title": f"Excluir a medida de {r[1]}",
-                      "sub": "So em rascunho ou rejeitada — medida aplicada nao se apaga.",
+                      "sub": "So em rascunho ou rejeitada — medida aplicada não se apaga.",
                       "endpoint": f"/api/v1/people-management/hr/discipline/medidas-administrativas/{aid}",
                       "method": "DELETE", "btnLabel": "Excluir", "submitLabel": "Excluir medida",
                       "btnStyle": "outline", "okMsg": "Medida excluida. Recarregue.", "fields": []})
@@ -626,7 +626,7 @@ async def build(db) -> dict:
 
     out["disc-nova"] = {
         "title": "Nova medida disciplinar",
-        "sub": "Nasce como RASCUNHO — nada acontece com o colaborador ate voce submeter e "
+        "sub": "Nasce como RASCUNHO — nada acontece com o colaborador ate você submeter e "
                "alguem aprovar. Use as telas de apoio antes: recomendar, conformidade, "
                "proporcionalidade.",
         "cta": "Criar rascunho", "type": "form",
@@ -643,8 +643,8 @@ async def build(db) -> dict:
              "ph": "Selecione", "options": _MOTIVO},
             {"key": "incident_date", "label": "Data do ocorrido*", "type": "date", "span": "span 1"},
             {"key": "application_date", "label": "Data de aplicacao", "type": "date", "span": "span 1"},
-            {"key": "suspension_days", "label": "Dias de suspensao (max 30)", "type": "number",
-             "span": "span 1", "ph": "so para suspensao"},
+            {"key": "suspension_days", "label": "Dias de suspensão (max 30)", "type": "number",
+             "span": "span 1", "ph": "so para suspensão"},
             {"key": "witness_1_name", "label": "Testemunha", "type": "text", "span": "span 1"},
             # Vincula a medida a uma OCORRENCIA registrada. Fecha, por aqui, a capacidade da
             # rota /discipline/from-occurrence/{id}: a tela de ocorrencias e montada pelo
@@ -656,7 +656,7 @@ async def build(db) -> dict:
         ],
     }
     await safe("disc-templates", tbl(
-        "Modelos de medida", "Textos-padrao por tipo de medida", "Novo modelo",
+        "Modelos de medida", "Textos-padrão por tipo de medida", "Novo modelo",
         ["Modelo", "Tipo", "Padrao"], "2fr 1.4fr 0.8fr",
         "SELECT id, coalesce(name,'—'), coalesce(action_type::text,'—'), coalesce(is_default,false) "
         "FROM disciplinary_templates ORDER BY created_at DESC NULLS LAST LIMIT 200",
@@ -673,7 +673,7 @@ async def build(db) -> dict:
 
     out["disc-template-novo"] = {
         "title": "Novo modelo de medida",
-        "sub": "Texto-padrao usado ao gerar o documento da medida.",
+        "sub": "Texto-padrão usado ao gerar o documento da medida.",
         "cta": "Criar modelo", "type": "form",
         "submit": {"endpoint": "/api/v1/people-management/hr/discipline/medidas-administrativas/templates",
                    "okMsg": "Modelo criado"},
@@ -687,7 +687,7 @@ async def build(db) -> dict:
     }
     out["disc-verificar-assinatura"] = {
         "title": "Verificar assinatura de documento",
-        "sub": "Confere se a assinatura registrada corresponde ao documento. Leitura — nao "
+        "sub": "Confere se a assinatura registrada corresponde ao documento. Leitura — não "
                "assina nem invalida nada.",
         "cta": "Verificar", "type": "form",
         "submit": {"endpoint": "/api/v1/people-management/hr/discipline/assinaturas/verificar",
@@ -713,7 +713,7 @@ async def build(db) -> dict:
                    t(r[5]), b("Vigente", "ok") if r[6] else b("—", "mut")],
         actionsfn=lambda r: [
             {"title": f"Adicionar feriado a convencao {r[2]}",
-             "sub": "Feriado da convencao muda o calculo: hora extra em feriado e 100%, nao 50%. "
+             "sub": "Feriado da convencao muda o cálculo: hora extra em feriado e 100%, não 50%. "
                     "Depois de adicionar, limpe o cache da CCT.",
              "endpoint": f"/api/v1/people-management/admin/cct/convencoes/{r[0]}/feriados",
              "method": "POST", "btnLabel": "Feriado", "submitLabel": "Adicionar feriado",
@@ -735,13 +735,13 @@ async def build(db) -> dict:
     # trabalho NAO COMMITADO de outra sessao — mexer la levaria o inacabado deles junto.
     out["folha-alterdata"] = {
         "title": "Importar folha do Alterdata",
-        "sub": "Le o CSV exportado do Alterdata e carrega a folha da competencia. Confira "
-               "mes e ano: importar na competencia errada mistura folha.",
+        "sub": "Le o CSV exportado do Alterdata e carrega a folha da competência. Confira "
+               "mes e ano: importar na competência errada mistura folha.",
         "cta": "Importar", "type": "form",
         "submit": {"endpoint": "/api/v1/people-management/folha/importar-alterdata",
                    "multipart": True, "query": True,
                    "okMsg": "Folha importada", "showResult": True,
-                   "confirm": "Importa a folha do CSV na competencia informada. Confirma?"},
+                   "confirm": "Importa a folha do CSV na competência informada. Confirma?"},
         "fields": [
             {"key": "arquivo", "label": "CSV do Alterdata*", "type": "file", "span": "span 2"},
             {"key": "mes", "label": "Mes*", "type": "number", "span": "span 1", "ph": "8"},
@@ -760,7 +760,7 @@ async def build(db) -> dict:
         ],
     }
     out["ciclo-avaliacao"] = {
-        "title": "Iniciar ciclo de avaliacao",
+        "title": "Iniciar ciclo de avaliação",
         "sub": "Abre o ciclo para os colaboradores escolhidos, com um avaliador responsavel.",
         "cta": "Iniciar", "type": "form",
         "submit": {"endpoint": "/api/v1/people-management/human-resources/performance/review-cycle",
@@ -775,8 +775,8 @@ async def build(db) -> dict:
                          {"value": "semiannual", "label": "Semestral"},
                          {"value": "quarterly", "label": "Trimestral"},
                          {"value": "probation", "label": "Experiencia"}]},
-            {"key": "period_start", "label": "Inicio do periodo", "type": "date", "span": "span 1"},
-            {"key": "period_end", "label": "Fim do periodo", "type": "date", "span": "span 1"},
+            {"key": "period_start", "label": "Inicio do período", "type": "date", "span": "span 1"},
+            {"key": "period_end", "label": "Fim do período", "type": "date", "span": "span 1"},
         ],
     }
     out["esocial-s2299"] = {
@@ -785,7 +785,7 @@ async def build(db) -> dict:
                "hoje e a Portte, e transmitir daqui geraria evento DUPLICADO no governo.",
         "cta": "Gerar XML", "type": "form",
         "submit": {"endpoint": "/api/v1/people-management/hr/esocial/s2299/gerar",
-                   "okMsg": "XML gerado (nao transmitido)", "showResult": True},
+                   "okMsg": "XML gerado (não transmitido)", "showResult": True},
         "fields": [
             {"key": "cpf", "label": "CPF*", "type": "text", "span": "span 1"},
             {"key": "matricula", "label": "Matricula*", "type": "text", "span": "span 1"},

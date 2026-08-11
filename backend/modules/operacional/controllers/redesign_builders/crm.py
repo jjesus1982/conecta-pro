@@ -203,7 +203,7 @@ EXTRA_MENU: list[dict] = [
     {"id": "simular-fechamento", "label": "Simular fechamento", "icon": _ICO_DOC},
     {"id": "consultor-comercial", "label": "Consultor comercial", "icon": _ICO_CHAT},
     {"id": "consultor-comercial-arquivo", "label": "Consultor comercial — com anexo", "icon": _ICO_CHAT},
-    {"id": "doc-orcamento", "label": "Orcamento (PDF)", "icon": _ICO_DOC},
+    {"id": "doc-orcamento", "label": "Orçamento (PDF)", "icon": _ICO_DOC},
     {"id": "apresentacao-gerar", "label": "Gerar apresentacao", "icon": _ICO_DOC},
     {"id": "visita-achados", "label": "Anexar achados a visita", "icon": _ICO_DOC},
     {"id": "asset-upload", "label": "Enviar logo/selo", "icon": _ICO_DOC},
@@ -682,16 +682,16 @@ async def build(db) -> dict:
     # Destravadas pelo campo `type: json` do ModuleView: o textarea e parseado antes do
     # envio. O placeholder mostra a FORMA esperada — sem isso o usuario adivinha.
     out["doc-orcamento"] = {
-        "title": "Orcamento / proposta (PDF)",
-        "sub": "Gera o orcamento no padrao-ouro com selo. Os itens vao em lista — o exemplo "
+        "title": "Orçamento / proposta (PDF)",
+        "sub": "Gera o orçamento no padrão-ouro com selo. Os itens vao em lista — o exemplo "
                "no campo mostra o formato.",
         "cta": "Gerar PDF", "type": "form",
-        "submit": {"endpoint": "/api/v1/crm/docs/orcamento/pdf", "okMsg": "Orcamento gerado"},
+        "submit": {"endpoint": "/api/v1/crm/docs/orcamento/pdf", "okMsg": "Orçamento gerado"},
         "fields": [
             {"key": "cliente", "label": "Cliente*", "type": "text", "span": "span 2"},
             {"key": "titulo", "label": "Titulo", "type": "text", "span": "span 1"},
             {"key": "numero", "label": "Numero", "type": "text", "span": "span 1",
-             "ph": "vazio = automatico"},
+             "ph": "vazio = automático"},
             {"key": "documento", "label": "CNPJ/CPF do cliente", "type": "text", "span": "span 1"},
             {"key": "cidade", "label": "Cidade", "type": "text", "span": "span 1"},
             {"key": "objeto", "label": "Objeto", "type": "textarea", "span": "span 2"},
@@ -707,8 +707,8 @@ async def build(db) -> dict:
     }
     out["apresentacao-gerar"] = {
         "title": "Gerar apresentacao",
-        "sub": "Apresentacao no padrao Conecta PRO. Os slides vao em lista — cada um com "
-               "titulo e conteudo.",
+        "sub": "Apresentacao no padrão Conecta PRO. Os slides vao em lista — cada um com "
+               "título e conteudo.",
         "cta": "Gerar", "type": "form",
         "submit": {"endpoint": "/api/v1/crm/apresentacoes/gerar", "okMsg": "Apresentacao gerada"},
         "fields": [
@@ -723,21 +723,21 @@ async def build(db) -> dict:
         ],
     }
     out["visita-achados"] = {
-        "title": "Anexar achados ao relatorio de visita",
+        "title": "Anexar achados ao relatório de visita",
         "sub": "Analises de foto, audio, video ou notas. Vao em lista, um achado por objeto.",
         "cta": "Anexar", "type": "form",
         "submit": {"endpoint": "/api/v1/crm/visitas/achados", "okMsg": "Achados anexados"},
         "fields": [
-            {"key": "ref", "label": "Visita — id ou referencia*", "type": "text", "span": "span 2"},
+            {"key": "ref", "label": "Visita — id ou referência*", "type": "text", "span": "span 2"},
             {"key": "achados", "label": "Achados*", "type": "json", "span": "span 2",
-             "ph": '[{"tipo": "foto", "descricao": "Portao sem fechadura eletronica"}, '
-                   '{"tipo": "nota", "descricao": "Cliente pediu orcamento de CFTV"}]'},
+             "ph": '[{"tipo": "foto", "descricao": "Portao sem fechadura eletrônica"}, '
+                   '{"tipo": "nota", "descricao": "Cliente pediu orçamento de CFTV"}]'},
         ],
     }
     out["asset-upload"] = {
         "title": "Enviar logo ou selo",
         "sub": "Grava a imagem no volume persistente, para os documentos usarem. O conteudo "
-               "vai em base64 — util quando nao da para subir arquivo.",
+               "vai em base64 — util quando não da para subir arquivo.",
         "cta": "Enviar", "type": "form",
         "submit": {"endpoint": "/api/v1/crm/assets/upload", "okMsg": "Asset gravado",
                    "showResult": True},
@@ -752,17 +752,17 @@ async def build(db) -> dict:
     }
     out["expurgar-teste"] = {
         "title": "Arquivar documentos de teste",
-        "sub": "Arquiva (soft-delete) TODOS os documentos marcados como teste. Nao toca em "
+        "sub": "Arquiva (soft-delete) TODOS os documentos marcados como teste. Não toca em "
                "documento real. Sem confirmar, a rota so mostra o que seria arquivado.",
         "cta": "Executar", "type": "form",
         "submit": {"endpoint": "/api/v1/crm/docs/expurgar-teste", "query": True,
                    "okMsg": "Expurgo processado", "showResult": True,
-                   "confirm": "Se voce marcou CONFIRMAR, todos os documentos de teste sao "
+                   "confirm": "Se você marcou CONFIRMAR, todos os documentos de teste são "
                               "arquivados agora. Confirma?"},
         "fields": [
             {"key": "confirmar", "label": "Confirmar de verdade?", "type": "select",
-             "span": "span 2", "ph": "Nao — so mostrar (padrao)",
-             "options": [{"value": "false", "label": "Nao — so mostrar o que seria arquivado"},
+             "span": "span 2", "ph": "Não — so mostrar (padrão)",
+             "options": [{"value": "false", "label": "Não — so mostrar o que seria arquivado"},
                          {"value": "true", "label": "SIM — arquivar agora"}]},
         ],
     }

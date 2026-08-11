@@ -541,7 +541,7 @@ def _ver_todas(out: dict) -> None:
                 campos.append({"label": c, "value": (val if (val not in (None, "")) else "—")})
             if campos:
                 row.setdefault("actions", []).insert(
-                    0, {"btnLabel": "Ver", "readOnly": True, "title": f"{titulo} — detalhe", "fields": campos})
+                    0, {"btnLabel": "Ver", "readOnly": True, "title": f"{título} — detalhe", "fields": campos})
 
 
 @router.post("/action/passagem-turno")
@@ -2226,7 +2226,7 @@ async def build(db) -> dict:
     out["otimizar-escala"] = {
         "title": "Otimizador de escala — um dia",
         "sub": "Sugere a melhor distribuicao de colaboradores nos postos para a data. "
-               "SUGESTAO: nao grava escala nem alocacao, so devolve a proposta.",
+               "SUGESTÃO: não grava escala nem alocação, so devolve a proposta.",
         "cta": "Otimizar", "type": "form",
         "submit": {"endpoint": "/api/v1/operacional/scale-optimizer/otimizar",
                    "okMsg": "Otimizacao concluida", "showResult": True},
@@ -2240,7 +2240,7 @@ async def build(db) -> dict:
     }
     out["otimizar-escala-mes"] = {
         "title": "Otimizador de escala — mes inteiro",
-        "sub": "Mesma sugestao, para a competencia toda. Continua sendo proposta: nada e "
+        "sub": "Mesma sugestão, para a competência toda. Continua sendo proposta: nada e "
                "gravado.",
         "cta": "Otimizar", "type": "form",
         "submit": {"endpoint": "/api/v1/operacional/scale-optimizer/otimizar-mes",
@@ -2256,15 +2256,15 @@ async def build(db) -> dict:
     }
     out["diarista-alocar"] = {
         "title": "Alocar diarista",
-        "sub": "Aloca um diarista em condominio por periodo. GRAVA a alocacao — confira o "
-               "periodo antes.",
+        "sub": "Aloca um diarista em condomínio por período. GRAVA a alocação — confira o "
+               "período antes.",
         "cta": "Alocar", "type": "form",
         "submit": {"endpoint": "/api/v1/operacional/unificado/alocar-diarista",
                    "okMsg": "Diarista alocado",
-                   "confirm": "Isto GRAVA a alocacao do diarista no periodo informado. Confirma?"},
+                   "confirm": "Isto GRAVA a alocação do diarista no período informado. Confirma?"},
         "fields": [
             {"key": "diarista_id", "label": "Diarista (id)*", "type": "text", "span": "span 1"},
-            {"key": "condominio_id", "label": "Condominio (id)*", "type": "text", "span": "span 1"},
+            {"key": "condominio_id", "label": "Condomínio (id)*", "type": "text", "span": "span 1"},
             {"key": "data_inicio", "label": "Inicio*", "type": "date", "span": "span 1"},
             {"key": "data_fim", "label": "Fim", "type": "date", "span": "span 1"},
             {"key": "unidade_id", "label": "Unidade (id)", "type": "text", "span": "span 1"},

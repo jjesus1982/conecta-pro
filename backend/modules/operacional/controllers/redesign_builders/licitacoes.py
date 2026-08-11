@@ -21,7 +21,7 @@ _ICO_L = "M3 3v18h18M7 16l4-4 3 3 5-6"
 EXTRA_MENU: list[dict] = [
     {"id": "sync-pncp", "label": "Sincronizar PNCP", "icon": _ICO_L},
     {"id": "sync-precos", "label": "Sincronizar preços", "icon": _ICO_L},
-    {"id": "contratos-publicos", "label": "Contratos publicos", "icon": _ICO_L},
+    {"id": "contratos-publicos", "label": "Contratos públicos", "icon": _ICO_L},
     {"id": "medicoes", "label": "Medicoes", "icon": _ICO_L},
 ]
 _ND = "#0F1B3A"
@@ -194,7 +194,7 @@ async def build(db) -> dict:
     # As 4 rotas /bidding/erp/* levam {contract_id} ou {medicao_id} no CAMINHO. Aqui elas
     # cabem: o id vem da LINHA. Como tela solta, exigiriam colar UUID a mao.
     await safe("contratos-publicos", tbl(
-        "Contratos publicos", "Contratos ganhos em licitacao", "—",
+        "Contratos públicos", "Contratos ganhos em licitacao", "—",
         ["Contrato", "Orgao", "Objeto", "Valor", "Executado"],
         "1fr 1.6fr 1.8fr 1fr 1fr",
         "SELECT id, coalesce(numero_contrato,'—'), coalesce(orgao_nome,'—'), "
@@ -205,31 +205,31 @@ async def build(db) -> dict:
                    t(brl(r[4]), 600), t(brl(r[5]))],
         actionsfn=lambda r: [
             {"title": f"Converter {r[1]} em operacao",
-             "sub": "Cria as entidades operacionais do contrato publico no ERP.",
+             "sub": "Cria as entidades operacionais do contrato público no ERP.",
              "endpoint": f"/api/v1/bidding/erp/converter/{r[0]}",
              "method": "POST", "btnLabel": "Converter", "submitLabel": "Converter em operacao",
              "btnStyle": "primary", "okMsg": "Contrato convertido. Recarregue.", "fields": []},
             {"title": f"Vincular {r[1]} ao CRM",
-             "sub": "Liga o contrato publico ao modulo comercial.",
+             "sub": "Liga o contrato público ao modulo comercial.",
              "endpoint": f"/api/v1/bidding/erp/crm/{r[0]}",
              "method": "POST", "btnLabel": "Vincular CRM", "submitLabel": "Vincular ao CRM",
              "btnStyle": "outline", "okMsg": "Contrato vinculado ao CRM. Recarregue.", "fields": []},
-            {"title": f"Gerar medicao de {r[1]}",
-             "sub": "Medicao do periodo — e ela que vira fatura depois de aprovada.",
+            {"title": f"Gerar medição de {r[1]}",
+             "sub": "Medição do período — e ela que vira fatura depois de aprovada.",
              "endpoint": f"/api/v1/bidding/erp/medicao/{r[0]}",
-             "method": "POST", "btnLabel": "Medicao", "submitLabel": "Gerar medicao",
-             "btnStyle": "outline", "okMsg": "Medicao gerada. Recarregue.",
+             "method": "POST", "btnLabel": "Medicao", "submitLabel": "Gerar medição",
+             "btnStyle": "outline", "okMsg": "Medição gerada. Recarregue.",
              "fields": [
                  {"key": "competencia", "label": "Competencia*", "type": "text", "value": "",
                   "span": "span 2"},
-                 {"key": "periodo_inicio", "label": "Inicio do periodo*", "type": "date",
+                 {"key": "periodo_inicio", "label": "Inicio do período*", "type": "date",
                   "value": "", "span": "span 1"},
-                 {"key": "periodo_fim", "label": "Fim do periodo*", "type": "date",
+                 {"key": "periodo_fim", "label": "Fim do período*", "type": "date",
                   "value": "", "span": "span 1"},
              ]},
         ]))
     await safe("medicoes", tbl(
-        "Medicoes", "Medicoes dos contratos publicos", "—",
+        "Medicoes", "Medições dos contratos públicos", "—",
         ["Medicao", "Competencia", "Periodo", "Bruto", "Liquido"],
         "1fr 1fr 1.4fr 1fr 1fr",
         "SELECT id, coalesce(numero_medicao::text,'—'), coalesce(competencia,'—'), "
@@ -239,9 +239,9 @@ async def build(db) -> dict:
                    t(f"{r[3]} a {r[4]}" if r[3] and r[4] else "—"),
                    t(brl(r[5]), 600), t(brl(r[6]), 600)],
         actionsfn=lambda r: [
-            {"title": f"Gerar fatura da medicao {r[1]}",
-             "sub": "Cria a conta a RECEBER a partir da medicao aprovada. Nao cobra o orgao "
-                    "sozinho — so lanca o recebivel.",
+            {"title": f"Gerar fatura da medição {r[1]}",
+             "sub": "Cria a conta a RECEBER a partir da medição aprovada. Não cobra o órgão "
+                    "sozinho — so lança o recebivel.",
              "endpoint": f"/api/v1/bidding/erp/fatura/{r[0]}",
              "method": "POST", "btnLabel": "Faturar", "submitLabel": "Gerar fatura",
              "btnStyle": "primary", "okMsg": "Fatura gerada. Recarregue.", "fields": []},
