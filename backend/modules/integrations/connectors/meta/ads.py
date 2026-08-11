@@ -44,6 +44,21 @@ _GRAPH = "https://graph.facebook.com"
 _TIMEOUT = aiohttp.ClientTimeout(total=30)
 
 
+def _dia(valor: str | None) -> date | None:
+    """'2026-08-01T00:00:00-0400' → date(2026, 8, 1).
+
+    `start_date`/`end_date` são colunas DATE e o asyncpg não aceita string:
+    estoura "'str' object has no attribute 'toordinal'". Recorte de 10 chars
+    não basta — tem que virar objeto date.
+    """
+    if not valor:
+        return None
+    try:
+        return date.fromisoformat(valor[:10])
+    except ValueError:
+        return None
+
+
 def _token() -> str:
     # Lido a cada chamada para refletir mudança de env sem rebuild (igual capi.py).
     return os.getenv("META_ADS_TOKEN", "").strip()
@@ -132,7 +147,12 @@ async def sincronizar_campanhas(db, *, dias: int = 30) -> dict:
                      utm_source, utm_medium, external_id, created_at, updated_at)
                 VALUES (gen_random_uuid(), :nome, 'meta_ads', :status, :orc, :gasto,
                         :inicio, :fim, 'meta', 'paid', :cid, now(), now())
-                ON CONFLICT (external_id) DO UPDATE SET
+                -- O predicado é OBRIGATÓRIO aqui: ux_marketing_campaigns_external_id
+                -- é um índice PARCIAL (WHERE external_id IS NOT NULL), e o Postgres
+                -- não infere índice parcial sem que o ON CONFLICT repita o predicado.
+                -- Sem ele: "there is no unique or exclusion constraint matching the
+                -- ON CONFLICT specification" já na primeira campanha.
+                ON CONFLICT (external_id) WHERE external_id IS NOT NULL DO UPDATE SET
                     name = excluded.name, status = excluded.status,
                     budget = coalesce(excluded.budget, marketing_campaigns.budget),
                     spent = excluded.spent, updated_at = now()
@@ -144,8 +164,8 @@ async def sincronizar_campanhas(db, *, dias: int = 30) -> dict:
                 "status": (c.get("status") or "").lower()[:40],
                 "orc": orcamento,
                 "gasto": float(ins.get("spend") or 0),
-                "inicio": (c.get("start_time") or "")[:10] or None,
-                "fim": (c.get("stop_time") or "")[:10] or None,
+                "inicio": _dia(c.get("start_time")),
+                "fim": _dia(c.get("stop_time")),
                 "cid": c["id"],
             },
         )

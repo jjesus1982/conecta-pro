@@ -70,16 +70,25 @@ async def main() -> int:
             await pg.screenshot(path=str(SH / "dev_tel_0_dialogo.png"), full_page=True)
             print(f"\n--- diálogo de telefone · url={pg.url[:90]}\n{(await pg.inner_text('body'))[:700]}")
             if novo:
-                campo = pg.locator('input[type="tel"], input[type="text"]').first
+                # Ancorar no PLACEHOLDER: `input[type=text]` solto pega o campo do
+                # CÓDIGO que fica atrás do diálogo (vem antes no DOM), e o telefone
+                # continua vazio — o SMS nunca troca de número.
+                campo = pg.get_by_placeholder("Insira seu telefone").first
                 await campo.fill(novo, timeout=15000)
                 await pg.wait_for_timeout(1500)
                 await pg.screenshot(path=str(SH / "dev_tel_1_preenchido.png"), full_page=True)
-                for rot in ("Enviar código", "Continuar", "Avançar", "Salvar"):
-                    alvo = pg.get_by_role("button", name=rot, exact=False)
-                    if await alvo.count() and await alvo.first.is_enabled():
-                        await alvo.first.click(timeout=12000)
-                        await pg.wait_for_timeout(8000)
+                # O botão fica cinza durante o cooldown de reenvio ("Aguarde 19
+                # segundos"). Clicar na hora não faz nada — tem que esperar liberar.
+                enviar = pg.get_by_role("button", name="Enviar SMS para verificação")
+                for _ in range(24):  # até ~60s
+                    if await enviar.first.is_enabled():
                         break
+                    await pg.wait_for_timeout(2500)
+                if await enviar.first.is_enabled():
+                    await enviar.first.click(timeout=12000)
+                    await pg.wait_for_timeout(8000)
+                else:
+                    print("   botão 'Enviar SMS' seguiu desabilitado após 60s")
                 await pg.screenshot(path=str(SH / "dev_tel_2_enviado.png"), full_page=True)
                 print(f"\n--- pós-envio\n{(await pg.inner_text('body'))[:700]}")
             await ctx.close()
