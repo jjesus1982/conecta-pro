@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Conecta Mais — Segurança e Tecnologia</title>
+<meta name="description" content="Portaria remota, agentes de portaria e monitoramento 24h em Manaus. Fale com a gente pelo WhatsApp.">
+<meta name="robots" content="noindex">
+<link rel="icon" href="/links/logo.webp">
+<meta property="og:title" content="Conecta Mais — Segurança e Tecnologia">
+<meta property="og:description" content="Portaria remota, agentes de portaria e monitoramento 24h em Manaus.">
+<meta property="og:image" content="https://conectamais.pro/links/logo.webp">
+<style>
+  /* Página de bio: tudo inline, sem CDN nem fonte externa — carrega no 3G do
+     celular de quem veio do Instagram, que é 90% do tráfego daqui. */
+  :root{
+    --tinta:#0d1b2a; --papel:#f4f6f8; --cartao:#ffffff;
+    --zap:#25d366; --zap-escuro:#128c4a; --marca:#3498db;
+    --suave:#5b6b7c; --borda:#e3e8ee;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --tinta:#e8edf3; --papel:#0d1b2a; --cartao:#152436;
+           --suave:#9fb0c2; --borda:#22364d; }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--papel); color:var(--tinta);
+    font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    padding:32px 20px calc(40px + env(safe-area-inset-bottom));
+  }
+  main{max-width:440px;margin:0 auto}
+  header{text-align:center;margin-bottom:28px}
+  img.logo{width:96px;height:96px;object-fit:contain;border-radius:22px;background:var(--cartao);
+           padding:10px;box-shadow:0 2px 14px rgba(13,27,42,.10)}
+  h1{font-size:1.3rem;margin:14px 0 4px;letter-spacing:-.01em}
+  p.sub{margin:0;color:var(--suave);font-size:.93rem}
+  a.btn{
+    display:flex;align-items:center;gap:12px;
+    background:var(--cartao);color:inherit;text-decoration:none;
+    border:1px solid var(--borda);border-radius:14px;
+    padding:15px 18px;margin-bottom:12px;
+    box-shadow:0 1px 3px rgba(13,27,42,.06);
+    transition:transform .12s ease, box-shadow .12s ease;
+  }
+  a.btn:active{transform:scale(.985)}
+  @media (hover:hover){a.btn:hover{box-shadow:0 4px 16px rgba(13,27,42,.12)}}
+  a.destaque{background:var(--zap);border-color:var(--zap-escuro);color:#fff;font-weight:600}
+  a.destaque .rotulo small{color:rgba(255,255,255,.85)}
+  .icone{flex:0 0 26px;height:26px;display:grid;place-items:center}
+  .rotulo{display:flex;flex-direction:column;line-height:1.28}
+  .rotulo small{color:var(--suave);font-size:.8rem}
+  nav.secundarios{display:flex;gap:10px;margin-top:22px}
+  nav.secundarios a{
+    flex:1;text-align:center;padding:12px 6px;border-radius:12px;
+    border:1px solid var(--borda);background:var(--cartao);
+    color:var(--suave);text-decoration:none;font-size:.82rem;
+  }
+  footer{margin-top:26px;text-align:center;color:var(--suave);font-size:.74rem;line-height:1.6}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img class="logo" src="/links/logo.webp" alt="Conecta Mais">
+    <h1>Conecta Mais</h1>
+    <p class="sub">Segurança e Tecnologia · Manaus</p>
+  </header>
+
+  <!-- Cada botão carrega [c:<slug>] no ?text= do wa.me. É assim que o Conecta PRO
+       sabe de qual link o lead veio: `_atribuicao_do_texto` lê o marcador e grava
+       `leads.utm_campaign`, que é o denominador do CAC. Sem o marcador o lead
+       nasce sem campanha — e o sistema NÃO inventa uma. -->
+
+  <a class="btn destaque" href="https://wa.me/558008804414?text=Ol%C3%A1%21%20Vim%20pelo%20Instagram%20e%20quero%20uma%20cota%C3%A7%C3%A3o.%20%5Bc%3Abio_cotacao%5D">
+    <span class="icone" aria-hidden="true">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2zm5.8 14.02c-.24.68-1.4 1.3-1.94 1.35-.5.05-1.13.07-1.82-.11-.42-.11-.96-.29-1.65-.59-2.9-1.25-4.8-4.17-4.95-4.37-.14-.2-1.18-1.57-1.18-3s.75-2.13 1.02-2.42c.27-.29.58-.36.78-.36l.56.01c.18 0 .42-.07.66.5.24.59.83 2.02.9 2.17.07.15.12.32.02.51-.09.2-.14.32-.28.49l-.42.49c-.14.14-.28.29-.12.57.16.29.71 1.17 1.53 1.9 1.05.94 1.94 1.23 2.22 1.37.27.15.43.12.59-.07.16-.2.68-.79.86-1.07.18-.27.36-.22.61-.13.24.09 1.55.73 1.82.86.27.14.44.2.51.32.07.11.07.66-.17 1.34z"/></svg>
+    </span>
+    <span class="rotulo">Falar no WhatsApp<small>Cotação na hora, sem compromisso</small></span>
+  </a>
+
+  <a class="btn" href="https://wa.me/558008804414?text=Ol%C3%A1%21%20Quero%20uma%20cota%C3%A7%C3%A3o%20de%20portaria%20remota.%20%5Bc%3Abio_portaria%5D">
+    <span class="icone" aria-hidden="true">🎥</span>
+    <span class="rotulo">Portaria remota<small>Controle de acesso 24h, sem porteiro no local</small></span>
+  </a>
+
+  <a class="btn" href="https://wa.me/558008804414?text=Ol%C3%A1%21%20Quero%20uma%20cota%C3%A7%C3%A3o%20de%20agentes%20de%20portaria.%20%5Bc%3Abio_agentes%5D">
+    <span class="icone" aria-hidden="true">🛡️</span>
+    <span class="rotulo">Agentes de portaria<small>Equipe treinada e uniformizada</small></span>
+  </a>
+
+  <a class="btn" href="https://wa.me/558008804414?text=Ol%C3%A1%21%20Quero%20uma%20cota%C3%A7%C3%A3o%20de%20monitoramento.%20%5Bc%3Abio_monitoramento%5D">
+    <span class="icone" aria-hidden="true">📡</span>
+    <span class="rotulo">Monitoramento 24h<small>Central própria, resposta imediata</small></span>
+  </a>
+
+  <nav class="secundarios">
+    <a href="https://conectamais.pro">Site</a>
+    <a href="https://instagram.com/conectamaisoficial">Instagram</a>
+    <a href="https://apps.apple.com/br/app/conecta-mais/id1612453684">App</a>
+  </nav>
+
+  <footer>
+    Conecta Mais — Segurança e Tecnologia<br>
+    CNPJ 35.710.481/0001-03 · 0800 880 4414
+  </footer>
+</main>
+</body>
+</html>
