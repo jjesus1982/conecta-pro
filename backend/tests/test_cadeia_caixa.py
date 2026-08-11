@@ -61,6 +61,18 @@ def test_entrada_de_cliente_credita_clientes_a_receber():
     assert contrapartida_entrada("ESTORNO NAO IDENTIFICADO")[0] == CONTA_ENTRADA_A_CLASSIFICAR
 
 
+def test_aplicar_sugestoes_existe_e_tem_preview():
+    """Preview é o padrão: escrita em massa sem ver antes foi o que quase gravou
+    sócio como CLT hoje."""
+    import inspect
+
+    from modules.financial.services.classificacao_saidas_service import aplicar_sugestoes
+
+    sig = inspect.signature(aplicar_sugestoes)
+    assert sig.parameters["preview"].default is True
+    assert "responsavel" in sig.parameters
+
+
 def test_toda_conta_do_mapa_tem_motivo():
     """O motivo vai para o histórico do lançamento — quem auditar em 2030
     precisa saber por que aquela conta foi escolhida."""

@@ -61,8 +61,11 @@ _GRUPO = ("CONECTA MAIS", "CONECTAMAIS", "CONECTA PRO", "CONECTA ELETRONICA",
 # (pró-labore x distribuição x mútuo) muda o imposto e é decisão dele.
 _SOCIO = ("JORDAN SANTOS DE JESUS", "JORDAN S DE JESUS", "JORDAN JESUS")
 
-# PJ conhecidos (informados pelo Jordan em 2026-08-11). Nome novo entra aqui.
-_PJ = ("PYETRA", "PEDRO", "RUAN", "RAMON", "ORLAILSON", "ELIZIEL", "DIEGO FERREIRA")
+# PJ vem de `employees.status IN ('pj_ativo','pj_pendente')` — o banco já sabe
+# quem é PJ, e a lista chumbada de primeiros nomes errava feio: "RUAN" casava
+# com RUAN RODRIGUES FIGUEIREDO (AGENTE DE PORTARIA, CLT) em vez do Sidney Ruan
+# Souza, e "RAMON" casava com FRANCISCO RAMON FARIAS (também CLT). Ambos iam
+# virar pró-labore. Ver `e_pj` no SQL de listar_grupos.
 _FOLHA_TERCEIRO = ("SOLIDES", "S LIDES", "SINETRAN")
 _IMPOSTO = ("RECEITA FEDERAL", "CEF MATRIZ", "CAIXA ECONOMICA", "DARF", "GPS",
             "SIMPLES NACIONAL", "PGFN", "FGTS", "INSS", "PREVID", "SINDECOMPRESTS",
@@ -81,8 +84,24 @@ _TAXA = ("TARIFA", "TAXA", "IOF", "ANUIDADE", "PACOTE DE SERVICOS")
 _RE_NAO_ALFA = re.compile(r"[^A-Za-z ]")
 
 
+def _casa_nome(tabela: str, campo_alvo: str, onde: str = "TRUE") -> str:
+    """EXISTS que casa primeiro E último nome do cadastro dentro da contraparte.
+
+    `unaccent` porque o cadastro tem "Ramon Araújo" e o extrato traz "RAMON
+    ARAUJO" — sem isso o Ú vira espaço na normalização e o nome nunca casa.
+    Exigir os DOIS extremos evita o que já aconteceu: "SILVA" sozinho casava
+    com centenas de pessoas.
+    """
+    return f"""EXISTS (
+        SELECT 1 FROM {tabela} c WHERE c.nome IS NOT NULL AND length(c.nome) > 8
+          AND {onde}
+          AND {campo_alvo} LIKE '%' || split_part(unaccent(upper(c.nome)), ' ', 1) || '%'
+          AND {campo_alvo} LIKE '%' || split_part(unaccent(upper(c.nome)), ' ',
+                array_length(string_to_array(c.nome, ' '), 1)) || '%')"""
+
+
 def _sugerir(contraparte: str, valor: float, e_funcionario: bool, tem_nfse: bool,
-             e_diarista: bool = False) -> tuple[str | None, str]:
+             e_diarista: bool = False, e_pj: bool = False) -> tuple[str | None, str]:
     """(categoria_sugerida, motivo). None = o sistema não sabe; decide o humano.
 
     Ordem importa: o teste mais específico primeiro. Um funcionário que também é
@@ -97,8 +116,8 @@ def _sugerir(contraparte: str, valor: float, e_funcionario: bool, tem_nfse: bool
         return "imposto", "favorecido é órgão arrecadador"
     if any(t in c for t in _FOLHA_TERCEIRO):
         return "beneficio_vtvr", "operadora de VT/VR (Sólides/Sinetran)"
-    if any(p in c for p in _PJ):
-        return "pj_prolabore", "prestador PJ conhecido"
+    if e_pj:
+        return "pj_prolabore", "favorecido está cadastrado como PJ"
     if any(t in c for t in _TAXA):
         return "taxa_bancaria", "descrição de tarifa bancária"
     if abs(valor) == 32.0:
@@ -132,14 +151,11 @@ async def listar_grupos(db: AsyncSession, *, minimo: float = 0.0, limite: int = 
             HAVING sum(abs(amount)) >= :minimo
         )
         SELECT s.contraparte, s.n, s.valor, s.de, s.ate,
-               EXISTS (SELECT 1 FROM employees e WHERE e.nome IS NOT NULL AND length(e.nome) > 8
-                       AND s.alvo LIKE '%' || split_part(upper(e.nome),' ',1) || '%'
-                       AND s.alvo LIKE '%' || split_part(upper(e.nome),' ',
-                            array_length(string_to_array(e.nome,' '),1)) || '%') AS e_func,
-               EXISTS (SELECT 1 FROM diaria_diaristas dd WHERE dd.nome IS NOT NULL AND length(dd.nome) > 8
-                       AND s.contraparte LIKE '%' || split_part(upper(dd.nome),' ',1) || '%'
-                       AND s.contraparte LIKE '%' || split_part(upper(dd.nome),' ',
-                            array_length(string_to_array(dd.nome,' '),1)) || '%') AS e_diarista,
+               {_casa_nome("employees", "s.alvo",
+                           "c.status NOT IN ('pj_ativo','pj_pendente')")} AS e_func,
+               {_casa_nome("employees", "s.alvo",
+                           "c.status IN ('pj_ativo','pj_pendente')")} AS e_pj,
+               {_casa_nome("diaria_diaristas", "s.contraparte")} AS e_diarista,
                EXISTS (SELECT 1 FROM nfse_tomadas_nacional t
                        WHERE upper(coalesce(t.prestador_nome,'')) <> ''
                          AND s.contraparte LIKE '%' || split_part(upper(t.prestador_nome),' ',1) || '%') AS tem_nfse
@@ -151,7 +167,7 @@ async def listar_grupos(db: AsyncSession, *, minimo: float = 0.0, limite: int = 
     grupos = []
     for r in rows:
         cat, motivo = _sugerir(r["contraparte"], float(r["valor"]), r["e_func"],
-                               r["tem_nfse"], r["e_diarista"])
+                               r["tem_nfse"], r["e_diarista"], r["e_pj"])
         grupos.append({
             "contraparte": r["contraparte"].strip(),
             "movimentacoes": int(r["n"]),
@@ -199,3 +215,58 @@ async def classificar_grupo(db: AsyncSession, *, contraparte: str, categoria: st
     total = round(sum(float(x[0]) for x in r), 2)
     return {"ok": True, "contraparte": alvo, "categoria": categoria, "categoria_label": label,
             "classificadas": len(r), "valor": total}
+
+
+async def aplicar_sugestoes(db: AsyncSession, *, responsavel: str,
+                            preview: bool = True) -> dict:
+    """Aplica em massa as classificações que a REGRA já sabe.
+
+    Grupo sem sugestão fica intocado — o "não sei" é resposta, e forçar categoria
+    nele seria fabricar. `preview=True` é o padrão: gravar em massa sem ver antes
+    foi o que quase marcou o sócio como CLT hoje.
+    """
+    dados = await listar_grupos(db, minimo=0.0, limite=5000)
+    alvo = [g for g in dados["grupos"] if g["sugestao"]]
+
+    # `listar_grupos` agrupa pela contraparte crua e faz strip() só na saída, então
+    # " ACME" e "ACME" chegam como dois grupos que viram o MESMO UPDATE. O primeiro
+    # leva as linhas dos dois, o segundo casa zero. Sem dedup aqui, o relatório
+    # somava o grupo fantasma e informava mais do que gravou.
+    vistos: set[str] = set()
+    unicos = []
+    for g in alvo:
+        chave = g["contraparte"].strip().upper()
+        if chave not in vistos:
+            vistos.add(chave)
+            unicos.append(g)
+
+    por_cat: dict[str, dict] = {}
+    mov = 0
+    valor = 0.0
+    falhas = []
+    for g in unicos:
+        n, v = g["movimentacoes"], g["valor"]
+        if not preview:
+            r = await classificar_grupo(db, contraparte=g["contraparte"],
+                                        categoria=g["sugestao"], responsavel=responsavel)
+            if not r.get("ok"):
+                falhas.append({"contraparte": g["contraparte"][:60], "erro": r.get("erro")})
+                logger.warning("mutirão: %r não aplicado: %s", g["contraparte"][:40], r.get("erro"))
+                continue
+            # O que o banco gravou, não o que a lista previa.
+            n, v = r["classificadas"], r["valor"]
+        c = por_cat.setdefault(g["sugestao"], {"grupos": 0, "movimentacoes": 0, "valor": 0.0})
+        c["grupos"] += 1
+        c["movimentacoes"] += n
+        c["valor"] = round(c["valor"] + v, 2)
+        mov += n
+        valor += v
+    return {
+        "modo": "preview" if preview else "aplicado",
+        "grupos": sum(c["grupos"] for c in por_cat.values()),
+        "movimentacoes": mov,
+        "valor": round(valor, 2),
+        "por_categoria": por_cat,
+        "sem_sugestao": len(dados["grupos"]) - len(alvo),
+        "falhas": falhas,
+    }
