@@ -1021,3 +1021,123 @@ register(Regra(
     action_url="/redesign/departamento-pessoal?t=g-ponto&tab=ponto",
     detectar=_detectar_ponto_de_afastado, template=_tpl_ponto_afastado,
 ))
+
+
+# ─────────────────────────── razao_parado ───────────────────────────
+# Nasceu do fechamento contábil parado desde julho/2026: um holerite sem data
+# derrubava a transação inteira, o beat diário escrevia a exceção no log TODO
+# DIA, e ninguém leu. O sinal existia; faltava alguém olhando.
+#
+# A guarda de competência FUTURA não é detalhe: sem ela a regra dispara 94
+# achados no primeiro dia (holerites de 2026-11/12 que o fechamento barra de
+# propósito), e alarme ruidoso é alarme desligado em duas semanas.
+SQL_RAZAO_PARADO = """
+    SELECT h.reference_period AS competencia, count(*) AS holerites
+    FROM hr_payslips h
+    WHERE coalesce(h.total_earnings, 0) > 0
+      AND h.payslip_code IS NOT NULL
+      AND h.reference_period IS NOT NULL
+      AND h.reference_period <= to_char(now() AT TIME ZONE 'America/Manaus', 'YYYY-MM')
+      AND NOT EXISTS (
+          SELECT 1 FROM accounting_entries a
+          WHERE a.documento_ref = 'FOLHA-' || h.payslip_code
+      )
+    GROUP BY h.reference_period
+    ORDER BY h.reference_period
+"""
+
+
+async def _detectar_razao_parado(db: AsyncSession) -> list[Achado]:
+    rows = (await db.execute(text(SQL_RAZAO_PARADO))).mappings().all()
+    return [
+        Achado(
+            correlation_id=f"razao_parado:{r['competencia']}",
+            dados={"competencia": r["competencia"], "holerites": int(r["holerites"])},
+        )
+        for r in rows
+    ]
+
+
+def _tpl_razao_parado(d: dict) -> tuple[str, str]:
+    return (
+        f"Razão sem lançamento: folha {d['competencia']}",
+        f"{d['holerites']} holerite(s) da competência {d['competencia']} não têm "
+        f"lançamento no razão contábil. O fechamento pode ter parado em silêncio — "
+        f"foi assim que julho/2026 ficou com 63 lançamentos contra 181 de junho. "
+        f"Rodar o fechamento e conferir o log do beat financial.fechar_razao_auto.",
+    )
+
+
+register(Regra(
+    nome="razao_parado", familia="financeiro", severidade="critico",
+    roles_destino=("admin",),
+    action_url="/redesign/financeiro?t=g-contabil",
+    detectar=_detectar_razao_parado, template=_tpl_razao_parado,
+))
+
+
+# ─────────────────────────── extrato_duplicado ───────────────────────────
+# Em 2026-08-10 removi 880 linhas duplicadas do extrato (R$212 mil de entrada e
+# R$326 mil de saída em dobro): o MESMO PIX importado pela API do Inter e por um
+# CSV avulso, cada um com sua própria chave. O índice único em `external_id`
+# nunca teve chance — o importador inventava a chave.
+#
+# Por que ALARME e não índice único: neste domínio o mesmo valor, no mesmo dia,
+# para a mesma contraparte É legítimo (3 saques de R$1.000 no Banco24h = limite
+# por operação). Só o ID do próprio banco distinguiria, e ele é nulo em 3.036 das
+# 4.502 linhas. Então detecta-se o AUMENTO, não a existência.
+#
+# Linha de base MEDIDA em 2026-08-10: 123 grupos / 130 linhas excedentes, todas
+# de mesma origem (80 csv_import, 50 inter) e plausivelmente legítimas.
+# Quem limpar duplicata de verdade deve BAIXAR este número.
+BASE_DUPLICATAS_EXCEDENTES = 130
+
+_CANONICA_SQL = (
+    "regexp_replace(regexp_replace(regexp_replace("
+    "upper(coalesce(description,'')), 'CP :[0-9]+-', '', 'g'), "
+    "'[^A-Z0-9 ]', ' ', 'g'), ' +', ' ', 'g')"
+)
+
+SQL_EXTRATO_DUPLICADO = f"""
+    SELECT coalesce(sum(n - 1), 0) AS excedentes, count(*) AS grupos
+    FROM (
+        SELECT bank_account_id, transaction_date::date AS d, amount,
+               {_CANONICA_SQL} AS f, count(*) AS n
+        FROM bank_transactions
+        GROUP BY 1, 2, 3, 4
+        HAVING count(*) > 1
+    ) t
+"""
+
+
+async def _detectar_extrato_duplicado(db: AsyncSession) -> list[Achado]:
+    r = (await db.execute(text(SQL_EXTRATO_DUPLICADO))).mappings().first()
+    if not r:
+        return []
+    excedentes = int(r["excedentes"] or 0)
+    if excedentes <= BASE_DUPLICATAS_EXCEDENTES:
+        return []
+    novas = excedentes - BASE_DUPLICATAS_EXCEDENTES
+    return [Achado(
+        correlation_id=f"extrato_duplicado:{excedentes}",
+        dados={"excedentes": excedentes, "grupos": int(r["grupos"] or 0),
+               "base": BASE_DUPLICATAS_EXCEDENTES, "novas": novas},
+    )]
+
+
+def _tpl_extrato_duplicado(d: dict) -> tuple[str, str]:
+    return (
+        f"Extrato duplicado: {d['novas']} linha(s) novas em dobro",
+        f"O extrato tem {d['excedentes']} linhas excedentes em {d['grupos']} grupos "
+        f"(linha de base conhecida: {d['base']}). Apareceram {d['novas']} novas desde "
+        f"a última limpeza — provável importação repetida. Em 08/2026 isso somou "
+        f"R$563 mil contados em dobro. Conferir antes de confiar em saldo e fluxo.",
+    )
+
+
+register(Regra(
+    nome="extrato_duplicado", familia="financeiro", severidade="critico",
+    roles_destino=("admin",),
+    action_url="/redesign/financeiro?t=g-bancos",
+    detectar=_detectar_extrato_duplicado, template=_tpl_extrato_duplicado,
+))
