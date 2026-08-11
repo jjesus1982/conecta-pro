@@ -186,10 +186,16 @@ async def classificar_grupo(db: AsyncSession, *, contraparte: str, categoria: st
             justificativa_data = NOW(),
             updated_at = NOW()
         WHERE amount < 0 AND justificativa_categoria IS NULL
-          AND {_SQL_CONTRAPARTE} = :alvo
+          AND trim({_SQL_CONTRAPARTE}) = trim(:alvo)
         RETURNING abs(amount)
     """), {"cat": categoria, "just": label, "resp": responsavel, "alvo": alvo})).fetchall()
     await db.commit()
+    if not r:
+        # Sucesso com 0 linhas é mentira educada: o usuário clica, lê "ok" e
+        # acha que classificou. Aconteceu de verdade — a lista fazia strip() no
+        # nome e o UPDATE comparava sem trim, então nunca casava.
+        return {"ok": False, "erro": (f"nenhuma saída sem classificação encontrada para "
+                                      f"{alvo[:40]!r} — o grupo pode já ter sido classificado")}
     total = round(sum(float(x[0]) for x in r), 2)
     return {"ok": True, "contraparte": alvo, "categoria": categoria, "categoria_label": label,
             "classificadas": len(r), "valor": total}
