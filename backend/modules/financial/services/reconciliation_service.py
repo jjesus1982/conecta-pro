@@ -438,8 +438,11 @@ def conciliar_saidas(limite: int = 2000) -> dict:
                 baixados += 1
             else:
                 sem_match += 1
-        except Exception:  # noqa: BLE001 — uma tx nunca derruba o batch
+        except Exception as exc:  # noqa: BLE001 — uma tx nunca derruba o batch
             erros += 1
+            # LOGAR o motivo, não só contar: saber que 40 falharam sem saber
+            # POR QUE é o mesmo silêncio que travou o razão em julho.
+            logger.warning("[conciliacao] tx %s falhou: %s", tx_id, exc)
             try:
                 conn.rollback()
             except Exception:  # noqa: BLE001, S110
@@ -480,8 +483,11 @@ def conciliar_justificados(limite: int = 4000) -> dict:
                 baixados += 1
             else:
                 sem_match += 1
-        except Exception:  # noqa: BLE001 — uma tx nunca derruba o batch
+        except Exception as exc:  # noqa: BLE001 — uma tx nunca derruba o batch
             erros += 1
+            # LOGAR o motivo, não só contar: saber que 40 falharam sem saber
+            # POR QUE é o mesmo silêncio que travou o razão em julho.
+            logger.warning("[conciliacao] tx %s falhou: %s", tx_id, exc)
             try:
                 conn.rollback()
             except Exception:  # noqa: BLE001, S110
