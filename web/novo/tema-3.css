@@ -1,0 +1,36 @@
+/* ═══ VERSÃO 3 — DIVIDIDA ════════════════════════════════════════════════════
+   Capa partida ao meio: texto num campo navy à esquerda, foto sangrando à
+   direita. Serviços viram linhas horizontais com miniatura, não cartões. É a
+   versão de agência — mais moderna, mais opinativa na composição. */
+body.t3 .capa{min-height:auto;display:grid;grid-template-columns:1fr 1fr;align-items:stretch}
+body.t3 .capa .foto{position:relative;inset:auto;order:2}
+body.t3 .capa .foto img{height:100%;min-height:clamp(340px,52vw,620px)}
+body.t3 .capa .foto::after{background:linear-gradient(90deg,rgba(22,39,125,.35),transparent 45%)}
+body.t3 .capa .conteudo{background:var(--navy);width:auto;margin:0;order:1;
+  display:flex;flex-direction:column;justify-content:center;align-items:flex-start;
+  padding:clamp(2.4rem,5vw,4.2rem) clamp(1.6rem,4vw,3.6rem)}
+body.t3 h1{font-size:clamp(2rem,4.2vw,3.4rem)}
+body.t3 .mosaico{grid-template-columns:1fr;gap:0;border-top:1px solid var(--border)}
+body.t3 .mosaico a,body.t3 .mosaico a:first-child,body.t3 .mosaico a:last-child{
+  aspect-ratio:auto;grid-column:auto;border-radius:0;box-shadow:none;background:transparent;
+  border-bottom:1px solid var(--border);display:grid;
+  grid-template-columns:190px 1fr auto;align-items:center;gap:1.6rem;padding:1.1rem 0}
+body.t3 .mosaico img{height:120px;border-radius:var(--r-input);filter:none}
+body.t3 .mosaico a:hover img{transform:none}
+body.t3 .mosaico .rotulo{position:static;background:none;color:var(--ink);padding:0;display:contents}
+body.t3 .mosaico h2{color:var(--navy)}
+body.t3 .mosaico h2 em{color:var(--ink-weak)}
+body.t3 .mosaico .seta{border-color:var(--border);color:var(--navy)}
+body.t3 .galeria .grade{grid-template-columns:repeat(3,1fr)}
+@media (max-width:860px){
+  body.t3 .capa{grid-template-columns:1fr}
+  body.t3 .capa .foto{order:1}
+  body.t3 .capa .conteudo{order:2}
+  body.t3 .mosaico a,body.t3 .mosaico a:first-child,body.t3 .mosaico a:last-child{
+    grid-template-columns:110px 1fr;gap:1rem}
+  body.t3 .mosaico img{height:80px}
+  body.t3 .mosaico .seta{display:none}
+}
+
+body.t3 .capa .conteudo .acoes{width:auto}
+body.t3 .capa .conteudo h1{align-self:stretch}

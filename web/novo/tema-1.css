@@ -1,0 +1,31 @@
+/* ═══ VERSÃO 1 — EDITORIAL CLARA ═════════════════════════════════════════════
+   Branco, muito ar, tipografia grande em navy, foto como prancha. A leitura
+   manda; a imagem apoia. É a versão que um escritório de advocacia ou uma
+   incorporadora publicaria. Menor risco, maior legibilidade. */
+body.t1{background:#fff}
+body.t1 .capa{min-height:auto;background:#fff;padding:clamp(3rem,7vw,6rem) 0 0}
+body.t1 .capa .foto{position:relative;inset:auto;width:var(--largura);margin:2.6rem auto 0;
+  border-radius:var(--r-card);overflow:hidden;box-shadow:var(--sombra-g)}
+body.t1 .capa .foto img{height:clamp(280px,42vw,520px)}
+body.t1 .capa .foto::after{background:linear-gradient(180deg,transparent 55%,rgba(15,27,58,.35))}
+body.t1 .capa .conteudo{color:var(--ink);padding-bottom:0;order:-1}
+/* flex, não block: o `order` que joga o texto antes da foto só existe em
+   contexto flex/grid. Com block a foto vinha primeiro, como no DOM. */
+body.t1 .capa{display:flex;flex-direction:column}
+body.t1 h1{color:var(--navy);font-size:clamp(2.4rem,6vw,4.4rem);max-width:19ch}
+body.t1 h1 .fino{color:var(--ink-weak);max-width:56ch}
+body.t1 .selo{background:transparent;color:var(--orange-txt);border:1px solid var(--orange)}
+body.t1 .selo::before{background:var(--orange)}
+body.t1 a.acao.vazada{color:var(--navy);border-color:var(--border)}
+body.t1 a.acao.vazada:hover{background:var(--fill);color:var(--navy);border-color:var(--navy)}
+body.t1 .mosaico{grid-template-columns:repeat(2,1fr)}
+body.t1 .mosaico a,body.t1 .mosaico a:first-child,body.t1 .mosaico a:last-child{
+  aspect-ratio:auto;background:#fff;box-shadow:none;border:1px solid var(--border);grid-column:auto}
+body.t1 .mosaico img{filter:none;height:230px}
+body.t1 .mosaico .rotulo{position:static;background:none;color:var(--ink);
+  padding:1.2rem 1.3rem 1.4rem;display:block}
+body.t1 .mosaico h2{color:var(--navy)}
+body.t1 .mosaico h2 em{color:var(--ink-weak)}
+body.t1 .mosaico .seta{display:none}
+body.t1 .galeria figcaption{position:static;background:var(--fill);color:var(--ink-weak);
+  padding:.7rem .9rem;font-weight:500}

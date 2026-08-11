@@ -1,0 +1,32 @@
+/* ═══ VERSÃO 2 — NAVY INTEIRO ════════════════════════════════════════════════
+   O site inteiro no azul da marca, foto acesa sobre ele, laranja como único
+   ponto quente. É a versão de empresa de tecnologia — a que menos se parece com
+   concorrente de segurança no Brasil, e a mais arriscada com público mais velho. */
+body.t2{background:var(--navy);color:#fff}
+body.t2 .topo{background:rgba(15,27,58,.9);border-bottom-color:rgba(255,255,255,.14)}
+body.t2 .topo nav a{color:rgba(255,255,255,.72)}
+body.t2 .topo nav a:hover,body.t2 .topo nav a[aria-current]{color:#fff}
+body.t2 .topo .marca img{filter:brightness(0) invert(1)}
+body.t2 h2.titulo{color:#fff}
+body.t2 p{color:rgba(255,255,255,.76)}
+body.t2 p strong{color:#fff}
+body.t2 .capa .foto::after{background:linear-gradient(180deg,rgba(15,27,58,.5),rgba(22,39,125,.35) 40%,var(--navy) 100%)}
+body.t2 .prova{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.14);box-shadow:none}
+body.t2 .prova li{border-top-color:rgba(255,255,255,.13)}
+body.t2 .prova .rotulo{color:rgba(255,255,255,.7)}
+body.t2 .prova .rotulo b{background:#1a2a63;color:rgba(255,255,255,.8)}
+body.t2 .prova .rotulo::after{border-bottom-color:rgba(255,255,255,.22)}
+body.t2 .prova .valor{color:#fff}
+body.t2 .passos li{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.14);box-shadow:none}
+body.t2 .passos li::before{background:var(--orange)}
+body.t2 .passos h3{color:#fff}
+body.t2 .faq,body.t2 .faq details{border-color:rgba(255,255,255,.16)}
+body.t2 .faq summary{color:#fff}
+body.t2 .faq summary:hover{color:var(--orange-claro,#FF8A4C)}
+body.t2 figure.chapa figcaption{color:rgba(255,255,255,.6)}
+body.t2 figure.chapa figcaption b{color:rgba(255,255,255,.9)}
+body.t2 .cartao-acao{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16)}
+body.t2 footer.pe{background:#0d1740;border-top-color:rgba(255,255,255,.14)}
+body.t2 .barra-zap{background:rgba(15,27,58,.95);border-top-color:rgba(255,255,255,.14)}
+body.t2 .mosaico a{background:#0d1740}
+body.t2 .mosaico img{filter:brightness(.74) saturate(1.05)}

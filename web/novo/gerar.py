@@ -36,6 +36,9 @@ FONE = "558008804414"
 FONE_HUMANO = "0800 880 4414"
 CNPJ = "35.710.481/0001-03"
 FOTOS = pathlib.Path("/var/www/web.conectamais.pro/novo/fotos")
+ATIVOS = "/novo"        # fotos, fontes e logo — compartilhados entre as versões
+RAIZ = "{RAIZ}"         # onde ESTA variante mora
+TEMA = 0                # 0 = tema base; 1..3 = variantes
 
 
 # Marcador [c:<slug>] lido por _atribuicao_do_texto (whatsapp/agent_service.py).
@@ -179,12 +182,12 @@ def foto(nome: str, legenda: str, *, tag: str = "figure") -> str:
     legendar imagem de banco como 'nossa central' seria afirmação falsa."""
     arq = f"{nome}.webp"
     if not (FOTOS / arq).exists():
-        PENDENCIAS.append(f"foto real: {legenda} → /novo/fotos/{arq}")
+        PENDENCIAS.append(f"foto real: {legenda} → {ATIVOS}/fotos/{arq}")
         corpo = (f'<div class="marcador" role="img" aria-label="Foto a incluir: '
                  f'{html.escape(legenda)}">Foto a incluir<br>{arq}</div>')
         nota = " · foto pendente"
     else:
-        corpo = (f'<img src="/novo/fotos/{arq}" alt="{html.escape(legenda)}" '
+        corpo = (f'<img src="{ATIVOS}/fotos/{arq}" alt="{html.escape(legenda)}" '
                  f'width="1400" height="1050" loading="lazy">')
         nota = " · imagem ilustrativa" if arq in PROVISORIAS else ""
     if tag == "img":
@@ -206,16 +209,16 @@ def cabeca(titulo: str, descricao: str, canonico: str, atual: str = "") -> str:
 <title>{html.escape(titulo)}</title>
 <meta name="description" content="{html.escape(descricao)}">
 <link rel="canonical" href="https://conectamais.pro{canonico}">
-<link rel="icon" href="/novo/favicon.webp">
-<link rel="preload" as="font" type="font/woff2" href="/novo/fontes/archivo-lat.woff2" crossorigin>
-<link rel="stylesheet" href="/novo/estilo.css">
+<link rel="icon" href="{ATIVOS}/favicon.webp">
+<link rel="preload" as="font" type="font/woff2" href="{ATIVOS}/fontes/archivo-lat.woff2" crossorigin>
+<link rel="stylesheet" href="{ATIVOS}/estilo.css">{("<link rel=\"stylesheet\" href=\"%s/tema-%d.css\">" % (ATIVOS, TEMA)) if TEMA else ""}
 <meta property="og:title" content="{html.escape(titulo)}">
 <meta property="og:description" content="{html.escape(descricao)}">
-<meta property="og:image" content="https://conectamais.pro/novo/fotos/capa.webp">
+<meta property="og:image" content="https://conectamais.pro{ATIVOS}/fotos/capa.webp">
 <meta property="og:type" content="website">
 <meta name="theme-color" content="#0A0A0A">
 </head>
-<body>
+<body class="t{TEMA}">
 <!--
 THESIS: segurança patrimonial mostrada, não adjetivada. Recusa as duas caras do
 setor brasileiro — o hero cinza sem imagem e o carrossel de gente recortada em
@@ -236,7 +239,7 @@ finish review, the verdict, and DESIGN.md
 -->
 <header class="topo">
   <div class="interno">
-    <a class="marca" href="/novo/" aria-label="Conecta Mais — Segurança e Tecnologia"><img src="/novo/logo-conecta-mais.webp" alt="Conecta Mais — Segurança e Tecnologia" width="348" height="66"></a>
+    <a class="marca" href="{RAIZ}" aria-label="Conecta Mais — Segurança e Tecnologia"><img src="{ATIVOS}/logo-conecta-mais.webp" alt="Conecta Mais — Segurança e Tecnologia" width="348" height="66"></a>
     <nav>
       {na('/novo/portaria-remota/', 'Portaria remota')}
       {na('/novo/agentes-de-portaria/', 'Agentes')}
@@ -254,10 +257,10 @@ PE = f"""
   <div class="interno">
     <div>
       <h3>Serviços</h3>
-      <a href="/novo/portaria-remota/">Portaria remota</a>
-      <a href="/novo/agentes-de-portaria/">Agentes de portaria</a>
-      <a href="/novo/monitoramento/">Monitoramento 24h</a>
-      <a href="/novo/seguranca-eletronica/">Segurança eletrônica</a>
+      <a href="{RAIZ}portaria-remota/">Portaria remota</a>
+      <a href="{RAIZ}agentes-de-portaria/">Agentes de portaria</a>
+      <a href="{RAIZ}monitoramento/">Monitoramento 24h</a>
+      <a href="{RAIZ}seguranca-eletronica/">Segurança eletrônica</a>
     </div>
     <div>
       <h3>Contato</h3>
@@ -267,7 +270,7 @@ PE = f"""
     </div>
     <div>
       <h3>Empresa</h3>
-      <a href="/novo/contato/">Contato e endereço</a>
+      <a href="{RAIZ}contato/">Contato e endereço</a>
       <a href="https://conectamais.pro/links/">Todos os links</a>
     </div>
   </div>
@@ -286,7 +289,7 @@ GALERIA = [
     ("g-acesso-carro", "Identificação na entrada"),
     ("g-cancela", "Controle de acesso de veículos"),
     ("g-dupla", "Equipe uniformizada em posto"),
-    ("g-equipe", "Equipe na central de monitoramento"),
+    ("g-abertura", "Abertura de portão pelo agente"),
     ("g-moto", "Ronda motorizada"),
 ]
 
@@ -295,7 +298,7 @@ def galeria() -> str:
     """Seis fotos do catálogo do José Luís. Não é enfeite: é a prova de que a
     operação existe, com uniforme, cancela e central reconhecíveis."""
     figs = "".join(
-        f'<figure><img src="/novo/fotos/{a}.webp" alt="{html.escape(leg)}" '
+        f'<figure><img src="{ATIVOS}/fotos/{a}.webp" alt="{html.escape(leg)}" '
         f'width="900" height="675" loading="lazy">'
         f'<figcaption>{html.escape(leg)}</figcaption></figure>' for a, leg in GALERIA)
     return ('<section class="galeria"><h2 class="titulo">A operação, como ela é</h2>'
@@ -481,7 +484,7 @@ def cartao(texto_zap: str, slug: str, titulo: str = "Cotação por posto") -> st
 
 def pagina_item(it: dict) -> str:
     return (cabeca(f"{it['titulo']} — Conecta Mais", it["resumo"],
-                   f"/novo/{it['slug']}/", f"/novo/{it['slug']}/")
+                   f"{RAIZ}{it['slug']}/", f"{RAIZ}{it['slug']}/")
             + '<section class="capa">'
             + f'<div class="foto">{foto(it["slug"], it["legenda"], tag="img")}</div>'
             + '<div class="conteudo">'
@@ -505,7 +508,7 @@ def pagina_item(it: dict) -> str:
 
 def pagina_capa() -> str:
     tiles = "".join(
-        f'<a href="/novo/{it["slug"]}/">{foto(it["slug"], it["legenda"], tag="img")}'
+        f'<a href="{RAIZ}{it["slug"]}/">{foto(it["slug"], it["legenda"], tag="img")}'
         f'<span class="rotulo"><h2>{html.escape(it["titulo"])}'
         f'<em>{html.escape(it["resumo"])}</em></h2>'
         f'<span class="seta">{SETA_SVG}</span></span></a>' for it in ITENS)
@@ -524,7 +527,7 @@ def pagina_capa() -> str:
     return (cabeca("Conecta Mais — Segurança e Tecnologia · Manaus",
                    "Portaria remota, agentes de portaria, monitoramento 24h e segurança "
                    "eletrônica em Manaus. Equipe CLT própria e central de monitoramento própria.",
-                   "/novo/")
+                   "{RAIZ}")
             + '<section class="capa">'
             + f'<div class="foto">{foto("capa", "Condomínio atendido", tag="img")}</div>'
             + '<div class="conteudo">'
@@ -599,7 +602,7 @@ def pagina_contato() -> str:
     linhas += ('<li class="pendencia"><span class="rotulo"><b>Endereço</b></span>'
                f'<span class="valor">{preencher("endereço comercial para publicar")}</span></li>')
     return (cabeca("Contato — Conecta Mais", f"Fale com a Conecta Mais: {FONE_HUMANO}, Manaus/AM.",
-                   "/novo/contato/")
+                   "{RAIZ}contato/")
             + '<section class="secao" style="padding-top:clamp(2.5rem,6vw,4.5rem)">'
             + '<h2 class="titulo">Contato</h2>'
             + '<div class="par"><div>'
@@ -614,7 +617,11 @@ def pagina_contato() -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--destino", default="/var/www/web.conectamais.pro/novo")
+    ap.add_argument("--tema", type=int, default=0)
+    ap.add_argument("--raiz", default="/novo/")
     a = ap.parse_args()
+    global TEMA, RAIZ
+    TEMA, RAIZ = a.tema, a.raiz
     raiz = pathlib.Path(a.destino)
 
     paginas = {"index.html": pagina_capa(), "contato/index.html": pagina_contato()}
