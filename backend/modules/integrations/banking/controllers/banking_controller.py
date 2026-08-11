@@ -930,11 +930,28 @@ async def initiate_ted(
             "mensagem": "OTP obrigatório. Gere em /banking/ted/gerar-otp e informe "
                         "lote_id + otp_code para transferir.",
         }
+    # lote_id e coluna UUID: texto qualquer faz o asyncpg levantar DataError — que NAO e
+    # ValueError e vazava como 500. Valida o formato ANTES de consultar, e o except pega
+    # qualquer falha: quem sonda a rota recebe recusa limpa, nunca stack trace.
+    import uuid as _uuid_mod
+    try:
+        _uuid_mod.UUID(str(lote_id))
+    except (ValueError, AttributeError, TypeError):
+        return {"success": False, "otp_invalido": True,
+                "mensagem": "lote_id inválido. Gere um novo em /banking/ted/gerar-otp."}
     from modules.financial.pagamentos_diaristas_service import _validar_e_consumir_otp_lote
     try:
         await _validar_e_consumir_otp_lote(db, lote_id, otp_code)
     except ValueError as exc:
         return {"success": False, "otp_invalido": True, "mensagem": str(exc)}
+    except Exception as exc:  # noqa: BLE001 — falha ao validar NUNCA pode liberar a TED
+        logger.warning("TED: falha ao validar OTP (%s): %s", type(exc).__name__, exc)
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return {"success": False, "otp_invalido": True,
+                "mensagem": "Não foi possível validar o código. Gere um novo e tente de novo."}
     await db.commit()
 
     service = _get_banking_service()
