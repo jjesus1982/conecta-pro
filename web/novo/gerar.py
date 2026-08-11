@@ -237,7 +237,10 @@ finish review, the verdict, and DESIGN.md
 <header class="topo">
   <div class="interno">
     <img src="/novo/marca.webp" alt="" width="40" height="40">
-    <a class="marca" href="/novo/">Conecta Mais<span>Segurança e Tecnologia</span></a>
+    <a class="marca" href="/novo/">
+      <span class="nome">Conecta <span class="pastilha">Mais</span></span>
+      <span class="sub">Segurança e Tecnologia</span>
+    </a>
     <nav>
       {na('/novo/portaria-remota/', 'Portaria remota')}
       {na('/novo/agentes-de-portaria/', 'Agentes')}

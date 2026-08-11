@@ -74,3 +74,39 @@ afirmação falsa. Substituir por foto real remove o aviso automaticamente.
 Duas trocas feitas na revisão: a foto de central anterior tinha **bandeira dos
 Estados Unidos visível** (inaceitável para empresa de Manaus) e o hero anterior
 era abstrato demais para ler como prédio.
+
+---
+
+# v3 — alinhado ao Design System do Conecta PRO
+
+Referência recebida do Jordan em 11/08/2026 (pasta "Redesign Conecta PRO logo 2",
+61 arquivos). O guia oficial está capturado em `DESIGN-SYSTEM-referencia.png`.
+
+## Valores — copiados, não deduzidos
+
+| papel | token |
+|---|---|
+| Navy / primária | `#16277D` |
+| Laranja / ação | `#F26522` (hover `#DA560F`) |
+| Tinta / texto | `#0F1B3A` |
+| Fundo app | `#F4F6FB` · Superfície `#FFFFFF` |
+| Borda `#E7ECF3` · Texto fraco `#64748B` · Placeholder `#94A3B8` · Preenchimento `#F1F4FA` |
+| Fonte | **Sora**, única |
+| Sombra | `0 8px 20px rgba(22,39,125,.08)` — azulada, nunca cinza |
+
+## Três coisas que eu tinha errado, corrigidas ao ver o guia
+
+1. **Botão não é pílula.** No sistema, a pílula é *badge de status*; botão é
+   retângulo de canto curto (`--r-input`, 10px). Os CTAs estavam como pílula.
+2. **O lockup tem pastilha.** A marca é `[símbolo] CONECTA [palavra em pastilha
+   laranja]` — não texto solto. Aqui: `CONECTA [MAIS] / SEGURANÇA E TECNOLOGIA`,
+   mesma anatomia do `CONECTA [PRO] / SISTEMA ERP`.
+3. **`letter-spacing` do título** é `-0.02em`; eu tinha usado `-0.035em`.
+
+## Uma diferença deliberada
+
+O guia especifica corpo de texto em **13px** porque é UI de aplicação densa —
+tela de folha com 12 colunas. Num site institucional lido no celular, 13px é
+pequeno demais. Mantidos os **pesos, cores e letter-spacing** do sistema, com a
+escala ampliada para leitura de marketing. Se o padrão tiver de valer literal,
+é uma variável só (`body font-size`).
