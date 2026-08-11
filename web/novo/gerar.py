@@ -252,6 +252,19 @@ finish review, the verdict, and DESIGN.md
 """
 
 
+FECHO = f"""
+<section class="fecho"><div class="interno"><div>
+  <h2>A cotação sai por posto,<br>com a conta aberta</h2>
+  <p>Mande o endereço e a quantidade de acessos. Devolvemos a composição de custo
+  item a item — salário de convenção, encargo, benefício e cobertura de falta —
+  para você comparar com quem quiser, linha a linha.</p>
+</div><div class="acoes">
+  <a class="acao" href="{zap('Olá! Vim pelo site e quero uma cotação.', 'site_fecho')}">{ZAP_SVG}Solicitar cotação</a>
+  <a class="acao vazada" href="tel:+{FONE}">{FONE_HUMANO}</a>
+</div></div></section>
+"""
+
+
 PE = f"""
 <footer class="pe">
   <div class="interno">
@@ -503,7 +516,7 @@ def pagina_item(it: dict) -> str:
             + blocos_faq(FAQ.get(it["slug"], []))
             + '</div>'
             + f'<div>{cartao(it["zap_texto"], it["zap_slug"])}</div>'
-            + '</div></section>' + PE)
+            + '</div></section>' + FECHO + PE)
 
 
 def pagina_capa() -> str:
@@ -590,7 +603,7 @@ def pagina_capa() -> str:
             + 'de equipamento aberta — inclusive para você cotar em outro lugar.</p>'
             + '</div></div></section>'
             + '<section class="secao">' + blocos_faq(FAQ_GERAL, 'Perguntas frequentes')
-            + '</section>' + PE)
+            + '</section>' + FECHO + PE)
 
 
 def pagina_contato() -> str:
@@ -611,7 +624,7 @@ def pagina_contato() -> str:
             + 'aberta.</p>'
             + f'<ul class="prova">{linhas}</ul></div>'
             + f'<div>{cartao("Olá! Vim pelo site e quero falar com a Conecta Mais.", "site_contato", "Fale agora")}</div>'
-            + '</div></section>' + PE)
+            + '</div></section>' + FECHO + PE)
 
 
 def main() -> int:
