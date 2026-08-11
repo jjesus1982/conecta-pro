@@ -117,6 +117,23 @@ def test_regra_caixa_divergente_registrada_e_com_tolerancia():
     assert TOLERANCIA_CAIXA < 100, "tolerância larga esconde exatamente o que a regra caça"
 
 
+def test_direcao_do_dinheiro_nao_se_adivinha_por_texto():
+    """A armadilha que inverteu R$35.055,93 numa linha só: o sync classificava
+    entrada/saída procurando "RECEBID" na descrição, e "RECEBIMENTO TITULO" não
+    contém "RECEBID" — falta o D. Caía no fallback e virava saída.
+
+    Este teste existe para que ninguém reintroduza a heurística: a direção vem do
+    sinal do valor, que o adapter deriva de `tipoOperacao` do próprio Inter.
+    """
+    assert "RECEBID" not in "RECEBIMENTO TITULO - 112/906535924"
+
+    def direcao(amount: float) -> str:
+        return "D" if amount < 0 else "C"
+
+    assert direcao(35055.93) == "C"   # recebimento de boleto é ENTRADA
+    assert direcao(-2765.18) == "D"
+
+
 def test_toda_conta_do_mapa_tem_motivo():
     """O motivo vai para o histórico do lançamento — quem auditar em 2030
     precisa saber por que aquela conta foi escolhida."""

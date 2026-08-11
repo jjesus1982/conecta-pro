@@ -64,15 +64,15 @@ class InterSyncService:
 
         for tx in statement.transactions:
             try:
-                # Sinal robusto: a descrição do Inter é a fonte da verdade (o adapter às vezes
-                # rotula 'PIX RECEBIDO' como débito). RECEBIDO=entrada(C), ENVIADO/PAGAMENTO=saída(D).
-                _du = (tx.description or "").upper()
-                if "RECEBID" in _du:
-                    tipo_op = "C"
-                elif ("ENVIAD" in _du) or ("PAGAMENTO" in _du) or ("DEBITO" in _du) or ("DÉBITO" in _du):
-                    tipo_op = "D"
-                else:
-                    tipo_op = "C" if (tx.transaction_type and "credit" in str(tx.transaction_type).lower()) else "D"
+                # A DIREÇÃO vem do sinal que o adapter já derivou de `tipoOperacao`, o campo
+                # de direção do próprio Inter. Aqui havia uma heurística que re-adivinhava
+                # pela descrição, escrita quando o adapter ainda errava; o adapter foi
+                # corrigido e a heurística virou a fonte do erro:
+                #   "RECEBID" in "RECEBIMENTO TITULO" é FALSO (falta o D) → caía no
+                #   fallback e virava saída. Os 21 recebimentos de boleto do ano estavam
+                #   com o sinal invertido, R$35.055,93 numa única linha.
+                # Adivinhar por texto o que o banco já informa é sempre o lado errado.
+                tipo_op = "D" if float(tx.amount or 0) < 0 else "C"
                 tipo_tx = str(tx.transaction_type.value) if tx.transaction_type else None
                 valor = abs(float(tx.amount)) if tx.amount else 0
                 desc = (tx.description or "")[:255]
@@ -465,13 +465,27 @@ class InterSyncService:
               CASE WHEN it.tipo_operacao='C' THEN it.valor ELSE -it.valor END,
               LEFT(COALESCE(it.descricao, it.titulo, 'Transação Inter'), 500),
               it.data_lancamento, 'pendente', 'inter_api_sync', it.raw_payload, now(), now(), true
-            FROM inter_transactions it
-            WHERE NOT EXISTS (
-              SELECT 1 FROM bank_transactions bt
-              WHERE bt.bank_account_id = :acc
-                AND bt.transaction_date = it.data_lancamento
-                AND abs(bt.amount) = it.valor
-                AND COALESCE(bt.description,'') = LEFT(COALESCE(it.descricao, it.titulo, ''), 500))
+            FROM (
+              -- Dedup por CONTAGEM, não por texto. A condição antiga exigia que a
+              -- descrição batesse caractere a caractere; a mesma transação vinda do
+              -- CSV ("Pix enviado. Cp 123-Fulano") e da API ("PIX ENVIADO - Cp
+              -- 123-Fulano") não casava, e a ponte recriava a linha TODO DIA.
+              -- (exemplos sem dois-pontos de propósito: dentro de text() do
+              --  SQLAlchemy, dois-pontos seguido de dígitos vira bind parameter
+              --  MESMO EM COMENTÁRIO, e a query nem compila)
+              -- Aqui cada (data, valor) só entra pelo que FALTA: se o Inter tem 3
+              -- saques de R$1.000 no dia e o banco já tem 2, insere 1 — sem
+              -- suprimir repetição legítima, sem duplicar por formatação.
+              SELECT it.*, row_number() OVER (
+                       PARTITION BY it.data_lancamento, it.valor ORDER BY it.id) AS rn
+              FROM inter_transactions it
+            ) it
+            LEFT JOIN (
+              SELECT transaction_date AS d, abs(amount) AS v, count(*) AS n
+              FROM bank_transactions WHERE bank_account_id = :acc
+              GROUP BY 1, 2
+            ) ja ON ja.d = it.data_lancamento AND ja.v = it.valor
+            WHERE it.rn > COALESCE(ja.n, 0)
             """), {"acc": acc_id})
         await self.db.commit()
         n = res.rowcount or 0
