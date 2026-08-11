@@ -61,6 +61,7 @@ def escriturar(preview: bool = True, limite: int = 6000) -> dict:
                 """
                 SELECT b.id::text AS id, b.amount, b.description, b.transaction_date::date AS dia,
                        b.bank_account_id::text AS conta_id, b.justificativa_categoria AS cat,
+                       b.counterparty_name AS contraparte, b.counterparty_document AS documento,
                        -- empresa vem da CONTA, não da transação: o Inter é da
                        -- Eletrônica e o Cora é da Patrimonial. Sem isso o
                        -- lançamento nasce sem CNPJ e some do balancete escopado.
@@ -104,7 +105,8 @@ def escriturar(preview: bool = True, limite: int = 6000) -> dict:
                     outra, motivo = contrapartida_saida(r["cat"], r["description"] or "")
                     cd, cc = outra, conta_banco
                 else:
-                    outra, motivo = contrapartida_entrada(r["description"] or "")
+                    outra, motivo = contrapartida_entrada(
+                        f"{r['description'] or ''} {r['contraparte'] or ''}", r["documento"])
                     cd, cc = conta_banco, outra
 
                 lancados += 1

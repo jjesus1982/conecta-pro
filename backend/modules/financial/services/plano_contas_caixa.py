@@ -69,6 +69,18 @@ CONTA_TRIBUTO_A_IDENTIFICAR = "2.1.2.09"
 _ENTRADA_CLIENTE = ("PIX RECEBIDO", "RECEBIMENTO TITULO", "RECEBIMENTO DE TITULO",
                     "CREDITO", "LIQUIDACAO", "COBRANCA", "BOLETO")
 
+# Dinheiro entre CNPJs NOSSOS não é receita nem despesa — é transferência, e as
+# duas pontas se anulam em 1.1.9.01. Sem isto, um PIX de R$10.000 da Patrimonial
+# para a Eletrônica era lançado como "retirada do sócio" de um lado e
+# "recebimento de cliente" do outro: R$13.800 de distorção em agosto, nas duas
+# direções ao mesmo tempo.
+# "JORDAN SANTOS DE JESUS LTDA" está aqui porque é a razão social ANTIGA da
+# Eletrônica, e é o nome que o Cora ainda devolve no favorecido — o CNPJ
+# (35.710.481/0001-03) é que denuncia.
+_GRUPO = ("CONECTA MAIS", "CONECTAMAIS", "CONECTA PRO", "CONECTA ELETRONICA",
+          "CONECTA PATRIMONIAL", "CONECTA MAIS REDES", "JORDAN SANTOS DE JESUS LTDA")
+CNPJS_DO_GRUPO = ("35710481000103", "66014833000110")
+
 
 def contrapartida_saida(categoria: str | None, descricao: str) -> tuple[str, str]:
     """(conta, motivo) do lado NÃO-banco de uma saída."""
@@ -84,9 +96,16 @@ def contrapartida_saida(categoria: str | None, descricao: str) -> tuple[str, str
     return CONTA_SAIDA_A_CLASSIFICAR, "saída ainda sem classificação"
 
 
-def contrapartida_entrada(descricao: str) -> tuple[str, str]:
-    """(conta, motivo) do lado NÃO-banco de uma entrada."""
+def contrapartida_entrada(descricao: str, documento: str | None = None) -> tuple[str, str]:
+    """(conta, motivo) do lado NÃO-banco de uma entrada.
+
+    O teste do GRUPO vem primeiro: uma transferência entre CNPJs nossos chega
+    como "PIX RECEBIDO", e a regra de cliente a capturaria como receita.
+    """
+    doc = "".join(c for c in (documento or "") if c.isdigit())
     d = (descricao or "").upper()
+    if doc in CNPJS_DO_GRUPO or any(g in d for g in _GRUPO):
+        return "1.1.9.01", "transferência de outra empresa do grupo"
     if any(x in d for x in _ENTRADA_CLIENTE):
         return "1.1.2.01", "recebimento de cliente"
     return CONTA_ENTRADA_A_CLASSIFICAR, "entrada ainda sem identificação"

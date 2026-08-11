@@ -61,6 +61,21 @@ def test_entrada_de_cliente_credita_clientes_a_receber():
     assert contrapartida_entrada("ESTORNO NAO IDENTIFICADO")[0] == CONTA_ENTRADA_A_CLASSIFICAR
 
 
+def test_transferencia_entre_nossos_cnpjs_nao_e_receita_nem_retirada():
+    """R$13.800 da Patrimonial para a Eletrônica em agosto/2026 eram lançados
+    como "retirada do sócio" de um lado e "recebimento de cliente" do outro — a
+    mesma transferência inflando as duas pontas ao mesmo tempo.
+
+    O teste do grupo TEM que vir antes do de cliente: a transferência chega como
+    "PIX RECEBIDO" e seria capturada como receita.
+    """
+    assert contrapartida_entrada("PIX RECEBIDO Conecta Mais Patrimonial LTDA")[0] == "1.1.9.01"
+    # o CNPJ decide mesmo quando o nome não denuncia: o Cora devolve a razão
+    # social ANTIGA da Eletrônica ("JORDAN SANTOS DE JESUS LTDA")
+    assert contrapartida_entrada("PIX RECEBIDO", "35.710.481/0001-03")[0] == "1.1.9.01"
+    assert contrapartida_saida("transferencia_interna", "PIX")[0] == "1.1.9.01"
+
+
 def test_aplicar_sugestoes_existe_e_tem_preview():
     """Preview é o padrão: escrita em massa sem ver antes foi o que quase gravou
     sócio como CLT hoje."""
