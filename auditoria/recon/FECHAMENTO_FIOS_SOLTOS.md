@@ -115,7 +115,7 @@ Contra **197** no início do dia. E as 46 não são fila de trabalho:
 | portal / app, não ERP | 5 | login, reset de senha, bater ponto com GPS+selfie, registro de aparelho |
 | edição em massa de território curado | 2 | `allocations/bulk`, `shifts/bulk` |
 
-**O instrumento foi consertado antes desta medição** (v2.2): comentário e docstring deixaram
+**O instrumento foi consertado antes desta medição** (v2.2 — as skills agora têm git em `~/.claude/skills`, então o conserto tem histórico e não precisa de cópia no projeto): comentário e docstring deixaram
 de entrar no índice. Antes do conserto ele dizia 36 — bajulando quem documenta exclusão.
 Provado com 4 rotas citadas só em comentário: viraram órfãs, corretamente.
 
