@@ -1,0 +1,284 @@
+/* ============================================================================
+   CONECTA MAIS — sistema visual "Memorial Descritivo"
+   Uma família só (Archivo variável: eixo de largura + peso). Documento em papel
+   branco com massas pretas e o laranja da marca como carimbo. Sem serifada de
+   display, sem fundo creme, sem gradiente: o mundo é papel de especificação,
+   não folheto de segurança.
+   ========================================================================== */
+
+@font-face{
+  font-family:'Archivo'; font-style:normal; font-weight:400 800;
+  font-stretch:62% 125%; font-display:swap;
+  src:url('/novo/fontes/archivo-lat.woff2') format('woff2');
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,
+    U+0304,U+0308,U+0329,U+2000-206F,U+2074,U+20AC,U+2122,U+2191,U+2193,U+2212,
+    U+2215,U+FEFF,U+FFFD;
+}
+@font-face{
+  font-family:'Archivo'; font-style:normal; font-weight:400 800;
+  font-stretch:62% 125%; font-display:swap;
+  src:url('/novo/fontes/archivo-ext.woff2') format('woff2');
+  unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,
+    U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,
+    U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+:root{
+  /* Papel de documento: branco frio, NÃO creme. O calor da página vem do
+     laranja carimbado, não do fundo. */
+  --papel:#FCFCFB;
+  --papel-fundo:#EFEEEA;   /* margem fora da folha */
+  --tinta:#0A0A0A;         /* preto do logo */
+  --tinta-media:#4A4A46;
+  --tinta-fraca:#77776F;
+  --regra:#D8D6CF;         /* fio de tabela */
+  --laranja:#F26522;       /* carimbo — cor da marca */
+  --laranja-escuro:#C44A10;
+  --zap:#128C4A;
+
+  --folha:min(1180px,100% - 2.5rem);
+  --margem-clausula:5.5rem;  /* coluna de numeração, como em contrato */
+}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--papel-fundo); color:var(--tinta);
+  font-family:'Archivo',system-ui,-apple-system,sans-serif;
+  font-size:1.0625rem; line-height:1.6;
+  font-variant-numeric:tabular-nums lining-nums;
+  -webkit-font-smoothing:antialiased;
+}
+img{max-width:100%;display:block}
+a{color:inherit}
+
+/* ── Cabeçalho de documento ───────────────────────────────────────────────
+   Faixa preta fixa com identificação, como o topo carimbado de um edital. */
+.masthead{
+  background:var(--tinta); color:var(--papel);
+  border-bottom:3px solid var(--laranja);
+}
+.masthead .interno{
+  width:var(--folha); margin-inline:auto;
+  display:flex; align-items:center; gap:1rem;
+  padding:.85rem 0; flex-wrap:wrap;
+}
+.masthead img{width:38px;height:38px;flex:0 0 38px}
+.marca{
+  font-stretch:118%; font-weight:800; font-size:1.05rem;
+  letter-spacing:.01em; text-transform:uppercase; line-height:1.1;
+}
+.marca span{
+  display:block; font-stretch:75%; font-weight:500; font-size:.66rem;
+  letter-spacing:.22em; color:#B9B7AF;
+}
+.masthead nav{margin-left:auto;display:flex;gap:1.35rem;flex-wrap:wrap}
+@media (max-width:760px){
+  /* Seis links quebrando em três linhas comiam a primeira tela inteira do
+     celular — a tese ficava abaixo da dobra. Vira uma tira de uma linha só,
+     rolável, como aba de pasta de documento. */
+  .masthead .interno{padding-bottom:0}
+  .masthead nav{
+    margin-left:0; width:100%; flex-wrap:nowrap; overflow-x:auto;
+    gap:1.1rem; padding-bottom:.55rem;
+    scrollbar-width:none; -webkit-overflow-scrolling:touch;
+  }
+  .masthead nav::-webkit-scrollbar{display:none}
+  .masthead nav a{white-space:nowrap;flex:0 0 auto}
+}
+.masthead nav a{
+  font-stretch:75%; font-size:.72rem; font-weight:600; letter-spacing:.14em;
+  text-transform:uppercase; text-decoration:none; color:#B9B7AF;
+  padding-block:.35rem; border-bottom:2px solid transparent;
+}
+.masthead nav a:hover,.masthead nav a[aria-current]{color:var(--papel);border-bottom-color:var(--laranja)}
+.masthead nav a:focus-visible{outline:2px solid var(--laranja);outline-offset:3px}
+
+/* ── A folha ──────────────────────────────────────────────────────────────── */
+.folha{
+  width:var(--folha); margin:0 auto; background:var(--papel);
+  box-shadow:0 1px 2px rgba(10,10,10,.05), 0 18px 46px rgba(10,10,10,.09);
+}
+.bloco{padding:clamp(2.2rem,5vw,4rem) clamp(1.4rem,4vw,3.75rem)}
+.bloco + .bloco{border-top:1px solid var(--regra)}
+
+/* Linha de identificação do documento — data, praça, número */
+.identificacao{
+  display:flex; gap:1.5rem 2.5rem; flex-wrap:wrap;
+  font-stretch:75%; font-size:.68rem; font-weight:600; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--tinta-fraca);
+  padding:.9rem clamp(1.4rem,4vw,3.75rem); border-bottom:1px solid var(--regra);
+}
+.identificacao b{color:var(--tinta);font-weight:700}
+
+/* ── Títulos ──────────────────────────────────────────────────────────────
+   O número do item vive DENTRO da linha do título: é cláusula, não etiqueta
+   solta acima do texto. */
+h1,h2,h3{margin:0;text-wrap:balance}
+h1{
+  font-stretch:112%; font-weight:800; letter-spacing:-.025em; line-height:.98;
+  font-size:clamp(2.4rem,7.5vw,4.6rem); text-transform:uppercase;
+}
+h1 .item{
+  display:block; font-stretch:70%; font-weight:700; font-size:.9rem;
+  letter-spacing:.3em; color:var(--laranja-escuro); margin-bottom:.7rem;
+  line-height:1;
+}
+h2{
+  font-stretch:105%; font-weight:800; letter-spacing:-.015em;
+  font-size:clamp(1.5rem,3.4vw,2.1rem); text-transform:uppercase; line-height:1.05;
+}
+h3{font-stretch:85%;font-weight:700;font-size:1.02rem;letter-spacing:.02em}
+.chamada{
+  font-size:clamp(1.08rem,2.1vw,1.3rem); line-height:1.5; max-width:56ch;
+  color:var(--tinta-media); margin:1.4rem 0 0;
+}
+p{max-width:68ch;margin:1.1rem 0 0}
+
+/* ── Cláusulas com condutor pontilhado ────────────────────────────────────
+   É a espinha do mundo: rótulo à esquerda, valor à direita, pontilhado ligando.
+   Tabular-nums garante que os números alinhem coluna a coluna. */
+.clausulas{margin:2.4rem 0 0;padding:0;list-style:none;max-width:64ch}
+.clausulas li{
+  display:grid; grid-template-columns:var(--margem-clausula) minmax(0,1fr) auto;
+  gap:.35rem 1rem; align-items:baseline;
+  padding:.72rem 0; border-top:1px solid var(--regra);
+}
+.clausulas li:last-child{border-bottom:1px solid var(--regra)}
+.clausulas .n{
+  font-stretch:70%; font-weight:700; font-size:.72rem; letter-spacing:.12em;
+  color:var(--tinta-fraca);
+}
+.clausulas .rotulo{position:relative;overflow:hidden}
+.clausulas .rotulo::after{
+  content:""; position:absolute; bottom:.32em; left:0; width:100%;
+  margin-left:.5ch;
+  border-bottom:1px dotted var(--regra);
+}
+.clausulas .rotulo b{position:relative;background:var(--papel);padding-right:.5ch;font-weight:500}
+.clausulas .valor{font-weight:700;text-align:right;font-stretch:92%}
+.clausulas li.pendencia{grid-template-columns:var(--margem-clausula) minmax(0,1fr)}
+.clausulas li.pendencia .valor{
+  grid-column:2/-1; justify-self:start; text-align:left; margin-top:.45rem;
+}
+
+/* ── Chapa fotográfica ────────────────────────────────────────────────────
+   Foto com legenda numerada e fio, como prancha de dossiê técnico. */
+figure.chapa{margin:0;border:1px solid var(--regra);background:#fff}
+figure.chapa img{width:100%;aspect-ratio:4/3;object-fit:cover}
+figure.chapa figcaption{
+  padding:.7rem .9rem; border-top:1px solid var(--regra);
+  font-stretch:75%; font-size:.7rem; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--tinta-fraca);
+}
+figure.chapa figcaption b{color:var(--tinta);font-weight:700;margin-right:.6ch}
+.chapa.vazia img,.chapa.vazia .marcador{
+  aspect-ratio:4/3; width:100%; display:grid; place-content:center; gap:.4rem;
+  background:repeating-linear-gradient(135deg,#F4F3EF 0 12px,#EDECE7 12px 24px);
+  color:var(--tinta-fraca); text-align:center; padding:1rem;
+  font-stretch:75%; font-size:.7rem; letter-spacing:.12em; text-transform:uppercase;
+}
+
+/* ── Duas colunas: texto + prancha ────────────────────────────────────────── */
+.par{display:grid;grid-template-columns:1.15fr .85fr;gap:clamp(1.6rem,4vw,3.2rem);align-items:start}
+@media (max-width:640px){
+  .identificacao{gap:.55rem 1.4rem;font-size:.63rem;letter-spacing:.12em}
+  .identificacao span:last-child{display:none}
+}
+@media (max-width:860px){
+  .par{grid-template-columns:1fr}
+  :root{--margem-clausula:4rem}
+}
+
+/* ── Índice dos itens (capa) ──────────────────────────────────────────────── */
+.indice{margin:2.6rem 0 0;display:grid;gap:0;border-top:1px solid var(--regra)}
+.indice a{
+  display:grid; grid-template-columns:var(--margem-clausula) 1fr auto;
+  gap:1rem; align-items:center; padding:1.35rem 0;
+  border-bottom:1px solid var(--regra); text-decoration:none;
+  /* transform, não padding: animar padding recalcula layout a cada quadro.
+     A linha é puxada para fora da margem, como quem destaca um item do índice. */
+  transition:background .16s ease, transform .16s cubic-bezier(.16,1,.3,1);
+}
+.indice a:hover,.indice a:focus-visible{
+  background:#F6F5F1; transform:translateX(.7rem); outline:none;
+}
+@media (prefers-reduced-motion:reduce){
+  .indice a{transition:background .16s ease}
+  .indice a:hover,.indice a:focus-visible{transform:none}
+}
+.indice a:focus-visible{box-shadow:inset 3px 0 0 var(--laranja)}
+.indice .n{font-stretch:70%;font-weight:700;font-size:.74rem;letter-spacing:.12em;color:var(--laranja-escuro)}
+.indice .titulo{font-stretch:105%;font-weight:800;font-size:clamp(1.15rem,2.6vw,1.55rem);text-transform:uppercase;letter-spacing:-.01em}
+.indice .titulo em{display:block;font-style:normal;font-stretch:80%;font-weight:500;font-size:.86rem;letter-spacing:0;text-transform:none;color:var(--tinta-fraca);margin-top:.2rem}
+.indice .seta{font-weight:700;color:var(--laranja)}
+
+/* ── Campo de assinatura = a ação ─────────────────────────────────────────
+   O CTA não é um botão de folheto: é o campo onde o documento se fecha. */
+.assinatura{
+  margin-top:clamp(2.2rem,5vw,3.4rem); padding-top:1.6rem;
+  border-top:2px solid var(--tinta);
+}
+.assinatura .aviso{
+  font-stretch:75%; font-size:.7rem; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--tinta-fraca); margin:0 0 1rem;
+}
+a.acao{
+  display:inline-flex; align-items:center; gap:.8rem;
+  background:var(--tinta); color:var(--papel); text-decoration:none;
+  padding:1.05rem 1.7rem; border:2px solid var(--tinta);
+  font-stretch:95%; font-weight:800; font-size:1rem; letter-spacing:.04em;
+  text-transform:uppercase;
+  transition:background .18s cubic-bezier(.16,1,.3,1), color .18s, border-color .18s;
+}
+a.acao:hover{background:var(--laranja);border-color:var(--laranja);color:#fff}
+a.acao:focus-visible{outline:3px solid var(--laranja);outline-offset:3px}
+a.acao svg{flex:0 0 20px}
+a.acao.secundaria{background:transparent;color:var(--tinta)}
+a.acao.secundaria:hover{background:var(--tinta);color:var(--papel)}
+.acoes{display:flex;gap:.9rem;flex-wrap:wrap}
+
+/* ── Carimbo: o único momento de movimento da página ───────────────────────
+   Assenta uma vez, como carimbo batendo no papel. Nada de entrada em cascata
+   por seção. */
+.carimbo{
+  position:absolute; right:clamp(1rem,4vw,3rem); top:clamp(1rem,4vw,2.4rem);
+  width:clamp(88px,14vw,132px); aspect-ratio:1; display:grid; place-content:center;
+  border:2px solid var(--laranja); border-radius:50%; color:var(--laranja-escuro);
+  text-align:center; padding:.6rem; transform:rotate(-9deg);
+  font-stretch:70%; font-weight:700; font-size:.6rem; letter-spacing:.14em;
+  text-transform:uppercase; line-height:1.4; pointer-events:none;
+}
+.carimbo b{display:block;font-stretch:100%;font-size:.92rem;letter-spacing:.04em}
+@media (prefers-reduced-motion:no-preference){
+  .carimbo{animation:bater .62s cubic-bezier(.16,1,.3,1) .25s both}
+  @keyframes bater{
+    from{opacity:0;transform:rotate(-24deg) scale(1.9);filter:blur(3px)}
+    to{opacity:1;transform:rotate(-9deg) scale(1);filter:blur(0)}
+  }
+}
+.capa{position:relative}
+@media (max-width:640px){.carimbo{display:none}}
+
+/* ── Rodapé ───────────────────────────────────────────────────────────────── */
+footer.pe{background:var(--tinta);color:#B9B7AF;margin-top:0}
+footer.pe .interno{
+  width:var(--folha);margin-inline:auto;padding:2.6rem 0 3rem;
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:2rem;
+}
+footer.pe h3{color:var(--papel);font-stretch:75%;font-size:.7rem;letter-spacing:.16em;text-transform:uppercase;margin-bottom:.8rem}
+footer.pe a{color:#B9B7AF;text-decoration:none;display:block;padding:.22rem 0}
+footer.pe a:hover{color:var(--papel);text-decoration:underline;text-underline-offset:3px}
+footer.pe .legal{
+  width:var(--folha);margin-inline:auto;padding-bottom:2.4rem;
+  font-stretch:75%;font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;color:#77776F;
+  border-top:1px solid #262625;padding-top:1.4rem;
+}
+
+/* ── A preencher: marcação honesta, nunca dado inventado ──────────────────── */
+.preencher{
+  display:inline-block; background:#FEF0E6; color:var(--laranja-escuro);
+  border:1px dashed var(--laranja); padding:.1em .5em;
+  font-stretch:75%; font-size:.74rem; font-weight:700; letter-spacing:.08em;
+  text-transform:uppercase;
+}
