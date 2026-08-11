@@ -1028,6 +1028,17 @@ async def link_inbound(db: AsyncSession, phone_canonical: str, content: str | No
 
 # ── Notificação ao Jordan (best-effort: Telegram → log) ──────────────────────────────────────
 async def notify_jordan(message: str) -> bool:
+    """DESATIVADA (11/08/2026) — o Telegram saiu do Conecta PRO.
+
+    Os dois bots foram apagados e bloqueados pelo Jordan; as credenciais sairam do
+    `.env`. Mantida como funcao (ha chamadores) e o texto vai para o LOG, entao nada
+    some em silencio. Canal da casa para aviso novo e o SINO.
+    """
+    logger.info("[telegram removido] notify_jordan: %s", (message or "")[:200])
+    return False
+
+
+async def _notify_jordan_desativado(message: str) -> bool:
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     chat = os.getenv("TELEGRAM_CHAT_ID", "") or os.getenv("TELEGRAM_ALERT_CHAT_ID", "")
     if token and chat:

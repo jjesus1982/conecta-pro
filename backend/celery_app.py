@@ -285,25 +285,19 @@ app.conf.beat_schedule = {
     # ── Operacional — Briefing matinal via Telegram (seg-sex) ─────────────────
     # TZ do Celery = America/Sao_Paulo (BRT): 07:30 BRT = hour=7, minute=30 (sem
     # conversão para UTC — o beat agenda no timezone configurado acima).
-    # Fila gov.batch: worker celery-batch tem TELEGRAM_* no env_file .env.
     # Portal do Cliente — resumo mensal de reengajamento (dia 1º, 08:00 Manaus)
     "portal-resumo-mensal": {
         "task": "portal.resumo_mensal_clientes",
         "schedule": crontab(minute=0, hour=9, day_of_month="1"),
         "options": {"queue": "gov.batch"},
     },
-    "operacional-briefing-matinal": {
-        "task": "operacional.briefing_operacional_matinal",
-        "schedule": crontab(minute=30, hour=7, day_of_week="1-5"),
-        "options": {"queue": "gov.batch"},
-    },
-    # Vigia de ausência: turno em andamento sem batida (30-60min do início) → Telegram.
-    # Beat TZ = America/Sao_Paulo; turnos são hora de Manaus (SP-1h): hour 8-23 SP cobre 7-22 Manaus.
-    "operacional-vigia-ausencia": {
-        "task": "operacional.vigia_ausencia",
-        "schedule": crontab(minute="0,30", hour="8-23"),
-        "options": {"queue": "gov.batch"},
-    },
+    # REMOVIDAS em 11/08/2026 — briefing matinal e vigia de ausência eram PURO Telegram:
+    # faziam a consulta e entregavam a mensagem no bot. O Jordan apagou e bloqueou os dois
+    # bots (Conecta PRO Monitor e Conecta PRO Alertas), então elas rodavam 33x por dia
+    # (1 briefing + 32 vigias) para jogar o resultado fora.
+    # As tarefas em si continuam no código; só saíram do beat. Se algum dia o aviso fizer
+    # falta, o caminho é o SINO — que é o canal da casa e o que as tarefas do José Luís
+    # já usam —, não um bot novo.
     # Dia 25, 08:00 SP: gera em rascunho as escalas do mês seguinte (nunca publica sozinho)
     "operacional-escalas-proximo-mes": {
         "task": "operacional.gerar_escalas_proximo_mes",
@@ -674,13 +668,13 @@ app.conf.beat_schedule = {
         "schedule": crontab(hour=12, minute=0),
         "options": {"queue": "gov.batch"},
     },
-    # ── José Luís — conversas que esfriaram: lista + rascunho -> Telegram (aval humano; nada vai ao cliente) — diario 09:00 ──
+    # ── José Luís — conversas que esfriaram: lista + rascunho -> SINO (aval humano; nada vai ao cliente) — diario 09:00 ──
     "whatsapp-followup-conversas-0900": {
         "task": "whatsapp.followup_conversas",
         "schedule": crontab(hour=9, minute=0),
         "options": {"queue": "gov.batch"},
     },
-    # ── José Luís — auditoria de qualidade das conversas -> digest no Telegram — diario 20:00 ──
+    # ── José Luís — auditoria de qualidade das conversas -> digest no SINO — diario 20:00 ──
     "whatsapp-auditar-qualidade-2000": {
         "task": "whatsapp.auditar_qualidade",
         "schedule": crontab(hour=20, minute=0),

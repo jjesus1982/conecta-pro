@@ -209,7 +209,17 @@ def alertar_pendentes() -> dict:
 
 
 def _notificar_telegram(msg: str) -> None:
-    """Envia notificação ao Telegram bot."""
+    """DESATIVADA (11/08/2026) — o Telegram saiu do Conecta PRO.
+
+    Os dois bots foram apagados e bloqueados pelo Jordan; as credenciais saíram do `.env`.
+    Mantida como função (vários pontos chamam) e o texto vai para o log: nada some em
+    silêncio. Canal da casa para aviso novo é o SINO.
+    """
+    logger.info("[telegram removido] justificativa não notificada: %s", (msg or "")[:200])
+
+
+def _notificar_telegram_desativado(msg: str) -> None:
+    """Corpo original preservado para referência — não é chamado."""
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT:
         logger.info("Telegram (não configurado): %s", msg)
         return

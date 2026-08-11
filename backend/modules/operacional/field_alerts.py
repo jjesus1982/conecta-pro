@@ -29,10 +29,22 @@ _EMOJI_SEVERIDADE = {"grave": "⚠️", "gravissima": "🚨"}
 
 
 async def enviar_telegram(texto: str, chat_id: str | None = None) -> bool:
-    """Envia mensagem Telegram. Best-effort: nunca lança, retorna False em falha.
+    """DESATIVADA (11/08/2026) — o Telegram saiu do Conecta PRO.
 
-    Default de destino: TELEGRAM_CHAT_ID_OPERACIONAL; se ausente, TELEGRAM_CHAT_ID.
+    O Jordan apagou e bloqueou os dois bots (Conecta PRO Monitor e Conecta PRO Alertas);
+    as credenciais saíram do `.env`. A função continua existindo e devolvendo `False`
+    porque vários pontos a chamam — apagá-la quebraria chamador que não tem nada a ver
+    com o bot. O texto vai para o log, então nada se perde em silêncio.
+
+    Se o aviso voltar a fazer falta, o canal da casa é o **SINO**
+    (`communication_notifications`), que é o que as tarefas do José Luís já usam.
     """
+    logger.info("[telegram removido] alerta de campo não enviado: %s", (texto or "")[:200])
+    return False
+
+
+async def _enviar_telegram_desativado(texto: str, chat_id: str | None = None) -> bool:
+    """Corpo original preservado para referência — não é chamado."""
     try:
         token = os.getenv("TELEGRAM_BOT_TOKEN", "")
         destino = chat_id or os.getenv("TELEGRAM_CHAT_ID_OPERACIONAL") or os.getenv("TELEGRAM_CHAT_ID", "")

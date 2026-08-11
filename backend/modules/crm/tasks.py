@@ -54,7 +54,18 @@ def _run_async(coro):
 
 
 def _telegram_send(text_msg: str) -> bool:
-    """Entrega a lista ao Jordan via Telegram Bot API (credenciais do env). Best-effort."""
+    """DESATIVADA (11/08/2026) — o Telegram saiu do Conecta PRO.
+
+    Os dois bots foram apagados e bloqueados pelo Jordan; as credenciais sairam do
+    `.env`. Mantida como funcao (ha chamadores) e o texto vai para o LOG, entao nada
+    some em silencio. Canal da casa para aviso novo e o SINO.
+    """
+    logger.info("[telegram removido] lista nao enviada: %s", (text_msg or "")[:200])
+    return False
+
+
+def _telegram_send_desativado(text_msg: str) -> bool:
+    """Corpo original preservado para referencia — nao e chamado."""
     token = os.getenv("MONITOR_BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN") or ""
     chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
     if not token or not chat_id:

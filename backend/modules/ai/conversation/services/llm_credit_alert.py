@@ -25,7 +25,17 @@ def _e_erro_de_credito(erro: str) -> bool:
 
 
 async def alertar_llm_indisponivel(origem: str, erro: str) -> None:
-    """Envia alerta Telegram quando um consultor fica sem LLM. Nunca propaga exceção."""
+    """DESATIVADA (11/08/2026) — o Telegram saiu do Conecta PRO.
+
+    Os dois bots foram apagados e bloqueados pelo Jordan. Este era o ÚNICO alerta puramente
+    técnico do lote (consultor sem crédito de LLM); vira log em nível de erro, que é onde
+    esse tipo de coisa deve viver mesmo. Se voltar a fazer falta, o canal é o SINO.
+    """
+    logger.error("[telegram removido] LLM indisponível em %s: %s", origem, (erro or "")[:200])
+
+
+async def _alertar_llm_indisponivel_desativado(origem: str, erro: str) -> None:
+    """Corpo original preservado para referência — não é chamado."""
     try:
         agora = time.time()
         if agora - _ULTIMO_ALERTA.get(origem, 0) < _INTERVALO_MIN_S:
