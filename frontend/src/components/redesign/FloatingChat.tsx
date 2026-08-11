@@ -77,11 +77,12 @@ export default function FloatingChat() {
   // e voltava pra voz do navegador — o Jordan ouvia a voz robótica achando que era a nossa.
   // Destravamos UM elemento no clique do alto-falante (gesto) e reusamos ele sempre.
   const destravadoRef = useRef(false);
+  const [audioPendente, setAudioPendente] = useState<string | null>(null);
   function destravarAudio() {
     if (destravadoRef.current) return;
     try {
       const a = new Audio();
-      a.src = 'data:audio/mp3;base64,//uQxAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACcQCA';
+      a.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQAAAAA=';
       a.volume = 0;
       a.play().then(() => { destravadoRef.current = true; }).catch(() => { /* tenta de novo no próximo clique */ });
       audioRef.current = a;
@@ -133,10 +134,9 @@ export default function FloatingChat() {
         try {
           await a.play();
         } catch {
-          // Autoplay bloqueado: NÃO cair na voz robótica em silêncio — dizer o que houve.
-          URL.revokeObjectURL(url);
-          setMsgs((m) => [...m, { role: 'assistant', aviso: true,
-            text: 'O navegador bloqueou o áudio. Clique no alto-falante uma vez para liberar e pergunte de novo.' }]);
+          // Autoplay bloqueado: em vez de só avisar (o que deixava o Jordan sem som), guarda o
+          // áudio pronto e oferece o botão ▶ — clicar é gesto, então SEMPRE toca.
+          setAudioPendente(url);
         }
         return;
       } catch {
@@ -470,6 +470,25 @@ export default function FloatingChat() {
               <div className="self-start flex items-center gap-2 text-xs" style={{ color: '#6b7280' }}>
                 <Loader2 className="w-3.5 h-3.5 animate-spin" /> pensando…
               </div>
+            )}
+            {audioPendente && (
+              // O navegador barrou o autoplay. O áudio JÁ ESTÁ pronto — clicar é gesto, então toca.
+              <button
+                type="button"
+                onClick={() => {
+                  const a = audioRef.current || new Audio();
+                  a.src = audioPendente; a.volume = 1;
+                  audioRef.current = a;
+                  destravadoRef.current = true;   // a partir daqui o autoplay passa a funcionar
+                  a.onended = () => { URL.revokeObjectURL(audioPendente); };
+                  a.play().catch(() => { /* se nem assim tocar, o usuário lê a resposta */ });
+                  setAudioPendente(null);
+                }}
+                className="self-start flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium"
+                style={{ background: '#F26522', color: '#fff', border: 'none' }}
+              >
+                <Volume2 className="w-3.5 h-3.5" /> Ouvir resposta
+              </button>
             )}
             <div ref={endRef} />
           </div>
