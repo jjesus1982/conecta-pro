@@ -436,6 +436,21 @@ FAQ = {
 }
 
 FAQ_GERAL = [
+    ("Quanto custa?",
+     "Não publicamos tabela porque não existe preço honesto sem saber o "
+     "endereço: número de acessos, turnos, escala e o que já está instalado "
+     "mudam a conta. O que publicamos é COMO se cobra — por posto, com a "
+     "composição aberta. Mande o endereço e devolvemos o número com a memória "
+     "de cálculo, para você comparar linha a linha com quem quiser."),
+    ("Como o morador entrega encomenda ou recebe visita?",
+     "Igual a hoje, com registro. O visitante chama pelo interfone com vídeo, o "
+     "operador confirma com a unidade e libera. Encomenda fica em local "
+     "definido no procedimento do prédio, com registro de quem deixou e de quem "
+     "retirou."),
+    ("Minha imagem fica gravada?",
+     "O sistema grava, e isso é dado pessoal sob a LGPD. Acesso é restrito ao "
+     "operador em turno, o prazo de retenção fica definido em contrato e a "
+     "entrega de imagem só acontece a quem tem direito de pedir."),
     ("Vocês atendem fora de Manaus?",
      "A operação é em Manaus e região metropolitana. Para endereço fora dessa "
      "área, fale com a gente antes: o custo de deslocamento muda a conta e "
@@ -474,6 +489,100 @@ def blocos_faq(perguntas, titulo: str = "Perguntas que sempre fazem") -> str:
         for q, r in perguntas)
     return (f'<h2 class="titulo" style="margin-top:3rem">{html.escape(titulo)}</h2>'
             f'<div class="faq">{itens}</div>')
+
+
+# ── Números do banco ─────────────────────────────────────────────────────────
+# Vêm de numeros.json, que `atualizar_numeros.py` escreve a partir do ERP. Se o
+# arquivo não existir, entra selo de pendência — nunca número velho nem chutado.
+# É a diferença que nenhum concorrente publica: número verificável, com data.
+def _numeros() -> dict:
+    f = pathlib.Path(__file__).parent / "numeros.json"
+    return json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
+
+
+NUMEROS = _numeros()
+
+
+def faixa_numeros() -> str:
+    n = NUMEROS
+    if not n.get("colaboradores"):
+        PENDENCIAS.append("rodar web/novo/atualizar_numeros.py para publicar os números do ERP")
+        return ""
+    dia, mes, ano = n["apurado_em"][8:], n["apurado_em"][5:7], n["apurado_em"][:4]
+    cartoes = [
+        (n["colaboradores"], "colaboradores", "registrados em CLT direto, sem intermediação"),
+        (n["clientes"], "clientes atendidos", "condomínios e empresas em Manaus"),
+        (n["postos"], "postos ativos", "cobertos hoje, 24 horas por dia"),
+        (n["alocacoes"], "alocações vigentes", "agente com posto e escala definidos"),
+    ]
+    itens = "".join(
+        f'<li><b>{v}</b><span>{html.escape(t)}</span><em>{html.escape(d)}</em></li>'
+        for v, t, d in cartoes if v)
+    return ('<section class="numeros"><div class="interno">'
+            '<h2 class="titulo">Os números são do nosso sistema,<br>não do nosso marketing</h2>'
+            f'<ul>{itens}</ul>'
+            f'<p class="apuracao">Apurado no ERP da Conecta Mais em {dia}/{mes}/{ano}. '
+            'Esta página é gerada a partir do banco — se o quadro muda, o número aqui muda junto.</p>'
+            '</div></section>')
+
+
+RECEBE = """
+<section class="secao">
+  <h2 class="titulo">O que o síndico recebe<br>todo mês</h2>
+  <div class="par"><div>
+    <p>Segurança não se prova no dia da assinatura, se prova no relatório. Quem
+    contrata a Conecta Mais recebe, sem precisar pedir:</p>
+    <ul class="entregas">
+      <li><b>Espelho de ponto do agente</b> — quem esteve no posto, em que
+        horário, com registro de entrada e saída.</li>
+      <li><b>Guias de recolhimento</b> — FGTS e INSS do pessoal alocado no seu
+        endereço, junto com a fatura. É o que prova que o passivo não vai
+        sobrar para você.</li>
+      <li><b>Log de ocorrências</b> — o que aconteceu, quando, o que foi feito
+        e por quem.</li>
+      <li><b>Escala do mês</b> — publicada antes de começar, com substituto
+        definido para falta e férias.</li>
+    </ul>
+    <p>Nada disso é planilha montada à mão no fim do mês. Sai do mesmo sistema
+    que a operação usa no dia a dia — por isso chega no prazo e bate com a
+    realidade.</p>
+  </div><div>__CHAPA__</div></div>
+</section>
+"""
+
+
+APP_TRANSICAO = """
+<section class="secao">
+  <h2 class="titulo">A troca de empresa é<br>o momento mais perigoso</h2>
+  <div class="par"><div>
+    <p>Todo síndico que já trocou de prestadora sabe: o risco não está no
+    contrato novo, está na <strong>virada</strong>. Posto descoberto por um turno,
+    agente que não sabe o procedimento do prédio, morador reclamando na portaria
+    no primeiro dia.</p>
+    <ul class="entregas">
+      <li><b>Sobreposição, não corte seco</b> — nossa equipe entra com a anterior
+        ainda no posto, aprende o fluxo do prédio e só então assume.</li>
+      <li><b>Procedimento escrito antes de assumir</b> — quem pode entrar, como
+        se trata encomenda, quem autoriza prestador, o que fazer em emergência.
+        Aprovado por você, não improvisado no posto.</li>
+      <li><b>Agente apresentado ao síndico</b> antes do primeiro turno.</li>
+    </ul>
+  </div><div>
+    <h3 class="sub-titulo">O morador no celular</h3>
+    <p>A Conecta Mais tem <strong>aplicativo próprio</strong>, publicado na App
+    Store. É por ele que o morador acompanha o que acontece na portaria sem
+    precisar descer — e é o que costuma virar o argumento de venda da portaria
+    remota dentro da assembleia, porque resolve a objeção antes dela nascer.</p>
+    <p><a class="acao vazada" style="margin-top:1.2rem"
+      href="https://apps.apple.com/br/app/conecta-mais/id1612453684">Ver o app na App Store</a></p>
+    <h3 class="sub-titulo" style="margin-top:2.2rem">Imagem e LGPD</h3>
+    <p>Portaria remota grava vídeo, e vídeo de pessoa é dado pessoal. O
+    tratamento segue a LGPD: acesso restrito ao operador em turno, prazo de
+    retenção definido em contrato e entrega de imagem só a quem tem direito de
+    pedir. Isso entra por escrito, não por confiança.</p>
+  </div></div>
+</section>
+"""
 
 
 def linhas_prova(itens) -> str:
@@ -555,6 +664,7 @@ def pagina_capa() -> str:
             + f'<a class="acao vazada" href="tel:+{FONE}">{FONE_HUMANO}</a>'
             + '</div></div></section>'
             + f'<div class="mosaico">{tiles}</div>'
+            + faixa_numeros()
             + galeria()
             + '<section class="secao"><div class="par"><div>'
             + '<h2 class="titulo">Sem intermediário<br>entre você e o posto</h2>'
@@ -602,6 +712,8 @@ def pagina_capa() -> str:
             + 'prova. Por isso o projeto sai com posicionamento justificado e lista '
             + 'de equipamento aberta — inclusive para você cotar em outro lugar.</p>'
             + '</div></div></section>'
+            + APP_TRANSICAO
+            + RECEBE.replace('__CHAPA__', foto('monitoramento-2', 'Operador acompanhando as câmeras'))
             + '<section class="secao">' + blocos_faq(FAQ_GERAL, 'Perguntas frequentes')
             + '</section>' + FECHO + PE)
 

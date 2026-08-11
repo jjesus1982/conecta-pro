@@ -349,3 +349,27 @@ footer.pe .legal{
 .fecho a.acao.vazada{color:#fff;border-color:rgba(255,255,255,.45)}
 .fecho a.acao.vazada:hover{background:rgba(255,255,255,.12);border-color:#fff}
 @media (max-width:820px){.fecho .interno{grid-template-columns:1fr}}
+
+/* ── Faixa de números: prova verificável, com data ───────────────────────── */
+.numeros{background:var(--fill);border-block:1px solid var(--border)}
+.numeros .interno{width:var(--largura);margin-inline:auto;padding:clamp(2.6rem,6vw,4.2rem) 0}
+.numeros ul{list-style:none;margin:2rem 0 0;padding:0;display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:clamp(.8rem,1.6vw,1.2rem)}
+.numeros li{background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--r-card);padding:1.5rem 1.4rem;box-shadow:var(--sombra)}
+.numeros b{display:block;font-size:clamp(2.4rem,5vw,3.4rem);font-weight:800;
+  color:var(--navy);letter-spacing:-.04em;line-height:1}
+.numeros span{display:block;margin-top:.4rem;font-weight:700;color:var(--ink);font-size:1rem}
+.numeros em{display:block;margin-top:.35rem;font-style:normal;font-size:.87rem;
+  color:var(--ink-weak);line-height:1.45}
+.numeros .apuracao{margin-top:1.6rem;font-size:.86rem;color:var(--ink-weak);max-width:74ch}
+
+/* ── Lista de entregas ────────────────────────────────────────────────────── */
+.entregas{list-style:none;margin:1.6rem 0 0;padding:0;display:grid;gap:.9rem}
+.entregas li{padding-left:1.9rem;position:relative;color:var(--ink-weak);line-height:1.6}
+.entregas li::before{
+  content:"";position:absolute;left:0;top:.55em;width:9px;height:9px;
+  background:var(--orange);border-radius:2px;
+}
+.entregas b{color:var(--ink);font-weight:700}
+.sub-titulo{margin:0 0 .2rem;font-size:1.05rem;font-weight:800;color:var(--navy);letter-spacing:-.01em}
