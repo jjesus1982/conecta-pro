@@ -46,6 +46,8 @@ app = Celery(
         "modules.notifications.proativo.tasks",
         # Fase 5.6a (LT2): detector de anomalia de pagamento (beat + sino diretoria).
         "modules.ai.fraud_detection.tasks",
+        # Varredura diária dos 59 oráculos (exibido == banco); falha vira alerta no sino.
+        "modules.notifications.tasks_oraculos",
     ],
 )
 
@@ -184,6 +186,15 @@ app.conf.beat_schedule = {
     #    2026-07-25: app.conf.timezone (acima) == "America/Manaus" E o container
     #    celery-beat roda com TZ=America/Manaus — o crontab do celery interpreta a
     #    hora no timezone configurado, então hour=7 já É 07:00 Manaus (não 07:00 UTC).
+    # ── Os 59 oráculos (exibido == banco) rodam sozinhos, 05:00 America/Manaus — antes do
+    #    expediente, para o vermelho já estar no sino quando alguém abrir o sistema. Não há
+    #    notificação de sucesso: `task_falha` só publica quando a tarefa ESTOURA, e estourar
+    #    é exatamente o que ela faz quando um oráculo fica vermelho. Verde = silêncio.
+    "oraculos-diarios": {
+        "task": "orq.oraculos_diarios",
+        "schedule": crontab(hour=5, minute=0),
+        "options": {"queue": "gov.batch"},
+    },
     "proativo-digest-diario": {
         "task": "proativo.digest_diario",
         "schedule": crontab(hour=7, minute=0),
@@ -234,6 +245,15 @@ app.conf.beat_schedule = {
         "schedule": crontab(hour=6, minute=0, day_of_month=1),
         "options": {"queue": "gov.batch"},
     },
+    # Escritura o extrato no razão. 05:20 — depois do sync de saldo/extrato
+    # (05:00) e ANTES do fechamento do razão, para que o fechamento veja o caixa
+    # do dia já lançado.
+    "financeiro-escriturar-extrato": {
+        "task": "financial.escriturar_extrato",
+        "schedule": crontab(hour=5, minute=20),
+        "options": {"queue": "gov.batch"},
+    },
+
     # ── Multi-CNPJ E4: extrato Cora (Patrimonial) + conciliação líquido×NFS-e ──
     "financeiro-extrato-cora-diario": {
         "task": "financial.cora_sync_extrato",

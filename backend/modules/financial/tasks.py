@@ -255,6 +255,21 @@ def gerar_recebiveis_mes_task(self):
         raise self.retry(exc=exc)
 
 
+@app.task(name="financial.escriturar_extrato", bind=True, max_retries=1)
+def escriturar_extrato_task(self):
+    """Lança no razão a movimentação bancária que ainda não tem lançamento.
+    Idempotente por bank_transaction_id. NÃO move dinheiro: é escrituração."""
+    from modules.financial.services.extrato_para_razao import escriturar
+
+    try:
+        r = escriturar(preview=False)
+        logger.info("[Financial Task] escriturar_extrato: %s lançados", r.get("lancados"))
+        return {k: v for k, v in r.items() if k != "por_conta"}
+    except Exception as exc:
+        logger.error("[Financial Task] escriturar_extrato error: %s", exc)
+        raise self.retry(exc=exc)
+
+
 @app.task(
     name="financial.inter_monitorar_pendentes",
     bind=True,

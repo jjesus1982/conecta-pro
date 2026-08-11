@@ -73,6 +73,38 @@ def test_aplicar_sugestoes_existe_e_tem_preview():
     assert "responsavel" in sig.parameters
 
 
+def test_dialeto_legado_da_base_tem_destino():
+    """O campo de categoria era livre antes da lista fechada, então a base tem
+    'servico_sem_nf', 'impostos' no plural, 'adiantamento'. Sem mapear, R$307 mil
+    caem na transitória por vocabulário, não por falta de informação."""
+    assert contrapartida_saida("servico_sem_nf", "PIX")[0] == "5.2.1.04"
+    assert contrapartida_saida("diaristas_vtvr", "PIX")[0] == "5.1.1.03"
+    assert contrapartida_saida("adiantamento", "PIX")[0] == "2.1.1.01"
+    assert contrapartida_saida("impostos", "PAGAMENTO FGTS")[0] == "2.1.1.02"
+    # 'outros' é o "não sei" já gravado — chutar conta aqui seria fabricar
+    assert contrapartida_saida("outros", "PIX")[0] == CONTA_SAIDA_A_CLASSIFICAR
+
+
+def test_escriturar_tem_preview_por_padrao():
+    import inspect
+
+    from modules.financial.services.extrato_para_razao import escriturar
+
+    assert inspect.signature(escriturar).parameters["preview"].default is True
+
+
+def test_documento_ref_do_extrato_e_unico_por_transacao():
+    """Idempotência: relançar a mesma movimentação dobraria o caixa. A chave é o
+    id da transação, não valor+data (que se repetem legitimamente: 3 saques de
+    R$1.000 no mesmo dia no Banco24h)."""
+    from modules.financial.services.extrato_para_razao import ref_do_extrato
+
+    a = ref_do_extrato("9adf6e24-c288-4fbc-b7bf-79a98a3b9266")
+    b = ref_do_extrato("354a9ac0-dc83-47ad-b903-3c978c2f3f01")
+    assert a != b
+    assert a.startswith("EXTRATO-")
+
+
 def test_toda_conta_do_mapa_tem_motivo():
     """O motivo vai para o histórico do lançamento — quem auditar em 2030
     precisa saber por que aquela conta foi escolhida."""

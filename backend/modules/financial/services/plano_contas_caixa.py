@@ -37,6 +37,21 @@ _MAPA_SAIDA: dict[str, tuple[str, str]] = {
     "transferencia_interna": ("1.1.9.01", "transferência entre empresas do grupo"),
     "taxa_bancaria": ("5.2.3.01", "tarifa bancária"),
     "diversos": (CONTA_SAIDA_A_CLASSIFICAR, "miúdo sem enquadramento"),
+
+    # ── dialeto legado ──────────────────────────────────────────────────────
+    # O campo era livre antes da lista fechada, então a base tem categorias que
+    # não estão em CATEGORIAS. Ignorá-las jogaria R$307.471,72 na transitória
+    # por questão de vocabulário, não por falta de informação.
+    "servico_sem_nf": ("5.2.1.04", "serviço de terceiro sem NF — sem provisão, é despesa direta"),
+    "diaristas_vtvr": ("5.1.1.03", "VT/VR de diarista"),
+    # Antecipação de salário reduz o que se deve, não cria despesa nova: a folha
+    # já lançou o salário cheio em 2.1.1.01.
+    "adiantamento": ("2.1.1.01", "adiantamento de salário — abate o passivo da folha"),
+    # 'outros'/'outro'/'reembolso' seguem para a transitória de propósito: são o
+    # "não sei" que já estava gravado. Chutar conta aqui seria fabricar.
+    "outros": (CONTA_SAIDA_A_CLASSIFICAR, "categoria legada 'outros' — sem enquadramento"),
+    "outro": (CONTA_SAIDA_A_CLASSIFICAR, "categoria legada 'outro' — sem enquadramento"),
+    "reembolso": (CONTA_SAIDA_A_CLASSIFICAR, "reembolso sem destino informado"),
 }
 
 # 'imposto' é guarda-chuva: o passivo certo depende do tributo. Sem afinar,
@@ -58,7 +73,7 @@ _ENTRADA_CLIENTE = ("PIX RECEBIDO", "RECEBIMENTO TITULO", "RECEBIMENTO DE TITULO
 def contrapartida_saida(categoria: str | None, descricao: str) -> tuple[str, str]:
     """(conta, motivo) do lado NÃO-banco de uma saída."""
     cat = (categoria or "").strip().lower()
-    if cat == "imposto":
+    if cat in ("imposto", "impostos"):  # o plural é o mesmo dialeto legado
         d = f" {(descricao or '').upper()} "
         for termos, conta, motivo in _TRIBUTO:
             if any(x in d for x in termos):
