@@ -781,12 +781,36 @@ async def get_dre_mensal(
 async def get_balancete(
     ano: int = Query(..., ge=2020, le=2100),
     mes: int = Query(..., ge=1, le=12),
-    incluir_zerados: bool = Query(False),
-    condominio_id: UUID | None = Query(None),
+    incluir_zerados: bool = Query(False),  # noqa: ARG001 — mantido p/ compat de assinatura
+    condominio_id: UUID | None = Query(None),  # noqa: ARG001 — idem
     db: AsyncSession = Depends(get_session),
     _current_user: dict = Depends(get_current_user),
 ) -> dict:
-    """Gera balancete de verificação para o mês/ano."""
+    """Balancete de verificação do mês/ano — DELEGA para `balancete_real`.
+
+    Antes lia `fin_journal_entries` (11 linhas) via BalanceSheetService e devolvia
+    `itens: []` com o aviso "Sem lançamentos contábeis para o período". O aviso era
+    honesto sobre a TABELA e falso sobre a REALIDADE: julho/2026 tem 271 lançamentos
+    em `accounting_entries`. Um "sem dados" que parece estado legítimo é pior que
+    erro visível — ninguém vai investigar.
+
+    O PDF que o usuário clica (`/balancete/pdf`) e a tool de IA já usavam
+    `balancete_real`. Este endpoint era o único que ainda respondia pelo razão vazio.
+    """
+    return await balancete_real(ano=ano, mes=mes, db=db, _user=_current_user)
+
+
+async def _get_balancete_obsoleto(
+    ano: int,
+    mes: int,
+    incluir_zerados: bool,
+    condominio_id: UUID | None,
+    db: AsyncSession,
+    _current_user: dict,
+) -> dict:
+    """Implementação anterior (razão `fin_journal_entries`). Preservada só como
+    referência histórica; sem rota. Remover quando o razão duplicado for
+    consolidado — dívida já registrada no roadmap."""
     start_date = _first_day(ano, mes)
     end_date = _last_day(ano, mes)
     try:
@@ -823,11 +847,40 @@ async def get_balancete(
 @router.get("/balanco-patrimonial")
 async def get_balanco_patrimonial(
     data_referencia: date = Query(..., description="Data de referência (ex: 2026-03-31)"),
-    condominio_id: UUID | None = Query(None),
-    db: AsyncSession = Depends(get_session),
+    condominio_id: UUID | None = Query(None),  # noqa: ARG001 — compat de assinatura
+    db: AsyncSession = Depends(get_session),  # noqa: ARG001 — idem
     _current_user: dict = Depends(get_current_user),
 ) -> dict:
-    """Gera Balanço Patrimonial na data especificada."""
+    """Balanço Patrimonial — 501 HONESTO enquanto não houver Patrimônio Líquido no razão.
+
+    Antes lia `fin_journal_entries` (11 linhas) e devolvia ativo=0, passivo=0, PL=0
+    com o aviso "Sem dados contábeis". Isso AFIRMA que a empresa não tem ativo —
+    e ela tem R$171.861,22 só no Banco Inter, no razão real (`accounting_entries`).
+
+    Não dá para delegar como o balancete: um balanço exige Ativo = Passivo + PL, e o
+    razão real não tem NENHUM lançamento no grupo 3.x (PL). Medido em 2026-08-11:
+    grupo 1.x=459 lançamentos, 2.x=2048, 4.x=97, 5.x=1848, **3.x=0**. Derivar o PL
+    por diferença (Ativo − Passivo) seria inventar número contábil.
+
+    Enquanto isso, o balancete real (`/balancete`, `/balancete-real`) entrega saldo
+    por conta a partir dos lançamentos de verdade.
+    """
+    raise HTTPException(
+        status_code=501,
+        detail=("Balanço Patrimonial ainda não disponível: o razão não tem lançamento no "
+                "grupo 3.x (Patrimônio Líquido), e balanço sem PL não fecha. Use o balancete "
+                "(/api/v1/financial/relatorios/balancete), que sai dos lançamentos reais."),
+    )
+
+
+async def _get_balanco_patrimonial_obsoleto(
+    data_referencia: date,
+    condominio_id: UUID | None,
+    db: AsyncSession,
+    _current_user: dict,
+) -> dict:
+    """Implementação anterior (razão `fin_journal_entries`, 11 linhas). Sem rota —
+    preservada como referência até o razão duplicado ser consolidado."""
     try:
         svc = BalanceSheetService(db)
         start_date = date(data_referencia.year, 1, 1)
