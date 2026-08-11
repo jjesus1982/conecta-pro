@@ -27,6 +27,7 @@ import psycopg2
 import psycopg2.extras
 
 from modules.financial.services.ledger_auto_service import _raw_db_url
+from modules.financial.services.periodo_contabil import periodo_fechado
 from modules.financial.services.plano_contas_caixa import (
     CONTA_BANCO,
     contrapartida_entrada,
@@ -83,6 +84,12 @@ def escriturar(preview: bool = True, limite: int = 6000) -> dict:
                     continue
                 if (dia.year, dia.month) > (hoje.year, hoje.month):
                     pulados["competencia_futura"] += 1
+                    continue
+                if periodo_fechado(dia):
+                    # Movimentação anterior ao corte não entra mais. Aparece em
+                    # `pulados` de propósito: barrar em silêncio é o mesmo defeito
+                    # de "fechar julho" virando "ignorar julho".
+                    pulados["periodo_fechado"] += 1
                     continue
                 conta_banco = CONTA_BANCO.get(r["conta_id"] or "")
                 if not conta_banco:

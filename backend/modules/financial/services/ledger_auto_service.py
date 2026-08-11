@@ -27,6 +27,8 @@ from datetime import date
 
 import psycopg2
 
+from modules.financial.services.periodo_contabil import periodo_fechado as _periodo_fechado
+
 logger = logging.getLogger(__name__)
 
 
@@ -92,6 +94,12 @@ class LedgerAutoService:
         lançamento é infinitamente melhor que perder o fechamento.
         """
         if not valor or float(valor) <= 0 or data is None:
+            return 0
+        if _periodo_fechado(data):
+            # Período anterior ao corte (01/08/2026) está fechado: de janeiro a
+            # julho a empresa operou FORA do sistema, e deixar lançamento novo
+            # cair lá contamina todo relatório acumulado em silêncio.
+            logger.info("lançamento em período fechado recusado: %s %s", data, ref)
             return 0
         cur.execute(
             """

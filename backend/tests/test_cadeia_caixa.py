@@ -134,6 +134,25 @@ def test_direcao_do_dinheiro_nao_se_adivinha_por_texto():
     assert direcao(-2765.18) == "D"
 
 
+def test_periodo_fechado_barra_antes_do_corte_e_nao_engole_data_nula():
+    """Fechar julho pra trás não pode virar "ignorar": o corte barra o que é
+    anterior, mas data ausente NÃO pode ser escondida atrás do motivo errado —
+    foi um registro sem data que derrubou o fechamento inteiro em julho."""
+    from datetime import date
+
+    from modules.financial.services.periodo_contabil import (
+        ABERTURA_NO_CORTE,
+        CORTE_CONTABIL,
+        periodo_fechado,
+    )
+
+    assert periodo_fechado(date(2026, 7, 31)) is True
+    assert periodo_fechado(CORTE_CONTABIL) is False      # o dia do corte JÁ é aberto
+    assert periodo_fechado(date(2026, 8, 15)) is False
+    assert periodo_fechado(None) is False                 # sem data é outro problema
+    assert round(sum(ABERTURA_NO_CORTE.values()), 2) == 18663.83
+
+
 def test_toda_conta_do_mapa_tem_motivo():
     """O motivo vai para o histórico do lançamento — quem auditar em 2030
     precisa saber por que aquela conta foi escolhida."""

@@ -1162,16 +1162,22 @@ TOLERANCIA_CAIXA = 1.00
 # toca sempre é alarme que ninguém lê. Os dois lados usam o MESMO corte, senão a
 # comparação fica torta.
 SQL_CAIXA_DIVERGENTE = """
-    WITH corte AS (SELECT (now() AT TIME ZONE 'America/Manaus')::date AS hoje)
+    WITH corte AS (
+        SELECT (now() AT TIME ZONE 'America/Manaus')::date AS hoje,
+               CAST(:inicio AS date) AS inicio
+    )
     SELECT
         (SELECT coalesce(sum(CASE WHEN conta_debito LIKE '1.1.1%' THEN valor ELSE -valor END), 0)
          FROM accounting_entries, corte
          WHERE (conta_debito LIKE '1.1.1%' OR conta_credito LIKE '1.1.1%')
+           AND data_lancamento >= corte.inicio
            AND data_lancamento < corte.hoje) AS razao,
         (SELECT coalesce(sum(amount), 0) FROM bank_transactions, corte
-          WHERE transaction_date < corte.hoje) AS extrato,
+          WHERE transaction_date >= corte.inicio
+            AND transaction_date < corte.hoje) AS extrato,
         (SELECT count(*) FROM bank_transactions b, corte
           WHERE b.amount <> 0
+            AND b.transaction_date >= corte.inicio
             AND b.transaction_date < corte.hoje
             AND NOT EXISTS (SELECT 1 FROM accounting_entries a
                             WHERE a.bank_transaction_id = b.id)) AS sem_lancamento
@@ -1179,7 +1185,14 @@ SQL_CAIXA_DIVERGENTE = """
 
 
 async def _detectar_caixa_divergente(db: AsyncSession) -> list[Achado]:
-    r = (await db.execute(text(SQL_CAIXA_DIVERGENTE))).mappings().first()
+    # Só o período ABERTO. Antes do corte a escrituração recusa lançamento novo
+    # (período fechado) — sem esta janela, uma movimentação histórica que
+    # aparecesse depois seria barrada na entrada E contada aqui como pendente:
+    # o alarme tocaria para sempre sem nenhuma ação capaz de calá-lo.
+    from modules.financial.services.periodo_contabil import CORTE_CONTABIL
+
+    r = (await db.execute(text(SQL_CAIXA_DIVERGENTE),
+                          {"inicio": CORTE_CONTABIL})).mappings().first()
     if not r:
         return []
     razao = float(r["razao"] or 0)
