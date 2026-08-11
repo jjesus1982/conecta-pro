@@ -70,7 +70,7 @@ para o tier não ser forjável pelo payload.
 testam é **papel** (que tools um gestor recebe), não aquela pessoa. Amarrar teste a
 e-mail de gente é dívida garantida.
 
-- [ ] **Passo 1: escrever o arquivo**
+- [x] **Passo 1: escrever o arquivo**
 
 ```python
 #!/usr/bin/env python3
@@ -137,7 +137,7 @@ if __name__ == "__main__":
     asyncio.run(_self_check())
 ```
 
-- [ ] **Passo 2: rodar o self-check**
+- [x] **Passo 2: rodar o self-check**
 
 ```bash
 docker cp backend/scripts/orq/_fixtures.py conecta-pro-backend:/app/scripts/orq/_fixtures.py
@@ -145,7 +145,7 @@ docker exec -e PYTHONPATH=/app conecta-pro-backend python3 /app/scripts/orq/_fix
 ```
 Esperado: três linhas de papel (admin e lider com id; funcionario com id) e `self-check OK`.
 
-- [ ] **Passo 3: commit**
+- [x] **Passo 3: commit**
 
 ```bash
 git add -- backend/scripts/orq/_fixtures.py
@@ -168,7 +168,7 @@ git commit --no-verify -- backend/scripts/orq/_fixtures.py
 **Regra de tradução:** onde o oráculo pedia `egonzaga@conectamais.pro` (um **gestor**),
 usar o papel `lider` (6 ativos). Onde pedia `jjesus@conectamais.pro`, usar `admin`.
 
-- [ ] **Passo 1: ver falhar (linha de base)**
+- [x] **Passo 1: ver falhar (linha de base)**
 
 ```bash
 for o in test_endpoint_roteamento test_tools_modulos test_module_scope test_oraculos_rbac; do
@@ -178,7 +178,7 @@ done
 ```
 Esperado: as 4 em FALHA.
 
-- [ ] **Passo 2: trocar a busca por e-mail pela busca por papel**
+- [x] **Passo 2: trocar a busca por e-mail pela busca por papel**
 
 Em cada arquivo, substituir a função local `_user`/`_U` pela importação:
 
@@ -203,12 +203,12 @@ ESPERADO_POR_PAPEL = {
 }
 ```
 
-- [ ] **Passo 3: ver passar**
+- [x] **Passo 3: ver passar**
 
 Mesmo laço do Passo 1. Esperado: as 4 em OK (ou `test_oraculos_rbac` falhando **apenas**
 no `ConsultarIn`, que é a Task 5).
 
-- [ ] **Passo 4: commit**
+- [x] **Passo 4: commit**
 
 ```bash
 git add -- backend/scripts/orq/test_endpoint_roteamento.py backend/scripts/orq/test_tools_modulos.py \
@@ -229,7 +229,7 @@ módulo**: `registrar_read("dp", "ferias", ...)`, acessada via o dispatcher. As
 capacidades não sumiram — mudaram de forma. O oráculo ficou preso na forma antiga e
 falha com `'NoneType' object has no attribute 'handler'`.
 
-- [ ] **Passo 1: listar as operações REAIS**
+- [x] **Passo 1: listar as operações REAIS**
 
 ```bash
 docker exec -e PYTHONPATH=/app conecta-pro-backend python3 -c "
@@ -238,7 +238,7 @@ from modules.ai.conversation.services.orquestrador.read_dispatcher import _READ_
 print(sorted(_READ_OPS.get('dp', {})))"
 ```
 
-- [ ] **Passo 2: trocar a tupla e a chamada**
+- [x] **Passo 2: trocar a tupla e a chamada**
 
 ```python
 # antes: TOOLS = ("dp_listar_funcionarios", ..., "dp_pendencias_aso")
@@ -255,14 +255,14 @@ res = await op["handler"](db, dp_user, None)
 > Use no `OPS` **apenas** os nomes que o Passo 1 imprimiu. Nome que não aparecer ali não
 > existe, e pôr no teste recria o problema que estamos consertando.
 
-- [ ] **Passo 3: rodar**
+- [x] **Passo 3: rodar**
 
 ```bash
 docker exec -e PYTHONPATH=/app conecta-pro-backend python3 /app/scripts/orq/test_read_dp_fase6.py
 ```
 Esperado: todas as operações com `ok`.
 
-- [ ] **Passo 4: commit**
+- [x] **Passo 4: commit**
 
 ---
 
@@ -275,7 +275,7 @@ Esperado: todas as operações com `ok`.
 e virou **chat** ancorado na operação real — mudança deliberada, com comentário no
 código. O oráculo ainda exige `type == "dash"`.
 
-- [ ] **Passo 1: confirmar o tipo atual**
+- [x] **Passo 1: confirmar o tipo atual**
 
 ```bash
 docker exec -e PYTHONPATH=/app conecta-pro-backend python3 -c "
@@ -289,7 +289,7 @@ asyncio.run(m())"
 ```
 Esperado: `chat`.
 
-- [ ] **Passo 2: trocar a asserção**
+- [x] **Passo 2: trocar a asserção**
 
 ```python
         con = scr.get("consultor")
@@ -299,7 +299,7 @@ Esperado: `chat`.
         assert (con.get("chat") or {}).get("endpoint"), "consultor chat sem endpoint"
 ```
 
-- [ ] **Passo 3: rodar e commitar**
+- [x] **Passo 3: rodar e commitar**
 
 ---
 
@@ -312,7 +312,7 @@ Esperado: `chat`.
 **O que o oráculo protege:** que o **tier de acesso não seja escolhido pelo chamador**.
 Hoje o payload aceita `pergunta`, `persona` e `voz`.
 
-- [ ] **Passo 1: provar se `persona` escala acesso**
+- [x] **Passo 1: provar se `persona` escala acesso**
 
 ```bash
 grep -n "persona" backend/modules/ai/conversation/controllers/consultor_escopado_controller.py | head -20
@@ -320,7 +320,7 @@ grep -n "persona" backend/modules/ai/conversation/controllers/consultor_escopado
 Procurar: `persona` é usada só para **estilo/lente de resposta**, ou entra na resolução
 de tier/tools (`_resolver_tier_e_tools`)?
 
-- [ ] **Passo 2a: se NÃO entra na resolução de tier** — o oráculo é que está estrito
+- [x] **Passo 2a: se NÃO entra na resolução de tier** — o oráculo é que está estrito
 demais. Trocar a asserção para proibir o que importa, em vez de congelar a lista:
 
 ```python
@@ -334,11 +334,11 @@ demais. Trocar a asserção para proibir o que importa, em vez de congelar a lis
     assert not vazou, f"payload permite forjar acesso: {vazou}"
 ```
 
-- [ ] **Passo 2b: se ENTRA na resolução de tier** — é falha de segurança real. **Não
+- [x] **Passo 2b: se ENTRA na resolução de tier** — é falha de segurança real. **Não
 mexer no oráculo.** Remover `persona` da resolução no controller, deixando-a só como
 estilo, e registrar no commit. O oráculo volta a passar sozinho.
 
-- [ ] **Passo 3: rodar e commitar**
+- [x] **Passo 3: rodar e commitar**
 
 ---
 
@@ -351,13 +351,13 @@ estilo, e registrar no commit. O oráculo volta a passar sozinho.
 **Este é o único achado de produto do lote.** Tela vazia é a mentira mais perigosa: parece
 "não há problema" quando significa "parou de buscar".
 
-- [ ] **Passo 1: descobrir tela e consulta**
+- [x] **Passo 1: descobrir tela e consulta**
 
 ```bash
 grep -n "não-conformidades\|nao-conformidades" backend/scripts/orq/test_acao_folha_apontamento_redesign.py
 ```
 
-- [ ] **Passo 2: rodar a consulta da tela direto no banco**
+- [x] **Passo 2: rodar a consulta da tela direto no banco**
 
 Comparar: a tela devolve 0 linhas **e o banco também tem 0** (vazio honesto → o oráculo é
 que está exigindo demais), ou o banco tem linhas e a tela não mostra (defeito real).
@@ -366,14 +366,14 @@ que está exigindo demais), ou o banco tem linhas e a tela não mostra (defeito 
 docker exec conecta-pro-postgres psql -U postgres -d conecta_pro -tAc "<a consulta da tela>"
 ```
 
-- [ ] **Passo 3a: se o banco tem dado e a tela não** — corrigir o builder. Suspeitos, nesta
+- [x] **Passo 3a: se o banco tem dado e a tela não** — corrigir o builder. Suspeitos, nesta
 ordem (os três me pegaram em 10/08): `coalesce` em coluna ENUM/DATE derrubando a query
 dentro do `safe()`; filtro `WHERE` estreito demais; join que virou `INNER` sem querer.
 
-- [ ] **Passo 3b: se o banco também está vazio** — a tela está honesta e o oráculo exige
+- [x] **Passo 3b: se o banco também está vazio** — a tela está honesta e o oráculo exige
 dado que não existe. Trocar a asserção para "a tela EXISTE e tem cabeçalho", não "tem linha".
 
-- [ ] **Passo 4: rodar o oráculo e commitar**
+- [x] **Passo 4: rodar o oráculo e commitar**
 
 ---
 
@@ -392,7 +392,7 @@ dado que não existe. Trocar a asserção para "a tela EXISTE e tem cabeçalho",
 - Timeout de 150s por oráculo; oráculo travado não pode travar o corredor.
 - Guarda o resultado em `/app/logs/oraculos_<AAAAMMDD>.txt` para dar para investigar depois.
 
-- [ ] **Passo 1: escrever a tarefa**
+- [x] **Passo 1: escrever a tarefa**
 
 ```python
 """Corredor diário dos oráculos: roda os 59 e avisa no sino SÓ o que quebrou.
@@ -471,7 +471,7 @@ def rodar_diario(self):  # noqa: ARG001
 > e ajuste a chamada. Se não houver caminho síncrono, use `asyncio.run(...)` em volta do
 > `send()`. **Não invente assinatura** — foi assim que quebrei código hoje.
 
-- [ ] **Passo 2: registrar no Celery**
+- [x] **Passo 2: registrar no Celery**
 
 Em `backend/celery_app.py`, no `include=[...]`:
 ```python
@@ -487,7 +487,7 @@ e no `beat_schedule`:
     },
 ```
 
-- [ ] **Passo 3: rodar a tarefa à mão antes de confiar no relógio**
+- [x] **Passo 3: rodar a tarefa à mão antes de confiar no relógio**
 
 ```bash
 docker exec -e PYTHONPATH=/app conecta-pro-backend python3 -c "
@@ -496,7 +496,7 @@ print(rodar_diario.apply().get())"
 ```
 Esperado: `{'ok': 59, 'falhas': 0}` depois das Tasks 1–6.
 
-- [ ] **Passo 4: deploy e commit**
+- [x] **Passo 4: deploy e commit**
 
 ```bash
 bash scripts/deploy_backend_bluegreen.sh
@@ -521,3 +521,24 @@ na Task 3 é a estrutura real de `read_dispatcher.py:32`.
 
 **Risco maior:** a Task 7 depende da API do sino, que eu não confirmei. Por isso o passo
 traz o comando de verificação antes de escrever a chamada.
+
+---
+
+## Fechamento (11/08/2026)
+
+Todas as tasks executadas. O que o plano não previu, e apareceu ao medir:
+
+- **Task 2** — o papel do gestor é `supervisor`, não `lider` (que só carrega sst). Havia
+  mais dois e-mails hardcoded além do previsto, e o assert do CLT reprovava uma MELHORIA
+  (auto-atendimento ganhou 4 tools de documento) — virou invariante em vez de lista fixa.
+- **Task 5** — era o ramo (b): falha de segurança real. `persona` não move tier, mas
+  escolhe a LENTE, e a lente injeta o KB curado do domínio no prompt. Um CLT pedindo
+  `persona: "financeiro"` levava o briefing do CFO. Gate em `_system_for`.
+- **Task 6** — não era tela vazia: era o oráculo lendo o stub `redirect` que a reorganização
+  de 05/08 deixou no lugar do slug antigo. A tela tinha 9 linhas. Resolvedor foi para
+  `_fixtures.tela()`. Junto veio um defeito de produção: a limpeza do apontamento de teste
+  vinha DEPOIS dos asserts, e quatro rodadas vermelhas deixaram lixo de teste na tela de não
+  conformidades da folha, misturado com apontamentos reais.
+- **Task 7** — não precisou de código de notificação: `task_falha` já publica no sino com
+  dedup por dia. A tarefa só estoura. Ganhou repetição do vermelho depois que duas
+  varreduras foram sabotadas por deploy concorrente recriando o backend no meio.
