@@ -66,18 +66,15 @@ def rodar_oraculos_diarios() -> dict:
             # Nunca engolir o que sobrou: lote estourado é achado, não sucesso parcial.
             nao_rodados.append(arq.name)
             continue
-        try:
-            r = subprocess.run([sys.executable, str(arq)], env=env, capture_output=True,
-                               text=True, timeout=_TIMEOUT_ORACULO_S)
-            if r.returncode == 0:
-                verdes.append(arq.name)
-            else:
-                saida = (r.stdout or "") + (r.stderr or "")
-                vermelhos.append((arq.name, _motivo(saida)))
-        except subprocess.TimeoutExpired:
-            vermelhos.append((arq.name, f"não terminou em {_TIMEOUT_ORACULO_S}s"))
-        except Exception as exc:  # noqa: BLE001 — um oráculo quebrado não derruba a varredura
-            vermelhos.append((arq.name, f"{type(exc).__name__}: {exc}"))
+        ok, motivo = _rodar(arq, env)
+        if not ok:
+            # Segunda chance. Duas varreduras manuais de 11/08 vieram com 38 e 17 "falhas"
+            # que eram outra sessão recriando o container no meio — a conexão morre e tudo
+            # dali em diante estoura junto. Alerta falso ensina a ignorar o sino, que é pior
+            # que não ter alerta. Defeito de verdade falha nas duas.
+            time.sleep(5)
+            ok, motivo = _rodar(arq, env)
+        (verdes.append(arq.name) if ok else vermelhos.append((arq.name, motivo)))
 
     resumo = {"total": len(arquivos), "verdes": len(verdes), "vermelhos": len(vermelhos),
               "nao_rodados": len(nao_rodados),
@@ -88,6 +85,20 @@ def rodar_oraculos_diarios() -> dict:
     if vermelhos or nao_rodados:
         raise OraculosVermelhos(_mensagem(len(arquivos), vermelhos, nao_rodados))
     return resumo
+
+
+def _rodar(arq: Path, env: dict) -> tuple[bool, str]:
+    """Roda um oráculo. Devolve (passou, motivo) — nunca levanta."""
+    try:
+        r = subprocess.run([sys.executable, str(arq)], env=env, capture_output=True,
+                           text=True, timeout=_TIMEOUT_ORACULO_S)
+        if r.returncode == 0:
+            return True, ""
+        return False, _motivo((r.stdout or "") + (r.stderr or ""))
+    except subprocess.TimeoutExpired:
+        return False, f"não terminou em {_TIMEOUT_ORACULO_S}s"
+    except Exception as exc:  # noqa: BLE001 — um oráculo quebrado não derruba a varredura
+        return False, f"{type(exc).__name__}: {exc}"
 
 
 def _motivo(saida: str) -> str:
