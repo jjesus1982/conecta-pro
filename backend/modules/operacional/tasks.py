@@ -230,7 +230,7 @@ def briefing_operacional_matinal(self):
     """
     try:
         import os
-        from datetime import date, datetime, timedelta
+        from datetime import datetime, timedelta
         from zoneinfo import ZoneInfo
 
         from sqlalchemy import text
@@ -430,8 +430,7 @@ def briefing_operacional_matinal(self):
                         )
                         if postos_sem_batida:
                             linhas.append(
-                                "• Turno em andamento SEM batida: "
-                                + ", ".join(r[0] for r in postos_sem_batida)
+                                "• Turno em andamento SEM batida: " + ", ".join(r[0] for r in postos_sem_batida)
                             )
                         else:
                             linhas.append("• nenhum posto com turno em andamento sem batida")
@@ -505,10 +504,7 @@ def briefing_operacional_matinal(self):
                     ).all()
                     for r in ferias_mov:
                         if r.start_date in (hoje, amanha):
-                            eventos.append(
-                                (r.start_date,
-                                 f"Férias: {r.nome} até {r.end_date.strftime('%d/%m/%Y')}")
-                            )
+                            eventos.append((r.start_date, f"Férias: {r.nome} até {r.end_date.strftime('%d/%m/%Y')}"))
                         if r.return_date is not None and r.return_date in (hoje, amanha):
                             desc = f"Retorno de férias: {r.nome}"
                             notas_int = (r.internal_notes or "").upper()
@@ -578,7 +574,7 @@ def briefing_operacional_matinal(self):
                 try:
                     visitas_ontem = (
                         await db.execute(
-                            _text(
+                            text(
                                 """
                                 SELECT r.inspector_name,
                                        count(DISTINCT c.post_id) FILTER (WHERE c.post_id IS NOT NULL) AS condominios,
@@ -597,7 +593,7 @@ def briefing_operacional_matinal(self):
                     ).all()
                     gestores_esperados = (
                         await db.execute(
-                            _text(
+                            text(
                                 """SELECT DISTINCT u.name FROM users u
                                    WHERE u.role IN ('gerente_operacional','supervisor','inspetor')
                                      AND u.is_active"""
@@ -627,8 +623,12 @@ def briefing_operacional_matinal(self):
                 if por_sev:
                     ordem = {"gravissima": 0, "grave": 1, "moderada": 2, "leve": 3}
                     sevs = sorted(por_sev, key=lambda r: ordem.get(r[0], 9))
-                    rotulo = {"gravissima": "gravíssima(s)", "grave": "grave(s)",
-                              "moderada": "moderada(s)", "leve": "leve(s)"}
+                    rotulo = {
+                        "gravissima": "gravíssima(s)",
+                        "grave": "grave(s)",
+                        "moderada": "moderada(s)",
+                        "leve": "leve(s)",
+                    }
                     linhas.append("• " + ", ".join(f"{int(r[1])} {rotulo.get(r[0], r[0])}" for r in sevs))
                     if graves_nominais:
                         linhas.append("• Graves/gravíssimas: " + "; ".join(f"{r[0]} ({r[1]})" for r in graves_nominais))
@@ -686,9 +686,7 @@ def briefing_operacional_matinal(self):
                         )
                     ).all()
                     if asos:
-                        urgentes = "; ".join(
-                            f"{r[0]} ({r[1].strftime('%d/%m')})" for r in asos[:3]
-                        )
+                        urgentes = "; ".join(f"{r[0]} ({r[1].strftime('%d/%m')})" for r in asos[:3])
                         linhas.append(f"• {len(asos)} vencendo · mais urgentes: {urgentes}")
                     else:
                         linhas.append("• nenhum ASO vencendo nos próximos 30 dias")
@@ -889,8 +887,6 @@ def gerar_escalas_proximo_mes(self):
     async def _run() -> dict:
         from datetime import date, datetime, timedelta
 
-        from modules.operacional.services.auto_scale_service import AutoScaleService
-
         hoje = date.today()
         mes = 1 if hoje.month == 12 else hoje.month + 1
         ano = hoje.year + 1 if hoje.month == 12 else hoje.year
@@ -966,9 +962,15 @@ def gerar_escalas_proximo_mes(self):
                             'Gerada automaticamente copiando a grade REAL do mês anterior (turno+alternância por pessoa; paridade 12x36 ajustada pela virada do mês). Revisar e publicar.')
                         """
                     ),
-                    {"id": scale_id, "post": post_id, "m": mes, "a": ano,
-                     "nome": f"Escala {mes:02d}/{ano} (herdada da grade real)",
-                     "ini": date(ano, mes, 1), "fim": date(ano, mes, dias_prox)},
+                    {
+                        "id": scale_id,
+                        "post": post_id,
+                        "m": mes,
+                        "a": ano,
+                        "nome": f"Escala {mes:02d}/{ano} (herdada da grade real)",
+                        "ini": date(ano, mes, 1),
+                        "fim": date(ano, mes, dias_prox),
+                    },
                 )
                 criadas += 1
                 for emp_id, horas, noturno, inicio, fim, paridade, tsab, tdom, ini_fds in pessoas:
@@ -1010,9 +1012,18 @@ def gerar_escalas_proximo_mes(self):
                                     'Herdado da grade real do mês anterior.', true, now(), now())
                                 """
                             ),
-                            {"id": str(_uuid.uuid4()), "sc": scale_id, "emp": emp_id, "post": post_id,
-                             "dia": dia, "ini": ini_d, "fim": fim_d, "pausa": pausa,
-                             "noturno": is_n, "h": h},
+                            {
+                                "id": str(_uuid.uuid4()),
+                                "sc": scale_id,
+                                "emp": emp_id,
+                                "post": post_id,
+                                "dia": dia,
+                                "ini": ini_d,
+                                "fim": fim_d,
+                                "pausa": pausa,
+                                "noturno": is_n,
+                                "h": h,
+                            },
                         )
                         turnos_criados += 1
                 await db.execute(
@@ -1081,4 +1092,35 @@ def gerar_escalas_proximo_mes(self):
         return result
     except Exception as exc:
         logger.error(f"[Operacional Task] Erro ao gerar escalas do próximo mês: {exc}")
+        raise self.retry(exc=exc)
+
+
+@app.task(
+    name="operacional.lembrete_ponto_whatsapp",
+    bind=True,
+    max_retries=1,
+)
+def lembrete_ponto_whatsapp(self):
+    """3 lembretes de ponto por turno (-15min, no horário, +10min), param na batida.
+
+    Beat a cada 60s porque as janelas são de 1 minuto; o volume real é baixo,
+    só dispara nesses três minutos de cada turno. Canal é Baileys no número da
+    empresa — o teto de 3 é requisito, não preferência.
+
+    A escalada para líder do posto, supervisor e gerente operacional NÃO é feita
+    aqui: quem faz é operacional.check_late_employees, pelo sino, a cada 5 min.
+    """
+    from core.database.session import get_sync_db
+    from modules.operacional.lembrete_ponto import rodar_lembretes
+
+    async def _run() -> dict:
+        with get_sync_db() as db:
+            return await rodar_lembretes(db)
+
+    try:
+        result = asyncio.run(_run())
+        logger.info(f"[Operacional Task] Lembrete de ponto: {result}")
+        return result
+    except Exception as exc:
+        logger.error(f"[Operacional Task] Erro no lembrete de ponto: {exc}")
         raise self.retry(exc=exc)
