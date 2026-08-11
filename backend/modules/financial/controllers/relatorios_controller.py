@@ -400,23 +400,28 @@ async def balancete_real(
         tot_cred += c
         linhas.append({"conta": code, "nome": nomes.get(code, "(conta não mapeada no plano)"),
                        "debito": round(d, 2), "credito": round(c, 2), "saldo": round(d - c, 2)})
-    # PROVA DE CAIXA. As contas 1.1.1.x do razão NÃO refletem o banco: apenas 6%
-    # dos lançamentos do extrato (268 de 4.502) viram lançamento contábil, e o
-    # que existe é quase só ENTRADA (74 baixas de recebimento, R$1.399.656,96,
-    # sem as saídas correspondentes). Resultado: o razão acumula um "banco" que
-    # não existe. Em 2026-08-11 o razão dizia R$1.401.547,03 e o banco,
-    # sincronizado às 05:00, dizia R$16.826,71 — 83× de diferença.
-    # Mostrar o saldo contábil ao lado do saldo REAL é o mínimo honesto enquanto
-    # o razão não cobrir o caixa inteiro. Sem isto, quem lê "Banco Inter" no
-    # balancete acredita estar vendo o extrato.
-    saldo_contabil_banco = round(
-        sum(l["saldo"] for l in linhas if l["conta"].startswith("1.1.1")), 2
-    )
-    real = (await db.execute(_sql(
-        "SELECT coalesce(sum(current_balance), 0) FROM bank_accounts"
-    ))).scalar()
-    saldo_real_banco = round(float(real or 0), 2)
-    divergencia = round(saldo_contabil_banco - saldo_real_banco, 2)
+    # PROVA DE CAIXA. Desde a escrituração do extrato (2026-08-11) o razão
+    # espelha o extrato linha a linha, e a prova é justamente esse invariante:
+    # razão 1.1.1.x == soma do extrato. Antes disso o razão conhecia 6% das
+    # movimentações e dizia R$1.401.547,03 onde o banco tinha R$16.826,71.
+    #
+    # O saldo ACUMULADO, sem o filtro de ano/mês: comparar o movimento de um mês
+    # com o saldo do banco é comparar coisas diferentes — dava "não bate" todo
+    # mês por construção.
+    saldo_contabil_banco = round(float((await db.execute(_sql(
+        "SELECT coalesce(sum(CASE WHEN conta_debito LIKE '1.1.1%' THEN valor ELSE -valor END), 0) "
+        "FROM accounting_entries "
+        "WHERE conta_debito LIKE '1.1.1%' OR conta_credito LIKE '1.1.1%'"
+    ))).scalar() or 0), 2)
+    extrato = round(float((await db.execute(_sql(
+        "SELECT coalesce(sum(amount), 0) FROM bank_transactions"
+    ))).scalar() or 0), 2)
+    divergencia = round(saldo_contabil_banco - extrato, 2)
+    # `current_balance` é informativo, NÃO oráculo: em 11/08/2026 estava parado
+    # desde 14/04. Vem com a data para que ninguém confie num número velho.
+    reg = (await db.execute(_sql(
+        "SELECT coalesce(sum(current_balance), 0), max(last_sync_at) FROM bank_accounts"
+    ))).first()
 
     return {
         "ano": ano, "mes": mes, "linhas": linhas,
@@ -425,14 +430,15 @@ async def balancete_real(
         "fecha": abs(tot_deb - tot_cred) < 0.01,
         "prova_de_caixa": {
             "saldo_contabil_1_1_1": saldo_contabil_banco,
-            "saldo_real_bancos": saldo_real_banco,
+            "extrato_liquido": extrato,
             "divergencia": divergencia,
             "bate": abs(divergencia) < 0.01,
+            "saldo_registrado_bancos": round(float(reg[0] or 0), 2),
+            "saldo_registrado_sincronizado_em": str(reg[1]) if reg and reg[1] else None,
             "aviso": (None if abs(divergencia) < 0.01 else
-                      "As contas de banco do razão NÃO refletem o caixa: só ~6% dos lançamentos "
-                      "do extrato viram lançamento contábil, e quase só entradas. NÃO usar o "
-                      "saldo contábil de 1.1.1.x como saldo bancário — o saldo real vem de "
-                      "bank_accounts.current_balance, sincronizado do banco."),
+                      "O razão e o extrato não batem: há movimentação bancária sem lançamento "
+                      "ou lançamento sem movimentação. Conferir o beat "
+                      "financeiro-escriturar-extrato (05:20)."),
         },
         "fonte": "accounting_entries (lançamentos reais de NFS-e emitida + extrato Inter)",
         "observacao": "Plano de contas em consolidação (2 numerações coexistem); contas não mapeadas ficam marcadas.",
