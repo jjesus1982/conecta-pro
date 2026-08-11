@@ -1,6 +1,7 @@
 """Fiscal (T1) — delega ao _build_fiscal e liga o menu json 'certidoes' às CNDs reais
 (ged_certidoes) que já são montadas como 'certidoes-cnd'. Ação fiscal (transmitir) segue GATED.
 nfse-multi/sped/ecac/consultor = capacidade sem tabela → honesto vazio."""
+import logging
 import os
 from datetime import date as _date
 
@@ -18,6 +19,8 @@ from modules.operacional.controllers.redesign_data_controller import (
     doc,
     t,
 )
+
+logger = logging.getLogger(__name__)
 
 SLUG = "fiscal"
 
@@ -392,6 +395,25 @@ async def _multicnpj(db, out: dict, tbl) -> None:
     # quem emitiu. É base anterior a 2026, quando só existia a Eletrônica; deduzir isso e
     # carimbar "Eletrônica" em 831 linhas seria inventar dado. O que se pode afirmar com
     # honestidade é o que ela É, para ninguém confundir com faturamento corrente.
+    # Guias FGTS/INSS vêm do Onvio e as tabelas NÃO têm coluna de empresa — são cegas a CNPJ
+    # por esquema, não por código. Medido em 11/08/2026: a última competência é 12.2025, ou
+    # seja, nada de 2026. Uma tela que mostra 46 guias sem dizer que a mais nova é de dezembro
+    # passa dado velho por corrente — o mesmo erro que fez o KPI de faturamento errar por 8
+    # meses. Não dá para atribuir empresa sem inventar; dá para datar honestamente.
+    for _slug, _tab, _col in (("guias-fgts", "fgts_guias", "mes_ref"),
+                              ("guias-inss", "inss_guias", "coalesce(competencia, mes_ref)")):
+        if not isinstance(out.get(_slug), dict):
+            continue
+        try:
+            ult = (await db.execute(_sql(
+                f"SELECT {_col} FROM {_tab} ORDER BY {_col} DESC NULLS LAST LIMIT 1"))).scalar()
+        except Exception as exc:  # noqa: BLE001 — sem a data, a tela fica como estava
+            logger.warning("[fiscal] competência de %s indisponível: %s", _tab, exc)
+            continue
+        out[_slug]["sub"] = (f"{out[_slug].get('sub', '')} — última competência na base: "
+                             f"{ult or 'nenhuma'}; sem empresa na origem (não dá para separar "
+                             f"por CNPJ)").strip()
+
     if isinstance(out.get("nfse"), dict):
         out["nfse"]["sub"] = (f"{out['nfse'].get('sub', '')} — ARQUIVO anterior a 2026 "
                               f"(sem empresa emitente na base). As notas atuais estão em "
