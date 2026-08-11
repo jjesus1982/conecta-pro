@@ -23,7 +23,7 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 
 
 async def main() -> int:
-    ck = {k: os.getenv(k, "").strip() for k in ("C_USER", "XS", "DATR", "SB")}
+    ck = {k: os.getenv(k, "").strip() for k in ("C_USER", "XS", "DATR", "SB", "FR")}
     if not (ck["C_USER"] and ck["XS"]):
         print("C_USER e XS obrigatórios.")
         return 2
@@ -55,6 +55,97 @@ async def main() -> int:
         await pg.wait_for_timeout(6000)
         await pg.screenshot(path=str(SH / "dev_00_aquecimento.png"), full_page=False)
         print(f"aquecimento · url={pg.url[:90]}")
+
+        if "telefone" in sys.argv:
+            # Sem número no argumento: só abre o diálogo e fotografa (não dispara
+            # SMS nenhum). Com número: troca e manda reenviar.
+            i = sys.argv.index("telefone")
+            novo = sys.argv[i + 1] if len(sys.argv) > i + 1 else ""
+            await pg.goto("https://developers.facebook.com/", wait_until="domcontentloaded", timeout=60000)
+            await pg.wait_for_timeout(6000)
+            await pg.get_by_text("Começar", exact=False).first.click(timeout=15000)
+            await pg.wait_for_timeout(7000)
+            await pg.get_by_role("button", name="Atualizar número de celular").first.click(timeout=15000)
+            await pg.wait_for_timeout(5000)
+            await pg.screenshot(path=str(SH / "dev_tel_0_dialogo.png"), full_page=True)
+            print(f"\n--- diálogo de telefone · url={pg.url[:90]}\n{(await pg.inner_text('body'))[:700]}")
+            if novo:
+                campo = pg.locator('input[type="tel"], input[type="text"]').first
+                await campo.fill(novo, timeout=15000)
+                await pg.wait_for_timeout(1500)
+                await pg.screenshot(path=str(SH / "dev_tel_1_preenchido.png"), full_page=True)
+                for rot in ("Enviar código", "Continuar", "Avançar", "Salvar"):
+                    alvo = pg.get_by_role("button", name=rot, exact=False)
+                    if await alvo.count() and await alvo.first.is_enabled():
+                        await alvo.first.click(timeout=12000)
+                        await pg.wait_for_timeout(8000)
+                        break
+                await pg.screenshot(path=str(SH / "dev_tel_2_enviado.png"), full_page=True)
+                print(f"\n--- pós-envio\n{(await pg.inner_text('body'))[:700]}")
+            await ctx.close()
+            await nav.close()
+            return 0
+
+        if "codigo" in sys.argv:
+            # Reabre o diálogo de cadastro (ele retoma no passo pendente, sem
+            # reenviar SMS) e entrega o código de 6 dígitos.
+            codigo = sys.argv[sys.argv.index("codigo") + 1]
+            await pg.goto("https://developers.facebook.com/", wait_until="domcontentloaded", timeout=60000)
+            await pg.wait_for_timeout(6000)
+            await pg.get_by_text("Começar", exact=False).first.click(timeout=15000)
+            await pg.wait_for_timeout(7000)
+            await pg.screenshot(path=str(SH / "dev_cod_0_antes.png"), full_page=True)
+            campo = pg.locator('input[type="text"], input[type="tel"]').first
+            await campo.fill(codigo, timeout=15000)
+            await pg.wait_for_timeout(1500)
+            await pg.screenshot(path=str(SH / "dev_cod_1_preenchido.png"), full_page=True)
+            for i in range(1, 7):
+                avancou = False
+                for rot in ("Continuar", "Avançar", "Concluir", "Enviar"):
+                    alvo = pg.get_by_role("button", name=rot, exact=False)
+                    # aria-disabled fica ativo enquanto o campo não valida — não
+                    # adianta clicar num botão cinza, só estoura timeout.
+                    if await alvo.count() and await alvo.first.is_enabled():
+                        await alvo.first.click(timeout=12000)
+                        await pg.wait_for_timeout(7000)
+                        avancou = True
+                        break
+                await pg.screenshot(path=str(SH / f"dev_cod_{i + 1}.png"), full_page=True)
+                print(f"\n--- pós-código {i} · url={pg.url[:90]}\n{(await pg.inner_text('body'))[:700]}")
+                if not avancou:
+                    print("   (nenhum botão habilitado — parei aqui)")
+                    break
+            await ctx.close()
+            await nav.close()
+            return 0
+
+        if "registrar" in sys.argv:
+            # /apps/ redirecionar para a home de marketing COM o facebook.com logado
+            # não é sessão morta: é conta sem cadastro de desenvolvedor. O "Começar"
+            # abre esse cadastro. Avanço passo a passo, fotografando, e paro onde
+            # pedir algo que só o Jordan pode dar (SMS, aceite).
+            await pg.goto("https://developers.facebook.com/", wait_until="domcontentloaded", timeout=60000)
+            await pg.wait_for_timeout(6000)
+            await pg.get_by_text("Começar", exact=False).first.click(timeout=15000)
+            await pg.wait_for_timeout(6000)
+            for i in range(1, 7):
+                await pg.screenshot(path=str(SH / f"dev_reg_{i}.png"), full_page=True)
+                corpo = (await pg.inner_text("body"))[:700]
+                print(f"\n--- passo {i} · url={pg.url[:90]}\n{corpo}")
+                avancou = False
+                for rot in ("Avançar", "Continuar", "Próxima", "Próximo", "Concluir"):
+                    alvo = pg.get_by_role("button", name=rot, exact=False)
+                    if await alvo.count():
+                        await alvo.first.click(timeout=12000)
+                        await pg.wait_for_timeout(6000)
+                        avancou = True
+                        break
+                if not avancou:
+                    print("   (sem botão de avançar — fim do caminho automático)")
+                    break
+            await ctx.close()
+            await nav.close()
+            return 0
 
         for nome, url in (("apps", "https://developers.facebook.com/apps/"),
                           ("dev_home", "https://developers.facebook.com/")):
