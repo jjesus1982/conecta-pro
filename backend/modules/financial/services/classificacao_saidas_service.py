@@ -31,6 +31,7 @@ CATEGORIAS: tuple[tuple[str, str], ...] = (
     ("salario", "Salário — funcionário CLT"),
     ("beneficio_vtvr", "Benefício — VT / VR / VA"),
     ("pj_prolabore", "PJ / Pró-labore — prestador"),
+    ("diarista", "Diarista — diária ou cobertura"),
     ("socio", "Sócio — retirada, distribuição ou empréstimo"),
     ("fornecedor", "Fornecedor — serviço ou material"),
     ("imposto", "Imposto / guia — INSS, FGTS, DAS, DARF"),
@@ -64,13 +65,24 @@ _SOCIO = ("JORDAN SANTOS DE JESUS", "JORDAN S DE JESUS", "JORDAN JESUS")
 _PJ = ("PYETRA", "PEDRO", "RUAN", "RAMON", "ORLAILSON", "ELIZIEL", "DIEGO FERREIRA")
 _FOLHA_TERCEIRO = ("SOLIDES", "S LIDES", "SINETRAN")
 _IMPOSTO = ("RECEITA FEDERAL", "CEF MATRIZ", "CAIXA ECONOMICA", "DARF", "GPS",
-            "SIMPLES NACIONAL", "PGFN", "FGTS", "INSS", "PREVID")
+            "SIMPLES NACIONAL", "PGFN", "FGTS", "INSS", "PREVID", "SINDECOMPRESTS",
+            "SINDICATO", "CONTRIB SINDICAL")
+
+# Razão social: pagou empresa, é fornecedor. Serve de rede para os pequenos que
+# não têm NFS-e tomada casada — melhor que jogar tudo em "diversos", que é
+# desistir com aparência de organização.
+_EMPRESA = (" LTDA", " S A", " SA", " S/A", " ME", " MEI", "EIRELI", "SERVICOS", "SERVICO",
+            "DISTRIBUIDORA", "TELECOM", "COMERCIO", "TECNOLOGIA", "PAGAMENTOS", "INDUSTRIA",
+            "SISTEMAS", "SUPERMERC", "ADVOGAD", "CONTABIL", "ASSESSORIA", "CONSULTORIA",
+            "TRANSPORTE", "LOCADORA", "SEGURANCA", "ENGENHARIA", "MATERIAIS", "EQUIPAMENTOS",
+            "BANCO ", "SEGUROS", "CLINICA", "LABORATORIO", "POSTO ")
 _TAXA = ("TARIFA", "TAXA", "IOF", "ANUIDADE", "PACOTE DE SERVICOS")
 
 _RE_NAO_ALFA = re.compile(r"[^A-Za-z ]")
 
 
-def _sugerir(contraparte: str, valor: float, e_funcionario: bool, tem_nfse: bool) -> tuple[str | None, str]:
+def _sugerir(contraparte: str, valor: float, e_funcionario: bool, tem_nfse: bool,
+             e_diarista: bool = False) -> tuple[str | None, str]:
     """(categoria_sugerida, motivo). None = o sistema não sabe; decide o humano.
 
     Ordem importa: o teste mais específico primeiro. Um funcionário que também é
@@ -93,8 +105,12 @@ def _sugerir(contraparte: str, valor: float, e_funcionario: bool, tem_nfse: bool
         return "beneficio_vtvr", "R$32,00 = VT + VR de diarista"
     if e_funcionario:
         return "salario", "favorecido é funcionário cadastrado"
+    if e_diarista:
+        return "diarista", "favorecido está no cadastro de diaristas"
     if tem_nfse:
         return "fornecedor", "há NFS-e tomada deste CNPJ"
+    if any(t in c for t in _EMPRESA):
+        return "fornecedor", "razão social de empresa"
     if abs(valor) < 50:
         return "diversos", "valor pequeno, sem enquadramento"
     return None, "sem regra — precisa de decisão humana"
@@ -120,6 +136,10 @@ async def listar_grupos(db: AsyncSession, *, minimo: float = 0.0, limite: int = 
                        AND s.alvo LIKE '%' || split_part(upper(e.nome),' ',1) || '%'
                        AND s.alvo LIKE '%' || split_part(upper(e.nome),' ',
                             array_length(string_to_array(e.nome,' '),1)) || '%') AS e_func,
+               EXISTS (SELECT 1 FROM diaria_diaristas dd WHERE dd.nome IS NOT NULL AND length(dd.nome) > 8
+                       AND s.contraparte LIKE '%' || split_part(upper(dd.nome),' ',1) || '%'
+                       AND s.contraparte LIKE '%' || split_part(upper(dd.nome),' ',
+                            array_length(string_to_array(dd.nome,' '),1)) || '%') AS e_diarista,
                EXISTS (SELECT 1 FROM nfse_tomadas_nacional t
                        WHERE upper(coalesce(t.prestador_nome,'')) <> ''
                          AND s.contraparte LIKE '%' || split_part(upper(t.prestador_nome),' ',1) || '%') AS tem_nfse
@@ -130,7 +150,8 @@ async def listar_grupos(db: AsyncSession, *, minimo: float = 0.0, limite: int = 
 
     grupos = []
     for r in rows:
-        cat, motivo = _sugerir(r["contraparte"], float(r["valor"]), r["e_func"], r["tem_nfse"])
+        cat, motivo = _sugerir(r["contraparte"], float(r["valor"]), r["e_func"],
+                               r["tem_nfse"], r["e_diarista"])
         grupos.append({
             "contraparte": r["contraparte"].strip(),
             "movimentacoes": int(r["n"]),

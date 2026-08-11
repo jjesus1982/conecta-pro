@@ -83,7 +83,7 @@ async def build_bancos(db, out: dict) -> None:
     try:
         from modules.financial.services.classificacao_saidas_service import listar_grupos
 
-        _cls = await listar_grupos(db, minimo=1000.0, limite=60)
+        _cls = await listar_grupos(db, minimo=1000.0, limite=250)
         _gr = _cls["grupos"]
         _opts = [{"value": "", "label": "Escolha a categoria…"}] + _cls["categorias"]
         _tot = sum(g["valor"] for g in _gr)
@@ -116,8 +116,10 @@ async def build_bancos(db, out: dict) -> None:
             })
         out["classificar-saidas"] = {
             "title": "Classificar saídas do extrato",
-            "sub": (f"{len(_gr)} contrapartes · {brl(_tot)} sem classificação (saídas ≥ R$1.000). "
+            # Sem truncamento silencioso: se o limite cortar, a tela DIZ quanto ficou de fora.
+            "sub": (f"{len(_gr)} contrapartes · {brl(_tot)} sem classificação (grupos ≥ R$1.000). "
                     f"O sistema já sugeriu {_com_sug} — confira e aplique ao grupo inteiro. "
+                    f"{'' if len(_gr) < 250 else 'MOSTRANDO OS 250 MAIORES — há mais abaixo. '}"
                     "Sem isso o razão não reflete o caixa: hoje só 6% do extrato vira lançamento "
                     "contábil, e quase só entrada."),
             "cta": "—", "type": "table", "searchHint": "Buscar contraparte…",
