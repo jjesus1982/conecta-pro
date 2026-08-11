@@ -27,6 +27,7 @@ import time
 from pathlib import Path
 
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,12 @@ def _oraculos() -> list[Path]:
     return sorted(p for p in _DIR.glob("*.py") if not p.name.startswith("_"))
 
 
-@shared_task(name="orq.oraculos_diarios")
+# Os limites da fila `gov.batch` são 300s/600s. A varredura leva ~15min: a primeira execução
+# real (11/08 12:14) foi morta a SIGKILL aos 10min — e morte por sinal não dispara
+# `task_failure`, então a tarefa que existe para quebrar o silêncio morria em silêncio. Os
+# limites vão no decorator, que vence o padrão da fila, com folga sobre o teto do lote.
+@shared_task(name="orq.oraculos_diarios",
+             soft_time_limit=_TIMEOUT_LOTE_S + 300, time_limit=_TIMEOUT_LOTE_S + 600)
 def rodar_oraculos_diarios() -> dict:
     """Roda todos os oráculos. Devolve o resumo; estoura se algum falhar."""
     arquivos = _oraculos()
@@ -59,22 +65,27 @@ def rodar_oraculos_diarios() -> dict:
     limite = time.monotonic() + _TIMEOUT_LOTE_S
     verdes: list[str] = []
     vermelhos: list[tuple[str, str]] = []
-    nao_rodados: list[str] = []
 
-    for arq in arquivos:
-        if time.monotonic() > limite:
-            # Nunca engolir o que sobrou: lote estourado é achado, não sucesso parcial.
-            nao_rodados.append(arq.name)
-            continue
-        ok, motivo = _rodar(arq, env)
-        if not ok:
-            # Segunda chance. Duas varreduras manuais de 11/08 vieram com 38 e 17 "falhas"
-            # que eram outra sessão recriando o container no meio — a conexão morre e tudo
-            # dali em diante estoura junto. Alerta falso ensina a ignorar o sino, que é pior
-            # que não ter alerta. Defeito de verdade falha nas duas.
-            time.sleep(5)
+    try:
+        for arq in arquivos:
+            if time.monotonic() > limite:
+                continue  # sobra vira "não rodado" abaixo — lote estourado não é sucesso parcial
             ok, motivo = _rodar(arq, env)
-        (verdes.append(arq.name) if ok else vermelhos.append((arq.name, motivo)))
+            if not ok:
+                # Segunda chance. Duas varreduras manuais de 11/08 vieram com 38 e 17 "falhas"
+                # que eram outra sessão recriando o container no meio — a conexão morre e tudo
+                # dali em diante estoura junto. Alerta falso ensina a ignorar o sino, que é pior
+                # que não ter alerta. Defeito de verdade falha nas duas.
+                time.sleep(5)
+                ok, motivo = _rodar(arq, env)
+            (verdes.append(arq.name) if ok else vermelhos.append((arq.name, motivo)))
+    except SoftTimeLimitExceeded:
+        # Pedido de parada gracioso: para de rodar, mas AINDA reporta. Sem isto o hard limit
+        # mata o processo e ninguém fica sabendo de nada.
+        logger.warning("[oraculos] limite gracioso atingido — reportando o que deu tempo")
+
+    feitos = set(verdes) | {n for n, _ in vermelhos}
+    nao_rodados = [a.name for a in arquivos if a.name not in feitos]
 
     resumo = {"total": len(arquivos), "verdes": len(verdes), "vermelhos": len(vermelhos),
               "nao_rodados": len(nao_rodados),
@@ -97,6 +108,11 @@ def _rodar(arq: Path, env: dict) -> tuple[bool, str]:
         return False, _motivo((r.stdout or "") + (r.stderr or ""))
     except subprocess.TimeoutExpired:
         return False, f"não terminou em {_TIMEOUT_ORACULO_S}s"
+    except SoftTimeLimitExceeded:
+        # NÃO engolir: `SoftTimeLimitExceeded` herda de Exception, então o `except` abaixo a
+        # capturaria e a varredura ignoraria o pedido de parada — marcando como vermelho todo
+        # oráculo restante até o hard limit matar o processo. Alerta catastrófico e falso.
+        raise
     except Exception as exc:  # noqa: BLE001 — um oráculo quebrado não derruba a varredura
         return False, f"{type(exc).__name__}: {exc}"
 
