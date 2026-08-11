@@ -26,7 +26,46 @@
 > hardcoded, que **não existe neste negócio**. Falharia em silêncio. Agora declarado
 > no `.env`.
 >
-> ### ⛔ Trilho de Ads travado — motivo exato
+> ### ⛔ 2026-08-11 — a raiz encontrada, com prova em tela
+>
+> Sete tentativas por navegador (`scripts/meta_gerar_token_ads.py`, screenshots em
+> `det-robot/state/meta/`) fecharam o diagnóstico. Em ordem, o que **não** é o problema
+> e o que é:
+>
+> | # | hipótese testada | veredito |
+> |--:|---|---|
+> | 1 | usuário do sistema era Employee | resolvido — CPROSYNC criado como **Admin**, não destravou |
+> | 2 | faltava atribuir a conta de anúncios | já estava, **Acesso total** |
+> | 3 | atribuir o app pelo "··· → Atribuir ativos" | **caminho morto**: o diálogo só oferece Contas de anúncios, Pixels, Conj. de eventos offline e Conj. de dados. **Não existe "Apps" ali** |
+> | 4 | conectar o app ao portfólio (Apps → Adicionar → ID) | **recusado**: *"O ID do aplicativo é inválido. Você só pode solicitar acesso a um aplicativo pertencente a outra empresa ou de sua propriedade"* |
+> | 5 | reusar um app já existente em developers.facebook.com | `/apps/` **redireciona para a home deslogada** |
+> | 6 | — | **RAIZ**: a conta pessoal está sob remediação: *"A Meta tomou medidas para proteger sua conta porque ela pode ter sido invadida"* |
+>
+> **O item 4 mata em definitivo a ideia de reaproveitar o `Conversions API Application`.**
+> Ele não pertence ao Jordan nem a empresa nenhuma — a Meta o provisionou sozinha dentro
+> do fluxo do Events Manager. Não é reivindicável, logo **nunca** emitirá token de Ads.
+> A página Apps do portfólio está literalmente vazia ("Nenhum aplicativo adicionado").
+>
+> **O item 6 explica os outros todos.** Com a conta sinalizada, o SMS de verificação não
+> chega, o `developers.facebook.com` não autentica e a sessão expira em poucos minutos.
+> Foi o acesso de dois IPs no mesmo dia (a automação daqui) que disparou a sinalização.
+>
+> ### Destravar — só o Jordan pode, nesta ordem
+>
+> 1. **Trocar a senha** do Facebook pessoal no próprio celular (o banner "Alterar senha").
+>    Isso encerra a remediação. Trocar em outro dispositivo/IP reforça a sinalização.
+> 2. Esperar o SMS voltar a funcionar (some junto com a remediação) e **criar um app
+>    próprio** em `developers.facebook.com/apps` — tipo **Empresa**.
+> 3. Adicionar o app ao portfólio 959107583761655 e atribuí-lo ao **CPROSYNC**.
+> 4. Gerar o token com `ads_read` + `business_management` e me passar.
+>
+> Nada de automação por navegador na conta até o passo 1 — cada acesso novo de IP
+> diferente empurra a conta mais fundo na remediação. **Parei por isso.**
+>
+> Do lado do código não falta nada: `connectors/meta/ads.py` e
+> `backend/scripts/meta_validar_token.py` esperam só o `META_ADS_TOKEN`.
+>
+> ### ⛔ Trilho de Ads travado — motivo exato (registro de 2026-08-10, superado acima)
 > O botão **Gerar token** do usuário do sistema fica **desabilitado**. Não é permissão
 > nem atributo faltando: a conta de anúncios está atribuída com **acesso total** e o app
 > aparece em "Apps instalados". O problema é que o `Conversions API Application` foi
