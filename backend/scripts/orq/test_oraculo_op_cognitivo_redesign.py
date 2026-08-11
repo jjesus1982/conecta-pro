@@ -35,11 +35,28 @@ async def main() -> None:
         assert _kpi(ag, "Total de agentes") == str(cc["agents_status"]["total"]), "agentes total != command_center"
         print(f"OK agentes: total={_kpi(ag,'Total de agentes')}, presentes={_kpi(ag,'Presentes')}")
 
+        # O consultor era um dash de KPIs e virou CHAT na unificação (Fase 7) — de propósito.
+        # O assert antigo (`type == "dash"`) reprovava a mudança e parecia defeito do
+        # operacional. Aqui se prova o que importa numa tela de chat: que não é casca — tem
+        # rota real, campo que o backend espera e a lente do módulo certo.
         con = scr.get("consultor")
-        assert con and con.get("type") == "dash", "consultor não é dash"
-        assert _kpi(con, "Postos ativos") == str(pan["postos"]["ativos"]), "consultor postos != panorama"
-        assert _kpi(con, "Ocorrências abertas") == str(pan["ocorrencias"]["abertas"]), "consultor occ != panorama"
-        print(f"OK consultor: postos_ativos={_kpi(con,'Postos ativos')}, occ_abertas={_kpi(con,'Ocorrências abertas')}, cobertura={_kpi(con,'Cobertura')}")
+        assert con and con.get("type") == "chat", f"consultor deixou de ser chat: {con and con.get('type')}"
+        chat = con.get("chat") or {}
+        assert chat.get("endpoint") in {"/api/v1/consultores/chat/executar",
+                                        "/api/v1/consultores/chat/consultar"}, \
+            f"consultor aponta para endpoint desconhecido: {chat.get('endpoint')}"
+        assert chat.get("field") == "pergunta", f"campo do payload != 'pergunta': {chat.get('field')}"
+        assert chat.get("persona") == "operacional", \
+            f"persona da lente != operacional: {chat.get('persona')}"
+        assert chat.get("suggestions"), "chat sem sugestões — tela em branco para o usuário"
+        print(f"OK consultor: chat -> {chat['endpoint']} (persona={chat['persona']}, "
+              f"{len(chat['suggestions'])} sugestões)")
+
+        # O panorama que alimentava aqueles KPIs continua tendo que ser real: o chat responde
+        # em cima dele. Sem este check, trocar dash por chat viraria desculpa para não medir.
+        assert pan["postos"]["ativos"] >= 0 and pan["ocorrencias"]["abertas"] >= 0, pan
+        print(f"OK panorama COO: postos_ativos={pan['postos']['ativos']}, "
+              f"occ_abertas={pan['ocorrencias']['abertas']}")
 
 
 if __name__ == "__main__":

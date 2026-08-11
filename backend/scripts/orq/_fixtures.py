@@ -25,6 +25,29 @@ class _U:
     permissions: list = field(default_factory=list)
 
 
+def tela(telas: dict, slug: str) -> dict | None:
+    """Resolve um slug do redesign até a tela REAL, seguindo `groupRef`.
+
+    A reorganização de 05/08/2026 agrupou a sidebar (62 itens → 8 grupos): o slug antigo
+    continua existindo, mas como `{"type": "redirect", "groupRef": {...}}` — a tela de
+    verdade virou aba de um grupo. Oráculo que lê `telas[slug]` direto encontra o stub e
+    conclui "tela vazia" sobre uma tela cheia. Foi exatamente o que aconteceu com
+    `folha-nao-conformidades`, que tem 9 linhas.
+
+    Devolve None se o slug não existe ou se o redirect aponta para aba inexistente — este
+    segundo caso é defeito real (link quebrado), e quem chama deve tratar como falha.
+    """
+    s = telas.get(slug)
+    if not s or s.get("type") != "redirect":
+        return s
+    ref = s.get("groupRef") or {}
+    grupo = telas.get(ref.get("t")) or {}
+    for aba in grupo.get("tabs") or []:
+        if aba.get("id") == ref.get("tab"):
+            return aba.get("screen")
+    return None
+
+
 async def usuario_por_papel(db, papel: str) -> _U | None:
     """Primeiro usuário ATIVO com o papel pedido. None se não houver.
 
@@ -86,6 +109,17 @@ if __name__ == "__main__":
 
     sys.path.insert(0, "/app")
     from core.database import async_session_factory
+
+    _TELAS = {
+        "direta": {"type": "table", "rows": [1]},
+        "agrupada": {"type": "redirect", "groupRef": {"t": "g-x", "tab": "agrupada"}},
+        "quebrada": {"type": "redirect", "groupRef": {"t": "g-x", "tab": "nao-existe"}},
+        "g-x": {"type": "tabs", "tabs": [{"id": "agrupada", "screen": {"type": "table", "rows": [1, 2]}}]},
+    }
+    assert tela(_TELAS, "direta")["rows"] == [1]
+    assert tela(_TELAS, "agrupada")["rows"] == [1, 2], "não seguiu o groupRef"
+    assert tela(_TELAS, "quebrada") is None, "redirect para aba inexistente deve dar None"
+    assert tela(_TELAS, "inexistente") is None
 
     async def _self_check() -> None:
         async with async_session_factory() as db:
