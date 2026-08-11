@@ -13,7 +13,9 @@ O que verifica:
   2. rodar de novo NÃO duplica (idempotente por external_id) e atualiza o gasto
   3. `utm_campaign` preenchida à mão SOBREVIVE à sincronia — é a chave de junção
      com `leads`, e gravar o id numérico da Meta ali quebraria o CAC para sempre
-  4. CAC sai None (não 0) quando não há lead atribuído
+  4. o CSV do Gerenciador de Anúncios cai NAS MESMAS linhas — importar por CSV
+     hoje e ligar a API amanhã atualiza, não duplica (vírgula decimal e BOM)
+  5. CAC sai None (não 0) quando não há lead atribuído
 
 Limpa o que criou, sempre. Rode:  docker exec conecta-pro-backend python3 scripts/test_meta_ads_sync.py
 """
@@ -119,13 +121,48 @@ async def main() -> int:
                     "era 'lote2' — isso quebraria a junção com leads e o CAC inteiro"
                 )
 
-            # 4 ─ CAC: sem lead atribuído tem que ser None, nunca 0
+            # 4 ─ CSV do Gerenciador de Anúncios: mesma tabela, mesmas linhas.
+            # Escrito no formato pt-BR real: BOM, ponto-e-vírgula, vírgula decimal.
+            csv_path = "/tmp/zz_ads_export.csv"
+            with open(csv_path, "w", encoding="utf-8-sig", newline="") as f:
+                f.write("Identificação da campanha;Nome da campanha;Valor gasto (BRL);"
+                        "Início dos relatórios;Término dos relatórios\n")
+                f.write(f"{EXT[0]};Vigilância Manaus;1.402,75;2026-08-01;2026-08-10\n")
+                f.write(f"{EXT[1]};Portaria Remota;89,90;2026-07-15;2026-08-10\n")
+            rc = await ads.importar_csv(db, csv_path)
+            if not (rc.get("ok") and rc.get("campanhas") == 2 and rc.get("por_id")):
+                falhas.append(f"4) importação de CSV falhou: {rc}")
+
+            total_csv = (await db.execute(text(
+                "SELECT count(*) FROM marketing_campaigns WHERE external_id = ANY(:e)"
+            ), {"e": list(EXT)})).scalar()
+            if total_csv != 2:
+                falhas.append(
+                    f"4) CSV DUPLICOU sobre a sincronia por API: {total_csv} linhas para 2 "
+                    "campanhas — importar hoje e ligar a API amanhã criaria campanha fantasma"
+                )
+
+            pos_csv = (await db.execute(text(
+                "SELECT spent, utm_campaign FROM marketing_campaigns WHERE external_id = :e"
+            ), {"e": EXT[0]})).mappings().one()
+            if float(pos_csv["spent"]) != 1402.75:
+                falhas.append(
+                    f"4) vírgula decimal lida errado: '1.402,75' virou {pos_csv['spent']}, "
+                    "esperado 1402.75"
+                )
+            if pos_csv["utm_campaign"] != "lote2":
+                falhas.append(
+                    f"4) CSV PISOU no utm_campaign: virou {pos_csv['utm_campaign']!r}, era 'lote2'"
+                )
+            os.remove(csv_path)
+
+            # 5 ─ CAC: sem lead atribuído tem que ser None, nunca 0
             cac = {c["campanha"]: c for c in await ads.cac_por_campanha(db, dias=30)}
             pr = cac.get("Portaria Remota")
             if pr is None:
-                falhas.append("4) cac_por_campanha não devolveu a campanha de teste")
+                falhas.append("5) cac_por_campanha não devolveu a campanha de teste")
             elif pr["cac"] is not None and pr["leads"] == 0:
-                falhas.append(f"4) CAC devia ser None sem lead, veio {pr['cac']}")
+                falhas.append(f"5) CAC devia ser None sem lead, veio {pr['cac']}")
         finally:
             ads._get = original
             await _limpar(db)

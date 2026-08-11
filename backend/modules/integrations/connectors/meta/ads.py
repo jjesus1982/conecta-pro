@@ -175,6 +175,111 @@ async def sincronizar_campanhas(db, *, dias: int = 30) -> dict:
     return {"ok": True, "campanhas": vistos, "gravadas": gravados, "desde": desde, "ate": ate}
 
 
+# ── Importação por CSV — a via que não depende de token ────────────────────
+# Existe porque o token da Marketing API está travado numa verificação por SMS
+# que a Meta simplesmente não entrega (duas linhas testadas, ambas recebendo SMS
+# de outras origens normalmente). O dado que o negócio precisa é gasto por
+# campanha; a API era só o encanamento. O Gerenciador de Anúncios exporta o mesmo
+# conteúdo em CSV, e ele cai nas MESMAS colunas — `cac_por_campanha` não muda.
+
+# A exportação sai no idioma da conta e os títulos mudam. Casar por conteúdo, não
+# por posição: posição quebra quando alguém reordena as colunas na tela.
+_COLUNAS = {
+    "id": ("identificação da campanha", "identificacao da campanha", "campaign id"),
+    "nome": ("nome da campanha", "campaign name"),
+    "gasto": ("valor gasto", "amount spent"),
+    "inicio": ("início dos relatórios", "inicio dos relatorios", "reporting starts"),
+    "fim": ("término dos relatórios", "termino dos relatorios", "reporting ends"),
+}
+
+
+def _achar_coluna(cabecalho: list[str], chave: str) -> str | None:
+    """Acha o título real da coluna. 'Valor gasto (BRL)' casa com 'valor gasto'."""
+    for titulo in cabecalho:
+        limpo = (titulo or "").strip().lower()
+        if any(limpo.startswith(alvo) for alvo in _COLUNAS[chave]):
+            return titulo
+    return None
+
+
+def _numero(valor: str | None) -> float:
+    """'1.234,56' e '1234.56' → float. A exportação pt-BR usa vírgula decimal."""
+    t = (valor or "").strip().replace("R$", "").replace(" ", "")
+    if not t:
+        return 0.0
+    if "," in t:  # pt-BR: ponto é milhar, vírgula é decimal
+        t = t.replace(".", "").replace(",", ".")
+    try:
+        return float(t)
+    except ValueError:
+        return 0.0
+
+
+async def importar_csv(db, caminho: str) -> dict:
+    """Lê um export do Gerenciador de Anúncios e grava em `marketing_campaigns`.
+
+    Idempotente pelo mesmo `external_id` da sincronia por API — então importar o
+    CSV hoje e ligar a API amanhã **atualiza as mesmas linhas**, não duplica.
+    Sem "Identificação da campanha" no arquivo, cai no nome com prefixo `csv:`
+    (menos estável — o marketing renomeia campanha —, mas é o que há).
+    """
+    import csv
+
+    # utf-8-sig: o CSV da Meta vem com BOM, e sem isso o PRIMEIRO título fica
+    # com '﻿' colado e nunca casa.
+    with open(caminho, encoding="utf-8-sig", newline="") as f:
+        amostra = f.read(4096)
+        f.seek(0)
+        try:
+            dialeto = csv.Sniffer().sniff(amostra, delimiters=",;\t")
+        except csv.Error:
+            dialeto = csv.excel  # arquivo de uma coluna só — vírgula serve
+        linhas = list(csv.DictReader(f, dialect=dialeto))
+
+    if not linhas:
+        return {"ok": False, "motivo": "CSV vazio"}
+
+    cab = list(linhas[0].keys())
+    col = {k: _achar_coluna(cab, k) for k in _COLUNAS}
+    if not col["nome"] or not col["gasto"]:
+        return {
+            "ok": False,
+            "motivo": f"CSV sem coluna de nome e/ou de gasto — títulos lidos: {cab[:8]}",
+        }
+
+    gravados = 0
+    for r in linhas:
+        nome = (r.get(col["nome"]) or "").strip()
+        if not nome:
+            continue
+        cid = (r.get(col["id"]) or "").strip() if col["id"] else ""
+        await db.execute(
+            text(
+                """
+                INSERT INTO marketing_campaigns
+                    (id, name, type, status, spent, start_date, end_date,
+                     utm_source, utm_medium, external_id, created_at, updated_at)
+                VALUES (gen_random_uuid(), :nome, 'meta_ads', 'imported', :gasto,
+                        :inicio, :fim, 'meta', 'paid', :cid, now(), now())
+                ON CONFLICT (external_id) WHERE external_id IS NOT NULL DO UPDATE SET
+                    name = excluded.name, spent = excluded.spent, updated_at = now()
+                    -- utm_campaign fora do SET, igual à sincronia por API
+                """
+            ),
+            {
+                "nome": nome[:255],
+                "gasto": _numero(r.get(col["gasto"])),
+                "inicio": _dia(r.get(col["inicio"])) if col["inicio"] else None,
+                "fim": _dia(r.get(col["fim"])) if col["fim"] else None,
+                "cid": cid or f"csv:{nome[:80]}",
+            },
+        )
+        gravados += 1
+    await db.commit()
+    logger.info("Meta Ads CSV: %s campanhas importadas de %s", gravados, caminho)
+    return {"ok": True, "campanhas": gravados, "por_id": bool(col["id"])}
+
+
 async def cac_por_campanha(db, *, dias: int = 30) -> list[dict]:
     """CAC por campanha: gasto da Meta ÷ leads que o Conecta PRO atribuiu a ela.
 
