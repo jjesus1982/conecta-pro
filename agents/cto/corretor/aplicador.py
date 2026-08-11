@@ -24,7 +24,7 @@ PATCHES_DIR = CORRETOR_DIR / "patches"
 BACKUPS_DIR = CORRETOR_DIR / "backups"
 HISTORICO_DIR = CORRETOR_DIR / "historico"
 
-MONITOR_TOKEN = "8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ"  # pragma: allowlist secret
+MONITOR_TOKEN = ""  # pragma: allowlist secret
 JORDAN_CHAT = "5536961034"
 BACKEND_DIR = Path("/opt/conecta-pro/backend")
 

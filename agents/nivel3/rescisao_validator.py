@@ -315,7 +315,7 @@ class RescisaoValidator:
 
         token_tg = os.environ.get(
             "MONITOR_BOT_TOKEN",
-            "8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ",  # pragma: allowlist secret
+            "",
         )
         chat_id = os.environ.get("TELEGRAM_CHAT_ID", "5536961034")
         tipos_str = ", ".join(tipos[:4])

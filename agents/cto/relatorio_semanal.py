@@ -21,7 +21,7 @@ CTO_DIR = Path("/opt/conecta-pro/agents/cto")
 TICKETS_DIR = CTO_DIR / "tickets"
 MEMORY_DIR = CTO_DIR / "memory"
 
-MONITOR_TOKEN = "8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ"  # pragma: allowlist secret
+MONITOR_TOKEN = ""  # pragma: allowlist secret
 JORDAN_CHAT = "5536961034"
 
 

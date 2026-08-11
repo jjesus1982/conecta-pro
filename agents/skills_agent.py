@@ -57,7 +57,7 @@ except ImportError as e:
 # CONFIGURAÇÃO
 # ─────────────────────────────────────────────────────
 
-BOT_TOKEN  = os.getenv("MONITOR_BOT_TOKEN",  "8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ")
+BOT_TOKEN  = os.getenv("MONITOR_BOT_TOKEN",  "")
 CHAT_ID    = os.getenv("MONITOR_CHAT_ID",    "5536961034")
 API_BASE   = "http://127.0.0.1:8080/api/v1"
 REPORT_DIR = "/opt/conecta-pro/reports/monitor"

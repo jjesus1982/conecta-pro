@@ -42,7 +42,7 @@ THRESHOLDS: dict[str, list[int]] = {
 NIVEIS = ["notificar_jordan", "segunda_tentativa", "escalar", "emergencia"]
 
 # Credenciais Telegram
-BOT_TOKEN = "8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ"  # pragma: allowlist secret
+BOT_TOKEN = ""  # pragma: allowlist secret
 JORDAN_CHAT_ID = 5536961034
 
 

@@ -2,7 +2,7 @@
 """
 CTO Monitor Bot — Bot Telegram bidirecional do CTO Autônomo.
 
-Bot: @conecta_pro_monitor_bot (8562364686)
+Bot: @conecta_pro_monitor_bot — APAGADO pelo Jordan em 11/08/2026 (nao ha canal Telegram)
 Jordan: TELEGRAM_CHAT_ID=5536961034
 
 Comandos:
@@ -40,7 +40,7 @@ sys.path.insert(0, str(CORE_DIR))
 # ─── Credenciais ──────────────────────────────────────────────────────────────
 MONITOR_BOT_TOKEN = os.getenv(
     "MONITOR_BOT_TOKEN",
-    "8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ",  # pragma: allowlist secret
+    "",
 )
 JORDAN_CHAT_ID = int(os.getenv("TELEGRAM_CHAT_ID", "5536961034"))
 

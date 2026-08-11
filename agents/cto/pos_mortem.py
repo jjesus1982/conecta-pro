@@ -11,7 +11,7 @@ from pathlib import Path
 CTO_DIR = Path("/opt/conecta-pro/agents/cto")
 POS_MORTEM_DIR = CTO_DIR / "pos_mortems"
 
-MONITOR_TOKEN = "8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ"  # pragma: allowlist secret
+MONITOR_TOKEN = ""  # pragma: allowlist secret
 JORDAN_CHAT = "5536961034"
 
 

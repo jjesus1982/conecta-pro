@@ -46,7 +46,7 @@
 0 7 * * * /tmp/claude-0/-root/bf0d241e-1fac-40c9-a5db-40948530fe01/scratchpad/cleanup-sessions.sh
 
 # Backup diário Conecta PRO (3AM UTC)
-0 3 * * * MONITOR_BOT_TOKEN=8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ MONITOR_CHAT_ID=5536961034 /opt/conecta-pro/scripts/backup_database.sh >> /var/log/conecta-backup.log 2>&1
+0 3 * * * MONITOR_BOT_TOKEN=<TOKEN-TELEGRAM-REVOGADO-2026-08-11> MONITOR_CHAT_ID=5536961034 /opt/conecta-pro/scripts/backup_database.sh >> /var/log/conecta-backup.log 2>&1
 
 # Rotação de backups: manter 7 diários + 4 semanais (03:30 UTC, após backup das 03:00)
 30 3 * * * /opt/conecta-pro/scripts/backup_retention.sh >> /var/log/conecta-backup-retention.log 2>&1
@@ -72,24 +72,24 @@
 # Ciclo rápido — a cada 5min (containers + endpoints, silencioso se OK)
 
 # Ciclo completo — a cada 30min (13 orquestradores + relatório Telegram)
-# [LIMPEZA 20260531] */30 * * * * cd /opt/conecta-pro && MONITOR_BOT_TOKEN=8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ MONITOR_CHAT_ID=5536961034 python3 agents/orchestrator_unificado.py completo >> logs/monitor_completo.log 2>&1
+# [LIMPEZA 20260531] */30 * * * * cd /opt/conecta-pro && MONITOR_BOT_TOKEN=<TOKEN-TELEGRAM-REVOGADO-2026-08-11> MONITOR_CHAT_ID=5536961034 python3 agents/orchestrator_unificado.py completo >> logs/monitor_completo.log 2>&1
 
 # Heartbeat — a cada 6h (CPU/RAM/Disco/Uptime/Redis/PM2)
-0 */6 * * * cd /opt/conecta-pro && MONITOR_BOT_TOKEN=8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ MONITOR_CHAT_ID=5536961034 python3 agents/orchestrator_unificado.py heartbeat >> logs/monitor_heartbeat.log 2>&1
-*/5 * * * * MONITOR_BOT_TOKEN=8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ MONITOR_CHAT_ID=5536961034 python3 /opt/conecta-pro/agents/orchestrator_unificado.py rapido >> /opt/conecta-pro/logs/monitor_rapido.log 2>&1
+0 */6 * * * cd /opt/conecta-pro && MONITOR_BOT_TOKEN=<TOKEN-TELEGRAM-REVOGADO-2026-08-11> MONITOR_CHAT_ID=5536961034 python3 agents/orchestrator_unificado.py heartbeat >> logs/monitor_heartbeat.log 2>&1
+*/5 * * * * MONITOR_BOT_TOKEN=<TOKEN-TELEGRAM-REVOGADO-2026-08-11> MONITOR_CHAT_ID=5536961034 python3 /opt/conecta-pro/agents/orchestrator_unificado.py rapido >> /opt/conecta-pro/logs/monitor_rapido.log 2>&1
 # CTO — Relatório matinal 7h BRT (10h UTC)
-0 10 * * * MONITOR_BOT_TOKEN=8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ TELEGRAM_CHAT_ID=5536961034 python3 /opt/conecta-pro/agents/cto/relatorio_matinal.py >> /opt/conecta-pro/logs/relatorio_matinal.log 2>&1
+0 10 * * * MONITOR_BOT_TOKEN=<TOKEN-TELEGRAM-REVOGADO-2026-08-11> TELEGRAM_CHAT_ID=5536961034 python3 /opt/conecta-pro/agents/cto/relatorio_matinal.py >> /opt/conecta-pro/logs/relatorio_matinal.log 2>&1
 # CTO — Aprendizado contínuo a cada 6h
 0 */6 * * * python3 -c "import sys; sys.path.insert(0,'/opt/conecta-pro/agents/cto'); from aprendizado import AprendizadoContinuo; AprendizadoContinuo().executar()" >> /opt/conecta-pro/logs/aprendizado_cto.log 2>&1
-# [LIMPEZA 20260531] 0 */4 * * * MONITOR_BOT_TOKEN=8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ TELEGRAM_CHAT_ID=5536961034 python3 -c "import sys; sys.path.insert(0,'/opt/conecta-pro/agents/cto'); from proatividade import verificar_e_gerar_propostas, formatar_propostas_telegram; from monitor_bot import send; props=verificar_e_gerar_propostas(); msg=formatar_propostas_telegram(props); msg and send(msg)" >> /opt/conecta-pro/logs/proatividade_cto.log 2>&1
+# [LIMPEZA 20260531] 0 */4 * * * MONITOR_BOT_TOKEN=<TOKEN-TELEGRAM-REVOGADO-2026-08-11> TELEGRAM_CHAT_ID=5536961034 python3 -c "import sys; sys.path.insert(0,'/opt/conecta-pro/agents/cto'); from proatividade import verificar_e_gerar_propostas, formatar_propostas_telegram; from monitor_bot import send; props=verificar_e_gerar_propostas(); msg=formatar_propostas_telegram(props); msg and send(msg)" >> /opt/conecta-pro/logs/proatividade_cto.log 2>&1
 # CTO — Auditoria mensal todo dia 1 às 09h BRT (12h UTC)
 # [LIMPEZA 20260531] 0 12 1 * * PYTHONPATH=/opt/conecta-pro/agents/cto:/opt/conecta-pro/agents/core python3 -c "from auto_evolucao import AutoEvolução; AutoEvolução().executar_auditoria_completa()" >> /opt/conecta-pro/logs/auto_evolucao.log 2>&1
 # CTO — Relatório semanal toda segunda 11h UTC (08h BRT)
-# [LIMPEZA 20260531] 0 11 * * 1 MONITOR_BOT_TOKEN=8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ TELEGRAM_CHAT_ID=5536961034 python3 /opt/conecta-pro/agents/cto/relatorio_semanal.py >> /opt/conecta-pro/logs/relatorio_semanal.log 2>&1
+# [LIMPEZA 20260531] 0 11 * * 1 MONITOR_BOT_TOKEN=<TOKEN-TELEGRAM-REVOGADO-2026-08-11> TELEGRAM_CHAT_ID=5536961034 python3 /opt/conecta-pro/agents/cto/relatorio_semanal.py >> /opt/conecta-pro/logs/relatorio_semanal.log 2>&1
 # CTO — Verificar troca de turno a cada hora
 # [LIMPEZA 20260531] 0 * * * * PYTHONPATH=/opt/conecta-pro/agents/cto python3 -c "import sys; sys.path.insert(0,'/opt/conecta-pro/agents/cto'); from turno import Turno; Turno().verificar_troca_turno()" >> /opt/conecta-pro/logs/turno.log 2>&1
 # Sprint 6 — Escalada temporal autônoma (verifica thresholds a cada 5min)
-*/5 * * * * MONITOR_BOT_TOKEN=8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ TELEGRAM_CHAT_ID=5536961034 python3 agents/orchestrator_unificado.py escaladas >> logs/escaladas_cto.log 2>&1
+*/5 * * * * MONITOR_BOT_TOKEN=<TOKEN-TELEGRAM-REVOGADO-2026-08-11> TELEGRAM_CHAT_ID=5536961034 python3 agents/orchestrator_unificado.py escaladas >> logs/escaladas_cto.log 2>&1
 */2 * * * * python3 /opt/conecta-pro/agents/dashboard_api.py >> /opt/conecta-pro/logs/dashboard.log 2>&1
 0 * * * * bash /opt/conecta-pro/agents/cto/reindexar.sh >> /opt/conecta-pro/logs/reindexacao.log 2>&1
 # CTO — Coleta métricas + predição a cada 5min

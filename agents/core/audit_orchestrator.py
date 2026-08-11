@@ -22,7 +22,7 @@ from code_reader import CodeReader
 from code_fixer import CodeFixer
 
 
-TELEGRAM_TOKEN = "8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ"  # pragma: allowlist secret
+TELEGRAM_TOKEN = ""  # pragma: allowlist secret
 TELEGRAM_CHAT = "5536961034"
 REPORTS_DIR = Path("/opt/conecta-pro/reports/auditorias")
 

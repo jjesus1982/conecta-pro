@@ -143,7 +143,7 @@ logger = logging.getLogger("monitor_unificado")
 # ── Configuração ──────────────────────────────────────────────────────────────
 BOT_TOKEN = os.environ.get(
     "MONITOR_BOT_TOKEN",
-    "8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ",  # pragma: allowlist secret
+    "",
 )
 # Aceita MONITOR_CHAT_ID (skills_agent legacy) ou TELEGRAM_CHAT_ID (orchestrator_geral legacy)
 CHAT_ID = os.environ.get("MONITOR_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID", "5536961034")

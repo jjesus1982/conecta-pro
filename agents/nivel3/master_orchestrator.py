@@ -19,7 +19,7 @@ sys.path.insert(0, "/opt/conecta-pro/agents/nivel3")
 sys.path.insert(0, "/opt/conecta-pro/agents")
 
 TELEGRAM_TOKEN = (
-    "8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ"  # pragma: allowlist secret
+    ""
 )
 TELEGRAM_CHAT = "5536961034"
 REPORTS_DIR = Path("/opt/conecta-pro/reports/master")

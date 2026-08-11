@@ -19,7 +19,7 @@ fi
 
 # 1. Adicionar cron semanal (domingo 3h)
 # shellcheck disable=SC2016  # pragma: allowlist secret
-TOKEN_VAR='MONITOR_BOT_TOKEN=8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ TELEGRAM_CHAT_ID=5536961034'  # pragma: allowlist secret
+TOKEN_VAR='MONITOR_BOT_TOKEN=${MONITOR_BOT_TOKEN:-} TELEGRAM_CHAT_ID=5536961034'  # pragma: allowlist secret
 (crontab -l 2>/dev/null; echo "0 3 * * 0 ${TOKEN_VAR} python3 /opt/conecta-pro/agents/core/audit_orchestrator.py >> /opt/conecta-pro/logs/auditoria.log 2>&1") | crontab -
 
 echo "✅ Cron semanal ativado (domingo 3h)"

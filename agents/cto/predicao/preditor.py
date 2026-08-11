@@ -18,7 +18,7 @@ from typing import Optional
 PREDICAO_DIR = Path("/opt/conecta-pro/agents/cto/predicao")
 ALERTAS_DIR = PREDICAO_DIR / "alertas"
 
-MONITOR_TOKEN = "8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ"  # pragma: allowlist secret
+MONITOR_TOKEN = ""  # pragma: allowlist secret
 JORDAN_CHAT = "5536961034"
 
 

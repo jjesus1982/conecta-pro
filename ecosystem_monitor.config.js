@@ -28,7 +28,7 @@ module.exports = {
 
       // Variáveis de ambiente
       env: {
-        MONITOR_BOT_TOKEN: "8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ", // pragma: allowlist secret
+        MONITOR_BOT_TOKEN: "<TOKEN-TELEGRAM-REVOGADO-2026-08-11>", // pragma: allowlist secret
         TELEGRAM_CHAT_ID: "5536961034",
       },
     },

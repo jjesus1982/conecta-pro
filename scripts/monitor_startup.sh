@@ -5,7 +5,7 @@
 # Aguarda: rede → Docker → backend
 # ═══════════════════════════════════════════════
 
-BOT_TOKEN="${MONITOR_BOT_TOKEN:-8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ}"  # pragma: allowlist secret
+BOT_TOKEN="${MONITOR_BOT_TOKEN:-}"  # pragma: allowlist secret
 CHAT_ID="${MONITOR_CHAT_ID:-5536961034}"
 STARTUP_LOG="/opt/conecta-pro/logs/startup.log"
 HORA=$(date '+%d/%m/%Y %H:%M')

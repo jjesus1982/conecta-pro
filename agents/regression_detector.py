@@ -21,7 +21,7 @@ STATE_FILE = Path(
     "/opt/conecta-pro/reports/monitor_state.json")
 REGRESSION_LOG = Path(
     "/opt/conecta-pro/reports/regressoes.json")
-BOT_TOKEN = "8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ"  # pragma: allowlist secret
+BOT_TOKEN = ""  # pragma: allowlist secret
 CHAT_ID = "5536961034"
 
 # Threshold de regressão por módulo

@@ -21,7 +21,7 @@ CORRETOR_DIR = CTO_DIR / "corretor"
 PATCHES_DIR = CORRETOR_DIR / "patches"
 BACKUPS_DIR = CORRETOR_DIR / "backups"
 
-MONITOR_TOKEN = "8562364686:AAESOC6uXddwShWSs3_1-qJ4lBiZHBiSuBQ"  # pragma: allowlist secret
+MONITOR_TOKEN = ""  # pragma: allowlist secret
 JORDAN_CHAT = "5536961034"
 
 
