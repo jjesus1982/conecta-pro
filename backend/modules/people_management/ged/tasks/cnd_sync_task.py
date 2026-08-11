@@ -241,10 +241,35 @@ async def _buscar_e_salvar_certidao(
             "validade": str(existing["expiry_date"]),
         }
 
-    # Buscar no portal governamental
+    # ── Fonte 1: Infosimples (API paga que resolve captcha/gov.br) ───────────────
+    # Os raspadores abaixo não emitem mais: a RFB e a Caixa exigem login gov.br, e o cliente
+    # da SEMEF chegava a dizer `irregular` para qualquer CNPJ (provado em 11/08/2026 com o
+    # CNPJ do Banco do Brasil como controle). O Infosimples respondeu code 200 para os dois
+    # CNPJs do grupo, com número de CRF e validade reais — é ele que tem chance de trazer
+    # documento. O raspador fica como reserva: quando o Infosimples não sabe, ainda se tenta.
     resultado: dict[str, Any] = {}
     try:
-        if tipo == "cnd_federal":
+        from modules.bidding.integrations.receita_federal import infosimples_cnd_service as _isimp
+
+        if _isimp.habilitado() and tipo in _isimp.SERVICOS:
+            resultado = await _isimp.consultar(tipo, cnpj)
+            sit = str(resultado.get("situacao") or "").lower()
+            if resultado.get("data_validade") and sit in ("regular", "negativa", "nada_consta"):
+                logger.info("[cnd] %s de %s veio do Infosimples (validade %s)",
+                            tipo, cnpj, resultado["data_validade"])
+            else:
+                logger.info("[cnd] Infosimples não confirmou %s de %s (%s) — tentando portal",
+                            tipo, cnpj, sit or "sem situação")
+                resultado = {}
+    except Exception as exc:  # noqa: BLE001 — fonte 1 falhar não pode impedir a fonte 2
+        logger.warning("[cnd] Infosimples indisponível para %s/%s: %s", tipo, cnpj, exc)
+        resultado = {}
+
+    # ── Fonte 2: portal direto (reserva) ─────────────────────────────────────────
+    try:
+        if resultado:
+            pass
+        elif tipo == "cnd_federal":
             from modules.bidding.integrations.receita_federal.cnd_client import (
                 CNDFederalClient,
             )
