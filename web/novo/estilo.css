@@ -411,10 +411,11 @@ footer.pe .legal{
 /* ── A dor: faixa clara antes da solução ─────────────────────────────────── */
 .dor{background:var(--fill);border-bottom:1px solid var(--border)}
 .dor .interno{width:var(--largura);margin-inline:auto;padding:clamp(2.4rem,5vw,3.6rem) 0}
+/* Sem barra de acento ao lado do título: a seção já se separa pelo fundo
+   --fill e pela borda, e barra colorida na lateral é o tique mais reconhecível
+   de interface gerada por IA — justamente o que o Jordan não quer. */
 .dor h2{margin:0 0 .9rem;font-size:clamp(1.4rem,3vw,2rem);font-weight:800;
-  letter-spacing:-.02em;color:var(--ink);position:relative;padding-left:1.1rem}
-.dor h2::before{content:"";position:absolute;left:0;top:.18em;bottom:.18em;
-  width:4px;background:var(--orange);border-radius:2px}
+  letter-spacing:-.02em;color:var(--ink)}
 .dor p{margin:0;max-width:74ch;font-size:1.04rem}
 
 /* ── Escopo e perfil: duas colunas que se opõem ──────────────────────────── */
