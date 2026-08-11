@@ -119,9 +119,22 @@ Contra **197** no início do dia. E as 46 não são fila de trabalho:
 de entrar no índice. Antes do conserto ele dizia 36 — bajulando quem documenta exclusão.
 Provado com 4 rotas citadas só em comentário: viraram órfãs, corretamente.
 
-⚠️ **Sobra um problema que não é fio solto:** `integrations/banking/ted/transfer` não tem
-OTP, nem teto, nem confirmação — vai direto ao adaptador do Inter. Não é falta de tela, é
-falta de gate. Precisa de backend antes de qualquer botão.
+### `ted/transfer` — buraco encontrado e FECHADO (10/08, 17h)
+
+Não era falta de tela, era falta de gate: a rota ia **direto ao adaptador do Inter, sem
+OTP, sem teto, sem confirmação**. Bastava um POST autenticado para transferir qualquer
+valor a qualquer CPF/CNPJ. E nada no código a chamava — porta aberta sem uso.
+
+Agora: teto (`CONECTA_LIMITE_DIARIO_PAGAMENTOS`) checado primeiro, e sem `lote_id` +
+`otp_code` devolve `{otp_requerido: true}` sem tocar no banco. Reusa o **mesmo** mecanismo
+da folha (`inter_lote_otp`, e-mail ao Jordan, TTL 10 min), com uma rota irmã
+`/ted/gerar-otp` que só gera o código. TED autorizada fica no log com valor e favorecido.
+
+⚠️ **Erro meu no processo, registrado para não repetir:** testei a recusa mandando um POST
+de R$ 1,00 **achando que a trava já valia**. Não valia — `docker cp` não recarrega módulo
+já importado pelo app em execução, então a requisição chegou na API do Inter (recusada com
+404; conta e CPF falsos, zero OTP criado, nada registrado). A regra é não acionar dinheiro
+em teste; o certo era confirmar que o gate estava **baked** antes de qualquer requisição.
 
 ## Como medir de novo (e por que o número engana)
 
