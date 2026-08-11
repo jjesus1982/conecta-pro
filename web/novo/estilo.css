@@ -279,3 +279,22 @@ footer.pe .legal{
   .capa .foto img{animation:aproxima 1.6s cubic-bezier(.16,1,.3,1) backwards}
   @keyframes aproxima{from{transform:scale(1.06)}}
 }
+
+/* ── Galeria da operação ──────────────────────────────────────────────────
+   Seis fotos reais do catálogo do José Luís. Não é enfeite: é a prova de que a
+   operação existe, com uniforme, cancela e central que dá para reconhecer. */
+.galeria{width:var(--largura);margin:0 auto;padding:clamp(2.4rem,5vw,4rem) 0}
+.galeria .grade{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+  gap:clamp(.7rem,1.3vw,1rem);margin-top:1.6rem;
+}
+.galeria figure{margin:0;position:relative;overflow:hidden;border-radius:var(--r-card);
+  box-shadow:var(--sombra)}
+.galeria img{width:100%;aspect-ratio:4/3;object-fit:cover;
+  transition:transform .55s cubic-bezier(.16,1,.3,1)}
+.galeria figure:hover img{transform:scale(1.05)}
+.galeria figcaption{
+  position:absolute;inset:auto 0 0 0;padding:.9rem 1rem .8rem;color:#fff;
+  font-size:.8rem;font-weight:600;line-height:1.35;
+  background:linear-gradient(0deg,rgba(15,27,58,.88),rgba(15,27,58,0));
+}

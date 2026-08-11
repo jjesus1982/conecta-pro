@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gera o site da Conecta Mais — v2, preto conduzido por fotografia.
+"""Gera o site da Conecta Mais — v3, paleta do Conecta PRO + foto real.
 
 A v1 (memorial descritivo, papel branco — preservada em gerar_v1_memorial.py)
 foi reprovada pelo Jordan. A varredura de referência mostrou por quê: o setor
@@ -7,8 +7,13 @@ brasileiro publica hero cinza sem imagem (Gocil, a maior do país) ou carrossel 
 2014 com gente recortada em gradiente azul (Haganá), e a referência mundial
 (Ajax Systems) é preto + fotografia grande + um acento só.
 
-O preto não é gosto: é o emblema da Conecta Mais, que é preto e laranja. O azul
-do site antigo traía a própria marca.
+v3: a paleta, a tipografia e as formas são as do Conecta PRO, copiadas de
+frontend/src/app/redesign/redesign.css — navy #16277D, laranja #F26522, Sora,
+cantos de 16px, sombra azulada. A marca do topo é a oficial, recortada do
+logo-transparent.png: o emblema preto da Conecta Mais brigava com o sistema.
+
+As fotos são material PRÓPRIO, extraído do catálogo do agente José Luís
+(uploads/agent_media/): 21 páginas de PDF e dois vídeos. Ver fotos/ORIGEM.md.
 
 Sobreviveu da v1 uma coisa, por indicação da revisão de acabamento: as linhas de
 prova com valor à direita. Nenhum concorrente publica vínculo, cobertura e base
@@ -61,7 +66,7 @@ PROVISORIAS = _provisorias()
 
 ITENS = [
     {
-        "n": "01", "slug": "portaria-remota", "titulo": "Portaria remota",
+        "n": "01", "slug": "portaria-remota", "legenda2": "Abertura remota do portão pela central", "titulo": "Portaria remota",
         "resumo": "Controle de acesso 24h operado da nossa central, sem porteiro no local.",
         "zap_texto": "Olá! Quero uma cotação de portaria remota.", "zap_slug": "site_portaria",
         "corpo": [
@@ -83,7 +88,7 @@ ITENS = [
         "legenda": "Hall de entrada com acesso controlado",
     },
     {
-        "n": "02", "slug": "agentes-de-portaria", "titulo": "Agentes de portaria",
+        "n": "02", "slug": "agentes-de-portaria", "legenda2": "Agente com o 0800 no uniforme", "titulo": "Agentes de portaria",
         "resumo": "Equipe própria, registrada, na escala 12x36 — sem intermediação.",
         "zap_texto": "Olá! Quero uma cotação de agentes de portaria.", "zap_slug": "site_agentes",
         "corpo": [
@@ -105,7 +110,7 @@ ITENS = [
         "legenda": "Agente de portaria em posto",
     },
     {
-        "n": "03", "slug": "monitoramento", "titulo": "Monitoramento 24h",
+        "n": "03", "slug": "monitoramento", "legenda2": "Operador acompanhando as câmeras", "titulo": "Monitoramento 24h",
         "resumo": "Central própria acompanhando alarme e câmera, com resposta a evento.",
         "zap_texto": "Olá! Quero uma cotação de monitoramento.", "zap_slug": "site_monitoramento",
         "corpo": [
@@ -125,7 +130,7 @@ ITENS = [
         "legenda": "Câmera em operação",
     },
     {
-        "n": "04", "slug": "seguranca-eletronica", "titulo": "Segurança eletrônica",
+        "n": "04", "slug": "seguranca-eletronica", "legenda2": "Câmera PTZ instalada em campo", "titulo": "Segurança eletrônica",
         "resumo": "Projeto, instalação e manutenção de CFTV, alarme e controle de acesso.",
         "zap_texto": "Olá! Quero um projeto de segurança eletrônica e CFTV.",
         "zap_slug": "site_cftv",
@@ -201,7 +206,7 @@ def cabeca(titulo: str, descricao: str, canonico: str, atual: str = "") -> str:
 <title>{html.escape(titulo)}</title>
 <meta name="description" content="{html.escape(descricao)}">
 <link rel="canonical" href="https://conectamais.pro{canonico}">
-<link rel="icon" href="/links/logo.webp">
+<link rel="icon" href="/novo/marca-icone.webp">
 <link rel="preload" as="font" type="font/woff2" href="/novo/fontes/archivo-lat.woff2" crossorigin>
 <link rel="stylesheet" href="/novo/estilo.css">
 <meta property="og:title" content="{html.escape(titulo)}">
@@ -231,7 +236,7 @@ finish review, the verdict, and DESIGN.md
 -->
 <header class="topo">
   <div class="interno">
-    <img src="/links/logo.webp" alt="">
+    <img src="/novo/marca.webp" alt="" width="40" height="40">
     <a class="marca" href="/novo/">Conecta Mais<span>Segurança e Tecnologia</span></a>
     <nav>
       {na('/novo/portaria-remota/', 'Portaria remota')}
@@ -277,6 +282,29 @@ PE = f"""
 """
 
 
+GALERIA = [
+    ("g-portao", "Portaria de condomínio atendido"),
+    ("g-acesso-carro", "Identificação na entrada"),
+    ("g-cancela", "Controle de acesso de veículos"),
+    ("g-dupla", "Equipe uniformizada em posto"),
+    ("g-equipe", "Equipe na central de monitoramento"),
+    ("g-moto", "Ronda motorizada"),
+]
+
+
+def galeria() -> str:
+    """Seis fotos do catálogo do José Luís. Não é enfeite: é a prova de que a
+    operação existe, com uniforme, cancela e central reconhecíveis."""
+    figs = "".join(
+        f'<figure><img src="/novo/fotos/{a}.webp" alt="{html.escape(leg)}" '
+        f'width="900" height="675" loading="lazy">'
+        f'<figcaption>{html.escape(leg)}</figcaption></figure>' for a, leg in GALERIA)
+    return ('<section class="galeria"><h2 class="titulo">A operação, como ela é</h2>'
+            '<p>Fotos dos nossos postos e da nossa central, em Manaus. Nenhuma é de '
+            'banco de imagem.</p>'
+            f'<div class="grade">{figs}</div></section>')
+
+
 def linhas_prova(itens) -> str:
     saida = []
     for rotulo, valor in itens:
@@ -312,6 +340,7 @@ def pagina_item(it: dict) -> str:
             + '<p>O que está contratado, sem adjetivo. O que ainda não tem número está '
             + 'marcado como tal — não inventamos.</p>'
             + linhas_prova(it["prova"])
+            + f'<div style="margin-top:2.4rem">{foto(it["slug"] + "-2", it["legenda2"])}</div>'
             + '</div>'
             + f'<div>{cartao(it["zap_texto"], it["zap_slug"])}</div>'
             + '</div></section>' + PE)
@@ -353,6 +382,7 @@ def pagina_capa() -> str:
             + f'<a class="acao vazada" href="tel:+{FONE}">{FONE_HUMANO}</a>'
             + '</div></div></section>'
             + f'<div class="mosaico">{tiles}</div>'
+            + galeria()
             + '<section class="secao"><div class="par"><div>'
             + '<h2 class="titulo">Sem intermediário<br>entre você e o posto</h2>'
             + '<p>Quem está no seu posto é <strong>funcionário nosso</strong>, com encargo '
