@@ -81,32 +81,57 @@ async def build_contabil(db, out: dict) -> None:
     # código: 1=Ativo, 2=Passivo, 3=Receita, 4=Despesa; PL = Resultado do exercício. O serviço
     # ORM balance_sheet_service lê o razão VAZIO fin_journal_entries → aqui lemos o populado). ─
     try:
+        # Classificação vem de `fin_accounting_accounts.account_type` (ASSET/LIABILITY/
+        # EQUITY/REVENUE/EXPENSE/COST), não do primeiro dígito do código.
+        #
+        # Até 11/08/2026 este bloco chutava pelo dígito assumindo 3=Receita e 4=Despesa. O
+        # plano de contas desta empresa usa 4=Receita e 5=Despesa, e não tem grupo 3. Efeito
+        # medido: a receita (R$ 2.020.962,77) entrou como despesa NEGATIVA e virou o "PL", e
+        # as despesas inteiras (grupo 5, R$ 2.118.029,49, 12 contas) foram simplesmente
+        # ignoradas. A tela anunciava Patrimônio Líquido de +R$ 2,02 MILHÕES onde o
+        # resultado real é PREJUÍZO de R$ 97.066,72 — e o balanço não fechava por exatamente
+        # o valor das despesas descartadas.
+        #
+        # Com a classificação real, a identidade contábil fecha à vírgula:
+        #   Ativo 182.751,34 = Passivo 279.818,06 + PL (−97.066,72)
+        # As 27 contas com movimento estão todas classificadas no plano (conferido).
         _rows = (await db.execute(text(
             "WITH mov AS ("
             " SELECT conta_debito AS conta, valor AS deb, 0::numeric AS cred FROM accounting_entries"
             " UNION ALL SELECT conta_credito, 0, valor FROM accounting_entries) "
-            "SELECT m.conta, coalesce(max(a.name), m.conta), sum(m.deb), sum(m.cred) "
+            "SELECT m.conta, coalesce(max(a.name), m.conta), sum(m.deb), sum(m.cred), "
+            "       upper(coalesce(max(a.account_type::text), '')) "
             "FROM mov m LEFT JOIN fin_accounting_accounts a ON a.code=m.conta "
             "WHERE m.conta IS NOT NULL GROUP BY m.conta ORDER BY m.conta"))).fetchall()
-        ativo, passivo, receita, despesa, at_tot, pa_tot = [], [], 0.0, 0.0, 0.0, 0.0
-        for conta, nome, d, c in _rows:
-            d = float(d or 0); c = float(c or 0); pre = (conta or "")[:1]
-            if pre == "1":
+        ativo, passivo, receita, despesa, at_tot, pa_tot, pl_contas = [], [], 0.0, 0.0, 0.0, 0.0, 0.0
+        sem_classe = []
+        for conta, nome, d, c, tipo in _rows:
+            d = float(d or 0); c = float(c or 0)
+            if tipo == "ASSET":
                 s = d - c; at_tot += s; ativo.append((nome, conta, s))
-            elif pre == "2":
+            elif tipo == "LIABILITY":
                 s = c - d; pa_tot += s; passivo.append((nome, conta, s))
-            elif pre == "3":
+            elif tipo == "EQUITY":
+                pl_contas += c - d
+            elif tipo == "REVENUE":
                 receita += c - d
-            elif pre == "4":
+            elif tipo in ("EXPENSE", "COST"):
                 despesa += d - c
+            else:
+                # Conta com movimento e sem classificação no plano é o que quebra a
+                # identidade. Some do balanço em silêncio se não for contada aqui.
+                sem_classe.append(conta)
         resultado = receita - despesa
-        pl_tot = resultado  # sem conta de PL com movimento → resultado do exercício é o PL
+        pl_tot = pl_contas + resultado  # contas de PL + resultado do exercício
         confere = abs(at_tot - (pa_tot + pl_tot)) < 0.01
         out["balanco-patrimonial"] = {
             "title": "Balanço Patrimonial", "type": "dash", "cta": "—",
-            "sub": (f"Do razão real (accounting_entries) · "
+            "sub": (f"Do razão real (accounting_entries), classificado por account_type · "
                     f"{'FECHA ✓' if confere else 'NÃO FECHA — revisar razão'} · "
-                    f"Ativo {brl(at_tot)} = Passivo {brl(pa_tot)} + PL {brl(pl_tot)}"),
+                    f"Ativo {brl(at_tot)} = Passivo {brl(pa_tot)} + PL {brl(pl_tot)}"
+                    + (f" · ATENÇÃO: {len(sem_classe)} conta(s) com movimento e SEM "
+                       f"classificação no plano ({', '.join(sem_classe[:4])}) — elas somem "
+                       f"do balanço e são a causa provável de não fechar" if sem_classe else "")),
             "panelGrid": "1fr 1fr 1fr",
             "kpis": [
                 {"v": brl(at_tot), "l": "Ativo total", "icon": "M3 3v18h18M18 9l-5 5-4-4-3 3", "color": "#16A34A", "to": "balancete"},
