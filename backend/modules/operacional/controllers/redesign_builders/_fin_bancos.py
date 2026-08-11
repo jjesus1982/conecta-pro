@@ -74,6 +74,61 @@ async def build_bancos(db, out: dict) -> None:
         "fields": [],
     }
 
+    # ── Classificar saídas: o razão só conhece 6% do extrato ─────────────────────
+    # 1.241 saídas sem etiqueta (R$1.054.752,65). Rever uma a uma é inviável — mas
+    # elas se repetem entre poucas contrapartes, e 235 são para funcionário
+    # cadastrado. Então: AGRUPA por contraparte, o sistema SUGERE por regra, e o
+    # humano confirma o grupo inteiro num clique. Sugestão nunca vira etiqueta
+    # sozinha (parede: nada aqui grava sem alguém confirmar).
+    try:
+        from modules.financial.services.classificacao_saidas_service import listar_grupos
+
+        _cls = await listar_grupos(db, minimo=1000.0, limite=60)
+        _gr = _cls["grupos"]
+        _opts = [{"value": "", "label": "Escolha a categoria…"}] + _cls["categorias"]
+        _tot = sum(g["valor"] for g in _gr)
+        _com_sug = sum(1 for g in _gr if g["sugestao"])
+        _rows = []
+        for g in _gr:
+            _rows.append({
+                "cells": [
+                    t(g["contraparte"][:44], 600, "#0F1B3A"),
+                    t(str(g["movimentacoes"])),
+                    t(brl(g["valor"]), 600),
+                    (b(g["sugestao_label"], "ok") if g["sugestao"]
+                     else b("precisa de você", "warn")),
+                    t(g["motivo"][:38]),
+                ],
+                "edit": {
+                    "title": f"Classificar: {g['contraparte'][:40]}",
+                    "endpoint": "/api/v1/redesign/action/classificar-saidas",
+                    "method": "POST",
+                    "btnLabel": "Classificar",
+                    "btnStyle": "primary" if g["sugestao"] else "outline",
+                    "submitLabel": "Aplicar ao grupo",
+                    "fields": [
+                        {"key": "contraparte", "label": "Contraparte", "type": "text",
+                         "value": g["contraparte"], "span": "span 2", "readOnly": True},
+                        {"key": "categoria", "label": "Categoria*", "type": "select",
+                         "span": "span 2", "value": g["sugestao"] or "", "options": _opts},
+                    ],
+                },
+            })
+        out["classificar-saidas"] = {
+            "title": "Classificar saídas do extrato",
+            "sub": (f"{len(_gr)} contrapartes · {brl(_tot)} sem classificação (saídas ≥ R$1.000). "
+                    f"O sistema já sugeriu {_com_sug} — confira e aplique ao grupo inteiro. "
+                    "Sem isso o razão não reflete o caixa: hoje só 6% do extrato vira lançamento "
+                    "contábil, e quase só entrada."),
+            "cta": "—", "type": "table", "searchHint": "Buscar contraparte…",
+            "cols": ["Contraparte", "Mov.", "Valor", "Sugestão", "Por quê"],
+            "grid": "2.2fr 0.6fr 1fr 1.4fr 1.6fr",
+            "rows": _rows,
+        }
+    except Exception as _e:  # noqa: BLE001 — tela nunca derruba o módulo
+        import logging
+        logging.getLogger(__name__).warning("[classificar-saidas] %s", _e)
+
     # ── 2ª passada: débitos JÁ CLASSIFICADOS podem virar baixa PROVADA ────────────
     out["conciliar-classificados"] = {
         "title": "Reconciliar débitos já classificados",

@@ -2628,6 +2628,33 @@ async def _rd_ajustar_saldo(current_user: CurrentActiveUser, payload: dict = Bod
             f"Lançamento de ajuste gravado no extrato (motivo: {motivo[:60]})."}
 
 
+@router.post("/action/classificar-saidas")
+async def _rd_classificar_saidas(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Aplica uma categoria a TODAS as saídas sem classificação de uma contraparte.
+
+    O razão só conhece 6% do extrato porque as saídas não dizem o que são. Isto é o
+    mutirão: o sistema sugere por regra, o humano confirma o GRUPO. Só toca saída
+    (amount<0) ainda SEM categoria — nunca reclassifica o que já foi decidido.
+    NÃO move dinheiro: é rótulo, não pagamento."""
+    from modules.financial.services.classificacao_saidas_service import classificar_grupo
+
+    contraparte = str(payload.get("contraparte") or "").strip()
+    categoria = str(payload.get("categoria") or "").strip()
+    if not categoria:
+        raise HTTPException(status_code=400, detail="Escolha a categoria.")
+    quem = getattr(current_user, "email", None) or getattr(current_user, "name", None) or "sistema"
+    r = await classificar_grupo(db, contraparte=contraparte, categoria=categoria, responsavel=str(quem))
+    if not r.get("ok"):
+        raise HTTPException(status_code=400, detail=r.get("erro") or "Não foi possível classificar.")
+    return {
+        "ok": True,
+        "message": f"{r['classificadas']} movimentação(ões) de {r['contraparte'][:34]} "
+                   f"classificadas como {r['categoria_label']} — R$ {r['valor']:,.2f}",
+        "classificadas": r["classificadas"], "valor": r["valor"],
+        "categoria": r["categoria_label"],
+    }
+
+
 @router.post("/action/conciliar-classificados")
 async def _rd_conciliar_classificados(current_user: CurrentActiveUser, payload: dict = Body(default={})) -> dict:
     """Segunda passada sobre os débitos JÁ CLASSIFICADOS ('justificado').
