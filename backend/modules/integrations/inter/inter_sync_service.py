@@ -454,7 +454,13 @@ class InterSyncService:
         res = await self.db.execute(_text("""
             INSERT INTO bank_transactions
               (id, bank_account_id, transaction_type, category, amount, description, transaction_date,
-               reconciliation_status, imported_from, raw_data, created_at, updated_at, ativo)
+               reconciliation_status, imported_from, raw_data, created_at, updated_at, ativo,
+               -- O adapter já extrai o favorecido do Inter e grava em
+               -- `detalhes_destinatario` (2.459 das 2.765 linhas têm nome). A ponte
+               -- não copiava: o nome chegava ao banco só dentro do TEXTO da
+               -- descrição, e "quanto saiu para o Fulano em agosto?" virava uma
+               -- pergunta que não dava para fazer em SQL.
+               counterparty_name, counterparty_document)
             SELECT gen_random_uuid(), :acc,
               CASE WHEN it.tipo_transacao='PIX' AND it.tipo_operacao='D' THEN 'pix_enviado'
                    WHEN it.tipo_transacao='PIX' AND it.tipo_operacao='C' THEN 'pix_recebido'
@@ -464,7 +470,9 @@ class InterSyncService:
               COALESCE(it.tipo_transacao,'OUTROS'),
               CASE WHEN it.tipo_operacao='C' THEN it.valor ELSE -it.valor END,
               LEFT(COALESCE(it.descricao, it.titulo, 'Transação Inter'), 500),
-              it.data_lancamento, 'pendente', 'inter_api_sync', it.raw_payload, now(), now(), true
+              it.data_lancamento, 'pendente', 'inter_api_sync', it.raw_payload, now(), now(), true,
+              LEFT(NULLIF(it.detalhes_destinatario->>'nome', ''), 255),
+              LEFT(NULLIF(it.detalhes_destinatario->>'cpf_cnpj', ''), 40)
             FROM (
               -- Dedup por CONTAGEM, não por texto. A condição antiga exigia que a
               -- descrição batesse caractere a caractere; a mesma transação vinda do
