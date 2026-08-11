@@ -1256,8 +1256,12 @@ SQL_SAIDA_SEM_ORIGEM = """
       AND abs(bt.amount) >= :limiar
       AND bt.transaction_date >= CAST(:inicio AS date)
       AND bt.transaction_date < (now() AT TIME ZONE 'America/Manaus')::date
+      -- as DUAS direções: 1:1 (pagável→saída) e N:1 (saída→pagável), que é o
+      -- caso da folha — um pagável para 51 PIX. Olhar só uma direção faria o
+      -- alarme cobrar salário já coberto.
       AND NOT EXISTS (SELECT 1 FROM payable_accounts p
                       WHERE p.transacao_bancaria_id = bt.id::text)
+      AND bt.payable_payment_id IS NULL
     ORDER BY abs(bt.amount) DESC
     LIMIT 20
 """

@@ -31,11 +31,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.financial.services.periodo_contabil import CORTE_CONTABIL
 
-# Uma saída "nasceu no sistema" quando existe um pagável apontando para ela.
+# Uma saída "nasceu no sistema" quando há um pagável dos dois lados da relação:
+#   1:1  o pagável aponta para a saída  (`payable_accounts.transacao_bancaria_id`)
+#   N:1  a saída aponta para o pagável  (`bank_transactions.payable_payment_id`)
+# A folha OBRIGA o N:1: existe UM pagável de folha e 51 PIX individuais. Ler só a
+# direção 1:1 deixaria 59% do valor do mês invisível para sempre.
 # `transacao_bancaria_id` é TEXT (drift de schema) — o cast é obrigatório, sem ele
 # o Postgres recusa `uuid = text` e a métrica morre em vez de medir.
-VINCULADA = ("EXISTS (SELECT 1 FROM payable_accounts p "
-             "WHERE p.transacao_bancaria_id = bt.id::text)")
+VINCULADA = ("(EXISTS (SELECT 1 FROM payable_accounts p "
+             "         WHERE p.transacao_bancaria_id = bt.id::text) "
+             " OR bt.payable_payment_id IS NOT NULL)")
 
 # Medido em 11/08: acima deste valor há exatamente 2 saídas sem pagável no
 # período aberto (as duas para o sócio). Abaixo dele mora a folha — 51 PIX de
