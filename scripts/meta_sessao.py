@@ -143,6 +143,40 @@ async def cmd_login() -> int:
     return 0
 
 
+async def cmd_login_fb() -> int:
+    """Login direto em facebook.com/login.php — sem o seletor do Business.
+
+    Por que existe: o caminho do Business ("Continuar com o Instagram") devolveu
+    HTTP 429 e o `/accounts/login/` do Instagram renderiza ZERO inputs. O
+    formulário clássico do facebook.com ainda é HTML de verdade.
+    """
+    email, senha = os.getenv("META_LOGIN_EMAIL", ""), os.getenv("META_LOGIN_PASS", "")
+    if not (email and senha):
+        print("META_LOGIN_EMAIL / META_LOGIN_PASS não definidas.")
+        return 2
+    from playwright.async_api import async_playwright
+
+    async with async_playwright() as pw:
+        ctx = await _ctx(pw)
+        pg = ctx.pages[0] if ctx.pages else await ctx.new_page()
+        await pg.goto("https://www.facebook.com/login.php", wait_until="domcontentloaded", timeout=60000)
+        await pg.wait_for_timeout(4000)
+        if not await pg.locator('input[name="email"]').count():
+            print(f"  formulário não renderizou · {await _foto(pg, '10_sem_form')}")
+            print(f"  {(await pg.inner_text('body'))[:300]}")
+            await ctx.close()
+            return 1
+        await pg.fill('input[name="email"]', email)
+        await pg.fill('input[name="pass"]', senha)
+        await pg.keyboard.press("Enter")
+        await pg.wait_for_timeout(12000)
+        print(f"  url={pg.url[:110]}")
+        print(f"  {await _diagnostico(pg)}")
+        print(f"  screenshot: {await _foto(pg, '11_pos_login_fb')}")
+        await ctx.close()
+    return 0
+
+
 async def cmd_codigo(codigo: str) -> int:
     from playwright.async_api import async_playwright
 
@@ -207,6 +241,8 @@ def main() -> int:
     cmd = sys.argv[1]
     if cmd == "login":
         return asyncio.run(cmd_login())
+    if cmd == "login_fb":
+        return asyncio.run(cmd_login_fb())
     if cmd == "codigo":
         return asyncio.run(cmd_codigo(sys.argv[2]))
     if cmd == "ver":
