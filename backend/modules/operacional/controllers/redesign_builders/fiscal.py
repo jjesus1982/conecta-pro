@@ -124,16 +124,35 @@ async def build(db) -> dict:
     try:
         n_emit = await _scalar(db, "SELECT count(*) FROM nfse_emitidas_nacional") or 0
         n_cnd = await _scalar(db, "SELECT count(*) FROM ged_certidoes") or 0
+        # Certidão vencida é risco operacional (sem CRF-FGTS não se fatura em cliente grande
+        # nem se participa de licitação), e o painel mostrava só a contagem total em verde —
+        # 9 certidões, 3 delas vencidas, e nada denunciava. Medido em 11/08/2026.
+        cnd_venc = await _scalar(
+            db, "SELECT count(*) FROM ged_certidoes WHERE expiry_date < CURRENT_DATE") or 0
+        # O filtro era `NOT IN ('pago','paga','concluido','concluida')`: quatro grafias de
+        # "feito" e nenhuma delas é a que a tabela usa. O vocabulário real é 'cumprida' (26) e
+        # 'pendente' (5) — então TODA obrigação cumprida contava como pendente e o painel
+        # anunciava 31 onde havia 5. As grafias antigas ficam por segurança; a real entrou.
         obr_pend = await _scalar(
             db, "SELECT count(*) FROM fiscal_obligations "
-                "WHERE status::text NOT IN ('pago','paga','concluido','concluida')") or 0
+                "WHERE lower(coalesce(status::text,'')) "
+                "NOT IN ('cumprida','cumprido','pago','paga','concluido','concluida')") or 0
+        # A janela ancorava na ÚLTIMA NOTA da tabela de histórico (parada em 29/12/2025), não em
+        # hoje, e somava só o arquivo — as 99 notas de 2026 ficavam de fora. O erro era de 4%
+        # por coincidência de magnitude, mas CRESCE sozinho: o arquivo não anda mais, então o
+        # KPI ia congelar enquanto a empresa fatura. Agora: 12 meses a partir de hoje, nas duas
+        # tabelas (histórico Manaus até 2025 + nacional de 2026 em diante).
         fat12 = await _scalar(
-            db, "SELECT coalesce(sum(valor_servicos),0) FROM nfse_manaus_historico "
-                "WHERE data_emissao >= (SELECT max(data_emissao) FROM nfse_manaus_historico) - interval '12 months'") or 0
+            db, "SELECT coalesce((SELECT sum(valor_servicos) FROM nfse_manaus_historico "
+                "            WHERE data_emissao >= CURRENT_DATE - interval '12 months'), 0) "
+                "     + coalesce((SELECT sum(valor_servicos) FROM nfse_emitidas_nacional "
+                "            WHERE data_emissao >= CURRENT_DATE - interval '12 months'), 0)") or 0
         if isinstance(out.get("painel"), dict):
             out["painel"]["kpis"] = [
                 {"v": str(n_emit), "l": "NFS-e Emitidas", "icon": _ICF["chart"], "color": "#0F1B3A"},
-                {"v": str(n_cnd), "l": "Certidões", "icon": _ICF["chart"], "color": "#16A34A" if n_cnd else "#C2410C"},
+                {"v": f"{n_cnd - cnd_venc}/{n_cnd}" if cnd_venc else str(n_cnd),
+                 "l": f"Certidões ({cnd_venc} vencida{'s' if cnd_venc > 1 else ''})" if cnd_venc else "Certidões",
+                 "icon": _ICF["chart"], "color": "#C2410C" if cnd_venc or not n_cnd else "#16A34A"},
                 {"v": str(obr_pend), "l": "Obrigações em aberto", "icon": IC["alert"], "color": "#C2410C" if obr_pend else "#0F1B3A"},
                 {"v": brl(fat12), "l": "Faturamento (12m)", "icon": _ICF["money"], "color": "#0F1B3A"},
             ]
