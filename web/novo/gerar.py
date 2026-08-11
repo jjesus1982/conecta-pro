@@ -628,6 +628,152 @@ SENTINELA = f"""
 """
 
 
+# ── Profundidade por serviço ────────────────────────────────────────────────
+# A pagina de servico tinha dois paragrafos e uma ficha. Faltavam as tres coisas
+# que quem compra pergunta e o site nao respondia: qual e a dor hoje, o que
+# exatamente esta (e nao esta) incluido, e para quem isso NAO serve. A terceira
+# e a que mais gera confianca — quem diz "nao serve para voce" ganha o direito
+# de ser acreditado quando diz "serve".
+
+DOR = {
+ "portaria-remota": ("O que custa caro hoje",
+  "Um posto de portaria coberto 24 horas exige quatro agentes na escala 12x36, "
+  "somando salário, encargo, benefício, uniforme, cobertura de falta e férias. "
+  "É a maior linha do orçamento de quase todo condomínio — e ela cresce todo "
+  "ano com a convenção coletiva, sem que o serviço melhore junto. No meio da "
+  "noite, o que o condomínio paga é para alguém ficar acordado numa guarita: o "
+  "custo é de vigília, o resultado costuma ser cochilo, e o registro do que "
+  "aconteceu é um livro de papel que ninguém confere."),
+ "agentes-de-portaria": ("O barato que sai caro",
+  "Portaria terceirizada por menor preço tem uma conta escondida: se a empresa "
+  "contratada não recolhe encargo, a reclamação trabalhista do porteiro chega "
+  "ao condomínio pela responsabilidade subsidiária. O síndico que assinou "
+  "responde na assembleia por uma dívida que ele não gerou. Some a isso o posto "
+  "que fica descoberto quando alguém falta, o agente que muda toda semana e "
+  "nunca aprende o prédio, e o uniforme que some — e o desconto do começo virou "
+  "prejuízo no fim."),
+ "monitoramento": ("Câmera que ninguém assiste",
+  "Quase todo condomínio já tem câmera. O que quase nenhum tem é alguém olhando "
+  "no momento em que importa. A gravação serve para descobrir o que aconteceu "
+  "depois que aconteceu — e é comum ela nem servir para isso, porque o disco "
+  "encheu, a câmera estava fora de foco ou a imagem não identifica ninguém. "
+  "Alarme sem verificação é pior: dispara por gato, morador se acostuma, e no "
+  "dia real ninguém dá bola."),
+ "seguranca-eletronica": ("Equipamento comprado sem projeto",
+  "É a compra mais comum e a mais desperdiçada: alguém cota oito câmeras, "
+  "instala onde deu, e no dia do problema descobre que o ângulo não pega a "
+  "placa do carro, que o contraluz apaga o rosto, ou que a área crítica ficou "
+  "fora do enquadramento. Câmera mal posicionada custa o mesmo da bem "
+  "posicionada e não vale como prova. O erro não está no equipamento, está em "
+  "não ter havido projeto antes da compra."),
+}
+
+ESCOPO = {
+ "portaria-remota": (
+  ["Operação 24h por operador da nossa central",
+   "Interfone com vídeo e acionamento remoto de portão",
+   "Registro em vídeo de cada entrada e saída, com hora",
+   "Procedimento do prédio escrito e aprovado por você",
+   "Manutenção dos equipamentos que instalamos"],
+  ["Obra civil de guarita ou portão (orçamos à parte)",
+   "Link de internet do condomínio",
+   "Serviço de zeladoria, limpeza ou recebimento de encomenda em mãos"]),
+ "agentes-de-portaria": (
+  ["Agente em regime CLT direto, com encargo no nosso CNPJ",
+   "Uniforme, EPI e crachá fornecidos",
+   "Cobertura de falta, férias e afastamento por substituto próprio",
+   "Treinamento no procedimento do seu endereço antes de assumir",
+   "Espelho de ponto e guias de recolhimento junto com a fatura"],
+  ["Vigilância armada (é outra atividade, com outra regulamentação)",
+   "Serviços gerais e limpeza (cotamos à parte, se quiser)",
+   "Equipamento de segurança eletrônica, que é contrato próprio"]),
+ "monitoramento": (
+  ["Recepção de alarme e imagem na nossa central, 24h",
+   "Verificação em vídeo antes de qualquer acionamento",
+   "Protocolo de acionamento definido com você",
+   "Log por ocorrência, com hora, imagem e desfecho",
+   "Relatório consolidado no fechamento do mês"],
+  ["Resposta armada em campo",
+   "Troca do parque de câmeras (integramos o que existe)",
+   "Internet e infraestrutura de rede do endereço"]),
+ "seguranca-eletronica": (
+  ["Levantamento no local e projeto com posicionamento justificado",
+   "Lista aberta de equipamento e quantidades — serve para cotar em qualquer lugar",
+   "Instalação por equipe própria, com teste ponto a ponto",
+   "Configuração e treinamento de quem vai operar",
+   "Manutenção preventiva e corretiva (contrato à parte)"],
+  ["Obra civil e infraestrutura predial pesada",
+   "Monitoramento da imagem (é o serviço de monitoramento, opcional)",
+   "Comodato — o equipamento é comprado por você e a nota é sua"]),
+}
+
+PERFIL = {
+ "portaria-remota": (
+  ["Condomínio com portão automatizado e internet estável",
+   "Fluxo previsível de moradores e visitantes",
+   "Quem quer reduzir custo de posto sem abrir mão de registro"],
+  ["Prédio com entrega o dia inteiro ou obra em andamento",
+   "Endereço com público idoso que precisa de ajuda física frequente",
+   "Local sem portão automatizável ou sem internet confiável"]),
+ "agentes-de-portaria": (
+  ["Endereço que precisa de presença física e trato com o morador",
+   "Empresa ou condomínio que quer parar de responder por passivo de terceiro",
+   "Quem precisa de escala coberta sem hora extra estrutural"],
+  ["Quem busca só o menor preço por posto — nesse jogo a gente perde de propósito",
+   "Necessidade de vigilância armada",
+   "Cobertura eventual de poucos dias, sem contrato"]),
+ "monitoramento": (
+  ["Quem já tem câmera e alarme e não tem quem olhe",
+   "Endereço com perímetro grande ou área de lazer fora de horário",
+   "Quem quer complementar portaria sem aumentar posto"],
+  ["Quem espera resposta armada no local",
+   "Endereço sem nenhuma câmera instalada — comece pelo projeto",
+   "Quem não quer definir protocolo de acionamento"]),
+ "seguranca-eletronica": (
+  ["Quem vai instalar do zero e quer projeto antes da compra",
+   "Quem já comprou, instalou e não está tendo resultado",
+   "Construtora que precisa entregar o empreendimento com sistema pronto"],
+  ["Quem quer só o menor orçamento de material, sem projeto",
+   "Manutenção de sistema de terceiro sem laudo prévio",
+   "Quem procura comodato ou aluguel de equipamento"]),
+}
+
+
+def bloco_dor(slug: str) -> str:
+    d = DOR.get(slug)
+    if not d:
+        return ""
+    return (f'<section class="dor"><div class="interno">'
+            f'<h2>{html.escape(d[0])}</h2><p>{html.escape(d[1])}</p></div></section>')
+
+
+def bloco_escopo(slug: str) -> str:
+    e = ESCOPO.get(slug)
+    if not e:
+        return ""
+    inc = "".join(f"<li>{html.escape(x)}</li>" for x in e[0])
+    nao = "".join(f"<li>{html.escape(x)}</li>" for x in e[1])
+    return ('<h2 class="titulo" style="margin-top:3rem">O que está incluído</h2>'
+            '<p>Escopo explícito evita a venda mal-entendida que vira cancelamento '
+            'no terceiro mês.</p>'
+            f'<div class="escopo"><div class="inclui"><h3>Está no contrato</h3>'
+            f'<ul>{inc}</ul></div>'
+            f'<div class="nao-inclui"><h3>Não está</h3><ul>{nao}</ul></div></div>')
+
+
+def bloco_perfil(slug: str) -> str:
+    pf = PERFIL.get(slug)
+    if not pf:
+        return ""
+    serve = "".join(f"<li>{html.escape(x)}</li>" for x in pf[0])
+    nao = "".join(f"<li>{html.escape(x)}</li>" for x in pf[1])
+    return ('<h2 class="titulo" style="margin-top:3rem">Para quem serve<br>e para quem não serve</h2>'
+            '<p>Vender para endereço que não comporta gera cancelamento em três meses. '
+            'Preferimos dizer não agora.</p>'
+            f'<div class="escopo"><div class="inclui"><h3>Serve bem</h3><ul>{serve}</ul></div>'
+            f'<div class="nao-inclui"><h3>Não é para você se</h3><ul>{nao}</ul></div></div>')
+
+
 def linhas_prova(itens) -> str:
     saida = []
     for rotulo, valor in itens:
@@ -657,6 +803,7 @@ def pagina_item(it: dict) -> str:
             + f'<h1>{html.escape(it["titulo"])}'
             + f'<span class="fino">{html.escape(it["resumo"])}</span></h1>'
             + '</div></section>'
+            + bloco_dor(it['slug'])
             + '<section class="secao"><div class="par"><div>'
             + "".join(f"<p>{html.escape(p)}</p>" for p in it["corpo"])
             + '<h2 class="titulo" style="margin-top:2.8rem">Ficha técnica</h2>'
@@ -664,6 +811,8 @@ def pagina_item(it: dict) -> str:
             + 'marcado como tal — não inventamos.</p>'
             + linhas_prova(it["prova"])
             + f'<div style="margin-top:2.4rem">{foto(it["slug"] + "-2", it["legenda2"])}</div>'
+            + bloco_escopo(it['slug'])
+            + bloco_perfil(it['slug'])
             + (SENTINELA if it['slug'] == 'monitoramento' else '')
             + blocos_como(it["slug"])
             + blocos_faq(FAQ.get(it["slug"], []))

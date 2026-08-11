@@ -407,3 +407,29 @@ footer.pe .legal{
 .sentinela .ganhos span{color:rgba(255,255,255,.75);font-size:.94rem;line-height:1.5}
 .sentinela a.acao.vazada{color:#fff;border-color:rgba(255,255,255,.45)}
 .sentinela a.acao.vazada:hover{background:rgba(255,255,255,.12);border-color:#fff}
+
+/* ── A dor: faixa clara antes da solução ─────────────────────────────────── */
+.dor{background:var(--fill);border-bottom:1px solid var(--border)}
+.dor .interno{width:var(--largura);margin-inline:auto;padding:clamp(2.4rem,5vw,3.6rem) 0}
+.dor h2{margin:0 0 .9rem;font-size:clamp(1.4rem,3vw,2rem);font-weight:800;
+  letter-spacing:-.02em;color:var(--ink);position:relative;padding-left:1.1rem}
+.dor h2::before{content:"";position:absolute;left:0;top:.18em;bottom:.18em;
+  width:4px;background:var(--orange);border-radius:2px}
+.dor p{margin:0;max-width:74ch;font-size:1.04rem}
+
+/* ── Escopo e perfil: duas colunas que se opõem ──────────────────────────── */
+.escopo{display:grid;grid-template-columns:1fr 1fr;gap:clamp(1rem,2.2vw,1.6rem);margin-top:1.8rem}
+.escopo > div{background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--r-card);padding:1.4rem 1.5rem;box-shadow:var(--sombra)}
+.escopo h3{margin:0 0 .9rem;font-size:.76rem;font-weight:700;letter-spacing:.14em;
+  text-transform:uppercase}
+.escopo .inclui h3{color:#16A34A}
+.escopo .nao-inclui h3{color:var(--ink-weak)}
+.escopo ul{list-style:none;margin:0;padding:0;display:grid;gap:.7rem}
+.escopo li{padding-left:1.7rem;position:relative;color:var(--ink-weak);
+  font-size:.96rem;line-height:1.5}
+.escopo .inclui li::before{content:"✓";position:absolute;left:0;top:-.05em;
+  color:#16A34A;font-weight:800}
+.escopo .nao-inclui li::before{content:"—";position:absolute;left:0;
+  color:var(--placeholder);font-weight:700}
+@media (max-width:760px){.escopo{grid-template-columns:1fr}}
