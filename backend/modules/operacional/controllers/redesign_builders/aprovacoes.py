@@ -6,6 +6,7 @@ dinheiro/eSocial intocada). RBAC: só quem tem role ∈ roles_aprovador do rascu
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -25,6 +26,7 @@ from core.models.user import User  # noqa: F401
 from modules.ai.conversation.models.agent_draft import AgentDraft
 
 SLUG = "aprovacoes"
+logger = logging.getLogger(__name__)
 
 _GATE_BADGE = {"🔵": ("Baixo", "#2563EB", "#EAF0FF"),
                "🟡": ("Médio", "#B45309", "#FFFBEB"),
@@ -91,6 +93,19 @@ async def build(db: AsyncSession, current_user=None) -> dict:
         }
         return {"cells": cells, "actions": [aprovar, rejeitar]}
 
+    def _row_seguro(r):
+        """`_row` com cinto: rascunho ruim vira log e some da lista, não derruba a tela.
+
+        Prefere perder UMA linha a perder a Central — que é onde a aprovação de dinheiro
+        cai. O id vai no log para dar para achar o registro problemático depois.
+        """
+        try:
+            return _row(r)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Central: rascunho %s ignorado (%s: %s)",
+                           (r[0] if r else "?"), type(exc).__name__, exc)
+            return None
+
     scr = {
         "title": "Central de Aprovações",
         "sub": (f"{len(rows)} rascunho(s) do agente aguardando sua aprovação"
@@ -98,9 +113,21 @@ async def build(db: AsyncSession, current_user=None) -> dict:
         "cta": "Atualizar", "type": "table", "searchHint": "Buscar rascunho…",
         "grid": "0.9fr 1.1fr 2.0fr 0.7fr 1.0fr 0.8fr",
         "cols": ["Área", "Tipo", "Descrição", "Risco", "Solicitado por", "Criado"],
-        "rows": [_row(r) for r in rows],
+        # Uma linha ruim NÃO derruba a tabela. Antes, `[_row(r) for r in rows]` fazia um
+        # rascunho com payload de formato inesperado apagar a Central inteira — e é aqui que
+        # a aprovação de DINHEIRO cai. Visto acontecer em 10/08/2026 ("string indices must be
+        # integers"), de forma intermitente, enquanto outra sessão gravava rascunhos.
+        "rows": [linha for linha in (_row_seguro(r) for r in rows) if linha],
     }
-    return {"pendentes": scr, "prazos": await _tela_prazos(db, current_user)}
+    # As duas telas são independentes: erro nos prazos não pode levar as aprovações junto.
+    try:
+        prazos = await _tela_prazos(db, current_user)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Central: tela de prazos falhou (%s) — aprovações seguem", exc)
+        prazos = {"title": "Prazos", "type": "table",
+                  "sub": "Não foi possível carregar os prazos agora.",
+                  "cta": "—", "grid": "1fr", "cols": ["Prazos"], "rows": []}
+    return {"pendentes": scr, "prazos": prazos}
 
 
 # --------------------------------------------------------------------------- #
