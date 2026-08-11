@@ -28,12 +28,16 @@ export default function NotFound() {
         </div>
 
         {/* Actions */}
+        {/* A raiz `/` redireciona para /redesign — a casa do sistema é o redesign.
+            Este botão mandava para /dashboard (clássico), então quem caía num 404
+            era jogado na geração antiga sem pedir. Duas portas dizendo casas
+            diferentes é a inconsistência; a raiz decide. */}
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
           <Link
-            href="/dashboard"
+            href="/redesign"
             className="inline-flex items-center gap-2 px-6 py-2.5 text-sm font-medium rounded-lg bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] hover:opacity-90 transition-opacity"
           >
-            Ir para o Dashboard
+            Ir para o início
           </Link>
           <Link
             href="/login"
