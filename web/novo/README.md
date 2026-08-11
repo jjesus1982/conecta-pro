@@ -94,19 +94,21 @@ Referência recebida do Jordan em 11/08/2026 (pasta "Redesign Conecta PRO logo 2
 | Fonte | **Sora**, única |
 | Sombra | `0 8px 20px rgba(22,39,125,.08)` — azulada, nunca cinza |
 
-## Três coisas que eu tinha errado, corrigidas ao ver o guia
+## O limite do que se herda — e por que ele existe
 
-1. **Botão não é pílula.** No sistema, a pílula é *badge de status*; botão é
-   retângulo de canto curto (`--r-input`, 10px). Os CTAs estavam como pílula.
-2. **O lockup tem pastilha.** A marca é `[símbolo] CONECTA [palavra em pastilha
-   laranja]` — não texto solto. Aqui: `CONECTA [MAIS] / SEGURANÇA E TECNOLOGIA`,
-   mesma anatomia do `CONECTA [PRO] / SISTEMA ERP`.
-3. **`letter-spacing` do título** é `-0.02em`; eu tinha usado `-0.035em`.
+Ao receber o guia eu passei do ponto: comecei a reproduzir a GRAMÁTICA do ERP no
+site — botão de canto curto, lockup com pastilha, escala tipográfica de 13px.
+O Jordan cortou na hora, e com razão.
 
-## Uma diferença deliberada
+**Do sistema herda-se a paleta e a fonte. Só.**
 
-O guia especifica corpo de texto em **13px** porque é UI de aplicação densa —
-tela de folha com 12 colunas. Num site institucional lido no celular, 13px é
-pequeno demais. Mantidos os **pesos, cores e letter-spacing** do sistema, com a
-escala ampliada para leitura de marketing. Se o padrão tiver de valer literal,
-é uma variável só (`body font-size`).
+| herda | não herda |
+|---|---|
+| navy `#16277D`, laranja `#F26522`, tinta `#0F1B3A` | raio de botão (app usa 10px; site usa pílula) |
+| fundo `#F4F6FB`, borda `#E7ECF3`, texto fraco `#64748B` | lockup com pastilha (é do produto, não da empresa) |
+| **Sora** como fonte única | escala de 13px (densidade de tela de folha) |
+| sombra azulada `rgba(22,39,125,.08)` | componentes de UI (KPI card, badge, tabela) |
+
+Um ERP existe para o operador conferir dado denso; um site existe para o síndico
+decidir em segundos. Mesmas cores, respiro diferente. Confundir os dois foi erro
+meu, registrado aqui para não repetir.

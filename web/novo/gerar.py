@@ -238,7 +238,7 @@ finish review, the verdict, and DESIGN.md
   <div class="interno">
     <img src="/novo/marca.webp" alt="" width="40" height="40">
     <a class="marca" href="/novo/">
-      <span class="nome">Conecta <span class="pastilha">Mais</span></span>
+      <span class="nome">Conecta Mais</span>
       <span class="sub">Segurança e Tecnologia</span>
     </a>
     <nav>
