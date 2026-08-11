@@ -13,7 +13,7 @@ Tambem inclui busca ativa nos portais governamentais (GAP 2):
 
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
@@ -285,13 +285,33 @@ async def _buscar_e_salvar_certidao(
         logger.error("Erro ao consultar portal %s para CNPJ %s: %s", tipo, cnpj, exc)
         return {"status": "erro", "mensagem": str(exc)}
 
-    if not resultado or resultado.get("situacao") == "erro_consulta":
+    # ── Certidão só se grava quando o órgão CONFIRMOU ────────────────────────────
+    # Em 11/08/2026 este trecho fabricou compliance fiscal. A guarda só rejeitava
+    # `erro_consulta`, então `indeterminado_portal_indisponivel` (portal fora do ar) e
+    # `irregular` (empresa COM pendência) passavam direto — e, logo abaixo, quando o portal
+    # não devolvia validade, havia um "fallback: validade padrao pelo tipo" que INVENTAVA
+    # hoje+180 dias. Resultado medido: quatro linhas nasceram/renovaram parecendo certidões
+    # válidas até 2027 sem que nenhuma consulta tivesse sido respondida. Uma delas era a
+    # CRF-FGTS vencida da Eletrônica, que passou a exibir-se em dia.
+    #
+    # Isso é pior que não ter a certidão: sem ela, a tela mostra "FALTA" e alguém providencia;
+    # com uma falsa, o painel fica verde e a empresa descobre na hora de faturar ou licitar.
+    situacao = str(resultado.get("situacao") or "").lower()
+    if not resultado or situacao == "erro_consulta" or situacao.startswith("indeterminado"):
         return {
-            "status": "erro",
-            "mensagem": resultado.get("mensagem", "Consulta retornou erro"),
+            "status": "indisponivel",
+            "situacao": situacao or "sem_resposta",
+            "mensagem": resultado.get("mensagem", "portal não confirmou — nada foi gravado"),
+        }
+    if situacao and situacao not in ("regular", "negativa", "positiva_com_efeito_negativa", "nada_consta"):
+        # `irregular`/`positiva` é ACHADO (há pendência no órgão), não certidão. Gravar como
+        # documento válido esconderia justamente a dívida que impede a empresa de operar.
+        return {
+            "status": "irregular",
+            "situacao": situacao,
+            "mensagem": f"órgão respondeu '{situacao}' — não existe certidão negativa a registrar",
         }
 
-    # Converter data_validade para objeto date
     data_validade = None
     validade_raw = resultado.get("data_validade")
     if validade_raw:
@@ -300,15 +320,13 @@ async def _buscar_e_salvar_certidao(
         except (ValueError, AttributeError):
             pass
     if data_validade is None:
-        # fallback: validade padrao pelo tipo
-        dias = {
-            "cnd_federal": 180,
-            "cndt_trabalhista": 180,
-            "crf_fgts": 30,
-            "cnd_estadual": 180,
-            "cnd_municipal": 180,
-        }.get(tipo, 30)
-        data_validade = (datetime.utcnow() + timedelta(days=dias)).date()
+        # Sem data do órgão não há certidão. O fallback que existia aqui era a fábrica de
+        # validade: qualquer resposta virava 180 dias de regularidade.
+        return {
+            "status": "sem_validade",
+            "situacao": situacao,
+            "mensagem": "órgão não devolveu data de validade — nada foi gravado (validade não se estima)",
+        }
 
     issue_date = datetime.utcnow().date()
     notes = f"Atualizado automaticamente via portal governamental. Situacao: {resultado.get('situacao', 'regular')}. CNPJ: {cnpj}"
