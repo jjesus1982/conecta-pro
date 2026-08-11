@@ -110,12 +110,27 @@ class LedgerAutoService:
     # ------------------------------------------------------------- fontes ---
     def _lancar_folha(self, cur, empresa_id) -> dict:
         """Folha bruta (despesa) + FGTS patronal (encargo) a partir de hr_payslips reais."""
+        # UMA FONTE POR COMPETÊNCIA. Cada funcionário tem DOIS holerites por mês —
+        # o do nosso motor ('conecta') e o espelho da Portte — e lançar os dois
+        # DOBRAVA a despesa de pessoal no razão: R$692.818,98 a mais em 7 meses
+        # (jun/2026: 56 funcionários, 112 holerites, 112 lançamentos). O erro era
+        # invisível porque os dois espelhos batem quase ao centavo
+        # (jun: 111.340,74 × 111.388,40) — o total parecia coerente, só que era 2×.
+        # Portte é a verdade fiscal [[feedback_portte_fonte_verdade]]; onde ela não
+        # existir, cai no motor. Mesma regra do gerador de pagáveis.
         cur.execute(
             """
             SELECT payslip_code, reference_period, payment_date, competence_end,
                    total_earnings, fgts_value
-            FROM hr_payslips
-            WHERE COALESCE(total_earnings,0) > 0 AND empresa_id = %s
+            FROM (
+                SELECT h.*, ROW_NUMBER() OVER (
+                    PARTITION BY h.reference_period, h.employee_id
+                    ORDER BY (h.source_system = 'portte') DESC, h.payslip_code
+                ) AS prioridade
+                FROM hr_payslips h
+                WHERE COALESCE(h.total_earnings,0) > 0 AND h.empresa_id = %s
+            ) t
+            WHERE prioridade = 1
             """,
             (empresa_id,),
         )
