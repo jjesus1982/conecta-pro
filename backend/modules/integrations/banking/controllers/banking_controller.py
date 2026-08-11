@@ -7,7 +7,7 @@ Endpoints para consulta de saldos, extratos e status de conexão.
 import asyncio
 import logging
 import os
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query
@@ -858,16 +858,91 @@ class TEDRequest(BaseModel):
     descricao: str = ""
 
 
-@router.post("/ted/transfer", summary="Realizar transferência TED")
+@router.post("/ted/gerar-otp", summary="Gera OTP (e-mail Jordan) p/ liberar uma TED")
+async def gerar_otp_ted(
+    req: TEDRequest,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Gera o código que libera UMA transferência TED. NÃO move dinheiro.
+
+    Mesmo mecanismo da folha (tabela `inter_lote_otp`, e-mail ao Jordan, TTL): o código
+    vai para o e-mail dele e vale uma vez só.
+    """
+    import secrets
+    import uuid as _uuid
+
+    from sqlalchemy import text as _text
+
+    limite = float(os.getenv("CONECTA_LIMITE_DIARIO_PAGAMENTOS", "5000.00"))
+    if req.valor <= 0:
+        return {"ok": False, "mensagem": "Valor deve ser maior que zero."}
+    if req.valor > limite:
+        return {"ok": False,
+                "mensagem": f"TED de R$ {req.valor:.2f} excede o teto diário R$ {limite:.2f}."}
+
+    lote_id = str(_uuid.uuid4())
+    code = f"{secrets.randbelow(900000) + 100000}"
+    exp = datetime.now(UTC) + timedelta(seconds=600)
+    await db.execute(_text(
+        "INSERT INTO inter_lote_otp (lote_id, code, expires_at, used) VALUES (:l,:c,:e,false)"),
+        {"l": lote_id, "c": code, "e": exp})
+    await db.commit()
+    email = os.getenv("JORDAN_EMAIL", "jjesus@conectamais.pro")
+    try:
+        from modules.integrations.inter.services.payment_service import _enviar_otp_email
+        await _enviar_otp_email(email, code, req.valor,
+                                f"TED p/ {req.nome} ({req.cpf_cnpj})",
+                                f"banco {req.banco} ag {req.agencia} cc {req.conta}")
+    except Exception as exc:  # noqa: BLE001 — falha de e-mail não pode liberar o pagamento
+        logger.warning("OTP TED: falha ao enviar e-mail: %s", exc)
+    return {"ok": True, "lote_id": lote_id, "valor": req.valor,
+            "message": f"Código enviado para {email}", "expires_in_seconds": 600}
+
+
+@router.post("/ted/transfer", summary="Realizar transferência TED (exige OTP)")
 async def initiate_ted(
     req: TEDRequest,
     current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    otp_code: str = Query(None, description="Código OTP recebido por e-mail (obrigatório)"),
+    lote_id: str = Query(None, description="lote_id devolvido por .../ted/gerar-otp (obrigatório)"),
 ):
-    """Realiza transferência TED para qualquer banco. tipo_conta: CORRENTE | POUPANCA | PAGAMENTO"""
+    """Transferência TED para qualquer banco. tipo_conta: CORRENTE | POUPANCA | PAGAMENTO.
+
+    💰 DINHEIRO QUE SAI → exige OTP humano e respeita o teto diário.
+
+    ANTES (até 10/08/2026) esta rota ia DIRETO ao adaptador do Inter: sem OTP, sem teto,
+    sem confirmação. Bastava um POST autenticado para transferir qualquer valor a qualquer
+    CPF/CNPJ — e nada no sistema chamava esta rota, ou seja, era uma porta aberta sem uso.
+    O gate reusa o MESMO mecanismo da folha (`inter_lote_otp`), não inventa outro.
+    """
+    limite = float(os.getenv("CONECTA_LIMITE_DIARIO_PAGAMENTOS", "5000.00"))
+    if req.valor <= 0:
+        return {"success": False, "error": "Valor deve ser maior que zero."}
+    if req.valor > limite:
+        return {"success": False, "teto_excedido": True,
+                "error": f"TED de R$ {req.valor:.2f} excede o teto diário R$ {limite:.2f}."}
+    if not otp_code or not lote_id:
+        return {
+            "success": False,
+            "otp_requerido": True,
+            "mensagem": "OTP obrigatório. Gere em /banking/ted/gerar-otp e informe "
+                        "lote_id + otp_code para transferir.",
+        }
+    from modules.financial.pagamentos_diaristas_service import _validar_e_consumir_otp_lote
+    try:
+        await _validar_e_consumir_otp_lote(db, lote_id, otp_code)
+    except ValueError as exc:
+        return {"success": False, "otp_invalido": True, "mensagem": str(exc)}
+    await db.commit()
+
     service = _get_banking_service()
     adapter = service._adapters.get("077")
     if adapter is None:
         return {"success": False, "error": "Banco Inter não configurado"}
+    logger.warning("TED AUTORIZADA por OTP: R$ %.2f p/ %s (%s) banco %s",
+                   req.valor, req.nome, req.cpf_cnpj, req.banco)
     return await adapter.initiate_ted(
         req.valor,
         req.banco,
