@@ -400,11 +400,40 @@ async def balancete_real(
         tot_cred += c
         linhas.append({"conta": code, "nome": nomes.get(code, "(conta não mapeada no plano)"),
                        "debito": round(d, 2), "credito": round(c, 2), "saldo": round(d - c, 2)})
+    # PROVA DE CAIXA. As contas 1.1.1.x do razão NÃO refletem o banco: apenas 6%
+    # dos lançamentos do extrato (268 de 4.502) viram lançamento contábil, e o
+    # que existe é quase só ENTRADA (74 baixas de recebimento, R$1.399.656,96,
+    # sem as saídas correspondentes). Resultado: o razão acumula um "banco" que
+    # não existe. Em 2026-08-11 o razão dizia R$1.401.547,03 e o banco,
+    # sincronizado às 05:00, dizia R$16.826,71 — 83× de diferença.
+    # Mostrar o saldo contábil ao lado do saldo REAL é o mínimo honesto enquanto
+    # o razão não cobrir o caixa inteiro. Sem isto, quem lê "Banco Inter" no
+    # balancete acredita estar vendo o extrato.
+    saldo_contabil_banco = round(
+        sum(l["saldo"] for l in linhas if l["conta"].startswith("1.1.1")), 2
+    )
+    real = (await db.execute(_sql(
+        "SELECT coalesce(sum(current_balance), 0) FROM bank_accounts"
+    ))).scalar()
+    saldo_real_banco = round(float(real or 0), 2)
+    divergencia = round(saldo_contabil_banco - saldo_real_banco, 2)
+
     return {
         "ano": ano, "mes": mes, "linhas": linhas,
         "total_debito": round(tot_deb, 2), "total_credito": round(tot_cred, 2),
         "diferenca": round(tot_deb - tot_cred, 2),
         "fecha": abs(tot_deb - tot_cred) < 0.01,
+        "prova_de_caixa": {
+            "saldo_contabil_1_1_1": saldo_contabil_banco,
+            "saldo_real_bancos": saldo_real_banco,
+            "divergencia": divergencia,
+            "bate": abs(divergencia) < 0.01,
+            "aviso": (None if abs(divergencia) < 0.01 else
+                      "As contas de banco do razão NÃO refletem o caixa: só ~6% dos lançamentos "
+                      "do extrato viram lançamento contábil, e quase só entradas. NÃO usar o "
+                      "saldo contábil de 1.1.1.x como saldo bancário — o saldo real vem de "
+                      "bank_accounts.current_balance, sincronizado do banco."),
+        },
         "fonte": "accounting_entries (lançamentos reais de NFS-e emitida + extrato Inter)",
         "observacao": "Plano de contas em consolidação (2 numerações coexistem); contas não mapeadas ficam marcadas.",
     }
