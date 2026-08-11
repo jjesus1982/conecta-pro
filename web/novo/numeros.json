@@ -1,7 +1,17 @@
 {
- "colaboradores": 65,
- "clientes": 10,
- "postos": 9,
- "alocacoes": 53,
- "apurado_em": "2026-08-11"
+ "colaboradores_total": 90,
+ "colaboradores_hoje": 65,
+ "clientes": 21,
+ "postos": 11,
+ "alocacoes_total": 72,
+ "apurado_em": "2026-08-11",
+ "fundacao": "2019-12-05",
+ "anos": 6,
+ "dias_operacao": 2441,
+ "informados_por_jordan": {
+  "colaboradores": "+100",
+  "clientes_agentes": "+15",
+  "clientes_remota": "+15",
+  "desde": "2019"
+ }
 }

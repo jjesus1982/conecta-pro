@@ -504,26 +504,30 @@ NUMEROS = _numeros()
 
 
 def faixa_numeros() -> str:
-    n = NUMEROS
-    if not n.get("colaboradores"):
-        PENDENCIAS.append("rodar web/novo/atualizar_numeros.py para publicar os números do ERP")
+    """Números informados pelo Jordan, dono da empresa.
+
+    O ERP está em migração parcial — tem 10 condomínios cadastrados para uma
+    operação de seis anos —, então a consulta subdimensiona a carteira. Quem
+    conhece o número é ele. Por isso esta faixa NÃO diz "apurado no sistema":
+    atribuir número do dono a uma consulta de banco seria falso, e é justamente
+    o tipo de coisa que derruba a confiança que o resto da página constrói.
+    """
+    j = NUMEROS.get("informados_por_jordan", {})
+    if not j:
+        PENDENCIAS.append("números da faixa (informar em numeros.json)")
         return ""
-    dia, mes, ano = n["apurado_em"][8:], n["apurado_em"][5:7], n["apurado_em"][:4]
     cartoes = [
-        (n["colaboradores"], "colaboradores", "registrados em CLT direto, sem intermediação"),
-        (n["clientes"], "clientes atendidos", "condomínios e empresas em Manaus"),
-        (n["postos"], "postos ativos", "cobertos hoje, 24 horas por dia"),
-        (n["alocacoes"], "alocações vigentes", "agente com posto e escala definidos"),
+        (j["colaboradores"], "colaboradores", "equipe própria, uniformizada e treinada"),
+        (j["clientes_agentes"], "clientes com agentes", "postos de portaria cobertos em Manaus"),
+        (j["clientes_remota"], "clientes com portaria remota", "acesso operado da nossa central"),
+        ("24h", "central própria", f"operando sem parar desde {j['desde']}"),
     ]
     itens = "".join(
-        f'<li><b>{v}</b><span>{html.escape(t)}</span><em>{html.escape(d)}</em></li>'
-        for v, t, d in cartoes if v)
+        f'<li><b>{html.escape(str(v))}</b><span>{html.escape(t)}</span>'
+        f'<em>{html.escape(d)}</em></li>' for v, t, d in cartoes)
     return ('<section class="numeros"><div class="interno">'
-            '<h2 class="titulo">Os números são do nosso sistema,<br>não do nosso marketing</h2>'
-            f'<ul>{itens}</ul>'
-            f'<p class="apuracao">Apurado no ERP da Conecta Mais em {dia}/{mes}/{ano}. '
-            'Esta página é gerada a partir do banco — se o quadro muda, o número aqui muda junto.</p>'
-            '</div></section>')
+            f'<h2 class="titulo">Seis anos guardando Manaus,<br>com gente nossa no posto</h2>'
+            f'<ul>{itens}</ul></div></section>')
 
 
 RECEBE = """
@@ -585,6 +589,45 @@ APP_TRANSICAO = """
 """
 
 
+# Vitrine de logos de clientes. O Jordan pediu logo no lugar dos dados
+# cadastrais da empresa — logo de cliente é prova social; CNPJ e razão social
+# não vendem nada e já estão no rodapé.
+LOGOS = """
+<div class="clientes">
+  <h3>Quem confia a portaria à Conecta Mais</h3>
+  <div class="marcas" data-vazio="Coloque aqui os logos autorizados: PNG com fundo transparente em web/novo/fotos/clientes/">
+    <span class="aguardando">Logos dos clientes entram aqui — aguardando autorização de uso de marca</span>
+  </div>
+</div>
+"""
+
+
+# Sentinela — o carro-chefe da eletrônica, segundo o Jordan. Conteúdo tirado do
+# material próprio (apresentacoes/eletronica/Video2_Sentinela.mp4): "Sentinela
+# IA 24h", "como transformar câmeras comuns em inteligentes", e a oferta de
+# diagnóstico gratuito, que é o melhor gancho de entrada que a empresa tem.
+SENTINELA = f"""
+<section class="sentinela"><div class="interno">
+  <span class="etiqueta">Sentinela · IA 24h</span>
+  <h2>Sua câmera já está instalada.<br>Falta ela saber o que está vendo.</h2>
+  <p>Câmera comum grava e espera alguém assistir depois — quase sempre tarde
+  demais. O <strong>Sentinela</strong> é a nossa camada de monitoramento
+  inteligente: ele analisa a imagem das câmeras que você já tem, identifica o que
+  foge do padrão e leva o evento ao operador da central na hora, não no dia
+  seguinte.</p>
+  <ul class="ganhos">
+    <li><b>Aproveita o que existe</b><span>Não exige trocar o parque de câmeras para começar.</span></li>
+    <li><b>Analisa, não só grava</b><span>A IA separa movimento comum de evento que merece atenção.</span></li>
+    <li><b>Sempre com gente atrás</b><span>Quem decide o que fazer é o operador da nossa central, 24 horas.</span></li>
+  </ul>
+  <div class="acoes">
+    <a class="acao" href="{zap('Olá! Quero o diagnóstico gratuito do Sentinela.', 'site_sentinela')}">{ZAP_SVG}Diagnóstico gratuito</a>
+    <a class="acao vazada" href="tel:+{FONE}">{FONE_HUMANO}</a>
+  </div>
+</div></section>
+"""
+
+
 def linhas_prova(itens) -> str:
     saida = []
     for rotulo, valor in itens:
@@ -621,6 +664,7 @@ def pagina_item(it: dict) -> str:
             + 'marcado como tal — não inventamos.</p>'
             + linhas_prova(it["prova"])
             + f'<div style="margin-top:2.4rem">{foto(it["slug"] + "-2", it["legenda2"])}</div>'
+            + (SENTINELA if it['slug'] == 'monitoramento' else '')
             + blocos_como(it["slug"])
             + blocos_faq(FAQ.get(it["slug"], []))
             + '</div>'
@@ -668,12 +712,12 @@ def pagina_capa() -> str:
             + galeria()
             + '<section class="secao"><div class="par"><div>'
             + '<h2 class="titulo">Sem intermediário<br>entre você e o posto</h2>'
+            + '<div class="par"><div>'
             + '<p>Quem está no seu posto é <strong>funcionário nosso</strong>, com encargo '
             + 'recolhido no nosso CNPJ. Quem atende o alarme às três da manhã é operador '
             + '<strong>da nossa central</strong>, não de uma central contratada.</p>'
             + '<p>As duas coisas decidem quem responde pelo passivo trabalhista do seu '
-            + 'contrato e quem aparece quando o evento acontece. Por isso estão aqui, '
-            + 'verificáveis, e não numa frase sobre excelência.</p>'
+            + 'contrato e quem aparece quando o evento acontece.</p>'
             + '<p>Terceirizar portaria por preço costuma sair caro depois. Quando a '
             + 'empresa contratada não recolhe encargo, a reclamação trabalhista do '
             + 'porteiro chega ao condomínio — e o síndico que assinou responde por ela '
@@ -682,10 +726,9 @@ def pagina_capa() -> str:
             + 'encargo, benefício, cobertura de falta e margem. Você compara linha a '
             + 'linha com qualquer concorrente e vê quem está fechando a conta e quem '
             + 'está deixando buraco para depois.</p>'
-            + f'<ul class="prova">{linhas}</ul>'
             + '</div>'
             + f'<div>{foto("central", "Central de monitoramento em turno")}</div>'
-            + '</div></section>'
+            + '</div>' + LOGOS + '</section>'
             + '<section class="secao">'
             + '<h2 class="titulo">Quando vale trocar<br>e quando não vale</h2>'
             + '<div class="par"><div>'
@@ -712,6 +755,7 @@ def pagina_capa() -> str:
             + 'prova. Por isso o projeto sai com posicionamento justificado e lista '
             + 'de equipamento aberta — inclusive para você cotar em outro lugar.</p>'
             + '</div></div></section>'
+            + SENTINELA
             + APP_TRANSICAO
             + RECEBE.replace('__CHAPA__', foto('monitoramento-2', 'Operador acompanhando as câmeras'))
             + '<section class="secao">' + blocos_faq(FAQ_GERAL, 'Perguntas frequentes')

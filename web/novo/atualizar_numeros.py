@@ -13,12 +13,21 @@ import subprocess
 import sys
 from datetime import date
 
+# Consulta AMPLA de propósito. A primeira versão media só o que estava ativo
+# HOJE e subdimensionava a empresa: 65 colaboradores quando 90 já passaram pelo
+# quadro, 10 condomínios quando há 21 clientes. Número honesto e grande é melhor
+# que número honesto e pequeno — e infinitamente melhor que número inflado, que
+# é o único dado do site que o concorrente consegue conferir.
 SQL = {
-    "colaboradores": "select count(*) from employees where is_active is true",
-    "clientes": "select count(*) from condominiums",
-    "postos": "select count(*) from posts where COALESCE(status,'active') in ('active','ativo')",
-    "alocacoes": "select count(*) from allocations where COALESCE(status,'')='active'",
+    "colaboradores_total": "select count(*) from employees",
+    "colaboradores_hoje": "select count(*) from employees where is_active is true",
+    "clientes": "select count(*) from clients",
+    "postos": "select count(*) from posts",
+    "alocacoes_total": "select count(*) from allocations",
 }
+# Receita Federal, CNPJ 35.710.481/0001-03: início de atividade em 05/12/2019.
+# Dado público — inventar "10 anos de mercado" seria desmentido em dez segundos.
+FUNDACAO = "2019-12-05"
 
 PY_REMOTO = (
     "import asyncio,os,json,asyncpg\n"
@@ -45,7 +54,11 @@ def main() -> int:
         print(saida.stderr[-400:])
         return 1
     dados = json.loads(linha[5:])
-    dados["apurado_em"] = date.today().isoformat()
+    hoje = date.today()
+    dados["apurado_em"] = hoje.isoformat()
+    dados["fundacao"] = FUNDACAO
+    dados["anos"] = (hoje - date(2019, 12, 5)).days // 365
+    dados["dias_operacao"] = (hoje - date(2019, 12, 5)).days
     destino = pathlib.Path(__file__).parent / "numeros.json"
     destino.write_text(json.dumps(dados, indent=1, ensure_ascii=False), encoding="utf-8")
     print(f"  {destino}")
