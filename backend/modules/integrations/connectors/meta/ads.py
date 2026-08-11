@@ -189,7 +189,10 @@ _COLUNAS = {
     "nome": ("nome da campanha", "campaign name"),
     "gasto": ("valor gasto", "amount spent"),
     "inicio": ("início dos relatórios", "inicio dos relatorios", "reporting starts"),
-    "fim": ("término dos relatórios", "termino dos relatorios", "reporting ends"),
+    # "Encerramento" é o que o export real de 11/08/2026 trouxe; "Término" aparece
+    # em outros recortes do mesmo Gerenciador. Aceitar os dois.
+    "fim": ("encerramento dos relatórios", "encerramento dos relatorios",
+            "término dos relatórios", "termino dos relatorios", "reporting ends"),
 }
 
 
@@ -277,6 +280,13 @@ async def importar_csv(db, caminho: str) -> dict:
         gravados += 1
     await db.commit()
     logger.info("Meta Ads CSV: %s campanhas importadas de %s", gravados, caminho)
+    if not gravados:
+        # Export de conta sem campanha traz UMA linha de totais toda vazia. Sem
+        # dizer isso, "ok, 0 campanhas" se confunde com falha de leitura — e o
+        # diagnóstico é oposto: o arquivo está certo, a conta é que não anunciou.
+        return {"ok": True, "campanhas": 0,
+                "motivo": "arquivo só tem a linha de totais, sem campanha — "
+                          "a conta de anúncios não veiculou nada no período"}
     return {"ok": True, "campanhas": gravados, "por_id": bool(col["id"])}
 
 
