@@ -46,8 +46,6 @@ app = Celery(
         "modules.notifications.proativo.tasks",
         # Fase 5.6a (LT2): detector de anomalia de pagamento (beat + sino diretoria).
         "modules.ai.fraud_detection.tasks",
-        # Varredura diária dos 59 oráculos (exibido == banco); falha vira alerta no sino.
-        "modules.notifications.tasks_oraculos",
     ],
 )
 
@@ -186,15 +184,10 @@ app.conf.beat_schedule = {
     #    2026-07-25: app.conf.timezone (acima) == "America/Manaus" E o container
     #    celery-beat roda com TZ=America/Manaus — o crontab do celery interpreta a
     #    hora no timezone configurado, então hour=7 já É 07:00 Manaus (não 07:00 UTC).
-    # ── Os 59 oráculos (exibido == banco) rodam sozinhos, 05:00 America/Manaus — antes do
-    #    expediente, para o vermelho já estar no sino quando alguém abrir o sistema. Não há
-    #    notificação de sucesso: `task_falha` só publica quando a tarefa ESTOURA, e estourar
-    #    é exatamente o que ela faz quando um oráculo fica vermelho. Verde = silêncio.
-    "oraculos-diarios": {
-        "task": "orq.oraculos_diarios",
-        "schedule": crontab(hour=5, minute=0),
-        "options": {"queue": "gov.batch"},
-    },
+    # ── Os 59 oráculos NÃO rodam aqui: um oráculo tem pico de 894 MB (importa o app) e
+    #    todo worker tem limite de 2 GB com 1,39 GB em uso — a varredura derrubaria por OOM
+    #    o worker de gov/financeiro/integrações. Roda por cron do host no container do
+    #    backend (6 GB), via modules/notifications/tasks_oraculos.py --varrer.
     "proativo-digest-diario": {
         "task": "proativo.digest_diario",
         "schedule": crontab(hour=7, minute=0),
