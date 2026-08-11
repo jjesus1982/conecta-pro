@@ -1156,14 +1156,23 @@ register(Regra(
 # não estatístico — por isso a tolerância cobre só arredondamento.
 TOLERANCIA_CAIXA = 1.00
 
+# Só cobra o que JÁ VENCEU: movimentação de hoje ainda não passou pela
+# escrituração (beat 08:40, depois dos syncs de 08:00/08:10). Sem este corte o
+# alarme acusaria a defasagem normal do dia e tocaria quase todo dia — alarme que
+# toca sempre é alarme que ninguém lê. Os dois lados usam o MESMO corte, senão a
+# comparação fica torta.
 SQL_CAIXA_DIVERGENTE = """
+    WITH corte AS (SELECT (now() AT TIME ZONE 'America/Manaus')::date AS hoje)
     SELECT
         (SELECT coalesce(sum(CASE WHEN conta_debito LIKE '1.1.1%' THEN valor ELSE -valor END), 0)
-         FROM accounting_entries
-         WHERE conta_debito LIKE '1.1.1%' OR conta_credito LIKE '1.1.1%') AS razao,
-        (SELECT coalesce(sum(amount), 0) FROM bank_transactions) AS extrato,
-        (SELECT count(*) FROM bank_transactions b
+         FROM accounting_entries, corte
+         WHERE (conta_debito LIKE '1.1.1%' OR conta_credito LIKE '1.1.1%')
+           AND data_lancamento < corte.hoje) AS razao,
+        (SELECT coalesce(sum(amount), 0) FROM bank_transactions, corte
+          WHERE transaction_date < corte.hoje) AS extrato,
+        (SELECT count(*) FROM bank_transactions b, corte
           WHERE b.amount <> 0
+            AND b.transaction_date < corte.hoje
             AND NOT EXISTS (SELECT 1 FROM accounting_entries a
                             WHERE a.bank_transaction_id = b.id)) AS sem_lancamento
 """

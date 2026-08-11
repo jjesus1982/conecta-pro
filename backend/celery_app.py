@@ -238,12 +238,14 @@ app.conf.beat_schedule = {
         "schedule": crontab(hour=6, minute=0, day_of_month=1),
         "options": {"queue": "gov.batch"},
     },
-    # Escritura o extrato no razão. 05:20 — depois do sync de saldo/extrato
-    # (05:00) e ANTES do fechamento do razão, para que o fechamento veja o caixa
-    # do dia já lançado.
+    # Escritura o extrato no razão. 08:40 = DEPOIS de todo mundo que mexe no
+    # extrato: Inter 08:00, Cora 08:10, obrigações 08:15, auto-baixa 08:30.
+    # Estava às 05:20, ANTES dos syncs — cada movimentação esperava ~24h para
+    # virar lançamento e o alarme `caixa_divergente` (que roda a cada 15 min e
+    # conta movimentação sem lançamento) tocaria ~21h por dia, todo dia.
     "financeiro-escriturar-extrato": {
         "task": "financial.escriturar_extrato",
-        "schedule": crontab(hour=5, minute=20),
+        "schedule": crontab(hour=8, minute=40),
         "options": {"queue": "gov.batch"},
     },
 
