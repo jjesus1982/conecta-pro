@@ -153,6 +153,20 @@ def test_periodo_fechado_barra_antes_do_corte_e_nao_engole_data_nula():
     assert round(sum(ABERTURA_NO_CORTE.values()), 2) == 18663.83
 
 
+def test_regra_saida_sem_origem_so_cobra_o_que_da_para_resolver():
+    """O padrão "tudo passa pelo sistema" começou em 0 de 175 saídas. Alarmar
+    nas 175 seria inútil: 51 são a folha (1 pagável ↔ 51 PIX, vínculo 1:N que
+    ainda não existe) e 88 são miúdos abaixo de R$100. Acima do limiar são 2 —
+    acionáveis. Alarme que aponta o que ninguém pode resolver morre em uma
+    semana."""
+    from modules.financial.services.cobertura_sistema import LIMIAR_SAIDA_SEM_ORIGEM
+    from modules.notifications.proativo.regras import REGISTRY
+
+    assert "saida_sem_origem" in REGISTRY
+    assert REGISTRY["saida_sem_origem"].roles_destino == ("admin",)  # LGPD: só diretoria
+    assert LIMIAR_SAIDA_SEM_ORIGEM >= 1000, "limiar baixo joga a folha inteira no sino"
+
+
 def test_toda_conta_do_mapa_tem_motivo():
     """O motivo vai para o histórico do lançamento — quem auditar em 2030
     precisa saber por que aquela conta foi escolhida."""

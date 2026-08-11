@@ -1233,3 +1233,69 @@ register(Regra(
     action_url="/redesign/financeiro?t=g-contabil",
     detectar=_detectar_caixa_divergente, template=_tpl_caixa_divergente,
 ))
+
+
+# ─────────────────────────── saida_sem_origem ───────────────────────────
+# O padrão que o Jordan quer: nada sai da conta sem ter nascido no sistema como
+# um pagável. Em 11/08/2026 isso era 0 de 175 saídas — o sistema anota depois,
+# não autoriza antes.
+#
+# Alarmar em TODAS as 175 seria inútil: 51 são a folha (1 pagável ↔ 51 PIX, um
+# vínculo 1:N que ainda não existe) e 88 são miúdos abaixo de R$100. Alarme que
+# aponta o que ninguém pode resolver hoje é desligado na primeira semana.
+# Acima do limiar são 2 saídas — as duas para o sócio. Isso é acionável.
+#
+# `< hoje` porque a escrituração e a conciliação rodam 08:30/08:40: cobrar a
+# movimentação do próprio dia é cobrar a defasagem normal.
+SQL_SAIDA_SEM_ORIGEM = """
+    SELECT bt.id::text AS id, bt.transaction_date::date AS dia, abs(bt.amount) AS valor,
+           coalesce(bt.justificativa_categoria, '?') AS categoria,
+           left(coalesce(bt.counterparty_name, bt.description, ''), 60) AS quem
+    FROM bank_transactions bt
+    WHERE bt.amount < 0
+      AND abs(bt.amount) >= :limiar
+      AND bt.transaction_date >= CAST(:inicio AS date)
+      AND bt.transaction_date < (now() AT TIME ZONE 'America/Manaus')::date
+      AND NOT EXISTS (SELECT 1 FROM payable_accounts p
+                      WHERE p.transacao_bancaria_id = bt.id::text)
+    ORDER BY abs(bt.amount) DESC
+    LIMIT 20
+"""
+
+
+async def _detectar_saida_sem_origem(db: AsyncSession) -> list[Achado]:
+    from modules.financial.services.cobertura_sistema import LIMIAR_SAIDA_SEM_ORIGEM
+    from modules.financial.services.periodo_contabil import CORTE_CONTABIL
+
+    rows = (await db.execute(text(SQL_SAIDA_SEM_ORIGEM),
+                             {"limiar": LIMIAR_SAIDA_SEM_ORIGEM,
+                              "inicio": CORTE_CONTABIL})).mappings().all()
+    return [Achado(
+        # Um achado POR SAÍDA: cada uma exige uma decisão diferente (registrar o
+        # pagável, ou explicar por que saiu sem ele). Agrupar viraria um número
+        # que ninguém age em cima.
+        correlation_id=f"saida_sem_origem:{r['id']}",
+        dados={"valor": round(float(r["valor"]), 2), "dia": str(r["dia"]),
+               "categoria": r["categoria"], "quem": r["quem"],
+               "limiar": LIMIAR_SAIDA_SEM_ORIGEM},
+    ) for r in rows]
+
+
+def _tpl_saida_sem_origem(d: dict) -> tuple[str, str]:
+    return (
+        f"R$ {d['valor']:,.2f} saiu sem estar registrado no sistema",
+        f"Saída de R$ {d['valor']:,.2f} em {d['dia']} para {d['quem']} "
+        f"(categoria: {d['categoria']}) não tem nenhum pagável correspondente.\n\n"
+        f"O dinheiro saiu da conta sem ter passado pelo sistema — não há o que "
+        f"aprovou, nem contra o que conferir. Registrar o pagável (ainda que "
+        f"depois) ou explicar a saída.\n\n"
+        f"Só saídas acima de R$ {d['limiar']:,.2f} entram neste aviso.",
+    )
+
+
+register(Regra(
+    nome="saida_sem_origem", familia="financeiro", severidade="atencao",
+    roles_destino=("admin",),  # LGPD: financeiro SÓ diretoria
+    action_url="/redesign/financeiro?t=g-pagar",
+    detectar=_detectar_saida_sem_origem, template=_tpl_saida_sem_origem,
+))

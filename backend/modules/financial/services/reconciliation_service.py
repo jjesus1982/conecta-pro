@@ -236,7 +236,14 @@ def conciliar_transacao(tx_id: str, conn, permitir_justificado: bool = False) ->
                 """
                 SELECT id, description, gross_value, net_value, due_date, status
                 FROM payable_accounts
-                WHERE status = 'pendente'
+                -- A trava é "ainda NÃO VINCULADO", não "ainda não pago". O filtro
+                -- antigo (status='pendente') tornava invisíveis 130 pagáveis que
+                -- nascem marcados `pago` porque a NFS-e/folha existe — sem
+                -- paid_at, sem comprovante, sem transação bancária. Eram
+                -- justamente os que mais precisavam de prova, e a conciliação
+                -- nunca os alcançava: 0 de 175 saídas de agosto vinculadas.
+                WHERE transacao_bancaria_id IS NULL
+                  AND status <> 'cancelado'
                   AND ABS(gross_value - %s) <= %s
                   AND due_date BETWEEN %s AND %s
                   AND lower(description) LIKE lower(%s)
