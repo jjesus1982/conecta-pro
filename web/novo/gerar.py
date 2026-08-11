@@ -206,7 +206,7 @@ def cabeca(titulo: str, descricao: str, canonico: str, atual: str = "") -> str:
 <title>{html.escape(titulo)}</title>
 <meta name="description" content="{html.escape(descricao)}">
 <link rel="canonical" href="https://conectamais.pro{canonico}">
-<link rel="icon" href="/novo/marca-icone.webp">
+<link rel="icon" href="/novo/favicon.webp">
 <link rel="preload" as="font" type="font/woff2" href="/novo/fontes/archivo-lat.woff2" crossorigin>
 <link rel="stylesheet" href="/novo/estilo.css">
 <meta property="og:title" content="{html.escape(titulo)}">
@@ -236,11 +236,7 @@ finish review, the verdict, and DESIGN.md
 -->
 <header class="topo">
   <div class="interno">
-    <img src="/novo/marca.webp" alt="" width="40" height="40">
-    <a class="marca" href="/novo/">
-      <span class="nome">Conecta Mais</span>
-      <span class="sub">Segurança e Tecnologia</span>
-    </a>
+    <a class="marca" href="/novo/" aria-label="Conecta Mais — Segurança e Tecnologia"><img src="/novo/logo-conecta-mais.webp" alt="Conecta Mais — Segurança e Tecnologia" width="348" height="66"></a>
     <nav>
       {na('/novo/portaria-remota/', 'Portaria remota')}
       {na('/novo/agentes-de-portaria/', 'Agentes')}
@@ -308,6 +304,162 @@ def galeria() -> str:
             f'<div class="grade">{figs}</div></section>')
 
 
+# ── Conteúdo de texto ────────────────────────────────────────────────────────
+# O site tinha imagem demais e texto de menos. Isto é o que síndico e gestor
+# realmente perguntam antes de assinar — e o que o Google indexa. Nada aqui
+# inventa número: onde falta dado, entra selo de pendência.
+
+COMO_FUNCIONA = {
+    "portaria-remota": [
+        ("Levantamento no local",
+         "Vamos ao endereço medir o que existe: quantos acessos, onde ficam as "
+         "câmeras, como é o portão e qual a internet disponível. Sem isso não há "
+         "cotação honesta — só chute."),
+        ("Instalação e testes",
+         "Instalamos interfone com vídeo, acionamento de portão e os pontos de "
+         "câmera que faltarem. Antes de tirar o porteiro do local, o sistema roda "
+         "em paralelo com ele."),
+        ("Operação assistida",
+         "Nossa central assume o acesso. Cada entrada e saída fica registrada em "
+         "vídeo, com hora e autorização — o que o livro de portaria nunca deu."),
+    ],
+    "agentes-de-portaria": [
+        ("Dimensionamento do posto",
+         "Definimos quantos agentes o endereço precisa por turno e qual escala "
+         "cobre 24 horas sem hora extra estrutural. É aqui que a maioria das "
+         "propostas erra e o custo estoura depois."),
+        ("Seleção e treinamento",
+         "Contratação em CLT direto pela Conecta Mais, com exame admissional, "
+         "uniforme e EPI. O agente é apresentado ao síndico antes de assumir."),
+        ("Cobertura e substituição",
+         "Falta, férias e afastamento são cobertos por substituto do nosso quadro. "
+         "O posto não fica descoberto e o condomínio não recebe a conta disso."),
+    ],
+    "monitoramento": [
+        ("Integração dos equipamentos",
+         "Conectamos alarme e câmeras já existentes à nossa central. Não exigimos "
+         "troca de equipamento para começar."),
+        ("Tratativa de evento",
+         "Disparou, o operador verifica a imagem antes de acionar. Isso separa "
+         "gato no jardim de invasão — e evita o desgaste do acionamento à toa."),
+        ("Registro e retorno",
+         "Toda ocorrência vira log com hora, imagem e o que foi feito. O síndico "
+         "recebe o relatório e não depende da memória de ninguém."),
+    ],
+    "seguranca-eletronica": [
+        ("Projeto",
+         "Levantamento no local e projeto com posicionamento de câmera, ponto de "
+         "acesso e infraestrutura. Você recebe a lista de equipamento e as "
+         "quantidades — e pode cotar em qualquer lugar."),
+        ("Instalação",
+         "Execução por equipe própria, com passagem de infraestrutura, "
+         "configuração e teste ponto a ponto."),
+        ("Manutenção",
+         "Preventiva programada e corretiva quando precisar. O equipamento é seu; "
+         "a manutenção é contrato à parte, sem amarração."),
+    ],
+}
+
+FAQ = {
+    "portaria-remota": [
+        ("E se a internet cair?",
+         "É a primeira pergunta de toda assembleia, e a resposta honesta depende "
+         "da infraestrutura instalada no seu endereço — nobreak, link secundário "
+         "e protocolo de contingência entram na proposta. Peça a cotação que "
+         "detalhamos item a item."),
+        ("O morador perde a comodidade do porteiro?",
+         "Muda a forma. O acesso continua sendo autorizado por uma pessoa, só que "
+         "de uma central com câmera e registro. Encomenda, visitante e prestador "
+         "seguem o mesmo fluxo — com a diferença de que tudo fica gravado."),
+        ("Quanto reduz de custo?",
+         "Depende de quantos postos o condomínio mantém hoje. A conta que importa "
+         "é a comparação entre o custo atual dos postos e a mensalidade da "
+         "portaria remota, e nós a apresentamos aberta, com a composição por posto."),
+        ("Dá para manter um porteiro e usar remota só à noite?",
+         "Dá — é o modelo híbrido, e costuma ser o caminho de menor resistência em "
+         "assembleia. Posto físico no horário de movimento, central nos demais."),
+    ],
+    "agentes-de-portaria": [
+        ("Quem responde se o agente processar o condomínio?",
+         "O vínculo é com a Conecta Mais, em CLT direto, com encargo recolhido no "
+         "nosso CNPJ. Mas o contratante pode ser chamado a responder de forma "
+         "subsidiária — por isso importa contratar quem paga em dia e comprova. "
+         "Enviamos as guias mensalmente junto com a fatura."),
+        ("O que acontece quando o agente falta?",
+         "Substituto do nosso quadro assume. O posto não fica descoberto e não há "
+         "cobrança extra por isso — a cobertura já está no custo do posto."),
+        ("De onde sai o valor do salário?",
+         "Da convenção coletiva vigente da categoria. Não é número que a gente "
+         "escolhe: é piso, adicional e benefício definidos em CCT, e mostramos "
+         "cada linha na composição de custo."),
+    ],
+    "monitoramento": [
+        ("Preciso trocar minhas câmeras?",
+         "Não para começar. Integramos o que já existe e apontamos, no "
+         "levantamento, o que compensa trocar — com a razão técnica, não para "
+         "empurrar equipamento."),
+        ("O que vocês fazem quando o alarme dispara?",
+         "O operador verifica a imagem antes de acionar. Confirmada a ocorrência, "
+         "seguimos o protocolo definido com você: contato com responsável, "
+         "acionamento de apoio e registro do que foi feito."),
+        ("Recebo relatório?",
+         "Sim. Toda ocorrência gera log com hora, imagem e desfecho, e o "
+         "consolidado vai para o síndico no fechamento do mês."),
+    ],
+    "seguranca-eletronica": [
+        ("O equipamento fica de quem?",
+         "Do contratante. Compramos e instalamos, e a nota é sua — sem comodato "
+         "que prenda você ao contrato."),
+        ("Sou obrigado a monitorar com vocês?",
+         "Não. O projeto funciona sozinho e serve para qualquer central. Integrar "
+         "com a nossa é opção, não condição."),
+        ("Vocês fazem manutenção de sistema que não instalaram?",
+         "Fazemos, depois de um laudo do que está em campo. Sem o laudo não há "
+         "como assumir responsabilidade por instalação de terceiro."),
+    ],
+}
+
+FAQ_GERAL = [
+    ("Vocês atendem fora de Manaus?",
+     "A operação é em Manaus e região metropolitana. Para endereço fora dessa "
+     "área, fale com a gente antes: o custo de deslocamento muda a conta e "
+     "preferimos dizer não a entregar mal."),
+    ("Qual o prazo para começar?",
+     "Depende do serviço e do que existe no local. Agentes de portaria dependem "
+     "de seleção e exame admissional; portaria remota depende de instalação. "
+     "O prazo entra na proposta com data, não com 'o quanto antes'."),
+    ("Como é feita a cotação?",
+     "Por posto, com a composição de custo aberta: salário de CCT, encargo, "
+     "benefício, cobertura de falta e margem. Você vê de onde sai cada real — e "
+     "consegue comparar com qualquer concorrente linha a linha."),
+    ("Precisa de contrato de fidelidade?",
+     "Os prazos e condições de rescisão ficam explícitos no contrato, e a gente "
+     "os discute antes de assinar. Não trabalhamos com amarração escondida em "
+     "cláusula que ninguém lê."),
+]
+
+
+def blocos_como(slug: str) -> str:
+    passos = COMO_FUNCIONA.get(slug, [])
+    if not passos:
+        return ""
+    itens = "".join(
+        f'<li><h3>{html.escape(t)}</h3><p>{html.escape(d)}</p></li>'
+        for t, d in passos)
+    return ('<h2 class="titulo" style="margin-top:3rem">Como funciona</h2>'
+            f'<ol class="passos">{itens}</ol>')
+
+
+def blocos_faq(perguntas, titulo: str = "Perguntas que sempre fazem") -> str:
+    if not perguntas:
+        return ""
+    itens = "".join(
+        f'<details><summary>{html.escape(q)}</summary><p>{html.escape(r)}</p></details>'
+        for q, r in perguntas)
+    return (f'<h2 class="titulo" style="margin-top:3rem">{html.escape(titulo)}</h2>'
+            f'<div class="faq">{itens}</div>')
+
+
 def linhas_prova(itens) -> str:
     saida = []
     for rotulo, valor in itens:
@@ -344,6 +496,8 @@ def pagina_item(it: dict) -> str:
             + 'marcado como tal — não inventamos.</p>'
             + linhas_prova(it["prova"])
             + f'<div style="margin-top:2.4rem">{foto(it["slug"] + "-2", it["legenda2"])}</div>'
+            + blocos_como(it["slug"])
+            + blocos_faq(FAQ.get(it["slug"], []))
             + '</div>'
             + f'<div>{cartao(it["zap_texto"], it["zap_slug"])}</div>'
             + '</div></section>' + PE)
@@ -394,10 +548,46 @@ def pagina_capa() -> str:
             + '<p>As duas coisas decidem quem responde pelo passivo trabalhista do seu '
             + 'contrato e quem aparece quando o evento acontece. Por isso estão aqui, '
             + 'verificáveis, e não numa frase sobre excelência.</p>'
+            + '<p>Terceirizar portaria por preço costuma sair caro depois. Quando a '
+            + 'empresa contratada não recolhe encargo, a reclamação trabalhista do '
+            + 'porteiro chega ao condomínio — e o síndico que assinou responde por ela '
+            + 'perante a assembleia. É por isso que a nossa proposta abre a '
+            + '<strong>composição de custo por posto</strong>: salário de convenção, '
+            + 'encargo, benefício, cobertura de falta e margem. Você compara linha a '
+            + 'linha com qualquer concorrente e vê quem está fechando a conta e quem '
+            + 'está deixando buraco para depois.</p>'
             + f'<ul class="prova">{linhas}</ul>'
             + '</div>'
             + f'<div>{foto("central", "Central de monitoramento em turno")}</div>'
-            + '</div></section>' + PE)
+            + '</div></section>'
+            + '<section class="secao">'
+            + '<h2 class="titulo">Quando vale trocar<br>e quando não vale</h2>'
+            + '<div class="par"><div>'
+            + '<p><strong>Portaria remota compensa</strong> em condomínio com fluxo '
+            + 'previsível, portão automatizado e internet estável. A economia vem de '
+            + 'deixar de manter dois ou três postos físicos 24 horas — e ela é real, '
+            + 'não promessa: aparece na primeira fatura.</p>'
+            + '<p><strong>Agente presencial continua fazendo falta</strong> onde há '
+            + 'muita entrega, obra em andamento, área de lazer movimentada ou público '
+            + 'idoso que precisa de ajuda física. Nesses casos o modelo híbrido — '
+            + 'agente no horário de pico, central no resto — costuma resolver melhor '
+            + 'que qualquer um dos dois puros.</p>'
+            + '<p>Se o seu caso for de manter o posto físico, a gente vai dizer isso. '
+            + 'Vender remota para endereço que não comporta gera cancelamento em três '
+            + 'meses, e cancelamento é prejuízo para os dois lados.</p>'
+            + '</div><div>'
+            + '<p><strong>Monitoramento eletrônico</strong> é o complemento mais barato '
+            + 'dos três. Ele não substitui pessoa, mas cobre o que a pessoa não vê: '
+            + 'perímetro à noite, área de lazer fora de horário, garagem no fim de '
+            + 'semana. Numa central própria, quem atende conhece a planta do seu '
+            + 'endereço.</p>'
+            + '<p><strong>Segurança eletrônica</strong> é projeto, não catálogo. '
+            + 'Câmera mal posicionada custa o mesmo da bem posicionada e não serve de '
+            + 'prova. Por isso o projeto sai com posicionamento justificado e lista '
+            + 'de equipamento aberta — inclusive para você cotar em outro lugar.</p>'
+            + '</div></div></section>'
+            + '<section class="secao">' + blocos_faq(FAQ_GERAL, 'Perguntas frequentes')
+            + '</section>' + PE)
 
 
 def pagina_contato() -> str:
