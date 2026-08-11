@@ -1,26 +1,25 @@
-"""Prova: gestor Gonzaga (perms {ged,dp,operacional,sst}) recebe as tools desses módulos
+"""Prova: um GESTOR (perms {ged,dp,operacional,sst}) recebe as tools desses módulos
 e NUNCA a de financeiro/fiscal/comercial (belt); e o suspenders barra execução fora do módulo."""
 import asyncio
+import os
+import sys
 
-from sqlalchemy import text
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from core.auth.module_scope import user_modules
-from core.database import async_session_factory
-from modules.ai.conversation.services.orquestrador import tools_modulos  # noqa: F401 — registra
-from modules.ai.conversation.services.orquestrador import tool_registry as tr
+from _fixtures import exigir_usuario  # noqa: E402
+from core.auth.module_scope import user_modules  # noqa: E402
+from core.database import async_session_factory  # noqa: E402
+from modules.ai.conversation.services.orquestrador import tools_modulos  # noqa: F401,E402 — registra
+from modules.ai.conversation.services.orquestrador import tool_registry as tr  # noqa: E402
 
-
-class _U:
-    def __init__(self, role, permissions):
-        self.role, self.permissions, self.id = role, permissions, "x"
+# Por PAPEL, não por e-mail: o oráculo buscava `egonzaga@conectamais.pro` e quebrou quando
+# a pessoa saiu. `supervisor` é o papel que dá {dp, ged, operacional, sst} (medido 11/08).
+PAPEL_GESTOR = "supervisor"
 
 
 async def main() -> None:
     async with async_session_factory() as db:
-        r = (await db.execute(text(
-            "SELECT role, permissions FROM users WHERE email='egonzaga@conectamais.pro'"
-        ))).first()
-        gonzaga = _U(r.role, r.permissions or [])
+        gonzaga = await exigir_usuario(db, PAPEL_GESTOR)
 
         # BELT: tools que Gonzaga recebe
         mods = user_modules(gonzaga)

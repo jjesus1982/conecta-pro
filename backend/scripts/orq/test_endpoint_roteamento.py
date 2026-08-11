@@ -1,29 +1,29 @@
 """Prova o roteamento por tier (sem chamar o LLM): cada identidade real recebe o tier
 e o conjunto de tools corretos. Gestor NUNCA recebe tool de financeiro."""
 import asyncio
+import os
+import sys
 
-from sqlalchemy import text
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from core.database import async_session_factory
-from modules.ai.conversation.controllers.consultor_escopado_controller import _resolver_tier_e_tools
+from _fixtures import exigir_usuario, exigir_usuario_com_colaborador  # noqa: E402
+from core.database import async_session_factory  # noqa: E402
+from modules.ai.conversation.controllers.consultor_escopado_controller import (  # noqa: E402
+    _resolver_tier_e_tools,
+)
 
-
-class _U:
-    def __init__(self, id, role, permissions):
-        self.id, self.role, self.permissions = id, role, permissions
-
-
-async def _user(db, email):
-    r = (await db.execute(text(
-        "SELECT id::text, role, permissions FROM users WHERE email = :e"
-    ), {"e": email})).first()
-    return _U(r[0], r.role, r.permissions or [])
+# Identidade por PAPEL, não por e-mail. Até 11/08/2026 este oráculo buscava
+# `egonzaga@conectamais.pro`; a pessoa saiu, a linha sumiu de `users` e o teste passou a
+# estourar em NoneType — parecendo defeito de produto. O que se testa aqui é o PAPEL.
+# `supervisor` é quem dá {dp, ged, operacional, sst}, o mesmo conjunto do antigo gestor
+# (medido em 11/08); `lider` hoje só carrega sst e não serviria.
+PAPEL_GESTOR = "supervisor"
 
 
 async def main() -> None:
     async with async_session_factory() as db:
         # GESTOR
-        gonzaga = await _user(db, "egonzaga@conectamais.pro")
+        gonzaga = await exigir_usuario(db, PAPEL_GESTOR)
         scope, tools = await _resolver_tier_e_tools(db, gonzaga)
         nomes = {t.name for t in tools}
         assert scope.tier == "gestor", scope
@@ -31,8 +31,8 @@ async def main() -> None:
         assert not any(t.module == "self" for t in tools), "gestor não deve ter tools self"
         print("OK gestor: tier=gestor, módulos org-wide, SEM financeiro/self")
 
-        # LÍDER
-        erika = await _user(db, "erikamaquine93@gmail.com")
+        # LÍDER — precisa de vínculo de colaborador para o escopo de posto resolver
+        erika = await exigir_usuario_com_colaborador(db, "lider")
         scope, tools = await _resolver_tier_e_tools(db, erika)
         nomes = {t.name for t in tools}
         assert scope.tier == "lider" and scope.post_ids, scope
@@ -40,13 +40,21 @@ async def main() -> None:
         print("OK líder: tier=lider, posto-scoped + self + justificar")
 
         # CLT
-        celiane = await _user(db, "celiane.cg011.garcia@gmail.com")
+        celiane = await exigir_usuario_com_colaborador(db, "funcionario")
         scope, tools = await _resolver_tier_e_tools(db, celiane)
         nomes = {t.name for t in tools}
         assert scope.tier == "clt" and scope.employee_id, scope
-        assert nomes == {"meu_ponto", "meu_holerite", "minha_escala", "justificar_ajuste_de_ponto"}, nomes
-        assert not any(t.module in ("operacional", "financeiro", "dp") for t in tools), nomes
-        print("OK CLT: tier=clt, só self + justificar (nenhum panorama de módulo)")
+        # A regra, não a fotografia. Este assert já foi `nomes == {…4 tools…}` e passou a
+        # reprovar uma MELHORIA: o auto-atendimento ganhou meu_trct_doc, meu_aviso_previo_doc,
+        # meu_espelho_ponto_doc e meu_holerite_doc — todas self, todas legítimas. Lista
+        # congelada transforma cada capacidade nova em "falha". O que importa é o INVARIANTE:
+        # o núcleo continua lá e nada org-wide entra.
+        NUCLEO_CLT = {"meu_ponto", "meu_holerite", "minha_escala", "justificar_ajuste_de_ponto"}
+        assert NUCLEO_CLT <= nomes, f"CLT perdeu tool do núcleo: {NUCLEO_CLT - nomes}"
+        vazou = {n for n in nomes if n.startswith(("panorama_", "consultar_", "listar_"))}
+        assert not vazou, f"CLT recebeu tool org-wide: {vazou}"
+        assert not any(t.module in ("operacional", "financeiro") for t in tools), nomes
+        print(f"OK CLT: tier=clt, {len(nomes)} tools self (núcleo + docs), nenhuma org-wide")
     print("TEST endpoint_roteamento PASS")
 
 

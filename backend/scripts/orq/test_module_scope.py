@@ -1,41 +1,40 @@
-"""Teste-âncora do user_modules com usuários REAIS de produção (sem pytest)."""
+"""Teste-âncora do `user_modules`: cada PAPEL enxerga exatamente os módulos que deve.
+
+Antes de 11/08/2026 este oráculo listava quatro e-mails de produção. Dois deles saíram da
+empresa, `by_email[...]` estourou em KeyError e a falha parecia defeito de RBAC — não era.
+O que se ancora aqui é o papel, que é o que o `user_modules` de fato lê.
+"""
 import asyncio
+import os
+import sys
 
-from sqlalchemy import text
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from core.auth.module_scope import user_modules
-from core.database import async_session_factory
+from _fixtures import usuario_por_papel  # noqa: E402
+from core.auth.module_scope import user_modules  # noqa: E402
+from core.database import async_session_factory  # noqa: E402
 
-
-class _U:
-    def __init__(self, role, permissions):
-        self.role = role
-        self.permissions = permissions
+# Medido em 11/08/2026 contra a base real. Mudar um destes conjuntos é decisão de RBAC,
+# não conserto de teste: alguém passou a ver (ou deixou de ver) um módulo inteiro.
+ESPERADO = {
+    "admin": {"financeiro", "fiscal", "dp", "ged", "juridico", "crm", "operacional", "sst", "dev"},
+    "supervisor": {"ged", "dp", "operacional", "sst"},
+    "lider": {"sst"},
+    "funcionario": set(),
+}
 
 
 async def main() -> None:
     async with async_session_factory() as db:
-        rows = (
-            await db.execute(
-                text(
-                    "SELECT email, role, permissions FROM users "
-                    "WHERE email IN ('jjesus@conectamais.pro','egonzaga@conectamais.pro',"
-                    "'erikamaquine93@gmail.com','celiane.cg011.garcia@gmail.com')"
-                )
-            )
-        ).fetchall()
-        by_email = {r.email: _U(r.role, r.permissions or []) for r in rows}
+        achados = {papel: await usuario_por_papel(db, papel) for papel in ESPERADO}
 
-    esperado = {
-        "jjesus@conectamais.pro": {"financeiro", "fiscal", "dp", "ged", "juridico", "crm", "operacional", "sst", "dev"},
-        "egonzaga@conectamais.pro": {"ged", "dp", "operacional", "sst"},
-        "erikamaquine93@gmail.com": {"sst"},
-        "celiane.cg011.garcia@gmail.com": set(),
-    }
-    for email, exp in esperado.items():
-        got = user_modules(by_email[email])
-        assert got == exp, f"{email}: esperado {exp}, veio {got}"
-        print(f"OK {email}: {sorted(got) or 'set()'}")
+    ausentes = [p for p, u in achados.items() if u is None]
+    assert not ausentes, f"papéis sem usuário ativo na base: {ausentes}"
+
+    for papel, esperado in ESPERADO.items():
+        got = user_modules(achados[papel])
+        assert got == esperado, f"papel '{papel}': esperado {esperado}, veio {got}"
+        print(f"OK {papel:<12} {sorted(got) or 'set()'}")
     print("TEST module_scope PASS")
 
 

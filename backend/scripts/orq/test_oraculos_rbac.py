@@ -11,18 +11,23 @@ Escrita: o ÚNICO teste que escreve é o nº 4 (justificar ponto) — limpeza po
 e determinístico — o que se prova ali é a DELEGAÇÃO (rota/handler responde), não a prosa.
 
 Identidades reais (verificadas contra o banco vivo):
-- GESTOR   = egonzaga@conectamais.pro       (gerente_operacional; módulos ged/dp/operacional/sst; SEM financeiro/fiscal)
-- LÍDER    = erikamaquine93@gmail.com        (lider; lidera >=1 posto via posts.leader_id)
+- GESTOR   = papel `supervisor`  (módulos ged/dp/operacional/sst; SEM financeiro/fiscal)
+- LÍDER    = papel `lider` com vínculo de colaborador (lidera >=1 posto via posts.leader_id)
 - CLT      = employee CELIANE (196 batidas reais)
 - CLIENTE  = ged_clients GREEN HILLS + outro condomínio com portal habilitado
-- DIRETORIA= jjesus@conectamais.pro          (role admin -> delega ao executivo)
+- DIRETORIA= papel `admin` (delega ao executivo)
 """
 from __future__ import annotations
 
 import asyncio
+import os
+import sys
 import traceback
 
-from sqlalchemy import text
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from _fixtures import exigir_usuario, exigir_usuario_com_colaborador  # noqa: E402
+from sqlalchemy import text  # noqa: E402
 
 from core.database import async_session_factory
 from modules.ai.conversation.controllers.consultor_escopado_controller import (
@@ -42,37 +47,47 @@ from modules.ai.conversation.services.orquestrador import (  # noqa: F401
     tools_self,
 )
 
-CELIANE_EMP = "9e9e1678-9988-490c-b59b-b2786bb67e1c"
-GREEN_HILLS = "b4a13504-cffc-4505-8e91-e1bebed493ed"
 MOTIVO = "TESTE ORACULO ORQ RBAC — apagar"
 
-GESTOR_EMAIL = "egonzaga@conectamais.pro"
-LIDER_EMAIL = "erikamaquine93@gmail.com"
-ADMIN_EMAIL = "jjesus@conectamais.pro"
+# Identidade por PAPEL, não por pessoa. Até 11/08/2026 este arquivo fixava três e-mails e
+# dois UUIDs; quando alguém sai da empresa o oráculo estoura e a falha se disfarça de
+# defeito de RBAC. Papel e pré-condição ("um CLT com batidas", "um cliente com portal") é
+# o que o teste realmente precisa.
+PAPEL_GESTOR = "supervisor"  # dá {dp, ged, operacional, sst} — o antigo gerente_operacional
+PAPEL_LIDER = "lider"
+PAPEL_ADMIN = "admin"
+
+# Resolvidos em runtime por `_resolver_alvos` (chamado no main) — nunca hardcodar UUID.
+CELIANE_EMP = ""
+GREEN_HILLS = ""
 
 
-class _U:
-    """Identidade mínima (id/role/permissions) — o que o belt e o escopo consomem."""
+async def _resolver_alvos(db) -> None:
+    """Escolhe um colaborador com batidas e um cliente com portal ligado."""
+    global CELIANE_EMP, GREEN_HILLS
+    CELIANE_EMP = (await db.execute(text(
+        "SELECT employee_id::text FROM gp_clock_punches WHERE employee_id IS NOT NULL "
+        "GROUP BY employee_id ORDER BY count(*) DESC LIMIT 1"
+    ))).scalar()
+    assert CELIANE_EMP, "pré-condição: nenhum colaborador com batidas de ponto no banco"
+    GREEN_HILLS = (await db.execute(text(
+        "SELECT id::text FROM ged_clients WHERE portal_access_enabled = true ORDER BY id LIMIT 1"
+    ))).scalar()
+    assert GREEN_HILLS, "pré-condição: nenhum ged_client com portal_access_enabled"
 
-    def __init__(self, id, role, permissions):
-        self.id, self.role, self.permissions = id, role, permissions
 
-
-async def _user(db, email) -> _U:
-    r = (await db.execute(
-        text("SELECT id::text AS id, role, permissions FROM users WHERE email = :e"),
-        {"e": email},
-    )).first()
-    if r is None:
-        raise AssertionError(f"identidade real ausente no banco: {email}")
-    return _U(r.id, r.role, r.permissions or [])
+async def _user(db, papel: str):
+    """Usuário ativo com o papel pedido (com vínculo de colaborador quando o escopo exige)."""
+    if papel in (PAPEL_LIDER,):
+        return await exigir_usuario_com_colaborador(db, papel)
+    return await exigir_usuario(db, papel)
 
 
 # ── Oráculos (cada um retorna None se PASS; levanta AssertionError se a fronteira vazar) ──
 
 async def oraculo_1_gestor(db) -> None:
     """GESTOR (gonzaga) NÃO vê financeiro/fiscal: nem no belt (tools), nem no handler."""
-    gonzaga = await _user(db, GESTOR_EMAIL)
+    gonzaga = await _user(db, PAPEL_GESTOR)
     scope, tools = await _resolver_tier_e_tools(db, gonzaga)
     names = {t.name for t in tools}
     assert "panorama_financeiro" not in names, f"financeiro VAZOU no belt do gestor: {names}"
@@ -85,12 +100,12 @@ async def oraculo_1_gestor(db) -> None:
             await tr.get_tool(tool_name).handler(db, gonzaga, None)
         except PermissionError:
             barrou = True
-        assert barrou, f"handler {tool_name} NÃO barrou o gestor {GESTOR_EMAIL}"
+        assert barrou, f"handler {tool_name} NÃO barrou o gestor (papel {PAPEL_GESTOR})"
 
 
 async def oraculo_2_lider(db) -> None:
     """LÍDER (erika) só o(s) SEU(S) posto(s); posto de outro é impossível: escopo vazio = aguardando."""
-    erika = await _user(db, LIDER_EMAIL)
+    erika = await _user(db, PAPEL_LIDER)
     scope, _ = await _resolver_tier_e_tools(db, erika)
     assert scope.tier == "lider", f"erika não resolveu como líder: tier={scope.tier}"
     assert scope.post_ids, "líder sem post_ids — pré-condição real quebrou (erika não lidera posto)"
@@ -198,8 +213,8 @@ async def oraculo_6_diretoria(db) -> None:
     consultor_hub.gerar = _sem_llm
     agent_audit.registrar_acao_agente = _sem_audit
     try:
-        admin = await _user(db, ADMIN_EMAIL)
-        assert (admin.role or "").lower() == "admin", f"{ADMIN_EMAIL} não é admin: role={admin.role}"
+        admin = await _user(db, PAPEL_ADMIN)
+        assert (admin.role or "").lower() == "admin", f"papel {PAPEL_ADMIN} não é admin: role={admin.role}"
         out = await scoped_consultar(
             ConsultarIn(pergunta="Rota diretoria — teste oráculo (delegação)"), db=db, user=admin)
         assert out.get("tier") == "diretoria", f"admin NÃO delegou ao executivo: tier={out.get('tier')}"
@@ -262,6 +277,7 @@ _ORACULOS = [
 async def main() -> int:
     falhas = 0
     async with async_session_factory() as db:
+        await _resolver_alvos(db)
         for rotulo, fn in _ORACULOS:
             try:
                 await fn(db)
