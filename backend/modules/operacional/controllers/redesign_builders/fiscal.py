@@ -37,6 +37,10 @@ EXTRA_MENU: list[dict] = [
     {"id": "consultor-fiscal-arquivo", "label": "Consultor fiscal — com anexo", "icon": _ICO_CALC},
     {"id": "nfse-multi-tributos", "label": "Tributos da NFS-e (multi-CNPJ)", "icon": _ICO_CALC},
     {"id": "nfe-entrada-xml", "label": "Importar XML de NF-e de compra", "icon": _ICO_CALC},
+    # Multi-CNPJ (11/08/2026): sem estes três itens as telas existiriam sem porta de entrada.
+    {"id": "painel-por-empresa", "label": "Painel por empresa (CNPJ)", "icon": _ICO_CALC},
+    {"id": "certidoes-cobertura", "label": "Cobertura de certidões", "icon": _ICO_CALC},
+    {"id": "nfse-emitidas", "label": "NFS-e emitidas (nacional)", "icon": _ICO_CALC},
 ]
 
 _GTONE = {"pago": "ok", "paga": "ok", "conciliado": "ok", "pendente": "warn", "vencido": "bad", "vencida": "bad"}
@@ -159,6 +163,7 @@ async def build(db) -> dict:
     except Exception:  # noqa: BLE001 — a visão não pode derrubar o módulo
         pass
 
+    await _multicnpj(db, out, tbl)
     _calculadoras_tributarias(out)
     await _nova_obrigacao(db, out)
     _retencoes_e_syncs(out)
@@ -220,6 +225,189 @@ async def build(db) -> dict:
     }
 
     return out
+
+
+#: SQL de empresa: `ged_certidoes` guarda o CNPJ como TEXTO e `empresas.cnpj` vem formatado
+#: ("35.710.481/0001-03"). Comparar cru não casa nunca — normaliza dígitos dos dois lados.
+_SO_DIGITOS = "regexp_replace(coalesce({}, ''), '[^0-9]', '', 'g')"
+
+
+async def _multicnpj(db, out: dict, tbl) -> None:
+    """O fiscal deixa de tratar o grupo como uma empresa só.
+
+    O grupo tem DOIS CNPJs desde 2026 — Eletrônica (Lucro Real) e Patrimonial (Simples
+    Anexo III) — e até 11/08/2026 nenhuma tela dizia de qual empresa era a linha. O painel
+    somava, e a soma escondia o que importa (medido nesse dia):
+
+      • Patrimonial faturou R$ 443.381,11 em 16 notas e tinha **zero** obrigação fiscal
+        cadastrada — sendo Simples, que deve DAS todo mês;
+      • Patrimonial tinha **1 das 8** certidões da Eletrônica: sem CRF-FGTS nem CND Federal
+        não se fatura em cliente grande nem se entra em licitação;
+      • as 99 NFS-e de 2026 (`nfse_emitidas_nacional`) apareciam só como CONTAGEM no KPI —
+        a tela "NFS-e" lista `nfse_manaus_historico`, que é arquivo e parou em 29/12/2025.
+        Havia número para ver e nenhuma tela para clicar.
+
+    Nada aqui inventa dado: buraco é mostrado COMO buraco ("FALTA", "sem obrigação
+    cadastrada"), nunca preenchido com linha fabricada.
+    """
+    try:
+        empresas = (await db.execute(_sql(
+            "SELECT id::text, coalesce(nome_fantasia, razao_social, '—') AS nome, "
+            "coalesce(cnpj,'—'), coalesce(regime_tributario::text,'—') "
+            "FROM empresas ORDER BY nome"))).fetchall()
+    except Exception:  # noqa: BLE001 — a visão não pode derrubar o módulo
+        return
+    if not empresas:
+        return
+
+    async def _num(sql: str, params: dict):
+        """_scalar do controller não aceita binds; aqui precisa (CNPJ/empresa por linha)."""
+        return (await db.execute(_sql(sql), params)).scalar() or 0
+
+    # ── Painel por empresa ────────────────────────────────────────────────────────
+    linhas = []
+    for eid, nome, cnpj, regime in empresas:
+        p = {"e": eid, "c": cnpj}
+        cnd_tot = await _num(f"SELECT count(*) FROM ged_certidoes WHERE {_SO_DIGITOS.format('cnpj')} = {_SO_DIGITOS.format(':c')}", p)
+        cnd_ven = await _num(f"SELECT count(*) FROM ged_certidoes WHERE {_SO_DIGITOS.format('cnpj')} = {_SO_DIGITOS.format(':c')} AND expiry_date < CURRENT_DATE", p)
+        obr_tot = await _num("SELECT count(*) FROM fiscal_obligations WHERE empresa_id::text = :e", p)
+        obr_pen = await _num("SELECT count(*) FROM fiscal_obligations WHERE empresa_id::text = :e AND lower(coalesce(status::text,'')) = 'pendente'", p)
+        notas = await _num("SELECT count(*) FROM nfse_emitidas_nacional WHERE empresa_id::text = :e", p)
+        fat = await _num("SELECT coalesce(sum(valor_servicos),0) FROM nfse_emitidas_nacional WHERE empresa_id::text = :e AND data_emissao >= CURRENT_DATE - interval '12 months'", p)
+        # Empresa que EMITE nota e não tem obrigação nenhuma é buraco de cadastro, não um
+        # zero natural — o número sozinho passaria por "nada a pagar".
+        obr_txt = "sem obrigação cadastrada" if (obr_tot == 0 and notas > 0) else f"{obr_pen} pendente(s) de {obr_tot}"
+        linhas.append([
+            t(nome[:34], 600, "#0F1B3A"),
+            t(cnpj),
+            t(regime.replace("_", " ")),
+            t(f"{cnd_tot - cnd_ven}/{cnd_tot}", 600),
+            b(f"{cnd_ven} vencida(s)", "bad") if cnd_ven else b("em dia", "ok"),
+            b(obr_txt, "bad") if (obr_tot == 0 and notas > 0) else (b(obr_txt, "warn") if obr_pen else b(obr_txt, "ok")),
+            t(brl(fat), 600),
+        ])
+    out["painel-por-empresa"] = {
+        "title": "Painel por empresa (CNPJ)",
+        "sub": "Cada CNPJ do grupo com as próprias certidões, obrigações e faturamento — o total agregado escondia quem está descoberto",
+        "cta": "—", "type": "table",
+        "cols": ["Empresa", "CNPJ", "Regime", "Certidões", "Situação", "Obrigações", "Faturamento 12m"],
+        "grid": "1.6fr 1.3fr 1.1fr 0.8fr 1.1fr 1.5fr 1.2fr",
+        "rows": [{"cells": c} for c in linhas],
+    }
+
+    # ── Cobertura de certidões: tipo × empresa, com o que FALTA ───────────────────
+    tipos = [r[0] for r in (await db.execute(_sql(
+        "SELECT DISTINCT name FROM ged_certidoes WHERE name IS NOT NULL ORDER BY 1"))).fetchall()]
+    if tipos:
+        cob = []
+        for tipo in tipos:
+            cel = [t(tipo[:42], 600, "#0F1B3A")]
+            for _eid, _nome, cnpj, _rg in empresas:
+                r = (await db.execute(_sql(
+                    f"SELECT expiry_date FROM ged_certidoes WHERE name = :n "
+                    f"AND {_SO_DIGITOS.format('cnpj')} = {_SO_DIGITOS.format(':c')} "
+                    f"ORDER BY expiry_date DESC NULLS LAST LIMIT 1"), {"n": tipo, "c": cnpj})).first()
+                if r is None:
+                    cel.append(b("FALTA", "bad"))
+                else:
+                    venc = r[0]
+                    d = venc.date() if hasattr(venc, "date") else venc
+                    vencida = d is not None and d < _date.today()
+                    cel.append(b(f"VENCIDA {_fmtdate(venc)}", "bad") if vencida
+                               else b(f"ok até {_fmtdate(venc)}", "ok"))
+            cob.append(cel)
+        out["certidoes-cobertura"] = {
+            "title": "Cobertura de certidões por CNPJ",
+            "sub": "Um tipo por linha, um CNPJ por coluna. FALTA = nunca foi cadastrada para aquela empresa",
+            "cta": "—", "type": "table",
+            "cols": ["Certidão"] + [n[:22] for _i, n, _c, _r in empresas],
+            "grid": "2fr " + " ".join(["1.3fr"] * len(empresas)),
+            "rows": [{"cells": c} for c in cob],
+        }
+
+    # ── NFS-e emitidas (nacional): as notas de 2026 ganham tela ───────────────────
+    try:
+        out["nfse-emitidas"] = await tbl(
+            "NFS-e emitidas (nacional)",
+            f"{await _scalar(db, 'SELECT count(*) FROM nfse_emitidas_nacional')} notas — as de 2026, por empresa emitente",
+            "—",
+            ["Número", "Empresa", "Tomador", "Valor", "ISS", "Emissão"],
+            "1fr 1.5fr 2fr 1.1fr 1fr 1fr",
+            "SELECT coalesce(n.numero::text,'—'), coalesce(e.nome_fantasia, e.razao_social, '—'), "
+            "coalesce(n.tomador_nome,'—'), coalesce(n.valor_servicos,0), coalesce(n.iss_valor,0), n.data_emissao "
+            "FROM nfse_emitidas_nacional n LEFT JOIN empresas e ON e.id = n.empresa_id "
+            "ORDER BY n.data_emissao DESC NULLS LAST LIMIT 200",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or "—")[:26]), t((r[2] or "—")[:38]),
+                       t(brl(r[3]), 600), t(brl(r[4])), t(_fmtdate(r[5]))])
+    except Exception:  # noqa: BLE001
+        pass
+
+    # ── Empresa nas tabelas que já existiam ──────────────────────────────────────
+    # LEFT JOIN de propósito nas duas: linha sem empresa vinculada mostra "—" e CONTINUA
+    # aparecendo. INNER JOIN aqui apagaria da tela justamente o dado órfão, que é o que
+    # mais precisa ser visto.
+    try:
+        out["guias"] = await tbl(
+            "Guias / Obrigações",
+            f"{await _scalar(db, 'SELECT count(*) FROM fiscal_obligations')} obrigações", "Nova guia",
+            ["Obrigação", "Empresa", "Competência", "Valor", "Vencimento", "Status"],
+            "1.6fr 1.3fr 1fr 1fr 1fr 0.9fr",
+            "SELECT coalesce(o.nome,'—'), coalesce(e.nome_fantasia, e.razao_social, '—'), "
+            "coalesce(to_char(make_date(o.competencia_ano, greatest(o.competencia_mes,1), 1),'MM/YYYY'),'—'), "
+            "coalesce(o.valor_devido,0), o.data_vencimento, o.status::text "
+            "FROM fiscal_obligations o LEFT JOIN empresas e ON e.id = o.empresa_id "
+            "ORDER BY o.data_vencimento DESC NULLS LAST LIMIT 200",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or "—")[:24]), t(r[2]), t(brl(r[3]), 600),
+                       t(_fmtdate(r[4])),
+                       b("Cumprida", "ok") if (r[5] or "").lower() in ("cumprida", "cumprido", "pago", "paga")
+                       else b((r[5] or "Pendente").capitalize(), "warn")])
+    except Exception:  # noqa: BLE001
+        pass
+
+    try:
+        out["certidoes-cnd"] = await tbl(
+            "Certidões (CND)",
+            f"{await _scalar(db, 'SELECT count(*) FROM ged_certidoes')} certidões", "—",
+            ["Certidão", "Empresa", "Tipo", "Órgão emissor", "Validade", "Situação"],
+            "1.7fr 1.3fr 1fr 1.2fr 0.9fr 1fr",
+            "SELECT coalesce(c.name,'—'), coalesce(e.nome_fantasia, e.razao_social, '—'), "
+            "coalesce(c.document_type,'—'), coalesce(c.issuing_body,'—'), c.expiry_date, "
+            "(c.file_path IS NOT NULL AND c.file_path<>''), c.document_type "
+            "FROM ged_certidoes c LEFT JOIN empresas e ON "
+            f"     {_SO_DIGITOS.format('e.cnpj')} = {_SO_DIGITOS.format('c.cnpj')} "
+            "ORDER BY c.expiry_date ASC NULLS LAST LIMIT 200",
+            lambda r: [t((r[0] or '—')[:44], 600, "#0F1B3A"), t((r[1] or '—')[:24]),
+                       t((r[2] or '—').replace('certidao_negativa_', 'CND ').replace('_', ' ')),
+                       t((r[3] or '—')[:28]), t(_fmtdate(r[4])), _cnd_situacao(r[4])],
+            docsfn=lambda r: [doc("CND", f"/api/v1/gedeon/cnd/pdf/{r[6]}", fmt="pdf")] if r[5] else [])
+    except Exception:  # noqa: BLE001
+        pass
+
+    # O alias 'certidoes' -> 'certidoes-cnd' é feito lá em cima, ANTES deste bloco: sem
+    # re-apontar, o menu continuaria servindo a tabela velha, sem a coluna Empresa.
+    if "certidoes-cnd" in out:
+        out["certidoes"] = out["certidoes-cnd"]
+
+    # A tela 'nfse' lista `nfse_manaus_historico`, que só tem o CNPJ do TOMADOR — não sabe
+    # quem emitiu. É base anterior a 2026, quando só existia a Eletrônica; deduzir isso e
+    # carimbar "Eletrônica" em 831 linhas seria inventar dado. O que se pode afirmar com
+    # honestidade é o que ela É, para ninguém confundir com faturamento corrente.
+    if isinstance(out.get("nfse"), dict):
+        out["nfse"]["sub"] = (f"{out['nfse'].get('sub', '')} — ARQUIVO anterior a 2026 "
+                              f"(sem empresa emitente na base). As notas atuais estão em "
+                              f"'NFS-e emitidas (nacional)'.").strip()
+
+
+def _cnd_situacao(exp):
+    """Situação da certidão pela validade — vencida, vencendo (30d) ou válida."""
+    if exp is None:
+        return b("—", "info")
+    d = exp.date() if hasattr(exp, "date") else exp
+    try:
+        dias = (d - _date.today()).days
+    except TypeError:
+        return b("—", "info")
+    return b("Vencida", "bad") if dias < 0 else (b(f"Vence em {dias}d", "warn") if dias <= 30 else b("Válida", "ok"))
 
 
 def _retencoes_e_syncs(out: dict) -> None:
