@@ -181,3 +181,71 @@ Corrigido (hex sem prefixo), provado, e os 8 workers voltaram sem drift.
 | trigger do período fechado | ✅ (verificado por T2) | ✅ 3 casos | banco |
 
 **ENTREGUE.** O que ficou de fora está na seção NÃO COBERTO, com o motivo.
+
+---
+
+# Adendo — ataque à transitória (mesmo dia)
+
+## O achado que mudou a estratégia
+
+**97% da transitória está no período FECHADO:** R$308.149,66 de jan–jul contra R$9.157,43
+em agosto. Reclassificar 637 lançamentos de um período que o Jordan decidiu fechar seria
+exatamente a arqueologia que combinamos não fazer.
+
+**E o "prejuízo" tem outra causa, não a transitória.** No período aberto a receita é
+**R$0,00** — porque receita se reconhece quando a NFS-e é emitida (dia 2 a 31 do mês) e a
+folha sai no dia 7. Em 12/08 o DRE do mês em curso mostra −R$152.005,25 e isso é
+**artefato de competência, não defeito**: os R$160.284,29 que entraram em agosto são
+recebimento de notas de JULHO, cuja receita já foi reconhecida lá.
+
+⭐ **Consequência prática: DRE de mês em curso não significa nada.** Só competência fechada.
+
+## O que foi feito (período aberto)
+
+| | antes | depois |
+|---|---|---|
+| transitória do mês | R$9.157,43 | **R$7.348,67** (5% da despesa) |
+| classificação das saídas | 83,6% | **85,8%** |
+
+Dois defeitos de normalização corrigidos, ambos de **família**:
+
+1. **Acento.** O cadastro tem `ANGELA LOPES MACEDO`, o banco `Ângela Lopes Macêdo`. O
+   normalizador aplicava `[^A-Z0-9 ]` **antes** de `unaccent`, virando `" NGELA LOPES MAC DO"`
+   — e o outro lado procurava `ANGELA`/`MACEDO`. **Todo funcionário com acento no nome
+   escapava.** (Errei a ordem uma vez, pondo `unaccent` por fora do `regexp`: o `Â` já tinha
+   sido removido junto com a letra.)
+2. **`" SA"` dentro de palavra.** Casava em `" SANTOS"` — Gabriel Santos Machado e mais 4
+   pessoas viraram "Fornecedor — razão social de empresa". Mesmo defeito do `ISS` dentro de
+   `COMISSAO`. Sufixo curto foi para `_EMPRESA_SUFIXO`, testado só no fim do nome.
+
+## O que resta na transitória do mês — R$7.348,67
+
+**Precisa do Jordan (R$5.725,00 — 78% do que sobrou):**
+
+| valor | quem | memo |
+|---|---|---|
+| R$1.725,00 | Eric de Souza Cardoso | "Parcela 2/4 TVs" |
+| R$1.700,00 | Railton da Costa Rodrigues | "Aluguel escritório" |
+| R$1.500,00 | CICERO SOUZA DE PAIVA | (sem memo) |
+| R$1.000,00 | GABRIEL SANTOS MACHADO | "Comissão Vanessa" |
+| R$500,00 | Raimundo Almeida Trindade | (sem memo, 2×) |
+| R$300,00 | — | (dentro dos R$500 acima) |
+| R$200,00 | BRUNO FRANCISCO | "Emprestimo Bruno" |
+
+Três deles pedem **categoria nova** na lista fechada — aluguel, comissão e parcelamento de
+equipamento não existem hoje, e por isso caem na transitória mesmo com memo claro.
+
+**Miudezas de fornecedor (R$1.623,67):** JK HORT FRUT (7×), Yasmin (8×), RC Conveniência,
+Manaus Farma, AT E SM Veneza. Nenhuma casa com `_EMPRESA` porque são nomes de comércio
+pequeno. **Não adicionei tokens**: cada token novo é risco de falso positivo, e a lição de
+hoje (`" SA"` dentro de `" SANTOS"`) foi cara.
+
+## Quarentena do `costing_controller`
+
+Movido por decisão do Jordan. Verificado: app importa, **4.197 rotas inalteradas**,
+`/api/v1/financial` **592 inalterado**, modelos ABC importáveis.
+`checar_repositorio`: **financial 19 → 0**, TOTAL 61 → 42.
+
+⚠️ Meus números de referência divergem dos do Arsenal (3.338 / 493). Não investiguei —
+provavelmente rota×método vs caminho único. Usei o invariante **"não muda"**, não o
+absoluto.
