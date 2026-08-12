@@ -147,6 +147,7 @@ def publicar_no_sino(resumo: dict) -> int:
     dia = datetime.now(ZoneInfo("America/Manaus")).strftime("%Y-%m-%d")
     corpo = (
         f"{mensagem(resumo)}\n\n"
+        f"{comparar(resumo, rodada_anterior())}\n\n"
         f"Um oráculo compara o que a tela mostra com o que o banco tem. Vermelho é "
         f"divergência — ou defeito de produto, ou o próprio oráculo preso a uma versão "
         f"antiga da tela. Rodar à mão para ver o detalhe:\n"
@@ -200,10 +201,56 @@ def bater_ponto(resumo: dict) -> None:
         "em": datetime.now(UTC).isoformat(timespec="seconds"),
         "total": resumo["total"], "verdes": resumo["verdes"],
         "vermelhos": resumo["vermelhos"], "nao_rodados": resumo["nao_rodados"],
+        # Os NOMES, não só a contagem: sem eles não dá para dizer se o vermelho de hoje é o
+        # mesmo de ontem (ninguém mexeu) ou outro (consertaram um e quebraram outro).
+        "falharam": sorted(f["oraculo"] for f in resumo["falhas"]),
     })
     with SyncSessionLocal() as db:
         db.execute(text(_SQL_BATER), {"chave": _CHAVE_BATIDA, "valor": valor})
         db.commit()
+
+
+def rodada_anterior() -> dict | None:
+    """Resumo da última varredura, para comparar. None se não houver."""
+    import json as _json
+
+    from sqlalchemy import text
+
+    from core.database.session import SyncSessionLocal
+
+    with SyncSessionLocal() as db:
+        bruto = db.execute(text("SELECT valor FROM system_configs WHERE chave = :c"),
+                           {"c": _CHAVE_BATIDA}).scalar()
+    if not bruto:
+        return None
+    try:
+        return _json.loads(bruto)
+    except Exception:  # noqa: BLE001 — batida ilegível é o mesmo que não ter
+        return None
+
+
+def comparar(resumo: dict, antes: dict | None) -> str:
+    """Uma linha dizendo se a rodada ANDOU — resolvido, novo, ou parado.
+
+    Alarme que só repete "9 vermelhos" todo dia vira ruído e ensina a ignorar. O que muda o
+    comportamento de quem lê é saber se alguém está consertando.
+    """
+    agora = {f["oraculo"] for f in resumo["falhas"]}
+    if antes is None:
+        return f"primeira rodada registrada ({len(agora)} vermelho(s))."
+    ontem = set(antes.get("falharam") or [])
+    resolvidos, novos, teimosos = ontem - agora, agora - ontem, agora & ontem
+    if not agora and ontem:
+        return f"RESOLVIDO: os {len(ontem)} vermelho(s) da rodada anterior sumiram."
+    partes = []
+    if resolvidos:
+        partes.append(f"{len(resolvidos)} resolvido(s)")
+    if novos:
+        partes.append(f"{len(novos)} NOVO(s): {', '.join(sorted(novos)[:3])}")
+    if teimosos:
+        partes.append(f"{len(teimosos)} sem mexer desde a rodada anterior")
+    return ("Comparado à rodada anterior: " + "; ".join(partes) + ".") if partes else \
+        "Nada mudou desde a rodada anterior."
 
 
 def _self_check() -> None:
@@ -218,6 +265,15 @@ def _self_check() -> None:
     assert _motivo("") == "sem saída"
     limpo = {"total": 59, "vermelhos": 0, "nao_rodados": 0, "verdes": 59, "falhas": []}
     assert mensagem(limpo) == "0 de 59 oráculos vermelhos."
+
+    # A comparação entre rodadas é o que separa alarme de ruído.
+    f = lambda ns: {"falhas": [{"oraculo": n, "motivo": ""} for n in ns]}  # noqa: E731
+    assert "primeira rodada" in comparar(f(["a"]), None)
+    assert "RESOLVIDO" in comparar(f([]), {"falharam": ["a", "b"]})
+    assert "2 resolvido" in comparar(f(["c"]), {"falharam": ["a", "b", "c"]})
+    assert "1 NOVO" in comparar(f(["a", "z"]), {"falharam": ["a"]})
+    assert "sem mexer" in comparar(f(["a"]), {"falharam": ["a"]})
+    assert comparar(f([]), {"falharam": []}) == "Nada mudou desde a rodada anterior."
     print("self-check OK\n" + msg)
 
 
