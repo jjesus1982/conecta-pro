@@ -541,7 +541,7 @@ def _ver_todas(out: dict) -> None:
                 campos.append({"label": c, "value": (val if (val not in (None, "")) else "—")})
             if campos:
                 row.setdefault("actions", []).insert(
-                    0, {"btnLabel": "Ver", "readOnly": True, "title": f"{título} — detalhe", "fields": campos})
+                    0, {"btnLabel": "Ver", "readOnly": True, "title": f"{titulo} — detalhe", "fields": campos})
 
 
 @router.post("/action/passagem-turno")
