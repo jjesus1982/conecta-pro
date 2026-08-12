@@ -20,7 +20,6 @@ from __future__ import annotations
 import filecmp
 import json
 import re
-import sys
 from pathlib import Path
 
 REPO = Path("/opt/conecta-pro")
