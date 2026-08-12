@@ -254,3 +254,20 @@ def test_memo_do_cora_manda_mas_a_precedencia_importa():
     # sem memo não inventa
     assert sugerir_por_memo("[CORA] PIX")[0] is None
     assert sugerir_por_memo("")[0] is None
+
+
+def test_emprestimo_tomado_abate_passivo_nao_e_despesa():
+    """A Denise emprestou R$12.000 em 06/07 para completar a folha de julho. A
+    ENTRADA estava lançada D banco / C 1.1.2.01 Clientes — como se um CLIENTE
+    tivesse pago, abatendo R$12.000 de contas a receber que ninguém devia.
+
+    Dinheiro tomado emprestado é PASSIVO enquanto não se paga; devolver abate o
+    passivo, não gera despesa. O plano só tinha `5.2.3.02 Financiamentos`, que é
+    despesa (5.x)."""
+    conta, motivo = contrapartida_saida("emprestimo", "Pagamento de emprestimo")
+    assert conta == "2.1.6.01"
+    assert conta.startswith("2."), "devolução de empréstimo não pode virar despesa"
+
+    from modules.financial.services.classificacao_saidas_service import CATEGORIAS_VALIDAS
+
+    assert "emprestimo" in CATEGORIAS_VALIDAS

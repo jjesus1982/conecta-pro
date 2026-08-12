@@ -41,6 +41,11 @@ CATEGORIAS: tuple[tuple[str, str], ...] = (
     # remuneração de quem recebe — sem esta opção, um reembolso de R$56,85 ao
     # Eliziel entrava como pró-labore dele e inflava o que ele ganhou.
     ("reembolso", "Reembolso — despesa da empresa adiantada por alguém"),
+    # Devolução de dinheiro que a empresa TOMOU emprestado. Não é despesa: abate
+    # o passivo. A Denise emprestou R$12.000 em 06/07 para completar a folha de
+    # julho, e a entrada estava lançada como "cliente pagou" — abatendo R$12.000
+    # de contas a receber que ninguém devia.
+    ("emprestimo", "Empréstimo — devolução de dinheiro tomado"),
     ("diversos", "Diversos — pequeno valor, sem enquadramento"),
 )
 CATEGORIAS_VALIDAS = frozenset(k for k, _ in CATEGORIAS)

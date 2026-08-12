@@ -36,6 +36,7 @@ _MAPA_SAIDA: dict[str, tuple[str, str]] = {
     "socio": ("2.1.5.01", "conta corrente do sócio — não é despesa"),
     "transferencia_interna": ("1.1.9.01", "transferência entre empresas do grupo"),
     "taxa_bancaria": ("5.2.3.01", "tarifa bancária"),
+    "emprestimo": ("2.1.6.01", "devolução de empréstimo — abate o passivo, não é despesa"),
     "diversos": (CONTA_SAIDA_A_CLASSIFICAR, "miúdo sem enquadramento"),
 
     # ── dialeto legado ──────────────────────────────────────────────────────
