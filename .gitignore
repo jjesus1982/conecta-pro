@@ -11,6 +11,11 @@ downloads/
 eggs/
 .eggs/
 lib/
+# `lib/` e do bloco de virtualenv Python (backend/venv/lib, 20.827 arquivos) e por
+# tabela engolia 73 arquivos de CODIGO do frontend — entre eles src/lib/pdf.ts e o
+# axios-instance. Invisiveis ao git: sem historico, sem revisao, e a regra da parede
+# entre terminais (que le `git status`) era CEGA neles. Achado fechando `services`.
+!frontend/src/lib/
 lib64/
 parts/
 sdist/
