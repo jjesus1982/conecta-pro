@@ -47,14 +47,27 @@ def metodos_do_repositorio(mod: Path) -> set[str]:
     return nomes
 
 
+#: preenchido por `achados()` — caminhos ignorados por estarem em quarentena
+emquarentena: list[str] = []
+
+
 def achados(raiz: Path = RAIZ) -> list[dict]:
     out: list[dict] = []
+    emquarentena.clear()
     for mod in sorted(p for p in raiz.iterdir() if p.is_dir()):
         metodos = metodos_do_repositorio(mod)
         if not metodos:
             continue
         for p in sorted(mod.rglob("*.py")):
             if "repositories" in p.parts or "__pycache__" in p.parts:
+                continue
+            # QUARENTENA conta separado. Em 12/08 movi um controller morto para
+            # `_quarentena/` e a trava seguiu acusando 19 — ela varre todo *.py do módulo, e
+            # mudar de pasta não tira do radar. Quarentena que não silencia a trava não
+            # resolve nada; quarentena que some da conta esconde dívida. Fica visível, fora
+            # do total.
+            if any(x.startswith("_quarentena") for x in p.parts):
+                emquarentena.append(str(p.relative_to(raiz)))
                 continue
             texto = p.read_text(errors="ignore")
             for m in _RE_USO.finditer(texto):
@@ -197,6 +210,9 @@ def main() -> int:
         if len(lst) > 4:
             print(f"   (+{len(lst) - 4} não listadas)")
         print()
+    if emquarentena:
+        print(f"({len(set(emquarentena))} arquivo(s) em _quarentena ignorados — "
+              f"visíveis, fora do total)")
     print(f"TOTAL: {len(itens) + _relatar_formas()}")
     return 1
 
