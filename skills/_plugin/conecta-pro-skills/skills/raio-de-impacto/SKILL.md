@@ -39,7 +39,14 @@ Esta é a que dói. Corrigir o caso que apareceu e deixar a família viva é o p
 | `NOT IN ('pago','paga',…)` numa tabela que diz `cumprida` | **5** (mais 3 em redesign_data_controller) |
 | `utcnow()+timedelta` virando validade, em `cnd_sync_task` | **3** (mais 2 em crf_client) |
 
-Nos três casos eu declarei "corrigido" com um terço da família viva. **Depois de todo
+No MVP de fechamento de `services` (12/08) o erro foi de ESCOPO da busca: rastreei
+`controllers/` e achei 10 chamadas para métodos inexistentes. A família real tinha **78** —
+as outras 68 estavam em `services/`, a camada que o controller chama. Achei que tinha o
+módulo e tinha uma pasta.
+
+**Rastreie o MÓDULO inteiro, não a pasta onde o defeito apareceu.**
+
+Nos três casos anteriores eu declarei "corrigido" com um terço da família viva. **Depois de todo
 conserto, procure a assinatura no repositório inteiro** — e prefira os caçadores mecânicos:
 
 ```bash

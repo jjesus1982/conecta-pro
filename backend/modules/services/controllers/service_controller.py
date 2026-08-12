@@ -17,6 +17,7 @@ from core.database.session import get_sync_db_dependency
 from modules.services.models import OrderPriority, OrderStatus, ReportType, ServiceCategory, ServiceStatus, ServiceType
 from modules.services.repositories import ServiceRepository
 from modules.services.schemas import (
+    ServiceOrderFilter,
     ServiceAnalysis,
     ServiceCatalogCreate,
     ServiceCatalogListResponse,
@@ -96,13 +97,13 @@ async def list_services(
 @router.get("/catalog/stats", response_model=ServiceCatalogStats, summary="Estatísticas do Catálogo")
 async def get_catalog_stats(repo: ServiceRepository = Depends(get_repository)) -> ServiceCatalogStats:
     """Retorna estatísticas do catálogo de serviços."""
-    return repo.get_service_catalog_stats()
+    return repo.get_service_stats()
 
 
 @router.get("/catalog/{service_id}", response_model=ServiceCatalogResponse, summary="Obter Serviço")
 async def get_service(service_id: UUID, repo: ServiceRepository = Depends(get_repository)) -> ServiceCatalogResponse:
     """Obtém detalhes de um serviço."""
-    service = repo.get_service_catalog_by_id(service_id)
+    service = repo.get_service(service_id)
     if not service:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Serviço não encontrado")
     return ServiceCatalogResponse.model_validate(service)
@@ -210,7 +211,9 @@ async def list_orders(
     repo: ServiceRepository = Depends(get_repository),
 ) -> list[ServiceOrderListResponse]:
     """Lista ordens de serviço com filtros."""
-    orders = repo.list_service_orders(
+    # O repositório recebe um ServiceOrderFilter e devolve (lista, total) — nunca teve
+    # `list_service_orders` com kwargs soltos. A rota dava 500 desde sempre.
+    filtros = ServiceOrderFilter(
         status=order_status,
         priority=priority,
         client_id=client_id,
@@ -220,9 +223,8 @@ async def list_orders(
         scheduled_date_to=scheduled_date_to,
         is_overdue=is_overdue,
         search=search,
-        skip=skip,
-        limit=limit,
     )
+    orders, _total = repo.list_orders(filters=filtros, skip=skip, limit=limit)
     return [ServiceOrderListResponse.model_validate(o) for o in orders]
 
 
@@ -258,7 +260,7 @@ async def get_at_risk_orders(
 @router.get("/orders/{order_id}", response_model=ServiceOrderResponse, summary="Obter Ordem")
 async def get_order(order_id: UUID, repo: ServiceRepository = Depends(get_repository)) -> ServiceOrderResponse:
     """Obtém detalhes de uma ordem."""
-    order = repo.get_service_order_by_id(order_id)
+    order = repo.get_order(order_id)
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ordem não encontrada")
     return ServiceOrderResponse.model_validate(order)
@@ -444,7 +446,14 @@ async def list_executions(
     repo: ServiceRepository = Depends(get_repository),
 ) -> list[ServiceExecutionResponse]:
     """Lista execuções de serviço."""
-    executions = repo.list_service_executions(order_id=order_id, technician_id=technician_id, skip=skip, limit=limit)
+    # O repositório só sabe listar execução POR ORDEM. Sem order_id não há consulta —
+    # devolver [] aqui diria "não há execuções" quando a verdade é "não sei consultar".
+    if order_id is None:
+        raise HTTPException(status_code=400, detail="Informe order_id para listar execuções")
+    executions = repo.list_executions_by_order(order_id)
+    if technician_id is not None:
+        executions = [e for e in executions if e.technician_id == technician_id]
+    executions = executions[skip: skip + limit]
     return [ServiceExecutionResponse.model_validate(e) for e in executions]
 
 
@@ -453,7 +462,7 @@ async def get_execution(
     execution_id: UUID, repo: ServiceRepository = Depends(get_repository)
 ) -> ServiceExecutionResponse:
     """Obtém detalhes de uma execução."""
-    execution = repo.get_service_execution_by_id(execution_id)
+    execution = repo.get_execution(execution_id)
     if not execution:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Execução não encontrada")
     return ServiceExecutionResponse.model_validate(execution)
@@ -627,16 +636,23 @@ async def list_reports(
     repo: ServiceRepository = Depends(get_repository),
 ) -> list[ServiceReportResponse]:
     """Lista relatórios de serviço."""
-    reports = repo.list_service_reports(
-        order_id=order_id, report_type=report_type, is_approved=is_approved, skip=skip, limit=limit
-    )
+    # Mesma limitação das execuções: o repositório lista por ordem. Os demais filtros são
+    # aplicados aqui, sobre o que ele devolve.
+    if order_id is None:
+        raise HTTPException(status_code=400, detail="Informe order_id para listar relatórios")
+    reports = repo.list_reports_by_order(order_id)
+    if report_type is not None:
+        reports = [r for r in reports if r.report_type == report_type]
+    if is_approved is not None:
+        reports = [r for r in reports if r.is_approved == is_approved]
+    reports = reports[skip: skip + limit]
     return [ServiceReportResponse.model_validate(r) for r in reports]
 
 
 @router.get("/reports/{report_id}", response_model=ServiceReportResponse, summary="Obter Relatório")
 async def get_report(report_id: UUID, repo: ServiceRepository = Depends(get_repository)) -> ServiceReportResponse:
     """Obtém detalhes de um relatório."""
-    report = repo.get_service_report_by_id(report_id)
+    report = repo.get_report(report_id)
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Relatório não encontrado")
     return ServiceReportResponse.model_validate(report)
@@ -746,16 +762,19 @@ async def list_sla_configs(
     repo: ServiceRepository = Depends(get_repository),
 ) -> list[SLAConfigResponse]:
     """Lista configurações de SLA."""
-    slas = repo.list_sla_configs(
-        service_id=service_id, client_id=client_id, is_active=is_active, is_default=is_default, skip=skip, limit=limit
-    )
+    # `list_slas` conhece service_id/client_id/is_active; is_default e a paginação ficam
+    # por conta daqui.
+    slas = repo.list_slas(service_id=service_id, client_id=client_id, is_active=is_active)
+    if is_default is not None:
+        slas = [x for x in slas if x.is_default == is_default]
+    slas = slas[skip: skip + limit]
     return [SLAConfigResponse.model_validate(s) for s in slas]
 
 
 @router.get("/sla-configs/{sla_id}", response_model=SLAConfigResponse, summary="Obter SLA")
 async def get_sla_config(sla_id: UUID, repo: ServiceRepository = Depends(get_repository)) -> SLAConfigResponse:
     """Obtém detalhes de um SLA."""
-    sla = repo.get_sla_config_by_id(sla_id)
+    sla = repo.get_sla(sla_id)
     if not sla:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SLA não encontrado")
     return SLAConfigResponse.model_validate(sla)

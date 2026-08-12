@@ -39,6 +39,16 @@ CACADORES = {
         1 for ln in s.splitlines() if ln.strip().startswith("[CRITICO]")),
 }
 
+#: Estáticos: rodam no HOST, onde os caminhos do repositório existem. Pôr o
+#: `checar_repositorio` no container fez ele achar 0 — a raiz lá é /app, não
+#: /opt/conecta-pro/backend, e "zero achados" por caminho errado é o pior tipo de verde.
+CACADORES_HOST = {
+    # Nasceu do MVP de fechamento de `services`: 4 de 6 rotas em 500 porque o controller
+    # chamava método que o repositório nunca teve. 139 chamadas assim no sistema.
+    "checar_repositorio.py": lambda s: int(
+        (s.split(" chamada", 1)[0].strip() or "0").split()[-1]) if " chamada" in s else 0,
+}
+
 
 #: Roda no HOST. Os caçadores precisam do BANCO e do código como está no container; o
 #: caçador do arsenal precisa do REPOSITÓRIO e do crontab, que só existem no host. Misturar
@@ -49,10 +59,15 @@ _EXEC_CONTAINER = ["docker", "exec", "-e", "PYTHONPATH=/app", "conecta-pro-backe
 
 
 def _rodar(script: str) -> tuple[int, str]:
-    cmd = _EXEC_CONTAINER[:-1] + [_EXEC_CONTAINER[-1] + script]
+    if script in CACADORES_HOST:
+        cmd = [sys.executable, str(AQUI / script)]
+        conta = CACADORES_HOST[script]
+    else:
+        cmd = _EXEC_CONTAINER[:-1] + [_EXEC_CONTAINER[-1] + script]
+        conta = CACADORES[script]
     r = subprocess.run(cmd, capture_output=True, text=True)
     saida = r.stdout + r.stderr
-    return CACADORES[script](saida), saida
+    return conta(saida), saida
 
 
 def _avisar_no_sino(falhou: list[str]) -> None:
@@ -73,7 +88,7 @@ def main() -> int:
     base = json.loads(BASE.read_text()) if BASE.exists() else {}
     agora, falhou = {}, []
 
-    for script in CACADORES:
+    for script in {**CACADORES, **CACADORES_HOST}:
         n, _ = _rodar(script)
         agora[script] = n
         antes = base.get(script)
