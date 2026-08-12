@@ -1,6 +1,6 @@
 # Arsenal de skills — Conecta PRO
 
-Inventário real em 12/08/2026: **29 skills ativas** (+1 fantasma).
+Inventário real em 12/08/2026: **31 skills ativas** (+1 fantasma).
 Atualizado no mesmo dia: três genéricas foram ADAPTADAS ao Conecta PRO e viraram nossas. O que cada uma faz, onde
 uma encosta na outra, e em que ordem usar até um módulo estar **entregue**.
 
@@ -11,7 +11,7 @@ que falta é provar que funciona e ligar o que ficou solto.
 
 ## 1. Inventário
 
-### Nossas (`conecta-pro-skills`) — 13
+### Nossas (`conecta-pro-skills`) — 15
 
 | Skill | Responde | Escreve? |
 |---|---|---|
@@ -28,13 +28,15 @@ que falta é provar que funciona e ligar o que ficou solto.
 | **plano-conecta** | Plano que DECLARA TERRITÓRIO (5 sessões no mesmo repo) | não |
 | **oraculo-conecta** | Como escrever oráculo que afirma a REGRA, não a fotografia | não |
 | **entregue-de-verdade** | Os 3 portões entre "feito" e "entregue" | não |
+| **raio-de-impacto** | Quem mais depende disto? Esse defeito tem irmãos? | não |
+| **ponytail-conecta** | As 3 colisões entre ponytail e esta realidade | não |
 
 ### Genéricas — 16
 
 | Família | Skills | Uso aqui |
 |---|---|---|
 | **superpowers** (14) | **3 substituídas:** ~~writing-plans~~ → `plano-conecta` · ~~test-driven-development~~ → `oraculo-conecta` · ~~verification-before-completion~~ → `entregue-de-verdade`. **11 seguem genéricas:** executing-plans, subagent-driven-development, systematic-debugging, brainstorming, requesting-code-review, receiving-code-review, dispatching-parallel-agents, using-git-worktrees, finishing-a-development-branch, using-superpowers, writing-skills | processo |
-| **graphify** | grafo de conhecimento do código | estrutura |
+| **graphify** | grafo de conhecimento | **só via `raio-de-impacto`** — e só para forma de subsistema desconhecido |
 | **notebooklm** | API do NotebookLM | fora do pipeline |
 | ~~read-only-postgres~~ | **PASTA VAZIA — skill fantasma, remover** | — |
 
@@ -75,7 +77,7 @@ writing-plans e execute você mesmo; as outras duas são para fan-out.
 ┌─ CONSTRUIR ────────────────────────────────────────────────┐
 │ 5. ponytail (sempre) + oraculo-conecta por lógica não-trivial│
 │    → oráculo em backend/scripts/orq/, provado que PEGA      │
-│ 6. /code-review no diff                                    │
+│ 6. raio-de-impacto — o defeito tem irmãos? + /code-review   │
 └────────────────────────────────────────────────────────────┘
 ┌─ PROVAR ───────────────────────────────────────────────────┐
 │ 7. fecha-modulo         3 lentes: dado · tela · código     │
@@ -133,7 +135,8 @@ Siga esta ordem, e me diga o resultado de cada etapa antes de passar para a pró
    para cada lógica não-trivial. O oráculo afirma a REGRA, não a fotografia, e você prova
    que ele PEGA rodando contra o código anterior.
 
-6. /code-review no diff.
+6. /conecta-pro-skills:raio-de-impacto
+   Todo defeito corrigido: procure a família no repositório inteiro. Depois /code-review.
 
 7. /conecta-pro-skills:fecha-modulo <MÓDULO>
    Três lentes. "NÃO VERIFICADO" é resultado válido; "passou" sem evidência não é.
@@ -162,6 +165,8 @@ Três foram adaptadas porque falharam **aqui**, com caso medido em 11-12/08:
 
 | Genérica | Nossa | O que a genérica não previa |
 |---|---|---|
+| graphify | **raio-de-impacto** | o grafo não acha os defeitos daqui (são semânticos). Acha "quem mais" — e eu declarei 3 defeitos corrigidos com a família viva: 5 janelas ancoradas, 5 vocabulários, 3 validades inventadas |
+| ponytail | **ponytail-conecta** | 3 colisões: menor diff não vale em dinheiro/fisco/gov; superfície nova nasce vigiada; e a mensagem de commit é longa DE PROPÓSITO — é o único canal entre 5 sessões |
 | writing-plans | **plano-conecta** | cinco sessões no mesmo índice git. O plano precisa declarar TERRITÓRIO — colidi com o T1 duas vezes no mesmo dia |
 | test-driven-development | **oraculo-conecta** | não é ciclo vermelho-verde. É checagem que compara tela × banco em produção, e que apodrece se afirmar fotografia: 15 das 16 falhas de oráculo não eram defeito de produto |
 | verification-before-completion | **entregue-de-verdade** | aqui "feito" e "entregue" são estados distintos: `docker cp` não recarrega módulo importado, e eu disse "pronto" 3 vezes estando só em FEITO |
@@ -171,8 +176,6 @@ Três foram adaptadas porque falharam **aqui**, com caso medido em 11-12/08:
   `using-git-worktrees`, `finishing-a-development-branch` — não usamos na fase de revisão.
 - `systematic-debugging` — a lição daqui ("meça, não diagnostique de memória") já vive nas
   regras da casa; skill nova seria repetição.
-- `graphify` — **decisão: só invocar para RAIO DE IMPACTO** ("quem mais chama isto antes de
-  eu editar"). Rodar para gerar 123 nós e não consultar é cerimônia; foi o que fiz no fiscal.
 - `notebooklm`, `gold-standard-*`, `folha-cct`, `juridico` — situacionais, já são nossas ou
   fora do pipeline.
 

@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "conecta-pro-skills",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Skills do projeto Conecta PRO (ERP FastAPI+Postgres). Ciclo por modulo: raio-x-modulo (investigar) -> plano-conecta (declarar territorio) -> codar com oraculo-conecta -> fecha-modulo (QA 3 lentes) -> entregue-de-verdade (3 portoes) -> deploy-bake. Mais conecta-backend-recon, veracity-sweep, finding-schema-drift, gold-standard-pdf/slides, folha-cct e juridico.",
   "skills": [
     "./skills/finding-schema-drift",
@@ -16,6 +16,8 @@
     "./skills/fecha-modulo",
     "./skills/plano-conecta",
     "./skills/entregue-de-verdade",
-    "./skills/oraculo-conecta"
+    "./skills/oraculo-conecta",
+    "./skills/raio-de-impacto",
+    "./skills/ponytail-conecta"
   ]
 }
