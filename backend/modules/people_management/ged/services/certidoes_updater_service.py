@@ -51,7 +51,9 @@ CLIENTS_MAP: dict[str, tuple[str, str, str]] = {
     ),
 }
 
-# Validade padrao por tipo (dias) — usado quando client nao retorna data_validade
+# NÃO é mais fonte de validade (11-12/08/2026): servia de fallback e fabricava
+# certidão quando o órgão não respondia. Mantida porque `validade_dias` ainda é
+# informado no relatório de sincronização, como referência do prazo legal do tipo.
 _VALIDADE_PADRAO: dict[str, int] = {
     "certidao_negativa_fgts": 30,
     "certidao_negativa_federal": 180,
@@ -250,7 +252,11 @@ class CertidoesUpdaterService:
                 return datetime.fromisoformat(str(validade_raw).split("T")[0]).date()
             except (ValueError, TypeError):
                 pass
-        validade_dias = resultado.get("validade_dias") or _VALIDADE_PADRAO.get(doc_type, 180)
-        if validade_dias:
-            return date.today() + timedelta(days=int(validade_dias))
+        # AQUI havia `date.today() + _VALIDADE_PADRAO[doc_type]`: sem data do órgão, o
+        # serviço carimbava 30/180 dias de validade. É o terceiro irmão do mesmo defeito —
+        # o primeiro estava em cnd_sync_task, o segundo em crf_client, e tirar dos dois sem
+        # tirar daqui só mudaria o lugar onde a certidão nasce falsa.
+        #
+        # Certidão sem data no documento não é certidão. Mantém-se a validade ATUAL (o que
+        # já estava registrado, verdadeiro ou vencido) e nunca se inventa uma nova.
         return atual
