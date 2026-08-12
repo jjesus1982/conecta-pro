@@ -203,6 +203,20 @@ Nenhuma das 26 responde **"onde estamos cegos?"**. Três lacunas medidas em 12/0
 3. **Mapa do não-vigiado** — superfície × 65 oráculos, ordenado por raio de dano.
    Teria gritado "o Balanço Patrimonial não tem oráculo" antes de o PL mentir por meses.
 
+### As quatro travas mecânicas (12/08) — cada uma nasceu de um erro medido
+
+| Trava | Erro que ela impede | Onde |
+|---|---|---|
+| `checar_vocabulario.py` | lista literal que a coluna não tem — 31 obrigações onde havia 5 | `scripts/qa/` |
+| `cacar_fabricacao.py` | valor inventado quando a fonte falha — certidão de 180 dias sem consulta | `scripts/qa/` |
+| `checar_arsenal.py` | o próprio arsenal mentindo — instrução velha faz o próximo errar com confiança | `scripts/qa/` |
+| `test_oraculo_periodo_fechado.py` | reescrever período que o Jordan fechou — 184 lançamentos | `scripts/orq/` |
+| `_mutacao.py` | DELETE/UPDATE largo demais em produção — apagou certidão legítima | `scripts/qa/` |
+
+**`_mutacao.Mutacao` é obrigatório em todo script que altera dado de produção.** Ensaio é o
+padrão; `--aplicar` é explícito; acima do teto exige `--forcar`; lista vazia nunca aplica.
+A diferença entre acertar e apagar dado alheio, em 12/08, foi ter olhado a lista antes.
+
 **Os dois primeiros JÁ EXISTEM como código** (12/08), não como skill —
 `backend/scripts/qa/checar_vocabulario.py` e `backend/scripts/qa/cacar_fabricacao.py`.
 Acharam, na primeira execução: 23 filtros que nunca casam nada, 4 janelas ancoradas (eu
