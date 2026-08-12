@@ -52,10 +52,18 @@ _RE_IN = re.compile(
 )
 _RE_COLUNA = re.compile(r"\b(\w+)\s*(?:::\w+)?\s*(?:,|\)|$)")
 _RE_FROM = re.compile(r"\bFROM\s+([a-z_][a-z0-9_]*)", re.I)
+#: `FROM employees c` / `JOIN payable_accounts p` — alias -> tabela
+_RE_ALIAS = re.compile(r"\b(?:FROM|JOIN)\s+([a-z_][a-z0-9_]*)\s+(?:AS\s+)?([a-z][a-z0-9_]*)\b", re.I)
 _RE_LITERAL = re.compile(r"'([^']*)'")
 
 #: Colunas que não são vocabulário fechado — comparar contra DISTINCT não diz nada.
 _IGNORAR_COLUNA = {"id", "uuid", "cnpj", "cpf", "email", "code", "codigo", "nome", "name"}
+
+
+def _alias_de(expr: str) -> str | None:
+    """`lower(c.status::text)` -> 'c'. Sem qualificador, None."""
+    m = re.search(r"\b([a-z][a-z0-9_]*)\s*\.\s*[a-z_][a-z0-9_]*", expr, re.I)
+    return m.group(1).lower() if m else None
 
 
 def _coluna_de(expr: str) -> str | None:
@@ -88,10 +96,45 @@ def achados_no_arquivo(caminho: Path) -> list[dict]:
         tabelas = _RE_FROM.findall(antes)
         if not tabelas:
             continue
+
+        # INDETERMINADO em vez de CRITICO quando a atribuição de tabela não é confiável.
+        # Sugestão do T1 (12/08), depois de dois falsos positivos no financeiro com a mesma
+        # raiz: `c.status` era de employees e não de bank_transactions (SQL montado por
+        # helper), e numa função com duas queries a marcada era payable_accounts, não a de
+        # cima. Acusar CRITICO sobre atribuição chutada gasta a confiança da trava.
+        # O FROM pode vir DEPOIS: em `SUM(x) FILTER (WHERE status IN (...))` a comparação
+        # está na lista do SELECT, e a janela para trás pega o FROM da query ANTERIOR. Foi o
+        # 2o falso positivo do T1 — payable_accounts marcada como bank_transactions.
+        # Se houver fronteira de string (`text(` ou aspas triplas) entre o último FROM e a
+        # comparação, aquele FROM é de OUTRO comando: procura o do bloco atual, à frente.
+        depois = texto[m.end():m.end() + 800]
+        ult_from = antes.upper().rfind("FROM ")
+        fronteira = max(antes.rfind('"""'), antes.rfind("text("))
+        if fronteira > ult_from:
+            adiante = _RE_FROM.findall(depois.split('"""')[0])
+            if adiante:
+                tabelas = [adiante[0]]
+                antes = antes + depois        # aliases do bloco atual entram na resolução
+            else:
+                tabelas = []
+        if not tabelas:
+            continue
+
+        apelidos = {a.lower(): t.lower() for t, a in _RE_ALIAS.findall(antes)}
+        alias = _alias_de(m.group("expr"))
+        if alias and alias in apelidos:
+            tabela, incerto = apelidos[alias], False        # qualificador resolvido: confia
+        elif alias:
+            tabela, incerto = tabelas[-1].lower(), True     # qualificador que não resolve
+        else:
+            tabela = tabelas[-1].lower()
+            incerto = len(set(t.lower() for t in tabelas)) > 1   # mais de um FROM na janela
+
         out.append({
+            "incerto": incerto,
             "arquivo": str(caminho.relative_to(RAIZ)) if str(caminho).startswith(str(RAIZ)) else str(caminho),
             "linha": texto[:m.start()].count("\n") + 1,
-            "tabela": tabelas[-1].lower(),
+            "tabela": tabela,
             "coluna": coluna,
             "negado": bool(m.group("neg")),
             "literais": sorted(set(literais)),
@@ -144,7 +187,8 @@ async def confrontar(achados: list[dict]) -> list[dict]:
                 **a,
                 "literais_inexistentes": fantasmas,
                 "no_banco": sorted(reais),
-                "gravidade": "CRITICO" if len(fantasmas) == len(previstos) else "ATENCAO",
+                "gravidade": ("INDETERMINADO" if a.get("incerto") else
+                              "CRITICO" if len(fantasmas) == len(previstos) else "ATENCAO"),
             })
     # Crítico primeiro: lista inteiramente fora do vocabulário é filtro que nunca casa.
     return sorted(divergentes, key=lambda d: (d["gravidade"] != "CRITICO", d["arquivo"]))

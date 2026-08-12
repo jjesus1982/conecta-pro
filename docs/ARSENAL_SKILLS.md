@@ -65,6 +65,19 @@ mundo, porque nas três ele estava confiante e errado:**
 > *"O que me pegou foi sempre uma medição contra algo de fora, nunca uma releitura do meu
 > próprio código."* — T1
 
+**Mais duas, do mesmo, no dia seguinte:**
+
+4. **Filtro por texto não é contagem — quem conta é o banco.** Ele "adjudicou" três grupos de
+   duplicata consultando o extrato do Inter **por nome na descrição**; o filtro não contou um
+   par e ele apagou R$32,00 de uma transação legítima. Quem pegou foi a checagem contra o
+   saldo do próprio banco, que acusou a diferença exata. *A lição que ele escreveu na véspera
+   o pegou no dia seguinte — e desta vez quem o pegou foi a máquina, não ele.*
+5. **Invariante que o banco já garante não é invariante: é decoração.** Dois dos três que ele
+   ia afirmar já eram impossíveis (índice UNIQUE e CHECK constraint existentes) — só
+   descobriu **tentando ficar vermelho**. Viraram outra coisa, melhor: o oráculo passou a
+   afirmar que **a garantia continua de pé**, porque constraint some em migration distraída e
+   o defeito volta calado.
+
 **Três regras que toda trava nova paga, medidas no MVP de serviços:**
 
 1. **Prove o arreio antes de acusar o código.** Instanciei uma classe com o argumento errado
