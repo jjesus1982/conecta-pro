@@ -13,6 +13,7 @@ Metodologia ABC de duas etapas:
 2. Activity → Object (via drivers de atividade)
 """
 
+from modules.financial.costing.controllers import router
 from modules.financial.costing.models import (
     CostActivity,
     CostAllocation,
@@ -37,6 +38,7 @@ from modules.financial.costing.services import (
 
 __all__ = [
     # Router
+    "router",
     # Models
     "CostDriver",
     "CostActivity",

@@ -46,6 +46,7 @@ from modules.financial.controllers import (  # noqa: E402
     # Contas a Pagar
     supplier_router,
 )
+from modules.financial.costing import router as costing_router  # noqa: E402
 
 # Models do Custeio
 from modules.financial.costing.models import (  # noqa: E402
@@ -238,6 +239,7 @@ financial_router.include_router(accounting_router)
 financial_router.include_router(fiscal_router)
 
 # === Custeio ABC ===
+financial_router.include_router(costing_router)
 
 # Alias para compatibilidade
 router = financial_router
@@ -272,6 +274,7 @@ __all__ = [
     "accounting_router",
     "fiscal_router",
     # Routers submodulos
+    "costing_router",
     # =========================================================================
     # MODELS - Contas a Pagar
     # =========================================================================
