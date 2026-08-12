@@ -51,9 +51,15 @@ CATEGORIAS: tuple[tuple[str, str], ...] = (
 CATEGORIAS_VALIDAS = frozenset(k for k, _ in CATEGORIAS)
 
 # Normaliza a contraparte: tira o código mascarado do banco e a pontuação.
+#
+# ⚠️ `unaccent` ANTES de limpar. Sem ele, `[^A-Z0-9 ]` transforma acento em
+# ESPAÇO: "Ângela Lopes Macêdo" virava " NGELA LOPES MAC DO", e o cadastro
+# (que recebe `unaccent` no outro lado, em `_casa_nome`) procurava por "ANGELA"
+# e "MACEDO" — nunca casava. Todo funcionário com acento no nome escapava da
+# classificação e caía na transitória.
 _SQL_CONTRAPARTE = (
-    "regexp_replace(regexp_replace(upper(coalesce(counterparty_name, "
-    "regexp_replace(coalesce(description,''),'^.*?-\\s*',''))), "
+    "regexp_replace(regexp_replace(unaccent(upper(coalesce(counterparty_name, "
+    "regexp_replace(coalesce(description,''),'^.*?-\\s*','')))), "
     "'[^A-Z0-9 ]', ' ', 'g'), ' +', ' ', 'g')"
 )
 
@@ -83,7 +89,11 @@ _IMPOSTO = ("RECEITA FEDERAL", "CEF MATRIZ", "CAIXA ECONOMICA", "DARF", "GPS",
 # Razão social: pagou empresa, é fornecedor. Serve de rede para os pequenos que
 # não têm NFS-e tomada casada — melhor que jogar tudo em "diversos", que é
 # desistir com aparência de organização.
-_EMPRESA = (" LTDA", " S A", " SA", " S/A", " ME", " MEI", "EIRELI", "SERVICOS", "SERVICO",
+# ⚠️ Sufixos societários curtos (" SA", " ME") NÃO entram aqui — vão em
+# `_EMPRESA_SUFIXO`, testado só no FIM do nome. " SA" solto casava dentro de
+# " SANTOS": Gabriel Santos Machado e mais 4 pessoas viraram "Fornecedor — razão
+# social de empresa". É o mesmo defeito do "ISS" dentro de "COMISSAO".
+_EMPRESA = (" LTDA", " S/A", " MEI", "EIRELI", "SERVICOS", "SERVICO",
             "DISTRIBUIDORA", "TELECOM", "COMERCIO", "TECNOLOGIA", "PAGAMENTOS", "INDUSTRIA",
             "SISTEMAS", "SUPERMERC", "ADVOGAD", "CONTABIL", "ASSESSORIA", "CONSULTORIA",
             "TRANSPORTE", "LOCADORA", "SEGURANCA", "ENGENHARIA", "MATERIAIS", "EQUIPAMENTOS",
@@ -98,6 +108,9 @@ _EMPRESA = (" LTDA", " S A", " SA", " S/A", " ME", " MEI", "EIRELI", "SERVICOS",
 _BANCO = ("ITAU", "NUBANK", "NU PAGAMENTOS", "BRADESCO", "SANTANDER", "BANCO DO BRASIL",
           "BANCO C6", "C6 BANK", "BTG", "SICOOB", "SICREDI", "BANRISUL", "SAFRA",
           "PAGSEGURO", "MERCADO PAGO", "PICPAY", "WILL FINANCEIRA", "AGIBANK")
+# Sufixo societário curto vale SÓ no fim do nome — "SANTOS" não é "SA".
+_EMPRESA_SUFIXO = (" SA", " S A", " ME")
+
 _TAXA = ("TARIFA", "TAXA", "IOF", "ANUIDADE", "PACOTE DE SERVICOS")
 
 _RE_NAO_ALFA = re.compile(r"[^A-Za-z ]")
@@ -151,7 +164,7 @@ def _sugerir(contraparte: str, valor: float, e_funcionario: bool, tem_nfse: bool
         return "diarista", "favorecido está no cadastro de diaristas"
     if tem_nfse:
         return "fornecedor", "há NFS-e tomada deste CNPJ"
-    if any(t in c for t in _EMPRESA):
+    if any(t in c for t in _EMPRESA) or any(c.endswith(s) for s in _EMPRESA_SUFIXO):
         return "fornecedor", "razão social de empresa"
     if abs(valor) < 50:
         return "diversos", "valor pequeno, sem enquadramento"
@@ -165,8 +178,10 @@ async def listar_grupos(db: AsyncSession, *, minimo: float = 0.0, limite: int = 
             SELECT {_SQL_CONTRAPARTE} AS contraparte,
                    count(*) AS n, sum(abs(amount)) AS valor,
                    min(transaction_date)::date AS de, max(transaction_date)::date AS ate,
-                   max(upper(regexp_replace(coalesce(counterparty_name,
-                       regexp_replace(coalesce(description,''),'^.*?-\\s*','')),'[^A-Za-z ]','','g'))) AS alvo,
+                   -- unaccent ANTES: sem ele o 'Â' de "Ângela" era REMOVIDO junto
+                   -- com a letra ("ngela") e o nome do cadastro nunca casava.
+                   max(regexp_replace(unaccent(upper(coalesce(counterparty_name,
+                       regexp_replace(coalesce(description,''),'^.*?-\\s*','')))),'[^A-Z ]','','g')) AS alvo,
                    max(coalesce(counterparty_document,'')) AS doc
             FROM bank_transactions
             WHERE amount < 0 AND justificativa_categoria IS NULL
