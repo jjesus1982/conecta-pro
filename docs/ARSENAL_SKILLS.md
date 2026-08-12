@@ -1,6 +1,7 @@
 # Arsenal de skills — Conecta PRO
 
-Inventário real em 12/08/2026: **26 skills ativas** (+1 fantasma). O que cada uma faz, onde
+Inventário real em 12/08/2026: **29 skills ativas** (+1 fantasma).
+Atualizado no mesmo dia: três genéricas foram ADAPTADAS ao Conecta PRO e viraram nossas. O que cada uma faz, onde
 uma encosta na outra, e em que ordem usar até um módulo estar **entregue**.
 
 Fase atual do projeto: **revisão e fechamento**. Nada de feature nova — o código existe; o
@@ -10,7 +11,7 @@ que falta é provar que funciona e ligar o que ficou solto.
 
 ## 1. Inventário
 
-### Nossas (`conecta-pro-skills`) — 10
+### Nossas (`conecta-pro-skills`) — 13
 
 | Skill | Responde | Escreve? |
 |---|---|---|
@@ -24,12 +25,15 @@ que falta é provar que funciona e ligar o que ficou solto.
 | **gold-standard-pdf** | Qualquer PDF da marca | sim |
 | **gold-standard-slides** | Qualquer apresentação | sim |
 | **juridico** | Módulo jurídico: contratos, alertas, LGPD | sim |
+| **plano-conecta** | Plano que DECLARA TERRITÓRIO (5 sessões no mesmo repo) | não |
+| **oraculo-conecta** | Como escrever oráculo que afirma a REGRA, não a fotografia | não |
+| **entregue-de-verdade** | Os 3 portões entre "feito" e "entregue" | não |
 
 ### Genéricas — 16
 
 | Família | Skills | Uso aqui |
 |---|---|---|
-| **superpowers** (14) | writing-plans, executing-plans, subagent-driven-development, test-driven-development, systematic-debugging, brainstorming, verification-before-completion, requesting-code-review, receiving-code-review, dispatching-parallel-agents, using-git-worktrees, finishing-a-development-branch, using-superpowers, writing-skills | processo |
+| **superpowers** (14) | **3 substituídas:** ~~writing-plans~~ → `plano-conecta` · ~~test-driven-development~~ → `oraculo-conecta` · ~~verification-before-completion~~ → `entregue-de-verdade`. **11 seguem genéricas:** executing-plans, subagent-driven-development, systematic-debugging, brainstorming, requesting-code-review, receiving-code-review, dispatching-parallel-agents, using-git-worktrees, finishing-a-development-branch, using-superpowers, writing-skills | processo |
 | **graphify** | grafo de conhecimento do código | estrutura |
 | **notebooklm** | API do NotebookLM | fora do pipeline |
 | ~~read-only-postgres~~ | **PASTA VAZIA — skill fantasma, remover** | — |
@@ -48,8 +52,8 @@ que falta é provar que funciona e ligar o que ficou solto.
 |---|---|---|
 | `raio-x-modulo` × `conecta-backend-recon` | os dois mapeiam órfão | recon é **ferramenta** (rota × front). raio-x é o **protocolo** que combina recon + graphify + leitura do controller. Nunca chame recon sozinho para decidir — ela não sabe o que a rota faz |
 | `veracity-sweep` × `fecha-modulo` (lente DADO) | os dois perguntam "o exibido == banco?" | fecha-modulo usa **oráculo** onde existe. veracity-sweep é o que se faz **quando não há oráculo** — e ela CORRIGE; fecha-modulo só julga |
-| `fecha-modulo` × `verification-before-completion` | os dois são "antes de dizer pronto" | fecha-modulo é escala de **módulo** (3 lentes, relatório). verification-before-completion é escala de **frase**: não afirme o que não verificou |
-| `test-driven-development` × ponytail | os dois exigem teste | TDD é ciclo completo (falha→passa→refatora). Ponytail exige **uma** checagem executável por lógica não-trivial. Em fase de revisão, ponytail basta; TDD só para lógica nova |
+| `fecha-modulo` × `entregue-de-verdade` | os dois são "antes de dizer pronto" | fecha-modulo é escala de **módulo** (3 lentes, relatório). entregue-de-verdade é escala de **frase**, e traz os 3 portões que separam "feito" de "entregue" |
+| `oraculo-conecta` × ponytail | os dois exigem teste | TDD é ciclo completo (falha→passa→refatora). Ponytail exige **uma** checagem executável por lógica não-trivial. Em fase de revisão, ponytail basta; TDD só para lógica nova |
 
 **Sobreposição que existe de verdade:** `writing-plans` → `executing-plans` →
 `subagent-driven-development` são três da mesma família e sequenciais. Numa sessão só, use
@@ -66,16 +70,16 @@ writing-plans e execute você mesmo; as outras duas são para fan-out.
 │ 3. veracity-sweep       o exibido é verdade? (sem oráculo) │
 └────────────────────────────────────────────────────────────┘
 ┌─ DECIDIR ──────────────────────────────────────────────────┐
-│ 4. writing-plans        plano DECLARA TERRITÓRIO (5 sessões)│
+│ 4. plano-conecta        DECLARA TERRITÓRIO (5 sessões no repo)│
 └────────────────────────────────────────────────────────────┘
 ┌─ CONSTRUIR ────────────────────────────────────────────────┐
-│ 5. ponytail (sempre) + 1 checagem executável por lógica    │
-│    → oráculo em backend/scripts/orq/                       │
+│ 5. ponytail (sempre) + oraculo-conecta por lógica não-trivial│
+│    → oráculo em backend/scripts/orq/, provado que PEGA      │
 │ 6. /code-review no diff                                    │
 └────────────────────────────────────────────────────────────┘
 ┌─ PROVAR ───────────────────────────────────────────────────┐
 │ 7. fecha-modulo         3 lentes: dado · tela · código     │
-│ 8. verification-before-completion  antes da frase "pronto" │
+│ 8. entregue-de-verdade   os 3 portões, antes de dizer pronto│
 └────────────────────────────────────────────────────────────┘
 ┌─ ENTREGAR ─────────────────────────────────────────────────┐
 │ 9. deploy-bake          docker cp é volátil; bake é durável│
@@ -120,14 +124,14 @@ Siga esta ordem, e me diga o resultado de cada etapa antes de passar para a pró
 3. /conecta-pro-skills:veracity-sweep <MÓDULO>
    Só para o que NÃO tem oráculo. O exibido tem que bater com o banco.
 
-4. /superpowers:writing-plans
-   O plano tem que DECLARAR TERRITÓRIO: quais arquivos você vai tocar. Antes de escrever,
-   rode `git log --since="1 day ago"` e `git status` neles — outras sessões trabalham no
-   mesmo repositório e já colidimos por não fazer isso.
+4. /conecta-pro-skills:plano-conecta
+   O passo 0 dela é território: `git log` e `git status` nos arquivos que vou tocar. Se
+   houver WIP de outra sessão no MESMO arquivo, espere — índice temporário isola arquivo,
+   não trecho.
 
-5. Execute em loop, com /ponytail:ponytail ativo.
-   Toda lógica não-trivial nasce com uma checagem executável — oráculo em
-   backend/scripts/orq/. Prove que o oráculo PEGA o defeito: rode contra o código anterior.
+5. Execute em loop, com /ponytail:ponytail ativo e /conecta-pro-skills:oraculo-conecta
+   para cada lógica não-trivial. O oráculo afirma a REGRA, não a fotografia, e você prova
+   que ele PEGA rodando contra o código anterior.
 
 6. /code-review no diff.
 
@@ -137,7 +141,8 @@ Siga esta ordem, e me diga o resultado de cada etapa antes de passar para a pró
 8. /conecta-pro-skills:deploy-bake
    docker cp não recarrega módulo já importado — só o bake entrega.
 
-9. Depois do bake, confira na ROTA REAL com token válido. Oráculo verde não é entrega.
+9. /conecta-pro-skills:entregue-de-verdade
+   Os 3 portões: rota real depois do bake · oráculo que pega · nenhuma superfície sem vigia.
 
 Regras que não se negociam:
 - Não fabricar dado. Sem fonte → "aguardando dado".
@@ -148,6 +153,36 @@ Regras que não se negociam:
 Ao final, relatório em auditoria/qa/<MÓDULO>_AAAAMMDD.md com veredito por lente e o que
 NÃO foi coberto.
 ```
+
+---
+
+## 4b. Genéricas adaptadas — e as que NÃO merecem adaptação
+
+Três foram adaptadas porque falharam **aqui**, com caso medido em 11-12/08:
+
+| Genérica | Nossa | O que a genérica não previa |
+|---|---|---|
+| writing-plans | **plano-conecta** | cinco sessões no mesmo índice git. O plano precisa declarar TERRITÓRIO — colidi com o T1 duas vezes no mesmo dia |
+| test-driven-development | **oraculo-conecta** | não é ciclo vermelho-verde. É checagem que compara tela × banco em produção, e que apodrece se afirmar fotografia: 15 das 16 falhas de oráculo não eram defeito de produto |
+| verification-before-completion | **entregue-de-verdade** | aqui "feito" e "entregue" são estados distintos: `docker cp` não recarrega módulo importado, e eu disse "pronto" 3 vezes estando só em FEITO |
+
+**As que NÃO ganham adaptação, e o motivo:**
+- `brainstorming`, `subagent-driven-development`, `dispatching-parallel-agents`,
+  `using-git-worktrees`, `finishing-a-development-branch` — não usamos na fase de revisão.
+- `systematic-debugging` — a lição daqui ("meça, não diagnostique de memória") já vive nas
+  regras da casa; skill nova seria repetição.
+- `graphify` — **decisão: só invocar para RAIO DE IMPACTO** ("quem mais chama isto antes de
+  eu editar"). Rodar para gerar 123 nós e não consultar é cerimônia; foi o que fiz no fiscal.
+- `notebooklm`, `gold-standard-*`, `folha-cct`, `juridico` — situacionais, já são nossas ou
+  fora do pipeline.
+
+### Onde as skills VIVEM (achado de 12/08)
+
+O plugin `conecta-pro-skills` existia **só em `~/.claude/`, fora do git**. Treze skills, a
+metodologia inteira, sem backup. Espelhado em `skills/_plugin/conecta-pro-skills/`.
+
+⚠️ **A cópia viva continua sendo `~/.claude/`** — o espelho é backup, e vai divergir se
+alguém editar num lado só. Ao mexer numa skill, copie para o espelho e commite.
 
 ---
 
@@ -165,6 +200,12 @@ Nenhuma das 26 responde **"onde estamos cegos?"**. Três lacunas medidas em 12/0
 3. **Mapa do não-vigiado** — superfície × 65 oráculos, ordenado por raio de dano.
    Teria gritado "o Balanço Patrimonial não tem oráculo" antes de o PL mentir por meses.
 
-**As três devem ser CÓDIGO no pre-commit e na varredura diária, não skill.** Skill só age
+**Os dois primeiros JÁ EXISTEM como código** (12/08), não como skill —
+`backend/scripts/qa/checar_vocabulario.py` e `backend/scripts/qa/cacar_fabricacao.py`.
+Acharam, na primeira execução: 23 filtros que nunca casam nada, 4 janelas ancoradas (eu
+tinha consertado 1 achando que era única) e a validade inventada do `crf_client`. Falta o
+**mapa do não-vigiado**.
+
+**Por que código e não skill:** Skill só age
 quando alguém a invoca; check age sempre. Foi um check que achou o corte silencioso do
 digest às 05:00 de hoje, sem ninguém pedir.

@@ -1,0 +1,166 @@
+/* ============================================================
+   CONECTA MAIS — DESIGN SYSTEM DE SLIDES (padrão-ouro)
+   Inclua este arquivo INTEIRO no <style> de todo deck.
+   Palco fixo 1920×1080 escalado ao viewport (nunca reflow).
+   ============================================================ */
+
+:root {
+    /* Paleta oficial (mesma do pdf_branding.py) */
+    --azul-escuro: #1E3A5F;
+    --azul-medio: #2D5F8B;
+    --laranja: #F97316;
+    --laranja-suave: #FDBA74;
+    --texto: #1F2937;
+    --fundo-claro: #F8FAFC;
+    --branco: #FFFFFF;
+    --verde-ok: #16A34A;
+    /* Derivadas p/ slides dark */
+    --azul-noite: #12263F;        /* fundo dark = azul-escuro aprofundado, nunca preto puro */
+    --azul-noite-2: #1A3354;
+    --texto-sobre-dark: #E8EEF5;
+    --texto-secundario-dark: #9FB3C8;
+
+    /* Tipografia da marca em slides (Google Fonts: Archivo + Manrope) */
+    --font-display: 'Archivo', sans-serif;   /* títulos: 700/800/900 */
+    --font-body: 'Manrope', sans-serif;      /* corpo: 400/500/600 */
+    --title-capa: 96px;
+    --title-slide: 64px;
+    --subtitle: 30px;
+    --body-size: 28px;
+    --eyebrow-size: 22px;
+
+    /* Espaçamento no palco 1920×1080 */
+    --slide-pad: 96px;
+    --gap: 32px;
+
+    /* Animação */
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+    --dur: 0.6s;
+
+    --stage-bg: #0B1929;
+    --slide-bg: var(--fundo-claro);
+}
+
+/* ---------- PALCO FIXO 16:9 (obrigatório, não alterar) ---------- */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: var(--stage-bg); }
+.deck-viewport { position: fixed; inset: 0; overflow: hidden; background: var(--stage-bg); }
+.deck-stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px;
+    overflow: hidden; transform-origin: 0 0; background: var(--slide-bg); }
+.slide { position: absolute; inset: 0; width: 1920px; height: 1080px; overflow: hidden;
+    visibility: hidden; opacity: 0; pointer-events: none;
+    background: var(--slide-bg); font-family: var(--font-body); color: var(--texto);
+    padding: var(--slide-pad); }
+.slide.active, .slide.visible { visibility: visible; opacity: 1; pointer-events: auto; z-index: 1; }
+img, video, canvas, svg { max-width: 100%; max-height: 100%; }
+@media print {
+    html, body { width: 1920px; height: auto; overflow: visible; background: #fff; }
+    .deck-viewport { position: static; overflow: visible; background: #fff; }
+    .deck-stage { position: static; width: auto; height: auto; transform: none !important; background: none; }
+    .slide { position: relative; display: block !important; visibility: visible !important;
+        opacity: 1 !important; pointer-events: auto !important; width: 1920px; height: 1080px;
+        break-after: page; page-break-after: always; }
+    .slide:last-child { break-after: auto; page-break-after: auto; }
+    .deck-controls, .nav-dots { display: none !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.2s !important; }
+}
+
+/* ---------- ANIMAÇÃO PADRÃO (reveal escalonado) ---------- */
+.reveal { opacity: 0; transform: translateY(28px);
+    transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease); }
+.slide.visible .reveal { opacity: 1; transform: translateY(0); }
+.reveal:nth-child(1) { transition-delay: .08s; } .reveal:nth-child(2) { transition-delay: .18s; }
+.reveal:nth-child(3) { transition-delay: .28s; } .reveal:nth-child(4) { transition-delay: .38s; }
+.reveal:nth-child(5) { transition-delay: .48s; } .reveal:nth-child(6) { transition-delay: .58s; }
+
+/* ---------- VOCABULÁRIO DA MARCA ---------- */
+/* Eyebrow: rótulo laranja espaçado acima do título (assinatura visual) */
+.eyebrow { font-family: var(--font-display); font-weight: 700; font-size: var(--eyebrow-size);
+    letter-spacing: .35em; text-transform: uppercase; color: var(--laranja); }
+
+/* Título de slide interno com barra laranja à esquerda (eco do PDF padrão-ouro) */
+.titulo-slide { display: flex; align-items: center; gap: 28px; margin-bottom: 20px; }
+.titulo-slide::before { content: ''; width: 14px; height: 84px; background: var(--laranja);
+    border-radius: 7px; flex: none; }
+.titulo-slide h2 { font-family: var(--font-display); font-weight: 800;
+    font-size: var(--title-slide); color: var(--azul-escuro); line-height: 1.05; }
+.slide.dark .titulo-slide h2 { color: var(--branco); }
+
+/* Rodapé de marca: OBRIGATÓRIO em todo slide interno (não na capa) */
+.rodape-marca { position: absolute; left: 0; right: 0; bottom: 0; height: 58px;
+    background: var(--azul-escuro); display: flex; align-items: center;
+    justify-content: space-between; padding: 0 48px;
+    font-size: 19px; color: #B9CBDE; font-weight: 500; }
+.slide.dark .rodape-marca { background: rgba(255,255,255,.06); }
+.rodape-marca .num { color: var(--laranja); font-weight: 700; }
+
+/* Slides dark (capa, seção, contato) */
+.slide.dark { background: linear-gradient(150deg, var(--azul-noite) 0%, var(--azul-noite-2) 55%, var(--azul-noite) 100%);
+    color: var(--texto-sobre-dark); }
+/* Atmosfera: anel laranja translúcido (assinatura; incluir <div class="atmosfera"></div>
+   como 1º filho de todo slide dark — o wrapper com overflow:hidden evita que o anel
+   estoure o palco 1920×1080 na verificação) */
+.atmosfera { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.atmosfera::after { content: ''; position: absolute; width: 720px; height: 720px;
+    border: 90px solid rgba(249, 115, 22, .07); border-radius: 50%;
+    right: -220px; bottom: -260px; }
+
+/* ---------- COMPONENTES ---------- */
+/* Cartão KPI: número tabular 1 LINHA + rótulo; máx 4 por slide */
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--gap); align-items: stretch; }
+.kpi-card { background: var(--branco); border: 1px solid #E2E8F0; border-radius: 20px;
+    border-top: 8px solid var(--laranja); padding: 44px 40px 38px;
+    box-shadow: 0 12px 30px rgba(30, 58, 95, .08);
+    display: flex; flex-direction: column; justify-content: center; gap: 12px; }
+.slide.dark .kpi-card { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.12); }
+.kpi-card .valor { font-family: var(--font-display); font-weight: 900; font-size: 84px;
+    line-height: 1; color: var(--azul-escuro); font-variant-numeric: tabular-nums;
+    white-space: nowrap; }
+.slide.dark .kpi-card .valor { color: var(--branco); }
+.kpi-card .valor .unidade { font-size: 40px; font-weight: 700; color: var(--laranja); }
+.kpi-card .rotulo { font-size: 24px; font-weight: 600; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--azul-medio); }
+.slide.dark .kpi-card .rotulo { color: var(--texto-secundario-dark); }
+
+/* Tabela comparativa: coluna Conecta destacada */
+.comparativo { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 26px; }
+.comparativo th { font-family: var(--font-display); font-weight: 700; font-size: 24px;
+    letter-spacing: .08em; text-transform: uppercase; text-align: left;
+    padding: 18px 28px; color: var(--azul-medio); border-bottom: 3px solid var(--azul-escuro); }
+.comparativo td { padding: 22px 28px; border-bottom: 1px solid #E2E8F0; vertical-align: top; }
+.comparativo td:first-child { font-weight: 700; color: var(--azul-escuro); width: 22%; }
+.comparativo .col-destaque { background: rgba(249, 115, 22, .07); }
+th.col-destaque { color: var(--laranja) !important; border-bottom-color: var(--laranja) !important; }
+.comparativo tr:last-child td { border-bottom: none; }
+
+/* Bloco de proposta/preço */
+.proposta-card { background: var(--branco); border-radius: 24px; overflow: hidden;
+    border: 1px solid #E2E8F0; box-shadow: 0 16px 40px rgba(30,58,95,.10); }
+.proposta-card header { background: var(--azul-escuro); color: var(--branco);
+    padding: 28px 40px; font-family: var(--font-display); font-weight: 700; font-size: 30px; }
+.proposta-card .preco { font-family: var(--font-display); font-weight: 900; font-size: 88px;
+    color: var(--laranja); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.proposta-card ul { list-style: none; }
+.proposta-card li { padding: 14px 0 14px 44px; position: relative; font-size: 26px; }
+.proposta-card li::before { content: '✓'; position: absolute; left: 8px;
+    color: var(--verde-ok); font-weight: 800; }
+
+/* Badge da logo em slides dark: a logo da marca é azul-escura e SOME sobre fundo dark —
+   sempre colocá-la dentro deste badge branco (mesmo padrão dos PDFs) */
+.logo-badge { background: var(--branco); border-radius: 22px; padding: 26px 40px;
+    display: inline-flex; align-items: center; justify-content: center;
+    box-shadow: 0 14px 36px rgba(0,0,0,.28); }
+
+/* Botão/CTA de contato */
+.cta { display: inline-flex; align-items: center; gap: 16px; background: var(--laranja);
+    color: var(--branco); font-family: var(--font-display); font-weight: 700; font-size: 30px;
+    padding: 24px 52px; border-radius: 16px; }
+
+/* Navegação (fora do palco) */
+.nav-dots { position: fixed; top: 24px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 10px; z-index: 1000; }
+.nav-dots span { width: 10px; height: 10px; border-radius: 50%; background: rgba(255,255,255,.25); }
+.nav-dots span.on { background: var(--laranja); }
