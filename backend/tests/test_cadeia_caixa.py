@@ -100,6 +100,21 @@ def test_dialeto_legado_da_base_tem_destino():
     assert contrapartida_saida("outros", "PIX")[0] == CONTA_SAIDA_A_CLASSIFICAR
 
 
+def test_banco_como_favorecido_nao_vira_fornecedor():
+    """"ITAU UNIBANCO HOLDING S A" foi sugerido como Fornecedor porque é razão
+    social de empresa — e era a fatura do cartão que o Jordan usa para comprar
+    material. Pagamento a banco pode ser tarifa, financiamento, consórcio ou
+    cartão; cada um vai para uma conta diferente. A regra tem que CALAR."""
+    from modules.financial.services.classificacao_saidas_service import _sugerir
+
+    cat, motivo = _sugerir("ITAU UNIBANCO HOLDING S A", 4706.54, False, False)
+    assert cat is None, f"sugestão errada com cara de certa: {cat}"
+    assert "banco" in motivo.lower()
+
+    # tarifa continua sendo tarifa — o teste de taxa vem antes
+    assert _sugerir("TARIFA PACOTE DE SERVICOS", 39.90, False, False)[0] == "taxa_bancaria"
+
+
 def test_reembolso_nao_e_remuneracao_de_quem_recebe():
     """R$56,85 de "Café treinamento" estava como pró-labore do Eliziel — ou seja,
     contado como o que ELE ganhou. É despesa da empresa que ele adiantou."""

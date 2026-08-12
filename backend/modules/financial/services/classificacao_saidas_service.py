@@ -82,7 +82,17 @@ _EMPRESA = (" LTDA", " S A", " SA", " S/A", " ME", " MEI", "EIRELI", "SERVICOS",
             "DISTRIBUIDORA", "TELECOM", "COMERCIO", "TECNOLOGIA", "PAGAMENTOS", "INDUSTRIA",
             "SISTEMAS", "SUPERMERC", "ADVOGAD", "CONTABIL", "ASSESSORIA", "CONSULTORIA",
             "TRANSPORTE", "LOCADORA", "SEGURANCA", "ENGENHARIA", "MATERIAIS", "EQUIPAMENTOS",
-            "BANCO ", "SEGUROS", "CLINICA", "LABORATORIO", "POSTO ")
+            "SEGUROS", "CLINICA", "LABORATORIO", "POSTO ")
+
+# Banco NÃO entra em _EMPRESA. Pagamento a banco quase nunca é "fornecedor de
+# serviço": é tarifa, financiamento, consórcio ou fatura de cartão — e cada um vai
+# para uma conta diferente. "ITAU UNIBANCO HOLDING S A" veio sugerido como
+# Fornecedor e era a fatura do cartão que o Jordan usa para comprar material da
+# empresa. Sugestão errada com cara de certa é pior que não sugerir: o humano
+# confirma em bloco e grava o erro. Aqui a regra cala e devolve a decisão.
+_BANCO = ("ITAU", "NUBANK", "NU PAGAMENTOS", "BRADESCO", "SANTANDER", "BANCO DO BRASIL",
+          "BANCO C6", "C6 BANK", "BTG", "SICOOB", "SICREDI", "BANRISUL", "SAFRA",
+          "PAGSEGURO", "MERCADO PAGO", "PICPAY", "WILL FINANCEIRA", "AGIBANK")
 _TAXA = ("TARIFA", "TAXA", "IOF", "ANUIDADE", "PACOTE DE SERVICOS")
 
 _RE_NAO_ALFA = re.compile(r"[^A-Za-z ]")
@@ -124,6 +134,10 @@ def _sugerir(contraparte: str, valor: float, e_funcionario: bool, tem_nfse: bool
         return "pj_prolabore", "favorecido está cadastrado como PJ"
     if any(t in c for t in _TAXA):
         return "taxa_bancaria", "descrição de tarifa bancária"
+    if any(b in c for b in _BANCO):
+        # Vem ANTES de _EMPRESA e do teste de valor: sem isto, "ITAU UNIBANCO
+        # HOLDING S A" caía em `fornecedor` por ser razão social de empresa.
+        return None, "favorecido é banco — pode ser fatura de cartão, financiamento, consórcio ou tarifa; decide o humano"
     if abs(valor) == 32.0:
         return "beneficio_vtvr", "R$32,00 = VT + VR de diarista"
     if e_funcionario:
