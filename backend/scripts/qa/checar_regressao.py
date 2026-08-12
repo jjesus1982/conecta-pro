@@ -55,6 +55,11 @@ CACADORES_HOST = {
     # 666 na estreia, 84 alcançáveis por tela — as 35 literais confirmadas 404 por HTTP.
     "checar_rotas_frontend.py": lambda s: next(
         (int(ln.split(":")[1]) for ln in s.splitlines() if ln.startswith("TOTAL:")), 0),
+    # Ideia do T1: contra qual fonte DE FORA cada número foi provado, e quando. Os outros
+    # oráculos comparam exibido == banco — os dois lados nossos; se o banco estiver errado,
+    # ficam verdes. Foi o caso do extrato (880 duplicatas, 94 sinais invertidos).
+    "checar_oraculo_externo.py": lambda s: next(
+        (int(ln.split(":")[1]) for ln in s.splitlines() if ln.startswith("TOTAL:")), 0),
 }
 
 

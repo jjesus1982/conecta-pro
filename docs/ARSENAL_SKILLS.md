@@ -28,7 +28,7 @@ provar que funciona, ligar o que ficou solto, e entregar.
 | 10 | **deploy-bake** | tornar durável sem quebrar | sim |
 | 11 | **conecta-backend-recon** | *(dentro do raio-x)* rota montada sem superfície | não |
 
-## 2. As 7 travas (código, não skill)
+## 2. As 8 travas (código, não skill)
 
 Skill só age quando alguém invoca; **trava age sempre**. Cada uma nasceu de um erro medido.
 
@@ -41,6 +41,7 @@ Skill só age quando alguém invoca; **trava age sempre**. Cada uma nasceu de um
 | `_mutacao.py` | DELETE/UPDATE largo em produção — *apagou certidão legítima* | `backend/scripts/qa` |
 | `checar_repositorio.py` | chamada para método que o repositório não tem — *78 num módulo só* | `backend/scripts/qa` |
 | `checar_rotas_frontend.py` | frontend chamando rota que o backend não tem — *9 de 9 no SLA* | `backend/scripts/qa` |
+| `checar_oraculo_externo.py` | número que **ninguém de fora** confirma — *ideia do T1* | `backend/scripts/qa` |
 
 ⚠️ **`checar_repositorio` tem DOIS olhos, e o segundo nasceu de um verde incompleto meu.**
 Com as 78 renomeações prontas ela disse `services: 0` e o dashboard continuava em 500: o
@@ -226,6 +227,14 @@ caminho: `checar_rotas_frontend` já responde "que superfície do frontend apont
 nenhuma das três: não sabia que existiam"*. Arsenal que ninguém acha é arsenal que não
 existe. Hoje o único caminho de descoberta é alguém colar o roteiro num prompt; não há nada
 que apresente as travas a uma sessão nova por conta própria.
+
+**Oráculo interno não pega banco de dados errado.** Os 67 comparam *exibido == banco*: os
+dois lados nossos. Quando o extrato teve 880 linhas duplicadas e 94 sinais invertidos, a tela
+mostrava fielmente o que o banco tinha — **verde, e mentira**. `checar_oraculo_externo`
+pergunta o que falta: *quem, de fora daqui, confirma este número, e quando confirmou?* Sete
+âncoras hoje (saldo do banco, extrato, pagamentos do Inter, certidões, eSocial, folha da
+Portte, NFS-e). ⚠️ **Âncora ausente é o pior achado** — o número que ninguém confirma nem
+aparece na lista; leia com `--listar` e pergunte o que falta.
 
 **Vigilância tem DOIS sistemas, e é fácil contar só um.** Oráculos em `scripts/orq/` rodam à
 00:00 e aparecem na varredura; **regras proativas** em `notifications/proativo/regras.py`
