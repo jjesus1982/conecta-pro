@@ -55,6 +55,23 @@ _MAPA_SAIDA: dict[str, tuple[str, str]] = {
     # quem recebe. R$56,85 de "Café treinamento" estava entrando como pró-labore
     # do Eliziel, inflando o que ele ganhou.
     "reembolso": ("5.1.1.08", "despesa da empresa adiantada por colaborador"),
+
+    # ── dialeto legado, 2ª leva (11/08/2026) ────────────────────────────────
+    # Medido no extrato: mais grafias do MESMO sentido caindo na transitória por
+    # vocabulário. Só entram as que têm equivalente exato acima — o resto fica.
+    "diaristas": ("5.1.1.07", "diária paga direto — grafia legada de 'diarista'"),
+    "diaristas vt+vr": ("5.1.1.03", "VT/VR de diarista — grafia legada"),
+    "pró-labore": ("5.2.1.04", "pró-labore — grafia legada de 'pj_prolabore'"),
+    "pro-labore": ("5.2.1.04", "pró-labore — grafia legada sem acento"),
+    "transferência": ("1.1.9.01", "transferência entre contas próprias — não é despesa"),
+    "transferencia": ("1.1.9.01", "transferência entre contas próprias — não é despesa"),
+    # NÃO entram, e o motivo importa:
+    # • 'folha_pagamento'/'Folha' (R$ 96.246,39) pareceriam quitação de salário
+    #   provisionado (2.1.1.01), mas a provisão tem saldo de R$ 44.413,37 — abater
+    #   tudo ali deixaria o passivo NEGATIVO em R$ 51 mil. Ou a provisão está
+    #   incompleta, ou parte desses pagamentos não é folha. Decisão de contador.
+    # • 'pagamento', 'financiamentos', 'Outros' não dizem o que são.
+    # • 'combustivel', 'locacao_veiculo', 'ti_telecom' não têm conta no plano.
 }
 
 # 'imposto' é guarda-chuva: o passivo certo depende do tributo. Sem afinar,
@@ -99,16 +116,27 @@ def contrapartida_saida(categoria: str | None, descricao: str) -> tuple[str, str
     return CONTA_SAIDA_A_CLASSIFICAR, "saída ainda sem classificação"
 
 
-def contrapartida_entrada(descricao: str, documento: str | None = None) -> tuple[str, str]:
+def contrapartida_entrada(descricao: str, documento: str | None = None,
+                         categoria: str | None = None) -> tuple[str, str]:
     """(conta, motivo) do lado NÃO-banco de uma entrada.
 
     O teste do GRUPO vem primeiro: uma transferência entre CNPJs nossos chega
     como "PIX RECEBIDO", e a regra de cliente a capturaria como receita.
+
+    A CATEGORIA do extrato entrou em 11/08/2026. Até então esta função só lia a
+    descrição, e o extrato já trazia `recebimento_cliente` classificado — R$ 138.648,89
+    de R$ 141.355,52 na transitória de entradas eram informação que o sistema tinha e
+    não usava. A descrição continua valendo para o que não vem categorizado.
     """
     doc = "".join(c for c in (documento or "") if c.isdigit())
     d = (descricao or "").upper()
+    cat = (categoria or "").strip().lower()
     if doc in CNPJS_DO_GRUPO or any(g in d for g in _GRUPO):
         return "1.1.9.01", "transferência de outra empresa do grupo"
+    if cat in ("transferência", "transferencia", "transferencia_interna"):
+        return "1.1.9.01", "transferência entre contas próprias — não é receita"
+    if cat in ("recebimento_cliente", "receita_cliente"):
+        return "1.1.2.01", "recebimento de cliente (categoria do extrato)"
     if any(x in d for x in _ENTRADA_CLIENTE):
         return "1.1.2.01", "recebimento de cliente"
     return CONTA_ENTRADA_A_CLASSIFICAR, "entrada ainda sem identificação"

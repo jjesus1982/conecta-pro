@@ -106,7 +106,8 @@ def escriturar(preview: bool = True, limite: int = 6000) -> dict:
                     cd, cc = outra, conta_banco
                 else:
                     outra, motivo = contrapartida_entrada(
-                        f"{r['description'] or ''} {r['contraparte'] or ''}", r["documento"])
+                        f"{r['description'] or ''} {r['contraparte'] or ''}", r["documento"],
+                        r["cat"])
                     cd, cc = conta_banco, outra
 
                 lancados += 1

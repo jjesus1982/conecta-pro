@@ -130,11 +130,21 @@ async def build_contabil(db, out: dict) -> None:
         resultado = receita - despesa
         pl_tot = pl_contas + resultado  # contas de PL + resultado do exercício
         confere = abs(at_tot - (pa_tot + pl_tot)) < 0.01
+        # Saldo CONTRÁRIO à natureza da conta (ativo credor, passivo devedor) é anomalia
+        # contábil clássica e some dentro do total. Ex. medido em 11/08/2026: Clientes a
+        # Receber ficou em −R$ 66.121,43 porque os recebimentos de 2026 superam o que foi
+        # FATURADO no razão — as notas de 2025 (arquivo Manaus) nunca foram lançadas. O
+        # balanço fecha do mesmo jeito; a conta é que está dizendo algo.
+        invertidas = [(n, co, s) for n, co, s in ativo if s < -0.01]
+        invertidas += [(n, co, s) for n, co, s in passivo if s < -0.01]
         out["balanco-patrimonial"] = {
             "title": "Balanço Patrimonial", "type": "dash", "cta": "—",
             "sub": (f"Do razão real (accounting_entries), classificado por account_type · "
                     f"{'FECHA ✓' if confere else 'NÃO FECHA — revisar razão'} · "
                     f"Ativo {brl(at_tot)} = Passivo {brl(pa_tot)} + PL {brl(pl_tot)}"
+                    + (f" · ⚠ {len(invertidas)} conta(s) com saldo CONTRÁRIO à natureza "
+                       f"({', '.join(f'{co} {brl(s)}' for _n, co, s in invertidas[:3])}) — "
+                       f"recebimento/pagamento sem o lançamento de origem" if invertidas else "")
                     + (f" · ATENÇÃO: {len(sem_classe)} conta(s) com movimento e SEM "
                        f"classificação no plano ({', '.join(sem_classe[:4])}) — elas somem "
                        f"do balanço e são a causa provável de não fechar" if sem_classe else "")),
