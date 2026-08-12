@@ -441,8 +441,14 @@ async def _build_financeiro(db: AsyncSession) -> dict:
             await db.rollback()
 
     async def _dashboard():
-        fat = await _scalar(db, "SELECT coalesce(sum(valor_servicos),0) FROM nfse_manaus_historico "
-                                "WHERE data_emissao >= (SELECT max(data_emissao) FROM nfse_manaus_historico) - interval '12 months'")
+        # 12 meses a partir de HOJE e nas DUAS tabelas: o histórico Manaus é ARQUIVO
+        # (parou em 29/12/2025) e ancorar nele congelava o faturamento em
+        # R$ 3.005.979,80 enquanto a empresa faturava. Real hoje: R$ 3.140.234,54.
+        fat = await _scalar(db,
+            "SELECT coalesce((SELECT sum(valor_servicos) FROM nfse_manaus_historico "
+            "                 WHERE data_emissao >= CURRENT_DATE - interval '12 months'), 0) "
+            "     + coalesce((SELECT sum(valor_servicos) FROM nfse_emitidas_nacional "
+            "                 WHERE data_emissao >= CURRENT_DATE - interval '12 months'), 0)")
         receber = await _scalar(db, "SELECT coalesce(sum(net_value),0) FROM receivable_accounts WHERE status IN ('pendente','parcial')")
         pagar = await _scalar(db, "SELECT coalesce(sum(net_value),0) FROM payable_accounts WHERE status IN ('pendente','parcial')")
         clientes = await _scalar(db, "SELECT count(*) FROM clients WHERE status='active'")
@@ -575,8 +581,17 @@ async def _build_dp(db: AsyncSession) -> dict:
 
     async def _visao():
         ativos = await _scalar(db, "SELECT count(*) FROM employees WHERE status='ativo'")
-        comp = (await db.execute(text("SELECT reference_year, reference_month FROM hr_payslips ORDER BY reference_year DESC, reference_month DESC LIMIT 1"))).fetchone()
-        liq = await _scalar(db, "SELECT coalesce(sum(net_salary),0) FROM hr_payslips WHERE (reference_year,reference_month)=(SELECT reference_year,reference_month FROM hr_payslips ORDER BY reference_year DESC, reference_month DESC LIMIT 1)")
+        # Competência FUTURA fica de fora, mesma regra da tela de Folha. Sem isso o KPI de
+        # destaque do módulo pegava 12/2026 (47 holerites de teste, R$ 30.410,64) em vez da
+        # folha real fechada — 07/2026, 102 holerites, R$ 165.612,95. Primeiro número que o
+        # DP vê ao abrir o módulo; errado por um fator de cinco.
+        _ULT_COMP = (
+            "SELECT reference_year, reference_month FROM hr_payslips "
+            "WHERE make_date(reference_year, reference_month, 1) <= date_trunc('month', current_date) "
+            "ORDER BY reference_year DESC, reference_month DESC LIMIT 1"
+        )
+        comp = (await db.execute(text(_ULT_COMP))).fetchone()
+        liq = await _scalar(db, f"SELECT coalesce(sum(net_salary),0) FROM hr_payslips WHERE (reference_year,reference_month)=({_ULT_COMP})")
         ferias_req = await _scalar(db, "SELECT count(*) FROM employee_vacation_requests")
         admissoes = await _scalar(db, "SELECT count(*) FROM admission_processes")
         comp_lbl = f"{comp[1]:02d}/{comp[0]}" if comp else "—"
@@ -777,7 +792,8 @@ def _helpers(db: AsyncSession):
         except Exception:
             await db.rollback()
 
-    async def tbl(title, sub, cta, cols, grid, sql, rowfn, hint="Buscar…", docsfn=None, editfn=None, actionsfn=None):
+    async def tbl(title, sub, cta, cols, grid, sql, rowfn, hint="Buscar…", docsfn=None, editfn=None,
+                  actionsfn=None, filtrofn=None):
         # docsfn(r) → docs por-LINHA. editfn(r) → dict de EDIÇÃO por-linha ({endpoint, method,
         # fields:[{key,label,type,value,options}]}) → o FormScreen inline pré-preenche e faz PATCH.
         # Ambos opcionais e retrocompatíveis (telas sem eles não mudam).
@@ -785,6 +801,12 @@ def _helpers(db: AsyncSession):
 
         def _mkrow(r):
             row = {"cells": rowfn(r)}
+            # `filtro` = valor do seletor do topo SEM precisar ser coluna visível. Antes o
+            # filtro lia uma célula (filterCol), o que obrigava a Competência a ocupar uma
+            # coluna repetindo o mesmo valor em todas as linhas — medido: 1 valor distinto em
+            # 102 linhas, espremendo as colunas que de fato variam.
+            if filtrofn:
+                row["filtro"] = filtrofn(r)
             if docsfn:
                 ds = docsfn(r)
                 if ds:
@@ -1125,9 +1147,13 @@ async def _build_crm(db: AsyncSession) -> dict:
 async def _build_fiscal(db: AsyncSession) -> dict:
     out, safe, tbl = _helpers(db)
     n_nfse = await _scalar(db, "SELECT count(*) FROM nfse_manaus_historico")
-    fat12 = await _scalar(db, "SELECT coalesce(sum(valor_servicos),0) FROM nfse_manaus_historico WHERE data_emissao >= (SELECT max(data_emissao) FROM nfse_manaus_historico) - interval '12 months'")
-    obr_pend = await _scalar(db, "SELECT count(*) FROM fiscal_obligations WHERE status::text NOT IN ('pago','paga','concluido','concluida')")
-    obr_val = await _scalar(db, "SELECT coalesce(sum(valor_devido),0) FROM fiscal_obligations WHERE status::text NOT IN ('pago','paga','concluido','concluida')")
+    fat12 = await _scalar(db,
+        "SELECT coalesce((SELECT sum(valor_servicos) FROM nfse_manaus_historico "
+        "                 WHERE data_emissao >= CURRENT_DATE - interval '12 months'), 0) "
+        "     + coalesce((SELECT sum(valor_servicos) FROM nfse_emitidas_nacional "
+        "                 WHERE data_emissao >= CURRENT_DATE - interval '12 months'), 0)")
+    obr_pend = await _scalar(db, "SELECT count(*) FROM fiscal_obligations WHERE lower(coalesce(status::text,'')) NOT IN ('cumprida','cumprido','pago','paga','concluido','concluida')")
+    obr_val = await _scalar(db, "SELECT coalesce(sum(valor_devido),0) FROM fiscal_obligations WHERE lower(coalesce(status::text,'')) NOT IN ('cumprida','cumprido','pago','paga','concluido','concluida')")
 
     async def _painel():
         obr = (await db.execute(text("SELECT nome, valor_devido, data_vencimento, status::text FROM fiscal_obligations ORDER BY data_vencimento NULLS LAST LIMIT 6"))).fetchall()
@@ -1464,7 +1490,7 @@ async def _build_juridico(db: AsyncSession) -> dict:
 async def _build_empresas(db: AsyncSession) -> dict:
     out, safe, tbl = _helpers(db)
     n_emp = await _scalar(db, "SELECT count(*) FROM empresas")
-    obr_pend = await _scalar(db, "SELECT count(*) FROM fiscal_obligations WHERE status::text NOT IN ('pago','paga','concluido','concluida')")
+    obr_pend = await _scalar(db, "SELECT count(*) FROM fiscal_obligations WHERE lower(coalesce(status::text,'')) NOT IN ('cumprida','cumprido','pago','paga','concluido','concluida')")
 
     async def _visao():
         emps = (await db.execute(text("SELECT razao_social, coalesce(regime_tributario::text,'—') FROM empresas ORDER BY razao_social LIMIT 10"))).fetchall()

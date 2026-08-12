@@ -175,17 +175,19 @@ async def build(db) -> dict:
             out[_tbl_id]["ctaTo"] = _form_id
 
     # ---- Fidelidade dashboard: o clássico exibe Faturamento Bruto/Líquido/ISS Retido/Ticket
+    # Janela a partir de HOJE, não do max() da tabela: ancorar na última nota faz o KPI
+    # congelar no dia em que a emissão parar, com o rótulo ainda dizendo '12 meses'.
     #      Médio (NFS-e 12m). Trago como painel ADITIVO — mantém os KPIs de caixa do redesign. ----
     try:
         _fat = (await db.execute(text(
             "SELECT coalesce(sum(valor_servicos),0), coalesce(sum(valor_liquido),0), coalesce(sum(iss_valor),0), count(*) "
             "FROM nfse_emitidas_nacional WHERE coalesce(cancelada,false)=false "
-            "AND data_emissao >= (SELECT max(data_emissao) FROM nfse_emitidas_nacional) - interval '12 months'"))).fetchone()
+            "AND data_emissao >= CURRENT_DATE - interval '12 months'"))).fetchone()
         _bruto, _liq, _iss, _n = float(_fat[0] or 0), float(_fat[1] or 0), float(_fat[2] or 0), (_fat[3] or 0)
         # Faturamento por Cliente (12m) — o clássico exibe; dado real de nfse
         _porcli = (await db.execute(text(
             "SELECT coalesce(tomador_nome,'—'), sum(valor_servicos) FROM nfse_emitidas_nacional "
-            "WHERE coalesce(cancelada,false)=false AND data_emissao >= (SELECT max(data_emissao) FROM nfse_emitidas_nacional) - interval '12 months' "
+            "WHERE coalesce(cancelada,false)=false AND data_emissao >= CURRENT_DATE - interval '12 months' "
             "GROUP BY tomador_nome ORDER BY sum(valor_servicos) DESC LIMIT 6"))).fetchall()
         _dash = out.get("dashboard")
         if isinstance(_dash, dict) and _dash.get("type") == "dash":

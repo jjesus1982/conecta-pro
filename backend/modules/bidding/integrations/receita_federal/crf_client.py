@@ -15,7 +15,7 @@ import asyncio
 import contextlib
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -212,9 +212,12 @@ class CRFFGTSClient:
                     except ValueError:
                         continue
 
-        if not data_validade and regular:
-            # Validade padrao: 30 dias
-            data_validade = (datetime.utcnow() + timedelta(days=self.VALIDADE_DIAS)).isoformat()
+        # Sem data no documento NÃO há validade. O que havia aqui era
+        # `utcnow() + VALIDADE_DIAS`: a Caixa não devolvia a data e o cliente inventava 30
+        # dias de regularidade. Em 11/08/2026 esse padrão (o gêmeo dele em cnd_sync_task)
+        # criou quatro certidões que pareciam válidas até 2027 com o portal fora do ar —
+        # inclusive a CRF-FGTS vencida da Eletrônica, exibindo-se em dia.
+        # Certidão sem validade não é certidão: quem chama decide o que fazer com o None.
 
         codigo_controle = data.get("codigoControle", data.get("codigo", data.get("code", "")))
         numero = data.get("numero", data.get("numeroCertidao", str(codigo_controle) if codigo_controle else ""))
@@ -253,8 +256,7 @@ class CRFFGTSClient:
             with contextlib.suppress(ValueError):
                 data_validade = datetime.strptime(validade_match.group(1), "%d/%m/%Y").isoformat()
 
-        if not data_validade and regular:
-            data_validade = (datetime.utcnow() + timedelta(days=self.VALIDADE_DIAS)).isoformat()
+        # Mesma regra do parser JSON acima: validade só vem do documento, nunca de hoje+N.
 
         # Extrair codigo de controle
         codigo_match = re.search(
