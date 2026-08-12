@@ -774,6 +774,63 @@ def bloco_perfil(slug: str) -> str:
             f'<div class="nao-inclui"><h3>Não é para você se</h3><ul>{nao}</ul></div></div>')
 
 
+# ── Comparação de custo ──────────────────────────────────────────────────────
+# As linhas são as MESMAS que o motor de precificação do ERP usa
+# (crm/services/pricing_cct.py): salário base, adicionais, encargos, benefícios,
+# repasse da cláusula 2ª §3º, tributos e margem. Assim o quadro do site bate com
+# a proposta que o cliente recebe depois — se divergisse, seria pior que não ter.
+#
+# Os VALORES ficam vazios até o Jordan passar. Cada célula em branco vira selo
+# de pendência, visível na página: quadro de custo com número chutado é a única
+# coisa capaz de destruir a confiança que o resto da página constrói.
+COMPARATIVO = {
+    "titulo": "O que custa hoje, e o que custaria",
+    "colunas": ("Posto físico 24h", "Portaria remota"),
+    "nota": ("Um posto coberto 24 horas exige quatro agentes na escala 12x36. "
+             "As linhas abaixo são as mesmas da nossa proposta — nada aqui é "
+             "arredondado para favorecer o resultado."),
+    "linhas": [
+        ("Salário base (CCT vigente)", "por agente, x4", None, "—"),
+        ("Adicional noturno", "sobre a jornada da madrugada", None, "—"),
+        ("Adicional de intrajornada", "quando o posto não permite pausa", None, "—"),
+        ("Encargos (INSS, RAT/FAP, terceiros, FGTS)", "sobre o bruto", None, "—"),
+        ("Provisões (férias + 1/3, 13º, rescisão)", "sobre o bruto", None, "—"),
+        ("Vale-transporte e alimentação", "por dia trabalhado", None, "—"),
+        ("Uniforme, EPI e seguro de vida", "por agente", None, "—"),
+        ("Repasse contratual (CCT, cláusula 2ª §3º)", "obrigatório", None, "—"),
+        ("Cobertura de falta, férias e afastamento", "substituto", None, "incluída"),
+        ("Instalação de interfone, câmera e acionamento", "uma vez", "—", None),
+        ("Mensalidade da operação remota", "por endereço", "—", None),
+        ("Manutenção dos equipamentos", "mensal", "—", None),
+    ],
+}
+
+
+def comparativo() -> str:
+    c = COMPARATIVO
+    faltando = any(v is None for _, _, v, _ in c["linhas"]) or \
+               any(v is None for _, _, _, v in c["linhas"])
+    if faltando:
+        PENDENCIAS.append("valores da comparação de custo (posto físico x portaria remota)")
+    linhas = ""
+    for rotulo, detalhe, a, b in c["linhas"]:
+        ca = html.escape(a) if a else '<span class="preencher">a preencher</span>'
+        cb = html.escape(b) if b else '<span class="preencher">a preencher</span>'
+        linhas += (f'<tr><th scope="row">{html.escape(rotulo)}'
+                   f'<em>{html.escape(detalhe)}</em></th>'
+                   f'<td>{ca}</td><td>{cb}</td></tr>')
+    return (f'<h2 class="titulo" style="margin-top:3rem">{html.escape(c["titulo"])}</h2>'
+            f'<p>{html.escape(c["nota"])}</p>'
+            '<div class="comparativo"><table><thead><tr><th scope="col">Composição</th>'
+            f'<th scope="col">{html.escape(c["colunas"][0])}</th>'
+            f'<th scope="col">{html.escape(c["colunas"][1])}</th></tr></thead>'
+            f'<tbody>{linhas}</tbody></table></div>'
+            '<p class="rodape-tabela">Os valores saem do seu endereço: número de acessos, '
+            'turnos e escala mudam a conta. Mande os dados e devolvemos este mesmo quadro '
+            'preenchido, com a memória de cálculo — é o documento que o síndico leva '
+            'para a assembleia.</p>')
+
+
 def linhas_prova(itens) -> str:
     saida = []
     for rotulo, valor in itens:
@@ -811,6 +868,7 @@ def pagina_item(it: dict) -> str:
             + 'marcado como tal — não inventamos.</p>'
             + linhas_prova(it["prova"])
             + f'<div style="margin-top:2.4rem">{foto(it["slug"] + "-2", it["legenda2"])}</div>'
+            + (comparativo() if it['slug'] == 'portaria-remota' else '')
             + bloco_escopo(it['slug'])
             + bloco_perfil(it['slug'])
             + (SENTINELA if it['slug'] == 'monitoramento' else '')

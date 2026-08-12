@@ -434,3 +434,27 @@ footer.pe .legal{
 .escopo .nao-inclui li::before{content:"—";position:absolute;left:0;
   color:var(--placeholder);font-weight:700}
 @media (max-width:760px){.escopo{grid-template-columns:1fr}}
+
+/* ── Comparativo de custo: é o quadro que vai para a assembleia ──────────── */
+.comparativo{margin-top:1.8rem;overflow-x:auto;border:1px solid var(--border);
+  border-radius:var(--r-card);background:var(--surface);box-shadow:var(--sombra)}
+.comparativo table{width:100%;border-collapse:collapse;min-width:640px}
+.comparativo thead th{
+  text-align:left;padding:1rem 1.2rem;font-size:.72rem;font-weight:700;
+  letter-spacing:.12em;text-transform:uppercase;color:#fff;background:var(--navy);
+}
+.comparativo thead th:not(:first-child){text-align:right}
+.comparativo thead th:last-child{background:var(--orange)}
+.comparativo tbody th{
+  text-align:left;font-weight:600;color:var(--ink);padding:.9rem 1.2rem;
+  border-top:1px solid var(--border);font-size:.97rem;
+}
+.comparativo tbody th em{display:block;font-style:normal;font-weight:400;
+  font-size:.83rem;color:var(--ink-weak);margin-top:.15rem}
+.comparativo td{
+  padding:.9rem 1.2rem;border-top:1px solid var(--border);text-align:right;
+  font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums lining-nums;
+  white-space:nowrap;
+}
+.comparativo tbody tr:nth-child(even){background:var(--fill)}
+.rodape-tabela{margin-top:1rem;font-size:.92rem}
