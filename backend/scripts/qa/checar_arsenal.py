@@ -55,14 +55,19 @@ def _falhas() -> list[str]:
                     if c not in em_disco}
     if inexistentes:
         out.append(f"o arsenal manda invocar skill que não existe: {sorted(inexistentes)}")
-    faltando_no_doc = em_disco - fantasmas - set(re.findall(r"`([a-z0-9-]+)`", doc))
-    if faltando_no_doc:
-        out.append(f"skill existe e o arsenal não cita: {sorted(faltando_no_doc)}")
+    # O arsenal é FOCADO, não catálogo: skill situacional (PDF, slides, folha-CCT, jurídico)
+    # fica de fora de propósito. Exigir que ele cite tudo era a regra da versão anterior, em
+    # que ele era inventário — e cobrar a forma velha depois da intenção mudar é o mesmo erro
+    # dos oráculos congelados. O que se confere é a CONTAGEM que ele afirma, abaixo.
 
     # ── 2. contagem que o arsenal afirma ───────────────────────────────────────
-    m = re.search(r"Nossas \(`conecta-pro-skills`\) — (\d+)", doc)
+    m = re.search(r"Existem (\d+) skills nossas", doc)
     if m and int(m.group(1)) != len(em_disco):
         out.append(f"arsenal diz {m.group(1)} skills nossas; existem {len(em_disco)}")
+    m = re.search(r"\*\*as (\d+) que\s*\n?atuam no fechamento\*\*", doc)
+    citadas_fluxo = len(re.findall(r"^\| \d+ \| \*\*", doc, re.M))
+    if m and int(m.group(1)) != citadas_fluxo:
+        out.append(f"arsenal promete {m.group(1)} skills no fluxo; a tabela lista {citadas_fluxo}")
 
     # ── 3. espelho versionado × cópia viva ─────────────────────────────────────
     if not ESPELHO.exists():

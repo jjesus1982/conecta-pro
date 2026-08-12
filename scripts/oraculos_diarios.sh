@@ -30,5 +30,14 @@ CONTAINER=conecta-pro-backend
 
   docker exec -e PYTHONPATH=/app "$CONTAINER" \
     python3 /app/modules/notifications/tasks_oraculos.py --varrer
-  echo "saída: $?"
+  RC=$?
+  echo "saída oráculos: $RC"
+
+  # Travas mecânicas contra LINHA DE BASE: dívida velha não vira ruído, fabricação nova
+  # acusa. Ficaram de fora da 1a versão por medo do ruído (63 pistas em aberto) — e ficar de
+  # fora contradizia a regra da casa: skill só age quando invocada, check age sempre.
+  echo "── travas mecânicas ──"
+  python3 /opt/conecta-pro/backend/scripts/qa/checar_regressao.py
+  echo "saída travas: $?"
+  exit $RC
 } >> "$LOG" 2>&1
