@@ -24,7 +24,12 @@ import sys
 from pathlib import Path
 
 AQUI = Path(__file__).resolve().parent
-BASE = AQUI / ".baseline.json"
+
+#: FORA do repositório de propósito. A base é escrita SOZINHA quando a dívida cai, e um
+#: arquivo versionado alterado por cron deixa o working tree sujo indefinidamente — nenhum
+#: terminal vai commitar isso. Pela nossa própria regra, ` M` = outro terminal para e espera:
+#: a automação dispararia a regra da parede falsamente.
+BASE = Path("/var/lib/conecta/qa_baseline.json")
 
 #: caçador -> como contar as pistas na saída dele
 CACADORES = {
@@ -50,8 +55,21 @@ def _rodar(script: str) -> tuple[int, str]:
     return CACADORES[script](saida), saida
 
 
+def _avisar_no_sino(falhou: list[str]) -> None:
+    """Publica no sino reusando o caminho da varredura (dedup por dia já embutido)."""
+    corpo = ("Trava mecânica acusou REGRESSÃO:\n- " + "\n- ".join(falhou) +
+             "\n\nCódigo novo trouxe fabricação de valor ou lista literal que a coluna não "
+             "tem. Rodar à mão:\n"
+             "docker exec conecta-pro-backend python3 /app/scripts/qa/cacar_fabricacao.py")
+    cmd = _EXEC_CONTAINER[:-1] + ["/app/modules/notifications/tasks_oraculos.py",
+                                  "--avisar", "Travas de QA: regressão", corpo]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    print(f"  sino: {(r.stdout or r.stderr).strip().splitlines()[-1] if (r.stdout or r.stderr) else 'sem resposta'}")
+
+
 def main() -> int:
     gravar = "--gravar" in sys.argv
+    BASE.parent.mkdir(parents=True, exist_ok=True)
     base = json.loads(BASE.read_text()) if BASE.exists() else {}
     agora, falhou = {}, []
 
@@ -88,6 +106,9 @@ def main() -> int:
         print(f"  linha de base atualizada: {nova}")
 
     if falhou:
+        # Sem isto a trava vira log que ninguém lê: o alerta do sino saía só da varredura de
+        # oráculos, e regressão de fabricação ficava em /var/log esperando alguém abrir.
+        _avisar_no_sino(falhou)
         print("\nREGRESSÃO — código novo trouxe fabricação ou vocabulário fantasma:")
         for f in falhou:
             print(f"  {f}")

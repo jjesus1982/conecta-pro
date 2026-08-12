@@ -43,9 +43,16 @@ Skill só age quando alguém invoca; **trava age sempre**. Cada uma nasceu de um
 **`_mutacao.Mutacao` é obrigatório em todo script que altera produção.** Ensaio é o padrão;
 `--aplicar` explícito; acima do teto exige `--forcar`; lista vazia nunca aplica.
 
-**Automático:** `checar_regressao.py` roda os três primeiros contra uma **linha de base** —
-dívida velha não vira ruído, fabricação nova acusa. Junto com a varredura de oráculos, à
-**00:00** (madrugada: conserto sem ninguém usando o sistema).
+**Automático, à 00:00** (madrugada: conserto sem ninguém usando o sistema).
+`checar_regressao.py` roda as três primeiras contra uma **linha de base** — dívida velha não
+vira ruído, fabricação nova acusa e **vai para o sino**. A base mora em
+`/var/lib/conecta/qa_baseline.json`, **fora do git de propósito**: ela é reescrita sozinha
+quando a dívida cai, e arquivo versionado alterado por cron deixaria o working tree sujo —
+outro terminal veria ` M` e, pela regra da parede, pararia. Automação não pode disparar a
+regra da parede falsamente.
+
+Baixar a base é automático; **subir exige `--gravar` explícito** — deixar a dívida crescer é
+decisão, não acidente.
 
 ---
 

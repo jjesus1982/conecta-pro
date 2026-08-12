@@ -277,7 +277,40 @@ def _self_check() -> None:
     print("self-check OK\n" + msg)
 
 
+def avisar(titulo: str, corpo: str, chave: str = "trava_qa") -> int:
+    """Publica um aviso avulso no sino, com a mesma dedução por dia da varredura.
+
+    Existe para as travas mecânicas: elas rodam no HOST (precisam do repositório e do
+    crontab) e não têm banco. Sem esta porta, regressão de fabricação virava linha em
+    /var/log esperando alguém abrir — check que ninguém escuta é o mesmo que não ter check.
+    """
+    import json
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from sqlalchemy import text
+
+    from core.database.session import SyncSessionLocal
+    from modules.notifications.task_falha import _SQL_DESTINATARIOS, _SQL_SINO
+
+    dia = datetime.now(ZoneInfo("America/Manaus")).strftime("%Y-%m-%d")
+    extra = json.dumps({"idempotency_key": f"{chave}:{dia}", "origem": chave,
+                        "familia": "sistema", "severidade": "critico"})
+    with SyncSessionLocal() as db:
+        destinatarios = [r[0] for r in db.execute(text(_SQL_DESTINATARIOS)).fetchall()]
+        for uid in destinatarios:
+            db.execute(text(_SQL_SINO), {"uid": uid, "title": titulo[:100],
+                                         "body": corpo[:500], "extra": extra})
+        db.commit()
+    return len(destinatarios)
+
+
 if __name__ == "__main__":
+    if "--avisar" in sys.argv:
+        i = sys.argv.index("--avisar")
+        n = avisar(sys.argv[i + 1], sys.argv[i + 2] if len(sys.argv) > i + 2 else "")
+        print(f"aviso publicado para {n} destinatário(s)")
+        raise SystemExit(0)
     if "--varrer" not in sys.argv:
         _self_check()
         raise SystemExit(0)
