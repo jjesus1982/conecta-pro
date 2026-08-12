@@ -90,13 +90,48 @@ parecia defeito do código e era do meu arreio. Peguei antes de reportar.
 
 **Regra que fica: erro de teste imita defeito. Antes de acusar o código, prove o arreio.**
 
+## Depois do bake — verificação na rota real
+
+Bake blue/green concluído 12:22, **sem drift** (backend + 8 workers na mesma imagem).
+Varridas as **15 rotas GET sem parâmetro** de `/services` com token real:
+
+```
+200  analytics/bottlenecks · analytics/dashboard · analytics/order-patterns
+     analytics/recommendations · analytics/services · analytics/sla-dashboard
+     catalog · catalog/stats · orders · orders/at-risk · orders/overdue
+     orders/stats · sla-configs
+400  executions · reports   <- POR DESENHO: exigem order_id (com ele, 200)
+```
+
+Os dois 400 são a decisão do commit anterior: dizer "não há execuções" quando a verdade é
+"não sei consultar" seria fabricação. Com `order_id`, ambos respondem 200.
+
+⚠️ Dois 404 na primeira varredura eram **chute meu de nome de rota** (`analytics/sla`,
+`analytics/orders/patterns`), não defeito — os nomes reais são `sla-dashboard` e
+`order-patterns`. Conferi contra as rotas registradas antes de acusar.
+
+### O dashboard executivo, que estourava, contra o banco
+
+| Exibido | Banco | |
+|---|---|---|
+| `services.total` 1 · `active` 1 | `service_catalog`: 1, `status='ativo'` 1 | ✅ |
+| `orders.total` 0 | `service_orders`: 0 | ✅ |
+| `sla.total_slas` 0 | `sla_configs`: 0 | ✅ |
+
+E devolve **`null`** em `avg_rating`, `avg_completion_hours`, `sla_compliance` — o
+repositório não calcula esses três. Null é "não sei"; zero seria mentira.
+
+*(De brinde, o enum: o catálogo fala `ativo/inativo/suspenso/descontinuado/rascunho`, não
+`active`. Minha primeira query usou `'active'` e o Postgres recusou — o mesmo sinal que o
+`checar_vocabulario` caça no código.)*
+
 ## Veredito por lente
 
 | Lente | Status | Evidência |
 |---|---|---|
-| **DADO** | ⚠️ parcial | 10 métodos exercitados contra o banco; **as tabelas estão vazias** (0 ordens, 0 execuções) — prova que resolve, não que a listagem está certa |
-| **TELA** | 🚫 pendente do bake | as mudanças eram `docker cp` (volátil); bake em curso. Rotas `/services/analytics/*` a reconferir depois |
-| **CÓDIGO** | ✅ | compila e importa; `checar_repositorio` serviços 78→0; trava nova com self-check e prova contra o estado real |
+| **DADO** | ✅ | dashboard × banco: 3 de 3 números batem; nulos são nulos reais |
+| **TELA** | ⚠️ parcial | 15/15 rotas GET conferidas por HTTP após o bake. Navegador real não coberto |
+| **CÓDIGO** | ✅ | `checar_repositorio` serviços 78→0, sistema 139→61; linha de base baixou sozinha; sem regressão nas outras travas |
 
 ## Não coberto
 
