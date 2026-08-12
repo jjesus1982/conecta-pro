@@ -83,6 +83,20 @@ ANCORAS = [
         "validade_dias": 45,   # uma competência + folga do fechamento
         "obs": "Portte é fonte de verdade fiscal; nossa folha converge para ela",
     },
+    # ── acrescentada pelo T1 em 12/08/2026 ──────────────────────────────────
+    {
+        "numero": "contas a pagar (NFS-e tomada)",
+        "fonte": "prefeitura do FORNECEDOR — nota que ele emitiu contra nós",
+        # Distinta de "notas fiscais de serviço", que lê as EMITIDAS (nossa
+        # receita). Esta lê as TOMADAS: é o documento que lastreia um pagável, e
+        # sem ele o pagável é palavra nossa. 303 notas, cadência mensal estável
+        # (24 em abr, 24 mai, 27 jun, 28 jul) — a fonte avança sozinha.
+        "sql": "SELECT max(data_emissao)::date FROM nfse_tomadas_nacional",
+        "validade_dias": 45,
+        "obs": ("fornecedor emite mensal; 45d cobre o mês fechado + folga. "
+                "Os 9 prestadores PJ têm ZERO nota aqui — o pagamento existe, o "
+                "documento não (R$14.581,56 em 08/2026)"),
+    },
     {
         "numero": "notas fiscais de serviço",
         "fonte": "prefeitura / SEFAZ",

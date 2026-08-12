@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS financial_pagamentos_diaristas (
     origem           VARCHAR(30) NOT NULL DEFAULT 'escala',  -- escala | manual
     schedule_id      UUID,
     condominio_id    UUID,
-    status           VARCHAR(20) NOT NULL DEFAULT 'a_revisar', -- a_revisar|aprovado|pago|cancelado|sem_pix
+    status           VARCHAR(20) NOT NULL DEFAULT 'a_revisar', -- a_revisar|sem_pix|pago|cancelado
     inter_payment_id BIGINT,
     descricao        TEXT,
     created_by       VARCHAR(64),
@@ -160,7 +160,7 @@ async def programar_diarias_mensais(db: AsyncSession, mes: int, ano: int,
         "competencia": comp, "data_pagamento": dpag.isoformat(),
         "diaristas": len(pessoas), "programados_novos": novos, "atualizados": atualizados, "sem_pix": sem_pix,
         "cancelados_sem_lancamento": [{"beneficiario": r[0], "valor": float(r[1] or 0)} for r in cancelados],
-        "total_a_pagar": sum(x["valor"] for x in lote if x["status"] in ("a_revisar", "aprovado")),
+        "total_a_pagar": sum(x["valor"] for x in lote if x["status"] == "a_revisar"),
         "lote": lote,
     }
 
@@ -219,7 +219,7 @@ async def programar_do_dia(db: AsyncSession, data: str, user_id: str | None = No
         "escalados": len(escalados),
         "programados_novos": programados,
         "sem_pix": sem_pix,
-        "total_a_pagar": sum(float(x["valor"]) for x in lote if x["status"] in ("a_revisar", "aprovado")),
+        "total_a_pagar": sum(float(x["valor"]) for x in lote if x["status"] == "a_revisar"),
         "lote": lote,
     }
 
@@ -320,7 +320,10 @@ async def programar_vt_vr_dos_lancados(db: AsyncSession, data: str | _date,
     total = (await db.execute(text(
         """SELECT COALESCE(SUM(valor), 0) FROM financial_pagamentos_diaristas
            WHERE data_referencia = :d AND tipo = 'vt_vr' AND origem = 'diarias_dia'
-             AND status IN ('a_revisar', 'aprovado')"""), {"d": dref})).scalar()
+             -- 'aprovado' saiu: NUNCA é escrito nesta tabela. Os estados reais
+             -- são a_revisar / sem_pix / pago / cancelado. Valor que a coluna não
+             -- tem num filtro é promessa de um fluxo que não existe.
+             AND status = 'a_revisar'"""), {"d": dref})).scalar()
     return {"data": dref.isoformat(), "programados_novos": novos, "ja_programados": ja,
             "sem_pix": sem_pix, "total_a_pagar_do_dia": float(total or 0), "itens": itens}
 
@@ -585,7 +588,7 @@ async def marcar_pago_externo(db: AsyncSession, pagamento_id: int,
 
     NÃO envia dinheiro — só registra que já saiu, pra não pagar em dobro no lote.
     Etiqueta honesta na descrição (sem e2e do Conecta PRO) p/ auditoria distinguir de PIX
-    enviado pelo sistema. Só age em item ainda pendente (a_revisar/sem_pix/aprovado)."""
+    enviado pelo sistema. Só age em item ainda pendente (a_revisar/sem_pix)."""
     await _ensure(db)
     quem = (user_nome or "operador").strip()
     row = (await db.execute(text(
@@ -602,7 +605,8 @@ async def marcar_pago_externo(db: AsyncSession, pagamento_id: int,
         "                || :quem || ' em ' || to_char(now(),'YYYY-MM-DD') "
         "                || ' — conciliação manual, SEM e2e do Conecta PRO', "
         "    updated_at=now() "
-        "WHERE id=:id AND status IN ('a_revisar','sem_pix','aprovado')"),
+        # 'aprovado' saiu: estado inexistente (ver acima).
+        "WHERE id=:id AND status IN ('a_revisar','sem_pix')"),
         {"id": pagamento_id, "quem": quem})
     await db.commit()
     if not res.rowcount:
