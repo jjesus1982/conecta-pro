@@ -100,6 +100,17 @@ def test_dialeto_legado_da_base_tem_destino():
     assert contrapartida_saida("outros", "PIX")[0] == CONTA_SAIDA_A_CLASSIFICAR
 
 
+def test_regra_pj_sem_nota_registrada():
+    """Os 9 prestadores cadastrados como PJ têm ZERO NFS-e tomada numa base de
+    135 notas (2022–2026), e 10 dos 11 pagamentos de agosto foram para CPF. O
+    enquadramento PJ é o certo (confirmado pelo Jordan); o que falta é o
+    documento que o sustenta — e isso é resolvível pedindo a nota."""
+    from modules.notifications.proativo.regras import REGISTRY
+
+    assert "pj_pago_sem_nota" in REGISTRY
+    assert REGISTRY["pj_pago_sem_nota"].roles_destino == ("admin",)  # LGPD: só diretoria
+
+
 def test_banco_como_favorecido_nao_vira_fornecedor():
     """"ITAU UNIBANCO HOLDING S A" foi sugerido como Fornecedor porque é razão
     social de empresa — e era a fatura do cartão que o Jordan usa para comprar

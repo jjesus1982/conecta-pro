@@ -1303,3 +1303,73 @@ register(Regra(
     action_url="/redesign/financeiro?t=g-pagar",
     detectar=_detectar_saida_sem_origem, template=_tpl_saida_sem_origem,
 ))
+
+
+# ─────────────────────────── pj_pago_sem_nota ───────────────────────────
+# Medido em 11/08/2026: os 9 prestadores cadastrados como PJ têm **zero** NFS-e
+# tomada numa base de 135 notas que vai de 2022 a 2026, e 10 dos 11 pagamentos
+# de agosto foram para CPF, não para o CNPJ do prestador.
+#
+# O enquadramento PJ foi confirmado pelo Jordan e o cadastro está certo — o que
+# falta é o documento que o sustenta. Pagamento recorrente a PJ sem nota e no CPF
+# é o padrão que a fiscalização reclassifica como vínculo, com INSS/FGTS e verbas
+# retroativos. É resolvível: pedir a nota.
+#
+# UM achado com a lista, não um por pessoa: são as mesmas ~9 todo mês, e nove
+# avisos mensais viram ruído. A ação também é uma só — cobrar as notas do mês.
+SQL_PJ_SEM_NOTA = """
+    -- Agrupa pelo nome NORMALIZADO: o extrato traz "ELIZIEL GONZAGA FLORES" e
+    -- "Eliziel Gonzaga Flores" como se fossem dois, e o alarme anunciava 11
+    -- prestadores quando são 8 pessoas. Número inflado perde credibilidade.
+    SELECT max(bt.counterparty_name) AS quem, count(*) AS n, sum(abs(bt.amount)) AS valor
+    FROM bank_transactions bt
+    WHERE bt.amount < 0
+      AND bt.justificativa_categoria = 'pj_prolabore'
+      AND bt.transaction_date >= CAST(:inicio AS date)
+      AND bt.transaction_date < (now() AT TIME ZONE 'America/Manaus')::date
+      AND NOT EXISTS (
+          SELECT 1 FROM nfse_tomadas_nacional t
+          WHERE unaccent(upper(coalesce(t.prestador_nome, ''))) LIKE
+                '%' || split_part(unaccent(upper(coalesce(bt.counterparty_name, ''))), ' ', 1) || '%'
+            AND t.data_emissao >= CAST(:inicio AS date))
+    GROUP BY unaccent(upper(coalesce(bt.counterparty_name, '')))
+    ORDER BY 3 DESC
+"""
+
+
+async def _detectar_pj_pago_sem_nota(db: AsyncSession) -> list[Achado]:
+    from modules.financial.services.periodo_contabil import CORTE_CONTABIL
+
+    rows = (await db.execute(text(SQL_PJ_SEM_NOTA),
+                             {"inicio": CORTE_CONTABIL})).mappings().all()
+    if not rows:
+        return []
+    total = round(sum(float(r["valor"]) for r in rows), 2)
+    quem = [{"nome": (r["quem"] or "?")[:40], "pagamentos": int(r["n"]),
+             "valor": round(float(r["valor"]), 2)} for r in rows]
+    return [Achado(
+        # Muda quando muda o conjunto/valor — não repica enquanto o quadro é o mesmo.
+        correlation_id=f"pj_sem_nota:{len(rows)}:{round(total)}",
+        dados={"prestadores": len(rows), "total": total, "quem": quem},
+    )]
+
+
+def _tpl_pj_pago_sem_nota(d: dict) -> tuple[str, str]:
+    lista = "\n".join(f"  • {q['nome']} — {q['pagamentos']}x, R$ {q['valor']:,.2f}"
+                      for q in d["quem"][:12])
+    return (
+        f"{d['prestadores']} prestadores PJ pagos sem nota fiscal (R$ {d['total']:,.2f})",
+        f"Saíram R$ {d['total']:,.2f} para {d['prestadores']} prestadores cadastrados "
+        f"como PJ, e nenhum tem NFS-e tomada no período:\n\n{lista}\n\n"
+        f"Pagamento recorrente a PJ sem a nota do prestador — e no CPF em vez do "
+        f"CNPJ — é o que a fiscalização reclassifica como vínculo empregatício, com "
+        f"INSS, FGTS e verbas retroativos. Resolve-se pedindo a nota do mês.",
+    )
+
+
+register(Regra(
+    nome="pj_pago_sem_nota", familia="financeiro", severidade="atencao",
+    roles_destino=("admin",),  # LGPD: financeiro SÓ diretoria
+    action_url="/redesign/financeiro?t=g-pagar",
+    detectar=_detectar_pj_pago_sem_nota, template=_tpl_pj_pago_sem_nota,
+))
