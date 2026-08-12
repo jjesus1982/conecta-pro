@@ -11,6 +11,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from _fixtures import usuario_por_papel  # noqa: E402
+
 from core.auth.module_scope import user_modules  # noqa: E402
 from core.database import async_session_factory  # noqa: E402
 
